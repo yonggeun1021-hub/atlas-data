@@ -1,6 +1,6 @@
 """Atlas Data Server — 공통 유틸
  
-v3 (2026-08-13) — Notion DB를 ID 하드코딩 대신 search로 자동 탐색
+v4 (2026-08-13) — Notion을 판정 정본으로 삼되 수집은 Notion∪파일 합집합
  
   v2 문제: DB ID를 고정해 두었더니 404가 났고, Notion의 404는
            "ID가 틀림"과 "공유 안 됨"을 구분해 주지 않는다.
@@ -173,26 +173,45 @@ def load_universe() -> list:
  
     try:
         notion_list = _from_notion()
-        universe_meta.update({
-            "source": "notion",
-            "source_tier": "SSOT",
-            "count": len(notion_list),
-            "file_error": file_err,
-        })
         n = {s["code"] for s in notion_list}
         f = {s["code"] for s in file_list}
+ 
+        # ★ 수집은 합집합(union)으로 한다 — 판정 정본은 Notion이지만 데이터는 넓게 확보한다.
+        #   빠뜨리면 그날 판정 자체가 불가능해지고 되돌릴 수 없다.
+        #   더 수집하는 것은 비용이 거의 없고 해가 없다. (종목당 API 5콜)
+        #   불일치는 숨기지 않고 universe_divergence 로 계속 표면화한다.
+        merged = list(notion_list)
+        for s in file_list:
+            if s["code"] not in n:
+                merged.append({**s, "notion_state": None})
+ 
+        for s in merged:
+            s["in_notion"] = s["code"] in n
+            s["in_file"] = s["code"] in f
+ 
+        universe_meta.update({
+            "source": "notion+file_union",
+            "source_tier": "SSOT(Notion) + 수집 안전망(file)",
+            "decision_ssot": "notion",
+            "count": len(merged),
+            "count_notion": len(n),
+            "count_file_only": len(f - n),
+            "file_error": file_err,
+        })
         if n != f:
             universe_meta["universe_divergence"] = {
                 "notion_only": sorted(n - f),
                 "file_only": sorted(f - n),
-                "note": "Notion을 채택. config/universe.json 은 폴백용이며 정본이 아니다.",
+                "note": ("판정 정본은 Notion PM Watchlist다. file_only 종목은 정본에 없으므로 "
+                         "수집은 하되 '정본 미등재' 상태로 표시한다 — CIO 정리 대상."),
             }
-        print(f"[universe] Notion {len(notion_list)}종목 (db={universe_meta.get('notion_db')})")
+        print(f"[universe] Notion {len(n)}종목 + 파일전용 {len(f - n)}종목 = 합계 {len(merged)}")
         if universe_meta.get("universe_divergence"):
-            print(f"[universe] ⚠ 파일과 불일치: {universe_meta['universe_divergence']}")
+            print(f"[universe] ⚠ 불일치: {universe_meta['universe_divergence']}")
         if universe_meta.get("notion_skipped"):
-            print(f"[universe] ⚠ 제외: {universe_meta['notion_skipped']}")
-        return notion_list
+            print(f"[universe] ⚠ 제외(한국 코드 아님): "
+                  f"{[s['ticker'] for s in universe_meta['notion_skipped']]}")
+        return merged
  
     except Exception as e:                          # noqa: BLE001
         universe_meta.update({
