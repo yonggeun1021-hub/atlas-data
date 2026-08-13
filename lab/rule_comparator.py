@@ -27,6 +27,21 @@ import random
 import statistics as st
 
 ANALYSIS_VERSION = "kr_lab_v1"          # 도구가 바뀌면 올린다 (결과 재현용)
+
+# ★★ v1 의 용도는 Feature Screening 이지 Entry Validation 이 아니다 (CIO 확정 2026-08-13).
+#    현재 유니버스는 '2026년에 좋아 보여서 고른 종목'이라 생존자 편향이 크다.
+#    편향된 표본에서 '증분 정보가 없다'(기각)는 비교적 견고하지만,
+#    '있다'(채택)는 편향 때문일 수 있어 쓸 수 없다.
+#    → 그래서 v1 출력 어휘에서 **Pass 를 없앤다.** 'Pass' 라는 단어가 있으면 반드시 채택에 쓰인다.
+UNIVERSE_META = {
+    "universe_type": "current_curated",
+    "survivorship_bias": "high",
+    "usable_for": "feature screening only",
+    "not_usable_for": "entry validation",
+    "note": ("기각(rejected_in_sample)은 근거로 쓸 수 있다. "
+             "retained 는 '아직 기각되지 않았다'는 뜻이며 채택 근거가 아니다. "
+             "Entry Rule 채택은 Point-in-Time 유니버스를 쓰는 v2 에서만 가능하다."),
+}
 IN_PATH = "data/kr_history.json"
 OUT_PATH = "data/rule_comparator.json"
 
@@ -222,6 +237,22 @@ def build_series(payload: dict) -> dict:
     return out
 
 
+def annual_returns(series: dict) -> dict:
+    """종목별 연도 수익률(첫 종가 → 마지막 종가).
+    ★ '생존자 편향'은 내 추론이었다. 연도 수익률을 함께 실어 추론 자체를 검증 가능하게 둔다.
+      예: 2022 는 반도체 급락기였다. 여기서 삼성전자·SK하이닉스가 크게 음수인데
+          pooled 국면이 up 이라면, 편향이 아니라 국면 지표가 오해를 부르는 것이다."""
+    out = {}
+    for d in series.values():
+        by_year = {}
+        for i, date in enumerate(d["dates"]):
+            by_year.setdefault(date[:4], []).append(d["close"][i])
+        out[d["name"] or d["code"]] = {
+            y: round(v[-1] / v[0] - 1, 4) for y, v in sorted(by_year.items()) if len(v) > 1
+        }
+    return out
+
+
 def regime_by_year(series: dict, h: int) -> dict:
     """연도별 무조건부 h일 수익률 평균 — '이 표본에 하락 국면이 있었는가'의 근거."""
     acc = {}
@@ -265,18 +296,19 @@ def evaluate(series: dict) -> list:
             down = {y for y, v in reg.items() if v["direction"] == "down" and y in years}
 
             if n < N_MIN:
-                status, reason, ci = "insufficient_evidence", "sample_size", (None, None)
+                status, reason, ci = "undecidable", "sample_size", (None, None)
             elif len(years) < MIN_YEARS:
-                status, reason, ci = "insufficient_evidence", "period_coverage", (None, None)
+                status, reason, ci = "undecidable", "period_coverage", (None, None)
             elif not up or not down:
-                status, reason, ci = "insufficient_evidence", "regime_coverage", (None, None)
+                status, reason, ci = "undecidable", "regime_coverage", (None, None)
             else:
                 ex = [r - bench for r in cond_rets]
                 ci = block_bootstrap_ci(ex, block=h)
                 if ci[0] is not None and ci[0] > 0:
-                    status, reason = "Pass", "excess_positive_ci_excludes_zero"
+                    # ⛔ Pass 가 아니다. '이 표본에서 기각되지 않았다'는 뜻뿐이다.
+                    status, reason = "retained", "not_rejected_in_this_sample"
                 else:
-                    status, reason = "Fail", "no_incremental_information"
+                    status, reason = "rejected_in_sample", "no_incremental_information"
 
             results.append({
                 "feature": feature, "hypothesis_id": hid, "description": desc,
@@ -313,12 +345,12 @@ def main() -> None:
     #   완전히 다른 처방으로 이어진다(유니버스 확장 vs 기간 확장). 반드시 구분해 출력한다.
     by_reason = {}
     for r in results:
-        if r["status"] == "insufficient_evidence":
+        if r["status"] == "undecidable":
             by_reason[r["reason"]] = by_reason.get(r["reason"], 0) + 1
     insufficient_ids = sorted({r["hypothesis_id"] for r in results
-                               if r["status"] == "insufficient_evidence"})
+                               if r["status"] == "undecidable"})
 
-    n_pass = by_status.get("Pass", 0)
+    n_pass = by_status.get("retained", 0)
     expected_false = len(results) * ALPHA
     family = ("no_evidence" if n_pass <= expected_false
               else "some_evidence")
@@ -327,6 +359,8 @@ def main() -> None:
         "analysis_version": ANALYSIS_VERSION,
         "purpose": "규칙을 찾는 것이 아니라, 재료를 살아남게 하거나 기각하는 것이다",
         "history_version": payload.get("history_version"),
+        "universe": UNIVERSE_META,
+        "verdict_vocabulary": ["rejected_in_sample", "retained", "undecidable"],
         "features": list(FEATURES),
         "features_deferred": FEATURES_DEFERRED,
         "hypotheses_declared": len(HYPOTHESES),
@@ -345,6 +379,7 @@ def main() -> None:
         "summary": by_status,
         "insufficient_by_reason": by_reason,
         "regime_by_year": {str(h): REGIME_CACHE.get(h, {}) for h in HORIZONS},
+        "annual_returns_by_stock": annual_returns(series),
         "insufficient_hypotheses": insufficient_ids,
         "family_rule_caveat": ("기대 오탐 2.2건은 검정이 서로 독립일 때의 값이다. "
                                "실제 가설들은 상관이 높아(P20·P60·P252, T20·T60·TA) "
@@ -359,6 +394,9 @@ def main() -> None:
     print(f"[lab] {ANALYSIS_VERSION} · 가설 {len(HYPOTHESES)}개 × 기간 {len(HORIZONS)}개 "
           f"= 검정 {len(results)}회")
     print(f"[lab] {by_status}")
+    print("[lab] 연도 수익률(종목별) — 생존자 편향 진단용")
+    for name, yrs in annual_returns(series).items():
+        print(f"[lab]   {name:<14} " + " ".join(f"{y}:{v:+.0%}" for y, v in yrs.items()))
     for h in HORIZONS:
         reg = REGIME_CACHE.get(h, {})
         line = " ".join(f"{y}:{v['direction']}({v['mean']:+.1%})" for y, v in reg.items())
@@ -372,8 +410,8 @@ def main() -> None:
     if family == "no_evidence":
         print("[lab] → 개별 Pass 를 재료 채택 근거로 쓰지 않는다. 정상 산출물이다.")
     for r in results:
-        if r["status"] == "Pass":
-            print(f"[lab] Pass  {r['hypothesis_id']:>4} {r['description']} "
+        if r["status"] == "retained":
+            print(f"[lab] retained(채택 아님)  {r['hypothesis_id']:>4} {r['description']} "
                   f"({r['horizon_days']}일) 초과 {r['excess_return']:+.2%} n={r['n']}")
     print(f"[lab] saved {OUT_PATH}")
 
