@@ -27,6 +27,14 @@ import datetime as dt
 os.environ.setdefault("KRX_ID", "faultinjection")
 os.environ.setdefault("KRX_PW", "faultinjection")
 
+# ★ 실행 방식에 의존하지 않는다 — PYTHONPATH 를 잘못 주면 '테스트가 없는 채로 초록불'이 되기 쉽다.
+#   리포 구조에서 직접 경로를 잡는다. (2026-08-13: PYTHONPATH 누락으로 D1 검증이 통째로 빠졌던 사례)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _sub in ("collectors", "decision"):
+    _full = os.path.join(_ROOT, _sub)
+    if os.path.isdir(_full) and _full not in sys.path:
+        sys.path.insert(0, _full)
+
 RESULTS = []
 
 
@@ -329,7 +337,12 @@ def test_sec_collector() -> None:
 # ────────────────────────────────────────────────────────────
 
 def test_event_classifier() -> None:
-    import event_classifier as ec
+    try:
+        import event_classifier as ec
+    except ModuleNotFoundError:
+        check("D1 모듈 로드", False,
+              f"decision/event_classifier.py 를 찾지 못했다. 탐색 경로: {_ROOT}/decision")
+        return
 
     print("\n[T6] D1 Event Classification — 분류만 한다")
 
