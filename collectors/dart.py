@@ -4,6 +4,9 @@
 주의: DART는 종목코드(6자리)가 아니라 고유번호 corp_code(8자리)를 사용한다.
       config/corp_map.json 이 없으면 자동으로 내려받아 생성한다.
 
+v2.1 (2026-08-13) — Stage 와 Coverage 를 분리한다 (CIO 확정, krx.py v3.1과 동일)
+  `atlas_stage: "Coverage"` 는 쓰지 않는다 → `{"atlas_stage": null, "coverage": true}`
+
 v2 (2026-08-13) — 종목 레벨에 Atlas 단계를 실어 보낸다 (krx.py v3과 동일 패턴)
   문제: 공시 payload만 읽으면 그 종목이 Candidate인지 Coverage인지 알 수 없었다.
         브리핑이 "어느 단계 종목의 공시인가"를 판단할 근거가 빠져 있었다 — 조용한 누락이다.
@@ -100,10 +103,13 @@ def is_relevant(report_nm: str) -> bool:
 
 def meta(s: dict) -> dict:
     """★ Atlas 단계는 Notion `편입 사유`의 Atlas Stage 태그에서 온다 (CIO 확정 2026-08-13).
+    Stage 와 Coverage 는 서로 다른 축이다 — Coverage 는 Stage 값이 아니다.
+      atlas_stage : Discovery / Candidate / Ready / Buy / Holding / Closed / None
+      coverage    : true / false / None(Unknown)
     DB select 원본(db_state)은 참고 보존만 하고 판정에 쓰지 않는다."""
     return {
         "atlas_stage": s.get("atlas_stage"),
-        "atlas_coverage": s.get("atlas_coverage"),
+        "coverage": s.get("coverage"),
         "db_state": s.get("db_state"),
         "in_notion": s.get("in_notion"),
     }
@@ -116,7 +122,7 @@ def main() -> None:
         "collected_for_kst_date": today_kst().isoformat(),
         "source": "OpenDART (금융감독원)",
         "source_tier": "Official",
-        "collector_version": "v2",
+        "collector_version": "v2.1",
         "lookback_days": LOOKBACK_DAYS,
         "filter_keywords": KEYWORDS,
         "stocks": {},
@@ -156,7 +162,8 @@ def main() -> None:
                 "relevant": relevant,
             }
             ok += 1
-            print(f"[ok]     {code} {name} [{s.get('atlas_stage')}] "
+            print(f"[ok]     {code} {name} "
+                  f"[stage={s.get('atlas_stage')} coverage={s.get('coverage')}] "
                   f"— 전체 {len(items)} / 관련 {len(relevant)}")
         except Exception as e:                      # noqa: BLE001
             payload["stocks"][code] = {
