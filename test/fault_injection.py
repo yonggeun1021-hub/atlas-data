@@ -415,6 +415,9 @@ def test_event_classifier() -> None:
         check("실패 종목은 이력에 넣지 않는다",
               all(r["ticker"] != "TSM" for r in rows))
         check("레코드에 taxonomy_version 이 박힌다", rows[0]["taxonomy_version"] == "1.0")
+        check("레코드에 decision_version 이 박힌다", rows[0]["decision_version"] == "d1_v1")
+        check("레코드에 collector_version 이 박힌다 (provenance)",
+              rows[0]["collector_version"] == "sec_v2", f"got {rows[0].get('collector_version')}")
         check("레코드에 시간축이 있다", rows[0]["filing_date"] == "2026-08-14")
         ec.TAXONOMY_VERSION = "1.1"                  # 분류 체계가 바뀌면
         ec.main()
@@ -422,6 +425,34 @@ def test_event_classifier() -> None:
         check("★ taxonomy_version 이 바뀌면 다시 분류해 쌓는다 (과거 재현 가능)",
               len(rows) == 2, f"got {len(rows)}")
         ec.TAXONOMY_VERSION = "1.0"
+
+        # 분류 '로직' 버전이 바뀌어도 다시 쌓인다 (taxonomy 와 별개 축)
+        ec.DECISION_VERSION = "d1_v2"
+        ec.main()
+        rows, _ = ec.load_existing()
+        check("★ decision_version 이 바뀌어도 다시 분류해 쌓는다",
+              len(rows) == 3, f"got {len(rows)}")
+        ec.DECISION_VERSION = "d1_v1"
+
+        # ★ 수집기가 올라가도 이력이 복제되지 않는다 — 대신 결과가 달라지면 drift 로 표면화
+        payload["collector_version"] = "v3"
+        with open(ec.IN_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        ec.main()
+        rows, _ = ec.load_existing()
+        check("★ collector_version 변경만으로는 복제되지 않는다",
+              len(rows) == 3, f"got {len(rows)}")
+
+        # 같은 키인데 분류 결과가 달라지면 조용히 넘기지 않는다
+        payload["stocks"]["NVDA"]["filings_recent"][0]["item_codes"] = ["1.05"]
+        with open(ec.IN_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        drifted = {}
+        _orig_print = print
+        ec.main()
+        rows2, keys2 = ec.load_existing()
+        check("★ 결과가 달라져도 임의로 덮어쓰지 않는다 (drift 는 기록만)",
+              len(rows2) == 3, f"got {len(rows2)}")
     finally:
         os.chdir(cwd)
         shutil.rmtree(tmp, ignore_errors=True)
