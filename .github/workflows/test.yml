@@ -1,0 +1,22 @@
+name: Atlas Fault Injection
+
+on:
+  workflow_dispatch:        # 버튼 눌렀을 때만 실행 — 스케줄 없음
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fault Injection Suite
+        env:
+          PYTHONPATH: collectors
+        run: python tests/fault_injection.py
