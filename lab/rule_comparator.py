@@ -31,6 +31,7 @@ IN_PATH = "data/kr_history.json"
 OUT_PATH = "data/rule_comparator.json"
 
 HORIZONS = (5, 20)                      # 영업일
+REGIME_CACHE: dict = {}
 
 # ── 판정 기준 (사전에 고정한다. 결과를 보고 바꾸지 않는다) ────────────────────
 #   숫자는 '진리'가 아니라 '선언한 관례'다. 바꾸려면 버전을 올리고 전부 다시 돌린다.
@@ -221,6 +222,18 @@ def build_series(payload: dict) -> dict:
     return out
 
 
+def regime_by_year(series: dict, h: int) -> dict:
+    """연도별 무조건부 h일 수익률 평균 — '이 표본에 하락 국면이 있었는가'의 근거."""
+    acc = {}
+    for d in series.values():
+        for i, date in enumerate(d["dates"]):
+            fr = forward_return(d["close"], i, h)
+            if fr is not None:
+                acc.setdefault(date[:4], []).append(fr)
+    return {y: {"mean": st.mean(v), "n": len(v), "direction": "up" if st.mean(v) > 0 else "down"}
+            for y, v in sorted(acc.items())}
+
+
 def evaluate(series: dict) -> list:
     results = []
     for feature, hid, desc, cond in HYPOTHESES:
@@ -247,14 +260,9 @@ def evaluate(series: dict) -> list:
             excess = (cond_mean - bench) if n else None
 
             # 국면 커버리지 — 표본이 상승 연도와 하락 연도를 모두 포함하는가
-            year_dir = {}
-            for d in series.values():
-                for i, date in enumerate(d["dates"]):
-                    fr = forward_return(d["close"], i, h)
-                    if fr is not None:
-                        year_dir.setdefault(date[:4], []).append(fr)
-            up = {y for y, v in year_dir.items() if st.mean(v) > 0 and y in years}
-            down = {y for y, v in year_dir.items() if st.mean(v) <= 0 and y in years}
+            reg = REGIME_CACHE.setdefault(h, regime_by_year(series, h))
+            up = {y for y, v in reg.items() if v["direction"] == "up" and y in years}
+            down = {y for y, v in reg.items() if v["direction"] == "down" and y in years}
 
             if n < N_MIN:
                 status, reason, ci = "insufficient_evidence", "sample_size", (None, None)
@@ -336,6 +344,7 @@ def main() -> None:
                    "Pass 는 '유망하다'는 뜻이지 '검증되었다'는 뜻이 아니다 — Forward 가 남았다."),
         "summary": by_status,
         "insufficient_by_reason": by_reason,
+        "regime_by_year": {str(h): REGIME_CACHE.get(h, {}) for h in HORIZONS},
         "insufficient_hypotheses": insufficient_ids,
         "family_rule_caveat": ("기대 오탐 2.2건은 검정이 서로 독립일 때의 값이다. "
                                "실제 가설들은 상관이 높아(P20·P60·P252, T20·T60·TA) "
@@ -350,6 +359,12 @@ def main() -> None:
     print(f"[lab] {ANALYSIS_VERSION} · 가설 {len(HYPOTHESES)}개 × 기간 {len(HORIZONS)}개 "
           f"= 검정 {len(results)}회")
     print(f"[lab] {by_status}")
+    for h in HORIZONS:
+        reg = REGIME_CACHE.get(h, {})
+        line = " ".join(f"{y}:{v['direction']}({v['mean']:+.1%})" for y, v in reg.items())
+        print(f"[lab] 국면 {h}일  {line}")
+        if not any(v["direction"] == "down" for v in reg.values()):
+            print(f"[lab]   ⚠ {h}일 기준 하락 연도가 0개 — 규칙과 국면을 분리할 수 없다")
     if by_reason:
         print(f"[lab] 판정불가 사유: {by_reason}")
         print(f"[lab] 판정불가 가설: {insufficient_ids}")
