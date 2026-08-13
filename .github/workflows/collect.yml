@@ -2,9 +2,14 @@ name: Atlas Daily Collect
 
 on:
   schedule:
-    # 21:05 UTC (일~목) = 06:05 KST (월~금)
-    # ★ 정시(:00)는 GitHub 고부하 시 지연·드롭이 잦아 공식 문서가 회피를 권고 → :05 로 이동 (CIO 승인 2026-08-14)
-    - cron: '5 21 * * 0-4'
+    # ★★ GitHub schedule 은 best-effort 다 — 고부하 시 지연되거나 실행이 아예 드롭된다.
+    #    (공식 문서: "During periods of high load, your scheduled workflow may be delayed",
+    #     그리고 정시 :00 스케줄은 피하라고 권고)
+    #    따라서 슬롯을 하나만 두지 않고 3개를 건다. 먼저 성공한 회차가 데이터를 만들고,
+    #    뒤 회차는 아래 Guard 스텝이 스스로 종료시킨다.  (CIO 승인 2026-08-14)
+    - cron: '5 21 * * 0-4'    # 06:05 KST — 본 회차
+    - cron: '25 21 * * 0-4'   # 06:25 KST — 1차 백업
+    - cron: '45 21 * * 0-4'   # 06:45 KST — 2차 백업 (07:00 브리핑 전 마지막 기회)
   workflow_dispatch:
 
 permissions:
@@ -22,15 +27,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ────────────────────────────────────────────────────────────────
+      # Guard — 오늘자(KST) '정상' 수집분이 이미 있으면 이 회차는 건너뛴다.
+      #   · 백업 슬롯이 중복 수집·중복 커밋을 만들지 않게 하는 유일한 장치
+      #   · failed > 0 이면 정상 수집분으로 보지 않고 재수집한다
+      #   · 파일이 없거나 파싱 실패해도 재수집한다 (안전한 기본값 = 수집)
+      # ────────────────────────────────────────────────────────────────
+      - name: Guard — 오늘자 수집 여부 확인
+        id: guard
+        env:
+          TODAY_KST: ""
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          SKIP=no
+          if [ -f data/latest_krx.json ]; then
+            SKIP=$(TODAY="$TODAY" python3 .github/scripts/guard.py || echo no)
+          fi
+          echo "today_kst=$TODAY / skip=$SKIP"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
+      - name: 건너뜀 사유 표시
+        if: steps.guard.outputs.skip == 'yes'
+        run: echo "오늘자 정상 수집분이 이미 있습니다 — 이 백업 회차는 아무것도 하지 않고 종료합니다."
+
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != 'yes'
         with:
           python-version: '3.11'
           cache: pip
 
       - name: Install deps
+        if: steps.guard.outputs.skip != 'yes'
         run: pip install -r requirements.txt
 
       - name: Collect KRX
+        if: steps.guard.outputs.skip != 'yes'
         env:
           KRX_ID: ${{ secrets.KRX_ID }}
           KRX_PW: ${{ secrets.KRX_PW }}
@@ -39,7 +70,7 @@ jobs:
         run: python collectors/krx.py
 
       - name: Collect DART
-        if: always()
+        if: always() && steps.guard.outputs.skip != 'yes'
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -47,7 +78,7 @@ jobs:
         run: python collectors/dart.py
 
       - name: Commit data
-        if: always()
+        if: always() && steps.guard.outputs.skip != 'yes'
         run: |
           git config user.name  "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
@@ -55,6 +86,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
           else
-            git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect"   # ★ KST 기준 (UTC면 06시 실행분이 전날로 찍힘)
+            # ★ KST 기준 (UTC 로 찍으면 06시 KST 실행분이 전날 날짜로 기록됨)
+            git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect"
             git push
           fi
