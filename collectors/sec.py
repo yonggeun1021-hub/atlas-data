@@ -110,70 +110,16 @@ ITEM_TITLES = {
 }
 ITEM_CODE_RE = re.compile(r"\d\.\d{2}")
 
-# ── Event Taxonomy (CIO 확정 2026-08-13) ─────────────────────────────────────
-#   분류(Classification)는 지금 고정한다. 평가(Scoring)는 이력이 쌓인 뒤에 붙인다.
-#   ⛔ 아래 순서·나열은 중요도가 아니다.
-#   CIO 확정본 (2026-08-13 수정) — Litigation 은 Item 으로 도출 불가하여 여기서 빠지고
-#   detection_required 로 이동. 대신 Distress · Accounting 을 신설.
-EVENT_TYPES = ("Contract", "Management", "Cybersecurity", "Financial Results",
-               "Capital", "M&A", "Reg FD", "Distress", "Accounting", "Other")
-
-# Item 코드 → Event Type. ★ ITEM_TITLES 의 모든 코드를 빠짐없이 덮는다(테스트가 강제).
-ITEM_EVENT_MAP = {
-    "1.01": "Contract",            "1.02": "Contract",
-    "1.03": "Distress",            # Bankruptcy or Receivership
-    "1.04": "Other",
-    "1.05": "Cybersecurity",
-    "2.01": "M&A",
-    "2.02": "Financial Results",
-    "2.03": "Capital",             "2.04": "Capital",
-    "2.05": "Other",               # ⚠ Exit/Disposal Costs — 구조조정 분류 없음 (gap)
-    "2.06": "Financial Results",
-    "3.01": "Distress",            # Notice of Delisting / 상장요건 미충족
-    "3.02": "Capital",             "3.03": "Capital",
-    "4.01": "Accounting",          # 감사인 교체
-    "4.02": "Accounting",          # Non-Reliance — '실적 발표'와 '지난 실적이 틀렸다'는 다르다
-    "5.01": "M&A",
-    "5.02": "Management",
-    "5.03": "Other", "5.04": "Other", "5.05": "Other", "5.06": "Other",
-    "5.07": "Other", "5.08": "Management",
-    "6.01": "Other", "6.02": "Other", "6.03": "Other",
-    "6.04": "Other", "6.05": "Other", "6.06": "Other",
-    "7.01": "Reg FD",
-    "8.01": "Other",
-    "9.01": "Other",               # 첨부 동반 제출 — 단독으로 의미를 갖지 않는다
-}
-
-# ★ Item 코드로 도출할 수 없는 이벤트 — 본문 파싱이 전제다.
-#   분류 체계에 이름만 있고 경로가 없는 항목을 숨기지 않기 위해 명시한다.
-DETECTION_REQUIRED = {
-    "Litigation": ("8-K 에 소송 Item 이 없다. 8.01(기타) 또는 10-K/10-Q 본문에 담긴다 "
-                   "— 본문 파싱 없이는 분류 불가"),
-    "Guidance": ("SEC 는 Guidance Item 을 정의하지 않는다. 2.02·7.01·8.01 에 흩어진다 "
-                 "— 회사마다 담는 Item 이 다르다"),
-}
-
-# 위 매핑에서 Other 로 떨어졌지만 성격상 Other 가 아닐 수 있는 것 — CIO 결정 대기
-#   2026-08-13 CIO 결정으로 1.03·3.01 → Distress, 4.01·4.02 → Accounting 으로 해소됨.
-#   2.05 는 결정 대상에 포함되지 않아 남는다 — 해소된 척하지 않는다.
-TAXONOMY_GAPS = {
-    "2.05": "Costs Associated with Exit or Disposal Activities (구조조정 분류 없음)",
-}
-
 # Item 코드가 존재하는 폼은 8-K 계열뿐이다.
-# ⚠ 6-K(FPI)에는 Item 코드가 없다 → 본문 파싱 없이는 이벤트 종류를 알 수 없다.
+# ⚠ 6-K(FPI)에는 Item 코드가 없다 → 본문 없이는 무엇이 담겼는지 알 수 없다.
 ITEMIZED_FORMS = {"8-K", "8-K/A"}
 
 
 def parse_items(raw: str, form: str) -> dict:
-    """Item 문자열을 코드로 분해한다. 모르는 코드는 지어내지 않고 known=False 로 남긴다."""
+    """Item 문자열을 코드로 분해한다 — 여기까지가 SEC 사실이다.
+    ⛔ Event Type(Atlas 해석)은 여기서 붙이지 않는다. Decision Layer(D1)의 책임이다."""
     codes = ITEM_CODE_RE.findall(raw or "")
-    detail = [{"code": c,
-               "title": ITEM_TITLES.get(c),
-               "known": c in ITEM_TITLES,
-               # 모르는 코드에 Event Type 을 붙이지 않는다 — Other 로 흡수하면 누락이 숨는다
-               "event_type": ITEM_EVENT_MAP.get(c) if c in ITEM_TITLES else None,
-               "taxonomy_gap": c in TAXONOMY_GAPS}
+    detail = [{"code": c, "title": ITEM_TITLES.get(c), "known": c in ITEM_TITLES}
               for c in codes]
     if codes:
         status = "classified"
@@ -182,8 +128,7 @@ def parse_items(raw: str, form: str) -> dict:
     else:
         status = "not_itemized"               # 6-K·10-K 등은 애초에 Item 체계가 없다
     return {"items_raw": raw or "", "item_codes": codes,
-            "items_detail": detail, "item_status": status,
-            "event_types": sorted({d["event_type"] for d in detail if d["event_type"]})}
+            "items_detail": detail, "item_status": status}
 
 
 # ★ 이 수집기가 실제 SEC 응답으로 검증됐는지를 데이터에 남긴다 (선언이 아니라 실행 중 도출).
@@ -393,29 +338,9 @@ def main() -> None:
         "collected_for_kst_date": today.isoformat(),
         "source": "SEC EDGAR (data.sec.gov 조회 API)",
         "source_tier": "Official",
-        "collector_version": "v1.4",
+        "collector_version": "v2",
         "layer": "collector_only",
-        "decision_layer": None,
-        "decision_layer_status": ("Undefined — 미국 판정 규칙은 Review #3 승인 이후에만 구현한다 "
-                                  "(Event Score · Business 판정 · Stage 변경 금지)"),
-        # 이벤트 '분류'는 SEC 고정 목록의 번역이므로 지금 싣는다.
-        # 이벤트 '점수'는 우리가 만드는 값이므로 싣지 않는다 — 근거가 될 이력이 아직 0일이다.
-        "event_taxonomy": {
-            "types": list(EVENT_TYPES),
-            "type_count": len(EVENT_TYPES),           # 세는 일을 사람이 하지 않는다
-            "detection_required_count": len(DETECTION_REQUIRED),
-            "item_titles": ITEM_TITLES,               # SEC 고정 목록 (번역)
-            "item_event_map": ITEM_EVENT_MAP,         # Atlas 분류 (CIO 확정 2026-08-13)
-            "detection_required": DETECTION_REQUIRED,  # Item 으로 도출 불가 — 본문 파싱 전제
-            "taxonomy_gaps": TAXONOMY_GAPS,            # Other 로 떨어졌으나 Other 가 아닌 것
-            "note": "분류일 뿐 중요도가 아니다. 나열 순서는 우열을 뜻하지 않는다.",
-        },
-        "event_score": None,
-        "event_score_status": ("Undefined — 가중치는 이력으로 조정해야 하는데 "
-                               "미국 이벤트 이력이 아직 0일이다. stage_history 와 같은 순서를 따른다."),
-        "fpi_event_classification": None,
-        "fpi_event_classification_status": ("Unimplemented — 6-K 에는 Item 코드가 없다. "
-                                            "TSMC 등 FPI 의 이벤트 종류는 본문 파싱 없이는 알 수 없다."),
+        # 원천 부재는 Collector 소관이다 — 해석이 아니라 '데이터가 없다'는 사실이다.
         "supply_demand": None,
         "supply_demand_status": ("Unavailable — 미국에는 종목별·일별 투자자 유형 순매수 원천이 없다. "
                                  "13F(분기)·Form 4·Short Interest(격주)는 대체재가 아니다."),
