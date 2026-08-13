@@ -17,6 +17,7 @@
   따라서 이 수집기는 수급을 흉내내지 않는다. 없는 것은 없는 채로 둔다.
 """
 import os
+import re
 import sys
 import json
 import time
@@ -63,6 +64,65 @@ def form_family(form: str) -> str:
     """정정 공시(`/A`)는 원 폼과 같은 가족으로 본다. 모르면 'other' — 지어내지 않는다."""
     f = (form or "").strip()
     return _FAMILY_LOOKUP.get(f) or _FAMILY_LOOKUP.get(f.removesuffix("/A")) or "other"
+
+
+# ── 8-K Item 코드 (SEC 가 정한 고정 목록 — 우리가 만든 분류가 아니다) ──────────
+#   이건 '번역'이지 '판정'이 아니다. 어떤 Item 이 더 중요한지는 여기서 말하지 않는다.
+ITEM_TITLES = {
+    "1.01": "Entry into a Material Definitive Agreement",
+    "1.02": "Termination of a Material Definitive Agreement",
+    "1.03": "Bankruptcy or Receivership",
+    "1.04": "Mine Safety — Shutdowns and Patterns of Violations",
+    "1.05": "Cybersecurity Incidents",
+    "2.01": "Completion of Acquisition or Disposition of Assets",
+    "2.02": "Results of Operations and Financial Condition",
+    "2.03": "Creation of a Direct Financial Obligation",
+    "2.04": "Triggering Events That Accelerate a Direct Financial Obligation",
+    "2.05": "Costs Associated with Exit or Disposal Activities",
+    "2.06": "Material Impairments",
+    "3.01": "Notice of Delisting or Failure to Satisfy a Listing Rule",
+    "3.02": "Unregistered Sales of Equity Securities",
+    "3.03": "Material Modification to Rights of Security Holders",
+    "4.01": "Changes in Registrant's Certifying Accountant",
+    "4.02": "Non-Reliance on Previously Issued Financial Statements",
+    "5.01": "Changes in Control of Registrant",
+    "5.02": "Departure/Election of Directors or Certain Officers",
+    "5.03": "Amendments to Articles or Bylaws; Change in Fiscal Year",
+    "5.04": "Temporary Suspension of Trading under Employee Benefit Plans",
+    "5.05": "Amendments to Code of Ethics, or Waiver",
+    "5.06": "Change in Shell Company Status",
+    "5.07": "Submission of Matters to a Vote of Security Holders",
+    "5.08": "Shareholder Director Nominations",
+    "6.01": "ABS Informational and Computational Material",
+    "6.02": "Change of Servicer or Trustee",
+    "6.03": "Change in Credit Enhancement or Other External Support",
+    "6.04": "Failure to Make a Required Distribution",
+    "6.05": "Securities Act Updating Disclosure",
+    "6.06": "Static Pool",
+    "7.01": "Regulation FD Disclosure",
+    "8.01": "Other Events",
+    "9.01": "Financial Statements and Exhibits",
+}
+ITEM_CODE_RE = re.compile(r"\d\.\d{2}")
+
+# Item 코드가 존재하는 폼은 8-K 계열뿐이다.
+# ⚠ 6-K(FPI)에는 Item 코드가 없다 → 본문 파싱 없이는 이벤트 종류를 알 수 없다.
+ITEMIZED_FORMS = {"8-K", "8-K/A"}
+
+
+def parse_items(raw: str, form: str) -> dict:
+    """Item 문자열을 코드로 분해한다. 모르는 코드는 지어내지 않고 known=False 로 남긴다."""
+    codes = ITEM_CODE_RE.findall(raw or "")
+    detail = [{"code": c, "title": ITEM_TITLES.get(c), "known": c in ITEM_TITLES}
+              for c in codes]
+    if codes:
+        status = "classified"
+    elif form in ITEMIZED_FORMS:
+        status = "no_items_reported"          # 8-K 인데 Item 이 비어 있음 — 원천 그대로
+    else:
+        status = "not_itemized"               # 6-K·10-K 등은 애초에 Item 체계가 없다
+    return {"items_raw": raw or "", "item_codes": codes,
+            "items_detail": detail, "item_status": status}
 
 
 # ★ 이 수집기가 실제 SEC 응답으로 검증됐는지를 데이터에 남긴다 (선언이 아니라 실행 중 도출).
@@ -172,10 +232,16 @@ def fetch_filings(cik: str, days: int = LOOKBACK_DAYS) -> dict:
             "form_class": ("domestic" if form in DOMESTIC_FORMS
                            else "fpi" if form in FPI_FORMS
                            else "other"),
-            "items": items[i] if i < len(items) else "",   # 8-K 항목코드 (해석하지 않는다)
             "accession": accs[i] if i < len(accs) else "",
             "url": (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc}/"
                     f"{docs[i]}" if acc and i < len(docs) and docs[i] else ""),
+            # Exhibit 은 인덱스 페이지에 모여 있다 — 나중에 본문·첨부를 받을 때의 진입점
+            "index_url": (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc}/"
+                          f"{accs[i]}-index.htm" if acc else ""),
+            "body_captured": False,
+            "body_capture_status": ("Unimplemented — 본문·Exhibit 저장 여부는 "
+                                    "저장비용·보존기간 결정이 선행되어야 한다"),
+            **parse_items(items[i] if i < len(items) else "", form),
         })
 
     # ★ 발행사 프로파일은 제출된 폼에서 '도출'한다. 종목명으로 하드코딩하지 않는다.
@@ -266,11 +332,21 @@ def main() -> None:
         "collected_for_kst_date": today.isoformat(),
         "source": "SEC EDGAR (data.sec.gov 조회 API)",
         "source_tier": "Official",
-        "collector_version": "v1.1",
+        "collector_version": "v1.2",
         "layer": "collector_only",
         "decision_layer": None,
         "decision_layer_status": ("Undefined — 미국 판정 규칙은 Review #3 승인 이후에만 구현한다 "
                                   "(Event Score · Business 판정 · Stage 변경 금지)"),
+        # 이벤트 '분류'는 SEC 고정 목록의 번역이므로 지금 싣는다.
+        # 이벤트 '점수'는 우리가 만드는 값이므로 싣지 않는다 — 근거가 될 이력이 아직 0일이다.
+        "event_taxonomy": {"source": "SEC Form 8-K item list", "items": ITEM_TITLES,
+                           "note": "분류일 뿐 중요도가 아니다. Item 간 우열을 뜻하지 않는다."},
+        "event_score": None,
+        "event_score_status": ("Undefined — 가중치는 이력으로 조정해야 하는데 "
+                               "미국 이벤트 이력이 아직 0일이다. stage_history 와 같은 순서를 따른다."),
+        "fpi_event_classification": None,
+        "fpi_event_classification_status": ("Unimplemented — 6-K 에는 Item 코드가 없다. "
+                                            "TSMC 등 FPI 의 이벤트 종류는 본문 파싱 없이는 알 수 없다."),
         "supply_demand": None,
         "supply_demand_status": ("Unavailable — 미국에는 종목별·일별 투자자 유형 순매수 원천이 없다. "
                                  "13F(분기)·Form 4·Short Interest(격주)는 대체재가 아니다."),
