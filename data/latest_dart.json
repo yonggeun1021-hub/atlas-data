@@ -1,5 +1,5 @@
 {
-  "collected_at_utc": "2026-08-13T12:01:59+00:00",
+  "collected_at_utc": "2026-08-13T12:44:47+00:00",
   "collected_for_kst_date": "2026-08-13",
   "source": "OpenDART (금융감독원)",
   "source_tier": "Official",
@@ -15,6 +15,37 @@
     "매출액또는손익구조"
   ],
   "stocks": {
+    "267260": {
+      "name": "HD현대일렉트릭",
+      "corp_code": "01205851",
+      "status": "ok",
+      "total_count": 4,
+      "relevant_count": 0,
+      "relevant": []
+    },
+    "329180": {
+      "name": "HD현대중공업",
+      "corp_code": "01390344",
+      "status": "ok",
+      "total_count": 1,
+      "relevant_count": 1,
+      "relevant": [
+        {
+          "date": "20260810",
+          "title": "단일판매ㆍ공급계약체결              ",
+          "rcept_no": "20260810800144",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260810800144"
+        }
+      ]
+    },
+    "298040": {
+      "name": "효성중공업",
+      "corp_code": "01316245",
+      "status": "ok",
+      "total_count": 3,
+      "relevant_count": 0,
+      "relevant": []
+    },
     "000660": {
       "name": "SK하이닉스",
       "corp_code": "00164779",
@@ -46,7 +77,7 @@
     }
   },
   "summary": {
-    "ok": 2,
+    "ok": 5,
     "failed": 0
   },
   "universe_meta": {
@@ -102,51 +133,52 @@
     ],
     "notion_db_source": "search_exact",
     "notion_db": "024702bd-3978-48bd-b789-297c251684c2",
-    "notion_rows": 8,
+    "notion_rows": 11,
     "notion_skipped": [
       {
         "name": "Micron",
         "ticker": "MU",
+        "atlas_stage": "Coverage",
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "TSMC",
         "ticker": "TSM",
+        "atlas_stage": "Ready",
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "Credo Technology",
         "ticker": "CRDO",
+        "atlas_stage": "Coverage",
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "Arista Networks",
         "ticker": "ANET",
+        "atlas_stage": "Coverage",
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "NVIDIA",
         "ticker": "NVDA",
+        "atlas_stage": "Coverage",
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "Microsoft",
         "ticker": "MSFT",
+        "atlas_stage": "Coverage",
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       }
     ],
-    "source": "notion",
-    "source_tier": "SSOT",
-    "count": 2,
-    "file_error": null,
-    "universe_divergence": {
-      "notion_only": [],
-      "file_only": [
-        "267260",
-        "298040",
-        "329180"
-      ],
-      "note": "Notion을 채택. config/universe.json 은 폴백용이며 정본이 아니다."
-    }
+    "notion_untagged": [],
+    "source": "notion+file_union",
+    "source_tier": "SSOT(Notion) + 수집 안전망(file)",
+    "decision_ssot": "notion",
+    "count": 5,
+    "count_notion": 5,
+    "count_file_only": 0,
+    "file_error": null
   }
 }
