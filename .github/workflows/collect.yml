@@ -2,8 +2,9 @@ name: Atlas Daily Collect
 
 on:
   schedule:
-    # 21:00 UTC (일~목) = 06:00 KST (월~금)
-    - cron: '0 21 * * 0-4'
+    # 21:05 UTC (일~목) = 06:05 KST (월~금)
+    # ★ 정시(:00)는 GitHub 고부하 시 지연·드롭이 잦아 공식 문서가 회피를 권고 → :05 로 이동 (CIO 승인 2026-08-14)
+    - cron: '5 21 * * 0-4'
   workflow_dispatch:
 
 permissions:
@@ -54,6 +55,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
           else
-            git commit -m "data: $(date -u +%Y-%m-%d) collect"
+            git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect"   # ★ KST 기준 (UTC면 06시 실행분이 전날로 찍힘)
             git push
           fi
