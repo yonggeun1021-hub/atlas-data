@@ -33,6 +33,7 @@ jobs:
         env:
           KRX_ID: ${{ secrets.KRX_ID }}
           KRX_PW: ${{ secrets.KRX_PW }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           PYTHONPATH: collectors
         run: python collectors/krx.py
 
@@ -40,6 +41,7 @@ jobs:
         if: always()
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           PYTHONPATH: collectors
         run: python collectors/dart.py
 
