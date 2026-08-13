@@ -515,6 +515,28 @@ def test_constitution() -> None:
           rows[(15, 20)]["min_cash_floor_pct"] == 25.0,
           f"got {rows[(15, 20)]['min_cash_floor_pct']}")
 
+    # ★ "Execution 은 Constitution 보다 아래" — 원칙이 함수로 존재하는가
+    check("A층 불변 원칙이 코드에 있다", len(k.PRINCIPLES) >= 11, f"got {len(k.PRINCIPLES)}")
+    check("★ Execution 우회 금지 원칙 수록",
+          any("Execution" in p for p in k.PRINCIPLES))
+    tmpd = tempfile.mkdtemp()
+    try:
+        pth = os.path.join(tmpd, "c.json")
+        with open(pth, "w", encoding="utf-8") as f:
+            json.dump({f: None for f in k.FIELDS} |
+                      {"B7_evidence_state_max_pct": {x: None for x in k.EVIDENCE_ORDER}}, f)
+        raised = False
+        try:
+            k.assert_buy_allowed(pth)
+        except k.ConstitutionViolation:
+            raised = True
+        check("★ 미비준 상태에서 주문 시도는 예외로 막힌다", raised)
+        with open(pth, "w", encoding="utf-8") as f:
+            json.dump(BASE_C, f)
+        check("비준되면 통과한다", k.assert_buy_allowed(pth)["buy_allowed"] is True)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+
     # 리포에 실제로 들어 있는 헌법은 '모순'이 아니어야 한다 (미비준은 정상)
     live = os.path.join(_ROOT, "config", "constitution.json")
     if os.path.exists(live):
