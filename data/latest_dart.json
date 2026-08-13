@@ -1,5 +1,5 @@
 {
-  "collected_at_utc": "2026-08-13T11:49:44+00:00",
+  "collected_at_utc": "2026-08-13T12:01:59+00:00",
   "collected_for_kst_date": "2026-08-13",
   "source": "OpenDART (금융감독원)",
   "source_tier": "Official",
@@ -15,22 +15,6 @@
     "매출액또는손익구조"
   ],
   "stocks": {
-    "298040": {
-      "name": "효성중공업",
-      "corp_code": "01316245",
-      "status": "ok",
-      "total_count": 3,
-      "relevant_count": 0,
-      "relevant": []
-    },
-    "005930": {
-      "name": "삼성전자",
-      "corp_code": "00126380",
-      "status": "ok",
-      "total_count": 15,
-      "relevant_count": 0,
-      "relevant": []
-    },
     "000660": {
       "name": "SK하이닉스",
       "corp_code": "00164779",
@@ -52,38 +36,117 @@
         }
       ]
     },
-    "267260": {
-      "name": "HD현대일렉트릭",
-      "corp_code": "01205851",
+    "005930": {
+      "name": "삼성전자",
+      "corp_code": "00126380",
       "status": "ok",
-      "total_count": 4,
+      "total_count": 15,
       "relevant_count": 0,
       "relevant": []
-    },
-    "329180": {
-      "name": "HD현대중공업",
-      "corp_code": "01390344",
-      "status": "ok",
-      "total_count": 1,
-      "relevant_count": 1,
-      "relevant": [
-        {
-          "date": "20260810",
-          "title": "단일판매ㆍ공급계약체결              ",
-          "rcept_no": "20260810800144",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260810800144"
-        }
-      ]
     }
   },
   "summary": {
-    "ok": 5,
+    "ok": 2,
     "failed": 0
   },
   "universe_meta": {
-    "source": "file_fallback",
-    "source_tier": "Fallback",
-    "notion_error": "RuntimeError: Notion 404: {\"object\":\"error\",\"status\":404,\"code\":\"object_not_found\",\"message\":\"Could not find database with ID: 024702bd-3978-48bd-b789-297c251684c2. Make sure the relevant pages and databases are shared with your integration \\\"atlas-data\\\".\",\"additional_data\":{\"integration_id\":\"3bb9f2d7-3c84-81e6-8f1e-00275bb",
-    "count": 5
+    "notion_visible_databases": [
+      {
+        "id": "024702bd-3978-48bd-b789-297c251684c2",
+        "title": "PM Watchlist"
+      },
+      {
+        "id": "c0e5b50d-5af3-470b-86b0-b8eedc67e8c2",
+        "title": "Investment Committee (회의록)"
+      },
+      {
+        "id": "e5cfec74-a928-47a9-9b14-56252f20d1a8",
+        "title": "Investment Thesis"
+      },
+      {
+        "id": "b1244900-d1a1-4e51-b55f-0e57539d7a8c",
+        "title": "Risk Register"
+      },
+      {
+        "id": "4316319c-1e7b-42fc-8075-eae530fa07d9",
+        "title": "Global Supply Chain Map"
+      },
+      {
+        "id": "85103a31-de10-4919-aa21-7d98a8098a82",
+        "title": "Lessons"
+      },
+      {
+        "id": "48121cbf-8d56-4c84-9fb7-283c8d5ab2ed",
+        "title": "Event Calendar"
+      },
+      {
+        "id": "584b3735-8601-4cef-b8c5-c69c3fad77e6",
+        "title": "Investment Journal"
+      },
+      {
+        "id": "5ec50cdf-e603-41e2-ab45-2faa19dcdba3",
+        "title": "Stock Tracker"
+      },
+      {
+        "id": "5e38856b-8c1f-42cc-a614-41af6d08d2b1",
+        "title": "Industry Tracker"
+      },
+      {
+        "id": "4b326089-3c3a-47a2-9820-acc35e66d53c",
+        "title": "Market Dashboard"
+      },
+      {
+        "id": "70d26406-5c8e-473e-af75-5c1b145a72a4",
+        "title": "Portfolio"
+      }
+    ],
+    "notion_db_source": "search_exact",
+    "notion_db": "024702bd-3978-48bd-b789-297c251684c2",
+    "notion_rows": 8,
+    "notion_skipped": [
+      {
+        "name": "Micron",
+        "ticker": "MU",
+        "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
+      },
+      {
+        "name": "TSMC",
+        "ticker": "TSM",
+        "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
+      },
+      {
+        "name": "Credo Technology",
+        "ticker": "CRDO",
+        "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
+      },
+      {
+        "name": "Arista Networks",
+        "ticker": "ANET",
+        "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
+      },
+      {
+        "name": "NVIDIA",
+        "ticker": "NVDA",
+        "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
+      },
+      {
+        "name": "Microsoft",
+        "ticker": "MSFT",
+        "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
+      }
+    ],
+    "source": "notion",
+    "source_tier": "SSOT",
+    "count": 2,
+    "file_error": null,
+    "universe_divergence": {
+      "notion_only": [],
+      "file_only": [
+        "267260",
+        "298040",
+        "329180"
+      ],
+      "note": "Notion을 채택. config/universe.json 은 폴백용이며 정본이 아니다."
+    }
   }
 }
