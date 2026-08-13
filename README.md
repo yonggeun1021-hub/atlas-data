@@ -18,9 +18,9 @@ GitHub Actions (매일 06:00 KST)
 
 | 이름 | 값 |
 | --- | --- |
-| `KRX_ID` | KRX Data Marketplace 아이디 |
-| `KRX_PW` | KRX Data Marketplace 비밀번호 |
-| `DART_API_KEY` | OpenDART 인증키 |
+| `KRX_ID` | fantaes |
+| `KRX_PW` | Wnsgh1021! |
+| `DART_API_KEY` | 1ac8de4ff631d81dfc1a2818bc7dd382d09ef8d1 |
 
 ## 설계 원칙
 
