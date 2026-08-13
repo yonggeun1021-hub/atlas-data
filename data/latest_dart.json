@@ -1,9 +1,9 @@
 {
-  "collected_at_utc": "2026-08-13T12:54:59+00:00",
+  "collected_at_utc": "2026-08-13T13:05:00+00:00",
   "collected_for_kst_date": "2026-08-13",
   "source": "OpenDART (금융감독원)",
   "source_tier": "Official",
-  "collector_version": "v2",
+  "collector_version": "v2.1",
   "lookback_days": 7,
   "filter_keywords": [
     "단일판매",
@@ -18,8 +18,8 @@
   "stocks": {
     "267260": {
       "name": "HD현대일렉트릭",
-      "atlas_stage": "Coverage",
-      "atlas_coverage": "Y",
+      "atlas_stage": null,
+      "coverage": true,
       "db_state": null,
       "in_notion": true,
       "corp_code": "01205851",
@@ -31,7 +31,7 @@
     "329180": {
       "name": "HD현대중공업",
       "atlas_stage": "Discovery",
-      "atlas_coverage": "Y",
+      "coverage": true,
       "db_state": null,
       "in_notion": true,
       "corp_code": "01390344",
@@ -50,7 +50,7 @@
     "298040": {
       "name": "효성중공업",
       "atlas_stage": "Candidate",
-      "atlas_coverage": "Y",
+      "coverage": true,
       "db_state": null,
       "in_notion": true,
       "corp_code": "01316245",
@@ -61,8 +61,8 @@
     },
     "000660": {
       "name": "SK하이닉스",
-      "atlas_stage": "Coverage",
-      "atlas_coverage": "Y",
+      "atlas_stage": null,
+      "coverage": true,
       "db_state": "관찰",
       "in_notion": true,
       "corp_code": "00164779",
@@ -86,8 +86,8 @@
     },
     "005930": {
       "name": "삼성전자",
-      "atlas_stage": "Coverage",
-      "atlas_coverage": "Y",
+      "atlas_stage": null,
+      "coverage": true,
       "db_state": "관찰",
       "in_notion": true,
       "corp_code": "00126380",
@@ -159,41 +159,57 @@
       {
         "name": "Micron",
         "ticker": "MU",
-        "atlas_stage": "Coverage",
+        "atlas_stage": null,
+        "coverage": true,
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "TSMC",
         "ticker": "TSM",
         "atlas_stage": "Ready",
+        "coverage": true,
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "Credo Technology",
         "ticker": "CRDO",
-        "atlas_stage": "Coverage",
+        "atlas_stage": null,
+        "coverage": true,
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "Arista Networks",
         "ticker": "ANET",
-        "atlas_stage": "Coverage",
+        "atlas_stage": null,
+        "coverage": true,
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "NVIDIA",
         "ticker": "NVDA",
-        "atlas_stage": "Coverage",
+        "atlas_stage": null,
+        "coverage": true,
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       },
       {
         "name": "Microsoft",
         "ticker": "MSFT",
-        "atlas_stage": "Coverage",
+        "atlas_stage": null,
+        "coverage": true,
         "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"
       }
     ],
     "notion_untagged": [],
+    "notion_invalid_tags": [],
+    "notion_coverage_unknown": [],
+    "stage_vocabulary": [
+      "Discovery",
+      "Candidate",
+      "Ready",
+      "Buy",
+      "Holding",
+      "Closed"
+    ],
     "source": "notion+file_union",
     "source_tier": "SSOT(Notion) + 수집 안전망(file)",
     "decision_ssot": "notion",
