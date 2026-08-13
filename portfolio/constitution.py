@@ -27,6 +27,42 @@ import json
 
 PATH = os.getenv("CONSTITUTION_PATH", "config/constitution.json")
 
+# ── A층 불변 원칙 (CIO 확정 2026-08-13) ─────────────────────────────────────
+#   숫자가 아니라 원칙이므로 코드 안에 둔다. B층(json)과 달리 여기서 바뀌면 개정이다.
+PRINCIPLES = [
+    "Entry 와 Exit 는 함께 정의한다",
+    "손실 한도는 사전에 정의한다",
+    "검증 수준이 올라가야만 비중을 올릴 수 있다",
+    "상관된 포지션은 하나의 위험 버킷으로 계산한다",
+    "겉으로 보이는 개수보다 실제 독립성을 우선한다",
+    "A 는 Review 에서만 개정한다",
+    "손실 중에는 A 를 개정하지 않는다",
+    "손실을 만회하기 위해 A 를 수정하는 것은 금지한다",
+    "A → B 이동도 개정으로 본다",
+    "개정 시 직전 30일 손익과 영향받는 테스트를 함께 기록한다",
+    "Execution 은 Constitution 보다 아래 계층이다 — 헌법을 우회할 수 없다",
+]
+
+
+class ConstitutionViolation(RuntimeError):
+    """헌법을 통과하지 못한 주문 시도. 잡아서 무시하지 말 것."""
+
+
+def assert_buy_allowed(path: str = PATH) -> dict:
+    """★ 마지막 원칙("Execution 은 Constitution 보다 아래")의 유일한 통로.
+
+    주문을 만드는 모든 코드는 이 함수를 먼저 통과해야 한다.
+    비준되지 않았거나 모순이면 예외를 던진다 — 반환값이 없다는 뜻이 아니라 진행이 없다.
+
+    ⚠ 정직하게: 이 함수는 '호출하지 않으면' 우회된다. 진짜 강제는 Execution 층을
+      이 함수를 거치는 주문 API 하나만 갖도록 만들 때 완성된다. 지금은 그 자리 표시다.
+    """
+    r = check(load(path))
+    if not r["buy_allowed"]:
+        raise ConstitutionViolation(
+            f"status={r['status']} — {r.get('reason') or r['violations']}")
+    return r
+
 FIELDS = ("B1_bucket_definition", "B2_cash_floor_pct", "B3_bucket_max_pct",
           "B4_position_max_pct", "B5_stop_loss_pct", "B6_portfolio_max_loss_pct")
 EVIDENCE_ORDER = ("backtest_only", "forward_early", "forward_established", "operating")
@@ -110,6 +146,8 @@ def main() -> None:
     c = load()
     r = check(c)
 
+    print(f"[헌법] A층 불변 원칙 {len(PRINCIPLES)}개 · "
+          f"Execution 은 Constitution 보다 아래 계층")
     print(f"[헌법] status = {r['status']}   buy_allowed = {r['buy_allowed']}")
     if r["missing"]:
         print(f"[헌법] 미확정 {len(r['missing'])}건: {r['missing']}")
