@@ -301,6 +301,15 @@ def main() -> None:
     for r in results:
         by_status[r["status"]] = by_status.get(r["status"], 0) + 1
 
+    # ★ '판정 불가'가 많을 때, 표본이 모자란 것인지 기간·국면이 모자란 것인지는
+    #   완전히 다른 처방으로 이어진다(유니버스 확장 vs 기간 확장). 반드시 구분해 출력한다.
+    by_reason = {}
+    for r in results:
+        if r["status"] == "insufficient_evidence":
+            by_reason[r["reason"]] = by_reason.get(r["reason"], 0) + 1
+    insufficient_ids = sorted({r["hypothesis_id"] for r in results
+                               if r["status"] == "insufficient_evidence"})
+
     n_pass = by_status.get("Pass", 0)
     expected_false = len(results) * ALPHA
     family = ("no_evidence" if n_pass <= expected_false
@@ -326,6 +335,11 @@ def main() -> None:
         "caveat": ("보유구간이 겹쳐 표본이 독립이 아니다. 블록 부트스트랩으로 일부만 보정된다. "
                    "Pass 는 '유망하다'는 뜻이지 '검증되었다'는 뜻이 아니다 — Forward 가 남았다."),
         "summary": by_status,
+        "insufficient_by_reason": by_reason,
+        "insufficient_hypotheses": insufficient_ids,
+        "family_rule_caveat": ("기대 오탐 2.2건은 검정이 서로 독립일 때의 값이다. "
+                               "실제 가설들은 상관이 높아(P20·P60·P252, T20·T60·TA) "
+                               "유효 독립 검정 수는 더 적다 — 즉 이 기준은 보수적이다."),
         "results": results,
     }
 
@@ -336,6 +350,9 @@ def main() -> None:
     print(f"[lab] {ANALYSIS_VERSION} · 가설 {len(HYPOTHESES)}개 × 기간 {len(HORIZONS)}개 "
           f"= 검정 {len(results)}회")
     print(f"[lab] {by_status}")
+    if by_reason:
+        print(f"[lab] 판정불가 사유: {by_reason}")
+        print(f"[lab] 판정불가 가설: {insufficient_ids}")
     print(f"[lab] family_level={family}  (Pass {n_pass}건 vs 우연 기대 {expected_false:.1f}건)")
     if family == "no_evidence":
         print("[lab] → 개별 Pass 를 재료 채택 근거로 쓰지 않는다. 정상 산출물이다.")
