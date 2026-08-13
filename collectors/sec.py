@@ -12,6 +12,11 @@
        Event Score · Business 판정 · Stage 변경 · Ready/Watchlist 판정 · 투자 의사결정 규칙
   이 파일은 데이터를 모으기만 한다. 어떤 필드도 '좋다/나쁘다'를 뜻하지 않는다.
 
+★ `filings_recent` 는 '회사가 낸 공시'가 아니다 (2026-08-13 실데이터로 확인).
+  submissions 에는 그 CIK 가 얽힌 제출물이 모두 들어온다 — 소유 신고(Form 3/4 · SC 13G)를 포함한다.
+  예: TSM 30일 43건 = current_report 5 + ownership 38. 기업 이벤트는 5건뿐이다.
+  ⛔ 합계(filings_recent_count)를 '공시 건수'로 읽지 말 것. 판단은 form_family 로만 한다.
+
 ★ 미국에는 한국의 투자자별 수급(기관/외국인 일별 순매수)에 해당하는 원천이 없다.
   13F(분기) · Form 4 · Short Interest(격주) 뿐이며, 이는 대체재가 아니다.
   따라서 이 수집기는 수급을 흉내내지 않는다. 없는 것은 없는 채로 둔다.
@@ -435,7 +440,9 @@ def main() -> None:
             ok += 1
             print(f"[ok]     {t} {name} "
                   f"[stage={s.get('atlas_stage')} coverage={s.get('coverage')}] "
-                  f"— {row['filer_profile']} · 공시 {row['filings_recent_count']}건 "
+                  # ★ 합계만 찍으면 '회사가 낸 공시 N건'으로 오독된다 (2026-08-13 실사례).
+                  #   submissions 에는 소유 신고(Form 3/4·13G)가 섞여 들어온다.
+                  f"— {row['filer_profile']} · {row['form_family_counts']} "
                   f"· XBRL {row['xbrl']['taxonomy']}"
                   + (f"  ⚠ 태그 누락: {row['xbrl']['missing_tags']}"
                      if row["xbrl"]["missing_tags"] else ""))
