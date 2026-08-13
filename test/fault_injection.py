@@ -12,6 +12,7 @@
 ★ 이 스위트가 커버하지 않는 것 — 통과했다고 전부 검증된 것이 아니다
   · Notion 인증·네트워크 경로 (_from_notion) — 실제 토큰이 필요하다
   · pykrx 실제 응답 스키마 변경 — 스텁으로는 잡히지 않는다
+  · SEC EDGAR 실제 응답 스키마 — T5 는 스텁 응답만 쓴다. 실 응답 검증은 Actions 실행으로만 된다
   · 브리핑 세션의 판정 로직 — 여기 없다
   검증되지 않은 것을 검증된 것처럼 두지 않기 위해 여기 명시한다.
 """
@@ -114,6 +115,7 @@ def _install_stubs() -> dict:
 
     captured: dict = {}
     cm = types.ModuleType("common")
+    cm.universe_meta = {"notion_skipped": US}
     cm.load_universe = lambda: KR
     cm.today_kst = lambda: dt.date(2026, 8, 14)
     cm.now_utc_iso = lambda: "2026-08-13T21:00:00+00:00"
@@ -170,10 +172,135 @@ def test_failure_isolation() -> None:
     check("전멸해도 JSON 은 생성된다", len(st) == 5)
 
 
+# ────────────────────────────────────────────────────────────
+# T5 — SEC 수집기 (Collector Layer only)
+#   ⚠ 네트워크를 타지 않는다. SEC 실제 응답 스키마는 여기서 검증되지 않는다.
+#      검증하는 것은 '받은 응답을 어떻게 분류·보존하는가' 뿐이다.
+# ────────────────────────────────────────────────────────────
+
+SUB_FPI = {"name": "TSMC", "sicDescription": "Semiconductors", "fiscalYearEnd": "1231",
+           "filings": {"recent": {"form": ["20-F", "6-K", "6-K"],
+                                  "filingDate": ["2026-08-01", "2026-08-05", "2026-08-10"],
+                                  "accessionNumber": ["0001-26-000001"] * 3,
+                                  "primaryDocument": ["a.htm"] * 3, "items": [""] * 3}}}
+SUB_DOM = {"name": "NVIDIA", "sicDescription": "Semiconductors", "fiscalYearEnd": "0131",
+           "filings": {"recent": {"form": ["10-Q", "8-K", "10-K"],
+                                  "filingDate": ["2026-08-02", "2026-08-06", "2026-08-11"],
+                                  "accessionNumber": ["0001-26-000002"] * 3,
+                                  "primaryDocument": ["b.htm"] * 3, "items": ["2.02", "", ""]}}}
+SUB_EMPTY = {"name": "Nothing", "filings": {"recent": {"form": [], "filingDate": [],
+                                                       "accessionNumber": [], "primaryDocument": [],
+                                                       "items": []}}}
+
+
+def test_sec_collector() -> None:
+    os.environ.setdefault("SEC_USER_AGENT", "Atlas Fault Injection test@example.com")
+    import sec
+
+    def route(sub_by_cik: dict, xbrl_ok: set, fail: set = frozenset()):
+        def _get(url):
+            if "company_tickers" in url:
+                return {"0": {"cik_str": 1046179, "ticker": "TSM", "title": "TSMC"},
+                        "1": {"cik_str": 1045810, "ticker": "NVDA", "title": "NVIDIA"},
+                        "2": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft"}}
+            if "/submissions/" in url:
+                cik = url.split("CIK")[1].split(".json")[0]
+                if cik in fail:
+                    raise ConnectionError("SEC 응답 없음 (주입된 장애)")
+                return sub_by_cik.get(cik)
+            if "companyconcept" in url:
+                tax = url.split("/CIK")[1].split("/")[1]
+                return ({"units": {"USD": [{"val": 1, "end": "2026-06-30", "form": "10-Q",
+                                            "fy": 2026, "fp": "Q2"}]}}
+                        if tax in xbrl_ok else None)
+            return None
+        return _get
+
+    print("\n[T5] SEC Collector — 폼 분류 · 발행사 프로파일 도출 · 실패 격리")
+    tsm, nvda, msft = "0001046179", "0001045810", "0000789019"
+
+    # 5-1 정상 경로: FPI / domestic 이 데이터에서 도출되는가
+    sec.get = route({tsm: SUB_FPI, nvda: SUB_DOM, msft: SUB_EMPTY}, {"us-gaap"})
+    f = sec.fetch_filings(tsm, days=3650)
+    check("TSM → foreign_private_issuer (하드코딩 아님)",
+          f["filer_profile"] == "foreign_private_issuer", f"got {f['filer_profile']}")
+    check("20-F/6-K 는 form_class=fpi",
+          all(x["form_class"] == "fpi" for x in f["filings_recent"]))
+    f = sec.fetch_filings(nvda, days=3650)
+    check("NVDA → domestic", f["filer_profile"] == "domestic", f"got {f['filer_profile']}")
+    check("8-K items 보존 (해석하지 않고 그대로)",
+          any(x["items"] == "2.02" for x in f["filings_recent"]))
+    f = sec.fetch_filings(msft, days=3650)
+    check("폼 없음 → unknown (추정으로 채우지 않는다)",
+          f["filer_profile"] == "unknown", f"got {f['filer_profile']}")
+
+    # 5-2 XBRL 폴백과 누락 표면화
+    sec.get = route({}, {"ifrs-full"})
+    x = sec.fetch_xbrl(tsm)
+    check("us-gaap 없으면 ifrs-full 로 폴백", x["taxonomy"] == "ifrs-full", f"got {x['taxonomy']}")
+    sec.get = route({}, set())
+    x = sec.fetch_xbrl(tsm)
+    check("둘 다 없으면 taxonomy=None (지어내지 않는다)", x["taxonomy"] is None)
+    check("누락 태그 전량 표면화", len(x["missing_tags"]) == 7, f"got {len(x['missing_tags'])}")
+
+    # 5-3 단일 종목 실패 격리 + 단계 보존
+    captured = {}
+    sec.save = lambda p, f_, d=None: captured.update(p) or f_
+    sec.us_universe = lambda: [
+        {"ticker": "TSM", "name": "TSMC", "atlas_stage": "Ready", "coverage": True},
+        {"ticker": "NVDA", "name": "NVIDIA", "atlas_stage": None, "coverage": True},
+    ]
+    sec.get_cik_map = lambda: {"TSM": tsm, "NVDA": nvda}
+    sec.get = route({tsm: SUB_FPI, nvda: SUB_DOM}, {"us-gaap"}, fail={tsm})
+    try:
+        sec.main()
+    except SystemExit:
+        pass
+    st = captured.get("stocks", {})
+    check("실패는 TSM 한 종목뿐", [t for t, v in st.items() if v["status"] != "ok"] == ["TSM"])
+    check("NVDA 는 정상 수집", st.get("NVDA", {}).get("status") == "ok")
+    check("★ 실패해도 단계 보존 (TSM=Ready)", st.get("TSM", {}).get("atlas_stage") == "Ready")
+    check("Decision Layer 비어 있음 (Review #3 전까지)",
+          captured.get("decision_layer") is None)
+    check("미국 수급은 Unavailable 로 명시", captured.get("supply_demand") is None
+          and "Unavailable" in captured.get("supply_demand_status", ""))
+
+    # 5-4 Form Family — Decision Layer 가 폼 번호를 몰라도 되게 미리 분류
+    check("10-K → annual_report", sec.form_family("10-K") == "annual_report")
+    check("20-F → annual_report (FPI 도 같은 가족)", sec.form_family("20-F") == "annual_report")
+    check("10-Q → quarterly_report", sec.form_family("10-Q") == "quarterly_report")
+    check("8-K → current_report", sec.form_family("8-K") == "current_report")
+    check("6-K → current_report (FPI 도 같은 가족)", sec.form_family("6-K") == "current_report")
+    check("SC 13G → ownership", sec.form_family("SC 13G") == "ownership")
+    check("DEF 14A → proxy", sec.form_family("DEF 14A") == "proxy")
+    check("424B5 → registration", sec.form_family("424B5") == "registration")
+    check("정정공시 10-K/A 는 원 폼과 같은 가족",
+          sec.form_family("10-K/A") == "annual_report")
+    check("모르는 폼은 other (지어내지 않는다)", sec.form_family("ZZ-99") == "other")
+    check("form_family_counts 집계", sec.fetch_filings(nvda, days=3650)["form_family_counts"]
+          == {"quarterly_report": 1, "current_report": 1, "annual_report": 1})
+
+    # 5-5 source_validation — 스텁으로 돈 결과와 실 응답을 구분할 수 있는가
+    v = captured.get("validation", {})
+    check("스텁 실행은 verification_method=stub", v.get("verification_method") == "stub",
+          f"got {v.get('verification_method')}")
+    check("스텁 실행은 schema_verified=False", v.get("schema_verified") is False)
+    check("검증 실패 사유 명시", bool(v.get("reason")))
+
+    sec.VALIDATION["live_requests"] = 3          # 실 응답을 받은 상황을 흉내
+    sec.VALIDATION["schema_issues"] = []
+    check("실 응답이면 verification_method=live",
+          sec.validation_report()["verification_method"] == "live")
+    check("실 응답이어도 스키마 불일치면 schema_verified=False",
+          (sec.VALIDATION["schema_issues"].append({"cik": "x", "missing_keys": ["form"]})
+           or sec.validation_report()["schema_verified"]) is False)
+
+
 def main() -> None:
     print("Atlas Fault Injection Suite — 실패를 기다리지 않고 설계해서 검증한다")
     test_distribution_and_history()      # 실제 common 을 먼저 쓴다
     test_failure_isolation()             # 그 다음 스텁을 설치한다 (순서 중요)
+    test_sec_collector()
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     total = len(RESULTS)
