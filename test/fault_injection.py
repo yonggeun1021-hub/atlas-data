@@ -301,6 +301,41 @@ def test_sec_collector() -> None:
           sec.parse_items("", "8-K")["item_status"] == "no_items_reported")
     check("★ 6-K 는 not_itemized (FPI 이벤트 분류 불가를 숨기지 않는다)",
           sec.parse_items("", "6-K")["item_status"] == "not_itemized")
+    # 5-7 Event Taxonomy — 분류는 지금, 점수는 나중
+    unmapped = [c for c in sec.ITEM_TITLES if c not in sec.ITEM_EVENT_MAP]
+    check("★ 모든 Item 코드가 Event Type 에 매핑돼 있다 (누락 0)",
+          unmapped == [], f"unmapped={unmapped}")
+    bad = [c for c, e in sec.ITEM_EVENT_MAP.items() if e not in sec.EVENT_TYPES]
+    check("매핑된 Event Type 이 전부 어휘 안에 있다", bad == [], f"밖: {bad}")
+    p = sec.parse_items("1.01", "8-K")
+    check("Item 1.01 → Contract", p["event_types"] == ["Contract"], f"got {p['event_types']}")
+    check("Item 1.05 → Cybersecurity",
+          sec.parse_items("1.05", "8-K")["event_types"] == ["Cybersecurity"])
+    check("Item 5.02 → Management",
+          sec.parse_items("5.02", "8-K")["event_types"] == ["Management"])
+    check("모르는 Item 은 Event Type 없음 (Other 로 흡수하지 않는다)",
+          sec.parse_items("9.99", "8-K")["event_types"] == [])
+    check("Taxonomy 10종 (Litigation 은 detection_required 로 이동)",
+          len(sec.EVENT_TYPES) == 10, f"got {len(sec.EVENT_TYPES)}: {list(sec.EVENT_TYPES)}")
+    check("Distress · Accounting 신설",
+          {"Distress", "Accounting"} <= set(sec.EVENT_TYPES))
+    check("Bankruptcy(1.03) → Distress",
+          sec.parse_items("1.03", "8-K")["event_types"] == ["Distress"])
+    check("Delisting(3.01) → Distress",
+          sec.parse_items("3.01", "8-K")["event_types"] == ["Distress"])
+    check("감사인 교체(4.01) → Accounting",
+          sec.parse_items("4.01", "8-K")["event_types"] == ["Accounting"])
+    check("★ 재작성(4.02) 은 Financial Results 가 아니라 Accounting",
+          sec.parse_items("4.02", "8-K")["event_types"] == ["Accounting"])
+    check("실적발표(2.02) 는 Financial Results 유지",
+          sec.parse_items("2.02", "8-K")["event_types"] == ["Financial Results"])
+    check("미해소 gap 은 2.05 뿐 (해소된 척하지 않는다)",
+          set(sec.TAXONOMY_GAPS) == {"2.05"}, f"got {set(sec.TAXONOMY_GAPS)}")
+    check("Litigation·Guidance 는 detection_required 로 분리",
+          set(sec.DETECTION_REQUIRED) == {"Litigation", "Guidance"})
+    check("Litigation 은 Item 매핑에 존재하지 않는다",
+          "Litigation" not in sec.ITEM_EVENT_MAP.values())
+
     check("Event Score 는 싣지 않는다 (이력 0일)",
           captured.get("event_score") is None
           and "Undefined" in captured.get("event_score_status", ""))
