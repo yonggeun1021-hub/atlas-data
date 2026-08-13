@@ -1,0 +1,57 @@
+name: Atlas Daily Collect
+
+on:
+  schedule:
+    # 21:00 UTC (일~목) = 06:00 KST (월~금)
+    - cron: '0 21 * * 0-4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Collect KRX
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          PYTHONPATH: collectors
+        run: python collectors/krx.py
+
+      - name: Collect DART
+        if: always()
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          PYTHONPATH: collectors
+        run: python collectors/dart.py
+
+      - name: Commit data
+        if: always()
+        run: |
+          git config user.name  "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add data/ config/corp_map.json || true
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "data: $(date -u +%Y-%m-%d) collect"
+            git push
+          fi
