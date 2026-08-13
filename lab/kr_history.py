@@ -26,28 +26,41 @@ from pykrx import stock                                    # noqa: E402
 from common import load_universe, today_kst, now_utc_iso   # noqa: E402
 
 
-def fetch_stock(code: str, start: str, end: str) -> dict:
-    """연 단위로 끊어 받는다 — 한 번에 수년치를 요청하면 응답이 불안정하다."""
-    ohlcv = stock.get_market_ohlcv_by_date(start, end, code)
-    vol = stock.get_market_trading_volume_by_date(start, end, code)
+def year_chunks(start: str, end: str):
+    """연 단위로 끊는다 — 한 번에 수년치를 요청하면 응답이 불안정하거나 잘린다."""
+    s = dt.datetime.strptime(start, "%Y%m%d").date()
+    e = dt.datetime.strptime(end, "%Y%m%d").date()
+    cur = s
+    while cur <= e:
+        nxt = min(dt.date(cur.year, 12, 31), e)
+        yield cur.strftime("%Y%m%d"), nxt.strftime("%Y%m%d")
+        cur = nxt + dt.timedelta(days=1)
 
-    daily, missing = {}, set()
-    for idx in ohlcv.index:
-        key = idx.strftime("%Y-%m-%d")
-        row = {
-            "close": int(ohlcv.loc[idx, "종가"]),
-            "high": int(ohlcv.loc[idx, "고가"]),
-            "low": int(ohlcv.loc[idx, "저가"]),
-            "volume": int(ohlcv.loc[idx, "거래량"]),
-        }
-        if idx in vol.index:
-            for want, name in (("기관합계", "inst"), ("외국인합계", "foreign")):
-                if want in vol.columns:
-                    row[name] = int(vol.loc[idx, want])
-                else:
-                    missing.add(want)          # 조용히 버리지 않는다
-        daily[key] = row
-    return {"daily": daily, "missing_columns": sorted(missing)}
+
+def fetch_stock(code: str, start: str, end: str) -> dict:
+    daily, missing, chunks = {}, set(), 0
+
+    for cs, ce in year_chunks(start, end):
+        ohlcv = stock.get_market_ohlcv_by_date(cs, ce, code)
+        vol = stock.get_market_trading_volume_by_date(cs, ce, code)
+        chunks += 1
+
+        for idx in ohlcv.index:
+            row = {
+                "close": int(ohlcv.loc[idx, "종가"]),
+                "high": int(ohlcv.loc[idx, "고가"]),
+                "low": int(ohlcv.loc[idx, "저가"]),
+                "volume": int(ohlcv.loc[idx, "거래량"]),
+            }
+            if idx in vol.index:
+                for want, name in (("기관합계", "inst"), ("외국인합계", "foreign")):
+                    if want in vol.columns:
+                        row[name] = int(vol.loc[idx, want])
+                    else:
+                        missing.add(want)      # 조용히 버리지 않는다
+            daily[idx.strftime("%Y-%m-%d")] = row
+
+    return {"daily": daily, "missing_columns": sorted(missing), "chunks": chunks}
 
 
 def main() -> None:
