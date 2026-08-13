@@ -30,6 +30,13 @@ import datetime as dt
 #   분류 체계가 바뀌면 버전을 올리고, 과거 레코드는 옛 버전 그대로 남긴다.
 TAXONOMY_VERSION = "1.0"
 
+# ★ 분류 '로직' 버전 (CIO 지시 2026-08-13). taxonomy_version 과 별개다.
+#   taxonomy_version : 어휘·매핑표가 바뀌었는가
+#   decision_version : 분류 규칙(undetermined 판정 등)이 바뀌었는가
+#   collector_version: 수집 로직이 바뀌었는가 (레코드에 함께 기록 — provenance)
+#   셋을 나눠 두면 이력 변화가 '수집 탓'인지 '분류 탓'인지 구분된다.
+DECISION_VERSION = "d1_v1"
+
 EVENT_TYPES = ("Contract", "Management", "Cybersecurity", "Financial Results",
                "Capital", "M&A", "Reg FD", "Distress", "Accounting", "Other")
 
@@ -119,18 +126,27 @@ def classify(filing: dict) -> dict:
         "unknown_item_codes": unknown_codes,
         "taxonomy_gap_codes": [c for c in codes if c in TAXONOMY_GAPS],
         "taxonomy_version": TAXONOMY_VERSION,
+        "decision_version": DECISION_VERSION,
     }
 
 
+# 분류 결과를 실제로 바꿀 수 있는 축만 키에 넣는다.
+#   collector_version 은 키에 넣지 않는다 — 수집기가 올라갈 때마다 이력이 통째로 복제된다.
+#   대신 같은 키인데 결과가 달라졌으면 '조용히 옛것을 유지'하지 않고 표면화한다(drift).
+KEY_FIELDS = ("ticker", "accession", "taxonomy_version", "decision_version")
+DRIFT_FIELDS = ("event_types", "item_codes", "resolution", "undetermined")
+
+
 def record_key(rec: dict) -> str:
-    """같은 제출물은 한 번만 쌓는다. 단, 분류 체계가 바뀌면 새 레코드로 다시 쌓는다."""
-    return f"{rec['ticker']}|{rec['accession']}|{rec['taxonomy_version']}"
+    """같은 제출물은 한 번만 쌓는다.
+    단, 분류 체계(taxonomy) 또는 분류 로직(decision) 이 바뀌면 새 레코드로 다시 쌓는다."""
+    return "|".join(str(rec.get(f)) for f in KEY_FIELDS)
 
 
 def load_existing(path: str = OUT_PATH) -> tuple:
     if not os.path.exists(path):
-        return [], set()
-    rows, keys = [], set()
+        return [], {}
+    rows, keys = [], {}
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -138,7 +154,7 @@ def load_existing(path: str = OUT_PATH) -> tuple:
                 continue
             r = json.loads(line)
             rows.append(r)
-            keys.add(record_key(r))
+            keys[record_key(r)] = r
     return rows, keys
 
 
@@ -160,7 +176,8 @@ def build_records(payload: dict) -> list:
                 "item_codes": f.get("item_codes") or [],
                 "url": f.get("url"),
                 **classify(f),
-                "source_collector_version": payload.get("collector_version"),
+                # provenance — 키에는 넣지 않되 이력에는 남긴다
+                "collector_version": f"sec_{payload.get('collector_version')}",
                 "source_collected_for": payload.get("collected_for_kst_date"),
             })
     return out
@@ -176,7 +193,21 @@ def main() -> None:
 
     fresh = build_records(payload)
     _, seen = load_existing()
-    new = [r for r in fresh if record_key(r) not in seen]
+
+    new, drift = [], []
+    for r in fresh:
+        k = record_key(r)
+        prev = seen.get(k)
+        if prev is None:
+            new.append(r)
+        elif any(prev.get(f) != r.get(f) for f in DRIFT_FIELDS):
+            # 같은 키인데 결과가 달라졌다 = 수집 로직 변화가 분류를 바꿨다는 뜻.
+            # 조용히 옛것을 유지하면 원인을 영원히 못 찾는다.
+            drift.append({"key": k,
+                          "prev_collector": prev.get("collector_version"),
+                          "now_collector": r.get("collector_version"),
+                          **{f: [prev.get(f), r.get(f)] for f in DRIFT_FIELDS
+                             if prev.get(f) != r.get(f)}})
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     with open(OUT_PATH, "a", encoding="utf-8") as f:
@@ -189,10 +220,14 @@ def main() -> None:
         for t in r["event_types"]:
             by_type[t] = by_type.get(t, 0) + 1
 
-    print(f"[D1] taxonomy_version={TAXONOMY_VERSION}")
+    print(f"[D1] taxonomy_version={TAXONOMY_VERSION} decision_version={DECISION_VERSION}")
     print(f"[D1] 대상 {len(fresh)}건 · 신규 {len(new)}건 · 중복제외 {len(fresh) - len(new)}건")
     print(f"[D1] resolution: {by_res}")
     print(f"[D1] event_types(신규): {by_type or '없음 — 정상 산출물이다'}")
+    if drift:
+        print(f"[D1] ⚠ 동일 키인데 분류 결과가 달라진 건 {len(drift)}건 — 수집 로직 변화 의심")
+        for d in drift[:5]:
+            print(f"[D1]   {d}")
     print(f"[D1] saved {OUT_PATH}")
 
 
