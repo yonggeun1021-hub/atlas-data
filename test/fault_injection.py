@@ -228,8 +228,9 @@ def test_sec_collector() -> None:
           all(x["form_class"] == "fpi" for x in f["filings_recent"]))
     f = sec.fetch_filings(nvda, days=3650)
     check("NVDA → domestic", f["filer_profile"] == "domestic", f"got {f['filer_profile']}")
-    check("8-K items 보존 (해석하지 않고 그대로)",
-          any(x["items"] == "2.02" for x in f["filings_recent"]))
+    check("8-K items 원문 보존 + 코드 분해",
+          any(x["items_raw"] == "2.02" and x["item_codes"] == ["2.02"]
+              for x in f["filings_recent"]))
     f = sec.fetch_filings(msft, days=3650)
     check("폼 없음 → unknown (추정으로 채우지 않는다)",
           f["filer_profile"] == "unknown", f"got {f['filer_profile']}")
@@ -286,6 +287,28 @@ def test_sec_collector() -> None:
           f"got {v.get('verification_method')}")
     check("스텁 실행은 schema_verified=False", v.get("schema_verified") is False)
     check("검증 실패 사유 명시", bool(v.get("reason")))
+
+    # 5-6 8-K Item — SEC 고정 목록의 번역이지 우리가 만든 분류가 아니다
+    p = sec.parse_items("1.01,9.01", "8-K")
+    check("Item 코드 분해", p["item_codes"] == ["1.01", "9.01"], f"got {p['item_codes']}")
+    check("1.01 → Material Definitive Agreement",
+          p["items_detail"][0]["title"].startswith("Entry into a Material"))
+    check("Item 1.05 = Cybersecurity 수록", sec.ITEM_TITLES["1.05"] == "Cybersecurity Incidents")
+    p = sec.parse_items("9.99", "8-K")
+    check("모르는 Item 은 known=False (제목 지어내지 않는다)",
+          p["items_detail"][0]["known"] is False and p["items_detail"][0]["title"] is None)
+    check("8-K 인데 Item 비었으면 no_items_reported",
+          sec.parse_items("", "8-K")["item_status"] == "no_items_reported")
+    check("★ 6-K 는 not_itemized (FPI 이벤트 분류 불가를 숨기지 않는다)",
+          sec.parse_items("", "6-K")["item_status"] == "not_itemized")
+    check("Event Score 는 싣지 않는다 (이력 0일)",
+          captured.get("event_score") is None
+          and "Undefined" in captured.get("event_score_status", ""))
+    check("FPI 이벤트 분류는 Unimplemented 로 명시",
+          "Unimplemented" in captured.get("fpi_event_classification_status", ""))
+    check("본문·Exhibit 미저장을 명시", all(
+        f["body_captured"] is False for v in captured["stocks"].values()
+        for f in v.get("filings_recent", [])))
 
     sec.VALIDATION["live_requests"] = 3          # 실 응답을 받은 상황을 흉내
     sec.VALIDATION["schema_issues"] = []
