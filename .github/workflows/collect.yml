@@ -35,8 +35,6 @@ jobs:
       # ────────────────────────────────────────────────────────────────
       - name: Guard — 오늘자 수집 여부 확인
         id: guard
-        env:
-          TODAY_KST: ""
         run: |
           TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
           SKIP=no
@@ -79,6 +77,12 @@ jobs:
 
       - name: Commit data
         if: always() && steps.guard.outputs.skip != 'yes'
+        env:
+          # ★ 어느 트리거가 이 수집을 성사시켰는지 기록한다.
+          #   schedule 이면 실제 발동한 cron 식이, 수동이면 workflow_dispatch 가 들어온다.
+          #   이 값이 쌓여야 "06:05 가 계속 이기는가 / 백업이 자주 받아내는가"를
+          #   측정할 수 있다. 이것 없이는 스케줄 신뢰도를 사후에 알 방법이 없다.
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
         run: |
           git config user.name  "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
@@ -87,6 +91,6 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             # ★ KST 기준 (UTC 로 찍으면 06시 KST 실행분이 전날 날짜로 기록됨)
-            git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect"
+            git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect [${TRIGGER}]"
             git push
           fi
