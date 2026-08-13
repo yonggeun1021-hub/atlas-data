@@ -1,5 +1,10 @@
 """Atlas Data Server — 공통 유틸
 
+v7 (2026-08-13) — 단계 이력을 누적한다 (Pipeline 전환율 KPI의 재료)
+  전환율은 '현재 분포'가 아니라 '상태 변화'다. 변화를 보려면 어제가 있어야 한다.
+  → data/stage_history.json 에 하루 한 장씩 스냅샷을 쌓는다.
+  ⛔ 전환율 자체는 계산하지 않는다 — 정의가 Undefined 이고, 정의를 현장에서 만들지 않는다.
+
 v6 (2026-08-13) — Stage 와 Coverage 를 분리한다 (CIO 확정)
   Coverage 는 투자 단계가 아니라 '계속 추적하는 대상'이라는 성격이다.
   Notion 은 Freeze 대상이라 태그 표기(`Atlas Stage: Coverage`)를 그대로 두고,
@@ -32,6 +37,7 @@ import requests
 KST = ZoneInfo("Asia/Seoul")
 DATA_DIR = "data"
 UNIVERSE_FILE = "config/universe.json"
+STAGE_HISTORY = "data/stage_history.json"
 
 # 비워두면 search로 자동 탐색한다. 특정 DB를 강제하려면 환경변수로 지정.
 NOTION_DB_ID = os.getenv("NOTION_WATCHLIST_DB", "").strip()
@@ -317,6 +323,95 @@ def load_universe() -> list:
 # ────────────────────────────────────────────────────────────
 # 저장
 # ────────────────────────────────────────────────────────────
+
+def _all_rows(universe: list) -> dict:
+    """Atlas Universe 전체(수집 대상 + 미수집 미국 종목)를 한 장으로 모은다."""
+    rows: dict = {}
+    for s in universe:                      # 수집 대상(한국)
+        rows[s["code"]] = {
+            "name": s.get("name"),
+            "stage": s.get("atlas_stage"),
+            "coverage": s.get("coverage"),
+            "collected": True,
+        }
+    for s in universe_meta.get("notion_skipped", []):   # 미수집(미국) — 단계는 살아 있다
+        key = s.get("ticker") or s.get("name")
+        if key:
+            rows[key] = {
+                "name": s.get("name"),
+                "stage": s.get("atlas_stage"),
+                "coverage": s.get("coverage"),
+                "collected": False,          # Unimplemented — Unknown이 아니다
+            }
+    return rows
+
+
+def stage_distribution(universe: list, date: dt.date | None = None) -> dict:
+    """CIO 확정 KPI (2026-08-13) — 보는 것은 '분포'이지 '전환율'이 아니다.
+
+    ⛔ Stage Conversion Rate 는 계산하지 않는다. 정의(분모·기간·재진입)는 Review #3.
+       세는 일을 사람이 하지 않게 여기서 계산해 실어 보낸다 —
+       오늘 Discovery 를 1이 아닌 2로 센 사례가 있었고, 그 종류의 오차를 없앤다.
+    """
+    rows = _all_rows(universe)
+    by_stage: dict = {}
+    for r in rows.values():
+        key = r["stage"] or "미부여"
+        by_stage[key] = by_stage.get(key, 0) + 1
+
+    return {
+        "as_of": (date or today_kst()).isoformat(),
+        "metric": "Stage Distribution (분포)",
+        "not_a_conversion_rate": ("각 종목은 정확히 한 단계에만 있다. "
+                                  "이 숫자는 상태의 분포이며 상태의 변화가 아니다."),
+        "coverage_total": sum(1 for r in rows.values() if r["coverage"] is True),
+        "stage_assigned": sum(1 for r in rows.values() if r["stage"]),
+        "buy": by_stage.get("Buy", 0),
+        "by_stage": by_stage,
+        "universe_total": len(rows),
+        "conversion_rate": None,
+        "conversion_rate_status": "Undefined — 분모·기간·재진입 정의는 Review #3 (2026-08-15)",
+    }
+
+
+def record_stage_snapshot(universe: list, date: dt.date | None = None) -> str:
+    """Atlas Universe 전체의 단계를 하루 한 장씩 누적한다 (v7, CIO 지시 2026-08-13).
+
+    ★ 왜 이력이 필요한가
+      Pipeline 전환율은 '지금 몇 개가 어느 단계에 있는가'(분포)로는 계산할 수 없다.
+      전환율은 '어제 Discovery였던 것 중 몇 개가 오늘 Candidate가 되었는가'(변화)다.
+      변화를 보려면 어제와 오늘이 둘 다 있어야 한다 — 그래서 오늘부터 남긴다.
+
+    ⛔ 여기서 전환율을 계산하지는 않는다. 전환율의 정의(분모·기간·재진입 처리)는
+       아직 Undefined 이며, 정의를 현장에서 만들어내는 것은 금지된 행동이다.
+       이 함수는 '정의가 정해졌을 때 계산할 수 있는 재료'만 쌓는다.
+    """
+    date = date or today_kst()
+    rows = _all_rows(universe)
+
+    hist: dict = {}
+    if os.path.exists(STAGE_HISTORY):
+        try:
+            with open(STAGE_HISTORY, encoding="utf-8") as f:
+                hist = json.load(f)
+        except Exception as e:               # noqa: BLE001
+            print(f"[stage_history] ⚠ 기존 이력을 읽지 못했다: {type(e).__name__}: {e}")
+            print("[stage_history]   덮어쓰지 않고 중단한다 — 이력 손실이 더 큰 손해다.")
+            return ""
+
+    hist[date.isoformat()] = rows
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(STAGE_HISTORY, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+    dist: dict = {}
+    for r in rows.values():
+        dist[r["stage"]] = dist.get(r["stage"], 0) + 1
+    print(f"[stage_history] {date} {len(rows)}종목 기록 · 단계 분포(전환율 아님): {dist}")
+    print(f"[stage_history] 누적 {len(hist)}일")
+    return STAGE_HISTORY
+
 
 def save(payload: dict, filename: str, date: dt.date | None = None) -> str:
     date = date or today_kst()
