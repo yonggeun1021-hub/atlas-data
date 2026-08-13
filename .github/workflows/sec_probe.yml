@@ -21,7 +21,24 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
         run: python collectors/sec.py
-
+      - name: TSM 확인 (출력 전용)
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open("data/latest_sec.json"))
+          t = d["stocks"]["TSM"]
+          print("filer_profile      :", t["filer_profile"])
+          print("form_family_counts :", t["form_family_counts"])
+          print("form_types_on_file :", t["form_types_on_file"])
+          st = {}
+          for f in t["filings_recent"]:
+              st[f["item_status"]] = st.get(f["item_status"], 0) + 1
+          print("item_status 분포   :", st)
+          print("앞 3건:")
+          for f in t["filings_recent"][:3]:
+              print("   ", f["date"], f["form"], f["form_family"], f["item_status"])
+          PY
       - name: Upload result
         if: always()
         uses: actions/upload-artifact@v4
