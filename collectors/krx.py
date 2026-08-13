@@ -21,7 +21,8 @@ import os
 import sys
 import datetime as dt
 
-from common import save, load_universe, today_kst, now_utc_iso
+from common import (save, load_universe, today_kst, now_utc_iso,
+                    record_stage_snapshot, stage_distribution)
 
 if not (os.getenv("KRX_ID") and os.getenv("KRX_PW")):
     print("FATAL: KRX_ID / KRX_PW 환경변수가 없습니다. GitHub Secrets를 확인하세요.")
@@ -118,13 +119,17 @@ def main() -> None:
         "collected_for_kst_date": today.isoformat(),
         "source": "KRX 정보데이터시스템 (pykrx)",
         "source_tier": "Official",
-        "collector_version": "v3.1",
+        "collector_version": "v3.3",
         "range": {"start": start, "end": end},
         "stocks": {},
     }
 
+    universe = load_universe()
+    record_stage_snapshot(universe, today)   # 단계 이력은 수집 성패와 무관하게 먼저 남긴다
+    payload["stage_distribution"] = stage_distribution(universe, today)
+
     ok = failed = 0
-    for s in load_universe():
+    for s in universe:
         code, name = s["code"], s["name"]
         try:
             payload["stocks"][code] = {
