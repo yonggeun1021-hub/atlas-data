@@ -1,18 +1,18 @@
 """Atlas Data Server — 공통 유틸
- 
-v4 (2026-08-13) — Notion을 판정 정본으로 삼되 수집은 Notion∪파일 합집합
- 
+
+v5 (2026-08-13) — Atlas 단계를 DB select가 아닌 `편입 사유` 태그에서 읽는다 (논리·저장소 분리)
+
   v2 문제: DB ID를 고정해 두었더니 404가 났고, Notion의 404는
            "ID가 틀림"과 "공유 안 됨"을 구분해 주지 않는다.
   v3 해결: /v1/search 로 통합에 공유된 데이터베이스를 나열해 이름으로 찾는다.
            search 결과는 "이 통합이 실제로 볼 수 있는 것"이므로
            실패 시 무엇이 보이는지까지 그대로 보고한다 → 원인이 즉시 드러난다.
- 
+
   우선순위:
     1) Notion PM Watchlist  (NOTION_TOKEN 이 있고 공유돼 있을 때)   ← SSOT
     2) config/universe.json (Notion 실패 시)                       ← Fallback
   두 곳이 다르면 조용히 넘기지 않고 universe_divergence 로 보고한다.
- 
+
 ★ 설계 원칙 — 실패를 빈 값·직전 값·추정치로 대체하지 않는다.
 """
 import os
@@ -20,78 +20,84 @@ import re
 import json
 import datetime as dt
 from zoneinfo import ZoneInfo
- 
+
 import requests
- 
+
 KST = ZoneInfo("Asia/Seoul")
 DATA_DIR = "data"
 UNIVERSE_FILE = "config/universe.json"
- 
+
 # 비워두면 search로 자동 탐색한다. 특정 DB를 강제하려면 환경변수로 지정.
 NOTION_DB_ID = os.getenv("NOTION_WATCHLIST_DB", "").strip()
 NOTION_DB_TITLE = os.getenv("NOTION_WATCHLIST_TITLE", "PM Watchlist").strip()
 NOTION_VERSION = "2022-06-28"
 API = "https://api.notion.com/v1"
- 
+
 KR_TICKER = re.compile(r"^\d{6}$")
- 
+
+# Atlas 단계는 DB select가 아니라 `편입 사유` 텍스트 태그로 관리한다 (CIO 확정 2026-08-13)
+#   Atlas Stage: Candidate
+#   Atlas Coverage: Y
+ATLAS_STAGE_TAG = re.compile(r"Atlas\s+Stage\s*[:：]\s*([A-Za-z가-힣]+)")
+ATLAS_COVERAGE_TAG = re.compile(r"Atlas\s+Coverage\s*[:：]\s*([A-Za-z가-힣]+)")
+
 universe_meta: dict = {}
- 
- 
+
+
 def today_kst() -> dt.date:
     return dt.datetime.now(KST).date()
- 
- 
+
+
 def now_utc_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
- 
- 
+
+
 # ────────────────────────────────────────────────────────────
 # Notion
 # ────────────────────────────────────────────────────────────
- 
+
 def _headers() -> dict:
     return {
         "Authorization": f"Bearer {os.environ['NOTION_TOKEN']}",
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
- 
- 
+
+
 def _plain(prop: dict) -> str:
     if not prop:
         return ""
     items = prop.get("rich_text") or prop.get("title") or []
     return "".join(i.get("plain_text", "") for i in items).strip()
- 
- 
+
+
 def _db_title(db: dict) -> str:
     return "".join(t.get("plain_text", "") for t in db.get("title", [])).strip()
- 
- 
+
+
 def _find_db() -> str:
     """통합에 공유된 데이터베이스 중 이름이 맞는 것을 찾는다."""
     if NOTION_DB_ID:
         universe_meta["notion_db_source"] = "env"
         return NOTION_DB_ID
- 
+
     r = requests.post(f"{API}/search", headers=_headers(), timeout=30, json={
         "filter": {"property": "object", "value": "database"},
         "page_size": 100,
     })
     if r.status_code != 200:
         raise RuntimeError(f"Notion search {r.status_code}: {r.text[:300]}")
- 
+
     dbs = r.json().get("results", [])
     visible = [{"id": d["id"], "title": _db_title(d)} for d in dbs]
     universe_meta["notion_visible_databases"] = visible   # ★ 진단용 — 항상 남긴다
- 
+
     if not visible:
         raise RuntimeError(
             "통합에 공유된 데이터베이스가 0개다. "
             "Notion에서 PM Watchlist를 열고 ··· → 연결 → atlas-data 를 추가해야 한다."
         )
- 
+
     for d in visible:                       # 정확히 일치
         if d["title"] == NOTION_DB_TITLE:
             universe_meta["notion_db_source"] = "search_exact"
@@ -101,20 +107,20 @@ def _find_db() -> str:
             universe_meta["notion_db_source"] = "search_partial"
             universe_meta["notion_db_title"] = d["title"]
             return d["id"]
- 
+
     raise RuntimeError(
         f"'{NOTION_DB_TITLE}' 를 찾지 못했다. 통합이 볼 수 있는 DB: "
         f"{[d['title'] for d in visible]}"
     )
- 
- 
+
+
 def _from_notion() -> list:
     if not os.getenv("NOTION_TOKEN"):
         raise RuntimeError("NOTION_TOKEN 미설정")
- 
+
     db_id = _find_db()
     universe_meta["notion_db"] = db_id
- 
+
     rows, cursor = [], None
     while True:
         body = {"page_size": 100}
@@ -129,53 +135,72 @@ def _from_notion() -> list:
         if not j.get("has_more"):
             break
         cursor = j.get("next_cursor")
- 
-    universe, skipped = [], []
+
+    universe, skipped, untagged = [], [], []
     for row in rows:
         props = row.get("properties", {})
         name = _plain(props.get("종목")) or _plain(props.get("Name"))
         ticker = _plain(props.get("티커")) or _plain(props.get("Ticker"))
-        state = (props.get("상태") or {}).get("select") or {}
- 
+        db_state = (props.get("상태") or {}).get("select") or {}
+        notes = _plain(props.get("편입 사유")) or _plain(props.get("Notes"))
+
+        # ★ CIO 확정 2026-08-13 — 논리와 저장소를 분리한다.
+        #   DB의 '상태' select 는 Freeze로 건드리지 않는다(관찰·진입대기·Ready·파일럿·보유 유지).
+        #   Atlas 단계(Discovery/Candidate/Ready/Buy/Holding/Closed)는
+        #   기존 '편입 사유' 필드의 `Atlas Stage:` 태그로만 관리한다.
+        #   ⛔ DB 상태 → Atlas 단계 매핑 금지. 태그가 없으면 만들어내지 않고 None으로 남긴다.
+        stage = ATLAS_STAGE_TAG.search(notes)
+        cov = ATLAS_COVERAGE_TAG.search(notes)
+        atlas_stage = stage.group(1).strip() if stage else None
+        atlas_coverage = cov.group(1).strip() if cov else None
+
+        if atlas_stage is None:
+            untagged.append({"name": name, "ticker": ticker,
+                             "reason": "편입 사유에 `Atlas Stage:` 태그 없음 — 단계 Unknown"})
+
         m = re.search(r"\d{6}", ticker)
         if m and KR_TICKER.match(m.group(0)):
             universe.append({
                 "code": m.group(0),
                 "name": name or m.group(0),
-                "notion_state": state.get("name"),
+                "atlas_stage": atlas_stage,          # Atlas 논리 단계 (정본)
+                "atlas_coverage": atlas_coverage,
+                "db_state": db_state.get("name"),    # DB select 원본 — 참고용, 판정에 쓰지 않는다
             })
         else:
             skipped.append({"name": name, "ticker": ticker,
+                            "atlas_stage": atlas_stage,
                             "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"})
- 
+
     universe_meta["notion_rows"] = len(rows)
     universe_meta["notion_skipped"] = skipped
+    universe_meta["notion_untagged"] = untagged   # ★ 태그 누락은 조용히 넘기지 않는다
     if not universe:
         raise RuntimeError(f"DB는 읽었으나 한국 종목 0건 (전체 {len(rows)}행). '티커' 칸 확인 필요")
     return universe
- 
- 
+
+
 # ────────────────────────────────────────────────────────────
 # 종목 목록
 # ────────────────────────────────────────────────────────────
- 
+
 def _from_file() -> list:
     with open(UNIVERSE_FILE, encoding="utf-8") as f:
         return json.load(f)["kr"]
- 
- 
+
+
 def load_universe() -> list:
     file_list, file_err = [], None
     try:
         file_list = _from_file()
     except Exception as e:                          # noqa: BLE001
         file_err = f"{type(e).__name__}: {e}"
- 
+
     try:
         notion_list = _from_notion()
         n = {s["code"] for s in notion_list}
         f = {s["code"] for s in file_list}
- 
+
         # ★ 수집은 합집합(union)으로 한다 — 판정 정본은 Notion이지만 데이터는 넓게 확보한다.
         #   빠뜨리면 그날 판정 자체가 불가능해지고 되돌릴 수 없다.
         #   더 수집하는 것은 비용이 거의 없고 해가 없다. (종목당 API 5콜)
@@ -183,12 +208,13 @@ def load_universe() -> list:
         merged = list(notion_list)
         for s in file_list:
             if s["code"] not in n:
-                merged.append({**s, "notion_state": None})
- 
+                merged.append({**s, "atlas_stage": None, "atlas_coverage": None,
+                               "db_state": None})
+
         for s in merged:
             s["in_notion"] = s["code"] in n
             s["in_file"] = s["code"] in f
- 
+
         universe_meta.update({
             "source": "notion+file_union",
             "source_tier": "SSOT(Notion) + 수집 안전망(file)",
@@ -211,8 +237,13 @@ def load_universe() -> list:
         if universe_meta.get("notion_skipped"):
             print(f"[universe] ⚠ 제외(한국 코드 아님): "
                   f"{[s['ticker'] for s in universe_meta['notion_skipped']]}")
+        if universe_meta.get("notion_untagged"):
+            print(f"[universe] ⚠ Atlas Stage 태그 없음: "
+                  f"{[s['ticker'] for s in universe_meta['notion_untagged']]}")
+        stages = {s["code"]: s.get("atlas_stage") for s in merged}
+        print(f"[universe] Atlas Stage: {stages}")
         return merged
- 
+
     except Exception as e:                          # noqa: BLE001
         universe_meta.update({
             "source": "file_fallback",
@@ -228,28 +259,28 @@ def load_universe() -> list:
         if not file_list:
             raise RuntimeError(f"Notion·파일 모두 실패. Notion: {e} / 파일: {file_err}") from e
         return file_list
- 
- 
+
+
 # ────────────────────────────────────────────────────────────
 # 저장
 # ────────────────────────────────────────────────────────────
- 
+
 def save(payload: dict, filename: str, date: dt.date | None = None) -> str:
     date = date or today_kst()
     payload["universe_meta"] = dict(universe_meta)
- 
+
     outdir = os.path.join(DATA_DIR, date.isoformat())
     os.makedirs(outdir, exist_ok=True)
- 
+
     path = os.path.join(outdir, filename)
     with open(path, "w", encoding="utf-8") as fp:
         json.dump(payload, fp, ensure_ascii=False, indent=2)
- 
+
     stem = os.path.splitext(filename)[0]
     latest = os.path.join(DATA_DIR, f"latest_{stem}.json")
     with open(latest, "w", encoding="utf-8") as fp:
         json.dump(payload, fp, ensure_ascii=False, indent=2)
- 
+
     print(f"[saved] {path}")
     print(f"[saved] {latest}")
     return path
