@@ -1,0 +1,39 @@
+name: Entry Validation Lab (수동)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - name: KR 장기 이력 수집
+        env:
+          PYTHONPATH: collectors:lab
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          LAB_YEARS: '6'
+        run: python lab/kr_history.py
+
+      - name: Rule Comparator
+        env:
+          PYTHONPATH: lab
+        run: python lab/rule_comparator.py
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab_result
+          path: |
+            data/kr_history.json
+            data/rule_comparator.json
