@@ -3,6 +3,10 @@
 원천: KRX 정보데이터시스템 (data.krx.co.kr)
 인증: 환경변수 KRX_ID / KRX_PW  (pykrx 1.2.8+ 요구사항)
 
+v3.1 (2026-08-13) — Stage 와 Coverage 를 분리한다 (CIO 확정)
+  `atlas_stage: "Coverage"` 는 쓰지 않는다. Coverage 는 단계가 아니라 추적 대상 여부다.
+  → `{"atlas_stage": null, "coverage": true}` / `{"atlas_stage": "Candidate", "coverage": true}`
+
 v3 (2026-08-13) — 종목 레벨에 Atlas 단계를 실어 보낸다
   문제: 종목 payload에 `stage: null`만 있어, 브리핑이 latest_krx.json만 읽으면
         효성중공업이 Candidate인지 알 수 없었다. 조용한 누락이다.
@@ -92,10 +96,13 @@ def collect_one(code: str, start: str, end: str) -> dict:
 
 def meta(s: dict) -> dict:
     """★ Atlas 단계는 Notion `편입 사유`의 Atlas Stage 태그에서 온다 (CIO 확정 2026-08-13).
+    Stage 와 Coverage 는 서로 다른 축이다 — Coverage 는 Stage 값이 아니다.
+      atlas_stage : Discovery / Candidate / Ready / Buy / Holding / Closed / None
+      coverage    : true / false / None(Unknown)
     DB select 원본(db_state)은 참고 보존만 하고 판정에 쓰지 않는다."""
     return {
         "atlas_stage": s.get("atlas_stage"),
-        "atlas_coverage": s.get("atlas_coverage"),
+        "coverage": s.get("coverage"),
         "db_state": s.get("db_state"),
         "in_notion": s.get("in_notion"),
     }
@@ -111,7 +118,7 @@ def main() -> None:
         "collected_for_kst_date": today.isoformat(),
         "source": "KRX 정보데이터시스템 (pykrx)",
         "source_tier": "Official",
-        "collector_version": "v3",
+        "collector_version": "v3.1",
         "range": {"start": start, "end": end},
         "stocks": {},
     }
@@ -128,7 +135,8 @@ def main() -> None:
             }
             ok += 1
             miss = payload["stocks"][code]["missing_investors"]
-            print(f"[ok]     {code} {name} [{s.get('atlas_stage')}]"
+            print(f"[ok]     {code} {name} "
+                  f"[stage={s.get('atlas_stage')} coverage={s.get('coverage')}]"
                   + (f"  ⚠ 누락: {miss}" if miss else ""))
         except Exception as e:                      # noqa: BLE001
             payload["stocks"][code] = {
