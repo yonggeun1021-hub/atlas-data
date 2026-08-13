@@ -288,62 +288,26 @@ def test_sec_collector() -> None:
     check("스텁 실행은 schema_verified=False", v.get("schema_verified") is False)
     check("검증 실패 사유 명시", bool(v.get("reason")))
 
-    # 5-6 8-K Item — SEC 고정 목록의 번역이지 우리가 만든 분류가 아니다
+    # 5-6 8-K Item — SEC 고정 목록의 '번역'만 Collector 에 남는다
     p = sec.parse_items("1.01,9.01", "8-K")
     check("Item 코드 분해", p["item_codes"] == ["1.01", "9.01"], f"got {p['item_codes']}")
     check("1.01 → Material Definitive Agreement",
           p["items_detail"][0]["title"].startswith("Entry into a Material"))
     check("Item 1.05 = Cybersecurity 수록", sec.ITEM_TITLES["1.05"] == "Cybersecurity Incidents")
-    p = sec.parse_items("9.99", "8-K")
     check("모르는 Item 은 known=False (제목 지어내지 않는다)",
-          p["items_detail"][0]["known"] is False and p["items_detail"][0]["title"] is None)
+          sec.parse_items("9.99", "8-K")["items_detail"][0]["known"] is False)
     check("8-K 인데 Item 비었으면 no_items_reported",
           sec.parse_items("", "8-K")["item_status"] == "no_items_reported")
     check("★ 6-K 는 not_itemized (FPI 이벤트 분류 불가를 숨기지 않는다)",
           sec.parse_items("", "6-K")["item_status"] == "not_itemized")
-    # 5-7 Event Taxonomy — 분류는 지금, 점수는 나중
-    unmapped = [c for c in sec.ITEM_TITLES if c not in sec.ITEM_EVENT_MAP]
-    check("★ 모든 Item 코드가 Event Type 에 매핑돼 있다 (누락 0)",
-          unmapped == [], f"unmapped={unmapped}")
-    bad = [c for c, e in sec.ITEM_EVENT_MAP.items() if e not in sec.EVENT_TYPES]
-    check("매핑된 Event Type 이 전부 어휘 안에 있다", bad == [], f"밖: {bad}")
-    p = sec.parse_items("1.01", "8-K")
-    check("Item 1.01 → Contract", p["event_types"] == ["Contract"], f"got {p['event_types']}")
-    check("Item 1.05 → Cybersecurity",
-          sec.parse_items("1.05", "8-K")["event_types"] == ["Cybersecurity"])
-    check("Item 5.02 → Management",
-          sec.parse_items("5.02", "8-K")["event_types"] == ["Management"])
-    check("모르는 Item 은 Event Type 없음 (Other 로 흡수하지 않는다)",
-          sec.parse_items("9.99", "8-K")["event_types"] == [])
-    check("Taxonomy 10종 (Litigation 은 detection_required 로 이동)",
-          len(sec.EVENT_TYPES) == 10, f"got {len(sec.EVENT_TYPES)}: {list(sec.EVENT_TYPES)}")
-    check("Distress · Accounting 신설",
-          {"Distress", "Accounting"} <= set(sec.EVENT_TYPES))
-    check("Bankruptcy(1.03) → Distress",
-          sec.parse_items("1.03", "8-K")["event_types"] == ["Distress"])
-    check("Delisting(3.01) → Distress",
-          sec.parse_items("3.01", "8-K")["event_types"] == ["Distress"])
-    check("감사인 교체(4.01) → Accounting",
-          sec.parse_items("4.01", "8-K")["event_types"] == ["Accounting"])
-    check("★ 재작성(4.02) 은 Financial Results 가 아니라 Accounting",
-          sec.parse_items("4.02", "8-K")["event_types"] == ["Accounting"])
-    check("실적발표(2.02) 는 Financial Results 유지",
-          sec.parse_items("2.02", "8-K")["event_types"] == ["Financial Results"])
-    check("미해소 gap 은 2.05 뿐 (해소된 척하지 않는다)",
-          set(sec.TAXONOMY_GAPS) == {"2.05"}, f"got {set(sec.TAXONOMY_GAPS)}")
-    check("Litigation·Guidance 는 detection_required 로 분리",
-          set(sec.DETECTION_REQUIRED) == {"Litigation", "Guidance"})
-    check("Litigation 은 Item 매핑에 존재하지 않는다",
-          "Litigation" not in sec.ITEM_EVENT_MAP.values())
-
-    check("Event Score 는 싣지 않는다 (이력 0일)",
-          captured.get("event_score") is None
-          and "Undefined" in captured.get("event_score_status", ""))
-    check("FPI 이벤트 분류는 Unimplemented 로 명시",
-          "Unimplemented" in captured.get("fpi_event_classification_status", ""))
-    check("본문·Exhibit 미저장을 명시", all(
-        f["body_captured"] is False for v in captured["stocks"].values()
-        for f in v.get("filings_recent", [])))
+    check("★ Collector 에 Atlas 해석이 없다 (event_type 미보유)",
+          "event_type" not in p["items_detail"][0] and "event_types" not in p)
+    check("★ Collector 에 taxonomy 상수가 없다",
+          not any(hasattr(sec, n) for n in
+                  ("EVENT_TYPES", "ITEM_EVENT_MAP", "TAXONOMY_GAPS", "DETECTION_REQUIRED")))
+    check("원천 부재(supply_demand)는 Collector 소관으로 유지",
+          captured.get("supply_demand") is None
+          and "Unavailable" in captured.get("supply_demand_status", ""))
 
     sec.VALIDATION["live_requests"] = 3          # 실 응답을 받은 상황을 흉내
     sec.VALIDATION["schema_issues"] = []
@@ -354,11 +318,104 @@ def test_sec_collector() -> None:
            or sec.validation_report()["schema_verified"]) is False)
 
 
+
+# ────────────────────────────────────────────────────────────
+# T6 — Decision Layer D1 (Event Classification)
+#   분류만 검증한다. Score·해석·판정은 D1 에 없으므로 검증 대상도 아니다.
+# ────────────────────────────────────────────────────────────
+
+def test_event_classifier() -> None:
+    import event_classifier as ec
+
+    print("\n[T6] D1 Event Classification — 분류만 한다")
+
+    # 6-1 층 분리
+    check("★ Taxonomy 는 D1 이 소유한다", hasattr(ec, "ITEM_EVENT_MAP"))
+    check("taxonomy_version 존재", ec.TAXONOMY_VERSION == "1.0")
+    check("Taxonomy 10종", len(ec.EVENT_TYPES) == 10, f"got {len(ec.EVENT_TYPES)}")
+    unmapped = [c for c in ec.ITEM_EVENT_MAP if ec.ITEM_EVENT_MAP[c] not in ec.EVENT_TYPES]
+    check("매핑값이 전부 어휘 안에 있다", unmapped == [], f"밖: {unmapped}")
+    check("D1 에 Score 가 없다", not any(hasattr(ec, n) for n in
+          ("EVENT_SCORE", "SCORE_MAP", "score", "interpret")))
+
+    # 6-2 확정 매핑
+    r = ec.classify({"form_family": "current_report", "item_status": "classified",
+                     "item_codes": ["1.01"]})
+    check("Item 1.01 → Contract", r["event_types"] == ["Contract"])
+    check("확정 분류는 resolution=resolved", r["resolution"] == "resolved")
+    check("★ 본문형 유형은 여전히 undetermined",
+          r["undetermined"] == ["Guidance", "Litigation"], f"got {r['undetermined']}")
+    check("Item 4.02 → Accounting",
+          ec.classify({"form_family": "current_report", "item_status": "classified",
+                       "item_codes": ["4.02"]})["event_types"] == ["Accounting"])
+
+    # 6-3 추론 금지
+    r = ec.classify({"form_family": "current_report", "item_status": "classified",
+                     "item_codes": ["8.01"]})
+    check("★ Item 8.01 → Other (Guidance 로 추정하지 않는다)", r["event_types"] == ["Other"])
+    check("8.01 이어도 Guidance 는 undetermined 로 남는다", "Guidance" in r["undetermined"])
+    r = ec.classify({"form_family": "current_report", "item_status": "classified",
+                     "item_codes": ["9.99"]})
+    check("모르는 코드는 Other 로 흡수하지 않는다", r["event_types"] == [])
+    check("모르는 코드는 unknown_item_codes 로 표면화", r["unknown_item_codes"] == ["9.99"])
+    check("2.05 는 taxonomy_gap 으로 표시",
+          ec.classify({"form_family": "current_report", "item_status": "classified",
+                       "item_codes": ["2.05"]})["taxonomy_gap_codes"] == ["2.05"])
+
+    # 6-4 6-K (FPI) — '무엇이 담겼는지 전부' 모른다
+    r = ec.classify({"form_family": "current_report", "item_status": "not_itemized",
+                     "item_codes": []})
+    check("6-K 는 event_types 비어 있음", r["event_types"] == [])
+    check("6-K 는 resolution=unresolved", r["resolution"] == "unresolved")
+    check("★ 6-K 는 전체 유형이 undetermined (Guidance 만이 아니다)",
+          set(ec.EVENT_TYPES) <= set(r["undetermined"]))
+    check("6-K 사유 명시", r["classification_reason"] == "no_item_structure")
+
+    # 6-5 Form 4 — 서술이 없으므로 '모른다'도 아니다
+    r = ec.classify({"form_family": "ownership", "item_status": "not_itemized",
+                     "item_codes": []})
+    check("★ ownership 은 undetermined 가 비어 있다 (거짓 미결 금지)", r["undetermined"] == [])
+    check("ownership 은 resolution=not_applicable", r["resolution"] == "not_applicable")
+
+    # 6-6 이력 누적 — 중복 없이 쌓이고, taxonomy 버전이 바뀌면 다시 쌓인다
+    payload = {"collector_version": "v2", "collected_for_kst_date": "2026-08-14",
+               "stocks": {"NVDA": {"status": "ok", "name": "NVIDIA", "atlas_stage": None,
+                                   "coverage": True, "filings_recent": [
+                   {"date": "2026-08-14", "form": "8-K", "form_family": "current_report",
+                    "accession": "0001-26-000001", "item_codes": ["1.01"],
+                    "item_status": "classified", "url": ""}]},
+                          "TSM": {"status": "FAILED", "name": "TSMC"}}}
+    tmp, cwd = tempfile.mkdtemp(), os.getcwd()
+    try:
+        os.chdir(tmp)
+        os.makedirs("data", exist_ok=True)
+        with open(ec.IN_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        ec.main()
+        ec.main()                                    # 같은 날 두 번 돌려도
+        rows, _ = ec.load_existing()
+        check("★ 같은 제출물은 한 번만 쌓인다 (중복 방지)", len(rows) == 1, f"got {len(rows)}")
+        check("실패 종목은 이력에 넣지 않는다",
+              all(r["ticker"] != "TSM" for r in rows))
+        check("레코드에 taxonomy_version 이 박힌다", rows[0]["taxonomy_version"] == "1.0")
+        check("레코드에 시간축이 있다", rows[0]["filing_date"] == "2026-08-14")
+        ec.TAXONOMY_VERSION = "1.1"                  # 분류 체계가 바뀌면
+        ec.main()
+        rows, _ = ec.load_existing()
+        check("★ taxonomy_version 이 바뀌면 다시 분류해 쌓는다 (과거 재현 가능)",
+              len(rows) == 2, f"got {len(rows)}")
+        ec.TAXONOMY_VERSION = "1.0"
+    finally:
+        os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> None:
     print("Atlas Fault Injection Suite — 실패를 기다리지 않고 설계해서 검증한다")
     test_distribution_and_history()      # 실제 common 을 먼저 쓴다
     test_failure_isolation()             # 그 다음 스텁을 설치한다 (순서 중요)
     test_sec_collector()
+    test_event_classifier()
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     total = len(RESULTS)
