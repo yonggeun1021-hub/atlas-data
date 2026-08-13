@@ -19,7 +19,7 @@ GitHub Actions (매일 06:00 KST)
 | 이름 | 값 |
 | --- | --- |
 | `KRX_ID` | fantaes |
-| `KRX_PW` | Wnsgh1021! |
+| `KRX_PW` |  |
 | `DART_API_KEY` | 1ac8de4ff631d81dfc1a2818bc7dd382d09ef8d1 |
 
 ## 설계 원칙
