@@ -10,7 +10,8 @@
   1. 단일 재료 먼저      — 조합은 개별 재료가 살아남은 뒤에만
   2. 기저율 대비만 보고  — 조건부 +4% 는 무조건부 +6% 앞에서 손해다
   3. 사전 등록          — 후보를 파일에 박고, 검정 횟수를 결과에 남긴다
-  4. Pass / Fail / insufficient_evidence + **사유**
+  4. rejected_in_sample / retained / undecidable + **사유**
+     ⛔ 'Pass' 라는 단어를 쓰지 않는다 — 판정어가 있으면 반드시 채택에 쓰인다.
 
 ⛔ 하지 않는 것
   · 임계값 탐색(fishing) — 후보는 아래 HYPOTHESES 로 고정된다
@@ -59,16 +60,16 @@ SEED = 20260813             # 재현 가능해야 한다
 
 # ★ 다중검정 — 44회를 돌리면 아무 신호가 없어도 평균 2.2건이 Pass 로 나온다.
 #   개별 Pass 를 근거로 쓰면 그게 곧 우연을 채택하는 것이다.
-#   그래서 '가족 단위 판정'을 함께 낸다: Pass 수가 기대 오탐 수를 넘지 못하면 근거 없음.
+#   그래서 '가족 단위 판정'을 함께 낸다: retained 수가 기대 오탐 수를 넘지 못하면 근거 없음.
 FAMILY_RULE = (
-    "검정 횟수 × 0.05 = 기대 오탐 수. Pass 수가 이 값 이하면 family_level=no_evidence "
-    "— 개별 Pass 를 재료 채택 근거로 쓰지 않는다."
+    "검정 횟수 × 0.05 = 기대 오탐 수. retained 수가 이 값 이하면 family_level=no_evidence "
+    "— 개별 retained 를 재료 채택 근거로 쓰지 않는다."
 )
 
 VERDICT_RULE = (
     "n >= 30 AND 표본 연도 >= 3 AND 상승·하락 국면 모두 포함 이면 판정 가능. "
-    "그 조건에서 초과수익 90% 부트스트랩 구간이 0 을 포함하지 않고 양수면 Pass, "
-    "그 외에는 Fail(no_incremental_information). 조건 미달이면 insufficient_evidence."
+    "그 조건에서 초과수익 90% 부트스트랩 구간이 0 을 포함하지 않고 양수면 retained(채택 아님), "
+    "그 외에는 rejected_in_sample. 조건 미달이면 undecidable."
 )
 
 
@@ -373,13 +374,13 @@ def main() -> None:
         "verdict_rule": VERDICT_RULE,
         "family_rule": FAMILY_RULE,
         "family_level": family,
-        "pass_count": n_pass,
+        "retained_count": n_pass,
         "expected_false_pass_by_chance": round(expected_false, 2),
         "thresholds": {"n_min": N_MIN, "min_years": MIN_YEARS,
                        "ci": [CI_LOW, CI_HIGH], "bootstrap_iters": BOOTSTRAP_ITERS,
                        "seed": SEED},
         "caveat": ("보유구간이 겹쳐 표본이 독립이 아니다. 블록 부트스트랩으로 일부만 보정된다. "
-                   "Pass 는 '유망하다'는 뜻이지 '검증되었다'는 뜻이 아니다 — Forward 가 남았다."),
+                   "retained 는 '기각되지 않았다'는 뜻일 뿐 채택이 아니다 — v2 와 Forward 가 남았다."),
         "summary": by_status,
         "insufficient_by_reason": by_reason,
         "regime_by_year": {str(h): REGIME_CACHE.get(h, {}) for h in HORIZONS},
@@ -410,9 +411,9 @@ def main() -> None:
     if by_reason:
         print(f"[lab] 판정불가 사유: {by_reason}")
         print(f"[lab] 판정불가 가설: {insufficient_ids}")
-    print(f"[lab] family_level={family}  (Pass {n_pass}건 vs 우연 기대 {expected_false:.1f}건)")
+    print(f"[lab] family_level={family}  (retained {n_pass}건 vs 우연 기대 {expected_false:.1f}건)")
     if family == "no_evidence":
-        print("[lab] → 개별 Pass 를 재료 채택 근거로 쓰지 않는다. 정상 산출물이다.")
+        print("[lab] → 개별 retained 를 재료 채택 근거로 쓰지 않는다. 정상 산출물이다.")
     for r in results:
         if r["status"] == "retained":
             print(f"[lab] retained(채택 아님)  {r['hypothesis_id']:>4} {r['description']} "
