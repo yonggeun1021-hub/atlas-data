@@ -322,6 +322,10 @@ def evaluate(series: dict) -> list:
                 "years_covered": sorted(years),
                 "regime_up_years": sorted(up), "regime_down_years": sorted(down),
                 "overlapping_windows": True,
+                # ★ 이 표본의 어떤 결론도 일반화되지 않는다 (CIO 확정 2026-08-13).
+                #   Point-in-Time 유니버스(v2)에서도 같이 기각되어야 비로소 'rejected' 다.
+                "generalizable": False,
+                "generalizable_reason": "current_curated_universe",
             })
     return results
 
@@ -413,6 +417,8 @@ def main() -> None:
         if r["status"] == "retained":
             print(f"[lab] retained(채택 아님)  {r['hypothesis_id']:>4} {r['description']} "
                   f"({r['horizon_days']}일) 초과 {r['excess_return']:+.2%} n={r['n']}")
+    print("[lab] ⚠ 모든 결론은 generalizable=false — 이 5종목 한정이다. "
+          "v2(Point-in-Time)에서 같이 기각되어야 'rejected' 로 승격된다.")
     print(f"[lab] saved {OUT_PATH}")
 
 
