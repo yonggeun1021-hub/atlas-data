@@ -261,8 +261,12 @@ def test_sec_collector() -> None:
     check("실패는 TSM 한 종목뿐", [t for t, v in st.items() if v["status"] != "ok"] == ["TSM"])
     check("NVDA 는 정상 수집", st.get("NVDA", {}).get("status") == "ok")
     check("★ 실패해도 단계 보존 (TSM=Ready)", st.get("TSM", {}).get("atlas_stage") == "Ready")
-    check("Decision Layer 비어 있음 (Review #3 전까지)",
-          captured.get("decision_layer") is None)
+    # ⚠ 이전 버전은 `captured.get("decision_layer") is None` 이었는데, 필드를 삭제한 뒤에는
+    #   있든 없든 통과하는 공회전 검사가 됐다. 키의 '부재'를 직접 확인한다.
+    check("★ Collector payload 에 Decision 소관 키가 없다",
+          not any(k in captured for k in
+                  ("decision_layer", "event_taxonomy", "event_score", "fpi_event_classification")),
+          f"발견: {[k for k in captured if 'event_' in k or 'decision' in k]}")
     check("미국 수급은 Unavailable 로 명시", captured.get("supply_demand") is None
           and "Unavailable" in captured.get("supply_demand_status", ""))
 
