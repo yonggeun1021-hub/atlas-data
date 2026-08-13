@@ -30,7 +30,7 @@ os.environ.setdefault("KRX_PW", "faultinjection")
 # ★ 실행 방식에 의존하지 않는다 — PYTHONPATH 를 잘못 주면 '테스트가 없는 채로 초록불'이 되기 쉽다.
 #   리포 구조에서 직접 경로를 잡는다. (2026-08-13: PYTHONPATH 누락으로 D1 검증이 통째로 빠졌던 사례)
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("collectors", "decision"):
+for _sub in ("collectors", "decision", "portfolio", "lab"):
     _full = os.path.join(_ROOT, _sub)
     if os.path.isdir(_full) and _full not in sys.path:
         sys.path.insert(0, _full)
@@ -458,12 +458,81 @@ def test_event_classifier() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+
+# ────────────────────────────────────────────────────────────
+# T7 — Portfolio Constitution 검산기 (Level 0)
+#   숫자는 IC 가 정한다. 여기서 검사하는 것은 '검산기가 모순을 잡는가' 뿐이다.
+# ────────────────────────────────────────────────────────────
+
+BASE_C = {
+    "B1_bucket_definition": ["반도체", "전력기기"],
+    "B2_cash_floor_pct": 30, "B3_bucket_max_pct": 35, "B4_position_max_pct": 25,
+    "B5_stop_loss_pct": 20, "B6_portfolio_max_loss_pct": 15,
+    "B7_evidence_state_max_pct": {"backtest_only": 5, "forward_early": 10,
+                                  "forward_established": 20, "operating": 25},
+}
+
+
+def test_constitution() -> None:
+    try:
+        import constitution as k
+    except ModuleNotFoundError:
+        check("헌법 검산기 로드", False, f"portfolio/constitution.py 없음 ({_ROOT}/portfolio)")
+        return
+
+    print("\n[T7] Portfolio Constitution — 헌법을 코드가 강제하는가")
+
+    empty = {f: None for f in k.FIELDS}
+    empty["B7_evidence_state_max_pct"] = {x: None for x in k.EVIDENCE_ORDER}
+    r = k.check(empty)
+    check("★ 미비준이면 not_ratified", r["status"] == "not_ratified", f"got {r['status']}")
+    check("★ 미비준이면 매수 불가", r["buy_allowed"] is False)
+    check("미확정 항목 10건 전부 열거", len(r["missing"]) == 10, f"got {len(r['missing'])}")
+
+    r = k.check(dict(BASE_C))
+    check("정합 헌법은 ratified", r["status"] == "ratified", f"got {r['status']}")
+    check("최대 투입 70% 도출", r["derived"]["max_deployed_pct"] == 70.0)
+    check("★ 최악 손실 14.0% 계산", r["derived"]["worst_case_loss_pct"] == 14.0,
+          f"got {r['derived']['worst_case_loss_pct']}")
+    check("여유 1.0%p", r["derived"]["headroom_pct"] == 1.0)
+
+    bad = dict(BASE_C, B2_cash_floor_pct=20)            # 투입 80% × 손절 20% = 16% > 15%
+    r = k.check(bad)
+    check("★ 안전식 위반을 잡는다 (② D×L≤P)", r["status"] == "contradictory"
+          and any("②" in v["rule"] for v in r["violations"]))
+    check("★ 모순이면 매수 불가", r["buy_allowed"] is False)
+    check("해소 방법을 제시한다", any(v.get("fix") for v in r["violations"]))
+
+    r = k.check(dict(BASE_C, B4_position_max_pct=40))   # 종목 40% > 버킷 35%
+    check("집중도 위반을 잡는다 (③)", any("③" in v["rule"] for v in r["violations"]))
+
+    ev = dict(BASE_C["B7_evidence_state_max_pct"], backtest_only=20)
+    r = k.check(dict(BASE_C, B7_evidence_state_max_pct=ev))
+    check("★ 증거 등급 역전을 잡는다 (④)", any("④" in v["rule"] for v in r["violations"]))
+
+    rows = {(x["P"], x["L"]): x for x in k.tradeoff_table()}
+    check("귀결표 산수 (P15·L20 → 현금하한 25%)",
+          rows[(15, 20)]["min_cash_floor_pct"] == 25.0,
+          f"got {rows[(15, 20)]['min_cash_floor_pct']}")
+
+    # 리포에 실제로 들어 있는 헌법은 '모순'이 아니어야 한다 (미비준은 정상)
+    live = os.path.join(_ROOT, "config", "constitution.json")
+    if os.path.exists(live):
+        lr = k.check(k.load(live))
+        check("★ 리포의 헌법이 모순 상태가 아니다",
+              lr["status"] in ("not_ratified", "ratified"), f"got {lr['status']}")
+        print(f"       현재 리포 헌법: {lr['status']} · buy_allowed={lr['buy_allowed']}")
+    else:
+        check("config/constitution.json 존재", False, "파일 없음")
+
+
 def main() -> None:
     print("Atlas Fault Injection Suite — 실패를 기다리지 않고 설계해서 검증한다")
     test_distribution_and_history()      # 실제 common 을 먼저 쓴다
     test_failure_isolation()             # 그 다음 스텁을 설치한다 (순서 중요)
     test_sec_collector()
     test_event_classifier()
+    test_constitution()
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     total = len(RESULTS)
