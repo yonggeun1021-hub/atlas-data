@@ -1,5 +1,11 @@
 """Atlas Data Server — 공통 유틸
 
+v6 (2026-08-13) — Stage 와 Coverage 를 분리한다 (CIO 확정)
+  Coverage 는 투자 단계가 아니라 '계속 추적하는 대상'이라는 성격이다.
+  Notion 은 Freeze 대상이라 태그 표기(`Atlas Stage: Coverage`)를 그대로 두고,
+  Data Server 내부 JSON 에서만 `coverage: true` / `atlas_stage: null` 로 변환한다.
+  Stage 어휘는 Discovery / Candidate / Ready / Buy / Holding / Closed 6개뿐이다.
+
 v5 (2026-08-13) — Atlas 단계를 DB select가 아닌 `편입 사유` 태그에서 읽는다 (논리·저장소 분리)
 
   v2 문제: DB ID를 고정해 두었더니 404가 났고, Notion의 404는
@@ -40,6 +46,17 @@ KR_TICKER = re.compile(r"^\d{6}$")
 #   Atlas Coverage: Y
 ATLAS_STAGE_TAG = re.compile(r"Atlas\s+Stage\s*[:：]\s*([A-Za-z가-힣]+)")
 ATLAS_COVERAGE_TAG = re.compile(r"Atlas\s+Coverage\s*[:：]\s*([A-Za-z가-힣]+)")
+
+# ★ CIO 확정 2026-08-13 (v6) — Stage 와 Coverage 를 분리한다.
+#   Stage 는 '투자 단계'다. 아래 6개만 Stage 다.
+#   Coverage 는 '사업을 계속 추적하는 대상'이라는 성격이며 Stage 가 아니다.
+#   따라서 JSON 내부 표현은 coverage(bool) 와 atlas_stage(단계 or None) 를 따로 둔다.
+#   Notion 은 Freeze 대상이므로 그대로 두고, 변환은 여기(Data Server 내부)에서만 한다.
+VALID_STAGES = ("Discovery", "Candidate", "Ready", "Buy", "Holding", "Closed")
+_STAGE_LOOKUP = {s.lower(): s for s in VALID_STAGES}
+
+_TRUEY = {"y", "yes", "true", "1", "o", "예"}
+_FALSEY = {"n", "no", "false", "0", "x", "아니오"}
 
 universe_meta: dict = {}
 
@@ -137,6 +154,7 @@ def _from_notion() -> list:
         cursor = j.get("next_cursor")
 
     universe, skipped, untagged = [], [], []
+    invalid_tags, coverage_unknown = [], []
     for row in rows:
         props = row.get("properties", {})
         name = _plain(props.get("종목")) or _plain(props.get("Name"))
@@ -149,32 +167,62 @@ def _from_notion() -> list:
         #   Atlas 단계(Discovery/Candidate/Ready/Buy/Holding/Closed)는
         #   기존 '편입 사유' 필드의 `Atlas Stage:` 태그로만 관리한다.
         #   ⛔ DB 상태 → Atlas 단계 매핑 금지. 태그가 없으면 만들어내지 않고 None으로 남긴다.
-        stage = ATLAS_STAGE_TAG.search(notes)
-        cov = ATLAS_COVERAGE_TAG.search(notes)
-        atlas_stage = stage.group(1).strip() if stage else None
-        atlas_coverage = cov.group(1).strip() if cov else None
+        stage_m = ATLAS_STAGE_TAG.search(notes)
+        cov_m = ATLAS_COVERAGE_TAG.search(notes)
+        stage_raw = stage_m.group(1).strip() if stage_m else None
+        cov_raw = cov_m.group(1).strip() if cov_m else None
 
-        if atlas_stage is None:
+        atlas_stage = None      # 투자 단계 — 6개 중 하나, 없으면 None
+        coverage = None         # 추적 대상 여부 — bool, 모르면 None(Unknown)
+
+        if stage_raw is None:
             untagged.append({"name": name, "ticker": ticker,
                              "reason": "편입 사유에 `Atlas Stage:` 태그 없음 — 단계 Unknown"})
+        elif stage_raw.lower() == "coverage":
+            # ★ Coverage 는 Stage 가 아니다 → 단계는 비우고 추적 대상으로만 표시한다.
+            coverage = True
+        elif stage_raw.lower() in _STAGE_LOOKUP:
+            atlas_stage = _STAGE_LOOKUP[stage_raw.lower()]
+        else:
+            # 정의되지 않은 값은 조용히 버리지 않는다 — 만들어내지도 않는다.
+            invalid_tags.append({"name": name, "ticker": ticker, "tag": stage_raw,
+                                 "reason": f"Stage 어휘 밖의 값. 허용: {list(VALID_STAGES)}"})
+
+        if cov_raw is not None:                     # 명시 태그가 있으면 그것이 우선
+            lc = cov_raw.lower()
+            if lc in _TRUEY:
+                coverage = True
+            elif lc in _FALSEY:
+                coverage = False
+            else:
+                invalid_tags.append({"name": name, "ticker": ticker, "tag": cov_raw,
+                                     "reason": "Coverage 태그를 Y/N 으로 해석할 수 없음"})
+
+        if coverage is None:
+            coverage_unknown.append({"name": name, "ticker": ticker,
+                                     "reason": "Coverage 태그 없음 — 추론하지 않고 Unknown 으로 둔다"})
 
         m = re.search(r"\d{6}", ticker)
         if m and KR_TICKER.match(m.group(0)):
             universe.append({
                 "code": m.group(0),
                 "name": name or m.group(0),
-                "atlas_stage": atlas_stage,          # Atlas 논리 단계 (정본)
-                "atlas_coverage": atlas_coverage,
+                "atlas_stage": atlas_stage,          # 투자 단계 (정본) — Coverage 는 여기 들어가지 않는다
+                "coverage": coverage,                # 추적 대상 여부 (Stage 밖의 성격)
                 "db_state": db_state.get("name"),    # DB select 원본 — 참고용, 판정에 쓰지 않는다
             })
         else:
             skipped.append({"name": name, "ticker": ticker,
                             "atlas_stage": atlas_stage,
+                            "coverage": coverage,
                             "reason": "한국 6자리 코드 아님(미국 종목 자동수집은 Unimplemented)"})
 
     universe_meta["notion_rows"] = len(rows)
     universe_meta["notion_skipped"] = skipped
     universe_meta["notion_untagged"] = untagged   # ★ 태그 누락은 조용히 넘기지 않는다
+    universe_meta["notion_invalid_tags"] = invalid_tags
+    universe_meta["notion_coverage_unknown"] = coverage_unknown
+    universe_meta["stage_vocabulary"] = list(VALID_STAGES)
     if not universe:
         raise RuntimeError(f"DB는 읽었으나 한국 종목 0건 (전체 {len(rows)}행). '티커' 칸 확인 필요")
     return universe
@@ -208,7 +256,7 @@ def load_universe() -> list:
         merged = list(notion_list)
         for s in file_list:
             if s["code"] not in n:
-                merged.append({**s, "atlas_stage": None, "atlas_coverage": None,
+                merged.append({**s, "atlas_stage": None, "coverage": None,
                                "db_state": None})
 
         for s in merged:
@@ -240,8 +288,13 @@ def load_universe() -> list:
         if universe_meta.get("notion_untagged"):
             print(f"[universe] ⚠ Atlas Stage 태그 없음: "
                   f"{[s['ticker'] for s in universe_meta['notion_untagged']]}")
-        stages = {s["code"]: s.get("atlas_stage") for s in merged}
-        print(f"[universe] Atlas Stage: {stages}")
+        if universe_meta.get("notion_invalid_tags"):
+            print(f"[universe] ⚠ 해석 불가 태그: {universe_meta['notion_invalid_tags']}")
+        if universe_meta.get("notion_coverage_unknown"):
+            print(f"[universe] ⚠ Coverage Unknown: "
+                  f"{[s['ticker'] for s in universe_meta['notion_coverage_unknown']]}")
+        stages = {s["code"]: (s.get("atlas_stage"), s.get("coverage")) for s in merged}
+        print(f"[universe] (stage, coverage): {stages}")
         return merged
 
     except Exception as e:                          # noqa: BLE001
