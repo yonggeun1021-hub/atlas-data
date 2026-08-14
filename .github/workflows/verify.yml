@@ -1,0 +1,91 @@
+name: Verify Collect Path (수동 검증용 · 저장소 미변경)
+
+# ─────────────────────────────────────────────────────────────────────────
+# 목적 — collect.yml 을 전혀 건드리지 않고 "수집 경로"만 지금 검증한다.
+#
+#   · Guard 없음            → 오늘자 데이터가 있어도 실제 수집이 돈다
+#   · git commit / push 없음 → 저장소가 바뀌지 않는다 (관측 오염 없음)
+#   · 커밋 메시지 문자열은 '출력만' 한다 → KST 날짜·트리거 태그를 눈으로 확인
+#   · 결과 JSON 은 아티팩트로만 올린다
+#
+# ⚠ 이 파일은 collect.yml 의 동결(운영 정본 §17)을 위반하지 않는다.
+#    관측 대상은 collect.yml 이며, 이 파일은 별개의 검증용 워크플로다.
+#
+# ⚠ 확인이 끝나면 삭제해도 된다. schedule 이 없으므로 방치해도 저절로 돌지 않는다.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read          # ★ 쓰기 권한 없음 — 실수로도 커밋할 수 없다
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      # ── 1. 수집 경로 ────────────────────────────────────────────────
+      - name: '[1] Collect KRX'
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          PYTHONPATH: collectors
+        run: python collectors/krx.py
+
+      - name: '[2] Collect DART'
+        if: always()
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          PYTHONPATH: collectors
+        run: python collectors/dart.py
+
+      # ── 2. SEC — Phase 2 사전 검증 (편입이 아니라 동작 확인만) ──────
+      - name: '[3] Collect SEC — Phase 2 사전 확인'
+        if: always()
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          PYTHONPATH: collectors
+        run: python collectors/sec.py
+
+      # ── 3. 커밋 메시지 문자열 — 실제 커밋은 하지 않는다 ──────────────
+      - name: '[4] 커밋 메시지 문자열 확인 (커밋 안 함)'
+        if: always()
+        env:
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+        run: |
+          echo "──────────────────────────────────────────────"
+          echo "생성될 커밋 메시지 : data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect [${TRIGGER}]"
+          echo "  KST 날짜        : $(TZ=Asia/Seoul date +%Y-%m-%d)"
+          echo "  UTC 날짜(비교)  : $(date -u +%Y-%m-%d)"
+          echo "  트리거 태그     : ${TRIGGER}"
+          echo "──────────────────────────────────────────────"
+          echo "※ 두 날짜가 다르면 KST 적용이 정상 동작한다는 뜻이다"
+          echo "※ 실제 커밋은 하지 않는다 (permissions: contents: read)"
+
+      # ── 4. 산출물 요약 ─────────────────────────────────────────────
+      - name: '[5] 산출물 요약'
+        if: always()
+        run: python .github/scripts/verify_summary.py
+
+      - name: '[6] Upload (저장소에는 커밋하지 않음)'
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-output
+          path: data/latest_*.json
+          if-no-files-found: warn
