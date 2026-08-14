@@ -22,6 +22,7 @@ import json
 import types
 import shutil
 import tempfile
+import inspect
 import datetime as dt
 
 os.environ.setdefault("KRX_ID", "faultinjection")
@@ -135,11 +136,18 @@ def _install_stubs() -> dict:
 
 
 def _run(krx, failing: set) -> tuple:
-    def flaky(code, start, end):
+    # ★ v4.1 부터 main() 은 collect_one(code, start, end, today) 로 부른다.
+    #   인자 개수에 스위트가 묶이지 않도록 *a, **kw 로 받는다.
+    def flaky(code, start, end, *a, **kw):
         if code in failing:
             raise ConnectionError("KRX 응답 없음 (주입된 장애)")
-        return {"daily": {"2026-08-14": {"close": 1}}, "latest_trading_day": "2026-08-14",
-                "sma20": None, "sma20_basis": 1, "missing_investors": []}
+        return {"daily": {"2026-08-13": {"close": 1, "confirmed": True}},
+                "latest_trading_day": "2026-08-13", "latest_observed_day": "2026-08-13",
+                "unconfirmed_days": [], "decision_ready": True,
+                "sma20": None, "sma20_basis": 1, "sma20_through": "2026-08-13",
+                "sma20_status": "insufficient_confirmed_history",
+                "missing_investors": [], "investor_rows_missing": [],
+                "investor_rows_missing_by_source": {}}
     krx.collect_one = flaky
     code = 0
     try:
@@ -178,6 +186,227 @@ def test_failure_isolation() -> None:
     check("★ 전멸해도 단계 보존 (효성=Candidate)",
           st.get("298040", {}).get("atlas_stage") == "Candidate")
     check("전멸해도 JSON 은 생성된다", len(st) == 5)
+
+
+# ────────────────────────────────────────────────────────────
+# T8 · T9 — krx.collect_one() 의 시간 규율과 수급 결손 표면화
+#
+#   2026-08-14 실제 사고에서 나온 회귀 테스트다.
+#   10:52 KST 수동 재수집분이 당일 미확정 행을 latest_trading_day 와 SMA20 에 넣어,
+#   **복구 버튼을 누른 시각에 따라 Decision 입력값이 달라졌다.**
+#   또 그날 수급 행이 통째로 없었는데 missing_investors 는 [] 였다 —
+#   '컬럼 누락'만 표현할 수 있고 '행 부재'는 표현할 수 없었기 때문이다.
+#
+#   ★ 수정 초안(v4.0)은 "16:00 이후 + 수급 행 존재 → 확정" 이었고 CIO 가 반려했다.
+#     원천이 최종성을 알려주지 않는데 시계로 최종성을 선언하는 설계였기 때문이다.
+#     기본안은 next_day 다 — 당일 행은 언제 돌리든 미확정이고, 다음 날 아침에 확정된다.
+#     8-0 이 그 기본값 자체를 감시하고, 8-2 가 심야까지 포함해 시각 불변성을 검사한다.
+#
+#   ⚠ 여기서 검증하지 않는 것: pykrx 의 실제 응답 스키마. 아래는 스텁 DataFrame 이다.
+# ────────────────────────────────────────────────────────────
+
+OHLCV_COLS = ["시가", "고가", "저가", "종가", "거래량", "등락률"]
+
+
+class _FakeDF:
+    """collect_one() 이 실제로 쓰는 DataFrame 표면만 흉내낸다.
+
+    쓰이는 것은 `.index` · `.columns` · `.loc[idx]` · `.loc[idx, col]` 넷뿐이다.
+    pandas 를 끌어오지 않으므로 이 테스트는 pandas 버전에 영향받지 않는다.
+    """
+
+    def __init__(self, rows: dict, columns):
+        self._rows = rows
+        self.columns = list(columns)
+        self.index = list(rows)
+
+    @property
+    def loc(self):
+        return self
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            idx, col = key
+            return self._rows[idx][col]
+        return self._rows[key]
+
+
+def _ohlcv(day_to_close: dict) -> _FakeDF:
+    return _FakeDF({d: {"시가": c, "고가": c, "저가": c, "종가": c,
+                        "거래량": 1000, "등락률": 0.0}
+                    for d, c in day_to_close.items()}, OHLCV_COLS)
+
+
+def _flow(days, cols) -> _FakeDF:
+    return _FakeDF({d: {c: 0 for c in cols} for d in days}, cols)
+
+
+def _fresh_krx():
+    """T1/T2 가 krx.collect_one 을 스텁으로 갈아끼우므로,
+    **진짜** collect_one 이 필요한 테스트는 모듈을 새로 적재한다."""
+    captured = _install_stubs()
+    sys.modules.pop("krx", None)
+    import krx
+    return krx, captured
+
+
+def _wire(krx, ohlcv: _FakeDF, basic: _FakeDF, detail: _FakeDF) -> None:
+    krx.stock.get_market_ohlcv_by_date = lambda s, e, c: ohlcv
+    krx.stock.get_market_trading_value_by_date = (
+        lambda s, e, c, d_=False, **kw: detail if (d_ or kw.get("detail")) else basic)
+    krx.stock.get_market_trading_volume_by_date = (
+        lambda s, e, c, d_=False, **kw: detail if (d_ or kw.get("detail")) else basic)
+
+
+def test_intraday_exclusion() -> None:
+    krx, captured = _fresh_krx()
+    print("\n[T8] 당일 행 확정 정책 — 실행 시각이 Decision 입력을 바꾸는가")
+
+    TODAY = dt.date(2026, 8, 14)
+    days = [TODAY - dt.timedelta(days=i) for i in range(20, -1, -1)]   # 21개 (마지막이 당일)
+    prior = days[:-1]                                                  # 확정 20개
+    closes = {d: 1000 for d in prior}
+    closes[TODAY] = 2000        # 장중 급등 — 섞이면 SMA20 이 1000.0 → 1050.0 으로 움직인다
+    ohlcv = _ohlcv(closes)
+
+    def wire(include_today_flow: bool = True):
+        fdays = days if include_today_flow else prior
+        _wire(krx, ohlcv, _flow(fdays, krx.BASIC), _flow(fdays, krx.DETAIL))
+
+    def run(today="2026-08-14"):
+        return krx.collect_one("005930", "20260725", "20260814", today)
+
+    # ── 8-0 구조 자체를 감시한다 ─────────────────────────────────────────
+    #   CIO 판정: production 에는 실행되지 않는 경로를 두지 않는다.
+    #   설계 대안(재조회 안정성 게이트)은 docs/spec_same_day_confirmation.md 에 문서로만 있다.
+    params = set(inspect.signature(krx.collect_one).parameters)
+    check("★★ 판정 함수에 시계 입력이 아예 없다 (now 인자 부재)",
+          not (params & {"now", "now_kst", "clock"}), f"got {sorted(params)}")
+    check("★★ 미실행 정책 인자가 없다 (policy · sleep · resample)",
+          not (params & {"policy", "sleep", "resample"}), f"got {sorted(params)}")
+    check("★★ 미배선 정책 객체가 모듈에 없다",
+          not hasattr(krx, "SAME_DAY_CONFIRMATION_POLICY"))
+    check("★ 당일 확정 규칙은 단일 상수 하나뿐이다",
+          krx.SAME_DAY_CONFIRMATION == "next_day", f"got {krx.SAME_DAY_CONFIRMATION}")
+
+    # ── 8-1 장중 10:52 — 2026-08-14 실제 사고와 동일한 조건 ────────────────
+    wire()
+    r = run()
+    d = r["daily"]["2026-08-14"]
+    check("당일 행도 daily 에 보존된다 (관측은 버리지 않는다)", "2026-08-14" in r["daily"])
+    check("★ 당일 행은 confirmed=False", d["confirmed"] is False)
+    check("미확정 사유는 '다음 날로 미룸'", d["confirm_reason"] == "deferred_to_next_day",
+          f"got {d['confirm_reason']}")
+    check("★ latest_trading_day 는 직전 확정일", r["latest_trading_day"] == "2026-08-13",
+          f"got {r['latest_trading_day']}")
+    check("★ 당일 관측일은 별도 필드로 식별", r["latest_observed_day"] == "2026-08-14",
+          f"got {r['latest_observed_day']}")
+    check("★ SMA20 에 당일 행이 섞이지 않는다 (오염 시 1050.0)", r["sma20"] == 1000.0,
+          f"got {r['sma20']}")
+    check("SMA20 기준일을 명시한다", r["sma20_through"] == "2026-08-13")
+    check("SMA20 표본 20개 유지", r["sma20_basis"] == 20, f"got {r['sma20_basis']}")
+    check("미확정일 목록 표면화", r["unconfirmed_days"] == ["2026-08-14"],
+          f"got {r['unconfirmed_days']}")
+
+    # ── 8-2 순수 함수 자체가 시계와 무관한가 ──────────────────────────────
+    check("지난 거래일은 확정", krx.confirm_state("2026-08-13", "2026-08-14")
+          == (True, "prior_session"))
+    check("★ 당일은 확정하지 않는다", krx.confirm_state("2026-08-14", "2026-08-14")
+          == (False, "deferred_to_next_day"))
+    check("미래 날짜는 방어적으로 미확정", krx.confirm_state("2026-08-15", "2026-08-14")
+          == (False, "future_date"))
+
+    # ── 8-3 ★★ end-to-end 시각 불변성 — main() 을 일곱 시각에 돌려 비교한다 ──
+    #   v4.0 초안(16:00 임계값)이었다면 16:30·23:59 에서 결과가 갈렸을 검사다.
+    seen = set()
+    for h, m in ((6, 5), (9, 0), (10, 52), (14, 0), (15, 45), (16, 30), (23, 59)):
+        wire()
+        krx.now_kst = lambda h=h, m=m: dt.datetime(2026, 8, 14, h, m)
+        captured.clear()
+        try:
+            krx.main()
+        except SystemExit:
+            pass
+        s5 = captured["stocks"]["005930"]
+        seen.add((s5["latest_trading_day"], s5["sma20"], s5["latest_observed_day"]))
+    check("★★ 06:05~23:59 어느 시각에 main() 을 돌려도 산출물이 동일 (재현성)",
+          seen == {("2026-08-13", 1000.0, "2026-08-14")}, f"got {seen}")
+
+    # ── 8-4 확정은 다음 날 아침에 일어난다 — 데이터를 영구히 버리는 게 아니다 ──
+    wire()
+    r = run(today="2026-08-15")
+    check("★ 다음 날 수집에서 8/14 가 확정된다", r["latest_trading_day"] == "2026-08-14",
+          f"got {r['latest_trading_day']}")
+    check("다음 날에는 SMA20 에 8/14 가 정상 반영", r["sma20"] == 1050.0, f"got {r['sma20']}")
+    check("8/14 행의 사유가 prior_session 으로 바뀐다",
+          r["daily"]["2026-08-14"]["confirm_reason"] == "prior_session")
+    check("미확정일이 사라진다", r["unconfirmed_days"] == [], f"got {r['unconfirmed_days']}")
+
+    # ── 8-5 payload 레벨 — Step 0 가 읽을 자리에 확정 상태가 있는가 ─────────
+    check("collector_version 이 올라갔다", captured.get("collector_version") == "v4.1",
+          f"got {captured.get('collector_version')}")
+    dr = captured.get("decision_readiness", {})
+    check("★ payload 에 확정 기준일이 있다", dr.get("confirmed_through") == "2026-08-13",
+          f"got {dr.get('confirmed_through')}")
+    check("payload 에 적용된 확정 규칙이 박힌다",
+          dr.get("same_day_confirmation") == "next_day", f"got {dr.get('same_day_confirmation')}")
+    check("미확정 행 보유 종목이 전부 열거된다",
+          len(dr.get("stocks_with_unconfirmed_rows", [])) == 5,
+          f"got {dr.get('stocks_with_unconfirmed_rows')}")
+    check("판정 규칙이 데이터에 동봉된다 (읽는 쪽이 추측하지 않게)",
+          captured.get("same_day_confirmation") == "next_day")
+    check("★ summary 스키마는 그대로 {ok, failed} (guard.py 가 의존한다)",
+          set(captured.get("summary", {})) == {"ok", "failed"},
+          f"got {captured.get('summary')}")
+
+
+def test_investor_row_absence() -> None:
+    krx, _ = _fresh_krx()
+    print("\n[T9] 투자자 수급 — '행 자체가 없음' 과 '컬럼이 없음' 은 다른 상태다")
+
+    D12, D13 = dt.date(2026, 8, 12), dt.date(2026, 8, 13)
+    ohlcv = _ohlcv({D12: 1000, D13: 1010})
+
+    def run():
+        return krx.collect_one("005930", "20260812", "20260813", "2026-08-14")
+
+    # 9-1 행 자체가 없다 (2026-08-14 실제 사고의 모양)
+    _wire(krx, ohlcv, _flow([D12], krx.BASIC), _flow([D12], krx.DETAIL))
+    r = run()
+    d13 = r["daily"]["2026-08-13"]
+    check("★ 행 부재가 날짜로 표면화된다", r["investor_rows_missing"] == ["2026-08-13"],
+          f"got {r['investor_rows_missing']}")
+    check("★ 값 자리에 명시적 null 이 들어간다 (키를 지우지 않는다)",
+          "net_value" in d13 and d13["net_value"] is None)
+    check("어느 소스가 비었는지 행 레벨에도 남는다",
+          d13["investor_rows_absent"] == ["net_value", "net_volume",
+                                          "net_value_detail", "net_volume_detail"],
+          f"got {d13['investor_rows_absent']}")
+    check("소스별 날짜 목록 제공",
+          r["investor_rows_missing_by_source"]["net_value"] == ["2026-08-13"])
+    check("★★ 회귀: missing_investors=[] 를 '수급 정상'으로 읽으면 안 된다",
+          r["missing_investors"] == [] and r["investor_rows_missing"] != [],
+          f"missing_investors={r['missing_investors']} rows_missing={r['investor_rows_missing']}")
+    check("행이 있는 날은 정상 기록", r["daily"]["2026-08-12"]["net_value"] == {
+        k: 0 for k in krx.BASIC})
+
+    # 9-2 행은 있는데 컬럼이 없다 — 기존 축은 그대로 살아 있어야 한다
+    partial = [c for c in krx.BASIC if c != "기관합계"]
+    _wire(krx, ohlcv, _flow([D12, D13], partial), _flow([D12, D13], krx.DETAIL))
+    r = run()
+    check("컬럼 누락은 missing_investors 로", r["missing_investors"] == ["기관합계"],
+          f"got {r['missing_investors']}")
+    check("★ 컬럼 누락은 행 부재로 오인되지 않는다", r["investor_rows_missing"] == [],
+          f"got {r['investor_rows_missing']}")
+    check("행 부재 목록도 비어 있다", r["daily"]["2026-08-13"]["investor_rows_absent"] == [])
+
+    # 9-3 두 결손이 동시에 나도 서로를 가리지 않는다
+    _wire(krx, ohlcv, _FakeDF({D12: {c: 0 for c in partial}}, partial),
+          _flow([D12], krx.DETAIL))
+    r = run()
+    check("★ 컬럼 누락과 행 부재가 동시에 보고된다",
+          r["missing_investors"] == ["기관합계"] and r["investor_rows_missing"] == ["2026-08-13"],
+          f"cols={r['missing_investors']} rows={r['investor_rows_missing']}")
 
 
 # ────────────────────────────────────────────────────────────
@@ -552,6 +781,8 @@ def main() -> None:
     print("Atlas Fault Injection Suite — 실패를 기다리지 않고 설계해서 검증한다")
     test_distribution_and_history()      # 실제 common 을 먼저 쓴다
     test_failure_isolation()             # 그 다음 스텁을 설치한다 (순서 중요)
+    test_intraday_exclusion()            # ★ krx 를 새로 적재한다 — T1/T2 뒤에 와야 한다
+    test_investor_row_absence()
     test_sec_collector()
     test_event_classifier()
     test_constitution()
