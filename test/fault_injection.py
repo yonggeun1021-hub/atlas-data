@@ -24,6 +24,7 @@ import shutil
 import tempfile
 import io
 import inspect
+import traceback
 import contextlib
 import datetime as dt
 
@@ -807,6 +808,15 @@ def test_output_contract() -> None:
         check("verify_summary 로드", False, f"{_SCRIPTS} 에서 찾지 못했다")
         return
 
+    # ★ 구버전이 남아 있을 수 있다. 없는 속성을 그냥 참조하면 AttributeError 로
+    #   스위트가 통째로 죽고 **뒤에 오는 T5·T6·T7 이 실행조차 되지 않는다.**
+    #   '검증 도구가 죽어서 검증이 없는 채로 빨간불' 은 '검증하고 빨간불' 과 다르다.
+    contract = getattr(vs, "CONTRACT", None)
+    if not isinstance(contract, dict):
+        check("★ verify_summary 에 CONTRACT 선언이 있다", False,
+              ".github/scripts/verify_summary.py 가 구버전입니다 — 함께 교체하십시오")
+        return
+
     # 실제 krx.main() 이 만드는 payload 로 대조한다 (손으로 적은 픽스처가 아니다)
     krx, captured = _fresh_krx()
     TODAY = dt.date(2026, 8, 14)
@@ -821,16 +831,16 @@ def test_output_contract() -> None:
         pass
     payload = dict(captured)
 
-    miss = [k for k in vs.CONTRACT["top"] if k not in payload]
+    miss = [k for k in contract["top"] if k not in payload]
     check("★ 최상위 계약 키가 산출물에 전부 있다", miss == [], f"없는 키: {miss}")
 
     dr = payload.get("decision_readiness", {})
-    miss = [k for k in vs.CONTRACT["decision_readiness"] if k not in dr]
+    miss = [k for k in contract["decision_readiness"] if k not in dr]
     check("★★ decision_readiness 계약 키 일치 (policy_mode 오배선 회귀)",
           miss == [], f"없는 키: {miss}")
 
     ok_stock = next(v for v in payload["stocks"].values() if v.get("status") == "ok")
-    miss = [k for k in vs.CONTRACT["stock_ok"] if k not in ok_stock]
+    miss = [k for k in contract["stock_ok"] if k not in ok_stock]
     check("★ 종목 레벨 계약 키 일치", miss == [], f"없는 키: {miss}")
 
     # end-to-end — 실제로 출력해서 값이 찍히는지 본다 (계약만 맞고 출력이 틀릴 수도 있다)
@@ -879,16 +889,39 @@ def test_output_contract() -> None:
           [ln.strip() for ln in out2.splitlines() if "confirmed_through" in ln])
 
 
+# ★ 실행 순서가 의미를 가진다 — 바꾸지 말 것
+#   ① test_distribution_and_history 는 **실제 common** 을 쓴다 (스텁 설치 전)
+#   ② test_failure_isolation 이 스텁을 설치한다
+#   ③ 그 뒤 krx 재적재가 필요한 테스트들이 온다
+SUITES = [
+    ("T3·T4", test_distribution_and_history),
+    ("T1·T2", test_failure_isolation),
+    ("T8",    test_intraday_exclusion),
+    ("T9",    test_investor_row_absence),
+    ("T10",   test_output_contract),
+    ("T5",    test_sec_collector),
+    ("T6",    test_event_classifier),
+    ("T7",    test_constitution),
+]
+
+
 def main() -> None:
     print("Atlas Fault Injection Suite — 실패를 기다리지 않고 설계해서 검증한다")
-    test_distribution_and_history()      # 실제 common 을 먼저 쓴다
-    test_failure_isolation()             # 그 다음 스텁을 설치한다 (순서 중요)
-    test_intraday_exclusion()            # ★ krx 를 새로 적재한다 — T1/T2 뒤에 와야 한다
-    test_investor_row_absence()
-    test_output_contract()           # 읽는 쪽까지 검증한다
-    test_sec_collector()
-    test_event_classifier()
-    test_constitution()
+
+    # ★ 2026-08-14 — 스위트 자체에도 실패 격리를 적용한다.
+    #   그전에는 한 그룹이 예외로 죽으면 **뒤에 오는 그룹이 실행조차 되지 않았다.**
+    #   (실제 사례: T10 의 AttributeError 로 T5·T6·T7 이 통째로 누락된 채 빨간불)
+    #   검증기가 죽어서 '검증이 없는 상태'는 '검증하고 실패한 상태'와 다르다 —
+    #   이 스위트가 수집기에 요구하는 것과 같은 원칙을 스스로에게도 적용한다.
+    for label, fn in SUITES:
+        try:
+            fn()
+        except (Exception, SystemExit) as e:       # noqa: BLE001
+            check(f"[{label}] 그룹이 예외로 중단되지 않는다", False,
+                  f"{type(e).__name__}: {e}")
+            print("       ── 예외 상세 ──")
+            for line in traceback.format_exc().rstrip().splitlines():
+                print(f"       {line}")
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     total = len(RESULTS)
