@@ -22,7 +22,9 @@ import json
 import types
 import shutil
 import tempfile
+import io
 import inspect
+import contextlib
 import datetime as dt
 
 os.environ.setdefault("KRX_ID", "faultinjection")
@@ -35,6 +37,11 @@ for _sub in ("collectors", "decision", "portfolio", "lab"):
     _full = os.path.join(_ROOT, _sub)
     if os.path.isdir(_full) and _full not in sys.path:
         sys.path.insert(0, _full)
+
+# ★ 산출물을 '읽는' 쪽도 검증 대상이다 (T10). 쓰는 쪽만 테스트하면 키 불일치가 안 잡힌다.
+_SCRIPTS = os.path.join(_ROOT, ".github", "scripts")
+if os.path.isdir(_SCRIPTS) and _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 
 RESULTS = []
 
@@ -777,12 +784,108 @@ def test_constitution() -> None:
         check("config/constitution.json 존재", False, "파일 없음")
 
 
+# ────────────────────────────────────────────────────────────
+# T10 — 산출물 키 계약 (쓰는 쪽 ↔ 읽는 쪽)
+#
+#   2026-08-14 CIO 가 직접 잡아낸 실책이다.
+#   krx.py 가 payload 키를 `policy_mode` → `same_day_confirmation` 으로 바꿨는데
+#   verify_summary.py 는 옛 이름을 계속 읽어 **정책값이 조용히 None 으로 찍혔다.**
+#
+#   교훈: `.get()` 으로 읽으면 **키가 사라진 사실 자체가 사라진다.**
+#         산출물을 만드는 쪽만 테스트하고 읽는 쪽을 테스트하지 않으면
+#         '초록불인데 로그가 틀린' 상태가 만들어진다.
+#
+#   대책: verify_summary.CONTRACT 에 의존 키를 명시하고, 여기서 **실제 payload 와 대조**한다.
+#         이름이 또 바뀌면 로그가 조용히 틀리는 대신 이 테스트가 먼저 깨진다.
+# ────────────────────────────────────────────────────────────
+
+def test_output_contract() -> None:
+    print("\n[T10] 산출물 키 계약 — 쓰는 쪽과 읽는 쪽이 같은 이름을 쓰는가")
+    try:
+        import verify_summary as vs
+    except ModuleNotFoundError:
+        check("verify_summary 로드", False, f"{_SCRIPTS} 에서 찾지 못했다")
+        return
+
+    # 실제 krx.main() 이 만드는 payload 로 대조한다 (손으로 적은 픽스처가 아니다)
+    krx, captured = _fresh_krx()
+    TODAY = dt.date(2026, 8, 14)
+    days = [TODAY - dt.timedelta(days=i) for i in range(20, -1, -1)]
+    _wire(krx, _ohlcv({d: 1000 for d in days}),
+          _flow(days, krx.BASIC), _flow(days, krx.DETAIL))
+    krx.now_kst = lambda: dt.datetime(2026, 8, 14, 10, 52)
+    captured.clear()
+    try:
+        krx.main()
+    except SystemExit:
+        pass
+    payload = dict(captured)
+
+    miss = [k for k in vs.CONTRACT["top"] if k not in payload]
+    check("★ 최상위 계약 키가 산출물에 전부 있다", miss == [], f"없는 키: {miss}")
+
+    dr = payload.get("decision_readiness", {})
+    miss = [k for k in vs.CONTRACT["decision_readiness"] if k not in dr]
+    check("★★ decision_readiness 계약 키 일치 (policy_mode 오배선 회귀)",
+          miss == [], f"없는 키: {miss}")
+
+    ok_stock = next(v for v in payload["stocks"].values() if v.get("status") == "ok")
+    miss = [k for k in vs.CONTRACT["stock_ok"] if k not in ok_stock]
+    check("★ 종목 레벨 계약 키 일치", miss == [], f"없는 키: {miss}")
+
+    # end-to-end — 실제로 출력해서 값이 찍히는지 본다 (계약만 맞고 출력이 틀릴 수도 있다)
+    tmp, cwd = tempfile.mkdtemp(), os.getcwd()
+    try:
+        os.chdir(tmp)
+        os.makedirs("data", exist_ok=True)
+        with open("data/latest_krx.json", "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, default=str)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            vs.main()
+        out = buf.getvalue()
+    finally:
+        os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    check("★★ 요약 출력에 당일 확정 규칙이 실제로 찍힌다", "next_day" in out,
+          "; ".join(ln.strip() for ln in out.splitlines() if "당일확정규칙" in ln) or "해당 줄 없음")
+    check("★ 계약 키 누락 경고가 하나도 없다", "키 없음" not in out,
+          [ln.strip() for ln in out.splitlines() if "키 없음" in ln])
+    check("확정 기준일이 찍힌다", "confirmed_through      : 2026-08-13" in out,
+          [ln.strip() for ln in out.splitlines() if "confirmed_through" in ln])
+    check("확정/관측 두 축이 모두 표시된다",
+          "latest_trading_day" in out and "latest_observed_day" in out)
+
+    # 계약이 깨진 산출물을 주면 **조용히 넘어가지 않는지** — 감지 능력 자체를 검사한다
+    broken = dict(payload)
+    broken["decision_readiness"] = {k: v for k, v in dr.items() if k != "same_day_confirmation"}
+    tmp, cwd = tempfile.mkdtemp(), os.getcwd()
+    try:
+        os.chdir(tmp)
+        os.makedirs("data", exist_ok=True)
+        with open("data/latest_krx.json", "w", encoding="utf-8") as f:
+            json.dump(broken, f, ensure_ascii=False, default=str)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            vs.main()
+        out2 = buf.getvalue()
+    finally:
+        os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    check("★★ 키가 사라지면 None 이 아니라 '키 없음' 으로 드러난다",
+          "키 없음(same_day_confirmation)" in out2,
+          [ln.strip() for ln in out2.splitlines() if "confirmed_through" in ln])
+
+
 def main() -> None:
     print("Atlas Fault Injection Suite — 실패를 기다리지 않고 설계해서 검증한다")
     test_distribution_and_history()      # 실제 common 을 먼저 쓴다
     test_failure_isolation()             # 그 다음 스텁을 설치한다 (순서 중요)
     test_intraday_exclusion()            # ★ krx 를 새로 적재한다 — T1/T2 뒤에 와야 한다
     test_investor_row_absence()
+    test_output_contract()           # 읽는 쪽까지 검증한다
     test_sec_collector()
     test_event_classifier()
     test_constitution()
