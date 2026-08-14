@@ -6,6 +6,14 @@ verify.yml 에서만 쓴다. 수집기가 만든 data/latest_*.json 을 읽어
 
 ⚠ 이 스크립트는 아무것도 쓰지 않고 아무것도 판정하지 않는다. 출력만 한다.
    실패해도 워크플로를 죽이지 않는다(항상 exit 0).
+
+★ 2026-08-14 — 키 계약(CONTRACT)을 명시한다.
+  사고: 수집기가 payload 키를 `policy_mode` → `same_day_confirmation` 으로 바꿨는데
+        이 파일이 옛 이름을 계속 읽어, 검증 요약에 정책값이 조용히 `None` 으로 찍혔다.
+        읽는 쪽이 `.get()` 을 쓰면 **키가 사라진 사실 자체가 사라진다.**
+  대책: 아래 CONTRACT 에 이 파일이 의존하는 키를 전부 적어 두고,
+        test/fault_injection.py T10 이 **실제 payload 와 대조**한다.
+        이름이 또 바뀌면 회귀 테스트가 먼저 깨진다 — 로그가 조용히 틀리는 대신.
 """
 import json
 import os
@@ -17,7 +25,23 @@ TARGETS = [
     ("SEC ", "data/latest_sec.json"),
 ]
 
+# ★ 이 스크립트가 산출물에서 실제로 읽는 키 (T10 이 이 목록을 검사한다)
+CONTRACT = {
+    "top": ["collected_for_kst_date", "collected_at_utc", "source_tier",
+            "summary", "stocks", "decision_readiness"],
+    "decision_readiness": ["confirmed_through", "same_day_confirmation", "not_decision_ready"],
+    "stock_ok": ["status", "name", "latest_trading_day", "latest_observed_day",
+                 "missing_investors", "investor_rows_missing"],
+}
+
 LINE = "─" * 62
+
+
+def _need(d: dict, key: str, label: str = ""):
+    """계약된 키를 읽는다. **없으면 조용히 None 을 돌려주지 않고 사실을 드러낸다.**"""
+    if key not in d:
+        return f"⚠ 키 없음({key})"
+    return d[key]
 
 
 def summarize(label: str, path: str) -> None:
@@ -53,8 +77,9 @@ def summarize(label: str, path: str) -> None:
 
     dr = d.get("decision_readiness")
     if isinstance(dr, dict):
-        print(f"       | confirmed_through      : {dr.get('confirmed_through')}"
-              f"   (당일확정정책={dr.get('policy_mode')})")
+        # ★ 키 이름은 CONTRACT["decision_readiness"] 와 반드시 일치해야 한다 (T10 이 대조)
+        print(f"       | confirmed_through      : {_need(dr, 'confirmed_through')}"
+              f"   (당일확정규칙={_need(dr, 'same_day_confirmation')})")
         if dr.get("not_decision_ready"):
             print(f"       | ❌ 확정 거래일 없음     : {dr['not_decision_ready']}")
 
