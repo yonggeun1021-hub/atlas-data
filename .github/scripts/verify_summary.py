@@ -42,11 +42,21 @@ def summarize(label: str, path: str) -> None:
     print(f"       | collected_at_utc       : {d.get('collected_at_utc')}")
     print(f"       | source_tier            : {d.get('source_tier')}")
 
-    ltd = None
+    ltd = lod = None
     for s in (d.get("stocks") or {}).values():
         ltd = s.get("latest_trading_day") or ltd
+        lod = s.get("latest_observed_day") or lod
     if ltd:
-        print(f"       | latest_trading_day     : {ltd}")
+        print(f"       | latest_trading_day     : {ltd}   (확정)")
+    if lod and lod != ltd:
+        print(f"       | latest_observed_day    : {lod}   ⚠ 미확정 — Decision 입력에서 제외됨")
+
+    dr = d.get("decision_readiness")
+    if isinstance(dr, dict):
+        print(f"       | confirmed_through      : {dr.get('confirmed_through')}"
+              f"   (당일확정정책={dr.get('policy_mode')})")
+        if dr.get("not_decision_ready"):
+            print(f"       | ❌ 확정 거래일 없음     : {dr['not_decision_ready']}")
 
     # 실패한 종목이 있으면 error 원문을 그대로 보여준다 — 요약하지 않는다
     for code, s in (d.get("stocks") or {}).items():
@@ -54,7 +64,11 @@ def summarize(label: str, path: str) -> None:
             print(f"       | ❌ FAILED {code} {s.get('name')} — {s.get('error')}")
         missing = s.get("missing_investors")
         if missing:
-            print(f"       | ⚠ missing_investors {code} — {missing}")
+            print(f"       | ⚠ 컬럼 누락 {code} — missing_investors={missing}")
+        # ★ 행 자체가 없는 경우. missing_investors 로는 절대 드러나지 않는 상태다.
+        rows = s.get("investor_rows_missing")
+        if rows:
+            print(f"       | ⚠ 수급 행 부재 {code} — investor_rows_missing={rows}")
 
 
 def main() -> None:
@@ -68,6 +82,9 @@ def main() -> None:
     print("  판정 기준")
     print("   · collected_for_kst_date 가 오늘(KST)이면 수집 경로 정상")
     print("   · latest_trading_day 가 직전 거래일이면 정상 (개장 전·휴장일 포함)")
+    print("   · 당일 행은 정책상 항상 미확정이다 — latest_observed_day 만 오늘이면 정상")
+    print("     (확정은 다음 날 아침 수집에서 일어난다. 시각으로 확정하지 않는다)")
+    print("   · investor_rows_missing 은 missing_investors 와 다른 축이다 ([] 이라고 수급 정상이 아니다)")
     print("   · SEC 가 '파일 없음' 이면 SEC_USER_AGENT 시크릿부터 확인")
     print(LINE)
 
