@@ -15,6 +15,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "rules"))
 import promote_rules_ssot as PR                                      # noqa: E402
+import vocabulary as VC                                              # noqa: E402
 import ssot_mapping as SM                                            # noqa: E402
 
 PASS = FAIL = 0
@@ -104,20 +105,42 @@ check("condition_semantics · scope 도 그대로 UNRESOLVED 가 보존된다",
 for k in ("ssot_mapping_sha256", "canonical_rules_sha256", "decision_cards_sha256"):
     check(f"provenance {k} 고정", len(LIVE["provenance"][k]) == 64)
 
-print("K-3 ④ UNDEFINED · MISSING · SOURCE_UNRESOLVED 전후 불변")
+print("K-3 ④ 상태 — P0 적용분 외에는 전부 불변")
 s = LIVE["state_counts"]
-check("UNDEFINED 15", s["definition_undefined"] == 15, str(s["definition_undefined"]))
-check("MISSING 22", s["data_missing"] == 22, str(s["data_missing"]))
-check("SOURCE_UNRESOLVED 16", s["source_unresolved"] == 16)
-check("mapping 전후 동일",
-      all(MAP["counts"][k] == v for k, v in s.items()),
-      str({k: (MAP["counts"][k], v) for k, v in s.items() if MAP["counts"][k] != v}))
+APPLIED = [r for r in R if r["definition_application"]]
+# ★ P3 Data Capability Application (CIO 승인 2026-08-15) — 데이터/원천 축 적용분.
+DATA_APPLIED = [r for r in R if r.get("data_capability_application")]
+check("UNDEFINED 2 (15 − 적용 13)", s["definition_undefined"] == 2,
+      str(s["definition_undefined"]))
+check("MISSING 19 (22 − P3 적용 3)", s["data_missing"] == 22 - len(DATA_APPLIED),
+      str(s["data_missing"]))
+check("SOURCE_UNRESOLVED 13 (16 − P3 적용 3)",
+      s["source_unresolved"] == 16 - len(DATA_APPLIED), str(s["source_unresolved"]))
+check("P3 적용은 정확히 3건 (RULE-0003/0007/0008)",
+      sorted(r["rule_id"] for r in DATA_APPLIED)
+      == ["RULE-0003", "RULE-0007", "RULE-0008"],
+      str(sorted(r["rule_id"] for r in DATA_APPLIED)))
+check("★ mapping 대비 차이가 적용 기록으로 정확히 설명된다",
+      s["definition_undefined"] == MAP["counts"]["definition_undefined"] - len(APPLIED)
+      and s["data_missing"] == MAP["counts"]["data_missing"] - len(DATA_APPLIED)
+      and s["source_unresolved"]
+      == MAP["counts"]["source_unresolved"] - len(DATA_APPLIED),
+      str({k: (MAP["counts"][k], v) for k, v in s.items()}))
+check("★ P3 적용 Rule 은 적용 전 값이 MISSING · SOURCE_UNRESOLVED 였다",
+      all(r["data_status_before_application"] == "MISSING"
+          and r["source_qualification_before_application"] == "SOURCE_UNRESOLVED"
+          for r in DATA_APPLIED))
+check("★ legacy 필드 data_capability 는 건드리지 않았다",
+      all(r["data_capability"] == "UNRESOLVED" for r in DATA_APPLIED))
+check("★ condition_semantics · scope 도 그대로 UNRESOLVED",
+      all(r["condition_semantics"] == "UNRESOLVED" and r["scope"] == "UNRESOLVED"
+          for r in DATA_APPLIED))
 check("해소한 상태 0", LIVE["statuses_resolved"] == 0)
 check("만든 정의 0", LIVE["definitions_created"] == 0)
 
 print("K-4 ⑤ UNDEFINED → executable 경로 0")
 und = [r for r in R if r["definition_status"] == "UNDEFINED"]
-check("UNDEFINED 15건 존재", len(und) == 15)
+check("UNDEFINED 2건 존재", len(und) == 2, str(len(und)))
 check("READY 인 UNDEFINED 0건", all(r["evaluator_status"] != "READY" for r in und))
 check("전부 DEFINITION_UNDEFINED 로 차단",
       all("DEFINITION_UNDEFINED" in r["blocked_by"] for r in und))
@@ -128,16 +151,34 @@ check("executable 을 뜻하는 필드가 없다",
       not any(k in r for r in R for k in ("executable", "is_executable", "enabled",
                                           "active", "consumable")))
 
-print("K-5 ⑥ evaluator READY / BLOCKED 불변")
-check("BLOCKED 24", s["evaluator_blocked"] == 24, str(s["evaluator_blocked"]))
-check("READY 1", s["evaluator_ready"] == 1, str(s["evaluator_ready"]))
+print("K-5 ⑥ evaluator readiness — 파생값이며 적용분만 이동한다")
+check("BLOCKED 19 (22 − P3 적용 3)", s["evaluator_blocked"] == 19,
+      str(s["evaluator_blocked"]))
+check("READY 6 (3 + P3 적용 3)", s["evaluator_ready"] == 6, str(s["evaluator_ready"]))
 check("BLOCKED + READY = 25", s["evaluator_blocked"] + s["evaluator_ready"] == 25)
 mp = {m["occurrence_id"]: m for m in MAP["mapping"]}
-check("Rule 별 evaluator_status 가 mapping 과 하나도 다르지 않다",
-      all(r["evaluator_status"] == mp[o]["evaluator_status"]
-          for r in R for o in r["source_occurrences"]))
-check("blocked_by 도 그대로",
-      all(r["blocked_by"] == mp[o]["blocked_by"] for r in R for o in r["source_occurrences"]))
+_moved = [r["rule_id"] for r in R
+          for o in r["source_occurrences"] if r["evaluator_status"] != mp[o]["evaluator_status"]]
+# ★ 적용했다고 readiness 가 움직이는 것이 아니다 — 데이터가 있어야 움직인다.
+#   따라서 「움직인 집합 == 적용 ∩ 데이터 확보」 여야 한다.
+_should_move = sorted({r["rule_id"] for r in APPLIED if r["data_status"] == "AVAILABLE"}
+                     | {r["rule_id"] for r in DATA_APPLIED})
+check("★ readiness 가 움직인 Rule = 적용 ∩ data AVAILABLE",
+      sorted(set(_moved)) == _should_move, f"moved={sorted(set(_moved))} want={_should_move}")
+check("★ 데이터가 없는 적용 Rule 은 readiness 가 그대로 BLOCKED",
+      all(r["evaluator_status"] == "BLOCKED" for r in APPLIED
+          if r["data_status"] != "AVAILABLE"))
+check("어느 적용도 받지 않은 Rule 은 blocked_by 가 그대로",
+      all(r["blocked_by"] == mp[o]["blocked_by"] for r in R
+          if not r["definition_application"] and not r.get("data_capability_application")
+          for o in r["source_occurrences"]))
+check("readiness 는 vocabulary 파생 계약과 일치한다",
+      all(r["evaluator_status"]
+          == VC.derive_evaluator_status(r["definition_status"], r["data_status"])
+          and r["blocked_by"]
+          == VC.derive_blocked_by(r["definition_status"], r["data_status"],
+                                  r["source_qualification"])
+          for r in R))
 
 print("K-6 ⑦ 생성만으로 소비 가능해지지 않는다")
 check("authority=true", LIVE["authority"] is True)
@@ -156,8 +197,15 @@ trap = [r for r in R if "298040.KS::탈락 조건#3" in r["source_occurrences"]]
 check("그 occurrence 가 승격돼 있다", len(trap) == 1, str(len(trap)))
 t = trap[0]
 check("그 Rule 이 READY 다", t["evaluator_status"] == "READY")
-check("READY 인 Rule 은 이것 하나뿐",
-      [r["rule_id"] for r in R if r["evaluator_status"] == "READY"] == [t["rule_id"]])
+_ready = sorted(r["rule_id"] for r in R if r["evaluator_status"] == "READY")
+_want_ready = sorted({t["rule_id"]}
+                     | {r["rule_id"] for r in APPLIED if r["data_status"] == "AVAILABLE"}
+                     | {r["rule_id"] for r in DATA_APPLIED})
+check("READY 는 원래 1건 + 정의 적용∩데이터 + P3 데이터 적용 뿐",
+      _ready == _want_ready, f"{_ready} vs {_want_ready}")
+check("이 Rule 은 적용 대상이 아니었다 — 원래부터 READY 였다",
+      t["definition_application"] is None
+      and t["definition_status_before_application"] == "DEFINED")
 check("blocked_by 가 비어 있다", t["blocked_by"] == [])
 check("★ 그럼에도 소비 경로가 열리지 않는다",
       LIVE["consumable_by_evaluator"] is False and "HOLD" in LIVE["production_state"])
@@ -204,6 +252,88 @@ check("전부 CIO 가 판정한 것",
 check("evaluator 연결 금지 표기가 전부 살아 있다",
       all("금지" in d["execution_status"] for _, d in dec))
 
+print("K-9b Definition Application — pilot + 2차 확대")
+by_id0 = {r["rule_id"]: r for r in R}
+EXPECTED_APPLIED = ["RULE-0002", "RULE-0004", "RULE-0010", "RULE-0011",
+                    "RULE-0012", "RULE-0015", "RULE-0017", "RULE-0018",
+                    "RULE-0019", "RULE-0020", "RULE-0021", "RULE-0022",
+                    "RULE-0025"]
+check("적용된 Rule 이 정확히 13건 (pilot 2 + 2차 7 + 최종 4)",
+      len(APPLIED) == 13, str(len(APPLIED)))
+check("적용 대상이 승인 목록과 정확히 같다",
+      sorted(r["rule_id"] for r in APPLIED) == EXPECTED_APPLIED,
+      str(sorted(r["rule_id"] for r in APPLIED)))
+check("★ pilot 2건의 적용이 확대 후에도 보존된다",
+      all(by_id0[r]["definition_status"] == "DEFINED"
+          and by_id0[r]["evaluator_status"] == "READY"
+          and by_id0[r]["definition_application"] is not None
+          for r in ("RULE-0019", "RULE-0025")))
+check("★ 데이터가 없는 적용 Rule 은 READY 가 아니다",
+      all(by_id0[r]["evaluator_status"] == "BLOCKED"
+          and "DEFINITION_UNDEFINED" not in by_id0[r]["blocked_by"]
+          and "DATA_MISSING" in by_id0[r]["blocked_by"]
+          for r in ("RULE-0002", "RULE-0004", "RULE-0012", "RULE-0015",
+                    "RULE-0017", "RULE-0018", "RULE-0020")))
+# ★ data_source 경계 확정 — capability 축은 definition 요구에서 빠지되,
+#   데이터·source 상태는 그대로 남아야 한다. 양방향으로 확인한다.
+_CAP4 = ("RULE-0010", "RULE-0011", "RULE-0021", "RULE-0022")
+check("★ capability 축 4건이 DEFINED 로 적용됐다",
+      all(by_id0[r]["definition_status"] == "DEFINED"
+          and by_id0[r]["definition_application"] is not None for r in _CAP4))
+check("★ 그 4건은 data_source 를 capability 축 제외로 명시한다",
+      all(by_id0[r]["definition_application"]["capability_axis_excluded"]
+          == ["data_source"] for r in _CAP4))
+check("★ DEFINED 가 됐다고 DATA_MISSING 이 풀리지 않는다",
+      all(by_id0[r]["data_status"] == "MISSING"
+          and "DATA_MISSING" in by_id0[r]["blocked_by"] for r in _CAP4))
+check("★ SOURCE_UNRESOLVED 도 자동 해제되지 않는다",
+      all(by_id0[r]["source_qualification"] == "SOURCE_UNRESOLVED"
+          and "SOURCE_UNRESOLVED" in by_id0[r]["blocked_by"]
+          for r in ("RULE-0010", "RULE-0021")))
+check("경계 판정이 코드 상수로 기록돼 있다",
+      PR.CAPABILITY_AXIS_IS_NOT_DEFINITION is True
+      and "자동 해제하지 않는다" in PR.CAPABILITY_AXIS_NOTE)
+check("capability 축이 없는 Rule 은 제외 목록이 비어 있다",
+      all(r["definition_application"]["capability_axis_excluded"] == []
+          for r in APPLIED if not r["data_capability_axis"]))
+check("allowlist 와 일치", set(PR.DEFINITION_APPLICATION_PILOT)
+      == {r["rule_id"] for r in APPLIED})
+check("★ 남은 UNDEFINED 는 적용 금지 집합과 정확히 같다",
+      {r["rule_id"] for r in R if r["definition_status"] == "UNDEFINED"}
+      == set(PR.DEFINITION_APPLICATION_EXCLUDED),
+      str(sorted(r["rule_id"] for r in R if r["definition_status"] == "UNDEFINED")))
+for r in APPLIED:
+    check(f"{r['rule_id']} 적용 기록이 UNDEFINED→DEFINED 를 남긴다",
+          r["definition_application"]["from"] == "UNDEFINED"
+          and r["definition_application"]["to"] == "DEFINED"
+          and r["definition_status_before_application"] == "UNDEFINED"
+          and r["definition_status"] == "DEFINED")
+    # ★ definition 축 성분만 판정으로 덮이면 된다. capability 축은 제외 기록으로
+    #   남고, 그 제외분은 반드시 `data_capability_axis` 에 근거해야 한다.
+    _cov = {d["decision_unit"].split("::", 1)[1] for d in r["cio_definition_decisions"]}
+    _exc = set(r["definition_application"]["capability_axis_excluded"])
+    check(f"{r['rule_id']} definition 축 결핍이 전부 판정으로 덮여 있다",
+          set(r["missing_components"]) - _exc <= _cov,
+          str(sorted(set(r["missing_components"]) - _exc - _cov)))
+    check(f"{r['rule_id']} 제외분은 capability 축 기록에 근거한다",
+          _exc <= set(r["data_capability_axis"]), str(sorted(_exc)))
+    check(f"{r['rule_id']} 판정 원문이 그대로 남아 있다",
+          all(d["cio_decision"] is not None for d in r["cio_definition_decisions"]))
+check("★ 새 정의를 만들지 않았다 — 판정 단위 수가 늘지 않았다",
+      sum(len(r["cio_definition_decisions"]) for r in R) == 43)
+by_id = {r["rule_id"]: r for r in R}
+for rid in ("RULE-0009", "RULE-0016"):
+    check(f"{rid} 는 건드리지 않았다",
+          by_id[rid]["definition_application"] is None
+          and by_id[rid]["definition_status"] == "UNDEFINED"
+          and by_id[rid]["evaluator_status"] == "BLOCKED")
+    check(f"{rid} 는 적용 금지 목록에 있다", rid in PR.DEFINITION_APPLICATION_EXCLUDED)
+check("적용하지 않은 23건은 적용 전 값과 동일하다",
+      all(r["definition_status"] == r["definition_status_before_application"]
+          for r in R if not r["definition_application"]))
+check("Production 경계는 그대로", LIVE["consumable_by_evaluator"] is False
+      and "HOLD" in LIVE["production_state"])
+
 print("K-10 ⑨ 재빌드 byte-identical")
 before = hashlib.sha256(open(PR.OUT, "rb").read()).hexdigest()
 p2, e2 = PR.build()
@@ -225,11 +355,14 @@ print("K-12 음성 · 상태를 해소해 승격하면 거부")
 
 
 def m_resolve(m):
+    """★ 적용 allowlist 밖의 UNDEFINED 를 골라 위조한다 — allowlist 안을 고르면
+    어차피 적용될 Rule 이라 개수가 움직이지 않아 아무것도 검사하지 못한다."""
     for x in m["mapping"]:
-        if x["destination"] == SM.DEST_SSOT and x["definition_status"] == "UNDEFINED":
+        if (x["destination"] == SM.DEST_SSOT and x["definition_status"] == "UNDEFINED"
+                and x.get("canonical_rule_id") not in PR.DEFINITION_APPLICATION_PILOT):
             x["definition_status"] = "DEFINED"
             return m
-    raise AssertionError("UNDEFINED 가 없다 — 전제가 깨졌다")
+    raise AssertionError("allowlist 밖 UNDEFINED 가 없다 — 전제가 깨졌다")
 
 
 e = run(m_resolve)
@@ -238,14 +371,32 @@ check("UNDEFINED 개수 변화를 잡는다",
 
 
 def m_ready(m):
+    """★ evaluator_status 는 이제 rules.json 이 파생한다. 그래서 upstream 을 READY 로
+    바꾸는 것으로는 I-3 를 깰 수 없다 — 대신 **적용 대상이 아닌** UNDEFINED Rule 의
+    데이터를 AVAILABLE 로 위조해 파생 자체가 READY 를 내도록 만든다."""
     for x in m["mapping"]:
-        if x["destination"] == SM.DEST_SSOT and x["definition_status"] == "UNDEFINED":
-            x["evaluator_status"] = "READY"
+        if (x["destination"] == SM.DEST_SSOT and x["definition_status"] == "UNDEFINED"
+                and x.get("canonical_rule_id") not in PR.DEFINITION_APPLICATION_PILOT):
+            x["data_status"] = "AVAILABLE"
             return m
 
 
-e = run(m_ready)
-check("UNDEFINED 인데 READY 면 거부", any("I-3 위반" in x for x in e), str(e[:3]))
+_p, _e, _w = run(m_ready, full=True)
+# ★ 정직하게 적는다 — evaluator_status 가 파생값이 된 뒤로 「UNDEFINED 인데 READY」인
+#   레코드는 **구조적으로 만들어지지 않는다**. 따라서 I-3 오류 문자열을 기대하는 것은
+#   이제 의미가 없다. 대신 실제로 falsifiable 한 두 가지를 본다.
+_forged = [r for r in _p["rules"]
+           if r["definition_status"] == "UNDEFINED" and r["data_status"] == "AVAILABLE"]
+check("위조로 UNDEFINED × AVAILABLE 레코드가 실제로 생겼다", len(_forged) >= 1)
+check("① 그래도 READY 가 되지 않는다",
+      all(r["evaluator_status"] != "READY" for r in _forged))
+check("① 차단 사유에 DEFINITION_UNDEFINED 가 남는다",
+      all("DEFINITION_UNDEFINED" in r["blocked_by"] for r in _forged))
+check("② 상태 개수 이동이 적용 기록으로 설명되지 않아 거부된다",
+      any("이어야 하는데" in x for x in _e), str(_e[:3]))
+check("③ 위반이 있으므로 발행하지 않았다", not _w)
+check("파생 계약 자체가 UNDEFINED 를 READY 로 만들지 않는다",
+      VC.derive_evaluator_status("UNDEFINED", "AVAILABLE") != "READY")
 
 print("K-13 음성 · 제외 객체를 끌어올리면 거부")
 

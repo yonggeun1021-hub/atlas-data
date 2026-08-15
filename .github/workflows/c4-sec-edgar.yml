@@ -1,0 +1,40 @@
+# C4 SEC EDGAR Reachability + Payload Verification — 수동 실행 전용
+#
+# ★ 독립 workflow 파일이다. C1 검증용 `tsmc-live-fetch.yml` 과 경로가 다르며
+#   서로를 덮어쓰지 않는다. merge 후 default branch 에 두 workflow 가 함께 존재한다.
+#
+# ★ 이 검증이 확인한 것 (2026-08-15 live run 2회):
+#     2026-06 → 442,680 / 67.9 / 2,404,484 / 35.6
+#     2026-07 → 467,580 / 44.7 / 2,872,064 / 37.0
+#   그리고 June→July 월 연속성 입력 구성 성립.
+#
+# ⛔ 저장소를 쓰지 않는다 — commit · push · fixture 덮어쓰기 없음.
+# ⛔ C1(TSMC IR) · C2(FSC/TWSE) fallback 없음 · 실패 시 자동 확장 없음.
+# ⛔ source 확정 run 이 아니다 — reachability + payload verification 뿐이다.
+# ⛔ Rule 상태 변경 · Source Contract 변경 · evaluator wiring · Production 연결과 무관.
+# ⛔ `run_all.py` 의 결정론적 회귀에는 네트워크를 넣지 않는다 — 이 검증은 분리돼 있다.
+name: c4-sec-edgar
+
+# ★ 수동 실행만. 스케줄도 push 도 pull_request 도 걸지 않는다.
+on:
+  workflow_dispatch:
+
+# ★ 최소 권한 — 읽기만.
+permissions:
+  contents: read
+
+jobs:
+  live-fetch:
+    runs-on: ubuntu-latest
+    steps:
+      # full-length commit SHA pin — tag 는 움직일 수 있다.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: C4 (SEC EDGAR 6-K) reachability + payload 검증
+        run: python3 collectors/c4_sec_edgar_check.py
+
+      - name: 저장소가 그대로인지 (쓰기 없음 확인)
+        run: git diff --exit-code
