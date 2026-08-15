@@ -1,0 +1,42 @@
+# C2 Transport Reachability + Payload Verification — 수동 실행 전용
+#
+# ★ 이 파일은 `b1-pilot/c2-reachability` branch 전용 정의다.
+#   경로는 main 의 bootstrap 파일과 같지만 **내용이 다르다**. workflow_dispatch 는
+#   실행 메뉴 노출을 위해 default branch 에 파일이 있어야 하고, 실제 실행은
+#   선택한 ref 의 정의를 쓴다. 그래서 dispatch 항목 이름은 `tsmc-live-fetch` 이지만
+#   ref 로 이 branch 를 고르면 아래 C2 step 이 돈다.
+#
+#   ★ 로그의 step 이름이 어느 정의가 돌았는지 알려주는 판별자다:
+#       "C2 …"                        → 이 branch 정의 (정상)
+#       "TSMC 공식 IR live fetch …"   → main 정의가 돈 것 (그러면 이 방식은 실패)
+#
+# ⛔ 저장소를 쓰지 않는다 — commit · push · fixture 덮어쓰기 없음.
+# ⛔ C1(TSMC IR) fallback 없음 · C2 실패 시 C3/C4 자동 확장 없음 · 재시도 없음.
+# ⛔ source 채택 run 이 아니다 — transport reachability + payload verification 뿐이다.
+# ⛔ Rule 상태 변경 · evaluator wiring · Production 연결과 무관하다.
+# ⛔ `run_all.py` 의 결정론적 회귀에는 네트워크를 넣지 않는다 — 이 검증은 분리돼 있다.
+name: c2-reachability
+
+# ★ 수동 실행만. 스케줄도 push 도 pull_request 도 걸지 않는다.
+on:
+  workflow_dispatch:
+
+# ★ 최소 권한 — 읽기만.
+permissions:
+  contents: read
+
+jobs:
+  live-fetch:
+    runs-on: ubuntu-latest
+    steps:
+      # full-length commit SHA pin — tag 는 움직일 수 있다.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: C2 (FSC/TWSE 개방데이터) transport reachability + payload 검증
+        run: python3 collectors/c2_reachability_check.py
+
+      - name: 저장소가 그대로인지 (쓰기 없음 확인)
+        run: git diff --exit-code
