@@ -1,0 +1,1827 @@
+{
+  "artifact": "B1 reviewed decomposition — 46칸 전체",
+  "status": "inactive preparation",
+  "authority": false,
+  "consumable_by_evaluator": false,
+  "purpose": "Rule Inventory 를 만드는 것이 아니라 전체 원문의 무손실 구조화 및 미결정 지점 노출 (CIO 지시 2026-08-15)",
+  "dedup_policy": "중복 Rule 을 합치지 않는다. 서로 다른 source occurrence 로 전부 보존하며 canonical rule_id 부여와 dedup 은 전체 분해 후 별도 단계다.",
+  "legacy_tokens": {
+    "강등 검토": "CIO 판정 2026-08-15 #2 — Rule Evaluator 최종 effect 로 승인하지 않음. legacy/provisional 보존만 · executable semantics 금지"
+  },
+  "inventory_scope": {
+    "execution_reference": "Rule Inventory 집계 대상 제외 (CIO 판정 ③)",
+    "monitoring": "Rule Inventory 포함 · Evaluator Population 제외 (CIO 판정 ④)"
+  },
+  "b1_frozen": {
+    "sha256": "b8212ffe3e5e88c1ae93097806fe36a541bd12ed4ae33daeba5cac5b8460e153",
+    "state": "B1 PASS / CLOSED (2026-08-15)",
+    "note": "★ B1 당시 상태를 증명하는 provenance 다. 덮어쓰지 않는다. 이 파일의 현재 해시는 B2 adjudicated hash 이며 둘은 다른 것을 증명한다 — 전자는 '원문 분해가 어땠는가', 후자는 'CIO 가 미결정을 어떻게 판정했는가'.",
+    "provenance_copy": "rules/decompose_full.b1_frozen.json"
+  },
+  "b2_adjudication": {
+    "status": "B2-0 CLOSED (CIO 판정 2026-08-15)",
+    "decisions": [
+      {
+        "id": "TSM::진입 패턴#1",
+        "object_role": "rule_candidate",
+        "rule_kind": "ENT",
+        "downstream_effect": "daily_eligibility",
+        "definition_status": "UNDEFINED 유지 — Entry Language 미정의로 실행 불가"
+      },
+      {
+        "id": "ANET::탈락 조건#3",
+        "object_role": "rule_candidate",
+        "rule_kind": "FAL",
+        "downstream_effect": "강등 검토 (legacy/provisional)",
+        "note": "원문 분할 없음 · CRDO 슬롯 이양은 executable effect 아님 · Portfolio Operation 후보로 annotation 만"
+      },
+      {
+        "id": "267260.KS::다음 이벤트#1",
+        "object_role": "non_rule_evidence",
+        "rule_kind": null,
+        "downstream_effect": null
+      },
+      {
+        "id": "298040.KS::다음 이벤트#1",
+        "object_role": "non_rule_evidence",
+        "rule_kind": null,
+        "downstream_effect": null
+      }
+    ],
+    "b2_1": {
+      "id": "TSM::기술적 무효화#1",
+      "rule_kind": "FAL",
+      "note": "기술적 무효화는 기존 thesis/구조의 failure condition 이며 ENT/MON 이 아니다. definition/data/source field 변경 없음."
+    },
+    "policy": "★ MON = 외부에서 발생하거나 관측되는 사건. 내부 review·재점검·기준 확정·의사결정 작업은 날짜가 있어도 MON 이 아니다. — 새 vocabulary 가 아니라 기존 MON/monitoring 의 분류 경계 확정이다."
+  },
+  "cells": [
+    {
+      "candidate_id": "MU::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "FQ4 $49B 미달",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "실적 수치 임계값이 명시돼 정의는 완결. 미국 확정 가격의 Official Source 미확보 (CIO 확정 2026-08-14)",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "DRAM ASP 하락 전환",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "'전환'의 판정 시점 정의 없음. §21-14(2)가 '산업 가격(DRAM ASP) 사면 0건 — 둘 다 UNDEFINED'라 한 사례.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848107afa1cc93d57931b6"
+    },
+    {
+      "candidate_id": "MU::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "9/22 실적(예상)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q2 — '(예상)'은 공표 일정이 아니다. confirmed event date 로 승격 금지.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848107afa1cc93d57931b6"
+    },
+    {
+      "candidate_id": "MU::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "800~818",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "미국 확정 가격의 Official Source 미확보 (CIO 확정 2026-08-14)",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848107afa1cc93d57931b6"
+    },
+    {
+      "candidate_id": "MU::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "931 → 1,050 → 1,255",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "3단 사다리를 한 조각으로 둔다. 레벨별로 다른 효과가 원문에 없으므로 쪼개면 추론이 된다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848107afa1cc93d57931b6"
+    },
+    {
+      "candidate_id": "TSM::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "월매출 YoY 40% 미달 2개월 연속",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "'2개월'이 명시돼 있어 효성 '연속'과 달리 UNDEFINED 가 아니다. 월매출은 Atlas 미수집.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "capex 하향",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "'하향'의 폭·기준 없음.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848108a320dfec75a0816d"
+    },
+    {
+      "candidate_id": "TSM::기술적 무효화",
+      "source_cell": "기술적 무효화",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "종가 기준 $398 이탈 — 7/17·7/31·8/3 삼중지지 붕괴 = 8월 반등 구조 전체 무효.",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "★ CIO 판정 B2-1 — rule_kind=FAL. 이 조각의 본질은 '$398 을 이탈하면 기존 thesis·구조가 무효화된다'는 failure/invalidation condition 이다. ENT 처럼 진입 eligibility 를 여는 조건도, MON 처럼 관측 이벤트를 등록하는 것도 아니다. 새 kind 를 만들지 않는다. §21-13 이 '→ 강등 검토'로 표기했으나 그것이 Stage 변경 명령이라는 뜻은 아니다 — Rule 은 '기술적 무효화 조건이 성립/불성립했다'까지만 출력하고 이후 조치는 Decision Layer 소관.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "진입 전 보류선: 종가가 SMA20 $409 아래면 A·B 모두 매수 보류.",
+          "object_role": "rule_candidate",
+          "rule_kind": "ENT",
+          "downstream_effect": "daily_eligibility",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "§21-13 이 '→ daily_eligibility'로 표기한 조각. 소실된 draft 의 TSM-ENT-01 대응 추정.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "(펌더멘털 무효화=탈락 조건과 분리)",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            2
+          ],
+          "notes": "작성자 주석 — 칸 경계 설명. 판정 효과 없음.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848108a320dfec75a0816d"
+    },
+    {
+      "candidate_id": "TSM::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "★ 8/10경 TSMC 7월 월매출 — Ready Action Plan 발동점.",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q1 — 이미 발생·완료된 이벤트(8/10 비약화 확정). CIO 판정: Inventory 에는 보존하되 active monitoring population 에서는 제외. 기록 보존 ≠ 현재 감시 대상.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "판정 기준 사전 잠금(2026-08-08 CIO 확정 · 주문 판정은 2등급만 사용):",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            3,
+            5
+          ],
+          "notes": "뒤따르는 두 조각의 권위 출처와 잠금 시점.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "약화 = 단월 YoY < +35% OR 누계 YoY < +34.6% → C(매수 취소·Ready 해제)",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "임계값 사전 잠금으로 정의 완결. ★ '편입 사유' 칸의 C(월매출 약화)→취소 와 중복 후보 — 합치지 않는다.",
+          "split_index": 3
+        },
+        {
+          "raw_fragment": "/",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            3,
+            5
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 4
+        },
+        {
+          "raw_fragment": "비약화 = 단월 YoY ≥ +35% AND 누계 YoY ≥ +34.6% → Price 판정으로 이월(A/B 활성).",
+          "object_role": "rule_candidate",
+          "rule_kind": "ENT",
+          "downstream_effect": "daily_eligibility",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "게이트를 여는 효과. 조각 3과 보수 관계이나 효과가 반대라 별개 객체.",
+          "split_index": 5
+        },
+        {
+          "raw_fragment": "※ 종전 3등급(강화·유지·약화) 및 +50% 기준은 폐기 — 2026-08-09 동기화.",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            3,
+            5
+          ],
+          "notes": "폐기 이력. ⛔ 폐기된 기준을 Rule 후보로 만들지 않는다.",
+          "split_index": 6
+        },
+        {
+          "raw_fragment": "Action Plan 가격조건은 변경 없음.",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "다른 칸(편입 사유)의 Action Plan 을 가리키는 칸 경계 넘는 참조 — 이 칸만으로 대상 특정 불가.",
+          "split_index": 7
+        },
+        {
+          "raw_fragment": "이후 9/10 8월 월매출(Review Date),",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "§21-14(1)이 'TSM-MON-01 에 두 개'라 지목한 것 중 첫째. 날짜 확정.",
+          "split_index": 8
+        },
+        {
+          "raw_fragment": "10/15 3Q 실적(예상)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q2 — '(예상)'. 공식 일정 미확정/미검증으로 취급한다.",
+          "split_index": 9
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848108a320dfec75a0816d"
+    },
+    {
+      "candidate_id": "TSM::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "409~410 (SMA20 + 7/16 종가 409.74)",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "★ 같은 SMA20 $409 가 '기술적 무효화' 칸에서는 매수 보류 효과를 갖는다. 이 칸에는 효과 문언이 없으므로 참조값으로 남는다 — 숫자가 아니라 효과가 Rule 이다.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "398~400 삼중지지(7/17·7/31·8/3)",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "$398 도 마찬가지 — 효과는 '기술적 무효화' 칸에 있고 여기는 레벨뿐이다.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848108a320dfec75a0816d"
+    },
+    {
+      "candidate_id": "TSM::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "424~426 (7/21·8/5·8/7 고점 밀집 + SMA50 425.78 겹침, 3회 거부)",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "479 (52주 고점)",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848108a320dfec75a0816d"
+    },
+    {
+      "candidate_id": "TSM::진입 패턴",
+      "source_cell": "진입 패턴",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "B 박스권 돌파 후 재확인",
+          "object_role": "rule_candidate",
+          "rule_kind": "ENT",
+          "downstream_effect": "daily_eligibility",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "★ CIO 판정 B2-0 #1 — Rule 이 Stage 를 바꾸는 것과, Stage 변경에 필요한 조건을 판정하는 것은 다르다. 이 문장의 Rule 역할은 '진입 eligibility 조건이 성립했는가'까지이며 실제 Ready 승격은 계속 Decision Layer 소관이다. ⛔ definition_status=UNDEFINED 유지 — Entry Language(돌파·재확인의 기계적 정의)가 정의되지 않았으므로 실행 불가다. 임의 수치화 금지.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c848108a320dfec75a0816d"
+    },
+    {
+      "candidate_id": "CRDO::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "ANET 대비 상대강도 열위 지속",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "'지속'의 정의 없음 — 효성 '연속'과 같은 유형.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "고객 집중 심화(10%+ 고객 3개 미만)",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "NOT_IMPLEMENTED",
+          "source_qualification": null,
+          "notes": "★ 칸 밖 근거 — 같은 행 '편입 사유'에 '고객 집중도 기준이 분기/연간 중 어느 것인지 미정의'가 적혀 있다. annotates_split_index 는 칸 안에서만 연결되므로 cross-cell annotation 이 필요하다. 재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c84813ebadcfd955ad739dd"
+    },
+    {
+      "candidate_id": "CRDO::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "ANET 실적 발표 완료(8/4)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q1 — 완료 이벤트.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "상대강도 판정 8/5·8/6·8/7",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q1 — 완료 이벤트.",
+          "split_index": 3
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            3,
+            5
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 4
+        },
+        {
+          "raw_fragment": "8/8 IC 슬롯 통합",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q1 — 완료 이벤트.",
+          "split_index": 5
+        },
+        {
+          "raw_fragment": "자사 실적 9/2(예상)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q2 — '(예상)'.",
+          "split_index": 6
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c84813ebadcfd955ad739dd"
+    },
+    {
+      "candidate_id": "CRDO::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "199~200",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "157~166",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c84813ebadcfd955ad739dd"
+    },
+    {
+      "candidate_id": "CRDO::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "213~217",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "236.5",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c84813ebadcfd955ad739dd"
+    },
+    {
+      "candidate_id": "ANET::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "호실적+주가 하락(선반영)",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "'호실적'·'하락'의 기준 없음. ★ 같은 행 '편입 사유'가 '주가 하락만으로는 제외하지 않는다'고 제한을 걸어 두었다 — cross-cell annotation 필요.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "AI 매출 목표 하향 시 CRDO에 슬롯 이양",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "★ CIO 판정 B2-0 #2 — 원문 occurrence 를 분할하지 않고 FAL 조건으로 보존한다. 한 문장에 두 층이 붙어 있다: 'AI 매출 목표 하향' = ANET 의 탈락 조건(Rule SSOT 안), 'CRDO 에 슬롯 이양' = Portfolio Operation(Rule SSOT 밖). ⛔ 'CRDO 에 슬롯 이양' 을 executable Rule effect 로 해석하지 않는다. legacy '강등 검토' 는 조건 충족 사실 이상을 의미하지 않는다(CIO 판정 2026-08-15 ②). ★ Portfolio Operation 후보 — 이후 Portfolio Operation extraction 단계에서 별도 객체로 다룬다. 이번 단계에서 새 Portfolio 객체를 생성하지 않는다. ★ 이 occurrence 를 non_rule_evidence 로 보내면 앞 조각과의 '또는' 결합에서 한쪽 항이 사라져 ANET 탈락 논리 자체가 훼손된다.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481a98880e44521601367"
+    },
+    {
+      "candidate_id": "ANET::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "2026-08-04 2Q26 실적 발표 완료",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q1 — 완료 이벤트.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "다음은 8/8 IC(Network 슬롯 대표 선정)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q1 — 완료 이벤트.",
+          "split_index": 3
+        },
+        {
+          "raw_fragment": "이후 3Q26 실적 11월 예상",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q2 — 월만 있고 일자 없음.",
+          "split_index": 4
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481a98880e44521601367"
+    },
+    {
+      "candidate_id": "ANET::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "170~176",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "158",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481a98880e44521601367"
+    },
+    {
+      "candidate_id": "ANET::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "183.5",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "189.8",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481a98880e44521601367"
+    },
+    {
+      "candidate_id": "NVDA::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "FQ2 매출 가이드 하단 미달",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "가이드 하단이라는 기준점이 명시. 실적 수치 미수집.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "하이퍼스케일러 2곳+ capex 하향",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "NOT_IMPLEMENTED",
+          "source_qualification": null,
+          "notes": "'하향' 기준 없음 · 대상 기업 목록도 미정의. 재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481c09e07e17571948cf1"
+    },
+    {
+      "candidate_id": "NVDA::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "8/26 실적(확정)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "§21-13 이 '→ monitoring'으로 표기한 조각. 날짜 확정.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "실적 전 포지션 제한(PM)",
+          "object_role": "rule_candidate",
+          "rule_kind": "ENT",
+          "downstream_effect": "daily_eligibility",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "§21-13 이 '→ daily_eligibility'로 표기한 조각. '실적 전' 기간과 제한 폭이 미정의. 소실된 draft 의 NVDA-ENT-01 대응 추정.",
+          "split_index": 2
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481c09e07e17571948cf1"
+    },
+    {
+      "candidate_id": "NVDA::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "195",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "192~193",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481c09e07e17571948cf1"
+    },
+    {
+      "candidate_id": "NVDA::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "206~210",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "236.5",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481c09e07e17571948cf1"
+    },
+    {
+      "candidate_id": "000660.KS::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "HBM 예약 취소·LTA 축소",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "NOT_IMPLEMENTED",
+          "source_qualification": null,
+          "notes": "★ 가운뎃점(·)이 AND 인지 OR 인지 원문으로 판별 불가 — 쪼개면 추론이 되므로 한 조각으로 둔다. '축소' 기준도 없음. 재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "DRAM ASP 하락 전환",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "★ MU 탈락 조건 조각 2와 문자열까지 동일 — cross-cell duplicate 후보. 합치지 않는다.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481cb8500cd5e72c8b855"
+    },
+    {
+      "candidate_id": "000660.KS::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "3Q 실적 일정 미공표",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "★ B1-Q2 — 부재 표식이다. '지남'으로 표현하지 않는다. 이벤트 객체가 아니라 '공식 일정 미확정' 진술.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481cb8500cd5e72c8b855"
+    },
+    {
+      "candidate_id": "000660.KS::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "급등 후 가격 안정 확인 전 레벨 미설정",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식 — 참조값이 아직 없다는 진술.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481cb8500cd5e72c8b855"
+    },
+    {
+      "candidate_id": "000660.KS::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "미설정",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481cb8500cd5e72c8b855"
+    },
+    {
+      "candidate_id": "005930.KS::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "SK 대비 상대강도 지속 열위",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "AVAILABLE",
+          "data_capability": "SUPPORTED",
+          "source_qualification": null,
+          "notes": "'지속'의 정의 없음. 두 한국 종목 종가는 krx.py 로 확보돼 데이터는 있다 — 정의만 없다. ★ 이 조각과 조각 2는 원문상 AND 결합이다(같은 행 '편입 사유'가 '탈락 조건은 AND 구조'라 명시).",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "+",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "HBM 공급 확대 미확인",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "NOT_IMPLEMENTED",
+          "source_qualification": null,
+          "notes": "'확대'의 기준 없음. ★ 같은 행 '편입 사유'가 'HBM 공급 확대가 명시적으로 해소돼 성립하지 않는다'고 적어 현재 미성립을 선언 — cross-cell annotation 필요. 재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481de88aef4aefddcf470"
+    },
+    {
+      "candidate_id": "005930.KS::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "3Q 실적 일정 미공표",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "★ B1-Q2 — 부재 표식.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481de88aef4aefddcf470"
+    },
+    {
+      "candidate_id": "005930.KS::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "급등 후 가격 안정 확인 전 레벨 미설정",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481de88aef4aefddcf470"
+    },
+    {
+      "candidate_id": "005930.KS::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "미설정",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481de88aef4aefddcf470"
+    },
+    {
+      "candidate_id": "MSFT::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "Azure 성장 45%cc 유의미 하회",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "★ 임계값(45%cc)은 있으나 '유의미'가 미정의 — 숫자가 있다고 정의가 완결된 것이 아니다.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "또는",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "RPO 급둔화",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "MISSING",
+          "data_capability": "NOT_IMPLEMENTED",
+          "source_qualification": null,
+          "notes": "'급둔화' 기준 없음. 재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481fbb9e1e8a201f359e9"
+    },
+    {
+      "candidate_id": "MSFT::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "10/27 실적(예상)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q2 — '(예상)'.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481fbb9e1e8a201f359e9"
+    },
+    {
+      "candidate_id": "MSFT::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "451~457",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "CIO 가 직접 예로 든 사례 — 효과 문언이 없으므로 execution_reference 로 남는다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481fbb9e1e8a201f359e9"
+    },
+    {
+      "candidate_id": "MSFT::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "466.8",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "→",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "555.5",
+          "object_role": "execution_reference",
+          "rule_kind": "UNRESOLVED",
+          "downstream_effect": "execution_reference",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": "SOURCE_UNRESOLVED",
+          "notes": "",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3af9f2d73c8481fbb9e1e8a201f359e9"
+    },
+    {
+      "candidate_id": "267260.KS::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "해당 없음 — Coverage 단계",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식 — 단계상 조건을 두지 않았다는 진술.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c84810e82f8f6e83701e4e8"
+    },
+    {
+      "candidate_id": "267260.KS::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "재진입 게이트 3항목 재점검",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "★ CIO 판정 B2-0 #3 — non_rule_evidence. '재점검'은 외부에서 발생·관측되는 사건이 아니라 우리의 작업/거버넌스 행위다. MON 의 대상이 아니다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c84810e82f8f6e83701e4e8"
+    },
+    {
+      "candidate_id": "329180.KS::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "미정 — Discovery 단계이므로 탈락 조건 미설정. Candidate 승격 심사 시 확정한다.",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식 + 향후 절차 진술. ⛔ 여기서 조건을 만들지 않는다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c84817696c9d0adb444957a"
+    },
+    {
+      "candidate_id": "329180.KS::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "8/20 ERCOT 이사회 (BTM 가설 직접 반증 이벤트)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "날짜 확정 이벤트. 반증 이벤트라는 성격이 병기돼 있으나 조건문은 아니다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c84817696c9d0adb444957a"
+    },
+    {
+      "candidate_id": "298040.KS::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "수주잔고 전분기 대비 감소",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "MISSING",
+          "data_capability": "NOT_IMPLEMENTED",
+          "source_qualification": null,
+          "notes": "§21-9② 가 '현재 데이터로 평가 불가'로 지목한 조건. 소실된 draft 의 298040-FAL-03 대응. 재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "/",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "7월 저점 종가 1,894,000원 재이탈",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "DEFINED",
+          "data_status": "AVAILABLE",
+          "data_capability": "SUPPORTED",
+          "source_qualification": null,
+          "notes": "★ 46칸 전체에서 evaluator_status 가 READY 로 파생되는 유일한 조각. krx.py v4.1 확정 종가·수급으로 평가 가능. ⛔ READY 는 '평가 준비 완료'이지 Stage 변경·투자 판단이 아니다.",
+          "split_index": 3
+        },
+        {
+          "raw_fragment": "/",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            3,
+            5
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 4
+        },
+        {
+          "raw_fragment": "기관 순매수 연속 끊김",
+          "object_role": "rule_candidate",
+          "rule_kind": "FAL",
+          "downstream_effect": "강등 검토",
+          "definition_status": "UNDEFINED",
+          "data_status": "AVAILABLE",
+          "data_capability": "SUPPORTED",
+          "source_qualification": null,
+          "notes": "★ '연속'의 정의가 없다. 데이터는 있고 정의가 없다 — 298040-FAL-02 대응. ⛔ 정의를 만들지 않는다.",
+          "split_index": 5
+        },
+        {
+          "raw_fragment": "⚠ '연속'의 정의가 Undefined(8/15 Review #2 이월). 정의 전까지 이 조건으로 탈락 판정하지 않는다.",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            5
+          ],
+          "notes": "원문 자신이 붙인 사용 금지 표식. 조각 3의 UNDEFINED 근거.",
+          "split_index": 6
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481dbb79cc65b3c6e83f8"
+    },
+    {
+      "candidate_id": "298040.KS::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "Expectations Gap 판정 기준 확정 (8/15 Review)",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "★ CIO 판정 B2-0 #4 — non_rule_evidence. 날짜가 붙었다고 시장 이벤트가 되지 않는다. '(8/15 Review)' 는 작업의 due/review date 이지 MON event date 가 아니다. 판정 기준은 날짜가 아니라 사건의 성격이다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481dbb79cc65b3c6e83f8"
+    },
+    {
+      "candidate_id": "SNDK::탈락 조건",
+      "source_cell": "탈락 조건",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "미정 — Discovery 단계이므로 탈락 조건 미설정. Candidate 승격 심사 시 확정한다. (현장에서 정의 만들지 않음)",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "★ 부재 표식이면서 동시에 '현장에서 정의 만들지 않음'이라는 지시를 담고 있다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481bbaff8f5a16f4b4533"
+    },
+    {
+      "candidate_id": "SNDK::기술적 무효화",
+      "source_cell": "기술적 무효화",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "미설정 — 8/13 종가를 2소스로 확정하지 못해 기준점 설정 불가. ❓",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식 + 사유. 데이터 미확정이 정의 부재의 원인임을 원문이 밝힌다.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481bbaff8f5a16f4b4533"
+    },
+    {
+      "candidate_id": "SNDK::다음 이벤트",
+      "source_cell": "다음 이벤트",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "다음 분기 실적 — 확약계약 비율·ASP 조건 공시 여부 (일자 ❓미확인)",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "★ B1-Q2 — 일자 미확인이 원문에 명시.",
+          "split_index": 1
+        },
+        {
+          "raw_fragment": "·",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [
+            1,
+            3
+          ],
+          "notes": "★ 원문의 결합 표기. 좌우 조각이 어떻게 결합되는지를 담고 있으므로 버리지 않는다. ⛔ AND/OR 실행 semantics 는 정의하지 않는다 — 보존만 한다.",
+          "split_index": 2
+        },
+        {
+          "raw_fragment": "보조: 8/21 한국 8월 1~20일 수출 낸드 항목",
+          "object_role": "rule_candidate",
+          "rule_kind": "MON",
+          "downstream_effect": "monitoring",
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "notes": "날짜 확정. '보조'라는 우선순위 표기가 붙어 있으나 정본에 대응 어휘가 없어 반영하지 않는다.",
+          "split_index": 3
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481bbaff8f5a16f4b4533"
+    },
+    {
+      "candidate_id": "SNDK::핵심 지지",
+      "source_cell": "핵심 지지",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "❓미확인",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481bbaff8f5a16f4b4533"
+    },
+    {
+      "candidate_id": "SNDK::핵심 저항",
+      "source_cell": "핵심 저항",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "❓미확인",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481bbaff8f5a16f4b4533"
+    },
+    {
+      "candidate_id": "SNDK::진입 패턴",
+      "source_cell": "진입 패턴",
+      "decomposition_scope": "full",
+      "fragments": [
+        {
+          "raw_fragment": "미지정",
+          "object_role": "non_rule_evidence",
+          "rule_kind": null,
+          "downstream_effect": null,
+          "definition_status": "UNRESOLVED",
+          "data_status": "UNRESOLVED",
+          "data_capability": "UNRESOLVED",
+          "source_qualification": null,
+          "annotates_split_index": [],
+          "notes": "부재 표식 — select 의 명시적 '미지정' 값.",
+          "split_index": 1
+        }
+      ],
+      "source_page_url": "https://app.notion.com/3bb9f2d73c8481bbaff8f5a16f4b4533"
+    }
+  ]
+}
