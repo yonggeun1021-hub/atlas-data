@@ -73,6 +73,32 @@ DEFINITION_APPLICATION_PILOT = {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+# Definition Reopen — CIO 판정 2026-08-15
+#   ★ 방향이 반대다. 기존 두 application 은 상태를 **여는** 방향(UNDEFINED→DEFINED,
+#     MISSING→AVAILABLE)인데 이것은 **닫는** 방향(DEFINED→UNDEFINED)이다.
+#     그래서 별도 경로로 둔다 — application 의 역연산으로 겸용하지 않는다.
+#
+#   ⛔ 이것은 "정의를 새로 만든다" 가 아니라 "정의가 없었다는 사실을 되찾는다" 이다.
+#   ⛔ 계정과목·threshold·metric 을 여기서 추정하지 않는다. 질문만 다시 연다.
+#   ★ 「처음부터 미검토된 UNDEFINED」 와 「DEFINED 였다가 검증으로 다시 열린 UNDEFINED」 를
+#     provenance 로 구별한다. definition_status 어휘는 늘리지 않는다.
+DEFINITION_REOPEN = {
+    "RULE-0001": {
+        "reason": "metric_identity_missing",
+        "finding": "`FQ4 $49B 미달` 에 측정 대상(계정과목)이 없다. "
+                   "원천 `_watchlist_rows.json` 의 MU 행 원문도 "
+                   "`FQ4 $49B 미달 또는 DRAM ASP 하락 전환` 이며 계정과목이 없다 — "
+                   "decomposition 손실이 아니라 처음부터 부재다.",
+        "open_question": "`FQ4 $49B` 는 무엇의 $49B 인가?",
+        "source": "CIO 판정 2026-08-15 · P2-a Gate #2",
+        "prohibited": ["계정과목 추정(매출 등)", "derived FQ4(FY−Q1−Q2−Q3) 생성",
+                       "SEC concept mapping 재개"],
+        "next_gate": "metric identity 확정 이후에만 SEC concept mapping. "
+                     "derived-quarter 허용 여부는 그 다음 별도 카드.",
+    },
+}
+
+# ══════════════════════════════════════════════════════════════════════
 # P3 Data Capability Application — CIO 승인 2026-08-15
 #   TSMC 월매출 3개 Rule 의 **데이터/원천 축** 을 적용한다.
 #   근거: GitHub-hosted live run 2회에서 SEC EDGAR(TSMC 제출 6-K)의
@@ -178,6 +204,28 @@ def _apply_definition(rid, missing, decisions, errs, capability_axis=()):
     }
 
 
+def _reopen_definition(rid, m, errs):
+    """정의를 다시 연다. allowlist 밖이면 None."""
+    if rid not in DEFINITION_REOPEN:
+        return None
+    if rid in DEFINITION_APPLICATION_PILOT:
+        errs.append(f"{rid}: Definition Application 과 Reopen 이 동시에 지정됐다")
+        return None
+    before = m["definition_status"]
+    if before != "DEFINED":
+        errs.append(f"{rid}: reopen 대상인데 상류가 DEFINED 가 아니다 ({before}) — "
+                    f"되찾을 상태가 없다")
+        return None
+    rec = dict(DEFINITION_REOPEN[rid])
+    rec.update({
+        "definition_status": {"from": before, "to": "UNDEFINED"},
+        # ⛔ 상류의 판정 문구를 지우지 않는다. 모순을 숨기지 않고 나란히 보존한다.
+        "superseded_definition_resolution": m.get("definition_resolution"),
+        "not_a_new_definition": True,
+    })
+    return rec
+
+
 def _apply_data_capability(rid, m, errs):
     """P3 데이터/원천 축 적용. allowlist 밖이면 None — 조용히 번지지 않는다."""
     if rid not in DATA_CAPABILITY_APPLICATION:
@@ -250,6 +298,11 @@ def build(out_path=OUT, mapping_path=MAPPING):
                                     m.get("data_capability_axis", []))
         def_status = "DEFINED" if applied else m["definition_status"]
 
+        # ── Definition Reopen (닫는 방향) ─────────────────────────
+        reopened = _reopen_definition(rid, m, errs)
+        if reopened:
+            def_status = "UNDEFINED"
+
         # ── P3 데이터/원천 축 적용 ────────────────────────────────
         data_applied = _apply_data_capability(rid, m, errs)
         data_status = (data_applied["data_status"]["to"] if data_applied
@@ -274,6 +327,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
             "definition_status": def_status,
             "definition_status_before_application": m["definition_status"],
             "definition_application": applied,
+            "definition_reopen": reopened,
             "data_status": data_status,
             "data_status_before_application": m["data_status"],
             # ⛔ legacy/metadata 필드다. P3 적용 대상이 아니며 상류 값을 그대로 싣는다.
@@ -351,6 +405,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
     #      를 적용 기록에서 계산해 대조한다.
     applied_rules = [r for r in rules if r["definition_application"]]
     data_applied_rules = [r for r in rules if r["data_capability_application"]]
+    reopened_rules = [r for r in rules if r["definition_reopen"]]
 
     # ★ readiness 이동은 **적용 전 값으로 다시 파생시켜** 비교한다.
     #   목표 숫자를 세지 않고, 움직인 Rule 하나하나가 적용 기록을 갖는지 본다.
@@ -373,7 +428,8 @@ def build(out_path=OUT, mapping_path=MAPPING):
             errs.append(f"{r['rule_id']}: 적용 기록 없이 evaluator_status 가 움직였다")
 
     expected_delta = {
-        "definition_undefined": -len(applied_rules),
+        # 여는 방향(-)과 닫는 방향(+)을 함께 센다. 어느 쪽도 근거 없이 움직일 수 없다.
+        "definition_undefined": -len(applied_rules) + len(reopened_rules),
         "evaluator_blocked": len(moved_in_blocked) - len(moved_out_blocked),
         "evaluator_ready": len(moved_in_ready) - len(moved_out_ready),
         "data_missing": -len([r for r in data_applied_rules
@@ -395,9 +451,26 @@ def build(out_path=OUT, mapping_path=MAPPING):
         if r["definition_application"] and r["rule_id"] in DEFINITION_APPLICATION_EXCLUDED:
             errs.append(f"{r['rule_id']}: 적용 금지 대상에 적용됐다")
         # 적용하지 않은 Rule 은 상위 상태와 한 글자도 달라선 안 된다
-        if not r["definition_application"] \
+        if not r["definition_application"] and not r["definition_reopen"] \
                 and r["definition_status"] != r["definition_status_before_application"]:
-            errs.append(f"{r['rule_id']}: 적용 기록 없이 definition_status 가 바뀌었다")
+            errs.append(f"{r['rule_id']}: 적용·reopen 기록 없이 definition_status 가 바뀌었다")
+
+    # ── Definition Reopen 가드 ─────────────────────────────────────
+    if {r["rule_id"] for r in reopened_rules} - set(DEFINITION_REOPEN):
+        errs.append("reopen 이 allowlist 밖으로 번졌다")
+    for r in rules:
+        if r["definition_reopen"]:
+            if r["definition_status"] != "UNDEFINED":
+                errs.append(f"{r['rule_id']}: reopen 됐는데 definition_status 가 UNDEFINED 가 아니다")
+            if r["definition_status_before_application"] != "DEFINED":
+                errs.append(f"{r['rule_id']}: reopen 기록의 적용 전 값이 DEFINED 가 아니다")
+            if "DEFINITION_UNDEFINED" not in r["blocked_by"]:
+                errs.append(f"{r['rule_id']}: reopen 됐는데 DEFINITION_UNDEFINED 가 파생되지 않았다")
+            if r["definition_application"]:
+                errs.append(f"{r['rule_id']}: application 과 reopen 이 함께 실렸다")
+        elif r["definition_status"] == "UNDEFINED" \
+                and r["definition_status_before_application"] == "DEFINED":
+            errs.append(f"{r['rule_id']}: 기록 없이 DEFINED 에서 UNDEFINED 로 닫혔다")
 
     # ── P3 데이터/원천 축 가드 ──────────────────────────────────────
     if {r["rule_id"] for r in data_applied_rules} - set(DATA_CAPABILITY_APPLICATION):

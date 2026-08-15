@@ -19,7 +19,7 @@
   "statuses_resolved": 0,
   "rule_count": 25,
   "state_counts": {
-    "definition_undefined": 2,
+    "definition_undefined": 3,
     "data_missing": 19,
     "source_unresolved": 13,
     "evaluator_blocked": 19,
@@ -47,9 +47,27 @@
       "source_occurrences": [
         "MU::탈락 조건#1"
       ],
-      "definition_status": "DEFINED",
+      "definition_status": "UNDEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": {
+        "reason": "metric_identity_missing",
+        "finding": "`FQ4 $49B 미달` 에 측정 대상(계정과목)이 없다. 원천 `_watchlist_rows.json` 의 MU 행 원문도 `FQ4 $49B 미달 또는 DRAM ASP 하락 전환` 이며 계정과목이 없다 — decomposition 손실이 아니라 처음부터 부재다.",
+        "open_question": "`FQ4 $49B` 는 무엇의 $49B 인가?",
+        "source": "CIO 판정 2026-08-15 · P2-a Gate #2",
+        "prohibited": [
+          "계정과목 추정(매출 등)",
+          "derived FQ4(FY−Q1−Q2−Q3) 생성",
+          "SEC concept mapping 재개"
+        ],
+        "next_gate": "metric identity 확정 이후에만 SEC concept mapping. derived-quarter 허용 여부는 그 다음 별도 카드.",
+        "definition_status": {
+          "from": "DEFINED",
+          "to": "UNDEFINED"
+        },
+        "superseded_definition_resolution": "정의 결핍 없음 (defined control population)",
+        "not_a_new_definition": true
+      },
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -58,6 +76,7 @@
       "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
+        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -97,6 +116,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -296,6 +316,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "AVAILABLE",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -368,6 +389,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -482,6 +504,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -514,6 +537,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -546,6 +570,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "AVAILABLE",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -604,6 +629,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "AVAILABLE",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -662,6 +688,7 @@
       "definition_status": "UNDEFINED",
       "definition_status_before_application": "UNDEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -819,6 +846,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -1001,6 +1029,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
@@ -1084,6 +1113,7 @@
         "capability_axis_note": null,
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -1219,6 +1249,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -1251,6 +1282,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -1297,6 +1329,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
@@ -1444,6 +1477,7 @@
       "definition_status": "UNDEFINED",
       "definition_status_before_application": "UNDEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -1562,6 +1596,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
@@ -1739,6 +1774,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -1950,6 +1986,7 @@
         "capability_axis_note": null,
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "AVAILABLE",
       "data_status_before_application": "AVAILABLE",
       "data_capability": "SUPPORTED",
@@ -2128,6 +2165,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
@@ -2253,6 +2291,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
@@ -2339,6 +2378,7 @@
         "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
@@ -2487,6 +2527,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "MISSING",
       "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
@@ -2518,6 +2559,7 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
+      "definition_reopen": null,
       "data_status": "AVAILABLE",
       "data_status_before_application": "AVAILABLE",
       "data_capability": "SUPPORTED",
@@ -2559,6 +2601,7 @@
         "capability_axis_note": null,
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
+      "definition_reopen": null,
       "data_status": "AVAILABLE",
       "data_status_before_application": "AVAILABLE",
       "data_capability": "SUPPORTED",

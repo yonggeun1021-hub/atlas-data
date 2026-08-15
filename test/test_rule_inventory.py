@@ -129,8 +129,8 @@ check("monitoring 은 Population 에 없다",
 check("READY 6 · BLOCKED 19 (P0 적용 2건 + P3 적용 3건 반영)",
       C["evaluator_ready"] == 6 and C["evaluator_blocked"] == 19,
       f"{C['evaluator_ready']}/{C['evaluator_blocked']}")
-check("UNDEFINED 2 · MISSING 19 · SOURCE_UNRESOLVED 13",
-      C["definition_undefined"] == 2 and C["data_missing"] == 19
+check("UNDEFINED 3 · MISSING 19 · SOURCE_UNRESOLVED 13",
+      C["definition_undefined"] == 3 and C["data_missing"] == 19
       and C["source_unresolved"] == 13,
       f"{C['definition_undefined']}/{C['data_missing']}/{C['source_unresolved']}")
 _dapp = [e for e in P["entries"] if e.get("data_capability_application")]
@@ -438,6 +438,10 @@ check("★ Inventory 위조값도 거부된다", bool(_VC.vocab_violations(_f2))
 check("★ 검사가 rule_inventory.py 에 배선돼 있다",
       "vocab_violations" in open(os.path.join(ROOT, "rules", "rule_inventory.py"),
                                  encoding="utf-8").read())
+
+check("★ Inventory 가 reopen 기록도 그대로 싣는다",
+      [e["rule_id"] for e in P["entries"] if e.get("definition_reopen")] == ["RULE-0001"],
+      str([e["rule_id"] for e in P["entries"] if e.get("definition_reopen")]))
 
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)
