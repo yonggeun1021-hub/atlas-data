@@ -9,7 +9,9 @@ Rule 상태의 정본은 `config/rules.json` 이며 이 문서는 그것을 변�
 |---|---|---|
 | **P2-a** | `RULE-0022` MSFT RPO | **XBRL FEASIBLE** — direct RPO observation 확인. comparability validation 미해결 |
 | (제외) | `RULE-0001` MU FQ4 $49B | **REOPENED** — `definition_status: DEFINED → UNDEFINED` 적용 완료 (2026-08-15). 측정 대상 계정과목이 정본·원문 모두에 없음 |
-| **P2-b** | `RULE-0004` · `0013` · `0014` · `0021` | 대기 — forward guidance / 목표 / non-GAAP·constant-currency 의 document-semantic extraction |
+| **P2-b** | **`RULE-0004` · `0021`** | **실착수 대상** — 정의 카드가 서 있어 취득 조사 가능 |
+| P2-b (보류) | `RULE-0013` | **definition reopen 후보** — 취득 조사 금지. invariant D 참조 |
+| P2-b (보류) | `RULE-0014` | **Comparison Baseline review** — 취득 조사 보류. `UNDEFINED` 로 찍지 않는다 |
 | **P2-c** | `RULE-0011` CRDO 고객집중도 | 대기 — 10-K/10-Q narrative·footnote 서술 |
 | **P2-d** | `RULE-0015` NVDA 하이퍼스케일러 capex | 대기 · **착수 금지** — 대상 기업군(universe)과 comparison baseline 이 정본에 없음. 데이터 취득 이전에 definition/coverage decision 필요 |
 
@@ -229,6 +231,53 @@ P3 에서 세운 기준보다 낮은 문턱을 적용하는 것이 된다.
 ② collector + live run 으로 10개 분기 계열 구성 실증 → ③ 그 결과로 해제 판정.
 
 ⛔ 성장률 · 10%p · 2회 연속 계산은 하지 않았다. evaluator 연결도 하지 않았다.
+
+---
+
+## P2-b 취득 조사 (진행 중) — `RULE-0004` · `RULE-0021`
+
+### `RULE-0004` TSM capex 하향
+
+**요구 관측값** (CIO 카드 3건으로 이미 확정):
+TSMC 가 공식 실적발표에서 제시하는 **연간 consolidated capital budget / CapEx 가이던스의
+범위 하단**. 동일 대상 회계연도의 **직전 공식 가이던스 하단**과 비교. 단순 범위 축소는 제외.
+새 대상연도 최초 가이던스는 판정하지 않음.
+
+**조사 결과 — 1차 후보에서는 찾지 못했다.**
+
+`0001046179-26-000451` (2026-07-16, 2Q26 실적 6-K) 의 구성:
+
+| 파일 | 성격 | 결과 |
+|---|---|---|
+| `tsm-20260716x6k.htm` (17KB) | 6-K 표지 | 본문 없음 — 두 exhibit 을 참조만 한다 |
+| `a2q26e_withguidancexfinal.htm` (28KB) | **Ex-99.1 press release** | **분기(3Q26) 매출·마진 가이던스만 있고 연간 capex 가이던스 없음** |
+| `a2q26presentatione.htm` (9.6KB) + **JPG 12장** | Ex-99.2 실적 컨퍼런스 자료 | ⚠️ **슬라이드가 이미지다** |
+
+**두 가지 구조적 사실**
+
+1. **값이 표지가 아니라 exhibit 에 있다.** P3(C4)에서는 primary document 자체에 관측값이
+   있었는데, 여기서는 **exhibit 을 지목하는 식별 계약**이 추가로 필요하다.
+2. **Ex-99.2 는 이미지 슬라이드다.** 연간 capex 가이던스가 이 자료에만 있다면
+   **텍스트 추출로는 닿지 않는다.**
+
+**남은 확인** — TSMC 는 통상 **연간 capital budget 을 4분기/연간 실적 발표(1월)** 에서
+제시한다. 그 릴리스에 텍스트로 존재하는지 확인해야 `RULE-0004` 의 취득 가능성이 닫힌다.
+⛔ 확인 전까지 `PASS` 로 적지 않는다.
+
+### `RULE-0021` MSFT Azure 45%cc 유의미 하회
+
+**요구 관측값** (CIO 카드 1건): 공표된 **Azure 성장률의 constant-currency 값**.
+45% 기준선보다 **3%p 이상** 낮으면 발동(정확히 3%p 포함).
+
+**조사 결과 — XBRL 에는 없다.**
+
+- `us-gaap` 매출 concept 은 존재하나(131 entries) **성장률 개념이 없다.**
+- ⚠️ 「XBRL 은 퍼센트를 안 태깅한다」는 뜻이 **아니다** —
+  `RevenueRemainingPerformanceObligationPercentage` 는 실제로 태깅돼 있다.
+  즉 **퍼센트 태깅은 가능하지만 Azure 성장률은 태깅 대상이 아니다.**
+- ⇒ 관측 원천은 **실적 press release(8-K Ex-99.1) 또는 10-Q MD&A 서술**이다.
+
+⛔ 두 Rule 모두 source 채택·collector 구현·상태 변경 없음.
 
 ---
 
