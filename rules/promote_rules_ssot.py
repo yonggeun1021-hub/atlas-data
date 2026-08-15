@@ -73,6 +73,64 @@ DEFINITION_APPLICATION_PILOT = {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+# Context Provenance — CIO 판정 2026-08-15
+#   ★ 앞의 세 경로(definition_application · data_capability_application ·
+#     definition_reopen)는 모두 **상태 변경이 본체**이고 provenance 는 부속이다.
+#     이 경로는 반대다 — **상태를 전혀 바꾸지 않고 근거만 남긴다.**
+#     그래서 재사용하지 않고 별도로 둔다.
+#
+#   용도: decomposition 이 fragment 단위로 자르면서 **parent context 가 공급하던
+#         의미가 조각에서 사라진** 경우, 그 의미가 어디서 왔는지를 명시한다.
+#
+#   ⛔ Definition Application 의 백도어가 되면 안 된다. 아래 금지를 **가드로** 강제한다:
+#      · Rule 상태 변경 금지        · condition 의미 변경 금지
+#      · threshold 변경 금지        · evaluator 입력 생성 금지
+#      · 기존 upstream decision 덮어쓰기 금지
+#      · kind 는 context_provenance 계열만 허용
+#      · CIO decision 이 명시적으로 존재해야 함
+CONTEXT_PROVENANCE_KIND = "context_provenance"
+
+# 기록 안에 들어오면 안 되는 키 — 있으면 그 순간 상태·의미를 만드는 경로가 된다.
+CONTEXT_PROVENANCE_FORBIDDEN_KEYS = {
+    "definition_status", "data_status", "source_qualification", "data_capability",
+    "evaluator_status", "blocked_by", "threshold", "condition_text",
+    "condition_semantics", "scope", "value", "evaluator_input",
+}
+
+CONTEXT_PROVENANCE = {
+    "RULE-0007": {
+        "kind": CONTEXT_PROVENANCE_KIND,
+        "decision_unit": "RULE-0007::metric_identity",
+        "source": "CIO 판정 2026-08-15 · P2-a 전수점검",
+        "parent_context": "TSM::다음 이벤트 원문 — 「★ 8/10경 TSMC 7월 월매출 — "
+                          "Ready Action Plan 발동점 … 약화 = 단월 YoY < +35% OR "
+                          "누계 YoY < +34.6% …」",
+        "cio_decision": "「단월 YoY」 및 「누계 YoY」 의 metric identity 는 원문 동일 cell 의 "
+                        "상위 문맥인 「TSMC 7월 월매출」 에서 carry 된다. 따라서 각각 "
+                        "「단월 월매출 YoY」 · 「누계 월매출 YoY」 로 읽는다.",
+        "not_a_new_definition": True,
+        "note": "⛔ 신규 의미 추가가 아니라 decomposition 과정에서 생략된 parent-context "
+                "provenance 의 명시화다. 상태를 변경하지 않는다 — "
+                "AVAILABLE · SOURCE_RESOLVED 는 P3 판정 그대로 유지된다.",
+        "execution_status": "evaluator 연결 금지",
+    },
+    "RULE-0008": {
+        "kind": CONTEXT_PROVENANCE_KIND,
+        "decision_unit": "RULE-0008::metric_identity",
+        "source": "CIO 판정 2026-08-15 · P2-a 전수점검",
+        "parent_context": "TSM::다음 이벤트 원문 — 「★ 8/10경 TSMC 7월 월매출 … "
+                          "비약화 = 단월 YoY ≥ +35% AND 누계 YoY ≥ +34.6% …」",
+        "cio_decision": "「단월 YoY」 및 「누계 YoY」 의 metric identity 는 원문 동일 cell 의 "
+                        "상위 문맥인 「TSMC 7월 월매출」 에서 carry 된다. 따라서 각각 "
+                        "「단월 월매출 YoY」 · 「누계 월매출 YoY」 로 읽는다.",
+        "not_a_new_definition": True,
+        "note": "⛔ 신규 의미 추가가 아니라 decomposition 과정에서 생략된 parent-context "
+                "provenance 의 명시화다. 상태를 변경하지 않는다.",
+        "execution_status": "evaluator 연결 금지",
+    },
+}
+
+# ══════════════════════════════════════════════════════════════════════
 # Definition Reopen — CIO 판정 2026-08-15
 #   ★ 방향이 반대다. 기존 두 application 은 상태를 **여는** 방향(UNDEFINED→DEFINED,
 #     MISSING→AVAILABLE)인데 이것은 **닫는** 방향(DEFINED→UNDEFINED)이다.
@@ -204,6 +262,33 @@ def _apply_definition(rid, missing, decisions, errs, capability_axis=()):
     }
 
 
+def _context_provenance(rid, m, decisions, errs):
+    """상태를 바꾸지 않고 근거만 남긴다. 금지 키가 하나라도 있으면 싣지 않는다."""
+    if rid not in CONTEXT_PROVENANCE:
+        return None
+    rec = dict(CONTEXT_PROVENANCE[rid])
+    bad = CONTEXT_PROVENANCE_FORBIDDEN_KEYS & set(rec)
+    if bad:
+        errs.append(f"{rid}: context provenance 에 상태·의미 키가 있다 {sorted(bad)} — "
+                    f"이 경로는 근거만 남긴다")
+        return None
+    if rec.get("kind") != CONTEXT_PROVENANCE_KIND:
+        errs.append(f"{rid}: context provenance 의 kind 가 {CONTEXT_PROVENANCE_KIND} 가 아니다")
+        return None
+    if not (rec.get("cio_decision") or "").strip():
+        errs.append(f"{rid}: context provenance 에 CIO decision 이 없다")
+        return None
+    if "금지" not in rec.get("execution_status", ""):
+        errs.append(f"{rid}: context provenance 에 evaluator 연결 금지 표기가 없다")
+        return None
+    # ⛔ 기존 upstream decision 을 덮어쓰지 않는다
+    if rec["decision_unit"] in {d["decision_unit"] for d in decisions}:
+        errs.append(f"{rid}: context provenance 가 기존 upstream decision "
+                    f"{rec['decision_unit']!r} 를 덮어쓴다")
+        return None
+    return rec
+
+
 def _reopen_definition(rid, m, errs):
     """정의를 다시 연다. allowlist 밖이면 None."""
     if rid not in DEFINITION_REOPEN:
@@ -298,6 +383,9 @@ def build(out_path=OUT, mapping_path=MAPPING):
                                     m.get("data_capability_axis", []))
         def_status = "DEFINED" if applied else m["definition_status"]
 
+        # ── Context Provenance (상태 불변, 근거만) ────────────────
+        ctx_prov = _context_provenance(rid, m, decisions, errs)
+
         # ── Definition Reopen (닫는 방향) ─────────────────────────
         reopened = _reopen_definition(rid, m, errs)
         if reopened:
@@ -328,6 +416,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
             "definition_status_before_application": m["definition_status"],
             "definition_application": applied,
             "definition_reopen": reopened,
+            "context_provenance": ctx_prov,
             "data_status": data_status,
             "data_status_before_application": m["data_status"],
             # ⛔ legacy/metadata 필드다. P3 적용 대상이 아니며 상류 값을 그대로 싣는다.
@@ -454,6 +543,27 @@ def build(out_path=OUT, mapping_path=MAPPING):
         if not r["definition_application"] and not r["definition_reopen"] \
                 and r["definition_status"] != r["definition_status_before_application"]:
             errs.append(f"{r['rule_id']}: 적용·reopen 기록 없이 definition_status 가 바뀌었다")
+
+    # ── Context Provenance 가드 — 상태를 바꾸지 않았음을 기계로 확인한다 ──
+    ctx_rules = [r for r in rules if r["context_provenance"]]
+    if {r["rule_id"] for r in ctx_rules} - set(CONTEXT_PROVENANCE):
+        errs.append("context provenance 가 allowlist 밖으로 번졌다")
+    for r in ctx_rules:
+        cp = r["context_provenance"]
+        if CONTEXT_PROVENANCE_FORBIDDEN_KEYS & set(cp):
+            errs.append(f"{r['rule_id']}: context provenance 에 상태·의미 키가 실렸다")
+        if cp.get("not_a_new_definition") is not True:
+            errs.append(f"{r['rule_id']}: context provenance 가 신규 정의 아님을 명시하지 않았다")
+        # ★ 이 경로는 상태를 만들지 않는다 — 상태는 오직 상류 또는 다른 기록으로만 설명돼야 한다.
+        if r["definition_status"] != r["definition_status_before_application"] \
+                and not (r["definition_application"] or r["definition_reopen"]):
+            errs.append(f"{r['rule_id']}: context provenance 만으로 definition_status 가 움직였다")
+        if r["data_status"] != r["data_status_before_application"] \
+                and not r["data_capability_application"]:
+            errs.append(f"{r['rule_id']}: context provenance 만으로 data_status 가 움직였다")
+        # ★ condition 원문은 canonical 과 동일해야 한다 (위의 원문 불변 검사와 이중으로 건다)
+        if r["condition_text"] != canon[r["rule_id"]]["condition_text"]:
+            errs.append(f"{r['rule_id']}: context provenance 가 실린 Rule 의 원문이 달라졌다")
 
     # ── Definition Reopen 가드 ─────────────────────────────────────
     if {r["rule_id"] for r in reopened_rules} - set(DEFINITION_REOPEN):
