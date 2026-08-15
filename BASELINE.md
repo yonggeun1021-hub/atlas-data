@@ -50,7 +50,7 @@
 | Rule SSOT (`config/rules.json`) | 승인 완료 |
 | Machine Rule Inventory | PASS / CLOSED |
 | reproducibility baseline | 승인 완료 |
-| **Actions PASS** | **OPEN** — 실제 GitHub-hosted run 성공 전까지 CLOSED 아님 |
+| **Actions PASS** | **CLOSED** — CIO 확정 2026-08-15. 실제 GitHub-hosted run 성공 확인 (PR #1 · `actions-pass` run #1 · conclusion `success` · head `da26e575…`) |
 
 ⛔ 로컬 시뮬레이션이나 disposable copy 의 PASS 를 `Actions PASS` 로 대체하지 않는다.
 
