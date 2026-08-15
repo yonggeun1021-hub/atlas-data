@@ -14,7 +14,11 @@ EVALUATOR_STATUS = {"READY", "BLOCKED", UNRESOLVED}     # ★ 파생값 — 직�
 
 # ── E2E inactive draft — capability / source qualification 축 ───────────
 DATA_CAPABILITY = {"SUPPORTED", "NOT_IMPLEMENTED", "PERMANENTLY_UNAVAILABLE", UNRESOLVED}
-SOURCE_QUALIFICATION = {"SOURCE_UNRESOLVED", "SOURCE_UNVERIFIED", UNRESOLVED, None}
+#   ★ SOURCE_RESOLVED — CIO 판정 2026-08-15 (P3) 로 승인돼 `RULE-0003·0007·0008` 에
+#     실제로 실렸으나 **어휘 집합에 등록되지 않은 채로 통과했다.** 값 자체는 유효하므로
+#     되돌리지 않고 여기 정식 등록한다. 그 누락이 가능했던 이유는 아래 참조.
+SOURCE_QUALIFICATION = {"SOURCE_UNRESOLVED", "SOURCE_UNVERIFIED", "SOURCE_RESOLVED",
+                        UNRESOLVED, None}
 
 # ── 정본 §21-12(4) · §21-13 — downstream effect ────────────────────────
 #    §21-13 표가 실제로 쓴 표기를 그대로 옮긴다.
@@ -86,6 +90,39 @@ VOCABULARY_GAPS_RESOLVED = [
     "④ monitoring — Inventory 포함 · Evaluator Population 제외. 상태 억지로 채우지 않음",
 ]
 VOCABULARY_GAPS = []          # 4건 전부 CIO 판정 2026-08-15 로 해소
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 결함 C — Vocabulary Enforcement (CIO 판정 2026-08-15)
+# ══════════════════════════════════════════════════════════════════════
+#   발견 경위: `SOURCE_RESOLVED` 가 P3 승격에 실렸는데 회귀 16/16 · Actions PASS 로
+#   통과했다. 원인은 어휘 검사가 **분해 단계(fragment)에만** 걸려 있었고
+#   `config/rules.json` · `rules/rule_inventory.json` 같은 **하류 authoritative 산출물**
+#   에는 걸려 있지 않았기 때문이다. 승격 단계에서 새로 만들어진 값은 어떤 검사도 통과할
+#   필요가 없었다.
+#
+#   ⛔ 이 함수는 새 어휘를 만들지 않는다. 위에 선언된 폐쇄 집합을 **강제**할 뿐이다.
+#   ★ evaluator_status 는 파생값이지만 **결과값도 어휘 안에 있어야** 하므로 검사한다.
+#     (입력으로 적었는지 여부는 별도 검사가 담당한다.)
+CLOSED_VOCAB_FIELDS = ("definition_status", "data_status", "data_capability",
+                       "source_qualification", "evaluator_status",
+                       "rule_kind", "downstream_effect")
+
+
+def vocab_violations(record: dict, fields=CLOSED_VOCAB_FIELDS, tag: str = "") -> list:
+    """폐쇄 어휘 밖 값을 전부 돌려준다. 하나라도 있으면 산출물을 내면 안 된다."""
+    out = []
+    for f in fields:
+        if f not in record:
+            continue
+        allowed = VOCAB.get(f)
+        if allowed is None:
+            out.append(f"{tag}{f}: 폐쇄 어휘 선언이 없다 — 검사 대상으로 지정됐는데 집합이 없다")
+            continue
+        if record[f] not in allowed:
+            out.append(f"{tag}{f}={record[f]!r} 는 허용 어휘 밖이다 "
+                       f"(허용 {sorted(str(x) for x in allowed)})")
+    return out
 
 
 def derive_evaluator_status(definition_status: str, data_status: str) -> str:
