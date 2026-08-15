@@ -65,7 +65,7 @@ import os
 import sys
 import datetime as dt
 
-from common import (save, load_universe, today_kst, now_utc_iso,
+from common import (save, save_incident, load_universe, today_kst, now_utc_iso,
                     record_stage_snapshot, stage_distribution)
 
 if not (os.getenv("KRX_ID") and os.getenv("KRX_PW")):
@@ -173,6 +173,10 @@ def collect_one(code: str, start: str, end: str, today: str = None) -> dict:
                 rows_absent.setdefault(name, []).append(key)
 
         entry["investor_rows_absent"] = absent
+        # ★ provenance Part A — 이 행이 '언제 관측됐는가'를 남긴다 (2026-08-15).
+        #   확정 판정에는 쓰지 않는다. 아카이브가 스스로를 설명하게 하는 것이 목적이다.
+        #   (8/14 아카이브는 장중 수집분인데 그 사실이 파일 어디에도 없었다)
+        entry["observed_at_kst"] = now_kst().isoformat(timespec="seconds")
         entry["confirmed"], entry["confirm_reason"] = confirm_state(key, today)
         daily[key] = entry
 
@@ -300,11 +304,12 @@ def main() -> None:
                                                     if v.get("investor_rows_missing")),
     }
 
-    save(payload, "krx.json", today)
-
     if ok == 0:
-        print("FATAL: 모든 종목 수집 실패")
+        save_incident(payload, "krx.json", today)
+        print("FATAL: 모든 종목 수집 실패 — 정본 미갱신")
         sys.exit(1)
+
+    save(payload, "krx.json", today)
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ import datetime as dt
 
 import requests
 
-from common import save, load_universe, universe_meta, today_kst, now_utc_iso
+from common import save, save_incident, load_universe, universe_meta, today_kst, now_utc_iso
 
 UA = os.getenv("SEC_USER_AGENT", "").strip()
 if not UA:
@@ -384,11 +384,12 @@ def main() -> None:
     print(f"[validation] schema_verified={v['schema_verified']} "
           f"method={v['verification_method']} live_requests={v['live_requests']}"
           + (f" ⚠ {v['schema_issues']}" if v["schema_issues"] else ""))
-    save(payload, "sec.json", today)
-
     if ok == 0:
-        print("FATAL: 모든 종목 수집 실패")
+        save_incident(payload, "sec.json", today)
+        print("FATAL: 모든 종목 수집 실패 — 정본 미갱신")
         sys.exit(1)
+
+    save(payload, "sec.json", today)
 
 
 if __name__ == "__main__":

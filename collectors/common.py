@@ -432,3 +432,18 @@ def save(payload: dict, filename: str, date: dt.date | None = None) -> str:
     print(f"[saved] {path}")
     print(f"[saved] {latest}")
     return path
+
+
+def save_incident(payload: dict, filename: str, date: dt.date | None = None) -> str:
+    """전멸(ok==0) 산출물을 격리 경로에만 남긴다. latest_<stem>.json 은 건드리지 않는다."""
+    date = date or today_kst()
+    payload["universe_meta"] = dict(universe_meta)
+    outdir = os.path.join(DATA_DIR, "incident")
+    os.makedirs(outdir, exist_ok=True)
+    stem = os.path.splitext(filename)[0]
+    path = os.path.join(outdir, f"{date.isoformat()}_{stem}_failed.json")
+    with open(path, "w", encoding="utf-8") as fp:
+        json.dump(payload, fp, ensure_ascii=False, indent=2)
+    print(f"[incident] {path}")
+    print(f"[incident] 정본 latest_{stem}.json 은 덮지 않았습니다 — 다음 슬롯이 재시도합니다")
+    return path

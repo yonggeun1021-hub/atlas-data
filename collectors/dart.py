@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 
 import requests
 
-from common import save, load_universe, today_kst, now_utc_iso
+from common import save, save_incident, load_universe, today_kst, now_utc_iso
 
 KEY = os.getenv("DART_API_KEY")
 if not KEY:
@@ -176,11 +176,12 @@ def main() -> None:
             print(f"[FAILED] {code} {name} — {type(e).__name__}: {e}")
 
     payload["summary"] = {"ok": ok, "failed": failed}
-    save(payload, "dart.json")
-
     if ok == 0:
-        print("FATAL: 모든 종목 수집 실패")
+        save_incident(payload, "dart.json")
+        print("FATAL: 모든 종목 수집 실패 — 정본 미갱신")
         sys.exit(1)
+
+    save(payload, "dart.json")
 
 
 if __name__ == "__main__":

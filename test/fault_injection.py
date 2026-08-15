@@ -139,6 +139,10 @@ def _install_stubs() -> dict:
     cm.record_stage_snapshot = lambda u, d=None: "data/stage_history.json"
     cm.stage_distribution = lambda u, d=None: {"coverage_total": 11, "stage_assigned": 3, "buy": 0}
     cm.save = lambda payload, filename, date=None: captured.update(payload) or filename
+    # ★ save_incident — 전멸 시 정본을 덮지 않는 경로. captured 를 오염시키지 않는다.
+    #   (captured 는 '정본에 무엇이 쓰였는가'를 보는 곳이므로 incident 는 별도로 받는다)
+    cm.incidents = {}
+    cm.save_incident = lambda payload, filename, date=None: cm.incidents.update(payload) or filename
     sys.modules["common"] = cm
     return captured
 
@@ -185,15 +189,24 @@ def test_failure_isolation() -> None:
     check("부분 실패는 프로세스를 죽이지 않는다", exit_code == 0, f"exit={exit_code}")
 
     print("\n[T2] 전 종목 실패 — 시스템 장애로 승격하되 상태는 잃지 않는다")
-    captured.clear()
+    # ★ 계약 변경 2026-08-15 (save-before-fail 수정) —
+    #   전멸 시 산출물은 **정본(latest_*)을 덮지 않고** incident 경로에만 남는다.
+    #   따라서 아래 단언은 captured(정본)가 아니라 incidents 를 본다.
+    #   「전멸해도 상태를 잃지 않는다」는 성질 자체는 그대로 유지된다.
+    import common as _cm
+    captured.clear(); _cm.incidents.clear()
     exit_code = _run(krx, {s["code"] for s in KR})
-    st = captured.get("stocks", {})
-    check("summary {ok:0, failed:5}", captured.get("summary") == {"ok": 0, "failed": 5},
-          f"got {captured.get('summary')}")
+    inc = _cm.incidents
+    st = inc.get("stocks", {})
+    check("summary {ok:0, failed:5}", inc.get("summary") == {"ok": 0, "failed": 5},
+          f"got {inc.get('summary')}")
     check("전 종목 실패는 종료코드 1", exit_code == 1, f"exit={exit_code}")
     check("★ 전멸해도 단계 보존 (효성=Candidate)",
           st.get("298040", {}).get("atlas_stage") == "Candidate")
-    check("전멸해도 JSON 은 생성된다", len(st) == 5)
+    check("전멸해도 JSON 은 생성된다 (incident 경로)", len(st) == 5)
+    check("★★ 전멸 payload 가 정본을 덮지 않는다", captured == {},
+          f"captured={list(captured)[:3]}")
+    check("★★ 실패 증거는 버려지지 않는다", bool(inc))
 
 
 # ────────────────────────────────────────────────────────────
@@ -893,6 +906,164 @@ def test_output_contract() -> None:
 #   ① test_distribution_and_history 는 **실제 common** 을 쓴다 (스텁 설치 전)
 #   ② test_failure_isolation 이 스텁을 설치한다
 #   ③ 그 뒤 krx 재적재가 필요한 테스트들이 온다
+
+# ────────────────────────────────────────────────────────────
+# T11 — Guard 판정 (2026-08-15 편입)
+#
+#   왜 편입하는가 — 2026-08-14 false-fresh 사고 당시 이 스위트는 156/156 PASS 였다.
+#   Guard 를 한 번도 실행하지 않았기 때문이다(언급은 "summary 형식을 Guard 가 쓴다" 1건뿐).
+#   검증기가 보지 않는 층은 초록불이어도 검증된 것이 아니다.
+#
+#   ★ 호출 방식은 collect.yml 과 동일하게 맞춘다 —
+#       Guard 스텝   : TODAY=... python3 .github/scripts/guard.py            (인자 없음)
+#       D1 게이트    : TODAY=... python3 .github/scripts/guard.py data/latest_sec.json
+#     stdout 첫 줄이 fresh|stale 이고 exit 0 이라는 인터페이스까지 함께 시험한다.
+#
+#   ★ fixture 는 소스별로 **실제 산출물과 같은 형태**를 쓴다.
+#     (2026-08-15 교훈: 세 파일에 같은 KRX 형태를 넣었다가 DART/SEC 영구 stale 결함을 놓쳤고,
+#      stocks/daily 없는 최소 fixture 를 썼다가 세션 정합 검사가 시험되지 않았다)
+# ────────────────────────────────────────────────────────────
+GUARD_PATH = os.path.join(_ROOT, ".github", "scripts", "guard.py")
+_GT, _GP = "2026-08-19", "2026-08-18"          # 오늘 / 직전 거래일
+
+
+def _g_daily(days):
+    return {d: {"close": 100 + i} for i, d in enumerate(days)}
+
+
+def _g_krx(ver="v4.1", days=(_GP,), ltd=_GP, dr=None, stocks=None, **ov):
+    st = stocks if stocks is not None else {
+        "005930": {"status": "ok", "daily": _g_daily(days), "latest_trading_day": ltd},
+        "000660": {"status": "ok", "daily": _g_daily(days), "latest_trading_day": ltd}}
+    d = {"collected_for_kst_date": _GT, "collector_version": ver,
+         "summary": {"ok": 2, "failed": 0}, "stocks": st,
+         "decision_readiness": dr if dr is not None else
+         {"confirmed_through": ltd, "not_decision_ready": [],
+          "stocks_with_unconfirmed_rows": [], "stocks_with_investor_rows_missing": []}}
+    if ver.startswith("v3"):
+        d.pop("decision_readiness")
+    d.update(ov)
+    return d
+
+
+def _g_dart(items=None, **ov):
+    it = items if items is not None else [
+        {"date": "20260818", "title": "단일판매ㆍ공급계약체결", "rcept_no": "20260818800144",
+         "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800144"}]
+    d = {"collected_for_kst_date": _GT, "collector_version": "v2.1",
+         "summary": {"ok": 2, "failed": 0}, "lookback_days": 7,
+         "filter_keywords": ["단일판매", "공급계약", "신규시설투자"],
+         "stocks": {"005930": {"status": "ok", "total_count": 9,
+                               "relevant_count": len(it), "relevant": it}}}
+    d.update(ov)
+    return d
+
+
+def _g_sec(**ov):
+    d = {"collected_for_kst_date": _GT, "collector_version": "v2",
+         "summary": {"ok": 7, "failed": 0},
+         "validation": {"schema_verified": True, "verification_method": "live",
+                        "live_requests": 39, "schema_issues": [], "reason": None}}
+    d.update(ov)
+    return d
+
+
+def _g_run(k, da, s, expect, label, only=None):
+    """collect.yml 이 부르는 방식 그대로 subprocess 로 실행한다."""
+    import subprocess
+    with tempfile.TemporaryDirectory() as t:
+        os.makedirs(os.path.join(t, "data"))
+        for n, o in (("latest_krx.json", k), ("latest_dart.json", da), ("latest_sec.json", s)):
+            with open(os.path.join(t, "data", n), "w", encoding="utf-8") as fp:
+                json.dump(o, fp, ensure_ascii=False)
+        cmd = [sys.executable, GUARD_PATH] + ([f"data/{only}"] if only else [])
+        r = subprocess.run(cmd, cwd=t, capture_output=True, text=True,
+                           env={**os.environ, "TODAY": _GT})
+        got = r.stdout.strip().splitlines()[0] if r.stdout.strip() else "?"
+        detail = (r.stderr.strip().splitlines() or [""])[0].strip()[:70]
+        check(label, got == expect and r.returncode == 0,
+              f"got {got!r} exit={r.returncode} {detail}")
+
+
+def test_guard() -> None:
+    print("\n[T11] Guard — 오늘자 여부만이 아니라 'decision-qualified 인가'를 본다")
+    check("guard.py 가 실제 경로에 존재한다", os.path.isfile(GUARD_PATH), GUARD_PATH)
+
+    _g_run(_g_krx(), _g_dart(), _g_sec(), "fresh", "★ 세 소스 정상 — 인자 없음(Guard 스텝 경로)")
+    _g_run(_g_krx(), _g_dart(), _g_sec(), "fresh", "★ SEC 단독 — D1 게이트 경로", only="latest_sec.json")
+
+    # ★★ 소스별 계약 분리 — 공통에 KRX 필드를 요구하면 D1 이 영구 차단된다
+    _g_run(_g_krx(), _g_dart(), _g_sec(), "fresh", "★★ DART 에 KRX 필드를 요구하지 않는다", only="latest_dart.json")
+    _g_run(_g_krx(), _g_dart(), _g_sec(), "fresh", "★★ SEC 에 KRX 필드를 요구하지 않는다", only="latest_sec.json")
+
+    # 공통 계약
+    _g_run(_g_krx(summary={"ok": 0, "failed": 0}), _g_dart(), _g_sec(), "stale", "★ {ok:0, failed:0} 차단")
+    _g_run(_g_krx(summary={"ok": 2, "failed": 1}), _g_dart(), _g_sec(), "stale", "failed>0 차단")
+    _g_run(_g_krx(collected_for_kst_date="2026-08-15"), _g_dart(), _g_sec(), "stale", "날짜 불일치 차단")
+    _g_run(_g_krx(summary=None), _g_dart(), _g_sec(), "stale", "summary 없음 차단")
+
+    # KRX 확정 계약
+    _g_run(_g_krx(ver="v3.3"), _g_dart(), _g_sec(), "stale", "★★ 구버전 KRX fail-closed (8/14 사고 재현 방지)")
+    _g_run(_g_krx(dr={"confirmed_through": None, "not_decision_ready": [],
+                      "stocks_with_investor_rows_missing": []}), _g_dart(), _g_sec(), "stale", "확정 행 0건 차단")
+    _g_run(_g_krx(dr={"confirmed_through": _GP, "not_decision_ready": ["005930"],
+                      "stocks_with_investor_rows_missing": []}), _g_dart(), _g_sec(), "stale", "decision_ready 아닌 종목 차단")
+    _g_run(_g_krx(dr={"confirmed_through": _GP, "not_decision_ready": [],
+                      "stocks_with_investor_rows_missing": ["005930"]}), _g_dart(), _g_sec(), "stale",
+           "★ 수급 행 결측 차단 (failed==0 인데도)")
+
+    # 캘린더 없는 세션 정합 — 수집된 daily 키가 곧 거래일 목록이다
+    _g_run(_g_krx(days=("2026-08-12", "2026-08-13", _GP), ltd=_GP), _g_dart(), _g_sec(), "fresh",
+           "★ 관측 최신 거래일 == 확정일")
+    _g_run(_g_krx(days=("2026-08-12", "2026-08-13", _GP), ltd="2026-08-13",
+                  dr={"confirmed_through": "2026-08-13", "not_decision_ready": [],
+                      "stocks_with_investor_rows_missing": []}), _g_dart(), _g_sec(), "stale",
+           "★★ 확정이 관측 최신 거래일에 미달 (거래일 캘린더 불필요)")
+    _g_run(_g_krx(stocks={"005930": {"status": "ok", "daily": _g_daily([_GP]), "latest_trading_day": _GP},
+                          "000660": {"status": "ok", "daily": _g_daily(["2026-08-13"]),
+                                     "latest_trading_day": "2026-08-13"}}),
+           _g_dart(), _g_sec(), "stale", "★★ 종목 간 최신 거래일 불일치 (거래정지 등) 자동통과 금지")
+    _g_run(_g_krx(stocks={"005930": {"status": "ok", "daily": _g_daily([_GT]), "latest_trading_day": None}}),
+           _g_dart(), _g_sec(), "stale", "오늘 이전 거래일 행이 없음")
+    _g_run(_g_krx(days=(_GP, _GT), ltd=_GP), _g_dart(), _g_sec(), "fresh", "당일 미확정 행 포함은 정상")
+    _g_run(_g_krx(stocks={"A": {"status": "FAILED"},
+                          "B": {"status": "ok", "daily": _g_daily([_GP]), "latest_trading_day": _GP}}),
+           _g_dart(), _g_sec(), "fresh", "FAILED 종목 혼재 — status=ok 만 검사한다")
+
+    # DART 자체 계약 (payload 안의 정보만으로 검증)
+    _g_run(_g_krx(), _g_dart(stocks={"005930": {"status": "ok", "total_count": 9, "relevant_count": 99,
+                                                "relevant": [{"date": "20260818", "title": "공급계약", "rcept_no": "1",
+                                                              "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1"}]}}),
+           _g_sec(), "stale", "★ relevant_count 와 배열 길이 불일치", only="latest_dart.json")
+    _g_run(_g_krx(), _g_dart(items=[{"date": "20260818", "title": "분기보고서", "rcept_no": "1",
+                                     "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1"}]),
+           _g_sec(), "stale", "★★ 필터 키워드에 안 걸리는 항목이 relevant 에 있음", only="latest_dart.json")
+    _g_run(_g_krx(), _g_dart(items=[{"date": "20260818", "title": "공급계약", "rcept_no": "AAA",
+                                     "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=BBB"}]),
+           _g_sec(), "stale", "★ url 과 rcept_no 불일치", only="latest_dart.json")
+    _g_run(_g_krx(), _g_dart(items=[{"date": "20260901", "title": "공급계약", "rcept_no": "1",
+                                     "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1"}]),
+           _g_sec(), "stale", "★ 미래 공시일", only="latest_dart.json")
+    _g_run(_g_krx(), _g_dart(items=[{"date": "2026818", "title": "공급계약", "rcept_no": "1",
+                                     "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1"}]),
+           _g_sec(), "stale", "★ date 형식 이상", only="latest_dart.json")
+    _g_run(_g_krx(), _g_dart(stocks={"005930": {"status": "ok", "total_count": 3,
+                                                "relevant_count": 5, "relevant": []}}),
+           _g_sec(), "stale", "★ relevant > total", only="latest_dart.json")
+
+    # SEC 계약 — sec.py 는 ok>0 이면 schema 실패해도 exit 0 이다
+    _g_run(_g_krx(), _g_dart(), _g_sec(validation={"schema_verified": False, "verification_method": "live",
+                                                   "reason": "schema mismatch"}),
+           "stale", "★★ SEC schema_verified=false 차단 (exit 0 이어도)", only="latest_sec.json")
+    _g_run(_g_krx(), _g_dart(), _g_sec(validation={"schema_verified": False, "verification_method": "stub",
+                                                   "reason": "live endpoint not reached"}),
+           "stale", "★ SEC stub 응답(네트워크 차단) 차단", only="latest_sec.json")
+    _g_run(_g_krx(), _g_dart(), _g_sec(validation=None), "stale", "SEC validation 없음 차단", only="latest_sec.json")
+
+    # fail-closed
+    _g_run(_g_krx(), _g_dart(), _g_sec(), "stale", "★ 계약 미등록 경로는 stale", only="latest_unknown.json")
+
+
 SUITES = [
     ("T3·T4", test_distribution_and_history),
     ("T1·T2", test_failure_isolation),
@@ -902,6 +1073,7 @@ SUITES = [
     ("T5",    test_sec_collector),
     ("T6",    test_event_classifier),
     ("T7",    test_constitution),
+    ("T11",   test_guard),
 ]
 
 
