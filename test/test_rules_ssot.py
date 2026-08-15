@@ -491,7 +491,7 @@ check("위반이 있으면 authority 파일을 쓰지 않는다", (not wrote) an
 _p, _e, wrote = run(full=True)
 check("정상이면 쓴다", wrote and _e == [])
 
-print("K-9 P3 Data Capability Application — 근거와 경계")
+print("P3-1 Data Capability Application — 근거와 경계")
 for r in DATA_APPLIED:
     a = r["data_capability_application"]
     check(f"{r['rule_id']} 적용 기록에 근거 문장이 있다", bool(a.get("source")))
@@ -511,7 +511,7 @@ check("★ P3 적용이 TSM 밖으로 번지지 않았다",
 check("★ READY 6건이어도 소비 경로는 닫혀 있다",
       LIVE["consumable_by_evaluator"] is False and "HOLD" in LIVE["production_state"])
 
-print("K-10 결함 C — 폐쇄 어휘 강제 (CIO 판정 2026-08-15)")
+print("C-1 결함 C — 폐쇄 어휘 강제 (CIO 판정 2026-08-15)")
 check("SOURCE_RESOLVED 가 vocabulary 에 정식 등록됐다",
       "SOURCE_RESOLVED" in VC.SOURCE_QUALIFICATION)
 check("승격된 25건 전부 폐쇄 어휘 안에 있다",
@@ -533,7 +533,7 @@ check("★ 검사가 promote 에 실제로 배선돼 있다",
       "vocab_violations" in open(os.path.join(ROOT, "rules", "promote_rules_ssot.py"),
                                  encoding="utf-8").read())
 
-print("K-11 Definition Reopen — 닫는 방향의 상태 변경")
+print("R-1 Definition Reopen — 닫는 방향의 상태 변경")
 check("reopen 은 정확히 1건 (RULE-0001)",
       [r["rule_id"] for r in REOPENED] == ["RULE-0001"],
       str([r["rule_id"] for r in REOPENED]))
@@ -565,7 +565,7 @@ check("★ 처음부터 UNDEFINED 인 Rule 과 reopen 은 provenance 로 구별�
 check("★ reopen 은 evaluator readiness 를 움직이지 않는다 (둘 다 BLOCKED)",
       all(r["evaluator_status"] == "BLOCKED" for r in REOPENED))
 
-print("K-12 Context Provenance — 상태를 바꾸지 않고 근거만 남긴다")
+print("R-2 Context Provenance — 상태를 바꾸지 않고 근거만 남긴다")
 CTX = [r for r in R if r.get("context_provenance")]
 check("context provenance 는 정확히 2건 (RULE-0007·0008)",
       sorted(r["rule_id"] for r in CTX) == ["RULE-0007", "RULE-0008"],
@@ -628,6 +628,33 @@ try:
           PR._context_provenance("RULE-0099", {}, [], []) is None)
 finally:
     PR.CONTEXT_PROVENANCE.clear(); PR.CONTEXT_PROVENANCE.update(_orig)
+
+print("C-2 blocked_by 어휘 폐쇄 (CIO 판정 2026-08-15 · 결함 C 마무리)")
+check("BLOCKED_BY 선언이 존재한다", isinstance(VC.BLOCKED_BY, set) and bool(VC.BLOCKED_BY))
+check("★ 선언이 derive_blocked_by 의 도달 가능한 출력과 정확히 일치한다",
+      VC.covers_derive_outputs() == [], str(VC.covers_derive_outputs()))
+check("승격된 25건의 blocked_by 원소가 전부 어휘 안에 있다",
+      not [v for r in R for v in VC.vocab_violations({"blocked_by": r["blocked_by"]})],
+      str([v for r in R for v in VC.vocab_violations({"blocked_by": r["blocked_by"]})][:3]))
+for _bad, _why in ((["DATA_MISSNG"], "오타 원소"),
+                   (["DATA_MISSING", "DATA_MISSING"], "중복 원소"),
+                   ("DATA_MISSING", "목록이 아닌 값"),
+                   (["definition_undefined"], "소문자 표기"),
+                   (["BLOCKED"], "다른 축의 값")):
+    check(f"★ {_why} 는 거부된다", bool(VC.vocab_violations({"blocked_by": _bad})), str(_bad))
+# ★ 검사기가 실제로 작동하는지 — 선언을 좁혀 정상값이 걸리는 것까지 본다.
+VC.BLOCKED_BY.discard("DATA_MISSING")
+_narrowed = VC.vocab_violations({"blocked_by": ["DATA_MISSING"]})
+_narrowed_cov = VC.covers_derive_outputs()
+VC.BLOCKED_BY.add("DATA_MISSING")
+check("★ 선언이 좁아지면 정상 산출물이 걸린다", bool(_narrowed), str(_narrowed))
+check("★ 선언이 좁아지면 covers_derive_outputs 가 불일치를 보고한다", bool(_narrowed_cov))
+check("★ 되돌린 뒤에는 다시 통과한다",
+      not VC.vocab_violations({"blocked_by": ["DATA_MISSING"]})
+      and VC.covers_derive_outputs() == [])
+check("★ 검사가 promote 에 배선돼 있다",
+      "covers_derive_outputs" in open(os.path.join(ROOT, "rules", "promote_rules_ssot.py"),
+                                      encoding="utf-8").read())
 
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)

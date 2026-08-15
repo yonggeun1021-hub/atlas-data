@@ -476,6 +476,9 @@ def build(out_path=OUT, mapping_path=MAPPING):
     #   ⛔ 어휘 검사는 그동안 분해 단계에만 있었고 이 산출물에는 없었다.
     #      승격 단계에서 만들어진 값이 아무 검사도 거치지 않던 공백을 여기서 닫는다.
     #   ★ 새 어휘를 만들지 않는다 — vocabulary.py 의 폐쇄 집합을 강제할 뿐이다.
+    #   ★ 선언이 파생 함수의 실제 출력을 덮는지 먼저 확인한다 — 선언이 좁으면 정상
+    #     산출물이 위반으로 잡히고, 넓으면 오타를 못 잡는다. 둘 다 결함이다.
+    errs.extend(VC.covers_derive_outputs())
     for r in rules:
         errs.extend(VC.vocab_violations(r, tag=f"{r['rule_id']}: "))
 

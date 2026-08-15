@@ -108,11 +108,22 @@ P3 판정 그대로 유지하고, **누락된 provenance 만** `context_provenan
 - 회귀: 정상 25건 통과 + **위조값 6종 거부** + 배선 여부 정적 확인
 - **FI-6 invalid vocabulary value** — authoritative 산출물에 오타 1글자를 넣으면 실패해야 한다
 
-### 남은 항목
+### 마무리 — `blocked_by` 어휘 폐쇄 (CIO 판정 2026-08-15)
 
-`blocked_by` 원소 어휘(`DEFINITION_UNDEFINED` · `DATA_MISSING` · `SOURCE_UNRESOLVED` …)는
-`derive_blocked_by` 안에만 있고 **폐쇄 집합으로 선언돼 있지 않다.**
-선언을 추가할지는 **CIO 판정 대상**이며 임의로 넣지 않았다.
+`blocked_by` 원소 어휘가 `derive_blocked_by` 안에만 있고 폐쇄 집합으로 선언돼 있지 않던
+문제를 닫았다.
+
+- `BLOCKED_BY` 선언 — **새 어휘가 아니라** `derive_blocked_by` 가 이미 내보내던 6개 값
+  (`DEFINITION_UNDEFINED` · `DATA_MISSING` · `DATA_UNDETERMINED` · `SOURCE_UNRESOLVED` ·
+  `SOURCE_UNVERIFIED` · `STATUS_UNRESOLVED`)
+- `VOCAB_LIST` — 목록형 필드는 스칼라와 검사 방식이 다르므로 따로 둔다.
+  원소 어휘 · **중복 원소** · **목록이 아닌 값** 을 각각 잡는다.
+- **`covers_derive_outputs()`** — 선언과 함수의 실제 출력이 **정확히 일치**하는지 양방향 확인.
+  선언이 좁으면 정상 산출물이 위반으로 잡히고, 넓으면 오타를 못 잡는다. 둘 다 결함이다.
+  `definition_status × data_status × source_qualification` 전 조합을 돌려 도달 가능한
+  출력을 전부 모은 뒤 대조한다.
+- 회귀는 **선언을 일부러 좁혀** 정상값이 걸리는 것까지 확인한다 — 통과만 보는 검사를 두지 않는다.
+- FI-6 을 목록형까지 확장했다.
 
 ---
 
