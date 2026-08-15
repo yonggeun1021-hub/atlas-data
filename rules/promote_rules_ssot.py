@@ -329,6 +329,13 @@ def build(out_path=OUT, mapping_path=MAPPING):
         if r["source_occurrences"] != c["source_occurrences"]:
             errs.append(f"{r['rule_id']}: source_occurrences 가 canonical 과 다르다")
 
+    # ── 결함 C — 폐쇄 어휘 강제 (CIO 판정 2026-08-15) ────────────────
+    #   ⛔ 어휘 검사는 그동안 분해 단계에만 있었고 이 산출물에는 없었다.
+    #      승격 단계에서 만들어진 값이 아무 검사도 거치지 않던 공백을 여기서 닫는다.
+    #   ★ 새 어휘를 만들지 않는다 — vocabulary.py 의 폐쇄 집합을 강제할 뿐이다.
+    for r in rules:
+        errs.extend(VC.vocab_violations(r, tag=f"{r['rule_id']}: "))
+
     # 상태 개수 불변 — mapping 이 보고한 수와 같아야 한다
     got = {
         "definition_undefined": sum(1 for r in rules

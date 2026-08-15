@@ -31,6 +31,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "rules"))
 import ssot_mapping as SM                                            # noqa: E402
+import vocabulary as VC                                              # noqa: E402
 
 RULES = os.path.join(ROOT, "config", "rules.json")
 MAPPING = os.path.join(ROOT, "rules", "ssot_mapping.json")
@@ -245,6 +246,10 @@ def build(out_path=OUT, rules_path=RULES, mapping_path=MAPPING, monid_path=MONID
                     if e[f] != e[bk]:
                         errs.append(f"{e['rule_id']}: 적용 기록 없이 {f} 가 다르다")
 
+    # ── 결함 C — Inventory entry 에도 폐쇄 어휘를 강제한다 ──────────────
+    #   rules.json 이 authority 지만, Inventory 가 어휘 밖 값을 실어 나르는 경로도 막는다.
+    for e in entries:
+        errs.extend(VC.vocab_violations(e, tag=f"{e.get('rule_id') or e.get('occurrence_id')}: "))
     # V-7 §21-12 — 통계에 포함되는 모든 객체는 고유 rule_id 를 갖는다
     noid = [e for e in entries if not e["rule_id"]]
     if noid:

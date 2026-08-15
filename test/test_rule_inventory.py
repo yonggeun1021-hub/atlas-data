@@ -428,5 +428,16 @@ e = only_new(run(mut_map=m_strip))
 check("ID 없는 monitoring 이 생기면 Inventory 가 거부",
       any(ID_ERR in x for x in run(mut_map=m_strip)), str(e[:3]))
 
+print("K-9 결함 C — Inventory 도 폐쇄 어휘를 강제한다")
+import vocabulary as _VC
+check("Inventory entry 전부 폐쇄 어휘 안에 있다",
+      not [v for e in P["entries"] for v in _VC.vocab_violations(e)],
+      str([v for e in P["entries"] for v in _VC.vocab_violations(e)][:3]))
+_f2 = dict(P["entries"][0]); _f2["evaluator_status"] = "READYY"
+check("★ Inventory 위조값도 거부된다", bool(_VC.vocab_violations(_f2)))
+check("★ 검사가 rule_inventory.py 에 배선돼 있다",
+      "vocab_violations" in open(os.path.join(ROOT, "rules", "rule_inventory.py"),
+                                 encoding="utf-8").read())
+
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)

@@ -486,5 +486,47 @@ check("위반이 있으면 authority 파일을 쓰지 않는다", (not wrote) an
 _p, _e, wrote = run(full=True)
 check("정상이면 쓴다", wrote and _e == [])
 
+print("K-9 P3 Data Capability Application — 근거와 경계")
+for r in DATA_APPLIED:
+    a = r["data_capability_application"]
+    check(f"{r['rule_id']} 적용 기록에 근거 문장이 있다", bool(a.get("source")))
+    check(f"{r['rule_id']} MISSING→AVAILABLE 기록",
+          a["data_status"] == {"from": "MISSING", "to": "AVAILABLE"}, str(a["data_status"]))
+    check(f"{r['rule_id']} SOURCE_UNRESOLVED→SOURCE_RESOLVED 기록",
+          a["source_qualification"] == {"from": "SOURCE_UNRESOLVED", "to": "SOURCE_RESOLVED"})
+    check(f"{r['rule_id']} evaluator 승인이 아님을 기록",
+          a.get("not_an_evaluator_approval") is True)
+    check(f"{r['rule_id']} 건드리지 않은 legacy 필드를 명시",
+          set(a.get("untouched_legacy_fields", []))
+          == {"condition_semantics", "scope", "data_capability"})
+    check(f"{r['rule_id']} 취득 계약이 SEC EDGAR primary 임을 기록",
+          "SEC EDGAR" in a["acquisition_contract"]["primary_acquisition"])
+check("★ P3 적용이 TSM 밖으로 번지지 않았다",
+      all(r["subject"] == "TSM" for r in DATA_APPLIED))
+check("★ READY 6건이어도 소비 경로는 닫혀 있다",
+      LIVE["consumable_by_evaluator"] is False and "HOLD" in LIVE["production_state"])
+
+print("K-10 결함 C — 폐쇄 어휘 강제 (CIO 판정 2026-08-15)")
+check("SOURCE_RESOLVED 가 vocabulary 에 정식 등록됐다",
+      "SOURCE_RESOLVED" in VC.SOURCE_QUALIFICATION)
+check("승격된 25건 전부 폐쇄 어휘 안에 있다",
+      not [v for r in R for v in VC.vocab_violations(r, tag=f"{r['rule_id']}: ")],
+      str([v for r in R for v in VC.vocab_violations(r)][:3]))
+for _f, _bad in (("definition_status", "DEFINED_"), ("data_status", "AVAILABLE "),
+                 ("source_qualification", "SOURCE_RESOLVEDD"),
+                 ("evaluator_status", "ready"), ("rule_kind", "FALL"),
+                 ("downstream_effect", "강등검토")):
+    _forged = dict(R[0]); _forged[_f] = _bad
+    check(f"★ 위조값 {_f}={_bad!r} 는 거부된다",
+          any(_f in v for v in VC.vocab_violations(_forged)), _bad)
+check("★ 검사 대상 폐쇄 필드 7개가 선언돼 있다",
+      set(VC.CLOSED_VOCAB_FIELDS) == {"definition_status", "data_status", "data_capability",
+                                      "source_qualification", "evaluator_status",
+                                      "rule_kind", "downstream_effect"},
+      str(VC.CLOSED_VOCAB_FIELDS))
+check("★ 검사가 promote 에 실제로 배선돼 있다",
+      "vocab_violations" in open(os.path.join(ROOT, "rules", "promote_rules_ssot.py"),
+                                 encoding="utf-8").read())
+
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)

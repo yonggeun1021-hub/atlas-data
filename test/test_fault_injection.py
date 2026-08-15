@@ -5,6 +5,7 @@
     FI-3 frozen input tamper             ★ KNOWN GAP / NOT GATED — 여기서 검증하지 않는다
     FI-4 approved 14-test omission       REQUIRED PASS
     FI-5 malformed required JSON         REQUIRED PASS
+    FI-6 invalid vocabulary value        REQUIRED PASS — 결함 C (CIO 판정 2026-08-15)
 
 ★ 이 suite 는 Actions / clean-checkout 경계를 넘으면서 **새로 생긴 공백만** 담당한다.
   기존 14개 fault 유형(원문 표류 · 상태 위조 · 제외 객체 유입 · 판정 위조 · 비결정성 …)은
@@ -172,6 +173,40 @@ with tempfile.TemporaryDirectory(prefix="fi5_") as d:
     r2 = run(["rules/rule_inventory.py"], d)
     check("다른 builder 도 손상 입력에서 실패한다", r2.returncode != 0)
     check("그때도 기존 산출물이 남아 있다", sha(inv) == inv_before)
+
+# ══════════════════════════════════════════════════════════════════════
+print("FI-6 invalid vocabulary value — 결함 C (CIO 판정 2026-08-15)")
+#   발견 경위: `SOURCE_RESOLVED` 가 어휘 집합에 없는 채로 승격에 실렸는데 회귀 전량과
+#   Actions PASS 를 통과했다. 어휘 검사가 분해 단계에만 있었기 때문이다.
+#   ⇒ 이제 하류 authoritative 산출물에 어휘 밖 값을 넣으면 반드시 실패해야 한다.
+#   ⛔ 통과시키려고 어휘를 넓히지 않는다. 오타 하나가 정상 상태처럼 흐르는 것을 막는 것이 목적이다.
+with tempfile.TemporaryDirectory(prefix="fi6_") as d:
+    clone(d)
+    tgt = os.path.join(d, AUTHORITY)
+    doc = json.load(open(tgt, encoding="utf-8"))
+    victim = doc["rules"][0]["rule_id"]
+    doc["rules"][0]["source_qualification"] = "SOURCE_RESOLVEDD"      # 오타 1글자
+    json.dump(doc, open(tgt, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    check("주입으로 어휘 밖 값이 실제로 들어갔다",
+          json.load(open(tgt, encoding="utf-8"))["rules"][0]["source_qualification"]
+          == "SOURCE_RESOLVEDD")
+
+    r = run(["run_all.py", "--no-fi", "--authoritative"], d, disposable=True)
+    out = r.stdout + r.stderr
+    check("① 위반이 검출된다",
+          "허용 어휘 밖" in out or "committed 와 재빌드가 다르다" in out, out[-400:])
+    check("② non-zero 로 실패한다", r.returncode != 0, str(r.returncode))
+    check("② Actions PASS = NO 로 보고한다", "Actions PASS = NO" in out)
+    check("③ 원본 authority 산출물이 그대로다",
+          sha(os.path.join(ROOT, AUTHORITY)) == ORIG_AUTHORITY_SHA)
+
+    # ★ 검사기 자체가 이 값을 거부하는지 직접 확인한다 — 재빌드 덮어쓰기에 가려지지 않게.
+    sys.path.insert(0, os.path.join(ROOT, "rules"))
+    import vocabulary as _V
+    check("④ 어휘 검사기가 그 값을 직접 거부한다",
+          bool(_V.vocab_violations({"source_qualification": "SOURCE_RESOLVEDD"})), victim)
+    check("④ 승인된 SOURCE_RESOLVED 는 거부하지 않는다",
+          not _V.vocab_violations({"source_qualification": "SOURCE_RESOLVED"}))
 
 # ══════════════════════════════════════════════════════════════════════
 print("FI-3 frozen input tamper — ★ KNOWN GAP / NOT GATED")
