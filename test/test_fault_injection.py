@@ -207,6 +207,13 @@ with tempfile.TemporaryDirectory(prefix="fi6_") as d:
           bool(_V.vocab_violations({"source_qualification": "SOURCE_RESOLVEDD"})), victim)
     check("④ 승인된 SOURCE_RESOLVED 는 거부하지 않는다",
           not _V.vocab_violations({"source_qualification": "SOURCE_RESOLVED"}))
+    # ★ 목록형 필드(blocked_by)도 같은 방식으로 막히는지 — 스칼라만 막고 끝내지 않는다.
+    check("④ blocked_by 원소 오타도 거부한다",
+          bool(_V.vocab_violations({"blocked_by": ["DATA_MISSNG"]})))
+    check("④ 정상 blocked_by 는 거부하지 않는다",
+          not _V.vocab_violations({"blocked_by": ["DATA_MISSING", "SOURCE_UNRESOLVED"]}))
+    check("④ 선언이 derive_blocked_by 출력과 일치한다", _V.covers_derive_outputs() == [],
+          str(_V.covers_derive_outputs()))
 
 # ══════════════════════════════════════════════════════════════════════
 print("FI-3 frozen input tamper — ★ KNOWN GAP / NOT GATED")

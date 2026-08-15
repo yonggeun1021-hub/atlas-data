@@ -12,6 +12,20 @@ DEFINITION_STATUS = {"DEFINED", "UNDEFINED", UNRESOLVED}
 DATA_STATUS = {"AVAILABLE", "MISSING", "UNDETERMINED", UNRESOLVED}
 EVALUATOR_STATUS = {"READY", "BLOCKED", UNRESOLVED}     # ★ 파생값 — 직접 입력 금지
 
+# ── blocked_by 원소 어휘 (CIO 판정 2026-08-15 · 결함 C 마무리) ──────────
+#   ★ 새 어휘가 아니다. `derive_blocked_by` 가 **이미 내보내던 값들**을 폐쇄 집합으로
+#     선언만 한다. 선언이 없으면 오타 원소가 목록에 섞여도 아무도 잡지 못한다.
+#   ⛔ 이 집합에 값을 추가하려면 derive_blocked_by 가 그 값을 실제로 내보내야 한다.
+#     아래 covers_derive_outputs() 가 그 일치를 강제한다.
+BLOCKED_BY = {
+    "DEFINITION_UNDEFINED",     # definition_status == UNDEFINED
+    "DATA_MISSING",             # data_status == MISSING
+    "DATA_UNDETERMINED",        # data_status == UNDETERMINED
+    "SOURCE_UNRESOLVED",        # source_qualification
+    "SOURCE_UNVERIFIED",        # source_qualification
+    "STATUS_UNRESOLVED",        # 어느 축이든 UNRESOLVED
+}
+
 # ── E2E inactive draft — capability / source qualification 축 ───────────
 DATA_CAPABILITY = {"SUPPORTED", "NOT_IMPLEMENTED", "PERMANENTLY_UNAVAILABLE", UNRESOLVED}
 #   ★ SOURCE_RESOLVED — CIO 판정 2026-08-15 (P3) 로 승인돼 `RULE-0003·0007·0008` 에
@@ -82,6 +96,11 @@ VOCAB = {
     "evaluator_status": EVALUATOR_STATUS,
 }
 
+# 목록형 폐쇄 어휘 — 스칼라와 검사 방식이 다르므로 따로 둔다.
+VOCAB_LIST = {
+    "blocked_by": BLOCKED_BY,
+}
+
 # ★ 정본에 정의가 없어 이번 pilot 이 UNRESOLVED 로 올리는 어휘 공백
 VOCABULARY_GAPS_RESOLVED = [
     "① FAL/ENT/MON — B1 migration vocabulary 로 승인 (최소 의미 고정)",
@@ -110,7 +129,10 @@ CLOSED_VOCAB_FIELDS = ("definition_status", "data_status", "data_capability",
 
 
 def vocab_violations(record: dict, fields=CLOSED_VOCAB_FIELDS, tag: str = "") -> list:
-    """폐쇄 어휘 밖 값을 전부 돌려준다. 하나라도 있으면 산출물을 내면 안 된다."""
+    """폐쇄 어휘 밖 값을 전부 돌려준다. 하나라도 있으면 산출물을 내면 안 된다.
+
+    스칼라 필드와 **목록형 필드(blocked_by)** 를 모두 검사한다.
+    """
     out = []
     for f in fields:
         if f not in record:
@@ -122,6 +144,42 @@ def vocab_violations(record: dict, fields=CLOSED_VOCAB_FIELDS, tag: str = "") ->
         if record[f] not in allowed:
             out.append(f"{tag}{f}={record[f]!r} 는 허용 어휘 밖이다 "
                        f"(허용 {sorted(str(x) for x in allowed)})")
+    # ── 목록형 ────────────────────────────────────────────────────────
+    for f, allowed in VOCAB_LIST.items():
+        if f not in record:
+            continue
+        val = record[f]
+        if not isinstance(val, list):
+            out.append(f"{tag}{f} 는 목록이어야 한다 — {type(val).__name__} 이 왔다")
+            continue
+        for item in val:
+            if item not in allowed:
+                out.append(f"{tag}{f} 원소 {item!r} 는 허용 어휘 밖이다 "
+                           f"(허용 {sorted(allowed)})")
+        if len(set(val)) != len(val):
+            out.append(f"{tag}{f} 에 중복 원소가 있다 — {val}")
+    return out
+
+
+def covers_derive_outputs() -> list:
+    """선언된 BLOCKED_BY 가 derive_blocked_by 의 **도달 가능한 출력 전부**를 덮는지.
+
+    ★ 선언이 함수보다 좁으면 정상 산출물이 위반으로 잡히고,
+      넓으면 오타를 잡지 못한다. 둘 다 결함이므로 양방향으로 확인한다.
+    ⛔ 이 함수는 어휘를 고치지 않는다. 불일치를 보고만 한다.
+    """
+    produced = set()
+    for d in DEFINITION_STATUS:
+        for dt in DATA_STATUS:
+            for sq in SOURCE_QUALIFICATION:
+                produced.update(derive_blocked_by(d, dt, sq))
+    out = []
+    missing = produced - BLOCKED_BY
+    extra = BLOCKED_BY - produced
+    if missing:
+        out.append(f"derive_blocked_by 가 내보내는데 선언에 없다: {sorted(missing)}")
+    if extra:
+        out.append(f"선언에 있는데 derive_blocked_by 가 내보내지 않는다: {sorted(extra)}")
     return out
 
 
