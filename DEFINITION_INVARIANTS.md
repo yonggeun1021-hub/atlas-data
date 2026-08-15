@@ -1,0 +1,124 @@
+# Definition Invariants — 안건 등록 (2026-08-15)
+
+⛔ **이 문서는 안건과 발견 근거만 담는다.** invariant 구현·전 Rule 재작성은 아직 하지 않는다.
+
+2026-08-15 의 `RULE-0001` 조사에서 **서로 다른 failure mode 세 개**가 드러났다.
+셋은 원인도 고칠 자리도 다르므로 **합치지 않는다.**
+
+| 결함 | 질문 | 상태 |
+|---|---|---|
+| **A. Metric Identity Completeness** | Rule 자체에 "무엇을 측정하는가" 가 있는가 | **안건 등록** |
+| **B. Context-Carry Completeness** | decomposition 하면서 필요한 문맥을 잃지 않았는가 | **안건 등록** |
+| **C. Vocabulary Enforcement** | 상태 필드가 허용된 enum 밖으로 나갈 수 없는가 | ✅ **수정 완료** |
+
+---
+
+## A. Metric Identity Completeness
+
+### 발견 근거 — `RULE-0001`
+
+```
+condition_text        「FQ4 $49B 미달」
+definition_status     DEFINED          ← 당시
+missing_components    []               ← "결핍 없음"
+cio_definition_decisions  0건          ← 정의 카드가 열린 적 없음
+```
+
+**숫자 threshold 는 있는데 그 숫자가 무엇을 측정하는지가 없다.**
+원천 `_watchlist_rows.json` 의 MU 행 원문도 `FQ4 $49B 미달 또는 DRAM ASP 하락 전환` 이며
+계정과목이 없다 — decomposition 손실이 아니라 **처음부터 부재**다.
+
+현재 completeness gate 는 threshold 의 **존재**는 보지만 **metric identity** 는 보지 않는다.
+
+### 제안하는 불변식 (미구현)
+
+threshold 또는 비교 연산이 있는 Rule 은 최소한 다음 구조가 식별되어야 한다.
+
+```
+metric + operator + threshold (+ comparison basis, 필요한 경우)
+```
+
+`$49B 미달` 만 있고 metric 이 없으면 `DEFINED` 가 될 수 없다.
+
+### 전수점검 결과 (2026-08-15)
+
+정의 카드가 한 번도 열리지 않은 **control population 10건**
+(`0001 · 0003 · 0005 · 0006 · 0007 · 0008 · 0013 · 0014 · 0023 · 0024`)을 검사했다.
+
+- **명확한 반례: `RULE-0001` 1건** → `UNDEFINED` 로 reopen 완료
+- 나머지는 측정 대상이 문면에 있거나(`월매출` · `종가` · `매출`) threshold 자체가 없다
+
+⛔ 전체 25 Rule 재검증은 하지 않는다. 이미 닫은 정의를 불필요하게 흔들게 된다.
+
+---
+
+## B. Context-Carry Completeness
+
+### 발견 근거 — `RULE-0007` · `RULE-0008`
+
+```
+condition_text  「약화 = 단월 YoY < +35% OR 누계 YoY < +34.6% → C(매수 취소·Ready 해제)」
+```
+
+**`YoY` 는 비교 형식이지 측정 대상이 아니다.** 무엇의 YoY 인지 조각에 없다.
+
+원문 문맥에는 있다 —
+
+> ★ 8/10경 TSMC **7월 월매출** — Ready Action Plan 발동점 … 약화 = **단월 YoY** < +35% …
+
+즉 같은 cell 앞머리의 「7월 월매출」이 측정 대상을 공급하는데,
+**decomposition 이 fragment 단위로 자르면서 그 의미가 조각에서 사라졌다.**
+
+`RULE-0001`(원문에도 없음)과는 **다른 결함**이다.
+
+### 제안하는 불변식 (미구현)
+
+원문의 상위 문맥이 fragment 의미에 필수적이면, decomposition 이 그 의미를
+**fragment 의 구조화 필드로 carry** 해야 한다.
+
+> fragment 단독으로 evaluation 의미를 재구성할 수 없고 parent context 를 다시 읽어야 한다면
+> decomposition 은 불완전하다.
+
+### 조치 (2026-08-15)
+
+상태는 되돌리지 않았다. `RULE-0007·0008` 의 `AVAILABLE` · `SOURCE_RESOLVED` 는
+P3 판정 그대로 유지하고, **누락된 provenance 만** `context_provenance` 로 소급 기록했다.
+성격은 `retroactive clarification / context provenance` 이며 신규 정의가 아니다.
+
+---
+
+## C. Vocabulary Enforcement — 수정 완료
+
+### 발견 근거
+
+`SOURCE_RESOLVED` 가 P3 승격에 실렸는데 **회귀 16/16 · Actions PASS 를 통과했다.**
+`rules/vocabulary.py` 의 `SOURCE_QUALIFICATION` 에 그 값이 **없었는데도** 통과했다.
+
+원인: 어휘 검사(`VOCAB`)가 `validate_decomposition.py` 의 **분해 단계(fragment)** 에만
+걸려 있었고, `config/rules.json` · `rules/rule_inventory.json` 같은 **하류 authoritative
+산출물** 에는 없었다. **승격 단계에서 만들어진 값은 어떤 검사도 통과할 필요가 없었다.**
+
+### 수정
+
+- `SOURCE_RESOLVED` 를 `SOURCE_QUALIFICATION` 에 정식 등록 (값은 되돌리지 않는다 — CIO 승인값)
+- `vocabulary.vocab_violations()` 신설 — 새 어휘를 만들지 않고 폐쇄 집합을 **강제**만 한다
+- 검사 대상 7필드: `definition_status · data_status · data_capability ·
+  source_qualification · evaluator_status · rule_kind · downstream_effect`
+- `promote_rules_ssot.py` · `rule_inventory.py` 양쪽에 배선
+- 회귀: 정상 25건 통과 + **위조값 6종 거부** + 배선 여부 정적 확인
+- **FI-6 invalid vocabulary value** — authoritative 산출물에 오타 1글자를 넣으면 실패해야 한다
+
+### 남은 항목
+
+`blocked_by` 원소 어휘(`DEFINITION_UNDEFINED` · `DATA_MISSING` · `SOURCE_UNRESOLVED` …)는
+`derive_blocked_by` 안에만 있고 **폐쇄 집합으로 선언돼 있지 않다.**
+선언을 추가할지는 **CIO 판정 대상**이며 임의로 넣지 않았다.
+
+---
+
+## 우선순위 근거
+
+C 를 A·B 보다 먼저 고쳤다. **A·B 가 아무리 잘 작동해도 상태값 자체가 자유 문자열이면
+이후 상태기계의 신뢰성이 깨지기 때문**이다. `SOURCE_RESOLVEDD` 같은 오타 하나가
+정상 상태처럼 흐를 수 있었고, evaluator 연결 후였다면 발견이 훨씬 늦었을 것이다.
+Production HOLD 상태에서 잡힌 것이 다행인 종류의 결함이다.
