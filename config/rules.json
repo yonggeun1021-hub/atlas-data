@@ -20,10 +20,10 @@
   "rule_count": 25,
   "state_counts": {
     "definition_undefined": 2,
-    "data_missing": 22,
-    "source_unresolved": 16,
-    "evaluator_blocked": 22,
-    "evaluator_ready": 3
+    "data_missing": 19,
+    "source_unresolved": 13,
+    "evaluator_blocked": 19,
+    "evaluator_ready": 6
   },
   "provenance": {
     "ssot_mapping_sha256": "90a8843aff3dc0f5dac8f73db3b1d2a1ac80710a2599ab65957dc8304264025e",
@@ -51,8 +51,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -95,8 +98,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -290,14 +296,43 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
-      "data_status": "MISSING",
+      "data_status": "AVAILABLE",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
-      "source_qualification": "SOURCE_UNRESOLVED",
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DATA_MISSING",
-        "SOURCE_UNRESOLVED"
-      ],
+      "source_qualification": "SOURCE_RESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": {
+        "data_status": {
+          "from": "MISSING",
+          "to": "AVAILABLE"
+        },
+        "source_qualification": {
+          "from": "SOURCE_UNRESOLVED",
+          "to": "SOURCE_RESOLVED"
+        },
+        "source": "CIO 판정 2026-08-15 · P3 — 월 YoY 연속 관측 capability 확보 (2026-06=67.9 · 2026-07=44.7, 서로 다른 공식 filing, 월 연속성 성립). ⛔ 조건(40% 미달 2개월 연속)의 참·거짓과 무관하다.",
+        "acquisition_contract": {
+          "primary_acquisition": "SEC EDGAR — TSMC 제출 6-K (CIK 0001046179)",
+          "decision_observation": "6-K 내부 `TSMC {Month} Revenue Report (Consolidated)` 표 (Unit: NT$ million)",
+          "secondary_verification": "TSMC IR (investor.tsmc.com) — 사람이 확인하는 원발표",
+          "independent_cross_check": "FSC/TWSE 개방데이터 — 자동 취득 경로에서는 제외",
+          "deferred_to_operations": [
+            "revision detection",
+            "historical backfill",
+            "persistent incremental cursor",
+            "상시 network monitoring",
+            "evaluator wiring"
+          ]
+        },
+        "untouched_legacy_fields": [
+          "condition_semantics",
+          "scope",
+          "data_capability"
+        ],
+        "not_an_evaluator_approval": true
+      },
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "definition_resolution": "정의 결핍 없음 (defined control population)",
       "missing_components": [],
       "data_capability_axis": [],
@@ -334,8 +369,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -445,8 +483,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -474,8 +515,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -502,14 +546,43 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
-      "data_status": "MISSING",
+      "data_status": "AVAILABLE",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
-      "source_qualification": "SOURCE_UNRESOLVED",
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DATA_MISSING",
-        "SOURCE_UNRESOLVED"
-      ],
+      "source_qualification": "SOURCE_RESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": {
+        "data_status": {
+          "from": "MISSING",
+          "to": "AVAILABLE"
+        },
+        "source_qualification": {
+          "from": "SOURCE_UNRESOLVED",
+          "to": "SOURCE_RESOLVED"
+        },
+        "source": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
+        "acquisition_contract": {
+          "primary_acquisition": "SEC EDGAR — TSMC 제출 6-K (CIK 0001046179)",
+          "decision_observation": "6-K 내부 `TSMC {Month} Revenue Report (Consolidated)` 표 (Unit: NT$ million)",
+          "secondary_verification": "TSMC IR (investor.tsmc.com) — 사람이 확인하는 원발표",
+          "independent_cross_check": "FSC/TWSE 개방데이터 — 자동 취득 경로에서는 제외",
+          "deferred_to_operations": [
+            "revision detection",
+            "historical backfill",
+            "persistent incremental cursor",
+            "상시 network monitoring",
+            "evaluator wiring"
+          ]
+        },
+        "untouched_legacy_fields": [
+          "condition_semantics",
+          "scope",
+          "data_capability"
+        ],
+        "not_an_evaluator_approval": true
+      },
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "definition_resolution": "정의 결핍 없음 (defined control population)",
       "missing_components": [],
       "data_capability_axis": [],
@@ -531,14 +604,43 @@
       "definition_status": "DEFINED",
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
-      "data_status": "MISSING",
+      "data_status": "AVAILABLE",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
-      "source_qualification": "SOURCE_UNRESOLVED",
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DATA_MISSING",
-        "SOURCE_UNRESOLVED"
-      ],
+      "source_qualification": "SOURCE_RESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": {
+        "data_status": {
+          "from": "MISSING",
+          "to": "AVAILABLE"
+        },
+        "source_qualification": {
+          "from": "SOURCE_UNRESOLVED",
+          "to": "SOURCE_RESOLVED"
+        },
+        "source": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
+        "acquisition_contract": {
+          "primary_acquisition": "SEC EDGAR — TSMC 제출 6-K (CIK 0001046179)",
+          "decision_observation": "6-K 내부 `TSMC {Month} Revenue Report (Consolidated)` 표 (Unit: NT$ million)",
+          "secondary_verification": "TSMC IR (investor.tsmc.com) — 사람이 확인하는 원발표",
+          "independent_cross_check": "FSC/TWSE 개방데이터 — 자동 취득 경로에서는 제외",
+          "deferred_to_operations": [
+            "revision detection",
+            "historical backfill",
+            "persistent incremental cursor",
+            "상시 network monitoring",
+            "evaluator wiring"
+          ]
+        },
+        "untouched_legacy_fields": [
+          "condition_semantics",
+          "scope",
+          "data_capability"
+        ],
+        "not_an_evaluator_approval": true
+      },
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "definition_resolution": "정의 결핍 없음 (defined control population)",
       "missing_components": [],
       "data_capability_axis": [],
@@ -561,8 +663,11 @@
       "definition_status_before_application": "UNDEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DEFINITION_UNDEFINED",
@@ -715,8 +820,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -894,8 +1002,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING"
@@ -974,8 +1085,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -1106,8 +1220,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -1135,8 +1252,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -1178,8 +1298,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING"
@@ -1322,8 +1445,11 @@
       "definition_status_before_application": "UNDEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DEFINITION_UNDEFINED",
@@ -1437,8 +1563,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING"
@@ -1611,8 +1740,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -1819,8 +1951,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "AVAILABLE",
+      "data_status_before_application": "AVAILABLE",
       "data_capability": "SUPPORTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "READY",
       "blocked_by": [],
       "definition_resolution": "REQUIRES_CIO_DEFINITION",
@@ -1994,8 +2129,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING"
@@ -2116,8 +2254,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
       "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification_before_application": "SOURCE_UNRESOLVED",
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING",
@@ -2199,8 +2340,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING"
@@ -2344,8 +2488,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "MISSING",
+      "data_status_before_application": "MISSING",
       "data_capability": "NOT_IMPLEMENTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
         "DATA_MISSING"
@@ -2372,8 +2519,11 @@
       "definition_status_before_application": "DEFINED",
       "definition_application": null,
       "data_status": "AVAILABLE",
+      "data_status_before_application": "AVAILABLE",
       "data_capability": "SUPPORTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "READY",
       "blocked_by": [],
       "definition_resolution": "정의 결핍 없음 (defined control population)",
@@ -2410,8 +2560,11 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "data_status": "AVAILABLE",
+      "data_status_before_application": "AVAILABLE",
       "data_capability": "SUPPORTED",
       "source_qualification": null,
+      "source_qualification_before_application": null,
+      "data_capability_application": null,
       "evaluator_status": "READY",
       "blocked_by": [],
       "definition_resolution": "REQUIRES_CIO_DEFINITION",

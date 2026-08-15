@@ -227,19 +227,30 @@ expect_raise("매출만 있고 YoY 가 없는 부분 관측은 거부",
                  RAW.replace("Jan.\t401,255\t36.8%", "Jan.\t401,255\t")),
                  "2026-08-15"), "부분 관측")
 
-print("T-8 ⑦ collector 가 Rule 상태를 바꾸지 않는다")
+print("T-8 ⑦ 이 collector(C1) 는 Rule 상태의 근거가 아니다")
+# ★ 상태 변경 근거는 C4(SEC EDGAR)의 live run 2회다 (CIO 판정 2026-08-15).
+#   C1 TSMC IR 은 secondary verification source 로 남았고, 이 파일은 그 파서 회귀다.
+#   ⛔ 따라서 여기서 확인할 것은 "이 collector 가 상태를 만들지 않았다" 는 사실이다.
 RJ = json.load(open(os.path.join(ROOT, "config", "rules.json"), encoding="utf-8"))
 by = {r["rule_id"]: r for r in RJ["rules"]}
 for rid in ("RULE-0003", "RULE-0007", "RULE-0008"):
     r = by[rid]
-    check(f"{rid} 는 여전히 DATA_MISSING", r["data_status"] == "MISSING"
-          and "DATA_MISSING" in r["blocked_by"])
-    check(f"{rid} 는 여전히 SOURCE_UNRESOLVED",
-          r["source_qualification"] == "SOURCE_UNRESOLVED")
-    check(f"{rid} 는 여전히 BLOCKED", r["evaluator_status"] == "BLOCKED")
+    a = r.get("data_capability_application")
+    check(f"{rid} 상태 변경에는 적용 기록이 있다", bool(a))
+    check(f"{rid} 근거가 C1 이 아니라 SEC EDGAR 다",
+          "SEC EDGAR" in a["acquisition_contract"]["primary_acquisition"]
+          and "investor.tsmc.com" in a["acquisition_contract"]["secondary_verification"])
+    check(f"{rid} 적용 전 값이 MISSING · SOURCE_UNRESOLVED 로 보존된다",
+          r["data_status_before_application"] == "MISSING"
+          and r["source_qualification_before_application"] == "SOURCE_UNRESOLVED")
+    check(f"{rid} legacy UNRESOLVED 필드는 그대로",
+          r["data_capability"] == "UNRESOLVED"
+          and r["condition_semantics"] == "UNRESOLVED" and r["scope"] == "UNRESOLVED")
 check("rules.json 은 여전히 소비 불가", RJ["consumable_by_evaluator"] is False)
-check("Rule 25 · READY 3 그대로",
-      RJ["rule_count"] == 25 and RJ["state_counts"]["evaluator_ready"] == 3)
+check("Rule 25 · READY 6 (P0 3 + P3 3)",
+      RJ["rule_count"] == 25 and RJ["state_counts"]["evaluator_ready"] == 6,
+      str(RJ["state_counts"]["evaluator_ready"]))
+check("★ READY 여도 Production HOLD 는 유지된다", "HOLD" in RJ["production_state"])
 check("collector 는 authoritative artifact 를 쓰지 않는다",
       not os.path.exists(os.path.join(ROOT, "data", "latest_tsmc_monthly.json")))
 check("산출물이 관측임을 명시한다", "관측이다" in N["observation_only"])

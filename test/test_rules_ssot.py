@@ -108,15 +108,33 @@ for k in ("ssot_mapping_sha256", "canonical_rules_sha256", "decision_cards_sha25
 print("K-3 ④ 상태 — P0 적용분 외에는 전부 불변")
 s = LIVE["state_counts"]
 APPLIED = [r for r in R if r["definition_application"]]
+# ★ P3 Data Capability Application (CIO 승인 2026-08-15) — 데이터/원천 축 적용분.
+DATA_APPLIED = [r for r in R if r.get("data_capability_application")]
 check("UNDEFINED 2 (15 − 적용 13)", s["definition_undefined"] == 2,
       str(s["definition_undefined"]))
-check("MISSING 22 불변", s["data_missing"] == 22, str(s["data_missing"]))
-check("SOURCE_UNRESOLVED 16 불변", s["source_unresolved"] == 16)
+check("MISSING 19 (22 − P3 적용 3)", s["data_missing"] == 22 - len(DATA_APPLIED),
+      str(s["data_missing"]))
+check("SOURCE_UNRESOLVED 13 (16 − P3 적용 3)",
+      s["source_unresolved"] == 16 - len(DATA_APPLIED), str(s["source_unresolved"]))
+check("P3 적용은 정확히 3건 (RULE-0003/0007/0008)",
+      sorted(r["rule_id"] for r in DATA_APPLIED)
+      == ["RULE-0003", "RULE-0007", "RULE-0008"],
+      str(sorted(r["rule_id"] for r in DATA_APPLIED)))
 check("★ mapping 대비 차이가 적용 기록으로 정확히 설명된다",
       s["definition_undefined"] == MAP["counts"]["definition_undefined"] - len(APPLIED)
-      and s["data_missing"] == MAP["counts"]["data_missing"]
-      and s["source_unresolved"] == MAP["counts"]["source_unresolved"],
+      and s["data_missing"] == MAP["counts"]["data_missing"] - len(DATA_APPLIED)
+      and s["source_unresolved"]
+      == MAP["counts"]["source_unresolved"] - len(DATA_APPLIED),
       str({k: (MAP["counts"][k], v) for k, v in s.items()}))
+check("★ P3 적용 Rule 은 적용 전 값이 MISSING · SOURCE_UNRESOLVED 였다",
+      all(r["data_status_before_application"] == "MISSING"
+          and r["source_qualification_before_application"] == "SOURCE_UNRESOLVED"
+          for r in DATA_APPLIED))
+check("★ legacy 필드 data_capability 는 건드리지 않았다",
+      all(r["data_capability"] == "UNRESOLVED" for r in DATA_APPLIED))
+check("★ condition_semantics · scope 도 그대로 UNRESOLVED",
+      all(r["condition_semantics"] == "UNRESOLVED" and r["scope"] == "UNRESOLVED"
+          for r in DATA_APPLIED))
 check("해소한 상태 0", LIVE["statuses_resolved"] == 0)
 check("만든 정의 0", LIVE["definitions_created"] == 0)
 
@@ -134,23 +152,26 @@ check("executable 을 뜻하는 필드가 없다",
                                           "active", "consumable")))
 
 print("K-5 ⑥ evaluator readiness — 파생값이며 적용분만 이동한다")
-check("BLOCKED 22", s["evaluator_blocked"] == 22, str(s["evaluator_blocked"]))
-check("READY 3", s["evaluator_ready"] == 3, str(s["evaluator_ready"]))
+check("BLOCKED 19 (22 − P3 적용 3)", s["evaluator_blocked"] == 19,
+      str(s["evaluator_blocked"]))
+check("READY 6 (3 + P3 적용 3)", s["evaluator_ready"] == 6, str(s["evaluator_ready"]))
 check("BLOCKED + READY = 25", s["evaluator_blocked"] + s["evaluator_ready"] == 25)
 mp = {m["occurrence_id"]: m for m in MAP["mapping"]}
 _moved = [r["rule_id"] for r in R
           for o in r["source_occurrences"] if r["evaluator_status"] != mp[o]["evaluator_status"]]
 # ★ 적용했다고 readiness 가 움직이는 것이 아니다 — 데이터가 있어야 움직인다.
 #   따라서 「움직인 집합 == 적용 ∩ 데이터 확보」 여야 한다.
-_should_move = sorted(r["rule_id"] for r in APPLIED if r["data_status"] == "AVAILABLE")
+_should_move = sorted({r["rule_id"] for r in APPLIED if r["data_status"] == "AVAILABLE"}
+                     | {r["rule_id"] for r in DATA_APPLIED})
 check("★ readiness 가 움직인 Rule = 적용 ∩ data AVAILABLE",
       sorted(set(_moved)) == _should_move, f"moved={sorted(set(_moved))} want={_should_move}")
 check("★ 데이터가 없는 적용 Rule 은 readiness 가 그대로 BLOCKED",
       all(r["evaluator_status"] == "BLOCKED" for r in APPLIED
           if r["data_status"] != "AVAILABLE"))
-check("적용하지 않은 Rule 은 blocked_by 가 그대로",
+check("어느 적용도 받지 않은 Rule 은 blocked_by 가 그대로",
       all(r["blocked_by"] == mp[o]["blocked_by"] for r in R
-          if not r["definition_application"] for o in r["source_occurrences"]))
+          if not r["definition_application"] and not r.get("data_capability_application")
+          for o in r["source_occurrences"]))
 check("readiness 는 vocabulary 파생 계약과 일치한다",
       all(r["evaluator_status"]
           == VC.derive_evaluator_status(r["definition_status"], r["data_status"])
@@ -178,8 +199,9 @@ t = trap[0]
 check("그 Rule 이 READY 다", t["evaluator_status"] == "READY")
 _ready = sorted(r["rule_id"] for r in R if r["evaluator_status"] == "READY")
 _want_ready = sorted({t["rule_id"]}
-                     | {r["rule_id"] for r in APPLIED if r["data_status"] == "AVAILABLE"})
-check("READY 는 원래 1건 + 적용되고 데이터도 있는 Rule 뿐",
+                     | {r["rule_id"] for r in APPLIED if r["data_status"] == "AVAILABLE"}
+                     | {r["rule_id"] for r in DATA_APPLIED})
+check("READY 는 원래 1건 + 정의 적용∩데이터 + P3 데이터 적용 뿐",
       _ready == _want_ready, f"{_ready} vs {_want_ready}")
 check("이 Rule 은 적용 대상이 아니었다 — 원래부터 READY 였다",
       t["definition_application"] is None

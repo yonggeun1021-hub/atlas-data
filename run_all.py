@@ -83,6 +83,9 @@ APPROVED_TESTS = [
     # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
     #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
     "test/test_tsmc_monthly.py",
+    # ★ CIO 승인 2026-08-15 — C4 SEC EDGAR parser 회귀 추가.
+    #   ⛔ live network 호출은 넣지 않는다 — fixture 기반 결정론적 회귀만 승인 목록에 든다.
+    "test/test_c4_sec_edgar.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

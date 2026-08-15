@@ -73,6 +73,47 @@ DEFINITION_APPLICATION_PILOT = {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+# P3 Data Capability Application — CIO 승인 2026-08-15
+#   TSMC 월매출 3개 Rule 의 **데이터/원천 축** 을 적용한다.
+#   근거: GitHub-hosted live run 2회에서 SEC EDGAR(TSMC 제출 6-K)의
+#         `Revenue Report (Consolidated)` NT$ million 표에서
+#           2026-06 → 442,680 / 67.9 / 2,404,484 / 35.6
+#           2026-07 → 467,580 / 44.7 / 2,872,064 / 37.0
+#         을 end-to-end 추출하고 June→July 월 연속성 입력 구성까지 확인.
+#
+#   ⛔ 이것은 evaluator 사용 승인이 **아니다**. `consumable_by_evaluator=false` ·
+#      Production HOLD · evaluator 미연결은 그대로다.
+#   ⛔ READY 를 목표값으로 강제하지 않는다 — readiness 는 기존 derive 함수가 계산한다.
+#   ⛔ `condition_semantics` · `scope` · `data_capability` 의 UNRESOLVED 는
+#      **건드리지 않는다.** 이 legacy/metadata 필드가 evaluator readiness 를 실제로
+#      차단하도록 설계된 필드인지 확인이 먼저다 (CIO 판정). 임의로 의미를 부여하면
+#      B1 에서 지켜온 layer separation 이 다시 무너진다.
+#   ★ 명시적 allowlist 다. 같은 원천을 쓴다는 이유로 다른 Rule 로 번지지 않는다.
+DATA_CAPABILITY_APPLICATION = {
+    "RULE-0003": "CIO 판정 2026-08-15 · P3 — 월 YoY 연속 관측 capability 확보 "
+                 "(2026-06=67.9 · 2026-07=44.7, 서로 다른 공식 filing, 월 연속성 성립). "
+                 "⛔ 조건(40% 미달 2개월 연속)의 참·거짓과 무관하다.",
+    "RULE-0007": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
+    "RULE-0008": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
+}
+
+# 적용 후 값 — 새 vocabulary 를 만들지 않고 기존 어휘를 그대로 쓴다.
+DATA_APPLIED_STATUS = "AVAILABLE"
+DATA_APPLIED_SOURCE = "SOURCE_RESOLVED"
+
+# 취득 계약 (P3_C4_ACQUISITION.md 에 기록된 것과 같은 내용)
+DATA_CAPABILITY_SOURCE = {
+    "primary_acquisition": "SEC EDGAR — TSMC 제출 6-K (CIK 0001046179)",
+    "decision_observation": "6-K 내부 `TSMC {Month} Revenue Report (Consolidated)` 표 "
+                            "(Unit: NT$ million)",
+    "secondary_verification": "TSMC IR (investor.tsmc.com) — 사람이 확인하는 원발표",
+    "independent_cross_check": "FSC/TWSE 개방데이터 — 자동 취득 경로에서는 제외",
+    "deferred_to_operations": ["revision detection", "historical backfill",
+                               "persistent incremental cursor",
+                               "상시 network monitoring", "evaluator wiring"],
+}
+
+# ══════════════════════════════════════════════════════════════════════
 # ★ data_source 경계 — CIO 판정 2026-08-15 (최종 확대)
 #
 #   Rule definition   = 무엇을 관측해 어떤 조건이면 사건이 성립하는가.
@@ -137,6 +178,28 @@ def _apply_definition(rid, missing, decisions, errs, capability_axis=()):
     }
 
 
+def _apply_data_capability(rid, m, errs):
+    """P3 데이터/원천 축 적용. allowlist 밖이면 None — 조용히 번지지 않는다."""
+    if rid not in DATA_CAPABILITY_APPLICATION:
+        return None
+    before_data = m["data_status"]
+    before_src = m["source_qualification"]
+    # ⛔ 이미 적용된 상태를 다시 적용하지 않는다 — 상류가 바뀌면 그 사실을 드러낸다.
+    if before_data == DATA_APPLIED_STATUS and before_src == DATA_APPLIED_SOURCE:
+        errs.append(f"{rid}: 상류가 이미 {DATA_APPLIED_STATUS}/{DATA_APPLIED_SOURCE} 다 — "
+                    f"적용 기록이 중복된다")
+        return None
+    return {
+        "data_status": {"from": before_data, "to": DATA_APPLIED_STATUS},
+        "source_qualification": {"from": before_src, "to": DATA_APPLIED_SOURCE},
+        "source": DATA_CAPABILITY_APPLICATION[rid],
+        "acquisition_contract": DATA_CAPABILITY_SOURCE,
+        # ★ 이 필드들은 건드리지 않았다는 사실을 명시적으로 남긴다.
+        "untouched_legacy_fields": ["condition_semantics", "scope", "data_capability"],
+        "not_an_evaluator_approval": True,
+    }
+
+
 def build(out_path=OUT, mapping_path=MAPPING):
     errs = []
     mapping = json.load(open(mapping_path, encoding="utf-8"))
@@ -187,6 +250,13 @@ def build(out_path=OUT, mapping_path=MAPPING):
                                     m.get("data_capability_axis", []))
         def_status = "DEFINED" if applied else m["definition_status"]
 
+        # ── P3 데이터/원천 축 적용 ────────────────────────────────
+        data_applied = _apply_data_capability(rid, m, errs)
+        data_status = (data_applied["data_status"]["to"] if data_applied
+                       else m["data_status"])
+        source_qual = (data_applied["source_qualification"]["to"] if data_applied
+                       else m["source_qualification"])
+
         rules.append({
             # identity — B3 의 opaque ID 를 재사용한다. 재발급하지 않는다.
             "rule_id": rid,
@@ -204,14 +274,17 @@ def build(out_path=OUT, mapping_path=MAPPING):
             "definition_status": def_status,
             "definition_status_before_application": m["definition_status"],
             "definition_application": applied,
-            "data_status": m["data_status"],
+            "data_status": data_status,
+            "data_status_before_application": m["data_status"],
+            # ⛔ legacy/metadata 필드다. P3 적용 대상이 아니며 상류 값을 그대로 싣는다.
             "data_capability": m["data_capability"],
-            "source_qualification": m["source_qualification"],
+            "source_qualification": source_qual,
+            "source_qualification_before_application": m["source_qualification"],
+            "data_capability_application": data_applied,
             # ★ readiness 는 파생값이다 — 기존 vocabulary 계약을 그대로 호출한다.
             #   ⛔ 목표 숫자를 맞추려고 손으로 적지 않는다.
-            "evaluator_status": VC.derive_evaluator_status(def_status, m["data_status"]),
-            "blocked_by": VC.derive_blocked_by(def_status, m["data_status"],
-                                               m["source_qualification"]),
+            "evaluator_status": VC.derive_evaluator_status(def_status, data_status),
+            "blocked_by": VC.derive_blocked_by(def_status, data_status, source_qual),
             # 정의 결핍과 그 판정
             "definition_resolution": m.get("definition_resolution"),
             "missing_components": m.get("missing_components", []),
@@ -270,13 +343,37 @@ def build(out_path=OUT, mapping_path=MAPPING):
     #   ⛔ 「달라질 수 있다」로 느슨하게 열지 않는다 — **정확히 몇 건이 왜 달라졌는지**
     #      를 적용 기록에서 계산해 대조한다.
     applied_rules = [r for r in rules if r["definition_application"]]
-    applied_ready = [r for r in applied_rules if r["evaluator_status"] == "READY"]
+    data_applied_rules = [r for r in rules if r["data_capability_application"]]
+
+    # ★ readiness 이동은 **적용 전 값으로 다시 파생시켜** 비교한다.
+    #   목표 숫자를 세지 않고, 움직인 Rule 하나하나가 적용 기록을 갖는지 본다.
+    def _pre(r):
+        return VC.derive_evaluator_status(r["definition_status_before_application"],
+                                          r["data_status_before_application"])
+
+    moved_out_blocked = [r for r in rules
+                         if _pre(r) == "BLOCKED" and r["evaluator_status"] != "BLOCKED"]
+    moved_in_blocked = [r for r in rules
+                        if _pre(r) != "BLOCKED" and r["evaluator_status"] == "BLOCKED"]
+    moved_in_ready = [r for r in rules
+                      if _pre(r) != "READY" and r["evaluator_status"] == "READY"]
+    moved_out_ready = [r for r in rules
+                       if _pre(r) == "READY" and r["evaluator_status"] != "READY"]
+
+    # 움직인 Rule 은 반드시 적용 기록을 갖는다 — 근거 없는 이동은 위반이다.
+    for r in moved_out_blocked + moved_in_blocked + moved_in_ready + moved_out_ready:
+        if not (r["definition_application"] or r["data_capability_application"]):
+            errs.append(f"{r['rule_id']}: 적용 기록 없이 evaluator_status 가 움직였다")
+
     expected_delta = {
         "definition_undefined": -len(applied_rules),
-        "evaluator_blocked": -len(applied_ready),
-        "evaluator_ready": +len(applied_ready),
-        "data_missing": 0,
-        "source_unresolved": 0,
+        "evaluator_blocked": len(moved_in_blocked) - len(moved_out_blocked),
+        "evaluator_ready": len(moved_in_ready) - len(moved_out_ready),
+        "data_missing": -len([r for r in data_applied_rules
+                              if r["data_status_before_application"] == "MISSING"]),
+        "source_unresolved": -len([r for r in data_applied_rules
+                                   if r["source_qualification_before_application"]
+                                   == "SOURCE_UNRESOLVED"]),
     }
     for k, v in got.items():
         want = mapping["counts"][k] + expected_delta[k]
@@ -294,6 +391,27 @@ def build(out_path=OUT, mapping_path=MAPPING):
         if not r["definition_application"] \
                 and r["definition_status"] != r["definition_status_before_application"]:
             errs.append(f"{r['rule_id']}: 적용 기록 없이 definition_status 가 바뀌었다")
+
+    # ── P3 데이터/원천 축 가드 ──────────────────────────────────────
+    if {r["rule_id"] for r in data_applied_rules} - set(DATA_CAPABILITY_APPLICATION):
+        errs.append("데이터 축 적용이 allowlist 밖으로 번졌다")
+    for r in rules:
+        if not r["data_capability_application"]:
+            if r["data_status"] != r["data_status_before_application"]:
+                errs.append(f"{r['rule_id']}: 적용 기록 없이 data_status 가 바뀌었다")
+            if r["source_qualification"] != r["source_qualification_before_application"]:
+                errs.append(f"{r['rule_id']}: 적용 기록 없이 source_qualification 이 바뀌었다")
+        else:
+            if r["data_status"] != DATA_APPLIED_STATUS:
+                errs.append(f"{r['rule_id']}: 적용됐는데 data_status 가 "
+                            f"{DATA_APPLIED_STATUS} 가 아니다")
+            if r["source_qualification"] != DATA_APPLIED_SOURCE:
+                errs.append(f"{r['rule_id']}: 적용됐는데 source_qualification 이 "
+                            f"{DATA_APPLIED_SOURCE} 가 아니다")
+            # ⛔ legacy 필드는 손대지 않았다
+            if r["data_capability"] != "UNRESOLVED":
+                errs.append(f"{r['rule_id']}: data_capability 가 상류와 달라졌다 — "
+                            f"이번 적용 대상이 아니다")
 
     # I-3 fail-closed — UNDEFINED 가 실행 가능으로 새지 않는다
     for r in rules:

@@ -126,13 +126,25 @@ check("Evaluator Population 25", C["evaluator_population"] == 25)
 check("Population ≠ Inventory 총수", C["evaluator_population"] != C["rule_inventory_total"])
 check("monitoring 은 Population 에 없다",
       all(not e["in_evaluator_population"] for e in mon))
-check("READY 3 · BLOCKED 22 (P0 적용 2건 반영)",
-      C["evaluator_ready"] == 3 and C["evaluator_blocked"] == 22,
+check("READY 6 · BLOCKED 19 (P0 적용 2건 + P3 적용 3건 반영)",
+      C["evaluator_ready"] == 6 and C["evaluator_blocked"] == 19,
       f"{C['evaluator_ready']}/{C['evaluator_blocked']}")
-check("UNDEFINED 2 · MISSING 22 · SOURCE_UNRESOLVED 16",
-      C["definition_undefined"] == 2 and C["data_missing"] == 22
-      and C["source_unresolved"] == 16,
+check("UNDEFINED 2 · MISSING 19 · SOURCE_UNRESOLVED 13",
+      C["definition_undefined"] == 2 and C["data_missing"] == 19
+      and C["source_unresolved"] == 13,
       f"{C['definition_undefined']}/{C['data_missing']}/{C['source_unresolved']}")
+_dapp = [e for e in P["entries"] if e.get("data_capability_application")]
+check("★ P3 데이터 축 적용도 Inventory 에 그대로 보인다 — 3건",
+      len(_dapp) == 3 and sorted(e["rule_id"] for e in _dapp)
+      == ["RULE-0003", "RULE-0007", "RULE-0008"],
+      str(sorted(e["rule_id"] for e in _dapp)))
+check("★ 적용 전 값(MISSING · SOURCE_UNRESOLVED)이 Inventory 에 보존된다",
+      all(e["data_status_before_application"] == "MISSING"
+          and e["source_qualification_before_application"] == "SOURCE_UNRESOLVED"
+          for e in _dapp))
+check("★ Inventory 가 데이터 축 적용을 숨기지 않는다",
+      all(e["data_status"] == "AVAILABLE"
+          and e["source_qualification"] == "SOURCE_RESOLVED" for e in _dapp))
 _app = [e for e in P["entries"] if e.get("definition_application")]
 check("★ 적용 기록이 Inventory 에도 그대로 보인다 — 13건",
       len(_app) == 13 and sorted(e["rule_id"] for e in _app)
@@ -174,9 +186,10 @@ check("그래도 소비 가능이 아니다", t["evaluator_consumable"] is False
 check("Stage · Portfolio · 주문 필드가 없다",
       not any(k in t for k in ("stage_action", "portfolio_action", "order", "trade",
                                "executable")))
-check("READY 는 evaluation rule 중 3건 (원래 1 + 적용되고 데이터도 있는 2)",
-      sum(1 for e in ev if e["evaluator_status"] == "READY") == 3)
-check("그 3건 전부 소비 가능이 아니다",
+check("READY 는 evaluation rule 중 6건 (원래 1 + 정의 적용 2 + P3 데이터 적용 3)",
+      sum(1 for e in ev if e["evaluator_status"] == "READY") == 6,
+      str(sum(1 for e in ev if e["evaluator_status"] == "READY")))
+check("그 6건 전부 소비 가능이 아니다",
       all(e["evaluator_consumable"] is False
           for e in ev if e["evaluator_status"] == "READY"))
 
