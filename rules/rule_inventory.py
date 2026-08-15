@@ -99,6 +99,11 @@ def build(out_path=OUT, rules_path=RULES, mapping_path=MAPPING, monid_path=MONID
             "downstream_effect": r["downstream_effect"],
             "source_occurrences": r["source_occurrences"],
             "definition_status": r["definition_status"],
+            # ★ P0 Definition Application — 확정된 CIO 판정이 상태에 적용된 흔적.
+            #   Inventory 는 이것을 숨기지 않는다. 적용 전 값도 함께 싣는다.
+            "definition_status_before_application":
+                r.get("definition_status_before_application"),
+            "definition_application": r.get("definition_application"),
             "data_status": r["data_status"],
             "source_qualification": r["source_qualification"],
             "evaluator_status": r["evaluator_status"],
@@ -193,11 +198,27 @@ def build(out_path=OUT, rules_path=RULES, mapping_path=MAPPING, monid_path=MONID
             if m is None:
                 errs.append(f"{e['rule_id']}: mapping 에 {o} 가 없다")
                 continue
+            # ★ 적용된 Rule 은 세 파생 필드만 달라질 수 있다. 그 경우에도 upstream 값이
+            #   `definition_status_before_application` 과 정확히 같아야 한다 —
+            #   그래야 차이가 **기록된 적용** 때문임이 증명된다.
+            #   ⛔ 「적용됐으니 다를 수 있다」로 열지 않는다.
+            applied = e.get("definition_application")
+            derived = ("definition_status", "evaluator_status", "blocked_by")
             for f in ("definition_status", "data_status", "source_qualification",
                       "evaluator_status", "blocked_by", "downstream_effect"):
-                if m[f] != e[f]:
-                    errs.append(f"{e['rule_id']}: upstream 의 {f} 가 rules.json 과 다르다 "
-                                f"— 자동 보정하지 않는다 (rules.json 이 authority)")
+                if m[f] == e[f]:
+                    continue
+                if applied and f in derived:
+                    if f == "definition_status" \
+                            and m[f] != e["definition_status_before_application"]:
+                        errs.append(f"{e['rule_id']}: 적용 전 값이 upstream 과 다르다 "
+                                    f"— 적용 기록으로 설명되지 않는 차이다")
+                    continue
+                errs.append(f"{e['rule_id']}: upstream 의 {f} 가 rules.json 과 다르다 "
+                            f"— 자동 보정하지 않는다 (rules.json 이 authority)")
+            if not applied and e["definition_status"] != \
+                    e["definition_status_before_application"]:
+                errs.append(f"{e['rule_id']}: 적용 기록 없이 definition_status 가 다르다")
 
     # V-7 §21-12 — 통계에 포함되는 모든 객체는 고유 rule_id 를 갖는다
     noid = [e for e in entries if not e["rule_id"]]

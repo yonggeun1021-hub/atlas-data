@@ -126,10 +126,28 @@ check("Evaluator Population 25", C["evaluator_population"] == 25)
 check("Population ≠ Inventory 총수", C["evaluator_population"] != C["rule_inventory_total"])
 check("monitoring 은 Population 에 없다",
       all(not e["in_evaluator_population"] for e in mon))
-check("READY 1 · BLOCKED 24", C["evaluator_ready"] == 1 and C["evaluator_blocked"] == 24)
-check("UNDEFINED 15 · MISSING 22 · SOURCE_UNRESOLVED 16",
-      C["definition_undefined"] == 15 and C["data_missing"] == 22
-      and C["source_unresolved"] == 16)
+check("READY 3 · BLOCKED 22 (P0 적용 2건 반영)",
+      C["evaluator_ready"] == 3 and C["evaluator_blocked"] == 22,
+      f"{C['evaluator_ready']}/{C['evaluator_blocked']}")
+check("UNDEFINED 2 · MISSING 22 · SOURCE_UNRESOLVED 16",
+      C["definition_undefined"] == 2 and C["data_missing"] == 22
+      and C["source_unresolved"] == 16,
+      f"{C['definition_undefined']}/{C['data_missing']}/{C['source_unresolved']}")
+_app = [e for e in P["entries"] if e.get("definition_application")]
+check("★ 적용 기록이 Inventory 에도 그대로 보인다 — 13건",
+      len(_app) == 13 and sorted(e["rule_id"] for e in _app)
+      == ["RULE-0002", "RULE-0004", "RULE-0010", "RULE-0011", "RULE-0012",
+          "RULE-0015", "RULE-0017", "RULE-0018", "RULE-0019", "RULE-0020",
+          "RULE-0021", "RULE-0022", "RULE-0025"],
+      str(sorted(e["rule_id"] for e in _app)))
+check("적용됐지만 데이터가 없는 Rule 은 DATA_MISSING 만 남는다",
+      all("DEFINITION_UNDEFINED" not in e["blocked_by"] and "DATA_MISSING" in e["blocked_by"]
+          for e in _app if e["data_status"] == "MISSING"))
+check("적용 전 값도 숨기지 않는다",
+      all(e["definition_status_before_application"] == "UNDEFINED"
+          and e["definition_status"] == "DEFINED" for e in _app))
+check("적용된 Rule 도 소비 가능이 아니다",
+      all(e["evaluator_consumable"] is False for e in _app))
 check("상태를 숨기지 않았다", P["states_hidden"] == 0 and P["statuses_resolved"] == 0)
 check("상태 필드가 모든 항목에 살아 있다",
       all(set(("definition_status", "data_status", "source_qualification",
@@ -156,8 +174,11 @@ check("그래도 소비 가능이 아니다", t["evaluator_consumable"] is False
 check("Stage · Portfolio · 주문 필드가 없다",
       not any(k in t for k in ("stage_action", "portfolio_action", "order", "trade",
                                "executable")))
-check("READY 는 evaluation rule 중 1건뿐",
-      sum(1 for e in ev if e["evaluator_status"] == "READY") == 1)
+check("READY 는 evaluation rule 중 3건 (원래 1 + 적용되고 데이터도 있는 2)",
+      sum(1 for e in ev if e["evaluator_status"] == "READY") == 3)
+check("그 3건 전부 소비 가능이 아니다",
+      all(e["evaluator_consumable"] is False
+          for e in ev if e["evaluator_status"] == "READY"))
 
 print("K-7 ⑦ 기존 항등식만 검증한다")
 check("occurrence 106 = 25 + 16 + 21 + 44",
@@ -232,10 +253,19 @@ print("K-12 음성 · upstream 이 rules.json 을 덮어쓰려 하면 실패")
 
 
 def m_override(m):
+    """★ 적용 기록이 **없는** Rule 을 골라 upstream 을 위조한다.
+    적용된 Rule 은 세 파생 필드가 다를 수 있도록 설계돼 있으므로, 그것을 고르면
+    「기록으로 설명되는 차이」와 구별되지 않는다."""
+    import rule_inventory as _RI
+    rules = {r["rule_id"]: r for r in json.load(open(_RI.RULES, encoding="utf-8"))["rules"]}
     for x in m["mapping"]:
-        if x["destination"] == SM.DEST_SSOT and x["definition_status"] == "UNDEFINED":
+        rid = x.get("canonical_rule_id")
+        if (x["destination"] == SM.DEST_SSOT and rid in rules
+                and rules[rid]["definition_application"] is None
+                and x["definition_status"] == "UNDEFINED"):
             x["definition_status"] = "DEFINED"
             return m
+    raise AssertionError("적용 기록 없는 UNDEFINED 가 없다 — 전제가 깨졌다")
 
 
 e = only_new(run(mut_map=m_override))

@@ -3,7 +3,7 @@
 
 CIO 판정 2026-08-15 로 확정된 `Actions PASS` 계약 네 가지를 기계적으로 검증한다.
 
-  ① clean checkout 에서 승인된 기존 회귀 14파일 전량 실행, 0 FAIL
+  ① clean checkout 에서 승인된 회귀 전량 실행, 0 FAIL
   ② 승인 산출물을 builder ①→⑭ 직렬 재빌드해 committed 본과 **byte-identical**
   ③ 기존 fail-closed / authority / evaluator / Production HOLD /
      Inventory-Population / RULE-MON identity 경계 유지 (①이 담당)
@@ -80,6 +80,9 @@ APPROVED_TESTS = [
     "test/test_rules_extract.py",
     "test/test_rules_ssot.py",
     "test/test_ssot_mapping.py",
+    # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
+    #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
+    "test/test_tsmc_monthly.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

@@ -78,6 +78,9 @@ def C(ticker, cell, frags, scope="full", partial_reason=None, why=""):
 
 # 자주 쓰는 사유
 US_PRICE = "미국 확정 가격의 Official Source 미확보 (CIO 확정 2026-08-14)"
+# ★ 가격이 아니라 분기 실적·재무 수치가 필요한 조건에는 이쪽을 쓴다 (CIO 승인 2026-08-15).
+US_FINANCIALS = ("미국 분기 실적·재무 수치의 Official Source 미확보 — "
+                 "sec.py 는 filing index 와 XBRL 만 수집하고 이 수치를 읽지 않는다")
 FIN_BODY = "재무 수치는 dart.py/sec.py 가 파싱하지 않는다 — 원천은 있고 구현이 없다 (§21-9②)"
 KR_PRICE = "krx.py v4.1 확정 종가·수급으로 평가 가능"
 
@@ -86,7 +89,12 @@ KR_PRICE = "krx.py v4.1 확정 종가·수급으로 평가 가능"
 # ══════════════════════════════════════════════════════════════════════
 C("MU", "탈락 조건", [
     R("FQ4 $49B 미달", "FAL", "강등 검토", "DEFINED", "MISSING", U, "SOURCE_UNRESOLVED",
-      "실적 수치 임계값이 명시돼 정의는 완결. " + US_PRICE),
+      # ★ note 정정 (CIO 승인 2026-08-15) — 이 조건은 가격이 아니라 **분기 실적 수치**다.
+      #   종전 note 가 US_PRICE(미국 확정 가격 원천 미확보)를 사유로 달고 있었으나
+      #   조건 성격과 어긋난 provenance 설명이었다.
+      #   ⛔ note 만 정정한다. `SOURCE_UNRESOLVED` 를 해제하지 않으며, 실제 source
+      #      resolution 은 P2(미국 실적·재무 수치)에서 별도 판정한다.
+      "실적 수치 임계값이 명시돼 정의는 완결. " + US_FINANCIALS),
     R("DRAM ASP 하락 전환", "FAL", "강등 검토", "UNDEFINED", "MISSING", U, "SOURCE_UNRESOLVED",
       "'전환'의 판정 시점 정의 없음. §21-14(2)가 '산업 가격(DRAM ASP) 사면 0건 — 둘 다 UNDEFINED'라 한 사례."),
 ])

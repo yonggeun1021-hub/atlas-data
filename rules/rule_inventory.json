@@ -23,17 +23,17 @@
     "excluded_non_rule_evidence": 44,
     "evaluator_population": 25,
     "evaluator_consumable": 0,
-    "evaluator_ready": 1,
-    "evaluator_blocked": 24,
-    "definition_undefined": 15,
+    "evaluator_ready": 3,
+    "evaluator_blocked": 22,
+    "definition_undefined": 2,
     "data_missing": 22,
     "source_unresolved": 16,
     "entries_without_rule_id": 0
   },
   "identity_note": "★ monitoring 은 `MON-nnnn`, evaluation rule 은 `RULE-nnnn` 로 namespace 가 분리된다. identity 를 가졌다는 사실이 evaluator 자격 · 실행 자격 · rules.json 편입을 뜻하지 않는다.",
   "provenance": {
-    "rules_json_sha256": "5afbc5e1bc918e6cc0b58bd0d2af21075d600e37ab7e0451a291ae9c612db354",
-    "ssot_mapping_sha256": "b70722a3086de7cb5355874fa89fd6bf4710d618e8848bd0fa19f5f8c7869c0e",
+    "rules_json_sha256": "e118ca8dbd460325aeb3a18d92d6c75b55472695a3cf0fc07550783a79d92b3b",
+    "ssot_mapping_sha256": "90a8843aff3dc0f5dac8f73db3b1d2a1ac80710a2599ab65957dc8304264025e",
     "monitoring_identity_sha256": "864c8d5755f29e741c8ac5d4d3cda3b4ecde087646957faf11e511c9610f99ae"
   },
   "entries": [
@@ -48,6 +48,8 @@
         "MU::탈락 조건#1"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -69,12 +71,28 @@
       "source_occurrences": [
         "MU::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "G1::comparison_baseline",
+          "G1::data_source",
+          "G1::threshold",
+          "G1::time_window"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -93,6 +111,8 @@
         "TSM::탈락 조건#1"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -114,12 +134,27 @@
       "source_occurrences": [
         "TSM::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "RULE-0004::comparison_baseline",
+          "RULE-0004::data_source",
+          "RULE-0004::threshold"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -138,6 +173,8 @@
         "TSM::기술적 무효화#1"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -160,6 +197,8 @@
         "TSM::기술적 무효화#2"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -182,6 +221,8 @@
         "TSM::다음 이벤트#3"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -204,6 +245,8 @@
         "TSM::다음 이벤트#5"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -226,6 +269,8 @@
         "TSM::진입 패턴#1"
       ],
       "definition_status": "UNDEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -248,12 +293,27 @@
       "source_occurrences": [
         "CRDO::탈락 조건#1"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · data_source 경계 확정 후 최종 확대",
+        "applied_decision_units": [
+          "G2::comparison_baseline",
+          "G2::event_definition",
+          "G2::time_window"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -271,12 +331,25 @@
       "source_occurrences": [
         "CRDO::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · data_source 경계 확정 후 최종 확대",
+        "applied_decision_units": [
+          "RULE-0011::observation_frequency"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING"
       ],
       "identity_namespace": "RULE",
@@ -293,12 +366,25 @@
       "source_occurrences": [
         "ANET::탈락 조건#1"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "RULE-0012::event_definition",
+          "RULE-0012::threshold",
+          "RULE-0012::time_window"
+        ],
+        "capability_axis_excluded": [],
+        "capability_axis_note": null,
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -317,6 +403,8 @@
         "ANET::탈락 조건#3"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -339,6 +427,8 @@
         "NVDA::탈락 조건#1"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -360,12 +450,27 @@
       "source_occurrences": [
         "NVDA::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "RULE-0015::comparison_baseline",
+          "RULE-0015::data_source",
+          "RULE-0015::threshold"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING"
       ],
       "identity_namespace": "RULE",
@@ -383,6 +488,8 @@
         "NVDA::다음 이벤트#2"
       ],
       "definition_status": "UNDEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
@@ -405,12 +512,28 @@
       "source_occurrences": [
         "000660.KS::탈락 조건#1"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "RULE-0017::data_source",
+          "RULE-0017::event_definition",
+          "RULE-0017::semantic_scope",
+          "RULE-0017::threshold"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING"
       ],
       "identity_namespace": "RULE",
@@ -427,12 +550,28 @@
       "source_occurrences": [
         "000660.KS::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "G1::comparison_baseline",
+          "G1::data_source",
+          "G1::threshold",
+          "G1::time_window"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -450,13 +589,25 @@
       "source_occurrences": [
         "005930.KS::탈락 조건#1"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · P0 Definition Application pilot",
+        "applied_decision_units": [
+          "G2::comparison_baseline",
+          "G2::event_definition",
+          "G2::time_window"
+        ],
+        "capability_axis_excluded": [],
+        "capability_axis_note": null,
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "AVAILABLE",
       "source_qualification": null,
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DEFINITION_UNDEFINED"
-      ],
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "identity_namespace": "RULE",
       "in_evaluator_population": true,
       "evaluator_consumable": false
@@ -471,12 +622,27 @@
       "source_occurrences": [
         "005930.KS::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · Definition Application 2차 확대",
+        "applied_decision_units": [
+          "RULE-0020::data_source",
+          "RULE-0020::event_definition",
+          "RULE-0020::threshold"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING"
       ],
       "identity_namespace": "RULE",
@@ -493,12 +659,25 @@
       "source_occurrences": [
         "MSFT::탈락 조건#1"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · data_source 경계 확정 후 최종 확대",
+        "applied_decision_units": [
+          "RULE-0021::event_definition"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": "SOURCE_UNRESOLVED",
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING",
         "SOURCE_UNRESOLVED"
       ],
@@ -516,12 +695,27 @@
       "source_occurrences": [
         "MSFT::탈락 조건#3"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · data_source 경계 확정 후 최종 확대",
+        "applied_decision_units": [
+          "RULE-0022::comparison_baseline",
+          "RULE-0022::threshold",
+          "RULE-0022::time_window"
+        ],
+        "capability_axis_excluded": [
+          "data_source"
+        ],
+        "capability_axis_note": "data_source 결핍이 B5-1 의 `data_capability_axis` 에 기록돼 있으면 definition component 가 아니라 execution/data capability 로 본다 (CIO 판정 2026-08-15). ⛔ 그래도 DATA_MISSING · SOURCE_UNRESOLVED 는 자동 해제하지 않는다.",
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "MISSING",
       "source_qualification": null,
       "evaluator_status": "BLOCKED",
       "blocked_by": [
-        "DEFINITION_UNDEFINED",
         "DATA_MISSING"
       ],
       "identity_namespace": "RULE",
@@ -539,6 +733,8 @@
         "298040.KS::탈락 조건#1"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "MISSING",
       "source_qualification": null,
       "evaluator_status": "BLOCKED",
@@ -560,6 +756,8 @@
         "298040.KS::탈락 조건#3"
       ],
       "definition_status": "DEFINED",
+      "definition_status_before_application": "DEFINED",
+      "definition_application": null,
       "data_status": "AVAILABLE",
       "source_qualification": null,
       "evaluator_status": "READY",
@@ -578,13 +776,25 @@
       "source_occurrences": [
         "298040.KS::탈락 조건#5"
       ],
-      "definition_status": "UNDEFINED",
+      "definition_status": "DEFINED",
+      "definition_status_before_application": "UNDEFINED",
+      "definition_application": {
+        "from": "UNDEFINED",
+        "to": "DEFINED",
+        "source": "CIO 판정 2026-08-15 · P0 Definition Application pilot",
+        "applied_decision_units": [
+          "RULE-0025::event_definition",
+          "RULE-0025::semantic_scope",
+          "RULE-0025::time_window"
+        ],
+        "capability_axis_excluded": [],
+        "capability_axis_note": null,
+        "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
+      },
       "data_status": "AVAILABLE",
       "source_qualification": null,
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DEFINITION_UNDEFINED"
-      ],
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "identity_namespace": "RULE",
       "in_evaluator_population": true,
       "evaluator_consumable": false
