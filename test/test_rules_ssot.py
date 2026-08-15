@@ -110,7 +110,9 @@ s = LIVE["state_counts"]
 APPLIED = [r for r in R if r["definition_application"]]
 # ★ P3 Data Capability Application (CIO 승인 2026-08-15) — 데이터/원천 축 적용분.
 DATA_APPLIED = [r for r in R if r.get("data_capability_application")]
-check("UNDEFINED 2 (15 − 적용 13)", s["definition_undefined"] == 2,
+# ★ 닫는 방향 — Definition Reopen (CIO 판정 2026-08-15)
+REOPENED = [r for r in R if r.get("definition_reopen")]
+check("UNDEFINED 3 (15 − 적용 13 + reopen 1)", s["definition_undefined"] == 3,
       str(s["definition_undefined"]))
 check("MISSING 19 (22 − P3 적용 3)", s["data_missing"] == 22 - len(DATA_APPLIED),
       str(s["data_missing"]))
@@ -121,7 +123,7 @@ check("P3 적용은 정확히 3건 (RULE-0003/0007/0008)",
       == ["RULE-0003", "RULE-0007", "RULE-0008"],
       str(sorted(r["rule_id"] for r in DATA_APPLIED)))
 check("★ mapping 대비 차이가 적용 기록으로 정확히 설명된다",
-      s["definition_undefined"] == MAP["counts"]["definition_undefined"] - len(APPLIED)
+      s["definition_undefined"] == MAP["counts"]["definition_undefined"] - len(APPLIED) + len(REOPENED)
       and s["data_missing"] == MAP["counts"]["data_missing"] - len(DATA_APPLIED)
       and s["source_unresolved"]
       == MAP["counts"]["source_unresolved"] - len(DATA_APPLIED),
@@ -140,7 +142,7 @@ check("만든 정의 0", LIVE["definitions_created"] == 0)
 
 print("K-4 ⑤ UNDEFINED → executable 경로 0")
 und = [r for r in R if r["definition_status"] == "UNDEFINED"]
-check("UNDEFINED 2건 존재", len(und) == 2, str(len(und)))
+check("UNDEFINED 3건 존재", len(und) == 3, str(len(und)))
 check("READY 인 UNDEFINED 0건", all(r["evaluator_status"] != "READY" for r in und))
 check("전부 DEFINITION_UNDEFINED 로 차단",
       all("DEFINITION_UNDEFINED" in r["blocked_by"] for r in und))
@@ -168,9 +170,10 @@ check("★ readiness 가 움직인 Rule = 적용 ∩ data AVAILABLE",
 check("★ 데이터가 없는 적용 Rule 은 readiness 가 그대로 BLOCKED",
       all(r["evaluator_status"] == "BLOCKED" for r in APPLIED
           if r["data_status"] != "AVAILABLE"))
-check("어느 적용도 받지 않은 Rule 은 blocked_by 가 그대로",
+check("어느 기록도 없는 Rule 은 blocked_by 가 그대로",
       all(r["blocked_by"] == mp[o]["blocked_by"] for r in R
           if not r["definition_application"] and not r.get("data_capability_application")
+          and not r.get("definition_reopen")
           for o in r["source_occurrences"]))
 check("readiness 는 vocabulary 파생 계약과 일치한다",
       all(r["evaluator_status"]
@@ -298,10 +301,12 @@ check("capability 축이 없는 Rule 은 제외 목록이 비어 있다",
           for r in APPLIED if not r["data_capability_axis"]))
 check("allowlist 와 일치", set(PR.DEFINITION_APPLICATION_PILOT)
       == {r["rule_id"] for r in APPLIED})
-check("★ 남은 UNDEFINED 는 적용 금지 집합과 정확히 같다",
+check("★ 남은 UNDEFINED = 적용 금지 집합 + reopen 집합, 그 밖은 없다",
       {r["rule_id"] for r in R if r["definition_status"] == "UNDEFINED"}
-      == set(PR.DEFINITION_APPLICATION_EXCLUDED),
+      == set(PR.DEFINITION_APPLICATION_EXCLUDED) | set(PR.DEFINITION_REOPEN),
       str(sorted(r["rule_id"] for r in R if r["definition_status"] == "UNDEFINED")))
+check("★ 적용 금지 집합과 reopen 집합은 서로 겹치지 않는다",
+      not (set(PR.DEFINITION_APPLICATION_EXCLUDED) & set(PR.DEFINITION_REOPEN)))
 for r in APPLIED:
     check(f"{r['rule_id']} 적용 기록이 UNDEFINED→DEFINED 를 남긴다",
           r["definition_application"]["from"] == "UNDEFINED"
@@ -328,9 +333,9 @@ for rid in ("RULE-0009", "RULE-0016"):
           and by_id[rid]["definition_status"] == "UNDEFINED"
           and by_id[rid]["evaluator_status"] == "BLOCKED")
     check(f"{rid} 는 적용 금지 목록에 있다", rid in PR.DEFINITION_APPLICATION_EXCLUDED)
-check("적용하지 않은 23건은 적용 전 값과 동일하다",
+check("적용·reopen 기록이 없는 Rule 은 적용 전 값과 동일하다",
       all(r["definition_status"] == r["definition_status_before_application"]
-          for r in R if not r["definition_application"]))
+          for r in R if not r["definition_application"] and not r.get("definition_reopen")))
 check("Production 경계는 그대로", LIVE["consumable_by_evaluator"] is False
       and "HOLD" in LIVE["production_state"])
 
@@ -527,6 +532,38 @@ check("★ 검사 대상 폐쇄 필드 7개가 선언돼 있다",
 check("★ 검사가 promote 에 실제로 배선돼 있다",
       "vocab_violations" in open(os.path.join(ROOT, "rules", "promote_rules_ssot.py"),
                                  encoding="utf-8").read())
+
+print("K-11 Definition Reopen — 닫는 방향의 상태 변경")
+check("reopen 은 정확히 1건 (RULE-0001)",
+      [r["rule_id"] for r in REOPENED] == ["RULE-0001"],
+      str([r["rule_id"] for r in REOPENED]))
+for r in REOPENED:
+    _rp = r["definition_reopen"]
+    check(f"{r['rule_id']} DEFINED→UNDEFINED 로 기록",
+          _rp["definition_status"] == {"from": "DEFINED", "to": "UNDEFINED"})
+    check(f"{r['rule_id']} 사유가 metric_identity_missing",
+          _rp["reason"] == "metric_identity_missing")
+    check(f"{r['rule_id']} 열린 질문이 남아 있다", bool(_rp.get("open_question")))
+    check(f"{r['rule_id']} 새 정의가 아님을 명시", _rp.get("not_a_new_definition") is True)
+    check(f"{r['rule_id']} 상류 판정 문구를 지우지 않고 보존",
+          "superseded_definition_resolution" in _rp)
+    check(f"{r['rule_id']} 금지 항목에 계정과목 추정·derived FQ4 가 있다",
+          any("추정" in x for x in _rp["prohibited"])
+          and any("derived" in x for x in _rp["prohibited"]))
+    check(f"{r['rule_id']} 적용 전 값이 DEFINED 로 보존",
+          r["definition_status_before_application"] == "DEFINED")
+    check(f"{r['rule_id']} DEFINITION_UNDEFINED 가 파생됐다",
+          "DEFINITION_UNDEFINED" in r["blocked_by"])
+    check(f"{r['rule_id']} application 과 겹치지 않는다",
+          r["definition_application"] is None)
+    check(f"{r['rule_id']} 어휘를 늘리지 않았다 (UNDEFINED 사용)",
+          r["definition_status"] in VC.DEFINITION_STATUS)
+check("★ 처음부터 UNDEFINED 인 Rule 과 reopen 은 provenance 로 구별된다",
+      all(r["definition_reopen"] is None for r in R
+          if r["definition_status"] == "UNDEFINED"
+          and r["definition_status_before_application"] == "UNDEFINED"))
+check("★ reopen 은 evaluator readiness 를 움직이지 않는다 (둘 다 BLOCKED)",
+      all(r["evaluator_status"] == "BLOCKED" for r in REOPENED))
 
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)

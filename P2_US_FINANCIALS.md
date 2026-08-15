@@ -8,7 +8,7 @@ Rule 상태의 정본은 `config/rules.json` 이며 이 문서는 그것을 변�
 | Cluster | Rule | 현재 P2 판정 |
 |---|---|---|
 | **P2-a** | `RULE-0022` MSFT RPO | **XBRL FEASIBLE** — direct RPO observation 확인. comparability validation 미해결 |
-| (제외) | `RULE-0001` MU FQ4 $49B | **DEFINITION REOPEN REQUIRED** — 측정 대상 계정과목이 정본·원문 모두에 없음 |
+| (제외) | `RULE-0001` MU FQ4 $49B | **REOPENED** — `definition_status: DEFINED → UNDEFINED` 적용 완료 (2026-08-15). 측정 대상 계정과목이 정본·원문 모두에 없음 |
 | **P2-b** | `RULE-0004` · `0013` · `0014` · `0021` | 대기 — forward guidance / 목표 / non-GAAP·constant-currency 의 document-semantic extraction |
 | **P2-c** | `RULE-0011` CRDO 고객집중도 | 대기 — 10-K/10-Q narrative·footnote 서술 |
 | **P2-d** | `RULE-0015` NVDA 하이퍼스케일러 capex | 대기 · **착수 금지** — 대상 기업군(universe)과 comparison baseline 이 정본에 없음. 데이터 취득 이전에 definition/coverage decision 필요 |
@@ -41,6 +41,29 @@ FQ4 를 얻으려면 `FY − (Q1+Q2+Q3)` 가 필요하다.
 
 ⛔ derived quarter 를 만들지 않았다. 계정과목 확정 → direct observation 존재 여부 →
 (없으면) derived 허용 여부 순서를 지킨다.
+
+### 반영 결과 (2026-08-15)
+
+`definition_status` 를 **`UNDEFINED`** 로 되돌렸다. **어휘를 늘리지 않았다** —
+`DEFINITION_REOPEN_REQUIRED` 라는 새 상태값을 만들지 않고 기존 `UNDEFINED` 를 쓴다.
+그래야 `DEFINITION_UNDEFINED → BLOCKED` 파생이 정상 작동한다.
+
+「처음부터 미검토된 UNDEFINED」와 「DEFINED 였다가 검증으로 다시 열린 UNDEFINED」는
+**`definition_reopen` provenance 로 구별**한다.
+
+```
+definition_status                        UNDEFINED
+definition_status_before_application     DEFINED      ← 과거가 보존된다
+definition_reopen.reason                 metric_identity_missing
+definition_reopen.open_question          「FQ4 $49B 는 무엇의 $49B 인가?」
+definition_reopen.superseded_definition_resolution
+                                         「정의 결핍 없음 (defined control population)」
+                                         ← 상류의 옛 판정 문구를 지우지 않고 나란히 남긴다
+```
+
+⛔ `prohibited` 에 **계정과목 추정 · derived FQ4 생성 · SEC concept mapping 재개**를 명시했다.
+★ reopen 은 **닫는 방향**이므로 기존 application(여는 방향)과 **별도 경로**다.
+  application 의 역연산으로 겸용하지 않는다.
 
 ### 시스템 차원의 관찰
 
@@ -120,6 +143,6 @@ narrative 는 **숫자를 얻는 source 가 아니라 비교가능성을 무효�
 
 ## 경계 (유지)
 
-`RULE-0022` 의 `DATA_MISSING` 미해제 · `RULE-0001` 의 `definition_status` 미변경 ·
-collector 구현 없음 · source 채택 없음 · evaluator 미연결 · Production HOLD ·
+`RULE-0022` 의 `DATA_MISSING` 미해제 · `RULE-0001` 은 `UNDEFINED` 로 되돌렸고
+metric identity 는 **미확정**(계정과목 추정 금지) · collector 구현 없음 · source 채택 없음 · evaluator 미연결 · Production HOLD ·
 `consumable_by_evaluator=false`.

@@ -105,6 +105,8 @@ def build(out_path=OUT, rules_path=RULES, mapping_path=MAPPING, monid_path=MONID
             "definition_status_before_application":
                 r.get("definition_status_before_application"),
             "definition_application": r.get("definition_application"),
+            # ★ 닫는 방향(DEFINED→UNDEFINED)의 기록. Inventory 는 이것도 숨기지 않는다.
+            "definition_reopen": r.get("definition_reopen"),
             "data_status": r["data_status"],
             # ★ P3 Data Capability Application — 데이터/원천 축 적용 흔적.
             #   Inventory 는 이것도 숨기지 않는다. 적용 전 값을 함께 싣는다.
@@ -212,10 +214,11 @@ def build(out_path=OUT, rules_path=RULES, mapping_path=MAPPING, monid_path=MONID
             #   ⛔ 「적용됐으니 다를 수 있다」로 열지 않는다.
             applied = e.get("definition_application")
             data_applied = e.get("data_capability_application")
+            reopened = e.get("definition_reopen")
             # 어떤 적용이 어떤 필드의 차이를 설명하는지 **명시적으로** 묶는다.
             #   ⛔ 「적용됐으니 아무거나 다를 수 있다」로 열지 않는다.
             explained = {}
-            if applied:
+            if applied or reopened:
                 explained.update({
                     "definition_status": "definition_status_before_application",
                     "evaluator_status": None, "blocked_by": None})
@@ -236,9 +239,9 @@ def build(out_path=OUT, rules_path=RULES, mapping_path=MAPPING, monid_path=MONID
                     continue
                 errs.append(f"{e['rule_id']}: upstream 의 {f} 가 rules.json 과 다르다 "
                             f"— 자동 보정하지 않는다 (rules.json 이 authority)")
-            if not applied and e["definition_status"] != \
+            if not applied and not reopened and e["definition_status"] != \
                     e["definition_status_before_application"]:
-                errs.append(f"{e['rule_id']}: 적용 기록 없이 definition_status 가 다르다")
+                errs.append(f"{e['rule_id']}: 적용·reopen 기록 없이 definition_status 가 다르다")
             if not data_applied:
                 for f, bk in (("data_status", "data_status_before_application"),
                               ("source_qualification",
