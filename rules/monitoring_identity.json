@@ -1,0 +1,153 @@
+{
+  "artifact": "monitoring opaque identity (Machine Rule Inventory)",
+  "authority": false,
+  "consumable_by_evaluator": false,
+  "prefix": "MON",
+  "id_format": "MON-{n:04d}",
+  "id_policy": "opaque stable ID. 의미를 ID 에 encoding 하지 않는다. 정렬 순서로 재발급하지 않으며, 기존 occurrence 의 ID 를 재사용한다. ★ 번호 부여는 canonicalize 의 기존 계약을 그대로 호출한다.",
+  "newly_introduced": "prefix 'MON' 하나뿐",
+  "purpose": "Machine Rule Inventory 객체의 식별과 추적",
+  "not_granted": [
+    "evaluation_rule 편입",
+    "canonical evaluation rule 생성 (B3 semantic canonicalization 대상 아님)",
+    "config/rules.json 편입",
+    "Evaluator Population 편입",
+    "evaluator eligibility",
+    "executable 자격"
+  ],
+  "scope_separation": "B3 의 semantic canonicalization 대상은 FAL+ENT 그대로다. 이 파일은 Inventory identity 만 부여하며 두 scope 는 별개다.",
+  "no_merge_note": "의미 유사성을 이유로 monitoring occurrence 를 병합하지 않는다. occurrence 와 1:1 이다.",
+  "counts": {
+    "monitoring_identities": 16
+  },
+  "monitoring_identities": [
+    {
+      "monitoring_id": "MON-0001",
+      "occurrence_id": "MU::다음 이벤트#1",
+      "subject": "MU",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "9/22 실적(예상)"
+    },
+    {
+      "monitoring_id": "MON-0002",
+      "occurrence_id": "TSM::다음 이벤트#1",
+      "subject": "TSM",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "★ 8/10경 TSMC 7월 월매출 — Ready Action Plan 발동점."
+    },
+    {
+      "monitoring_id": "MON-0003",
+      "occurrence_id": "TSM::다음 이벤트#8",
+      "subject": "TSM",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "이후 9/10 8월 월매출(Review Date),"
+    },
+    {
+      "monitoring_id": "MON-0004",
+      "occurrence_id": "TSM::다음 이벤트#9",
+      "subject": "TSM",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "10/15 3Q 실적(예상)"
+    },
+    {
+      "monitoring_id": "MON-0005",
+      "occurrence_id": "CRDO::다음 이벤트#1",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "ANET 실적 발표 완료(8/4)"
+    },
+    {
+      "monitoring_id": "MON-0006",
+      "occurrence_id": "CRDO::다음 이벤트#3",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "상대강도 판정 8/5·8/6·8/7"
+    },
+    {
+      "monitoring_id": "MON-0007",
+      "occurrence_id": "CRDO::다음 이벤트#5",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "8/8 IC 슬롯 통합"
+    },
+    {
+      "monitoring_id": "MON-0008",
+      "occurrence_id": "CRDO::다음 이벤트#6",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "자사 실적 9/2(예상)"
+    },
+    {
+      "monitoring_id": "MON-0009",
+      "occurrence_id": "ANET::다음 이벤트#1",
+      "subject": "ANET",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "2026-08-04 2Q26 실적 발표 완료"
+    },
+    {
+      "monitoring_id": "MON-0010",
+      "occurrence_id": "ANET::다음 이벤트#3",
+      "subject": "ANET",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "다음은 8/8 IC(Network 슬롯 대표 선정)"
+    },
+    {
+      "monitoring_id": "MON-0011",
+      "occurrence_id": "ANET::다음 이벤트#4",
+      "subject": "ANET",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "이후 3Q26 실적 11월 예상"
+    },
+    {
+      "monitoring_id": "MON-0012",
+      "occurrence_id": "NVDA::다음 이벤트#1",
+      "subject": "NVDA",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "8/26 실적(확정)"
+    },
+    {
+      "monitoring_id": "MON-0013",
+      "occurrence_id": "MSFT::다음 이벤트#1",
+      "subject": "MSFT",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "10/27 실적(예상)"
+    },
+    {
+      "monitoring_id": "MON-0014",
+      "occurrence_id": "329180.KS::다음 이벤트#1",
+      "subject": "329180.KS",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "8/20 ERCOT 이사회 (BTM 가설 직접 반증 이벤트)"
+    },
+    {
+      "monitoring_id": "MON-0015",
+      "occurrence_id": "SNDK::다음 이벤트#1",
+      "subject": "SNDK",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "다음 분기 실적 — 확약계약 비율·ASP 조건 공시 여부 (일자 ❓미확인)"
+    },
+    {
+      "monitoring_id": "MON-0016",
+      "occurrence_id": "SNDK::다음 이벤트#3",
+      "subject": "SNDK",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "raw_fragment": "보조: 8/21 한국 8월 1~20일 수출 낸드 항목"
+    }
+  ]
+}

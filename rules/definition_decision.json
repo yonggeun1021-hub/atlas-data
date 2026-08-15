@@ -1,0 +1,436 @@
+{
+  "artifact": "B5-1 Definition Resolution Decision",
+  "status": "inactive preparation",
+  "authority": false,
+  "consumable_by_evaluator": false,
+  "definitions_created": 0,
+  "candidate_values_created": 0,
+  "status_vocabulary": [
+    "REQUIRES_CIO_DEFINITION",
+    "RESOLVABLE_FROM_CANON"
+  ],
+  "vocabulary_note": "2개뿐이다. DATA_MISSING · PARSER_MISSING · SCHEDULED_FOR_REVIEW · PARTIALLY_DEFINED 같은 status 를 만들지 않는다 — 그것들은 resolution 가능성이 아니라 왜 막혔는지의 속성이며 B5-0 이 이미 보존하고 있다.",
+  "axis_note": "definition resolution 과 data capability 는 별도 축이다. 질문은 semantic component 에서만 생성했고 data_source 는 제외했다. 데이터 수집기 부재만으로 REQUIRES_CIO_DEFINITION 를 주지 않는다.",
+  "counts": {
+    "REQUIRES_CIO_DEFINITION": 15,
+    "RESOLVABLE_FROM_CANON": 0,
+    "decision_questions": 37,
+    "definition_component_questions": 35,
+    "source_semantics_questions": 2
+  },
+  "judgment_note": "현재 B5-0 증거 기준 `source_has_resolution` 이 15/15 false 이므로 RESOLVABLE_FROM_CANON 은 0건이다. RULE-0011 · RULE-0015 · RULE-0021 · RULE-0025 처럼 거의 완성된 Rule 도 예외가 아니다 — **의미 있는 판단을 하나라도 추가해야 완성된다면 같은 상태다.**",
+  "source_semantics_note": "★ 구조 미결에서 나온 질문은 정의 성분이 아니라 원문이 어느 규칙을 말하는지의 문제다. axis 로 구분해 두었고, B5-0 의 source_semantics_unresolved 로만 추적된다. 정의 성분 어휘에 섞지 않았다.",
+  "boundary_case_note": "RULE-0025 가 경계 사례다. 데이터는 확보돼 있고 며칠로 할지 선택하는 순간 전략을 만든 것이므로 RESOLVABLE_FROM_CANON 이 아니다. ★ 재검사 정정 — 한때 '빠진 것은 time_window 하나뿐' 으로 적혀 있었으나 사실이 아니었다. 무엇을 한 번의 단절 관측으로 볼지가 함께 빠져 있었고, 그 위에 원문 구조 미결까지 있다.",
+  "decided_against": {
+    "definition_inventory_sha256": "8b7a99b186038e727fc8c131d2b78f21d4b8623589c80b02bd5e08d64d6f08fa",
+    "canonical_rules_sha256": "d067b5841bd59d4984f0240656e2e896a18b79655da77aafe88b84e78920da21",
+    "decompose_full_sha256": "218749a2e29b7dc74602d1e5bf4240b6a35883dcd5d33c9a79671fcb387accd9"
+  },
+  "items": [
+    {
+      "canonical_rule_id": "RULE-0002",
+      "occurrence_id": "MU::탈락 조건#3",
+      "condition_text": "DRAM ASP 하락 전환",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "threshold",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "threshold",
+          "question": "'하락'의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "'전환'을 선언하기까지의 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "무엇 대비 하락으로 볼 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0018",
+      "occurrence_id": "000660.KS::탈락 조건#3",
+      "condition_text": "DRAM ASP 하락 전환",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "threshold",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "threshold",
+          "question": "'하락'의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "'전환'을 선언하기까지의 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "무엇 대비 하락으로 볼 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0004",
+      "occurrence_id": "TSM::탈락 조건#3",
+      "condition_text": "capex 하향",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "threshold",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "threshold",
+          "question": "'하향'의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "무엇 대비 하향으로 볼 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0009",
+      "occurrence_id": "TSM::진입 패턴#1",
+      "condition_text": "B 박스권 돌파 후 재확인",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "threshold",
+        "time_window"
+      ],
+      "data_capability_axis": [],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'박스권 돌파'와 '재확인'을 어떤 기계적 조건으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "threshold",
+          "question": "박스권 상단과 돌파 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "'재확인'에 필요한 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0010",
+      "occurrence_id": "CRDO::탈락 조건#1",
+      "condition_text": "ANET 대비 상대강도 열위 지속",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'상대강도'와 '열위'를 어떤 기계적 조건으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "'지속'의 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "상대강도를 어떤 기준선 대비로 산출할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0011",
+      "occurrence_id": "CRDO::탈락 조건#3",
+      "condition_text": "고객 집중 심화(10%+ 고객 3개 미만)",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "observation_frequency"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "observation_frequency",
+          "question": "고객 집중도를 어느 관측 주기로 볼 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0012",
+      "occurrence_id": "ANET::탈락 조건#1",
+      "condition_text": "호실적+주가 하락(선반영)",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "threshold",
+        "time_window"
+      ],
+      "data_capability_axis": [],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'호실적'과 '선반영'을 어떤 기계적 조건으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "threshold",
+          "question": "주가 하락의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "판정에 쓰는 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0015",
+      "occurrence_id": "NVDA::탈락 조건#3",
+      "condition_text": "하이퍼스케일러 2곳+ capex 하향",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "threshold",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "threshold",
+          "question": "'하향'의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "무엇 대비 하향으로 볼 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0016",
+      "occurrence_id": "NVDA::다음 이벤트#2",
+      "condition_text": "실적 전 포지션 제한(PM)",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "time_window",
+        "threshold"
+      ],
+      "data_capability_axis": [],
+      "decision_required": [
+        {
+          "from_component": "time_window",
+          "question": "'실적 전'의 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "threshold",
+          "question": "'포지션 제한'의 수준을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0017",
+      "occurrence_id": "000660.KS::탈락 조건#1",
+      "condition_text": "HBM 예약 취소·LTA 축소",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "threshold"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'취소'와 '축소'를 어떤 기계적 조건으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "threshold",
+          "question": "'축소'의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "semantic_scope",
+          "question": "'예약 취소'와 'LTA 축소'가 동시에 충족돼야 하는가, 어느 하나로 충분한가?",
+          "axis": "source_semantics"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0019",
+      "occurrence_id": "005930.KS::탈락 조건#1",
+      "condition_text": "SK 대비 상대강도 지속 열위",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'상대강도'와 '열위'를 어떤 기계적 조건으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "'지속'의 기간을 어떻게 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "상대강도를 어떤 기준선 대비로 산출할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0020",
+      "occurrence_id": "005930.KS::탈락 조건#3",
+      "condition_text": "HBM 공급 확대 미확인",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "threshold"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'공급 확대'와 '미확인'을 어떤 기계적 조건으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "threshold",
+          "question": "'확대'의 폭을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0021",
+      "occurrence_id": "MSFT::탈락 조건#1",
+      "condition_text": "Azure 성장 45%cc 유의미 하회",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "'유의미 하회'를 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0022",
+      "occurrence_id": "MSFT::탈락 조건#3",
+      "condition_text": "RPO 급둔화",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "threshold",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "decision_required": [
+        {
+          "from_component": "threshold",
+          "question": "'급둔화'의 '급'을 어떤 기준으로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "어느 기간을 보고 판정할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "comparison_baseline",
+          "question": "무엇 대비 둔화로 볼 것인가?",
+          "axis": "definition_component"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0025",
+      "occurrence_id": "298040.KS::탈락 조건#5",
+      "condition_text": "기관 순매수 연속 끊김",
+      "resolution_status": "REQUIRES_CIO_DEFINITION",
+      "judgment_basis": [
+        "event_definition",
+        "time_window"
+      ],
+      "data_capability_axis": [],
+      "decision_required": [
+        {
+          "from_component": "event_definition",
+          "question": "무엇을 한 번의 '끊김' 관측으로 볼 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "time_window",
+          "question": "'연속'을 몇 거래일로 정의할 것인가?",
+          "axis": "definition_component"
+        },
+        {
+          "from_component": "semantic_scope",
+          "question": "'연속'이 '기관 순매수'에 걸리는가, '끊김'에 걸리는가?",
+          "axis": "source_semantics"
+        }
+      ]
+    }
+  ]
+}

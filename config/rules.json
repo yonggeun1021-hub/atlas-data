@@ -1,0 +1,2309 @@
+{
+  "artifact": "Rule SSOT (config/rules.json)",
+  "schema_note": "정본 §21-9① — SSOT 판정은 이 파일의 승격 시점에 발생한다.",
+  "authority": true,
+  "promotion": {
+    "approved_by": "CIO",
+    "source": "CIO 승인 2026-08-15 — config/rules.json Rule SSOT 승격",
+    "scope": "Rule 정의 · 상태의 authority SSOT 생성까지. evaluator 사용 승인 · executable 승격 · Production HOLD 해제 · 매매 · Stage · Portfolio 동작 변경은 승인 범위가 아니다.",
+    "promoted_population": "human-reviewed mapping 의 rule_ssot_candidate 25건",
+    "not_promoted": "MON(rule_inventory_only) · execution_reference · non_rule_evidence 는 승격하지 않는다."
+  },
+  "consumable_by_evaluator": false,
+  "production_state": "HOLD 유지 — 이번 승격은 실행 연결 승인이 아니다",
+  "evaluator_wiring": "미연결",
+  "authority_note": "★ 오늘 이후 Rule membership 과 Rule 상태의 현재 SSOT 는 이 파일이다. rules.candidates.json · decomposition · B2 · B5 중간 산출물은 provenance 이자 재현용 upstream 이며 이 파일을 역으로 덮어쓸 수 없다. 변경은 기존 Rule governance 절차를 거친다.",
+  "executability_note": "★ authority 와 executability 는 다른 축이다. 이 파일에 있다는 사실은 계산 가능하다는 뜻도, 실행 가능하다는 뜻도 아니다. `definition_status` · `data_status` · `evaluator_status` 를 각각 본다.",
+  "ready_note": "★ evaluator_status=READY 는 소비 승인이 아니다. `consumable_by_evaluator=false` 이므로 이 승격만으로 어떤 Rule 도 소비 경로에 연결되지 않으며, Stage 변경 · 투자 판단으로 이어지지 않는다.",
+  "definitions_created": 0,
+  "statuses_resolved": 0,
+  "rule_count": 25,
+  "state_counts": {
+    "definition_undefined": 15,
+    "data_missing": 22,
+    "source_unresolved": 16,
+    "evaluator_blocked": 24,
+    "evaluator_ready": 1
+  },
+  "provenance": {
+    "ssot_mapping_sha256": "b70722a3086de7cb5355874fa89fd6bf4710d618e8848bd0fa19f5f8c7869c0e",
+    "canonical_rules_sha256": "d067b5841bd59d4984f0240656e2e896a18b79655da77aafe88b84e78920da21",
+    "decision_cards_sha256": "d019a4f68eda8ee9bd22f56e9d8c1abbb561879968c4832ec86eb229a8a33585",
+    "decompose_full_sha256": "218749a2e29b7dc74602d1e5bf4240b6a35883dcd5d33c9a79671fcb387accd9",
+    "merge_decision_sha256": "5f0fbdf822ca0ecc94f550a046666c0921764721b90f5fa2d9939cb15289fcb1",
+    "definition_inventory_sha256": "8b7a99b186038e727fc8c131d2b78f21d4b8623589c80b02bd5e08d64d6f08fa",
+    "definition_decision_sha256": "bf3abd1dff2c4bc739b66f25bc048e663820b0b4711baf691a0abf3c9791f3f9"
+  },
+  "rules": [
+    {
+      "rule_id": "RULE-0001",
+      "subject": "MU",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "FQ4 $49B 미달",
+      "condition_text_sha256": "6cffbae94e9b353079e1e7148d95981ca044dd93434bcff36cef2fe316e61bfb",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "MU::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0002",
+      "subject": "MU",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "DRAM ASP 하락 전환",
+      "condition_text_sha256": "db82a9d3bcdf81ef7d48a7e4b39730357012415ce22b0afe292625d3d5478744",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "MU::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "G1::data_source",
+          "card_order": 7,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 7",
+            "decision": "「DRAM ASP」 의 대표 가격 계열은 TrendForce 의 DRAM Contract Price 로 정의한다. Spot Price 는 대표 계열로 사용하지 않는다. Contract Price 안에서는 특정 단일 제품 가격을 고정 대표값으로 선택하지 않고, TrendForce 가 공표하는 DRAM contract-price 계열 중 해당 시점의 주력 conventional DRAM 시장을 대표하는 공식 가격 계열을 사용한다. HBM 가격은 이 G1 의 「DRAM ASP」 에 포함하지 않는다.",
+            "rationale": "원문의 목적은 단기 현물시장 변동을 잡는 것이 아니라, 메모리 가격 사이클이 하락으로 전환하면서 해당 종목들의 메모리 논거가 약해지는 시점을 잡는 것이다. 장기 물량계약 구조가 확대된 지금은 현물 가격을 대표값으로 삼는 것이 더 위험하다 — 계약 고객과 비계약 고객의 가격 움직임이 갈릴 수 있어, 현물의 방향을 전체 가격의 방향으로 읽으면 산업 구조와 어긋난다. 다만 어느 용량 · 모듈을 쓸지까지 이 카드에서 고정하면 데이터 소스를 정하는 수준을 넘어 대표 상품 선택 규칙을 만드는 것이 되므로, 거기까지는 정하지 않는다.",
+            "boundaries": [
+              "DRAM Spot Price 를 이 그룹의 대표 가격 계열로 사용하지 않는다.",
+              "HBM 가격을 이 그룹의 「DRAM ASP」 대표 계열로 사용하지 않는다.",
+              "NAND 가격을 혼합하지 않는다.",
+              "특정 제조사 자체 ASP 를 두 종목 공통의 대표 계열로 사용하지 않는다.",
+              "특정 DRAM SKU 하나를 이번 카드에서 영구 대표값으로 고정하지 않는다.",
+              "제3자 기사나 애널리스트 추정치를 TrendForce 의 가격 계열 대신 사용하지 않는다.",
+              "가격이 얼마나 하락해야 하는지, 무엇을 하락 전환으로 볼지, 어느 기간과 비교할지는 각각 뒤의 threshold · comparison_baseline · time_window 카드에서 결정한다.",
+              "이번 판정은 두 규칙의 정의만 공유하며 규칙 자체를 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "1",
+                "role": "group_reference",
+                "why": "공유 그룹 식별자 G1 안의 숫자다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "3",
+                "role": "quoted_phrase",
+                "why": "경계의 '제3자 기사' 라는 낱말 안의 글자다. 수량이 아니다."
+              }
+            ],
+            "obsolescence_adjudication": "표시된 경고는 유효했다. 다만 결론은 원문이 폐기됐다는 것이 아니다. 장기 물량계약이 확대되면서 현물 가격 하나로 사이클을 대표하는 방식의 노후화 위험이 커진 것이며, 계약 가격 계열 자체는 여전히 별도 시장 가격으로 관측된다. 따라서 규칙을 수정하지 않고 측정 정의를 계약 가격 계열로 명확히 하는 것으로 충분하다."
+          }
+        },
+        {
+          "decision_unit": "G1::threshold",
+          "card_order": 8,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 8",
+            "decision": "카드 7 에서 정한 DRAM Contract Price 대표 계열의 가격이 카드 9 에서 확정할 비교 기준보다 낮아진 경우를 「하락」 으로 정의한다. 하락 폭에 별도의 최소 수치 임계값을 두지 않는다. 가격이 낮아졌다는 사실과 「하락 전환」 이 확정됐다는 판정은 구분하며, 전환을 확정하기 위한 기간 요건은 카드 10 에서 별도로 결정한다.",
+            "rationale": "이 규칙의 목적은 임의의 크기 이상 가격이 급락하는 사건을 잡는 것이 아니라, 메모리 가격 사이클이 상승 또는 비하락 상태에서 하락 방향으로 꺾이는 시점을 포착하는 것이다. 원문에 없는 최소 하락률을 추가하면 실제 사이클 전환의 초기를 놓칠 수 있고, 어느 수치를 택하더라도 원문에서 그 값을 정당화할 근거가 없다. 한 번의 소폭 하락만으로 논거를 무효화하는 문제는 「하락」 의 폭을 임의로 키워 해결하지 않고, 「전환」 확인 기간에서 처리한다.",
+            "boundaries": [
+              "별도의 퍼센트 · 금액 하락폭 임계값을 만들지 않는다.",
+              "카드 9 에서 확정할 동일한 비교 기준보다 가격이 낮으면 해당 관측값은 「하락」 이다.",
+              "가격이 동일하면 하락으로 보지 않는다.",
+              "하락폭의 크기에 따라 하락 / 비하락을 다시 구분하지 않는다.",
+              "한 번의 하락 관측만으로 「하락 전환」 전체가 확정됐다고 판정하지 않는다.",
+              "몇 회 또는 얼마 동안 하락이 확인되어야 「전환」 인지는 카드 10 에서 결정한다.",
+              "비교할 과거 가격이나 기준 시점은 카드 9 의 결정사항이므로 이번 판정에서 확정하지 않는다.",
+              "카드 7 에서 확정한 가격 계열 · 배제 대상 · 대표상품 선택 경계를 변경하지 않는다.",
+              "이 판정은 두 규칙의 정의만 공유하며 규칙 자체를 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "7",
+                "role": "card_reference",
+                "why": "가격 계열을 정한 카드 번호다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "9",
+                "role": "card_reference",
+                "why": "비교 기준을 정할 카드 번호다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "10",
+                "role": "card_reference",
+                "why": "전환 기간을 정할 카드 번호다. 기간 길이도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G1::comparison_baseline",
+          "card_order": 9,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 9",
+            "decision": "카드 7 에서 정한 DRAM Contract Price 대표 계열의 현재 공식 관측값을, 동일한 대표 가격 계열의 직전 비교 가능한 공식 관측값과 비교한다. 비교 가능한 값은 동일한 가격 계열과 동일한 가격 정의로 이어지는 직전 관측값이다. 대표 가격 계열이 변경되어 이전 값과 동일 계열로 직접 연결할 수 없는 경우에는 변경 전후 값을 이어 붙여 하락을 판정하지 않고, 새 계열의 최초 관측값을 새로운 기준선으로 둔다.",
+            "rationale": "이 규칙의 목적은 가격 수준 자체가 과거 어느 시점보다 낮은지를 판정하는 것이 아니라, 정해진 계약 가격 계열의 방향이 하락으로 바뀌었는지를 포착하는 것이다. 전년동기 · 분기 평균 · 과거 고점처럼 원문에 없는 별도 기준기간을 만들기보다 동일 계열에서 바로 앞선 공식 관측값과 연결하는 편이 「낮아졌는가」 를 가장 직접적으로 측정한다. 또한 앞 카드가 특정 상품을 영구 고정하지 않았으므로 대표 계열이 바뀔 수 있다. 이때 서로 다른 상품이나 가격 정의를 기계적으로 연결하면 상품 교체 자체가 가격 하락처럼 보인다. 그래서 동일 계열로 비교할 수 없는 전환점에서는 새 기준선만 만들고 하락 판정을 만들지 않는다.",
+            "boundaries": [
+              "현재 공식 관측값과 동일 대표 가격 계열의 직전 비교 가능한 공식 관측값만 비교한다.",
+              "전년동기 가격을 별도 비교 기준으로 사용하지 않는다.",
+              "분기 평균이나 이동평균을 새 비교 기준으로 만들지 않는다.",
+              "과거 사이클 고점 · 최고가격을 기준으로 사용하지 않는다.",
+              "서로 다른 DRAM 상품의 가격 수준을 직접 연결해 하락을 만들지 않는다.",
+              "가격 산출 정의가 변경되어 동일 계열성이 유지되지 않으면 변경 전후 값을 직접 비교하지 않는다.",
+              "대표 가격 계열이 변경되어 연속 비교가 불가능하면 새 계열의 최초 관측값은 기준선 생성으로만 처리하며, 그 자체로 하락을 판정하지 않는다.",
+              "비교 가능한 직전 공식 관측값이 없으면 다른 가격이나 기간으로 대체하지 않고 그 시점의 하락 판정을 유보한다.",
+              "카드 8 에서 확정한 「현재값이 비교값보다 낮다」 는 하락 방향 정의를 변경하지 않는다.",
+              "몇 번의 하락 관측이 있어야 「하락 전환」 으로 확정하는지는 카드 10 의 결정사항으로 남긴다.",
+              "카드 7 에서 확정한 가격 계열 및 대표상품 선택 경계를 다시 열지 않는다.",
+              "이 판정은 두 규칙의 정의만 공유하며 규칙 자체를 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "7",
+                "role": "card_reference",
+                "why": "가격 계열을 정한 카드 번호다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "8",
+                "role": "card_reference",
+                "why": "경계에 인용한, 하락 방향을 정한 카드 번호다. 임계값이 아니다."
+              },
+              {
+                "token": "10",
+                "role": "card_reference",
+                "why": "경계에 인용한, 전환 횟수를 정할 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G1::time_window",
+          "card_order": 10,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 10",
+            "decision": "카드 8 에서 정의한 「하락」 이 카드 9 의 동일 대표 가격 계열에서 2 회 연속 공식 관측될 때 「DRAM ASP 하락 전환」 으로 확정한다. 첫 번째 하락 관측은 전환 후보 상태이며, 다음 비교 가능한 공식 관측에서도 다시 하락한 경우에만 전환을 확정한다. 두 하락 관측 사이에 가격이 동일하거나 상승하면 연속성은 끊어진 것으로 보고 다시 첫 하락 관측부터 확인한다.",
+            "rationale": "앞 카드가 작은 하락이라도 방향상 「하락」 으로 인정하는 대신, 한 번의 하락만으로 전체 「하락 전환」 을 확정하지 않도록 확인 책임을 이 카드에 남겼다. 비교 대상도 직전 비교 가능한 공식 관측값으로 이미 닫혀 있다. 따라서 여기서는 새로운 가격폭 조건을 더하지 않고 같은 방향이 다음 공식 관측에서도 반복되는가만 확인하는 것이 앞선 정의와 가장 일관된다. 한 번만 요구하면 앞에서 명시적으로 갈라 놓은 「하락」 과 「하락 전환」 이 사실상 같은 판정이 된다. 반대로 더 여러 번을 요구하면 월별 계열 특성상 최초 하락 발견에서 전환 확정까지 지나치게 오래 걸려, 사이클이 꺾이는 초기를 잡는다는 이 그룹의 투자 의도를 훼손한다.",
+            "boundaries": [
+              "연속 관측은 앞 카드에서 비교 가능한 것으로 인정되는 동일 대표 가격 계열의 공식 관측만 센다.",
+              "첫 하락 관측만으로 「하락 전환」 을 확정하지 않는다.",
+              "두 번째 연속 하락 관측이 확인되는 시점에 「하락 전환」 을 확정한다.",
+              "중간 공식 관측값이 직전 값과 동일하거나 상승하면 연속 하락 카운트는 끊긴다.",
+              "동일값 이후 다시 하락하면 그것을 새로운 첫 하락 관측으로 본다.",
+              "대표 가격 계열 변경으로 새 기준선이 생성되는 관측은 하락 횟수에 포함하지 않는다.",
+              "비교 가능한 공식 관측값이 없어 판정이 유보된 경우에도 하락 횟수를 증가시키지 않는다.",
+              "하락폭에 별도의 최소 퍼센트 · 금액 조건을 추가하지 않는다.",
+              "월말 · 월초 같은 달력상의 경과일수 자체를 별도 조건으로 만들지 않는다. 공식 관측 횟수를 기준으로 한다.",
+              "이 판정은 두 규칙의 정의에 함께 적용하지만 두 규칙을 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "2",
+                "role": "threshold",
+                "why": "★ 전환 확정에 필요한 연속 하락 관측 횟수다. 이 판정에서 새로 도입된 임계값이며, 원문에서 유도된 값이 아니라 CIO 가 정한 값이다."
+              },
+              {
+                "token": "8",
+                "role": "card_reference",
+                "why": "「하락」 을 정의한 카드 번호다. 임계값이 아니다."
+              },
+              {
+                "token": "9",
+                "role": "card_reference",
+                "why": "비교 기준을 정한 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0003",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "월매출 YoY 40% 미달 2개월 연속",
+      "condition_text_sha256": "6023fcc50f24dbbb22dab26be8e66461c0b04812b59fd41cc68dca1b28c4fcd1",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0004",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "capex 하향",
+      "condition_text_sha256": "d3ac6487da4bd654b159f9537bb117feebeea195a74fb7ac5c574be2d6e7a9b5",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "threshold",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0004::data_source",
+          "card_order": 1,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 1",
+            "decision": "TSMC 의 전사 CapEx. TSMC 가 공식 실적발표에서 제시하는 연간 consolidated capital budget / capital expenditures 를 측정 대상으로 한다. 특정 fab · 지역 · 공정 · 장비군으로 좁히지 않는다.",
+            "rationale": "RULE-0004 의 투자 의도가 파운드리 설비투자 축소로 병목 논거가 약해지는 것을 보는 데 있으므로, 회사 차원의 자본예산이 상위 기준이다. 공식 실적발표에서 반복 관측되므로 개별 투자 기사보다 재현성이 높다.",
+            "excluded_from_definition": "공표된 실제 금액은 정의에 넣지 않는다 — 공표 수치가 임계값으로 새지 않게 한다는 카드 설계 원칙을 그대로 적용한다.",
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "0004",
+                "role": "rule_reference",
+                "why": "근거에 인용한 규칙 식별자 RULE-0004 안의 숫자다. 측정값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0004::threshold",
+          "card_order": 2,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 2",
+            "decision": "TSMC 가 가장 최근 공식적으로 제시한 연간 CapEx 가이던스 범위의 하단이, 직전 비교 가능한 공식 연간 CapEx 가이던스 범위의 하단보다 낮아진 경우를 「capex 하향」으로 정의한다. 단순한 범위 축소(narrowing)로 하단이 유지되거나 상승한 경우는 하향으로 보지 않는다.",
+            "rationale": "TSMC 는 CapEx 를 단일 고정값이 아니라 연간 capital budget 범위로 제시하고 연중 그 범위를 수정할 수 있다. midpoint 변화나 실제 집행액을 섞기보다 동일한 공식 가이던스 계열에서 하단의 하향 여부를 보는 것이, 회사가 최소한으로 계획하는 투자 수준 자체가 낮아졌는가를 가장 보수적이고 재현 가능하게 측정한다. 이 정의는 특정 시점의 금액을 임계값으로 가져온 것이 아니라 공시 형식에 대한 비교 규칙이다.",
+            "boundaries": [
+              "midpoint 하락만으로는 발동하지 않는다.",
+              "상단만 낮아진 경우도 발동하지 않는다.",
+              "범위가 좁아졌더라도 하단이 유지 또는 상승하면 발동하지 않는다.",
+              "실제 집행 CapEx 와 가이던스를 서로 비교하지 않는다.",
+              "특정 fab · 지역 · 공정 · 장비군 CapEx 는 카드 1 결정대로 포함하지 않는다.",
+              "숫자 임계값을 새로 만들지 않는다 — 하단이 조금이라도 낮아지면 기계적으로 하향이다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "1",
+                "role": "card_reference",
+                "why": "경계에 인용한 카드 번호다. 하락 폭도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0004::comparison_baseline",
+          "card_order": 3,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 3",
+            "decision": "동일한 대상 회계연도에 대해 TSMC 가 직전에 공식적으로 제시한 연간 CapEx 가이던스를 비교 기준으로 한다. 새 대상연도의 최초 연간 가이던스에는 동일 대상연도의 직전 가이던스가 없으므로, 그 발표 자체만으로 「capex 하향」을 판정하지 않는다.",
+            "rationale": "이 규칙의 목적은 TSMC 가 이미 계획한 투자 수준을 이후 낮췄는지를 포착하는 것이다. 전년도 가이던스와 새해 최초 가이던스를 비교하면 기존 계획의 하향 수정과, 연도가 바뀌면서 투자 규모가 달라진 것이 섞인다. 따라서 비교 단위를 같은 대상 회계연도로 고정한다. 어떤 연도의 최초 연간 자본예산 발표는 그 연도의 기준선을 만들 뿐이고, 이후 같은 연도의 가이던스가 공식 수정됐을 때부터 카드 2 의 하단 비교가 가능하다. 실제 집행액과 가이던스를 섞지 않는 카드 2 의 경계와도 일관된다.",
+            "boundaries": [
+              "전년도 연간 CapEx 가이던스와 새해 최초 가이던스를 비교해 발동시키지 않는다.",
+              "동일 대상 회계연도의 공식 연간 CapEx 가이던스끼리만 비교한다.",
+              "최초 가이던스는 기준선 생성이며 그 자체로 하향 판정하지 않는다.",
+              "이후 공식 수정 가이던스가 나오면 직전에 유효했던 동일 연도 가이던스와 비교한다.",
+              "실제 집행 CapEx 는 비교 기준으로 사용하지 않는다.",
+              "카드 2 에서 확정한 범위 하단 ↔ 범위 하단 비교를 그대로 유지한다.",
+              "여러 과거 가이던스 중 가장 높은 값이나 최초 값을 임의로 골라 비교하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "2",
+                "role": "card_reference",
+                "why": "근거와 경계에 인용한 카드 번호다. 기간도 임계값도 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0005",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "종가 기준 $398 이탈 — 7/17·7/31·8/3 삼중지지 붕괴 = 8월 반등 구조 전체 무효.",
+      "condition_text_sha256": "a7c48f89889a2afafe2fa490cd3e88ab45600b699cb672645c00520c882552f2",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::기술적 무효화#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0006",
+      "subject": "TSM",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "condition_text": "진입 전 보류선: 종가가 SMA20 $409 아래면 A·B 모두 매수 보류.",
+      "condition_text_sha256": "f12fd5ce8d7f726095adc0fcf47a7431dc05d4094072c75d247d810dc46fcfd7",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::기술적 무효화#2"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0007",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "약화 = 단월 YoY < +35% OR 누계 YoY < +34.6% → C(매수 취소·Ready 해제)",
+      "condition_text_sha256": "e69be9bebbc9ed7e1487cf479aca3ba0ff6397d293f443d414fba2b56de8fe3e",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::다음 이벤트#3"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0008",
+      "subject": "TSM",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "condition_text": "비약화 = 단월 YoY ≥ +35% AND 누계 YoY ≥ +34.6% → Price 판정으로 이월(A/B 활성).",
+      "condition_text_sha256": "a1607620f9ced118e0d98f6a21b3ee5ae6b736d15b643bfe0939ca1590e0b31e",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::다음 이벤트#5"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0009",
+      "subject": "TSM",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "condition_text": "B 박스권 돌파 후 재확인",
+      "condition_text_sha256": "1a42eecb8c0999cecf86870618028f03d806373d121b65eda751bf9a1e0a4614",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "TSM::진입 패턴#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "time_window"
+      ],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0009::event_definition",
+          "card_order": 32,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 32",
+            "decision": "「B 박스권 돌파 후 재확인」 은 순차 사건으로 정의한다. ① 박스권 상단 경계의 상향 돌파가 먼저 발생하고 → ② 그 이후 가격이 기존 상단 경계를 다시 시험하며 → ③ 그 재시험에서 돌파 상태가 무효화되지 않고 유지되는 것이 확인되는 사건이다. 세 단계의 순서는 바꿀 수 없다. 「돌파」 는 상단 경계를 상향 이탈한 상태를 말하며, 「재확인」 은 돌파가 먼저 성립한 뒤 기존 상단 경계에 대한 실제 재시험이 있고 그 시험에서 돌파 상태가 무효화되지 않는 것을 말한다. ★ 단순히 돌파 후 계속 상승하는 것은 「재확인」 과 구분한다.",
+            "rationale": "원문이 「돌파 후 재확인」 이라고 순서를 명시하고 있으므로 두 술어를 독립 조건으로 흩뜨리지 않고 순차 사건으로 읽는 것이 원문에 가장 충실하다. ★ 외부 교육자료는 해석 확인에만 사용했다 — 돌파를 기존 지지 · 저항 수준이나 구간을 넘어서는 사건으로 설명하고 기존 저항이 돌파 후 지지로 전환될 수 있다고 설명하는데, 이는 「돌파 후 재확인」 을 기존 경계의 재시험으로 읽는 것이 일반적인 기술적 의미와도 맞는다는 확인이다. 다만 그 자료에서 특정 이탈폭이나 확인 기간을 가져오지는 않는다. ★ 이 카드는 사건의 구조만 닫는다.",
+            "boundaries": [
+              "순서는 반드시 「돌파 → 재확인」 이다. 재확인이 먼저 존재할 수 없다.",
+              "대상은 박스권 상단 경계의 상향 돌파다. 원문의 진입 자격을 하향 이탈까지 양방향 규칙으로 확대하지 않는다.",
+              "「재확인」 은 돌파 후 기존 상단 경계를 다시 시험하는 사건이다.",
+              "돌파 후 경계를 다시 시험하지 않고 계속 상승한 경우를 임의로 「재확인 완료」 로 간주하지 않는다.",
+              "얼마나 위까지 넘어야 돌파인지는 이 카드에서 정하지 않는다. 「조금이라도 넘으면 돌파」 같은 폭 판정도 여기서 만들지 않는다.",
+              "재시험 과정에서 어느 정도까지 경계를 침범할 수 있는지는 카드 33 의 폭 정의와 정렬해야 하므로 여기서 만들지 않는다.",
+              "재확인이 얼마 동안 유지돼야 하는지는 카드 34 에서 정한다.",
+              "거래량 · 이동평균 · 상대강도지수 등 추가 확인 지표를 요구하지 않는다. 외부 자료에는 거래량 등으로 돌파를 확인하는 방법도 있지만, 이를 넣으면 원문에 없는 조건을 만드는 것이다.",
+              "장중 고가가 경계를 넘었다는 사실만으로 돌파를 확정할지, 종가가 필요한지는 가격 관측 단위와 카드 33 · 34 의 판정 과정에서 정해져야 하므로 이 카드에서 새로 정하지 않는다.",
+              "박스권 자체를 어떤 회고 기간이나 가격점으로 산출할지도 이 카드에서 새로 만들지 않는다.",
+              "카드 33 의 경계 · 이탈 폭과 카드 34 의 유지 기간을 선취하지 않는다.",
+              "현재 가격 수집 능력 부재는 사건 정의를 변경하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "33",
+                "role": "card_reference",
+                "why": "경계 · 이탈 폭을 정할 카드 번호다. 이탈률이 아니다."
+              },
+              {
+                "token": "34",
+                "role": "card_reference",
+                "why": "유지 확인 기간을 정할 카드 번호다. 거래일 수가 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0009::threshold",
+          "card_order": 33,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 33",
+            "decision": "「B 박스권」 의 상단 경계는 해당 박스권을 구성하는 확정 가격 관측들 가운데 형성된 상단 가격 수준으로 고정한다. 돌파에는 별도의 최소 이탈률을 두지 않는다 — 판정 가격이 그 상단 경계를 초과하면 상향 이탈로 보고, 상단 경계와 동일하거나 그보다 낮으면 돌파가 아니다. ★ 이 카드는 「B 박스권」 을 새로 산출하지 않는다. 박스권의 생성 규칙은 정본에서 확정되는 정의를 그대로 받는다. 즉 이 판정은 박스권을 만드는 결정이 아니라 정본의 박스권 정의를 소비하는 계약이다.",
+            "rationale": "원문은 이미 「B 박스권」 이라는 특정 구조를 전제하고 있고, 정본의 진입 문구가 별도 미정 영역으로 남아 있다. 따라서 여기서 박스 생성 알고리즘을 새로 만들면 원문에 없는 구조를 들여오게 되며 정본이 확정될 때 두 곳이 서로 다른 규칙이 된다. 돌파 폭에 별도 여유를 두지 않는 이유도 같다 — 원문은 이탈의 크기를 요구하지 않는다. ★ 외부 자료에서도 저항은 단일한 보편 산식이 있는 값이라기보다 가격이 반복적으로 반응하는 수준 · 구간으로 취급되고, 돌파 후 기존 저항이 지지 역할을 할 수 있다는 개념이 일반적이다. 그러나 어떤 회고 기간이나 접촉 횟수를 써야 하는지는 원문에서 나오지 않으므로 외부 관용값을 가져오지 않는다.",
+            "boundaries": [
+              "상단 경계는 정본에서 정의된 「B 박스권」 의 상단 가격 수준을 사용한다.",
+              "이 카드가 독자적으로 박스권 회고 기간을 만들지 않는다.",
+              "최고가 · 피벗 · 이동평균 · 변동성지표 · 거래량 등으로 「B 박스권」 을 대체하지 않는다.",
+              "돌파 최소폭은 별도로 두지 않는다.",
+              "판정 가격이 상단 경계를 초과하면 상향 이탈이다.",
+              "판정 가격이 상단 경계와 같으면 돌파가 아니다.",
+              "판정 가격이 상단 경계보다 낮으면 돌파가 아니다.",
+              "일정 비율 이상 넘어야 한다는 추가 여유를 만들지 않는다.",
+              "장중 고가와 종가 중 무엇을 「판정 가격」 으로 쓸지는 현재 근거만으로 임의 결정하지 않는다.",
+              "재시험에서 가격이 기존 상단 경계까지 돌아오는 것 자체를 실패로 보지 않는다. 돌파 후 재시험의 일반적인 의미도 과거 저항을 다시 시험하고 그것이 지지로 작동하는 구조다.",
+              "그러나 경계 아래 침범을 얼마까지 허용할지 별도 허용폭을 만들지 않는다.",
+              "따라서 재확인 성공의 최종 시간적 판정은 카드 34 에서 닫는다.",
+              "★ 확인 결과 — 정본(`canonical_rules.json`)의 이 규칙 항목은 `condition_semantics` 와 `scope` 가 모두 `UNRESOLVED` 이며, 원자료 · 후보 · 분해 · 인벤토리 어디에도 「B 박스권」 의 기계적 생성 정의가 없다. 즉 이 계약이 참조하는 정본 정의는 아직 존재하지 않는다.",
+              "따라서 「B 박스권」 정의 미해소를 이유로 evaluator 연결 금지 상태를 유지한다. 이 카드가 닫혔다는 사실을 정의 세트 완성으로 읽지 않는다.",
+              "정본에 정의가 없다는 이유로 이 카드에서 임의의 회고 기간이나 산출식을 만들어 메우지 않는다. 결핍은 결핍대로 남긴다.",
+              "가격 원천 부재는 그대로 유지한다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "34",
+                "role": "card_reference",
+                "why": "재확인 유지 기간을 정할 카드 번호다. 이탈률이나 거래일 수가 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0009::time_window",
+          "card_order": 34,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 34",
+            "decision": "별도의 고정 재시험 기한이나 유지 일수를 새로 두지 않는다. 「재확인」 은 앞 카드에서 확정한 순차 사건 안에서 처리한다 — 돌파가 성립한 이후 기존 「B 박스권」 상단 경계를 실제로 재시험하고, 그 재시험 관측이 종료될 때 돌파 상태가 유지되어 있으면 재확인이 성립한다. ★ 따라서 시간 조건을 「돌파 후 며칠 이내」 · 「며칠 연속 유지」 같은 별도 전략 파라미터로 만들지 않는다.",
+            "rationale": "원문은 「돌파 후 재확인」 이라고만 적고 있고 기간을 요구하지 않는다. 사건의 순서는 이미 앞 카드에서 닫혔으므로, 여기서 기한을 새로 만들면 원문에 없는 시간 조건을 하나 더 들여오게 된다. ★ 외부 자료에서도 돌파 이후의 재시험은 성공한 돌파에서 나타날 수 있지만 반드시 발생하는 고정 시간 사건은 아니며, 과거 저항이 지지로 유지되는지를 확인하는 구조로 설명된다. 확인이라는 개념 자체는 의미가 있으나 적용할 보편적인 고정 기간을 제공하는 것은 아니므로, 외부 관용 일수를 가져오는 근거가 없다.",
+            "boundaries": [
+              "돌파보다 앞선 가격 움직임을 재확인으로 사용하지 않는다.",
+              "돌파 이후 실제 경계 재시험이 발생해야 한다.",
+              "재시험 없이 계속 상승하면 앞 카드 판정대로 재확인 성립이 아니다.",
+              "돌파 후 재시험까지의 별도 최대 대기기간을 만들지 않는다.",
+              "재시험 후 별도의 추가 유지 일수도 만들지 않는다.",
+              "재시험이 발생한 해당 가격 관측이 완료됐을 때 돌파 상태가 유지되는지를 판정한다.",
+              "장중 순간 움직임을 따로 떼어 성공 · 실패로 선택하지 않는다.",
+              "다만 어떤 가격 관측 단위를 사용할지는 현재 원문에서 확정되지 않았으므로 이 카드에서 종가 · 일봉 등 특정 단위를 새로 선택하지 않는다.",
+              "재시험 이후 경계 아래로 내려간 관측을 얼마까지 허용할지 별도 시간 · 가격 허용폭을 만들지 않는다.",
+              "휴장이나 데이터 부재를 경과 관측으로 세지 않는다.",
+              "누락 가격을 보간해서 재시험 또는 유지 사건을 만들지 않는다.",
+              "외부 기술적 분석 자료의 관용 기간을 이 규칙의 파라미터로 가져오지 않는다. 돌파는 실패해 이전 패턴으로 복귀할 수 있으므로 확인 자체는 의미가 있지만, 그것이 보편적인 고정 기간을 제공하지는 않는다.",
+              "★ 이 카드가 닫혀도 이 규칙이 실행 가능한 정의가 된 것은 아니다. 「B 박스권」 생성 정의 부재 · 판정 가격 관측 단위 미정 · 가격 원천 부재가 그대로 남는다.",
+              "따라서 상태는 「decision card 판정 완료 · 실행 가능한 정의 미해소」 이며 evaluator 연결 금지를 유지한다.",
+              "이 결핍은 정본의 진입 패턴 자체와 연결된 것이므로 여기서 보완 카드를 새로 만들어 임의로 메우지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0010",
+      "subject": "CRDO",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "ANET 대비 상대강도 열위 지속",
+      "condition_text_sha256": "0cb0bf8874697a5b0056ebc0c605b749898de014e471c02c31b686a8f0b149ed",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "CRDO::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "G2::event_definition",
+          "card_order": 11,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 11",
+            "decision": "상대강도는 평가 대상 종목의 확정 종가를 각 규칙 원문에 지정된 비교 대상 종목의 확정 종가로 나눈 가격비율로 정의한다. 현재 공식 관측의 상대강도 비율이 카드 12 에서 확정할 직전 비교 가능한 상대강도 비율보다 낮아진 경우를 「상대강도 열위」 로 정의한다. 상대강도 비율이 동일하거나 상승한 경우는 열위로 보지 않는다. RULE-0010 의 「열위 지속」 과 RULE-0019 의 「지속 열위」 는 계산 의미상 동일하게 취급한다. 두 표현 모두 상대강도 열위 상태가 시간적으로 이어지는지를 요구하는 것으로 해석하며, 얼마나 이어져야 「지속」 으로 확정하는지는 카드 13 에서 별도로 결정한다. 열위의 크기에 별도의 최소 수치 임계값은 두지 않는다.",
+            "rationale": "두 규칙의 투자 의도는 절대주가가 하락했는지를 보는 것이 아니라, 현재 슬롯 대표가 원문에 지정된 동종 대표주보다 상대적으로 뒤처지고 있는가를 측정하는 데 있다. 따라서 두 종목의 절대 수익률에 각각 조건을 붙이기보다 평가 대상 가격을 비교 대상 가격으로 나눈 비율을 동일 계열로 관측하는 것이 가장 직접적이다. 이 방식에서는 평가 대상이 상승했더라도 비교 대상보다 덜 상승하면 상대강도가 약해지고, 둘 다 하락했더라도 평가 대상이 덜 하락하면 강해진다. 최소 열위 폭을 새로 만들 필요는 없다 — 원문이 「열위」 와 「지속」 을 결합하고 있으므로, 잡음을 거르는 책임을 임의의 퍼센트 차이에 넣기보다 원문에 실제 존재하는 「지속」 을 뒤 카드에서 정의하는 편이 원문 구조를 덜 변경한다. 어순 차이만으로 서로 다른 계산을 만들 근거도 원문에 없다.",
+            "boundaries": [
+              "상대강도는 평가 대상 확정 종가를 각 규칙 원문에 지정된 비교 대상의 확정 종가로 나누어 계산한다.",
+              "RULE-0010 의 비교 상대와 RULE-0019 의 비교 상대를 서로 바꾸거나 하나의 공통 기준으로 통합하지 않는다.",
+              "상대강도 비율이 카드 12 에서 정할 비교 기준보다 낮아지면 열위다.",
+              "동일하면 열위가 아니다.",
+              "상승하면 열위가 아니다.",
+              "평가 대상의 절대주가 상승 · 하락만으로 열위를 판정하지 않는다.",
+              "비교 대상의 절대주가 상승 · 하락만으로도 열위를 판정하지 않는다.",
+              "별도의 퍼센트 · 가격 · 비율 차이 최소 임계값을 추가하지 않는다.",
+              "「열위 지속」 과 「지속 열위」 의 어순 차이 때문에 서로 다른 계산식을 만들지 않는다.",
+              "몇 번 또는 얼마 동안 열위가 이어져야 「지속」 인지 이번 카드에서 정하지 않는다. 카드 13 의 결정사항으로 남긴다.",
+              "무엇과 비교해 상대강도 비율의 하락을 판정할지는 이번 카드에서 정하지 않는다. 카드 12 의 결정사항으로 남긴다.",
+              "미국 확정 가격 원천 부재는 정의를 변경할 이유로 사용하지 않는다. RULE-0010 은 필요한 가격 원천이 확보되기 전까지 평가 불가 상태를 유지한다.",
+              "계산 정의를 공유하더라도 두 규칙을 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "12",
+                "role": "card_reference",
+                "why": "비교 기준을 정할 카드 번호다. 비율도 임계값도 아니다."
+              },
+              {
+                "token": "13",
+                "role": "card_reference",
+                "why": "「지속」 을 정할 카드 번호다. 기간 길이도 임계값도 아니다."
+              },
+              {
+                "token": "0010",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0010 안의 숫자다. 측정값이 아니다."
+              },
+              {
+                "token": "0019",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0019 안의 숫자다. 측정값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G2::comparison_baseline",
+          "card_order": 12,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 12",
+            "decision": "각 규칙에서 카드 11 의 산식으로 계산된 현재 상대강도 비율을, 동일한 평가 대상 · 동일한 원문 지정 비교 대상으로 계산된 직전 비교 가능한 상대강도 비율과 비교한다. RULE-0019 는 평가 대상과 비교 대상 모두 같은 한국 거래일의 확정 종가가 존재하는 관측끼리 연결한다. RULE-0010 은 평가 대상과 비교 대상의 각 시장에서 확정된 종가가 모두 존재하는 공통 거래일에 대해서만 상대강도 비율을 생성하고, 그 직전 비교 가능한 공통 거래일의 상대강도 비율과 비교한다. 어느 한 시장이 휴장하여 한쪽에 해당 날짜의 확정 종가가 없으면 그 날짜에는 상대강도 관측값 자체를 만들지 않는다. 직전 종가를 이월하거나 서로 다른 거래일의 종가를 결합하지 않는다.",
+            "rationale": "앞 카드가 상대강도를 두 종목의 확정 종가 비율로 정의했으므로, 이 카드의 역할은 그 동일 계열이 직전 관측보다 약해졌는지를 연결하는 데 있다. 별도의 이동평균 · 고점 · 고정 기준값을 더하면 원문에 없던 새로운 상대성과 기준을 만드는 셈이다. 그리고 두 시장에 걸친 비교에서는 날짜 정렬을 수집 구현에 전부 맡겨서는 안 된다. 각 시장의 공식 종가는 그 시장의 거래 세션이 끝날 때 형성되므로, 한쪽의 오늘 종가와 다른 쪽의 전 거래일 종가를 '현재 이용 가능한 최신값' 이라는 이유로 결합하면 서로 다른 시점을 합성한 비율이 된다. 그래서 공통 거래일 관측만 연결하는 보수적 방식으로 닫는다. 가격 원천이 지금 없다는 사실은 이 정의를 바꾸지 않으며, 원천 확보 전 평가 불가 상태도 그대로 유지한다.",
+            "boundaries": [
+              "현재 상대강도 비율은 동일 평가 대상 · 동일 비교 대상으로 계산된 직전 비교 가능한 상대강도 비율과 비교한다.",
+              "RULE-0010 과 RULE-0019 의 비교 상대를 서로 바꾸거나 하나의 공통 기준으로 통합하지 않는다.",
+              "별도의 이동평균 · 전년동기 · 과거 고점 · 고정 기준 상대강도 값을 만들지 않는다.",
+              "한국 종목 간 비교에서는 양쪽 모두 같은 한국 거래일의 확정 종가를 사용한다.",
+              "두 시장에 걸친 비교에서는 양쪽 시장 모두 해당 날짜에 확정 종가가 존재하는 공통 거래일만 상대강도 관측으로 인정한다.",
+              "어느 한쪽 시장이 휴장한 날짜에는 상대강도 비율을 새로 생성하지 않는다.",
+              "휴장한 시장의 직전 확정 종가를 다음 날짜로 이월하지 않는다.",
+              "서로 다른 거래일의 종가를 조합해 하나의 상대강도 비율을 만들지 않는다.",
+              "비교 가능한 직전 상대강도 비율이 없으면 다른 기준으로 대체하지 않고 그 시점의 열위 판정을 유보한다.",
+              "가격 원천이 없다는 이유로 대체 가격 · 전일 가격 · 비공식 가격을 사용하지 않는다.",
+              "카드 11 에서 확정한 산식, 열위 방향 및 최소 열위 폭 없음은 변경하지 않는다.",
+              "몇 번 또는 얼마 동안 열위가 이어져야 「지속」 인지 정하지 않는다. 카드 13 의 결정사항으로 남긴다.",
+              "계산 정의를 공유하더라도 두 규칙은 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "11",
+                "role": "card_reference",
+                "why": "산식을 정한 카드 번호다. 비율도 임계값도 아니다."
+              },
+              {
+                "token": "0010",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0010 안의 숫자다. 측정값이 아니다."
+              },
+              {
+                "token": "0019",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0019 안의 숫자다. 측정값이 아니다."
+              },
+              {
+                "token": "13",
+                "role": "card_reference",
+                "why": "경계에 인용한, 「지속」 을 정할 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G2::time_window",
+          "card_order": 13,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 13",
+            "decision": "「상대강도 열위」 가 2 회 연속 비교 가능한 공식 관측에서 확인될 때 「지속 열위」 로 확정한다. 첫 번째 열위 관측은 후보 상태로만 둔다. 다음 비교 가능한 상대강도 관측에서도 다시 열위가 확인될 때 지속으로 승격한다. 중간에 상대강도 비율이 동일하거나 상승하면 연속성은 끊고, 이후 다시 발생한 열위를 새로운 첫 관측으로 본다. 이때 횟수는 달력일이나 거래일 경과 수가 아니라 카드 12 를 통과해 실제 생성된 비교 가능한 상대강도 관측 횟수를 센다.",
+            "rationale": "한 번만으로는 앞 카드에서 의도적으로 분리한 「열위」 와 「지속 열위」 가 사실상 같은 상태가 된다. 반대로 더 긴 연속 횟수를 요구할 근거는 원문에 없다. ★ 이 값은 다른 공유 그룹의 판정에서 복사한 것이 아니라 이 그룹에서 독립적으로 선택한 것이다. 숫자가 같은 것은 결과이지 근거가 아니다.",
+            "boundaries": [
+              "첫 열위 관측만으로 「지속 열위」 를 확정하지 않는다. 후보 상태로만 둔다.",
+              "두 번째 연속 열위 관측이 확인되는 시점에 지속으로 승격한다.",
+              "중간에 상대강도 비율이 동일하거나 상승하면 연속성은 끊긴다.",
+              "끊긴 뒤 다시 발생한 열위는 새로운 첫 관측으로 본다.",
+              "달력일이나 거래일 경과 수를 세지 않는다. 카드 12 를 통과해 실제 생성된 비교 가능한 상대강도 관측 횟수를 센다.",
+              "한쪽 시장 휴장 · 가격 원천 부재 · 공통 거래일 불성립으로 카드 12 가 관측값 자체를 만들지 않은 날은 횟수에 포함하지 않는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "2",
+                "role": "threshold",
+                "why": "★ 지속 확정에 필요한 연속 열위 관측 횟수다. 이 판정에서 새로 도입된 임계값이며, 다른 그룹의 판정에서 복사한 값이 아니라 이 그룹에서 독립적으로 선택된 값이다."
+              },
+              {
+                "token": "12",
+                "role": "card_reference",
+                "why": "관측 생성 규칙을 정한 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0011",
+      "subject": "CRDO",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "고객 집중 심화(10%+ 고객 3개 미만)",
+      "condition_text_sha256": "2ff74408b381e51cf7cedc4605894945d75cafe93d17f34f5b64a0f374f28c4e",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "CRDO::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "NOT_IMPLEMENTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "observation_frequency",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0011::observation_frequency",
+          "card_order": 21,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 21",
+            "decision": "고객 집중도는 회사가 공식 공시하는 각 보고기간을 관측 단위로 하여, 해당 공시가 새로 확인될 때마다 재평가한다. ★ 핵심은 '분기마다 본다' 가 아니라 '새 공식 보고기간 관측이 나오면 본다' 이다. 앞의 것은 새 시간 임계값을 만드는 것이고, 뒤의 것은 원자료의 생성 주기에 평가를 맞추는 것이다.",
+            "rationale": "이 규칙의 측정값 자체가 회사의 공식 보고기간에 귀속되는 공시값이다. 따라서 별도의 달력 주기를 만들어 고정하기보다 새로운 공식 관측이 생성될 때 갱신하는 편이 원자료와 가장 가깝다. 임의의 주기를 정하면 원문에 없는 시간 조건을 하나 더 만드는 셈이 된다.",
+            "boundaries": [
+              "원문의 「10%+ 고객 3개 미만」 조건은 그대로 유지한다. 이 카드에서 비율이나 고객 수 기준을 다시 정의하지 않는다.",
+              "공식 공시가 새로 생성된 경우에만 새로운 관측으로 인정한다.",
+              "공시 사이의 기간을 일별 · 주별 · 월별 데이터로 보간하여 새로운 관측을 만들지 않는다.",
+              "직전 공식 공시 이후 새로운 공식 정보가 없다면 이전 관측값을 새 관측으로 다시 세지 않는다.",
+              "회사가 더 높은 빈도로 관련 정보를 공식 공시한다면 그 공시도 새로운 관측으로 인정한다. 관측 주기를 임의의 달력 주기로 고정하지 않는다.",
+              "공시 형식이나 보고기간이 바뀌어 원문의 동일 조건으로 비교할 수 없다면 임의 보정하지 않고 해당 시점은 판정 불가로 둔다.",
+              "이 판정은 관측 주기만 닫는다. 지속성 조건이나 추가 발동 조건을 만들지 않는다.",
+              "파싱 · 수집 경로 부재는 그대로 남는다. 이 카드가 닫혀도 곧바로 평가 가능한 상태가 되는 것은 아니다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "10",
+                "role": "quoted_phrase",
+                "why": "경계에 보존한 원문 「10%+ 고객 3개 미만」 의 일부다. 원문에 이미 있는 기준이며 이번 판정에서 만든 값이 아니다."
+              },
+              {
+                "token": "3",
+                "role": "quoted_phrase",
+                "why": "같은 원문 조건의 고객 수 기준이다. 이번 판정에서 만든 값이 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0012",
+      "subject": "ANET",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "호실적+주가 하락(선반영)",
+      "condition_text_sha256": "da4af846fafcdcf662e4b5c92b45b52e862766d87b9039fc1bd611b0c87d77d9",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "ANET::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "time_window"
+      ],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0012::event_definition",
+          "card_order": 29,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 29",
+            "decision": "복합 AND 사건으로 정의한다. 「호실적」 은 기존 기록에서 확인된 매출 성장 · 마진 · 가이던스의 세 축을 함께 평가하며, 이 중 하나만 좋은 것을 호실적으로 축약하지 않는다. 세 축에 대해 이 카드에서 새로운 숫자 기준을 만들지는 않는다 — 회사가 해당 실적 발표에서 공표한 값과 공식적으로 제시한 비교 기준을 사용해 세 축이 모두 긍정적으로 확인되는 경우를 호실적으로 본다. 어느 한 축이라도 긍정으로 확인되지 않거나 평가할 수 없으면 「호실적」 사건은 성립시키지 않는다. 「선반영」 은 별도의 독립적인 사업지표로 정의하지 않는다 — 호실적 사건이 성립한 실적 발표에 대해 주가가 하락하는 가격 반응이 함께 확인되는 경우를 원문의 사건으로 본다. 즉 매출 성장 긍정 AND 마진 긍정 AND 가이던스 긍정 AND 주가 하락이다.",
+            "rationale": "이 기업의 실적에는 매출 성장 · 마진 · 가이던스가 동시에 존재해, 하나로 줄이면 원래 의미가 훼손된다. 그래서 세 축을 함께 본다. 「선반영」 을 독립 지표로 만들면 원문에 없는 새 측정 대상을 들여오게 되므로, 호실적 성립 위에 가격 반응이 겹치는 구조로 표현한다. ★ 이 카드는 무엇이 한 번의 사건인지만 정하며, 하락 폭과 관측 기간은 각각 뒤 카드의 결정 대상이다.",
+            "boundaries": [
+              "매출 성장만 좋다고 「호실적」 으로 판정하지 않는다.",
+              "마진만 좋거나 가이던스만 좋아도 마찬가지다.",
+              "세 사업지표 중 평가 불가능한 축이 있으면 나머지 축으로 대체하지 않는다.",
+              "「선반영」 을 애널리스트 평가 · 밸류에이션 · 과거 상승률 등 별도 지표로 추정하지 않는다.",
+              "호실적이어도 가격 하락이 확인되지 않으면 이 사건은 성립하지 않는다.",
+              "가격이 하락했어도 호실적이 먼저 성립하지 않으면 「선반영」 사건으로 판정하지 않는다.",
+              "가격 원천이 없으면 가격 부분을 추정하거나 다른 원천으로 임의 보완하지 않고 평가 불가로 둔다.",
+              "얼마나 하락해야 하는지는 이 카드에서 정하지 않는다.",
+              "어느 기간의 가격을 비교할지도 이 카드에서 정하지 않는다.",
+              "새 임계값을 도입하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        },
+        {
+          "decision_unit": "RULE-0012::threshold",
+          "card_order": 30,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 30",
+            "decision": "별도의 최소 하락폭을 두지 않는다. 가격 반응이 음(-) 이면 하락으로 판정한다. 카드 29 에서 확정한 복합 사건의 「주가 하락」 축은 정해진 가격 비교구간의 수익률이 0 보다 낮은 경우 성립한 것으로 본다. 하락의 크기에 별도의 최소 폭을 요구하지 않는다.",
+            "rationale": "원문이 「급락」 · 「유의미 하락」 · 「일정 폭 하락」 이 아니라 단순히 「주가 하락」 이라고 적고 있다. 여기서 별도 최소 하락폭을 만들면 원문에 없는 강도를 추가하게 된다. 또한 이 규칙의 투자 의도는 좋은 실적에도 가격 반응의 방향이 반대인지를 포착하는 것이다. 얼마만큼의 하락이어야 충분히 선반영됐는지를 이 카드에서 추가 판단하는 것은 원문보다 강한 규칙을 만드는 것이다. ★ 외부 자료도 실적 발표에 대한 즉각적 가격 반응과 이후의 지연 반응은 구분할 필요가 있음을 뒷받침하지만, 특정 최소 하락률을 이 규칙에 넣어야 한다는 근거는 제공하지 않는다. 따라서 외부 연구에서 숫자를 가져오지 않는다.",
+            "boundaries": [
+              "가격 비교구간 수익률이 음수이면 하락이다.",
+              "0 이면 하락이 아니다.",
+              "양수이면 하락이 아니다.",
+              "하락폭이 작다는 이유만으로 사건을 무효화하지 않는다.",
+              "절대 가격 변화가 아니라 카드 31 에서 정할 동일한 가격 비교구간의 수익률 방향을 사용한다.",
+              "시장수익률 · 업종수익률 대비 상대수익률로 임의 변경하지 않는다. 그런 조정은 현재 원문에 없다.",
+              "장중 저가나 순간적인 음수 반응만 골라 사용하지 않는다.",
+              "카드 31 의 관측 기간이 정해지기 전에는 어느 두 가격을 비교할지 확정하지 않는다.",
+              "미국 확정 가격 원천 부재는 그대로 남으며, 데이터 부재를 0 이나 하락으로 대체하지 않는다.",
+              "이번 판정은 새 임계값을 도입하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "0",
+                "role": "sign_boundary",
+                "why": "수익률의 양 · 영 · 음 상태를 구분하는 부호 경계다. 최소 하락폭이나 반응 강도를 요구하는 임계값이 아니다."
+              },
+              {
+                "token": "29",
+                "role": "card_reference",
+                "why": "복합 사건을 확정한 카드 번호다. 하락률이 아니다."
+              },
+              {
+                "token": "31",
+                "role": "card_reference",
+                "why": "가격 비교구간을 정할 카드 번호다. 하락률이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0012::time_window",
+          "card_order": 31,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 31",
+            "decision": "가격 반응은 실적 발표 직전 정규장 종가에서 시작해, 실적 발표 정보를 처음으로 완전하게 반영할 수 있는 정규장 종가에서 끝나는 구간의 수익률로 측정한다. 발표 시각에 따라 구간을 기계적으로 귀속시킨다 — 정규장 개장 전 발표이면 직전 거래일 종가에서 당일 종가까지, 정규장 종료 후 발표이면 발표 당일 종가에서 다음 거래일 종가까지, 정규장 도중 발표이면 직전 거래일 종가에서 발표 당일 종가까지다. ★ 고정된 며칠을 새로 만드는 것이 아니라 「발표 후 첫 완전한 가격 반응 정규장까지」 라는 원칙을 적용하는 것이다.",
+            "rationale": "이 규칙의 원문은 「호실적 + 주가 하락(선반영)」 이다. 따라서 잡아야 하는 것은 장기적인 사후 표류가 아니라, 호실적이 공개됐을 때 시장이 그 정보를 받은 직후 가격을 어떻게 재평가했는가다. ★ 외부 연구에서도 실적 발표의 즉각적 가격 반응과 이후 발생하는 발표 후 표류를 별개 현상으로 다루며, 발표 직후 반응 이후에도 정보가 추가로 가격에 흡수될 수 있다는 증거가 있다. 여러 거래일을 임의로 늘리면 이 규칙의 「선반영」 사건과 사후 표류가 섞인다. 그래서 구간을 늘리지 않으며, 동시에 외부 연구에서 특정 이벤트 윈도우 숫자를 가져와 임계값으로 쓰지도 않는다.",
+            "boundaries": [
+              "시작 가격은 실적 정보가 공개되기 전 마지막 정규장 종가다.",
+              "종료 가격은 실적 정보를 처음으로 완전히 반영할 수 있는 정규장의 종가다.",
+              "장전 발표라면 같은 날 정규장이 정보 반영 구간이다.",
+              "장후 발표라면 다음 정규장이 정보 반영 구간이다.",
+              "장중 발표라면 해당 정규장 종가까지를 사용한다.",
+              "장중 고가 · 저가 · 시간외 가격을 골라 사용하지 않는다.",
+              "발표 후 가격이 잠시 하락했다가 종가에서 회복한 경우, 순간 하락을 사건으로 인정하지 않는다.",
+              "휴장일은 관측일로 만들지 않고 다음 실제 정규장으로 넘긴다.",
+              "발표 후 여러 거래일의 움직임을 추가해 「선반영」 을 사후적으로 확정하지 않는다.",
+              "가격 데이터가 없으면 다른 가격이나 전일 값으로 보간하지 않고 평가 불가로 둔다.",
+              "카드 30 의 부호 판정은 그대로 유지한다. 이 카드는 가격 비교구간만 정의한다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "30",
+                "role": "card_reference",
+                "why": "하락의 부호 판정을 확정한 카드 번호다. 거래일 수나 기간 임계값이 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0013",
+      "subject": "ANET",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "AI 매출 목표 하향 시 CRDO에 슬롯 이양",
+      "condition_text_sha256": "d7d9480089a071148200e9c98498ad58d57007d56466bc23d1d56e499cf0cc2e",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "ANET::탈락 조건#3"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": true
+    },
+    {
+      "rule_id": "RULE-0014",
+      "subject": "NVDA",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "FQ2 매출 가이드 하단 미달",
+      "condition_text_sha256": "82145155356559df32a114c31e616286d93b3948270f1a1668ee7bab0ff140cb",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "NVDA::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0015",
+      "subject": "NVDA",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "하이퍼스케일러 2곳+ capex 하향",
+      "condition_text_sha256": "453c6d7d8ca9126a899c20d767d730103f4e0ae850f321abc8317db9988b1525",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "NVDA::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "NOT_IMPLEMENTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "threshold",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0015::data_source",
+          "card_order": 4,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 4",
+            "decision": "하이퍼스케일러는 Amazon, Microsoft, Alphabet, Meta 의 4 개 기업으로 정의한다. 각 기업이 공식 실적발표 · 규제 공시에서 공표하는 전사 capital expenditures 또는 이에 직접 대응하는 자본투자 지표를 측정 대상으로 한다. Broadcom 자체 CapEx 나 제3자 추정치는 포함하지 않는다.",
+            "rationale": "이 규칙의 투자 의도는 개별 공급업체의 투자계획이 아니라, 연산 인프라를 실제로 구축하는 대형 고객들의 자본지출이 동시에 약해지는지를 수요측 선행신호로 잡는 것이다. 관측군을 분기마다 누가 지금 큰 고객인가에 따라 바꾸면 규칙의 모집단 자체가 움직인다. 고정 관측군으로 두는 편이 재현 가능하고, 공급업체가 공개한 고객명이나 점유율 변화 때문에 모집단이 흔들리는 것을 막는다.",
+            "boundaries": [
+              "Amazon, Microsoft, Alphabet, Meta 만 고정 관측군에 포함한다.",
+              "Broadcom 자체 CapEx 는 포함하지 않는다.",
+              "TSMC 및 기타 공급망 기업의 CapEx 도 포함하지 않는다.",
+              "애널리스트 추정치 · 언론 보도 · 제3자 데이터만으로 대상 기업의 CapEx 를 대체하지 않는다.",
+              "각 기업의 공식 실적발표 또는 규제 공시를 우선 원천으로 한다.",
+              "기업별 회계 표시명이 다르다는 이유만으로 경제적으로 대응하는 공식 자본투자 지표를 배제하지 않는다.",
+              "연산 전용 CapEx 를 기업이 공식적으로 분리 공표하지 않는 경우 임의 추정하여 분해하지 않고 전사 지표를 사용한다.",
+              "원문의 「2곳+」 조건은 그대로 유지한다. 이번 카드는 어느 기업이 그 조건에 참여할 수 있는지만 정의하며, 몇 곳이 하향해야 발동하는지는 바꾸지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "4",
+                "role": "universe_size",
+                "why": "고정 관측군의 기업 수다. 발동 임계값이 아니다 — 몇 곳이 하향해야 발동하는지는 원문의 「2곳+」 그대로이며 이번 판정에서 바뀌지 않았다."
+              },
+              {
+                "token": "3",
+                "role": "quoted_phrase",
+                "why": "'제3자 추정치' 라는 낱말 안의 글자다. 수량이 아니다."
+              },
+              {
+                "token": "2",
+                "role": "quoted_phrase",
+                "why": "경계에 인용한 원문 「2곳+」 의 일부다. 원문에 이미 있는 기업 수 발동 조건이며 이번 판정에서 만든 숫자가 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0015::threshold",
+          "card_order": 5,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 5",
+            "decision": "각 관측 기업에 대해, 카드 6 에서 확정할 비교 기준상 공식 자본투자 지표가 이전 비교값보다 낮아진 경우를 해당 기업의 「capex 하향」으로 본다. 감소 폭에 별도의 최소 수치 임계값을 두지 않는다. 공식 지표가 범위로 제시되는 경우에는 범위 하단이 낮아진 경우에만 하향으로 본다. 범위의 midpoint 또는 상단만 낮아진 경우는 하향으로 보지 않는다.",
+            "rationale": "원문이 이미 기업 수 조건을 별도로 가지고 있다. 여기서 개별 기업의 감소 폭에 임의의 퍼센트 임계값을 더하면 원문에 없던 두 번째 강도 조건을 만드는 셈이다. 따라서 얼마나 많이 줄어야 하는가라는 새 숫자를 만들지 않고, 공식적으로 낮아졌는지만 기계적으로 판정한다. 범위형 지표에 하단 원칙을 쓰는 것은 공급측과 정의를 공유하는 것이 아니라, 상단이나 midpoint 만 움직인 것을 하향으로 오판하지 않기 위한 같은 보수 원칙이다. 실제 비교 대상과 시점은 카드 6 에서 따로 결정한다.",
+            "boundaries": [
+              "별도의 퍼센트 · 금액 감소폭 임계값을 만들지 않는다.",
+              "단일값으로 공식 제시되는 지표는 비교 기준보다 낮으면 하향이다.",
+              "범위로 공식 제시되는 지표는 하단이 낮아져야 하향이다.",
+              "midpoint 만 낮아진 경우는 하향이 아니다.",
+              "상단만 낮아진 경우도 하향이 아니다.",
+              "실제 집행치와 전망치를 섞어서 하향을 만들지 않는다.",
+              "기업별로 서로 다른 금액 규모를 직접 비교하지 않는다.",
+              "「2곳+」 는 원문의 기업 수 발동 조건이며 카드 5 에서 바꾸지 않는다.",
+              "무엇과 비교하는지는 카드 6 의 결정사항이므로 이번 판정에서 확정하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "6",
+                "role": "card_reference",
+                "why": "비교 기준을 정할 카드 번호다. 측정값이 아니다."
+              },
+              {
+                "token": "5",
+                "role": "card_reference",
+                "why": "이 카드 자신의 번호다. 측정값이 아니다."
+              },
+              {
+                "token": "2",
+                "role": "quoted_phrase",
+                "why": "경계에 인용한 원문 「2곳+」 의 일부다. 원문에 이미 있는 기업 수 발동 조건이며 이번 판정에서 새로 만든 숫자가 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0015::comparison_baseline",
+          "card_order": 6,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 6",
+            "decision": "각 기업이 카드 4 에서 정한 공식 원천을 통해 공표한 자본투자 지표에 대해, 동일 기업의 직전 비교 가능한 공식 공표값을 비교 기준으로 한다. 비교 가능한 값이란 동일한 측정 정의와 동일한 기간 단위를 사용하는 값이다. 연간 전망은 직전 연간 전망과, 분기 실제치는 전년 동기 분기 실제치와 비교한다. 서로 다른 기업의 금액을 직접 비교하지 않으며, 전망치와 실제치를 서로 비교하지 않는다.",
+            "rationale": "네 관측 기업은 자본투자를 같은 방식으로 공표하지 않는다. 어떤 기업은 연간 전망을 범위로 갱신하고, 다른 기업은 분기 실제 자본투자와 향후 투자 방향을 중심으로 공표한다. 공급측처럼 동일 대상 회계연도 내 가이던스 수정만을 공통 기준으로 강제하면 일부 기업은 비교 가능한 관측 자체가 사라진다. 반대로 모두를 단순 전분기 대비로 맞추면 설비투자의 집행 시점 변동을 하향 신호로 오인할 수 있다. 그래서 공표 형식은 기업별로 보존하되 측정계열과 기간 단위를 고정한다.",
+            "boundaries": [
+              "연간 전망이 공식 공표되는 기업은 동일 대상연도의 직전 공식 연간 전망과 비교한다.",
+              "새 대상연도의 최초 연간 전망은 직전 연도의 전망과 연결하여 하향 판정하지 않는다.",
+              "공식 연간 전망이 없고 분기 실제 자본투자 지표를 사용하는 경우 전년 동기 분기와 비교한다.",
+              "분기 실제치를 직전 분기와 비교하여 하향을 만들지 않는다.",
+              "전망치와 실제 집행치를 서로 비교하지 않는다.",
+              "같은 기업 안에서도 측정 정의가 달라진 지표끼리는 그대로 연결하지 않는다.",
+              "기업별 회계연도 차이는 그대로 인정하며 달력연도로 강제 정렬하지 않는다.",
+              "기업 간 CapEx 금액 규모를 서로 직접 비교하지 않는다.",
+              "비교 가능한 직전 값이 없으면 해당 기업은 그 시점에 하향 판정 불가로 두며 다른 값으로 대체하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "4",
+                "role": "card_reference",
+                "why": "공식 원천을 정한 카드 번호다. 측정값도 임계값도 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0016",
+      "subject": "NVDA",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "condition_text": "실적 전 포지션 제한(PM)",
+      "condition_text_sha256": "e5a0e9796a5093ef16a2d5d9b5c902298dfeb1fbab3cd94e332a377f548a1833",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "NVDA::다음 이벤트#2"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "time_window",
+        "threshold"
+      ],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0016::time_window",
+          "card_order": 35,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 35",
+            "decision": "실적 발표가 예정된 종목은 발표 직전 정규 거래일의 정규장 종료 시점부터 실적이 공식 공개될 때까지 포지션 제한 상태로 둔다. 즉 실적 발표를 포지션이 제한 없이 통과하지 않도록 하는 포트폴리오 관리 규칙이다. 장후 발표이면 발표 당일 정규장 종료 시점부터, 장전 발표이면 직전 거래일 정규장 종료 시점부터, 장중 발표이면 발표 당일 정규장 개장 시점부터 제한한다. 실적이 공개되면 이 「실적 전」 제한은 종료한다.",
+            "rationale": "실적 발표는 시장에 중요한 새로운 정보를 공개하는 사건이며, 미국 기업은 분기 · 연간 실적을 보도자료와 공시로 동시에 발표하는 경우가 많다. 따라서 이 규칙에서 중요한 것은 임의의 장기 거래제한 기간을 만드는 것이 아니라, 실적 정보가 공개되지 않은 채 포지션이 이벤트를 통과하는 구간을 제한하는 것이다. ★ 원문은 단순히 「실적 전 포지션 제한」 이며 며칠 전부터라는 숫자가 없다. 여러 거래일 전부터 노출을 줄이면 원문에 없는 추가 정책을 만드는 것이고, 반대로 발표 직전 몇 분만 제한하면 실적 갭이라는 실제 이벤트 노출을 제거하지 못한다. 그래서 마지막 정상적인 포지션 조정 기회부터 실적 공개까지를 제한구간으로 잡는다.",
+            "boundaries": [
+              "공식적으로 예정된 실적 발표 이벤트를 기준으로 한다.",
+              "장후 발표: 해당 정규장 종료 시 제한 시작.",
+              "장전 발표: 직전 정규장 종료 시 제한 시작.",
+              "장중 발표: 해당 정규장 개장 시 제한 시작.",
+              "휴장일에 발표가 예정되어 있으면 마지막 선행 정규장 종료 시점부터 제한한다.",
+              "발표 예정 시각이 불명확하여 장전 · 장후 귀속을 확정할 수 없으면 더 느슨한 쪽을 임의 선택하지 않고 마지막 선행 정규장 종료 시점부터 제한한다.",
+              "실적 정보가 공식 공개되면 「실적 전」 이라는 상태는 종료한다.",
+              "발표 후 가격 안정화 기간을 이 카드에 추가하지 않는다. 그것은 원문의 「실적 전」 범위를 넘어선다.",
+              "실적 설명회 종료까지 기다리는 조건도 추가하지 않는다.",
+              "발표 연기 시 실제 발표가 이루어질 때까지 제한 상태를 유지한다.",
+              "예상일과 공식 일정이 충돌하면 공식 기업 발표 일정에 귀속한다.",
+              "카드 36 에서 정할 노출 축소 폭은 이 카드에서 건드리지 않는다.",
+              "이 판정은 진입 · 탈락 신호가 아니라 포지션 노출 통제 구간이다.",
+              "새로운 일수 · 거래일 수 기준을 만들지 않는다. 「직전 거래일」 은 전략 임계기간이 아니라 이벤트 직전 마지막 포지션 조정 세션을 지정하는 상대적 관측점이다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "36",
+                "role": "card_reference",
+                "why": "노출 축소 폭을 정할 카드 번호다. 일수나 축소율이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0016::threshold",
+          "card_order": 36,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 36",
+            "decision": "「실적 전 포지션 제한」 은 제한구간 중 신규 노출 확대를 금지하고, 이미 존재하는 포지션은 별도 자본배분 · 리스크 정책이 승인한 실적 이벤트 노출 한도 이하로 제한하는 규칙으로 정의한다. ★ 이 카드 자체에서는 새로운 축소 비율이나 절대 포지션 상한을 만들지 않는다. 즉 이 판정의 임계값은 숫자가 아니라 외부 정책 한도를 소비하는 계약이다. 승인된 실적 이벤트 노출 한도가 없거나 어느 한도를 소비해야 하는지 확정되지 않았다면 임의의 비율을 만들어 넣지 않고 평가 · 집행 불가 상태를 유지한다.",
+            "rationale": "원문은 「포지션 제한」 이지 「포지션 청산」 이 아니다. 따라서 이를 전량 매도로 바꾸면 원문보다 강한 규칙을 새로 만드는 셈이다. 반대로 임의의 축소 비율을 여기서 정하면 더 큰 문제가 생긴다 — 기존 자료가 명시하듯 노출 축소 폭은 정책 영역이고, 이 카드 자체가 자본배분 층과의 정합성 문제를 이미 경고하고 있다. ★ 실적 발표가 중요한 새로운 정보가 공개되는 이벤트이며 그 주변의 가격 급변 위험이 실재한다는 점은 외부 근거로도 확인된다. 기업은 중요한 재무정보를 정규장 밖에서 발표할 수 있고 그때 변동성과 체결 불확실성이 커진다. 그러나 그 사실로부터 얼마를 보유해야 하는지는 도출되지 않으므로, 외부 연구나 시장 관행의 숫자도 가져오지 않는다. ★ 성분 이름이 임계값이라는 이유만으로 숫자를 만들어야 하는 것은 아니다.",
+            "boundaries": [
+              "「포지션 제한」 을 신규 진입 금지만으로 축소 해석하지 않는다.",
+              "제한구간에서는 신규 포지션 개설로 해당 종목의 순노출을 증가시키지 않는다.",
+              "기존 포지션의 추가매수 등 순노출 증가도 허용하지 않는다.",
+              "기존 포지션에는 실적 이벤트 노출 제한을 적용한다.",
+              "그 제한 수준은 이 카드에서 독립적으로 새로 만들지 않는다.",
+              "제한구간 진입 당시 포지션 크기의 일정 비율이라는 새로운 기준도 만들지 않는다.",
+              "전량 청산을 기본값으로 만들지 않는다.",
+              "다른 규칙의 포지션 한도나 숫자를 복사하지 않는다.",
+              "별도 자본배분 · 리스크 정책에 승인된 실적 이벤트 노출 한도가 존재하면 그것을 소비한다.",
+              "그런 한도가 존재하지 않거나 어떤 한도를 소비해야 하는지 확정할 수 없으면 임의값으로 보충하지 않는다.",
+              "그 경우 이 규칙의 정의 카드가 완료되더라도 실행 가능 상태로 승격하지 않는다.",
+              "앞 카드의 제한구간 정의는 변경하지 않는다.",
+              "실적 공개와 함께 앞 카드가 정의한 제한구간은 종료한다.",
+              "이 카드는 다른 자본배분 정책의 값을 변경할 권한을 갖지 않는다.",
+              "이후 자본배분 정책에서 실적 이벤트 한도가 변경되더라도 이 카드의 의미는 바뀌지 않고 그 승인된 값을 소비한다.",
+              "★ 자본배분 · 리스크 정책의 실적 이벤트 노출 한도와의 정합성 및 해당 한도의 존재 여부는 이 단계 외부의 미해소 실행 의존이다 — 판정 의존이 아니다. 따라서 이를 표현하려고 가짜 decision unit 이나 새 선행 간선을 만들지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0017",
+      "subject": "000660.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "HBM 예약 취소·LTA 축소",
+      "condition_text_sha256": "3684d8f3d550d011b4d7f2b07aa6431646bdb3442c67b94c71e98f777624c246",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "000660.KS::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "NOT_IMPLEMENTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0017::semantic_scope",
+          "card_order": 22,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 22",
+            "decision": "「예약 취소·LTA 축소」 는 두 사건이 동시에 충족되어야 한다는 의미가 아니라, 어느 하나가 충족되면 해당 조건의 사건 후보가 성립하는 택일 관계로 해석한다.",
+            "rationale": "이 카드의 역할은 새로운 사건 정의나 수치 기준을 만드는 것이 아니라, 원문에 이미 병렬로 존재하는 두 사건의 결합 관계만 닫는 것이다. 따라서 여기서 정할 것은 둘 다 필요한가 / 하나면 충분한가뿐이다. ★ 외부 자료를 근거로 한 판정이 아니라 원문의 결합 문법에 대한 의미 판정이다.",
+            "boundaries": [
+              "예약 취소와 LTA 축소의 동시 충족을 요구하지 않는다.",
+              "어느 한쪽의 구체적인 사건 정의는 다음 카드에서 결정한다.",
+              "축소 폭이나 최소 수치 조건을 이 카드에서 만들지 않는다.",
+              "관측 원천이나 수집 가능성을 이 카드에서 결정하지 않는다.",
+              "현재 장기 공급계약 구조가 달라졌다는 노후화 표시를 근거로 원문 자체를 재작성하지 않는다.",
+              "외부 자료를 사용한 판정이 아니라 원문의 결합 문법에 대한 의미 판정으로 기록한다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        },
+        {
+          "decision_unit": "RULE-0017::event_definition",
+          "card_order": 23,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 23",
+            "decision": "「취소」 와 「축소」 의 사건 정의는 계약 명칭이 아니라, 고객이 확약한 공급 물량에 대한 구속력 있는 약정의 변화로 정의한다. 「취소」 는 기존에 존재하던 고객의 구속력 있는 물량 확약이 해당 물량에 대해 더 이상 존속하지 않는 상태로 전이된 경우다. 「축소」 는 그 확약이 존속하면서, 동일하게 비교 가능한 확약 물량이 이전보다 감소하는 방향으로 변경된 경우다. 두 사건은 카드 22 의 판정대로 택일 관계이며 서로 독립적으로 성립한다.",
+            "rationale": "원문의 계약 명칭 자체를 사건 판정의 필수조건으로 고정하면, 이름이 다른 구조로 옮겨간 확약 변화를 놓친다. 반대로 명칭을 현재 구조 이름으로 바꾸면 원문에 없는 대상을 들여오는 것이 된다. 그래서 어느 쪽 명칭에도 종속되지 않는 상위 기준 — 고객의 구속력 있는 물량 확약 — 으로 기계화한다. ★ 이번 판정은 원문이 지목한 확약의 취소 · 축소를 명칭 종속 없이 기계화하는 데까지만 하며, 투자 논거 자체를 다른 사건으로 바꾸지 않는다.",
+            "boundaries": [
+              "계약 명칭 자체를 사건 판정 조건으로 삼지 않는다. 판단 대상은 고객의 구속력 있는 물량 확약이다.",
+              "계약의 이름만 변경되고 구속력 있는 물량 확약이 그대로 유지되는 경우에는 취소 또는 축소로 보지 않는다.",
+              "취소와 축소를 구분한다. 확약 자체가 해당 물량에 대해 더 이상 존속하지 않으면 취소이고, 확약은 존속하지만 비교 가능한 확약 물량이 감소하면 축소다.",
+              "축소는 이 카드에서 감소 방향만 정의한다. 어느 정도 감소해야 이 규칙을 발동시키는지는 정하지 않는다.",
+              "따라서 이전보다 감소했다는 사실만으로 최종 발동이 확정되는 것은 아니다. 최소 감소폭은 카드 24 의 결정사항으로 남긴다.",
+              "어떤 문서 · 공시 · 계약자료에서 취소 또는 축소를 관측할지는 정하지 않는다. 관측 원천은 카드 25 의 결정사항이다.",
+              "비교 가능한 물량인지 판단할 수 없는 경우 임의로 환산하거나 연결하여 축소를 만들지 않는다.",
+              "계약 구조의 노후화가 확인됐다는 이유로 원문의 투자 논거 자체를 다른 사건으로 바꾸지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "22",
+                "role": "card_reference",
+                "why": "결합 관계를 정한 카드 번호다. 물량도 임계값도 아니다."
+              },
+              {
+                "token": "24",
+                "role": "card_reference",
+                "why": "감소폭을 정할 카드 번호다. 물량도 임계값도 아니다."
+              },
+              {
+                "token": "25",
+                "role": "card_reference",
+                "why": "관측 원천을 정할 카드 번호다. 물량도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0017::threshold",
+          "card_order": 24,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 24",
+            "decision": "「축소」 는 카드 23 에서 정의한 비교 가능한 구속력 있는 확약 물량이 직전의 비교 가능한 확약 물량보다 10% 이상 감소한 경우로 한다. 그 미만의 감소는 감소 방향의 변화로는 기록할 수 있으나 이 규칙의 「축소」 사건으로 판정하지 않는다.",
+            "rationale": "이 규칙의 투자 의도는 단순한 계약 조정이 아니라 고객 확약 기반 논거가 흔들리는 사건을 잡는 것이다. 감소가 있기만 하면 사건으로 삼으면 정상적인 계약 조정 · 제품 믹스 변경 · 소규모 물량 변경까지 논거 훼손으로 승격된다. 반대로 지나치게 큰 폭을 요구하면 장기 확약이 실질적으로 약해지는 초기 신호를 놓친다. ★ 이 값은 원문에서 유도되지 않았고 공표 수치를 옮긴 것도 아니며, 다른 카드의 임계값에서 복사하지도 않았다. ⛔ 사후 최적화 대상이 아니다.",
+            "boundaries": [
+              "분모는 변경 직전의 비교 가능한 구속력 있는 확약 물량이다. 금액 · 매출 · 가격 변화로 이 비율을 계산하지 않는다.",
+              "같은 범위 · 기간 · 제품군 등 앞 카드의 의미에서 직접 비교 가능한 물량끼리만 비교한다. 비교 불가능하면 임의 환산하지 않고 판정 불가로 둔다.",
+              "경계값에 정확히 도달한 감소도 포함한다.",
+              "여러 계약 또는 약정이 존재한다는 이유만으로 임의 합산하지 않는다. 하나의 비교 대상으로 묶는 범위는 비교 가능성이 확보된 만큼만이다.",
+              "계약 명칭은 이 계산의 조건이 아니다.",
+              "가격 하한 · 상한, 예치금, 계약금액 등의 변화는 그 자체로 이 물량 임계값을 충족시키지 않는다.",
+              "임계값 미만의 감소를 없는 것으로 취급하는 것은 아니다. 감소 방향은 관측되지만 발동 사건으로 승격시키지 않는다.",
+              "★ 카드 25 는 그대로 열어 둔다. 어떤 공시 · 문서 · 필드 · 수집기로 변경 전후 확약 물량을 확보할지는 이 판정에서 결정하지 않는다.",
+              "⛔ 이 판정 때문에 관측 경로를 '이 비율을 계산할 수 있는 원천을 반드시 찾아라' 로 변형하지 않는다. 관측 가능한 비교 물량이 없으면 임계값을 추정하거나 다른 숫자로 대체하지 않고 평가 불가로 둔다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "10",
+                "role": "threshold",
+                "why": "★ 「축소」 사건으로 인정할 최소 감소폭이다. 원문에서 유도된 값이나 공표 수치를 복사한 것이 아니라, 축소 사건과 정상적인 소폭 조정을 구분하기 위해 이번 판정에서 새로 정한 값이다. ⛔ 사후 최적화 대상이 아니다."
+              },
+              {
+                "token": "23",
+                "role": "card_reference",
+                "why": "감소 방향을 정의한 카드 번호다. 폭도 물량도 아니다."
+              },
+              {
+                "token": "25",
+                "role": "card_reference",
+                "why": "관측 원천을 정할 카드 번호다. 폭도 물량도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0017::data_source",
+          "card_order": 25,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 25",
+            "decision": "관측 원천은 「현재 평가 가능한 공개 관측 경로 없음」 으로 한다. 공개 공시에서 고객 장기 확약 구조의 존재와 일부 계약 특성은 확인할 수 있다. 그러나 앞 두 카드에서 정의한 고객 확약 물량의 취소 또는 축소와 그 감소 비율을 동일한 기준으로 전후 비교할 수 있는 공개 관측 원천은 현재 확인되지 않는다. ★ 「공개자료가 없다」 가 아니라 「정의된 사건을 평가할 수 있는 공개 관측 경로가 없다」 이다.",
+            "rationale": "앞 카드들이 고정한 사건은 계약 명칭의 존재가 아니라 고객 확약 물량의 취소 또는 축소다. 계약 구조의 존재 · 성격 · 총량 수준은 공개 자료로 볼 수 있어도, 개별 고객의 계약 물량이 이전 관측 대비 취소 · 축소됐는지를 일관되게 계산할 수 있는 공개 시계열은 확인되지 않는다. 관측할 수 있는 것과 정의된 사건을 평가할 수 있는 것은 다르다.",
+            "boundaries": [
+              "계약 구조 자체를 관측 원천으로 채택하지 않는다.",
+              "계약 체결 발표의 증가 · 감소를 취소 · 축소 물량의 대체값으로 쓰지 않는다.",
+              "총 계약금액 변화를 대체값으로 쓰지 않는다.",
+              "공급 여력에 대한 회사 발언을 대체값으로 쓰지 않는다.",
+              "고객사 설비투자 지표를 대체값으로 쓰지 않는다.",
+              "외부 공급망 추정치를 대체값으로 쓰지 않는다.",
+              "관측 가능한 비교 물량이 없으면 사건 발생 여부와 임계값 충족 여부를 추정하지 않고 평가 불가로 둔다.",
+              "★ 향후 공식 자료에서 동일 계약 · 동일 물량 기준의 전후 비교가 가능해지면, 정의를 바꾸지 않고 데이터 확보 가능성만 재검토한다.",
+              "이 판정은 규칙의 실패도 미완성도 아니다. 정의는 완결됐고 필요한 관측값이 존재하지 않아 평가로 승격되지 않는 상태다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0018",
+      "subject": "000660.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "DRAM ASP 하락 전환",
+      "condition_text_sha256": "db82a9d3bcdf81ef7d48a7e4b39730357012415ce22b0afe292625d3d5478744",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "000660.KS::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "G1::data_source",
+          "card_order": 7,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 7",
+            "decision": "「DRAM ASP」 의 대표 가격 계열은 TrendForce 의 DRAM Contract Price 로 정의한다. Spot Price 는 대표 계열로 사용하지 않는다. Contract Price 안에서는 특정 단일 제품 가격을 고정 대표값으로 선택하지 않고, TrendForce 가 공표하는 DRAM contract-price 계열 중 해당 시점의 주력 conventional DRAM 시장을 대표하는 공식 가격 계열을 사용한다. HBM 가격은 이 G1 의 「DRAM ASP」 에 포함하지 않는다.",
+            "rationale": "원문의 목적은 단기 현물시장 변동을 잡는 것이 아니라, 메모리 가격 사이클이 하락으로 전환하면서 해당 종목들의 메모리 논거가 약해지는 시점을 잡는 것이다. 장기 물량계약 구조가 확대된 지금은 현물 가격을 대표값으로 삼는 것이 더 위험하다 — 계약 고객과 비계약 고객의 가격 움직임이 갈릴 수 있어, 현물의 방향을 전체 가격의 방향으로 읽으면 산업 구조와 어긋난다. 다만 어느 용량 · 모듈을 쓸지까지 이 카드에서 고정하면 데이터 소스를 정하는 수준을 넘어 대표 상품 선택 규칙을 만드는 것이 되므로, 거기까지는 정하지 않는다.",
+            "boundaries": [
+              "DRAM Spot Price 를 이 그룹의 대표 가격 계열로 사용하지 않는다.",
+              "HBM 가격을 이 그룹의 「DRAM ASP」 대표 계열로 사용하지 않는다.",
+              "NAND 가격을 혼합하지 않는다.",
+              "특정 제조사 자체 ASP 를 두 종목 공통의 대표 계열로 사용하지 않는다.",
+              "특정 DRAM SKU 하나를 이번 카드에서 영구 대표값으로 고정하지 않는다.",
+              "제3자 기사나 애널리스트 추정치를 TrendForce 의 가격 계열 대신 사용하지 않는다.",
+              "가격이 얼마나 하락해야 하는지, 무엇을 하락 전환으로 볼지, 어느 기간과 비교할지는 각각 뒤의 threshold · comparison_baseline · time_window 카드에서 결정한다.",
+              "이번 판정은 두 규칙의 정의만 공유하며 규칙 자체를 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "1",
+                "role": "group_reference",
+                "why": "공유 그룹 식별자 G1 안의 숫자다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "3",
+                "role": "quoted_phrase",
+                "why": "경계의 '제3자 기사' 라는 낱말 안의 글자다. 수량이 아니다."
+              }
+            ],
+            "obsolescence_adjudication": "표시된 경고는 유효했다. 다만 결론은 원문이 폐기됐다는 것이 아니다. 장기 물량계약이 확대되면서 현물 가격 하나로 사이클을 대표하는 방식의 노후화 위험이 커진 것이며, 계약 가격 계열 자체는 여전히 별도 시장 가격으로 관측된다. 따라서 규칙을 수정하지 않고 측정 정의를 계약 가격 계열로 명확히 하는 것으로 충분하다."
+          }
+        },
+        {
+          "decision_unit": "G1::threshold",
+          "card_order": 8,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 8",
+            "decision": "카드 7 에서 정한 DRAM Contract Price 대표 계열의 가격이 카드 9 에서 확정할 비교 기준보다 낮아진 경우를 「하락」 으로 정의한다. 하락 폭에 별도의 최소 수치 임계값을 두지 않는다. 가격이 낮아졌다는 사실과 「하락 전환」 이 확정됐다는 판정은 구분하며, 전환을 확정하기 위한 기간 요건은 카드 10 에서 별도로 결정한다.",
+            "rationale": "이 규칙의 목적은 임의의 크기 이상 가격이 급락하는 사건을 잡는 것이 아니라, 메모리 가격 사이클이 상승 또는 비하락 상태에서 하락 방향으로 꺾이는 시점을 포착하는 것이다. 원문에 없는 최소 하락률을 추가하면 실제 사이클 전환의 초기를 놓칠 수 있고, 어느 수치를 택하더라도 원문에서 그 값을 정당화할 근거가 없다. 한 번의 소폭 하락만으로 논거를 무효화하는 문제는 「하락」 의 폭을 임의로 키워 해결하지 않고, 「전환」 확인 기간에서 처리한다.",
+            "boundaries": [
+              "별도의 퍼센트 · 금액 하락폭 임계값을 만들지 않는다.",
+              "카드 9 에서 확정할 동일한 비교 기준보다 가격이 낮으면 해당 관측값은 「하락」 이다.",
+              "가격이 동일하면 하락으로 보지 않는다.",
+              "하락폭의 크기에 따라 하락 / 비하락을 다시 구분하지 않는다.",
+              "한 번의 하락 관측만으로 「하락 전환」 전체가 확정됐다고 판정하지 않는다.",
+              "몇 회 또는 얼마 동안 하락이 확인되어야 「전환」 인지는 카드 10 에서 결정한다.",
+              "비교할 과거 가격이나 기준 시점은 카드 9 의 결정사항이므로 이번 판정에서 확정하지 않는다.",
+              "카드 7 에서 확정한 가격 계열 · 배제 대상 · 대표상품 선택 경계를 변경하지 않는다.",
+              "이 판정은 두 규칙의 정의만 공유하며 규칙 자체를 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "7",
+                "role": "card_reference",
+                "why": "가격 계열을 정한 카드 번호다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "9",
+                "role": "card_reference",
+                "why": "비교 기준을 정할 카드 번호다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "10",
+                "role": "card_reference",
+                "why": "전환 기간을 정할 카드 번호다. 기간 길이도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G1::comparison_baseline",
+          "card_order": 9,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 9",
+            "decision": "카드 7 에서 정한 DRAM Contract Price 대표 계열의 현재 공식 관측값을, 동일한 대표 가격 계열의 직전 비교 가능한 공식 관측값과 비교한다. 비교 가능한 값은 동일한 가격 계열과 동일한 가격 정의로 이어지는 직전 관측값이다. 대표 가격 계열이 변경되어 이전 값과 동일 계열로 직접 연결할 수 없는 경우에는 변경 전후 값을 이어 붙여 하락을 판정하지 않고, 새 계열의 최초 관측값을 새로운 기준선으로 둔다.",
+            "rationale": "이 규칙의 목적은 가격 수준 자체가 과거 어느 시점보다 낮은지를 판정하는 것이 아니라, 정해진 계약 가격 계열의 방향이 하락으로 바뀌었는지를 포착하는 것이다. 전년동기 · 분기 평균 · 과거 고점처럼 원문에 없는 별도 기준기간을 만들기보다 동일 계열에서 바로 앞선 공식 관측값과 연결하는 편이 「낮아졌는가」 를 가장 직접적으로 측정한다. 또한 앞 카드가 특정 상품을 영구 고정하지 않았으므로 대표 계열이 바뀔 수 있다. 이때 서로 다른 상품이나 가격 정의를 기계적으로 연결하면 상품 교체 자체가 가격 하락처럼 보인다. 그래서 동일 계열로 비교할 수 없는 전환점에서는 새 기준선만 만들고 하락 판정을 만들지 않는다.",
+            "boundaries": [
+              "현재 공식 관측값과 동일 대표 가격 계열의 직전 비교 가능한 공식 관측값만 비교한다.",
+              "전년동기 가격을 별도 비교 기준으로 사용하지 않는다.",
+              "분기 평균이나 이동평균을 새 비교 기준으로 만들지 않는다.",
+              "과거 사이클 고점 · 최고가격을 기준으로 사용하지 않는다.",
+              "서로 다른 DRAM 상품의 가격 수준을 직접 연결해 하락을 만들지 않는다.",
+              "가격 산출 정의가 변경되어 동일 계열성이 유지되지 않으면 변경 전후 값을 직접 비교하지 않는다.",
+              "대표 가격 계열이 변경되어 연속 비교가 불가능하면 새 계열의 최초 관측값은 기준선 생성으로만 처리하며, 그 자체로 하락을 판정하지 않는다.",
+              "비교 가능한 직전 공식 관측값이 없으면 다른 가격이나 기간으로 대체하지 않고 그 시점의 하락 판정을 유보한다.",
+              "카드 8 에서 확정한 「현재값이 비교값보다 낮다」 는 하락 방향 정의를 변경하지 않는다.",
+              "몇 번의 하락 관측이 있어야 「하락 전환」 으로 확정하는지는 카드 10 의 결정사항으로 남긴다.",
+              "카드 7 에서 확정한 가격 계열 및 대표상품 선택 경계를 다시 열지 않는다.",
+              "이 판정은 두 규칙의 정의만 공유하며 규칙 자체를 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "7",
+                "role": "card_reference",
+                "why": "가격 계열을 정한 카드 번호다. 가격도 임계값도 아니다."
+              },
+              {
+                "token": "8",
+                "role": "card_reference",
+                "why": "경계에 인용한, 하락 방향을 정한 카드 번호다. 임계값이 아니다."
+              },
+              {
+                "token": "10",
+                "role": "card_reference",
+                "why": "경계에 인용한, 전환 횟수를 정할 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G1::time_window",
+          "card_order": 10,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 10",
+            "decision": "카드 8 에서 정의한 「하락」 이 카드 9 의 동일 대표 가격 계열에서 2 회 연속 공식 관측될 때 「DRAM ASP 하락 전환」 으로 확정한다. 첫 번째 하락 관측은 전환 후보 상태이며, 다음 비교 가능한 공식 관측에서도 다시 하락한 경우에만 전환을 확정한다. 두 하락 관측 사이에 가격이 동일하거나 상승하면 연속성은 끊어진 것으로 보고 다시 첫 하락 관측부터 확인한다.",
+            "rationale": "앞 카드가 작은 하락이라도 방향상 「하락」 으로 인정하는 대신, 한 번의 하락만으로 전체 「하락 전환」 을 확정하지 않도록 확인 책임을 이 카드에 남겼다. 비교 대상도 직전 비교 가능한 공식 관측값으로 이미 닫혀 있다. 따라서 여기서는 새로운 가격폭 조건을 더하지 않고 같은 방향이 다음 공식 관측에서도 반복되는가만 확인하는 것이 앞선 정의와 가장 일관된다. 한 번만 요구하면 앞에서 명시적으로 갈라 놓은 「하락」 과 「하락 전환」 이 사실상 같은 판정이 된다. 반대로 더 여러 번을 요구하면 월별 계열 특성상 최초 하락 발견에서 전환 확정까지 지나치게 오래 걸려, 사이클이 꺾이는 초기를 잡는다는 이 그룹의 투자 의도를 훼손한다.",
+            "boundaries": [
+              "연속 관측은 앞 카드에서 비교 가능한 것으로 인정되는 동일 대표 가격 계열의 공식 관측만 센다.",
+              "첫 하락 관측만으로 「하락 전환」 을 확정하지 않는다.",
+              "두 번째 연속 하락 관측이 확인되는 시점에 「하락 전환」 을 확정한다.",
+              "중간 공식 관측값이 직전 값과 동일하거나 상승하면 연속 하락 카운트는 끊긴다.",
+              "동일값 이후 다시 하락하면 그것을 새로운 첫 하락 관측으로 본다.",
+              "대표 가격 계열 변경으로 새 기준선이 생성되는 관측은 하락 횟수에 포함하지 않는다.",
+              "비교 가능한 공식 관측값이 없어 판정이 유보된 경우에도 하락 횟수를 증가시키지 않는다.",
+              "하락폭에 별도의 최소 퍼센트 · 금액 조건을 추가하지 않는다.",
+              "월말 · 월초 같은 달력상의 경과일수 자체를 별도 조건으로 만들지 않는다. 공식 관측 횟수를 기준으로 한다.",
+              "이 판정은 두 규칙의 정의에 함께 적용하지만 두 규칙을 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "2",
+                "role": "threshold",
+                "why": "★ 전환 확정에 필요한 연속 하락 관측 횟수다. 이 판정에서 새로 도입된 임계값이며, 원문에서 유도된 값이 아니라 CIO 가 정한 값이다."
+              },
+              {
+                "token": "8",
+                "role": "card_reference",
+                "why": "「하락」 을 정의한 카드 번호다. 임계값이 아니다."
+              },
+              {
+                "token": "9",
+                "role": "card_reference",
+                "why": "비교 기준을 정한 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0019",
+      "subject": "005930.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "SK 대비 상대강도 지속 열위",
+      "condition_text_sha256": "b51eef655c304a1a808b17a86e18f89a67066fbbde1486eb179589b1e0705e2e",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "005930.KS::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "AVAILABLE",
+      "data_capability": "SUPPORTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "G2::event_definition",
+          "card_order": 11,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 11",
+            "decision": "상대강도는 평가 대상 종목의 확정 종가를 각 규칙 원문에 지정된 비교 대상 종목의 확정 종가로 나눈 가격비율로 정의한다. 현재 공식 관측의 상대강도 비율이 카드 12 에서 확정할 직전 비교 가능한 상대강도 비율보다 낮아진 경우를 「상대강도 열위」 로 정의한다. 상대강도 비율이 동일하거나 상승한 경우는 열위로 보지 않는다. RULE-0010 의 「열위 지속」 과 RULE-0019 의 「지속 열위」 는 계산 의미상 동일하게 취급한다. 두 표현 모두 상대강도 열위 상태가 시간적으로 이어지는지를 요구하는 것으로 해석하며, 얼마나 이어져야 「지속」 으로 확정하는지는 카드 13 에서 별도로 결정한다. 열위의 크기에 별도의 최소 수치 임계값은 두지 않는다.",
+            "rationale": "두 규칙의 투자 의도는 절대주가가 하락했는지를 보는 것이 아니라, 현재 슬롯 대표가 원문에 지정된 동종 대표주보다 상대적으로 뒤처지고 있는가를 측정하는 데 있다. 따라서 두 종목의 절대 수익률에 각각 조건을 붙이기보다 평가 대상 가격을 비교 대상 가격으로 나눈 비율을 동일 계열로 관측하는 것이 가장 직접적이다. 이 방식에서는 평가 대상이 상승했더라도 비교 대상보다 덜 상승하면 상대강도가 약해지고, 둘 다 하락했더라도 평가 대상이 덜 하락하면 강해진다. 최소 열위 폭을 새로 만들 필요는 없다 — 원문이 「열위」 와 「지속」 을 결합하고 있으므로, 잡음을 거르는 책임을 임의의 퍼센트 차이에 넣기보다 원문에 실제 존재하는 「지속」 을 뒤 카드에서 정의하는 편이 원문 구조를 덜 변경한다. 어순 차이만으로 서로 다른 계산을 만들 근거도 원문에 없다.",
+            "boundaries": [
+              "상대강도는 평가 대상 확정 종가를 각 규칙 원문에 지정된 비교 대상의 확정 종가로 나누어 계산한다.",
+              "RULE-0010 의 비교 상대와 RULE-0019 의 비교 상대를 서로 바꾸거나 하나의 공통 기준으로 통합하지 않는다.",
+              "상대강도 비율이 카드 12 에서 정할 비교 기준보다 낮아지면 열위다.",
+              "동일하면 열위가 아니다.",
+              "상승하면 열위가 아니다.",
+              "평가 대상의 절대주가 상승 · 하락만으로 열위를 판정하지 않는다.",
+              "비교 대상의 절대주가 상승 · 하락만으로도 열위를 판정하지 않는다.",
+              "별도의 퍼센트 · 가격 · 비율 차이 최소 임계값을 추가하지 않는다.",
+              "「열위 지속」 과 「지속 열위」 의 어순 차이 때문에 서로 다른 계산식을 만들지 않는다.",
+              "몇 번 또는 얼마 동안 열위가 이어져야 「지속」 인지 이번 카드에서 정하지 않는다. 카드 13 의 결정사항으로 남긴다.",
+              "무엇과 비교해 상대강도 비율의 하락을 판정할지는 이번 카드에서 정하지 않는다. 카드 12 의 결정사항으로 남긴다.",
+              "미국 확정 가격 원천 부재는 정의를 변경할 이유로 사용하지 않는다. RULE-0010 은 필요한 가격 원천이 확보되기 전까지 평가 불가 상태를 유지한다.",
+              "계산 정의를 공유하더라도 두 규칙을 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "12",
+                "role": "card_reference",
+                "why": "비교 기준을 정할 카드 번호다. 비율도 임계값도 아니다."
+              },
+              {
+                "token": "13",
+                "role": "card_reference",
+                "why": "「지속」 을 정할 카드 번호다. 기간 길이도 임계값도 아니다."
+              },
+              {
+                "token": "0010",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0010 안의 숫자다. 측정값이 아니다."
+              },
+              {
+                "token": "0019",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0019 안의 숫자다. 측정값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G2::comparison_baseline",
+          "card_order": 12,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 12",
+            "decision": "각 규칙에서 카드 11 의 산식으로 계산된 현재 상대강도 비율을, 동일한 평가 대상 · 동일한 원문 지정 비교 대상으로 계산된 직전 비교 가능한 상대강도 비율과 비교한다. RULE-0019 는 평가 대상과 비교 대상 모두 같은 한국 거래일의 확정 종가가 존재하는 관측끼리 연결한다. RULE-0010 은 평가 대상과 비교 대상의 각 시장에서 확정된 종가가 모두 존재하는 공통 거래일에 대해서만 상대강도 비율을 생성하고, 그 직전 비교 가능한 공통 거래일의 상대강도 비율과 비교한다. 어느 한 시장이 휴장하여 한쪽에 해당 날짜의 확정 종가가 없으면 그 날짜에는 상대강도 관측값 자체를 만들지 않는다. 직전 종가를 이월하거나 서로 다른 거래일의 종가를 결합하지 않는다.",
+            "rationale": "앞 카드가 상대강도를 두 종목의 확정 종가 비율로 정의했으므로, 이 카드의 역할은 그 동일 계열이 직전 관측보다 약해졌는지를 연결하는 데 있다. 별도의 이동평균 · 고점 · 고정 기준값을 더하면 원문에 없던 새로운 상대성과 기준을 만드는 셈이다. 그리고 두 시장에 걸친 비교에서는 날짜 정렬을 수집 구현에 전부 맡겨서는 안 된다. 각 시장의 공식 종가는 그 시장의 거래 세션이 끝날 때 형성되므로, 한쪽의 오늘 종가와 다른 쪽의 전 거래일 종가를 '현재 이용 가능한 최신값' 이라는 이유로 결합하면 서로 다른 시점을 합성한 비율이 된다. 그래서 공통 거래일 관측만 연결하는 보수적 방식으로 닫는다. 가격 원천이 지금 없다는 사실은 이 정의를 바꾸지 않으며, 원천 확보 전 평가 불가 상태도 그대로 유지한다.",
+            "boundaries": [
+              "현재 상대강도 비율은 동일 평가 대상 · 동일 비교 대상으로 계산된 직전 비교 가능한 상대강도 비율과 비교한다.",
+              "RULE-0010 과 RULE-0019 의 비교 상대를 서로 바꾸거나 하나의 공통 기준으로 통합하지 않는다.",
+              "별도의 이동평균 · 전년동기 · 과거 고점 · 고정 기준 상대강도 값을 만들지 않는다.",
+              "한국 종목 간 비교에서는 양쪽 모두 같은 한국 거래일의 확정 종가를 사용한다.",
+              "두 시장에 걸친 비교에서는 양쪽 시장 모두 해당 날짜에 확정 종가가 존재하는 공통 거래일만 상대강도 관측으로 인정한다.",
+              "어느 한쪽 시장이 휴장한 날짜에는 상대강도 비율을 새로 생성하지 않는다.",
+              "휴장한 시장의 직전 확정 종가를 다음 날짜로 이월하지 않는다.",
+              "서로 다른 거래일의 종가를 조합해 하나의 상대강도 비율을 만들지 않는다.",
+              "비교 가능한 직전 상대강도 비율이 없으면 다른 기준으로 대체하지 않고 그 시점의 열위 판정을 유보한다.",
+              "가격 원천이 없다는 이유로 대체 가격 · 전일 가격 · 비공식 가격을 사용하지 않는다.",
+              "카드 11 에서 확정한 산식, 열위 방향 및 최소 열위 폭 없음은 변경하지 않는다.",
+              "몇 번 또는 얼마 동안 열위가 이어져야 「지속」 인지 정하지 않는다. 카드 13 의 결정사항으로 남긴다.",
+              "계산 정의를 공유하더라도 두 규칙은 병합하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "11",
+                "role": "card_reference",
+                "why": "산식을 정한 카드 번호다. 비율도 임계값도 아니다."
+              },
+              {
+                "token": "0010",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0010 안의 숫자다. 측정값이 아니다."
+              },
+              {
+                "token": "0019",
+                "role": "rule_reference",
+                "why": "규칙 식별자 RULE-0019 안의 숫자다. 측정값이 아니다."
+              },
+              {
+                "token": "13",
+                "role": "card_reference",
+                "why": "경계에 인용한, 「지속」 을 정할 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "G2::time_window",
+          "card_order": 13,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 13",
+            "decision": "「상대강도 열위」 가 2 회 연속 비교 가능한 공식 관측에서 확인될 때 「지속 열위」 로 확정한다. 첫 번째 열위 관측은 후보 상태로만 둔다. 다음 비교 가능한 상대강도 관측에서도 다시 열위가 확인될 때 지속으로 승격한다. 중간에 상대강도 비율이 동일하거나 상승하면 연속성은 끊고, 이후 다시 발생한 열위를 새로운 첫 관측으로 본다. 이때 횟수는 달력일이나 거래일 경과 수가 아니라 카드 12 를 통과해 실제 생성된 비교 가능한 상대강도 관측 횟수를 센다.",
+            "rationale": "한 번만으로는 앞 카드에서 의도적으로 분리한 「열위」 와 「지속 열위」 가 사실상 같은 상태가 된다. 반대로 더 긴 연속 횟수를 요구할 근거는 원문에 없다. ★ 이 값은 다른 공유 그룹의 판정에서 복사한 것이 아니라 이 그룹에서 독립적으로 선택한 것이다. 숫자가 같은 것은 결과이지 근거가 아니다.",
+            "boundaries": [
+              "첫 열위 관측만으로 「지속 열위」 를 확정하지 않는다. 후보 상태로만 둔다.",
+              "두 번째 연속 열위 관측이 확인되는 시점에 지속으로 승격한다.",
+              "중간에 상대강도 비율이 동일하거나 상승하면 연속성은 끊긴다.",
+              "끊긴 뒤 다시 발생한 열위는 새로운 첫 관측으로 본다.",
+              "달력일이나 거래일 경과 수를 세지 않는다. 카드 12 를 통과해 실제 생성된 비교 가능한 상대강도 관측 횟수를 센다.",
+              "한쪽 시장 휴장 · 가격 원천 부재 · 공통 거래일 불성립으로 카드 12 가 관측값 자체를 만들지 않은 날은 횟수에 포함하지 않는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "2",
+                "role": "threshold",
+                "why": "★ 지속 확정에 필요한 연속 열위 관측 횟수다. 이 판정에서 새로 도입된 임계값이며, 다른 그룹의 판정에서 복사한 값이 아니라 이 그룹에서 독립적으로 선택된 값이다."
+              },
+              {
+                "token": "12",
+                "role": "card_reference",
+                "why": "관측 생성 규칙을 정한 카드 번호다. 임계값이 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0020",
+      "subject": "005930.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "HBM 공급 확대 미확인",
+      "condition_text_sha256": "0c43abe1391a1039a360201338469f84fa343a2f21ff5a8f959fe58e55ed6f51",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "005930.KS::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "NOT_IMPLEMENTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0020::event_definition",
+          "card_order": 26,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 26",
+            "decision": "「HBM 공급 확대」 는 회사가 해당 제품의 공급 가능 물량을 이전의 비교 가능한 공식 상태보다 증가시키는 방향의 변화가 확인된 경우로 정의한다. 「미확인」 은 그 확대 사건이 확인되지 않은 상태를 뜻한다. ★ 단, 관측 자료가 없거나 필요한 자료를 수집하지 못했거나 서로 비교 가능한 자료가 없어 판정할 수 없는 경우는 「미확인」 으로 판정하지 않는다. 그 경우는 별도의 평가 불가 상태로 둔다. 즉 세 상태를 구분한다 — 확대 확인 / 확대 미확인 / 평가 불가.",
+            "rationale": "「미확인」 을 단순히 확대가 확인되지 않았다는 부정으로 구현하면, 공시 본문을 파싱하지 않는다는 구현 결핍 자체가 투자 규칙의 발동으로 바뀐다. 관측 실패와 사건 부재는 같은 값이 아니다. 그래서 판정 불가를 별도 상태로 분리한다. ★ 고객 인증은 공급 확대의 전제나 간접 증거가 될 수 있으나 공급량 증가 자체가 아니다. 인증을 사건으로 인정하면 원문의 투자 논거를 다른 사건으로 바꾸게 된다. 생산능력과 출하 중 어느 공식 관측을 실제 측정 원천으로 인정할지는 이 카드가 아니라 관측 원천 카드가 닫는다 — 구할 수 있는 자료에 맞춰 사건의 의미가 변형되는 것을 막기 위해 의미를 먼저 고정한다.",
+            "boundaries": [
+              "고객 인증 자체를 「공급 확대」 사건으로 보지 않는다.",
+              "생산능력과 출하 중 실제 관측 원천의 선택은 관측 원천 카드에서 결정한다.",
+              "서로 다른 측정계열을 임의로 연결 · 환산하여 공급 확대를 만들지 않는다.",
+              "최소 증가폭이나 수치 조건은 이 카드에서 정하지 않는다.",
+              "「유의미한 증가」 · 「실질적 증가」 같은 표현을 쓰지 않는다. 그런 낱말은 숨은 임계값이 된다.",
+              "자료 부재 · 파싱 실패 · 비교 가능한 관측 부재를 「미확인」 으로 판정하지 않는다.",
+              "위 경우는 평가 불가로 둔다.",
+              "「미확인」 에 별도의 지속 기간이나 연속 횟수를 추가하지 않는다. 해당 평가 시점에 사용 가능한 비교 가능한 공식 관측을 기준으로 판단하며, 새 공식 관측이 생기면 다시 평가한다.",
+              "관측 원천을 찾기 위해 사건 정의 자체를 변경하지 않는다.",
+              "다른 규칙의 취소 · 축소 정의를 복사하지 않는다. 측정 방향이 반대다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        },
+        {
+          "decision_unit": "RULE-0020::threshold",
+          "card_order": 27,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 27",
+            "decision": "「공급 확대」 는 앞 카드에서 정의한 비교 가능한 공식 상태보다 공급 가능 물량이 증가하는 방향의 변화가 확인되면 성립한다. ★ 별도의 최소 증가폭 임계값은 두지 않는다.",
+            "rationale": "첫째, 원문에는 확대의 최소 폭에 관한 근거가 없다. 임의의 비율이나 물량 기준을 넣으면 원문 결핍을 해소하는 것을 넘어 새로운 투자 발동조건을 만드는 셈이다. 둘째, 이 규칙은 부정 조건이라 임의 임계값의 영향이 비대칭적이다 — 최소 증가폭을 크게 잡으면 실제 공급이 증가했어도 기준에 못 미친다는 이유로 계속 미확인에 남게 되고, 결과적으로 규칙이 더 쉽게 발동한다. 근거 없는 숫자 하나가 측정 정밀화가 아니라 판단의 민감도 자체를 바꾼다. 셋째, 앞 카드가 이미 사건의 방향을 충분히 닫았으므로 이 카드의 역할은 그 위에 숫자를 얹는 것이 아니라 추가 최소폭 조건이 필요한지 여부를 닫는 것이다.",
+            "boundaries": [
+              "증가 방향이면 충분하며, 별도의 퍼센트 · 물량 최소폭을 추가하지 않는다.",
+              "동일한 상태는 증가가 아니므로 「확대 확인」 이 아니다.",
+              "감소 역시 확대가 아니다.",
+              "자료 부재 · 파싱 실패 · 비교 불가를 「확대 미확인」 으로 바꾸지 않는다. 앞 카드대로 평가 불가를 유지한다.",
+              "서로 비교할 수 없는 계열을 임의 환산하거나 연결해서 증가를 만들지 않는다.",
+              "고객 인증을 공급 확대의 대체 사건으로 사용하지 않는다.",
+              "⛔ 향후 실제 데이터가 확보됐다는 이유만으로 최소 증가폭을 사후 도입하지 않는다.",
+              "★ 임계값이 없다는 판정은 아무 숫자나 관측해도 된다는 뜻이 아니다. 「비교 가능한 공식 관측」 이라는 앞 카드의 조건은 그대로 살아 있다.",
+              "관측 원천 및 생산능력 · 출하 중 어느 계열을 사용할지는 관측 원천 카드의 책임으로 남긴다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        },
+        {
+          "decision_unit": "RULE-0020::data_source",
+          "card_order": 28,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 28",
+            "decision": "「HBM 공급 확대」 는 회사가 공식적으로 공시 · 발표한 실제 출하의 확대 여부로 관측한다. 생산능력, 계획된 증설, 생산 개시 자체, 고객 인증 · 적격성 평가, 계약 · 수주만으로 공급 확대가 확인된 것으로 보지 않는다.",
+            "rationale": "앞 카드들이 정한 의미를 가장 적게 확장하는 선택이다. 생산능력은 공급할 수 있는 능력이지 실제 공급이 아니다. 설비 증설이나 생산 개시는 실제 고객 출하 전에 일어날 수 있어, 그것을 사건으로 인정하면 원문의 「공급 확대」 가 사실상 「공급능력 확대」 로 바뀐다. 실제 기업 공시에서도 생산과 출하, 그리고 인증 · 샘플 공급은 서로 구별되는 상태로 발표된다. ★ 다만 서술형 발표가 시점 간 확대 여부를 일관되게 비교할 수 있는 계열을 제공하는지는 별개 문제다. 그 계열을 확보하지 못하면 실행 시점에서는 평가 불가가 맞다. 이 카드의 책임은 무엇을 측정할 것인가까지이며, 자료가 부족하다는 이유로 다른 대체 관측을 채택하지 않는다.",
+            "boundaries": [
+              "채택 — 회사의 공식 공시 · 실적자료에서 확인되는 실제 출하 계열.",
+              "배제 — 생산능력.",
+              "배제 — 계획된 증설과 투자계획.",
+              "배제 — 생산 개시 및 생산 확대 자체.",
+              "배제 — 고객 인증 · 적격성 평가 · 샘플 공급.",
+              "배제 — 계약 · 수주.",
+              "출하량의 연속 비교가 가능해야 하며, 생산능력이나 생산 상태를 출하 계열의 대체값으로 이어 붙이지 않는다.",
+              "관측 가능한 공식 출하 계열이 없으면 대체 관측을 만들지 않고 평가 불가로 둔다. 「확대 미확인」 으로 처리하지 않는다.",
+              "최소 증가폭을 새로 만들지 않는다. 앞 카드의 「두지 않음」 판정을 그대로 유지한다.",
+              "고객 인증은 앞 카드 판정 그대로 사건에서 제외한다.",
+              "★ 정의 단계에서 「관측 경로 없음」 으로 닫지 않는다. 출하라는 개념 자체는 공식 발표에서 확인되므로, 관측 가능성은 실행 시점의 데이터 확보 문제로 남긴다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0021",
+      "subject": "MSFT",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "Azure 성장 45%cc 유의미 하회",
+      "condition_text_sha256": "e57c5c63787efc7388a09167dccdb882b804e4873c1d43cfcebf04f562af0c4b",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "MSFT::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "UNRESOLVED",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0021::event_definition",
+          "card_order": 17,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 17",
+            "decision": "원문의 Azure 성장 45%cc 를 기준선으로 유지한다. 공식 공표된 Azure 성장률의 constant-currency 값이 이 기준선보다 3%p 이상 낮은 경우를 「유의미 하회」 로 판정한다. 기준선보다 정확히 3%p 낮은 값은 포함하며, 그보다 덜 낮으면 발동하지 않는다.",
+            "rationale": "원문이 단순 하회가 아니라 「유의미 하회」 라고 명시했다. 별도의 폭을 두지 않으면 기준선을 아주 조금 밑도는 값도 같은 사건으로 취급되어 「유의미」 라는 수식어가 사실상 사라진다. 그래서 앞선 가격 카드처럼 '조금이라도 낮으면 하회' 로 처리하지 않는다. ★ 하회 폭은 원문이나 외부 자료에서 유도된 값이 아니라 이번 판정에서 새로 도입하는 값이다. 외부 확인은 측정축이 공표되는 방식에 대한 것이었을 뿐 폭의 근거가 아니다.",
+            "boundaries": [
+              "기준선은 원문의 값을 그대로 유지한다. 새로 만들지 않는다.",
+              "환율 영향을 제거한 공표값만 사용한다.",
+              "함께 제시되는 보고 기준 성장률은 사용하지 않는다.",
+              "다른 관련 지표나 상위 부문 전체 성장률로 대체하지 않는다.",
+              "기준선과의 차이가 정해진 폭에 정확히 도달하면 발동한다. 그보다 덜 낮으면 발동하지 않는다.",
+              "발동 경계값 자체를 판정 기록에 적지 않는다. 기준선과 폭에서 계산되는 값이며, 적어 두면 원문에 없는 수치를 하나 더 만드는 셈이다.",
+              "현재 수집기가 없다는 사실은 이 정의를 바꾸지 않는다. 원천이 확보되기 전까지 평가 불가 상태를 유지한다.",
+              "이 카드는 수식어의 판정 폭만 닫는다. 데이터 원천 결핍은 그대로 남는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "45",
+                "role": "quoted_phrase",
+                "why": "원문 「Azure 성장 45%cc 유의미 하회」 에 이미 있는 기준선이다. 이번 판정에서 만든 값이 아니라 인용한 값이다."
+              },
+              {
+                "token": "3",
+                "role": "threshold",
+                "why": "★ 「유의미」 로 인정할 하회 폭이다. 이 판정에서 새로 도입된 임계값이며, 원문에서 유도되지 않았고 다른 카드의 임계값에서 복사하지도 않았다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0022",
+      "subject": "MSFT",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "RPO 급둔화",
+      "condition_text_sha256": "5c805bb94b0c83fe5c2b3a30a7ac4ee628fc796d782d6cdf898e4e920f8b8f42",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "MSFT::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "data_capability": "NOT_IMPLEMENTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_capability_axis": [
+        "data_source"
+      ],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0022::time_window",
+          "card_order": 18,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 18",
+            "decision": "기간 조건은 비교 가능한 증가율이 2 개 연속 공식 보고기간에서 급둔화 조건을 충족할 때로 한다. 첫 번째 관측만으로는 급둔화를 확정하지 않는다.",
+            "rationale": "한 번만으로 발동시키면 일회성 변동과 지속적인 미래 물량 약화를 구별하지 못한다. 반대로 이 카드에서 더 긴 기간이나 특정 비교 방식을 함께 정하면 기간 축이 비교 기준과 폭의 책임을 침범한다. 그래서 여기서는 하나만 정한다 — 한 번으로 확정하지 않고 비교 가능한 공식 관측에서 연속 확인한다. ★ 이 값은 원문에서 유도된 숫자가 아니라 이번 판정에서 새로 정한 값이며, 다른 카드의 임계값에서 복사하지 않았다.",
+            "boundaries": [
+              "공식 보고기간 기준으로 센다. 달력일이나 임의의 일수로 환산하지 않는다.",
+              "비교 가능한 증가율 관측이 실제로 생성된 보고기간만 센다.",
+              "수집 실패 · 공시 부재 등으로 비교 가능한 관측이 만들어지지 않은 기간은 횟수를 증가시키지 않는다.",
+              "첫 번째 급둔화 관측은 후보 상태이며, 그것만으로 이 규칙의 발동을 확정하지 않는다.",
+              "다음 비교 가능한 공식 관측에서도 급둔화 조건이 성립해야 기간 조건이 충족된다.",
+              "중간의 비교 가능한 관측에서 급둔화 조건이 성립하지 않으면 연속성은 끊기며, 이후 다시 첫 관측부터 센다.",
+              "무엇과 비교해 증가세가 둔화됐다고 볼지는 카드 19 에서 정한다.",
+              "얼마나 둔화되어야 「급둔화」 인지는 카드 20 에서 정한다.",
+              "따라서 이 카드에서는 전년동기 · 직전 기간 · 특정 기준선이나 감소폭을 정하지 않는다.",
+              "수집기가 없다는 사실은 이 기간 정의를 변경하지 않는다. 수집할 수 없으면 평가 불가 상태를 유지한다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "2",
+                "role": "threshold",
+                "why": "★ 기간 조건이 요구하는 연속 관측 횟수다. 이 판정에서 새로 도입된 임계값이며, 원문에서 유도되지 않았고 다른 카드의 임계값에서 복사하지도 않았다."
+              },
+              {
+                "token": "19",
+                "role": "card_reference",
+                "why": "비교 기준을 정할 카드 번호다. 기간도 임계값도 아니다."
+              },
+              {
+                "token": "20",
+                "role": "card_reference",
+                "why": "둔화 폭을 정할 카드 번호다. 기간도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0022::comparison_baseline",
+          "card_order": 19,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 19",
+            "decision": "비교 기준은 동일한 측정 정의에서 산출된 전년동기 성장률로 한다. 현재 보고기간의 성장률이 전년동기 성장률 대비 둔화했는지를 비교한다. 잔액 자체의 증감이나 직전 보고기간 성장률을 비교 기준으로 사용하지 않는다. 측정 정의 또는 포함 범위 변경으로 직접 비교할 수 없는 경우 다른 값으로 보정하지 않고 판정 불가로 둔다. 단기 · 장기 구성 및 인식기간 변화는 이 비교 기준에 포함하지 않는다. 「급둔화」 로 인정할 최소 감소폭은 이 카드에서 정하지 않고 카드 20 에 남긴다.",
+            "rationale": "이 규칙의 투자 의도는 단순히 계약 잔고가 줄었는가가 아니라, 잔고 성장세가 급격히 약해져 미래 물량 확약이 약해지는가를 보는 것이다. 잔고는 아직 증가하면서도 성장률은 크게 둔화할 수 있으므로, 잔액 증감만 비교하면 원래 의미를 놓친다. 또 이 지표는 계약기간 · 갱신 시점 · 계절성 · 환율의 영향을 받으므로 직전 기간과의 단순 비교보다 전년동기 계열이 측정 구조에 맞는다.",
+            "boundaries": [
+              "비교 대상은 잔액 자체가 아니라 성장률이다.",
+              "비교 기준은 직전 보고기간 성장률이 아니라 전년동기 성장률이다.",
+              "동일한 측정 정의가 유지된 경우에만 비교한다.",
+              "정의 · 포함범위 변경으로 계열이 직접 비교되지 않으면 다른 값으로 보정하지 않고 판정 불가로 둔다.",
+              "단기 · 장기 구성이나 향후 인식기간 변화를 이 비교 기준에 섞지 않는다. 필요하면 별도 관측 정보이지 비교 기준을 대체하지 않는다.",
+              "감소폭은 정하지 않는다. 어느 정도 둔화해야 「급둔화」 인지는 카드 20 의 책임으로 남긴다.",
+              "수집기가 없다는 사실은 이 비교 기준을 변경하지 않는다. 수집할 수 없으면 평가 불가 상태를 유지한다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "20",
+                "role": "card_reference",
+                "why": "둔화 폭을 정할 카드 번호다. 성장률도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0022::threshold",
+          "card_order": 20,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 20",
+            "decision": "「급둔화」 의 「급」 은 전년동기 성장률 대비 10%p 이상 하락으로 정의한다. ★ 10% 가 아니라 10%p — 퍼센트포인트 차이다. 정확히 10%p 하락도 포함한다. 카드 19 에서 확정한 동일 측정 정의의 전년동기 성장률이 비교 기준이며, 카드 18 에서 확정한 연속 관측 요건을 함께 충족해야 발동한다.",
+            "rationale": "「급둔화」 에서 단순한 소폭 감속과 구조적으로 눈에 띄는 성장 모멘텀 약화를 구분하되, 이미 강한 지속성 조건이 앞 카드에 있으므로 그와 중복해 지나치게 높은 문턱을 만들지 않는다. ★ 이 값은 통계적으로 최적화해 얻은 값이 아니라 정책적 판정값이며, 원문에서 유도되지 않았고 다른 카드의 임계값에서 복사하지도 않았다. ⛔ 이후 과거 데이터 재생에서 성과가 마음에 들지 않는다는 이유로 이 값을 사후 최적화하지 않는다.",
+            "boundaries": [
+              "비교하는 것은 잔액 자체가 아니라 성장률이다.",
+              "기준은 카드 19 에서 확정한 동일 측정 정의의 전년동기 성장률이다.",
+              "이상 조건이므로 경계값에 정확히 도달한 경우도 포함한다.",
+              "한 번 낮아진 것만으로는 발동하지 않는다. 카드 18 의 연속 관측 요건을 함께 충족해야 한다.",
+              "비교 가능한 공식 관측이 생성되지 않은 기간은 연속 횟수를 증가시키지 않는다.",
+              "계열 정의가 바뀌어 비교 가능하지 않으면 임의 보정하지 않고 평가 불가로 둔다.",
+              "이 판정은 폭만 닫는다. 앞서 확정한 기간과 비교 기준을 다시 열지 않는다.",
+              "수집기 부재는 해결되지 않는다. 정의 세 칸이 채워져도 곧바로 평가 가능한 상태라는 뜻이 아니다.",
+              "설명을 위해 든 예시 수치는 정의가 아니므로 이 기록에 남기지 않는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "10",
+                "role": "threshold",
+                "why": "★ 「급」 으로 인정할 전년동기 성장률 대비 하락 폭이다(퍼센트포인트). 이 판정에서 새로 도입된 임계값이며 원문에서 유도되지 않았다. ⛔ 사후 최적화 대상이 아니다."
+              },
+              {
+                "token": "18",
+                "role": "card_reference",
+                "why": "연속 관측 요건을 정한 카드 번호다. 폭도 임계값도 아니다."
+              },
+              {
+                "token": "19",
+                "role": "card_reference",
+                "why": "비교 기준을 정한 카드 번호다. 폭도 임계값도 아니다."
+              }
+            ]
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0023",
+      "subject": "298040.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "수주잔고 전분기 대비 감소",
+      "condition_text_sha256": "a4615259c0f8f6c4fcce5712ae434dbd0585dc8dbe4e99f8c7057bd14709e06c",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "298040.KS::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "data_capability": "NOT_IMPLEMENTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING"
+      ],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0024",
+      "subject": "298040.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "7월 저점 종가 1,894,000원 재이탈",
+      "condition_text_sha256": "9037e49e3c3967cbbf8baee44b446fb6e217272e818752ca565a759d3b2ef763",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "298040.KS::탈락 조건#3"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "AVAILABLE",
+      "data_capability": "SUPPORTED",
+      "source_qualification": null,
+      "evaluator_status": "READY",
+      "blocked_by": [],
+      "definition_resolution": "정의 결핍 없음 (defined control population)",
+      "missing_components": [],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [],
+      "portfolio_operation_candidate": false
+    },
+    {
+      "rule_id": "RULE-0025",
+      "subject": "298040.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "condition_text": "기관 순매수 연속 끊김",
+      "condition_text_sha256": "8039c7dd761497581d6ee2832f624785d13c81ab7b1613096f9a23b9adad52a2",
+      "condition_semantics": "UNRESOLVED",
+      "scope": "UNRESOLVED",
+      "source_occurrences": [
+        "298040.KS::탈락 조건#5"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "AVAILABLE",
+      "data_capability": "SUPPORTED",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED"
+      ],
+      "definition_resolution": "REQUIRES_CIO_DEFINITION",
+      "missing_components": [
+        "event_definition",
+        "time_window"
+      ],
+      "data_capability_axis": [],
+      "cio_definition_decisions": [
+        {
+          "decision_unit": "RULE-0025::semantic_scope",
+          "card_order": 14,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 14",
+            "decision": "원문 「기관 순매수 연속 끊김」 에서 「연속」 은 「기관 순매수」 에 걸리는 것으로 판정한다. 즉 「기관 순매수 연속」 상태가 끊기는 것을 의미하며, 「끊김」 관측 자체가 연속된다는 의미로 해석하지 않는다.",
+            "rationale": "첫째, 원문의 자연스러운 결합 단위가 「기관 순매수 연속」 + 「끊김」 이다. 「연속」 은 바로 앞의 「기관 순매수」 상태를 수식하고, 「끊김」 은 그 상태의 종료를 나타내는 구조가 가장 직접적이다. 둘째, 카드에 기록된 투자 의도가 「기관 수급이 끊기면 재진입 근거가 사라진다」 이다. 끊김이 여러 번 지속되어야 근거가 사라진다는 구조가 아니라, 이어지던 수급 흐름의 단절 자체를 위험 사건으로 보는 구조와 일치한다. 셋째, 원문 주석은 「연속」 의 정의가 미정이라고만 적는다. 이는 당시 초점이 무엇을 연속으로 볼 것인가였다는 근거는 되지만, 별도의 「연속 끊김」 상태를 의도했다는 근거는 되지 않는다.",
+            "boundaries": [
+              "이번 판정은 원문의 의미 귀속만 닫는다.",
+              "무엇을 한 번의 「끊김」 으로 볼 것인지는 정하지 않는다. 여전히 미결이다.",
+              "몇 거래일을 「기관 순매수 연속」 으로 볼 것인지도 이번 판정으로 새로 정하지 않는다.",
+              "기존에 보존된 기간 판정값의 의미가 이제 어느 대상에 걸리는지는 정렬될 수 있으나, 이 판정만으로 집행 가능 상태로 승격시키지 않는다.",
+              "사건 정의라는 직접 선행이 아직 남아 있다.",
+              "판정 근거는 원문과 기존 기록의 의미론적 해석에 한정했다. 외부 자료를 쓰지 않았다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": []
+          }
+        },
+        {
+          "decision_unit": "RULE-0025::event_definition",
+          "card_order": 15,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 15",
+            "decision": "「기관 순매수 연속 끊김」 에서 한 번의 끊김 관측은, 직전 유효 관측에서 기관 순매수였던 상태가 다음 유효 관측에서 기관 순매수가 아닌 상태로 바뀐 경우로 정의한다. 따라서 기관 순매수 값이 0 이거나 순매도인 경우 모두 한 번의 끊김 관측으로 본다. 순매수 금액의 최소 크기 기준은 별도로 두지 않는다. 「기관」 은 수집기가 사용하는 공식 원천의 기관 합계 분류를 그대로 사용한다. 기관 내부 세부 주체를 임의로 선택 · 가감하거나 별도의 기관군을 만들지 않는다.",
+            "rationale": "원문이 요구하는 것은 「순매수 연속」 이 끊겼는가다. 순매도까지 가야 끊김이라고 하면 원문보다 강한 조건을 새로 만드는 것이고, 순매수가 일정 금액 이하이면 끊김이라고 해도 새로운 임계값을 만드는 것이다. 가장 좁은 정의는 순매수인가 / 더 이상 순매수가 아닌가다. 데이터가 아예 없는 경우까지 끊김으로 간주하면 관측 실패가 투자 신호를 만들게 되므로 그것도 배제한다.",
+            "boundaries": [
+              "순매수가 양수이면 기관 순매수 상태가 유지된 것이므로 끊김이 아니다.",
+              "순매수가 0 이면 더 이상 순매수 상태가 아니므로 끊김이다.",
+              "순매도 역시 끊김이다. 순매도로 전환되어야만 끊긴 것으로 보는 더 강한 조건은 두지 않는다.",
+              "순매수액이 작다는 이유만으로 끊김으로 보지 않는다. 양수인 한 순매수 상태다.",
+              "기관 내부의 일부 세부 주체가 순매도여도 공식 원천의 기관 합계가 순매수이면 끊김으로 보지 않는다.",
+              "반대로 일부 세부 주체가 순매수여도 기관 합계가 0 또는 순매도이면 끊김이다.",
+              "관측값 자체가 생성되지 않은 날은 0 으로 대체하지 않는다. 데이터 부재를 끊김 사건으로 만들지 않고 해당 관측을 유보한다.",
+              "제3자 추정값이나 전일 값을 이용해 누락된 기관 순매수를 보간하지 않는다.",
+              "이 카드는 한 번의 끊김 사건만 정의한다. 몇 번의 끊김 관측이 있어야 원문의 「연속 끊김」 을 확정하는지는 기간 카드의 기존 판정에 맡기며 여기서 다시 정하지 않는다.",
+              "「연속」 이 「기관 순매수」 에 걸린다는 앞 카드의 의미 귀속을 변경하지 않는다."
+            ],
+            "numeric_threshold_introduced": false,
+            "declared_numerics": [
+              {
+                "token": "0",
+                "role": "sign_boundary",
+                "why": "「기관 순매수」 와 「기관 순매수가 아닌 상태」 를 구분하는 부호 경계다. 순매수 금액의 최소 크기나 신호 강도를 요구하는 임계값이 아니다."
+              },
+              {
+                "token": "3",
+                "role": "quoted_phrase",
+                "why": "경계의 '제3자 추정값' 이라는 낱말 안의 글자다. 수량도 임계값도 아니다."
+              }
+            ]
+          }
+        },
+        {
+          "decision_unit": "RULE-0025::time_window",
+          "card_order": 16,
+          "execution_status": "판정 완료 (evaluator 연결은 여전히 금지)",
+          "cio_decision": {
+            "decided_by": "CIO",
+            "source": "CIO 판정 2026-08-15 · 카드 14",
+            "decision": "원문의 「기관 순매수 연속 끊김」 에서 「연속」 은 3 개 연속 거래일로 정의한다. 기관 순매수 연속 상태가 끊긴 것으로 기존 규칙 체계에서 판정되는 관측이 3 거래일 연속 확인될 때 탈락 조건을 충족한 것으로 본다. 첫 번째와 두 번째 관측은 확인 중인 상태이며, 세 번째 연속 관측에서 조건을 확정한다. 이번 판정은 기간만 닫는다. 「끊김」 자체를 순매도 전환, 순매수 부재, 0 포함 여부 등으로 새로 정의하지 않는다. 그것들은 이번 카드의 판정 대상이 아니다.",
+            "rationale": "기관 수급은 일별 부호 자체가 흔들릴 수 있어, 하루 이틀의 단절을 곧바로 투자 논거 소멸로 승격시키기보다 확인 구간을 두는 편이 타당하다. 반대로 더 긴 기간을 요구하면 이 규칙의 성격과 어긋난다 — 탈락 조건이므로, 지나치게 길게 확인하면 수급 논거가 이미 약해진 뒤에도 후보 자격을 유지하게 된다. 그래서 단일 일자의 잡음은 거부하되 세 번째 연속 관측에서는 더 기다리지 않는다. ★ 이 숫자는 원문이나 외부 연구에서 기계적으로 도출된 값이 아니라 CIO 의 전략 파라미터 판정이며, 다른 그룹의 임계값에서 유도하거나 복사한 것이 아니다.",
+            "boundaries": [
+              "거래일 경과를 세지 않는다. 평가 가능한 공식 기관수급 관측을 센다.",
+              "휴장이나 원천 부재로 관측 자체가 생성되지 않은 날은 횟수를 증가시키지 않는다.",
+              "중간에 기존 규칙 체계상 「끊김」 이 아닌 관측이 나오면 연속 카운트는 끊는다.",
+              "끊긴 뒤 다시 발생한 첫 「끊김」 관측부터 새로 센다.",
+              "첫 번째와 두 번째 관측은 확인 중 상태이며 그 자체로 조건을 확정하지 않는다.",
+              "「끊김」 의 기계적 의미를 이번 카드에서 새로 만들지 않는다.",
+              "이 판정으로 event_definition 을 생성하지 않는다."
+            ],
+            "numeric_threshold_introduced": true,
+            "declared_numerics": [
+              {
+                "token": "3",
+                "role": "threshold",
+                "why": "★ 탈락 조건 확정에 필요한 연속 관측 횟수다. 기관 일별 수급의 단기 잡음으로 인한 즉시 탈락은 막되, 수급 논거가 소멸한 후보를 장기간 유지하지 않기 위해 독립적으로 선택했다. 다른 그룹의 임계값에서 유도하거나 복사한 값이 아니다."
+              },
+              {
+                "token": "0",
+                "role": "quoted_phrase",
+                "why": "「끊김」 을 새로 정의하지 않는다는 문장에서 배제 대상으로 인용된 값이다. 이 판정이 채택한 값이 아니다."
+              }
+            ],
+            "scope_limit": "★ 정정됨. 이 카드는 한때 '정의 결핍이 기간 하나뿐' 이라는 전제 위에 있었다. 재검사에서 이 규칙의 정의 결핍은 사건 정의와 기간 둘로 정정됐고, 그 위에 원문 구조 미결까지 확인됐다. 이 카드의 기간 판정값은 보존하되 두 선행 단위가 확정되기 전에는 집행하지 않는다. ⛔ 잘못된 것은 값이 아니라, 그 값의 의미가 독립적으로 확정됐다는 과거 전제다. 이 카드에서 선행 단위를 보충하지 않는다."
+          }
+        }
+      ],
+      "portfolio_operation_candidate": false
+    }
+  ]
+}

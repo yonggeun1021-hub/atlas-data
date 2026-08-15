@@ -1,0 +1,897 @@
+{
+  "artifact": "machine Rule Inventory",
+  "authority": false,
+  "authority_source": "config/rules.json (evaluation rule 25건의 membership · 상태)",
+  "consumable_by_evaluator": false,
+  "production_state": "HOLD 유지 — 이번 단계는 실행 연결 승인이 아니다",
+  "evaluator_wiring": "미연결",
+  "scope_contract": {
+    "monitoring": "Rule Inventory 포함 · Evaluator Population 제외 (§21-12 · CIO 판정 ④)",
+    "execution_reference": "Rule Inventory 집계 대상 제외 (§21-12 · CIO 판정 ③)",
+    "non_rule_evidence": "Rule Inventory 대상 아님",
+    "identity": "§21-12 — 통계에 포함되는 모든 객체는 고유 rule_id 를 갖는다"
+  },
+  "membership_note": "★ Inventory 포함은 executable · READY · evaluator 소비 가능을 뜻하지 않는다. Rule Inventory 와 Evaluator Population 은 다른 집계다.",
+  "states_hidden": 0,
+  "statuses_resolved": 0,
+  "ids_created": 0,
+  "counts": {
+    "rule_inventory_total": 41,
+    "evaluation_rule": 25,
+    "monitoring": 16,
+    "excluded_execution_reference": 21,
+    "excluded_non_rule_evidence": 44,
+    "evaluator_population": 25,
+    "evaluator_consumable": 0,
+    "evaluator_ready": 1,
+    "evaluator_blocked": 24,
+    "definition_undefined": 15,
+    "data_missing": 22,
+    "source_unresolved": 16,
+    "entries_without_rule_id": 0
+  },
+  "identity_note": "★ monitoring 은 `MON-nnnn`, evaluation rule 은 `RULE-nnnn` 로 namespace 가 분리된다. identity 를 가졌다는 사실이 evaluator 자격 · 실행 자격 · rules.json 편입을 뜻하지 않는다.",
+  "provenance": {
+    "rules_json_sha256": "5afbc5e1bc918e6cc0b58bd0d2af21075d600e37ab7e0451a291ae9c612db354",
+    "ssot_mapping_sha256": "b70722a3086de7cb5355874fa89fd6bf4710d618e8848bd0fa19f5f8c7869c0e",
+    "monitoring_identity_sha256": "864c8d5755f29e741c8ac5d4d3cda3b4ecde087646957faf11e511c9610f99ae"
+  },
+  "entries": [
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0001",
+      "subject": "MU",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "MU::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0002",
+      "subject": "MU",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "MU::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0003",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "TSM::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0004",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "TSM::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0005",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "TSM::기술적 무효화#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0006",
+      "subject": "TSM",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "source_occurrences": [
+        "TSM::기술적 무효화#2"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0007",
+      "subject": "TSM",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "TSM::다음 이벤트#3"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0008",
+      "subject": "TSM",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "source_occurrences": [
+        "TSM::다음 이벤트#5"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0009",
+      "subject": "TSM",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "source_occurrences": [
+        "TSM::진입 패턴#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0010",
+      "subject": "CRDO",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "CRDO::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0011",
+      "subject": "CRDO",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "CRDO::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0012",
+      "subject": "ANET",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "ANET::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0013",
+      "subject": "ANET",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "ANET::탈락 조건#3"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0014",
+      "subject": "NVDA",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "NVDA::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0015",
+      "subject": "NVDA",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "NVDA::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0016",
+      "subject": "NVDA",
+      "rule_kind": "ENT",
+      "downstream_effect": "daily_eligibility",
+      "source_occurrences": [
+        "NVDA::다음 이벤트#2"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0017",
+      "subject": "000660.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "000660.KS::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0018",
+      "subject": "000660.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "000660.KS::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0019",
+      "subject": "005930.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "005930.KS::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "AVAILABLE",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0020",
+      "subject": "005930.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "005930.KS::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0021",
+      "subject": "MSFT",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "MSFT::탈락 조건#1"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": "SOURCE_UNRESOLVED",
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING",
+        "SOURCE_UNRESOLVED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0022",
+      "subject": "MSFT",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "MSFT::탈락 조건#3"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "MISSING",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED",
+        "DATA_MISSING"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0023",
+      "subject": "298040.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "298040.KS::탈락 조건#1"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "MISSING",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DATA_MISSING"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0024",
+      "subject": "298040.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "298040.KS::탈락 조건#3"
+      ],
+      "definition_status": "DEFINED",
+      "data_status": "AVAILABLE",
+      "source_qualification": null,
+      "evaluator_status": "READY",
+      "blocked_by": [],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "evaluation_rule",
+      "identity_source": "config/rules.json",
+      "rule_id": "RULE-0025",
+      "subject": "298040.KS",
+      "rule_kind": "FAL",
+      "downstream_effect": "강등 검토",
+      "source_occurrences": [
+        "298040.KS::탈락 조건#5"
+      ],
+      "definition_status": "UNDEFINED",
+      "data_status": "AVAILABLE",
+      "source_qualification": null,
+      "evaluator_status": "BLOCKED",
+      "blocked_by": [
+        "DEFINITION_UNDEFINED"
+      ],
+      "identity_namespace": "RULE",
+      "in_evaluator_population": true,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0001",
+      "identity_namespace": "MON",
+      "occurrence_id": "MU::다음 이벤트#1",
+      "subject": "MU",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0002",
+      "identity_namespace": "MON",
+      "occurrence_id": "TSM::다음 이벤트#1",
+      "subject": "TSM",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0003",
+      "identity_namespace": "MON",
+      "occurrence_id": "TSM::다음 이벤트#8",
+      "subject": "TSM",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0004",
+      "identity_namespace": "MON",
+      "occurrence_id": "TSM::다음 이벤트#9",
+      "subject": "TSM",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0005",
+      "identity_namespace": "MON",
+      "occurrence_id": "CRDO::다음 이벤트#1",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0006",
+      "identity_namespace": "MON",
+      "occurrence_id": "CRDO::다음 이벤트#3",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0007",
+      "identity_namespace": "MON",
+      "occurrence_id": "CRDO::다음 이벤트#5",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0008",
+      "identity_namespace": "MON",
+      "occurrence_id": "CRDO::다음 이벤트#6",
+      "subject": "CRDO",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0009",
+      "identity_namespace": "MON",
+      "occurrence_id": "ANET::다음 이벤트#1",
+      "subject": "ANET",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0010",
+      "identity_namespace": "MON",
+      "occurrence_id": "ANET::다음 이벤트#3",
+      "subject": "ANET",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0011",
+      "identity_namespace": "MON",
+      "occurrence_id": "ANET::다음 이벤트#4",
+      "subject": "ANET",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0012",
+      "identity_namespace": "MON",
+      "occurrence_id": "NVDA::다음 이벤트#1",
+      "subject": "NVDA",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0013",
+      "identity_namespace": "MON",
+      "occurrence_id": "MSFT::다음 이벤트#1",
+      "subject": "MSFT",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0014",
+      "identity_namespace": "MON",
+      "occurrence_id": "329180.KS::다음 이벤트#1",
+      "subject": "329180.KS",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0015",
+      "identity_namespace": "MON",
+      "occurrence_id": "SNDK::다음 이벤트#1",
+      "subject": "SNDK",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    },
+    {
+      "inventory_class": "monitoring",
+      "identity_source": "rules/monitoring_identity.json",
+      "rule_id": "MON-0016",
+      "identity_namespace": "MON",
+      "occurrence_id": "SNDK::다음 이벤트#3",
+      "subject": "SNDK",
+      "rule_kind": "MON",
+      "downstream_effect": "monitoring",
+      "definition_status": "UNRESOLVED",
+      "data_status": "UNRESOLVED",
+      "source_qualification": null,
+      "evaluator_status": "UNRESOLVED",
+      "blocked_by": [
+        "STATUS_UNRESOLVED"
+      ],
+      "in_evaluator_population": false,
+      "evaluator_consumable": false
+    }
+  ]
+}

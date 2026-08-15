@@ -1,0 +1,203 @@
+{
+  "artifact": "B5-1A Data-Source Ambiguity Adjudication",
+  "status": "inactive preparation",
+  "authority": false,
+  "consumable_by_evaluator": false,
+  "definitions_created": 0,
+  "candidate_values_created": 0,
+  "targets_selected": 0,
+  "scope_note": "B5-0 에서 `data_source` 로 표시된 Rule 만 대상이다. 관계만 판정하며 missing_components 는 수정하지 않는다.",
+  "classification_vocabulary": [
+    "both",
+    "data capability gap",
+    "semantic target ambiguity"
+  ],
+  "vocabulary_note": "CIO 지시문의 표현을 그대로 쓴다. 새 토큰을 만들지 않았다.",
+  "no_selection_note": "⛔ 대상 목록·데이터 소스를 새로 선택하지 않았다. hyperscaler 를 임의로 지정하면 그것은 이미 정의 생성이다. semantic 결핍에는 **질문만** 붙였다.",
+  "counts": {
+    "in_scope": 10,
+    "semantic target ambiguity": 1,
+    "data capability gap": 4,
+    "both": 5,
+    "additional_questions": 6
+  },
+  "cio_checklist_result": {
+    "RULE-0004 누구의 capex 인가": "semantic target ambiguity",
+    "RULE-0015 hyperscaler universe": "both",
+    "RULE-0002/0018 DRAM ASP series": "both",
+    "RULE-0017 HBM 예약·LTA 관측 대상": "both",
+    "RULE-0020 HBM 공급 확대 관측 대상": "both",
+    "RULE-0021/0022 collector 부재에 가까운가": "data capability gap — 그렇다"
+  },
+  "capability_undetermined_note": "RULE-0004 는 대상이 정해지기 전에는 capability 를 판정할 수 없어 'both' 로 적지 않았다. 아직 확인하지 않은 사실을 기록하지 않는다.",
+  "decided_against": {
+    "definition_inventory_sha256": "8b7a99b186038e727fc8c131d2b78f21d4b8623589c80b02bd5e08d64d6f08fa",
+    "definition_decision_sha256": "bf3abd1dff2c4bc739b66f25bc048e663820b0b4711baf691a0abf3c9791f3f9",
+    "canonical_rules_sha256": "d067b5841bd59d4984f0240656e2e896a18b79655da77aafe88b84e78920da21",
+    "decompose_full_sha256": "218749a2e29b7dc74602d1e5bf4240b6a35883dcd5d33c9a79671fcb387accd9"
+  },
+  "items": [
+    {
+      "canonical_rule_id": "RULE-0002",
+      "occurrence_id": "MU::탈락 조건#3",
+      "condition_text": "DRAM ASP 하락 전환",
+      "b5_0_missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "both",
+      "why": "어떤 DRAM ASP 계열을 보는지 원문에 없다(계약가·현물가, 집계 주체). 동시에 Atlas 는 산업 가격 원천을 수집하지 않으므로, 어느 계열을 택하든 capability 는 별도로 없다 — 두 결핍이 독립적으로 성립한다.",
+      "additional_decision_required": [
+        {
+          "from_component": "data_source",
+          "question": "'DRAM ASP'를 어느 가격 계열로 정의할 것인가?"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0018",
+      "occurrence_id": "000660.KS::탈락 조건#3",
+      "condition_text": "DRAM ASP 하락 전환",
+      "b5_0_missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "both",
+      "why": "같은 문구를 가진 다른 종목의 조건이며 결핍 성격도 동일하다.",
+      "additional_decision_required": [
+        {
+          "from_component": "data_source",
+          "question": "'DRAM ASP'를 어느 가격 계열로 정의할 것인가?"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0004",
+      "occurrence_id": "TSM::탈락 조건#3",
+      "condition_text": "capex 하향",
+      "b5_0_missing_components": [
+        "threshold",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "semantic target ambiguity",
+      "why": "★ **누구의 capex 인지**가 원문에 없다. 자사 capex 인지 고객 capex 인지에 따라 읽어야 할 값이 완전히 달라진다. ⚠ capability 는 대상이 정해지기 전에는 **판정할 수 없다** — 아직 없다고 적으면 확인하지 않은 사실을 기록하는 것이 된다.",
+      "additional_decision_required": [
+        {
+          "from_component": "data_source",
+          "question": "'capex 하향'의 측정 대상을 누구의 capex 로 정의할 것인가?"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0010",
+      "occurrence_id": "CRDO::탈락 조건#1",
+      "condition_text": "ANET 대비 상대강도 열위 지속",
+      "b5_0_missing_components": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "data capability gap",
+      "why": "측정 대상은 명확하다 — 두 종목의 주가다. 미국 확정 가격 원천이 확보되지 않았을 뿐이다. 산식·'열위'·'지속' 의 미정은 이미 event_definition · time_window · comparison_baseline 으로 별도 표시돼 있다.",
+      "additional_decision_required": []
+    },
+    {
+      "canonical_rule_id": "RULE-0011",
+      "occurrence_id": "CRDO::탈락 조건#3",
+      "condition_text": "고객 집중 심화(10%+ 고객 3개 미만)",
+      "b5_0_missing_components": [
+        "observation_frequency",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "data capability gap",
+      "why": "측정 대상은 명확하다 — 해당 기업의 고객 집중도다. 공시 본문 재무·주석 수치를 파싱하는 구현이 없을 뿐이다. 관측 주기 미정은 observation_frequency 로 별도 표시.",
+      "additional_decision_required": []
+    },
+    {
+      "canonical_rule_id": "RULE-0015",
+      "occurrence_id": "NVDA::탈락 조건#3",
+      "condition_text": "하이퍼스케일러 2곳+ capex 하향",
+      "b5_0_missing_components": [
+        "threshold",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "both",
+      "why": "★ '하이퍼스케일러' 의 대상 범위가 원문에 없다. 동시에, 어느 기업 집합을 택하든 capex 는 공시 본문 재무 수치이고 그 파싱 구현이 없다 — capability 결핍은 대상 선택과 무관하게 성립한다.",
+      "additional_decision_required": [
+        {
+          "from_component": "data_source",
+          "question": "'하이퍼스케일러'의 대상 범위를 어떻게 정의할 것인가?"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0017",
+      "occurrence_id": "000660.KS::탈락 조건#1",
+      "condition_text": "HBM 예약 취소·LTA 축소",
+      "b5_0_missing_components": [
+        "event_definition",
+        "threshold",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "both",
+      "why": "★ '예약' 과 'LTA' 를 어느 관측 대상에서 읽는지 원문에 없다. 그리고 고객 확약 정보는 공시 본문이거나 비공개라 관측 경로 자체가 구현돼 있지 않다.",
+      "additional_decision_required": [
+        {
+          "from_component": "data_source",
+          "question": "'예약'과 'LTA'를 어느 관측 대상에서 읽을 것인가?"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0020",
+      "occurrence_id": "005930.KS::탈락 조건#3",
+      "condition_text": "HBM 공급 확대 미확인",
+      "b5_0_missing_components": [
+        "event_definition",
+        "threshold",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "both",
+      "why": "★ 'HBM 공급 확대' 의 관측 대상이 원문에 없다(생산 능력·출하·고객 인증 중 무엇인지). 그리고 어느 것이든 공시 본문 파싱이 구현돼 있지 않다.",
+      "additional_decision_required": [
+        {
+          "from_component": "data_source",
+          "question": "'HBM 공급 확대'를 어느 관측 대상으로 볼 것인가?"
+        }
+      ]
+    },
+    {
+      "canonical_rule_id": "RULE-0021",
+      "occurrence_id": "MSFT::탈락 조건#1",
+      "condition_text": "Azure 성장 45%cc 유의미 하회",
+      "b5_0_missing_components": [
+        "event_definition",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "data capability gap",
+      "why": "★ CIO 가 지목한 확인 대상 — metric 은 명확하다. 해당 기업이 실적에서 공표하는 성장률(cc)이며 대상 모호성이 없다. 수집기가 없을 뿐이다. '유의미' 의 미정은 event_definition 으로 별도 표시돼 있다.",
+      "additional_decision_required": []
+    },
+    {
+      "canonical_rule_id": "RULE-0022",
+      "occurrence_id": "MSFT::탈락 조건#3",
+      "condition_text": "RPO 급둔화",
+      "b5_0_missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "data_source_deficiency_class": "data capability gap",
+      "why": "★ CIO 가 지목한 확인 대상 — metric 은 명확하다. RPO 는 해당 기업이 공표하는 재무 항목이며 대상 모호성이 없다. 재무 본문 파싱 구현이 없을 뿐이다.",
+      "additional_decision_required": []
+    }
+  ]
+}

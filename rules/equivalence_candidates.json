@@ -1,0 +1,248 @@
+{
+  "artifact": "B4-0 Dedup Equivalence Adjudication View",
+  "status": "inactive preparation",
+  "authority": false,
+  "consumable_by_evaluator": false,
+  "merge_performed": false,
+  "equivalence_key": "rule_kind + measured_fact + predicate + scope (subject 는 필요조건이 아니다)",
+  "status_vocabulary": [
+    "DISTINCT",
+    "EQUIVALENT",
+    "INSUFFICIENT_EVIDENCE",
+    "POSSIBLE_EQUIVALENT"
+  ],
+  "vocabulary_note": "세 dimension status 에도 위 4개 어휘를 재사용한다 — 새 판정 vocabulary 를 만들지 않기 위해서다.",
+  "policy": {
+    "hash_is_evidence_only": "same text ⇒ EQUIVALENT 금지 · diff text ⇒ DISTINCT 금지",
+    "downstream_action_excluded": "Ready 해제·매수 취소·강등 검토·슬롯 이양 은 equivalence key 에서 제외한다",
+    "fail_closed": "scope/predicate/measured_fact 중 하나라도 미확정이거나 mixed semantics 가 판단에 영향을 주면 최대 POSSIBLE_EQUIVALENT",
+    "no_split": "mixed semantics occurrence 를 분할해 새 canonical Rule 을 만들지 않는다"
+  },
+  "counts": {
+    "canonical_records": 25,
+    "all_pairs": 300,
+    "adjudicated_pairs": 11,
+    "not_compared_pairs": 289
+  },
+  "equivalence_approval": "B4-0 에서 CIO 가 사전 승인한 equivalence 는 0건이다. `cio_approved_equivalence` 참조 없이는 EQUIVALENT 를 낼 수 없다. merge 여부는 B4-1 에서 CIO 가 판정한다.",
+  "not_compared_policy": "후보로 올라오지 않은 pair 는 개별 DISTINCT 를 생성하지 않고 `not_compared` 로 남긴다. 비교하지 않은 것과 다르다고 판정한 것은 다른 사실이다.",
+  "mixed_semantics_occurrences": [
+    "ANET::탈락 조건#3"
+  ],
+  "candidates": [
+    {
+      "left_rule_id": "RULE-0002",
+      "right_rule_id": "RULE-0018",
+      "discovery_reason": "identical condition_text_sha256 + CIO 명시 후보",
+      "same_rule_kind": true,
+      "measured_fact_status": "POSSIBLE_EQUIVALENT",
+      "predicate_status": "POSSIBLE_EQUIVALENT",
+      "scope_status": "INSUFFICIENT_EVIDENCE",
+      "equivalence_status": "POSSIBLE_EQUIVALENT",
+      "evidence_occurrences": [
+        "000660.KS::탈락 조건#3",
+        "MU::탈락 조건#3"
+      ],
+      "identical_condition_hash": true,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "rule_kind 동일(FAL) · condition text byte-identical · measured_fact(DRAM ASP)와 predicate(하락 전환)가 동일해 보인다. 그러나 **scope 가 확정되지 않았다** — MU-specific 인지, 000660-specific 인지, DRAM industry-wide 하나를 두 종목이 참조하는지 source 만으로 결정되지 않는다. 두 occurrence 모두 definition_status=UNDEFINED('전환'의 판정 시점 미정의)라 predicate 도 완결이 아니다. ⛔ fail-closed — 최대 POSSIBLE_EQUIVALENT. CIO 사전 판정과 일치."
+    },
+    {
+      "left_rule_id": "RULE-0003",
+      "right_rule_id": "RULE-0007",
+      "discovery_reason": "동일 subject(TSM) + 동일 measured_fact 후보(TSMC 월매출)",
+      "same_rule_kind": true,
+      "measured_fact_status": "POSSIBLE_EQUIVALENT",
+      "predicate_status": "DISTINCT",
+      "scope_status": "POSSIBLE_EQUIVALENT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "TSM::다음 이벤트#3",
+        "TSM::탈락 조건#1"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "★ CIO 가 든 예시. 둘 다 TSMC 매출 약화를 보지만 판정 함수가 다르다 — `YoY 40% 미달 2개월 연속` vs `단월 YoY < +35% OR 누계 YoY < +34.6%`. 같은 숫자를 본다는 것보다 **판정 함수가 같은가**가 equivalence 의 핵심이므로 DISTINCT."
+    },
+    {
+      "left_rule_id": "RULE-0007",
+      "right_rule_id": "RULE-0008",
+      "discovery_reason": "동일 source cell + 동일 threshold 참조(+35% / +34.6%)",
+      "same_rule_kind": false,
+      "measured_fact_status": "POSSIBLE_EQUIVALENT",
+      "predicate_status": "DISTINCT",
+      "scope_status": "POSSIBLE_EQUIVALENT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "TSM::다음 이벤트#3",
+        "TSM::다음 이벤트#5"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "같은 임계값을 쓰는 보수 관계(약화 / 비약화)이고 measured_fact 도 같아 보이나 **rule_kind 가 다르다**(FAL vs ENT). 필요조건 하나가 명시적으로 어긋나므로 DISTINCT. downstream action 차이(Ready 해제 vs A/B 활성)는 판정 근거로 쓰지 않았다."
+    },
+    {
+      "left_rule_id": "RULE-0005",
+      "right_rule_id": "RULE-0006",
+      "discovery_reason": "동일 subject(TSM) + 동일 source cell + 가격 레벨 조건",
+      "same_rule_kind": false,
+      "measured_fact_status": "DISTINCT",
+      "predicate_status": "DISTINCT",
+      "scope_status": "POSSIBLE_EQUIVALENT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "TSM::기술적 무효화#1",
+        "TSM::기술적 무효화#2"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "rule_kind 가 다르고(FAL vs ENT) 임계값도 다르다($398 vs SMA20 $409). §21-13 이 '한 칸에 두 Rule'로 지목한 바로 그 쌍이다."
+    },
+    {
+      "left_rule_id": "RULE-0004",
+      "right_rule_id": "RULE-0015",
+      "discovery_reason": "동일 metric token(`capex 하향`)",
+      "same_rule_kind": true,
+      "measured_fact_status": "INSUFFICIENT_EVIDENCE",
+      "predicate_status": "DISTINCT",
+      "scope_status": "INSUFFICIENT_EVIDENCE",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "NVDA::탈락 조건#3",
+        "TSM::탈락 조건#3"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "문자열 일부가 같아 후보로 올라왔다. NVDA 쪽은 `하이퍼스케일러 2곳+`라는 **개수 조건**을 명시하고 TSM 쪽은 개수 조건이 없다 → predicate 가 다르다는 적극적 근거가 있으므로 DISTINCT. ★ 단 TSM 쪽 `capex 하향`이 누구의 capex 인지는 source 에 없다(measured_fact 미확정). predicate 근거가 없었다면 INSUFFICIENT_EVIDENCE 였을 pair 다."
+    },
+    {
+      "left_rule_id": "RULE-0010",
+      "right_rule_id": "RULE-0019",
+      "discovery_reason": "동일 source concept(`상대강도 … 지속 열위`)",
+      "same_rule_kind": true,
+      "measured_fact_status": "DISTINCT",
+      "predicate_status": "INSUFFICIENT_EVIDENCE",
+      "scope_status": "DISTINCT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "005930.KS::탈락 조건#1",
+        "CRDO::탈락 조건#1"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "비교 대상 쌍이 원문에 명시돼 서로 다르다 — CRDO↔ANET vs 005930↔SK. measured_fact·scope 가 다르다는 적극적 근거가 있으므로 DISTINCT. predicate('지속'/'열위')는 양쪽 다 UNDEFINED 라 미확정이지만, DISTINCT 판정에는 '하나라도 다르다는 근거'면 충분하다."
+    },
+    {
+      "left_rule_id": "RULE-0001",
+      "right_rule_id": "RULE-0014",
+      "discovery_reason": "동일 source concept(매출 목표 미달)",
+      "same_rule_kind": true,
+      "measured_fact_status": "DISTINCT",
+      "predicate_status": "DISTINCT",
+      "scope_status": "DISTINCT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "MU::탈락 조건#1",
+        "NVDA::탈락 조건#1"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "측정 대상이 다르고(MU FQ4 매출 vs NVDA FQ2 매출) 기준점 형태도 다르다 — 절대액 `$49B` vs 상대 기준 `가이드 하단`."
+    },
+    {
+      "left_rule_id": "RULE-0017",
+      "right_rule_id": "RULE-0020",
+      "discovery_reason": "동일 entity token(HBM) + 인접 종목(메모리 슬롯)",
+      "same_rule_kind": true,
+      "measured_fact_status": "DISTINCT",
+      "predicate_status": "INSUFFICIENT_EVIDENCE",
+      "scope_status": "DISTINCT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "000660.KS::탈락 조건#1",
+        "005930.KS::탈락 조건#3"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "`HBM 예약 취소·LTA 축소`(고객 확약의 취소)와 `HBM 공급 확대 미확인`(자사 공급 능력)은 측정 대상이 다르다. 양쪽 다 정의는 UNDEFINED."
+    },
+    {
+      "left_rule_id": "RULE-0022",
+      "right_rule_id": "RULE-0023",
+      "discovery_reason": "동일 source concept(계약 잔고 감소) — 서로 다른 문장",
+      "same_rule_kind": true,
+      "measured_fact_status": "POSSIBLE_EQUIVALENT",
+      "predicate_status": "DISTINCT",
+      "scope_status": "DISTINCT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "298040.KS::탈락 조건#1",
+        "MSFT::탈락 조건#3"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "★ 문자열이 전혀 다른데 후보로 올린 pair 다 — `different text ⇒ DISTINCT` 를 쓰지 않는다는 규칙의 실사례. RPO(잔여 이행의무)와 수주잔고는 같은 경제적 개념 계열이지만, predicate 가 다르다(`급둔화` UNDEFINED vs `전분기 대비 감소` DEFINED) → DISTINCT."
+    },
+    {
+      "left_rule_id": "RULE-0005",
+      "right_rule_id": "RULE-0024",
+      "discovery_reason": "동일 predicate 형태(가격 레벨 이탈)",
+      "same_rule_kind": true,
+      "measured_fact_status": "DISTINCT",
+      "predicate_status": "POSSIBLE_EQUIVALENT",
+      "scope_status": "DISTINCT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "298040.KS::탈락 조건#3",
+        "TSM::기술적 무효화#1"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [],
+      "cio_approved_equivalence": false,
+      "notes": "판정 함수 형태('특정 종가 레벨을 이탈하면 무효')는 닮았으나 측정 대상이 다르다 (TSM $398 vs 298040 ₩1,894,000). 형태 유사성은 equivalence 가 아니다."
+    },
+    {
+      "left_rule_id": "RULE-0012",
+      "right_rule_id": "RULE-0013",
+      "discovery_reason": "동일 source cell + `또는` 결합 표기로 직접 연결",
+      "same_rule_kind": true,
+      "measured_fact_status": "DISTINCT",
+      "predicate_status": "DISTINCT",
+      "scope_status": "POSSIBLE_EQUIVALENT",
+      "equivalence_status": "DISTINCT",
+      "evidence_occurrences": [
+        "ANET::탈락 조건#1",
+        "ANET::탈락 조건#3"
+      ],
+      "identical_condition_hash": false,
+      "mixed_semantics": [
+        "ANET::탈락 조건#3"
+      ],
+      "cio_approved_equivalence": false,
+      "notes": "한 칸 안에서 `또는`로 묶인 형제 조각이지만 측정 대상이 다르다 (주가·실적 반응 vs AI 매출 목표). ★ RULE-0013 은 mixed Rule/Portfolio semantics occurrence 다 — 'CRDO 에 슬롯 이양' 부분을 떼어 새 canonical Rule 을 만들지 않았다."
+    }
+  ],
+  "out_of_population_candidates": [
+    {
+      "candidate": "TSMC 월매출 약화 → 매수 취소·Ready 해제",
+      "inside": "RULE-0007 (TSM::다음 이벤트#3)",
+      "outside": "TSM::편입 사유#4 (pilot · 46칸 밖)",
+      "reason": "상대 occurrence 가 evaluation population 밖이라 canonical pair 를 만들 수 없다. 그쪽은 `⚠ PROTOTYPE — 정본 규칙 아님` 표식 아래에 있어 권위도 다르다."
+    },
+    {
+      "candidate": "TSMC $398 이탈",
+      "inside": "RULE-0005 (TSM::기술적 무효화#1)",
+      "outside": "TSM::편입 사유#5 (pilot · 46칸 밖)",
+      "reason": "같은 숫자이나 효과가 다르다(무효화 vs 청산). 상대가 population 밖이라 pair 불가."
+    }
+  ]
+}

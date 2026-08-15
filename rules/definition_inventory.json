@@ -1,0 +1,413 @@
+{
+  "artifact": "B5-0 Definition Resolution Inventory",
+  "status": "inactive preparation",
+  "authority": false,
+  "consumable_by_evaluator": false,
+  "definitions_created": 0,
+  "purpose": "15개 UNDEFINED 각각에 대해 **무엇이 빠져 있어서 evaluator 가 deterministic 하게 판정할 수 없는가** 만 구조화한다. 정의는 만들지 않는다.",
+  "allowed_missing_components": [
+    "aggregation",
+    "comparison_baseline",
+    "data_source",
+    "event_definition",
+    "observation_frequency",
+    "threshold",
+    "time_window"
+  ],
+  "resolution_status_note": "⛔ 아직 채우지 않는다. 15건의 실제 상태 공간을 보고 CIO 가 vocabulary 를 판정한 뒤에 채운다.",
+  "control_population_note": "DEFINED 10건은 control population 으로 읽기만 했다. ⛔ 그 정의 패턴을 UNDEFINED Rule 에 복사하지 않았다.",
+  "counts": {
+    "undefined": 15,
+    "inventoried": 15,
+    "defined_control": 10
+  },
+  "defined_control_population": [
+    "RULE-0001",
+    "RULE-0003",
+    "RULE-0005",
+    "RULE-0006",
+    "RULE-0007",
+    "RULE-0008",
+    "RULE-0013",
+    "RULE-0014",
+    "RULE-0023",
+    "RULE-0024"
+  ],
+  "decided_against": {
+    "decompose_full_sha256": "218749a2e29b7dc74602d1e5bf4240b6a35883dcd5d33c9a79671fcb387accd9",
+    "canonical_rules_sha256": "d067b5841bd59d4984f0240656e2e896a18b79655da77aafe88b84e78920da21"
+  },
+  "items": [
+    {
+      "canonical_rule_id": "RULE-0002",
+      "occurrence_id": "MU::탈락 조건#3",
+      "condition_text": "DRAM ASP 하락 전환",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'하락' 의 폭도, '전환' 을 선언할 기간도, 무엇 대비 하락인지도 원문에 없다. DRAM ASP 자체가 Atlas 수집 대상이 아니라 원천도 지정돼 있지 않다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0018",
+      "occurrence_id": "000660.KS::탈락 조건#3",
+      "condition_text": "DRAM ASP 하락 전환",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "같은 문구를 가진 다른 종목의 조건과 결핍 항목이 동일하다.",
+      "cross_reference": "RULE-0002 와 동일 문구 · B4-1 에서 NO_MERGE 로 판정됨 — 합치지 않는다"
+    },
+    {
+      "canonical_rule_id": "RULE-0004",
+      "occurrence_id": "TSM::탈락 조건#3",
+      "condition_text": "capex 하향",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "threshold",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'하향' 의 폭과 비교 기준이 없다. 그리고 **누구의 capex 인지**가 원문에 없어 어느 원천의 값을 읽어야 하는지 정해지지 않는다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0009",
+      "occurrence_id": "TSM::진입 패턴#1",
+      "condition_text": "B 박스권 돌파 후 재확인",
+      "rule_kind": "ENT",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "time_window"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [
+        {
+          "source": "TSM::편입 사유",
+          "quote": "Entry Language(돌파·재지지·누름의 기계적 정의)가 Undefined"
+        }
+      ],
+      "resolution_status": null,
+      "why_not_deterministic": "'박스권 돌파' 와 '재확인' 의 기계적 정의가 없다. 박스권 상단·돌파폭·재확인 기간 모두 원문에 없다. ★ 원문이 스스로 미정의를 선언하고 해소 예정 시점까지 지목한다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0010",
+      "occurrence_id": "CRDO::탈락 조건#1",
+      "condition_text": "ANET 대비 상대강도 열위 지속",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'상대강도' 산식과 '열위' 판정 기준이 없고 '지속' 의 길이도 없다. 미국 가격 원천도 확보되지 않았다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0011",
+      "occurrence_id": "CRDO::탈락 조건#3",
+      "condition_text": "고객 집중 심화(10%+ 고객 3개 미만)",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "observation_frequency",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [
+        {
+          "source": "CRDO::편입 사유",
+          "quote": "고객 집중도 기준이 분기/연간 중 어느 것인지 미정의"
+        }
+      ],
+      "resolution_status": null,
+      "why_not_deterministic": "★ 임계값은 **있다**(`10%+ 고객 3개 미만`). 빠진 것은 그 비율을 어느 주기로 보는가다. 그리고 고객 집중도는 공시 본문 재무수치라 파싱이 구현돼 있지 않다. ★ 원문이 결핍 항목을 스스로 지목하지만 값은 주지 않는다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0012",
+      "occurrence_id": "ANET::탈락 조건#1",
+      "condition_text": "호실적+주가 하락(선반영)",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "time_window"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [
+        {
+          "source": "ANET::편입 사유",
+          "quote": "주가 하락만으로는 제외하지 않는다"
+        }
+      ],
+      "resolution_status": null,
+      "why_not_deterministic": "'호실적' 의 기준도 '선반영' 의 판정법도 없고 주가 하락 폭도 없다. ★ 원문은 정의 대신 **사용 제한**을 준다 — 정의가 아니라 제약이다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0015",
+      "occurrence_id": "NVDA::탈락 조건#3",
+      "condition_text": "하이퍼스케일러 2곳+ capex 하향",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "threshold",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "★ 개수 조건은 **있다**(`2곳+`). 빠진 것은 '하향' 의 폭과 비교 기준이다. 그리고 '하이퍼스케일러' 의 대상 목록이 원문에 없어 어느 값을 읽을지 정해지지 않는다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0016",
+      "occurrence_id": "NVDA::다음 이벤트#2",
+      "condition_text": "실적 전 포지션 제한(PM)",
+      "rule_kind": "ENT",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "time_window",
+        "threshold"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'실적 전' 이 며칠 전부터인지, '제한' 이 어느 수준까지인지 원문에 없다. `(PM)` 은 권위 출처 표기이지 정의가 아니다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0017",
+      "occurrence_id": "000660.KS::탈락 조건#1",
+      "condition_text": "HBM 예약 취소·LTA 축소",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'취소'·'축소' 의 판정 기준과 축소 폭이 없다. 고객 확약 정보는 공시 본문이라 파싱이 구현돼 있지 않다. ※ 별건으로, 원문의 `·` 가 AND 인지 OR 인지도 확정되지 않았다.",
+      "cross_reference": "결합 표기(AND/OR) 미확정은 B1 에서 이미 별도 보고된 사안이다"
+    },
+    {
+      "canonical_rule_id": "RULE-0019",
+      "occurrence_id": "005930.KS::탈락 조건#1",
+      "condition_text": "SK 대비 상대강도 지속 열위",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "time_window",
+        "comparison_baseline"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'상대강도' 산식·'열위' 기준·'지속' 길이가 없다. ★ 단 데이터는 확보돼 있다 — 두 한국 종목 확정 종가는 krx.py 로 읽힌다. **데이터가 아니라 정의만 없는** 사례다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0020",
+      "occurrence_id": "005930.KS::탈락 조건#3",
+      "condition_text": "HBM 공급 확대 미확인",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "threshold",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [
+        {
+          "source": "005930.KS::편입 사유",
+          "quote": "HBM 공급 확대가 명시적으로 해소돼 성립하지 않는다"
+        }
+      ],
+      "resolution_status": null,
+      "why_not_deterministic": "'공급 확대' 의 기준과 '미확인' 의 판정법이 없다. 공시 본문 파싱 미구현. ★ 원문은 현재 **상태 진술**만 준다 — 정의가 아니다.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0021",
+      "occurrence_id": "MSFT::탈락 조건#1",
+      "condition_text": "Azure 성장 45%cc 유의미 하회",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "★ 임계값은 **있다**(`45%cc`). 빠진 것은 '유의미' 의 기준이다 — **숫자가 있어도 정의가 완결이 아니다**의 대표 사례. Azure 성장률(cc) 은 미수집.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0022",
+      "occurrence_id": "MSFT::탈락 조건#3",
+      "condition_text": "RPO 급둔화",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "threshold",
+        "time_window",
+        "comparison_baseline",
+        "data_source"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [],
+      "resolution_status": null,
+      "why_not_deterministic": "'급둔화' 의 '급' 이 무엇인지, 어느 기간을 보는지, 무엇 대비인지 모두 없다. RPO 는 재무 본문이라 파싱 미구현.",
+      "cross_reference": null
+    },
+    {
+      "canonical_rule_id": "RULE-0025",
+      "occurrence_id": "298040.KS::탈락 조건#5",
+      "condition_text": "기관 순매수 연속 끊김",
+      "rule_kind": "FAL",
+      "current_definition_status": "UNDEFINED",
+      "missing_components": [
+        "event_definition",
+        "time_window"
+      ],
+      "source_has_resolution": false,
+      "resolution_evidence": [
+        {
+          "source": "298040.KS::탈락 조건#6",
+          "quote": "'연속'의 정의가 Undefined(8/15 Review #2 이월)"
+        },
+        {
+          "source": "298040.KS::탈락 조건#5",
+          "quote": "기관 순매수 연속 끊김"
+        }
+      ],
+      "resolution_status": null,
+      "why_not_deterministic": "'연속' 의 길이가 없고, **무엇을 한 번의 '끊김' 관측으로 볼지도 없다** — 기관 분류 · 순매수가 없는 날의 취급 · 순매도 전환 여부가 모두 원문에 없다. ★ 데이터는 확보돼 있다(krx.py 수급). ★ 재검사 정정 — 최초 inventory 는 결핍을 time_window 하나로만 잡았다. 원문 주석이 '연속' 만 미정의로 선언했고 그 자기 선언을 결핍 목록으로 그대로 채택했기 때문이다. 자기 선언은 작성자가 알아챈 것이지 빠짐없는 목록이 아니다. 같은 인벤토리에서 '열위'·'미확인'·'취소'·'돌파' 같은 상태 전이 술어는 모두 event_definition 을 받았다 — '끊김' 만 빠져 있었다.",
+      "cross_reference": null
+    }
+  ],
+  "source_semantics_unresolved": [
+    {
+      "canonical_rule_id": "RULE-0025",
+      "occurrence_id": "298040.KS::탈락 조건#5",
+      "condition_text": "기관 순매수 연속 끊김",
+      "axis": "semantic_scope",
+      "why": "「기관 순매수 연속 끊김」 은 「연속」 이 무엇에 걸리는지가 갈린다. ① 「기관 순매수 연속」 이 끊긴다 — 순매수가 이어지던 상태가 끝날 때. ② 「끊김」 이 연속된다 — 끊김 관측이 이어질 때. 두 읽기는 서로 다른 규칙이며, 어느 쪽인지가 time_window 가 세는 대상을 바꾼다. 상위 artifact 어디에도 고정돼 있지 않다.",
+      "structural_note": "원문 구조화 단계가 이 구절을 한 조각으로 두고 나누지 않았다. 따라서 이 미결은 정의 결핍이 아니라 구조화 단계가 남긴 미결이며, 정의 판정보다 앞선다.",
+      "evidence": [
+        {
+          "source": "298040.KS::탈락 조건#5",
+          "quote": "기관 순매수 연속 끊김"
+        }
+      ],
+      "resolution": null
+    },
+    {
+      "canonical_rule_id": "RULE-0017",
+      "occurrence_id": "000660.KS::탈락 조건#1",
+      "condition_text": "HBM 예약 취소·LTA 축소",
+      "axis": "semantic_scope",
+      "why": "「HBM 예약 취소·LTA 축소」 는 가운데 결합 표기가 두 사건의 동시 충족을 뜻하는지 어느 하나의 충족을 뜻하는지가 갈린다. 두 읽기는 서로 다른 발동 조건이며, 각 사건을 아무리 잘 정의해도 이 결합이 정해지지 않으면 규칙이 언제 발동하는지가 둘로 남는다. 상위 artifact 어디에도 고정돼 있지 않다.",
+      "structural_note": "원문 구조화 단계가 이 결합 표기를 보존만 하고 실행 의미는 정의하지 않았다. 따라서 이 미결은 정의 결핍이 아니라 구조화 단계가 남긴 미결이며, 사건 정의보다 앞선다.",
+      "evidence": [
+        {
+          "source": "000660.KS::탈락 조건#1",
+          "quote": "HBM 예약 취소·LTA 축소"
+        }
+      ],
+      "resolution": null
+    }
+  ],
+  "source_semantics_note": "★ 정의 결핍이 아니다. 원문이 어느 규칙을 말하는지 자체가 갈리는 구조 미결이며, allowed_missing_components 어휘에 넣지 않는다. 정의 판정보다 앞서 해소돼야 한다. ⛔ 여기서 고르지 않았다 — resolution 은 전부 비어 있다.",
+  "observed_situations": [
+    {
+      "situation": "원문이 스스로 미정의를 선언하고 해소 예정 시점까지 지목한다",
+      "rules": [
+        "RULE-0009",
+        "RULE-0025"
+      ]
+    },
+    {
+      "situation": "원문이 결핍 항목을 지목하지만 값은 주지 않는다",
+      "rules": [
+        "RULE-0011"
+      ]
+    },
+    {
+      "situation": "원문이 정의 대신 사용 제한을 준다",
+      "rules": [
+        "RULE-0012"
+      ]
+    },
+    {
+      "situation": "원문이 현재 상태 진술만 준다 (정의 아님)",
+      "rules": [
+        "RULE-0020"
+      ]
+    },
+    {
+      "situation": "임계값·개수는 있으나 수식어가 미정의다",
+      "rules": [
+        "RULE-0011",
+        "RULE-0015",
+        "RULE-0021"
+      ]
+    },
+    {
+      "situation": "데이터는 확보돼 있고 정의만 없다",
+      "rules": [
+        "RULE-0019",
+        "RULE-0025"
+      ]
+    },
+    {
+      "situation": "원문에 단서가 전혀 없다",
+      "rules": [
+        "RULE-0002",
+        "RULE-0018",
+        "RULE-0004",
+        "RULE-0010",
+        "RULE-0016",
+        "RULE-0017",
+        "RULE-0022"
+      ]
+    }
+  ]
+}
