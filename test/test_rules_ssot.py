@@ -565,5 +565,69 @@ check("★ 처음부터 UNDEFINED 인 Rule 과 reopen 은 provenance 로 구별�
 check("★ reopen 은 evaluator readiness 를 움직이지 않는다 (둘 다 BLOCKED)",
       all(r["evaluator_status"] == "BLOCKED" for r in REOPENED))
 
+print("K-12 Context Provenance — 상태를 바꾸지 않고 근거만 남긴다")
+CTX = [r for r in R if r.get("context_provenance")]
+check("context provenance 는 정확히 2건 (RULE-0007·0008)",
+      sorted(r["rule_id"] for r in CTX) == ["RULE-0007", "RULE-0008"],
+      str(sorted(r["rule_id"] for r in CTX)))
+for r in CTX:
+    cp = r["context_provenance"]
+    check(f"{r['rule_id']} kind 가 context_provenance", cp["kind"] == "context_provenance")
+    check(f"{r['rule_id']} CIO decision 이 실려 있다", bool(cp.get("cio_decision", "").strip()))
+    check(f"{r['rule_id']} parent context 원문이 실려 있다",
+          "월매출" in cp.get("parent_context", ""))
+    check(f"{r['rule_id']} 신규 정의 아님을 명시", cp.get("not_a_new_definition") is True)
+    check(f"{r['rule_id']} evaluator 연결 금지 표기", "금지" in cp.get("execution_status", ""))
+    check(f"{r['rule_id']} 상태·의미 키가 기록에 없다",
+          not (PR.CONTEXT_PROVENANCE_FORBIDDEN_KEYS & set(cp)),
+          str(PR.CONTEXT_PROVENANCE_FORBIDDEN_KEYS & set(cp)))
+    check(f"{r['rule_id']} P3 상태가 그대로 유지된다",
+          r["data_status"] == "AVAILABLE" and r["source_qualification"] == "SOURCE_RESOLVED"
+          and r["definition_status"] == "DEFINED")
+    check(f"{r['rule_id']} 기존 upstream decision 을 덮어쓰지 않았다",
+          cp["decision_unit"] not in {d["decision_unit"]
+                                      for d in r["cio_definition_decisions"]})
+check("★ 금지 키 집합이 실제로 상태·의미 필드를 덮는다",
+      {"definition_status", "data_status", "source_qualification", "evaluator_status",
+       "blocked_by", "threshold", "condition_text"}
+      <= PR.CONTEXT_PROVENANCE_FORBIDDEN_KEYS)
+check("★ 이 경로는 어떤 Rule 의 상태도 만들지 않았다 — 두 Rule 은 P3 기록으로 설명된다",
+      all(r.get("data_capability_application") for r in CTX))
+# ★ 백도어 방지 — 위조 기록을 실제로 넣어 거부되는지 확인한다.
+#   ⛔ 통과만 확인하는 검사는 두지 않는다. 깨지는 것을 본다.
+_orig = dict(PR.CONTEXT_PROVENANCE)
+_base = dict(PR.CONTEXT_PROVENANCE["RULE-0007"])
+_FORGED = {
+    "상태 키(definition_status)를 넣은 기록": {**_base, "definition_status": "DEFINED"},
+    "threshold 를 넣은 기록": {**_base, "threshold": 35},
+    "condition_text 를 넣은 기록": {**_base, "condition_text": "위조"},
+    "evaluator 입력을 만든 기록": {**_base, "evaluator_input": 1},
+    "kind 가 다른 기록": {**_base, "kind": "definition_application"},
+    "CIO decision 이 빈 기록": {**_base, "cio_decision": "  "},
+    "금지 표기가 사라진 기록": {**_base, "execution_status": "허용"},
+}
+try:
+    for _name, _rec in _FORGED.items():
+        PR.CONTEXT_PROVENANCE["RULE-0007"] = _rec
+        _errs = []
+        _got = PR._context_provenance("RULE-0007", {}, [], _errs)
+        check(f"★ 백도어 방지 — {_name} 은 거부된다",
+              _got is None and bool(_errs), str(_errs))
+    # 기존 upstream decision 과 같은 unit 이면 덮어쓰기로 보고 거부
+    PR.CONTEXT_PROVENANCE["RULE-0007"] = _base
+    _errs = []
+    _got = PR._context_provenance("RULE-0007", {},
+                                  [{"decision_unit": _base["decision_unit"]}], _errs)
+    check("★ 백도어 방지 — 기존 decision_unit 을 덮어쓰면 거부된다",
+          _got is None and bool(_errs), str(_errs))
+    # 정상 기록은 통과해야 한다 (거부 로직이 무조건 거부하는 것이 아님을 보인다)
+    _errs = []
+    check("★ 정상 기록은 통과한다 (검사가 무조건 거부하는 것이 아니다)",
+          PR._context_provenance("RULE-0007", {}, [], _errs) is not None and not _errs)
+    check("★ allowlist 밖 Rule 은 None 을 돌려준다",
+          PR._context_provenance("RULE-0099", {}, [], []) is None)
+finally:
+    PR.CONTEXT_PROVENANCE.clear(); PR.CONTEXT_PROVENANCE.update(_orig)
+
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)

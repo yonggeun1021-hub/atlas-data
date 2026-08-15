@@ -443,5 +443,9 @@ check("★ Inventory 가 reopen 기록도 그대로 싣는다",
       [e["rule_id"] for e in P["entries"] if e.get("definition_reopen")] == ["RULE-0001"],
       str([e["rule_id"] for e in P["entries"] if e.get("definition_reopen")]))
 
+check("★ Inventory 는 context provenance 로 상태가 바뀐 Rule 이 없음을 보인다",
+      all(e["data_status"] == "AVAILABLE" and e["source_qualification"] == "SOURCE_RESOLVED"
+          for e in P["entries"] if e.get("rule_id") in ("RULE-0007", "RULE-0008")))
+
 print(f"\n{PASS} PASS / {FAIL} FAIL")
 sys.exit(1 if FAIL else 0)
