@@ -36,6 +36,37 @@ last sale 로 보충              → 금지
 vendor 의 `close` 필드 · 그 밖의 last-sale 계열 값으로 대체하지 않는다.
 경매 미성립일에 last sale 로 채우면, 아래에서 폐기한 문제를 그대로 다시 들여오는 것이 된다.
 
+### 식별 계약 (CIO 확정 2026-08-15)
+
+의미만으로는 데이터에서 값을 고를 수 없다. **무엇을 보고 그 관측값이라고 판정하는가**를 고정한다.
+
+```
+Sale Condition M (Market Center Official Close)
+  AND  reporting participant == security primary listing exchange
+```
+
+- 두 조건을 **동시에** 만족하는 관측값만 Decision SSOT 후보로 인정한다.
+- `M` 이 없거나, reporting participant 가 primary listing exchange 인지 **검증할 수 없으면**
+  → `UNAVAILABLE` (fail-closed).
+
+⛔ **대체 금지 목록** — 아래 어느 것으로도 보충하지 않는다.
+
+| 금지 대상 | 이유 |
+|---|---|
+| `6` Closing Print | SIP 규격상 `M` 과 **별개 condition** 이다 |
+| `X` Cross / Periodic Auction Trade | 거래 **형태**를 뜻하며 official close 라는 **결과값**이 아니다 |
+| consolidated last sale | 우리가 폐기한 계층 |
+| vendor 의 `close` 필드 | 집계값이며 `M` 태그가 소실된다 |
+| `9` Corrected Consolidated Close | listing market 만 사용하지만 **consolidated last sale 을 조정하는 별개 개념**이다. `M` 의 수정값으로 **자동 승계하지 않는다** |
+
+**왜 `X` 가 아니라 `M` 인가.** SIP 규격에서 auction/cross 라는 *거래 형태* 와
+market-center official close 라는 *결과값* 은 서로 다른 condition 이다. `X` 를 찾아
+"이것이 OCP 일 것" 이라고 **추론**하는 것보다 `M` 을 직접 소비하는 계약이 강하다.
+
+**왜 participant 조건이 필요한가.** `M` 은 *"Market Center Official Close"* 이지
+자동으로 *primary listing market* 의 close 라는 뜻이 아니다. CTA/UTP 구조상 여러 market
+center 가 거래를 보고한다.
+
 ### 조정 정책
 
 - Decision 입력은 **미조정(unadjusted) 정규장 확정 종가**다. 그 거래일 당시의 실제 값이다.
