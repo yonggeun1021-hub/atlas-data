@@ -100,6 +100,36 @@ Nasdaq 공식 문서상 NOCP 는 조건부 정의다.
 따라서 NYSE 상장 종목에 Nasdaq 계열 NOCP 를 쓰면 *Nasdaq 거래소에서의 마지막 체결* 을
 공식 종가로 오인하게 된다.
 
+## acquisition 계층 — **OPEN / HOLD** (CIO 판정 2026-08-15)
+
+문서조사만으로 4/4 를 통과한 후보가 없다. 계약을 낮추지 않고 취득 계층을 열어 둔 채 종료한다.
+
+| 후보 | ① historical `M` 보존 | ② 동일 record 에서 reporting participant | ③ 20 거래일 history | ④ post-close 수정·재조회 재현성 |
+|---|---|---|---|---|
+| **Intrinio** Security Trades | `condition` 필드는 존재하나 값 열거 미확인 | `market_center`(execution venue) 존재 — **`listing_venue` 와 동일시하지 않는다** | **FAIL** — *"up to seven days ago"* | UNVERIFIED |
+| **Massive** Trades | **문서로 닫을 수 없음** — 조건 코드 목록이 문서 표가 아니라 **API 응답**으로만 제공된다 | **PASS** — `exchange` = *"The exchange ID"* | **PASS** — Developer 10년 · Advanced 전체(2003-09-10~) | **부분** — `correction` = *"The trade correction indicator"* 필드는 있으나 값 의미·재조회 정책 미기재 |
+| **Databento** `XNYS.PILLAR` · `XNAS.BASIC` | **제외** | — | — | — |
+
+### Databento 제외 사유 (제품 결함이 아니다)
+
+`trades` 스키마 필드 13개에 **sale condition 필드가 없고**, 미국 주식 데이터셋에 **SIP(CTA/UTP) 피드가 없다.**
+`M` 은 consolidated tape 위의 태그이고 거래소 직결 피드는 거래소 자체 메시지(NYSE *Cross Trade* 등)를 나른다.
+⇒ **Atlas P1 계약을 충족하지 못한다.** 제품이 잘못됐다는 뜻이 아니라 계층이 다르다.
+
+### 왜 closing-auction cross 를 `M` 과 동등으로 인정하지 않았는가
+
+CTA/NYSE 규격에서 `M`(Market Center Official Close) · `6`(Market Center Closing Trade) ·
+`X`(Cross Trade) 는 **서로 별개의 sale condition** 이다. 그리고 정상 종가 경매에서는 `6` 이
+나타날 수 있지만, **경매가 없거나 odd-lot 만 체결되거나 halt 상태인 경우에도** 시장이 별도로
+계산한 Official Closing Price 를 `M` 으로 배포한다. 즉 **auction print 와 official close 가
+구조적으로 갈라지는 경우가 실재**한다. 동등 규칙을 넣으면 fail-closed 경계가 무너진다.
+
+### 남은 간극 — 한 항목
+
+Massive 는 ②③ 이 PASS 이고 ④ 가 부분이며, **①만 남았다.** 그런데 조건 코드 열거는
+공개 문서 표가 아니라 API 응답이므로 **문서만으로는 닫히지 않는다.** 이를 닫으려면 최소한
+무료 tier API key 가 필요하며, 그것은 CIO 판정 사항이다.
+
 ## acquisition candidate — 아직 채택하지 않았다
 
 | 후보 | 상태 | 비고 |
@@ -116,4 +146,6 @@ Nasdaq 공식 문서상 NOCP 는 조건부 정의다.
 Production HOLD · `consumable_by_evaluator=false` · evaluator 미연결 ·
 `RULE-0005 · 0006 · 0010` 은 `DATA_MISSING` · `SOURCE_UNRESOLVED` 그대로.
 
-⛔ 이 문서는 **관측값의 의미**를 확정한 것이다. 취득 경로 확정도, source 채택도 아니다.
+⛔ 이 문서는 **관측값의 의미와 식별 방법**을 확정한 것이다. 취득 경로 확정도, source 채택도 아니다.
+
+**P1 상태 = `meaning CLOSED` / `identity CLOSED` / `acquisition OPEN-HOLD`**
