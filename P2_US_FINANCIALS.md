@@ -128,16 +128,107 @@ narrative 는 **숫자를 얻는 source 가 아니라 비교가능성을 무효�
 변경 신호가 있거나 비교가능성을 판단할 수 없으면 **숫자를 보정하지 말고**
 그 관측 pair 를 `COMPARABILITY_UNRESOLVED` 로 막는다.
 
+### Gate #2 종결 계약 (CIO 확정 2026-08-15)
+
+```
+숫자 관측     XBRL us-gaap:RevenueRemainingPerformanceObligation 의 direct fact 를 SSOT 로 쓴다
+comparability veto
+             후행 filing 이 존재한다는 사실만으로 발동하지 않는다.
+             해당 RPO concept 의 정의·포함범위, 또는 해당 economic-period 의 fact 가
+             **실질적으로 변경됐다는 증거**가 있을 때만 발동한다.
+veto 단위     filing 단위가 아니라 **concept / economic observation 단위**
+서술          숫자 SSOT 가 아니라 **comparability 검증 증거**
+```
+
+### 2024-12-03 8-K 의 정체 — 원문 확인 결과
+
+`0000950170-24-132722` = `msft-20241203.htm` · **Item 8.01 + 9.01**
+
+> *"In August 2024, we announced changes to the composition of our segments, most notably
+> bringing the commercial components of Microsoft 365 together in the Productivity and
+> Business Processes segment."*
+>
+> *"**The updates do not represent a restatement of previously issued financial statements.**"*
+
+분류: **`segment-presentation recast / non-restatement / RPO comparability veto 아님`**
+
+이유 — 이 8-K 는 **세그먼트 층**의 표시 변경이고, RPO 는 **entity-wide 총액**이다.
+두 fact 의 값도 동일(275B)하다. **filing 단위로 veto 를 걸면 오탐이 된다.**
+
+⛔ 앞선 조사에서 제안했던 *"후행 8-K 재제출 = 비교가능성 신호"* 라는 구조적 축은
+   **이대로 쓰면 안 된다** — 위 원칙(concept 단위)으로 대체한다.
+
+### 서술 확인 결과 — 숫자와 교차 일치한다
+
+| 시점 | 총액 | commercial portion | 12개월 내 인식 |
+|---|---|---|---|
+| FY2025 10-K (2025-06-30) | **$375B** | $368B | 약 40% |
+| FY2026 Q1 10-Q (2025-09-30) | **$398B** | $392B | 약 40% |
+
+★ **중요한 identity 확인** — 이 총액이 XBRL fact 와 정확히 일치한다
+(`2025-06-30 = 375B` · `2025-09-30 = 398B`).
+⇒ `us-gaap:RevenueRemainingPerformanceObligation` 은 **total company RPO** 이며
+**commercial portion($392B) 이 아니다.** collector 가 commercial 값을 집으면 틀린다.
+
+또한 FY2025 → FY2026 Q1 사이에 RPO 설명의 핵심 범위(unearned revenue + 향후 invoice 될
+금액, 40%/12개월 구조)가 **일관**된다. 급격한 정의·범위 변경 증거는 현재 없다.
+
+⛔ 그렇다고 과거 6개 분기 전부의 comparability 를 자동 승인하지 않는다.
+
 ### 이번 조사 분류
 
 | 구분 | 내용 |
 |---|---|
 | `DIRECT_OBSERVATION` | RPO total 이 표준 concept 의 instant fact 로 직접 존재. 분기 cadence 와 과거 이력 확보 가능 |
-| `COMPARABILITY_VALIDATED` | **없음** |
-| `COMPARABILITY_UNRESOLVED` | `end=2024-06-30` 의 10-K ↔ 8-K 중복. 후행 8-K 재제출의 의미가 미판정 |
-| 미수행 | RPO disclosure **서술 문구** 확인 — filing 본문 취득이 별도 단계라 이번 조사에서 하지 않았다 |
+| `COMPARABILITY_VALIDATED` | `end=2024-06-30` 중복 — **veto 아님** 으로 확정 (segment recast · non-restatement · 값 동일) · FY2025↔FY2026Q1 서술 범위 일관 |
+| `COMPARABILITY_UNRESOLVED` | 나머지 economic period 는 개별 검증하지 않았다 — 자동 승인하지 않는다 |
 
 ⛔ 성장률 · 10%p · 2회 연속 판정은 계산하지 않았다.
+
+---
+
+## `RULE-0022` data/source blocker 해제 가능 여부 — 판정 요청
+
+⛔ **해제하지 않았다.** 아래는 근거 정리이며 판정은 CIO 몫이다.
+
+### 해제를 지지하는 근거
+
+| 축 | 근거 |
+|---|---|
+| `DATA_MISSING → AVAILABLE` | 표준 taxonomy concept 의 **direct instant fact** · 10-Q/10-K 분기 cadence · 과거 이력 존재 · **서술 총액과 XBRL 값이 교차 일치** |
+| `SOURCE_UNRESOLVED → SOURCE_RESOLVED` | SEC EDGAR XBRL companyconcept — **인증 불요** · 공식 API · `data.sec.gov` 는 P3(C4)에서 **GitHub-hosted runner 도달이 이미 실증**됨 |
+
+### 해제를 미룰 근거 — 세 가지
+
+**(가) P3 선례와 비대칭이다.**
+`RULE-0003/0007/0008` 은 **GitHub live run 으로 end-to-end 추출을 실증한 뒤** 해제했다.
+`RULE-0022` 는 아직 **collector 도 live run 도 없다.** 문서 근거만으로 해제하면
+P3 에서 세운 기준보다 낮은 문턱을 적용하는 것이 된다.
+
+**(나) 중복 fact 선택 규칙이 아직 없다.**
+같은 `end` 에 복수 fact 가 존재할 때 **어느 accession 을 소비하는가**가 계약에 없다.
+`frame` 은 중복 간 부여가 불안정해 키로 쓸 수 없음이 실측으로 확인됐다.
+
+**(다) 이 Rule 은 단일 관측이 아니라 계열을 요구한다.**
+카드 18·19·20 을 합치면 판정에 필요한 관측은 다음과 같다.
+
+```
+성장률(t)        = RPO(t)      / RPO(t-4Q)
+전년동기 성장률   = RPO(t-4Q)   / RPO(t-8Q)
+2회 연속          → t 와 t-1Q 각각에 대해 위 두 값이 필요
+⇒ 최소 RPO(t) · (t-1Q) · (t-4Q) · (t-5Q) · (t-8Q) · (t-9Q)  ≈ 10개 분기
+```
+
+`RULE-0003` 이 "2개월 연속" 때문에 단월 관측만으로 해제되지 않았던 것과 **같은 구조**다.
+관측된 표본은 2023-09-30 ~ 2025-09-30 의 9개 분기이며, 그 표본이 계열의 최신 꼬리인지도
+확인되지 않았다.
+
+### 제안 (판정 대상)
+
+`RULE-0022` 의 해제를 **P3 와 같은 순서**로 두는 것 — ① 중복 선택 규칙 확정 →
+② collector + live run 으로 10개 분기 계열 구성 실증 → ③ 그 결과로 해제 판정.
+
+⛔ 성장률 · 10%p · 2회 연속 계산은 하지 않았다. evaluator 연결도 하지 않았다.
 
 ---
 
