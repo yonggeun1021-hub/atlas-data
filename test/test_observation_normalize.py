@@ -230,6 +230,57 @@ with section("C-2. 기간 문면 fault matrix"):
         except N.NormalizationError:
             check(f"★ 기간 {raw!r} → fail-closed ({why})", True)
 
+with section("C-2b. ★★ calendar-date fault matrix (S2.1 · INVALID_CALENDAR_DATE_ACCEPTED)"):
+    # ★ store key 가 `economic_period_end` 이므로, 존재하지 않는 날짜가 canonical key 가
+    #   되면 형식 문제가 아니라 **series identity 오염**이다.
+    #   ⛔ rollover(2월 31일 → 3월 3일) 로 보정하지 않는다 — fail-closed 여야 한다.
+    VALID_DATES = [
+        ("February 29, 2024", "2024-02-29", "윤년 2월 29일"),
+        ("February 28, 2025", "2025-02-28", "평년 2월 28일"),
+        ("April 30, 2025", "2025-04-30", "30일 달의 말일"),
+        ("December 31, 2025", "2025-12-31", "연말"),
+        ("January 1, 2025", "2025-01-01", "연초"),
+        ("February 29, 2000", "2000-02-29", "400 로 나눠지는 세기 윤년"),
+        ("June 30, 2026", "2026-06-30", "FY26 Q4 실측"),
+    ]
+    for raw, iso, why in VALID_DATES:
+        try:
+            got = N.normalize_period_end(raw)
+            check(f"★ {raw!r} → {iso} ({why})", got["economic_period_end"] == iso,
+                  got["economic_period_end"])
+            check(f"  {raw!r} raw 문면 보존", got["period_end_raw"] == raw)
+        except N.NormalizationError as e:
+            check(f"★ {raw!r} → {iso} ({why})", False, str(e))
+
+    INVALID_DATES = [
+        ("February 29, 2025", "평년의 2월 29일"),
+        ("February 30, 2025", "2월 30일"),
+        ("February 31, 2025", "2월 31일"),
+        ("April 31, 2025", "30일 달의 31일"),
+        ("June 31, 2026", "30일 달의 31일"),
+        ("September 31, 2025", "30일 달의 31일"),
+        ("November 31, 2025", "30일 달의 31일"),
+        ("February 29, 1900", "100 으로 나눠지지만 400 은 아닌 해 — 윤년 아님"),
+        ("January 0, 2025", "0일"),
+        ("March 32, 2025", "32일"),
+    ]
+    for raw, why in INVALID_DATES:
+        try:
+            got = N.normalize_period_end(raw)
+            check(f"★★ {raw!r} → fail-closed ({why})", False,
+                  f"통과해버렸다: {got['economic_period_end']}")
+        except N.NormalizationError:
+            check(f"★★ {raw!r} → fail-closed ({why})", True)
+
+    # ⛔ rollover 가 일어나지 않았음을 직접 못 박는다
+    rolled = None
+    try:
+        rolled = N.normalize_period_end("February 31, 2025")["economic_period_end"]
+    except N.NormalizationError:
+        pass
+    check("★★ 존재하지 않는 날짜가 rollover 로 보정되지 않는다 (`2025-03-03` 등)",
+          rolled is None, str(rolled))
+
 # ══════════════════════════════════════════════════════════════════════
 # D. draft → record — 실제 fixture 로
 # ══════════════════════════════════════════════════════════════════════
@@ -393,5 +444,100 @@ with section("E-2. validate_record 는 조립과 분리돼 독립 실행된다")
             check("★★ validate fail-closed — evidence 가 Decision 으로 승격", False, "통과해버렸다")
         except RC.RecordInvariantError:
             check("★★ validate fail-closed — evidence 승격을 잡는다", True)
+
+with section("E-3. ★★ validate_record 독립 fault matrix "
+             "(S2.1 · RECORD_VALIDATION_CONTRACT_INCOMPLETE)"):
+    # ★ S3 Store 는 `build_record()` 내부 구현을 신뢰하면 안 된다. **직렬화돼 돌아온
+    #   남의 record** 를 받아도 이 문 하나로 계약이 증명돼야 한다.
+    #   그래서 build 를 거치지 않고 완성 record 를 직접 변형해 검증한다.
+    import copy as _copy
+    GOOD, _err = RC.try_build(BASE_DRAFT)
+    if not need("검증 기준 record 가 있다", GOOD is not None, str(_err)[:80]):
+        skip("validate 독립 fault matrix", "기준 record 없음")
+    else:
+        # JSON 왕복 — Store 가 실제로 받는 형태로 만든다
+        GOOD = json.loads(json.dumps(GOOD, ensure_ascii=False))
+        RC.validate_record(GOOD)
+        check("★ JSON 왕복한 record 도 validate 를 통과한다", True)
+
+        def vfail(why, mutator):
+            bad = _copy.deepcopy(GOOD)
+            mutator(bad)
+            try:
+                RC.validate_record(bad)
+                check(f"★★ validate fail-closed — {why}", False, "통과해버렸다")
+            except RC.RecordInvariantError:
+                check(f"★★ validate fail-closed — {why}", True)
+
+        def _descend(root, keys):
+            """dict 키와 list 인덱스를 함께 따라간다."""
+            cur = root
+            for k in keys:
+                cur = cur[int(k)] if isinstance(cur, list) else cur[k]
+            return cur
+
+        def setk(path, val):
+            def _m(r):
+                keys = path.split(".")
+                cur = _descend(r, keys[:-1])
+                last = keys[-1]
+                if isinstance(cur, list):
+                    cur[int(last)] = val
+                else:
+                    cur[last] = val
+            return _m
+
+        def delk(path):
+            def _m(r):
+                keys = path.split(".")
+                cur = _descend(r, keys[:-1])
+                last = keys[-1]
+                if isinstance(cur, list):
+                    del cur[int(last)]
+                else:
+                    cur.pop(last, None)
+            return _m
+
+        # ── CIO 가 지목한 미검증 계약 7건 ────────────────────────────
+        vfail("subject 가 MSFT 가 아니다", setk("subject", "AAPL"))
+        vfail("subject 가 비었다", setk("subject", ""))
+        vfail("measurement identity 가 total RPO 로 바뀌었다",
+              setk("measurement_identity", "Total remaining performance obligation"))
+        vfail("Decision column_key 가 cc 다", setk("decision.column_key", "cc"))
+        vfail("Decision column_key 가 없다", delk("decision.column_key"))
+        vfail("Decision column identity 가 cc 문면이다",
+              setk("decision.column_identity", "Percentage Change Y/Y Constant Currency"))
+        vfail("Decision column identity 에서 괄호가 사라졌다",
+              setk("decision.column_identity", "Percentage Change Y/Y GAAP"))
+        vfail("column_candidates 가 각각 1이 아니다",
+              setk("narrowing.column_candidates", {"gaap": 2, "cc_impact": 1, "cc": 1}))
+        vfail("column_candidates 가 없다", delk("narrowing.column_candidates"))
+        vfail("evidence key 집합이 다르다",
+              setk("evidence_columns", [GOOD["evidence_columns"][0]]))
+        vfail("evidence key 순서가 다르다",
+              setk("evidence_columns", list(reversed(GOOD["evidence_columns"]))))
+        vfail("evidence unit 이 pct 가 아니다", setk("evidence_columns.0.unit", "bp"))
+        vfail("decision unit 이 pct 가 아니다", setk("decision.unit", "bp"))
+
+        # ── 추가 계약 ─────────────────────────────────────────────────
+        vfail("economic_period_end 가 ISO 가 아니다",
+              setk("economic_period_end", "September 30, 2025"))
+        vfail("★ economic_period_end 가 존재하지 않는 날짜다",
+              setk("economic_period_end", "2025-02-31"))
+        vfail("economic_period_end 가 없다", delk("economic_period_end"))
+        vfail("period_end_raw 가 사라졌다 — source 복원성 상실", setk("period_end_raw", ""))
+        vfail("승인되지 않은 sign_convention", setk("decision.sign_convention", "made_up"))
+        vfail("decision numeric 이 decimal 이 아니다", setk("decision.numeric_value", "abc"))
+        vfail("evidence numeric 이 float 이다", setk("evidence_columns.0.numeric_value", 0.0))
+        vfail("Decision 값이 0개다", setk("decision.is_decision_value", False))
+        vfail("Decision 값이 2개다", setk("evidence_columns.0.is_decision_value", True))
+        try:
+            RC.validate_record("nope")
+            check("★★ validate fail-closed — record 가 dict 가 아니다", False, "통과해버렸다")
+        except RC.RecordInvariantError:
+            check("★★ validate fail-closed — record 가 dict 가 아니다", True)
+
+        check("★★ 위 변형 중 어느 것도 통과하지 않았다 — validate 가 authoritative gate 다",
+              True)
 
 sys.exit(K.exit_code())

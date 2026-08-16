@@ -22,6 +22,7 @@
 """
 from __future__ import annotations
 
+import datetime as _dt
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -101,7 +102,15 @@ RE_PERIOD_END = re.compile(r"^([A-Z][a-z]+) (\d{1,2}), (\d{4})$")
 
 
 def normalize_period_end(raw) -> dict:
-    """`September 30, 2025` → `2025-09-30`. raw 는 함께 보존한다."""
+    """`September 30, 2025` → `2025-09-30`. raw 는 함께 보존한다.
+
+    ★ 유효성은 **실제 calendar semantics** 로 본다 (CIO 판정 S2.1 ·
+      `INVALID_CALENDAR_DATE_ACCEPTED`).
+      `1 <= day <= 31` 만 보면 `February 31` · `April 31` · 평년의 `February 29` 같은
+      **존재하지 않는 날짜가 canonical key 로 만들어진다.** store key 가
+      `economic_period_end` 이므로 이는 형식 문제가 아니라 **series identity 오염**이다.
+    ⛔ 임의 rollover(2월 31일 → 3월 3일) 나 보정을 하지 않는다 — fail-closed.
+    """
     if not isinstance(raw, str) or not raw:
         raise NormalizationError(f"기간 문면이 비었다: {raw!r}")
     m = RE_PERIOD_END.match(raw)
@@ -111,6 +120,9 @@ def normalize_period_end(raw) -> dict:
     if month is None:
         raise NormalizationError(f"알 수 없는 월 이름: {m.group(1)!r}")
     day, year = int(m.group(2)), int(m.group(3))
-    if not 1 <= day <= 31:
-        raise NormalizationError(f"일자 범위를 벗어난다: {raw!r}")
-    return {"period_end_raw": raw, "economic_period_end": f"{year:04d}-{month:02d}-{day:02d}"}
+    try:
+        # ★ `date()` 는 존재하지 않는 날짜를 ValueError 로 거부한다 — rollover 하지 않는다.
+        d = _dt.date(year, month, day)
+    except ValueError as e:
+        raise NormalizationError(f"존재하지 않는 날짜다: {raw!r} ({e})") from e
+    return {"period_end_raw": raw, "economic_period_end": d.isoformat()}

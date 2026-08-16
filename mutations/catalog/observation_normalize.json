@@ -363,6 +363,141 @@
    "expected_killers": [
     "record fail-closed — draft 가 이미 persisted 라고 주장"
    ]
+  },
+  {
+   "id": "N-CAL-1",
+   "origin_label": "N-CAL-1",
+   "note": "★ 실제 calendar 검증을 제거하고 일자 범위만 본다 — 존재하지 않는 날짜가 canonical store key 가 된다 (INVALID_CALENDAR_DATE_ACCEPTED 재유입)",
+   "anchors_expected": 1,
+   "anchor": "    try:\n        # ★ `date()` 는 존재하지 않는 날짜를 ValueError 로 거부한다 — rollover 하지 않는다.\n        d = _dt.date(year, month, day)\n    except ValueError as e:\n        raise NormalizationError(f\"존재하지 않는 날짜다: {raw!r} ({e})\") from e\n    return {\"period_end_raw\": raw, \"economic_period_end\": d.isoformat()}",
+   "replacement": "    if not 1 <= day <= 31:\n        raise NormalizationError(f\"일자 범위를 벗어난다: {raw!r}\")\n    return {\"period_end_raw\": raw, \"economic_period_end\": f\"{year:04d}-{month:02d}-{day:02d}\"}",
+   "expected_killers": [
+    "'February 31, 2025' → fail-closed",
+    "'April 31, 2025' → fail-closed",
+    "존재하지 않는 날짜가 rollover 로 보정되지 않는다"
+   ]
+  },
+  {
+   "id": "N-CAL-2",
+   "origin_label": "N-CAL-2",
+   "note": "★ 존재하지 않는 날짜를 rollover 로 보정한다 (2월 31일 → 3월 3일)",
+   "anchors_expected": 1,
+   "anchor": "        d = _dt.date(year, month, day)\n    except ValueError as e:",
+   "replacement": "        d = _dt.date(year, month, 1) + _dt.timedelta(days=day - 1)\n    except ValueError as e:",
+   "expected_killers": [
+    "'February 31, 2025' → fail-closed",
+    "존재하지 않는 날짜가 rollover 로 보정되지 않는다"
+   ]
+  },
+  {
+   "id": "N-CAL-3",
+   "origin_label": "N-CAL-3",
+   "note": "윤년 판정을 무시하고 2월을 항상 29일까지 허용한다",
+   "anchors_expected": 1,
+   "anchor": "        d = _dt.date(year, month, day)\n    except ValueError as e:",
+   "replacement": "        d = _dt.date(2024 if (month == 2 and day == 29) else year, month, day)\n    except ValueError as e:",
+   "expected_killers": [
+    "'February 29, 2025' → fail-closed",
+    "'February 29, 1900' → fail-closed"
+   ]
+  },
+  {
+   "id": "R-VALID-3",
+   "origin_label": "R-VALID-3",
+   "target": "observation/record.py",
+   "note": "★ validate 의 subject 계약 검사를 없앤다 — Store 가 남의 record 를 받을 때 뚫린다",
+   "anchors_expected": 1,
+   "anchor": "    if record.get(\"subject\") != EXPECTED_SUBJECT:\n        raise RecordInvariantError(f\"subject 가 계약과 다르다: {record.get('subject')!r}\")\n\n    if record.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
+   "replacement": "    if record.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
+   "expected_killers": [
+    "validate fail-closed — subject 가 MSFT 가 아니다"
+   ]
+  },
+  {
+   "id": "R-VALID-4",
+   "origin_label": "R-VALID-4",
+   "target": "observation/record.py",
+   "note": "★ validate 의 Decision 열 계약 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if d.get(\"column_key\") != \"gaap\":\n        raise RecordInvariantError(f\"Decision 열이 GAAP 계약이 아니다: {d.get('column_key')!r}\")",
+   "replacement": "    pass",
+   "expected_killers": [
+    "validate fail-closed — Decision column_key 가 cc 다"
+   ]
+  },
+  {
+   "id": "R-VALID-5",
+   "origin_label": "R-VALID-5",
+   "target": "observation/record.py",
+   "note": "★ validate 의 evidence 키 집합·순서 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if keys != EXPECTED_EVIDENCE_KEYS:",
+   "replacement": "    if False and keys != EXPECTED_EVIDENCE_KEYS:",
+   "expected_killers": [
+    "validate fail-closed — evidence key 집합이 다르다",
+    "validate fail-closed — evidence key 순서가 다르다"
+   ]
+  },
+  {
+   "id": "R-VALID-6",
+   "origin_label": "R-VALID-6",
+   "target": "observation/record.py",
+   "note": "★ validate 의 column narrowing 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if narrowing.get(\"column_candidates\") != EXPECTED_COLUMN_NARROWING:",
+   "replacement": "    if False and narrowing.get(\"column_candidates\") != EXPECTED_COLUMN_NARROWING:",
+   "expected_killers": [
+    "validate fail-closed — column_candidates 가 각각 1이 아니다"
+   ]
+  },
+  {
+   "id": "R-VALID-7",
+   "origin_label": "R-VALID-7",
+   "target": "observation/record.py",
+   "note": "★ validate 가 economic_period_end 의 실제 달력 유효성을 보지 않는다",
+   "anchors_expected": 1,
+   "anchor": "    try:\n        _dt.date(int(pe[0:4]), int(pe[5:7]), int(pe[8:10]))\n    except ValueError as e:\n        raise RecordInvariantError(f\"economic_period_end 가 존재하지 않는 날짜다: {pe!r} ({e})\") from e",
+   "replacement": "    pass",
+   "expected_killers": [
+    "validate fail-closed — ★ economic_period_end 가 존재하지 않는 날짜다"
+   ]
+  },
+  {
+   "id": "R-VALID-8",
+   "origin_label": "R-VALID-8",
+   "target": "observation/record.py",
+   "note": "validate 의 Decision 값 개수 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if n_decision != 1:",
+   "replacement": "    if False and n_decision != 1:",
+   "expected_killers": [
+    "validate fail-closed — Decision 값이 0개다",
+    "validate fail-closed — Decision 값이 2개다"
+   ]
+  },
+  {
+   "id": "R-VALID-9",
+   "origin_label": "R-VALID-9",
+   "target": "observation/record.py",
+   "note": "validate 의 sign_convention allowlist 를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if d.get(\"sign_convention\") not in ALLOWED_SIGN_CONVENTIONS:",
+   "replacement": "    if False and d.get(\"sign_convention\") not in ALLOWED_SIGN_CONVENTIONS:",
+   "expected_killers": [
+    "validate fail-closed — 승인되지 않은 sign_convention"
+   ]
+  },
+  {
+   "id": "R-VALID-10",
+   "origin_label": "R-VALID-10",
+   "target": "observation/record.py",
+   "note": "validate 의 period_end_raw 보존 검사를 없앤다 — source 복원성 상실을 못 잡는다",
+   "anchors_expected": 1,
+   "anchor": "    if not record.get(\"period_end_raw\"):",
+   "replacement": "    if False and not record.get(\"period_end_raw\"):",
+   "expected_killers": [
+    "validate fail-closed — period_end_raw 가 사라졌다"
+   ]
   }
  ]
 }

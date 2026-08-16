@@ -15,13 +15,17 @@
 """
 from __future__ import annotations
 
+import datetime as _dt
 import os
+import re
 import sys
+from decimal import Decimal, InvalidOperation
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from normalize import (NormalizationError, UNIT_PCT,                # noqa: E402
+from normalize import (NormalizationError, SIGN_MINUS, SIGN_NONE,   # noqa: E402
+                       SIGN_PARENS, UNIT_PCT,
                        normalize_pct, normalize_period_end)
 
 SCHEMA_VERSION = "observation/1"
@@ -37,6 +41,9 @@ EXPECTED_DECISION_COLUMN_IDENTITY = "Percentage Change Y/Y (GAAP)"
 EXPECTED_EVIDENCE_KEYS = ("cc_impact", "cc")
 REQUIRED_PROVENANCE = ("accession", "filing_date", "source_sha256")
 REQUIRED_NARROWING = ("period_candidates", "table_candidates", "row_candidates")
+EXPECTED_COLUMN_NARROWING = {"gaap": 1, "cc_impact": 1, "cc": 1}
+ALLOWED_SIGN_CONVENTIONS = (SIGN_NONE, SIGN_PARENS, SIGN_MINUS)
+RE_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class RecordInvariantError(ValueError):
@@ -157,51 +164,117 @@ def build_record(draft: dict) -> dict:
 
 
 def validate_record(record: dict) -> None:
-    """완성된 record 가 최소 invariant 를 만족하는지 재확인한다.
+    """완성된 record 만 보고 **핵심 계약 전체**를 독립 검증한다.
 
-    ★ 조립과 검증을 분리한다 — 저장 층(S3)이 남의 record 를 받아도 같은 문으로 건다.
+    ★ 이것이 층 ④ Store 의 authoritative invariant gate 다 (CIO 판정 S2.1 ·
+      `RECORD_VALIDATION_CONTRACT_INCOMPLETE`).
+      **Store 는 `build_record()` 의 내부 구현을 신뢰하면 안 된다.** 직렬화돼 돌아온
+      남의 record 를 받아도 이 문 하나로 계약이 증명돼야 한다.
+    ★ `build_record()` 의 preflight 검사와 중복되는 항목이 있다 — 그것은 의도된
+      이중 방어다. ⛔ 중복이라는 이유로 어느 쪽도 제거하지 않는다.
     """
+    if not isinstance(record, dict):
+        raise RecordInvariantError(f"record 가 dict 가 아니다: {type(record).__name__}")
     if record.get("schema_version") != SCHEMA_VERSION:
         raise RecordInvariantError(f"schema_version 이 다르다: {record.get('schema_version')!r}")
-    for k in ("subject", "measurement_identity", "economic_period_end"):
-        if not record.get(k):
-            raise RecordInvariantError(f"필수 필드가 없다: {k}")
+
+    # ── identity 계약 — 값까지 검증한다 (존재 여부만 보지 않는다) ──────
+    if record.get("subject") != EXPECTED_SUBJECT:
+        raise RecordInvariantError(f"subject 가 계약과 다르다: {record.get('subject')!r}")
+    if record.get("measurement_identity") != EXPECTED_MEASUREMENT:
+        raise RecordInvariantError(
+            f"measurement identity 가 계약과 다르다: {record.get('measurement_identity')!r}")
     if record.get("economic_period_kind") != EXPECTED_PERIOD_KIND:
         raise RecordInvariantError("economic period 가 quarter 가 아니다")
+
+    # ── economic_period_end — store key 이므로 실제 달력으로 재확인한다 ──
+    pe = record.get("economic_period_end")
+    if not pe:
+        raise RecordInvariantError("필수 필드가 없다: economic_period_end")
+    if not isinstance(pe, str) or not RE_ISO_DATE.match(pe):
+        raise RecordInvariantError(f"economic_period_end 가 ISO date 가 아니다: {pe!r}")
+    try:
+        _dt.date(int(pe[0:4]), int(pe[5:7]), int(pe[8:10]))
+    except ValueError as e:
+        raise RecordInvariantError(f"economic_period_end 가 존재하지 않는 날짜다: {pe!r} ({e})") from e
+    if not record.get("period_end_raw"):
+        raise RecordInvariantError("period_end_raw 가 없다 — source 복원성 상실")
+
+    # ── 층 순서 ───────────────────────────────────────────────────────
     if record.get("normalized") is not True:
         raise RecordInvariantError("normalized 가 True 가 아니다")
     if record.get("persisted") is not False:
         raise RecordInvariantError("persisted 가 False 가 아니다 — 층 ④ 침범")
 
-    d = record.get("decision") or {}
+    # ── Decision 계약 (D-3) ───────────────────────────────────────────
+    d = record.get("decision")
+    if not isinstance(d, dict):
+        raise RecordInvariantError("decision 이 없다")
     for k in ("raw_value", "numeric_value", "unit", "sign_convention", "column_identity"):
         if d.get(k) in (None, ""):
             raise RecordInvariantError(f"decision 에 `{k}` 가 없다")
+    if d.get("column_key") != "gaap":
+        raise RecordInvariantError(f"Decision 열이 GAAP 계약이 아니다: {d.get('column_key')!r}")
+    if not _identity_contains(d.get("column_identity") or "", EXPECTED_DECISION_COLUMN_IDENTITY):
+        raise RecordInvariantError(
+            f"Decision 열 identity 가 기대 문면을 담고 있지 않다: {d.get('column_identity')!r}")
     if d.get("unit") != UNIT_PCT:
         raise RecordInvariantError(f"decision unit 이 pct 가 아니다: {d.get('unit')!r}")
+    if d.get("sign_convention") not in ALLOWED_SIGN_CONVENTIONS:
+        raise RecordInvariantError(f"승인되지 않은 sign_convention: {d.get('sign_convention')!r}")
     if d.get("is_decision_value") is not True:
         raise RecordInvariantError("decision 이 Decision 값으로 표시돼 있지 않다")
-    if not isinstance(d.get("numeric_value"), str):
-        raise RecordInvariantError("numeric_value 가 문자열이 아니다 — float 유입 의심")
+    _check_numeric(d, "decision")
 
-    for e in record.get("evidence_columns") or []:
+    # ── evidence 계약 — 키 집합과 순서까지 본다 ────────────────────────
+    ev = record.get("evidence_columns")
+    if not isinstance(ev, list):
+        raise RecordInvariantError("evidence_columns 가 목록이 아니다")
+    keys = tuple(e.get("column_key") for e in ev)
+    if keys != EXPECTED_EVIDENCE_KEYS:
+        raise RecordInvariantError(
+            f"evidence 열이 계약과 다르다: {list(keys)} != {list(EXPECTED_EVIDENCE_KEYS)}")
+    for e in ev:
         for k in ("raw_value", "numeric_value", "unit"):
             if e.get(k) in (None, ""):
                 raise RecordInvariantError(f"evidence 에 `{k}` 가 없다")
+        if e.get("unit") != UNIT_PCT:
+            raise RecordInvariantError(f"evidence unit 이 pct 가 아니다: {e.get('unit')!r}")
         if e.get("is_decision_value") is not False:
             raise RecordInvariantError("evidence 가 Decision 값으로 승격돼 있다")
-        if not isinstance(e.get("numeric_value"), str):
-            raise RecordInvariantError("evidence numeric_value 가 문자열이 아니다")
+        _check_numeric(e, "evidence")
+    n_decision = sum(1 for x in [d] + ev if x.get("is_decision_value"))
+    if n_decision != 1:
+        raise RecordInvariantError(f"Decision 값이 정확히 1개가 아니다: {n_decision}개")
 
+    # ── provenance ────────────────────────────────────────────────────
     prov = record.get("provenance") or {}
     missing = [k for k in REQUIRED_PROVENANCE if not prov.get(k)]
     if missing:
         raise RecordInvariantError(f"provenance 필수 항목이 없다: {missing}")
 
+    # ── narrowing exactly-one 증거 ────────────────────────────────────
     narrowing = record.get("narrowing") or {}
     for k in REQUIRED_NARROWING:
         if narrowing.get(k) != 1:
-            raise RecordInvariantError(f"narrowing `{k}` 가 1이 아니다")
+            raise RecordInvariantError(f"narrowing `{k}` 가 1이 아니다: {narrowing.get(k)!r}")
+    if narrowing.get("column_candidates") != EXPECTED_COLUMN_NARROWING:
+        raise RecordInvariantError(
+            f"column narrowing 이 각각 1이 아니다: {narrowing.get('column_candidates')!r}")
+
+
+def _check_numeric(field: dict, where: str) -> None:
+    """numeric 이 문자열이고 exact decimal 로 되살아나는지 본다.
+
+    ⛔ float 유입을 막는다 · ⛔ 값이 raw 와 무관한 문자열이어도 잡는다.
+    """
+    n = field.get("numeric_value")
+    if not isinstance(n, str):
+        raise RecordInvariantError(f"{where} numeric_value 가 문자열이 아니다 — float 유입 의심")
+    try:
+        Decimal(n)
+    except InvalidOperation as e:
+        raise RecordInvariantError(f"{where} numeric_value 가 decimal 이 아니다: {n!r}") from e
 
 
 def try_build(draft: dict):
