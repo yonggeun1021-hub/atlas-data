@@ -92,8 +92,19 @@ with section("A-2. ★★ observe 는 저장소 밖으로만 emit 한다"):
     with tempfile.TemporaryDirectory() as d:
         check("★ 저장소 밖 경로는 허용된다",
               OBSV.assert_outside_repository(os.path.join(d, "e.json")).startswith(d))
-    check("★ source 를 명시하지 않으면 실행되지 않는다 (fallback 없음)",
-          "required=True" in open(OBSV_SRC, encoding="utf-8").read())
+    # ⛔ 「소스에 `required=True` 문자열이 있다」로 보지 않는다 — 다른 인자에도 있어
+    #    변이를 구별하지 못한다(실제로 IN-SRC-1 이 그 틈으로 SURVIVED 했다).
+    #    ★ 실제로 `--source` 없이 부르면 실행되지 않는다는 **행동**을 못 박는다.
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            rc = OBSV.main(["--manifest", MAN26, "--out", os.path.join(d, "e.json")])
+            check("★★ `--source` 없이 부르면 실행되지 않는다 (fallback 없음)",
+                  False, f"실행돼버렸다 rc={rc}")
+        except SystemExit as e:
+            check("★★ `--source` 없이 부르면 실행되지 않는다 (fallback 없음)",
+                  e.code != 0, str(e.code))
+        check("  그 경우 emit 파일도 만들지 않는다",
+              not os.path.exists(os.path.join(d, "e.json")))
     try:
         OBSV.observe_live(4)
         check("★★ live 관측은 S4A 에서 실행되지 않는다", False, "실행돼버렸다")
@@ -101,6 +112,34 @@ with section("A-2. ★★ observe 는 저장소 밖으로만 emit 한다"):
         check("★★ live 관측은 S4A 에서 실행되지 않는다 (S4B 승인 전 fail-closed)", True)
 
 # ══════════════════════════════════════════════════════════════════════
+with section("A-3. ★ 실패 층을 구별한다 — 관측 실패 vs 정규화 실패"):
+    # ★ 「어느 층에서 실패했는가」가 사라지면 원인 귀속이 무너진다.
+    html26 = open(os.path.join(FX_DIR, json.load(open(MAN26, encoding="utf-8"))
+                               ["captured"][0]["fixture_file"]), encoding="utf-8").read()
+    rec, why = OBSV._observe_one(html26, {"accession": "a", "filing_date": "d",
+                                          "source_sha256": "s"})
+    check("정상 provenance 조합이면 record 가 만들어진다", rec is not None, str(why))
+
+    # provenance 필수 항목이 없으면 **정규화/record 단계**에서 실패한다
+    rec2, why2 = OBSV._observe_one(html26, {"accession": "", "filing_date": "",
+                                            "source_sha256": ""})
+    check("★ provenance 결손 → record 가 만들어지지 않는다", rec2 is None)
+    check("★★ 그 실패는 `normalization` 층으로 귀속된다",
+          why2["stage"] == "normalization", str(why2["stage"]))
+    check("★★ outcome 이 NORMALIZATION_FAILED 다 (ROW_ABSENT 로 뭉개지지 않는다)",
+          why2["outcome"] == "NORMALIZATION_FAILED", str(why2["outcome"]))
+
+    # 대조군 — 행이 없는 문서는 **관측** 층 ROW_ABSENT 다
+    man25 = json.load(open(MAN25, encoding="utf-8"))
+    html25 = open(os.path.join(FX_DIR, man25["captured"][0]["fixture_file"]),
+                  encoding="utf-8").read()
+    rec3, why3 = OBSV._observe_one(html25, {"accession": "a", "filing_date": "d",
+                                            "source_sha256": "s"})
+    check("★ 대조군: 행 부재는 `observation` 층이다", why3["stage"] == "observation",
+          str(why3["stage"]))
+    check("★★ 두 실패의 outcome 이 서로 다르다", why2["outcome"] != why3["outcome"],
+          f'{why2["outcome"]} vs {why3["outcome"]}')
+
 with section("B. ★★ FY26 end-to-end — draft 4 → record 4 → Store NEW 4"):
     em = OBSV.observe_fixture(MAN26)
     check("★ emission schema", em["schema_version"] == OBSV.EMISSION_SCHEMA_VERSION)

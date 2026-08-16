@@ -79,7 +79,21 @@
    "anchor": "        return None, {\"stage\": \"normalization\", \"outcome\": \"NORMALIZATION_FAILED\",",
    "replacement": "        return None, {\"stage\": \"observation\", \"outcome\": \"ROW_ABSENT\",",
    "expected_killers": [
-    "FY25 실패 사유가 ROW_ABSENT 다"
+    "outcome 이 NORMALIZATION_FAILED 다 (ROW_ABSENT 로 뭉개지지 않는다)",
+    "두 실패의 outcome 이 서로 다르다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "FY25 실패 사유가 ROW_ABSENT 다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "outcome 이 NORMALIZATION_FAILED 다 (ROW_ABSENT 로 뭉개지지 않는다)",
+      "두 실패의 outcome 이 서로 다르다"
+     ],
+     "reason": "v1 은 FY25 검사(`FY25 실패 사유가 ROW_ABSENT 다`)를 선언했으나 FY25 는 원래 관측 층 실패라 변이 후에도 PASS 한다 — 회귀에 **정규화 층 실패** 사례가 없었다. `_observe_one` 을 provenance 결손으로 직접 부르는 A-3 절을 추가하고 그 검사로 옮겼다."
+    }
    ]
   },
   {
@@ -113,7 +127,19 @@
    "anchor": "    ap.add_argument(\"--source\", required=True, choices=[SOURCE_LIVE, SOURCE_FIXTURE],",
    "replacement": "    ap.add_argument(\"--source\", default=SOURCE_FIXTURE, choices=[SOURCE_LIVE, SOURCE_FIXTURE],",
    "expected_killers": [
-    "source 를 명시하지 않으면 실행되지 않는다 (fallback 없음)"
+    "`--source` 없이 부르면 실행되지 않는다 (fallback 없음)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "source 를 명시하지 않으면 실행되지 않는다 (fallback 없음)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "`--source` 없이 부르면 실행되지 않는다 (fallback 없음)"
+     ],
+     "reason": "v1 검사가 소스 문자열 `required=True` 존재 여부를 봤는데 `--out` 인자에도 같은 문자열이 있어 변이를 구별하지 못했다. `--source` 없이 호출하면 실행되지 않는다는 **행동** 검사로 바꿨다."
+    }
    ]
   },
   {
