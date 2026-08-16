@@ -184,11 +184,25 @@
    "origin_label": "ST-OVER-1",
    "note": "★ silent overwrite — CONFLICT 대신 기존 revision 을 새 값으로 덮는다",
    "anchors_expected": 1,
-   "anchor": "        entry = dict(entry)\n        entry[\"conflicts\"] = list(entry.get(\"conflicts\") or []) + [conflict]\n        new_state[\"series\"][ks] = _entry_view(entry)\n        return new_state, _accept(CONFLICT, key, conflict[\"reason\"], new_state[\"series\"][ks])",
-   "replacement": "        entry = dict(entry)\n        entry[\"revisions\"] = [new_rev]\n        new_state[\"series\"][ks] = _entry_view(entry)\n        return new_state, _accept(CONFLICT, key, conflict[\"reason\"], new_state[\"series\"][ks])",
+   "anchor": "        entry = dict(entry)\n        entry[\"conflicts\"] = list(entry.get(\"conflicts\") or []) + [conflict]",
+   "replacement": "        entry = dict(entry)\n        entry[\"revisions\"] = [new_rev]",
    "expected_killers": [
     "raw 변조 → 기존 값이 덮이지 않는다",
     "raw 변조 → conflict 가 두 값을 함께 보존한다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "raw 변조 → 기존 값이 덮이지 않는다",
+      "raw 변조 → conflict 가 두 값을 함께 보존한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "raw 변조 → 기존 값이 덮이지 않는다",
+      "raw 변조 → conflict 가 두 값을 함께 보존한다"
+     ],
+     "reason": "S3.1 에서 CONFLICT 분기에 dedup 과 new_conflict 인자가 들어가면서 기존 anchor 가 0건이 됐다(NOT_APPLICABLE). 같은 계약(기존값을 덮지 않는다)을 겨누는 현재 위치로 옮겼다. ⛔ 변이 의도를 바꾸지 않았다."
+    }
    ]
   },
   {
@@ -407,8 +421,20 @@
    "anchor": "        if (c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]\n                and (c.get(\"incoming\") or {}).get(\"content_digest\")\n                == conflict[\"incoming\"][\"content_digest\"]):",
    "replacement": "        if (c.get(\"incoming\") or {}).get(\"content_digest\") == conflict[\"incoming\"][\"content_digest\"]:",
    "expected_killers": [
-    "두 충돌의 material provenance digest 는 같다",
-    "제3의 새 content → conflict count +1"
+    "provenance 가 다르면 같은 content 라도 새 충돌이다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "두 충돌의 material provenance digest 는 같다",
+      "제3의 새 content → conflict count +1"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "provenance 가 다르면 같은 content 라도 새 충돌이다"
+     ],
+     "reason": "v1 선언 검사들은 두 충돌의 provenance 가 **같은** 시나리오라 content-only 매칭으로도 구별돼 변이 하에서 PASS 했다. provenance 가 다르고 content 가 같은 경우가 이 계약의 소유자이며, 그 시나리오(P1·P2 두 revision 에 같은 52% 충돌)를 회귀에 추가했다."
+    }
    ]
   },
   {

@@ -315,6 +315,28 @@ with section("C-5. ★★ conflict evidence idempotency (S3.1 · REPEATED_CONFLI
     check("  두 충돌의 material provenance digest 는 같다",
           len({c["material_provenance_digest"] for c in e3["conflicts"]}) == 1)
 
+    # ⛔ content 만 같다고 같은 충돌로 뭉개지 않는다 — provenance 가 다르면 다른 충돌이다.
+    #   ★ revision 이 둘(P1·P2)일 때 각각에 같은 값(52%)이 충돌해 들어오는 경우다.
+    P2 = copy.deepcopy(FY26[0])
+    P2["provenance"]["accession"] = "0001193125-26-888888"
+    P2["provenance"]["source_sha256"] = "a" * 64
+    sp1, rp1 = S.apply_record(GOOD_STATE, P2)
+    check("P2 는 REVISION 이다", rp1["outcome"] == S.REVISION, rp1["outcome"])
+    sp2, _ = S.apply_record(sp1, A52)                    # P1 provenance 로 52% 충돌
+    P2_52 = copy.deepcopy(P2)
+    P2_52["decision"]["raw_value"] = "52%"
+    P2_52["decision"]["numeric_value"] = "52"
+    sp3, rp3 = S.apply_record(sp2, P2_52)                # P2 provenance 로 같은 52% 충돌
+    check("★★ provenance 가 다르면 같은 content 라도 새 충돌이다",
+          rp3["conflict_count"] == 2, str(rp3["conflict_count"]))
+    check("★ 그것은 new_conflict=True 다", rp3.get("new_conflict") is True,
+          str(rp3.get("new_conflict")))
+    ep = S.get_entry(sp3, KEY0)
+    check("  두 충돌의 material provenance digest 가 서로 다르다",
+          len({c["material_provenance_digest"] for c in ep["conflicts"]}) == 2)
+    check("  두 충돌의 incoming content digest 는 같다",
+          len({c["incoming"]["content_digest"] for c in ep["conflicts"]}) == 1)
+
     # REVISION 재전달 idempotency 도 유지되는지 (기존 계약)
     rev = copy.deepcopy(FY26[0])
     rev["provenance"]["accession"] = "0001193125-26-999999"
