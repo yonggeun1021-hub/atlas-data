@@ -634,6 +634,18 @@ with section("E-3. ★★ live fail-closed 매트릭스"):
             check(f"★★ {why} → ObserveError (fail-closed)", True)
             check(f"  {why} → 사유가 정확하다", REASON[why] in str(e), str(e)[:90])
 
+    # ★★ secondary 가 **문면 그대로** 기록되는지 — 상수를 베껴 적으면 증거가 아니라 주장이다.
+    #    ★ `select_exhibit` 은 대소문자·공백을 정규화해 비교하므로 `ex-99.1` 도 통과한다.
+    #      그때 evidence 는 index 가 **실제로 적은 문면**을 담아야 한다.
+    em_lower = OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, sec_type="ex-99.1"))
+    check("★ 소문자 secondary type 도 교차확인을 통과한다 (정규화 비교)",
+          em_lower["observed"] == 4, str(em_lower["observed"]))
+    check("★★ secondary_type 이 index 원문(`ex-99.1`)을 그대로 담는다 — 상수 복사가 아니다",
+          all(r["provenance"]["identity_evidence"]["secondary_type"] == "ex-99.1"
+              for r in em_lower["records"]),
+          str([r["provenance"]["identity_evidence"]["secondary_type"]
+               for r in em_lower["records"]][:2]))
+
     # ★★ primary 와 secondary 가 다른 document 를 가리키면 여전히 fail-closed 다.
     #    ⛔ 관측성 보강이 fail-closed 조건을 무르게 하지 않았는지 확인한다.
     try:
