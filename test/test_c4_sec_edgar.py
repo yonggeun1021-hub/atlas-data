@@ -449,6 +449,52 @@ P3_VALUES = {"June": ("442,680", "67.9", "2,404,484", "35.6"),
              "July": ("467,580", "44.7", "2,872,064", "37.0")}
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ coverage cardinality gate (CIO 승인 2026-08-16)
+#
+#   닫는 문제: 회귀가 **실제로 몇 개를 검사했는지 스스로 증명하지 못한다.**
+#     아래 loop 들은 `_t4_` 로 걸러 3개월을 돌 것으로 기대하지만, 항목이 빠지거나
+#     이름 규약이 바뀌면 `continue` 로 건너뛰어 **실패 없이 검사 수만 줄어든다.**
+#   ⇒ 그때 33개 검사가 조용히 사라지는 대신 **이 Gate 가 먼저 실패**해야 한다.
+#
+#   ⛔ 이번 범위는 cardinality 뿐이다.
+#      파일명→내용 identity 전환 · MANIFEST consumer 신설 · fixture rename ·
+#      capture 변경은 전부 범위 밖이다 (CIO 판정).
+#   ★ 총수만 맞는 경우도 막는다 — 「한 달 t4 가 빠지고 다른 달 t4 가 중복」처럼
+#     6/3/3 은 성립하는데 월별 대응이 깨진 경우까지 잡아야 한다.
+TSMC_T4 = [f for f in TSMC_FX if "_t4_" in f[0]]
+TSMC_T6 = [f for f in TSMC_FX if "_t6_" in f[0]]
+_TSMC_BY_DATE = {}
+for _n, _s, _nr, _y in TSMC_FX:
+    _kind = "t4" if "_t4_" in _n else ("t6" if "_t6_" in _n else "?")
+    _TSMC_BY_DATE.setdefault(_n[:10], {}).setdefault(_kind, []).append(_n)
+
+print("\n⑰-G coverage cardinality — 회귀가 몇 개를 검사하는지 스스로 고정한다")
+check("★ TSMC_FX 전체 6건", len(TSMC_FX) == 6, str(len(TSMC_FX)))
+check("★ 결정표(t4) 3건", len(TSMC_T4) == 3, str(len(TSMC_T4)))
+check("★ 천원표(t6) 3건", len(TSMC_T6) == 3, str(len(TSMC_T6)))
+check("★ 분류되지 않은 항목이 없다 (t4+t6 == 전체)",
+      len(TSMC_T4) + len(TSMC_T6) == len(TSMC_FX),
+      f"{len(TSMC_T4)}+{len(TSMC_T6)} vs {len(TSMC_FX)}")
+check("★ 대상 월이 3개다", len(_TSMC_BY_DATE) == 3, str(sorted(_TSMC_BY_DATE)))
+check("★★ 월별로 t4·t6 가 정확히 1:1 이다 (총수만 맞는 경우를 막는다)",
+      all(len(v.get("t4", [])) == 1 and len(v.get("t6", [])) == 1
+          for v in _TSMC_BY_DATE.values()),
+      str({d: {k: len(v) for k, v in x.items()} for d, x in _TSMC_BY_DATE.items()}))
+check("★ 파일명 중복이 없다", len({f[0] for f in TSMC_FX}) == 6)
+check("★ sha256 중복이 없다 (같은 내용을 두 번 세지 않는다)",
+      len({f[1] for f in TSMC_FX}) == 6)
+check("★ 모든 월이 TSMC_MONTH 에 매핑돼 있다",
+      set(_TSMC_BY_DATE) == set(TSMC_MONTH), str(set(_TSMC_BY_DATE) ^ set(TSMC_MONTH)))
+
+# ★ loop 이 실제로 몇 번 돌았는지도 센다 — Gate 가 통과해도 loop 이 0회면 무의미하다.
+_LOOP_RUNS = {}
+
+
+def _ran(tag):
+    _LOOP_RUNS[tag] = _LOOP_RUNS.get(tag, 0) + 1
+
+
 def _fx(name):
     return open(os.path.join(FX, name), encoding="utf-8").read()
 
@@ -541,9 +587,8 @@ check("★ 양성 대조: 실제 결정표는 여전히 후보다",
           "July", 2026)) == 1)
 
 print("\n⑰-4 ★ 무변형 원문에서 기존 P3 관측이 그대로 재현된다")
-for name, _, nrows, yoy in TSMC_FX:
-    if "_t4_" not in name:
-        continue
+for name, _, nrows, yoy in TSMC_T4:          # ★ 검증된 집합을 쓴다
+    _ran("P3재현")
     d = name[:10]
     mn, yr = TSMC_MONTH[d]
     html = _fx(name)
@@ -599,9 +644,8 @@ check("⛔ build_header 의 연결 알고리즘은 그대로다 (위 전부를 �
 #     ⇒ 검사도 층을 나눠서 한다. 섞으면 어느 층이 틀렸는지 가리키지 못한다.
 # ══════════════════════════════════════════════════════════════════════
 print("\n⑱-C positive — 실제 fixture 3개월에서 L1∧L2 == 1 (T-1~T-4)")
-for _name, _, _nr, _yoy in TSMC_FX:
-    if "_t4_" not in _name:
-        continue
+for _name, _, _nr, _yoy in TSMC_T4:          # ★ 검증된 집합을 쓴다
+    _ran("최종후보")
     _d = _name[:10]
     _mn, _yr = TSMC_MONTH[_d]
     _tb = _tables(_fx(_name))
@@ -725,9 +769,8 @@ check("T-9d ★ 전제 판별이 위치가 아니라 의미다",
 #   ⛔ 연결 알고리즘 · MSFT build_header · 공용 helper 추출은 범위 밖이다.
 # ══════════════════════════════════════════════════════════════════════
 print("\n⑲-1 실제 TSMC fixture 3개월 — precondition PASS · P3 값 불변")
-for _name, _, _nr, _yoy in TSMC_FX:
-    if "_t4_" not in _name:
-        continue
+for _name, _, _nr, _yoy in TSMC_T4:          # ★ 검증된 집합을 쓴다
+    _ran("precondition")
     _d = _name[:10]
     _mn, _yr = TSMC_MONTH[_d]
     _tbs = _tables(_fx(_name))
@@ -792,6 +835,45 @@ check("★ 연도 단독 셀은 값 행으로 세지 않는다",
 check("★ 실제 관측값은 값 행으로 센다",
       C.is_data_row_c4(["Net Revenue", "467,580", "44.7"]))
 check("★ 퍼센트 소수도 값이다", C.is_data_row_c4(["x", "5.6"]))
+
+
+
+print("\n⑳ ★ loop 이 실제로 몇 번 돌았는가 — Gate 통과와 별개로 확인한다")
+# ⛔ cardinality Gate 가 통과해도 loop 이 0회 돌면 검사는 사라진다.
+#    그래서 **실행 횟수 자체**를 마지막에 고정한다.
+for _tag, _want in (("P3재현", 3), ("최종후보", 3), ("precondition", 3)):
+    check(f"★ loop '{_tag}' 이 {_want}회 돌았다",
+          _LOOP_RUNS.get(_tag) == _want, str(_LOOP_RUNS.get(_tag)))
+check("★ 기대한 loop 이 전부 실행됐다 (누락 없음)",
+      set(_LOOP_RUNS) == {"P3재현", "최종후보", "precondition"}, str(sorted(_LOOP_RUNS)))
+
+
+
+print("\n⑳-S 정적 — 세 loop 이 **검증된 집합**을 쓴다 (CIO 계약)")
+# ⛔ 목록이 온전하면 「TSMC_FX + continue」와 「TSMC_T4」는 결과가 같다.
+#    즉 행동으로는 구별되지 않는다 — 그래서 **구조로** 고정한다.
+#    (구별되지 않는 것을 행동 검사로 잡는 척하지 않는다.)
+_self = ast.parse(open(os.path.abspath(__file__), encoding="utf-8").read())
+_t4_loops = [n for n in ast.walk(_self) if isinstance(n, ast.For)
+             and isinstance(n.iter, ast.Name) and n.iter.id == "TSMC_T4"]
+check("★ TSMC_T4 를 순회하는 loop 이 3개다", len(_t4_loops) == 3, str(len(_t4_loops)))
+_self_src = open(os.path.abspath(__file__), encoding="utf-8").read()
+# ⛔ 문자열 검색은 **이 검사 자신**을 잡는다 (세 번째 같은 결함). AST 로 본다.
+# ⛔ 모든 continue 를 막으면 안 된다 — ⑰-0 의 「파일이 없으면 건너뛴다」는 정당하다.
+#    막아야 할 것은 **파일명으로 부분집합을 고르는** continue 다.
+_name_selectors = []
+for _n in ast.walk(_self):
+    if not (isinstance(_n, ast.If) and any(isinstance(x, ast.Continue)
+                                           for x in ast.walk(_n))):
+        continue
+    _lits = [c.value for c in ast.walk(_n.test)
+             if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+    if any(v in ("_t4_", "_t6_") for v in _lits):
+        _name_selectors.append(_n.lineno)
+check("★ 파일명(_t4_/_t6_)으로 부분집합을 고르는 continue 가 없다",
+      not _name_selectors, str(_name_selectors))
+check("★ 검증된 집합이 cardinality Gate 뒤에 정의된다 (Gate 가 먼저 돈다)",
+      _self_src.index("TSMC_T4 = [") < _self_src.index("⑰-G"))
 
 
 print(f"\n{len(ok)} PASS / {len(bad)} FAIL")
