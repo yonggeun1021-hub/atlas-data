@@ -60,10 +60,20 @@ RE_FAILLINE = re.compile(r"^  ✗ (.+)$", re.M)
 # ── verdict (CIO 판정 c) ──────────────────────────────────────────────
 KILLED = "KILLED"                    # expected_killers 중 ≥1 실패
 SURVIVED = "SURVIVED"                # 회귀 전체 PASS
-MISATTRIBUTED = "MISATTRIBUTED"      # 회귀는 FAIL · expected_killers 는 모두 PASS
+# ★ CIO 판정 2026-08-16 — 정의를 넓힌다.
+#   MISATTRIBUTED = 변이로 회귀가 정상 PASS 하지 않았지만, 그 검출을
+#                   expected_killers 에 **귀속시킬 수 없는** 경우.
+#   ⛔ CRASH 는 6번째 verdict 가 아니다. execution outcome 이지 verdict 가 아니며
+#      `mutated.outcome == "CRASH"` 로 그대로 남긴다. 예외가 났다는 사실만으로
+#      「검출했다」고 보지 않는다.
+MISATTRIBUTED = "MISATTRIBUTED"
 NOT_APPLICABLE = "NOT_APPLICABLE"    # anchor count == 0
 INVALID_RUN = "INVALID_RUN"          # baseline FAIL / anchor 불일치 / 격리 위반
 VERDICTS = (KILLED, SURVIVED, MISATTRIBUTED, NOT_APPLICABLE, INVALID_RUN)
+
+# MISATTRIBUTED 의 두 하위 사유 — provenance 로 구분한다 (CIO 판정)
+R_KILLER_NOT_FIRED = "EXPECTED_KILLER_NOT_FIRED"
+R_CRASH_BEFORE_ATTR = "REGRESSION_CRASH_BEFORE_ATTRIBUTION"
 
 
 def sha256_bytes(b: bytes) -> str:
@@ -161,29 +171,33 @@ def attribute(baseline: dict, mutated: dict) -> None:
 
 def classify(anchor_found: int, anchors_expected: int, baseline: dict,
              mutated: dict | None, killers: list) -> tuple:
-    """정확히 하나의 verdict 를 돌려준다. (verdict, 사유, 실패한 expected_killer)"""
+    """정확히 하나의 verdict 를 돌려준다.
+    (verdict, 사유, 발화한 expected_killer, MISATTRIBUTED 하위 사유코드)"""
     if anchor_found == 0:
-        return NOT_APPLICABLE, "anchor 0건 — 현재 정본에서 이 변이는 성립하지 않는다", []
+        return (NOT_APPLICABLE,
+                "anchor 0건 — 현재 정본에서 이 변이는 성립하지 않는다", [], None)
     if anchor_found != anchors_expected:
         return (INVALID_RUN,
-                f"anchor {anchor_found}건 ≠ 선언 {anchors_expected}건", [])
+                f"anchor {anchor_found}건 ≠ 선언 {anchors_expected}건", [], None)
     if baseline["outcome"] != "PASS":
         return (INVALID_RUN,
                 f"baseline 이 PASS 가 아니다 ({baseline['outcome']}) — "
-                f"이 상태에서는 모든 변이가 '잡힘'으로 보인다", [])
+                f"이 상태에서는 모든 변이가 '잡힘'으로 보인다", [], None)
     hit = [k for k in killers
            if any(k in line for line in mutated["failed_checks"])]
     if hit:
-        return KILLED, "", hit
+        return KILLED, "", hit, None
     if mutated["outcome"] == "PASS":
-        return SURVIVED, "회귀가 전부 통과했다 — 판별력 결함", []
+        return SURVIVED, "회귀가 전부 통과했다 — 판별력 결함", [], None
     if mutated["outcome"] == "CRASH":
         return (MISATTRIBUTED,
-                "회귀가 CRASH 했다 — expected_killers 가 실행되지 않았다. "
-                "⛔ CIO 판정문의 5분할은 CRASH 를 명시하지 않는다 (보고 항목)", [])
+                "회귀가 예외로 중단돼 expected_killers 에 도달하지 못했다 — "
+                "예외 발생 자체를 검출로 보지 않는다",
+                [], R_CRASH_BEFORE_ATTR)
     return (MISATTRIBUTED,
             f"회귀는 FAIL 했지만 expected_killers 는 모두 PASS "
-            f"(실패한 검사 {mutated['failed_check_count']}건)", [])
+            f"(실패한 검사 {mutated['failed_check_count']}건)",
+            [], R_KILLER_NOT_FIRED)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -310,14 +324,16 @@ def run_one(e: dict, base_tar: str, parent: str, head: str) -> dict:
             rec["mutated"] = None
             rec["executed_witness"] = None
 
-        v, why, hit = classify(found, exp, rec["baseline"], rec["mutated"],
-                               e["expected_killers"])
+        v, why, hit, code = classify(found, exp, rec["baseline"], rec["mutated"],
+                                     e["expected_killers"])
         rec["verdict"] = v
         rec["verdict_reason"] = why
+        rec["verdict_reason_code"] = code
         rec["killers_fired"] = hit
     except IsolationError as ex:
         rec["verdict"] = INVALID_RUN
         rec["verdict_reason"] = f"격리/무결성 위반 — {ex}"
+        rec["verdict_reason_code"] = None
         rec["killers_fired"] = []
     finally:
         shutil.rmtree(checkout, ignore_errors=True)
@@ -392,6 +408,8 @@ def main() -> int:
         shutil.rmtree(parent, ignore_errors=True)
 
     part = {v: sum(1 for r in recs if r["verdict"] == v) for v in VERDICTS}
+    sub = {c: sum(1 for r in recs if r.get("verdict_reason_code") == c)
+           for c in (R_KILLER_NOT_FIRED, R_CRASH_BEFORE_ATTR)}
     total = len(entries)
     partition_ok = sum(part.values()) == total and all(
         r["verdict"] in VERDICTS for r in recs)
@@ -401,6 +419,9 @@ def main() -> int:
     print(f"catalog total       {total}")
     for v in VERDICTS:
         print(f"{v:<20}{part[v]}")
+        if v == MISATTRIBUTED and part[v]:
+            for c, n in sub.items():
+                print(f"  └ reason = {c:<38}{n}")
     print("─" * 62)
     print(f"partition 합 == catalog total   {'PASS' if partition_ok else 'FAIL'}")
     print(f"INVALID_RUN == 0                {'PASS' if part[INVALID_RUN] == 0 else 'FAIL'}")
@@ -413,7 +434,8 @@ def main() -> int:
     if a.json:
         with open(a.json, "w", encoding="utf-8") as f:
             json.dump({"head": pf["head"], "catalog_total": total,
-                       "partition": part, "partition_ok": partition_ok,
+                       "partition": part, "misattributed_reasons": sub,
+                       "partition_ok": partition_ok,
                        "provenance_ok": prov_ok,
                        "untracked_at_run": pf["untracked"],
                        "mutations": recs}, f, ensure_ascii=False, indent=1)
