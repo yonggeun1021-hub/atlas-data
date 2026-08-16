@@ -696,6 +696,146 @@ check("★ period 를 위치가 아니라 문면으로 찾는다", "QUARTER_PERI
 check("★ 분기 아닌 기간을 명시적으로 구분한다", "NON_QUARTER_PERIOD" in _src)
 check("★ 관측 레코드에 period_end 를 남긴다", '"period_end": period_end' in _src)
 
+
+# ══════════════════════════════════════════════════════════════════════
+# E. build_header contamination — MSFT local 격리 (CIO 판정 A · 2026-08-16)
+#
+#   ★ 범위: MSFT 만. `c4_sec_edgar_check.build_header` 는 수정하지 않는다.
+#      P3 / RULE-0003·0007·0008 은 건드리지 않는다.
+#   ★ 불변식: Azure 행 **위 다른 data-row** 의 label/value 는 header identity 에
+#      들어가지 않는다.
+# ══════════════════════════════════════════════════════════════════════
+import c4_sec_edgar_check as C4                                      # noqa: E402
+
+
+def rows_for(date, acc):
+    pr = M.TableCollector()
+    pr.feed(fx_html(date, acc))
+    return M.select_observation(pr.tables)
+
+
+print("E-1 ★★ 수정 전 오염 재현 보존 — 공용 build_header 는 흡수한다")
+# ⛔ 이 절은 **C4 의 함수를 그대로 호출**해 오염을 고정한다. C4 를 고치지 않았다는
+#    증거이자, 우리가 무엇을 격리했는지에 대한 증거다.
+_DL = {"Microsoft Cloud", "LinkedIn", "Dynamics 365"}
+for date, acc, _ in FIXTURES:
+    rows, ri, _, _ = rows_for(date, acc)
+    shared = C4.build_header(rows, ri)
+    check(f"★★ {date}: 공용 build_header 의 header[0] 이 다른 행 라벨을 흡수한다",
+          any(lbl in shared[0] for lbl in _DL), shared[0][:70])
+    check(f"★★ {date}: 공용 build_header 가 다른 행의 값까지 흡수한다",
+          any(re.search(r"\d+%", h) for h in shared[1:]), str(shared[1])[:70])
+
+print("E-2 ★ 격리 후 — 다른 data-row 는 header 에 들어가지 않는다")
+for date, acc, _ in FIXTURES:
+    rows, ri, _, _ = rows_for(date, acc)
+    local = M.build_header(rows, ri)
+    check(f"{date}: 다른 행 라벨이 header 에 없다",
+          not any(lbl in " ".join(local) for lbl in _DL), " | ".join(local)[:90])
+    check(f"{date}: 다른 행의 퍼센트 값이 header 에 없다",
+          not any(re.search(r"\d+\s*%", h) for h in local), " | ".join(local)[:90])
+    check(f"{date}: 컬럼 헤더 문면은 그대로 남아 있다",
+          any("Percentage Change Y/Y (GAAP)" in h for h in local)
+          and any("Constant Currency Impact" in h for h in local)
+          and any("Percentage Change Y/Y Constant Currency" in h for h in local),
+          " | ".join(local)[:90])
+    check(f"{date}: 기간 문면도 남아 있다 (period 계약이 쓰는 정보)",
+          any("Months Ended" in h for h in local))
+
+print("E-3 ★ 값 불변 — 격리가 기존 관측을 바꾸지 않았다")
+for date, acc, _ in FIXTURES:
+    rows, ri, _, _ = rows_for(date, acc)
+    b, probs = M.bind_columns(M.build_header(rows, ri), rows[ri])
+    check(f"{date} → {EXPECTED[date]} 그대로",
+          b and (b["gaap"], b["cc_impact"], b["cc"]) == EXPECTED[date], str(probs))
+
+print("E-4 ★★ 불변식 전수 — data-row 주입은 컬럼 identity 를 바꾸지 못한다")
+import copy                                                          # noqa: E402
+_TRIG = ["constant currency", "percentage change", "impact",
+         "percentage change y/y constant currency", "constant currency impact"]
+for date, acc, _ in FIXTURES:
+    rows, ri, _, _ = rows_for(date, acc)
+    b0, _ = M.bind_columns(M.build_header(rows, ri), rows[ri])
+    base = (b0["gaap"], b0["cc_impact"], b0["cc"])
+    n_data = n_bad = 0
+    for sr in range(ri):
+        if not M.is_data_row(rows[sr]):
+            continue                      # 헤더 행은 헤더다 — 영향을 주는 것이 정상
+        for col in range(len(rows[ri])):
+            for t in _TRIG:
+                m = copy.deepcopy(rows)
+                if col >= len(m[sr]):
+                    continue
+                m[sr][col] = (m[sr][col] + " " + t).strip()
+                b, _pb = M.bind_columns(M.build_header(m, ri), m[ri])
+                n_data += 1
+                if not b or (b["gaap"], b["cc_impact"], b["cc"]) != base:
+                    n_bad += 1
+    check(f"★ {date}: data-row 주입 {n_data}건이 전부 무해하다", n_bad == 0, f"{n_bad}건 영향")
+    check(f"★ {date}: 주입 조합이 실제로 존재했다 (검사가 공허하지 않다)", n_data >= 100,
+          str(n_data))
+
+print("E-5 ★ 값 행 표식이 지워지면 조용히 틀리지 않고 막힌다")
+rows, ri, _, _ = rows_for("2026-04-29", "0001193125-26-191457")
+_m = copy.deepcopy(rows)
+_di = [i for i in range(ri) if M.is_data_row(rows[i])][-1]
+_m[_di] = ["LinkedIn percentage change y/y constant currency", "n/a", "n/a", "n/a"]
+check("★ 그 행이 더는 data row 로 안 보인다 (전제 확인)", not M.is_data_row(_m[_di]))
+_b, _pb = M.bind_columns(M.build_header(_m, ri), _m[ri])
+check("★★ 그래도 값을 만들지 않는다 — fail-closed", _b is None, str(_b))
+check("★ 사유가 컬럼 모호성이다", any("정확히 1개가 아니다" in x for x in _pb), str(_pb))
+
+print("E-6 정적 — 격리 계약과 금지 사항")
+_msrc = open(os.path.join(ROOT, "collectors", "msft_azure_cc.py"), encoding="utf-8").read()
+_mt = ast.parse(_msrc)
+_imported = {n.name for node in ast.walk(_mt) if isinstance(node, ast.ImportFrom)
+             and node.module == "c4_sec_edgar_check" for n in node.names}
+check("★ c4 의 build_header 를 import 하지 않는다", "build_header" not in _imported,
+      str(sorted(_imported)))
+check("★ build_header 를 MSFT 안에서 정의한다",
+      any(isinstance(n, ast.FunctionDef) and n.name == "build_header"
+          for n in ast.walk(_mt)))
+check("★ bind_columns 도 여전히 local 이다 (기존 격리 유지)",
+      "bind_columns" not in _imported)
+check("★ 공유 표면이 5개로 줄었다", _imported == {"TableCollector", "strip_html",
+                                          "drop_empty_columns", "evidence", "get"},
+      str(sorted(_imported)))
+# ⛔ 행·열 번호 hard-code 금지 (CIO 지시 6) — AST 로 연산에 쓰인 숫자만 본다
+_bh = [n for n in ast.walk(_mt) if isinstance(n, ast.FunctionDef)
+       and n.name in ("build_header", "is_data_row")]
+_nums = [x.value for f in _bh for x in ast.walk(f)
+         if isinstance(x, ast.Constant) and isinstance(x.value, int)
+         and not isinstance(x.value, bool)]
+check("★ header 구성에 행·열 번호를 박지 않았다 (셀 의미 기반)", not _nums, str(_nums))
+check("★ 값 행 판별이 퍼센트 값 표식이다", "RE_PCT_VALUE" in _msrc.split("def is_data_row")[1][:300])
+
+print("E-7 ★ C4 를 건드리지 않았다 (P3 경계)")
+_c4 = open(os.path.join(ROOT, "collectors", "c4_sec_edgar_check.py"), encoding="utf-8").read()
+_c4t = ast.parse(_c4)
+_c4bh = [n for n in ast.walk(_c4t) if isinstance(n, ast.FunctionDef)
+         and n.name == "build_header"][0]
+check("★ C4 의 build_header 는 여전히 모든 행을 이어 붙인다 (미수정)",
+      not any(isinstance(x, ast.Call) and getattr(x.func, "id", "") == "is_data_row"
+              for x in ast.walk(_c4bh)))
+check("★ C4 에 is_data_row 가 생기지 않았다",
+      not any(isinstance(n, ast.FunctionDef) and n.name == "is_data_row"
+              for n in ast.walk(_c4t)))
+check("★ C4 의 first-match 는 이번에 손대지 않았다 (별도 OPEN 후보)",
+      any(isinstance(x, ast.Break) for n in ast.walk(_c4t)
+          if isinstance(n, ast.FunctionDef) and n.name == "find_decision_table"
+          for x in ast.walk(n)))
+
+print("E-8 ★ period → table → row 계약은 그대로다 (넓히지 않았다)")
+for date, acc, _ in FIXTURES:
+    rows, ri, per, probs = rows_for(date, acc)
+    check(f"{date} 좁히기 그대로 성립", rows is not None and per is not None, str(probs))
+check("★ 2건이면 여전히 거부한다",
+      (lambda h: (lambda pr: (pr.feed(h), M.select_observation(pr.tables))[1])(
+          M.TableCollector()))(
+          fx_html("2026-04-29", "0001193125-26-191457").replace(
+              "Microsoft Cloud revenue", "Azure and other cloud services revenue", 1))[0]
+      is None)
+
 print("B-8 이 회귀 자체의 경계")
 check("★ B 절은 네트워크를 쓰지 않는다 (fixture 만 쓴다)",
       "http" not in "".join(REAL.split("<html>")))

@@ -35,7 +35,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "collectors"))
 # ★ 표 파싱 유틸은 C4 에서 이미 승인·검증된 것을 재사용한다. 중복 구현하지 않는다.
 from c4_sec_edgar_check import (TableCollector, strip_html, drop_empty_columns,  # noqa: E402
-                                build_header, evidence, get)
+                                evidence, get)
+# ⛔ `build_header` 는 **일부러 import 하지 않는다.** 아래에 MSFT 전용으로 둔다 —
+#    `bind_columns` 가 이미 local 인 것과 같은 방향이다 (CIO 판정 A · 2026-08-16).
+#    ⇒ 공유 표면이 6개에서 5개로 줄고, 이 파일의 수정이 C4/TSMC 에 닿지 않는다.
 
 CIK = "0000789019"
 SUBMISSIONS_URL = f"https://data.sec.gov/submissions/CIK{CIK}.json"
@@ -299,6 +302,53 @@ def select_observation(tables):
 
     ti, rows, ri, period_end = same[0]
     return rows, ri, period_end, []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# MSFT 전용 header 구성 — C4 의 `build_header` 를 대체한다 (CIO 판정 A · 2026-08-16)
+#
+#   ★ 고치는 것: 공용 `build_header` 는 대상 행 **위 모든 행**을 열 단위로 이어
+#     붙인다. 그래서 헤더 문자열에 **다른 data-row 의 라벨과 값**이 섞인다.
+#     실측(live run 로그):
+#       header[0] = 'Three Months Ended June 30, 2026 Microsoft Cloud revenue
+#                    Commercial remaining performance obligation … Dynamics 365 revenue'
+#     컬럼 분류는 이 문자열의 단어로 하므로, 어떤 **행 라벨**이 `constant currency`
+#     나 `percentage change` 를 갖게 되면 컬럼 정체성이 오염된다.
+#     ★ 신형 문면부터 행 라벨에 지표명이 들어가기 시작해 위험이 커졌다.
+#
+#   ★ 격리 이유: `build_header` 는 C4(TSMC RULE-0003/0007/0008, P3 CLOSED)와
+#     공유된다. 공용 계약을 바꾸면 이미 닫힌 Gate 를 다시 열게 된다.
+#     실측 결함은 MSFT 에서만 확인됐으므로 **여기서만** 격리한다.
+#     ⛔ `c4_sec_edgar_check.build_header` 를 수정하지 않는다.
+#
+#   ★ 판별 기준은 **셀 의미**다. ⛔ 행 번호·열 번호를 박지 않는다.
+#     값 행(data row)의 관측 가능한 표식 = 퍼센트 값 셀을 하나라도 갖는다.
+#     실측 확인: 구형·신형 4개 fixture 모두에서 기간 행·컬럼 헤더 행은 퍼센트 값이
+#     없고, 지표 행은 전부 갖는다.
+#   ⛔ 헤더 행을 하나도 못 찾으면 만들어내지 않는다 — 빈 헤더를 돌려주면
+#      `bind_columns` 가 「정확히 1개가 아니다」로 fail-closed 한다.
+def is_data_row(row) -> bool:
+    """값 행인가 — 퍼센트 값 셀을 하나라도 가지면 값 행이다."""
+    return any(RE_PCT_VALUE.match(c.strip()) for c in row if c.strip())
+
+
+def build_header(rows, data_i):
+    """대상 행 위의 **헤더 행만** 열 단위로 이어 붙인다.
+
+    ⛔ 다른 data-row 의 라벨·값은 헤더 identity 에 넣지 않는다.
+    ⛔ C4 의 동명 함수를 대체한다 (import 하지 않는다).
+    """
+    width = len(rows[data_i])
+    cols = []
+    for i in range(width):
+        parts = []
+        for r in rows[:data_i]:
+            if is_data_row(r):          # ★ 값 행은 헤더가 아니다 — 건너뛴다
+                continue
+            if i < len(r) and r[i]:
+                parts.append(r[i])
+        cols.append(re.sub(r"\s+", " ", " ".join(parts)).strip())
+    return cols
 
 
 def bind_columns(header, data):
