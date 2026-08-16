@@ -485,14 +485,15 @@ def _index(exhibit="msft-ex99_1.htm", type_="EX-99.1"):
 
 
 def make_fetch(entries, *, exhibit="msft-ex99_1.htm", type_="EX-99.1",
-               sub_payload=None, fail_on=None, calls=None):
+               sec_type=None, sub_payload=None, fail_on=None, calls=None):
     """URL → (meta, bytes) mock. ⛔ 네트워크를 쓰지 않는다."""
     body = {}
     for e in entries:
         acc = e["accession"].replace("-", "")
         html = open(os.path.join(FX_DIR, e["fixture_file"]), encoding="utf-8").read()
         body[f"/{acc}/{e['accession']}.txt"] = _txt(exhibit, type_)
-        body[f"/{acc}/{e['accession']}-index.html"] = _index(exhibit, type_)
+        body[f"/{acc}/{e['accession']}-index.html"] = _index(
+            exhibit, sec_type or type_)
         body[f"/{acc}/{exhibit}"] = html.encode()
 
     def fetch(url):
@@ -574,14 +575,44 @@ with section("E-3. ★★ live fail-closed 매트릭스"):
              [dict(e, items="5.02") for e in CAP_SORTED]))),
         ("EX-99.1 identity 실패 (type 불일치)",
          lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, type_="EX-99.2"))),
+        # ★ primary 는 통과하는데 secondary index 가 다른 경우 — 교차확인이 유일한 관문이다
+        ("secondary 교차확인 불일치",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, sec_type="EX-99.2"))),
     ]
+    # ★ 「어쨌든 ObserveError 면 됐다」로 두지 않는다 — 뒤쪽 관문이 대신 잡아주면
+    #   앞쪽 관문이 사라진 것을 알 수 없다. **실패 사유 문면**까지 못 박는다.
+    REASON = {
+        "SEC 접근 실패(submissions)": "submissions 조회 실패",
+        "SEC 접근 실패(exhibit)": "exhibit 취득 실패",
+        "submissions schema 이상": "submissions schema 이상",
+        "submissions 가 JSON 이 아님": "submissions 조회 실패",
+        "후보 0건 (form 이 8-K 아님)": "후보 0건",
+        "후보 0건 (item 2.02 없음)": "후보 0건",
+        "EX-99.1 identity 실패 (type 불일치)": "primary exhibit identity 실패",
+        "secondary 교차확인 불일치": "secondary 교차확인 실패",
+    }
     for why, fn in FAULTS:
         try:
             got = fn()
             check(f"★★ {why} → ObserveError (fail-closed)", False,
                   f"통과해버렸다 observed={got['observed']}")
-        except OBSV.ObserveError:
+        except OBSV.ObserveError as e:
             check(f"★★ {why} → ObserveError (fail-closed)", True)
+            check(f"  {why} → 사유가 정확하다", REASON[why] in str(e), str(e)[:90])
+
+    # ★ fetch 를 주입하지 않았을 때 fixture 로 조용히 내려가지 않는다.
+    #   ⛔ network 를 쓰지 않기 위해 acquisition 의 `get` 을 실패시키고 결과를 본다.
+    orig_get = OBSV.ACQ.get
+    OBSV.ACQ.get = lambda url, **kw: (_ for _ in ()).throw(OSError("no network"))
+    try:
+        got = OBSV.observe_live(4)
+        check("★★ fetch 미주입 + network 불가 → fixture 로 내려가지 않는다", False,
+              f"emission 이 만들어졌다 source={got['source']} observed={got['observed']}")
+    except OBSV.ObserveError as e:
+        check("★★ fetch 미주입 + network 불가 → fixture 로 내려가지 않는다 (fail-closed)",
+              "submissions 조회 실패" in str(e), str(e)[:90])
+    finally:
+        OBSV.ACQ.get = orig_get
 
     # CLI 수준 — non-zero + emission 파일 없음
     with tempfile.TemporaryDirectory() as d:
@@ -628,7 +659,26 @@ with section("E-4. ★★ D-5 처리 — pre-series 는 observation 을 만들�
           all(r["economic_period_end"] >= OBSV.COMMERCIAL_RPO_SERIES_START
               for r in em_mix["records"]))
 
-    # ③ pre-series period 를 가진 record 는 emit 대상이 아니다
+    # ③ ★ emit 필터를 직접 검증한다 — 실제 fixture 로는 pre-series record 가
+    #      만들어질 수 없으므로(D-6: 행 자체가 없다) 관측 단계를 대체해 필터만 본다.
+    pre_rec = copy.deepcopy(EM26["records"][0])
+    pre_rec["economic_period_end"] = "2025-06-30"
+    orig_obs = OBSV._observe_one
+    OBSV._observe_one = lambda html, prov: (copy.deepcopy(pre_rec), None)
+    try:
+        em_pre = OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED))
+    finally:
+        OBSV._observe_one = orig_obs
+    check("★★ pre-series record 는 emit 되지 않는다", em_pre["observed"] == 0,
+          str(em_pre["observed"]))
+    check("★★ 그 사유가 PRE_SERIES_NOT_EMITTED 다",
+          all(f["outcome"] == OBSV.PRE_SERIES_NOT_EMITTED for f in em_pre["failures"]),
+          str([f["outcome"] for f in em_pre["failures"]]))
+    check("  사유에 series start 가 명시된다",
+          all(OBSV.COMMERCIAL_RPO_SERIES_START in f["problems"][0]
+              for f in em_pre["failures"]))
+
+    # ④ pre-series period 를 가진 record 는 emit 대상이 아니다
     fake = copy.deepcopy(EM26["records"][0])
     fake["economic_period_end"] = "2025-06-30"
     check("★★ `_pre_series` 가 series start 이전을 True 로 판정한다",

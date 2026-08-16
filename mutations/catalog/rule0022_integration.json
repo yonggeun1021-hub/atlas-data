@@ -45,8 +45,7 @@
    "anchor": "    get = fetch or ACQ.get",
    "replacement": "    get = fetch or ACQ.get\n    if fetch is None:\n        return observe_fixture(os.path.join(ROOT, \"collectors\", \"fixtures\", \"azure_cc_MANIFEST.json\"))",
    "expected_killers": [
-    "live 실패 → CLI non-zero",
-    "live 실패 → emission 파일이 만들어지지 않는다"
+    "fetch 미주입 + network 불가 → fixture 로 내려가지 않는다"
    ],
    "declaration_history": [
     {
@@ -59,6 +58,17 @@
       "live 실패 → emission 파일이 만들어지지 않는다"
      ],
      "reason": "S4B-LIVE-WIRING 으로 `observe_live()` 가 실제 acquisition 경로에 연결되면서 「S4A 에서 실행되지 않는다」 계약이 소멸했다. 같은 위험(live 가 fixture 로 내려가는 fallback)을 겨누도록 변이를 재작성했다."
+    },
+    {
+     "declared_v1": [
+      "live 실패 → CLI non-zero",
+      "live 실패 → emission 파일이 만들어지지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "fetch 미주입 + network 불가 → fixture 로 내려가지 않는다"
+     ],
+     "reason": "회귀가 항상 fetch 를 주입해 `fetch is None` 분기가 실행되지 않았다. acquisition 의 `get` 을 실패시켜 미주입 경로를 직접 태우는 검사를 추가하고 그 검사로 옮겼다."
     }
    ]
   },
@@ -316,7 +326,19 @@
    "anchor": "    if not isinstance(recent, dict) or \"form\" not in recent:\n        raise ObserveError(\"submissions schema 이상 — filings.recent 가 없다\")",
    "replacement": "    recent = recent if isinstance(recent, dict) else {\"form\": []}",
    "expected_killers": [
-    "submissions schema 이상 → ObserveError (fail-closed)"
+    "submissions schema 이상 → 사유가 정확하다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "submissions schema 이상 → ObserveError (fail-closed)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "submissions schema 이상 → 사유가 정확하다"
+     ],
+     "reason": "schema 관문을 없애도 뒤쪽 「후보 0건」 관문이 대신 잡아 ObserveError 자체는 계속 났다. 실패 **사유 문면**까지 보는 검사로 옮겼다 — 앞쪽 관문이 사라진 것을 구별한다."
+    }
    ]
   },
   {
@@ -339,7 +361,21 @@
    "anchor": "            name2, probs2, _ = ACQ.select_exhibit(docs, sec_types=sec_types)",
    "replacement": "            name2, probs2 = name, []",
    "expected_killers": [
-    "EX-99.1 identity 실패 (type 불일치) → ObserveError (fail-closed)"
+    "secondary 교차확인 불일치 → ObserveError (fail-closed)",
+    "secondary 교차확인 불일치 → 사유가 정확하다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "EX-99.1 identity 실패 (type 불일치) → ObserveError (fail-closed)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "secondary 교차확인 불일치 → ObserveError (fail-closed)",
+      "secondary 교차확인 불일치 → 사유가 정확하다"
+     ],
+     "reason": "기존 fault 는 primary·secondary 를 같은 type 으로 만들어 primary 에서 이미 실패했다. primary 는 통과하고 secondary index 만 다른 시나리오를 추가했다 — 교차확인이 유일한 관문인 경우다."
+    }
    ]
   },
   {
@@ -350,7 +386,19 @@
    "anchor": "    except Exception as e:                                          # noqa: BLE001\n        raise ObserveError(f\"submissions 조회 실패 — {type(e).__name__}: {e}\") from e",
    "replacement": "    except Exception:                                               # noqa: BLE001\n        sub = {\"filings\": {\"recent\": {\"form\": []}}}",
    "expected_killers": [
-    "SEC 접근 실패(submissions) → ObserveError (fail-closed)"
+    "SEC 접근 실패(submissions) → 사유가 정확하다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "SEC 접근 실패(submissions) → ObserveError (fail-closed)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "SEC 접근 실패(submissions) → 사유가 정확하다"
+     ],
+     "reason": "접근 실패를 삼켜도 빈 form 목록 때문에 「후보 0건」이 대신 발동했다. 사유 문면 검사로 옮겨 어느 관문이 잡았는지 구별한다."
+    }
    ]
   },
   {
@@ -361,8 +409,22 @@
    "anchor": "        if _pre_series(rec):",
    "replacement": "        if False and _pre_series(rec):",
    "expected_killers": [
-    "FY25+FY26 혼합 discovery → FY26 4건만 emit",
-    "emit 된 record 는 전부 series start 이후다"
+    "pre-series record 는 emit 되지 않는다",
+    "그 사유가 PRE_SERIES_NOT_EMITTED 다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "FY25+FY26 혼합 discovery → FY26 4건만 emit",
+      "emit 된 record 는 전부 series start 이후다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "pre-series record 는 emit 되지 않는다",
+      "그 사유가 PRE_SERIES_NOT_EMITTED 다"
+     ],
+     "reason": "실제 fixture 로는 pre-series record 가 만들어질 수 없다 — D-6 상 그 분기에는 행 자체가 없기 때문이다. 관측 단계를 대체해 **emit 필터만** 태우는 검사를 추가하고 그 검사로 옮겼다."
+    }
    ]
   },
   {
