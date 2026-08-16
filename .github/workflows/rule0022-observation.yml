@@ -1,0 +1,161 @@
+# RULE-0022 Commercial RPO — Observation Layer 통합 경로 (S4A)
+#
+# ★ 계약 순서 (CIO 판정 2026-08-16 · S4A)
+#     checkout → observe → repository-clean guard → emitted record validation
+#            → persist → resulting store validation → artifact upload
+#
+# ⛔ observe 단계는 저장소에 쓰지 않는다 — 그 직후 clean guard 로 강제한다.
+#    guard 는 tracked 변경(`git diff --exit-code`)과 untracked 파일(`git status --porcelain`)을
+#    **둘 다** 판정에 쓴다 (S4A.1 · REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP).
+# ⛔ 관측 실패 후 persist 하지 않는다 · record validation 실패 후 persist 하지 않는다.
+# ⛔ CONFLICT / REVISION 이 미해소면 정상 success 로 소비하지 않는다.
+# ⛔ schedule 이 없다 — `workflow_dispatch` 전용이다. 자동 발동하지 않는다.
+# ⛔ live option 이 노출돼 있어도 **dispatch 는 별도 CIO 승인 1회**다 (S4B).
+#    이 파일의 존재가 실행 승인이 아니다.
+name: rule0022-observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "관측 source — live 는 CIO 가 명시 승인한 1회 run 에서만 고른다"
+        type: choice
+        options: [fixture, live]
+        default: fixture
+      capture_max_filings:
+        description: "live discovery 조회 상한 (source=live 일 때만 쓰인다). 승인 run 에서 CIO 가 명시 입력한다"
+        type: number
+        default: 4
+
+permissions:
+  contents: read
+
+jobs:
+  observe-and-persist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── ① OBSERVE — 저장소 밖으로만 emit 한다 ──────────────────────
+      - name: observe
+        env:
+          EMIT_DIR: ${{ runner.temp }}/rule0022
+          SOURCE: ${{ inputs.source }}
+          CAPTURE_MAX_FILINGS: ${{ inputs.capture_max_filings }}
+        run: |
+          mkdir -p "$EMIT_DIR"
+          # ★ 실제 전달값을 로그로 남긴다 — 무엇으로 돌았는지 사후에 확인 가능해야 한다.
+          echo "SOURCE=$SOURCE"
+          echo "CAPTURE_MAX_FILINGS=$CAPTURE_MAX_FILINGS"
+          if [ "$SOURCE" = "live" ]; then
+            # ⛔ live 는 manifest 를 쓰지 않는다 — fixture 로 내려가는 fallback 이 없다.
+            python3 observation/observe_rule0022.py \
+              --source live \
+              --limit "$CAPTURE_MAX_FILINGS" \
+              --out "$EMIT_DIR/emission.json"
+          else
+            python3 observation/observe_rule0022.py \
+              --source fixture \
+              --manifest collectors/fixtures/azure_cc_MANIFEST.json \
+              --out "$EMIT_DIR/emission.json"
+          fi
+
+      # ── ② repository-clean guard — observe 가 저장소를 건드리지 않았는가 ──
+      #    ★ 관측 실패 시 이 단계에 도달하지 않는다 (앞 단계가 non-zero 로 끝난다).
+      - name: repository-clean guard
+        run: |
+          # ⛔ `git status --porcelain` 을 **로그로만** 남기지 않는다 — 판정에 쓴다.
+          #    `git diff --exit-code` 는 untracked file 을 잡지 못하기 때문이다
+          #    (CIO 판정 S4A.1 · REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP).
+          #    둘 다 두면 provenance 가 더 명확하다.
+          git diff --exit-code
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "⛔ repository state 가 변경됐다 (tracked + untracked):"
+            echo "$dirty"
+            exit 1
+          fi
+          echo "✓ working tree clean (tracked + untracked)"
+
+      # ── ③ emitted record validation — persist 전에 계약을 먼저 건다 ──
+      #    ⛔ 실패하면 persist 하지 않는다.
+      - name: emitted record validation
+        env:
+          EMIT_DIR: ${{ runner.temp }}/rule0022
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "observation")
+          from record import validate_record, RecordInvariantError
+          em = json.load(open(os.path.join(os.environ["EMIT_DIR"], "emission.json"), encoding="utf-8"))
+          assert em["schema_version"] == "observation_emission/1", em["schema_version"]
+          if not em["records"]:
+              print("✗ emit 된 record 가 0건 — persist 하지 않는다"); sys.exit(1)
+          for r in em["records"]:
+              validate_record(r)          # ⛔ 하나라도 실패하면 여기서 멈춘다
+          print(f"✓ emitted record {len(em['records'])}건 전부 계약 통과")
+          PY
+
+      # ── ④ PERSIST — 직렬화된 record 를 다시 읽어 Store 에 적용한다 ──
+      - name: persist
+        env:
+          EMIT_DIR: ${{ runner.temp }}/rule0022
+        run: |
+          python3 observation/persist_rule0022.py \
+            --emission "$EMIT_DIR/emission.json" \
+            --store    "$EMIT_DIR/store.json" \
+            --result   "$EMIT_DIR/persist_result.json"
+
+      # ── ⑤ resulting store validation ──────────────────────────────
+      #    ⛔ 미해소 CONFLICT/REVISION 이 있으면 여기서 non-zero 로 끝난다.
+      - name: resulting store validation
+        env:
+          EMIT_DIR: ${{ runner.temp }}/rule0022
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "observation")
+          import store as ST
+          from record import validate_record
+          d = os.environ["EMIT_DIR"]
+          st = ST.load_state(os.path.join(d, "store.json"))
+          res = json.load(open(os.path.join(d, "persist_result.json"), encoding="utf-8"))
+          for e in st["series"].values():
+              for rev in e["revisions"]:
+                  validate_record(rev["record"])
+          blocked = ST.blocked_keys(st)
+          print(f"series {len(st['series'])} · consumable {len(ST.consumable_keys(st))} · blocked {len(blocked)}")
+          if blocked or res["unresolved"]:
+              print(f"⛔ 미해소 CONFLICT/REVISION — 정상 success 로 소비하지 않는다: {blocked}")
+              sys.exit(1)
+          if ST.digest(st) != res["store_digest"]:
+              print("⛔ persist 결과의 store digest 가 저장된 state 와 다르다"); sys.exit(1)
+          print("✓ store 계약 통과")
+          PY
+
+      # ── ⑥ 저장소 불변 재확인 — persist 도 repo 를 건드리지 않았다 ──
+      - name: repository-clean guard (post-persist)
+        run: |
+          # ★ observe 직후 guard 와 **동일한 계약**이다 (S4A.1).
+          git diff --exit-code
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "⛔ repository state 가 변경됐다 (tracked + untracked):"
+            echo "$dirty"
+            exit 1
+          fi
+          echo "✓ working tree clean (tracked + untracked)"
+
+      # ── ⑦ artifact upload ─────────────────────────────────────────
+      - name: artifact upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rule0022-observation
+          path: ${{ runner.temp }}/rule0022
+          if-no-files-found: error
