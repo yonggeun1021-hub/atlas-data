@@ -238,7 +238,7 @@
    "note": "발췌를 원문에서 자르지 않고 재구성한다",
    "anchors_expected": 1,
    "anchor": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b],",
-   "replacement": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b].replace(\"&#160;\", \" \"),",
+   "replacement": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b].replace(\"&nbsp;\", \" \"),",
    "expected_killers": [
     "발췌가 원문의 부분 문자열이다 (verbatim)"
    ]

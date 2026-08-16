@@ -338,5 +338,49 @@ with section("A-12 ★ identity evidence · rejection evidence (CIO 판정 2026-
           F.locate_block(_h_bad) is None and _loc_bad is None)
     check("★ 거부 후보를 성공으로 승격하지 않는다 (거부는 여전히 None)",
           cut(_h_bad) is None)
+    # ★★ 상한이 실제로 걸리는 입력으로 bounded 를 확인한다 (짧은 표로는 공허하다)
+    _long = _h_ok.replace(ROW_NEW, ROW_NEW + " " + ("가" * 2000), 1)
+    _id_long = F.locate_block(_long)[2]["identity"]
+    check("★★ 표가 상한보다 길 때 발췌가 실제로 잘린다",
+          len(_id_long["table_head_excerpt"]["text"]) == F.EVIDENCE_EXCERPT_CHARS
+          and _id_long["table_head_excerpt"]["truncated_at"] == F.EVIDENCE_EXCERPT_CHARS,
+          str(len(_id_long["table_head_excerpt"]["text"])))
+    _ev_long = []
+    F.locate_block(_long.replace("Constant Currency Reconciliation",
+                                 "Constant Currency Summary"), _ev_long)
+    check("★★ 거부 증거 발췌도 상한에서 실제로 잘린다",
+          all(len(ct["raw_excerpt"]["text"]) <= F.EVIDENCE_EXCERPT_CHARS
+              and len(ct["text_excerpt"]["text"]) <= F.EVIDENCE_EXCERPT_CHARS
+              for ct in _ev_long[0]["candidate_tables"]),
+          str([len(ct["raw_excerpt"]["text"]) for ct in _ev_long[0]["candidate_tables"]]))
+    # ★★ 표 **밖**의 기간 문면을 끌어오지 않는다
+    _h_out = _h_ok.replace("<table", "<p>Three Months Ended March 31, 2020</p><table", 1)
+    _id_out = F.locate_block(_h_out)[2]["identity"]
+    check("★★ 표 밖 기간 문면을 identity 로 끌어오지 않는다",
+          _id_out["economic_period"] == [], str(_id_out["economic_period"])[:120])
+    # ★★ 엔티티를 푼 발췌는 원문 부분 문자열이 아니다 — 재구성 차단
+    _h_ent = doc(TITLE_NEW, ROW_NEW, entity=True)
+    _id_ent = F.locate_block(_h_ent)[2]["identity"]
+    check("★ 엔티티가 실제로 원문에 있다 (검사가 공허하지 않다)",
+          "&nbsp;" in _h_ent[_id_ent["table_head_excerpt"]["raw_start"]:
+                             _id_ent["table_head_excerpt"]["raw_end"]])
+    check("★★ 엔티티를 푼 발췌를 만들지 않는다 (원문 부분 문자열 유지)",
+          _id_ent["table_head_excerpt"]["text"] in _h_ent)
+    # ★ 정적 — manifest 레코드가 identity 를 실제로 싣는다 (AST · 문자열 검색 아님)
+    _rec_keys = []
+    for _n in ast.walk(_cap_tree):
+        if isinstance(_n, ast.Assign) and any(
+                isinstance(_t, ast.Name) and _t.id == "rec" for _t in _n.targets) \
+                and isinstance(_n.value, ast.Dict):
+            for _k, _v in zip(_n.value.keys, _n.value.values):
+                if isinstance(_k, ast.Constant):
+                    _rec_keys.append((_k.value, type(_v).__name__,
+                                      isinstance(_v, ast.Constant) and _v.value is None))
+    _idk = [x for x in _rec_keys if x[0] == "identity"]
+    check("★ manifest 레코드가 identity 를 담는다", bool(_idk), str(_rec_keys[:4]))
+    check("★★ identity 가 상수 None 으로 박혀 있지 않다 (관측값을 싣는다)",
+          bool(_idk) and not _idk[0][2], str(_idk))
+    check("★ manifest 레코드가 form 을 담는다",
+          any(x[0] == "form" for x in _rec_keys), str([x[0] for x in _rec_keys]))
 
 sys.exit(K.exit_code())
