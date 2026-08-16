@@ -206,4 +206,39 @@ with section("A-9 계약 준수 정적 확인"):
           ("url" + "lib") not in open(os.path.abspath(__file__), encoding="utf-8")
           .read().replace('("url" + "lib")', ""))
 
-    sys.exit(K.exit_code())
+with section("A-10 ★ capture 전용 조회 상한 override (CIO 판정 2026-08-16)"):
+    # ⛔ 이 절의 계약은 하나다 — production 의 MAX_FILINGS 의미를 바꾸지 않는다.
+    check("★ production 상한은 그대로 4 다", F.M.MAX_FILINGS == 4, str(F.M.MAX_FILINGS))
+    check("★ 환경변수가 없으면 production 기본값과 완전히 같다",
+          F.capture_limit({}) == (F.M.MAX_FILINGS, None), str(F.capture_limit({})))
+    check("★ 빈 값·공백도 기본값이다 (조용한 변경 없음)",
+          F.capture_limit({F.CAPTURE_LIMIT_ENV: ""}) == (F.M.MAX_FILINGS, None)
+          and F.capture_limit({F.CAPTURE_LIMIT_ENV: "   "}) == (F.M.MAX_FILINGS, None))
+    _lim, _pb = F.capture_limit({F.CAPTURE_LIMIT_ENV: "12"})
+    check("★ 유효한 값이면 그 값이 쓰인다", (_lim, _pb) == (12, None), f"{_lim} {_pb}")
+    check("★ 기본값보다 작은 값도 그대로 쓴다 (한 방향으로만 열지 않는다)",
+          F.capture_limit({F.CAPTURE_LIMIT_ENV: "1"}) == (1, None))
+    for _bad in ("0", "-3", "4.5", "eight", "4 5"):
+        _l, _p = F.capture_limit({F.CAPTURE_LIMIT_ENV: _bad})
+        check(f"★ 잘못된 값 {_bad!r} → 중단한다 (기본값으로 조용히 되돌아가지 않는다)",
+              _l is None and bool(_p), f"{_l} {_p}")
+    # ★ 정적 — capture 가 production 상수를 재정의·재대입하지 않는다 (AST · 문자열 검색 아님)
+    _cap_src = open(os.path.join(ROOT, "collectors", "capture_azure_fixture.py"),
+                    encoding="utf-8").read()
+    _cap_tree = ast.parse(_cap_src)
+    _redef = []
+    for _n in ast.walk(_cap_tree):
+        _tg = (_n.targets if isinstance(_n, ast.Assign) else
+               [_n.target] if isinstance(_n, (ast.AugAssign, ast.AnnAssign)) else [])
+        for _t in _tg:
+            if isinstance(_t, ast.Name) and _t.id == "MAX_FILINGS":
+                _redef.append(_n.lineno)
+            if isinstance(_t, ast.Attribute) and _t.attr == "MAX_FILINGS":
+                _redef.append(_n.lineno)
+    check("★ capture 는 MAX_FILINGS 를 재정의·재대입하지 않는다", not _redef, str(_redef))
+    _calls = [_n.lineno for _n in ast.walk(_cap_tree)
+              if isinstance(_n, ast.Call) and getattr(_n.func, "id", "") == "capture_limit"]
+    check("★ 조회 상한이 override 함수를 통해 정해진다 (호출이 존재한다)",
+          bool(_calls), str(_calls))
+
+sys.exit(K.exit_code())

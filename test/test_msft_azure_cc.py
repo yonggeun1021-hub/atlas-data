@@ -867,4 +867,4 @@ with section("B-8 이 회귀 자체의 경계"):
     check("★ B 절은 네트워크를 쓰지 않는다 (fixture 만 쓴다)",
           "http" not in "".join(REAL.split("<html>")))
 
-    sys.exit(K.exit_code())
+sys.exit(K.exit_code())

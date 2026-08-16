@@ -36,6 +36,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "collectors"))
 # ★ 승인된 취득 경로를 그대로 재사용한다. 여기서 다시 구현하지 않는다.
 import msft_azure_cc as M                                          # noqa: E402
+
+# ── capture 전용 조회 상한 override (CIO 판정 2026-08-16) ──────────────
+#   ⛔ production 의 `M.MAX_FILINGS` 를 **바꾸지 않는다.** capture 도구에서만 덮는다.
+#      RULE-0022 의 전년동기 이력 확보라는 일회성 목적으로 RULE-0021 production
+#      collector 의 탐색 범위까지 넓히지 않기 위한 것이다.
+#   ⛔ 환경변수가 없으면 반드시 `M.MAX_FILINGS` 다 — 기존 동작과 완전히 같다.
+#   ⛔ 이 숫자는 규칙이 아니다. 판정 기준은 「필요한 공식 보고기간이 확보됐는가」이며
+#      상한 값 자체에 의미를 부여하지 않는다.
+#   ⛔ 잘못된 값이면 기본값으로 조용히 되돌아가지 않는다 — 중단한다.
+CAPTURE_LIMIT_ENV = "ATLAS_CAPTURE_MAX_FILINGS"
+RE_POSITIVE_INT = re.compile(r"^[1-9][0-9]*$")
+
+
+def capture_limit(env=None):
+    """(상한, 문제) — 문제가 있으면 상한을 쓰지 않고 중단한다."""
+    env = os.environ if env is None else env
+    raw = env.get(CAPTURE_LIMIT_ENV)
+    if raw is None or not raw.strip():
+        return M.MAX_FILINGS, None
+    raw = raw.strip()
+    if not RE_POSITIVE_INT.match(raw):
+        return None, (f"{CAPTURE_LIMIT_ENV}={raw!r} 이 양의 정수가 아니다 — "
+                      f"기본값으로 되돌리지 않고 중단한다")
+    return int(raw), None
 from c4_sec_edgar_check import get                                 # noqa: E402
 
 # ── 무엇을 잘라낼지 — 문면은 **관측된 것만** 열거한다 ──────────────────
@@ -310,11 +334,19 @@ def main() -> int:
         cands.append({"accession": rec["accessionNumber"][i],
                       "filing_date": rec["filingDate"][i], "items": items})
     cands.sort(key=lambda c: c["filing_date"], reverse=True)
-    dropped = cands[M.MAX_FILINGS:]
-    cands = cands[:M.MAX_FILINGS]
-    print(f"  후보 {len(cands)}건")
+    limit, problem = capture_limit()
+    if problem:
+        print(f"\n⛔ {problem}")
+        return 1
+    dropped = cands[limit:]
+    cands = cands[:limit]
+    print(f"  후보 {len(cands)}건 (조회 상한 {limit}"
+          + (f" · 기본 {M.MAX_FILINGS} 을 {CAPTURE_LIMIT_ENV} 로 덮었다"
+             if limit != M.MAX_FILINGS else " · 기본값")
+          + ")")
     if dropped:
-        print(f"  ⚠️ 상한으로 조회하지 않은 것 {len(dropped)}건")
+        print(f"  ⚠️ 상한으로 조회하지 않은 것 {len(dropped)}건: "
+              + ", ".join(c["filing_date"] for c in dropped[:6]))
 
     print("\n② 보존")
     out = [r for r in (capture_one(c, outdir) for c in cands) if r]
