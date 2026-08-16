@@ -147,10 +147,10 @@
   {
    "id": "ST-IDEM-2",
    "origin_label": "ST-IDEM-2",
-   "note": "★ operational metadata 를 material provenance **필드 목록**에 넣는다 — 재관측마다 REVISION 으로 오분류된다. ★ v1 은 `flat` dict 에만 넣었는데 반환은 필드 목록으로 걸러지므로 변이가 무효였다 (SURVIVED). 목록 자체를 겨눈다.",
+   "note": "★ operational metadata(`observed_at`)를 material provenance 반환값에 넣는다 — 재관측마다 provenance digest 가 달라져 REVISION 으로 오분류된다. ★ v1·v2 anchor 는 각각 무효(필드 목록이 걸러냄)·크래시(KeyError)였다. 반환 지점을 직접 겨눈다.",
    "anchors_expected": 1,
-   "anchor": "MATERIAL_RECORD_FIELDS = (\n    \"row_label_raw\",",
-   "replacement": "MATERIAL_RECORD_FIELDS = (\n    \"observed_at\",\n    \"row_label_raw\",",
+   "anchor": "    return {k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}",
+   "replacement": "    out = {k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}\n    out[\"observed_at\"] = prov.get(\"observed_at\")\n    return out",
    "expected_killers": [
     "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
    ],
@@ -163,7 +163,7 @@
      "corrected_to": [
       "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
      ],
-     "reason": "변이 자체가 무효였다 — `flat` 에 키를 넣어도 `{k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}` 가 걸러낸다. anchor 를 필드 목록으로 옮겨 실제로 material 축이 늘어나게 했다. (v1 anchor:         \"row_label_raw\": record.get(\"row…)"
+     "reason": "변이 자체가 무효였다 — `flat` 에 키를 넣어도 `{k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}` 가 걸러낸다. anchor 를 필드 목록으로 옮겨 실제로 material 축이 늘어나게 했다. (v1 anchor:         \"row_label_raw\": record.get(\"row…) v2 는 필드 목록에만 넣어 `flat` 에 없는 키를 참조하며 KeyError 로 크래시했다(ERROR). v3 은 반환 dict 에 직접 넣어 크래시 없이 material 축만 늘린다."
     }
    ]
   },
@@ -259,7 +259,7 @@
    "anchor": "    return not series_blocked_by(entry) and len(entry.get(\"revisions\") or []) == 1",
    "replacement": "    return not series_blocked_by(entry)",
    "expected_killers": [
-    "series_consumable 은 revision 이 정확히 1건일 때만 True 다"
+    "series_consumable 은 revision 이 0건이면 False 다"
    ]
   },
   {
@@ -327,7 +327,7 @@
    "anchor": "        os.replace(tmp, path)",
    "replacement": "        open(path, \"w\", encoding=\"utf-8\").write(payload)\n        os.unlink(tmp)",
    "expected_killers": [
-    "저장 후 왕복이 동일하다"
+    "save_state 가 `os.replace` 로 원자적 교체를 한다"
    ]
   },
   {
