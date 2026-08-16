@@ -4,7 +4,9 @@
 #     checkout → observe → repository-clean guard → emitted record validation
 #            → persist → resulting store validation → artifact upload
 #
-# ⛔ observe 단계는 저장소에 쓰지 않는다 — 그 직후 `git diff --exit-code` 로 강제한다.
+# ⛔ observe 단계는 저장소에 쓰지 않는다 — 그 직후 clean guard 로 강제한다.
+#    guard 는 tracked 변경(`git diff --exit-code`)과 untracked 파일(`git status --porcelain`)을
+#    **둘 다** 판정에 쓴다 (S4A.1 · REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP).
 # ⛔ 관측 실패 후 persist 하지 않는다 · record validation 실패 후 persist 하지 않는다.
 # ⛔ CONFLICT / REVISION 이 미해소면 정상 success 로 소비하지 않는다.
 # ⛔ schedule 이 없다 — `workflow_dispatch` 전용이다. 자동 발동하지 않는다.
@@ -49,8 +51,18 @@ jobs:
       #    ★ 관측 실패 시 이 단계에 도달하지 않는다 (앞 단계가 non-zero 로 끝난다).
       - name: repository-clean guard
         run: |
-          git status --porcelain
+          # ⛔ `git status --porcelain` 을 **로그로만** 남기지 않는다 — 판정에 쓴다.
+          #    `git diff --exit-code` 는 untracked file 을 잡지 못하기 때문이다
+          #    (CIO 판정 S4A.1 · REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP).
+          #    둘 다 두면 provenance 가 더 명확하다.
           git diff --exit-code
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "⛔ repository state 가 변경됐다 (tracked + untracked):"
+            echo "$dirty"
+            exit 1
+          fi
+          echo "✓ working tree clean (tracked + untracked)"
 
       # ── ③ emitted record validation — persist 전에 계약을 먼저 건다 ──
       #    ⛔ 실패하면 persist 하지 않는다.
@@ -110,7 +122,16 @@ jobs:
 
       # ── ⑥ 저장소 불변 재확인 — persist 도 repo 를 건드리지 않았다 ──
       - name: repository-clean guard (post-persist)
-        run: git diff --exit-code
+        run: |
+          # ★ observe 직후 guard 와 **동일한 계약**이다 (S4A.1).
+          git diff --exit-code
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "⛔ repository state 가 변경됐다 (tracked + untracked):"
+            echo "$dirty"
+            exit 1
+          fi
+          echo "✓ working tree clean (tracked + untracked)"
 
       # ── ⑦ artifact upload ─────────────────────────────────────────
       - name: artifact upload

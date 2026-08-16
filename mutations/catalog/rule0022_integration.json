@@ -229,6 +229,70 @@
     "제안 경로가 상수로 선언돼 있다",
     "제안 경로가 run-date snapshot 모델"
    ]
+  },
+  {
+   "id": "WF-GUARD-1",
+   "origin_label": "WF-GUARD-1",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ observe 직후 guard 를 S4A 이전 형태로 되돌린다 — `git status` 를 로그로만 남기고 untracked 를 놓친다 (REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP 재유입)",
+   "anchors_expected": 1,
+   "anchor": "          git diff --exit-code\n          dirty=\"$(git status --porcelain)\"\n          if [ -n \"$dirty\" ]; then\n            echo \"⛔ repository state 가 변경됐다 (tracked + untracked):\"\n            echo \"$dirty\"\n            exit 1\n          fi\n          echo \"✓ working tree clean (tracked + untracked)\"\n\n      # ── ③ emitted record validation",
+   "replacement": "          git status --porcelain\n          git diff --exit-code\n\n      # ── ③ emitted record validation",
+   "expected_killers": [
+    "[observe 직후] untracked file → guard FAIL",
+    "guard[0] 가 `git status --porcelain` 을 **판정에** 쓴다"
+   ]
+  },
+  {
+   "id": "WF-GUARD-2",
+   "origin_label": "WF-GUARD-2",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ persist 직후 guard 를 약화한다 — 두 guard 의 계약이 어긋난다",
+   "anchors_expected": 1,
+   "anchor": "      - name: repository-clean guard (post-persist)\n        run: |\n          # ★ observe 직후 guard 와 **동일한 계약**이다 (S4A.1).\n          git diff --exit-code\n          dirty=\"$(git status --porcelain)\"",
+   "replacement": "      - name: repository-clean guard (post-persist)\n        run: |\n          git diff --exit-code\n          dirty=\"\"",
+   "expected_killers": [
+    "[persist 직후] untracked file → guard FAIL",
+    "두 guard 의 실행 계약이 동일하다"
+   ]
+  },
+  {
+   "id": "WF-GUARD-3",
+   "origin_label": "WF-GUARD-3",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ dirty 판정에서 `exit 1` 을 없앤다 — 더러워도 계속 진행한다",
+   "anchors_expected": 2,
+   "anchor": "            echo \"$dirty\"\n            exit 1\n",
+   "replacement": "            echo \"$dirty\"\n",
+   "expected_killers": [
+    "untracked file → guard FAIL",
+    "명시적 `exit 1` 이 있다"
+   ]
+  },
+  {
+   "id": "WF-GUARD-4",
+   "origin_label": "WF-GUARD-4",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "dirty 조건을 반대로 만든다 — clean 일 때 실패하고 더러울 때 통과한다",
+   "anchors_expected": 2,
+   "anchor": "          if [ -n \"$dirty\" ]; then",
+   "replacement": "          if [ -z \"$dirty\" ] && false; then",
+   "expected_killers": [
+    "untracked file → guard FAIL",
+    "tracked modification → guard FAIL"
+   ]
+  },
+  {
+   "id": "WF-GUARD-5",
+   "origin_label": "WF-GUARD-5",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ `git diff --exit-code` 를 제거한다 — tracked 변경 provenance 축이 사라진다",
+   "anchors_expected": 2,
+   "anchor": "          git diff --exit-code\n          dirty=\"$(git status --porcelain)\"",
+   "replacement": "          dirty=\"$(git status --porcelain)\"",
+   "expected_killers": [
+    "가 `git diff --exit-code` 를 쓴다"
+   ]
   }
  ]
 }

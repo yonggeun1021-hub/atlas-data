@@ -23,6 +23,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -334,6 +335,122 @@ with section("D. ★★ workflow 계약 순서"):
               "runner.temp" in wf)
         check("★ 이 workflow 가 commit/push 를 하지 않는다",
               "git commit" not in wf and "git push" not in wf)
+
+with section("D-3. ★★ repository-clean guard 를 **실제로 실행**한다 "
+             "(S4A.1 · REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP)"):
+    # ★ workflow 의 guard 를 문자열로만 대조하지 않는다 — YAML 에서 그대로 뽑아
+    #   진짜 git 저장소에서 돌려 exit code 를 본다.
+    #   ⛔ 「`git status` 를 출력한다」와 「`git status` 로 판정한다」는 다르다.
+    wf_text = open(WF, encoding="utf-8").read()
+
+    def guard_scripts(text):
+        """`repository-clean guard` 단계들의 run 블록을 그대로 뽑는다."""
+        out = []
+        lines = text.splitlines()
+        for i, ln in enumerate(lines):
+            if ln.strip().startswith("- name: repository-clean guard"):
+                j = i + 1
+                while j < len(lines) and not lines[j].strip().startswith("run:"):
+                    j += 1
+                if j >= len(lines):
+                    continue
+                body, k = [], j + 1
+                indent = len(lines[j]) - len(lines[j].lstrip())
+                while k < len(lines):
+                    cur = lines[k]
+                    if cur.strip() and (len(cur) - len(cur.lstrip())) <= indent:
+                        break
+                    body.append(cur[indent + 2:] if len(cur) > indent + 2 else "")
+                    k += 1
+                out.append("\n".join(body).rstrip() + "\n")
+        return out
+
+    scripts = guard_scripts(wf_text)
+    if not need("guard 단계 2개를 추출했다", len(scripts) == 2, str(len(scripts))):
+        skip("guard 실행 검증", "추출 실패")
+    else:
+        def executable_lines(script):
+            """주석·빈 줄을 제외한 **실행되는 줄**만 남긴다."""
+            return [ln.strip() for ln in script.splitlines()
+                    if ln.strip() and not ln.strip().startswith("#")]
+        check("★★ 두 guard 의 실행 계약이 동일하다 (observe 직후 · persist 직후)",
+              executable_lines(scripts[0]) == executable_lines(scripts[1]),
+              str(executable_lines(scripts[0]))[:80])
+        for gi, sc in enumerate(scripts):
+            ex = executable_lines(sc)
+            check(f"★ guard[{gi}] 가 `git diff --exit-code` 를 쓴다",
+                  any("git diff --exit-code" in x for x in ex))
+            check(f"★★ guard[{gi}] 가 `git status --porcelain` 을 **판정에** 쓴다",
+                  any("git status --porcelain" in x and "=" in x for x in ex),
+                  str(ex)[:80])
+            check(f"★★ guard[{gi}] 에 명시적 `exit 1` 이 있다",
+                  any(x == "exit 1" for x in ex), str(ex)[:80])
+
+        def run_guard(script, setup):
+            """빈 임시 git 저장소를 만들고 setup 을 적용한 뒤 guard 를 돌린다."""
+            with tempfile.TemporaryDirectory() as d:
+                env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                           GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+                def git(*a):
+                    return subprocess.run(["git", *a], cwd=d, env=env,
+                                          capture_output=True, text=True)
+                git("init", "-q")
+                open(os.path.join(d, "tracked.txt"), "w").write("original\n")
+                git("add", "-A")
+                git("commit", "-qm", "init")
+                setup(d)
+                sp = os.path.join(d, "_guard.sh")
+                open(sp, "w").write(script)
+                # ⛔ guard 스크립트 파일 자체가 untracked 로 잡히지 않도록 저장소 밖에 둔다
+                outside = os.path.join(tempfile.mkdtemp(), "guard.sh")
+                os.replace(sp, outside)
+                r = subprocess.run(["bash", outside], cwd=d, env=env,
+                                   capture_output=True, text=True)
+                return r.returncode, (r.stdout + r.stderr)
+
+        CASES = [
+            ("clean repository", lambda d: None, 0),
+            ("tracked modification",
+             lambda d: open(os.path.join(d, "tracked.txt"), "w").write("changed\n"), 1),
+            ("untracked file",
+             lambda d: open(os.path.join(d, "stray.json"), "w").write("{}\n"), 1),
+            ("untracked 디렉터리",
+             lambda d: (os.makedirs(os.path.join(d, "observations")),
+                        open(os.path.join(d, "observations", "x.json"), "w").write("{}")), 1),
+            ("staged 신규 파일",
+             lambda d: (open(os.path.join(d, "new.txt"), "w").write("x"),
+                        subprocess.run(["git", "add", "new.txt"], cwd=d,
+                                       capture_output=True)), 1),
+        ]
+        for gi, script in enumerate(scripts):
+            tag = "observe 직후" if gi == 0 else "persist 직후"
+            for name, setup, want in CASES:
+                rc, out = run_guard(script, setup)
+                ok = (rc == 0) if want == 0 else (rc != 0)
+                check(f"★★ [{tag}] {name} → guard {'PASS' if want == 0 else 'FAIL'}",
+                      ok, f"rc={rc} {out.strip()[:80]}")
+
+        # ★ 실제 observe / persist 를 fixture 로 돌린 뒤 저장소 state 가 그대로인지 본다.
+        #   ⛔ 「저장소가 clean 이다」로 단언하지 않는다 — 개발 중 로컬 변경이 있으면
+        #      계약과 무관하게 실패한다. **실행 전후가 같은가**가 계약이다.
+        BEFORE_STATUS = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                                       capture_output=True, text=True).stdout
+        for stage in ("observe", "persist"):
+            with tempfile.TemporaryDirectory() as work:
+                emit = os.path.join(work, "emission.json")
+                rc = OBSV.main(["--source", "fixture", "--manifest", MAN26, "--out", emit])
+                need(f"{stage} 준비 — observe 성공", rc == 0, str(rc))
+                if stage == "persist":
+                    rc = PERS.main(["--emission", emit,
+                                    "--store", os.path.join(work, "store.json"),
+                                    "--result", os.path.join(work, "result.json")])
+                    need("persist 성공", rc == 0, str(rc))
+                after = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                                       capture_output=True, text=True).stdout
+                check(f"★★ 실제 {stage} fixture run 이 저장소 state 를 바꾸지 않는다",
+                      after == BEFORE_STATUS,
+                      "변경된 항목: "
+                      + str(sorted(set(after.splitlines()) ^ set(BEFORE_STATUS.splitlines())))[:120])
 
 with section("D-2. canonical store 영속 경로 제안"):
     check("★ 제안 경로가 상수로 선언돼 있다",
