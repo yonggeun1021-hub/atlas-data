@@ -72,7 +72,21 @@
    "anchor": "        if len(hits) != 1:\n            problems.append(f\"{label} 컬럼이 정확히 1개가 아니다 ({len(hits)}개)\")",
    "replacement": "        if len(hits) < 1:\n            problems.append(f\"{label} 컬럼이 정확히 1개가 아니다 ({len(hits)}개)\")",
    "expected_killers": [
-    "GAAP 열 복수건 → fail-closed"
+    "★★ GAAP 열이 2개면 결합하지 않는다 (cc 는 그대로 1개)",
+    "사유가 GAAP 컬럼 개수다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "GAAP 열 복수건 → fail-closed"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ GAAP 열이 2개면 결합하지 않는다 (cc 는 그대로 1개)",
+      "사유가 GAAP 컬럼 개수다"
+     ],
+     "reason": "v1 은 fixture 치환 기반 검사(`GAAP 열 복수건 → fail-closed`)를 killer 로 선언했으나, 그 주입은 cc 열을 동시에 0개로 만들어 **다른 사유로** fail-closed 됐다 — 변이 하에서도 여전히 PASS 한다. 열별로 분리한 bind_columns 단위 검사가 이 계약의 소유자다."
+    }
    ]
   },
   {
@@ -174,7 +188,21 @@
    "anchor": "    narrowing[\"table_candidates\"] = len(tis)\n    if len(tis) != 1:",
    "replacement": "    narrowing[\"table_candidates\"] = len(tis)\n    if len(tis) < 1:",
    "expected_killers": [
-    "table 후보가 정확히 1건"
+    "★★ 분기표 복수건 → fail-closed (문서 순서로 고르지 않는다)",
+    "사유가 표 개수 문제다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "table 후보가 정확히 1건"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ 분기표 복수건 → fail-closed (문서 순서로 고르지 않는다)",
+      "사유가 표 개수 문제다"
+     ],
+     "reason": "v1 은 정상 경로 검사(`table 후보가 정확히 1건`)를 선언했으나 그것은 정상 fixture 에서 1건이라 변이와 무관하게 PASS 한다. 복수건 주입 검사가 이 계약의 소유자다."
+    }
    ]
   },
   {
@@ -185,7 +213,21 @@
    "anchor": "            if is_data_row(r):\n                continue",
    "replacement": "            if False:\n                continue",
    "expected_killers": [
-    "세 컬럼이 각각 정확히 1개"
+    "★★ 헤더에 값 행 라벨이 섞이지 않는다",
+    "★★ 오염 행이 있어도 컬럼이 각각 정확히 1개"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "세 컬럼이 각각 정확히 1개"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ 헤더에 값 행 라벨이 섞이지 않는다",
+      "★★ 오염 행이 있어도 컬럼이 각각 정확히 1개"
+     ],
+     "reason": "v1 은 정상 fixture 의 컬럼 개수 검사를 선언했으나, 현재 fixture 의 행 라벨에는 `Percentage Change` · `Constant Currency` 가 없어 헤더가 오염돼도 분류가 바뀌지 않는다 — fixture 가 이 결함을 구별하지 못한다. 오염 행을 명시적으로 넣은 build_header 단위 검사가 이 계약의 소유자다."
+    }
    ]
   },
   {
