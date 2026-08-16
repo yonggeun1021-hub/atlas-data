@@ -1,0 +1,447 @@
+{
+ "target": "collectors/msft_azure_cc.py",
+ "regression": "test/test_msft_azure_cc.py",
+ "origin": "/tmp/mut.py + /tmp/mut3.py + /tmp/mut4.py + /tmp/mut5.py (2026-08-16 이관)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다.",
+ "mutations": [
+  {
+   "id": "MSFT-EXHIBIT-M1",
+   "origin_label": "M1",
+   "note": "0건일 때 filename hint 로 fallback",
+   "anchors_expected": 1,
+   "anchor": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if len(hits) != 1:",
+   "replacement": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if not hits:\n        hits = [d for d in docs if FILENAME_HINT.search(d[\"filename\"])]\n    if len(hits) != 1:",
+   "expected_killers": [
+    "filename=msft-ex99_1.htm → 거부"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "0건 → 거부"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "filename=msft-ex99_1.htm → 거부"
+     ],
+     "reason": "선언 오류. `0건 → 거부` fixture 는 hint 에 걸리는 파일명이 없어 fallback 이 발동하지 않는다. hint 비의존 계약을 소유하는 것은 TYPE 불일치 + hint 일치 파일명 검사군이다.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M2",
+   "origin_label": "M2",
+   "note": "2건 이상이면 첫 번째를 고른다",
+   "anchors_expected": 1,
+   "anchor": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if len(hits) != 1:",
+   "replacement": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if len(hits) < 1:",
+   "expected_killers": [
+    "2건 → 임의 선택하지 않고 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M3",
+   "origin_label": "M3",
+   "note": "TYPE 을 prefix 로 느슨하게 매칭",
+   "anchors_expected": 1,
+   "anchor": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if len(hits) != 1:",
+   "replacement": "    hits = [d for d in docs if d[\"type\"].upper().startswith(EXHIBIT_TYPE)]\n    if len(hits) != 1:",
+   "expected_killers": [
+    "TYPE=EX-99.1A"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M4",
+   "origin_label": "M4",
+   "note": "secondary 충돌을 무시",
+   "anchors_expected": 1,
+   "anchor": "    if sec.upper() != EXHIBIT_TYPE:",
+   "replacement": "    if False:",
+   "expected_killers": [
+    "충돌 → 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M5",
+   "origin_label": "M5",
+   "note": "secondary 미발견 시 통과",
+   "anchors_expected": 1,
+   "anchor": "    if sec is None:\n        return None, [f\"secondary 에서 {target} 의 Type 을 찾지 못했다 — 추정하지 않는다\"], chosen",
+   "replacement": "    if sec is None:\n        return target, [], chosen",
+   "expected_killers": [
+    "secondary 에 해당 파일이 없으면 추정하지 않고 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M6",
+   "origin_label": "M6",
+   "note": "실패 로그에서 후보 집합을 뺀다",
+   "anchors_expected": 1,
+   "anchor": "    for d in docs[:CAND_LOG_LIMIT]:",
+   "replacement": "    for d in []:",
+   "expected_killers": [
+    "가 로그에 있다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "후보 건수가 남는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "가 로그에 있다"
+     ],
+     "reason": "선언 오류. 건수는 후보 loop 과 별도로 찍히므로 `후보 건수가 남는다` 는 살아남는다. 후보 집합 소실을 소유하는 것은 개별 후보 로그 검사다.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M7",
+   "origin_label": "M7",
+   "note": "상한 초과 건수를 조용히 자른다",
+   "anchors_expected": 1,
+   "anchor": "        print(f\"      … 나머지 {len(docs) - CAND_LOG_LIMIT}건 생략\")",
+   "replacement": "        pass",
+   "expected_killers": [
+    "상한 초과분은 조용히 자르지 않고 건수를 남긴다"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M8",
+   "origin_label": "M8",
+   "note": "index.json 을 다시 조회",
+   "anchors_expected": 1,
+   "anchor": "        _, raw = get(f\"{ARCHIVE_BASE}/{acc}/{c['accession']}.txt\")",
+   "replacement": "        _, raw = get(f\"{ARCHIVE_BASE}/{acc}/index.json\")",
+   "expected_killers": [
+    "index.json URL 을 만들지 않는다"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M9",
+   "origin_label": "M9",
+   "note": "FILENAME 이 비어도 통과",
+   "anchors_expected": 1,
+   "anchor": "    if not target:\n        return None, [\"식별된 <DOCUMENT> 에 <FILENAME> 이 없다\"], chosen",
+   "replacement": "    if not target:\n        return \"unknown.htm\", [], chosen",
+   "expected_killers": [
+    "FILENAME 이 비면 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M10",
+   "origin_label": "M10",
+   "note": "-index-headers.html 로 되돌린다 (CIO 불승인 경로)",
+   "anchors_expected": 1,
+   "anchor": "        _, raw = get(f\"{ARCHIVE_BASE}/{acc}/{c['accession']}.txt\")",
+   "replacement": "        _, raw = get(f\"{ARCHIVE_BASE}/{acc}/{c['accession']}-index-headers.html\")",
+   "expected_killers": [
+    "-index-headers.html 을 조회하지 않는다"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M11",
+   "origin_label": "M11",
+   "note": "<DOCUMENT> 로 자르지 않고 전체를 훑는다 (본문 오염)",
+   "anchors_expected": 1,
+   "anchor": "    for chunk in re.split(r\"<DOCUMENT>\", sgml_text, flags=re.I)[1:]:\n        header = re.split(r\"<TEXT>\", chunk, maxsplit=1, flags=re.I)[0]\n        m = RE_DOC_BLOCK.search(header)\n        if not m:\n            continue",
+   "replacement": "    for m in RE_DOC_BLOCK.finditer(sgml_text):\n        if True:\n            pass",
+   "expected_killers": [
+    "블록 수만큼만 뽑는다"
+   ]
+  },
+  {
+   "id": "MSFT-EXHIBIT-M12",
+   "origin_label": "M12",
+   "note": "<TEXT> 앞으로 자르지 않는다 (본문 포함 파싱)",
+   "anchors_expected": 1,
+   "anchor": "        header = re.split(r\"<TEXT>\", chunk, maxsplit=1, flags=re.I)[0]",
+   "replacement": "        header = chunk",
+   "expected_killers": [
+    "본문의 phantom.htm 이 후보로 올라오지 않는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "앞 헤더만 본다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "본문의 phantom.htm 이 후보로 올라오지 않는다"
+     ],
+     "reason": "선언 오류 + 관측. `<TEXT> 앞 헤더만 본다` 는 _body_noise fixture 에서 변이 후에도 블록 3건·SEQUENCE ['1','2','3'] 로 동일해 판별하지 못한다(실측). 본문 오염을 실제로 잡는 것은 phantom/decoy 검사군이다. ★ 이름이 가리키는 계약을 판별하지 못하는 검사 — 별건.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P1",
+   "origin_label": "P1",
+   "note": "제목을 구형(Revenue)으로 되돌린다",
+   "anchors_expected": 1,
+   "anchor": "RECON_TABLE_TITLE = re.compile(\n    r\"Selected\\s+Product\\s+and\\s+Service\\s+(?:Revenue|Information)\\s+\"\n    r\"Constant\\s+Currency\\s+Reconciliation\", re.I)",
+   "replacement": "RECON_TABLE_TITLE = re.compile(\n    r\"Selected\\s+Product\\s+and\\s+Service\\s+Revenue\\s+\"\n    r\"Constant\\s+Currency\\s+Reconciliation\", re.I)",
+   "expected_killers": [
+    "2026-04-29 →"
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P2",
+   "origin_label": "P2",
+   "note": "행 라벨을 구형(suffix 없음)으로 되돌린다",
+   "anchors_expected": 1,
+   "anchor": "AZURE_ROW = re.compile(\n    r\"^Azure\\s+and\\s+other\\s+cloud\\s+services(?:\\s+revenue)?$\", re.I)",
+   "replacement": "AZURE_ROW = re.compile(\n    r\"^Azure\\s+and\\s+other\\s+cloud\\s+services$\", re.I)",
+   "expected_killers": [
+    "2026-04-29 →"
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P3",
+   "origin_label": "P3",
+   "note": "제목을 포괄 완화한다 (.*)",
+   "anchors_expected": 1,
+   "anchor": "RECON_TABLE_TITLE = re.compile(\n    r\"Selected\\s+Product\\s+and\\s+Service\\s+(?:Revenue|Information)\\s+\"\n    r\"Constant\\s+Currency\\s+Reconciliation\", re.I)",
+   "replacement": "RECON_TABLE_TITLE = re.compile(\n    r\"Selected\\s+Product\\s+and\\s+Service\\s+.*\\s+\"\n    r\"Constant\\s+Currency\\s+Reconciliation\", re.I)",
+   "expected_killers": [
+    "미지 문면 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P4",
+   "origin_label": "P4",
+   "note": "행 suffix 를 포괄 완화한다 (.*)",
+   "anchors_expected": 1,
+   "anchor": "AZURE_ROW = re.compile(\n    r\"^Azure\\s+and\\s+other\\s+cloud\\s+services(?:\\s+revenue)?$\", re.I)",
+   "replacement": "AZURE_ROW = re.compile(\n    r\"^Azure\\s+and\\s+other\\s+cloud\\s+services.*$\", re.I)",
+   "expected_killers": [
+    "미지 문면 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P5",
+   "origin_label": "P5",
+   "note": "행 앵커를 푼다 ($ 제거)",
+   "anchors_expected": 1,
+   "anchor": "AZURE_ROW = re.compile(\n    r\"^Azure\\s+and\\s+other\\s+cloud\\s+services(?:\\s+revenue)?$\", re.I)",
+   "replacement": "AZURE_ROW = re.compile(\n    r\"^Azure\\s+and\\s+other\\s+cloud\\s+services\", re.I)",
+   "expected_killers": [
+    "미지 문면 거부"
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P6",
+   "origin_label": "P6",
+   "note": "identify 를 비앵커 텍스트 검색으로 되돌린다",
+   "anchors_expected": 1,
+   "anchor": "    azure_cell = any(AZURE_ROW.match(c.strip())\n                     for rows in tables for r in rows for c in r)",
+   "replacement": "    azure_cell = bool(re.search(r\"Azure and other cloud services\", text, re.I))",
+   "expected_killers": [
+    "identify 와 결합 가능성이 어긋나지 않는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "identify 가 AZURE_ROW 를 실제로 참조한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "identify 와 결합 가능성이 어긋나지 않는다"
+     ],
+     "reason": "선언 오류 + ★★ 중대 관측. `identify 가 AZURE_ROW 를 실제로 참조한다` 는 `\"AZURE_ROW\" in inspect.getsource(M.identify)` — **문자열 검색**이다. identify 안 AZURE_ROW 출현 3곳 중 코드는 1곳뿐이고 나머지는 주석·문자열이라, 코드에서 지워도 통과한다. CIO 가 이미 판정한 「정적 계약 검사는 AST 로 한다」 위반 사례다 — 별건.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P7",
+   "origin_label": "P7",
+   "note": "cc 대신 GAAP 컬럼을 고른다",
+   "anchors_expected": 1,
+   "anchor": "        elif cc and pct:\n            idx_cc.append(i)",
+   "replacement": "        elif cc and pct:\n            idx_gaap.append(i)\n            idx_cc.append(i - 2)",
+   "expected_killers": [
+    "GAAP 을 집지 않았다"
+   ]
+  },
+  {
+   "id": "MSFT-EXTRACT-P8",
+   "origin_label": "P8",
+   "note": "cc 대신 영향 컬럼을 고른다",
+   "anchors_expected": 1,
+   "anchor": "           \"_column_index\": {\"gaap\": idx_gaap[0], \"cc_impact\": idx_impact[0],\n                             \"cc\": idx_cc[0]}}",
+   "replacement": "           \"_column_index\": {\"gaap\": idx_gaap[0], \"cc_impact\": idx_impact[0],\n                             \"cc\": idx_impact[0]}}",
+   "expected_killers": [
+    "영향 컬럼을 cc 로 집지 않았다"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q1",
+   "origin_label": "Q1",
+   "note": "첫 후보를 고른다 (row guard 무력화)",
+   "anchors_expected": 1,
+   "anchor": "    if len(same) != 1:",
+   "replacement": "    if len(same) < 1:",
+   "expected_killers": [
+    "2건이면 fail-closed (첫 행을 고르지 않는다)"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q2",
+   "origin_label": "Q2",
+   "note": "표가 여럿이어도 첫 표를 고른다 (table guard 무력화)",
+   "anchors_expected": 1,
+   "anchor": "    if len(tis) != 1:",
+   "replacement": "    if len(tis) < 1:",
+   "expected_killers": [
+    "분기표가 2건이면 fail-closed"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q3",
+   "origin_label": "Q3",
+   "note": "period 필터를 없앤다 (연간표도 통과)",
+   "anchors_expected": 1,
+   "anchor": "        if per and per[0] == \"QUARTER\":",
+   "replacement": "        if True:",
+   "expected_killers": [
+    "연간표는 걸러지고 분기표 1건이 남는다"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q4",
+   "origin_label": "Q4",
+   "note": "분기 아닌 기간을 분기로 본다",
+   "anchors_expected": 1,
+   "anchor": "            if NON_QUARTER_PERIOD.search(c):\n                return (\"NON_QUARTER\", c.strip())",
+   "replacement": "            if NON_QUARTER_PERIOD.search(c):\n                return (\"QUARTER\", c.strip())",
+   "expected_killers": [
+    "→ 거부한다"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q5",
+   "origin_label": "Q5",
+   "note": "find_azure_table 이 다시 첫 행에서 멈춘다",
+   "anchors_expected": 1,
+   "anchor": "            if r and any(AZURE_ROW.match(c.strip()) for c in r) and ri > 0:\n                out.append((ti, rows, ri))",
+   "replacement": "            if r and any(AZURE_ROW.match(c.strip()) for c in r) and ri > 0:\n                out.append((ti, rows, ri))\n                break",
+   "expected_killers": [
+    "find_azure_table 에 break 제어문이 없다"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q6",
+   "origin_label": "Q6",
+   "note": "period 를 위치(열 0)로 찾는다",
+   "anchors_expected": 1,
+   "anchor": "    for r in rows[:ri]:\n        for c in r:\n            m = QUARTER_PERIOD.search(c)",
+   "replacement": "    for r in rows[:ri]:\n        for c in r[:1]:\n            m = QUARTER_PERIOD.search(c)",
+   "expected_killers": [
+    "period 를 분기로 식별"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q7",
+   "origin_label": "Q7",
+   "note": "Azure 행 0건을 조용히 넘긴다",
+   "anchors_expected": 1,
+   "anchor": "    if not cands:\n        return None, None, None, [\"Azure 행(AZURE_ROW 일치)이 0건이다\"]",
+   "replacement": "    if not cands:\n        return None, None, None, []",
+   "expected_killers": [
+    "0건 사유가 구분된다"
+   ]
+  },
+  {
+   "id": "MSFT-OBSERVE-Q8",
+   "origin_label": "Q8",
+   "note": "분기표 0건이어도 진행한다",
+   "anchors_expected": 1,
+   "anchor": "    if not kept:",
+   "replacement": "    if False:",
+   "expected_killers": [
+    "걸러진 후보의 기간 신호를 남긴다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "→ 거부한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "걸러진 후보의 기간 신호를 남긴다"
+     ],
+     "reason": "선언 오류. `if not kept:` 를 없애도 거부 자체는 유지된다(다른 guard). 이 변이가 실제로 깨는 것은 **거부 근거(기간 신호·대체 금지 사유)** 다.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "MSFT-HEADER-S1",
+   "origin_label": "S1",
+   "note": "값 행을 건너뛰지 않는다 (공용 동작으로 회귀)",
+   "anchors_expected": 1,
+   "anchor": "            if is_data_row(r):          # ★ 값 행은 헤더가 아니다 — 건너뛴다\n                continue\n",
+   "replacement": "",
+   "expected_killers": [
+    "다른 행 라벨이 header 에 없다"
+   ]
+  },
+  {
+   "id": "MSFT-HEADER-S2",
+   "origin_label": "S2",
+   "note": "값 행 판별을 항상 False 로 (오염 복원)",
+   "anchors_expected": 1,
+   "anchor": "    return any(RE_PCT_VALUE.match(c.strip()) for c in row if c.strip())",
+   "replacement": "    return False",
+   "expected_killers": [
+    "다른 행 라벨이 header 에 없다"
+   ]
+  },
+  {
+   "id": "MSFT-HEADER-S3",
+   "origin_label": "S3",
+   "note": "값 행 판별을 항상 True 로 (헤더가 통째로 사라짐)",
+   "anchors_expected": 1,
+   "anchor": "    return any(RE_PCT_VALUE.match(c.strip()) for c in row if c.strip())",
+   "replacement": "    return True",
+   "expected_killers": [
+    "컬럼 헤더 문면은 그대로 남아 있다"
+   ]
+  },
+  {
+   "id": "MSFT-HEADER-S4",
+   "origin_label": "S4",
+   "note": "헤더 행 범위를 행 번호로 박는다 (의미 아닌 위치)",
+   "anchors_expected": 1,
+   "anchor": "        for r in rows[:data_i]:\n            if is_data_row(r):",
+   "replacement": "        for r in rows[:3]:\n            if is_data_row(r):",
+   "expected_killers": [
+    "header 구성에 행·열 번호를 박지 않았다"
+   ]
+  },
+  {
+   "id": "MSFT-HEADER-S5",
+   "origin_label": "S5",
+   "note": "c4 의 build_header 를 다시 import 한다",
+   "anchors_expected": 1,
+   "anchor": "                                evidence, get)",
+   "replacement": "                                build_header, evidence, get)",
+   "expected_killers": [
+    "c4 의 build_header 를 import 하지 않는다"
+   ]
+  },
+  {
+   "id": "MSFT-HEADER-S6",
+   "origin_label": "S6",
+   "note": "퍼센트 표식 대신 아무 숫자나 값 행으로 본다",
+   "anchors_expected": 1,
+   "anchor": "    return any(RE_PCT_VALUE.match(c.strip()) for c in row if c.strip())",
+   "replacement": "    return any(c.strip().isdigit() for c in row if c.strip())",
+   "expected_killers": [
+    "값 행 판별이 퍼센트 값 표식이다"
+   ]
+  }
+ ]
+}
