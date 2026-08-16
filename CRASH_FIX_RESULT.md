@@ -1,8 +1,9 @@
 # 별건 4 수정 결과 + 69종 authoritative revalidation (CIO 승인 범위 한정)
 
 ```
-HEAD                 (아래 커밋)
+HEAD                 350948b
 authoritative run    2026-08-16 · catalog 69 · 2회 반복 완전 재현
+                     (문서 커밋 후 350948b 에서 재실행 · 결과 동일)
 정본 worktree        무수정 (변이는 전부 일회용 checkout 안에서만)
 ```
 
@@ -206,8 +207,8 @@ NameError 연쇄           ⑲-3 `_rows2` · ⑪ `b_full`                       
         수정 구현    DONE — 판정 대기
           CRASH 14 → 0 · 미평가 949 → 221 (ERROR 절 안 176 · 기존 조건 분기 45)
 
-mutation infrastructure          CLOSED @ 11ee80d (사유 코드화 4d74971 · trace 결선 이번 커밋)
-historical mutation evidence     REBUILT / AUTHORITATIVE (이번 커밋)
+mutation infrastructure          CLOSED @ 11ee80d (사유 코드화 4d74971 · trace 결선 857c4bf~)
+historical mutation evidence     REBUILT / AUTHORITATIVE @ 350948b
   KILLED 69 · SURVIVED 0 · MISATTRIBUTED 0 · NOT_APPLICABLE 0 · INVALID_RUN 0
 attribution quality              69/69 · CRASH 로 가려졌던 6건이 원 선언대로 발화
 CI 5th gate                      NOT APPROVED — 유지
