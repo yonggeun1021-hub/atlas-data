@@ -95,6 +95,11 @@ APPROVED_TESTS = [
     #   ⛔ CIO 가 이 파일 자체를 아직 승인한 적은 없다. 목록에 넣지 않으면 test-set
     #      대조에서 「미승인」으로 잡히므로 숨기지 않고 등록한 뒤 보고한다.
     "test/test_capture_azure_fixture.py",
+    # ★ CIO 승인 2026-08-16 — TSMC raw fixture capture 회귀.
+    #   ⛔ C4 parser 를 검증하지 않는다. capture 도구의 성질만 본다.
+    #   ⛔ 이 등록은 CIO 확인 대상이다 — 목록에 넣지 않으면 test-set 대조에서
+    #      「미승인」으로 잡히므로 숨길 수 없다.
+    "test/test_capture_tsmc_fixture.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

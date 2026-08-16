@@ -1,0 +1,40 @@
+# C4 Gate — TSMC 월매출 6-K 원문 표 블록 보존 (수동 실행 전용)
+#
+# ★ 목적 (CIO 승인 2026-08-16): C4 first-match FI 를 합성 문서 위에서 했다.
+#   MSFT 때 확립한 증거 규율(실제 원문 → 회귀 → 수정)을 C4 에도 적용하기 위해
+#   원문을 먼저 확보한다.
+#
+# ⛔ C4 parser 를 수정하지 않는다 · P3 를 reopen 하지 않는다 · 값을 판정하지 않는다.
+# ⛔ 저장소에 쓰지 않는다 — 출력은 runner temp 이며 artifact 로만 나간다.
+# ⛔ 대상은 3개월로 고정돼 있다 (장기 역사 조사 아님).
+name: capture-tsmc-fixture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: TSMC 월매출 표 원문 블록 보존
+        env:
+          FIXTURE_OUT: ${{ runner.temp }}/tsmc-fixtures
+        run: python3 collectors/capture_tsmc_fixture.py
+
+      - name: 저장소가 그대로인지 (쓰기 없음 확인)
+        run: git diff --exit-code
+
+      - name: artifact 업로드
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: tsmc-raw-fixtures
+          path: ${{ runner.temp }}/tsmc-fixtures
+          if-no-files-found: error
