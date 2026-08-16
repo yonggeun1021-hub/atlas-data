@@ -260,8 +260,8 @@
    "target": ".github/workflows/rule0022-observation.yml",
    "note": "★ observe 직후 guard 를 S4A 이전 형태로 되돌린다 — `git status` 를 로그로만 남기고 untracked 를 놓친다 (REPOSITORY_CLEAN_GUARD_UNTRACKED_GAP 재유입)",
    "anchors_expected": 1,
-   "anchor": "          git diff --exit-code\n          dirty=\"$(git status --porcelain)\"\n          if [ -n \"$dirty\" ]; then\n            echo \"⛔ repository state 가 변경됐다 (tracked + untracked):\"\n            echo \"$dirty\"\n            exit 1\n          fi\n          echo \"✓ working tree clean (tracked + untracked)\"\n\n      # ── ③ emitted record validation",
-   "replacement": "          git status --porcelain\n          git diff --exit-code\n\n      # ── ③ emitted record validation",
+   "anchor": "          git diff --exit-code\n          dirty=\"$(git status --porcelain)\"\n          if [ -n \"$dirty\" ]; then\n            echo \"⛔ repository state 가 변경됐다 (tracked + untracked):\"\n            echo \"$dirty\"\n            exit 1\n          fi\n          echo \"✓ working tree clean (tracked + untracked)\"\n\n      # ── ②-b PARAMETER APPLICATION GUARD",
+   "replacement": "          git status --porcelain\n          git diff --exit-code\n\n      # ── ②-b PARAMETER APPLICATION GUARD",
    "expected_killers": [
     "[observe 직후] untracked file → guard FAIL",
     "guard[0] 가 `git status --porcelain` 을 **판정에** 쓴다"
@@ -479,10 +479,22 @@
    "target": ".github/workflows/rule0022-observation.yml",
    "note": "★ default 를 live 로 바꾼다 — 실수로 live 가 기본 실행이 된다",
    "anchors_expected": 1,
-   "anchor": "        options: [fixture, live]\n        default: fixture",
-   "replacement": "        options: [fixture, live]\n        default: live",
+   "anchor": "        options:\n          - \"__SELECT_SOURCE_EXPLICITLY__\"\n          - fixture\n          - live\n        default: \"__SELECT_SOURCE_EXPLICITLY__\"",
+   "replacement": "        options:\n          - \"__SELECT_SOURCE_EXPLICITLY__\"\n          - fixture\n          - live\n        default: live",
    "expected_killers": [
-    "default 는 여전히 fixture 다 (live 가 기본이 되지 않는다)"
+    "H1 · 그러나 어느 쪽도 기본값으로 내려가지 않는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "default 는 여전히 fixture 다 (live 가 기본이 되지 않는다)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "H1 · 그러나 어느 쪽도 기본값으로 내려가지 않는다"
+     ],
+     "reason": "WS2(H1 explicit source)가 `default: fixture` 자체를 폐지하고 첫 option 을 유효하지 않은 sentinel `__SELECT_SOURCE_EXPLICITLY__` 로 두는 fail-closed 배치로 바꿨다. 따라서 「default 는 여전히 fixture 다」라는 검사 문구가 소멸했다. 겨누는 위험은 바뀌지 않았다 — 「source 기본값이 live 가 되어 사용자가 명시하지 않아도 live 로 실행된다」이며, 같은 불변식을 검증하는 현재 문구(어느 쪽도 기본값으로 내려가지 않는다)로 옮겼다. ⛔ 관측 결과를 사후에 베껴 넣은 것이 아니다."
+    }
    ]
   },
   {
