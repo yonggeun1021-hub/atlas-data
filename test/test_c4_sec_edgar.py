@@ -193,9 +193,29 @@ src = open(os.path.join(ROOT, "collectors", "c4_sec_edgar_check.py"), encoding="
 tree = ast.parse(src)
 fns = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
 main_src = ast.get_source_segment(src, fns["main"])
-check("Decision 은 bind_columns 결과에서만 온다",
-      "decision = bound" in ast.get_source_segment(src, fns["main"])
-      or "decision = bound" in src)
+# ★ 2026-08-16 — selection 이 순수계층으로 빠지면서 대입 문면이 바뀌었다.
+#   검사를 지우지 않고 **불변식**(decision 은 bind_columns 산출물에서만 온다)에
+#   다시 겨눈다. ⛔ 문자열이 아니라 AST 로 대입식을 본다.
+# ⛔ 어느 함수에 있는지 추측하지 않는다 — 모듈 전체에서 `decision` 대입을 찾는다.
+#    (원 검사는 main() 만 봤는데 실제 대입은 observe() 에 있었다.)
+_dec_srcs, _dec_fns = [], set()
+for _fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+    for _n in ast.walk(_fn):
+        if isinstance(_n, ast.Assign):
+            for _t in _n.targets:
+                if isinstance(_t, ast.Name) and _t.id == "decision":
+                    _dec_srcs.append(ast.dump(_n.value))
+                    _dec_fns.add(_fn.name)
+check("Decision 대입이 존재한다", len(_dec_srcs) >= 1, str(_dec_srcs))
+check("Decision 은 bind_columns 산출물(bound)에서만 온다",
+      all(("'bound'" in d) or d.startswith("Name(id='bound'") for d in _dec_srcs),
+      str(_dec_srcs))
+# final_candidates 안에서 bound 가 bind_columns 결과인지도 확인한다
+_fc = fns["final_candidates"]
+_fc_src = ast.get_source_segment(src, _fc)
+check("final_candidates 의 bound 는 bind_columns 가 만든다",
+      "bound, probs = bind_columns(" in _fc_src)
+check('final_candidates 가 담는 값은 "bound" 키다', '"bound": bound' in _fc_src)
 check("Decision 을 prose_layer/thousands_layer 에서 만들지 않는다",
       not re.search(r"decision\s*(\[[^]]+\])?\s*=\s*(prose_layer|thousands_layer|pl|tl)\b", src))
 check("YoY 를 나눗셈으로 재계산하지 않는다",
@@ -556,6 +576,124 @@ check("⛔ table-level 2+ guard 를 넣지 않았다 (별건)",
       "표가 정확히 1건이 아니다" not in _c4src and "table_ambiguous" not in _c4src)
 check("⛔ build_header 를 손대지 않았다",
       "is_data_row" not in _c4src)
+
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ⑱ 최종 관측 후보 유일성 (CIO 승인 2026-08-16)
+#
+#   계약: L1 candidates → 각 후보에 L2 → L1∧L2 성공 후보 **전체** 수집
+#         → 정확히 1건이면 선택 / 0건·2+ 면 evidence 와 함께 fail-closed
+#
+#   ★ 책임이 두 층으로 나뉜다 (CIO 판정)
+#     `final_candidates` → 후보 **전체 보존**이 책임. 안에서 고르거나 축약하지 않는다.
+#     `unique_candidate`  → 유일성 판정이 책임. 0/2+ 에서 거부하고 근거를 남긴다.
+#     ⇒ 검사도 층을 나눠서 한다. 섞으면 어느 층이 틀렸는지 가리키지 못한다.
+# ══════════════════════════════════════════════════════════════════════
+print("\n⑱-C positive — 실제 fixture 3개월에서 L1∧L2 == 1 (T-1~T-4)")
+for _name, _, _nr, _yoy in TSMC_FX:
+    if "_t4_" not in _name:
+        continue
+    _d = _name[:10]
+    _mn, _yr = TSMC_MONTH[_d]
+    _tb = _tables(_fx(_name))
+    _rej = []
+    _l1 = C.find_decision_table(_tb, _mn, _yr, rejected=_rej)
+    _fin = C.final_candidates(_tb, _mn, _yr)
+    check(f"T-1 {_mn} L1 후보 1건", len(_l1) == 1, str(len(_l1)))
+    check(f"T-2 {_mn} 최종 후보(L1∧L2) 1건", len(_fin) == 1, str(len(_fin)))
+    _ch, _pb = C.unique_candidate(_fin)
+    check(f"T-2b {_mn} 유일성 판정 통과", _ch is not None, str(_pb))
+    if _ch and _mn in P3_VALUES:
+        _b = _ch["bound"]
+        check(f"T-3 {_mn} 값이 P3 기록과 같다",
+              (_b["monthly_revenue"], _b["monthly_yoy"], _b["cumulative_revenue"],
+               _b["cumulative_yoy"]) == P3_VALUES[_mn])
+# T-4 천원표는 최종 후보에 들어오지 않는다
+_t6n = "2026-08-10_0001046179-26-000471_t6_NT-thousands.html"
+check("T-4 천원표는 최종 후보 0건", len(C.final_candidates(_tables(_fx(_t6n)), "July", 2026)) == 0)
+# T-5 최소변형에서도 최종 후보는 1건 — 「가」를 채택하지 않은 판정을 고정한다
+_t6mod = _fx(_t6n).replace(">2025</font>", ">2025 Y-o-Y Increase (Decrease) %</font>", 1)
+_t4n = "2026-08-10_0001046179-26-000471_t4_unit-unknown.html"
+_both = _tables(_fx(_t4n)) + _tables(_t6mod)
+check("T-5 ★ 최소변형으로 천원표가 L1 을 통과해도 최종 후보는 1건",
+      len(C.final_candidates(_both, "July", 2026)) == 1,
+      str(len(C.final_candidates(_both, "July", 2026))))
+_rej5 = []
+C.final_candidates(_both, "July", 2026, rejected=_rej5)
+check("T-5b ★ 그 탈락 근거가 남는다", len(_rej5) >= 1, str(len(_rej5)))
+# ★ 위 t6mod 는 **L1(행 유일성)** 에서 걸린다 — L2 까지 가지 않는다.
+#   L2 탈락을 실제로 시험하려면 L1 은 통과하고 L2 만 실패하는 입력이 필요하다.
+#   실제 fixture 로 만들 수 있다: **대상월을 다른 달로 조회**하면 된다.
+#   (7월 결정표를 June 으로 조회 → L1 통과 · 전년동월/누계 헤더 없음 → L2 실패)
+_rej5b = []
+_l1_only = C.find_decision_table(_tables(_fx(_t4n)), "June", 2026)
+_fin_l2fail = C.final_candidates(_tables(_fx(_t4n)), "June", 2026, rejected=_rej5b)
+check("T-5c ★ L1 은 통과한다 (전제 확인)", len(_l1_only) == 1, str(len(_l1_only)))
+check("T-5d ★★ L2 실패 후보는 최종에 들어오지 않는다", len(_fin_l2fail) == 0,
+      str(len(_fin_l2fail)))
+check("T-5e ★★ L2 탈락 근거가 남는다", any("L2" in r["reason"] for r in _rej5b),
+      str([r["reason"][:40] for r in _rej5b]))
+check("T-5f ★ 근거에 헤더·데이터 행이 함께 있다",
+      all("header" in r and "data_row" in r for r in _rej5b if "L2" in r["reason"]))
+
+print("\n⑱-B ★ UNIT CARDINALITY TEST — 실제 TSMC 문서 구조가 아니다 (T-10~T-13)")
+# ⛔⛔ 아래는 **단위 cardinality 시험**이다. 실제 원문 table object 를 함수의 입력
+#     collection 에 두 번 넣어 계수 계약을 본다.
+#     ⛔ 「TSMC 문서에 결정표가 둘이다」를 주장하지 않는다. markup 을 만들지 않았다.
+#     (앞서 합성 FI 와 실측 증거가 한 번 섞인 적이 있어 경계를 명시한다.)
+_t4tabs = _tables(_fx(_t4n))
+_dup = _t4tabs + _t4tabs
+_fin_dup = C.final_candidates(_dup, "July", 2026)
+check("T-10 ★ final_candidates 는 2건을 **보존**한다 (고르지 않는다)",
+      len(_fin_dup) == 2, str(len(_fin_dup)))
+check("T-10b 보존된 후보의 table 번호가 서로 다르다",
+      len({c["table_index"] for c in _fin_dup}) == 2,
+      str([c["table_index"] for c in _fin_dup]))
+_ch2, _pb2 = C.unique_candidate(_fin_dup)
+check("T-10c ★ 유일성 판정이 2건에서 fail-closed 한다", _ch2 is None)
+# ⛔ 부분문자열 검사는 「1건이 아니다」의 '1' 에 걸려 항상 참이었다.
+#    후보 목록의 **정확한 렌더링**을 비교한다.
+check("T-11 ★ 거부 근거에 후보 **전체**가 남는다 (첫 건만이 아니다)",
+      str([c["table_index"] for c in _fin_dup]) in " ".join(_pb2), str(_pb2))
+check("T-12 0건 → fail-closed · 사유 구분",
+      C.unique_candidate([])[0] is None and "0건" in " ".join(C.unique_candidate([])[1]))
+# T-13 순서 무관 — 다중집합으로 비교한다 (표시 순서는 달라도 후보 유실 금지)
+import collections as _co
+_a = C.final_candidates(_dup, "July", 2026)
+_b2 = C.final_candidates(list(reversed(_dup)), "July", 2026)
+check("T-13 ★ 순서를 바꿔도 후보 개수가 같다", len(_a) == len(_b2))
+check("T-13b ★ 후보 다중집합이 같다 (중복 개수까지 보존)",
+      _co.Counter(c["bound"]["monthly_revenue"] for c in _a)
+      == _co.Counter(c["bound"]["monthly_revenue"] for c in _b2))
+check("T-13c ★ 양쪽 모두 fail-closed",
+      C.unique_candidate(_a)[0] is None and C.unique_candidate(_b2)[0] is None)
+# ★ 서로 다른 실제 표를 섞어도 순서가 결과를 정하지 않는다 (t6 는 탈락)
+_mix1 = _tables(_fx(_t6n)) + _t4tabs
+_mix2 = _t4tabs + _tables(_fx(_t6n))
+_m1, _m2 = C.final_candidates(_mix1, "July", 2026), C.final_candidates(_mix2, "July", 2026)
+check("T-13d ★ 서로 다른 실제 표 2개 — 배치와 무관하게 후보 1건",
+      len(_m1) == 1 and len(_m2) == 1, f"{len(_m1)}/{len(_m2)}")
+check("T-13e ★ 그 값도 배치와 무관하게 같다",
+      _m1[0]["bound"]["monthly_revenue"] == _m2[0]["bound"]["monthly_revenue"]
+      == P3_VALUES["July"][0])
+
+print("\n⑱-A 정적 — 구조 (T-6~T-9)")
+_fc_fn = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+          and n.name == "final_candidates"][0]
+_uq_fn = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+          and n.name == "unique_candidate"][0]
+check("T-6 ★ final_candidates 에 break 제어문이 없다",
+      not any(isinstance(x, ast.Break) for x in ast.walk(_fc_fn)))
+check("T-6b ★ final_candidates 가 안에서 유일성을 판정하지 않는다 (책임 분리)",
+      "unique_candidate" not in ast.get_source_segment(src, _fc_fn))
+check("T-7 ★ 호출부가 unique_candidate 로 명시적으로 판정한다",
+      "unique_candidate(cands)" in src)
+check("T-8 ★ 거부 evidence 통로가 있다",
+      "rejected" in [a.arg for a in _fc_fn.args.args])
+check("T-9 ⛔ L3 는 여전히 문서 단위다 (범위 밖 미변경)",
+      "verify_unit_million(text)" in src)
+check("T-9b ⛔ build_header 를 손대지 않았다 (범위 밖)", "is_data_row" not in src)
 
 
 print(f"\n{len(ok)} PASS / {len(bad)} FAIL")

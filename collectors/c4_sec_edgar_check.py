@@ -236,6 +236,59 @@ def build_header(rows, data_i):
     return cols
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 최종 관측 후보 — L1 ∧ L2 (CIO 승인 2026-08-16)
+#
+#   확정 계약:
+#     L1 candidates → 각 후보에 L2 적용 → L1∧L2 성공 후보 **전체** 수집
+#                   → 정확히 1건이면 선택 / 0건·2+ 면 evidence 와 함께 fail-closed
+#
+#   ★ 책임 분리 (CIO 판정)
+#     `final_candidates` 는 **후보 전체를 돌려주는 것까지**가 책임이다.
+#       ⛔ 안에서 1건을 고르지 않는다. ⛔ 0/2+ 를 성공값으로 축약하지 않는다.
+#     유일성 판정은 `unique_candidate` 로 **호출부에서 명시적으로** 보인다.
+#     ⇒ 두 층이 섞이면 「전체를 돌려준다」는 계약과 충돌하고, 어느 층이 틀렸는지
+#       회귀가 가리키지 못한다.
+#
+#   ⛔ 이번 범위 밖: L3(문서 단위 단위검증) · build_header · 공용 helper.
+def final_candidates(tables, month_name: str, year: int, rejected=None) -> list:
+    """L1 ∧ L2 를 모두 통과한 표를 **전부** 돌려준다.
+
+    ⛔ 고르지 않는다 · 축약하지 않는다 · 첫 성공에서 멈추지 않는다.
+    `rejected` 를 주면 L1/L2 에서 걸린 표의 evidence 를 담는다.
+    """
+    out = []
+    for ti, rows, di in find_decision_table(tables, month_name, year,
+                                            rejected=rejected):
+        header = build_header(rows, di)
+        bound, probs = bind_columns(header, rows[di], month_name, year)
+        if bound is None:
+            if rejected is not None:
+                rejected.append({
+                    "table_index": ti,
+                    "reason": f"L2 컬럼 identity 미충족 — {'; '.join(probs)}",
+                    "header": header,
+                    "data_row": rows[di],
+                })
+            continue
+        out.append({"table_index": ti, "data_i": di,
+                    "header": header, "bound": bound})
+    return out
+
+
+def unique_candidate(cands):
+    """최종 후보의 **유일성 판정**. (선택 | None, 사유 목록) 을 돌려준다.
+
+    ⛔ 0건·2건 이상이면 고르지 않는다 — 문서 순서가 값을 정하게 두지 않는다.
+    """
+    if len(cands) != 1:
+        return None, [
+            f"최종 관측 후보가 정확히 1건이 아니다 ({len(cands)}건"
+            + (f": table {[c['table_index'] for c in cands]}" if cands else "")
+            + ") — 첫 후보를 고르지 않는다"]
+    return cands[0], []
+
+
 def bind_columns(header, data, month_name: str, year: int):
     """컬럼을 **의미**로 묶는다. 모호하면 묶지 않고 사유를 돌려준다."""
     y1 = year - 1
@@ -463,6 +516,7 @@ def identify(text: str, month_name: str, year: int):
 
 # ★ Decision 표 추출 시점의 **필수** 단위 검증 (CIO 판정 1, 2026-08-15).
 #   ⛔ 실패하면 다른 표·산문으로 fallback 하지 않고 fail-closed.
+CAND_LOG_LIMIT_C4 = 20      # 후보 evidence 출력 상한 (조용한 절단 금지)
 RE_UNIT_MILLION = re.compile(r"\(\s*Unit\s*:?\s*NT\$\s*million\s*\)", re.I)
 
 
@@ -569,29 +623,32 @@ def observe(TARGET_MONTH: str):
     print(f"  문서 내 table 수  {len(tables)}")
     rejected = []
     found = find_decision_table(tables, month_name, ty, rejected=rejected)
+    rejected_l1 = list(rejected)
     print(f"  'Net Revenue' + Y-o-Y 헤더를 가진 표  {len(found)}건")
     # ⛔ 결과만 남기지 않는다 — 무엇을 왜 걸렀는지 함께 남긴다 (collector 공통 규칙)
     for rj in rejected:
         print(f"  ⚠️ table[{rj['table_index']}] 후보 제외 — {rj['reason']}")
         print(f"     Net Revenue 행 {rj['net_revenue_rows']} · 라벨 {rj['row_labels']}")
-    decision, why = None, []
-    for ti, rows, di in found:
-        header = build_header(rows, di)
-        bound, probs = bind_columns(header, rows[di], month_name, ty)
-        if bound:
-            decision = bound
-            print(f"  → table[{ti}] 에서 의미 결합 성공")
-            break
-        why.append((ti, probs, header, rows[di]))
-    if decision is None:
-        print("\n⛔ Decision 표의 컬럼을 의미로 결합하지 못했다 — 값을 읽지 않는다")
+    # ★ 최종 후보를 **전부** 모은다 — 첫 성공에서 멈추지 않는다.
+    cands = final_candidates(tables, month_name, ty, rejected=rejected)
+    print(f"  최종 관측 후보 (L1∧L2)  {len(cands)}건 "
+          f"→ table {[c['table_index'] for c in cands]}")
+    for rj in rejected[len(rejected_l1):]:
+        print(f"  ⚠️ table[{rj['table_index']}] 후보 제외 — {rj['reason'][:96]}")
+    # ★ 유일성 판정은 여기서 **명시적으로** 한다 (함수 안에서 축약하지 않는다).
+    chosen, uniq_probs = unique_candidate(cands)
+    if chosen is None:
+        print("\n⛔ 최종 관측 후보가 유일하지 않다 — 값을 읽지 않는다")
+        for x in uniq_probs:
+            print(f"   {x}")
         print("   ⛔ 산문·천원표로 대체하지 않는다 (fallback 금지).")
-        for ti, probs, header, drow in why[:3]:
-            print(f"   table[{ti}] 사유 {probs}")
-            print(f"     header {header}")
-            print(f"     data   {drow}")
-        print("   ★ 위 행렬이 다음 수정의 근거다 — 마크업을 추측하지 않는다.")
+        print(f"   후보 전체 {[c['table_index'] for c in cands]}")
+        for rj in rejected[:CAND_LOG_LIMIT_C4]:
+            print(f"   제외 table[{rj['table_index']}] — {rj['reason'][:96]}")
+        print("   ★ 위 근거가 다음 수정의 출발점이다 — 마크업을 추측하지 않는다.")
         return 1, None
+    decision = chosen["bound"]
+    print(f"  → table[{chosen['table_index']}] 에서 의미 결합 성공 (후보 1건)")
 
     print(f"  header  {decision['_header']}")
     print(f"  결합    {decision['_column_index']}")
