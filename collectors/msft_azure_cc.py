@@ -48,11 +48,15 @@ EXHIBIT_TYPE = "EX-99.1"
 # Exhibit identity 계약 (CIO 판정 2026-08-15)
 #   ⛔ `index.json` 의 `type` 을 SEC document type 으로 쓰지 않는다 — 실측 결과
 #      그 필드는 `text.gif` · `compressed.gif` 두 값뿐인 **디렉터리 아이콘 종류**다.
-#   ★ Primary identity source = 제출문의 `<DOCUMENT>` 블록
+#   ★ Primary identity source = **full submission `.txt`** 의 `<DOCUMENT>` 블록
 #        <TYPE> · <SEQUENCE> · <FILENAME> · <DESCRIPTION>
-#     EDGAR 는 이 SGML 헤더를 본문 없이 `{accession}-index-headers.html` 로도 제공한다.
-#     내용은 full submission `.txt` 의 <DOCUMENT> 블록과 같고 크기는 ~4KB 다
-#     (full .txt 는 본문까지 포함해 수 MB). ★ 이 대체는 CIO 확인 대상으로 보고한다.
+#     ⛔ `{accession}-index-headers.html` 로 대체하지 않는다 — **CIO 불승인**
+#        (2026-08-16). 그 문서에서도 동일 필드가 관측되는 것은 사실이나, SEC 가
+#        「해당 filing 에서 제출된 모든 document」의 원본 경로로 명시하는 것은 full
+#        `.txt` 이고 `-index-headers.html` 은 별도 제공물이다. **현재 표본에서
+#        같다는 것만으로 동등하다고 간주하지 않는다** — P3 에서 엄격히 적용한 원칙을
+#        4KB 절약을 위해 P2 에서 풀지 않는다. 성능 문제가 실제로 발생하면 그때
+#        동등성을 별도 검증해 계약 변경안을 올린다.
 #   ★ Secondary cross-check = `{accession}-index.html` 의 Type 컬럼
 #   ⛔ 파일명 패턴(`ex99_1`)은 **hint 로만** 쓰고 identity 근거로 쓰지 않는다.
 #   ⛔ primary 와 secondary 가 충돌하거나 후보가 1건이 아니면 fail-closed.
@@ -90,13 +94,20 @@ RE_PCT_VALUE = re.compile(r"^\(?-?\d+(?:\.\d+)?\)?\s*%?$")
 
 
 def parse_document_blocks(sgml_text: str) -> list:
-    """제출문 SGML 의 `<DOCUMENT>` 블록에서 TYPE/SEQUENCE/FILENAME/DESCRIPTION 을 뽑는다.
+    """full submission `.txt` 의 `<DOCUMENT>` 블록에서 TYPE/SEQUENCE/FILENAME/DESCRIPTION.
 
-    ⛔ 이 함수는 full submission `.txt` 와 `-index-headers.html` 양쪽에 같은 방식으로
-       동작한다 — 둘은 같은 SGML 헤더를 담고 본문 유무만 다르다.
+    ★ **`<DOCUMENT>` 로 먼저 자르고, 각 조각에서 `<TEXT>` 앞의 SGML 헤더만** 본다.
+      full `.txt` 는 각 document 의 **본문까지** 담는다. `<TYPE>` 을 문서 전체에서
+      무작정 훑으면 본문(XBRL·HTML) 안의 `<TYPE>` 이 유령 후보가 되어 「정확히 1건」
+      판정을 오염시킨다. 계약이 지목하는 것은 `<DOCUMENT>` 의 **SGML 헤더**다.
+    ⛔ 본문에서 식별 근거를 찾지 않는다.
     """
     out = []
-    for m in RE_DOC_BLOCK.finditer(sgml_text):
+    for chunk in re.split(r"<DOCUMENT>", sgml_text, flags=re.I)[1:]:
+        header = re.split(r"<TEXT>", chunk, maxsplit=1, flags=re.I)[0]
+        m = RE_DOC_BLOCK.search(header)
+        if not m:
+            continue
         out.append({"type": (m.group("type") or "").strip(),
                     "sequence": (m.group("seq") or "").strip(),
                     "filename": (m.group("filename") or "").strip(),
@@ -233,13 +244,14 @@ def observe_one(c, errs):
     acc = c["accession"].replace("-", "")
     print(f"\n  ── {c['filing_date']} · {c['accession']} · items {c['items']!r}")
 
-    # ① Exhibit identity — primary = 제출문 <DOCUMENT> 블록의 <TYPE>
+    # ① Exhibit identity — primary = **full submission `.txt`** 의 <DOCUMENT> 블록 <TYPE>
     #    ⛔ index.json 의 type 은 쓰지 않는다 (디렉터리 아이콘 값이다)
+    #    ⛔ -index-headers.html 로 대체하지 않는다 (CIO 불승인 2026-08-16)
     time.sleep(POLITE_DELAY_SEC)
     try:
-        _, raw = get(f"{ARCHIVE_BASE}/{acc}/{c['accession']}-index-headers.html")
+        _, raw = get(f"{ARCHIVE_BASE}/{acc}/{c['accession']}.txt")
     except Exception as e:                                       # noqa: BLE001
-        print(f"    ✗ 제출문 헤더 조회 실패 — {type(e).__name__}: {e}")
+        print(f"    ✗ full submission .txt 조회 실패 — {type(e).__name__}: {e}")
         return None, False
     docs = parse_document_blocks(raw.decode("utf-8", errors="replace"))
     n_hit = sum(1 for d in docs if d["type"].upper() == EXHIBIT_TYPE)

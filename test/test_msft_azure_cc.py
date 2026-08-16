@@ -209,8 +209,16 @@ _urlish = [s for s in _str_lits if "index.json" in s]
 check("★ 코드(주석 아님)가 index.json URL 을 만들지 않는다", not _urlish, str(_urlish))
 check("★ 그래도 금지 사유는 주석에 남아 있다 (문서화 유지)", "index.json" in src)
 check("★ index.json 의 type 을 읽는 코드가 없다", 'it.get("type")' not in body)
-check("★ primary 취득처가 제출문 SGML 헤더다",
-      any("index-headers.html" in s for s in _str_lits))
+# ★ CIO 판정 2026-08-16 — primary 는 **full submission `.txt`** 다.
+#   `-index-headers.html` 대체는 불승인됐다. 「현재 표본에서 같으니 동등」을 막는다.
+check("★ primary 취득처가 full submission .txt 다",
+      any(s.endswith("}.txt") or s.endswith(".txt") for s in _str_lits),
+      str([s for s in _str_lits if ".txt" in s]))
+check("★ ⛔ -index-headers.html 을 조회하지 않는다 (CIO 불승인)",
+      not any("index-headers" in s for s in _str_lits),
+      str([s for s in _str_lits if "index-headers" in s]))
+check("★ 그래도 불승인 사유는 주석에 남아 있다 (문서화 유지)",
+      "index-headers.html" in src and "불승인" in src)
 # ② 행동 — 아이콘 값은 identity 를 만족시킬 수 없다
 ICONS = [{"type": "text.gif", "sequence": "", "filename": "msft-ex99_1.htm",
           "description": ""},
@@ -321,7 +329,58 @@ check("★ iXBRL 꼬리표를 파일명에서 떼어낸다", "msft-ex99_1.htm" i
 check("★ 위 secondary 로 실제 식별이 성립한다",
       M.select_exhibit(_docs, _st)[0] == "msft-ex99_1.htm")
 
-print("B-7 이 회귀 자체의 경계")
+print("B-7 ★ full submission .txt 의 **본문**이 유령 후보를 만들지 않는다")
+# ★ 이 위험은 `-index-headers.html`(헤더만) 에는 없고 full `.txt`(본문 포함) 에만 있다.
+#   계약을 full `.txt` 로 되돌리면서 새로 생긴 경로이므로 별도로 막는다.
+#   ⛔ `<TYPE>` 을 문서 전체에서 훑으면 본문 안의 `<TYPE>` 이 후보가 된다.
+_body_noise = (
+    "<SEC-DOCUMENT>0001193125-26-323632.txt\n"
+    "<DOCUMENT>\n<TYPE>8-K\n<SEQUENCE>1\n<FILENAME>msft-20260129.htm\n"
+    "<DESCRIPTION>8-K\n<TEXT>\n"
+    "<html><body><p>see exhibit</p></body></html>\n</TEXT>\n</DOCUMENT>\n"
+    "<DOCUMENT>\n<TYPE>EX-99.1\n<SEQUENCE>2\n<FILENAME>msft-ex99_1.htm\n"
+    "<DESCRIPTION>EX-99.1\n<TEXT>\n"
+    # ↓ 본문 안에 SGML 처럼 보이는 문자열을 심는다 (XBRL·escape 되지 않은 마크업 모사)
+    "<html><body><pre>&lt;TYPE&gt;EX-99.1</pre>\n"
+    "<TYPE>EX-99.1\n<SEQUENCE>99\n<FILENAME>decoy.htm\n"
+    "<xbrli:unit><TYPE>EX-99.1</TYPE></xbrli:unit>\n"
+    "</body></html>\n</TEXT>\n</DOCUMENT>\n"
+    "<DOCUMENT>\n<TYPE>EX-101.SCH\n<SEQUENCE>3\n<FILENAME>msft-20260129.xsd\n"
+    "<DESCRIPTION>XBRL\n<TEXT>\n<schema/>\n</TEXT>\n</DOCUMENT>\n</SEC-DOCUMENT>")
+_bd = M.parse_document_blocks(_body_noise)
+check("★ <DOCUMENT> 블록 수만큼만 뽑는다 (본문 <TYPE> 무시)", len(_bd) == 3, str(len(_bd)))
+check("★ 본문에 심은 decoy.htm 이 후보에 없다",
+      not any(d["filename"] == "decoy.htm" for d in _bd), str(_bd))
+check("★ 본문 잡음이 있어도 EX-99.1 은 정확히 1건",
+      sum(1 for d in _bd if d["type"].upper() == "EX-99.1") == 1)
+_t, _p, _ = M.select_exhibit(_bd)
+check("★ 본문 잡음이 있어도 올바른 exhibit 을 식별한다", _t == "msft-ex99_1.htm", f"{_t!r} {_p}")
+check("★ <TEXT> 앞 헤더만 본다 — SEQUENCE 가 본문 값(99)으로 오염되지 않는다",
+      [d["sequence"] for d in _bd] == ["1", "2", "3"], str([d["sequence"] for d in _bd]))
+# 본문이 통째로 없어도(= 헤더만 있는 문서) 같은 결과여야 한다 — 파서 일관성
+_hdr_only = re.sub(r"<TEXT>.*?</TEXT>", "", _body_noise, flags=re.S | re.I)
+check("★ 본문을 제거해도 동일한 블록 목록을 얻는다 (본문 비의존)",
+      M.parse_document_blocks(_hdr_only) == _bd, str(M.parse_document_blocks(_hdr_only)))
+
+# ★ `<TEXT>` 절단이 실제로 하는 일 — 헤더에 <TYPE> 이 **없는** 블록에서
+#   본문의 <TYPE> 을 끌어다 쓰지 않는다. 절단이 없으면 유령 EX-99.1 이 생겨
+#   「정확히 1건」이 2건이 되고, 잘못된 파일을 취득하거나 ambiguity 로 오판한다.
+#   ⛔ 없는 것을 본문에서 만들어내지 않는다 (fail-closed 방향).
+_hdrless = (
+    "<DOCUMENT>\n<TYPE>EX-99.1\n<SEQUENCE>1\n<FILENAME>real.htm\n"
+    "<DESCRIPTION>EX-99.1\n<TEXT>\n<html>ok</html>\n</TEXT>\n</DOCUMENT>\n"
+    # ↓ 헤더가 손상돼 <TYPE> 이 없는 블록. 본문에는 <TYPE>EX-99.1 이 들어 있다.
+    "<DOCUMENT>\n<TEXT>\n<TYPE>EX-99.1\n<SEQUENCE>2\n<FILENAME>phantom.htm\n"
+    "</TEXT>\n</DOCUMENT>")
+_hl = M.parse_document_blocks(_hdrless)
+check("★ 헤더에 <TYPE> 이 없는 블록은 건너뛴다 (본문에서 만들어내지 않는다)",
+      len(_hl) == 1, str(_hl))
+check("★ 본문의 phantom.htm 이 후보로 올라오지 않는다",
+      not any(d["filename"] == "phantom.htm" for d in _hl), str(_hl))
+_t2, _p2, _ = M.select_exhibit(_hl)
+check("★ 유령 후보로 ambiguity(2건) 오판이 생기지 않는다", _t2 == "real.htm", f"{_t2!r} {_p2}")
+
+print("B-8 이 회귀 자체의 경계")
 check("★ B 절은 네트워크를 쓰지 않는다 (fixture 만 쓴다)",
       "http" not in "".join(REAL.split("<html>")))
 
