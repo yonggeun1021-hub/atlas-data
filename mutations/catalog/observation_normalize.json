@@ -2,7 +2,7 @@
  "target": "observation/normalize.py",
  "regression": "test/test_observation_normalize.py",
  "origin": "S2 신규 표면 — CIO 승인 2026-08-16 (Observation Layer S2 · Normalization)",
- "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 층 ③ Normalization + Record 표면만 다룬다 — store · pair 는 S3 이후 Gate 다.",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 층 ③ Normalization + Record 표면만 다룬다 — store · pair 는 S3 이후 Gate 다. ★ `classification = equivalent_due_to_redundant_validation` · `active_kill_requirement = false` 인 항목은 build preflight ↔ validate_record 의 의도된 이중 방어에 가려 관측 가능한 차이를 만들지 않는 변이다. ⛔ 죽이려고 회귀를 비틀지 않는다 · ⛔ 이중 방어를 걷어내지 않는다.",
  "mutations": [
   {
    "id": "N-SIGN-1",
@@ -251,7 +251,19 @@
    "anchor": "        \"evidence_columns\": evidence,",
    "replacement": "        \"evidence_columns\": [],",
    "expected_killers": [
-    "evidence 가 cc_impact · cc 두 건이다"
+    "record 생성"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "evidence 가 cc_impact · cc 두 건이다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "record 생성"
+     ],
+     "reason": "S2.1 에서 validate_record 가 evidence key 집합을 독립 검증하게 되면서, 변이 하에서는 record 자체가 만들어지지 않는다 — 선언 검사가 실행될 기회가 없다. 계약을 소유한 검사는 `record 생성`이다."
+    }
    ]
   },
   {
@@ -262,8 +274,19 @@
    "anchors_expected": 1,
    "anchor": "    if decision.get(\"column_key\") != \"gaap\":",
    "replacement": "    if False and decision.get(\"column_key\") != \"gaap\":",
-   "expected_killers": [
-    "record fail-closed — Decision 열이 cc 로 뒤바뀜"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 Decision column_key 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — Decision 열이 cc 로 뒤바뀜"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
@@ -274,8 +297,19 @@
    "anchors_expected": 1,
    "anchor": "    if not _identity_contains(decision.get(\"column_identity\") or \"\",\n                              EXPECTED_DECISION_COLUMN_IDENTITY):",
    "replacement": "    if False:",
-   "expected_killers": [
-    "record fail-closed — Decision 열 identity 오염"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 Decision column identity 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — Decision 열 identity 오염"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
@@ -286,9 +320,20 @@
    "anchors_expected": 1,
    "anchor": "        if narrowing.get(k) != 1:\n            raise RecordInvariantError(f\"narrowing `{k}` 가 정확히 1이 아니다: {narrowing.get(k)!r}\")",
    "replacement": "        if narrowing.get(k) is None:\n            raise RecordInvariantError(f\"narrowing `{k}` 가 정확히 1이 아니다: {narrowing.get(k)!r}\")",
-   "expected_killers": [
-    "record fail-closed — narrowing row 가 2",
-    "record fail-closed — narrowing table 이 0"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 narrowing exactly-one 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — narrowing row 가 2",
+      "record fail-closed — narrowing table 이 0"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
@@ -299,9 +344,20 @@
    "anchors_expected": 1,
    "anchor": "    prov = draft.get(\"provenance\") or {}\n    missing = [k for k in REQUIRED_PROVENANCE if not prov.get(k)]\n    if missing:\n        raise RecordInvariantError(f\"provenance 필수 항목이 없다: {missing}\")\n\n    # ── normalization — 실패하면 record 를 만들지 않는다 ───────────────",
    "replacement": "    prov = draft.get(\"provenance\") or {}\n\n    # ── normalization — 실패하면 record 를 만들지 않는다 ───────────────",
-   "expected_killers": [
-    "record fail-closed — provenance 가 비었음",
-    "record fail-closed — provenance accession 누락"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 provenance 필수 항목 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — provenance 가 비었음",
+      "record fail-closed — provenance accession 누락"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
@@ -312,8 +368,19 @@
    "anchors_expected": 1,
    "anchor": "    if draft.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
    "replacement": "    if False and draft.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
-   "expected_killers": [
-    "record fail-closed — measurement identity 오염"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 measurement identity 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — measurement identity 오염"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
@@ -370,8 +437,19 @@
    "anchors_expected": 1,
    "anchor": "    validate_record(record)\n    return record",
    "replacement": "    return record",
-   "expected_killers": [
-    "record fail-closed — draft 가 이미 persisted 라고 주장"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build 말미의 validate_record 재호출. 그러나 build 자신의 preflight — build 는 자신이 조립한 record 만 만들므로 재검증 제거가 공개 API 에서 관측 가능한 차이를 만들지 않는다 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — draft 가 이미 persisted 라고 주장"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
@@ -480,9 +558,20 @@
    "anchors_expected": 1,
    "anchor": "    if n_decision != 1:",
    "replacement": "    if False and n_decision != 1:",
-   "expected_killers": [
-    "validate fail-closed — Decision 값이 0개다",
-    "validate fail-closed — Decision 값이 2개다"
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: validate_record 의 Decision 값 개수 검사. 그러나 인접한 `is_decision_value` 검사 — decision 쪽 0개도, evidence 쪽 2개도 각각의 필드 검사가 먼저 잡는다 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "validate fail-closed — Decision 값이 0개다",
+      "validate fail-closed — Decision 값이 2개다"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
    ]
   },
   {
