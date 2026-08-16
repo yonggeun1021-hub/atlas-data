@@ -185,7 +185,20 @@
    "anchor": "    b = min(b, a + EVIDENCE_EXCERPT_CHARS)",
    "replacement": "    b = min(b, a + 10 * EVIDENCE_EXCERPT_CHARS)",
    "expected_killers": [
-    "발췌가 상한을 넘지 않는다 (bounded)"
+    "표가 상한보다 길 때 발췌가 실제로 잘린다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "발췌가 상한을 넘지 않는다 (bounded)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "표가 상한보다 길 때 발췌가 실제로 잘린다"
+     ],
+     "reason": "선언 오류. 짧은 표에서는 상한이 걸리지 않아 기존 bounded 검사가 발화하지 않는다. 상한을 실제로 넘는 입력을 쓰는 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
    ]
   },
   {
@@ -218,7 +231,20 @@
    "anchor": "           \"identity\": info.get(\"identity\"),",
    "replacement": "           \"identity\": None,",
    "expected_killers": [
-    "MANIFEST 가 discovery 와 failures 를 함께 담는다"
+    "identity 가 상수 None 으로 박혀 있지 않다 (관측값을 싣는다)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "MANIFEST 가 discovery 와 failures 를 함께 담는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "identity 가 상수 None 으로 박혀 있지 않다 (관측값을 싣는다)"
+     ],
+     "reason": "선언 오류. manifest 문자열 존재 검사는 rec 의 identity 값이 None 으로 바뀌어도 통과한다. rec dict 를 AST 로 보는 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
    ]
   },
   {
@@ -229,7 +255,20 @@
    "anchor": "            if not _in_table(m):\n                continue\n            periods.append({\"kind\": name, \"text_match\": m.group(0),",
    "replacement": "            if not _in_table(m):\n                pass\n            periods.append({\"kind\": name, \"text_match\": m.group(0),",
    "expected_killers": [
-    "기간 문면이 원문에 없으면 만들어내지 않는다"
+    "표 밖 기간 문면을 identity 로 끌어오지 않는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "기간 문면이 원문에 없으면 만들어내지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "표 밖 기간 문면을 identity 로 끌어오지 않는다"
+     ],
+     "reason": "선언 오류. 표 밖 기간 문면이 없는 문서에서는 변이가 무해하다. 표 밖에 기간을 둔 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
    ]
   },
   {
@@ -240,7 +279,20 @@
    "anchor": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b],",
    "replacement": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b].replace(\"&nbsp;\", \" \"),",
    "expected_killers": [
-    "발췌가 원문의 부분 문자열이다 (verbatim)"
+    "엔티티를 푼 발췌를 만들지 않는다 (원문 부분 문자열 유지)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "발췌가 원문의 부분 문자열이다 (verbatim)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "엔티티를 푼 발췌를 만들지 않는다 (원문 부분 문자열 유지)"
+     ],
+     "reason": "선언 오류. 일반 verbatim 검사는 엔티티가 없는 발췌에서는 발화하지 않는다. 엔티티가 실제로 들어 있는 발췌를 보는 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
    ]
   }
  ]
