@@ -374,6 +374,76 @@
    "expected_killers": [
     "rejection 이 series 를 오염시키지 않는다"
    ]
+  },
+  {
+   "id": "ST-CONF-1",
+   "origin_label": "ST-CONF-1",
+   "note": "★ conflict dedup 조건을 제거한다 — 같은 충돌의 재시도가 evidence 를 계속 부풀린다 (REPEATED_CONFLICT_NOT_IDEMPOTENT 재유입)",
+   "anchors_expected": 1,
+   "anchor": "        if _conflict_seen(entry, conflict):",
+   "replacement": "        if False and _conflict_seen(entry, conflict):",
+   "expected_killers": [
+    "동일 conflict 재전달 → conflict count 불변",
+    "동일 conflict 재전달 → canonical serialization 불변"
+   ]
+  },
+  {
+   "id": "ST-CONF-2",
+   "origin_label": "ST-CONF-2",
+   "note": "★ incoming content digest 를 무시한다 — provenance 만 같으면 모든 충돌을 동일 취급해 제3의 새 content 가 삼켜진다",
+   "anchors_expected": 1,
+   "anchor": "        if (c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]\n                and (c.get(\"incoming\") or {}).get(\"content_digest\")\n                == conflict[\"incoming\"][\"content_digest\"]):",
+   "replacement": "        if c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]:",
+   "expected_killers": [
+    "제3의 새 content → conflict count +1",
+    "두 충돌의 incoming digest 가 서로 다르다"
+   ]
+  },
+  {
+   "id": "ST-CONF-3",
+   "origin_label": "ST-CONF-3",
+   "note": "★ provenance 를 무시하고 content 만 본다 — 다른 출처의 같은 값이 같은 충돌로 뭉개진다",
+   "anchors_expected": 1,
+   "anchor": "        if (c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]\n                and (c.get(\"incoming\") or {}).get(\"content_digest\")\n                == conflict[\"incoming\"][\"content_digest\"]):",
+   "replacement": "        if (c.get(\"incoming\") or {}).get(\"content_digest\") == conflict[\"incoming\"][\"content_digest\"]:",
+   "expected_killers": [
+    "두 충돌의 material provenance digest 는 같다",
+    "제3의 새 content → conflict count +1"
+   ]
+  },
+  {
+   "id": "ST-CONF-4",
+   "origin_label": "ST-CONF-4",
+   "note": "dedup 판정을 항상 참으로 만든다 — 새 충돌이 영영 기록되지 않는다",
+   "anchors_expected": 1,
+   "anchor": "    for c in entry.get(\"conflicts\") or []:",
+   "replacement": "    if entry.get(\"conflicts\"):\n        return True\n    for c in entry.get(\"conflicts\") or []:",
+   "expected_killers": [
+    "제3의 새 content → conflict count +1"
+   ]
+  },
+  {
+   "id": "ST-CONF-5",
+   "origin_label": "ST-CONF-5",
+   "note": "★ 재전달 시 state 를 그대로 두지 않고 새 state 를 낸다 — 직렬화가 달라질 수 있다",
+   "anchors_expected": 1,
+   "anchor": "            return state, _accept(\n                CONFLICT, key,\n                conflict[\"reason\"] + \" (이미 기록된 동일 충돌 — state 변화 없음)\",\n                _entry_view(entry), new_conflict=False)",
+   "replacement": "            entry2 = dict(entry)\n            entry2[\"conflicts\"] = list(entry.get(\"conflicts\") or []) + [conflict]\n            new_state[\"series\"][ks] = _entry_view(entry2)\n            return new_state, _accept(CONFLICT, key, conflict[\"reason\"], new_state[\"series\"][ks], new_conflict=False)",
+   "expected_killers": [
+    "동일 conflict 재전달 → conflict count 불변",
+    "동일 conflict 재전달 → canonical serialization 불변"
+   ]
+  },
+  {
+   "id": "ST-CONF-6",
+   "origin_label": "ST-CONF-6",
+   "note": "new_conflict 를 항상 True 로 보고한다 — 재관측과 새 충돌을 구별할 수 없다",
+   "anchors_expected": 1,
+   "anchor": "                _entry_view(entry), new_conflict=False)",
+   "replacement": "                _entry_view(entry), new_conflict=True)",
+   "expected_killers": [
+    "재전달은 새 충돌이 아니다 (new_conflict=False)"
+   ]
   }
  ]
 }

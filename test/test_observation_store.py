@@ -262,6 +262,73 @@ with section("C-4. ★★ CONFLICT · REVISION 은 fail-open 으로 소비되지
           S.series_consumable(one_entry) is True)
 
 # ══════════════════════════════════════════════════════════════════════
+with section("C-5. ★★ conflict evidence idempotency (S3.1 · REPEATED_CONFLICT_NOT_IDEMPOTENT)"):
+    # ★ 재시도(네트워크 · workflow 재실행 · persistence retry)가 충돌 하나를 N 개처럼
+    #   부풀리면 안 된다. 같은 미해소 충돌의 재관측은 **새 충돌이 아니다.**
+    A52 = copy.deepcopy(FY26[0])
+    A52["decision"]["raw_value"] = "52%"
+    A52["decision"]["numeric_value"] = "52"
+    B53 = copy.deepcopy(FY26[0])
+    B53["decision"]["raw_value"] = "53%"
+    B53["decision"]["numeric_value"] = "53"
+
+    s1, r1 = S.apply_record(GOOD_STATE, A52)
+    check("★ 첫 충돌 → CONFLICT", r1["outcome"] == S.CONFLICT, r1["outcome"])
+    check("★ 첫 충돌은 새 충돌이다", r1.get("new_conflict") is True, str(r1.get("new_conflict")))
+    check("  conflict 가 1건", r1["conflict_count"] == 1, str(r1["conflict_count"]))
+
+    s2, r2 = S.apply_record(s1, copy.deepcopy(A52))
+    check("★★ 동일 conflict 재전달 → conflict count 불변",
+          r2["conflict_count"] == 1, str(r2["conflict_count"]))
+    check("★★ 동일 conflict 재전달 → canonical serialization 불변",
+          S.serialize(s2) == S.serialize(s1))
+    check("★★ 재전달은 새 충돌이 아니다 (new_conflict=False)",
+          r2.get("new_conflict") is False, str(r2.get("new_conflict")))
+    check("  outcome 어휘는 그대로 CONFLICT 다 (새 상태어휘 없음)",
+          r2["outcome"] == S.CONFLICT, r2["outcome"])
+    check("★ 3회째도 여전히 1건", S.apply_record(s2, copy.deepcopy(A52))[1]["conflict_count"] == 1)
+
+    s3, r3 = S.apply_record(s2, B53)
+    check("★★ 제3의 새 content → conflict count +1", r3["conflict_count"] == 2,
+          str(r3["conflict_count"]))
+    check("★ 그것은 새 충돌이다", r3.get("new_conflict") is True, str(r3.get("new_conflict")))
+    s4, r4 = S.apply_record(s3, copy.deepcopy(B53))
+    check("★ 새 충돌도 재전달하면 늘지 않는다", r4["conflict_count"] == 2, str(r4["conflict_count"]))
+    check("  그때도 직렬화 불변", S.serialize(s4) == S.serialize(s3))
+
+    for name, st_ in (("1회", s1), ("재전달", s2), ("제3충돌", s3)):
+        check(f"★★ {name} 후에도 consumable=False", not S.get_entry(st_, KEY0)["consumable"])
+        check(f"  {name} 후 차단 사유 유지",
+              S.OBSERVATION_CONFLICT_UNRESOLVED in S.get_entry(st_, KEY0)["blocked_by"])
+        e_ = S.get_entry(st_, KEY0)
+        check(f"★★ {name} 후 original revision 이 불변이다",
+              len(e_["revisions"]) == 1
+              and e_["revisions"][0]["record"]["decision"]["raw_value"] == "51%",
+              e_["revisions"][0]["record"]["decision"]["raw_value"])
+        check(f"  {name} 후 나머지 3 series 는 그대로 소비 가능",
+              len(S.consumable_keys(st_)) == 3, str(len(S.consumable_keys(st_))))
+
+    # ⛔ provenance 만 같다고 같은 충돌로 뭉개지 않는다 — 위 B53 이 그 증거다
+    e3 = S.get_entry(s3, KEY0)
+    digs = [c["incoming"]["content_digest"] for c in e3["conflicts"]]
+    check("★★ 두 충돌의 incoming digest 가 서로 다르다", len(set(digs)) == 2, str(len(set(digs))))
+    check("  두 충돌의 material provenance digest 는 같다",
+          len({c["material_provenance_digest"] for c in e3["conflicts"]}) == 1)
+
+    # REVISION 재전달 idempotency 도 유지되는지 (기존 계약)
+    rev = copy.deepcopy(FY26[0])
+    rev["provenance"]["accession"] = "0001193125-26-999999"
+    sr1, _ = S.apply_record(GOOD_STATE, rev)
+    sr2, rr2 = S.apply_record(sr1, copy.deepcopy(rev))
+    check("★★ REVISION 재전달은 IDEMPOTENT 다 (기존 계약 유지)",
+          rr2["outcome"] == S.IDEMPOTENT, rr2["outcome"])
+    check("  그 경우 revision 이 2건에서 늘지 않는다", rr2["revision_count"] == 2,
+          str(rr2["revision_count"]))
+    check("  직렬화도 불변", S.serialize(sr2) == S.serialize(sr1))
+
+    check("★ FY26 정상 4 series 는 이 절 전체에서 변하지 않았다",
+          len(S.consumable_keys(GOOD_STATE)) == 4 and len(GOOD_STATE["series"]) == 4)
+
 with section("D. ★★ D-6 경계 — pre-series backfill 금지"):
     FY25_PERIODS = ["2024-09-30", "2024-12-31", "2025-03-31", "2025-06-30"]
     for pe in FY25_PERIODS:

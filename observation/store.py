@@ -276,10 +276,23 @@ def apply_record(state: dict, record: dict) -> tuple:
             "incoming": {"content": content, "content_digest": new_rev["content_digest"]},
             "reason": "동일 provenance 인데 관측 내용이 다르다 — parser/determinism 결함 의심",
         }
+        # ★ conflict evidence 도 idempotent 여야 한다 (CIO 판정 S3.1 ·
+        #   `REPEATED_CONFLICT_NOT_IDEMPOTENT`).
+        #   같은 key · 같은 material provenance · 같은 incoming content 가 이미
+        #   evidence 에 있으면 **같은 미해소 충돌을 다시 관측한 것**이지 새 충돌이 아니다.
+        #   ⛔ 재시도(네트워크 · workflow 재실행 · persistence retry)가 충돌 하나를
+        #      N 개처럼 부풀리게 두지 않는다.
+        #   ★ 같은 provenance 에서 **제3의 새 content** 가 오면 새 evidence 로 보존한다.
+        if _conflict_seen(entry, conflict):
+            return state, _accept(
+                CONFLICT, key,
+                conflict["reason"] + " (이미 기록된 동일 충돌 — state 변화 없음)",
+                _entry_view(entry), new_conflict=False)
         entry = dict(entry)
         entry["conflicts"] = list(entry.get("conflicts") or []) + [conflict]
         new_state["series"][ks] = _entry_view(entry)
-        return new_state, _accept(CONFLICT, key, conflict["reason"], new_state["series"][ks])
+        return new_state, _accept(CONFLICT, key, conflict["reason"],
+                                  new_state["series"][ks], new_conflict=True)
 
     # ── ⑤ REVISION — 같은 key, 다른 provenance ───────────────────────
     #    ⛔ 기존 revision 을 삭제하지 않는다 · ⛔ authority 를 자동 선택하지 않는다.
@@ -303,15 +316,34 @@ def apply_many(state: dict, records: list) -> tuple:
     return cur, results
 
 
-def _accept(outcome: str, key, reason: str, entry: dict) -> dict:
-    return {"outcome": outcome, "accepted": True,
-            "key": {"subject": key[0], "measurement_identity": key[1],
-                    "economic_period_end": key[2]},
-            "reason": reason,
-            "revision_count": len(entry.get("revisions") or []),
-            "conflict_count": len(entry.get("conflicts") or []),
-            "blocked_by": entry.get("blocked_by", []),
-            "consumable": entry.get("consumable", False)}
+def _conflict_seen(entry: dict, conflict: dict) -> bool:
+    """이미 기록된 동일 충돌인가.
+
+    같음의 정의 = 같은 material provenance **그리고** 같은 incoming content.
+    ⛔ provenance 만 같다고 같은 충돌로 보지 않는다 — 제3의 새 content 는 새 충돌이다.
+    """
+    for c in entry.get("conflicts") or []:
+        if (c.get("material_provenance_digest") == conflict["material_provenance_digest"]
+                and (c.get("incoming") or {}).get("content_digest")
+                == conflict["incoming"]["content_digest"]):
+            return True
+    return False
+
+
+def _accept(outcome: str, key, reason: str, entry: dict, new_conflict=None) -> dict:
+    out = {"outcome": outcome, "accepted": True,
+           "key": {"subject": key[0], "measurement_identity": key[1],
+                   "economic_period_end": key[2]},
+           "reason": reason,
+           "revision_count": len(entry.get("revisions") or []),
+           "conflict_count": len(entry.get("conflicts") or []),
+           "blocked_by": entry.get("blocked_by", []),
+           "consumable": entry.get("consumable", False)}
+    if new_conflict is not None:
+        # ★ 새 상태 어휘를 만들지 않는다 — outcome 은 그대로 CONFLICT 다.
+        #   이 필드는 「새 충돌인가, 같은 충돌의 재관측인가」만 구별한다.
+        out["new_conflict"] = new_conflict
+    return out
 
 
 def _reject(outcome: str, key, reason: str, evidence: dict) -> dict:
