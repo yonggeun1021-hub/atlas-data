@@ -280,4 +280,63 @@ with section("A-11 ★ live run 증거면 — 무엇이 빠졌는지가 남아�
     check("★ MANIFEST 가 discovery 와 failures 를 함께 담는다",
           '"discovery"' in _cap_src and '"failures"' in _cap_src)
 
+with section("A-12 ★ identity evidence · rejection evidence (CIO 판정 2026-08-16)"):
+    _h_ok = doc(TITLE_NEW, ROW_NEW)
+    _ev_ok = []
+    _loc_ok = F.locate_block(_h_ok, _ev_ok)
+    check("★ 성공 candidate 는 거부 증거를 남기지 않는다", _loc_ok is not None and _ev_ok == [])
+    _id = _loc_ok[2]["identity"]
+    check("★ 성공 → 표 제목 문면이 남는다",
+          _id["table_title"] and TITLE_NEW in _id["table_title"]["text_match"],
+          str(_id["table_title"]))
+    check("★ 성공 → 대상 행 문면이 남는다",
+          _id["target_row"] and "Azure and other cloud services" in _id["target_row"]["text_match"],
+          str(_id["target_row"]))
+    check("★★ 기간 문면이 원문에 없으면 만들어내지 않는다",
+          _id["economic_period"] == [], str(_id["economic_period"])[:120])
+    _h_per = _h_ok.replace(ROW_NEW, "Three Months Ended June 30, 2026 " + ROW_NEW, 1)
+    _id_per = F.locate_block(_h_per)[2]["identity"]
+    check("★ 기간 문면이 있으면 관측된 그대로 남는다",
+          any(p["kind"] == "quarter" and "Three Months Ended June 30, 2026" in p["text_match"]
+              for p in _id_per["economic_period"]), str(_id_per["economic_period"])[:120])
+    check("★ 기간 발췌도 원문의 부분 문자열이다",
+          all(p["raw_excerpt"]["text"] in _h_per for p in _id_per["economic_period"]))
+    check("★ 성공 → 표 머리 가시 문면이 남는다", bool(_id["table_head_text"]["text"].strip()))
+    # ★ 없는 것을 만들지 않는다
+    check("★ source 에 없는 concept 을 만들지 않는다",
+          _id["concept_identity"] is None and bool(_id["concept_note"]))
+    # ★ bounded · verbatim
+    for _nm, _ex in (("제목", _id["table_title"]["raw_excerpt"]),
+                     ("행", _id["target_row"]["raw_excerpt"]),
+                     ("표머리", _id["table_head_excerpt"])):
+        check(f"★ {_nm} 발췌가 원문의 부분 문자열이다 (verbatim)", _ex["text"] in _h_ok)
+        check(f"★ {_nm} 발췌가 상한을 넘지 않는다 (bounded)",
+              len(_ex["text"]) <= F.EVIDENCE_EXCERPT_CHARS, str(len(_ex["text"])))
+    # ★ 거부 경로 — 실제 관측 문면이 남는다
+    _h_bad = _h_ok.replace("Constant Currency Reconciliation", "Constant Currency Summary")
+    _ev_bad = []
+    _loc_bad = F.locate_block(_h_bad, _ev_bad)
+    check("★ 미지 제목은 여전히 거부된다 (selector 의미 불변)", _loc_bad is None)
+    check("★ 거부 증거가 남는다", len(_ev_bad) == 1, str(len(_ev_bad)))
+    _zone = "".join(ct["title_zone_text"]["text"]
+                    for ct in _ev_bad[0]["candidate_tables"])
+    check("★★ 거부된 **실제 제목 문면**이 증거에 그대로 남는다",
+          "Constant Currency Summary" in _zone, _zone[-90:])
+    check("★ 거부 증거에 판정 신호가 함께 남는다",
+          {"azure_hits", "title_hits", "tables"} <= set(_ev_bad[0]["signals"]))
+    check("★ 거부 증거도 상한을 넘지 않는다 (전체 dump 아님)",
+          all(len(ct["raw_excerpt"]["text"]) <= F.EVIDENCE_EXCERPT_CHARS
+              and len(ct["text_excerpt"]["text"]) <= F.EVIDENCE_EXCERPT_CHARS
+              for ct in _ev_bad[0]["candidate_tables"]))
+    check("★ 거부 증거 발췌도 원문의 부분 문자열이다",
+          all(ct["raw_excerpt"]["text"] in _h_bad
+              for ct in _ev_bad[0]["candidate_tables"]))
+    # ★★ 증거 보존이 selector 결과를 바꾸지 않는다
+    check("★★ evidence 를 주든 안 주든 성공 결과가 같다",
+          F.locate_block(_h_ok) == _loc_ok, "evidence 인자가 결과를 바꿨다")
+    check("★★ evidence 를 주든 안 주든 거부 결과가 같다",
+          F.locate_block(_h_bad) is None and _loc_bad is None)
+    check("★ 거부 후보를 성공으로 승격하지 않는다 (거부는 여전히 None)",
+          cut(_h_bad) is None)
+
 sys.exit(K.exit_code())

@@ -1,7 +1,7 @@
 {
  "target": "collectors/capture_azure_fixture.py",
  "regression": "test/test_capture_azure_fixture.py",
- "origin": "/tmp/mut2.py (2026-08-16 이관)",
+ "origin": "/tmp/mut2.py (2026-08-16 이관) + 증거면 보강 변이 (2026-08-16)",
  "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다.",
  "mutations": [
   {
@@ -164,6 +164,83 @@
      "reason": "선언 오류. 오프셋 오염을 실제로 노출하는 것은 태그 분할 fixture 다.",
      "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
     }
+   ]
+  },
+  {
+   "id": "CAPAZ-E1",
+   "origin_label": "E1",
+   "note": "거부 증거를 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "        if evidence is not None:\n            evidence.append({\n                \"reason\": f\"대상 표 후보가 정확히 1건이 아니다 ({len(uniq)}건)\",",
+   "replacement": "        if False:\n            evidence.append({\n                \"reason\": f\"대상 표 후보가 정확히 1건이 아니다 ({len(uniq)}건)\",",
+   "expected_killers": [
+    "거부 증거가 남는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E2",
+   "origin_label": "E2",
+   "note": "발췌 상한을 무시한다 (전체 dump)",
+   "anchors_expected": 1,
+   "anchor": "    b = min(b, a + EVIDENCE_EXCERPT_CHARS)",
+   "replacement": "    b = min(b, a + 10 * EVIDENCE_EXCERPT_CHARS)",
+   "expected_killers": [
+    "발췌가 상한을 넘지 않는다 (bounded)"
+   ]
+  },
+  {
+   "id": "CAPAZ-E3",
+   "origin_label": "E3",
+   "note": "제목 구역 문면을 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "                     \"title_zone_text\": _title_zone_text(text, off, sp[0])}",
+   "replacement": "                     \"title_zone_text\": {\"text\": \"\", \"text_start\": None,\n                                         \"text_end\": None, \"truncated_at\": None}}",
+   "expected_killers": [
+    "거부된 **실제 제목 문면**이 증거에 그대로 남는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E4",
+   "origin_label": "E4",
+   "note": "없는 concept 을 만들어 넣는다",
+   "anchors_expected": 1,
+   "anchor": "        \"concept_identity\": None,",
+   "replacement": "        \"concept_identity\": \"AzureAndOtherCloudServicesRevenueGrowth\",",
+   "expected_killers": [
+    "source 에 없는 concept 을 만들지 않는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E5",
+   "origin_label": "E5",
+   "note": "identity 를 manifest 에 싣지 않는다",
+   "anchors_expected": 1,
+   "anchor": "           \"identity\": info.get(\"identity\"),",
+   "replacement": "           \"identity\": None,",
+   "expected_killers": [
+    "MANIFEST 가 discovery 와 failures 를 함께 담는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E6",
+   "origin_label": "E6",
+   "note": "관측되지 않은 기간을 만들어 넣는다",
+   "anchors_expected": 1,
+   "anchor": "            if not _in_table(m):\n                continue\n            periods.append({\"kind\": name, \"text_match\": m.group(0),",
+   "replacement": "            if not _in_table(m):\n                pass\n            periods.append({\"kind\": name, \"text_match\": m.group(0),",
+   "expected_killers": [
+    "기간 문면이 원문에 없으면 만들어내지 않는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E7",
+   "origin_label": "E7",
+   "note": "발췌를 원문에서 자르지 않고 재구성한다",
+   "anchors_expected": 1,
+   "anchor": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b],",
+   "replacement": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b].replace(\"&#160;\", \" \"),",
+   "expected_killers": [
+    "발췌가 원문의 부분 문자열이다 (verbatim)"
    ]
   }
  ]

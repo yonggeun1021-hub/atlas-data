@@ -74,6 +74,103 @@ AZURE_WORDS = ["Azure", "and", "other", "cloud", "services"]
 # 워드 사이에 올 수 있는 것 — 공백 · 엔티티 · 줄바꿈
 GAP = r"(?:\s|&nbsp;|&#160;|&#xa0;)+"
 
+# ── 증거면 상한 (CIO 판정 2026-08-16) ────────────────────────────────
+#   ⛔ 전체 filing dump 로 증거 문제를 우회하지 않는다. bounded · verbatim ·
+#      provenance(오프셋) 추적 가능해야 한다.
+EVIDENCE_EXCERPT_CHARS = 400    # 후보 하나당 남기는 원문 발췌 상한
+
+
+def _excerpt(raw: str, a: int, b: int):
+    """원문 그대로의 bounded 발췌 + 오프셋. ⛔ 정규화·재구성하지 않는다."""
+    a = max(0, a)
+    b = min(len(raw), max(a, b))
+    b = min(b, a + EVIDENCE_EXCERPT_CHARS)
+    return {"raw_start": a, "raw_end": b, "text": raw[a:b],
+            "truncated_at": EVIDENCE_EXCERPT_CHARS if b - a >= EVIDENCE_EXCERPT_CHARS
+                            else None}
+
+
+def _text_excerpt(text, off, raw_a, raw_b):
+    """selector 가 **실제로 매칭한 문면**(태그 제거 뷰)의 bounded 발췌.
+
+    ★ 원문 raw 발췌만 남기면 style 속성만 보이고 사람이 무엇을 봤는지 알 수 없다.
+    ⛔ 이것은 재구성이 아니라 selector 가 본 그 뷰다 — 값을 다시 쓰지 않는다.
+    """
+    lo = next((i for i, r in enumerate(off) if r >= raw_a), None)
+    if lo is None:
+        return {"text_start": None, "text_end": None, "text": "", "truncated_at": None}
+    hi = lo
+    while hi < len(off) and off[hi] < raw_b and hi - lo < EVIDENCE_EXCERPT_CHARS:
+        hi += 1
+    return {"text_start": lo, "text_end": hi, "text": text[lo:hi],
+            "truncated_at": EVIDENCE_EXCERPT_CHARS if hi - lo >= EVIDENCE_EXCERPT_CHARS
+                            else None}
+
+
+def _title_zone_text(text, off, table_start):
+    """표 **직전** 가시 문면의 bounded 꼬리 — 제목 앵커가 실제로 훑은 구간이다.
+
+    ⛔ 제목이 왜 안 걸렸는지는 표 안이 아니라 표 앞을 봐야 알 수 있다.
+    """
+    lo_raw = max(0, table_start - MAX_TITLE_DISTANCE)
+    idx = [i for i, r in enumerate(off) if lo_raw <= r < table_start]
+    if not idx:
+        return {"text_start": None, "text_end": None, "text": "", "truncated_at": None}
+    hi = idx[-1] + 1
+    lo = max(idx[0], hi - EVIDENCE_EXCERPT_CHARS)
+    return {"text_start": lo, "text_end": hi, "text": text[lo:hi],
+            "truncated_at": EVIDENCE_EXCERPT_CHARS if hi - lo >= EVIDENCE_EXCERPT_CHARS
+                            else None}
+
+
+def observed_identity(raw, text, off, info):
+    """원문에서 **직접 관측되는** identity 문면만 보존한다.
+
+    ⛔ 없는 값을 추론·합성하지 않는다. 못 찾으면 None 을 남기고 발췌로 대신한다.
+    ⛔ 정규화 값을 새로 판정하지 않는다 — source 문면과 오프셋을 그대로 싣는다.
+    """
+    t_start, t_end = info["table_start"], info["table_end"]
+    title_raw = info["title_raw"]
+
+    def _in_table(m):
+        r = off[m.start()]
+        return t_start <= r < t_end
+
+    title_m = None
+    for m in RE_TITLE.finditer(text):
+        if off[m.start()] == title_raw:
+            title_m = m
+            break
+    row_m = next((m for m in RE_AZURE.finditer(text) if _in_table(m)), None)
+
+    periods = []
+    for name, rx in (("quarter", M.QUARTER_PERIOD), ("non_quarter", M.NON_QUARTER_PERIOD)):
+        for m in rx.finditer(text):
+            if not _in_table(m):
+                continue
+            periods.append({"kind": name, "text_match": m.group(0),
+                            "raw_excerpt": _excerpt(raw, off[m.start()],
+                                                    off[m.end() - 1] + 1)})
+
+    return {
+        "form_note": "form 은 discovery 산출물에서 그대로 옮긴다 — 여기서 만들지 않는다",
+        "table_title": None if title_m is None else {
+            "text_match": title_m.group(0),
+            "raw_excerpt": _excerpt(raw, title_raw,
+                                    off[title_m.end() - 1] + 1)},
+        "target_row": None if row_m is None else {
+            "text_match": row_m.group(0),
+            "raw_excerpt": _excerpt(raw, off[row_m.start()],
+                                    off[row_m.end() - 1] + 1)},
+        "economic_period": periods,
+        "table_head_excerpt": _excerpt(raw, t_start, t_end),
+        "table_head_text": _text_excerpt(text, off, t_start, t_end),
+        "concept_identity": None,
+        "concept_note": "이 원문(8-K exhibit HTML)에는 concept identity 가 없다. "
+                        "⛔ 만들어 넣지 않는다.",
+    }
+
+
 MAX_SLICE_BYTES = 300_000       # 상한 초과 시 조용히 자르지 않고 fail-closed
 MAX_TITLE_DISTANCE = 40_000     # 제목이 표에서 이 이상 떨어지면 같은 절로 보지 않는다
 POLITE_DELAY_SEC = 0.5
@@ -158,7 +255,7 @@ def balanced(frag: str) -> bool:
     return depth == 0
 
 
-def locate_block(raw: str):
+def locate_block(raw: str, evidence=None):
     """대상 `<table>` 블록 + 최소 주변 markup 의 (시작, 끝, 진단) 을 찾는다.
 
     ⛔ 후보가 정확히 1건이 아니면 fail-closed 하고, **무엇을 걸렀는지** 남긴다
@@ -197,6 +294,23 @@ def locate_block(raw: str):
             print(f"    후보탈락 {d}")
         for sp in list(uniq)[:M.CAND_LOG_LIMIT]:
             print(f"    후보표 {sp}")
+        # ★ 왜 **기존 selector 가 이 원문을 거부했는지**를 사람이 재현할 수 있게
+        #   판정에 실제 쓰인 원문 문면을 bounded 로 남긴다.
+        #   ⛔ 앵커를 넓히거나 후보를 승격하지 않는다 — 반환값은 그대로 None 이다.
+        if evidence is not None:
+            evidence.append({
+                "reason": f"대상 표 후보가 정확히 1건이 아니다 ({len(uniq)}건)",
+                "signals": {"azure_hits": len(list(RE_AZURE.finditer(text))),
+                            "title_hits": len(list(RE_TITLE.finditer(text))),
+                            "tables": len(spans)},
+                "dropped_reasons": diag[:M.CAND_LOG_LIMIT],
+                "candidate_tables": [
+                    {"span": [sp[0], sp[1]],
+                     "raw_excerpt": _excerpt(raw, sp[0], sp[1]),
+                     "text_excerpt": _text_excerpt(text, off, sp[0], sp[1]),
+                     "title_zone_text": _title_zone_text(text, off, sp[0])}
+                    for sp in spans[:M.CAND_LOG_LIMIT]],
+            })
         return None
 
     (t_start, t_end), title_raw = next(iter(uniq.items()))
@@ -219,11 +333,23 @@ def locate_block(raw: str):
     if not balanced(raw[start:t_end]):
         print(f"    ✗ 잘라낸 구간의 `<table>` 여닫이가 맞지 않는다 [{start}:{t_end}] "
               f"— 보정하지 않고 중단한다")
+        if evidence is not None:
+            evidence.append({
+                "reason": f"잘라낸 구간의 <table> 여닫이가 맞지 않는다 [{start}:{t_end}]",
+                "signals": {"title_included": title_included},
+                "dropped_reasons": diag[:M.CAND_LOG_LIMIT],
+                "candidate_tables": [
+                    {"span": [t_start, t_end],
+                     "raw_excerpt": _excerpt(raw, t_start, t_end),
+                     "text_excerpt": _text_excerpt(text, off, t_start, t_end)}],
+            })
         return None
 
-    return start, t_end, {"table_start": t_start, "table_end": t_end,
-                          "title_raw": title_raw, "slice_start": start,
-                          "title_included": title_included}
+    info = {"table_start": t_start, "table_end": t_end,
+            "title_raw": title_raw, "slice_start": start,
+            "title_included": title_included}
+    info["identity"] = observed_identity(raw, text, off, info)
+    return start, t_end, info
 
 
 def slice_and_verify(doc_text: str, start: int, end: int):
@@ -258,9 +384,11 @@ def discovery_record(limit, default_limit, considered, selected, dropped):
             "limit_env": CAPTURE_LIMIT_ENV,
             "considered": len(considered),
             "selected": [{"filing_date": c["filing_date"],
-                          "accession": c["accession"]} for c in selected],
+                          "accession": c["accession"],
+                          "form": c.get("form")} for c in selected],
             "dropped": [{"filing_date": c["filing_date"],
-                         "accession": c["accession"]} for c in dropped]}
+                         "accession": c["accession"],
+                         "form": c.get("form")} for c in dropped]}
 
 
 def capture_one(c, outdir, failures=None):
@@ -269,10 +397,12 @@ def capture_one(c, outdir, failures=None):
     acc = c["accession"].replace("-", "")
     print(f"\n  ── {c['filing_date']} · {c['accession']}")
 
-    def _fail(reason):
+    def _fail(reason, evidence=None):
         if failures is not None:
             failures.append({"filing_date": c["filing_date"],
-                             "accession": c["accession"], "reason": reason})
+                             "accession": c["accession"],
+                             "form": c.get("form"), "reason": reason,
+                             "rejection_evidence": evidence or []})
         return None
 
     # ★ 취득은 승인된 경로 그대로 — full .txt → <DOCUMENT> → EX-99.1 → secondary
@@ -297,15 +427,21 @@ def capture_one(c, outdir, failures=None):
     _, body = get(f"{M.ARCHIVE_BASE}/{acc}/{target2}")
     doc_text = body.decode("utf-8", errors="replace")
 
-    loc = locate_block(doc_text)
+    rej: list = []
+    loc = locate_block(doc_text, rej)
     if loc is None:
         print("    → fixture 를 만들지 않는다 (fail-closed)")
-        return _fail("슬라이스 생성 실패 — 위 진단 참조")
+        return _fail("대상 표를 확정하지 못했다 — selector 가 거부했다", rej)
     start, end, info = loc
     block = slice_and_verify(doc_text, start, end)
     if block is None:
         print("    → fixture 를 만들지 않는다 (fail-closed)")
-        return _fail("슬라이스 생성 실패 — 위 진단 참조")
+        return _fail("슬라이스 검증 실패 — 부분 문자열·여닫이·상한 중 하나",
+                     rej + [{"reason": "slice_and_verify 거부",
+                             "signals": {"slice_start": start, "slice_end": end},
+                             "dropped_reasons": [], "candidate_tables":
+                             [{"span": [start, end],
+                               "raw_excerpt": _excerpt(doc_text, start, end)}]}])
 
     name = f"{c['filing_date']}_{c['accession']}_azure_cc_table.html"
     path = os.path.join(outdir, name)
@@ -313,6 +449,8 @@ def capture_one(c, outdir, failures=None):
         f.write(block)
 
     rec = {"filing_date": c["filing_date"], "accession": c["accession"],
+           "form": c.get("form"),
+           "identity": info.get("identity"),
            "items": c["items"], "exhibit": target2,
            "exhibit_url": f"{M.ARCHIVE_BASE}/{acc}/{target2}",
            "exhibit_sha256": sha(doc_text), "exhibit_chars": len(doc_text),
@@ -352,7 +490,8 @@ def main() -> int:
         if M.EARNINGS_ITEM not in items:
             continue
         cands.append({"accession": rec["accessionNumber"][i],
-                      "filing_date": rec["filingDate"][i], "items": items})
+                      "filing_date": rec["filingDate"][i],
+                      "form": rec["form"][i], "items": items})
     cands.sort(key=lambda c: c["filing_date"], reverse=True)
     limit, problem = capture_limit()
     if problem:
