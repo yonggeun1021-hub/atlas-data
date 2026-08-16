@@ -20,10 +20,10 @@
   "rule_count": 25,
   "state_counts": {
     "definition_undefined": 3,
-    "data_missing": 19,
-    "source_unresolved": 13,
-    "evaluator_blocked": 19,
-    "evaluator_ready": 6
+    "data_missing": 18,
+    "source_unresolved": 12,
+    "evaluator_blocked": 18,
+    "evaluator_ready": 7
   },
   "provenance": {
     "ssot_mapping_sha256": "90a8843aff3dc0f5dac8f73db3b1d2a1ac80710a2599ab65957dc8304264025e",
@@ -2331,17 +2331,44 @@
       },
       "definition_reopen": null,
       "context_provenance": null,
-      "data_status": "MISSING",
+      "data_status": "AVAILABLE",
       "data_status_before_application": "MISSING",
       "data_capability": "UNRESOLVED",
-      "source_qualification": "SOURCE_UNRESOLVED",
+      "source_qualification": "SOURCE_RESOLVED",
       "source_qualification_before_application": "SOURCE_UNRESOLVED",
-      "data_capability_application": null,
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DATA_MISSING",
-        "SOURCE_UNRESOLVED"
-      ],
+      "data_capability_application": {
+        "data_status": {
+          "from": "MISSING",
+          "to": "AVAILABLE"
+        },
+        "source_qualification": {
+          "from": "SOURCE_UNRESOLVED",
+          "to": "SOURCE_RESOLVED"
+        },
+        "source": "CIO 판정 2026-08-16 · P2-b — Azure constant-currency 성장률 관측 capability 확보. 동일 최근 4개 Item 2.02 8-K 에서 exhibit identity 4/4 · secondary cross-check 4/4 · exhibit 취득 4/4 · extraction identity 4/4 · provenance 4/4 이고, 저장소 raw fixture 회귀값과 live 관측값이 4/4 일치했다. ⛔ 조건(45% 기준선 · 3%p 하회)의 참·거짓과 무관하다. ⛔ build_header 오염 결함은 별건으로 OPEN 이며 이 승격이 닫지 않는다.",
+        "acquisition_contract": {
+          "primary_acquisition": "SEC EDGAR — Microsoft 제출 8-K item 2.02 (CIK 0000789019), full submission `.txt` 의 <DOCUMENT> SGML header 에서 <TYPE>EX-99.1 정확 일치로 exhibit 식별",
+          "decision_observation": "EX-99.1 내부 `Selected Product and Service {Revenue|Information} Constant Currency Reconciliation` 표의 `Azure and other cloud services[ revenue]` 행 · `Percentage Change Y/Y Constant Currency` 컬럼",
+          "secondary_verification": "`{accession}-index.html` 의 Type 컬럼 교차확인 (충돌 시 fail-closed)",
+          "independent_cross_check": "Microsoft IR Metrics — 사람이 확인하는 대조용, 자동 취득 경로에서는 제외",
+          "deferred_to_operations": [
+            "revision detection",
+            "historical backfill",
+            "persistent incremental cursor",
+            "상시 network monitoring",
+            "evaluator wiring"
+          ],
+          "known_open_defect": "build_header 오염 — Azure 행 위 다른 data-row 내용이 헤더문자열에 흡수된다. 현재 4개 문서에서는 컬럼 분류가 옳았으나 구조적 안전성은 증명되지 않았다 (OPEN · 별건 Gate)."
+        },
+        "untouched_legacy_fields": [
+          "condition_semantics",
+          "scope",
+          "data_capability"
+        ],
+        "not_an_evaluator_approval": true
+      },
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "definition_resolution": "REQUIRES_CIO_DEFINITION",
       "missing_components": [
         "event_definition",

@@ -126,17 +126,22 @@ check("Evaluator Population 25", C["evaluator_population"] == 25)
 check("Population ≠ Inventory 총수", C["evaluator_population"] != C["rule_inventory_total"])
 check("monitoring 은 Population 에 없다",
       all(not e["in_evaluator_population"] for e in mon))
-check("READY 6 · BLOCKED 19 (P0 적용 2건 + P3 적용 3건 반영)",
-      C["evaluator_ready"] == 6 and C["evaluator_blocked"] == 19,
+# ★ 상태 총계는 승인된 적용 건수에서 **파생**한다. 목표값을 박으면 승인이 날
+#   때마다 무관한 파일이 깨지고, 더 나쁘게는 박힌 숫자에 맞추려는 압력이 생긴다.
+import promote_rules_ssot as _PR                                     # noqa: E402
+_n_data = len(_PR.DATA_CAPABILITY_APPLICATION)
+check(f"READY {3 + _n_data} · BLOCKED {22 - _n_data} (P0 적용 2건 + 데이터 적용 {_n_data}건)",
+      C["evaluator_ready"] == 3 + _n_data and C["evaluator_blocked"] == 22 - _n_data,
       f"{C['evaluator_ready']}/{C['evaluator_blocked']}")
-check("UNDEFINED 3 · MISSING 19 · SOURCE_UNRESOLVED 13",
-      C["definition_undefined"] == 3 and C["data_missing"] == 19
-      and C["source_unresolved"] == 13,
+check(f"UNDEFINED 3 · MISSING {22 - _n_data} · SOURCE_UNRESOLVED {16 - _n_data}",
+      C["definition_undefined"] == 3 and C["data_missing"] == 22 - _n_data
+      and C["source_unresolved"] == 16 - _n_data,
       f"{C['definition_undefined']}/{C['data_missing']}/{C['source_unresolved']}")
+check("★ 세 축의 합이 Rule 총수와 맞는다 (파생이 자기모순이 아니다)",
+      C["evaluator_ready"] + C["evaluator_blocked"] == 25)
 _dapp = [e for e in P["entries"] if e.get("data_capability_application")]
-check("★ P3 데이터 축 적용도 Inventory 에 그대로 보인다 — 3건",
-      len(_dapp) == 3 and sorted(e["rule_id"] for e in _dapp)
-      == ["RULE-0003", "RULE-0007", "RULE-0008"],
+check("★ 데이터 축 적용이 Inventory 에 그대로 보인다 (allowlist 와 일치)",
+      sorted(e["rule_id"] for e in _dapp) == sorted(_PR.DATA_CAPABILITY_APPLICATION),
       str(sorted(e["rule_id"] for e in _dapp)))
 check("★ 적용 전 값(MISSING · SOURCE_UNRESOLVED)이 Inventory 에 보존된다",
       all(e["data_status_before_application"] == "MISSING"
@@ -186,10 +191,14 @@ check("그래도 소비 가능이 아니다", t["evaluator_consumable"] is False
 check("Stage · Portfolio · 주문 필드가 없다",
       not any(k in t for k in ("stage_action", "portfolio_action", "order", "trade",
                                "executable")))
-check("READY 는 evaluation rule 중 6건 (원래 1 + 정의 적용 2 + P3 데이터 적용 3)",
-      sum(1 for e in ev if e["evaluator_status"] == "READY") == 6,
+# ★ 목표값을 박지 않는다 — 승인된 data capability 적용 건수에서 파생돼야 한다.
+#   (원래 1 + 정의 적용 2 + data capability 적용분)
+import promote_rules_ssot as _PR                                     # noqa: E402
+_want_ready = 3 + len(_PR.DATA_CAPABILITY_APPLICATION)
+check(f"READY 는 evaluation rule 중 {_want_ready}건 (원래 1 + 정의 적용 2 + 데이터 적용분)",
+      sum(1 for e in ev if e["evaluator_status"] == "READY") == _want_ready,
       str(sum(1 for e in ev if e["evaluator_status"] == "READY")))
-check("그 6건 전부 소비 가능이 아니다",
+check("READY 전부 소비 가능이 아니다",
       all(e["evaluator_consumable"] is False
           for e in ev if e["evaluator_status"] == "READY"))
 

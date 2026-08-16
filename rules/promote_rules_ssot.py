@@ -179,14 +179,31 @@ DATA_CAPABILITY_APPLICATION = {
                  "⛔ 조건(40% 미달 2개월 연속)의 참·거짓과 무관하다.",
     "RULE-0007": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
     "RULE-0008": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
+    "RULE-0021": "CIO 판정 2026-08-16 · P2-b — Azure constant-currency 성장률 관측 "
+                 "capability 확보. 동일 최근 4개 Item 2.02 8-K 에서 exhibit identity "
+                 "4/4 · secondary cross-check 4/4 · exhibit 취득 4/4 · extraction "
+                 "identity 4/4 · provenance 4/4 이고, 저장소 raw fixture 회귀값과 "
+                 "live 관측값이 4/4 일치했다. "
+                 "⛔ 조건(45% 기준선 · 3%p 하회)의 참·거짓과 무관하다. "
+                 "⛔ build_header 오염 결함은 별건으로 OPEN 이며 이 승격이 닫지 않는다.",
 }
 
 # 적용 후 값 — 새 vocabulary 를 만들지 않고 기존 어휘를 그대로 쓴다.
 DATA_APPLIED_STATUS = "AVAILABLE"
 DATA_APPLIED_SOURCE = "SOURCE_RESOLVED"
 
-# 취득 계약 (P3_C4_ACQUISITION.md 에 기록된 것과 같은 내용)
-DATA_CAPABILITY_SOURCE = {
+# ══════════════════════════════════════════════════════════════════════
+# 취득 계약 — ★ **Rule 마다 다르다.** 전역 상수 하나로 두지 않는다.
+#
+#   ⛔ 예전에는 `DATA_CAPABILITY_SOURCE` 하나를 모든 적용 Rule 에 붙였다.
+#      대상이 TSMC 뿐일 때는 우연히 맞았지만, MSFT Rule(`RULE-0021`)이 들어오는
+#      순간 **MSFT Rule 에 TSMC 취득 계약이 기록**된다. 조용히 틀린 provenance 다.
+#   ★ 그래서 Rule → 계약 매핑으로 바꾸고, 적용 목록과 계약 목록이 정확히 같은지
+#      승격 단계에서 대조한다 (`DATA_CAPABILITY_APPLICATION` ↔ `..._BY_RULE`).
+#      한쪽에만 있으면 승격하지 않는다.
+# ══════════════════════════════════════════════════════════════════════
+# TSMC 월매출 (P3_C4_ACQUISITION.md 에 기록된 것과 같은 내용)
+DATA_CAPABILITY_SOURCE_TSMC = {
     "primary_acquisition": "SEC EDGAR — TSMC 제출 6-K (CIK 0001046179)",
     "decision_observation": "6-K 내부 `TSMC {Month} Revenue Report (Consolidated)` 표 "
                             "(Unit: NT$ million)",
@@ -195,6 +212,34 @@ DATA_CAPABILITY_SOURCE = {
     "deferred_to_operations": ["revision detection", "historical backfill",
                                "persistent incremental cursor",
                                "상시 network monitoring", "evaluator wiring"],
+}
+
+# MSFT Azure constant-currency (P2_US_FINANCIALS.md · 2026-08-16 live run)
+DATA_CAPABILITY_SOURCE_MSFT_AZURE = {
+    "primary_acquisition": "SEC EDGAR — Microsoft 제출 8-K item 2.02 (CIK 0000789019), "
+                           "full submission `.txt` 의 <DOCUMENT> SGML header 에서 "
+                           "<TYPE>EX-99.1 정확 일치로 exhibit 식별",
+    "decision_observation": "EX-99.1 내부 `Selected Product and Service "
+                            "{Revenue|Information} Constant Currency Reconciliation` 표의 "
+                            "`Azure and other cloud services[ revenue]` 행 · "
+                            "`Percentage Change Y/Y Constant Currency` 컬럼",
+    "secondary_verification": "`{accession}-index.html` 의 Type 컬럼 교차확인 "
+                              "(충돌 시 fail-closed)",
+    "independent_cross_check": "Microsoft IR Metrics — 사람이 확인하는 대조용, "
+                               "자동 취득 경로에서는 제외",
+    "deferred_to_operations": ["revision detection", "historical backfill",
+                               "persistent incremental cursor",
+                               "상시 network monitoring", "evaluator wiring"],
+    "known_open_defect": "build_header 오염 — Azure 행 위 다른 data-row 내용이 헤더"
+                         "문자열에 흡수된다. 현재 4개 문서에서는 컬럼 분류가 옳았으나 "
+                         "구조적 안전성은 증명되지 않았다 (OPEN · 별건 Gate).",
+}
+
+DATA_CAPABILITY_SOURCE_BY_RULE = {
+    "RULE-0003": DATA_CAPABILITY_SOURCE_TSMC,
+    "RULE-0007": DATA_CAPABILITY_SOURCE_TSMC,
+    "RULE-0008": DATA_CAPABILITY_SOURCE_TSMC,
+    "RULE-0021": DATA_CAPABILITY_SOURCE_MSFT_AZURE,
 }
 
 # ══════════════════════════════════════════════════════════════════════
@@ -311,9 +356,31 @@ def _reopen_definition(rid, m, errs):
     return rec
 
 
+def data_capability_contract_coverage() -> list:
+    """적용 목록 ↔ 취득 계약 목록이 **정확히 일치**하는지 양방향 대조한다.
+
+    ★ 전역 계약 하나를 모든 Rule 에 붙이던 때에는 이 검사가 필요 없었다. 그러나
+      그 방식은 대상이 늘어나는 순간 **다른 회사의 취득 계약을 기록**한다.
+      매핑으로 바꾼 이상, 한쪽에만 있는 Rule 은 승격을 막아야 한다.
+    ⛔ 빠진 쪽을 기본값으로 채우지 않는다 — 그러면 틀린 provenance 가 조용히 생긴다.
+    """
+    errs = []
+    applied = set(DATA_CAPABILITY_APPLICATION)
+    contracted = set(DATA_CAPABILITY_SOURCE_BY_RULE)
+    for rid in sorted(applied - contracted):
+        errs.append(f"{rid}: data capability 를 적용하는데 취득 계약이 없다 — "
+                    f"DATA_CAPABILITY_SOURCE_BY_RULE 에 추가하지 않으면 승격하지 않는다")
+    for rid in sorted(contracted - applied):
+        errs.append(f"{rid}: 취득 계약만 있고 적용 목록에 없다 — 죽은 계약이다")
+    return errs
+
+
 def _apply_data_capability(rid, m, errs):
     """P3 데이터/원천 축 적용. allowlist 밖이면 None — 조용히 번지지 않는다."""
     if rid not in DATA_CAPABILITY_APPLICATION:
+        return None
+    if rid not in DATA_CAPABILITY_SOURCE_BY_RULE:
+        errs.append(f"{rid}: 취득 계약이 없다 — 다른 Rule 의 계약을 대신 쓰지 않는다")
         return None
     before_data = m["data_status"]
     before_src = m["source_qualification"]
@@ -326,7 +393,7 @@ def _apply_data_capability(rid, m, errs):
         "data_status": {"from": before_data, "to": DATA_APPLIED_STATUS},
         "source_qualification": {"from": before_src, "to": DATA_APPLIED_SOURCE},
         "source": DATA_CAPABILITY_APPLICATION[rid],
-        "acquisition_contract": DATA_CAPABILITY_SOURCE,
+        "acquisition_contract": DATA_CAPABILITY_SOURCE_BY_RULE[rid],
         # ★ 이 필드들은 건드리지 않았다는 사실을 명시적으로 남긴다.
         "untouched_legacy_fields": ["condition_semantics", "scope", "data_capability"],
         "not_an_evaluator_approval": True,
@@ -479,6 +546,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
     #   ★ 선언이 파생 함수의 실제 출력을 덮는지 먼저 확인한다 — 선언이 좁으면 정상
     #     산출물이 위반으로 잡히고, 넓으면 오타를 못 잡는다. 둘 다 결함이다.
     errs.extend(VC.covers_derive_outputs())
+    errs.extend(data_capability_contract_coverage())
     for r in rules:
         errs.extend(VC.vocab_violations(r, tag=f"{r['rule_id']}: "))
 
