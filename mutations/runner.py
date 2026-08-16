@@ -292,8 +292,9 @@ def run_one(e: dict, base_tar: str, parent: str, head: str,
             raise IsolationError("checkout 의 target 이 HEAD blob 과 다르다")
 
         # ── baseline (같은 checkout 안에서, 변이 적용 전) ──────────────
+        btrace = os.path.join(parent_trace, f"{e['id']}.baseline.json")
         rec["baseline"] = parse_regression(
-            run_in(checkout, [PY, e["regression"]]))
+            run_in(checkout, [PY, e["regression"]], btrace), btrace)
         assert_no_pycache(checkout, "baseline 실행 직후")
 
         # ── 변이 적용 ────────────────────────────────────────────────
@@ -346,6 +347,7 @@ def run_one(e: dict, base_tar: str, parent: str, head: str,
                 raise IsolationError("witness 불일치: " + "; ".join(bad))
 
             # ── 변이 실행 ────────────────────────────────────────────
+            mtrace = os.path.join(parent_trace, f"{e['id']}.mutated.json")
             mtrace = os.path.join(parent_trace, f"{e['id']}.mutated.json")
             rec["mutated"] = parse_regression(
                 run_in(checkout, [PY, e["regression"]], mtrace), mtrace)
