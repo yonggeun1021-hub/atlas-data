@@ -820,10 +820,13 @@ check("★ C4 의 build_header 는 여전히 모든 행을 이어 붙인다 (미
 check("★ C4 에 is_data_row 가 생기지 않았다",
       not any(isinstance(n, ast.FunctionDef) and n.name == "is_data_row"
               for n in ast.walk(_c4t)))
-check("★ C4 의 first-match 는 이번에 손대지 않았다 (별도 OPEN 후보)",
-      any(isinstance(x, ast.Break) for n in ast.walk(_c4t)
-          if isinstance(n, ast.FunctionDef) and n.name == "find_decision_table"
-          for x in ast.walk(n)))
+# ★ 2026-08-16 갱신 — C4 의 **row-local** first-match 는 별도 CIO 승인으로 닫혔다.
+#   이 절이 지키는 것은 그것이 아니라 「MSFT header 격리가 C4 에 닿지 않는다」이다.
+#   ⛔ 검사를 지우지 않고, 여전히 참이어야 하는 것으로 다시 겨눈다.
+check("★ C4 의 build_header 는 여전히 MSFT 수정과 무관하다",
+      "is_data_row" not in _c4)
+check("⛔ C4 의 table-level 유일성은 아직 닫지 않았다 (별건 OPEN)",
+      "표가 정확히 1건이 아니다" not in _c4)
 
 print("E-8 ★ period → table → row 계약은 그대로다 (넓히지 않았다)")
 for date, acc, _ in FIXTURES:

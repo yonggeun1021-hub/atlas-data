@@ -179,22 +179,47 @@ def month_index(name: str):
     return None
 
 
-def find_decision_table(tables, month_name: str, year: int):
-    """`Net Revenue` 행과 두 개의 Y-o-Y 헤더를 가진 표만 후보로 삼는다."""
+def find_decision_table(tables, month_name: str, year: int, rejected=None):
+    """`Net Revenue` 행과 두 개의 Y-o-Y 헤더를 가진 표만 후보로 삼는다.
+
+    ★ row identity 유일성 (CIO 승인 2026-08-16)
+      같은 표 안 `Net Revenue` identity 는 **정확히 1행**이어야 한다.
+        0행   → 애초에 대상이 아니다 (기존과 동일)
+        2행+  → **모호**하다. ⛔ 첫 행을 고르지 않고 후보에서 뺀다.
+      예전에는 첫 행에서 `break` 하고 나머지를 조용히 버렸다. 실제 TSMC 6-K 의
+      `Revenue (in NT$ thousands)` 표는 **월 행과 누계 행 두 개**를 갖는다
+      (2026-05·06·07 원문에서 확인). 지금은 그 표가 `Y-o-Y` 조건에서 걸리지만,
+      선택 층에 유일성 판정이 없다는 사실 자체는 시스템의 fail-closed 규율과 맞지
+      않는다. 그래서 여기를 닫는다.
+
+    ⛔ 이 변경의 범위는 **row-local 유일성 뿐**이다.
+       table-level 2+ guard · 컬럼 identity · build_header 는 건드리지 않는다 (별건).
+    ⛔ 정상 원문 3개월에서 결정표의 `Net Revenue` 는 1행이므로 관측값은 바뀌지 않는다.
+
+    `rejected` 를 주면 걸러낸 표의 **후보 evidence** 를 담아 돌려준다
+    (결과만 남기지 않고 무엇을 왜 걸렀는지 남긴다 — collector 공통 규칙).
+    """
     cands = []
     for ti, rows in enumerate(tables):
         rows = drop_empty_columns(rows)
-        data_i = None
-        for ri, r in enumerate(rows):
-            if r and any(RE_NET_REVENUE.match(c) for c in r):
-                data_i = ri
-                break
-        if data_i is None or data_i == 0:
+        hits = [ri for ri, r in enumerate(rows)
+                if r and any(RE_NET_REVENUE.match(c) for c in r)]
+        if not hits or hits[0] == 0:
             continue
-        head = [c for r in rows[:data_i] for c in r]
+        head = [c for r in rows[:hits[0]] for c in r]
         if not any(RE_YOY.search(c) for c in head):
             continue
-        cands.append((ti, rows, data_i))
+        if len(hits) != 1:
+            if rejected is not None:
+                rejected.append({
+                    "table_index": ti,
+                    "reason": f"같은 표 안 `Net Revenue` 행이 정확히 1개가 아니다 "
+                              f"({len(hits)}개) — 첫 행을 고르지 않는다",
+                    "net_revenue_rows": hits,
+                    "row_labels": [rows[i][:2] for i in hits],
+                })
+            continue
+        cands.append((ti, rows, hits[0]))
     return cands
 
 
@@ -542,8 +567,13 @@ def observe(TARGET_MONTH: str):
     parser.feed(html_text)
     tables = parser.tables
     print(f"  문서 내 table 수  {len(tables)}")
-    found = find_decision_table(tables, month_name, ty)
+    rejected = []
+    found = find_decision_table(tables, month_name, ty, rejected=rejected)
     print(f"  'Net Revenue' + Y-o-Y 헤더를 가진 표  {len(found)}건")
+    # ⛔ 결과만 남기지 않는다 — 무엇을 왜 걸렀는지 함께 남긴다 (collector 공통 규칙)
+    for rj in rejected:
+        print(f"  ⚠️ table[{rj['table_index']}] 후보 제외 — {rj['reason']}")
+        print(f"     Net Revenue 행 {rj['net_revenue_rows']} · 라벨 {rj['row_labels']}")
     decision, why = None, []
     for ti, rows, di in found:
         header = build_header(rows, di)

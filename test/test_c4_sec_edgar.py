@@ -391,5 +391,172 @@ check("연말 경계 12월→1월도 연속으로 본다",
 check("⛔ 연속성 함수가 RULE-0003 조건을 평가하지 않는다",
       "40" not in __import__("inspect").getsource(C.contiguity_checks))
 
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ⑰ 실제 SEC 마크업 회귀 — row identity 0/2+ (CIO 승인 2026-08-16)
+#
+#   ★ 앞의 ①~⑮ 는 **합성 문서**다. 이 절만 실제 TSMC 6-K 원문 슬라이스를 쓴다
+#     (Actions run 31926693739 · artifact tsmc-raw-fixtures · 재구성 없음).
+#   ★ 우선순위: **실제 SEC evidence > 합성 fixture**. 충돌하면 fixture 가 틀렸다.
+#
+#   ⛔ 이번 범위는 **row-local 0/2+ guard 뿐**이다 (CIO 판정).
+#      table-level 2+ guard · 컬럼 identity 합성 FI · build_header 는 제외한다.
+# ══════════════════════════════════════════════════════════════════════
+import hashlib as _hl                                                # noqa: E402
+
+FX = os.path.join(ROOT, "collectors", "fixtures")
+
+# (파일, slice sha256, Net Revenue 행 수, Y-o-Y 헤더 유무) — MANIFEST 기록값 고정
+TSMC_FX = [
+    ("2026-06-10_0001046179-26-000367_t4_unit-unknown.html",
+     "fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589", 1, True),
+    ("2026-06-10_0001046179-26-000367_t6_NT-thousands.html",
+     "c07d23d90a24057ffcfe1fdedbbc2b9ac3466ec40458be1ee534767c80cb9ef6", 2, False),
+    ("2026-07-13_0001046179-26-000447_t4_unit-unknown.html",
+     "18d3b35374fef90d93418af0bbd70df165bbe30400e8c5e0b3238bfc83002020", 1, True),
+    ("2026-07-13_0001046179-26-000447_t6_NT-thousands.html",
+     "c7e71a780ae27fe254d36ba2330470c38e70b5be430a7efa1388dde8d3bcc242", 2, False),
+    ("2026-08-10_0001046179-26-000471_t4_unit-unknown.html",
+     "88f4c53b21df55ccd1c85a99d1549526df6f20771189dd37b19bbc4a59ffaab2", 1, True),
+    ("2026-08-10_0001046179-26-000471_t6_NT-thousands.html",
+     "6b3fd34fa732781f7e40279a5ab32623f2050c7dc19cb53a2100c3ea9eab6e66", 2, False),
+]
+# 제출일 → (대상월, 연도) · 기존 P3 관측값
+TSMC_MONTH = {"2026-06-10": ("May", 2026), "2026-07-13": ("June", 2026),
+              "2026-08-10": ("July", 2026)}
+P3_VALUES = {"June": ("442,680", "67.9", "2,404,484", "35.6"),
+             "July": ("467,580", "44.7", "2,872,064", "37.0")}
+
+
+def _fx(name):
+    return open(os.path.join(FX, name), encoding="utf-8").read()
+
+
+def _tables(html):
+    p = C.TableCollector()
+    p.feed(html)
+    return p.tables
+
+
+print("\n⑰-0 실제 fixture 무결성 — 원문 슬라이스가 그대로인가")
+for name, want, nrows, yoy in TSMC_FX:
+    path = os.path.join(FX, name)
+    check(f"{name[:28]} 존재", os.path.exists(path))
+    if not os.path.exists(path):
+        continue
+    got = _hl.sha256(open(path, "rb").read()).hexdigest()
+    check(f"{name[:28]} sha256 일치", got == want, got[:16])
+
+print("\n⑰-1 실제 구조 — 결정표 1행 · 천원표 2행")
+for name, _, nrows, yoy in TSMC_FX:
+    rows = C.drop_empty_columns(_tables(_fx(name))[0])
+    hits = [i for i, r in enumerate(rows)
+            if r and any(C.RE_NET_REVENUE.match(c) for c in r)]
+    check(f"{name[:28]} Net Revenue 행 {nrows}개", len(hits) == nrows, str(hits))
+    has = any(C.RE_YOY.search(c) for r in rows for c in r)
+    check(f"{name[:28]} Y-o-Y {yoy}", has == yoy, str(has))
+
+print("\n⑰-2 ★★ 수정 전 재현 보존 — 첫 행을 조용히 골랐다")
+# ⛔ 이 절이 없으면 「고친 뒤 막힌다」만 남고 무엇을 막았는지 알 수 없다.
+
+
+def PRE_FIX_first_row(rows):
+    """b2c77ae 시점 동작 — Net Revenue 첫 행에서 break 하고 나머지를 버린다."""
+    for ri, r in enumerate(rows):
+        if r and any(C.RE_NET_REVENUE.match(c) for c in r):
+            return ri
+    return None
+
+
+_t6 = _fx("2026-08-10_0001046179-26-000471_t6_NT-thousands.html")
+_r6 = C.drop_empty_columns(_tables(_t6)[0])
+_hits6 = [i for i, r in enumerate(_r6) if r and any(C.RE_NET_REVENUE.match(c) for c in r)]
+check("★ 실제 천원표에 Net Revenue 행이 2개다 (합성 아님)", len(_hits6) == 2, str(_hits6))
+check("★★ 수정 전 로직은 첫 행을 골랐다", PRE_FIX_first_row(_r6) == _hits6[0])
+check("★★ 그때 둘째 행(누계)은 조용히 버려졌다", PRE_FIX_first_row(_r6) != _hits6[1])
+check("★ 버려진 행이 실제로 누계 행이다",
+      any("Jan" in c for c in _r6[_hits6[1]]), str(_r6[_hits6[1]][:2]))
+
+print("\n⑰-3 ★ row identity 0/2+ → fail-closed (수정 후)")
+# 최소변형: 천원표가 decision predicate 를 통과하게 만든다 (셀 문면 1곳)
+_t6m = _t6.replace(">2025</font>", ">2025 Y-o-Y Increase (Decrease) %</font>", 1)
+check("★ 최소변형이 적용됐다 (셀 1곳)", _t6m != _t6)
+_rej = []
+_f6 = C.find_decision_table(_tables(_t6m), "July", 2026, rejected=_rej)
+check("★★ Net Revenue 2행 표는 후보가 되지 않는다", len(_f6) == 0, str(len(_f6)))
+check("★ 거부 근거를 남긴다", len(_rej) >= 1, str(_rej))
+if _rej:
+    check("★ 근거에 후보 행 번호가 있다", _rej[0].get("net_revenue_rows") == _hits6,
+          str(_rej[0].get("net_revenue_rows")))
+    check("★ 근거에 표 번호가 있다", "table_index" in _rej[0], str(sorted(_rej[0])))
+    check("★ 근거에 사유가 있다", "정확히 1" in _rej[0].get("reason", ""),
+          _rej[0].get("reason", ""))
+# 0건 — Net Revenue 가 없는 표
+_none = C.find_decision_table(_tables("<html><body><table><tr><td>Period</td>"
+                                      "<td>Y-o-Y</td></tr><tr><td>Gross</td>"
+                                      "<td>1</td></tr></table></body></html>"),
+                              "July", 2026)
+check("★ Net Revenue 0건 → 후보 없음", len(_none) == 0)
+
+print("\n⑰-3b ★ 기존 계약 두 가지 — 변이 시험이 드러낸 회귀 공백을 메운다")
+# ⛔ 아래 둘은 **원래부터 있던 동작**인데 회귀가 없었다. 변이(U5·U6)를 주입해도
+#    아무 검사도 실패하지 않아서 발견했다. 계약을 새로 만드는 것이 아니라 고정한다.
+_yoy_less = ("<html><body><table>"
+             "<tr><td>Period</td><td>July 2026</td></tr>"
+             "<tr><td>Net Revenue</td><td>467,580</td></tr>"
+             "</table></body></html>")
+check("★ Y-o-Y 헤더가 없으면 결정표 후보가 아니다 (기존 계약)",
+      len(C.find_decision_table(_tables(_yoy_less), "July", 2026)) == 0)
+_row0 = ("<html><body><table>"
+         "<tr><td>Net Revenue</td><td>467,580</td></tr>"
+         "<tr><td>Y-o-Y Increase (Decrease) %</td><td>44.7</td></tr>"
+         "</table></body></html>")
+check("★ Net Revenue 가 첫 행(row 0)이면 후보가 아니다 (기존 계약)",
+      len(C.find_decision_table(_tables(_row0), "July", 2026)) == 0)
+# 양성 대조 — 위 거부가 「무조건 거부」가 아님을 보인다
+check("★ 양성 대조: 실제 결정표는 여전히 후보다",
+      len(C.find_decision_table(
+          _tables(_fx("2026-08-10_0001046179-26-000471_t4_unit-unknown.html")),
+          "July", 2026)) == 1)
+
+print("\n⑰-4 ★ 무변형 원문에서 기존 P3 관측이 그대로 재현된다")
+for name, _, nrows, yoy in TSMC_FX:
+    if "_t4_" not in name:
+        continue
+    d = name[:10]
+    mn, yr = TSMC_MONTH[d]
+    html = _fx(name)
+    found = C.find_decision_table(_tables(html), mn, yr)
+    check(f"{mn} 결정표 후보 1건", len(found) == 1, str(len(found)))
+    if not found:
+        continue
+    ti, rows, di = found[0]
+    check(f"{mn} 단위 (Unit:NT$ million) 확인",
+          bool(C.RE_UNIT_MILLION.search(C.strip_html(html))))
+    b, probs = C.bind_columns(C.build_header(rows, di), rows[di], mn, yr)
+    check(f"{mn} 결합 성공", b is not None, str(probs))
+    if b and mn in P3_VALUES:
+        got = (b["monthly_revenue"], b["monthly_yoy"],
+               b["cumulative_revenue"], b["cumulative_yoy"])
+        check(f"★ {mn} 값이 P3 기록과 같다 {P3_VALUES[mn]}", got == P3_VALUES[mn], str(got))
+
+print("\n⑰-5 정적 — 범위를 넘지 않았다")
+_c4src = open(os.path.join(ROOT, "collectors", "c4_sec_edgar_check.py"),
+              encoding="utf-8").read()
+_c4ast = __import__("ast").parse(_c4src)
+_ast = __import__("ast")
+_fdt = [n for n in _ast.walk(_c4ast) if isinstance(n, _ast.FunctionDef)
+        and n.name == "find_decision_table"][0]
+check("★ find_decision_table 에 첫 행 break 가 없다",
+      not any(isinstance(x, _ast.Break) for x in _ast.walk(_fdt)))
+check("★ 거부 근거 통로가 있다", "rejected" in [a.arg for a in _fdt.args.args])
+# ⛔ 이번 범위 밖 — 넣지 않았음을 확인한다
+check("⛔ table-level 2+ guard 를 넣지 않았다 (별건)",
+      "표가 정확히 1건이 아니다" not in _c4src and "table_ambiguous" not in _c4src)
+check("⛔ build_header 를 손대지 않았다",
+      "is_data_row" not in _c4src)
+
+
 print(f"\n{len(ok)} PASS / {len(bad)} FAIL")
 sys.exit(1 if bad else 0)

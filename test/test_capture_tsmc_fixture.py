@@ -128,10 +128,20 @@ c4 = open(os.path.join(ROOT, "collectors", "c4_sec_edgar_check.py"),
 c4t = ast.parse(c4)
 _fdt = [n for n in ast.walk(c4t) if isinstance(n, ast.FunctionDef)
         and n.name == "find_decision_table"][0]
-check("★ C4 의 first-match(break)는 그대로다 — 이번에 고치지 않았다",
-      any(isinstance(x, ast.Break) for x in ast.walk(_fdt)))
-check("★ C4 에 fail-closed 가드를 넣지 않았다",
-      "정확히 1건이 아니다" not in c4)
+# ★ 2026-08-16 갱신 — row-local guard 는 별도 CIO 승인으로 들어갔다.
+#   이 회귀(capture 도구)가 지켜야 할 것은 「capture 가 C4 를 바꾸지 않는다」이다.
+check("★ capture 도구는 C4 를 import 만 한다 (수정 아님)",
+      "import c4_sec_edgar_check as C" in src and "C." in src)
+# ⛔ C4 함수를 **호출**하는 것은 정상이다 (진단 목적). 막아야 할 것은 **수정**이다.
+#    monkey-patch(= C 모듈 속성에 대입)가 없는지를 AST 로 본다.
+_patches = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
+            and t.value.id == "C"]
+check("⛔ capture 도구가 C4 모듈을 monkey-patch 하지 않는다", not _patches,
+      str([getattr(t, "attr", "?") for n in _patches for t in n.targets]))
+check("★ C4 의 row guard 는 첫 행 선택을 하지 않는다 (승인된 상태 확인)",
+      not any(isinstance(x, ast.Break) for x in ast.walk(_fdt)))
 check("★ 이 회귀는 네트워크를 쓰지 않는다",
       ("url" + "lib") not in open(os.path.abspath(__file__), encoding="utf-8")
       .read().replace('("url" + "lib")', ""))
