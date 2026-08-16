@@ -271,6 +271,114 @@ EXTRACTION_IDENTITY_CONTRACT = {
                             "definition reopen 상태를 유지한다. "
                             "D-3 · D-5 · D-6 확정 전 evaluator 사용 금지.",
             "not_a_new_definition": True,
+            # ★ 위 still_open 3건은 CIO 판정 2026-08-16 으로 전부 닫혔다.
+            #   ⛔ 원문을 지우지 않는다 — 당시 미해소였다는 사실이 provenance 다.
+            "still_open_resolution": "D-3 · D-5 · D-6 전부 확정됨 → "
+                                     "아래 `definition_closure` 참조",
+        },
+
+        # ── Definition Closure — CIO 판정 2026-08-16 (D-3 · D-5 · D-6) ──────────
+        #   ⛔ 이 블록도 상태를 바꾸지 않는다. definition_status 를 인위적으로
+        #      전이시키지 않는다 — 상류가 이미 DEFINED 이므로 그대로 둔다.
+        #      ★ 가짜 상태전이 이력을 만들지 않는다 (CIO 명시).
+        #   ⛔ 정의가 닫힌 것과 실행 가능은 별개다. evaluator BLOCKED · data MISSING ·
+        #      Production HOLD 는 전부 유지된다.
+        "definition_closure": {
+            "source": "CIO 판정 2026-08-16 · D-3 · D-5 · D-6 확정 → definition reopen 종결",
+            "closes": ["D-1 measurement series", "D-2 measurement form",
+                       "D-3 column identity", "D-4 authority scope",
+                       "D-5 historical policy", "D-6 comparability"],
+
+            # ── D-3 ───────────────────────────────────────────────────────────
+            "d3_column_identity": {
+                "decision": "RULE-0022 의 evaluator 입력은 "
+                            "`Percentage Change Y/Y (GAAP)` 열로 확정한다.",
+                "evidence_only": ["Constant Currency Impact",
+                                  "Percentage Change Y/Y Constant Currency"],
+                "evidence_note": "두 열은 버리지 않는다. 원문 evidence 로 함께 보존하되 "
+                                 "evaluator measurement 로 사용하지 않는다.",
+                "basis": "RULE-0022 원 정본에 `cc` 지정이 없다. RULE-0021 처럼 정본이 "
+                         "명시적으로 `45%cc` 라고 적은 Rule 의 계약을 RULE-0022 에 "
+                         "전이하면 새로운 의미를 추가하게 된다.",
+                "pair_column_identity": "현재값과 전년동기값은 반드시 **동일한 GAAP 열**에서 "
+                                        "비교한다.",
+                "sign_convention": "`(1)%` 는 source 의 회계식 음수 표기로 해석한다.",
+                "lookup_contract": "evaluator 는 열 **위치**가 아니라 정확한 "
+                                   "**column identity(문면)** 로 찾는다.",
+                "fail_closed": "기대한 column identity 가 없거나 모호하면 fail-closed. "
+                               "⛔ 위치 기반 fallback 금지.",
+                "prohibited": ["GAAP / CC 중 결과가 유리한 열 선택",
+                               "GAAP 현재값과 CC 전년동기값의 혼합",
+                               "cc·impact 열 폐기"],
+            },
+
+            # ── D-6 ───────────────────────────────────────────────────────────
+            "d6_comparability": {
+                "classification": "PRESENTATION_AVAILABILITY_BOUNDARY — "
+                                  "NOT A DEMONSTRATED MEASUREMENT_DEFINITION_BREAK",
+                "decision": "FY26 Q1 의 `Commercial remaining performance obligation` "
+                            "행 등장을 comparability break 로 판정하지 않는다.",
+                "basis": "Commercial RPO 개념 자체는 FY2025 10-K 에서도 이미 공시된 "
+                         "evidence 가 있고(서술 교차검증 기록), 현재 확보된 증거에는 "
+                         "FY26 Q1 에서 underlying commercial-RPO 의 정의나 포함 범위가 "
+                         "바뀌었다는 증거가 없다. 08-15 evidence track 도 표시층 변화 "
+                         "자체를 concept change 로 보지 않는 원칙을 갖고 있다.",
+                "boundary_rules": [
+                    "FY26 Q1 이전 8-K 에 해당 row 가 없었다는 사실은 그대로 유지한다.",
+                    "FY25 값을 재구성하거나 backfill 하지 않는다.",
+                    "FY25 ↔ FY26 비교쌍을 만들지 않는다.",
+                    "직접 공표 row 가 존재하기 시작한 FY26 Q1 부터 "
+                    "새 direct-observation series 로 취급한다.",
+                    "향후 narrative 나 source 에서 실제 definition / include-scope 변경 "
+                    "증거가 나오면 해당 economic observation pair 를 다시 "
+                    "`COMPARABILITY_UNRESOLVED` 로 차단한다.",
+                ],
+                "misreading_guard": "★ 「break 가 아니다」는 **과거와 비교 가능하다는 뜻이 "
+                                    "아니다.** 소급 확대 금지.",
+            },
+
+            # ── D-5 ───────────────────────────────────────────────────────────
+            "d5_historical_policy": {
+                "decision": "Forward observation 정책을 채택한다. RULE-0022 는 FY26 을 "
+                            "소급 평가하지 않는다. 직접 공표된 Commercial RPO GAAP YoY 에 "
+                            "**동일 측정 정의의 전년동기 observation 이 실제 존재하기 "
+                            "시작하는 시점**부터 평가한다.",
+                "firing_requirement": "카드 18 의 기존 계약대로 비교 가능한 qualifying "
+                                      "observation 이 2 개 연속 공식 보고기간에서 생성되어야 "
+                                      "발동 가능하다. comparison_baseline · time_window · "
+                                      "threshold 는 이미 별도 decision unit 으로 존재한다.",
+                "rejected_option": "FY25 부재를 이유로 Rule 을 영구 BLOCK 하는 선택지는 "
+                                   "채택하지 않는다.",
+                "pre_evaluable_meaning": "평가 가능 이전 기간의 의미는 "
+                                         "`Unverified / Not yet evaluable` 이다. "
+                                         "⛔ `조건 미성립` · `PASS` 로 해석하지 않는다.",
+                "prohibited": ["FY25 `ROW_ABSENT` 를 0 으로 처리",
+                               "FY25 를 total RPO 나 다른 source 로 보충",
+                               "관측이 없었다는 이유로 Rule 생존(탈락 조건 미성립) 판정"],
+            },
+
+            "reopen_resolution": {
+                "measurement_contract_conflict": "RESOLVED",
+                "definition_reopen_required": "RESOLVED",
+                "closed_by": "D-1 · D-2 · D-3 · D-4 · D-5 · D-6 전건 확정",
+                "state_transition_policy": "⛔ `definition_status` 를 인위적으로 "
+                                           "UNDEFINED → DEFINED 전환하지 않는다. "
+                                           "상류가 이미 DEFINED 이므로 상태값을 그대로 두고 "
+                                           "resolution provenance 만 추가한다. "
+                                           "★ 새로운 가짜 상태전이 이력을 만들지 않는다.",
+            },
+
+            "execution_separation": {
+                "note": "정의가 닫힌 것과 실행 가능은 별개다.",
+                "unchanged": ["RULE-0022_EVALUATION_NOT_AUTHORIZED 유지",
+                              "data_status = MISSING 유지",
+                              "evaluator BLOCKED 유지",
+                              "Production HOLD 유지"],
+                "next_gate": "정의가 아니라 **Data Capability / Evaluator Readiness** 다. "
+                             "실제 production 경로가 이 계약을 fail-closed 로 재현할 수 "
+                             "있는지부터 검증한다.",
+            },
+            "not_a_new_definition": True,
         },
     },
 }
