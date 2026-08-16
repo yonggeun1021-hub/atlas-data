@@ -63,19 +63,44 @@ OBSERVATION_CONFLICT_UNRESOLVED = "OBSERVATION_CONFLICT_UNRESOLVED"
 #   ★ 모호하게 두지 않는다. 아래 축만 비교한다.
 #   ⛔ 재실행마다 달라질 수 있는 operational metadata(관측 시각 · run id 등)는
 #      절대 넣지 않는다 — 넣으면 재관측이 매번 REVISION 으로 오분류된다.
+#   ⛔ **acquisition representation 에 따라 유무가 갈리는 축**도 넣지 않는다.
+#      같은 SEC 원문을 fixture 로 읽었는지 live 로 읽었는지가 「다른 출처」로
+#      둔갑하기 때문이다 (CIO 판정 2026-08-16 · H2 ·
+#      `LIVE_FIXTURE_STORE_PROVENANCE_DIVERGENCE` CONFIRMED).
 MATERIAL_PROVENANCE_FIELDS = (
     "accession",
     "filing_date",
     "exhibit_type",
     "exhibit_document",
-    "source_sha256",
-    "slice_sha256",           # 있으면 비교, 없으면 양쪽 다 없어야 같다
+    "source_sha256",          # ★ SEC 원문 전체의 material source identity
 )
 MATERIAL_RECORD_FIELDS = (
     "row_label_raw",
     "period_end_raw",
     "decision_column_identity",
 )
+
+# ── audit provenance — 보존하되 identity 판정에 쓰지 않는다 ────────────
+#   CIO 정의 (2026-08-16 · H2):
+#     source_sha256     material source identity   → MATERIAL (위)
+#     slice_sha256      capture/audit evidence     → 아래. fixture 제작 산물이며
+#                                                    live 취득 경로에는 존재하지 않는다.
+#     identity_evidence acquisition audit evidence → 아래. 취득 교차확인 증거.
+#   ★ 「비교 축이 아니다」는 「버려도 된다」가 아니다.
+#     record.provenance 안에 그대로 남고, `audit_provenance()` 로 조회된다.
+#   ⛔ 이 축들을 근거로 authority 를 판정하지 않는다.
+AUDIT_PROVENANCE_FIELDS = (
+    "slice_sha256",
+    "identity_evidence",
+)
+
+# ★ 두 목록은 교집합이 없어야 한다 — 하나의 축이 material 이면서 audit 일 수 없다.
+#   ⛔ 정의가 흐려지면 이 모듈을 import 하는 시점에 멈춘다.
+_overlap = set(MATERIAL_PROVENANCE_FIELDS) & set(AUDIT_PROVENANCE_FIELDS)
+if _overlap:
+    raise AssertionError(
+        f"material 축과 audit 축이 겹친다: {sorted(_overlap)} — 정의를 확정하라")
+del _overlap
 
 
 class StoreError(ValueError):
@@ -113,6 +138,8 @@ def material_provenance(record: dict) -> dict:
     """「같은 출처인가」를 판정하는 축만 뽑는다.
 
     ⛔ operational metadata 를 넣지 않는다 — 재관측이 REVISION 으로 오분류된다.
+    ⛔ audit 축(`AUDIT_PROVENANCE_FIELDS`)을 넣지 않는다 — acquisition 경로가
+       달라졌을 뿐인데 REVISION 으로 오분류된다 (H2).
     """
     prov = record.get("provenance") or {}
     ident = prov.get("exhibit_identity") or {}
@@ -123,12 +150,22 @@ def material_provenance(record: dict) -> dict:
         "exhibit_type": ident.get("type"),
         "exhibit_document": ident.get("document"),
         "source_sha256": prov.get("source_sha256"),
-        "slice_sha256": prov.get("slice_sha256"),
         "row_label_raw": record.get("row_label_raw"),
         "period_end_raw": record.get("period_end_raw"),
         "decision_column_identity": dec.get("column_identity"),
     }
     return {k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}
+
+
+def audit_provenance(record: dict) -> dict:
+    """감사 증거 축 — **보존은 하되 identity 판정에는 쓰지 않는다**.
+
+    ★ 존재하지 않는 축은 `None` 으로 드러낸다. 그래야 「fixture 에는 있고
+      live 에는 없다」는 사실 자체가 감사 가능해진다.
+    ⛔ 이 함수의 결과를 material provenance 와 합치지 마라 (H2 결함 재발).
+    """
+    prov = record.get("provenance") or {}
+    return {k: prov.get(k) for k in AUDIT_PROVENANCE_FIELDS}
 
 
 def observation_content(record: dict) -> dict:

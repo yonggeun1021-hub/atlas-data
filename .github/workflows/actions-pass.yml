@@ -36,6 +36,12 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: '3.11'
+      # ★ CIO 판정 2026-08-17 — 승인 회귀 전용 의존성. production requirements.txt
+      #   (pykrx·pandas·requests) 는 이 gate 에서 설치하지 않는다 — 회귀는 fixture
+      #   only 이므로 collector 런타임이 필요 없다.
+      #   ⛔ 러너에 우연히 깔려 있는 패키지에 의존하지 않는다. 명시 설치한다.
+      - name: CI 전용 의존성 설치
+        run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
       - name: Actions PASS gate
         run: python3 run_all.py --authoritative
       - name: 작업 후 dirty artifact 가 없는지

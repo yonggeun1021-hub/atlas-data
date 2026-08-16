@@ -81,6 +81,31 @@ def records_from(manifest):
     return out
 
 
+def as_live(record):
+    """같은 SEC 원문을 **live 경로로 읽었을 때의 record 표현**을 만든다.
+
+    ★ 값도 원문도 바꾸지 않는다. 바뀌는 것은 acquisition representation 뿐이다.
+      live 경로(`observe_live`)는 fixture manifest 가 없으므로 `slice_sha256` 을
+      산출하지 않고, 대신 EX-99.1 교차확인 증거(`identity_evidence`)를 남긴다.
+    ⛔ source_sha256 · accession · filing_date · exhibit identity 는 건드리지 않는다 —
+      건드리면 이 helper 가 검사하려는 것 자체가 사라진다.
+    """
+    live = copy.deepcopy(record)
+    prov = live["provenance"]
+    prov.pop("slice_sha256", None)
+    ident = prov.get("exhibit_identity") or {}
+    prov["identity_evidence"] = {
+        "primary_document": ident.get("document"),
+        "primary_selection": ident.get("selection"),
+        "primary_type": ident.get("type"),
+        "secondary_document": ident.get("document"),
+        "secondary_selection": "index_html_type_column",
+        "secondary_type": ident.get("type"),
+        "cross_check": "AGREE",
+    }
+    return live
+
+
 FY26 = records_from("azure_cc_MANIFEST.json")
 KEY0 = ("MSFT", "Commercial remaining performance obligation", "2025-09-30")
 
@@ -487,9 +512,146 @@ with section("G. material provenance 정의"):
           str(sorted(mp)))
     check("★ decision column identity 가 material 이다",
           mp["decision_column_identity"] == r["decision"]["column_identity"])
-    check("★ slice_sha256 도 비교 축이다", "slice_sha256" in mp)
+    # ★★ H2 (CIO 판정 2026-08-16 · `LIVE_FIXTURE_STORE_PROVENANCE_DIVERGENCE`)
+    #    이전 계약은 `slice_sha256` 을 비교 축으로 두었고, 그 결과 같은 SEC 원문을
+    #    fixture 로 읽었는지 live 로 읽었는지가 「다른 출처」로 둔갑했다.
+    #    ⛔ 아래 두 검사는 **약화가 아니라 방향 반전**이다 — 계약 자체가 바뀌었다.
+    check("★★ H2 · slice_sha256 은 material 비교 축이 아니다",
+          "slice_sha256" not in mp
+          and "slice_sha256" not in S.MATERIAL_PROVENANCE_FIELDS)
     a = copy.deepcopy(r); a["provenance"].pop("slice_sha256", None)
-    check("★ slice_sha256 유무가 provenance 차이를 만든다",
-          S.digest(S.material_provenance(a)) != S.digest(mp))
+    check("★★ H2 · slice_sha256 유무가 provenance 차이를 만들지 않는다",
+          S.digest(S.material_provenance(a)) == S.digest(mp))
+    check("★ identity_evidence 도 material 축이 아니다", "identity_evidence" not in mp)
+    b = copy.deepcopy(r); b["provenance"]["identity_evidence"] = {"cross_check": "AGREE"}
+    check("★ identity_evidence 추가가 provenance 차이를 만들지 않는다",
+          S.digest(S.material_provenance(b)) == S.digest(mp))
+
+with section("G-2. audit provenance — 비교 축이 아니라고 버리는 것이 아니다"):
+    r = FY26[0]
+    check("`AUDIT_PROVENANCE_FIELDS` 가 정의되어 있다",
+          isinstance(S.AUDIT_PROVENANCE_FIELDS, tuple)
+          and len(S.AUDIT_PROVENANCE_FIELDS) >= 2)
+    overlap = set(S.MATERIAL_PROVENANCE_FIELDS) & set(S.AUDIT_PROVENANCE_FIELDS)
+    check("★ material 축과 audit 축은 교집합이 없다", not overlap, str(sorted(overlap)))
+    ap = S.audit_provenance(r)
+    for f in S.AUDIT_PROVENANCE_FIELDS:
+        check(f"audit provenance 가 `{f}` 축을 노출한다", f in ap)
+    check("★ fixture record 의 slice_sha256 이 보존된다",
+          ap["slice_sha256"] == r["provenance"]["slice_sha256"])
+    live = as_live(r)
+    check("★ live record 는 slice_sha256 부재를 None 으로 드러낸다",
+          S.audit_provenance(live)["slice_sha256"] is None)
+    check("★ live record 의 identity_evidence 는 보존된다",
+          S.audit_provenance(live)["identity_evidence"] is not None)
+    st, _ = S.apply_record(S.empty_state(), r)
+    entry = st["series"][S.key_str(S.observation_key(r))]
+    check("★★ store 에 저장된 record 안에 slice_sha256 이 그대로 있다",
+          entry["revisions"][0]["record"]["provenance"].get("slice_sha256")
+          == r["provenance"]["slice_sha256"])
+    check("★ 그럼에도 material_provenance 에는 없다",
+          "slice_sha256" not in entry["revisions"][0]["material_provenance"])
+
+# ══════════════════════════════════════════════════════════════════════
+# H. ★★ H2 Exit Criteria (CIO 확정 2026-08-16)
+#    「동일 SEC 원문을 fixture 로 읽든 live 로 읽든 Store 는 같은 자료로 인식한다」
+#    ⛔ 기존 REVISION / CONFLICT fail-closed 계약은 약화하지 않는다 — H-3 · H-4 가 지킨다.
+# ══════════════════════════════════════════════════════════════════════
+with section("H-1. fixture → live · 동일 원문 · 동일 값 → IDEMPOTENT"):
+    r = FY26[0]
+    live = as_live(r)
+    check("전제 · 두 표현의 acquisition 축이 실제로 다르다",
+          S.audit_provenance(r) != S.audit_provenance(live))
+    check("전제 · source_sha256 은 같다",
+          r["provenance"]["source_sha256"] == live["provenance"]["source_sha256"])
+    st, r1 = S.apply_record(S.empty_state(), r)
+    check("  1차 입력 = NEW", r1["outcome"] == S.NEW, r1["outcome"])
+    st2, r2 = S.apply_record(st, live)
+    check("★★ 2차 입력 = IDEMPOTENT", r2["outcome"] == S.IDEMPOTENT, r2["outcome"])
+    e = st2["series"][S.key_str(S.observation_key(r))]
+    check("★★ revision 수 = 1", len(e["revisions"]) == 1, str(len(e["revisions"])))
+    check("★★ consumable = true", e["consumable"] is True)
+    check("★ blocked_by 가 비어 있다", e["blocked_by"] == [], str(e["blocked_by"]))
+    check("★ IDEMPOTENT 는 state 를 바꾸지 않는다", st2 is st)
+
+with section("H-2. live → fixture · 역방향도 동일"):
+    r = FY26[1]
+    live = as_live(r)
+    st, r1 = S.apply_record(S.empty_state(), live)
+    check("  1차 입력(live) = NEW", r1["outcome"] == S.NEW, r1["outcome"])
+    st2, r2 = S.apply_record(st, r)
+    check("★★ 2차 입력(fixture) = IDEMPOTENT", r2["outcome"] == S.IDEMPOTENT, r2["outcome"])
+    e = st2["series"][S.key_str(S.observation_key(r))]
+    check("★★ revision 수 = 1", len(e["revisions"]) == 1, str(len(e["revisions"])))
+    check("★★ consumable = true", e["consumable"] is True)
+
+with section("H-3. source_sha256 이 실제로 다르면 → REVISION (약화 금지)"):
+    r = FY26[2]
+    other = copy.deepcopy(r)
+    other["provenance"]["source_sha256"] = "f" * 64
+    st, _ = S.apply_record(S.empty_state(), r)
+    st2, res = S.apply_record(st, other)
+    check("★★ 다른 원문은 여전히 REVISION 이다", res["outcome"] == S.REVISION, res["outcome"])
+    e = st2["series"][S.key_str(S.observation_key(r))]
+    check("★ revision 이 2건으로 보존된다", len(e["revisions"]) == 2, str(len(e["revisions"])))
+    check("★★ authority 미해소로 소비 차단", e["consumable"] is False)
+    check("★ 차단 사유가 REVISION_AUTHORITY_UNRESOLVED",
+          S.REVISION_AUTHORITY_UNRESOLVED in e["blocked_by"], str(e["blocked_by"]))
+    # ★ audit 축만 다른 경우와 **구별**되는지가 이 절의 핵심이다.
+    _, res3 = S.apply_record(st, as_live(r))
+    check("★★ 반면 audit 축만 다르면 REVISION 이 아니다",
+          res3["outcome"] == S.IDEMPOTENT, res3["outcome"])
+
+with section("H-4. 동일 material provenance · 다른 값 → CONFLICT (약화 금지)"):
+    r = FY26[3]
+    tampered = copy.deepcopy(r)
+    tampered["decision"]["raw_value"] = "77%"
+    tampered["decision"]["numeric_value"] = "77"
+    st, _ = S.apply_record(S.empty_state(), r)
+    st2, res = S.apply_record(st, tampered)
+    check("★★ 같은 출처 · 다른 값은 여전히 CONFLICT", res["outcome"] == S.CONFLICT, res["outcome"])
+    e = st2["series"][S.key_str(S.observation_key(r))]
+    check("★ 충돌 증거가 보존된다", len(e["conflicts"]) == 1, str(len(e["conflicts"])))
+    check("★★ 소비 차단", e["consumable"] is False)
+    check("★ 차단 사유가 OBSERVATION_CONFLICT_UNRESOLVED",
+          S.OBSERVATION_CONFLICT_UNRESOLVED in e["blocked_by"], str(e["blocked_by"]))
+    # ★ live 표현으로 같은 다른-값이 들어와도 여전히 CONFLICT 여야 한다.
+    _, res3 = S.apply_record(st, as_live(tampered))
+    check("★★ live 표현의 다른 값도 CONFLICT 다", res3["outcome"] == S.CONFLICT, res3["outcome"])
+
+with section("H-5. 입력 순서 대칭 — 순서가 결과를 바꾸지 않는다"):
+    for r in FY26:
+        live = as_live(r)
+        a, _ = S.apply_record(S.empty_state(), r)
+        a, _ = S.apply_record(a, live)
+        b, _ = S.apply_record(S.empty_state(), live)
+        b, _ = S.apply_record(b, r)
+        ks = S.key_str(S.observation_key(r))
+        ka, kb = a["series"][ks], b["series"][ks]
+        pe = r["economic_period_end"]
+        check(f"  [{pe}] 양방향 모두 revision 1건",
+              len(ka["revisions"]) == 1 and len(kb["revisions"]) == 1)
+        check(f"  [{pe}] 양방향 모두 consumable",
+              ka["consumable"] is True and kb["consumable"] is True)
+        check(f"★ [{pe}] material provenance digest 가 순서 무관하게 같다",
+              ka["revisions"][0]["material_provenance_digest"]
+              == kb["revisions"][0]["material_provenance_digest"])
+    fwd = S.empty_state()
+    for r in FY26:
+        fwd, _ = S.apply_record(fwd, r)
+    for r in FY26:
+        fwd, _ = S.apply_record(fwd, as_live(r))
+    rev = S.empty_state()
+    for r in reversed(FY26):
+        rev, _ = S.apply_record(rev, as_live(r))
+    for r in reversed(FY26):
+        rev, _ = S.apply_record(rev, r)
+    check("★★ 전체 series key 집합이 같다", sorted(fwd["series"]) == sorted(rev["series"]))
+    check("★★ 전체 series 가 모두 consumable 이다",
+          all(e["consumable"] for e in fwd["series"].values())
+          and all(e["consumable"] for e in rev["series"].values()))
+    check("★★ key 별 material provenance digest 가 순서 무관하게 같다",
+          {k: v["revisions"][0]["material_provenance_digest"] for k, v in fwd["series"].items()}
+          == {k: v["revisions"][0]["material_provenance_digest"] for k, v in rev["series"].items()})
 
 sys.exit(K.exit_code())
