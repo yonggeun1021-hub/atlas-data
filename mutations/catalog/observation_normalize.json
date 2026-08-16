@@ -178,7 +178,19 @@
    "anchor": "        \"persisted\": False,     # ★ 층 ④ 가 아직 처리하지 않았다",
    "replacement": "        \"persisted\": True,",
    "expected_killers": [
-    "persisted = False (층 ④ 미침범)"
+    "record 생성"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "persisted = False (층 ④ 미침범)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "record 생성"
+     ],
+     "reason": "v1 은 `persisted = False (층 ④ 미침범)` 를 killer 로 선언했으나, 그 검사는 record 가 만들어진 뒤에야 실행된다. 변이 하에서는 `validate_record` 가 먼저 잡아 **record 자체가 만들어지지 않으므로** 선언 검사가 실행되지 않는다. 계약을 소유한 검사는 `record 생성`이다."
+    }
    ]
   },
   {
@@ -202,8 +214,20 @@
    "anchor": "            \"is_decision_value\": False,     # ★ evidence 는 Decision 값으로 승격되지 않는다",
    "replacement": "            \"is_decision_value\": True,",
    "expected_killers": [
-    "evidence 가 Decision 값이 아니다",
-    "Decision 값은 정확히 1개다"
+    "record 생성"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "evidence 가 Decision 값이 아니다",
+      "Decision 값은 정확히 1개다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "record 생성"
+     ],
+     "reason": "v1 선언 검사들은 record 가 만들어진 뒤 실행된다. 변이 하에서는 `validate_record` 의 evidence 승격 검사가 먼저 잡아 record 가 만들어지지 않는다 — build/validate 이중 게이트의 귀결이다. 계약을 소유한 검사는 `record 생성`이다."
+    }
    ]
   },
   {
@@ -301,7 +325,19 @@
    "anchor": "    if not isinstance(d.get(\"numeric_value\"), str):\n        raise RecordInvariantError(\"numeric_value 가 문자열이 아니다 — float 유입 의심\")",
    "replacement": "    pass",
    "expected_killers": [
-    "validate fail-closed — numeric 이 float 이면 잡는다"
+    "★★ validate fail-closed"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "validate fail-closed — numeric 이 float 이면 잡는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ validate fail-closed"
+     ],
+     "reason": "v1 은 `validate fail-closed — numeric 이 float 이면 잡는다` 전문을 선언했으나 회귀 출력의 실패 줄과 부분 문자열 대조에 실패했다. 같은 검사를 더 안정적인 접두 문면으로 좁혔다 — ⛔ 다른 검사로 바꾸지 않았다."
+    }
    ]
   },
   {

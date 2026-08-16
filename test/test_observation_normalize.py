@@ -99,15 +99,26 @@ with section("A-2. 층 순서 — observer 는 normalization 층을 모른다"):
 
 # ══════════════════════════════════════════════════════════════════════
 with section("B. ★★ 승인된 percent 표기 — exact decimal · sign_convention"):
+    # ⛔ 기대값에 `N.SIGN_*` 상수를 쓰지 않는다 — 상수를 바꾸면 기대값도 같이 움직여
+    #    검사가 항진명제가 된다. (실제로 N-SIGN-2 변이가 그 틈으로 SURVIVED 했다.)
+    #    계약 문자열을 **문면 그대로** 박는다.
     CASES = [
-        ("51%", "51", N.SIGN_NONE),
-        ("(1)%", "-1", N.SIGN_PARENS),
-        ("-1%", "-1", N.SIGN_MINUS),
-        ("1.5%", "1.5", N.SIGN_NONE),
-        ("0%", "0", N.SIGN_NONE),
-        ("110%", "110", N.SIGN_NONE),
-        ("(1.5)%", "-1.5", N.SIGN_PARENS),
+        ("51%", "51", "none"),
+        ("(1)%", "-1", "accounting_parentheses"),
+        ("-1%", "-1", "explicit_minus"),
+        ("1.5%", "1.5", "none"),
+        ("0%", "0", "none"),
+        ("110%", "110", "none"),
+        ("(1.5)%", "-1.5", "accounting_parentheses"),
     ]
+    check("★ 계약 상수 문면이 고정돼 있다 — none",
+          N.SIGN_NONE == "none", N.SIGN_NONE)
+    check("★ 계약 상수 문면이 고정돼 있다 — accounting_parentheses",
+          N.SIGN_PARENS == "accounting_parentheses", N.SIGN_PARENS)
+    check("★ 계약 상수 문면이 고정돼 있다 — explicit_minus",
+          N.SIGN_MINUS == "explicit_minus", N.SIGN_MINUS)
+    check("★ 세 sign_convention 이 서로 다르다",
+          len({N.SIGN_NONE, N.SIGN_PARENS, N.SIGN_MINUS}) == 3)
     for raw, num, sign in CASES:
         try:
             f = N.normalize_pct(raw)
@@ -182,6 +193,27 @@ with section("C. ★★ malformed fault matrix — 전건 fail-closed"):
         except Exception as e:                                      # noqa: BLE001
             check(f"★ {raw!r} → NormalizationError 로 실패한다 ({why})", False,
                   f"{type(e).__name__}: {e}")
+
+with section("C-1b. ★ 타입 오류와 형식 오류를 구별한다"):
+    # ⛔ 「어쨌든 실패하니까 됐다」로 두지 않는다. 문자열이 아닌 입력을 `str()` 로 강제
+    #    변환해도 형식 검사에 걸려 실패하므로, **실패했다는 사실만** 보면 타입 계약이
+    #    사라진 것을 알 수 없다. (실제로 N-TYPE-1 변이가 그 틈으로 SURVIVED 했다.)
+    #    그래서 실패 **사유**를 구별한다.
+    for bad, why in [(None, "None"), (51, "int"), (51.0, "float"), (b"51%", "bytes"),
+                     (Decimal("51"), "Decimal")]:
+        try:
+            N.normalize_pct(bad)
+            check(f"★ {why} 입력 → fail-closed", False, "통과해버렸다")
+        except N.NormalizationError as e:
+            check(f"★★ {why} 입력이 **타입 오류**로 거부된다 (형식 오류가 아니라)",
+                  "문자열이 아니다" in str(e), str(e))
+    e_fmt = None
+    try:
+        N.normalize_pct("n/a")
+    except N.NormalizationError as e:
+        e_fmt = str(e)
+    check("대조군: 문자열 malformed 는 **형식 오류**로 거부된다",
+          e_fmt is not None and "문자열이 아니다" not in e_fmt, str(e_fmt))
 
 with section("C-2. 기간 문면 fault matrix"):
     ok = N.normalize_period_end("September 30, 2025")
@@ -328,6 +360,7 @@ with section("E. ★★ record invariant fault matrix — 전건 fail-closed"):
         check(f"  사유가 보고된다 — {why}", bool(e))
 
     check("★ draft 가 dict 가 아니면 fail-closed", RC.try_build("nope")[0] is None)
+
     check("★ draft 가 None 이면 fail-closed", RC.try_build(None)[0] is None)
 
 with section("E-2. validate_record 는 조립과 분리돼 독립 실행된다"):
