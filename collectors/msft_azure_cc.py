@@ -44,6 +44,30 @@ ARCHIVE_BASE = "https://www.sec.gov/Archives/edgar/data/789019"
 EARNINGS_ITEM = "2.02"          # Results of Operations and Financial Condition
 EXHIBIT_TYPE = "EX-99.1"
 
+# ══════════════════════════════════════════════════════════════════════
+# Exhibit identity 계약 (CIO 판정 2026-08-15)
+#   ⛔ `index.json` 의 `type` 을 SEC document type 으로 쓰지 않는다 — 실측 결과
+#      그 필드는 `text.gif` · `compressed.gif` 두 값뿐인 **디렉터리 아이콘 종류**다.
+#   ★ Primary identity source = 제출문의 `<DOCUMENT>` 블록
+#        <TYPE> · <SEQUENCE> · <FILENAME> · <DESCRIPTION>
+#     EDGAR 는 이 SGML 헤더를 본문 없이 `{accession}-index-headers.html` 로도 제공한다.
+#     내용은 full submission `.txt` 의 <DOCUMENT> 블록과 같고 크기는 ~4KB 다
+#     (full .txt 는 본문까지 포함해 수 MB). ★ 이 대체는 CIO 확인 대상으로 보고한다.
+#   ★ Secondary cross-check = `{accession}-index.html` 의 Type 컬럼
+#   ⛔ 파일명 패턴(`ex99_1`)은 **hint 로만** 쓰고 identity 근거로 쓰지 않는다.
+#   ⛔ primary 와 secondary 가 충돌하거나 후보가 1건이 아니면 fail-closed.
+#      「EX-99.1 이면 무조건 한 파일」이라는 가정도 하지 않는다 — 복수 EX-99.1 이
+#      실재하므로 1건이 아니면 ambiguity 로 막는다.
+RE_DOC_BLOCK = re.compile(
+    r"<TYPE>(?P<type>[^\s<]+)\s*"
+    r"(?:<SEQUENCE>(?P<seq>[^\s<]*)\s*)?"
+    r"(?:<FILENAME>(?P<filename>[^\s<]*)\s*)?"
+    r"(?:<DESCRIPTION>(?P<desc>[^\n<]*))?", re.I)
+FILENAME_HINT = re.compile(r"ex.?99.?1", re.I)      # ⛔ hint 전용
+
+# 실패 로그 상한 — 후보 전체를 남기되 무한정 쏟지 않는다.
+CAND_LOG_LIMIT = 20
+
 # ⛔ 상한. 상한에 걸려 못 본 후보는 반드시 로그에 남긴다 (조용한 절단 금지).
 MAX_FILINGS = 4                 # 복수 과거 분기 재현 확인용
 
@@ -63,6 +87,88 @@ RE_PCT_CHANGE = re.compile(r"percentage\s+change", re.I)
 RE_CC = re.compile(r"constant\s+currency", re.I)
 RE_IMPACT = re.compile(r"impact", re.I)
 RE_PCT_VALUE = re.compile(r"^\(?-?\d+(?:\.\d+)?\)?\s*%?$")
+
+
+def parse_document_blocks(sgml_text: str) -> list:
+    """제출문 SGML 의 `<DOCUMENT>` 블록에서 TYPE/SEQUENCE/FILENAME/DESCRIPTION 을 뽑는다.
+
+    ⛔ 이 함수는 full submission `.txt` 와 `-index-headers.html` 양쪽에 같은 방식으로
+       동작한다 — 둘은 같은 SGML 헤더를 담고 본문 유무만 다르다.
+    """
+    out = []
+    for m in RE_DOC_BLOCK.finditer(sgml_text):
+        out.append({"type": (m.group("type") or "").strip(),
+                    "sequence": (m.group("seq") or "").strip(),
+                    "filename": (m.group("filename") or "").strip(),
+                    "description": (m.group("desc") or "").strip()})
+    return out
+
+
+def index_html_types(html_text: str) -> dict:
+    """secondary — `{accession}-index.html` 의 Type 컬럼을 filename → type 으로 돌려준다."""
+    p = TableCollector()
+    p.feed(html_text)
+    out = {}
+    for rows in p.tables:
+        rows = drop_empty_columns(rows)
+        if not rows:
+            continue
+        head = [c.strip().lower() for c in rows[0]]
+        if "document" not in head or "type" not in head:
+            continue
+        di, ti = head.index("document"), head.index("type")
+        for r in rows[1:]:
+            if len(r) <= max(di, ti):
+                continue
+            name = re.sub(r"\s*iXBRL\s*$", "", r[di]).strip()
+            if name:
+                out[name] = r[ti].strip()
+    return out
+
+
+def log_candidates(docs, reason):
+    """⛔ 공통 규칙 — 필터 결과만 남기지 않는다. **무엇을 필터링했는지** 함께 남긴다.
+
+    (실패가 세 번 반복된 뒤 고정한 collector 공통 진단 규칙)
+    """
+    print(f"    ✗ {reason}")
+    print(f"    후보 전체 {len(docs)}건 (상한 {CAND_LOG_LIMIT}):")
+    for d in docs[:CAND_LOG_LIMIT]:
+        print(f"      TYPE={d['type']!r} SEQ={d['sequence']!r} "
+              f"FILE={d['filename']!r} DESC={d['description'][:40]!r}")
+    if len(docs) > CAND_LOG_LIMIT:
+        print(f"      … 나머지 {len(docs) - CAND_LOG_LIMIT}건 생략")
+
+
+def select_exhibit(docs, sec_types=None):
+    """`<DOCUMENT>` 블록 목록에서 EX-99.1 을 **하나** 식별한다.
+
+    ★ 판정 근거는 `<TYPE>` **정확 일치**뿐이다.
+      · 파일명이 `ex99_1` 형태가 아니어도 `<TYPE>EX-99.1` 이면 식별한다.
+      · 파일명이 `ex99_1` 형태여도 `<TYPE>` 이 다르면 거부한다.
+    ⛔ 0건 · 2건 이상은 모두 fail-closed — 「EX-99.1 이면 무조건 한 파일」로 가정하지 않는다.
+    ⛔ `sec_types` (secondary `-index.html` Type 컬럼) 와 충돌하면 거부한다.
+    ⛔ 이 함수는 네트워크를 쓰지 않는다 — 판정만 담아 회귀가 검증할 수 있게 분리했다.
+
+    돌려주는 것: `(filename | None, problems: list, chosen | None)`
+    """
+    hits = [d for d in docs if d["type"].upper() == EXHIBIT_TYPE]
+    if len(hits) != 1:
+        return None, [f"<TYPE>{EXHIBIT_TYPE} 후보가 정확히 1건이 아니다 "
+                      f"({len(hits)}건) — 복수여도 임의로 고르지 않는다"], None
+    chosen = hits[0]
+    target = chosen["filename"]
+    if not target:
+        return None, ["식별된 <DOCUMENT> 에 <FILENAME> 이 없다"], chosen
+    if sec_types is None:                      # secondary 미조회 — primary 만 판정
+        return target, [], chosen
+    sec = sec_types.get(target)
+    if sec is None:
+        return None, [f"secondary 에서 {target} 의 Type 을 찾지 못했다 — 추정하지 않는다"], chosen
+    if sec.upper() != EXHIBIT_TYPE:
+        return None, [f"primary({EXHIBIT_TYPE}) 와 secondary({sec}) 가 충돌한다 "
+                      f"— fail-closed"], chosen
+    return target, [], chosen
 
 
 def find_azure_table(tables):
@@ -127,19 +233,46 @@ def observe_one(c, errs):
     acc = c["accession"].replace("-", "")
     print(f"\n  ── {c['filing_date']} · {c['accession']} · items {c['items']!r}")
 
-    # ① filing index 에서 EX-99.1 을 **type 으로** 지목한다 (파일명 추측 금지)
+    # ① Exhibit identity — primary = 제출문 <DOCUMENT> 블록의 <TYPE>
+    #    ⛔ index.json 의 type 은 쓰지 않는다 (디렉터리 아이콘 값이다)
     time.sleep(POLITE_DELAY_SEC)
     try:
-        _, raw = get(f"{ARCHIVE_BASE}/{acc}/index.json")
+        _, raw = get(f"{ARCHIVE_BASE}/{acc}/{c['accession']}-index-headers.html")
     except Exception as e:                                       # noqa: BLE001
-        print(f"    ✗ index 조회 실패 — {type(e).__name__}: {e}")
+        print(f"    ✗ 제출문 헤더 조회 실패 — {type(e).__name__}: {e}")
         return None, False
-    items = json.loads(raw.decode("utf-8"))["directory"]["item"]
-    ex = [it for it in items if (it.get("type") or "").upper() == EXHIBIT_TYPE]
-    print(f"    {EXHIBIT_TYPE} 문서 {len(ex)}건 {[i['name'] for i in ex]}")
-    if len(ex) != 1:
-        print(f"    ✗ {EXHIBIT_TYPE} 이 정확히 1건이 아니다 — 임의로 고르지 않는다")
+    docs = parse_document_blocks(raw.decode("utf-8", errors="replace"))
+    n_hit = sum(1 for d in docs if d["type"].upper() == EXHIBIT_TYPE)
+    print(f"    <DOCUMENT> 블록 {len(docs)}건 · <TYPE>{EXHIBIT_TYPE} 정확 일치 {n_hit}건")
+
+    # primary 단독 판정 먼저 — 여기서 걸리면 secondary 를 조회하지 않는다
+    target, probs, chosen = select_exhibit(docs, sec_types=None)
+    if target is None:
+        log_candidates(docs, "; ".join(probs))
         return None, False
+    print(f"    primary  TYPE={chosen['type']!r} SEQ={chosen['sequence']!r} "
+          f"FILE={target!r} DESC={chosen['description'][:40]!r}")
+    # 파일명 패턴은 **hint 로만** 기록한다 — 판정 근거가 아니다
+    print(f"    (hint) 파일명이 ex99_1 형태인가 {bool(FILENAME_HINT.search(target))} "
+          f"— ⛔ identity 근거로 쓰지 않는다")
+
+    # secondary cross-check — {accession}-index.html 의 Type 컬럼
+    time.sleep(POLITE_DELAY_SEC)
+    try:
+        _, ihtml = get(f"{ARCHIVE_BASE}/{acc}/{c['accession']}-index.html")
+        sec_types = index_html_types(ihtml.decode("utf-8", errors="replace"))
+    except Exception as e:                                       # noqa: BLE001
+        print(f"    ✗ secondary index 조회 실패 — {type(e).__name__}: {e}")
+        return None, False
+    print(f"    secondary index.html Type[{target}] = {sec_types.get(target)!r}")
+    target2, probs2, _ = select_exhibit(docs, sec_types=sec_types)
+    if target2 is None:
+        print(f"    ✗ {'; '.join(probs2)}")
+        print(f"      secondary 목록 {list(sec_types.items())[:CAND_LOG_LIMIT]}")
+        log_candidates(docs, "primary/secondary 교차확인 실패 — 후보 집합을 함께 남긴다")
+        return None, False
+    print("    ✓ primary · secondary 일치")
+    ex = [{"name": target2}]
 
     # ② 문서 취득 + 내용 식별
     time.sleep(POLITE_DELAY_SEC)
