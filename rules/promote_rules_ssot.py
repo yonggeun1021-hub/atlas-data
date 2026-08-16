@@ -214,6 +214,64 @@ EXTRACTION_IDENTITY_CONTRACT = {
                 "아니므로 판정 불가 사유가 아니다 (CIO 판정 2026-08-16). "
                 "회사의 조정 설명은 evidence 로 보존할 수 있으나 계산 입력이 아니다.",
         "execution_status": "evaluator 연결 금지",
+
+        # ── D-1 / D-2 / D-4 — CIO 판정 2026-08-16 (measurement contract conflict 해소) ──
+        #   ★ 위 08-16 원문은 한 글자도 바꾸지 않았다. 아래는 그 옆에 나란히 붙는
+        #     supersession provenance 다. ⛔ 덮어쓰기·삭제 금지 원칙을 그대로 따른다.
+        #   ⛔ 이 블록도 상태를 바꾸지 않는다. definition/data/evaluator 축 전부 불변이다.
+        "authority_resolution": {
+            "source": "CIO 판정 2026-08-16 · RULE-0022_MEASUREMENT_CONTRACT_CONFLICT 해소",
+            "conflict": "2026-08-15 P2 Gate #2(total company RPO 잔액 · XBRL "
+                        "`us-gaap:RevenueRemainingPerformanceObligation`)와 "
+                        "2026-08-16 measurement identity(Commercial RPO 공표 YoY 성장률 · "
+                        "8-K 표)가 계열 · 단위 · measurement 형태에서 상호 배타적이었고, "
+                        "후자가 전자를 명시적으로 supersede 하지 않은 채 공존했다.",
+            "d1_measurement_series": {
+                "decision": "RULE-0022 의 evaluator measurement 계열은 "
+                            "`Commercial remaining performance obligation` 으로 확정한다. "
+                            "total company RPO 는 RULE-0022 의 evaluator measurement 로 "
+                            "사용하지 않는다.",
+                "basis": "정본(Notion)은 `RPO 급둔화` 와 `직전 +84%` 까지만 두고 계열을 "
+                         "세분하지 않는다. 반면 `config/rules.json` 은 스스로를 Rule "
+                         "정의·상태의 authority SSOT 로 선언하며, 2026-08-16 "
+                         "measurement identity 로 Commercial 계열을 이미 명시한다.",
+            },
+            "d2_measurement_form": {
+                "decision": "회사가 공식 표에서 **직접 공표한** Commercial RPO YoY "
+                            "성장률 observation 을 사용한다. 잔액을 가져와 Atlas 가 "
+                            "자체적으로 YoY 를 파생하는 경로는 채택하지 않는다.",
+                "basis": "Rule authority 에 이미 명시된 measurement 계약, 원 정본 "
+                         "`+84%` 관측과의 정합성, 그리고 직접 관측값과 파생값을 섞지 "
+                         "않는 Atlas 의 provenance · fail-closed 방향을 함께 따른 판정이다. "
+                         "⛔ 「구현이 쉬워서」가 아니다.",
+                "consequence": "RULE-0022 를 위해 "
+                               "`total balance → derived growth → growth change` 라는 "
+                               "별도 파생 계층을 만들지 않는다.",
+            },
+            "d4_authority_scope": {
+                "decision": "2026-08-16 Rule SSOT 계약이 2026-08-15 P2 Gate #2 를 "
+                            "**RULE-0022 evaluator measurement 범위에서만** supersede 한다.",
+                "preserved": "08-15 total RPO · XBRL 계약은 삭제하지 않는다. "
+                             "research / comparability evidence track 으로 보존한다.",
+                "still_true": "08-15 의 「collector 가 commercial 값을 집으면 틀린다」는 "
+                              "문장은 **total-RPO XBRL observation 을 설명하는 문맥에서는 "
+                              "여전히 맞다.** supersede 되는 것은 그 문장을 RULE-0022 "
+                              "evaluator measurement 에 적용하는 권위뿐이다.",
+                "superseded_document": "P2_US_FINANCIALS.md · "
+                                       "「Gate #2 종결 계약 (CIO 확정 2026-08-15)」",
+                "layer_note": "P2 문서는 파일 첫머리에서 스스로 "
+                              "「현황 기록이며 Rule SSOT 를 바꾸는 authority 가 아니다」라고 "
+                              "선언한다. 따라서 층위 충돌이 아니라 범위 분리로 해소된다.",
+            },
+            "still_open": ["D-3 GAAP YoY 인가 Constant Currency YoY 인가",
+                           "D-5 소급 평가인가 전진 평가인가",
+                           "D-6 FY26 Q1 Commercial RPO 행 신설을 "
+                           "comparability break 로 볼 것인가"],
+            "state_effect": "없음 — D-1/D-2/D-4 가 닫혀도 RULE-0022 는 "
+                            "definition reopen 상태를 유지한다. "
+                            "D-3 · D-5 · D-6 확정 전 evaluator 사용 금지.",
+            "not_a_new_definition": True,
+        },
     },
 }
 

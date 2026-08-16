@@ -142,6 +142,41 @@ veto 단위     filing 단위가 아니라 **concept / economic observation 단�
 서술          숫자 SSOT 가 아니라 **comparability 검증 증거**
 ```
 
+#### ⚠ 범위 정정 — CIO 판정 2026-08-16 (`RULE-0022_MEASUREMENT_CONTRACT_CONFLICT` 해소)
+
+⛔ **위 Gate #2 계약을 삭제하거나 「틀린 조사」로 폐기하지 않는다.** 원문은 그대로 보존한다.
+아래는 **적용 범위만** 정정하는 기록이다.
+
+```
+08-15  Total RPO / XBRL 계약        → research · comparability evidence track 으로 보존
+08-16  Commercial RPO YoY 계약      → RULE-0022 evaluator measurement authority
+```
+
+| 축 | 정정 내용 |
+|---|---|
+| **superseded 되는 것** | 위 「숫자 관측 … SSOT 로 쓴다」를 **`RULE-0022` 의 evaluator measurement 에 적용하는 권위** |
+| **superseded 되지 않는 것** | total-RPO XBRL observation 자체 · comparability veto 계약 · 중복 fact 분해 결과 · 서술 교차 검증 |
+| **여전히 참인 문장** | 이 절 뒤의 「`us-gaap:RevenueRemainingPerformanceObligation` 은 total company RPO 이며 commercial portion 이 아니다 · collector 가 commercial 값을 집으면 틀린다」 — **total-RPO XBRL observation 을 설명하는 문맥에서는 여전히 맞다.** RULE-0022 evaluator measurement 에 적용하는 권위만 supersede 된다 |
+
+**확정 근거 (D-1 / D-2 / D-4)**
+
+- **D-1** RULE-0022 의 evaluator measurement 계열 = `Commercial remaining performance obligation`.
+  total company RPO 는 RULE-0022 evaluator measurement 로 사용하지 않는다.
+- **D-2** 회사가 공식 표에서 **직접 공표한** YoY 성장률 observation 을 사용한다.
+  `total balance → derived growth → growth change` 파생 계층을 만들지 않는다.
+- **D-4** 08-16 Rule SSOT 계약이 08-15 Gate #2 를 **RULE-0022 measurement 범위에서만** supersede 한다.
+
+**층위 근거**: 이 문서는 첫머리에서 스스로 「현황 기록이며 Rule SSOT 를 바꾸는 authority 가 아니다」라고
+선언한다. Rule 정의·상태의 authority 는 `config/rules.json` 이다. 따라서 이것은 층위 충돌이 아니라
+**범위 분리**로 해소된다.
+
+**정정 원문 보관 위치**: `config/rules.json` →
+`RULE-0022.extraction_identity_contract.authority_resolution`
+
+⛔ 이 정정은 상태를 바꾸지 않는다. `RULE-0022` 는 **definition reopen 상태를 유지**하며,
+D-3(GAAP vs CC) · D-5(소급 vs 전진) · D-6(행 신설의 comparability) 확정 전까지
+`RULE-0022_EVALUATION_NOT_AUTHORIZED` 다.
+
 ### 2024-12-03 8-K 의 정체 — 원문 확인 결과
 
 `0000950170-24-132722` = `msft-20241203.htm` · **Item 8.01 + 9.01**
