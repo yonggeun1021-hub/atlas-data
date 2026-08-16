@@ -241,4 +241,43 @@ with section("A-10 ★ capture 전용 조회 상한 override (CIO 판정 2026-08
     check("★ 조회 상한이 override 함수를 통해 정해진다 (호출이 존재한다)",
           bool(_calls), str(_calls))
 
+with section("A-11 ★ live run 증거면 — 무엇이 빠졌는지가 남아야 한다 (CIO 판정 2026-08-16)"):
+    _cands = [{"filing_date": f"2026-0{i}-01", "accession": f"acc-{i}"} for i in range(1, 5)]
+    _drop = [{"filing_date": f"2025-0{i}-01", "accession": f"old-{i}"} for i in range(1, 10)]
+    _rec = F.discovery_record(4, 4, _cands + _drop, _cands, _drop)
+    check("★ dropped 를 자르지 않는다 (9건이면 9건 그대로)",
+          len(_rec["dropped"]) == len(_drop), str(len(_rec["dropped"])))
+    check("★ dropped 에 날짜와 accession 이 함께 남는다",
+          all({"filing_date", "accession"} <= set(d) for d in _rec["dropped"]))
+    check("★ selected 도 같은 형식으로 남는다",
+          [d["accession"] for d in _rec["selected"]] == [c["accession"] for c in _cands])
+    check("★ 상한이 기본값이면 limit_source 가 default 다",
+          _rec["limit_source"] == "default", _rec["limit_source"])
+    check("★ 상한을 덮었으면 override 로 남는다",
+          F.discovery_record(9, 4, [], [], [])["limit_source"] == "override")
+    check("★ 어떤 환경변수로 덮었는지도 남는다",
+          _rec["limit_env"] == F.CAPTURE_LIMIT_ENV)
+    # ★ 정적 — dropped 를 출력·기록할 때 잘라내지 않는다 (AST · 문자열 검색 아님)
+    _sliced = [n.lineno for n in ast.walk(_cap_tree)
+               if isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Slice)
+               and isinstance(n.value, ast.Name) and n.value.id == "dropped"]
+    check("★ dropped 를 슬라이스하지 않는다", not _sliced, str(_sliced))
+    # ★ 정적 — capture_one 은 실패 사유를 받을 통로를 갖는다
+    _c1 = [n for n in ast.walk(_cap_tree)
+           if isinstance(n, ast.FunctionDef) and n.name == "capture_one"][0]
+    check("★ capture_one 이 failures 통로를 갖는다",
+          "failures" in [a.arg for a in _c1.args.args], str([a.arg for a in _c1.args.args]))
+    _inner = [n for n in ast.walk(_c1)
+              if isinstance(n, ast.FunctionDef) and n.name == "_fail"]
+    check("★ 실패 기록 지점이 한 곳이다 (_fail)", len(_inner) == 1, str(len(_inner)))
+    _bare = [n.lineno for n in ast.walk(_c1)
+             if isinstance(n, ast.Return) and isinstance(n.value, ast.Constant)
+             and n.value.value is None
+             and not any(n.lineno == m.lineno or (m.lineno <= n.lineno <= m.end_lineno)
+                         for m in _inner)]
+    check("★ capture_one 의 실패 반환이 전부 _fail 을 거친다 (맨 return None 없음)",
+          not _bare, str(_bare))
+    check("★ MANIFEST 가 discovery 와 failures 를 함께 담는다",
+          '"discovery"' in _cap_src and '"failures"' in _cap_src)
+
 sys.exit(K.exit_code())

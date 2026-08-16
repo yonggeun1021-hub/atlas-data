@@ -251,9 +251,29 @@ def sha(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def capture_one(c, outdir):
+def discovery_record(limit, default_limit, considered, selected, dropped):
+    """discovery 증거를 그대로 남긴다. ⛔ dropped 를 자르지 않는다."""
+    return {"limit": limit,
+            "limit_source": "default" if limit == default_limit else "override",
+            "limit_env": CAPTURE_LIMIT_ENV,
+            "considered": len(considered),
+            "selected": [{"filing_date": c["filing_date"],
+                          "accession": c["accession"]} for c in selected],
+            "dropped": [{"filing_date": c["filing_date"],
+                         "accession": c["accession"]} for c in dropped]}
+
+
+def capture_one(c, outdir, failures=None):
+    """실패하면 None 을 돌려준다(계약 불변). `failures` 를 주면 **사유를 함께 남긴다** —
+    ⛔ 실패가 「보존 0건」으로만 보이고 이유가 사라지는 것을 막기 위한 것이다."""
     acc = c["accession"].replace("-", "")
     print(f"\n  ── {c['filing_date']} · {c['accession']}")
+
+    def _fail(reason):
+        if failures is not None:
+            failures.append({"filing_date": c["filing_date"],
+                             "accession": c["accession"], "reason": reason})
+        return None
 
     # ★ 취득은 승인된 경로 그대로 — full .txt → <DOCUMENT> → EX-99.1 → secondary
     time.sleep(POLITE_DELAY_SEC)
@@ -262,7 +282,7 @@ def capture_one(c, outdir):
     target, probs, chosen = M.select_exhibit(docs, sec_types=None)
     if target is None:
         M.log_candidates(docs, "; ".join(probs))
-        return None
+        return _fail("primary <TYPE> 식별 실패: " + "; ".join(probs))
     time.sleep(POLITE_DELAY_SEC)
     _, ihtml = get(f"{M.ARCHIVE_BASE}/{acc}/{c['accession']}-index.html")
     sec_types = M.index_html_types(ihtml.decode("utf-8", errors="replace"))
@@ -270,7 +290,7 @@ def capture_one(c, outdir):
     if target2 is None:
         print(f"    ✗ {'; '.join(probs2)}")
         M.log_candidates(docs, "primary/secondary 교차확인 실패")
-        return None
+        return _fail("primary/secondary 교차확인 실패: " + "; ".join(probs2))
     print(f"    exhibit {target2}")
 
     time.sleep(POLITE_DELAY_SEC)
@@ -280,12 +300,12 @@ def capture_one(c, outdir):
     loc = locate_block(doc_text)
     if loc is None:
         print("    → fixture 를 만들지 않는다 (fail-closed)")
-        return None
+        return _fail("슬라이스 생성 실패 — 위 진단 참조")
     start, end, info = loc
     block = slice_and_verify(doc_text, start, end)
     if block is None:
         print("    → fixture 를 만들지 않는다 (fail-closed)")
-        return None
+        return _fail("슬라이스 생성 실패 — 위 진단 참조")
 
     name = f"{c['filing_date']}_{c['accession']}_azure_cc_table.html"
     path = os.path.join(outdir, name)
@@ -345,17 +365,23 @@ def main() -> int:
              if limit != M.MAX_FILINGS else " · 기본값")
           + ")")
     if dropped:
+        # ⛔ 조용히 자르지 않는다 — 무엇이 빠졌는지가 이번 run 의 판정 근거다
         print(f"  ⚠️ 상한으로 조회하지 않은 것 {len(dropped)}건: "
-              + ", ".join(c["filing_date"] for c in dropped[:6]))
+              + ", ".join(c["filing_date"] for c in dropped))
 
     print("\n② 보존")
-    out = [r for r in (capture_one(c, outdir) for c in cands) if r]
+    fails: list = []
+    out = [r for r in (capture_one(c, outdir, fails) for c in cands) if r]
 
     man = os.path.join(outdir, "MANIFEST.json")
     with open(man, "w", encoding="utf-8") as f:
         json.dump({"captured": out, "attempted": len(cands),
+                   "discovery": discovery_record(limit, M.MAX_FILINGS,
+                                                 cands + dropped, cands, dropped),
+                   "failures": fails,
                    "note": "각 fixture 는 exhibit 원문의 부분 문자열이다. "
-                           "재구성·정규화하지 않았다."}, f,
+                           "재구성·정규화하지 않았다. "
+                           "⛔ discovery 의 dropped 와 failures 는 자르지 않는다."}, f,
                   ensure_ascii=False, indent=2)
 
     print("\n" + "=" * 74)
