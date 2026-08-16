@@ -484,6 +484,62 @@
    "expected_killers": [
     "default 는 여전히 fixture 다 (live 가 기본이 되지 않는다)"
    ]
+  },
+  {
+   "id": "LV-IDEV-1",
+   "origin_label": "LV-IDEV-1",
+   "note": "★ 성공 identity evidence 를 provenance 에 남기지 않는다 — 성공을 「실패하지 않았음」으로만 추론하게 된다",
+   "anchors_expected": 1,
+   "anchor": "        prov[\"identity_evidence\"] = identity_evidence",
+   "replacement": "        pass",
+   "expected_killers": [
+    "에 identity evidence 가 있다",
+    "모든 live record 가 identity evidence 를 갖는다"
+   ]
+  },
+  {
+   "id": "LV-IDEV-2",
+   "origin_label": "LV-IDEV-2",
+   "note": "★ cross_check 를 실제 대조 없이 항상 AGREE 로 만든다 — 증거가 관측이 아니라 주장이 된다",
+   "anchors_expected": 1,
+   "anchor": "                \"cross_check\": (\"AGREE\" if name == name2 else \"DISAGREE\"),",
+   "replacement": "                \"cross_check\": \"AGREE\",",
+   "expected_killers": [
+    "primary 와 secondary 가 동일 document 임이 명시된다"
+   ]
+  },
+  {
+   "id": "LV-IDEV-3",
+   "origin_label": "LV-IDEV-3",
+   "note": "★ secondary 가 실제로 본 type 대신 기대값을 적는다 — 교차확인 증거가 자기참조가 된다",
+   "anchors_expected": 1,
+   "anchor": "                \"secondary_type\": sec_types.get(name2),",
+   "replacement": "                \"secondary_type\": ACQ.EXHIBIT_TYPE,",
+   "expected_killers": [
+    "secondary 교차확인 불일치 → ObserveError (fail-closed)"
+   ]
+  },
+  {
+   "id": "LV-IDEV-4",
+   "origin_label": "LV-IDEV-4",
+   "note": "★ identity evidence 를 `exhibit_identity` 안에 넣는다 — store 의 material provenance 축이 오염된다",
+   "anchors_expected": 1,
+   "anchor": "        prov[\"identity_evidence\"] = identity_evidence",
+   "replacement": "        prov[\"exhibit_identity\"][\"identity_evidence\"] = identity_evidence",
+   "expected_killers": [
+    "identity evidence 가 `exhibit_identity` 안이 아니라 형제 키다"
+   ]
+  },
+  {
+   "id": "LV-IDEV-5",
+   "origin_label": "LV-IDEV-5",
+   "note": "primary 선택 결과 대신 최종 document 를 적는다 — primary/secondary 구별이 사라진다",
+   "anchors_expected": 1,
+   "anchor": "                \"primary_document\": name,",
+   "replacement": "                \"primary_document\": name2,",
+   "expected_killers": [
+    "primary 선택 결과가 기록된다"
+   ]
   }
  ]
 }

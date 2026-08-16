@@ -158,6 +158,18 @@ def observe_live(limit: int, fetch=None) -> dict:
             name2, probs2, _ = ACQ.select_exhibit(docs, sec_types=sec_types)
             if name2 is None:
                 raise ObserveError(f"secondary 교차확인 실패: {'; '.join(probs2)}")
+            # ★ 성공 identity 를 **명시적으로 관측 가능하게** 남긴다 (CIO 판정 ②).
+            #   ⛔ 선택 알고리즘 · fail-closed 조건 · acquisition primitive 를 바꾸지 않는다 —
+            #      이미 결정된 결과를 읽어서 기록만 한다. 「실패하지 않았음」으로 추론하지 않는다.
+            identity_evidence = {
+                "primary_document": name,
+                "primary_selection": "full_submission_sgml_type_exact_match",
+                "primary_type": ACQ.EXHIBIT_TYPE,
+                "secondary_document": name2,
+                "secondary_selection": "index_html_type_column",
+                "secondary_type": sec_types.get(name2),
+                "cross_check": ("AGREE" if name == name2 else "DISAGREE"),
+            }
             _, body = get(f"{base}/{name2}")
         except ObserveError:
             raise
@@ -167,6 +179,15 @@ def observe_live(limit: int, fetch=None) -> dict:
 
         html = body.decode("utf-8", errors="replace")
         prov = ACQ.exhibit_provenance(c, name2, hashlib.sha256(body).hexdigest())
+        # ⛔ `ACQ.exhibit_provenance` 를 수정하지 않는다 — 관측 층에서 **덧붙인다**.
+        #   ★ `exhibit_identity` 안이 아니라 형제 키로 둔다: store 의 material provenance
+        #     축(exhibit type/document)을 건드리지 않기 위해서다.
+        prov["identity_evidence"] = identity_evidence
+        print(f"    ✓ EX-99.1 identity  acc={c['accession']}  "
+              f"primary={identity_evidence['primary_document']}  "
+              f"secondary={identity_evidence['secondary_document']}"
+              f"(type={identity_evidence['secondary_type']!r})  "
+              f"cross_check={identity_evidence['cross_check']}")
         rec, why = _observe_one(html, prov)
         if rec is None:
             failures.append(why)

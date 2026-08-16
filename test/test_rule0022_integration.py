@@ -533,6 +533,40 @@ with section("E. ★★ live 경로 — mocked payload 로 record 4건"):
     check("★ live 경로도 Store 를 건드리지 않는다 (emission 만 만든다)",
           set(em) == set(EM26))
 
+    # ── ★★ EX-99.1 primary / secondary identity 성공 증거 (CIO 판정 ②) ──
+    #    ⛔ 「실패하지 않았음」으로 추론하지 않는다 — 성공 자체가 관측 가능해야 한다.
+    for r in em["records"]:
+        ev = (r["provenance"] or {}).get("identity_evidence")
+        acc = r["provenance"]["accession"]
+        if not need(f"★★ {acc} 에 identity evidence 가 있다", ev is not None):
+            continue
+        check(f"★★ {acc} primary 선택 결과가 기록된다",
+              ev["primary_document"] == "msft-ex99_1.htm", str(ev["primary_document"]))
+        check(f"  {acc} primary 선택 방식이 기록된다",
+              ev["primary_selection"] == "full_submission_sgml_type_exact_match")
+        check(f"★★ {acc} secondary cross-check 결과가 기록된다",
+              ev["secondary_document"] == "msft-ex99_1.htm", str(ev["secondary_document"]))
+        check(f"  {acc} secondary 가 본 type 이 기록된다",
+              ev["secondary_type"] == "EX-99.1", str(ev["secondary_type"]))
+        check(f"★★ {acc} primary 와 secondary 가 동일 document 임이 명시된다",
+              ev["cross_check"] == "AGREE" and ev["primary_document"] == ev["secondary_document"],
+              str(ev["cross_check"]))
+    check("★★ 모든 live record 가 identity evidence 를 갖는다",
+          all((r["provenance"] or {}).get("identity_evidence") for r in em["records"]))
+    check("★ 기존 exhibit_identity provenance 도 그대로 유지된다",
+          all(r["provenance"]["exhibit_identity"]["document"] == "msft-ex99_1.htm"
+              and r["provenance"]["exhibit_identity"]["type"] == "EX-99.1"
+              for r in em["records"]))
+    check("★★ identity evidence 가 `exhibit_identity` 안이 아니라 형제 키다 "
+          "(store material provenance 축 불변)",
+          all("identity_evidence" not in r["provenance"]["exhibit_identity"]
+              for r in em["records"]))
+    # ⛔ 관측성 보강이 store 의미를 바꾸지 않았는지 — material provenance 축 대조
+    mp_live = ST.material_provenance(em["records"][0])
+    check("★★ identity evidence 가 material provenance 에 섞이지 않는다",
+          "identity_evidence" not in mp_live and "cross_check" not in mp_live,
+          str(sorted(mp_live)))
+
     # ── live limit 전달 ────────────────────────────────────────────────
     em2 = OBSV.observe_live(2, fetch=make_fetch(CAP_SORTED))
     check("★★ limit 이 discovery 에 전달된다 (2건만 관측)", em2["observed"] == 2,
@@ -599,6 +633,16 @@ with section("E-3. ★★ live fail-closed 매트릭스"):
         except OBSV.ObserveError as e:
             check(f"★★ {why} → ObserveError (fail-closed)", True)
             check(f"  {why} → 사유가 정확하다", REASON[why] in str(e), str(e)[:90])
+
+    # ★★ primary 와 secondary 가 다른 document 를 가리키면 여전히 fail-closed 다.
+    #    ⛔ 관측성 보강이 fail-closed 조건을 무르게 하지 않았는지 확인한다.
+    try:
+        OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, sec_type="EX-99.2"))
+        check("★★ identity 불일치는 여전히 fail-closed (증거만 남기고 통과하지 않는다)",
+              False, "통과해버렸다")
+    except OBSV.ObserveError as e:
+        check("★★ identity 불일치는 여전히 fail-closed (증거만 남기고 통과하지 않는다)",
+              "secondary 교차확인 실패" in str(e), str(e)[:90])
 
     # ★ fetch 를 주입하지 않았을 때 fixture 로 조용히 내려가지 않는다.
     #   ⛔ network 를 쓰지 않기 위해 acquisition 의 `get` 을 실패시키고 결과를 본다.
