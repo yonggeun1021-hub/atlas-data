@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import sys
@@ -72,14 +74,23 @@ def run(html):
 
 
 print("A-1 문서 식별 — 내용으로 판정")
-ck = M.identify(M.strip_html(doc("39%", "0%", "39%")))
+
+
+def ident(html):
+    """identify 는 결합과 같은 predicate 를 쓰므로 표까지 넘긴다."""
+    p = M.TableCollector()
+    p.feed(html)
+    return M.identify(M.strip_html(html), p.tables)
+
+
+ck = ident(doc("39%", "0%", "39%"))
 check("실적 발표문으로 식별", all(v for _, v, _ in ck) and len(ck) == 3)
 for nm, d in (("표 제목이 없는 문서",
                "<html><body><p>Microsoft Azure and other cloud services grew.</p></body></html>"),
               ("Azure 항목이 없는 문서",
                "<html><body><h3>Selected Product and Service Revenue Constant Currency "
                "Reconciliation</h3><p>Microsoft</p></body></html>")):
-    check(f"{nm} 거부", not all(v for _, v, _ in M.identify(M.strip_html(d))))
+    check(f"{nm} 거부", not all(v for _, v, _ in ident(d)))
 
 print("A-2 cc 컬럼 선택 — 값이 아니라 구조를 검증한다")
 CASES = [("FY2025 Q3 형태 (GAAP 33 · 영향 2 · cc 35)", "33%", "2%", "35%"),
@@ -379,6 +390,185 @@ check("★ 본문의 phantom.htm 이 후보로 올라오지 않는다",
       not any(d["filename"] == "phantom.htm" for d in _hl), str(_hl))
 _t2, _p2, _ = M.select_exhibit(_hl)
 check("★ 유령 후보로 ambiguity(2건) 오판이 생기지 않는다", _t2 == "real.htm", f"{_t2!r} {_p2}")
+
+# ══════════════════════════════════════════════════════════════════════
+# C. ★ 실제 SEC 마크업 회귀 (CIO 승인 2026-08-16)
+#
+#   앞의 A·B 절은 **합성 마크업**이다. 그것이 이번 Gate 실패를 못 잡은 이유다.
+#   이 절의 fixture 는 GitHub Actions 가 SEC 에서 **실제 취득한 원문의 슬라이스**다
+#   (run 31922768254 · artifact azure-cc-raw-fixtures · 재구성 없음).
+#
+#   ★ 우선순위: **실제 SEC evidence > 합성 fixture** (CIO 원칙 2026-08-16)
+#      충돌하면 틀린 쪽은 fixture 다.
+# ══════════════════════════════════════════════════════════════════════
+FX_DIR = os.path.join(ROOT, "collectors", "fixtures")
+
+# (filing_date, accession, slice sha256) — MANIFEST 기록값을 고정한다.
+#   ⛔ fixture 가 바뀌면 여기서 잡힌다. 조용한 교체를 막는다.
+FIXTURES = [
+    ("2025-10-29", "0001193125-25-256310",
+     "b810178f54e89c9bccd156adf2a26f8a36213cac4de8a82b11e0f4f653afd285"),
+    ("2026-01-28", "0001193125-26-027198",
+     "e2cde7f3106d5863c3ed1754e3d1d8de5c3f1a5e9e6c57171e02b7d12be9de59"),
+    ("2026-04-29", "0001193125-26-191457",
+     "d8026c916282a93a90f3c3b81d0cb20a5106ed0ca50d690d46697b9058b99a9c"),
+    ("2026-07-29", "0001193125-26-323632",
+     "48e3ec437f43b19ad93e910fcb3ec3e2300b2716e4e811b3305efa6bc7c77e54"),
+]
+# 기대 관측값 — SEC EX-99.1 원문 · Microsoft IR · CIO 교차검증 3원 일치분.
+#   ⚠️ 2026-07-29 은 GAAP == cc (영향 0%) 라 **단독으로는 판별력이 없다.**
+EXPECTED = {"2025-10-29": ("40%", "(1)%", "39%"),
+            "2026-01-28": ("39%", "(1)%", "38%"),
+            "2026-04-29": ("40%", "(1)%", "39%"),
+            "2026-07-29": ("43%", "0%", "43%")}
+DISCRIMINATING = {d for d, (g, i, c) in EXPECTED.items() if g != c}
+OLD_FORM = {"2025-10-29", "2026-01-28"}      # 제목 Revenue · 행 suffix 없음
+NEW_FORM = {"2026-04-29", "2026-07-29"}      # 제목 Information · 행 suffix revenue
+
+
+def fx_path(date, acc):
+    return os.path.join(FX_DIR, f"{date}_{acc}_azure_cc_table.html")
+
+
+def fx_html(date, acc):
+    return open(fx_path(date, acc), encoding="utf-8").read()
+
+
+def extract(html, title_re=None, row_re=None):
+    """현재 계약(또는 주어진 문면)으로 관측을 시도한다. (gaap, impact, cc) 또는 사유."""
+    import contextlib as _c
+    import io as _io
+    o_t, o_r = M.RECON_TABLE_TITLE, M.AZURE_ROW
+    if title_re is not None:
+        M.RECON_TABLE_TITLE = title_re
+    if row_re is not None:
+        M.AZURE_ROW = row_re
+    try:
+        p = M.TableCollector()
+        p.feed(html)
+        with _c.redirect_stdout(_io.StringIO()):
+            ck = M.identify(M.strip_html(html), p.tables)
+        if not all(v for _, v, _ in ck):
+            bad = [n for n, v, _ in ck if not v]
+            return f"identify FAIL {bad}"
+        cands = M.find_azure_table(p.tables)
+        if not cands:
+            return "Azure 행 0건"
+        ti, rows, ri = cands[0]
+        b, probs = M.bind_columns(M.build_header(rows, ri), rows[ri])
+        if not b:
+            return f"결합 실패 {probs}"
+        return (b["gaap"], b["cc_impact"], b["cc"])
+    finally:
+        M.RECON_TABLE_TITLE, M.AZURE_ROW = o_t, o_r
+
+
+print("C-0 fixture 무결성 — 원문 슬라이스가 그대로인가")
+for date, acc, want in FIXTURES:
+    p = fx_path(date, acc)
+    check(f"{date} fixture 존재", os.path.exists(p), p)
+    if not os.path.exists(p):
+        continue
+    got = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    check(f"{date} sha256 가 MANIFEST 기록과 일치", got == want, got[:16])
+_man = json.load(open(os.path.join(FX_DIR, "azure_cc_MANIFEST.json"), encoding="utf-8"))
+check("MANIFEST 가 4건을 기록한다", len(_man["captured"]) == 4)
+check("★ MANIFEST 가 부분 문자열임을 단언한다",
+      all(r["verbatim_substring_of_exhibit"] for r in _man["captured"]))
+check("★ 슬라이스 길이와 구간 길이가 일치한다 (재구성 없음)",
+      all(r["slice_end"] - r["slice_start"] == r["slice_chars"] for r in _man["captured"]))
+
+print("C-1 ★★ 수정 전 FAIL 재현 — 이 회귀가 실제 장애를 잡는다는 근거")
+# ⛔ 이 절이 없으면 「고친 뒤 통과한다」만 남고, 회귀가 무엇을 막는지 알 수 없다.
+#    9c61da8 시점의 문면을 **그대로 박아** 신형에서 실패하는 것을 보존한다.
+PRE_FIX_TITLE = re.compile(
+    r"Selected\s+Product\s+and\s+Service\s+Revenue\s+Constant\s+Currency\s+Reconciliation",
+    re.I)
+PRE_FIX_ROW = re.compile(r"^Azure\s+and\s+other\s+cloud\s+services$", re.I)
+for date, acc, _ in FIXTURES:
+    r = extract(fx_html(date, acc), PRE_FIX_TITLE, PRE_FIX_ROW)
+    if date in OLD_FORM:
+        check(f"★ 구형 {date} 는 수정 전에도 통과했다", r == EXPECTED[date], str(r))
+    else:
+        check(f"★★ 신형 {date} 는 수정 전 실패한다 (live 장애 재현)",
+              isinstance(r, str), str(r))
+        check(f"★ {date} 실패 지점이 표 제목이다", isinstance(r, str) and "identify" in r,
+              str(r))
+# 제목만 고쳤다면 어떻게 되는가 — **두 번째 차단기**
+FIXED_TITLE = re.compile(
+    r"Selected\s+Product\s+and\s+Service\s+(?:Revenue|Information)\s+"
+    r"Constant\s+Currency\s+Reconciliation", re.I)
+for date in sorted(NEW_FORM):
+    acc = dict((d, a) for d, a, _ in FIXTURES)[date]
+    r = extract(fx_html(date, acc), FIXED_TITLE, PRE_FIX_ROW)
+    check(f"★★ {date}: 제목만 고치면 여전히 실패한다 (행 라벨이 두 번째 차단기)",
+          isinstance(r, str), str(r))
+
+print("C-2 positive — 실제 마크업 4건에서 정확한 cc 를 집는다")
+for date, acc, _ in FIXTURES:
+    r = extract(fx_html(date, acc))
+    check(f"{date} → {EXPECTED[date]}", r == EXPECTED[date], str(r))
+
+print("C-3 ★ 판별력 — Q4 단독으로는 컬럼 오결합을 잡을 수 없다")
+check("★ 판별 가능한 분기가 실제로 존재한다", len(DISCRIMINATING) >= 1, str(DISCRIMINATING))
+check("★ 2026-04-29 가 판별 분기다 (GAAP 40 ≠ cc 39)", "2026-04-29" in DISCRIMINATING)
+check("★ 2026-07-29 는 판별 분기가 아니다 (43 == 43) — 단독 검증 금지",
+      "2026-07-29" not in DISCRIMINATING)
+check("★ 신형 중 판별 분기가 최소 1건 있다", bool(DISCRIMINATING & NEW_FORM),
+      str(DISCRIMINATING & NEW_FORM))
+_q3 = extract(fx_html("2026-04-29", "0001193125-26-191457"))
+check("★ 판별 분기에서 cc 를 골랐다 (GAAP 을 집지 않았다)",
+      _q3[2] == "39%" and _q3[0] == "40%", str(_q3))
+check("★ 판별 분기에서 영향 컬럼을 cc 로 집지 않았다", _q3[2] != _q3[1], str(_q3))
+
+print("C-4 negative — ★ 실제 마크업의 최소 변형이 fail-closed 된다")
+# ⛔ 합성 HTML 이 아니다. raw fixture 한 군데만 바꾼다.
+BASE_D, BASE_A = "2026-04-29", "0001193125-26-191457"
+_base = fx_html(BASE_D, BASE_A)
+VARIANTS = [
+    ("제목 Information→Metrics", "Service Information", "Service Metrics"),
+    ("제목 Information→Segment", "Service Information", "Service Segment"),
+    ("제목에서 Information 제거", "Service Information Constant", "Service Constant"),
+    ("행 suffix revenue→sales", "cloud services revenue", "cloud services sales"),
+    ("행 suffix 추가 …revenue growth", "cloud services revenue",
+     "cloud services revenue growth"),
+    ("행 이름 Azure→Azure AI", "Azure and other cloud", "Azure AI and other cloud"),
+]
+check("★ 변형 전 원문은 통과한다 (양성 대조)", extract(_base) == EXPECTED[BASE_D])
+for nm, old, new in VARIANTS:
+    mutated = _base.replace(old, new)
+    check(f"★ 변형이 실제로 적용됐다: {nm}", mutated != _base)
+    check(f"★ 미지 문면 거부: {nm}", isinstance(extract(mutated), str), str(extract(mutated)))
+
+print("C-5 ★ identify 와 table binding 이 같은 Azure predicate 를 쓴다")
+# ⛔ 예전에는 identify 가 비앵커 search, 결합은 앵커 match 였다. 그래서 로그에
+#    `✓ Azure … 항목` 이 찍혔는데 실제 결합은 불가능했다. 그 불일치를 막는다.
+for nm, old, new in [("suffix 변형(sales)", "cloud services revenue", "cloud services sales"),
+                     ("이름 변형(Azure AI)", "Azure and other cloud", "Azure AI and other cloud")]:
+    mutated = _base.replace(old, new)
+    p = M.TableCollector()
+    p.feed(mutated)
+    _ck = M.identify(M.strip_html(mutated), p.tables)
+    azure_ok = [v for n, v, _ in _ck if "Azure" in n][0]
+    binds = bool(M.find_azure_table(p.tables))
+    check(f"★ {nm}: identify 와 결합 가능성이 어긋나지 않는다 "
+          f"(identify={azure_ok} · 결합={binds})", azure_ok == binds)
+check("★ identify 가 AZURE_ROW 를 실제로 참조한다", "AZURE_ROW" in
+      __import__("inspect").getsource(M.identify))
+
+print("C-6 구형·신형 구조 차이는 값에 영향을 주지 않는다")
+for date in sorted(OLD_FORM | NEW_FORM):
+    acc = dict((d, a) for d, a, _ in FIXTURES)[date]
+    p = M.TableCollector()
+    p.feed(fx_html(date, acc))
+    rows = M.drop_empty_columns(p.tables[0])
+    check(f"{date} 표가 1개다", len(p.tables) == 1, str(len(p.tables)))
+    check(f"{date} 4열이다", max(len(r) for r in rows) == 4)
+check("★ 구형은 spacer 행이 더 많다 (17행 대 13행) — markup 정리일 뿐",
+      len(M.drop_empty_columns((lambda h: (lambda p: (p.feed(h), p.tables)[1])(
+          M.TableCollector()))(fx_html("2026-01-28", "0001193125-26-027198"))[0]))
+      > len(M.drop_empty_columns((lambda h: (lambda p: (p.feed(h), p.tables)[1])(
+          M.TableCollector()))(fx_html("2026-07-29", "0001193125-26-323632"))[0])))
 
 print("B-8 이 회귀 자체의 경계")
 check("★ B 절은 네트워크를 쓰지 않는다 (fixture 만 쓴다)",

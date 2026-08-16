@@ -78,10 +78,40 @@ MAX_FILINGS = 4                 # 복수 과거 분기 재현 확인용
 POLITE_DELAY_SEC = 0.5
 
 # ── 문서 식별 — 내용으로 판정한다 ────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════
+# Extraction identity 문면 이력 (CIO 승인 2026-08-16)
+#
+#   ★ 이것은 **관측 정의나 source contract 의 변경이 아니다.** Microsoft 가
+#     확인된 문면을 바꾼 데 대한 **extraction identity 갱신**이다.
+#     관측 대상(Azure constant-currency 성장률)·컬럼 3종의 문면과 순서는 불변이다.
+#
+#   ┌ FY26 Q1(2025-10-29) · Q2(2026-01-28) — 구형
+#   │   표 제목  Selected Product and Service **Revenue** Constant Currency Reconciliation
+#   │   행 라벨  Azure and other cloud services
+#   └ FY26 Q3(2026-04-29) · Q4(2026-07-29) — 신형
+#       표 제목  Selected Product and Service **Information** Constant Currency Reconciliation
+#       행 라벨  Azure and other cloud services **revenue**
+#
+#   ★ 같은 경계에서 **두 문면이 함께** 바뀌었다. 원문 확인 결과 `revenue` 가 표
+#     제목에서 각 행 라벨로 내려갔고, 매출이 아닌 행(Commercial remaining
+#     performance obligation)에는 붙지 않았다 — 의미상 일관된 rename 이다.
+#     ⇒ 제목만 고치면 행 라벨에서 다시 막힌다. 실제로 그렇게 실패했다.
+#
+#   ⛔ **관측된 두 형태만 폐쇄 열거한다.** `.*` 같은 일반화는 금지한다 (CIO 판정).
+#      미지의 세 번째 문면은 fail-closed 로 막고 CIO 판정으로 올린다 —
+#      조용히 통과시키면 다음 변경을 놓친다.
+#   ⛔ 앵커(`^…$`)를 풀지 않는다.
+# ══════════════════════════════════════════════════════════════════════
 RECON_TABLE_TITLE = re.compile(
-    r"Selected\s+Product\s+and\s+Service\s+Revenue\s+Constant\s+Currency\s+Reconciliation",
-    re.I)
-AZURE_ROW = re.compile(r"^Azure\s+and\s+other\s+cloud\s+services$", re.I)
+    r"Selected\s+Product\s+and\s+Service\s+(?:Revenue|Information)\s+"
+    r"Constant\s+Currency\s+Reconciliation", re.I)
+
+# ★ Azure 행 identity 는 **한 곳에서만** 정의한다.
+#   이전에는 identify() 가 비앵커 `re.search`, 결합이 앵커 `match` 를 써서 같은
+#   대상을 다른 엄격도로 검사했다. 그래서 live 로그에 `✓ Azure … 항목` 이 찍혔는데
+#   실제 결합은 불가능했다 — 진단이 사실과 어긋났다. 그 불일치를 구조로 막는다.
+AZURE_ROW = re.compile(
+    r"^Azure\s+and\s+other\s+cloud\s+services(?:\s+revenue)?$", re.I)
 
 # ── 컬럼 결합 — 이름이 비슷한 컬럼이 여럿이므로 의미로 가른다 ──────────
 #   실측 헤더(FY2025 Q4): Percentage Change Y/Y (GAAP) · Constant Currency Impact ·
@@ -228,14 +258,22 @@ def bind_columns(header, data):
     return out, []
 
 
-def identify(text):
-    """실적 발표문인지 **내용**으로 판정한다."""
+def identify(text, tables):
+    """실적 발표문인지 **내용**으로 판정한다.
+
+    ★ Azure 항목 판정은 `find_azure_table` 과 **동일한 `AZURE_ROW` predicate** 로
+      표의 셀을 본다 (CIO 판정 2026-08-16 항목 3).
+      ⛔ 문서 전체 텍스트를 비앵커로 훑지 않는다 — 그러면 여기서는 통과하고
+         결합에서 실패하는 어긋남이 생긴다. 실제로 그 일이 있었다.
+    """
+    azure_cell = any(AZURE_ROW.match(c.strip())
+                     for rows in tables for r in rows for c in r)
     return [
         ("Microsoft 문서", bool(re.search(r"Microsoft", text, re.I)), r"Microsoft"),
         ("constant currency reconciliation 표 제목",
          bool(RECON_TABLE_TITLE.search(text)), r"Constant\s+Currency"),
-        ("`Azure and other cloud services` 항목",
-         bool(re.search(r"Azure and other cloud services", text, re.I)), r"Azure"),
+        ("`Azure and other cloud services` 행 (AZURE_ROW 일치)",
+         azure_cell, r"Azure"),
     ]
 
 
@@ -291,7 +329,10 @@ def observe_one(c, errs):
     rec, body = get(f"{ARCHIVE_BASE}/{acc}/{ex[0]['name']}")
     html_text = body.decode("utf-8", errors="replace")
     text = strip_html(html_text)
-    checks = identify(text)
+    # ★ 표를 먼저 파싱한다 — identify 가 결합과 **같은 predicate** 로 셀을 보기 때문이다.
+    p = TableCollector()
+    p.feed(html_text)
+    checks = identify(text, p.tables)
     for label, v, probe in checks:
         print(f"    {'✓' if v else '✗'} {label}")
         if not v:
@@ -301,9 +342,7 @@ def observe_one(c, errs):
         print("    → 실적 발표문으로 확정하지 못했다. 값을 읽지 않는다")
         return None, False
 
-    # ③ Azure 행 → 세 컬럼 의미 결합
-    p = TableCollector()
-    p.feed(html_text)
+    # ③ Azure 행 → 세 컬럼 의미 결합 (표는 ② 에서 이미 파싱했다 — 같은 객체를 쓴다)
     cands = find_azure_table(p.tables)
     print(f"    Azure 행을 가진 표 {len(cands)}건")
     bound, why = None, []
