@@ -100,6 +100,13 @@ APPROVED_TESTS = [
     #   ⛔ 이 등록은 CIO 확인 대상이다 — 목록에 넣지 않으면 test-set 대조에서
     #      「미승인」으로 잡히므로 숨길 수 없다.
     "test/test_capture_tsmc_fixture.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S1 · RULE-0022 Commercial RPO observer.
+    #   증명: FY26 4건 row exactly-one → GAAP raw 관측 / FY25 4건 row exactly-zero →
+    #        ROW_ABSENT (D-6) / title·row·column 0건·복수건 fail-closed /
+    #        observer 가 `msft_azure_cc` 를 import 하지 않는다 (RULE-0021 격리).
+    #   ⛔ live network 없음 — fixture only.
+    #   ⛔ normalization · store · pair · evaluator 는 검증하지 않는다 (S2 이후 Gate).
+    "test/test_rule0022_commercial_rpo.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

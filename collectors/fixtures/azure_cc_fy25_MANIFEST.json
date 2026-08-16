@@ -1,0 +1,82 @@
+{
+ "captured": [
+  {
+   "filing_date": "2025-07-30",
+   "accession": "0000950170-25-100226",
+   "items": "2.02,9.01",
+   "exhibit": "msft-ex99_1.htm",
+   "exhibit_url": "https://www.sec.gov/Archives/edgar/data/789019/000095017025100226/msft-ex99_1.htm",
+   "exhibit_sha256": "57732d737ec3696b0a059dec7c2a6d865d799f28a1c3233472a409cb1c4ae592",
+   "exhibit_chars": 821887,
+   "slice_start": 127418,
+   "slice_end": 179864,
+   "slice_chars": 52446,
+   "slice_sha256": "8658dbf98b0dca06c55f93b445931d3966d4b18693f63200ef7b816c5090230a",
+   "fixture_file": "2025-07-30_0000950170-25-100226_azure_cc_table.html",
+   "table_span": [
+    127642,
+    179864
+   ],
+   "verbatim_substring_of_exhibit": true
+  },
+  {
+   "filing_date": "2025-04-30",
+   "accession": "0000950170-25-061032",
+   "items": "2.02,9.01",
+   "exhibit": "msft-ex99_1.htm",
+   "exhibit_url": "https://www.sec.gov/Archives/edgar/data/789019/000095017025061032/msft-ex99_1.htm",
+   "exhibit_sha256": "54f7943f09ba1314db3be3bcea84196ac2e03720ae5cc7ffc0d2de46a6e741a7",
+   "exhibit_chars": 785247,
+   "slice_start": 88332,
+   "slice_end": 139987,
+   "slice_chars": 51655,
+   "slice_sha256": "69380515dac845f2d2af69b7855784c861f6c610e7507768f65cd04006bcdf31",
+   "fixture_file": "2025-04-30_0000950170-25-061032_azure_cc_table.html",
+   "table_span": [
+    88556,
+    139987
+   ],
+   "verbatim_substring_of_exhibit": true
+  },
+  {
+   "filing_date": "2025-01-29",
+   "accession": "0000950170-25-010484",
+   "items": "2.02,9.01",
+   "exhibit": "msft-ex99_1.htm",
+   "exhibit_url": "https://www.sec.gov/Archives/edgar/data/789019/000095017025010484/msft-ex99_1.htm",
+   "exhibit_sha256": "0ed2a83a17200db1475107538726b37bde6024fc17c5fda8a80394de82244c23",
+   "exhibit_chars": 755083,
+   "slice_start": 85156,
+   "slice_end": 134576,
+   "slice_chars": 49420,
+   "slice_sha256": "47288f5e00200ccbf6af3b635519cf38ea757f0a12e1317366c2ed9cdc29928f",
+   "fixture_file": "2025-01-29_0000950170-25-010484_azure_cc_table.html",
+   "table_span": [
+    85379,
+    134576
+   ],
+   "verbatim_substring_of_exhibit": true
+  },
+  {
+   "filing_date": "2024-10-30",
+   "accession": "0000950170-24-118955",
+   "items": "2.02,9.01",
+   "exhibit": "msft-ex99_1.htm",
+   "exhibit_url": "https://www.sec.gov/Archives/edgar/data/789019/000095017024118955/msft-ex99_1.htm",
+   "exhibit_sha256": "04ea9756ee0993f59748839dfdd4e82d2f09c30946563c9e943ff228f7f4760e",
+   "exhibit_chars": 451210,
+   "slice_start": 72149,
+   "slice_end": 112262,
+   "slice_chars": 40113,
+   "slice_sha256": "ac87a3ffd1e571b5b80583e2caf3902b738a35ff5eeb7778e3d698e7b3edc251",
+   "fixture_file": "2024-10-30_0000950170-24-118955_azure_cc_table.html",
+   "table_span": [
+    72354,
+    112262
+   ],
+   "verbatim_substring_of_exhibit": true
+  }
+ ],
+ "attempted": 4,
+ "note": "RULE-0022 전용 FY25 fixture. `ATLAS_CAPTURE_MAX_FILINGS=8` override live capture run 산출물의 FY25 Q1~Q4 4건이며, 각 파일 sha256 은 그 run 의 MANIFEST `slice_sha256` 와 8/8 일치 검증을 통과했다(VALUE_EXTRACTION_GATE PASS). ⛔ 재구성하지 않았다 — 원문 슬라이스 그대로다. ⛔ `azure_cc_MANIFEST.json` 을 건드리지 않는다: 그 파일은 RULE-0021 회귀가 `len(captured)==4` 로 고정하고 있어 합치면 RULE-0021 회귀가 깨진다. 그래서 별도 manifest 로 둔다."
+}
