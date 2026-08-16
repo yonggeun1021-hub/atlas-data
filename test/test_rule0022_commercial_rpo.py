@@ -340,6 +340,76 @@ with section("D-3. column fault injection"):
     check("  사유가 column identity 불일치다",
           any("identity" in p for p in probs), str(probs)[:100])
 
+with section("D-3b. bind_columns 단위 fault injection — 0건·복수건을 열별로 분리해 본다"):
+    # ★ 왜 단위로 보는가: fixture 치환으로 「GAAP 열 복수」를 만들면 cc 열이 함께 사라져
+    #   **다른 사유로** fail-closed 된다. 그러면 GAAP 복수 판정 자체는 검증되지 않는다.
+    #   (실제로 R22-COL-2 변이가 그 틈으로 SURVIVED 했다.) 열별로 분리해 못 박는다.
+    OK_HEADER = ["", "Percentage Change Y/Y (GAAP)",
+                 "Constant Currency Impact", "Percentage Change Y/Y Constant Currency"]
+    OK_DATA = ["Commercial remaining performance obligation", "51%", "0%", "51%"]
+    b, probs, counts = R.bind_columns(OK_HEADER, OK_DATA)
+    check("정상 헤더는 결합된다", b is not None, str(probs))
+    check("정상 헤더의 열 개수가 각각 1", counts == {"gaap": 1, "cc_impact": 1, "cc": 1}, str(counts))
+
+    dup_gaap = OK_HEADER + ["Percentage Change Y/Y (GAAP)"]
+    b, probs, counts = R.bind_columns(dup_gaap, OK_DATA + ["7%"])
+    check("★★ GAAP 열이 2개면 결합하지 않는다 (cc 는 그대로 1개)",
+          b is None and counts == {"gaap": 2, "cc_impact": 1, "cc": 1}, str(counts))
+    check("  사유가 GAAP 컬럼 개수다",
+          any("GAAP 성장률 컬럼이 정확히 1개가 아니다" in p for p in probs), str(probs))
+
+    no_gaap = ["", "Reported Y/Y", "Constant Currency Impact",
+               "Percentage Change Y/Y Constant Currency"]
+    b, probs, counts = R.bind_columns(no_gaap, OK_DATA)
+    check("★★ GAAP 열이 0개면 결합하지 않는다", b is None and counts["gaap"] == 0, str(counts))
+
+    dup_cc = OK_HEADER + ["Percentage Change Y/Y Constant Currency"]
+    b, _, counts = R.bind_columns(dup_cc, OK_DATA + ["7%"])
+    check("★ cc 열이 2개여도 결합하지 않는다 (evidence 열도 exactly-one)",
+          b is None and counts["cc"] == 2, str(counts))
+
+    dup_imp = OK_HEADER + ["Constant Currency Impact"]
+    b, _, counts = R.bind_columns(dup_imp, OK_DATA + ["7%"])
+    check("★ impact 열이 2개여도 결합하지 않는다",
+          b is None and counts["cc_impact"] == 2, str(counts))
+
+with section("D-3c. build_header 단위 — 값 행이 헤더 identity 를 오염시키지 않는다"):
+    # ★ 신형 문면부터 **행 라벨에 지표명이 들어간다.** 값 행을 헤더에 섞으면
+    #   행 라벨의 단어가 컬럼 분류를 오염시킨다. 그 성질을 직접 못 박는다.
+    rows = [
+        ["", "Percentage Change Y/Y (GAAP)", "Constant Currency Impact",
+         "Percentage Change Y/Y Constant Currency"],
+        ["Microsoft Cloud Percentage Change Y/Y (GAAP) revenue", "27%", "0%", "27%"],
+        ["Commercial remaining performance obligation", "51%", "0%", "51%"],
+    ]
+    hdr = R.build_header(rows, 2)
+    check("★★ 헤더에 값 행 라벨이 섞이지 않는다",
+          not any("Microsoft Cloud" in h for h in hdr), str(hdr)[:100])
+    b, probs, counts = R.bind_columns(hdr, rows[2])
+    check("★★ 오염 행이 있어도 컬럼이 각각 정확히 1개",
+          counts == {"gaap": 1, "cc_impact": 1, "cc": 1}, str(counts))
+    check("  그 결과 결합에 성공한다", b is not None, str(probs))
+    # 대조군 — 값 행을 섞으면 실제로 오염된다 (이 회귀가 무엇을 막는지의 근거)
+    dirty = [" ".join(x) for x in zip(*[r for r in rows[:2]])]
+    _, _, dirty_counts = R.bind_columns(dirty, rows[2])
+    check("★ 대조군: 값 행을 섞으면 컬럼 개수가 깨진다",
+          dirty_counts != {"gaap": 1, "cc_impact": 1, "cc": 1}, str(dirty_counts))
+
+with section("D-3d. table 복수건 fault injection"):
+    # ★ 같은 문서에 분기 조건을 만족하는 표가 둘이면 문서 순서로 고르지 않는다.
+    tm = re.search(r"<table\b(?:(?!</table>).)*Commercial remaining performance obligation"
+                   r"(?:(?!</table>).)*</table>", BASE, re.S)
+    if not need("복제할 대상 표를 찾았다", tm is not None):
+        skip("table 복수건 검사", "대상 표 미검출")
+    else:
+        two_tables = BASE[:tm.end()] + tm.group(0) + BASE[tm.end():]
+        d, probs, nar = R.observe_html(two_tables)
+        check("★★ 분기표 복수건 → fail-closed (문서 순서로 고르지 않는다)", d is None, str(d)[:40])
+        check("  table 후보 수가 2로 기록된다", nar.get("table_candidates") == 2,
+              str(nar.get("table_candidates")))
+        check("  사유가 표 개수 문제다",
+              any("표가 정확히 1건이 아니다" in p for p in probs), str(probs)[:100])
+
 with section("D-4. period fault injection"):
     annual = BASE.replace("Three Months Ended", "Year Ended")
     d, probs, nar = R.observe_html(annual)
@@ -368,9 +438,15 @@ with section("E. acquisition primitive 순수 함수 회귀 (네트워크 없음
     check("filing_date 역순으로 정렬된다", keep[0]["filing_date"] > keep[1]["filing_date"])
     check("상한 없으면 dropped 가 비어 있다", dropped == [])
     keep2, dropped2 = A.filter_earnings_candidates(recent, limit=1)
-    check("상한이 적용된다", len(keep2) == 1 and len(dropped2) == 1)
-    check("★ 상한으로 잘라낸 것을 조용히 버리지 않는다",
-          dropped2[0]["accession"] == "a4", str(dropped2))
+    check("상한이 적용된다", len(keep2) == 1)
+    # ⛔ `dropped2[0]` 로 단언하지 않는다 — 비면 IndexError(ERROR)가 되어 **검사가 아예
+    #    실행되지 않는다.** ERROR 는 FAIL 이 아니므로 판별력이 사라진다.
+    #    (실제로 R22-ACQ-3 변이가 그 틈으로 MISATTRIBUTED 됐다.) 개수로 먼저 못 박는다.
+    check("★★ 상한으로 잘라낸 것을 조용히 버리지 않는다 — dropped 가 1건이다",
+          len(dropped2) == 1, f"dropped={len(dropped2)}")
+    check("★ dropped 에 잘린 후보가 그대로 들어 있다",
+          [c["accession"] for c in dropped2] == ["a4"],
+          str([c["accession"] for c in dropped2]))
 
     docs = [{"type": "8-K", "sequence": "1", "filename": "f.htm", "description": ""},
             {"type": "EX-99.1", "sequence": "2", "filename": "ex99_1.htm", "description": ""}]

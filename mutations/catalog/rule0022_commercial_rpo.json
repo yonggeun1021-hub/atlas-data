@@ -7,13 +7,27 @@
   {
    "id": "R22-ROW-1",
    "origin_label": "R22-ROW-1",
-   "note": "row predicate 의 앵커를 푼다 — 부분 일치를 허용하면 total RPO 계열까지 넓어진다 (08-16 prohibited)",
+   "note": "row predicate 의 `^Commercial` 앵커를 제거한다. ★ 관측 결과: `.match()` 는 문자열 **시작**에서 맞추므로 앵커를 빼면 넓어지는 것이 아니라 **아무것도 맞지 않게** 된다 — 원래 적었던 「total RPO 까지 넓어진다」는 사실과 다르다. 이 변이가 실제로 깨뜨리는 계약은 「승인된 행 문면을 정확히 지목한다」이다.",
    "anchors_expected": 1,
    "anchor": "COMMERCIAL_RPO_ROW = re.compile(\n    r\"^Commercial\\s+remaining\\s+performance\\s+obligation$\", re.I)",
    "replacement": "COMMERCIAL_RPO_ROW = re.compile(\n    r\"remaining\\s+performance\\s+obligation\", re.I)",
    "expected_killers": [
-    "row 후보가 정확히 1건",
-    "row_present() 가 False 다"
+    "observation 이 생성된다",
+    "FY26 4/4 observation"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "row 후보가 정확히 1건",
+      "row_present() 가 False 다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "observation 이 생성된다",
+      "FY26 4/4 observation"
+     ],
+     "reason": "v1 은 FY25 쪽 검사(`row_present() 가 False 다`)를 killer 로 선언했는데, 그 검사는 변이 후에도 여전히 PASS 한다 — FY25 에는 어차피 행이 없다. 실제로 깨지는 것은 FY26 관측 생성이다. ⛔ 새 검사를 만들지 않고 계약을 소유한 기존 검사로 옮겼다."
+    }
    ]
   },
   {
@@ -213,14 +227,26 @@
   {
    "id": "R22-ACQ-3",
    "origin_label": "R22-ACQ-3",
-   "note": "acquisition — 상한으로 잘라낸 후보를 조용히 버린다 (collector 공통 규칙 위반)",
+   "note": "acquisition — 상한으로 잘라낸 후보를 조용히 버린다 (collector 공통 규칙 위반). ★ v1 선언은 `dropped2[0]` 를 읽는 검사였는데, 변이 후 목록이 비어 IndexError → ERROR 가 되고 **검사가 실행되지 않는다.** ERROR 는 FAIL 이 아니므로 판별력이 사라진다. 개수로 먼저 못 박는 검사로 옮겼다.",
    "anchors_expected": 1,
    "anchor": "    return out[:limit], out[limit:]",
    "replacement": "    return out[:limit], []",
    "expected_killers": [
-    "상한으로 잘라낸 것을 조용히 버리지 않는다"
+    "상한으로 잘라낸 것을 조용히 버리지 않는다 — dropped 가 1건이다"
    ],
-   "target": "collectors/msft_sec_results_acquisition.py"
+   "target": "collectors/msft_sec_results_acquisition.py",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "상한으로 잘라낸 것을 조용히 버리지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "상한으로 잘라낸 것을 조용히 버리지 않는다 — dropped 가 1건이다"
+     ],
+     "reason": "v1 검사는 변이 하에서 ERROR 로 죽어 attribution 대상이 되지 못했다. 회귀 쪽도 같은 이유로 개수 단언을 앞세우도록 고쳤다 — ⛔ 판별력을 낮추는 방향이 아니라 ERROR 를 FAIL 로 바꾸는 방향이다."
+    }
+   ]
   },
   {
    "id": "R22-ACQ-4",
