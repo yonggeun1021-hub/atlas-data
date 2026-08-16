@@ -86,6 +86,9 @@ APPROVED_TESTS = [
     # ★ CIO 승인 2026-08-15 — C4 SEC EDGAR parser 회귀 추가.
     #   ⛔ live network 호출은 넣지 않는다 — fixture 기반 결정론적 회귀만 승인 목록에 든다.
     "test/test_c4_sec_edgar.py",
+    # ★ CIO 승인 2026-08-15 — RULE-0021 Azure cc 추출 회귀 추가.
+    #   ⛔ live network 호출은 넣지 않는다 — fixture 기반 결정론적 회귀만 든다.
+    "test/test_msft_azure_cc.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
