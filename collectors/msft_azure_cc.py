@@ -213,16 +213,92 @@ def select_exhibit(docs, sec_types=None):
 
 
 def find_azure_table(tables):
-    """`Azure and other cloud services` 행을 가진 표를 후보로 삼는다."""
+    """`AZURE_ROW` 와 일치하는 행을 **전부** 낸다. (ti, rows, ri) 목록.
+
+    ⛔ 예전에는 표마다 첫 행에서 `break` 했다. 그래서 같은 표에 동일 identity 가
+       둘이면 **위쪽 행이 조용히 선택**됐다 — silent wrong 의 원인이었다.
+       여기서는 고르지 않는다. 고르는 판단은 `select_observation` 이 하고,
+       모호하면 거기서 멈춘다.
+    """
     out = []
     for ti, rows in enumerate(tables):
         rows = drop_empty_columns(rows)
         for ri, r in enumerate(rows):
-            if r and any(AZURE_ROW.match(c) for c in r):
-                if ri > 0:
-                    out.append((ti, rows, ri))
-                break
+            if r and any(AZURE_ROW.match(c.strip()) for c in r) and ri > 0:
+                out.append((ti, rows, ri))
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 좁히기 순서 — period → table → row → column (CIO 승인 2026-08-16)
+#   ★ 각 단계에서 후보가 **정확히 1건**이 아니면 fail-closed 한다.
+#     exhibit identity 에서 이미 확립한 규율을 이 층에도 적용한다.
+#   ⛔ 첫 번째를 고르지 않는다 — 문서 배치 순서가 값을 정하게 두지 않는다.
+#
+#   ★ period 는 **계약**이다. RULE-0021 의 관측값은 해당 fiscal quarter 의
+#     YoY constant-currency 성장률이며, 연간·YTD·TTM·run-rate 로 대체하지 않는다.
+#     (CIO 판정 2026-08-16 · extraction_identity_contract 에 기록)
+QUARTER_PERIOD = re.compile(
+    r"Three\s+Months\s+Ended\s+([A-Z][a-z]+\s+\d{1,2},\s*\d{4})", re.I)
+# 분기가 아닌 기간 — 관측 대상이 아니다. 조용히 통과시키지 않기 위해 명시한다.
+NON_QUARTER_PERIOD = re.compile(
+    r"(?:Year|Six\s+Months|Nine\s+Months|Twelve\s+Months)\s+Ended", re.I)
+
+
+def table_period(rows, ri):
+    """표의 기간 문면을 **의미로** 찾는다. 위치(열 번호)로 찾지 않는다.
+
+    ★ 실측: 구형은 열 1, 신형은 열 0 에 기간이 있다. 위치로 잡으면 깨진다.
+    돌려주는 것: ("QUARTER", 기간말) · ("NON_QUARTER", 문면) · None
+    """
+    for r in rows[:ri]:
+        for c in r:
+            m = QUARTER_PERIOD.search(c)
+            if m:
+                return ("QUARTER", m.group(1).strip())
+            if NON_QUARTER_PERIOD.search(c):
+                return ("NON_QUARTER", c.strip())
+    return None
+
+
+def select_observation(tables):
+    """period → table → row 로 좁힌다. (rows, ri, period_end, problems).
+
+    ⛔ 어느 단계든 후보가 정확히 1건이 아니면 값을 만들지 않는다.
+    """
+    cands = find_azure_table(tables)
+    if not cands:
+        return None, None, None, ["Azure 행(AZURE_ROW 일치)이 0건이다"]
+
+    # ① period identity — 분기표만 남긴다
+    kept, dropped = [], []
+    for ti, rows, ri in cands:
+        per = table_period(rows, ri)
+        if per and per[0] == "QUARTER":
+            kept.append((ti, rows, ri, per[1]))
+        else:
+            dropped.append((ti, ri, per))
+    if not kept:
+        return None, None, None, [
+            f"분기(Three Months Ended) 표가 0건이다 — 연간·YTD 로 대체하지 않는다. "
+            f"후보 {[(ti, ri, p) for ti, ri, p in dropped]}"]
+
+    # ② table identity — 분기표가 정확히 1건이어야 한다
+    tis = sorted({ti for ti, _, _, _ in kept})
+    if len(tis) != 1:
+        return None, None, None, [
+            f"분기 조건을 만족하는 표가 정확히 1건이 아니다 ({len(tis)}건: table {tis}) "
+            f"— 문서 순서로 고르지 않는다"]
+
+    # ③ row identity — 그 표 안 Azure 행이 정확히 1건이어야 한다
+    same = [k for k in kept if k[0] == tis[0]]
+    if len(same) != 1:
+        return None, None, None, [
+            f"표[{tis[0]}] 안 Azure 행이 정확히 1건이 아니다 "
+            f"({len(same)}건: row {[k[2] for k in same]}) — 위쪽 행을 고르지 않는다"]
+
+    ti, rows, ri, period_end = same[0]
+    return rows, ri, period_end, []
 
 
 def bind_columns(header, data):
@@ -342,22 +418,36 @@ def observe_one(c, errs):
         print("    → 실적 발표문으로 확정하지 못했다. 값을 읽지 않는다")
         return None, False
 
-    # ③ Azure 행 → 세 컬럼 의미 결합 (표는 ② 에서 이미 파싱했다 — 같은 객체를 쓴다)
-    cands = find_azure_table(p.tables)
-    print(f"    Azure 행을 가진 표 {len(cands)}건")
+    # ③ period → table → row 로 좁힌 뒤 컬럼 의미 결합
+    #    (표는 ② 에서 이미 파싱했다 — 같은 객체를 쓴다)
+    all_cands = find_azure_table(p.tables)
+    print(f"    AZURE_ROW 일치 행 {len(all_cands)}건 "
+          f"(표 {sorted({t for t, _, _ in all_cands})})")
+    rows, ri, period_end, sel_probs = select_observation(p.tables)
+    if rows is None:
+        print(f"    ✗ 관측 대상을 결정론적으로 좁히지 못했다 — 값을 읽지 않는다")
+        for x in sel_probs:
+            print(f"      사유 {x}")
+        print(f"      후보 전체 (상한 {CAND_LOG_LIMIT}):")
+        for ti, rws, r_i in all_cands[:CAND_LOG_LIMIT]:
+            print(f"        table[{ti}] row[{r_i}] period={table_period(rws, r_i)} "
+                  f"label={rws[r_i][0][:40]!r}")
+        if len(all_cands) > CAND_LOG_LIMIT:
+            print(f"        … 나머지 {len(all_cands) - CAND_LOG_LIMIT}건 생략")
+        return None, False
+    print(f"    ✓ period identity  {period_end}  (분기표 1건 · Azure 행 1건)")
     bound, why = None, []
-    for ti, rows, ri in cands:
-        header = build_header(rows, ri)
-        b, probs = bind_columns(header, rows[ri])
-        if b:
-            bound = b
-            print(f"    → table[{ti}] 에서 결합 성공")
-            break
-        why.append((ti, probs, header, rows[ri]))
+    header = build_header(rows, ri)
+    b, probs = bind_columns(header, rows[ri])
+    if b:
+        bound = b
+        print(f"    → 결합 성공")
+    else:
+        why.append((ri, probs, header, rows[ri]))
     if bound is None:
         print("    ✗ 컬럼을 의미로 결합하지 못했다 — 값을 읽지 않는다")
-        for ti, probs, header, drow in why[:2]:
-            print(f"      table[{ti}] 사유 {probs}")
+        for r_i, probs, header, drow in why[:2]:
+            print(f"      row[{r_i}] 사유 {probs}")
             print(f"        header {header}")
             print(f"        data   {drow}")
         print("      ★ 위 행렬이 다음 수정의 근거다 — 마크업을 추측하지 않는다.")
@@ -381,6 +471,7 @@ def observe_one(c, errs):
     print(f"    참고: GAAP + 영향 = cc 인가 → {note} (기록만 · 보정하지 않는다)")
 
     return {"accession": c["accession"], "filing_date": c["filing_date"],
+            "period_end": period_end,
             "report_date": c["report_date"], "acceptance": c["acceptance"],
             "items": c["items"], "exhibit": ex[0]["name"],
             "final_url": rec["final_url"],

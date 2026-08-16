@@ -131,6 +131,54 @@ CONTEXT_PROVENANCE = {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+# Extraction Identity Contract — CIO 판정 2026-08-16
+#   ★ RULE-0021 의 **period identity** 를 연다.
+#
+#   조사 결과 정본 어디에도 reporting period 가 없었다 — `condition_text` ·
+#   `scope`(UNRESOLVED) · 카드 17 · 원문 fragment · 원문 상위 셀
+#   `MSFT::탈락 조건`(fragment 3개) 전부 확인. RULE-0007/0008 처럼 상위 문맥이
+#   공급하다 유실된 것이 아니라 **원천 부재**다 (RULE-0001 의 metric identity 와
+#   같은 계열, 축만 다름).
+#
+#   ★ 기록 위치에 대한 판단 — 보고 대상
+#     CIO 는 「정의 카드를 새로 연다」고 판정했다. `rules/decision_cards.json` 은
+#     **원본 Notion 분해 기록**이고, 이후의 CIO 판정(context provenance ·
+#     definition reopen · data capability)은 전부 이 promote 층 경로로 기록해 왔다.
+#     같은 전례를 따라 여기에 싣는다 — 원본 분해 기록을 소급 편집하지 않기 위해서다.
+#     ⛔ 이 선택은 CIO 확인 대상이다. 카드 파일에 직접 넣으라면 그렇게 옮긴다.
+#
+#   ⛔ 이 경로는 **상태를 바꾸지 않는다.** RULE-0021 은 이미 DEFINED 이며
+#      data/source/evaluator 축도 건드리지 않는다. 금지 키를 가드로 강제한다.
+EXTRACTION_IDENTITY_KIND = "extraction_identity_contract"
+
+EXTRACTION_IDENTITY_CONTRACT = {
+    "RULE-0021": {
+        "kind": EXTRACTION_IDENTITY_KIND,
+        "decision_unit": "RULE-0021::period_identity",
+        "source": "CIO 판정 2026-08-16 · period CONTRACT GAP 판정",
+        "gap_finding": "정본(condition_text · scope · 카드 17)과 원문 상위 셀 어디에도 "
+                       "reporting period 가 없었다. decomposition 유실이 아니라 원천 부재다.",
+        "cio_decision": "RULE-0021 의 관측값은 Microsoft 가 해당 실적발표에서 공식 "
+                        "공표하는 `Azure and other cloud services revenue` 의 해당 "
+                        "fiscal quarter YoY constant-currency 성장률이다. "
+                        "연간·YTD·TTM·run-rate 값은 대체하지 않는다. "
+                        "표 기반 취득 시 `Three Months Ended <period end>` 가 해당 "
+                        "발표 분기와 일치해야 한다.",
+        "rationale": "Microsoft 자체가 Azure growth 를 분기 실적의 YoY 지표로 공표하고, "
+                     "IR Metrics 도 Q126/Q226/Q326 같은 분기열로 같은 지표를 관리한다. "
+                     "⛔ 「분기표가 편해서」 정한 것이 아니다.",
+        "narrowing_order": ["period identity", "table identity",
+                            "row identity", "column identity"],
+        "prohibited": ["연간(Year Ended) 값으로 대체", "YTD 대체", "TTM 대체",
+                       "run-rate 대체", "후보가 여럿일 때 첫 번째 선택"],
+        "not_a_new_definition": False,
+        "note": "⛔ 이 카드는 period identity 만 닫는다. 기준선 45 와 유의미 하회 폭 3%p "
+                "(카드 17)를 바꾸지 않으며, build_header 결함도 닫지 않는다.",
+        "execution_status": "evaluator 연결 금지",
+    },
+}
+
+# ══════════════════════════════════════════════════════════════════════
 # Definition Reopen — CIO 판정 2026-08-15
 #   ★ 방향이 반대다. 기존 두 application 은 상태를 **여는** 방향(UNDEFINED→DEFINED,
 #     MISSING→AVAILABLE)인데 이것은 **닫는** 방향(DEFINED→UNDEFINED)이다.
@@ -334,6 +382,34 @@ def _context_provenance(rid, m, decisions, errs):
     return rec
 
 
+def _extraction_identity(rid, m, decisions, errs):
+    """상태를 바꾸지 않고 **취득 identity 계약**만 남긴다. 금지 키가 있으면 싣지 않는다."""
+    if rid not in EXTRACTION_IDENTITY_CONTRACT:
+        return None
+    rec = dict(EXTRACTION_IDENTITY_CONTRACT[rid])
+    bad = CONTEXT_PROVENANCE_FORBIDDEN_KEYS & set(rec)
+    if bad:
+        errs.append(f"{rid}: extraction identity 에 상태·의미 키가 있다 {sorted(bad)} — "
+                    f"이 경로는 취득 계약만 남긴다")
+        return None
+    if rec.get("kind") != EXTRACTION_IDENTITY_KIND:
+        errs.append(f"{rid}: extraction identity 의 kind 가 다르다")
+        return None
+    if not (rec.get("cio_decision") or "").strip():
+        errs.append(f"{rid}: extraction identity 에 CIO decision 이 없다")
+        return None
+    if "금지" not in rec.get("execution_status", ""):
+        errs.append(f"{rid}: extraction identity 에 evaluator 연결 금지 표기가 없다")
+        return None
+    if rec["decision_unit"] in {d["decision_unit"] for d in decisions}:
+        errs.append(f"{rid}: extraction identity 가 기존 upstream decision 을 덮어쓴다")
+        return None
+    if not rec.get("narrowing_order"):
+        errs.append(f"{rid}: 좁히기 순서가 없다 — 계약의 본체다")
+        return None
+    return rec
+
+
 def _reopen_definition(rid, m, errs):
     """정의를 다시 연다. allowlist 밖이면 None."""
     if rid not in DEFINITION_REOPEN:
@@ -453,6 +529,9 @@ def build(out_path=OUT, mapping_path=MAPPING):
         # ── Context Provenance (상태 불변, 근거만) ────────────────
         ctx_prov = _context_provenance(rid, m, decisions, errs)
 
+        # ── Extraction Identity Contract (상태 불변, 취득 계약) ────
+        extr_id = _extraction_identity(rid, m, decisions, errs)
+
         # ── Definition Reopen (닫는 방향) ─────────────────────────
         reopened = _reopen_definition(rid, m, errs)
         if reopened:
@@ -484,6 +563,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
             "definition_application": applied,
             "definition_reopen": reopened,
             "context_provenance": ctx_prov,
+            "extraction_identity_contract": extr_id,
             "data_status": data_status,
             "data_status_before_application": m["data_status"],
             # ⛔ legacy/metadata 필드다. P3 적용 대상이 아니며 상류 값을 그대로 싣는다.

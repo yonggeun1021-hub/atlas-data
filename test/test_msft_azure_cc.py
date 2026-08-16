@@ -570,6 +570,132 @@ check("★ 구형은 spacer 행이 더 많다 (17행 대 13행) — markup 정�
       > len(M.drop_empty_columns((lambda h: (lambda p: (p.feed(h), p.tables)[1])(
           M.TableCollector()))(fx_html("2026-07-29", "0001193125-26-323632"))[0])))
 
+
+# ══════════════════════════════════════════════════════════════════════
+# D. period → table → row 좁히기 (CIO 승인 2026-08-16)
+#
+#   ★ 발견 경위: build_header 오염 FI 중 **다른** 결함이 드러났다.
+#      후보가 2건 이상일 때 첫 번째를 조용히 골라 **문서 배치 순서가 값을 정했다.**
+#   ★ period 는 계약이다 — 해당 fiscal quarter 의 YoY cc. 연간·YTD·TTM 대체 금지.
+#      (config/rules.json 의 RULE-0021.extraction_identity_contract 에 기록)
+# ══════════════════════════════════════════════════════════════════════
+print("D-0 실제 4건은 좁히기를 통과한다 (양성 대조)")
+for date, acc, _ in FIXTURES:
+    h = fx_html(date, acc)
+    pr = M.TableCollector(); pr.feed(h)
+    rows, ri, per, probs = M.select_observation(pr.tables)
+    check(f"{date} 좁히기 성공", rows is not None, str(probs))
+    check(f"{date} period 를 분기로 식별", per is not None and "20" in (per or ""), str(per))
+    if rows is not None:
+        b, _ = M.bind_columns(M.build_header(rows, ri), rows[ri])
+        check(f"{date} 값이 그대로 {EXPECTED[date]}",
+              b and (b["gaap"], b["cc_impact"], b["cc"]) == EXPECTED[date])
+
+print("D-1 ★★ 수정 전 재현 보존 — 첫 후보 선택이 무엇을 만들었나")
+# ⛔ 70f1d2b 시점 로직(첫 후보 선택)을 **그대로 박아** 무엇이 문제였는지 고정한다.
+def PRE_FIX_first_match(tables):
+    """수정 전 동작: 첫 Azure 행 / 첫 성공 표를 쓴다."""
+    for ti, rows, ri in M.find_azure_table(tables):
+        b, _ = M.bind_columns(M.build_header(rows, ri), rows[ri])
+        if b:
+            return (b["gaap"], b["cc_impact"], b["cc"])
+    return None
+
+
+BASE_D2, BASE_A2 = "2026-04-29", "0001193125-26-191457"
+_b = fx_html(BASE_D2, BASE_A2)
+# 실제 markup 최소변형 — 위쪽 행 라벨 1곳을 Azure 이름으로 바꾼다
+_dup_row = _b.replace("Microsoft Cloud revenue", "Azure and other cloud services revenue", 1)
+check("★ 변형이 실제로 적용됐다", _dup_row != _b)
+_pre = PRE_FIX_first_match((lambda p: (p.feed(_dup_row), p.tables)[1])(M.TableCollector()))
+check("★★ 수정 전에는 위쪽 행 값을 Azure 값으로 냈다 (silent wrong 재현)",
+      _pre is not None and _pre != EXPECTED[BASE_D2], str(_pre))
+check("★ 그 값이 실제로 Microsoft Cloud 행의 값이었다", _pre == ("29%", "(4)%", "25%"), str(_pre))
+
+print("D-2 row identity — 같은 표 안 Azure 행은 정확히 1개여야 한다")
+pr = M.TableCollector(); pr.feed(_dup_row)
+check("★ 2건이면 fail-closed (첫 행을 고르지 않는다)",
+      M.select_observation(pr.tables)[0] is None)
+_probs = M.select_observation(pr.tables)[3]
+check("★ 사유가 행 모호성임을 밝힌다", any("Azure 행이 정확히 1건이 아니다" in x for x in _probs),
+      str(_probs))
+check("★ 후보 행 번호를 남긴다", any("row [" in x or "row" in x for x in _probs), str(_probs))
+_none = _b.replace("Azure and other cloud services revenue", "Other cloud services revenue")
+pr0 = M.TableCollector(); pr0.feed(_none)
+check("★ 0건이면 fail-closed", M.select_observation(pr0.tables)[0] is None)
+check("★ 0건 사유가 구분된다",
+      any("0건" in x for x in M.select_observation(pr0.tables)[3]))
+
+print("D-3 ★ 순서를 바꿔도 결과가 같다 (거부) — 배치가 값을 정하지 않는다")
+_azrow = re.search(r"<tr[^>]*>(?:(?!</tr>).)*Azure and other cloud services revenue"
+                   r"(?:(?!</tr>).)*</tr>", _b, re.S)
+check("★ 실제 Azure 행 블록을 찾았다", _azrow is not None)
+if _azrow:
+    _fake = _azrow.group(0).replace(">40%<", ">11%<").replace(">(1)%<", ">(9)%<")                            .replace(">39%<", ">2%<")
+    check("★ 위조 행이 실제로 달라졌다", _fake != _azrow.group(0))
+    for nm, doc_ in (("위조 행이 뒤", _b.replace(_azrow.group(0), _azrow.group(0) + _fake, 1)),
+                     ("위조 행이 앞", _b.replace(_azrow.group(0), _fake + _azrow.group(0), 1))):
+        pr2 = M.TableCollector(); pr2.feed(doc_)
+        check(f"★ {nm} → 어느 쪽이든 거부", M.select_observation(pr2.tables)[0] is None)
+        pre = PRE_FIX_first_match(pr2.tables)
+        check(f"★★ {nm}: 수정 전에는 배치에 따라 값이 갈렸다",
+              pre is not None, str(pre))
+
+print("D-4 period identity — 분기가 아니면 쓰지 않는다")
+check("★ 실제 표의 기간을 분기로 읽는다",
+      M.table_period(*(lambda p: (lambda c: (c[0][1], c[0][2]))(M.find_azure_table(
+          (p.feed(_b), p.tables)[1])))(M.TableCollector()))[0] == "QUARTER")
+for nm, old, new in (("Year Ended 로 바꾼다", "Three Months Ended", "Year Ended"),
+                     ("Six Months Ended 로 바꾼다", "Three Months Ended", "Six Months Ended"),
+                     ("Nine Months Ended 로 바꾼다", "Three Months Ended", "Nine Months Ended")):
+    h = _b.replace(old, new)
+    check(f"★ 변형 적용 {nm}", h != _b)
+    pr3 = M.TableCollector(); pr3.feed(h)
+    r3 = M.select_observation(pr3.tables)
+    check(f"★ {nm} → 거부한다", r3[0] is None, str(r3[3]))
+    # ⛔ 결과만 남기지 않는다 — **무엇을 왜 걸렀는지**가 함께 있어야 한다.
+    #    (collector 공통 규칙) 표 guard 가 우연히 막아주는 것으로는 부족하다.
+    check(f"★ {nm} → 걸러진 후보의 기간 신호를 남긴다",
+          any("NON_QUARTER" in x for x in r3[3]), str(r3[3]))
+    check(f"★ {nm} → 대체 금지를 사유에 밝힌다",
+          any("대체하지 않는다" in x for x in r3[3]), str(r3[3]))
+
+print("D-5 ★ table identity — ⛔ 아래는 **합성 FI** 다 (실제 MSFT 구조 아님)")
+# ⛔⛔ 중요: 분기표+연간표가 함께 실린 MSFT 문서를 관측한 적이 없다.
+#     live run 4건 · fixture 4건 모두 표 1건이었고 `Year Ended` 표기는 0회다.
+#     아래는 ambiguity guard 를 검증하기 위한 **synthetic fault injection** 이며,
+#     실제 발행인 구조에 대한 주장이 아니다. 실측 증거와 섞지 않는다.
+_synth_annual = _b.replace("Three Months Ended March 31, 2026", "Year Ended June 30, 2026")
+check("★ 합성 연간표가 만들어졌다", _synth_annual != _b)
+pr4 = M.TableCollector(); pr4.feed(_synth_annual + _b)
+r4 = M.select_observation(pr4.tables)
+check("★ [synthetic FI] 연간표는 걸러지고 분기표 1건이 남는다", r4[0] is not None, str(r4[3]))
+if r4[0] is not None:
+    b4, _ = M.bind_columns(M.build_header(r4[0], r4[1]), r4[0][r4[1]])
+    check("★ [synthetic FI] 배치와 무관하게 분기 값을 집는다",
+          (b4["gaap"], b4["cc_impact"], b4["cc"]) == EXPECTED[BASE_D2],
+          str(b4 and b4["cc"]))
+pr5 = M.TableCollector(); pr5.feed(_b + _b)
+r5 = M.select_observation(pr5.tables)
+check("★ [synthetic FI] 분기표가 2건이면 fail-closed (순서로 고르지 않는다)",
+      r5[0] is None and any("정확히 1건이 아니다" in x for x in r5[3]), str(r5[3]))
+
+print("D-6 정적 — 첫 후보 선택 규율이 코드에서 사라졌다")
+_src = open(os.path.join(ROOT, "collectors", "msft_azure_cc.py"), encoding="utf-8").read()
+# ⛔ 문자열 검색은 **주석 속 `break`** 와 실제 제어문을 구별하지 못한다.
+#    (45%/3%p · index.json 에서 이미 두 번 겪은 결함) AST 로 제어문만 본다.
+_tree2 = ast.parse(_src)
+_fat_fn = [n for n in ast.walk(_tree2)
+           if isinstance(n, ast.FunctionDef) and n.name == "find_azure_table"][0]
+check("★ find_azure_table 에 break 제어문이 없다 (첫 행 선택 금지)",
+      not any(isinstance(x, ast.Break) for x in ast.walk(_fat_fn)))
+check("★ 그래도 경위 설명은 주석에 남아 있다",
+      "break" in (ast.get_docstring(_fat_fn) or ""))
+check("★ select_observation 이 존재한다", "def select_observation" in _src)
+check("★ period 를 위치가 아니라 문면으로 찾는다", "QUARTER_PERIOD" in _src)
+check("★ 분기 아닌 기간을 명시적으로 구분한다", "NON_QUARTER_PERIOD" in _src)
+check("★ 관측 레코드에 period_end 를 남긴다", '"period_end": period_end' in _src)
+
 print("B-8 이 회귀 자체의 경계")
 check("★ B 절은 네트워크를 쓰지 않는다 (fixture 만 쓴다)",
       "http" not in "".join(REAL.split("<html>")))
