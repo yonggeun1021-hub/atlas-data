@@ -107,6 +107,14 @@ APPROVED_TESTS = [
     #   ⛔ live network 없음 — fixture only.
     #   ⛔ normalization · store · pair · evaluator 는 검증하지 않는다 (S2 이후 Gate).
     "test/test_rule0022_commercial_rpo.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S2 · 층 ③ Normalization + Record.
+    #   증명: 승인 percent 표기 → exact Decimal · sign_convention 보존 /
+    #        malformed fault matrix 전건 fail-closed / raw 문면 보존 /
+    #        numeric 문자열 직렬화 · float 부재 / CC·impact evidence-only /
+    #        record invariant 전건 fail-closed / 층 순서(observer 는 이 층을 모른다).
+    #   ⛔ live network 없음 — fixture only.
+    #   ⛔ store · pair · evaluator 는 검증하지 않는다 (S3 이후 Gate).
+    "test/test_observation_normalize.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

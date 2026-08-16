@@ -1,0 +1,320 @@
+{
+ "target": "observation/normalize.py",
+ "regression": "test/test_observation_normalize.py",
+ "origin": "S2 신규 표면 — CIO 승인 2026-08-16 (Observation Layer S2 · Normalization)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 층 ③ Normalization + Record 표면만 다룬다 — store · pair 는 S3 이후 Gate 다.",
+ "mutations": [
+  {
+   "id": "N-SIGN-1",
+   "origin_label": "N-SIGN-1",
+   "note": "회계식 괄호를 음수로 해석하지 않는다 — `(1)%` 가 +1 이 된다",
+   "anchors_expected": 1,
+   "anchor": "        sign, digits = SIGN_PARENS, \"-\" + m.group(1)",
+   "replacement": "        sign, digits = SIGN_PARENS, m.group(1)",
+   "expected_killers": [
+    "'(1)%' → numeric '-1'"
+   ]
+  },
+  {
+   "id": "N-SIGN-2",
+   "origin_label": "N-SIGN-2",
+   "note": "sign_convention 을 하나로 뭉갠다 — 표기 provenance 가 사라진다",
+   "anchors_expected": 1,
+   "anchor": "SIGN_PARENS = \"accounting_parentheses\"",
+   "replacement": "SIGN_PARENS = \"none\"",
+   "expected_killers": [
+    "두 표기의 sign_convention 은 다르다",
+    "sign_convention = accounting_parentheses"
+   ]
+  },
+  {
+   "id": "N-SIGN-3",
+   "origin_label": "N-SIGN-3",
+   "note": "explicit_minus 를 괄호와 같은 이름으로 만든다",
+   "anchors_expected": 1,
+   "anchor": "SIGN_MINUS = \"explicit_minus\"",
+   "replacement": "SIGN_MINUS = \"accounting_parentheses\"",
+   "expected_killers": [
+    "두 표기의 sign_convention 은 다르다",
+    "sign_convention = explicit_minus"
+   ]
+  },
+  {
+   "id": "N-FLOAT-1",
+   "origin_label": "N-FLOAT-1",
+   "note": "★ exact decimal 대신 float 를 쓴다 — 10%p 경계 판정이 반올림에 오염된다",
+   "anchors_expected": 1,
+   "anchor": "        value = Decimal(digits)",
+   "replacement": "        value = float(digits)",
+   "expected_killers": [
+    "normalize.py 가 `float()` 를 호출하지 않는다",
+    "0.1 + 0.2 == 0.3 (exact decimal)"
+   ]
+  },
+  {
+   "id": "N-FLOAT-2",
+   "origin_label": "N-FLOAT-2",
+   "note": "numeric 을 문자열이 아니라 수치로 직렬화한다 — JSON 에 float 가 유입된다",
+   "anchors_expected": 1,
+   "anchor": "        \"numeric_value\": str(value),    # ★ JSON 은 문자열. ⛔ float 로 만들지 않는다",
+   "replacement": "        \"numeric_value\": float(value),",
+   "expected_killers": [
+    "numeric 이 문자열이다 (JSON 직렬화 계약)",
+    "normalize.py 가 `float()` 를 호출하지 않는다"
+   ]
+  },
+  {
+   "id": "N-RAW-1",
+   "origin_label": "N-RAW-1",
+   "note": "raw 문면을 폐기하고 정규화값으로 덮는다 — source 복원성 상실",
+   "anchors_expected": 1,
+   "anchor": "        \"raw_value\": raw,               # ★ 원문 그대로 — 폐기 금지",
+   "replacement": "        \"raw_value\": str(value) + \"%\",",
+   "expected_killers": [
+    "raw 문면이 보존된다",
+    "두 표기의 raw 는 다르다 — source 복원성이 유지된다"
+   ]
+  },
+  {
+   "id": "N-LOOSE-1",
+   "origin_label": "N-LOOSE-1",
+   "note": "`%` 없는 숫자를 자동 수용한다 — unit 없는 값이 관측값이 된다",
+   "anchors_expected": 1,
+   "anchor": "RE_PLAIN = re.compile(rf\"^({_NUM})%$\")",
+   "replacement": "RE_PLAIN = re.compile(rf\"^({_NUM})%?$\")",
+   "expected_killers": [
+    "'1' → fail-closed (unit 없음)",
+    "'51' → fail-closed (percent 기호 없음)"
+   ]
+  },
+  {
+   "id": "N-LOOSE-2",
+   "origin_label": "N-LOOSE-2",
+   "note": "입력을 임의로 trim 한다 — malformed 보정 금지 위반",
+   "anchors_expected": 1,
+   "anchor": "    if raw == \"\":\n        raise NormalizationError(\"빈 문자열\")",
+   "replacement": "    raw = raw.strip()\n    if raw == \"\":\n        raise NormalizationError(\"빈 문자열\")",
+   "expected_killers": [
+    "' 51%' → fail-closed (선행 공백 — 임의 trim 금지)",
+    "'51% ' → fail-closed (후행 공백 — 임의 trim 금지)"
+   ]
+  },
+  {
+   "id": "N-LOOSE-3",
+   "origin_label": "N-LOOSE-3",
+   "note": "괄호 앵커를 풀어 불균형 괄호를 통과시킨다",
+   "anchors_expected": 1,
+   "anchor": "RE_PARENS = re.compile(rf\"^\\(({_NUM})\\)%$\")",
+   "replacement": "RE_PARENS = re.compile(rf\"^\\(?({_NUM})\\)?%$\")",
+   "expected_killers": [
+    "'(1%' → fail-closed (괄호 불균형(열림))",
+    "'1)%' → fail-closed (괄호 불균형(닫힘))"
+   ]
+  },
+  {
+   "id": "N-FAILOPEN-1",
+   "origin_label": "N-FAILOPEN-1",
+   "note": "★ 실패를 예외 대신 값으로 삼킨다 — 기존 collector `_n()` 의 fail-open 성질 재유입",
+   "anchors_expected": 1,
+   "anchor": "            if not m:\n                raise NormalizationError(f\"승인된 percent 표기가 아니다: {raw!r}\")",
+   "replacement": "            if not m:\n                return {\"raw_value\": raw, \"numeric_value\": \"0\", \"unit\": UNIT_PCT, \"sign_convention\": \"none\"}",
+   "expected_killers": [
+    "'n/a' → fail-closed (숫자가 아니다)",
+    "record fail-closed — decision raw 가 malformed"
+   ]
+  },
+  {
+   "id": "N-TYPE-1",
+   "origin_label": "N-TYPE-1",
+   "note": "문자열이 아닌 입력을 문자열로 강제 변환한다 — float/int 유입 경로가 열린다",
+   "anchors_expected": 1,
+   "anchor": "    if not isinstance(raw, str):\n        raise NormalizationError(f\"문자열이 아니다: {type(raw).__name__}\")",
+   "replacement": "    raw = str(raw)",
+   "expected_killers": [
+    "None → fail-closed (None 입력)",
+    "51 → fail-closed (int 입력)"
+   ]
+  },
+  {
+   "id": "N-PERIOD-1",
+   "origin_label": "N-PERIOD-1",
+   "note": "기간 문면 앵커를 푼다 — 승인되지 않은 표기가 통과한다",
+   "anchors_expected": 1,
+   "anchor": "RE_PERIOD_END = re.compile(r\"^([A-Z][a-z]+) (\\d{1,2}), (\\d{4})$\")",
+   "replacement": "RE_PERIOD_END = re.compile(r\"([A-Za-z]+) (\\d{1,2}),? (\\d{4})\")",
+   "expected_killers": [
+    "기간 'September 30 2025' → fail-closed (쉼표 없음)",
+    "기간 'september 30, 2025' → fail-closed (소문자 시작)"
+   ]
+  },
+  {
+   "id": "N-PERIOD-2",
+   "origin_label": "N-PERIOD-2",
+   "note": "알 수 없는 월 이름을 기본값으로 보정한다",
+   "anchors_expected": 1,
+   "anchor": "    month = _MONTHS.get(m.group(1).lower())\n    if month is None:\n        raise NormalizationError(f\"알 수 없는 월 이름: {m.group(1)!r}\")",
+   "replacement": "    month = _MONTHS.get(m.group(1).lower()) or 1",
+   "expected_killers": [
+    "기간 'Smarch 30, 2025' → fail-closed (없는 월)"
+   ]
+  },
+  {
+   "id": "N-PERIOD-3",
+   "origin_label": "N-PERIOD-3",
+   "note": "기간 raw 문면을 버린다",
+   "anchors_expected": 1,
+   "anchor": "    return {\"period_end_raw\": raw, \"economic_period_end\": f\"{year:04d}-{month:02d}-{day:02d}\"}",
+   "replacement": "    return {\"period_end_raw\": \"\", \"economic_period_end\": f\"{year:04d}-{month:02d}-{day:02d}\"}",
+   "expected_killers": [
+    "기간 raw 문면이 보존된다"
+   ]
+  },
+  {
+   "id": "R-LAYER-1",
+   "origin_label": "R-LAYER-1",
+   "note": "★ 층 침범 — record 가 persisted=True 로 만든다 (층 ④ 침범)",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "        \"persisted\": False,     # ★ 층 ④ 가 아직 처리하지 않았다",
+   "replacement": "        \"persisted\": True,",
+   "expected_killers": [
+    "persisted = False (층 ④ 미침범)"
+   ]
+  },
+  {
+   "id": "R-LAYER-2",
+   "origin_label": "R-LAYER-2",
+   "note": "★ 이미 normalized 라고 주장하는 draft 를 받아들인다 — 층 ② 침범을 못 잡는다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if draft.get(\"normalized\") is not False:",
+   "replacement": "    if False and draft.get(\"normalized\") is not False:",
+   "expected_killers": [
+    "record fail-closed — draft 가 이미 normalized 라고 주장"
+   ]
+  },
+  {
+   "id": "R-EVID-1",
+   "origin_label": "R-EVID-1",
+   "note": "★ evidence 를 Decision 값으로 승격시킨다 — D-3 계약 위반",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "            \"is_decision_value\": False,     # ★ evidence 는 Decision 값으로 승격되지 않는다",
+   "replacement": "            \"is_decision_value\": True,",
+   "expected_killers": [
+    "evidence 가 Decision 값이 아니다",
+    "Decision 값은 정확히 1개다"
+   ]
+  },
+  {
+   "id": "R-EVID-2",
+   "origin_label": "R-EVID-2",
+   "note": "evidence 열을 통째로 버린다 — CC·impact 보존 계약 위반",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "        \"evidence_columns\": evidence,",
+   "replacement": "        \"evidence_columns\": [],",
+   "expected_killers": [
+    "evidence 가 cc_impact · cc 두 건이다"
+   ]
+  },
+  {
+   "id": "R-COL-1",
+   "origin_label": "R-COL-1",
+   "note": "Decision 열 계약 검사를 없앤다 — cc 열이 Decision 으로 들어올 수 있다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if decision.get(\"column_key\") != \"gaap\":",
+   "replacement": "    if False and decision.get(\"column_key\") != \"gaap\":",
+   "expected_killers": [
+    "record fail-closed — Decision 열이 cc 로 뒤바뀜"
+   ]
+  },
+  {
+   "id": "R-COL-2",
+   "origin_label": "R-COL-2",
+   "note": "Decision 열 identity 검사를 없앤다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if not _identity_contains(decision.get(\"column_identity\") or \"\",\n                              EXPECTED_DECISION_COLUMN_IDENTITY):",
+   "replacement": "    if False:",
+   "expected_killers": [
+    "record fail-closed — Decision 열 identity 오염"
+   ]
+  },
+  {
+   "id": "R-NARROW-1",
+   "origin_label": "R-NARROW-1",
+   "note": "narrowing exactly-one 증거 검사를 완화한다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "        if narrowing.get(k) != 1:\n            raise RecordInvariantError(f\"narrowing `{k}` 가 정확히 1이 아니다: {narrowing.get(k)!r}\")",
+   "replacement": "        if narrowing.get(k) is None:\n            raise RecordInvariantError(f\"narrowing `{k}` 가 정확히 1이 아니다: {narrowing.get(k)!r}\")",
+   "expected_killers": [
+    "record fail-closed — narrowing row 가 2",
+    "record fail-closed — narrowing table 이 0"
+   ]
+  },
+  {
+   "id": "R-PROV-1",
+   "origin_label": "R-PROV-1",
+   "note": "provenance 필수 항목 검사를 없앤다 — 출처 없는 record 가 생긴다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    prov = draft.get(\"provenance\") or {}\n    missing = [k for k in REQUIRED_PROVENANCE if not prov.get(k)]\n    if missing:\n        raise RecordInvariantError(f\"provenance 필수 항목이 없다: {missing}\")\n\n    # ── normalization — 실패하면 record 를 만들지 않는다 ───────────────",
+   "replacement": "    prov = draft.get(\"provenance\") or {}\n\n    # ── normalization — 실패하면 record 를 만들지 않는다 ───────────────",
+   "expected_killers": [
+    "record fail-closed — provenance 가 비었음",
+    "record fail-closed — provenance accession 누락"
+   ]
+  },
+  {
+   "id": "R-IDENT-1",
+   "origin_label": "R-IDENT-1",
+   "note": "measurement identity 검사를 없앤다 — total RPO 가 들어와도 통과한다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if draft.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
+   "replacement": "    if False and draft.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
+   "expected_killers": [
+    "record fail-closed — measurement identity 오염"
+   ]
+  },
+  {
+   "id": "R-QUARTER-1",
+   "origin_label": "R-QUARTER-1",
+   "note": "economic period 가 quarter 라는 invariant 를 없앤다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if draft.get(\"economic_period_kind\") != EXPECTED_PERIOD_KIND:",
+   "replacement": "    if False and draft.get(\"economic_period_kind\") != EXPECTED_PERIOD_KIND:",
+   "expected_killers": [
+    "record fail-closed — period kind 가 quarter 아님"
+   ]
+  },
+  {
+   "id": "R-VALID-1",
+   "origin_label": "R-VALID-1",
+   "note": "★ validate_record 의 float 검사를 없앤다 — numeric 에 float 가 앉을 수 있다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if not isinstance(d.get(\"numeric_value\"), str):\n        raise RecordInvariantError(\"numeric_value 가 문자열이 아니다 — float 유입 의심\")",
+   "replacement": "    pass",
+   "expected_killers": [
+    "validate fail-closed — numeric 이 float 이면 잡는다"
+   ]
+  },
+  {
+   "id": "R-VALID-2",
+   "origin_label": "R-VALID-2",
+   "note": "조립 후 재검증을 건너뛴다 — validate 와 build 의 이중 방어가 사라진다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    validate_record(record)\n    return record",
+   "replacement": "    return record",
+   "expected_killers": [
+    "record fail-closed — draft 가 이미 persisted 라고 주장"
+   ]
+  }
+ ]
+}
