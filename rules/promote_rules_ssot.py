@@ -176,6 +176,45 @@ EXTRACTION_IDENTITY_CONTRACT = {
                 "(카드 17)를 바꾸지 않으며, build_header 결함도 닫지 않는다.",
         "execution_status": "evaluator 연결 금지",
     },
+    # ── RULE-0022 — measurement identity 한 칸만 닫는다 (CIO 판정 2026-08-16) ──
+    "RULE-0022": {
+        "kind": EXTRACTION_IDENTITY_KIND,
+        "decision_unit": "RULE-0022::measurement_identity",
+        "source": "CIO 판정 2026-08-16 · measurement identity 확정",
+        "gap_finding": "카드 18(기간) · 19(비교 기준) · 20(폭) 어디에도 **어느 계열을 "
+                       "재는지**가 지목돼 있지 않았다. 카드 19 는 「동일한 측정 정의」를 "
+                       "전제하지만 그 측정 정의를 지목한 카드가 없었다. "
+                       "RULE-0001 이 같은 사유(metric identity 부재)로 재개방된 선례가 있다.",
+        "cio_decision": "RULE-0022 의 평가 계열은 Microsoft 가 공식 표에서 동일 문면으로 "
+                        "공표하는 `Commercial remaining performance obligation` 의 "
+                        "전년동기 성장률(YoY)로 고정한다. "
+                        "「RPO」라는 자연어를 total RPO 까지 임의로 넓히지 않는다. "
+                        "★ 새 observable 을 만드는 것이 아니라, 지금 실제로 수집하고 있는 "
+                        "행의 identity 를 정본에 명시하는 것이다.",
+        "rationale": "현재 고정 표본 네 건이 모두 정확히 같은 행 문면을 담고 있고, "
+                     "그 행은 RULE-0021 이 쓰는 바로 그 표 안에 있다. "
+                     "반면 정본에는 total 인지 Commercial 인지 지정이 없었다. "
+                     "⛔ 「수집이 쉬워서」 고른 것이 아니라 이미 관측 중인 계열을 "
+                     "정본에 적는 것이다.",
+        "narrowing_order": ["period identity", "table identity",
+                            "row identity", "column identity"],
+        "prohibited": [
+            "total RPO 로 계열 확대",
+            "잔액 자체의 증감으로 대체",
+            "직전 보고기간 성장률과 비교",
+            "회사가 제공하는 조정 성장률(대형 계약 제외 기준 등)로 evaluator 값 대체",
+            "기저효과를 이유로 한 사후 예외 · 무효화",
+            "단기·장기 구성 및 인식기간 변화를 비교 기준에 혼입",
+            "후보가 여럿일 때 첫 번째 선택",
+        ],
+        "not_a_new_definition": True,
+        "note": "⛔ 카드 18 · 19 · 20 의 기간 · 비교 기준 · 폭을 재개방하지 않는다. "
+                "measurement identity 한 칸만 닫는다. "
+                "★ 기저효과는 카드 19 가 말하는 「측정 정의 또는 포함 범위 변경」이 "
+                "아니므로 판정 불가 사유가 아니다 (CIO 판정 2026-08-16). "
+                "회사의 조정 설명은 evidence 로 보존할 수 있으나 계산 입력이 아니다.",
+        "execution_status": "evaluator 연결 금지",
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════
