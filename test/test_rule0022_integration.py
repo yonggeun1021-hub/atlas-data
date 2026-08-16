@@ -325,11 +325,20 @@ with section("D. ★★ workflow 계약 순서"):
         check("★ workflow_dispatch 전용이다", "workflow_dispatch:" in wf)
         # ★ S4B-LIVE-WIRING 으로 live option 이 노출됐다. 그러나 **노출 ≠ 실행 승인**이다 —
         #   dispatch 는 별도 CIO 승인 1회이며, 그 계약은 E-5 절이 본다.
-        check("★ source 선택지가 fixture · live 두 값이다",
-              re.search(r"options:\s*\[fixture,\s*live\]", wf) is not None)
-        check("★★ default 는 여전히 fixture 다 (live 가 기본이 되지 않는다)",
-              re.search(r"options:\s*\[fixture,\s*live\]\s*\n\s*default:\s*fixture", wf)
-              is not None)
+        #
+        # ★★ H1 (CIO 확정 2026-08-16) — 이 두 검사의 **계약이 바뀌었다**.
+        #    이전 계약: `options: [fixture, live]` inline flow · `default: fixture`
+        #    새 계약  : 첫 option 을 무효 sentinel 로 두어 **명시 선택 없이는 실행되지 않는다.**
+        #    ⛔ 약화가 아니라 방향 반전이다 — `default: fixture` 는 이제 **금지**다.
+        #    ⛔ 또한 `options: [...]` 형태에 정규식을 걸지 않는다. YAML 표기 형식이
+        #       바뀌었다고 계약 검사가 깨지는 것은 검사가 형식에 붙어 있었다는 뜻이다.
+        src_block = wf.split("source:", 1)[1].split("capture_max_filings:", 1)[0]
+        check("★ source 선택지에 fixture 와 live 가 모두 노출된다",
+              "fixture" in src_block and "live" in src_block, src_block)
+        check("★★ H1 · default 가 fixture 가 아니다 — 조용히 연습 데이터로 내려가지 않는다",
+              re.search(r"default:\s*fixture\s*$", src_block, re.M) is None, src_block)
+        check("★★ H1 · source 입력이 required 다",
+              re.search(r"required:\s*true", src_block) is not None, src_block)
         check("★ permissions 가 contents: read 다", "contents: read" in wf)
         check("★ artifact upload 가 있다", "upload-artifact" in wf)
         check("★★ observe 가 저장소 밖(runner.temp)으로 emit 한다",
@@ -746,8 +755,12 @@ with section("E-4. ★★ D-5 처리 — pre-series 는 observation 을 만들�
 
 with section("E-5. workflow live input 계약"):
     wf2 = open(WF, encoding="utf-8").read()
+    # ★★ H1 — 위 D 절과 같은 이유로 표기 형식이 아니라 계약을 본다.
+    src2 = wf2.split("source:", 1)[1].split("capture_max_filings:", 1)[0]
     check("★★ source 에 fixture · live 두 값이 노출된다",
-          re.search(r"options:\s*\[fixture,\s*live\]", wf2) is not None)
+          "fixture" in src2 and "live" in src2, src2)
+    check("★★ H1 · 그러나 어느 쪽도 기본값으로 내려가지 않는다",
+          re.search(r"default:\s*(fixture|live)\s*$", src2, re.M) is None, src2)
     check("★★ capture_max_filings input 이 있다", "capture_max_filings:" in wf2)
     check("★★ 실제 전달값을 로그로 남긴다",
           "echo \"SOURCE=$SOURCE\"" in wf2 and "echo \"CAPTURE_MAX_FILINGS=" in wf2)

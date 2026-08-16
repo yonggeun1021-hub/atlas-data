@@ -130,6 +130,30 @@ APPROVED_TESTS = [
     #        workflow 계약 순서.
     #   ⛔ live network 없음 · dispatch 없음 — fixture only (S4B 미승인).
     "test/test_rule0022_integration.py",
+    # ══════════════════════════════════════════════════════════════════
+    # ★ CIO 승인 2026-08-17 — WS1~WS4 integration patch.
+    #   base `bc18bb0` 에 1-WS1 → 2-WS3 → 3-WS4 → 4-WS2 순으로 적용해
+    #   `1,590 checks / 0 FAIL / 0 ERROR / 0 SKIPPED` 재현을 확인한 뒤 등록한다.
+    #   ⛔ 아래 3개만 신규 등록 대상이다. `test_rule0022_integration.py` 는
+    #      기존 승인 테스트의 **수정**이므로 새로 등록하지 않는다.
+    # ══════════════════════════════════════════════════════════════════
+    # ★ WS3 — Evidence Bridge. 검증된 observation 만 Decision Layer 입구까지
+    #   전달하는 **입력 자격 계약**만 검증한다.
+    #   ⛔ Rule 판단 · evaluator 배선 · consumable_by_evaluator 전환은 검증하지 않는다.
+    #   ⛔ live network 없음 — fixture only.
+    "test/test_evidence_envelope.py",
+    # ★ WS4 — Briefing Adapter. 확인된 사실과 투자판정/행동의 **분리**만 검증한다.
+    #   ⛔ 브리핑 문안이나 투자 판정 내용 자체는 검증 대상이 아니다.
+    #   ⛔ live network 없음 — fixture only.
+    "test/test_briefing_evidence_adapter.py",
+    # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
+    #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
+    #   자체**에 대해 검증한다.
+    #   ★ PyYAML 로 워크플로를 파싱한다 (CIO 판정 2026-08-17 — YAML 계약 검증을
+    #     수제 parser 나 문자열 검색으로 낮추지 않는다). CI 의존성은
+    #     `requirements-ci.txt` 에 정식 선언한다.
+    #   ⛔ 이 회귀는 workflow 를 **실행하지 않는다** — 정의만 읽는다. dispatch 없음.
+    "test/test_rule0022_workflow_contract.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
