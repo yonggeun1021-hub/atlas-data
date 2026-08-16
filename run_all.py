@@ -89,6 +89,12 @@ APPROVED_TESTS = [
     # ★ CIO 승인 2026-08-15 — RULE-0021 Azure cc 추출 회귀 추가.
     #   ⛔ live network 호출은 넣지 않는다 — fixture 기반 결정론적 회귀만 든다.
     "test/test_msft_azure_cc.py",
+    # ★ CIO 판정 2026-08-16 항목 5 — fixture 슬라이서 회귀.
+    #   이 회귀는 **슬라이서의 성질**(원문 부분 문자열 · 표 여닫이 균형 · fail-closed)만
+    #   검증한다. 추출 계약은 검증하지 않는다 — 그것은 실제 fixture 확보 후다.
+    #   ⛔ CIO 가 이 파일 자체를 아직 승인한 적은 없다. 목록에 넣지 않으면 test-set
+    #      대조에서 「미승인」으로 잡히므로 숨기지 않고 등록한 뒤 보고한다.
+    "test/test_capture_azure_fixture.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
