@@ -277,6 +277,59 @@ TSMC 가 공식 실적발표에서 제시하는 **연간 consolidated capital bu
   즉 **퍼센트 태깅은 가능하지만 Azure 성장률은 태깅 대상이 아니다.**
 - ⇒ 관측 원천은 **실적 press release(8-K Ex-99.1) 또는 10-Q MD&A 서술**이다.
 
+### 2차 조사 — 둘 다 **문서 층에서는 FEASIBLE**
+
+핵심은 **EDGAR full-text search(`efts.sec.gov`)** 였다. `submissions` 로는 후보를 좁힐 수
+없었는데(대상 문서가 exhibit 이라 목록에 안 보인다), **내용으로 문서를 찾는 경로**가 열렸다.
+
+#### `RULE-0004` — 연간 capital budget 은 **prose text 로 존재한다**
+
+`0001046179-26-000008` (2026-01-15) · `a4q25e_withguidancexfinal.htm` (4Q25/연간 실적):
+
+> **"The management further expects the 2026 capital budget to be between
+> US$52 billion and US$56 billion."**
+
+- **본문 텍스트**다 — 이미지가 아니다. 우려했던 슬라이드 이미지 문제는 이 값에는 해당하지 않는다.
+- 카드가 요구하는 **범위 하단** = `US$52 billion` 을 그대로 얻을 수 있다.
+
+**⚠️ 함께 확인된 두 가지**
+
+1. **연 1회가 아니다.** `"capital budget"` 전문검색 결과 1월(4Q) 릴리스가 주축이지만
+   **4월·7월·10월 릴리스에도 등장한 해가 있다**(2015-04 · 2016-07 · 2016-10 · 2017-10 ·
+   2018-04 · 2019-10 · 2020-07 · 2021-04). 카드가 *"가장 최근 공식적으로 제시한"* 을 요구하므로
+   **중간 갱신을 놓치면 안 된다.**
+2. **모든 릴리스에 있는 것은 아니다.** 2Q26 릴리스에는 없었다. ⇒ collector 는
+   *"이번 릴리스에 가이던스 없음"* 을 **오류가 아니라 정상 상태**로 처리해야 한다.
+
+#### `RULE-0021` — Azure cc 성장률은 **명명된 표의 명명된 컬럼**에 있다
+
+MSFT 실적 8-K 의 **`EX-99.1`** (`msft-ex99_1.htm`) — 전문검색으로 18개 분기 연속 확인.
+
+표 이름: **`Selected Product and Service Revenue Constant Currency Reconciliation`**
+
+| 항목 | 값 (FY2025 Q4 예) |
+|---|---|
+| Azure and other cloud services · Percentage Change Y/Y (GAAP) | 39% |
+| Constant Currency Impact | 0% |
+| **Percentage Change Y/Y Constant Currency** | **39%** |
+
+P3 의 `TSMC {Month} Revenue Report (Consolidated)` 와 **같은 형태** — 명명된 표에서
+명명된 컬럼을 집으면 된다.
+
+**⚠️ 함정 두 가지 — 계약에 반영해야 한다**
+
+1. **같은 문서 안에 다른 숫자가 있다.** CEO 인용문은 *"Azure surpassed \$75 billion in
+   revenue, **up 34 percent**"* 라고 적는데 이는 표의 **39%** 와 다르다(측정 대상이 다름).
+   ⛔ **산문에서 집으면 틀린다.** 관측 대상을 표로 못박아야 한다.
+2. **이 분기는 GAAP 과 cc 가 같다**(Constant Currency Impact 0%). 이 분기만으로 테스트하면
+   **두 컬럼을 구별하지 못한다.** 값이 갈리는 분기를 반드시 포함해야 한다.
+
+#### 발견의 파급 — P2-b 전체
+
+`efts.sec.gov` 전문검색은 **내용 기반 문서 발견**을 제공한다. P2-b·P2-c 처럼 값이
+exhibit·narrative 에 있는 Rule 에서 *"어느 문서를 열어야 하는가"* 를 추측 없이 좁힐 수 있다.
+⛔ 다만 **문서를 찾는 수단이지 값의 출처가 아니다** — 값은 원문에서 읽고 검증한다.
+
 ⛔ 두 Rule 모두 source 채택·collector 구현·상태 변경 없음.
 
 ---
