@@ -34,7 +34,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -45,17 +44,10 @@ ROOT = os.path.dirname(HERE)
 CATALOG_DIR = os.path.join(HERE, "catalog")
 PY = sys.executable
 
-RE_SUMMARY = re.compile(r"^\s*(\d+) PASS / (\d+) FAIL\s*$", re.M)
-# ★ 회귀의 `check()` 는 **정확히 두 칸** 들여쓴 `  ✗ ` 로 찍는다 (세 회귀 공통).
-#   collector 자신의 진단 출력은 대부분 네 칸이지만 **두 칸짜리도 하나 있다**
-#   (`capture_azure_fixture.py:169`). 즉 들여쓰기만으로는 완전히 갈리지 않는다.
-#   그래서 세 겹으로 막는다:
-#     ① 정확히 두 칸인 줄만 후보로 본다 (네 칸 진단 출력 배제)
-#     ② baseline 출력에 이미 있던 줄은 **이번 변이가 만든 것이 아니므로** 뺀다
-#     ③ 남은 개수를 회귀가 스스로 보고한 `N PASS / M FAIL` 의 M 과 대조한다
-#   ③ 이 어긋나면 해석을 신뢰하지 않고 `parse_exact=False` 로 남긴다 — 숨기지 않는다.
-#   ⛔ 회귀 파일의 출력 형식을 고쳐서 해결하지 않는다 (범위 밖).
-RE_FAILLINE = re.compile(r"^  ✗ (.+)$", re.M)
+# ★ 해석은 stdout 파싱이 아니라 **기계 판독 trace**(checkkit) 로 한다.
+#   이전 방식은 회귀의 `check()` 와 collector 진단 출력이 둘 다 `  ✗ ` 로 시작해
+#   세 겹의 휴리스틱이 필요했고, crash 시 진행 위치는 AST 로 역추정해야 했다.
+#   ⛔ 두 우회를 모두 제거했다 — 근거는 trace 하나다.
 
 # ── verdict (CIO 판정 c) ──────────────────────────────────────────────
 KILLED = "KILLED"                    # expected_killers 중 ≥1 실패
@@ -120,12 +112,18 @@ def make_checkout(base_tar: str, dest_parent: str) -> str:
     return d
 
 
-def run_in(checkout: str, argv: list) -> subprocess.CompletedProcess:
-    """일회용 checkout 안에서만 실행한다. pyc 는 남기지 않는다(위생) — 계약은 검사다."""
+def run_in(checkout: str, argv: list, trace: str = "") -> subprocess.CompletedProcess:
+    """일회용 checkout 안에서만 실행한다. pyc 는 남기지 않는다(위생) — 계약은 검사다.
+    `trace` 를 주면 회귀가 checkkit 을 통해 **기계 판독 trace** 를 그 경로에 남긴다.
+    ⛔ trace 는 checkout **밖**에 쓴다 — 일회용 tree 를 오염시키지 않는다."""
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"     # ⛔ 무효화 장치가 아니다. 위생 목적이다.
     env.pop("PYTHONPYCACHEPREFIX", None)
     env["ATLAS_MUTATION_RUN"] = "1"
+    if trace:
+        env["ATLAS_CHECK_TRACE"] = trace
+    else:
+        env.pop("ATLAS_CHECK_TRACE", None)
     return subprocess.run(argv, cwd=checkout, capture_output=True, text=True, env=env)
 
 
@@ -143,30 +141,61 @@ print(json.dumps({"module_file": p, "cwd": os.getcwd(),
 # ══════════════════════════════════════════════════════════════════════
 # 회귀 출력 해석 — rc 가 아니라 **어떤 검사가 실패했는가**
 # ══════════════════════════════════════════════════════════════════════
-def parse_regression(cp: subprocess.CompletedProcess) -> dict:
-    out = cp.stdout or ""
-    m = RE_SUMMARY.search(out)
-    x_lines = [ln.strip() for ln in RE_FAILLINE.findall(out)]
-    return {"returncode": cp.returncode,
-            "completed": bool(m),
-            "outcome": ("PASS" if cp.returncode == 0 and m else
-                        "FAIL" if m else "CRASH"),
-            "reported_fail_count": int(m.group(2)) if m else None,
-            "x_lines": x_lines,
-            "stderr_tail": (cp.stderr or "").strip()[-400:]}
+def parse_regression(cp: subprocess.CompletedProcess, trace_path: str) -> dict:
+    """★ 해석의 근거는 stdout 이 아니라 **기계 판독 trace** 다.
+    회귀의 `check()` 와 collector 진단 출력이 둘 다 `✗` 로 시작하는 문제와,
+    실행 위치를 AST 로 역추정해야 했던 문제가 여기서 함께 사라진다."""
+    rec = {"returncode": cp.returncode,
+           "stderr_tail": (cp.stderr or "").strip()[-400:]}
+    data = None
+    if trace_path and os.path.exists(trace_path):
+        try:
+            with open(trace_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as ex:                      # noqa: BLE001
+            rec["trace_error"] = repr(ex)[:200]
+    if data is None:
+        # atexit 이 돌지 못한 실행 — signal · fatal error · os._exit 뿐이다.
+        rec.update({"outcome": "CRASH", "trace_present": False,
+                    "failed_checks": [], "failed_check_count": 0,
+                    "errors": [], "skipped": [], "evaluated": 0})
+        return rec
+    tr = data["trace"]
+    failed = [t["name"] for t in tr if t["kind"] == "FAIL"]
+    errors = [{"section": t["name"], "detail": t["detail"]}
+              for t in tr if t["kind"] == "ERROR"]
+    skipped = [{"name": t["name"], "reason": t["detail"]}
+               for t in tr if t["kind"] == "SKIPPED"]
+    rec.update({
+        "trace_present": True,
+        "counts": {k: data[k] for k in ("pass", "fail", "error", "skipped")},
+        "failed_checks": failed,
+        "failed_check_count": len(failed),
+        "errors": errors,
+        "skipped": skipped,
+        "evaluated": data["pass"] + data["fail"],
+        "accounted": data["pass"] + data["fail"] + data["skipped"],
+        "sections_entered": len(data["sections_entered"]),
+        "last_section": data["last_section"],
+        # trace 와 요약 카운터가 어긋나면 해석을 신뢰하지 않는다
+        "parse_exact": (len(failed) == data["fail"]
+                        and len(errors) == data["error"]
+                        and len(skipped) == data["skipped"]),
+        "outcome": ("PASS" if (cp.returncode == 0 and data["fail"] == 0
+                               and data["error"] == 0) else "FAIL"),
+    })
+    return rec
 
 
 def attribute(baseline: dict, mutated: dict) -> None:
-    """baseline 에 이미 있던 `✗` 줄은 이번 변이의 결과가 아니다 — 빼고 대조한다."""
-    noise = set(baseline["x_lines"])
-    mutated["noise_lines_removed"] = sum(1 for l in mutated["x_lines"] if l in noise)
-    mutated["failed_checks"] = [l for l in mutated["x_lines"] if l not in noise]
-    mutated["failed_check_count"] = len(mutated["failed_checks"])
-    rep = mutated["reported_fail_count"]
-    # 회귀가 스스로 보고한 FAIL 수와 일치해야 해석을 신뢰할 수 있다.
-    # CRASH 면 회귀가 요약을 못 냈으므로 대조 대상이 없다.
-    mutated["parse_exact"] = (rep is not None
-                              and mutated["failed_check_count"] == rep)
+    """★ 별건 4 Gate 지표 — 앞선 ERROR 때문에 **평가조차 되지 못한** 검사 수.
+    baseline 이 평가한 검사 수에서, 변이 실행이 평가했거나 SKIPPED 로 **명시한**
+    수를 뺀다. 조용히 사라진 것만 남는다."""
+    if not mutated.get("trace_present"):
+        mutated["unevaluated_checks"] = baseline.get("evaluated", 0)
+        return
+    mutated["unevaluated_checks"] = max(
+        0, baseline["evaluated"] - mutated["accounted"])
 
 
 def classify(anchor_found: int, anchors_expected: int, baseline: dict,
@@ -191,8 +220,8 @@ def classify(anchor_found: int, anchors_expected: int, baseline: dict,
         return SURVIVED, "회귀가 전부 통과했다 — 판별력 결함", [], None
     if mutated["outcome"] == "CRASH":
         return (MISATTRIBUTED,
-                "회귀가 예외로 중단돼 expected_killers 에 도달하지 못했다 — "
-                "예외 발생 자체를 검출로 보지 않는다",
+                "trace·요약조차 남지 않은 실행 — expected_killers 에 도달하지 못했다. "
+                "⛔ 예외 발생 자체를 검출로 보지 않는다",
                 [], R_CRASH_BEFORE_ATTR)
     return (MISATTRIBUTED,
             f"회귀는 FAIL 했지만 expected_killers 는 모두 PASS "
@@ -234,7 +263,8 @@ def preflight() -> dict:
             "problems": problems}
 
 
-def run_one(e: dict, base_tar: str, parent: str, head: str) -> dict:
+def run_one(e: dict, base_tar: str, parent: str, head: str,
+            parent_trace: str) -> dict:
     rec = {"mutation_id": e["id"],
            "catalog_file": e["catalog_file"],
            "note": e["note"],
@@ -316,8 +346,9 @@ def run_one(e: dict, base_tar: str, parent: str, head: str) -> dict:
                 raise IsolationError("witness 불일치: " + "; ".join(bad))
 
             # ── 변이 실행 ────────────────────────────────────────────
+            mtrace = os.path.join(parent_trace, f"{e['id']}.mutated.json")
             rec["mutated"] = parse_regression(
-                run_in(checkout, [PY, e["regression"]]))
+                run_in(checkout, [PY, e["regression"]], mtrace), mtrace)
             assert_no_pycache(checkout, "변이 실행 직후")
             attribute(rec["baseline"], rec["mutated"])
         else:
@@ -354,7 +385,7 @@ def provenance_complete(rec: dict) -> list:
         if not w.get("consistent"):
             miss.append("executed_witness.consistent")
         mu = rec.get("mutated") or {}
-        # CRASH 면 회귀가 요약을 못 내므로 대조할 수 없다 — 그 사실 자체는 기록된다.
+        # CRASH(= trace 조차 없음)면 대조할 대상이 없다 — 그 사실 자체는 기록된다.
         if mu.get("outcome") != "CRASH" and not mu.get("parse_exact"):
             miss.append("mutated.parse_exact")
     return miss
@@ -385,6 +416,8 @@ def main() -> int:
         return 2
 
     parent = tempfile.mkdtemp(prefix="atlas-mut-")
+    trace_dir = os.path.join(parent, "trace")     # ⛔ checkout 밖이다
+    os.makedirs(trace_dir, exist_ok=True)
     base_tar = os.path.join(parent, "base.tar")
     git("archive", "-o", base_tar, pf["head"])
     print(f"HEAD {pf['head'][:12]} · base.tar sha256 {sha256_file(base_tar)[:16]} · "
@@ -393,7 +426,7 @@ def main() -> int:
     recs = []
     try:
         for i, e in enumerate(entries, 1):
-            rec = run_one(e, base_tar, parent, pf["head"])
+            rec = run_one(e, base_tar, parent, pf["head"], trace_dir)
             rec["provenance_missing"] = provenance_complete(rec)
             recs.append(rec)
             mark = {KILLED: "✓", SURVIVED: "✗", MISATTRIBUTED: "‼",
@@ -426,6 +459,11 @@ def main() -> int:
     print(f"partition 합 == catalog total   {'PASS' if partition_ok else 'FAIL'}")
     print(f"INVALID_RUN == 0                {'PASS' if part[INVALID_RUN] == 0 else 'FAIL'}")
     print(f"provenance 완전                  {'PASS' if prov_ok else 'FAIL'}")
+    crash_n = sum(1 for r in recs
+                  if (r.get("mutated") or {}).get("outcome") == "CRASH")
+    unev = sum((r.get("mutated") or {}).get("unevaluated_checks", 0) for r in recs)
+    print(f"CRASH (trace 조차 없음)           {crash_n}")
+    print(f"앞선 ERROR 로 평가되지 못한 검사   {unev}")
     if part[SURVIVED] or part[MISATTRIBUTED]:
         print(f"\n★ SURVIVED {part[SURVIVED]} · MISATTRIBUTED {part[MISATTRIBUTED]} "
               f"— 별건으로 올린다. ⛔ 이 runner 가 회귀를 고치지 않는다.")
@@ -438,6 +476,7 @@ def main() -> int:
                        "partition_ok": partition_ok,
                        "provenance_ok": prov_ok,
                        "untracked_at_run": pf["untracked"],
+                       "crash_count": crash_n, "unevaluated_total": unev,
                        "mutations": recs}, f, ensure_ascii=False, indent=1)
         print(f"\n결과 기록 {a.json}  ⛔ 정본에 커밋하지 않는다")
     return 0 if (partition_ok and prov_ok and part[INVALID_RUN] == 0) else 1
