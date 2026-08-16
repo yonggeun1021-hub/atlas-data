@@ -9,10 +9,17 @@
    "origin_label": "X-1",
    "note": "t4 항목 하나를 목록에서 삭제",
    "anchors_expected": 1,
-   "anchor": "    (\"2026-06-10_0001046179-26-000367_t4_unit-unknown.html\",\n     \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
+   "anchor": "        (\"2026-06-10_0001046179-26-000367_t4_unit-unknown.html\",\n         \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
    "replacement": "",
    "expected_killers": [
     "TSMC_FX 전체 6건"
+   ],
+   "declaration_history": [
+    {
+     "change": "anchor 재들여쓰기",
+     "reason": "857c4bf 에서 절 경계(`with section(...)`)로 감싸면서 대상 소스가 4칸 들여쓰기됐다. 변이의 **의도는 그대로**이고 앵커 문면만 따라간다. ⛔ 이 재앵커가 없으면 NOT_APPLICABLE 로 조용히 coverage 가 줄어든다 — runner 가 그것을 먼저 드러냈다.",
+     "run": "2026-08-16 별건 4 수정 후 재실행"
+    }
    ]
   },
   {
@@ -20,10 +27,17 @@
    "origin_label": "X-2",
    "note": "이름 규약 변경 (_t4_ → _dt_) 1건",
    "anchors_expected": 1,
-   "anchor": "    (\"2026-06-10_0001046179-26-000367_t4_unit-unknown.html\",\n     \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
-   "replacement": "    (\"2026-06-10_0001046179-26-000367_dt_unit-unknown.html\",\n     \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
+   "anchor": "        (\"2026-06-10_0001046179-26-000367_t4_unit-unknown.html\",\n         \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
+   "replacement": "        (\"2026-06-10_0001046179-26-000367_dt_unit-unknown.html\",\n         \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
    "expected_killers": [
     "결정표(t4) 3건"
+   ],
+   "declaration_history": [
+    {
+     "change": "anchor 재들여쓰기",
+     "reason": "857c4bf 에서 절 경계(`with section(...)`)로 감싸면서 대상 소스가 4칸 들여쓰기됐다. 변이의 **의도는 그대로**이고 앵커 문면만 따라간다. ⛔ 이 재앵커가 없으면 NOT_APPLICABLE 로 조용히 coverage 가 줄어든다 — runner 가 그것을 먼저 드러냈다.",
+     "run": "2026-08-16 별건 4 수정 후 재실행"
+    }
    ]
   },
   {
@@ -42,10 +56,17 @@
    "origin_label": "X-4",
    "note": "★ 총수는 맞는데 월별 대응이 깨진다 (한 달 t4 → 다른 달 t4 중복)",
    "anchors_expected": 1,
-   "anchor": "    (\"2026-06-10_0001046179-26-000367_t4_unit-unknown.html\",\n     \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
-   "replacement": "    (\"2026-07-13_0001046179-26-000447_t4_unit-unknown.html\",\n     \"aaaaaa5374fef90d93418af0bbd70df165bbe30400e8c5e0b3238bfc83002020\", 1, True),",
+   "anchor": "        (\"2026-06-10_0001046179-26-000367_t4_unit-unknown.html\",\n         \"fbc3482b673ccb2ff27230313763f8249936658031ce0e418bacc569c3d90589\", 1, True),",
+   "replacement": "        (\"2026-07-13_0001046179-26-000447_t4_unit-unknown.html\",\n         \"aaaaaa5374fef90d93418af0bbd70df165bbe30400e8c5e0b3238bfc83002020\", 1, True),",
    "expected_killers": [
     "월별로 t4·t6 가 정확히 1:1"
+   ],
+   "declaration_history": [
+    {
+     "change": "anchor 재들여쓰기",
+     "reason": "857c4bf 에서 절 경계(`with section(...)`)로 감싸면서 대상 소스가 4칸 들여쓰기됐다. 변이의 **의도는 그대로**이고 앵커 문면만 따라간다. ⛔ 이 재앵커가 없으면 NOT_APPLICABLE 로 조용히 coverage 가 줄어든다 — runner 가 그것을 먼저 드러냈다.",
+     "run": "2026-08-16 별건 4 수정 후 재실행"
+    }
    ]
   },
   {
@@ -64,10 +85,17 @@
    "origin_label": "X-6",
    "note": "loop 이 검증된 집합 대신 다시 전체를 돌게 한다",
    "anchors_expected": 1,
-   "anchor": "for name, _, nrows, yoy in TSMC_T4:          # ★ 검증된 집합을 쓴다\n    _ran(\"P3재현\")",
-   "replacement": "for name, _, nrows, yoy in TSMC_FX:\n    if \"_t4_\" not in name:\n        continue\n    _ran(\"P3재현\")",
+   "anchor": "    for name, _, nrows, yoy in TSMC_T4:          # ★ 검증된 집합을 쓴다\n        _ran(\"P3재현\")",
+   "replacement": "    for name, _, nrows, yoy in TSMC_FX:\n        if \"_t4_\" not in name:\n            continue\n        _ran(\"P3재현\")",
    "expected_killers": [
     "부분집합을 고르는 continue 가 없다"
+   ],
+   "declaration_history": [
+    {
+     "change": "anchor 재들여쓰기",
+     "reason": "857c4bf 에서 절 경계(`with section(...)`)로 감싸면서 대상 소스가 4칸 들여쓰기됐다. 변이의 **의도는 그대로**이고 앵커 문면만 따라간다. ⛔ 이 재앵커가 없으면 NOT_APPLICABLE 로 조용히 coverage 가 줄어든다 — runner 가 그것을 먼저 드러냈다.",
+     "run": "2026-08-16 별건 4 수정 후 재실행"
+    }
    ]
   },
   {
