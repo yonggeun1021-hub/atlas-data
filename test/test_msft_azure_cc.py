@@ -823,8 +823,12 @@ check("★ C4 에 is_data_row 가 생기지 않았다",
 # ★ 2026-08-16 갱신 — C4 의 **row-local** first-match 는 별도 CIO 승인으로 닫혔다.
 #   이 절이 지키는 것은 그것이 아니라 「MSFT header 격리가 C4 에 닿지 않는다」이다.
 #   ⛔ 검사를 지우지 않고, 여전히 참이어야 하는 것으로 다시 겨눈다.
-check("★ C4 의 build_header 는 여전히 MSFT 수정과 무관하다",
-      "is_data_row" not in _c4)
+# ⛔ 부분문자열 검사는 C4 가 자체 판별식(`is_data_row_c4`)을 갖게 되면 오탐한다.
+#    AST 로 **함수 이름 정확 일치**를 본다. 지키려는 것은 「MSFT 의 격리 구현이
+#    C4 에 복사되지 않았다」이지 「C4 에 판별식이 없다」가 아니다.
+_c4_fnames = {n.name for n in ast.walk(_c4t) if isinstance(n, ast.FunctionDef)}
+check("★ MSFT 의 is_data_row 가 C4 로 복사되지 않았다",
+      "is_data_row" not in _c4_fnames, str(sorted(f for f in _c4_fnames if "data" in f)))
 check("⛔ C4 의 table-level 유일성은 아직 닫지 않았다 (별건 OPEN)",
       "표가 정확히 1건이 아니다" not in _c4)
 

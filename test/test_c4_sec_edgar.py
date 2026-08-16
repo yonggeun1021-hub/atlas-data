@@ -574,8 +574,16 @@ check("★ 거부 근거 통로가 있다", "rejected" in [a.arg for a in _fdt.a
 # ⛔ 이번 범위 밖 — 넣지 않았음을 확인한다
 check("⛔ table-level 2+ guard 를 넣지 않았다 (별건)",
       "표가 정확히 1건이 아니다" not in _c4src and "table_ambiguous" not in _c4src)
-check("⛔ build_header 를 손대지 않았다",
-      "is_data_row" not in _c4src)
+# ★ 2026-08-16 — build_header 에 **전제 검사**가 승인 추가됐다.
+#   지켜야 할 것은 「연결 알고리즘을 바꾸지 않았다」와 「MSFT 구현을 복사하지
+#   않았다」이다. ⛔ 부분문자열 대신 AST 로 본다.
+_c4_fn_names = {n.name for n in ast.walk(_c4ast) if isinstance(n, ast.FunctionDef)}
+check("⛔ MSFT 의 is_data_row 를 C4 로 복사하지 않았다",
+      "is_data_row" not in _c4_fn_names, str(sorted(_c4_fn_names & {"is_data_row"})))
+_bh = [n for n in ast.walk(_c4ast) if isinstance(n, ast.FunctionDef)
+       and n.name == "build_header"][0]
+check("⛔ build_header 의 연결 알고리즘은 그대로다 (위 전부를 이어 붙인다)",
+      "for r in rows[:data_i]:" in ast.get_source_segment(_c4src, _bh))
 
 
 
@@ -693,7 +701,97 @@ check("T-8 ★ 거부 evidence 통로가 있다",
       "rejected" in [a.arg for a in _fc_fn.args.args])
 check("T-9 ⛔ L3 는 여전히 문서 단위다 (범위 밖 미변경)",
       "verify_unit_million(text)" in src)
-check("T-9b ⛔ build_header 를 손대지 않았다 (범위 밖)", "is_data_row" not in src)
+_bh2 = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+        and n.name == "build_header"][0]
+_bh2src = ast.get_source_segment(src, _bh2)
+check("T-9b ⛔ build_header 의 연결 알고리즘 미변경",
+      "for r in rows[:data_i]:" in _bh2src)
+check("T-9c ★ 전제 검사가 assert 가 아니다 (python -O 에서 사라지지 않는다)",
+      not any(isinstance(x, ast.Assert) for x in ast.walk(_bh2))
+      and "raise HeaderPreconditionError" in _bh2src)
+check("T-9d ★ 전제 판별이 위치가 아니라 의미다",
+      "is_data_row_c4" in _bh2src and "data_i ==" not in _bh2src)
+
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ⑲ build_header enforced precondition (CIO 승인 2026-08-16)
+#
+#   계약: `data_i` 는 그 표의 **첫 data row** 여야 한다.
+#         rows[:data_i] 에 data row 가 하나라도 있으면 header 를 만들지 않고
+#         fail-closed 한다.
+#   ⛔ assert 로 구현하지 않는다 (python -O 에서 제거될 수 있다).
+#   ⛔ 위치 계약이 아니라 **의미 계약**이다 — spacer/header 행 수가 바뀌어도 산다.
+#   ⛔ 연결 알고리즘 · MSFT build_header · 공용 helper 추출은 범위 밖이다.
+# ══════════════════════════════════════════════════════════════════════
+print("\n⑲-1 실제 TSMC fixture 3개월 — precondition PASS · P3 값 불변")
+for _name, _, _nr, _yoy in TSMC_FX:
+    if "_t4_" not in _name:
+        continue
+    _d = _name[:10]
+    _mn, _yr = TSMC_MONTH[_d]
+    _tbs = _tables(_fx(_name))
+    _ti, _rows, _di = C.find_decision_table(_tbs, _mn, _yr)[0]
+    _above = [i for i in range(_di) if C.is_data_row_c4(_rows[i])]
+    check(f"{_mn} 대상이 첫 data row 다 (위쪽 값 행 없음)", _above == [], str(_above))
+    try:
+        _h = C.build_header(_rows, _di)
+        _ok = True
+    except C.HeaderPreconditionError as _e:
+        _ok, _h = False, str(_e)
+    check(f"{_mn} precondition 통과", _ok, str(_h))
+    if _ok and _mn in P3_VALUES:
+        _b, _ = C.bind_columns(_h, _rows[_di], _mn, _yr)
+        check(f"★ {_mn} P3 값 불변", _b and (_b["monthly_revenue"], _b["monthly_yoy"],
+              _b["cumulative_revenue"], _b["cumulative_yoy"]) == P3_VALUES[_mn])
+
+print("\n⑲-2 ★ HELPER PRECONDITION TEST — TSMC 문서 구조 주장이 아니다")
+# ⛔⛔ 아래는 **helper 의 전제 시험**이다. 실제 결정표 행렬에 data row 를 1개
+#     끼워 넣어 전제가 깨진 입력을 만든다.
+#     ⛔ 「TSMC 가 이런 문서를 낸다」를 주장하지 않는다. markup 을 만들지 않았다.
+_t4n2 = "2026-08-10_0001046179-26-000471_t4_unit-unknown.html"
+_tb2 = _tables(_fx(_t4n2))
+_ti2, _rows2, _di2 = C.find_decision_table(_tb2, "July", 2026)[0]
+_inject = list(_rows2)
+_inject.insert(_di2, ["Other Revenue"] + ["1,000"] * (len(_rows2[_di2]) - 1))
+check("★ 삽입으로 대상 행이 한 칸 밀렸다 (전제 확인)",
+      C.is_data_row_c4(_inject[_di2]) and _inject[_di2 + 1] == _rows2[_di2])
+_raised = None
+try:
+    C.build_header(_inject, _di2 + 1)
+except C.HeaderPreconditionError as _e:
+    _raised = str(_e)
+check("★★ 전제 위반 시 header 를 만들지 않고 fail-closed 한다", _raised is not None)
+check("★ 근거에 위쪽 data row 번호가 남는다",
+      _raised is not None and str([_di2]) in _raised, str(_raised))
+check("★ 근거에 그 행의 라벨이 남는다",
+      _raised is not None and "Other Revenue" in _raised, str(_raised))
+# 호출부(final_candidates)도 값을 만들지 않는다
+_rej19 = []
+_fin19 = C.final_candidates([_inject], "July", 2026, rejected=_rej19)
+check("★★ 호출부도 값을 만들지 않는다", len(_fin19) == 0, str(len(_fin19)))
+check("★ 호출부가 precondition 근거를 남긴다",
+      any("precondition" in r["reason"] for r in _rej19),
+      str([r["reason"][:40] for r in _rej19]))
+
+print("\n⑲-3 ★ 위치가 아니라 의미다 — header 행이 늘어도 전제는 유지된다")
+_pad = list(_rows2)
+for _k in range(3):
+    _pad.insert(0, [""] * len(_rows2[0]))          # spacer 행 추가
+_pad_di = _di2 + 3
+check("★ 대상 행 index 가 바뀌었다 (전제 확인)", _pad_di != _di2)
+try:
+    _hp = C.build_header(_pad, _pad_di)
+    _pad_ok = True
+except C.HeaderPreconditionError:
+    _pad_ok = False
+check("★★ spacer 3행을 넣어도 precondition 통과 (위치 계약이 아니다)", _pad_ok)
+# 연도 단독 셀은 값이 아니다 — split header 오탐 방지
+check("★ 연도 단독 셀은 값 행으로 세지 않는다",
+      not C.is_data_row_c4(["", "2026", "2025", ""]))
+check("★ 실제 관측값은 값 행으로 센다",
+      C.is_data_row_c4(["Net Revenue", "467,580", "44.7"]))
+check("★ 퍼센트 소수도 값이다", C.is_data_row_c4(["x", "5.6"]))
 
 
 print(f"\n{len(ok)} PASS / {len(bad)} FAIL")

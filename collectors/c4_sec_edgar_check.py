@@ -223,8 +223,51 @@ def find_decision_table(tables, month_name: str, year: int, rejected=None):
     return cands
 
 
+class HeaderPreconditionError(RuntimeError):
+    """`build_header` 의 전제(대상이 그 표의 첫 data row)가 깨졌다."""
+
+
+# 연도 단독 셀 — **기간 라벨**이지 관측값이 아니다.
+#   ⛔ 이걸 값으로 세면 헤더를 두 줄로 쪼갠 표(라벨 행 / 연도 행)에서 오탐이 난다.
+#      회귀의 `split_header` 변형에서 실제로 그랬다. EDGAR 에 흔한 형태다.
+RE_YEAR_ONLY = re.compile(r"^(?:19|20)\d{2}$")
+
+
+def is_data_row_c4(row) -> bool:
+    """값 행인가 — **관측값** 셀을 하나라도 가지면 값 행이다.
+
+    ★ **의미 판별**이다. ⛔ 행 번호로 정하지 않는다 — spacer/header 행 수가 바뀌어도
+      살아 있어야 한다.
+    ★ 연도 단독 셀(`2026`)은 기간 라벨이므로 값으로 세지 않는다.
+    실측: C4 결정표의 header 행 5개는 관측값 셀이 0개이고 `Net Revenue` 행은 8개다
+    (2026-05·06·07 원문). 회귀의 split_header·spacer·th 변형에서도 오탐 0건.
+    """
+    return any(RE_NUM.match(c.strip()) and not RE_YEAR_ONLY.match(c.strip())
+               for c in row if c.strip())
+
+
 def build_header(rows, data_i):
-    """데이터 행 위의 모든 행을 열 단위로 이어 붙여 헤더 한 줄을 만든다."""
+    """데이터 행 위의 모든 행을 열 단위로 이어 붙여 헤더 한 줄을 만든다.
+
+    ★ 전제 — enforced precondition (CIO 판정 2026-08-16)
+      `data_i` 는 그 표의 **첫 data row** 여야 한다. 그래야 `rows[:data_i]` 가
+      header 영역과 같다. 이 전제가 지금까지 **암묵적**이었던 것이 문제의 핵심이다.
+      (MSFT 에서 Azure 가 7번째 data row 라 전제가 깨졌고 header 가 오염됐다 —
+       그쪽은 별도 collector 에서 의미 기반 header 격리로 이미 해결됐다.)
+
+      `rows[:data_i]` 안에 data row 가 하나라도 있으면 **header 를 만들지 않고**
+      `HeaderPreconditionError` 로 fail-closed 한다.
+
+    ⛔ `assert` 로 구현하지 않는다 — `python -O` 에서 제거될 수 있어 운영 데이터
+       계약의 fail-closed 장치로 부적합하다. 명시 검사 + 예외로 강제한다.
+    ⛔ 연결 알고리즘 자체는 바꾸지 않는다 (CIO 판정 범위).
+    """
+    above = [i for i in range(data_i) if is_data_row_c4(rows[i])]
+    if above:
+        raise HeaderPreconditionError(
+            f"build_header 전제 위반 — 대상 행({data_i})이 첫 data row 가 아니다. "
+            f"위쪽 data row {above} · 라벨 {[rows[i][0] if rows[i] else '' for i in above]}"
+        )
     width = len(rows[data_i])
     cols = []
     for i in range(width):
@@ -260,7 +303,14 @@ def final_candidates(tables, month_name: str, year: int, rejected=None) -> list:
     out = []
     for ti, rows, di in find_decision_table(tables, month_name, year,
                                             rejected=rejected):
-        header = build_header(rows, di)
+        try:
+            header = build_header(rows, di)
+        except HeaderPreconditionError as e:
+            # ⛔ 전제가 깨진 표에서 header 를 만들지 않는다 — 근거를 남기고 뺀다.
+            if rejected is not None:
+                rejected.append({"table_index": ti,
+                                 "reason": f"build_header precondition 위반 — {e}"})
+            continue
         bound, probs = bind_columns(header, rows[di], month_name, year)
         if bound is None:
             if rejected is not None:
