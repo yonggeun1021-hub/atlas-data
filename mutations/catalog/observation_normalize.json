@@ -131,8 +131,20 @@
    "anchor": "    if not isinstance(raw, str):\n        raise NormalizationError(f\"문자열이 아니다: {type(raw).__name__}\")",
    "replacement": "    raw = str(raw)",
    "expected_killers": [
-    "None → fail-closed (None 입력)",
-    "51 → fail-closed (int 입력)"
+    "입력이 **타입 오류**로 거부된다 (형식 오류가 아니라)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "None → fail-closed (None 입력)",
+      "51 → fail-closed (int 입력)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "입력이 **타입 오류**로 거부된다 (형식 오류가 아니라)"
+     ],
+     "reason": "v1 은 「실패한다」만 선언했는데, `str()` 강제 변환 후에도 형식 검사에 걸려 여전히 실패하므로 그 검사는 변이 하에서도 PASS 한다. 타입 계약을 소유하는 것은 실패 **사유**를 구별하는 C-1b 절 검사다."
+    }
    ]
   },
   {
