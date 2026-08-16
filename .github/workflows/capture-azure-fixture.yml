@@ -1,0 +1,43 @@
+# RULE-0021 — Azure CC 표 원문 HTML fixture 보존 (수동 실행 전용)
+#
+# ★ 목적 (CIO 판정 2026-08-16 · 항목 5)
+#   회귀 fixture 가 **합성 마크업**이었던 것이 이번 Gate 실패의 배경이다.
+#   실제 SEC EX-99.1 을 취득한 뒤 대상 `<table>` 의 **원문 HTML 블록**을
+#   bounded artifact 로 보존한다.
+#
+# ⛔ 값을 재가공하거나 HTML 을 재구성하지 않는다 — 잘라내기만 한다.
+# ⛔ 저장소에 쓰지 않는다. 출력은 runner temp 이며 artifact 로만 나간다.
+#    마지막 step 이 작업 트리가 그대로인지 확인한다.
+# ⛔ Rule 상태를 바꾸지 않는다 · evaluator 와 무관하다.
+# ⛔ parser 를 수정하지 않는다 — 이 실행은 fixture 확보 단계다.
+name: capture-azure-fixture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Azure CC 표 원문 블록 보존
+        env:
+          FIXTURE_OUT: ${{ runner.temp }}/azure-fixtures
+        run: python3 collectors/capture_azure_fixture.py
+
+      - name: 저장소가 그대로인지 (쓰기 없음 확인)
+        run: git diff --exit-code
+
+      - name: artifact 업로드
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: azure-cc-raw-fixtures
+          path: ${{ runner.temp }}/azure-fixtures
+          if-no-files-found: error
