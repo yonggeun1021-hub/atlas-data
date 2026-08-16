@@ -115,6 +115,14 @@ APPROVED_TESTS = [
     #   ⛔ live network 없음 — fixture only.
     #   ⛔ store · pair · evaluator 는 검증하지 않는다 (S3 이후 Gate).
     "test/test_observation_normalize.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S3 · 층 ④ Observation Store.
+    #   증명: key = subject+measurement+period 세 축 / 첫 동작이 validate_record /
+    #        D-6 경계 PRE_SERIES_BACKFILL_FORBIDDEN / IDEMPOTENT·CONFLICT·REVISION 분리 /
+    #        조용한 overwrite·revision 삭제·authority 자동선택 없음 /
+    #        deterministic serialization / store 가 Git·workflow·evaluator 를 모른다.
+    #   ⛔ live network 없음 — fixture only.
+    #   ⛔ pair · runtime state · evaluator 는 검증하지 않는다 (S4 이후 Gate).
+    "test/test_observation_store.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
