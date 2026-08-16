@@ -123,6 +123,13 @@ APPROVED_TESTS = [
     #   ⛔ live network 없음 — fixture only.
     #   ⛔ pair · runtime state · evaluator 는 검증하지 않는다 (S4 이후 Gate).
     "test/test_observation_store.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S4A · Integration Wiring (offline).
+    #   증명: observe/persist 물리적 분리(AST) / observe 는 저장소 밖으로만 emit /
+    #        FY26 4건 end-to-end(draft 4 → record 4 → Store NEW 4) / 재적용 IDEMPOTENT /
+    #        malformed·pre-series·conflict·revision·observe 실패 fault injection /
+    #        workflow 계약 순서.
+    #   ⛔ live network 없음 · dispatch 없음 — fixture only (S4B 미승인).
+    "test/test_rule0022_integration.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

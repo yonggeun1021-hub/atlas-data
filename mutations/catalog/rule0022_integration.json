@@ -1,0 +1,208 @@
+{
+ "target": "observation/observe_rule0022.py",
+ "regression": "test/test_rule0022_integration.py",
+ "origin": "S4A 신규 표면 — CIO 승인 2026-08-16 (Integration Wiring · offline only)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 observe/persist 통합 경계만 다룬다 — pair · evaluator · live 취득은 S4B 이후 Gate 다.",
+ "mutations": [
+  {
+   "id": "IN-SEP-1",
+   "origin_label": "IN-SEP-1",
+   "note": "★ observe 가 Store 를 직접 import 해 적용까지 한다 — observe/persist 물리적 분리 붕괴",
+   "anchors_expected": 1,
+   "anchor": "from record import try_build                                        # noqa: E402",
+   "replacement": "from record import try_build                                        # noqa: E402\nimport store  # noqa: E402,F401",
+   "expected_killers": [
+    "observe 가 `store` 를 import 하지 않는다"
+   ]
+  },
+  {
+   "id": "IN-REPO-1",
+   "origin_label": "IN-REPO-1",
+   "note": "★ emit 경로의 저장소 내부 여부 검사를 없앤다 — observe 가 repo state 를 바꿀 수 있다",
+   "anchors_expected": 1,
+   "anchor": "    if ap == rp or ap.startswith(rp + os.sep):",
+   "replacement": "    if False and (ap == rp or ap.startswith(rp + os.sep)):",
+   "expected_killers": [
+    "저장소 안 경로 거부 — emission.json"
+   ]
+  },
+  {
+   "id": "IN-REPO-2",
+   "origin_label": "IN-REPO-2",
+   "note": "저장소 경계를 접두 비교 없이 완전 일치로만 본다 — 하위 경로가 통과한다",
+   "anchors_expected": 1,
+   "anchor": "    if ap == rp or ap.startswith(rp + os.sep):",
+   "replacement": "    if ap == rp:",
+   "expected_killers": [
+    "저장소 안 경로 거부 — data/emission.json"
+   ]
+  },
+  {
+   "id": "IN-LIVE-1",
+   "origin_label": "IN-LIVE-1",
+   "note": "★ S4A 에서 live 관측을 허용한다 — 승인되지 않은 network 경로가 열린다",
+   "anchors_expected": 1,
+   "anchor": "    raise ObserveError(\n        \"live 관측은 S4B 승인 전까지 실행하지 않는다 (S4A 는 fixture 전용이다)\")",
+   "replacement": "    return _emission(SOURCE_LIVE, [], [], {\"limit\": limit})",
+   "expected_killers": [
+    "live 관측은 S4A 에서 실행되지 않는다"
+   ]
+  },
+  {
+   "id": "IN-FAIL-1",
+   "origin_label": "IN-FAIL-1",
+   "note": "★ 관측 0건을 성공으로 보고한다 — 빈 emission 이 persist 로 흘러간다",
+   "anchors_expected": 1,
+   "anchor": "    if em[\"observed\"] == 0:\n        print(\"✗ 관측 0건 — emit 은 남기되 성공으로 보고하지 않는다\")\n        return 1",
+   "replacement": "    if False:\n        return 1",
+   "expected_killers": [
+    "관측 0건이면 observe CLI 가 성공으로 끝나지 않는다"
+   ]
+  },
+  {
+   "id": "IN-FAIL-2",
+   "origin_label": "IN-FAIL-2",
+   "note": "★ 관측 실패를 record 로 승격한다 — ROW_ABSENT 가 관측값이 된다",
+   "anchors_expected": 1,
+   "anchor": "        (records if rec else failures).append(rec or why)",
+   "replacement": "        records.append(rec or why)",
+   "expected_killers": [
+    "FY25 관측은 record 0건이다",
+    "emit 된 4건 전부 record 계약을 통과한다"
+   ]
+  },
+  {
+   "id": "IN-FAIL-3",
+   "origin_label": "IN-FAIL-3",
+   "note": "normalization 실패를 관측 실패와 뭉갠다 — 어느 층에서 실패했는지 사라진다",
+   "anchors_expected": 1,
+   "anchor": "        return None, {\"stage\": \"normalization\", \"outcome\": \"NORMALIZATION_FAILED\",",
+   "replacement": "        return None, {\"stage\": \"observation\", \"outcome\": \"ROW_ABSENT\",",
+   "expected_killers": [
+    "FY25 실패 사유가 ROW_ABSENT 다"
+   ]
+  },
+  {
+   "id": "IN-DET-1",
+   "origin_label": "IN-DET-1",
+   "note": "★ emission 직렬화에서 키 정렬을 없앤다 — 재실행 idempotency 증명이 깨진다",
+   "anchors_expected": 1,
+   "anchor": "    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\"))",
+   "replacement": "    return json.dumps(obj, ensure_ascii=False, separators=(\",\", \":\"))",
+   "expected_killers": [
+    "emission 이 canonical JSON 으로 직렬화된다"
+   ]
+  },
+  {
+   "id": "IN-DET-2",
+   "origin_label": "IN-DET-2",
+   "note": "★ emission 에 실행 시각을 넣는다 — 같은 입력이 다른 산출물을 낸다",
+   "anchors_expected": 1,
+   "anchor": "    return {\"schema_version\": EMISSION_SCHEMA_VERSION,\n            \"source\": source,",
+   "replacement": "    import datetime\n    return {\"schema_version\": EMISSION_SCHEMA_VERSION,\n            \"observed_at\": datetime.datetime.now().isoformat(),\n            \"source\": source,",
+   "expected_killers": [
+    "emission 에 timestamp 류 비결정 값이 없다",
+    "observe 재실행이 동일한 emission 을 낸다"
+   ]
+  },
+  {
+   "id": "IN-SRC-1",
+   "origin_label": "IN-SRC-1",
+   "note": "★ source 를 선택이 아닌 기본값으로 만든다 — 무엇으로 관측했는지 증거가 약해진다",
+   "anchors_expected": 1,
+   "anchor": "    ap.add_argument(\"--source\", required=True, choices=[SOURCE_LIVE, SOURCE_FIXTURE],",
+   "replacement": "    ap.add_argument(\"--source\", default=SOURCE_FIXTURE, choices=[SOURCE_LIVE, SOURCE_FIXTURE],",
+   "expected_killers": [
+    "source 를 명시하지 않으면 실행되지 않는다 (fallback 없음)"
+   ]
+  },
+  {
+   "id": "IN-PERS-1",
+   "origin_label": "IN-PERS-1",
+   "note": "★ persist 가 observer 를 직접 import 한다 — 단계 분리 붕괴",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "import store as ST                                                  # noqa: E402",
+   "replacement": "import store as ST                                                  # noqa: E402\nsys.path.insert(0, os.path.join(ROOT, \"collectors\"))\nimport rule0022_commercial_rpo  # noqa: E402,F401",
+   "expected_killers": [
+    "persist 가 observer 를 import 하지 않는다"
+   ]
+  },
+  {
+   "id": "IN-PERS-2",
+   "origin_label": "IN-PERS-2",
+   "note": "★ emission schema 검사를 없앤다 — 남의 형식이 persist 로 들어온다",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "    if em.get(\"schema_version\") != EMISSION_SCHEMA_VERSION:\n        raise PersistError(f\"emission schema 가 다르다: {em.get('schema_version')!r}\")",
+   "replacement": "    pass",
+   "expected_killers": [
+    "emission schema 위반 → persist 미진입"
+   ]
+  },
+  {
+   "id": "IN-PERS-3",
+   "origin_label": "IN-PERS-3",
+   "note": "★ 미해소 CONFLICT/REVISION 을 정상 성공으로 보고한다 — fail-open",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "        \"unresolved\": bool(blocked),",
+   "replacement": "        \"unresolved\": False,",
+   "expected_killers": [
+    "conflict → unresolved=True (정상 성공으로 소비 금지)",
+    "revision → unresolved=True"
+   ]
+  },
+  {
+   "id": "IN-PERS-4",
+   "origin_label": "IN-PERS-4",
+   "note": "★ record 0건이어도 persist 를 진행한다 — 빈 관측이 store 를 건드린다",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "    if not em[\"records\"]:\n        print(\"✗ emit 된 record 가 0건 — persist 하지 않는다\")\n        return 2",
+   "replacement": "    if False:\n        return 2",
+   "expected_killers": [
+    "record 0건이면 persist 하지 않는다 (non-zero)",
+    "그 경우 store 파일도 만들지 않는다"
+   ]
+  },
+  {
+   "id": "IN-PERS-5",
+   "origin_label": "IN-PERS-5",
+   "note": "거부된 record 의 rejection 로그를 남기지 않는다 — 무엇이 거부됐는지 사라진다",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "        if res[\"accepted\"] is False:\n            cur = ST.record_rejection(cur, res)",
+   "replacement": "        if False:\n            cur = ST.record_rejection(cur, res)",
+   "expected_killers": [
+    "거부 증거가 rejection 로그에 남는다",
+    "거부 증거가 남는다"
+   ]
+  },
+  {
+   "id": "IN-PERS-6",
+   "origin_label": "IN-PERS-6",
+   "note": "★ store digest 를 결과와 무관하게 만든다 — workflow 의 store 검증이 무력화된다",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "        \"store_digest\": ST.digest(cur),",
+   "replacement": "        \"store_digest\": \"\",",
+   "expected_killers": [
+    "store digest 가 결과에 기록된다"
+   ]
+  },
+  {
+   "id": "IN-PERS-7",
+   "origin_label": "IN-PERS-7",
+   "note": "canonical store 제안 경로를 run-date snapshot 모델 안으로 옮긴다",
+   "target": "observation/persist_rule0022.py",
+   "anchors_expected": 1,
+   "anchor": "PROPOSED_STORE_PATH = \"observations/MSFT/commercial-remaining-performance-obligation.json\"",
+   "replacement": "PROPOSED_STORE_PATH = \"data/latest_rule0022.json\"",
+   "expected_killers": [
+    "제안 경로가 상수로 선언돼 있다",
+    "제안 경로가 run-date snapshot 모델"
+   ]
+  }
+ ]
+}
