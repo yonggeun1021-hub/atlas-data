@@ -106,11 +106,8 @@ with section("A-2. ★★ observe 는 저장소 밖으로만 emit 한다"):
                   e.code != 0, str(e.code))
         check("  그 경우 emit 파일도 만들지 않는다",
               not os.path.exists(os.path.join(d, "e.json")))
-    try:
-        OBSV.observe_live(4)
-        check("★★ live 관측은 S4A 에서 실행되지 않는다", False, "실행돼버렸다")
-    except OBSV.ObserveError:
-        check("★★ live 관측은 S4A 에서 실행되지 않는다 (S4B 승인 전 fail-closed)", True)
+    check("★ live 경로는 acquisition primitive 만 쓴다 (S4B wiring)",
+          "msft_sec_results_acquisition" in oi)
 
 # ══════════════════════════════════════════════════════════════════════
 with section("A-3. ★ 실패 층을 구별한다 — 관측 실패 vs 정규화 실패"):
@@ -326,9 +323,13 @@ with section("D. ★★ workflow 계약 순서"):
               wf.find("- name: persist") > wf.find("- name: emitted record validation"))
         check("★ schedule 트리거가 없다 (자동 발동 금지)", "schedule:" not in wf)
         check("★ workflow_dispatch 전용이다", "workflow_dispatch:" in wf)
-        check("★★ S4A 는 fixture source 만 노출한다",
-              re.search(r"options:\s*\[fixture\]", wf) is not None)
-        check("★ live 옵션이 노출되지 않는다", "options: [fixture, live]" not in wf)
+        # ★ S4B-LIVE-WIRING 으로 live option 이 노출됐다. 그러나 **노출 ≠ 실행 승인**이다 —
+        #   dispatch 는 별도 CIO 승인 1회이며, 그 계약은 E-5 절이 본다.
+        check("★ source 선택지가 fixture · live 두 값이다",
+              re.search(r"options:\s*\[fixture,\s*live\]", wf) is not None)
+        check("★★ default 는 여전히 fixture 다 (live 가 기본이 되지 않는다)",
+              re.search(r"options:\s*\[fixture,\s*live\]\s*\n\s*default:\s*fixture", wf)
+              is not None)
         check("★ permissions 가 contents: read 다", "contents: read" in wf)
         check("★ artifact upload 가 있다", "upload-artifact" in wf)
         check("★★ observe 가 저장소 밖(runner.temp)으로 emit 한다",
@@ -451,6 +452,207 @@ with section("D-3. ★★ repository-clean guard 를 **실제로 실행**한다 
                       after == BEFORE_STATUS,
                       "변경된 항목: "
                       + str(sorted(set(after.splitlines()) ^ set(BEFORE_STATUS.splitlines())))[:120])
+
+# ══════════════════════════════════════════════════════════════════════
+# E. S4B-LIVE-WIRING — network 없이 live 경로를 검증한다
+#    ★ `observe_live(limit, fetch=...)` 의 주입 이음매에 mock 을 넣는다.
+#    ⛔ 이 이음매는 fallback 이 아니다 — 실패해도 fixture 로 내려가지 않는다.
+# ══════════════════════════════════════════════════════════════════════
+CAP = json.load(open(MAN26, encoding="utf-8"))["captured"]
+CAP_SORTED = sorted(CAP, key=lambda x: x["filing_date"], reverse=True)
+
+
+def _sub_json(entries):
+    return json.dumps({"filings": {"recent": {
+        "form": [e.get("form", "8-K") for e in entries],
+        "items": [e.get("items", "2.02,9.01") for e in entries],
+        "accessionNumber": [e["accession"] for e in entries],
+        "filingDate": [e["filing_date"] for e in entries],
+        "reportDate": ["" for _ in entries],
+        "acceptanceDateTime": ["" for _ in entries]}}}).encode()
+
+
+def _txt(exhibit="msft-ex99_1.htm", type_="EX-99.1"):
+    return (f"<DOCUMENT>\n<TYPE>8-K\n<SEQUENCE>1\n<FILENAME>c.htm\n<TEXT>x\n</DOCUMENT>\n"
+            f"<DOCUMENT>\n<TYPE>{type_}\n<SEQUENCE>2\n<FILENAME>{exhibit}\n<TEXT>y\n"
+            f"</DOCUMENT>\n").encode()
+
+
+def _index(exhibit="msft-ex99_1.htm", type_="EX-99.1"):
+    return (f"<table><tr><td>2</td><td>EX</td>"
+            f'<td><a href="/x/{exhibit}">{exhibit}</a></td><td>{type_}</td></tr></table>'
+            ).encode()
+
+
+def make_fetch(entries, *, exhibit="msft-ex99_1.htm", type_="EX-99.1",
+               sub_payload=None, fail_on=None, calls=None):
+    """URL → (meta, bytes) mock. ⛔ 네트워크를 쓰지 않는다."""
+    body = {}
+    for e in entries:
+        acc = e["accession"].replace("-", "")
+        html = open(os.path.join(FX_DIR, e["fixture_file"]), encoding="utf-8").read()
+        body[f"/{acc}/{e['accession']}.txt"] = _txt(exhibit, type_)
+        body[f"/{acc}/{e['accession']}-index.html"] = _index(exhibit, type_)
+        body[f"/{acc}/{exhibit}"] = html.encode()
+
+    def fetch(url):
+        if calls is not None:
+            calls.append(url)
+        if fail_on and fail_on in url:
+            raise OSError("mocked network failure")
+        if url == OBSV.ACQ.SUBMISSIONS_URL:
+            return {}, (sub_payload if sub_payload is not None else _sub_json(entries))
+        for suffix, b in body.items():
+            if url.endswith(suffix):
+                return {}, b
+        raise OSError(f"mocked 404: {url}")
+    return fetch
+
+
+with section("E. ★★ live 경로 — mocked payload 로 record 4건"):
+    calls = []
+    em = OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, calls=calls))
+    check("★★ source 가 live 로 기록된다", em["source"] == "live", em["source"])
+    check("★★ FY26 형태 mocked payload → record 4건", em["observed"] == 4,
+          str(em["observed"]))
+    check("★ 실패 0건", em["failed"] == 0, str(em["failures"])[:100])
+    for r in em["records"]:
+        RC.validate_record(r)
+    check("★★ live record 4건이 전부 record 계약을 통과한다", True)
+    vals = sorted(r["decision"]["raw_value"] for r in em["records"])
+    check("★★ live 관측값이 fixture 경로와 같다",
+          vals == sorted(x["decision"]["raw_value"] for x in EM26["records"]), str(vals))
+    check("★ meta 에 limit 이 기록된다", em["meta"]["limit"] == 4, str(em["meta"]))
+    check("★★ discovery 가 submissions 를 실제로 조회했다",
+          any(u == OBSV.ACQ.SUBMISSIONS_URL for u in calls))
+    check("★★ exhibit 취득이 primary(.txt) · secondary(index) · 본문 3단을 거친다",
+          any(u.endswith(".txt") for u in calls)
+          and any(u.endswith("-index.html") for u in calls)
+          and any(u.endswith("msft-ex99_1.htm") for u in calls), str(len(calls)))
+    check("★ live 경로도 Store 를 건드리지 않는다 (emission 만 만든다)",
+          set(em) == set(EM26))
+
+    # ── live limit 전달 ────────────────────────────────────────────────
+    em2 = OBSV.observe_live(2, fetch=make_fetch(CAP_SORTED))
+    check("★★ limit 이 discovery 에 전달된다 (2건만 관측)", em2["observed"] == 2,
+          str(em2["observed"]))
+    check("  상한으로 제외된 건수가 기록된다", em2["meta"]["dropped_by_limit"] == 2,
+          str(em2["meta"]))
+
+with section("E-2. ★★ fixture source 는 network 함수를 한 번도 부르지 않는다"):
+    calls = []
+    orig_get = OBSV.ACQ.get
+    OBSV.ACQ.get = lambda url, **kw: (_ for _ in ()).throw(
+        AssertionError(f"fixture 경로가 network 를 호출했다: {url}"))
+    try:
+        em_fx = OBSV.observe_fixture(MAN26)
+        check("★★ fixture 관측이 network 호출 없이 완료된다", em_fx["observed"] == 4,
+              str(em_fx["observed"]))
+    except AssertionError as e:
+        check("★★ fixture 관측이 network 호출 없이 완료된다", False, str(e))
+    finally:
+        OBSV.ACQ.get = orig_get
+    check("★ fixture emission 의 source 가 live 가 아니다", em_fx["source"] == "fixture")
+
+with section("E-3. ★★ live fail-closed 매트릭스"):
+    FAULTS = [
+        ("SEC 접근 실패(submissions)",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED,
+                                                       fail_on="submissions"))),
+        ("SEC 접근 실패(exhibit)",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, fail_on=".txt"))),
+        ("submissions schema 이상",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED,
+                                                       sub_payload=b'{"nope":1}'))),
+        ("submissions 가 JSON 이 아님",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, sub_payload=b"<html>"))),
+        ("후보 0건 (form 이 8-K 아님)",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(
+             [dict(e, form="10-Q") for e in CAP_SORTED]))),
+        ("후보 0건 (item 2.02 없음)",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(
+             [dict(e, items="5.02") for e in CAP_SORTED]))),
+        ("EX-99.1 identity 실패 (type 불일치)",
+         lambda: OBSV.observe_live(4, fetch=make_fetch(CAP_SORTED, type_="EX-99.2"))),
+    ]
+    for why, fn in FAULTS:
+        try:
+            got = fn()
+            check(f"★★ {why} → ObserveError (fail-closed)", False,
+                  f"통과해버렸다 observed={got['observed']}")
+        except OBSV.ObserveError:
+            check(f"★★ {why} → ObserveError (fail-closed)", True)
+
+    # CLI 수준 — non-zero + emission 파일 없음
+    with tempfile.TemporaryDirectory() as d:
+        out = os.path.join(d, "e.json")
+        orig = OBSV.observe_live
+        OBSV.observe_live = lambda limit, fetch=None: (_ for _ in ()).throw(
+            OBSV.ObserveError("mocked live failure"))
+        try:
+            rc = OBSV.main(["--source", "live", "--limit", "4", "--out", out])
+        finally:
+            OBSV.observe_live = orig
+        check("★★ live 실패 → CLI non-zero", rc != 0, str(rc))
+        check("★★ live 실패 → emission 파일이 만들어지지 않는다", not os.path.exists(out))
+        # persist 는 존재하지 않는 emission 을 읽지 못한다 → 진입 자체가 막힌다
+        rc2 = PERS.main(["--emission", out, "--store", os.path.join(d, "s.json"),
+                         "--result", os.path.join(d, "r.json")])
+        check("★★ observe 실패 후 persist 가 진입하지 못한다", rc2 != 0, str(rc2))
+        check("  store 파일도 만들어지지 않는다", not os.path.exists(os.path.join(d, "s.json")))
+
+with section("E-4. ★★ D-5 처리 — pre-series 는 observation 을 만들지 않는다"):
+    check("★★ observe 의 series start 가 store 의 상수와 같다",
+          OBSV.COMMERCIAL_RPO_SERIES_START == ST.COMMERCIAL_RPO_SERIES_START,
+          f"{OBSV.COMMERCIAL_RPO_SERIES_START} vs {ST.COMMERCIAL_RPO_SERIES_START}")
+    check("★ observe 가 store 를 import 하지 않고도 같은 경계를 갖는다",
+          "store" not in _imports(OBSV_SRC))
+
+    # ① row absence 만 있는 과거 filing (FY25) — 성공 observation 이 아니다
+    cap25 = sorted(json.load(open(MAN25, encoding="utf-8"))["captured"],
+                   key=lambda x: x["filing_date"], reverse=True)
+    em25 = OBSV.observe_live(4, fetch=make_fetch(cap25))
+    check("★★ FY25 filing 만 있으면 record 0건이다", em25["observed"] == 0,
+          str(em25["observed"]))
+    check("★★ 그 실패는 ROW_ABSENT 다 (오류가 아니다)",
+          all(f["outcome"] == "ROW_ABSENT" for f in em25["failures"]),
+          str([f["outcome"] for f in em25["failures"]]))
+    check("★ ObserveError 로 죽지 않는다 — 행 부재는 정상 관측 결과다", em25["failed"] == 4)
+
+    # ② FY25 + FY26 이 섞여도 FY26 만 emit 된다
+    em_mix = OBSV.observe_live(8, fetch=make_fetch(CAP_SORTED + cap25))
+    check("★★ FY25+FY26 혼합 discovery → FY26 4건만 emit", em_mix["observed"] == 4,
+          str(em_mix["observed"]))
+    check("  나머지 4건은 실패 목록에 남는다", em_mix["failed"] == 4, str(em_mix["failed"]))
+    check("★★ emit 된 record 는 전부 series start 이후다",
+          all(r["economic_period_end"] >= OBSV.COMMERCIAL_RPO_SERIES_START
+              for r in em_mix["records"]))
+
+    # ③ pre-series period 를 가진 record 는 emit 대상이 아니다
+    fake = copy.deepcopy(EM26["records"][0])
+    fake["economic_period_end"] = "2025-06-30"
+    check("★★ `_pre_series` 가 series start 이전을 True 로 판정한다",
+          OBSV._pre_series(fake) is True)
+    check("  경계값 자체는 pre-series 가 아니다",
+          OBSV._pre_series(EM26["records"][0]) is False)
+    check("★ PRE_SERIES_NOT_EMITTED 코드가 선언돼 있다",
+          OBSV.PRE_SERIES_NOT_EMITTED == "PRE_SERIES_NOT_EMITTED")
+
+with section("E-5. workflow live input 계약"):
+    wf2 = open(WF, encoding="utf-8").read()
+    check("★★ source 에 fixture · live 두 값이 노출된다",
+          re.search(r"options:\s*\[fixture,\s*live\]", wf2) is not None)
+    check("★★ capture_max_filings input 이 있다", "capture_max_filings:" in wf2)
+    check("★★ 실제 전달값을 로그로 남긴다",
+          "echo \"SOURCE=$SOURCE\"" in wf2 and "echo \"CAPTURE_MAX_FILINGS=" in wf2)
+    check("★★ live 는 `--limit` 을 전달한다", "--limit \"$CAPTURE_MAX_FILINGS\"" in wf2)
+    check("★★ live 분기는 manifest 를 쓰지 않는다 (fallback 없음)",
+          "--source live" in wf2
+          and wf2.split("--source live")[1].split("fi")[0].find("--manifest") == -1)
+    check("★ schedule 트리거는 여전히 없다", "schedule:" not in wf2)
+    check("★ 여전히 commit/push 를 하지 않는다",
+          "git commit" not in wf2 and "git push" not in wf2)
+    check("★ permissions 는 contents: read 다", "contents: read" in wf2)
 
 with section("D-2. canonical store 영속 경로 제안"):
     check("★ 제안 경로가 상수로 선언돼 있다",

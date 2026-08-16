@@ -40,12 +40,26 @@
   {
    "id": "IN-LIVE-1",
    "origin_label": "IN-LIVE-1",
-   "note": "★ S4A 에서 live 관측을 허용한다 — 승인되지 않은 network 경로가 열린다",
+   "note": "★ live 경로가 acquisition primitive 대신 fixture 로 내려간다 — 「live 로 돌았다」는 증거가 사라진다. ★ S4A 에서는 이 변이가 `observe_live()` 의 fail-closed 를 겨눴으나, S4B-LIVE-WIRING 으로 live 경로가 실제 연결되면서 계약이 바뀌었다.",
    "anchors_expected": 1,
-   "anchor": "    raise ObserveError(\n        \"live 관측은 S4B 승인 전까지 실행하지 않는다 (S4A 는 fixture 전용이다)\")",
-   "replacement": "    return _emission(SOURCE_LIVE, [], [], {\"limit\": limit})",
+   "anchor": "    get = fetch or ACQ.get",
+   "replacement": "    get = fetch or ACQ.get\n    if fetch is None:\n        return observe_fixture(os.path.join(ROOT, \"collectors\", \"fixtures\", \"azure_cc_MANIFEST.json\"))",
    "expected_killers": [
-    "live 관측은 S4A 에서 실행되지 않는다"
+    "live 실패 → CLI non-zero",
+    "live 실패 → emission 파일이 만들어지지 않는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "live 관측은 S4A 에서 실행되지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "live 실패 → CLI non-zero",
+      "live 실패 → emission 파일이 만들어지지 않는다"
+     ],
+     "reason": "S4B-LIVE-WIRING 으로 `observe_live()` 가 실제 acquisition 경로에 연결되면서 「S4A 에서 실행되지 않는다」 계약이 소멸했다. 같은 위험(live 가 fixture 로 내려가는 fallback)을 겨누도록 변이를 재작성했다."
+    }
    ]
   },
   {
@@ -292,6 +306,121 @@
    "replacement": "          dirty=\"$(git status --porcelain)\"",
    "expected_killers": [
     "가 `git diff --exit-code` 를 쓴다"
+   ]
+  },
+  {
+   "id": "LV-ACQ-1",
+   "origin_label": "LV-ACQ-1",
+   "note": "★ live discovery 가 submissions schema 이상을 통과시킨다",
+   "anchors_expected": 1,
+   "anchor": "    if not isinstance(recent, dict) or \"form\" not in recent:\n        raise ObserveError(\"submissions schema 이상 — filings.recent 가 없다\")",
+   "replacement": "    recent = recent if isinstance(recent, dict) else {\"form\": []}",
+   "expected_killers": [
+    "submissions schema 이상 → ObserveError (fail-closed)"
+   ]
+  },
+  {
+   "id": "LV-ACQ-2",
+   "origin_label": "LV-ACQ-2",
+   "note": "★ 후보 0건을 성공으로 통과시킨다 — 빈 관측이 emission 이 된다",
+   "anchors_expected": 1,
+   "anchor": "    if not cands:\n        raise ObserveError(\n            f\"item {ACQ.EARNINGS_ITEM} 8-K 후보 0건 — 관측하지 않는다\")",
+   "replacement": "    if False:\n        raise ObserveError(\"x\")",
+   "expected_killers": [
+    "후보 0건 (form 이 8-K 아님) → ObserveError (fail-closed)",
+    "후보 0건 (item 2.02 없음) → ObserveError (fail-closed)"
+   ]
+  },
+  {
+   "id": "LV-ACQ-3",
+   "origin_label": "LV-ACQ-3",
+   "note": "★ secondary 교차확인을 건너뛴다 — EX-99.1 identity 가 primary 단독으로 결정된다",
+   "anchors_expected": 1,
+   "anchor": "            name2, probs2, _ = ACQ.select_exhibit(docs, sec_types=sec_types)",
+   "replacement": "            name2, probs2 = name, []",
+   "expected_killers": [
+    "EX-99.1 identity 실패 (type 불일치) → ObserveError (fail-closed)"
+   ]
+  },
+  {
+   "id": "LV-ACQ-4",
+   "origin_label": "LV-ACQ-4",
+   "note": "★ SEC 접근 실패를 삼키고 계속한다 — 실패가 성공 emission 으로 흘러간다",
+   "anchors_expected": 1,
+   "anchor": "    except Exception as e:                                          # noqa: BLE001\n        raise ObserveError(f\"submissions 조회 실패 — {type(e).__name__}: {e}\") from e",
+   "replacement": "    except Exception:                                               # noqa: BLE001\n        sub = {\"filings\": {\"recent\": {\"form\": []}}}",
+   "expected_killers": [
+    "SEC 접근 실패(submissions) → ObserveError (fail-closed)"
+   ]
+  },
+  {
+   "id": "LV-D5-1",
+   "origin_label": "LV-D5-1",
+   "note": "★ pre-series observation 을 그대로 emit 한다 — D-5/D-6 경계가 무너진다",
+   "anchors_expected": 1,
+   "anchor": "        if _pre_series(rec):",
+   "replacement": "        if False and _pre_series(rec):",
+   "expected_killers": [
+    "FY25+FY26 혼합 discovery → FY26 4건만 emit",
+    "emit 된 record 는 전부 series start 이후다"
+   ]
+  },
+  {
+   "id": "LV-D5-2",
+   "origin_label": "LV-D5-2",
+   "note": "★ observe 의 series start 를 store 와 어긋나게 만든다",
+   "anchors_expected": 1,
+   "anchor": "COMMERCIAL_RPO_SERIES_START = \"2025-09-30\"\nPRE_SERIES_NOT_EMITTED",
+   "replacement": "COMMERCIAL_RPO_SERIES_START = \"2024-01-01\"\nPRE_SERIES_NOT_EMITTED",
+   "expected_killers": [
+    "observe 의 series start 가 store 의 상수와 같다"
+   ]
+  },
+  {
+   "id": "LV-LIMIT-1",
+   "origin_label": "LV-LIMIT-1",
+   "note": "★ live limit 을 무시한다 — 승인된 조회 상한이 강제되지 않는다",
+   "anchors_expected": 1,
+   "anchor": "    cands, dropped = ACQ.filter_earnings_candidates(recent, limit)",
+   "replacement": "    cands, dropped = ACQ.filter_earnings_candidates(recent, None)",
+   "expected_killers": [
+    "limit 이 discovery 에 전달된다 (2건만 관측)"
+   ]
+  },
+  {
+   "id": "LV-WF-1",
+   "origin_label": "LV-WF-1",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ live 분기가 fixture manifest 로 내려간다 — workflow 수준 fallback",
+   "anchors_expected": 1,
+   "anchor": "            python3 observation/observe_rule0022.py \\\n              --source live \\\n              --limit \"$CAPTURE_MAX_FILINGS\" \\\n              --out \"$EMIT_DIR/emission.json\"",
+   "replacement": "            python3 observation/observe_rule0022.py \\\n              --source live \\\n              --limit \"$CAPTURE_MAX_FILINGS\" \\\n              --manifest collectors/fixtures/azure_cc_MANIFEST.json \\\n              --out \"$EMIT_DIR/emission.json\"",
+   "expected_killers": [
+    "live 분기는 manifest 를 쓰지 않는다 (fallback 없음)"
+   ]
+  },
+  {
+   "id": "LV-WF-2",
+   "origin_label": "LV-WF-2",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ 전달값 로그를 없앤다 — 무엇으로 돌았는지 사후 확인 불가",
+   "anchors_expected": 1,
+   "anchor": "          echo \"SOURCE=$SOURCE\"\n          echo \"CAPTURE_MAX_FILINGS=$CAPTURE_MAX_FILINGS\"",
+   "replacement": "          :",
+   "expected_killers": [
+    "실제 전달값을 로그로 남긴다"
+   ]
+  },
+  {
+   "id": "LV-WF-3",
+   "origin_label": "LV-WF-3",
+   "target": ".github/workflows/rule0022-observation.yml",
+   "note": "★ default 를 live 로 바꾼다 — 실수로 live 가 기본 실행이 된다",
+   "anchors_expected": 1,
+   "anchor": "        options: [fixture, live]\n        default: fixture",
+   "replacement": "        options: [fixture, live]\n        default: live",
+   "expected_killers": [
+    "default 는 여전히 fixture 다 (live 가 기본이 되지 않는다)"
    ]
   }
  ]

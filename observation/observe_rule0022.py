@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -96,10 +97,96 @@ def _observe_one(html: str, prov: dict):
     return rec, None
 
 
-def observe_live(limit: int) -> dict:                               # pragma: no cover
-    """SEC 에서 직접 관측한다. ⛔ S4A 범위 밖 — S4B 승인 전에는 호출되지 않는다."""
-    raise ObserveError(
-        "live 관측은 S4B 승인 전까지 실행하지 않는다 (S4A 는 fixture 전용이다)")
+# ══════════════════════════════════════════════════════════════════════
+# D-5 / D-6 경계 — production observation series 는 FY26 Q1 부터다.
+#   ★ 이 상수는 `observation/store.py` 의 `COMMERCIAL_RPO_SERIES_START` 와 **같은 값**이어야
+#     한다. ⛔ 그렇다고 store 를 import 하지 않는다 — observe 는 층 ④ 를 몰라야 한다.
+#     대신 회귀가 두 상수의 동일성을 기계적으로 대조한다.
+#   ★ pre-series filing 에서는 **observation 자체를 만들지 않는다.**
+#     ⛔ store rejection 으로 억지로 밀어 넣지 않는다 (CIO 판정 S4B · D-5 처리).
+COMMERCIAL_RPO_SERIES_START = "2025-09-30"
+PRE_SERIES_NOT_EMITTED = "PRE_SERIES_NOT_EMITTED"
+
+
+def _pre_series(record: dict) -> bool:
+    return record["economic_period_end"] < COMMERCIAL_RPO_SERIES_START
+
+
+def observe_live(limit: int, fetch=None) -> dict:
+    """SEC 에서 직접 관측한다. 층 ① neutral acquisition primitive 만 쓴다.
+
+        submissions discovery → item 2.02 후보 → EX-99.1 acquisition/provenance
+        → RULE-0022 observer → normalization → emission
+
+    ★ `fetch` 는 **주입 가능한 이음매**다. 기본값은 acquisition primitive 의 `get` 이며,
+      회귀는 여기에 mock 을 넣어 **network 없이** live 경로를 검증한다.
+      ⛔ 이 이음매는 fallback 이 아니다 — fixture 경로로 내려가지 않는다.
+    ⛔ 아래 어느 단계든 실패하면 `ObserveError` 로 멈춘다. emission 을 만들지 않는다.
+    """
+    get = fetch or ACQ.get
+
+    # ── ① discovery ──────────────────────────────────────────────────
+    try:
+        _, raw = get(ACQ.SUBMISSIONS_URL)
+        sub = json.loads(raw.decode("utf-8"))
+    except ObserveError:
+        raise
+    except Exception as e:                                          # noqa: BLE001
+        raise ObserveError(f"submissions 조회 실패 — {type(e).__name__}: {e}") from e
+    recent = (sub.get("filings") or {}).get("recent")
+    if not isinstance(recent, dict) or "form" not in recent:
+        raise ObserveError("submissions schema 이상 — filings.recent 가 없다")
+
+    cands, dropped = ACQ.filter_earnings_candidates(recent, limit)
+    if not cands:
+        raise ObserveError(
+            f"item {ACQ.EARNINGS_ITEM} 8-K 후보 0건 — 관측하지 않는다")
+
+    records, failures = [], []
+    for c in cands:
+        acc = c["accession"].replace("-", "")
+        base = f"{ACQ.ARCHIVE_BASE}/{acc}"
+        # ── ② exhibit identity — primary + secondary 교차확인 ─────────
+        try:
+            _, txt = get(f"{base}/{c['accession']}.txt")
+            docs = ACQ.parse_document_blocks(txt.decode("utf-8", errors="replace"))
+            name, probs, _ = ACQ.select_exhibit(docs)
+            if name is None:
+                raise ObserveError(f"primary exhibit identity 실패: {'; '.join(probs)}")
+            _, ihtml = get(f"{base}/{c['accession']}-index.html")
+            sec_types = ACQ.index_html_types(ihtml.decode("utf-8", errors="replace"))
+            name2, probs2, _ = ACQ.select_exhibit(docs, sec_types=sec_types)
+            if name2 is None:
+                raise ObserveError(f"secondary 교차확인 실패: {'; '.join(probs2)}")
+            _, body = get(f"{base}/{name2}")
+        except ObserveError:
+            raise
+        except Exception as e:                                      # noqa: BLE001
+            raise ObserveError(
+                f"{c['accession']} exhibit 취득 실패 — {type(e).__name__}: {e}") from e
+
+        html = body.decode("utf-8", errors="replace")
+        prov = ACQ.exhibit_provenance(c, name2, hashlib.sha256(body).hexdigest())
+        rec, why = _observe_one(html, prov)
+        if rec is None:
+            failures.append(why)
+            continue
+        # ── ③ D-5/D-6 — pre-series 는 emit 하지 않는다 ────────────────
+        if _pre_series(rec):
+            failures.append({"stage": "series_boundary",
+                             "outcome": PRE_SERIES_NOT_EMITTED,
+                             "accession": prov["accession"],
+                             "filing_date": prov["filing_date"],
+                             "problems": [
+                                 f"economic_period_end {rec['economic_period_end']} < "
+                                 f"series start {COMMERCIAL_RPO_SERIES_START} — "
+                                 f"production series 밖이므로 observation 을 만들지 않는다"]})
+            continue
+        records.append(rec)
+
+    return _emission(SOURCE_LIVE, records, failures,
+                     {"limit": limit, "considered": len(cands),
+                      "dropped_by_limit": len(dropped)})
 
 
 def _emission(source: str, records: list, failures: list, meta: dict) -> dict:
@@ -126,12 +213,15 @@ def main(argv=None) -> int:
     ap.add_argument("--source", required=True, choices=[SOURCE_LIVE, SOURCE_FIXTURE],
                     help="⛔ 명시 필수 — live 실패 시 fixture 로 내려가는 fallback 은 없다")
     ap.add_argument("--manifest", help="fixture manifest 경로 (source=fixture 일 때 필수)")
-    ap.add_argument("--limit", type=int, default=4, help="live 조회 상한")
+    ap.add_argument("--limit", type=int, default=4,
+                    help="live discovery 조회 상한 (source=live 일 때만 쓰인다)")
     ap.add_argument("--out", required=True, help="emit 경로 — ⛔ 저장소 밖이어야 한다")
     a = ap.parse_args(argv)
 
     print("=" * 70)
-    print("RULE-0022 OBSERVE (S4A) — Acquisition → Observer → Normalization → emit")
+    print("RULE-0022 OBSERVE — Acquisition → Observer → Normalization → emit")
+    print(f"  source={a.source}"
+          + (f" limit={a.limit}" if a.source == SOURCE_LIVE else f" manifest={a.manifest}"))
     print("  ⛔ Observation Store 를 건드리지 않는다 · ⛔ 저장소에 쓰지 않는다")
     print("=" * 70)
 
@@ -141,10 +231,12 @@ def main(argv=None) -> int:
             return 2
         em = observe_fixture(a.manifest)
     else:
+        # ⛔ live 실패는 emission 을 만들지 않는다 — persist 단계로 넘어갈 것이 없다.
         try:
             em = observe_live(a.limit)
         except ObserveError as e:
-            print(f"✗ {e}")
+            print(f"✗ live 관측 실패 — {e}")
+            print("  ⛔ emission 을 만들지 않았다 — persist 단계로 넘어가지 않는다")
             return 2
 
     try:
