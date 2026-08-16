@@ -250,8 +250,16 @@ with section("C-4. ★★ CONFLICT · REVISION 은 fail-open 으로 소비되지
               len(S.consumable_keys(st)) == 3, str(len(S.consumable_keys(st))))
     # 차단이 해제되려면 revision 이 1건이고 conflict 가 없어야 한다
     e = S.get_entry(st_r, KEY0)
-    check("★ series_consumable 은 revision 이 정확히 1건일 때만 True 다",
+    check("★ series_consumable 은 revision 이 2건이면 False 다",
           S.series_consumable(e) is False and len(e["revisions"]) == 2)
+    # ⛔ revision 0건도 소비 가능해서는 안 된다 — 「차단 사유가 없다」와
+    #    「소비할 관측이 있다」는 다른 명제다.
+    empty_entry = {"key": {}, "revisions": [], "conflicts": []}
+    check("★★ series_consumable 은 revision 이 0건이면 False 다",
+          S.series_consumable(empty_entry) is False, str(S.series_blocked_by(empty_entry)))
+    one_entry = {"key": {}, "revisions": [{"material_provenance": {}}], "conflicts": []}
+    check("★ revision 이 정확히 1건이고 차단 사유가 없으면 True 다",
+          S.series_consumable(one_entry) is True)
 
 # ══════════════════════════════════════════════════════════════════════
 with section("D. ★★ D-6 경계 — pre-series backfill 금지"):
@@ -287,11 +295,15 @@ with section("D-2. 거부 증거는 series 밖 로그에 남는다"):
     check("★★ rejection 이 series 를 오염시키지 않는다",
           logged["series"] == GOOD_STATE["series"])
     check("  로그에 사유가 남는다", "D-6" in logged["rejections"][0]["reason"])
+    # ⛔ 최소 dict 를 넘기지 않는다 — 가드가 사라지면 KeyError(ERROR)가 되어 **검사가
+    #    실행되지 않는다.** ERROR 는 FAIL 이 아니므로 판별력이 사라진다.
+    _accepted = {"outcome": S.NEW, "accepted": True, "key": None,
+                 "reason": "ok", "evidence": {}}
     try:
-        S.record_rejection(GOOD_STATE, {"accepted": True})
-        check("★ 수락된 결과를 rejection 으로 기록하려 하면 거부한다", False, "통과해버렸다")
+        S.record_rejection(GOOD_STATE, _accepted)
+        check("★★ 수락된 결과를 rejection 으로 기록하려 하면 거부한다", False, "통과해버렸다")
     except S.StoreError:
-        check("★ 수락된 결과를 rejection 으로 기록하려 하면 거부한다", True)
+        check("★★ 수락된 결과를 rejection 으로 기록하려 하면 거부한다", True)
 
 # ══════════════════════════════════════════════════════════════════════
 with section("E. ★★ 입력 검증 — 첫 동작이 validate_record 다"):
@@ -358,6 +370,8 @@ with section("F-2. IO 경계 — 파일만 안다"):
         check("★ 파일이 없으면 빈 state", S.load_state(p) == S.empty_state())
         S.save_state(GOOD_STATE, p)
         check("★ 저장 후 왕복이 동일하다", S.serialize(S.load_state(p)) == S.serialize(GOOD_STATE))
+        check("★★ save_state 가 `os.replace` 로 원자적 교체를 한다 (부분 기록 방지)",
+              "replace" in _calls(STORE_SRC), str(sorted(_calls(STORE_SRC)))[:0])
         check("  임시 파일이 남지 않는다",
               [f for f in os.listdir(os.path.dirname(p)) if f.startswith(".obsstore-")] == [])
         # 손상 파일을 조용히 빈 state 로 대체하지 않는다

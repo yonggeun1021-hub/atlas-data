@@ -147,12 +147,24 @@
   {
    "id": "ST-IDEM-2",
    "origin_label": "ST-IDEM-2",
-   "note": "★ operational metadata 를 material provenance 에 넣는다 — 재관측마다 REVISION 으로 오분류",
+   "note": "★ operational metadata 를 material provenance **필드 목록**에 넣는다 — 재관측마다 REVISION 으로 오분류된다. ★ v1 은 `flat` dict 에만 넣었는데 반환은 필드 목록으로 걸러지므로 변이가 무효였다 (SURVIVED). 목록 자체를 겨눈다.",
    "anchors_expected": 1,
-   "anchor": "        \"row_label_raw\": record.get(\"row_label_raw\"),",
-   "replacement": "        \"observed_at\": prov.get(\"observed_at\"),\n        \"row_label_raw\": record.get(\"row_label_raw\"),",
+   "anchor": "MATERIAL_RECORD_FIELDS = (\n    \"row_label_raw\",",
+   "replacement": "MATERIAL_RECORD_FIELDS = (\n    \"observed_at\",\n    \"row_label_raw\",",
    "expected_killers": [
     "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
+     ],
+     "reason": "변이 자체가 무효였다 — `flat` 에 키를 넣어도 `{k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}` 가 걸러낸다. anchor 를 필드 목록으로 옮겨 실제로 material 축이 늘어나게 했다. (v1 anchor:         \"row_label_raw\": record.get(\"row…)"
+    }
    ]
   },
   {
@@ -199,8 +211,20 @@
    "anchor": "    if len(entry.get(\"revisions\") or []) > 1:\n        out.append(REVISION_AUTHORITY_UNRESOLVED)",
    "replacement": "    if False:\n        out.append(REVISION_AUTHORITY_UNRESOLVED)",
    "expected_killers": [
-    "다른 accession → 소비 불가 (authority 미확정)",
-    "REVISION 후 그 key 는 consumable_keys 에서 빠진다"
+    "차단 사유가 REVISION_AUTHORITY_UNRESOLVED"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "다른 accession → 소비 불가 (authority 미확정)",
+      "REVISION 후 그 key 는 consumable_keys 에서 빠진다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "차단 사유가 REVISION_AUTHORITY_UNRESOLVED"
+     ],
+     "reason": "v1 은 `소비 불가`·`consumable_keys 에서 빠진다` 를 선언했으나, revision 이 2건이면 `series_consumable` 의 `len==1` 조건이 여전히 False 를 만든다 — 사라지는 것은 **사유**뿐이다. 계약을 소유한 검사는 차단 사유 검사다."
+    }
    ]
   },
   {
@@ -246,8 +270,20 @@
    "anchor": "    new_state = copy.deepcopy(state)\n    entry = new_state[\"series\"].get(ks)",
    "replacement": "    new_state = state\n    entry = new_state[\"series\"].get(ks)",
    "expected_killers": [
-    "재삽입 결과가 IDEMPOTENT",
-    "series 가 전혀 변하지 않았다"
+    "빈 state 를 변형하지 않았다 (순수 함수)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "재삽입 결과가 IDEMPOTENT",
+      "series 가 전혀 변하지 않았다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "빈 state 를 변형하지 않았다 (순수 함수)"
+     ],
+     "reason": "v1 은 IDEMPOTENT 경로 검사를 선언했으나 그 경로는 `new_state` 를 만들기 전에 반환된다. 입력 state 변형을 직접 관측하는 검사가 계약 소유자다."
+    }
    ]
   },
   {
@@ -314,6 +350,18 @@
    "replacement": "    pass",
    "expected_killers": [
     "수락된 결과를 rejection 으로 기록하려 하면 거부한다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "수락된 결과를 rejection 으로 기록하려 하면 거부한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "수락된 결과를 rejection 으로 기록하려 하면 거부한다"
+     ],
+     "reason": "v1 검사가 최소 dict 를 넘겨 변이 하에서 KeyError(ERROR)로 죽었다 — ERROR 는 FAIL 이 아니므로 attribution 되지 않았다. 회귀 쪽을 완전한 수락 결과로 고쳐 ERROR 를 FAIL 로 바꿨다."
+    }
    ]
   },
   {
