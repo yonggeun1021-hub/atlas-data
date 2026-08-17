@@ -88,16 +88,26 @@ sys.exit(0)
     return tool
 
 
-def run_case(fail_sid=None, preexisting_sid=None, break_summary=False):
+def run_case(
+    fail_sid=None,
+    preexisting_sid=None,
+    break_summary=False,
+    poison_path=False,
+    certifi_fallback=False,
+    invalid_ssl_cert=False,
+):
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
         derived = td / "derived"
         tool = make_fake_collector(td, fail_sid)
 
         env = os.environ.copy()
+        env.pop("SSL_CERT_FILE", None)
+        env.pop("SSL_CERT_DIR", None)
         env["FRED_API_KEY"] = "TEST_ONLY_NOT_REAL"
         env["TOOL"] = str(tool)
         env["ATLAS_FRED_DERIVED_DIR"] = str(derived)
+        env["PYTHON_BIN"] = sys.executable
 
         sentinel = None
         if preexisting_sid:
@@ -106,6 +116,45 @@ def run_case(fail_sid=None, preexisting_sid=None, break_summary=False):
             sentinel = existing / "PREEXISTING_SENTINEL"
             sentinel.mkdir()
             (sentinel / "keep.txt").write_text("do not delete\n")
+
+        if poison_path:
+            poison_python = td / "python3"
+            poison_python.write_text(
+                "#!/usr/bin/env bash\n"
+                "echo 'POISON PATH python3 WAS USED' >&2\n"
+                "exit 88\n"
+            )
+            poison_python.chmod(0o755)
+            env["PATH"] = str(td) + os.pathsep + env.get("PATH", "")
+
+        if certifi_fallback:
+            fake_ca = td / "fake-certifi-ca.pem"
+            fake_ca.write_text("fixture-only-ca\n")
+            fake_python = td / "python-no-default-ca"
+            real_python = sys.executable
+            fake_python.write_text(
+                """#!/usr/bin/env bash
+if [ "$1" = "-c" ]; then
+  case "$2" in
+    *"ssl.get_default_verify_paths"*)
+      printf '\n'
+      exit 0
+      ;;
+    *"import certifi"*)
+      printf '%%s\n' "$FAKE_CERTIFI_CA"
+      exit 0
+      ;;
+  esac
+fi
+exec %s "$@"
+""" % real_python
+            )
+            fake_python.chmod(0o755)
+            env["FAKE_CERTIFI_CA"] = str(fake_ca)
+            env["PYTHON_BIN"] = str(fake_python)
+
+        if invalid_ssl_cert:
+            env["SSL_CERT_FILE"] = str(td / "missing-ca.pem")
 
         if break_summary:
             fake_python = td / "python3"
@@ -120,7 +169,7 @@ exec %s "$@"
 """ % real_python
             )
             fake_python.chmod(0o755)
-            env["PATH"] = str(td) + os.pathsep + env.get("PATH", "")
+            env["PYTHON_BIN"] = str(fake_python)
 
         if fail_sid:
             env["FAKE_FAIL_SID"] = fail_sid
@@ -236,6 +285,42 @@ check(
         len(finals["TOTBKCR"]),
         len(summaries),
     ),
+)
+
+# PATH may contain a broken python3, but a pinned PYTHON_BIN must be used for
+# preflight, both collectors, and summary generation.
+rc, out, finals, logs, summaries, _ = run_case(poison_path=True)
+check(
+    "R14 pinned PYTHON_BIN ignores hostile PATH python3",
+    rc == 0
+    and len(finals["WRESBAL"]) == 1
+    and len(finals["TOTBKCR"]) == 1
+    and len(summaries) == 1
+    and "POISON PATH python3 WAS USED" not in out,
+    "rc=%s" % rc,
+)
+
+# Selected Python has no usable system cafile: runner must fall back to that
+# interpreter's certifi bundle while keeping TLS verification enabled.
+rc, out, finals, logs, summaries, _ = run_case(certifi_fallback=True)
+check(
+    "R15 missing default CA falls back to selected Python certifi",
+    rc == 0
+    and "tls_ca=certifi:" in out
+    and len(finals["WRESBAL"]) == 1
+    and len(finals["TOTBKCR"]) == 1,
+    "rc=%s" % rc,
+)
+
+# Explicit but unreadable CA input must fail before collection/publish.
+rc, out, finals, logs, summaries, _ = run_case(invalid_ssl_cert=True)
+check(
+    "R16 invalid SSL_CERT_FILE fails closed before publish",
+    rc == 2
+    and len(finals["WRESBAL"]) == 0
+    and len(finals["TOTBKCR"]) == 0
+    and len(summaries) == 0,
+    "rc=%s" % rc,
 )
 
 passed = sum(1 for _, ok, _ in RESULTS if ok)
