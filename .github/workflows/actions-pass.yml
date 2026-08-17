@@ -44,6 +44,8 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
       - name: FRED S-2 no-raw offline regression
         run: python3 atlas_fred_s2_noraw_regression.py atlas_fred_s2_noraw.py
+      - name: FRED S-2 runner atomicity regression
+        run: python3 atlas_fred_s2_runner_regression.py run_s2_collection_noraw.sh
       - name: Actions PASS gate
         run: python3 run_all.py --authoritative
       - name: 작업 후 dirty artifact 가 없는지
