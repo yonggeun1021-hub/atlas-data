@@ -1,0 +1,80 @@
+name: stablecoin-daily-capture
+
+on:
+  schedule:
+    - cron: "20 6 * * *"      # 매일 06:20 UTC (한국 15:20). 깃허브 사정으로 수십 분 늦을 수 있음
+  workflow_dispatch:           # 수동 실행 버튼
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture raw snapshot (append-only)
+        run: |
+          set -euo pipefail
+          D=$(date -u +%F)
+          DIR="evidence/stablecoin/raw/$D"
+          if [ -f "$DIR/_sha256.txt" ]; then
+            echo "이미 $D 스냅샷이 존재합니다. 덮어쓰지 않고 종료합니다."
+            echo "SKIP=1" >> $GITHUB_ENV
+            exit 0
+          fi
+          mkdir -p "$DIR"; cd "$DIR"
+
+          # source_observed_at — 반드시 다운로드 직전에 기록
+          date -u +%Y-%m-%dT%H:%M:%SZ > _downloaded_at.txt
+          cat _downloaded_at.txt
+
+          fetch () {  # $1=파일명  $2=URL
+            curl -sS --fail --retry 3 --retry-delay 5 --max-time 120 -o "$1" "$2"
+          }
+          fetch stablecoincharts_all.json   "https://stablecoins.llama.fi/stablecoincharts/all"
+          fetch stablecoins_withprices.json "https://stablecoins.llama.fi/stablecoins?includePrices=true"
+          fetch stablecoinchains.json       "https://stablecoins.llama.fi/stablecoinchains"
+          fetch stablecoincharts_Terra.json "https://stablecoins.llama.fi/stablecoincharts/Terra"
+
+          # 원문 sha256 = 정본 해시 (압축 전 기준)
+          sha256sum *.json > _sha256.txt
+          cat _sha256.txt
+
+          # 유효성 검사 — 하나라도 깨지면 커밋하지 않고 실패
+          python3 - <<'PY'
+          import json, os, sys
+          MIN = {"stablecoincharts_all.json": 500000, "stablecoins_withprices.json": 100000,
+                 "stablecoinchains.json": 5000, "stablecoincharts_Terra.json": 5000}
+          bad = []
+          for f, m in MIN.items():
+              n = os.path.getsize(f)
+              if n < m:
+                  bad.append("%s 크기 부족 %d < %d" % (f, n, m)); continue
+              try:
+                  d = json.load(open(f))
+              except Exception as e:
+                  bad.append("%s JSON 실패: %s" % (f, e)); continue
+              cnt = len(d) if isinstance(d, list) else len(d.get("peggedAssets", d))
+              if cnt < 100:
+                  bad.append("%s 레코드 %d개로 너무 적음" % (f, cnt))
+              print("%-32s %9d bytes  n=%d" % (f, n, cnt))
+          if bad:
+              print("검증 실패:", *bad, sep="\n  "); sys.exit(1)
+          PY
+
+          # 저장소 용량을 위해 gzip 보관. 원문은 gunzip -c 로 그대로 복원되고
+          # _sha256.txt 의 해시로 검증 가능하다.
+          gzip -n *.json
+          gunzip -c stablecoincharts_all.json.gz | sha256sum | cut -d' ' -f1 > /tmp/rt.txt
+          grep -q "$(cat /tmp/rt.txt)" _sha256.txt && echo "round-trip 해시 일치 확인"
+
+      - name: Commit
+        if: env.SKIP != '1'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add evidence/stablecoin/raw
+          git commit -m "stablecoin raw snapshot $(date -u +%F)"
+          git push
