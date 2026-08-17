@@ -42,6 +42,8 @@ jobs:
       #   ⛔ 러너에 우연히 깔려 있는 패키지에 의존하지 않는다. 명시 설치한다.
       - name: CI 전용 의존성 설치
         run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
+      - name: FRED S-2 no-raw offline regression
+        run: python3 atlas_fred_s2_noraw_regression.py atlas_fred_s2_noraw.py
       - name: Actions PASS gate
         run: python3 run_all.py --authoritative
       - name: 작업 후 dirty artifact 가 없는지
