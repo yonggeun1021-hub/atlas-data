@@ -1,0 +1,206 @@
+{
+ "target": "collectors/c4_sec_edgar_check.py",
+ "regression": "test/test_c4_sec_edgar.py",
+ "origin": "/tmp/mut6.py + /tmp/mut7.py + /tmp/mut8.py (2026-08-16 이관)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다.",
+ "mutations": [
+  {
+   "id": "C4-ROW-U1",
+   "origin_label": "U1",
+   "note": "다시 첫 행을 고른다 (guard 무력화)",
+   "anchors_expected": 1,
+   "anchor": "        if len(hits) != 1:\n            if rejected is not None:",
+   "replacement": "        if len(hits) < 1:\n            if rejected is not None:",
+   "expected_killers": [
+    "Net Revenue 2행 표는 후보가 되지 않는다"
+   ]
+  },
+  {
+   "id": "C4-ROW-U2",
+   "origin_label": "U2",
+   "note": "Net Revenue 행 수집을 첫 행에서 멈춘다",
+   "anchors_expected": 1,
+   "anchor": "        hits = [ri for ri, r in enumerate(rows)\n                if r and any(RE_NET_REVENUE.match(c) for c in r)]",
+   "replacement": "        hits = [ri for ri, r in enumerate(rows)\n                if r and any(RE_NET_REVENUE.match(c) for c in r)][:1]",
+   "expected_killers": [
+    "Net Revenue 2행 표는 후보가 되지 않는다"
+   ]
+  },
+  {
+   "id": "C4-ROW-U3",
+   "origin_label": "U3",
+   "note": "거부 근거를 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "            if rejected is not None:\n                rejected.append({\n                    \"table_index\": ti,\n                    \"reason\": f\"같은 표 안 `Net Revenue` 행이",
+   "replacement": "            if False:\n                rejected.append({\n                    \"table_index\": ti,\n                    \"reason\": f\"같은 표 안 `Net Revenue` 행이",
+   "expected_killers": [
+    "거부 근거를 남긴다"
+   ]
+  },
+  {
+   "id": "C4-ROW-U4",
+   "origin_label": "U4",
+   "note": "근거에서 행 번호를 뺀다",
+   "anchors_expected": 1,
+   "anchor": "                    \"net_revenue_rows\": hits,",
+   "replacement": "                    \"net_revenue_rows\": [],",
+   "expected_killers": [
+    "근거에 후보 행 번호가 있다"
+   ]
+  },
+  {
+   "id": "C4-ROW-U6",
+   "origin_label": "U6",
+   "note": "Y-o-Y 조건을 없앤다 (기존 동작 변경)",
+   "anchors_expected": 1,
+   "anchor": "        if not any(RE_YOY.search(c) for c in head):\n            continue",
+   "replacement": "        if False:\n            continue",
+   "expected_killers": [
+    "Y-o-Y 헤더가 없으면 결정표 후보가 아니다"
+   ]
+  },
+  {
+   "id": "C4-CAND-V-1",
+   "origin_label": "V-1",
+   "note": "첫 성공에서 break 를 되살린다",
+   "anchors_expected": 1,
+   "anchor": "        out.append({\"table_index\": ti, \"data_i\": di,\n                    \"header\": header, \"bound\": bound})\n    return out",
+   "replacement": "        out.append({\"table_index\": ti, \"data_i\": di,\n                    \"header\": header, \"bound\": bound})\n        break\n    return out",
+   "expected_killers": [
+    "final_candidates 에 break 제어문이 없다"
+   ]
+  },
+  {
+   "id": "C4-CAND-V-2",
+   "origin_label": "V-2",
+   "note": "유일성 비교를 != 1 에서 < 1 로 완화",
+   "anchors_expected": 1,
+   "anchor": "    if len(cands) != 1:",
+   "replacement": "    if len(cands) < 1:",
+   "expected_killers": [
+    "유일성 판정이 2건에서 fail-closed"
+   ]
+  },
+  {
+   "id": "C4-CAND-V-3",
+   "origin_label": "V-3",
+   "note": "L2 실패 후보도 최종에 넣는다 (「가」 방향 회귀)",
+   "anchors_expected": 1,
+   "anchor": "        if bound is None:\n            if rejected is not None:",
+   "replacement": "        if False:\n            if rejected is not None:",
+   "expected_killers": [
+    "L2 실패 후보는 최종에 들어오지 않는다"
+   ]
+  },
+  {
+   "id": "C4-CAND-V-4",
+   "origin_label": "V-4",
+   "note": "거부 근거에 후보 전체를 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "            + (f\": table {[c['table_index'] for c in cands]}\" if cands else \"\")",
+   "replacement": "            + (f\": table {[c['table_index'] for c in cands][:1]}\" if cands else \"\")",
+   "expected_killers": [
+    "거부 근거에 후보 **전체**가 남는다"
+   ]
+  },
+  {
+   "id": "C4-CAND-V-5",
+   "origin_label": "V-5",
+   "note": "final_candidates 안에서 유일성을 축약한다 (책임 혼합)",
+   "anchors_expected": 1,
+   "anchor": "    return out\n\n\ndef unique_candidate(cands):",
+   "replacement": "    return out[:1]\n\n\ndef unique_candidate(cands):",
+   "expected_killers": [
+    "final_candidates 는 2건을 **보존**한다"
+   ]
+  },
+  {
+   "id": "C4-CAND-V-6",
+   "origin_label": "V-6",
+   "note": "L2 탈락 evidence 를 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "            if rejected is not None:\n                rejected.append({\n                    \"table_index\": ti,\n                    \"reason\": f\"L2 컬럼 identity 미충족",
+   "replacement": "            if False:\n                rejected.append({\n                    \"table_index\": ti,\n                    \"reason\": f\"L2 컬럼 identity 미충족",
+   "expected_killers": [
+    "L2 탈락 근거가 남는다"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-1",
+   "origin_label": "W-1",
+   "note": "전제 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if above:",
+   "replacement": "    if False:",
+   "expected_killers": [
+    "전제 위반 시 header 를 만들지 않고 fail-closed"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-2",
+   "origin_label": "W-2",
+   "note": "전제를 assert 로 구현한다 (python -O 에서 사라진다)",
+   "anchors_expected": 1,
+   "anchor": "    if above:\n        raise HeaderPreconditionError(",
+   "replacement": "    assert not above\n    if False:\n        raise HeaderPreconditionError(",
+   "expected_killers": [
+    "전제 검사가 assert 가 아니다"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-3",
+   "origin_label": "W-3",
+   "note": "전제를 위치 계약으로 바꾼다 (data_i == 5)",
+   "anchors_expected": 1,
+   "anchor": "    above = [i for i in range(data_i) if is_data_row_c4(rows[i])]",
+   "replacement": "    above = [] if data_i == 5 else [0]",
+   "expected_killers": [
+    "전제 판별이 위치가 아니라 의미다"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-4",
+   "origin_label": "W-4",
+   "note": "연도 단독 셀도 값으로 센다 (split header 오탐)",
+   "anchors_expected": 1,
+   "anchor": "    return any(RE_NUM.match(c.strip()) and not RE_YEAR_ONLY.match(c.strip())\n               for c in row if c.strip())",
+   "replacement": "    return any(RE_NUM.match(c.strip()) for c in row if c.strip())",
+   "expected_killers": [
+    "연도 단독 셀은 값 행으로 세지 않는다"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-5",
+   "origin_label": "W-5",
+   "note": "근거에서 행 번호를 뺀다",
+   "anchors_expected": 1,
+   "anchor": "            f\"위쪽 data row {above} · 라벨",
+   "replacement": "            f\"위쪽 data row [] · 라벨",
+   "expected_killers": [
+    "근거에 위쪽 data row 번호가 남는다"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-6",
+   "origin_label": "W-6",
+   "note": "호출부가 전제 위반을 삼킨다",
+   "anchors_expected": 1,
+   "anchor": "            if rejected is not None:\n                rejected.append({\"table_index\": ti,\n                                 \"reason\": f\"build_header precondition 위반 — {e}\"})\n            continue",
+   "replacement": "            continue",
+   "expected_killers": [
+    "호출부가 precondition 근거를 남긴다"
+   ]
+  },
+  {
+   "id": "C4-PRECOND-W-7",
+   "origin_label": "W-7",
+   "note": "연결 알고리즘을 바꾼다 (헤더 영역만)",
+   "anchors_expected": 1,
+   "anchor": "        for r in rows[:data_i]:",
+   "replacement": "        for r in rows[:1]:",
+   "expected_killers": [
+    "연결 알고리즘"
+   ]
+  }
+ ]
+}

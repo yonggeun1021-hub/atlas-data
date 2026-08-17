@@ -1,0 +1,306 @@
+{
+ "target": "collectors/rule0022_commercial_rpo.py",
+ "regression": "test/test_rule0022_commercial_rpo.py",
+ "origin": "S1 신규 표면 — CIO 승인 2026-08-16 (Observation Layer S1)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 층 ② Rule-specific Observation 표면만 다룬다 — normalization · store · pair 는 S2 이후 Gate 다.",
+ "mutations": [
+  {
+   "id": "R22-ROW-1",
+   "origin_label": "R22-ROW-1",
+   "note": "row predicate 의 `^Commercial` 앵커를 제거한다. ★ 관측 결과: `.match()` 는 문자열 **시작**에서 맞추므로 앵커를 빼면 넓어지는 것이 아니라 **아무것도 맞지 않게** 된다 — 원래 적었던 「total RPO 까지 넓어진다」는 사실과 다르다. 이 변이가 실제로 깨뜨리는 계약은 「승인된 행 문면을 정확히 지목한다」이다.",
+   "anchors_expected": 1,
+   "anchor": "COMMERCIAL_RPO_ROW = re.compile(\n    r\"^Commercial\\s+remaining\\s+performance\\s+obligation$\", re.I)",
+   "replacement": "COMMERCIAL_RPO_ROW = re.compile(\n    r\"remaining\\s+performance\\s+obligation\", re.I)",
+   "expected_killers": [
+    "observation 이 생성된다",
+    "FY26 4/4 observation"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "row 후보가 정확히 1건",
+      "row_present() 가 False 다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "observation 이 생성된다",
+      "FY26 4/4 observation"
+     ],
+     "reason": "v1 은 FY25 쪽 검사(`row_present() 가 False 다`)를 killer 로 선언했는데, 그 검사는 변이 후에도 여전히 PASS 한다 — FY25 에는 어차피 행이 없다. 실제로 깨지는 것은 FY26 관측 생성이다. ⛔ 새 검사를 만들지 않고 계약을 소유한 기존 검사로 옮겼다."
+    }
+   ]
+  },
+  {
+   "id": "R22-ROW-2",
+   "origin_label": "R22-ROW-2",
+   "note": "행 복수 시 첫 번째를 고른다 — 위쪽 행 silent selection",
+   "anchors_expected": 1,
+   "anchor": "    narrowing[\"row_candidates\"] = len(same)\n    if len(same) != 1:",
+   "replacement": "    narrowing[\"row_candidates\"] = len(same)\n    if len(same) < 1:",
+   "expected_killers": [
+    "row 복수건 → fail-closed (위쪽 행을 고르지 않는다)"
+   ]
+  },
+  {
+   "id": "R22-ROW-3",
+   "origin_label": "R22-ROW-3",
+   "note": "ROW_ABSENT 를 일반 실패로 뭉갠다 — D-6 의 관측 결과가 결함으로 둔갑한다",
+   "anchors_expected": 1,
+   "anchor": "        return None, None, None, [f\"{ROW_ABSENT}: `{MEASUREMENT_IDENTITY}` 행이 0건이다\"], narrowing",
+   "replacement": "        return None, None, None, [f\"`{MEASUREMENT_IDENTITY}` 행이 0건이다\"], narrowing",
+   "expected_killers": [
+    "결과가 ROW_ABSENT 다",
+    "row 0건 → ROW_ABSENT 로 분류된다 (결함 아님)"
+   ]
+  },
+  {
+   "id": "R22-COL-1",
+   "origin_label": "R22-COL-1",
+   "note": "Decision 열을 RULE-0021 방향(cc)으로 되돌린다 — D-3 위반",
+   "anchors_expected": 1,
+   "anchor": "DECISION_COLUMN = \"gaap\"",
+   "replacement": "DECISION_COLUMN = \"cc\"",
+   "expected_killers": [
+    "observer 의 Decision 열이 RULE-0021 과 반대 방향인 `gaap` 이다"
+   ]
+  },
+  {
+   "id": "R22-COL-2",
+   "origin_label": "R22-COL-2",
+   "note": "컬럼 개수 검사를 완화한다 — 0건·복수건에서 조용히 통과",
+   "anchors_expected": 1,
+   "anchor": "        if len(hits) != 1:\n            problems.append(f\"{label} 컬럼이 정확히 1개가 아니다 ({len(hits)}개)\")",
+   "replacement": "        if len(hits) < 1:\n            problems.append(f\"{label} 컬럼이 정확히 1개가 아니다 ({len(hits)}개)\")",
+   "expected_killers": [
+    "★★ GAAP 열이 2개면 결합하지 않는다 (cc 는 그대로 1개)",
+    "사유가 GAAP 컬럼 개수다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "GAAP 열 복수건 → fail-closed"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ GAAP 열이 2개면 결합하지 않는다 (cc 는 그대로 1개)",
+      "사유가 GAAP 컬럼 개수다"
+     ],
+     "reason": "v1 은 fixture 치환 기반 검사(`GAAP 열 복수건 → fail-closed`)를 killer 로 선언했으나, 그 주입은 cc 열을 동시에 0개로 만들어 **다른 사유로** fail-closed 됐다 — 변이 하에서도 여전히 PASS 한다. 열별로 분리한 bind_columns 단위 검사가 이 계약의 소유자다."
+    }
+   ]
+  },
+  {
+   "id": "R22-COL-3",
+   "origin_label": "R22-COL-3",
+   "note": "column identity 검증을 제거한다 — 위치 기반 fallback 과 동등해진다 (D-3 위반)",
+   "anchors_expected": 1,
+   "anchor": "    if not _identity_contains(decision_header, DECISION_COLUMN_IDENTITY):",
+   "replacement": "    if False and not _identity_contains(decision_header, DECISION_COLUMN_IDENTITY):",
+   "expected_killers": [
+    "Decision 열 문면이 기대와 다르면 fail-closed (위치 fallback 없음)"
+   ]
+  },
+  {
+   "id": "R22-COL-4",
+   "origin_label": "R22-COL-4",
+   "note": "column identity 비교에서 괄호를 무르게 한다 — `(GAAP)` 구별력이 사라진다",
+   "anchors_expected": 1,
+   "anchor": "    norm = lambda s: re.sub(r\"\\s+\", \" \", s).strip()\n    return norm(expected) in norm(header_text)",
+   "replacement": "    norm = lambda s: re.sub(r\"[^a-z0-9]+\", \" \", s.lower()).strip()\n    return norm(expected).split()[0] in norm(header_text)",
+   "expected_killers": [
+    "Decision 열 문면이 기대와 다르면 fail-closed (위치 fallback 없음)"
+   ]
+  },
+  {
+   "id": "R22-COL-5",
+   "origin_label": "R22-COL-5",
+   "note": "evidence 열을 버린다 — D-3 의 「CC·impact 보존」 계약 위반",
+   "anchors_expected": 1,
+   "anchor": "EVIDENCE_COLUMNS = (\"cc_impact\", \"cc\")",
+   "replacement": "EVIDENCE_COLUMNS = ()",
+   "expected_killers": [
+    "CC · impact 가 evidence 로 선언돼 있다 (폐기 금지)",
+    "cc_impact evidence"
+   ]
+  },
+  {
+   "id": "R22-TITLE-1",
+   "origin_label": "R22-TITLE-1",
+   "note": "표 제목 앵커를 넓힌다 — 미지의 제3 문면이 조용히 통과한다",
+   "anchors_expected": 1,
+   "anchor": "RECON_TABLE_TITLE = re.compile(\n    r\"Selected\\s+Product\\s+and\\s+Service\\s+(?:Revenue|Information)\\s+\"\n    r\"Constant\\s+Currency\\s+Reconciliation\", re.I)",
+   "replacement": "RECON_TABLE_TITLE = re.compile(\n    r\"Constant\\s+Currency\\s+Reconciliation\", re.I)",
+   "expected_killers": [
+    "미지의 제3 제목 문면 → fail-closed"
+   ]
+  },
+  {
+   "id": "R22-COUPLE-1",
+   "origin_label": "R22-COUPLE-1",
+   "note": "★ 층 격리 위반 — `msft_azure_cc` 를 import 해 RULE-0021 상수에 결합시킨다",
+   "anchors_expected": 1,
+   "anchor": "from c4_sec_edgar_check import (TableCollector, strip_html,        # noqa: E402\n                                drop_empty_columns, evidence)",
+   "replacement": "from c4_sec_edgar_check import (TableCollector, strip_html,        # noqa: E402\n                                drop_empty_columns, evidence)\nimport msft_azure_cc  # noqa: E402,F401",
+   "expected_killers": [
+    "observer 가 `msft_azure_cc` 를 import 하지 않는다"
+   ]
+  },
+  {
+   "id": "R22-LAYER-1",
+   "origin_label": "R22-LAYER-1",
+   "note": "★ 층 경계 위반 — observer 가 normalization 을 한다 (층 ③ 침범)",
+   "anchors_expected": 1,
+   "anchor": "            \"raw_value\": bound[DECISION_COLUMN],\n        },",
+   "replacement": "            \"raw_value\": bound[DECISION_COLUMN],\n            \"numeric_value\": float(bound[DECISION_COLUMN].replace(\"%\", \"\").replace(\"(\", \"-\").replace(\")\", \"\")),\n        },",
+   "expected_killers": [
+    "observer 가 `float()` 를 호출하지 않는다 (normalization 은 층 ③)",
+    "draft 에 numeric 값이 없다 (normalization 금지)"
+   ]
+  },
+  {
+   "id": "R22-IDENT-1",
+   "origin_label": "R22-IDENT-1",
+   "note": "★ 문서 identity 에 행 존재를 다시 섞는다 — 행 부재가 「문서 부적격」으로 둔갑한다 (D-6 위반)",
+   "anchors_expected": 1,
+   "anchor": "    return [\n        (\"Microsoft 문서\", bool(re.search(r\"Microsoft\", text, re.I)), r\"Microsoft\"),\n        (\"constant currency reconciliation 표 제목\",\n         bool(RECON_TABLE_TITLE.search(text)), r\"Constant\\s+Currency\"),\n    ]",
+   "replacement": "    return [\n        (\"Microsoft 문서\", bool(re.search(r\"Microsoft\", text, re.I)), r\"Microsoft\"),\n        (\"constant currency reconciliation 표 제목\",\n         bool(RECON_TABLE_TITLE.search(text)), r\"Constant\\s+Currency\"),\n        (\"row\", row_present(tables), r\"remaining\\s+performance\"),\n    ]",
+   "expected_killers": [
+    "문서 identity 는 통과한다 (행 부재와 문서 부적격의 분리)",
+    "결과가 ROW_ABSENT 다"
+   ]
+  },
+  {
+   "id": "R22-PERIOD-1",
+   "origin_label": "R22-PERIOD-1",
+   "note": "연간·YTD 표를 분기표로 받아들인다 — period identity 위반",
+   "anchors_expected": 1,
+   "anchor": "        if per and per[0] == \"QUARTER\":",
+   "replacement": "        if per:",
+   "expected_killers": [
+    "분기표 0건 → fail-closed (연간·YTD 로 대체하지 않는다)"
+   ]
+  },
+  {
+   "id": "R22-TABLE-1",
+   "origin_label": "R22-TABLE-1",
+   "note": "표가 복수일 때 문서 순서로 고른다",
+   "anchors_expected": 1,
+   "anchor": "    narrowing[\"table_candidates\"] = len(tis)\n    if len(tis) != 1:",
+   "replacement": "    narrowing[\"table_candidates\"] = len(tis)\n    if len(tis) < 1:",
+   "expected_killers": [
+    "★★ 분기표 복수건 → fail-closed (문서 순서로 고르지 않는다)",
+    "사유가 표 개수 문제다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "table 후보가 정확히 1건"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ 분기표 복수건 → fail-closed (문서 순서로 고르지 않는다)",
+      "사유가 표 개수 문제다"
+     ],
+     "reason": "v1 은 정상 경로 검사(`table 후보가 정확히 1건`)를 선언했으나 그것은 정상 fixture 에서 1건이라 변이와 무관하게 PASS 한다. 복수건 주입 검사가 이 계약의 소유자다."
+    }
+   ]
+  },
+  {
+   "id": "R22-HEADER-1",
+   "origin_label": "R22-HEADER-1",
+   "note": "헤더 구성에서 값 행을 제외하지 않는다 — 행 라벨이 컬럼 정체성을 오염시킨다",
+   "anchors_expected": 1,
+   "anchor": "            if is_data_row(r):\n                continue",
+   "replacement": "            if False:\n                continue",
+   "expected_killers": [
+    "★★ 헤더에 값 행 라벨이 섞이지 않는다",
+    "★★ 오염 행이 있어도 컬럼이 각각 정확히 1개"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "세 컬럼이 각각 정확히 1개"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ 헤더에 값 행 라벨이 섞이지 않는다",
+      "★★ 오염 행이 있어도 컬럼이 각각 정확히 1개"
+     ],
+     "reason": "v1 은 정상 fixture 의 컬럼 개수 검사를 선언했으나, 현재 fixture 의 행 라벨에는 `Percentage Change` · `Constant Currency` 가 없어 헤더가 오염돼도 분류가 바뀌지 않는다 — fixture 가 이 결함을 구별하지 못한다. 오염 행을 명시적으로 넣은 build_header 단위 검사가 이 계약의 소유자다."
+    }
+   ]
+  },
+  {
+   "id": "R22-VALUE-1",
+   "origin_label": "R22-VALUE-1",
+   "note": "퍼센트 형태 검사를 제거한다 — 형태 이탈값이 관측값이 된다",
+   "anchors_expected": 1,
+   "anchor": "        if not RE_PCT_VALUE.match(v):\n            return None, [f\"{k} 값이 퍼센트 형태가 아니다: {v!r}\"], counts",
+   "replacement": "        if False:\n            return None, [f\"{k} 값이 퍼센트 형태가 아니다: {v!r}\"], counts",
+   "expected_killers": [
+    "퍼센트 형태가 아닌 값 → fail-closed"
+   ]
+  },
+  {
+   "id": "R22-ACQ-1",
+   "origin_label": "R22-ACQ-1",
+   "note": "acquisition — EX-99.1 복수건에서 첫 번째를 고른다",
+   "anchors_expected": 1,
+   "anchor": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if len(hits) != 1:",
+   "replacement": "    hits = [d for d in docs if d[\"type\"].upper() == EXHIBIT_TYPE]\n    if len(hits) < 1:",
+   "expected_killers": [
+    "EX-99.1 복수건 → fail-closed"
+   ],
+   "target": "collectors/msft_sec_results_acquisition.py"
+  },
+  {
+   "id": "R22-ACQ-2",
+   "origin_label": "R22-ACQ-2",
+   "note": "acquisition — secondary 교차확인을 건너뛴다",
+   "anchors_expected": 1,
+   "anchor": "    if sec_types is not None:",
+   "replacement": "    if False and sec_types is not None:",
+   "expected_killers": [
+    "secondary 불일치 → fail-closed",
+    "secondary 누락 → fail-closed"
+   ],
+   "target": "collectors/msft_sec_results_acquisition.py"
+  },
+  {
+   "id": "R22-ACQ-3",
+   "origin_label": "R22-ACQ-3",
+   "note": "acquisition — 상한으로 잘라낸 후보를 조용히 버린다 (collector 공통 규칙 위반). ★ v1 선언은 `dropped2[0]` 를 읽는 검사였는데, 변이 후 목록이 비어 IndexError → ERROR 가 되고 **검사가 실행되지 않는다.** ERROR 는 FAIL 이 아니므로 판별력이 사라진다. 개수로 먼저 못 박는 검사로 옮겼다.",
+   "anchors_expected": 1,
+   "anchor": "    return out[:limit], out[limit:]",
+   "replacement": "    return out[:limit], []",
+   "expected_killers": [
+    "상한으로 잘라낸 것을 조용히 버리지 않는다 — dropped 가 1건이다"
+   ],
+   "target": "collectors/msft_sec_results_acquisition.py",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "상한으로 잘라낸 것을 조용히 버리지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "상한으로 잘라낸 것을 조용히 버리지 않는다 — dropped 가 1건이다"
+     ],
+     "reason": "v1 검사는 변이 하에서 ERROR 로 죽어 attribution 대상이 되지 못했다. 회귀 쪽도 같은 이유로 개수 단언을 앞세우도록 고쳤다 — ⛔ 판별력을 낮추는 방향이 아니라 ERROR 를 FAIL 로 바꾸는 방향이다."
+    }
+   ]
+  },
+  {
+   "id": "R22-ACQ-4",
+   "origin_label": "R22-ACQ-4",
+   "note": "acquisition — <DOCUMENT> 블록이 아니라 문서 전체에서 <TYPE> 을 훑는다 (유령 후보)",
+   "anchors_expected": 1,
+   "anchor": "        head = block.split(\"<TEXT>\", 1)[0]",
+   "replacement": "        head = block",
+   "expected_killers": [
+    "<TEXT> 뒤의 <TYPE> 은 유령 후보가 되지 않는다"
+   ],
+   "target": "collectors/msft_sec_results_acquisition.py"
+  }
+ ]
+}

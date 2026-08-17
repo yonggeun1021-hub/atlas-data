@@ -1,0 +1,299 @@
+{
+ "target": "collectors/capture_azure_fixture.py",
+ "regression": "test/test_capture_azure_fixture.py",
+ "origin": "/tmp/mut2.py (2026-08-16 이관) + 증거면 보강 변이 (2026-08-16)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다.",
+ "mutations": [
+  {
+   "id": "CAPAZ-N1",
+   "origin_label": "N1",
+   "note": "저장 직전 내용을 정규화한다 (재구성)",
+   "anchors_expected": 1,
+   "anchor": "    return block\n\n\ndef sha",
+   "replacement": "    return block.replace(\"&nbsp;\", \" \")\n\n\ndef sha",
+   "expected_killers": [
+    "보존된 조각에 엔티티가 원문 그대로 남는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "부분 문자열**이다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "보존된 조각에 엔티티가 원문 그대로 남는다"
+     ],
+     "reason": "선언 오류. `부분 문자열**이다` 는 실문서 슬라이스 검사이고 그 구간에는 &nbsp; 가 없어 정규화가 무효과였다. 이 변이가 깨는 계약(원문 보존)의 소유 검사는 엔티티 보존 검사다.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-N2",
+   "origin_label": "N2",
+   "note": "표 여닫이 균형 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if not balanced(raw[start:t_end]):\n        start, title_included = t_start, False",
+   "replacement": "    if False:\n        start, title_included = t_start, False",
+   "expected_killers": [
+    "균형을 위해 제목을 뺐다"
+   ]
+  },
+  {
+   "id": "CAPAZ-N3",
+   "origin_label": "N3",
+   "note": "바깥 표까지 닫지 않고 안쪽 표에서 끊는다",
+   "anchors_expected": 1,
+   "anchor": "    outer = outermost_span_after(spans, t_start, title_raw)\n    if outer is not None:",
+   "replacement": "    outer = outermost_span_after(spans, t_start, title_raw)\n    if False:",
+   "expected_killers": [
+    "제목을 포함한다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "레이아웃 표를 반쯤 자르지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "제목을 포함한다"
+     ],
+     "reason": "선언 오류 + 관측. 이름이 정확히 이 계약을 가리키는 `레이아웃 표를 반쯤 자르지 않는다` 는 실제로는 `s.rstrip().endswith('</table>')` 만 본다 — 안쪽 표에서 끊어도 참이다. 실제로 잡은 것은 제목 포함 검사다. ★ 이름보다 약한 단언 — 별건 보고.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-N4",
+   "origin_label": "N4",
+   "note": "후보가 여럿이면 첫 번째를 고른다",
+   "anchors_expected": 1,
+   "anchor": "    if len(uniq) != 1:",
+   "replacement": "    if len(uniq) < 1:",
+   "expected_killers": [
+    "자격 표가 2건이면 fail-closed"
+   ]
+  },
+  {
+   "id": "CAPAZ-N5",
+   "origin_label": "N5",
+   "note": "제목 거리 상한을 없앤다",
+   "anchors_expected": 1,
+   "anchor": "            if t_raw < sp[0] and sp[0] - t_raw <= MAX_TITLE_DISTANCE:",
+   "replacement": "            if t_raw < sp[0]:",
+   "expected_killers": [
+    "제목이 상한 거리 밖이면 결합하지 않는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-N6",
+   "origin_label": "N6",
+   "note": "제목 앵커를 포괄 완화한다 (.*)",
+   "anchors_expected": 1,
+   "anchor": "\"(?:Revenue|Information)\",           # 구형 · 신형",
+   "replacement": "\".*\",",
+   "expected_killers": [
+    "앵커 정규식에 포괄 완화"
+   ]
+  },
+  {
+   "id": "CAPAZ-N7",
+   "origin_label": "N7",
+   "note": "부분 문자열 검증을 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if block not in doc_text:",
+   "replacement": "    if False:",
+   "expected_killers": [
+    "부분 문자열임을 실행 중 검증한다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "엔티티를 푼 내용은 통과하지 못한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "부분 문자열임을 실행 중 검증한다"
+     ],
+     "reason": "선언 오류. 가드 존재 자체를 소유하는 것은 정적 검사 쪽이다.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-N8",
+   "origin_label": "N8",
+   "note": "저장소 안 쓰기 가드를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if os.path.abspath(outdir).startswith(os.path.abspath(ROOT) + os.sep):",
+   "replacement": "    if False:",
+   "expected_killers": [
+    "저장소 안에는 쓰지 않는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-N9",
+   "origin_label": "N9",
+   "note": "상한 초과를 조용히 자른다",
+   "anchors_expected": 1,
+   "anchor": "        return None\n    if block not in doc_text:",
+   "replacement": "        block = block[:MAX_SLICE_BYTES]\n    if block not in doc_text:",
+   "expected_killers": [
+    "상한 초과는 저장하지 않는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-N10",
+   "origin_label": "N10",
+   "note": "태그 안 문자까지 텍스트로 센다 (오프셋 오염)",
+   "anchors_expected": 1,
+   "anchor": "        if in_tag:\n            continue",
+   "replacement": "        if False:\n            continue",
+   "expected_killers": [
+    "태그 분할 (<b>cloud</b>) → 슬라이스 성공"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "제목을 포함한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "태그 분할 (<b>cloud</b>) → 슬라이스 성공"
+     ],
+     "reason": "선언 오류. 오프셋 오염을 실제로 노출하는 것은 태그 분할 fixture 다.",
+     "run": "2026-08-16 최초 deterministic run (HEAD f2ad6f8)"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-E1",
+   "origin_label": "E1",
+   "note": "거부 증거를 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "        if evidence is not None:\n            evidence.append({\n                \"reason\": f\"대상 표 후보가 정확히 1건이 아니다 ({len(uniq)}건)\",",
+   "replacement": "        if False:\n            evidence.append({\n                \"reason\": f\"대상 표 후보가 정확히 1건이 아니다 ({len(uniq)}건)\",",
+   "expected_killers": [
+    "거부 증거가 남는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E2",
+   "origin_label": "E2",
+   "note": "발췌 상한을 무시한다 (전체 dump)",
+   "anchors_expected": 1,
+   "anchor": "    b = min(b, a + EVIDENCE_EXCERPT_CHARS)",
+   "replacement": "    b = min(b, a + 10 * EVIDENCE_EXCERPT_CHARS)",
+   "expected_killers": [
+    "표가 상한보다 길 때 발췌가 실제로 잘린다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "발췌가 상한을 넘지 않는다 (bounded)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "표가 상한보다 길 때 발췌가 실제로 잘린다"
+     ],
+     "reason": "선언 오류. 짧은 표에서는 상한이 걸리지 않아 기존 bounded 검사가 발화하지 않는다. 상한을 실제로 넘는 입력을 쓰는 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-E3",
+   "origin_label": "E3",
+   "note": "제목 구역 문면을 남기지 않는다",
+   "anchors_expected": 1,
+   "anchor": "                     \"title_zone_text\": _title_zone_text(text, off, sp[0])}",
+   "replacement": "                     \"title_zone_text\": {\"text\": \"\", \"text_start\": None,\n                                         \"text_end\": None, \"truncated_at\": None}}",
+   "expected_killers": [
+    "거부된 **실제 제목 문면**이 증거에 그대로 남는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E4",
+   "origin_label": "E4",
+   "note": "없는 concept 을 만들어 넣는다",
+   "anchors_expected": 1,
+   "anchor": "        \"concept_identity\": None,",
+   "replacement": "        \"concept_identity\": \"AzureAndOtherCloudServicesRevenueGrowth\",",
+   "expected_killers": [
+    "source 에 없는 concept 을 만들지 않는다"
+   ]
+  },
+  {
+   "id": "CAPAZ-E5",
+   "origin_label": "E5",
+   "note": "identity 를 manifest 에 싣지 않는다",
+   "anchors_expected": 1,
+   "anchor": "           \"identity\": info.get(\"identity\"),",
+   "replacement": "           \"identity\": None,",
+   "expected_killers": [
+    "identity 가 상수 None 으로 박혀 있지 않다 (관측값을 싣는다)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "MANIFEST 가 discovery 와 failures 를 함께 담는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "identity 가 상수 None 으로 박혀 있지 않다 (관측값을 싣는다)"
+     ],
+     "reason": "선언 오류. manifest 문자열 존재 검사는 rec 의 identity 값이 None 으로 바뀌어도 통과한다. rec dict 를 AST 로 보는 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-E6",
+   "origin_label": "E6",
+   "note": "관측되지 않은 기간을 만들어 넣는다",
+   "anchors_expected": 1,
+   "anchor": "            if not _in_table(m):\n                continue\n            periods.append({\"kind\": name, \"text_match\": m.group(0),",
+   "replacement": "            if not _in_table(m):\n                pass\n            periods.append({\"kind\": name, \"text_match\": m.group(0),",
+   "expected_killers": [
+    "표 밖 기간 문면을 identity 로 끌어오지 않는다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "기간 문면이 원문에 없으면 만들어내지 않는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "표 밖 기간 문면을 identity 로 끌어오지 않는다"
+     ],
+     "reason": "선언 오류. 표 밖 기간 문면이 없는 문서에서는 변이가 무해하다. 표 밖에 기간을 둔 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
+   ]
+  },
+  {
+   "id": "CAPAZ-E7",
+   "origin_label": "E7",
+   "note": "발췌를 원문에서 자르지 않고 재구성한다",
+   "anchors_expected": 1,
+   "anchor": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b],",
+   "replacement": "    return {\"raw_start\": a, \"raw_end\": b, \"text\": raw[a:b].replace(\"&nbsp;\", \" \"),",
+   "expected_killers": [
+    "엔티티를 푼 발췌를 만들지 않는다 (원문 부분 문자열 유지)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "발췌가 원문의 부분 문자열이다 (verbatim)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "엔티티를 푼 발췌를 만들지 않는다 (원문 부분 문자열 유지)"
+     ],
+     "reason": "선언 오류. 일반 verbatim 검사는 엔티티가 없는 발췌에서는 발화하지 않는다. 엔티티가 실제로 들어 있는 발췌를 보는 검사가 이 계약을 소유한다.",
+     "run": "2026-08-16 증거면 보강 run"
+    }
+   ]
+  }
+ ]
+}

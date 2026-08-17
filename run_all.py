@@ -89,6 +89,71 @@ APPROVED_TESTS = [
     # ★ CIO 승인 2026-08-15 — RULE-0021 Azure cc 추출 회귀 추가.
     #   ⛔ live network 호출은 넣지 않는다 — fixture 기반 결정론적 회귀만 든다.
     "test/test_msft_azure_cc.py",
+    # ★ CIO 판정 2026-08-16 항목 5 — fixture 슬라이서 회귀.
+    #   이 회귀는 **슬라이서의 성질**(원문 부분 문자열 · 표 여닫이 균형 · fail-closed)만
+    #   검증한다. 추출 계약은 검증하지 않는다 — 그것은 실제 fixture 확보 후다.
+    #   ⛔ CIO 가 이 파일 자체를 아직 승인한 적은 없다. 목록에 넣지 않으면 test-set
+    #      대조에서 「미승인」으로 잡히므로 숨기지 않고 등록한 뒤 보고한다.
+    "test/test_capture_azure_fixture.py",
+    # ★ CIO 승인 2026-08-16 — TSMC raw fixture capture 회귀.
+    #   ⛔ C4 parser 를 검증하지 않는다. capture 도구의 성질만 본다.
+    #   ⛔ 이 등록은 CIO 확인 대상이다 — 목록에 넣지 않으면 test-set 대조에서
+    #      「미승인」으로 잡히므로 숨길 수 없다.
+    "test/test_capture_tsmc_fixture.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S1 · RULE-0022 Commercial RPO observer.
+    #   증명: FY26 4건 row exactly-one → GAAP raw 관측 / FY25 4건 row exactly-zero →
+    #        ROW_ABSENT (D-6) / title·row·column 0건·복수건 fail-closed /
+    #        observer 가 `msft_azure_cc` 를 import 하지 않는다 (RULE-0021 격리).
+    #   ⛔ live network 없음 — fixture only.
+    #   ⛔ normalization · store · pair · evaluator 는 검증하지 않는다 (S2 이후 Gate).
+    "test/test_rule0022_commercial_rpo.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S2 · 층 ③ Normalization + Record.
+    #   증명: 승인 percent 표기 → exact Decimal · sign_convention 보존 /
+    #        malformed fault matrix 전건 fail-closed / raw 문면 보존 /
+    #        numeric 문자열 직렬화 · float 부재 / CC·impact evidence-only /
+    #        record invariant 전건 fail-closed / 층 순서(observer 는 이 층을 모른다).
+    #   ⛔ live network 없음 — fixture only.
+    #   ⛔ store · pair · evaluator 는 검증하지 않는다 (S3 이후 Gate).
+    "test/test_observation_normalize.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S3 · 층 ④ Observation Store.
+    #   증명: key = subject+measurement+period 세 축 / 첫 동작이 validate_record /
+    #        D-6 경계 PRE_SERIES_BACKFILL_FORBIDDEN / IDEMPOTENT·CONFLICT·REVISION 분리 /
+    #        조용한 overwrite·revision 삭제·authority 자동선택 없음 /
+    #        deterministic serialization / store 가 Git·workflow·evaluator 를 모른다.
+    #   ⛔ live network 없음 — fixture only.
+    #   ⛔ pair · runtime state · evaluator 는 검증하지 않는다 (S4 이후 Gate).
+    "test/test_observation_store.py",
+    # ★ CIO 승인 2026-08-16 — Observation Layer S4A · Integration Wiring (offline).
+    #   증명: observe/persist 물리적 분리(AST) / observe 는 저장소 밖으로만 emit /
+    #        FY26 4건 end-to-end(draft 4 → record 4 → Store NEW 4) / 재적용 IDEMPOTENT /
+    #        malformed·pre-series·conflict·revision·observe 실패 fault injection /
+    #        workflow 계약 순서.
+    #   ⛔ live network 없음 · dispatch 없음 — fixture only (S4B 미승인).
+    "test/test_rule0022_integration.py",
+    # ══════════════════════════════════════════════════════════════════
+    # ★ CIO 승인 2026-08-17 — WS1~WS4 integration patch.
+    #   base `bc18bb0` 에 1-WS1 → 2-WS3 → 3-WS4 → 4-WS2 순으로 적용해
+    #   `1,590 checks / 0 FAIL / 0 ERROR / 0 SKIPPED` 재현을 확인한 뒤 등록한다.
+    #   ⛔ 아래 3개만 신규 등록 대상이다. `test_rule0022_integration.py` 는
+    #      기존 승인 테스트의 **수정**이므로 새로 등록하지 않는다.
+    # ══════════════════════════════════════════════════════════════════
+    # ★ WS3 — Evidence Bridge. 검증된 observation 만 Decision Layer 입구까지
+    #   전달하는 **입력 자격 계약**만 검증한다.
+    #   ⛔ Rule 판단 · evaluator 배선 · consumable_by_evaluator 전환은 검증하지 않는다.
+    #   ⛔ live network 없음 — fixture only.
+    "test/test_evidence_envelope.py",
+    # ★ WS4 — Briefing Adapter. 확인된 사실과 투자판정/행동의 **분리**만 검증한다.
+    #   ⛔ 브리핑 문안이나 투자 판정 내용 자체는 검증 대상이 아니다.
+    #   ⛔ live network 없음 — fixture only.
+    "test/test_briefing_evidence_adapter.py",
+    # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
+    #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
+    #   자체**에 대해 검증한다.
+    #   ★ PyYAML 로 워크플로를 파싱한다 (CIO 판정 2026-08-17 — YAML 계약 검증을
+    #     수제 parser 나 문자열 검색으로 낮추지 않는다). CI 의존성은
+    #     `requirements-ci.txt` 에 정식 선언한다.
+    #   ⛔ 이 회귀는 workflow 를 **실행하지 않는다** — 정의만 읽는다. dispatch 없음.
+    "test/test_rule0022_workflow_contract.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

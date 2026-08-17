@@ -110,6 +110,29 @@ s = LIVE["state_counts"]
 APPLIED = [r for r in R if r["definition_application"]]
 # ★ P3 Data Capability Application (CIO 승인 2026-08-15) — 데이터/원천 축 적용분.
 DATA_APPLIED = [r for r in R if r.get("data_capability_application")]
+BY_ID = {r["rule_id"]: r for r in R}
+
+
+def _coverage_missing():
+    """계약이 빠졌을 때 가드가 잡는지 — 실제로 빼 보고 확인한다."""
+    saved = dict(PR.DATA_CAPABILITY_SOURCE_BY_RULE)
+    try:
+        PR.DATA_CAPABILITY_SOURCE_BY_RULE.pop("RULE-0021", None)
+        return PR.data_capability_contract_coverage()
+    finally:
+        PR.DATA_CAPABILITY_SOURCE_BY_RULE.clear()
+        PR.DATA_CAPABILITY_SOURCE_BY_RULE.update(saved)
+
+
+def _coverage_extra():
+    """적용 목록에 없는 죽은 계약도 잡는지."""
+    saved = dict(PR.DATA_CAPABILITY_SOURCE_BY_RULE)
+    try:
+        PR.DATA_CAPABILITY_SOURCE_BY_RULE["RULE-9999"] = {"primary_acquisition": "x"}
+        return PR.data_capability_contract_coverage()
+    finally:
+        PR.DATA_CAPABILITY_SOURCE_BY_RULE.clear()
+        PR.DATA_CAPABILITY_SOURCE_BY_RULE.update(saved)
 # ★ 닫는 방향 — Definition Reopen (CIO 판정 2026-08-15)
 REOPENED = [r for r in R if r.get("definition_reopen")]
 check("UNDEFINED 3 (15 − 적용 13 + reopen 1)", s["definition_undefined"] == 3,
@@ -118,10 +141,15 @@ check("MISSING 19 (22 − P3 적용 3)", s["data_missing"] == 22 - len(DATA_APPL
       str(s["data_missing"]))
 check("SOURCE_UNRESOLVED 13 (16 − P3 적용 3)",
       s["source_unresolved"] == 16 - len(DATA_APPLIED), str(s["source_unresolved"]))
-check("P3 적용은 정확히 3건 (RULE-0003/0007/0008)",
+# ★ 개수를 박지 않는다 — allowlist 밖으로 번지지 않았는가만 본다.
+#   승인으로 목록이 늘어나는 것은 정상이고, 목록 밖으로 번지는 것이 결함이다.
+check("data capability 적용이 allowlist 와 정확히 같다",
       sorted(r["rule_id"] for r in DATA_APPLIED)
-      == ["RULE-0003", "RULE-0007", "RULE-0008"],
+      == sorted(PR.DATA_CAPABILITY_APPLICATION),
       str(sorted(r["rule_id"] for r in DATA_APPLIED)))
+check("★ CIO 승인분이 모두 들어 있다 (P3 3건 + RULE-0021)",
+      {"RULE-0003", "RULE-0007", "RULE-0008", "RULE-0021"}
+      <= set(PR.DATA_CAPABILITY_APPLICATION))
 check("★ mapping 대비 차이가 적용 기록으로 정확히 설명된다",
       s["definition_undefined"] == MAP["counts"]["definition_undefined"] - len(APPLIED) + len(REOPENED)
       and s["data_missing"] == MAP["counts"]["data_missing"] - len(DATA_APPLIED)
@@ -154,9 +182,11 @@ check("executable 을 뜻하는 필드가 없다",
                                           "active", "consumable")))
 
 print("K-5 ⑥ evaluator readiness — 파생값이며 적용분만 이동한다")
-check("BLOCKED 19 (22 − P3 적용 3)", s["evaluator_blocked"] == 19,
-      str(s["evaluator_blocked"]))
-check("READY 6 (3 + P3 적용 3)", s["evaluator_ready"] == 6, str(s["evaluator_ready"]))
+# ★ 목표값을 박지 않는다 — 적용 건수에서 파생돼야 한다 (CIO 지시).
+check("BLOCKED = 22 − data capability 적용분",
+      s["evaluator_blocked"] == 22 - len(DATA_APPLIED), str(s["evaluator_blocked"]))
+check("READY = 3 + data capability 적용분",
+      s["evaluator_ready"] == 3 + len(DATA_APPLIED), str(s["evaluator_ready"]))
 check("BLOCKED + READY = 25", s["evaluator_blocked"] + s["evaluator_ready"] == 25)
 mp = {m["occurrence_id"]: m for m in MAP["mapping"]}
 _moved = [r["rule_id"] for r in R
@@ -286,13 +316,29 @@ check("★ capability 축 4건이 DEFINED 로 적용됐다",
 check("★ 그 4건은 data_source 를 capability 축 제외로 명시한다",
       all(by_id0[r]["definition_application"]["capability_axis_excluded"]
           == ["data_source"] for r in _CAP4))
-check("★ DEFINED 가 됐다고 DATA_MISSING 이 풀리지 않는다",
+# ★★ 이 불변식은 약화시키지 않는다. 「DEFINED 가 됐다」는 이유로 데이터 축이
+#     풀리면 안 된다는 것이 요지다. RULE-0021 은 그 이유로 풀린 것이 아니라
+#     **별도 승인 경로(data capability application)** 로 풀렸으므로, 그 경로를
+#     거친 Rule 만 정확히 제외하고 나머지에는 그대로 요구한다.
+#   ⛔ 「실패하니까 뺀다」가 아니다 — 제외 근거가 기록으로 존재해야만 뺀다.
+_cap4_data_applied = {r for r in _CAP4 if by_id0[r].get("data_capability_application")}
+_cap4_rest = [r for r in _CAP4 if r not in _cap4_data_applied]
+check("★ 제외 대상은 별도 승인 기록이 있는 Rule 뿐이다",
+      all(by_id0[r]["data_capability_application"].get("not_an_evaluator_approval") is True
+          for r in _cap4_data_applied), str(sorted(_cap4_data_applied)))
+check("★ 제외하고도 검사 대상이 남아 있다 (검사가 공허하지 않다)",
+      len(_cap4_rest) >= 2, str(_cap4_rest))
+check("★ DEFINED 가 됐다는 이유만으로 DATA_MISSING 이 풀리지 않는다",
       all(by_id0[r]["data_status"] == "MISSING"
-          and "DATA_MISSING" in by_id0[r]["blocked_by"] for r in _CAP4))
+          and "DATA_MISSING" in by_id0[r]["blocked_by"] for r in _cap4_rest))
 check("★ SOURCE_UNRESOLVED 도 자동 해제되지 않는다",
       all(by_id0[r]["source_qualification"] == "SOURCE_UNRESOLVED"
           and "SOURCE_UNRESOLVED" in by_id0[r]["blocked_by"]
-          for r in ("RULE-0010", "RULE-0021")))
+          for r in ("RULE-0010",)))
+check("★ RULE-0021 이 풀린 근거는 definition 이 아니라 data capability 다",
+      by_id0["RULE-0021"]["definition_application"]["capability_axis_excluded"]
+      == ["data_source"]
+      and by_id0["RULE-0021"].get("data_capability_application") is not None)
 check("경계 판정이 코드 상수로 기록돼 있다",
       PR.CAPABILITY_AXIS_IS_NOT_DEFINITION is True
       and "자동 해제하지 않는다" in PR.CAPABILITY_AXIS_NOTE)
@@ -506,10 +552,53 @@ for r in DATA_APPLIED:
           == {"condition_semantics", "scope", "data_capability"})
     check(f"{r['rule_id']} 취득 계약이 SEC EDGAR primary 임을 기록",
           "SEC EDGAR" in a["acquisition_contract"]["primary_acquisition"])
-check("★ P3 적용이 TSM 밖으로 번지지 않았다",
-      all(r["subject"] == "TSM" for r in DATA_APPLIED))
-check("★ READY 6건이어도 소비 경로는 닫혀 있다",
+check("★ 소비 경로는 닫혀 있다 (READY 건수와 무관)",
       LIVE["consumable_by_evaluator"] is False and "HOLD" in LIVE["production_state"])
+
+print("B-4 ★ 취득 계약은 Rule 마다 다르다 — 오귀속 금지 (CIO 판정 2026-08-16)")
+# ⛔ 예전에는 전역 상수 하나를 모든 적용 Rule 에 붙였다. 대상이 TSMC 뿐일 때는
+#    우연히 맞았지만, MSFT Rule 이 들어오면 **MSFT 에 TSMC 계약**이 기록된다.
+_by_subject = {}
+for r in DATA_APPLIED:
+    _by_subject.setdefault(r["subject"], []).append(r)
+check("★ 적용 대상이 한 회사가 아니다 (오귀속이 실제로 가능한 상황이다)",
+      len(_by_subject) >= 2, str(sorted(_by_subject)))
+for r in DATA_APPLIED:
+    a = r["data_capability_application"]["acquisition_contract"]
+    blob = json.dumps(a, ensure_ascii=False)
+    if r["subject"] == "TSM":
+        check(f"{r['rule_id']} (TSM) 계약이 TSMC 를 가리킨다", "TSMC" in blob)
+        check(f"{r['rule_id']} (TSM) 계약에 Microsoft 가 섞이지 않았다",
+              "Microsoft" not in blob and "Azure" not in blob)
+    elif r["subject"] == "MSFT":
+        check(f"{r['rule_id']} (MSFT) 계약이 Microsoft 를 가리킨다",
+              "Microsoft" in blob and "Azure" in blob)
+        check(f"★ {r['rule_id']} (MSFT) 계약에 TSMC 가 섞이지 않았다", "TSMC" not in blob)
+        check(f"★ {r['rule_id']} 미해결 결함(build_header)이 계약에 기록돼 있다",
+              "build_header" in blob)
+check("★ 적용 목록과 계약 목록이 정확히 일치한다",
+      set(PR.DATA_CAPABILITY_APPLICATION) == set(PR.DATA_CAPABILITY_SOURCE_BY_RULE),
+      str(set(PR.DATA_CAPABILITY_APPLICATION) ^ set(PR.DATA_CAPABILITY_SOURCE_BY_RULE)))
+check("★ 계약이 빠지면 승격이 막힌다 (가드가 실제로 동작한다)",
+      bool(_coverage_missing()), "가드가 아무것도 잡지 못했다")
+check("★ 죽은 계약도 잡는다", bool(_coverage_extra()), "가드가 아무것도 잡지 못했다")
+
+print("B-5 ★ RULE-0021 승격 — 파생 상태를 박지 않고 계산하게 뒀는가")
+_r21 = BY_ID["RULE-0021"]
+check("RULE-0021 data AVAILABLE", _r21["data_status"] == "AVAILABLE", _r21["data_status"])
+check("RULE-0021 source SOURCE_RESOLVED",
+      _r21["source_qualification"] == "SOURCE_RESOLVED", _r21["source_qualification"])
+check("★ evaluator_status 가 derive 함수 결과와 같다 (목표값을 박지 않았다)",
+      _r21["evaluator_status"] == VC.derive_evaluator_status(
+          _r21["definition_status"], _r21["data_status"]), _r21["evaluator_status"])
+check("★ blocked_by 가 derive 함수 결과와 같다",
+      _r21.get("blocked_by") == VC.derive_blocked_by(
+          _r21["definition_status"], _r21["data_status"], _r21["source_qualification"]))
+check("★ DATA_MISSING 이 제거됐다", "DATA_MISSING" not in (_r21.get("blocked_by") or []))
+check("★ SOURCE_UNRESOLVED 가 제거됐다",
+      "SOURCE_UNRESOLVED" not in (_r21.get("blocked_by") or []))
+check("★ 승격이 evaluator 승인이 아님을 기록한다",
+      _r21["data_capability_application"].get("not_an_evaluator_approval") is True)
 
 print("C-1 결함 C — 폐쇄 어휘 강제 (CIO 판정 2026-08-15)")
 check("SOURCE_RESOLVED 가 vocabulary 에 정식 등록됐다",

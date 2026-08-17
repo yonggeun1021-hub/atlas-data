@@ -1,0 +1,475 @@
+{
+ "target": "observation/store.py",
+ "regression": "test/test_observation_store.py",
+ "origin": "S3 신규 표면 — CIO 승인 2026-08-16 (Observation Layer S3 · Observation Store)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 층 ④ Observation Store 표면만 다룬다 — pair · runtime state · evaluator 는 S4 이후 Gate 다.",
+ "mutations": [
+  {
+   "id": "ST-KEY-1",
+   "origin_label": "ST-KEY-1",
+   "note": "★ key 에서 subject 를 제거한다 — 다른 subject 의 관측이 같은 계열로 섞인다",
+   "anchors_expected": 1,
+   "anchor": "    return (record[\"subject\"], record[\"measurement_identity\"],\n            record[\"economic_period_end\"])",
+   "replacement": "    return (\"\", record[\"measurement_identity\"],\n            record[\"economic_period_end\"])",
+   "expected_killers": [
+    "key = (subject, measurement_identity, economic_period_end)",
+    "key 문자열이 세 축만 담는다"
+   ]
+  },
+  {
+   "id": "ST-KEY-2",
+   "origin_label": "ST-KEY-2",
+   "note": "★ key 에서 measurement identity 를 제거한다 — 다른 계열이 같은 key 로 뭉개진다",
+   "anchors_expected": 1,
+   "anchor": "    return (record[\"subject\"], record[\"measurement_identity\"],\n            record[\"economic_period_end\"])",
+   "replacement": "    return (record[\"subject\"], \"\",\n            record[\"economic_period_end\"])",
+   "expected_killers": [
+    "key = (subject, measurement_identity, economic_period_end)"
+   ]
+  },
+  {
+   "id": "ST-KEY-3",
+   "origin_label": "ST-KEY-3",
+   "note": "★ key 에서 economic period 를 제거한다 — 전 분기가 한 key 로 붕괴한다",
+   "anchors_expected": 1,
+   "anchor": "    return (record[\"subject\"], record[\"measurement_identity\"],\n            record[\"economic_period_end\"])",
+   "replacement": "    return (record[\"subject\"], record[\"measurement_identity\"], \"\")",
+   "expected_killers": [
+    "key = (subject, measurement_identity, economic_period_end)",
+    "series 가 4개 key 를 갖는다"
+   ]
+  },
+  {
+   "id": "ST-KEY-4",
+   "origin_label": "ST-KEY-4",
+   "note": "★ accession 을 key 로 승격한다 — provenance 가 key 가 되어 revision 이 별개 계열로 갈라진다",
+   "anchors_expected": 1,
+   "anchor": "    return (record[\"subject\"], record[\"measurement_identity\"],\n            record[\"economic_period_end\"])",
+   "replacement": "    return (record[\"subject\"], (record.get(\"provenance\") or {}).get(\"accession\", \"\"),\n            record[\"economic_period_end\"])",
+   "expected_killers": [
+    "accession/filing_date 가 달라도 key 는 같다",
+    "key = (subject, measurement_identity, economic_period_end)"
+   ]
+  },
+  {
+   "id": "ST-KEY-5",
+   "origin_label": "ST-KEY-5",
+   "note": "key 축이 비어도 통과시킨다 — 빈 축으로 계열이 오염된다",
+   "anchors_expected": 1,
+   "anchor": "        if not v or not isinstance(v, str):\n            raise StoreError(f\"key 축이 없다: {k}\")",
+   "replacement": "        pass",
+   "expected_killers": [
+    "key 축 `subject` 가 비면 거부한다"
+   ]
+  },
+  {
+   "id": "ST-VALID-1",
+   "origin_label": "ST-VALID-1",
+   "note": "★ 첫 동작인 record 검증을 건너뛴다 — 무효 record 가 저장 판단에 들어간다",
+   "anchors_expected": 1,
+   "anchor": "    try:\n        validate_record(record)\n    except RecordInvariantError as e:",
+   "replacement": "    try:\n        pass\n    except RecordInvariantError as e:",
+   "expected_killers": [
+    "무효 record → 거부 (subject 오염)",
+    "무효 record → 거부 (persisted 가 True)"
+   ]
+  },
+  {
+   "id": "ST-D6-1",
+   "origin_label": "ST-D6-1",
+   "note": "★ D-6 경계 검사를 제거한다 — FY25 backfill 이 계열에 들어간다",
+   "anchors_expected": 1,
+   "anchor": "    if record[\"economic_period_end\"] < COMMERCIAL_RPO_SERIES_START:",
+   "replacement": "    if False and record[\"economic_period_end\"] < COMMERCIAL_RPO_SERIES_START:",
+   "expected_killers": [
+    "PRE_SERIES_BACKFILL_FORBIDDEN",
+    "series 에 저장되지 않는다"
+   ]
+  },
+  {
+   "id": "ST-D6-2",
+   "origin_label": "ST-D6-2",
+   "note": "★ 경계 상수를 앞당긴다 — FY25 가 계열 시작 이후로 취급된다",
+   "anchors_expected": 1,
+   "anchor": "COMMERCIAL_RPO_SERIES_START = \"2025-09-30\"",
+   "replacement": "COMMERCIAL_RPO_SERIES_START = \"2020-01-01\"",
+   "expected_killers": [
+    "PRE_SERIES_BACKFILL_FORBIDDEN",
+    "경계 하루 전은 거부된다"
+   ]
+  },
+  {
+   "id": "ST-D6-3",
+   "origin_label": "ST-D6-3",
+   "note": "경계 비교를 `<=` 로 바꾼다 — 계열 시작 분기 자체가 거부된다",
+   "anchors_expected": 1,
+   "anchor": "    if record[\"economic_period_end\"] < COMMERCIAL_RPO_SERIES_START:",
+   "replacement": "    if record[\"economic_period_end\"] <= COMMERCIAL_RPO_SERIES_START:",
+   "expected_killers": [
+    "4건 전부 NEW 다",
+    "series 가 4개 key 를 갖는다"
+   ]
+  },
+  {
+   "id": "ST-D6-4",
+   "origin_label": "ST-D6-4",
+   "note": "거부된 record 를 그래도 series 에 넣는다 — 거부가 이름뿐이 된다",
+   "anchors_expected": 1,
+   "anchor": "        return state, _reject(\n            REJECTED_PRE_SERIES, key,",
+   "replacement": "        new_state_bad = copy.deepcopy(state)\n        new_state_bad[\"series\"][ks] = {\"key\": {\"subject\": key[0], \"measurement_identity\": key[1], \"economic_period_end\": key[2]}, \"revisions\": [{\"record\": copy.deepcopy(record), \"material_provenance\": material_provenance(record), \"material_provenance_digest\": \"x\", \"content_digest\": \"y\"}], \"conflicts\": [], \"blocked_by\": [], \"consumable\": True}\n        return new_state_bad, _reject(\n            REJECTED_PRE_SERIES, key,",
+   "expected_killers": [
+    "series 에 저장되지 않는다"
+   ]
+  },
+  {
+   "id": "ST-D6-5",
+   "origin_label": "ST-D6-5",
+   "note": "거부 증거를 비운다 — 무엇이 왜 거부됐는지 재현 불가",
+   "anchors_expected": 1,
+   "anchor": "            {\"attempted_key\": ks,",
+   "replacement": "            {\"attempted_key\": \"\",",
+   "expected_killers": [
+    "거부 증거에 시도된 key 가 있다"
+   ]
+  },
+  {
+   "id": "ST-IDEM-1",
+   "origin_label": "ST-IDEM-1",
+   "note": "★ 동일 관측 재삽입을 REVISION 으로 오분류한다 — 재관측이 계열을 소비 불가로 만든다",
+   "anchors_expected": 1,
+   "anchor": "        if all(r[\"content_digest\"] == new_rev[\"content_digest\"] for r in same_prov):",
+   "replacement": "        if False:",
+   "expected_killers": [
+    "재삽입 결과가 IDEMPOTENT",
+    "series 가 전혀 변하지 않았다"
+   ]
+  },
+  {
+   "id": "ST-IDEM-2",
+   "origin_label": "ST-IDEM-2",
+   "note": "★ operational metadata(`observed_at`)를 material provenance 반환값에 넣는다 — 재관측마다 provenance digest 가 달라져 REVISION 으로 오분류된다. ★ v1·v2 anchor 는 각각 무효(필드 목록이 걸러냄)·크래시(KeyError)였다. 반환 지점을 직접 겨눈다.",
+   "anchors_expected": 1,
+   "anchor": "    return {k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}",
+   "replacement": "    out = {k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}\n    out[\"observed_at\"] = prov.get(\"observed_at\")\n    return out",
+   "expected_killers": [
+    "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "operational metadata 가 달라도 IDEMPOTENT 다 (revision 오분류 없음)"
+     ],
+     "reason": "변이 자체가 무효였다 — `flat` 에 키를 넣어도 `{k: flat[k] for k in MATERIAL_PROVENANCE_FIELDS + MATERIAL_RECORD_FIELDS}` 가 걸러낸다. anchor 를 필드 목록으로 옮겨 실제로 material 축이 늘어나게 했다. (v1 anchor:         \"row_label_raw\": record.get(\"row…) v2 는 필드 목록에만 넣어 `flat` 에 없는 키를 참조하며 KeyError 로 크래시했다(ERROR). v3 은 반환 dict 에 직접 넣어 크래시 없이 material 축만 늘린다."
+    }
+   ]
+  },
+  {
+   "id": "ST-IDEM-3",
+   "origin_label": "ST-IDEM-3",
+   "note": "IDEMPOTENT 판정에서 값 비교를 생략한다 — 다른 값이 조용히 무시된다",
+   "anchors_expected": 1,
+   "anchor": "    same_prov = [r for r in entry[\"revisions\"]\n                 if r[\"material_provenance_digest\"] == new_rev[\"material_provenance_digest\"]]\n    if same_prov:",
+   "replacement": "    same_prov = [r for r in entry[\"revisions\"]\n                 if r[\"material_provenance_digest\"] == new_rev[\"material_provenance_digest\"]]\n    if same_prov:\n        return state, _accept(IDEMPOTENT, key, \"same prov\", _entry_view(entry))\n    if False:",
+   "expected_killers": [
+    "raw 변조 → CONFLICT",
+    "numeric 변조 → CONFLICT"
+   ]
+  },
+  {
+   "id": "ST-OVER-1",
+   "origin_label": "ST-OVER-1",
+   "note": "★ silent overwrite — CONFLICT 대신 기존 revision 을 새 값으로 덮는다",
+   "anchors_expected": 1,
+   "anchor": "        entry = dict(entry)\n        entry[\"conflicts\"] = list(entry.get(\"conflicts\") or []) + [conflict]",
+   "replacement": "        entry = dict(entry)\n        entry[\"revisions\"] = [new_rev]",
+   "expected_killers": [
+    "raw 변조 → 기존 값이 덮이지 않는다",
+    "raw 변조 → conflict 가 두 값을 함께 보존한다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "raw 변조 → 기존 값이 덮이지 않는다",
+      "raw 변조 → conflict 가 두 값을 함께 보존한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "raw 변조 → 기존 값이 덮이지 않는다",
+      "raw 변조 → conflict 가 두 값을 함께 보존한다"
+     ],
+     "reason": "S3.1 에서 CONFLICT 분기에 dedup 과 new_conflict 인자가 들어가면서 기존 anchor 가 0건이 됐다(NOT_APPLICABLE). 같은 계약(기존값을 덮지 않는다)을 겨누는 현재 위치로 옮겼다. ⛔ 변이 의도를 바꾸지 않았다."
+    }
+   ]
+  },
+  {
+   "id": "ST-OVER-2",
+   "origin_label": "ST-OVER-2",
+   "note": "★ REVISION 에서 기존 revision 을 버린다 — 역사 삭제",
+   "anchors_expected": 1,
+   "anchor": "    entry[\"revisions\"] = list(entry[\"revisions\"]) + [new_rev]",
+   "replacement": "    entry[\"revisions\"] = [new_rev]",
+   "expected_killers": [
+    "다른 accession → 첫 record 가 삭제되지 않는다",
+    "다른 accession → revision 이 2건이 된다"
+   ]
+  },
+  {
+   "id": "ST-AUTH-1",
+   "origin_label": "ST-AUTH-1",
+   "note": "★ revision 이 여럿이어도 소비 가능하게 만든다 — authority 미확정인데 fail-open",
+   "anchors_expected": 1,
+   "anchor": "    if len(entry.get(\"revisions\") or []) > 1:\n        out.append(REVISION_AUTHORITY_UNRESOLVED)",
+   "replacement": "    if False:\n        out.append(REVISION_AUTHORITY_UNRESOLVED)",
+   "expected_killers": [
+    "차단 사유가 REVISION_AUTHORITY_UNRESOLVED"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "다른 accession → 소비 불가 (authority 미확정)",
+      "REVISION 후 그 key 는 consumable_keys 에서 빠진다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "차단 사유가 REVISION_AUTHORITY_UNRESOLVED"
+     ],
+     "reason": "v1 은 `소비 불가`·`consumable_keys 에서 빠진다` 를 선언했으나, revision 이 2건이면 `series_consumable` 의 `len==1` 조건이 여전히 False 를 만든다 — 사라지는 것은 **사유**뿐이다. 계약을 소유한 검사는 차단 사유 검사다."
+    }
+   ]
+  },
+  {
+   "id": "ST-AUTH-2",
+   "origin_label": "ST-AUTH-2",
+   "note": "★ CONFLICT 가 있어도 소비 가능하게 만든다 — fail-open",
+   "anchors_expected": 1,
+   "anchor": "    if entry.get(\"conflicts\"):\n        out.append(OBSERVATION_CONFLICT_UNRESOLVED)",
+   "replacement": "    if False:\n        out.append(OBSERVATION_CONFLICT_UNRESOLVED)",
+   "expected_killers": [
+    "raw 변조 → 소비 불가",
+    "CONFLICT 후 그 key 는 consumable_keys 에서 빠진다"
+   ]
+  },
+  {
+   "id": "ST-AUTH-3",
+   "origin_label": "ST-AUTH-3",
+   "note": "★ authority 를 자동 선택한다 — 정렬 순서 마지막을 current 로 승격",
+   "anchors_expected": 1,
+   "anchor": "    e[\"blocked_by\"] = series_blocked_by(e)\n    e[\"consumable\"] = series_consumable(e)\n    return e",
+   "replacement": "    e[\"blocked_by\"] = []\n    e[\"active_revision\"] = e[\"revisions\"][-1] if e[\"revisions\"] else None\n    e[\"consumable\"] = True\n    return e",
+   "expected_killers": [
+    "`active_revision` 필드가 없다",
+    "다른 accession → 소비 불가 (authority 미확정)"
+   ]
+  },
+  {
+   "id": "ST-AUTH-4",
+   "origin_label": "ST-AUTH-4",
+   "note": "revision 이 0건이어도 소비 가능하다고 본다",
+   "anchors_expected": 1,
+   "anchor": "    return not series_blocked_by(entry) and len(entry.get(\"revisions\") or []) == 1",
+   "replacement": "    return not series_blocked_by(entry)",
+   "expected_killers": [
+    "series_consumable 은 revision 이 0건이면 False 다"
+   ]
+  },
+  {
+   "id": "ST-PURE-1",
+   "origin_label": "ST-PURE-1",
+   "note": "★ 입력 state 를 직접 변형한다 — 순수 함수 계약 위반",
+   "anchors_expected": 1,
+   "anchor": "    new_state = copy.deepcopy(state)\n    entry = new_state[\"series\"].get(ks)",
+   "replacement": "    new_state = state\n    entry = new_state[\"series\"].get(ks)",
+   "expected_killers": [
+    "빈 state 를 변형하지 않았다 (순수 함수)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "재삽입 결과가 IDEMPOTENT",
+      "series 가 전혀 변하지 않았다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "빈 state 를 변형하지 않았다 (순수 함수)"
+     ],
+     "reason": "v1 은 IDEMPOTENT 경로 검사를 선언했으나 그 경로는 `new_state` 를 만들기 전에 반환된다. 입력 state 변형을 직접 관측하는 검사가 계약 소유자다."
+    }
+   ]
+  },
+  {
+   "id": "ST-PURE-2",
+   "origin_label": "ST-PURE-2",
+   "note": "★ record 를 deep copy 하지 않고 참조로 담는다 — 저장 후 외부 변형이 store 를 오염시킨다",
+   "anchors_expected": 1,
+   "anchor": "    new_rev = {\"record\": copy.deepcopy(record),",
+   "replacement": "    new_rev = {\"record\": record,",
+   "expected_killers": [
+    "저장 후 원본 record 를 변형해도 store 는 그대로다 (deep copy)"
+   ]
+  },
+  {
+   "id": "ST-DET-1",
+   "origin_label": "ST-DET-1",
+   "note": "★ canonical JSON 의 키 정렬을 없앤다 — 같은 state 가 다른 바이트열이 된다",
+   "anchors_expected": 1,
+   "anchor": "    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\"))",
+   "replacement": "    return json.dumps(obj, ensure_ascii=False, separators=(\",\", \":\"))",
+   "expected_killers": [
+    "삽입 순서가 달라도 직렬화 결과가 같다 (determinism)"
+   ]
+  },
+  {
+   "id": "ST-DET-2",
+   "origin_label": "ST-DET-2",
+   "note": "★ revision 정렬을 없앤다 — 삽입 순서에 따라 state 가 달라진다",
+   "anchors_expected": 1,
+   "anchor": "    e[\"revisions\"] = sorted(entry.get(\"revisions\") or [], key=_revision_sort_key)",
+   "replacement": "    e[\"revisions\"] = list(entry.get(\"revisions\") or [])",
+   "expected_killers": [
+    "revision 삽입 순서가 달라도 결과가 같다"
+   ]
+  },
+  {
+   "id": "ST-IO-1",
+   "origin_label": "ST-IO-1",
+   "note": "★ 원자적 교체를 포기하고 대상 파일에 직접 쓴다 — 부분 기록으로 이전 records 유실 위험",
+   "anchors_expected": 1,
+   "anchor": "        os.replace(tmp, path)",
+   "replacement": "        open(path, \"w\", encoding=\"utf-8\").write(payload)\n        os.unlink(tmp)",
+   "expected_killers": [
+    "save_state 가 `os.replace` 로 원자적 교체를 한다"
+   ]
+  },
+  {
+   "id": "ST-IO-2",
+   "origin_label": "ST-IO-2",
+   "note": "★ 손상된 store 파일을 조용히 빈 state 로 대체한다 — 역사 유실",
+   "anchors_expected": 1,
+   "anchor": "    if state.get(\"schema_version\") != STORE_SCHEMA_VERSION:\n        raise StoreError(f\"역직렬화 schema 가 다르다: {state.get('schema_version')!r}\")\n    return state",
+   "replacement": "    if state.get(\"schema_version\") != STORE_SCHEMA_VERSION:\n        return empty_state()\n    return state",
+   "expected_killers": [
+    "손상/다른 schema 파일을 조용히 수용하지 않는다"
+   ]
+  },
+  {
+   "id": "ST-REJ-1",
+   "origin_label": "ST-REJ-1",
+   "note": "거부 결과와 수락 결과를 구별하지 않고 rejection 로그에 넣는다",
+   "anchors_expected": 1,
+   "anchor": "    if result.get(\"accepted\") is not False:\n        raise StoreError(\"거부 결과가 아닌 것을 rejection 으로 기록하려 한다\")",
+   "replacement": "    pass",
+   "expected_killers": [
+    "수락된 결과를 rejection 으로 기록하려 하면 거부한다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "수락된 결과를 rejection 으로 기록하려 하면 거부한다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "수락된 결과를 rejection 으로 기록하려 하면 거부한다"
+     ],
+     "reason": "v1 검사가 최소 dict 를 넘겨 변이 하에서 KeyError(ERROR)로 죽었다 — ERROR 는 FAIL 이 아니므로 attribution 되지 않았다. 회귀 쪽을 완전한 수락 결과로 고쳐 ERROR 를 FAIL 로 바꿨다."
+    }
+   ]
+  },
+  {
+   "id": "ST-REJ-2",
+   "origin_label": "ST-REJ-2",
+   "note": "★ rejection 로그를 series 안에 넣는다 — 거부된 record 가 정상 계열을 오염시킨다",
+   "anchors_expected": 1,
+   "anchor": "    new_state[\"rejections\"] = list(new_state.get(\"rejections\") or []) + [",
+   "replacement": "    new_state[\"series\"][\"REJECTED\"] = {\"key\": {}, \"revisions\": [], \"conflicts\": [], \"blocked_by\": [], \"consumable\": False}\n    new_state[\"rejections\"] = list(new_state.get(\"rejections\") or []) + [",
+   "expected_killers": [
+    "rejection 이 series 를 오염시키지 않는다"
+   ]
+  },
+  {
+   "id": "ST-CONF-1",
+   "origin_label": "ST-CONF-1",
+   "note": "★ conflict dedup 조건을 제거한다 — 같은 충돌의 재시도가 evidence 를 계속 부풀린다 (REPEATED_CONFLICT_NOT_IDEMPOTENT 재유입)",
+   "anchors_expected": 1,
+   "anchor": "        if _conflict_seen(entry, conflict):",
+   "replacement": "        if False and _conflict_seen(entry, conflict):",
+   "expected_killers": [
+    "동일 conflict 재전달 → conflict count 불변",
+    "동일 conflict 재전달 → canonical serialization 불변"
+   ]
+  },
+  {
+   "id": "ST-CONF-2",
+   "origin_label": "ST-CONF-2",
+   "note": "★ incoming content digest 를 무시한다 — provenance 만 같으면 모든 충돌을 동일 취급해 제3의 새 content 가 삼켜진다",
+   "anchors_expected": 1,
+   "anchor": "        if (c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]\n                and (c.get(\"incoming\") or {}).get(\"content_digest\")\n                == conflict[\"incoming\"][\"content_digest\"]):",
+   "replacement": "        if c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]:",
+   "expected_killers": [
+    "제3의 새 content → conflict count +1",
+    "두 충돌의 incoming digest 가 서로 다르다"
+   ]
+  },
+  {
+   "id": "ST-CONF-3",
+   "origin_label": "ST-CONF-3",
+   "note": "★ provenance 를 무시하고 content 만 본다 — 다른 출처의 같은 값이 같은 충돌로 뭉개진다",
+   "anchors_expected": 1,
+   "anchor": "        if (c.get(\"material_provenance_digest\") == conflict[\"material_provenance_digest\"]\n                and (c.get(\"incoming\") or {}).get(\"content_digest\")\n                == conflict[\"incoming\"][\"content_digest\"]):",
+   "replacement": "        if (c.get(\"incoming\") or {}).get(\"content_digest\") == conflict[\"incoming\"][\"content_digest\"]:",
+   "expected_killers": [
+    "provenance 가 다르면 같은 content 라도 새 충돌이다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "두 충돌의 material provenance digest 는 같다",
+      "제3의 새 content → conflict count +1"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "provenance 가 다르면 같은 content 라도 새 충돌이다"
+     ],
+     "reason": "v1 선언 검사들은 두 충돌의 provenance 가 **같은** 시나리오라 content-only 매칭으로도 구별돼 변이 하에서 PASS 했다. provenance 가 다르고 content 가 같은 경우가 이 계약의 소유자이며, 그 시나리오(P1·P2 두 revision 에 같은 52% 충돌)를 회귀에 추가했다."
+    }
+   ]
+  },
+  {
+   "id": "ST-CONF-4",
+   "origin_label": "ST-CONF-4",
+   "note": "dedup 판정을 항상 참으로 만든다 — 새 충돌이 영영 기록되지 않는다",
+   "anchors_expected": 1,
+   "anchor": "    for c in entry.get(\"conflicts\") or []:",
+   "replacement": "    if entry.get(\"conflicts\"):\n        return True\n    for c in entry.get(\"conflicts\") or []:",
+   "expected_killers": [
+    "제3의 새 content → conflict count +1"
+   ]
+  },
+  {
+   "id": "ST-CONF-5",
+   "origin_label": "ST-CONF-5",
+   "note": "★ 재전달 시 state 를 그대로 두지 않고 새 state 를 낸다 — 직렬화가 달라질 수 있다",
+   "anchors_expected": 1,
+   "anchor": "            return state, _accept(\n                CONFLICT, key,\n                conflict[\"reason\"] + \" (이미 기록된 동일 충돌 — state 변화 없음)\",\n                _entry_view(entry), new_conflict=False)",
+   "replacement": "            entry2 = dict(entry)\n            entry2[\"conflicts\"] = list(entry.get(\"conflicts\") or []) + [conflict]\n            new_state[\"series\"][ks] = _entry_view(entry2)\n            return new_state, _accept(CONFLICT, key, conflict[\"reason\"], new_state[\"series\"][ks], new_conflict=False)",
+   "expected_killers": [
+    "동일 conflict 재전달 → conflict count 불변",
+    "동일 conflict 재전달 → canonical serialization 불변"
+   ]
+  },
+  {
+   "id": "ST-CONF-6",
+   "origin_label": "ST-CONF-6",
+   "note": "new_conflict 를 항상 True 로 보고한다 — 재관측과 새 충돌을 구별할 수 없다",
+   "anchors_expected": 1,
+   "anchor": "                _entry_view(entry), new_conflict=False)",
+   "replacement": "                _entry_view(entry), new_conflict=True)",
+   "expected_killers": [
+    "재전달은 새 충돌이 아니다 (new_conflict=False)"
+   ]
+  }
+ ]
+}

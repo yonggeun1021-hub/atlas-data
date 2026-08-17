@@ -14,6 +14,11 @@ name: capture-azure-fixture
 
 on:
   workflow_dispatch:
+    inputs:
+      capture_max_filings:
+        description: "capture 전용 discovery 조회 상한 (기본 4 = 기존 무입력 동작)"
+        type: number
+        default: 4
 
 permissions:
   contents: read
@@ -30,7 +35,10 @@ jobs:
       - name: Azure CC 표 원문 블록 보존
         env:
           FIXTURE_OUT: ${{ runner.temp }}/azure-fixtures
-        run: python3 collectors/capture_azure_fixture.py
+          ATLAS_CAPTURE_MAX_FILINGS: ${{ inputs.capture_max_filings }}
+        run: |
+          echo "ATLAS_CAPTURE_MAX_FILINGS=$ATLAS_CAPTURE_MAX_FILINGS"
+          python3 collectors/capture_azure_fixture.py
 
       - name: 저장소가 그대로인지 (쓰기 없음 확인)
         run: git diff --exit-code

@@ -247,8 +247,12 @@ for rid in ("RULE-0003", "RULE-0007", "RULE-0008"):
           r["data_capability"] == "UNRESOLVED"
           and r["condition_semantics"] == "UNRESOLVED" and r["scope"] == "UNRESOLVED")
 check("rules.json 은 여전히 소비 불가", RJ["consumable_by_evaluator"] is False)
-check("Rule 25 · READY 6 (P0 3 + P3 3)",
-      RJ["rule_count"] == 25 and RJ["state_counts"]["evaluator_ready"] == 6,
+# ⛔ 이 회귀는 TSMC 3건을 검증한다. 전역 READY 총계는 다른 Rule 의 승인으로도
+#    바뀌므로 여기에 박지 않는다 — 박으면 무관한 승인에서 이 파일이 깨진다.
+check("Rule 25 · TSMC 3건이 READY 다",
+      RJ["rule_count"] == 25
+      and all(by[r]["evaluator_status"] == "READY"
+              for r in ("RULE-0003", "RULE-0007", "RULE-0008")),
       str(RJ["state_counts"]["evaluator_ready"]))
 check("★ READY 여도 Production HOLD 는 유지된다", "HOLD" in RJ["production_state"])
 check("collector 는 authoritative artifact 를 쓰지 않는다",

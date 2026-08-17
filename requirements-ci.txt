@@ -1,0 +1,16 @@
+# Atlas — CI 전용 의존성 (승인 회귀 실행에만 쓴다)
+#
+# ★ CIO 판정 2026-08-17 — 이 파일은 `requirements.txt` 와 목적이 다르다.
+#   requirements.txt   production collector 가 실제로 데이터를 가져올 때 필요한 것
+#   requirements-ci.txt  `run_all.py` 가 승인 회귀를 돌릴 때만 필요한 것
+#   둘을 합치지 않는다. actions-pass gate 가 pykrx·pandas 를 설치할 이유가 없고,
+#   collector 런타임이 회귀용 파서를 들고 있을 이유도 없다.
+#
+# ⛔ 여기에 network 호출이 필요한 패키지를 넣지 않는다 — 승인 회귀는 fixture only 다.
+#
+# PyYAML — `test/test_rule0022_workflow_contract.py` 가 rule0022-observation.yml 을
+#   **실제 YAML 로 파싱**해 계약을 검증한다. 수제 parser·문자열 검색으로 낮추지
+#   않는다는 CIO 판정에 따른 정식 의존성이다.
+#   ※ actions/setup-python 이 깔아주는 인터프리터에는 PyYAML 이 없다.
+#     버전을 고정한다 — 회귀 결과가 러너의 우연한 사전설치에 의존하면 안 된다.
+PyYAML==6.0.3
