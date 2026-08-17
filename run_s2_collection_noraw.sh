@@ -23,19 +23,26 @@ fi
 
 log() { printf '%s\n' "$*" | tee -a "$LOG"; }
 
-PUBLISHED=()
+WRESBAL_PUBLISHED=0
+TOTBKCR_PUBLISHED=0
 COMPLETED=0
 
 rollback_incomplete_run() {
   local rc=$?
+  local final
   if [ "$COMPLETED" -ne 1 ]; then
-    local sid final
-    for sid in "${PUBLISHED[@]}"; do
-      final="${ATLAS_FRED_DERIVED_DIR}/${sid}/runs/${RUN_ID}"
+    if [ "$WRESBAL_PUBLISHED" -eq 1 ]; then
+      final="${ATLAS_FRED_DERIVED_DIR}/WRESBAL/runs/${RUN_ID}"
       if [ -d "$final" ]; then
         rm -rf -- "$final"
       fi
-    done
+    fi
+    if [ "$TOTBKCR_PUBLISHED" -eq 1 ]; then
+      final="${ATLAS_FRED_DERIVED_DIR}/TOTBKCR/runs/${RUN_ID}"
+      if [ -d "$final" ]; then
+        rm -rf -- "$final"
+      fi
+    fi
     rm -f -- "$SUM"
   fi
   return "$rc"
@@ -53,9 +60,9 @@ log "Atlas S-2 no-raw run started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 log "run_id=${RUN_ID} tool=${TOOL} batch=${BATCH} root=${ATLAS_FRED_DERIVED_DIR}"
 
 run_series "WRESBAL" "2008-09-10"
-PUBLISHED+=("WRESBAL")
+WRESBAL_PUBLISHED=1
 run_series "TOTBKCR" "2008-10-01"
-PUBLISHED+=("TOTBKCR")
+TOTBKCR_PUBLISHED=1
 
 ROOT="$ATLAS_FRED_DERIVED_DIR" RID="$RUN_ID" python3 - <<'PY' > "$SUM"
 import json, os
