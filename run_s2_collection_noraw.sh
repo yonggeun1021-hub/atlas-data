@@ -8,7 +8,7 @@ ATLAS_FRED_DERIVED_DIR="${ATLAS_FRED_DERIVED_DIR:-atlas_derived/fred_s2}"
 export ATLAS_FRED_DERIVED_DIR
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-RUN_ID="${STAMP}_${BASHPID}"
+RUN_ID="${STAMP}_$$"
 LOG="s2_noraw_run_${RUN_ID}.log"
 SUM="s2_noraw_summary_${RUN_ID}.txt"
 

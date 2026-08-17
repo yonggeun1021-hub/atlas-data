@@ -171,7 +171,7 @@ def call(endpoint, params, series_id, sleep=DEFAULT_SLEEP):
     q["api_key"] = k
     q.setdefault("file_type", "json")
     url = "%s/%s?%s" % (BASE, endpoint, urllib.parse.urlencode(q))
-    safe = {kk: ("***REDACTED***" if kk == "api_key" else vv) for kk, vv in q.items()}
+    safe = {kk: vv for kk, vv in q.items() if kk != "api_key"}
 
     for attempt in range(1, MAX_RETRY + 1):
         try:
