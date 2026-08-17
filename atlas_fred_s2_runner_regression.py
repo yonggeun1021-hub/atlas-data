@@ -174,7 +174,7 @@ check("R5 success writes one log", len(logs) == 1)
 
 rc, out, finals, logs, summaries, _ = run_case("TOTBKCR")
 
-check("R6 second-series failure is nonzero", rc != 0, "rc=%s" % rc)
+check("R6 second-series failure preserves collector rc", rc == 23, "rc=%s" % rc)
 check(
     "R7 second-series failure rolls back WRESBAL",
     len(finals["WRESBAL"]) == 0,
@@ -190,15 +190,25 @@ check(
     len(summaries) == 0,
     "count=%d" % len(summaries),
 )
+check(
+    "R9B second-series failure has no trap error",
+    "unbound variable" not in out,
+    "tail=%r" % out[-300:],
+)
 
 rc, out, finals, logs, summaries, _ = run_case("WRESBAL")
 
-check("R10 first-series failure is nonzero", rc != 0, "rc=%s" % rc)
+check("R10 first-series failure preserves collector rc", rc == 23, "rc=%s" % rc)
 check(
     "R11 first-series failure publishes nothing",
     len(finals["WRESBAL"]) == 0 and len(finals["TOTBKCR"]) == 0,
     "WRESBAL=%d TOTBKCR=%d"
     % (len(finals["WRESBAL"]), len(finals["TOTBKCR"])),
+)
+check(
+    "R11B first-series failure has no trap error",
+    "unbound variable" not in out,
+    "tail=%r" % out[-300:],
 )
 
 # Existing final not created by this runner must survive rollback.
@@ -215,7 +225,7 @@ rc, out, finals, logs, summaries, _ = run_case(break_summary=True)
 
 check(
     "R13 summary failure rolls back whole run",
-    rc != 0
+    rc == 41
     and len(finals["WRESBAL"]) == 0
     and len(finals["TOTBKCR"]) == 0
     and len(summaries) == 0,
