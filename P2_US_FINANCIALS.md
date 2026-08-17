@@ -142,6 +142,41 @@ veto 단위     filing 단위가 아니라 **concept / economic observation 단�
 서술          숫자 SSOT 가 아니라 **comparability 검증 증거**
 ```
 
+#### ⚠ 범위 정정 — CIO 판정 2026-08-16 (`RULE-0022_MEASUREMENT_CONTRACT_CONFLICT` 해소)
+
+⛔ **위 Gate #2 계약을 삭제하거나 「틀린 조사」로 폐기하지 않는다.** 원문은 그대로 보존한다.
+아래는 **적용 범위만** 정정하는 기록이다.
+
+```
+08-15  Total RPO / XBRL 계약        → research · comparability evidence track 으로 보존
+08-16  Commercial RPO YoY 계약      → RULE-0022 evaluator measurement authority
+```
+
+| 축 | 정정 내용 |
+|---|---|
+| **superseded 되는 것** | 위 「숫자 관측 … SSOT 로 쓴다」를 **`RULE-0022` 의 evaluator measurement 에 적용하는 권위** |
+| **superseded 되지 않는 것** | total-RPO XBRL observation 자체 · comparability veto 계약 · 중복 fact 분해 결과 · 서술 교차 검증 |
+| **여전히 참인 문장** | 이 절 뒤의 「`us-gaap:RevenueRemainingPerformanceObligation` 은 total company RPO 이며 commercial portion 이 아니다 · collector 가 commercial 값을 집으면 틀린다」 — **total-RPO XBRL observation 을 설명하는 문맥에서는 여전히 맞다.** RULE-0022 evaluator measurement 에 적용하는 권위만 supersede 된다 |
+
+**확정 근거 (D-1 / D-2 / D-4)**
+
+- **D-1** RULE-0022 의 evaluator measurement 계열 = `Commercial remaining performance obligation`.
+  total company RPO 는 RULE-0022 evaluator measurement 로 사용하지 않는다.
+- **D-2** 회사가 공식 표에서 **직접 공표한** YoY 성장률 observation 을 사용한다.
+  `total balance → derived growth → growth change` 파생 계층을 만들지 않는다.
+- **D-4** 08-16 Rule SSOT 계약이 08-15 Gate #2 를 **RULE-0022 measurement 범위에서만** supersede 한다.
+
+**층위 근거**: 이 문서는 첫머리에서 스스로 「현황 기록이며 Rule SSOT 를 바꾸는 authority 가 아니다」라고
+선언한다. Rule 정의·상태의 authority 는 `config/rules.json` 이다. 따라서 이것은 층위 충돌이 아니라
+**범위 분리**로 해소된다.
+
+**정정 원문 보관 위치**: `config/rules.json` →
+`RULE-0022.extraction_identity_contract.authority_resolution`
+
+⛔ 이 정정은 상태를 바꾸지 않는다. `RULE-0022` 는 **definition reopen 상태를 유지**하며,
+D-3(GAAP vs CC) · D-5(소급 vs 전진) · D-6(행 신설의 comparability) 확정 전까지
+`RULE-0022_EVALUATION_NOT_AUTHORIZED` 다.
+
 ### 2024-12-03 8-K 의 정체 — 원문 확인 결과
 
 `0000950170-24-132722` = `msft-20241203.htm` · **Item 8.01 + 9.01**
@@ -339,3 +374,94 @@ exhibit·narrative 에 있는 Rule 에서 *"어느 문서를 열어야 하는가
 `RULE-0022` 의 `DATA_MISSING` 미해제 · `RULE-0001` 은 `UNDEFINED` 로 되돌렸고
 metric identity 는 **미확정**(계정과목 추정 금지) · collector 구현 없음 · source 채택 없음 · evaluator 미연결 · Production HOLD ·
 `consumable_by_evaluator=false`.
+
+---
+
+# RULE-0021 — Gate CLOSED (CIO 판정 2026-08-16)
+
+## 판정
+
+```
+definition = DEFINED
+data       = MISSING          → AVAILABLE
+source     = SOURCE_UNRESOLVED → SOURCE_RESOLVED
+evaluator  = BLOCKED → READY   (파생 · derive 함수가 계산)
+blocked_by = [DATA_MISSING, SOURCE_UNRESOLVED] → []
+
+acquisition verification = PASS
+extraction identity      = PASS
+```
+
+⛔ **evaluator 연결은 여전히 금지**다. `consumable_by_evaluator=false` ·
+Production HOLD 유지. Rule 의 **데이터 확보 문제**가 해결된 것이지 실행 연결이
+승인된 것이 아니다.
+
+## 근거 (live run 2차 · `70f1d2b`)
+
+| 조건 | 결과 |
+|---|---|
+| discovery 4건 | ✅ |
+| primary `<TYPE>EX-99.1` 결정론적 식별 | ✅ 4/4 |
+| secondary index cross-check | ✅ 4/4 |
+| exhibit 취득 | ✅ 4/4 |
+| extraction identity | ✅ 4/4 |
+| provenance · 값 출력 | ✅ 4/4 |
+
+관측값 — live · 저장소 raw fixture 회귀 · 외부 출처 **3원 일치**:
+
+```
+FY26 Q1 2025-10-29   40 / (1) / 39      FY26 Q3 2026-04-29   40 / (1) / 39
+FY26 Q2 2026-01-28   39 / (1) / 38      FY26 Q4 2026-07-29   43 /  0  / 43
+```
+
+## 경위 — 두 번의 실패가 무엇을 고쳤나
+
+1. **1차 live run 4/4 실패** — `index.json` 의 `type` 을 SEC document type 으로
+   오인. 실측 결과 `text.gif` · `compressed.gif` 뿐인 **디렉터리 아이콘**이었다.
+   → primary identity 를 full submission `.txt` 의 `<DOCUMENT>` `<TYPE>` 로 교체.
+2. **2차 live run 2/4 실패** — Microsoft 가 문면을 바꿨다. 표 제목
+   `Revenue → Information`, 행 라벨에 `revenue` suffix 추가.
+   → 관측된 두 형태만 **폐쇄 열거**. `.*` 일반화 금지.
+   ★ 변경이 **두 개**였다 — 제목만 고쳤다면 행 라벨에서 다시 막혔다.
+3. 두 번 다 **fail-closed 로 멈췄고 틀린 값을 만들지 않았다.** 이것이 설계 의도다.
+
+---
+
+# ⚠️ 별건 결함 — `build_header` 오염 (OPEN)
+
+## 상태
+
+```
+build_header contamination defect = OPEN
+```
+
+⛔ `RULE-0021` 의 Gate CLOSED 가 이 결함을 닫지 않는다 (CIO 판정 2026-08-16).
+   이번 성공은 **현재 네 문서에서 우연히 안전했다**는 증거이지 parser 가
+   구조적으로 안전하다는 증거가 아니다.
+
+## 증거 (live run 로그 원문)
+
+```
+header[0] = 'Three Months Ended June 30, 2026 Microsoft Cloud revenue
+             Commercial remaining performance obligation
+             Microsoft 365 Commercial cloud revenue … Dynamics 365 revenue'
+```
+
+`build_header` 가 Azure 행 **위 모든 data-row 의 라벨과 값**을 헤더 문자열에
+흡수한다. 컬럼 분류는 헤더 문자열의 단어로 하므로, 어떤 **행 라벨**이
+`constant currency` 또는 `percentage change` 를 포함하게 되면 컬럼 0 이 cc 나
+gaap 으로 오분류되어 **조용히 틀린 값**이 나올 수 있다.
+
+★ 위험이 커진 이유: 신형 문면부터 **행 라벨에 지표명이 들어가기 시작했다.**
+
+## 불변식 (CIO 제시)
+
+> column identity 는 Azure 행 **위의 다른 data-row 내용에 영향을 받아서는 안 된다.**
+
+## 다음 Gate 순서 (CIO 판정)
+
+1. 이미 확보한 실제 4개 fixture 로 **fault injection** — 현재 parser 가 silent
+   misclassification 가능한지 **먼저 깨뜨려 증명**한다. ⛔ 새 네트워크 조사 불필요.
+2. 증명된 뒤에만 수정안을 올린다.
+3. `0013/0014` · `0004` · P2-c 로 범위를 넓히기 **전에** 닫는다 —
+   이후 P2-b/c 의 표 기반 collector 에도 재사용될 **parser 계층 문제**이기 때문이다.

@@ -131,6 +131,259 @@ CONTEXT_PROVENANCE = {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+# Extraction Identity Contract — CIO 판정 2026-08-16
+#   ★ RULE-0021 의 **period identity** 를 연다.
+#
+#   조사 결과 정본 어디에도 reporting period 가 없었다 — `condition_text` ·
+#   `scope`(UNRESOLVED) · 카드 17 · 원문 fragment · 원문 상위 셀
+#   `MSFT::탈락 조건`(fragment 3개) 전부 확인. RULE-0007/0008 처럼 상위 문맥이
+#   공급하다 유실된 것이 아니라 **원천 부재**다 (RULE-0001 의 metric identity 와
+#   같은 계열, 축만 다름).
+#
+#   ★ 기록 위치에 대한 판단 — 보고 대상
+#     CIO 는 「정의 카드를 새로 연다」고 판정했다. `rules/decision_cards.json` 은
+#     **원본 Notion 분해 기록**이고, 이후의 CIO 판정(context provenance ·
+#     definition reopen · data capability)은 전부 이 promote 층 경로로 기록해 왔다.
+#     같은 전례를 따라 여기에 싣는다 — 원본 분해 기록을 소급 편집하지 않기 위해서다.
+#     ⛔ 이 선택은 CIO 확인 대상이다. 카드 파일에 직접 넣으라면 그렇게 옮긴다.
+#
+#   ⛔ 이 경로는 **상태를 바꾸지 않는다.** RULE-0021 은 이미 DEFINED 이며
+#      data/source/evaluator 축도 건드리지 않는다. 금지 키를 가드로 강제한다.
+EXTRACTION_IDENTITY_KIND = "extraction_identity_contract"
+
+EXTRACTION_IDENTITY_CONTRACT = {
+    "RULE-0021": {
+        "kind": EXTRACTION_IDENTITY_KIND,
+        "decision_unit": "RULE-0021::period_identity",
+        "source": "CIO 판정 2026-08-16 · period CONTRACT GAP 판정",
+        "gap_finding": "정본(condition_text · scope · 카드 17)과 원문 상위 셀 어디에도 "
+                       "reporting period 가 없었다. decomposition 유실이 아니라 원천 부재다.",
+        "cio_decision": "RULE-0021 의 관측값은 Microsoft 가 해당 실적발표에서 공식 "
+                        "공표하는 `Azure and other cloud services revenue` 의 해당 "
+                        "fiscal quarter YoY constant-currency 성장률이다. "
+                        "연간·YTD·TTM·run-rate 값은 대체하지 않는다. "
+                        "표 기반 취득 시 `Three Months Ended <period end>` 가 해당 "
+                        "발표 분기와 일치해야 한다.",
+        "rationale": "Microsoft 자체가 Azure growth 를 분기 실적의 YoY 지표로 공표하고, "
+                     "IR Metrics 도 Q126/Q226/Q326 같은 분기열로 같은 지표를 관리한다. "
+                     "⛔ 「분기표가 편해서」 정한 것이 아니다.",
+        "narrowing_order": ["period identity", "table identity",
+                            "row identity", "column identity"],
+        "prohibited": ["연간(Year Ended) 값으로 대체", "YTD 대체", "TTM 대체",
+                       "run-rate 대체", "후보가 여럿일 때 첫 번째 선택"],
+        "not_a_new_definition": False,
+        "note": "⛔ 이 카드는 period identity 만 닫는다. 기준선 45 와 유의미 하회 폭 3%p "
+                "(카드 17)를 바꾸지 않으며, build_header 결함도 닫지 않는다.",
+        "execution_status": "evaluator 연결 금지",
+    },
+    # ── RULE-0022 — measurement identity 한 칸만 닫는다 (CIO 판정 2026-08-16) ──
+    "RULE-0022": {
+        "kind": EXTRACTION_IDENTITY_KIND,
+        "decision_unit": "RULE-0022::measurement_identity",
+        "source": "CIO 판정 2026-08-16 · measurement identity 확정",
+        "gap_finding": "카드 18(기간) · 19(비교 기준) · 20(폭) 어디에도 **어느 계열을 "
+                       "재는지**가 지목돼 있지 않았다. 카드 19 는 「동일한 측정 정의」를 "
+                       "전제하지만 그 측정 정의를 지목한 카드가 없었다. "
+                       "RULE-0001 이 같은 사유(metric identity 부재)로 재개방된 선례가 있다.",
+        "cio_decision": "RULE-0022 의 평가 계열은 Microsoft 가 공식 표에서 동일 문면으로 "
+                        "공표하는 `Commercial remaining performance obligation` 의 "
+                        "전년동기 성장률(YoY)로 고정한다. "
+                        "「RPO」라는 자연어를 total RPO 까지 임의로 넓히지 않는다. "
+                        "★ 새 observable 을 만드는 것이 아니라, 지금 실제로 수집하고 있는 "
+                        "행의 identity 를 정본에 명시하는 것이다.",
+        "rationale": "현재 고정 표본 네 건이 모두 정확히 같은 행 문면을 담고 있고, "
+                     "그 행은 RULE-0021 이 쓰는 바로 그 표 안에 있다. "
+                     "반면 정본에는 total 인지 Commercial 인지 지정이 없었다. "
+                     "⛔ 「수집이 쉬워서」 고른 것이 아니라 이미 관측 중인 계열을 "
+                     "정본에 적는 것이다.",
+        "narrowing_order": ["period identity", "table identity",
+                            "row identity", "column identity"],
+        "prohibited": [
+            "total RPO 로 계열 확대",
+            "잔액 자체의 증감으로 대체",
+            "직전 보고기간 성장률과 비교",
+            "회사가 제공하는 조정 성장률(대형 계약 제외 기준 등)로 evaluator 값 대체",
+            "기저효과를 이유로 한 사후 예외 · 무효화",
+            "단기·장기 구성 및 인식기간 변화를 비교 기준에 혼입",
+            "후보가 여럿일 때 첫 번째 선택",
+        ],
+        "not_a_new_definition": True,
+        "note": "⛔ 카드 18 · 19 · 20 의 기간 · 비교 기준 · 폭을 재개방하지 않는다. "
+                "measurement identity 한 칸만 닫는다. "
+                "★ 기저효과는 카드 19 가 말하는 「측정 정의 또는 포함 범위 변경」이 "
+                "아니므로 판정 불가 사유가 아니다 (CIO 판정 2026-08-16). "
+                "회사의 조정 설명은 evidence 로 보존할 수 있으나 계산 입력이 아니다.",
+        "execution_status": "evaluator 연결 금지",
+
+        # ── D-1 / D-2 / D-4 — CIO 판정 2026-08-16 (measurement contract conflict 해소) ──
+        #   ★ 위 08-16 원문은 한 글자도 바꾸지 않았다. 아래는 그 옆에 나란히 붙는
+        #     supersession provenance 다. ⛔ 덮어쓰기·삭제 금지 원칙을 그대로 따른다.
+        #   ⛔ 이 블록도 상태를 바꾸지 않는다. definition/data/evaluator 축 전부 불변이다.
+        "authority_resolution": {
+            "source": "CIO 판정 2026-08-16 · RULE-0022_MEASUREMENT_CONTRACT_CONFLICT 해소",
+            "conflict": "2026-08-15 P2 Gate #2(total company RPO 잔액 · XBRL "
+                        "`us-gaap:RevenueRemainingPerformanceObligation`)와 "
+                        "2026-08-16 measurement identity(Commercial RPO 공표 YoY 성장률 · "
+                        "8-K 표)가 계열 · 단위 · measurement 형태에서 상호 배타적이었고, "
+                        "후자가 전자를 명시적으로 supersede 하지 않은 채 공존했다.",
+            "d1_measurement_series": {
+                "decision": "RULE-0022 의 evaluator measurement 계열은 "
+                            "`Commercial remaining performance obligation` 으로 확정한다. "
+                            "total company RPO 는 RULE-0022 의 evaluator measurement 로 "
+                            "사용하지 않는다.",
+                "basis": "정본(Notion)은 `RPO 급둔화` 와 `직전 +84%` 까지만 두고 계열을 "
+                         "세분하지 않는다. 반면 `config/rules.json` 은 스스로를 Rule "
+                         "정의·상태의 authority SSOT 로 선언하며, 2026-08-16 "
+                         "measurement identity 로 Commercial 계열을 이미 명시한다.",
+            },
+            "d2_measurement_form": {
+                "decision": "회사가 공식 표에서 **직접 공표한** Commercial RPO YoY "
+                            "성장률 observation 을 사용한다. 잔액을 가져와 Atlas 가 "
+                            "자체적으로 YoY 를 파생하는 경로는 채택하지 않는다.",
+                "basis": "Rule authority 에 이미 명시된 measurement 계약, 원 정본 "
+                         "`+84%` 관측과의 정합성, 그리고 직접 관측값과 파생값을 섞지 "
+                         "않는 Atlas 의 provenance · fail-closed 방향을 함께 따른 판정이다. "
+                         "⛔ 「구현이 쉬워서」가 아니다.",
+                "consequence": "RULE-0022 를 위해 "
+                               "`total balance → derived growth → growth change` 라는 "
+                               "별도 파생 계층을 만들지 않는다.",
+            },
+            "d4_authority_scope": {
+                "decision": "2026-08-16 Rule SSOT 계약이 2026-08-15 P2 Gate #2 를 "
+                            "**RULE-0022 evaluator measurement 범위에서만** supersede 한다.",
+                "preserved": "08-15 total RPO · XBRL 계약은 삭제하지 않는다. "
+                             "research / comparability evidence track 으로 보존한다.",
+                "still_true": "08-15 의 「collector 가 commercial 값을 집으면 틀린다」는 "
+                              "문장은 **total-RPO XBRL observation 을 설명하는 문맥에서는 "
+                              "여전히 맞다.** supersede 되는 것은 그 문장을 RULE-0022 "
+                              "evaluator measurement 에 적용하는 권위뿐이다.",
+                "superseded_document": "P2_US_FINANCIALS.md · "
+                                       "「Gate #2 종결 계약 (CIO 확정 2026-08-15)」",
+                "layer_note": "P2 문서는 파일 첫머리에서 스스로 "
+                              "「현황 기록이며 Rule SSOT 를 바꾸는 authority 가 아니다」라고 "
+                              "선언한다. 따라서 층위 충돌이 아니라 범위 분리로 해소된다.",
+            },
+            "still_open": ["D-3 GAAP YoY 인가 Constant Currency YoY 인가",
+                           "D-5 소급 평가인가 전진 평가인가",
+                           "D-6 FY26 Q1 Commercial RPO 행 신설을 "
+                           "comparability break 로 볼 것인가"],
+            "state_effect": "없음 — D-1/D-2/D-4 가 닫혀도 RULE-0022 는 "
+                            "definition reopen 상태를 유지한다. "
+                            "D-3 · D-5 · D-6 확정 전 evaluator 사용 금지.",
+            "not_a_new_definition": True,
+            # ★ 위 still_open 3건은 CIO 판정 2026-08-16 으로 전부 닫혔다.
+            #   ⛔ 원문을 지우지 않는다 — 당시 미해소였다는 사실이 provenance 다.
+            "still_open_resolution": "D-3 · D-5 · D-6 전부 확정됨 → "
+                                     "아래 `definition_closure` 참조",
+        },
+
+        # ── Definition Closure — CIO 판정 2026-08-16 (D-3 · D-5 · D-6) ──────────
+        #   ⛔ 이 블록도 상태를 바꾸지 않는다. definition_status 를 인위적으로
+        #      전이시키지 않는다 — 상류가 이미 DEFINED 이므로 그대로 둔다.
+        #      ★ 가짜 상태전이 이력을 만들지 않는다 (CIO 명시).
+        #   ⛔ 정의가 닫힌 것과 실행 가능은 별개다. evaluator BLOCKED · data MISSING ·
+        #      Production HOLD 는 전부 유지된다.
+        "definition_closure": {
+            "source": "CIO 판정 2026-08-16 · D-3 · D-5 · D-6 확정 → definition reopen 종결",
+            "closes": ["D-1 measurement series", "D-2 measurement form",
+                       "D-3 column identity", "D-4 authority scope",
+                       "D-5 historical policy", "D-6 comparability"],
+
+            # ── D-3 ───────────────────────────────────────────────────────────
+            "d3_column_identity": {
+                "decision": "RULE-0022 의 evaluator 입력은 "
+                            "`Percentage Change Y/Y (GAAP)` 열로 확정한다.",
+                "evidence_only": ["Constant Currency Impact",
+                                  "Percentage Change Y/Y Constant Currency"],
+                "evidence_note": "두 열은 버리지 않는다. 원문 evidence 로 함께 보존하되 "
+                                 "evaluator measurement 로 사용하지 않는다.",
+                "basis": "RULE-0022 원 정본에 `cc` 지정이 없다. RULE-0021 처럼 정본이 "
+                         "명시적으로 `45%cc` 라고 적은 Rule 의 계약을 RULE-0022 에 "
+                         "전이하면 새로운 의미를 추가하게 된다.",
+                "pair_column_identity": "현재값과 전년동기값은 반드시 **동일한 GAAP 열**에서 "
+                                        "비교한다.",
+                "sign_convention": "`(1)%` 는 source 의 회계식 음수 표기로 해석한다.",
+                "lookup_contract": "evaluator 는 열 **위치**가 아니라 정확한 "
+                                   "**column identity(문면)** 로 찾는다.",
+                "fail_closed": "기대한 column identity 가 없거나 모호하면 fail-closed. "
+                               "⛔ 위치 기반 fallback 금지.",
+                "prohibited": ["GAAP / CC 중 결과가 유리한 열 선택",
+                               "GAAP 현재값과 CC 전년동기값의 혼합",
+                               "cc·impact 열 폐기"],
+            },
+
+            # ── D-6 ───────────────────────────────────────────────────────────
+            "d6_comparability": {
+                "classification": "PRESENTATION_AVAILABILITY_BOUNDARY — "
+                                  "NOT A DEMONSTRATED MEASUREMENT_DEFINITION_BREAK",
+                "decision": "FY26 Q1 의 `Commercial remaining performance obligation` "
+                            "행 등장을 comparability break 로 판정하지 않는다.",
+                "basis": "Commercial RPO 개념 자체는 FY2025 10-K 에서도 이미 공시된 "
+                         "evidence 가 있고(서술 교차검증 기록), 현재 확보된 증거에는 "
+                         "FY26 Q1 에서 underlying commercial-RPO 의 정의나 포함 범위가 "
+                         "바뀌었다는 증거가 없다. 08-15 evidence track 도 표시층 변화 "
+                         "자체를 concept change 로 보지 않는 원칙을 갖고 있다.",
+                "boundary_rules": [
+                    "FY26 Q1 이전 8-K 에 해당 row 가 없었다는 사실은 그대로 유지한다.",
+                    "FY25 값을 재구성하거나 backfill 하지 않는다.",
+                    "FY25 ↔ FY26 비교쌍을 만들지 않는다.",
+                    "직접 공표 row 가 존재하기 시작한 FY26 Q1 부터 "
+                    "새 direct-observation series 로 취급한다.",
+                    "향후 narrative 나 source 에서 실제 definition / include-scope 변경 "
+                    "증거가 나오면 해당 economic observation pair 를 다시 "
+                    "`COMPARABILITY_UNRESOLVED` 로 차단한다.",
+                ],
+                "misreading_guard": "★ 「break 가 아니다」는 **과거와 비교 가능하다는 뜻이 "
+                                    "아니다.** 소급 확대 금지.",
+            },
+
+            # ── D-5 ───────────────────────────────────────────────────────────
+            "d5_historical_policy": {
+                "decision": "Forward observation 정책을 채택한다. RULE-0022 는 FY26 을 "
+                            "소급 평가하지 않는다. 직접 공표된 Commercial RPO GAAP YoY 에 "
+                            "**동일 측정 정의의 전년동기 observation 이 실제 존재하기 "
+                            "시작하는 시점**부터 평가한다.",
+                "firing_requirement": "카드 18 의 기존 계약대로 비교 가능한 qualifying "
+                                      "observation 이 2 개 연속 공식 보고기간에서 생성되어야 "
+                                      "발동 가능하다. comparison_baseline · time_window · "
+                                      "threshold 는 이미 별도 decision unit 으로 존재한다.",
+                "rejected_option": "FY25 부재를 이유로 Rule 을 영구 BLOCK 하는 선택지는 "
+                                   "채택하지 않는다.",
+                "pre_evaluable_meaning": "평가 가능 이전 기간의 의미는 "
+                                         "`Unverified / Not yet evaluable` 이다. "
+                                         "⛔ `조건 미성립` · `PASS` 로 해석하지 않는다.",
+                "prohibited": ["FY25 `ROW_ABSENT` 를 0 으로 처리",
+                               "FY25 를 total RPO 나 다른 source 로 보충",
+                               "관측이 없었다는 이유로 Rule 생존(탈락 조건 미성립) 판정"],
+            },
+
+            "reopen_resolution": {
+                "measurement_contract_conflict": "RESOLVED",
+                "definition_reopen_required": "RESOLVED",
+                "closed_by": "D-1 · D-2 · D-3 · D-4 · D-5 · D-6 전건 확정",
+                "state_transition_policy": "⛔ `definition_status` 를 인위적으로 "
+                                           "UNDEFINED → DEFINED 전환하지 않는다. "
+                                           "상류가 이미 DEFINED 이므로 상태값을 그대로 두고 "
+                                           "resolution provenance 만 추가한다. "
+                                           "★ 새로운 가짜 상태전이 이력을 만들지 않는다.",
+            },
+
+            "execution_separation": {
+                "note": "정의가 닫힌 것과 실행 가능은 별개다.",
+                "unchanged": ["RULE-0022_EVALUATION_NOT_AUTHORIZED 유지",
+                              "data_status = MISSING 유지",
+                              "evaluator BLOCKED 유지",
+                              "Production HOLD 유지"],
+                "next_gate": "정의가 아니라 **Data Capability / Evaluator Readiness** 다. "
+                             "실제 production 경로가 이 계약을 fail-closed 로 재현할 수 "
+                             "있는지부터 검증한다.",
+            },
+            "not_a_new_definition": True,
+        },
+    },
+}
+
+# ══════════════════════════════════════════════════════════════════════
 # Definition Reopen — CIO 판정 2026-08-15
 #   ★ 방향이 반대다. 기존 두 application 은 상태를 **여는** 방향(UNDEFINED→DEFINED,
 #     MISSING→AVAILABLE)인데 이것은 **닫는** 방향(DEFINED→UNDEFINED)이다.
@@ -179,14 +432,31 @@ DATA_CAPABILITY_APPLICATION = {
                  "⛔ 조건(40% 미달 2개월 연속)의 참·거짓과 무관하다.",
     "RULE-0007": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
     "RULE-0008": "CIO 판정 2026-08-15 · P3 — 단월 YoY · 누계 YoY 를 공식 원천에서 확보",
+    "RULE-0021": "CIO 판정 2026-08-16 · P2-b — Azure constant-currency 성장률 관측 "
+                 "capability 확보. 동일 최근 4개 Item 2.02 8-K 에서 exhibit identity "
+                 "4/4 · secondary cross-check 4/4 · exhibit 취득 4/4 · extraction "
+                 "identity 4/4 · provenance 4/4 이고, 저장소 raw fixture 회귀값과 "
+                 "live 관측값이 4/4 일치했다. "
+                 "⛔ 조건(45% 기준선 · 3%p 하회)의 참·거짓과 무관하다. "
+                 "⛔ build_header 오염 결함은 별건으로 OPEN 이며 이 승격이 닫지 않는다.",
 }
 
 # 적용 후 값 — 새 vocabulary 를 만들지 않고 기존 어휘를 그대로 쓴다.
 DATA_APPLIED_STATUS = "AVAILABLE"
 DATA_APPLIED_SOURCE = "SOURCE_RESOLVED"
 
-# 취득 계약 (P3_C4_ACQUISITION.md 에 기록된 것과 같은 내용)
-DATA_CAPABILITY_SOURCE = {
+# ══════════════════════════════════════════════════════════════════════
+# 취득 계약 — ★ **Rule 마다 다르다.** 전역 상수 하나로 두지 않는다.
+#
+#   ⛔ 예전에는 `DATA_CAPABILITY_SOURCE` 하나를 모든 적용 Rule 에 붙였다.
+#      대상이 TSMC 뿐일 때는 우연히 맞았지만, MSFT Rule(`RULE-0021`)이 들어오는
+#      순간 **MSFT Rule 에 TSMC 취득 계약이 기록**된다. 조용히 틀린 provenance 다.
+#   ★ 그래서 Rule → 계약 매핑으로 바꾸고, 적용 목록과 계약 목록이 정확히 같은지
+#      승격 단계에서 대조한다 (`DATA_CAPABILITY_APPLICATION` ↔ `..._BY_RULE`).
+#      한쪽에만 있으면 승격하지 않는다.
+# ══════════════════════════════════════════════════════════════════════
+# TSMC 월매출 (P3_C4_ACQUISITION.md 에 기록된 것과 같은 내용)
+DATA_CAPABILITY_SOURCE_TSMC = {
     "primary_acquisition": "SEC EDGAR — TSMC 제출 6-K (CIK 0001046179)",
     "decision_observation": "6-K 내부 `TSMC {Month} Revenue Report (Consolidated)` 표 "
                             "(Unit: NT$ million)",
@@ -195,6 +465,34 @@ DATA_CAPABILITY_SOURCE = {
     "deferred_to_operations": ["revision detection", "historical backfill",
                                "persistent incremental cursor",
                                "상시 network monitoring", "evaluator wiring"],
+}
+
+# MSFT Azure constant-currency (P2_US_FINANCIALS.md · 2026-08-16 live run)
+DATA_CAPABILITY_SOURCE_MSFT_AZURE = {
+    "primary_acquisition": "SEC EDGAR — Microsoft 제출 8-K item 2.02 (CIK 0000789019), "
+                           "full submission `.txt` 의 <DOCUMENT> SGML header 에서 "
+                           "<TYPE>EX-99.1 정확 일치로 exhibit 식별",
+    "decision_observation": "EX-99.1 내부 `Selected Product and Service "
+                            "{Revenue|Information} Constant Currency Reconciliation` 표의 "
+                            "`Azure and other cloud services[ revenue]` 행 · "
+                            "`Percentage Change Y/Y Constant Currency` 컬럼",
+    "secondary_verification": "`{accession}-index.html` 의 Type 컬럼 교차확인 "
+                              "(충돌 시 fail-closed)",
+    "independent_cross_check": "Microsoft IR Metrics — 사람이 확인하는 대조용, "
+                               "자동 취득 경로에서는 제외",
+    "deferred_to_operations": ["revision detection", "historical backfill",
+                               "persistent incremental cursor",
+                               "상시 network monitoring", "evaluator wiring"],
+    "known_open_defect": "build_header 오염 — Azure 행 위 다른 data-row 내용이 헤더"
+                         "문자열에 흡수된다. 현재 4개 문서에서는 컬럼 분류가 옳았으나 "
+                         "구조적 안전성은 증명되지 않았다 (OPEN · 별건 Gate).",
+}
+
+DATA_CAPABILITY_SOURCE_BY_RULE = {
+    "RULE-0003": DATA_CAPABILITY_SOURCE_TSMC,
+    "RULE-0007": DATA_CAPABILITY_SOURCE_TSMC,
+    "RULE-0008": DATA_CAPABILITY_SOURCE_TSMC,
+    "RULE-0021": DATA_CAPABILITY_SOURCE_MSFT_AZURE,
 }
 
 # ══════════════════════════════════════════════════════════════════════
@@ -289,6 +587,34 @@ def _context_provenance(rid, m, decisions, errs):
     return rec
 
 
+def _extraction_identity(rid, m, decisions, errs):
+    """상태를 바꾸지 않고 **취득 identity 계약**만 남긴다. 금지 키가 있으면 싣지 않는다."""
+    if rid not in EXTRACTION_IDENTITY_CONTRACT:
+        return None
+    rec = dict(EXTRACTION_IDENTITY_CONTRACT[rid])
+    bad = CONTEXT_PROVENANCE_FORBIDDEN_KEYS & set(rec)
+    if bad:
+        errs.append(f"{rid}: extraction identity 에 상태·의미 키가 있다 {sorted(bad)} — "
+                    f"이 경로는 취득 계약만 남긴다")
+        return None
+    if rec.get("kind") != EXTRACTION_IDENTITY_KIND:
+        errs.append(f"{rid}: extraction identity 의 kind 가 다르다")
+        return None
+    if not (rec.get("cio_decision") or "").strip():
+        errs.append(f"{rid}: extraction identity 에 CIO decision 이 없다")
+        return None
+    if "금지" not in rec.get("execution_status", ""):
+        errs.append(f"{rid}: extraction identity 에 evaluator 연결 금지 표기가 없다")
+        return None
+    if rec["decision_unit"] in {d["decision_unit"] for d in decisions}:
+        errs.append(f"{rid}: extraction identity 가 기존 upstream decision 을 덮어쓴다")
+        return None
+    if not rec.get("narrowing_order"):
+        errs.append(f"{rid}: 좁히기 순서가 없다 — 계약의 본체다")
+        return None
+    return rec
+
+
 def _reopen_definition(rid, m, errs):
     """정의를 다시 연다. allowlist 밖이면 None."""
     if rid not in DEFINITION_REOPEN:
@@ -311,9 +637,31 @@ def _reopen_definition(rid, m, errs):
     return rec
 
 
+def data_capability_contract_coverage() -> list:
+    """적용 목록 ↔ 취득 계약 목록이 **정확히 일치**하는지 양방향 대조한다.
+
+    ★ 전역 계약 하나를 모든 Rule 에 붙이던 때에는 이 검사가 필요 없었다. 그러나
+      그 방식은 대상이 늘어나는 순간 **다른 회사의 취득 계약을 기록**한다.
+      매핑으로 바꾼 이상, 한쪽에만 있는 Rule 은 승격을 막아야 한다.
+    ⛔ 빠진 쪽을 기본값으로 채우지 않는다 — 그러면 틀린 provenance 가 조용히 생긴다.
+    """
+    errs = []
+    applied = set(DATA_CAPABILITY_APPLICATION)
+    contracted = set(DATA_CAPABILITY_SOURCE_BY_RULE)
+    for rid in sorted(applied - contracted):
+        errs.append(f"{rid}: data capability 를 적용하는데 취득 계약이 없다 — "
+                    f"DATA_CAPABILITY_SOURCE_BY_RULE 에 추가하지 않으면 승격하지 않는다")
+    for rid in sorted(contracted - applied):
+        errs.append(f"{rid}: 취득 계약만 있고 적용 목록에 없다 — 죽은 계약이다")
+    return errs
+
+
 def _apply_data_capability(rid, m, errs):
     """P3 데이터/원천 축 적용. allowlist 밖이면 None — 조용히 번지지 않는다."""
     if rid not in DATA_CAPABILITY_APPLICATION:
+        return None
+    if rid not in DATA_CAPABILITY_SOURCE_BY_RULE:
+        errs.append(f"{rid}: 취득 계약이 없다 — 다른 Rule 의 계약을 대신 쓰지 않는다")
         return None
     before_data = m["data_status"]
     before_src = m["source_qualification"]
@@ -326,7 +674,7 @@ def _apply_data_capability(rid, m, errs):
         "data_status": {"from": before_data, "to": DATA_APPLIED_STATUS},
         "source_qualification": {"from": before_src, "to": DATA_APPLIED_SOURCE},
         "source": DATA_CAPABILITY_APPLICATION[rid],
-        "acquisition_contract": DATA_CAPABILITY_SOURCE,
+        "acquisition_contract": DATA_CAPABILITY_SOURCE_BY_RULE[rid],
         # ★ 이 필드들은 건드리지 않았다는 사실을 명시적으로 남긴다.
         "untouched_legacy_fields": ["condition_semantics", "scope", "data_capability"],
         "not_an_evaluator_approval": True,
@@ -386,6 +734,9 @@ def build(out_path=OUT, mapping_path=MAPPING):
         # ── Context Provenance (상태 불변, 근거만) ────────────────
         ctx_prov = _context_provenance(rid, m, decisions, errs)
 
+        # ── Extraction Identity Contract (상태 불변, 취득 계약) ────
+        extr_id = _extraction_identity(rid, m, decisions, errs)
+
         # ── Definition Reopen (닫는 방향) ─────────────────────────
         reopened = _reopen_definition(rid, m, errs)
         if reopened:
@@ -417,6 +768,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
             "definition_application": applied,
             "definition_reopen": reopened,
             "context_provenance": ctx_prov,
+            "extraction_identity_contract": extr_id,
             "data_status": data_status,
             "data_status_before_application": m["data_status"],
             # ⛔ legacy/metadata 필드다. P3 적용 대상이 아니며 상류 값을 그대로 싣는다.
@@ -479,6 +831,7 @@ def build(out_path=OUT, mapping_path=MAPPING):
     #   ★ 선언이 파생 함수의 실제 출력을 덮는지 먼저 확인한다 — 선언이 좁으면 정상
     #     산출물이 위반으로 잡히고, 넓으면 오타를 못 잡는다. 둘 다 결함이다.
     errs.extend(VC.covers_derive_outputs())
+    errs.extend(data_capability_contract_coverage())
     for r in rules:
         errs.extend(VC.vocab_violations(r, tag=f"{r['rule_id']}: "))
 

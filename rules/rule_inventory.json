@@ -23,17 +23,17 @@
     "excluded_non_rule_evidence": 44,
     "evaluator_population": 25,
     "evaluator_consumable": 0,
-    "evaluator_ready": 6,
-    "evaluator_blocked": 19,
+    "evaluator_ready": 7,
+    "evaluator_blocked": 18,
     "definition_undefined": 3,
-    "data_missing": 19,
-    "source_unresolved": 13,
+    "data_missing": 18,
+    "source_unresolved": 12,
     "entries_without_rule_id": 0
   },
   "identity_note": "★ monitoring 은 `MON-nnnn`, evaluation rule 은 `RULE-nnnn` 로 namespace 가 분리된다. identity 를 가졌다는 사실이 evaluator 자격 · 실행 자격 · rules.json 편입을 뜻하지 않는다.",
   "provenance": {
-    "rules_json_sha256": "fe21ecaec54cc5d2cdc8b484fc0b92add7e504558b2ad4f651a1b823d18d29db",
-    "ssot_mapping_sha256": "90a8843aff3dc0f5dac8f73db3b1d2a1ac80710a2599ab65957dc8304264025e",
+    "rules_json_sha256": "2f6cb6c54c533586220fcce60b714d139ec6689d7b29c71d7bd3f692bf7c27ef",
+    "ssot_mapping_sha256": "ca955cc7f842fad2db64c57537c7443b27cccf9b9797fc1389af8a5b3fc734d3",
     "monitoring_identity_sha256": "864c8d5755f29e741c8ac5d4d3cda3b4ecde087646957faf11e511c9610f99ae"
   },
   "entries": [
@@ -851,16 +851,43 @@
         "note": "★ 새 정의를 만든 것이 아니라 확정된 CIO 판정을 상태에 적용한 것이다. 판정 원문은 `cio_definition_decisions` 에 그대로 있다."
       },
       "definition_reopen": null,
-      "data_status": "MISSING",
+      "data_status": "AVAILABLE",
       "data_status_before_application": "MISSING",
       "source_qualification_before_application": "SOURCE_UNRESOLVED",
-      "data_capability_application": null,
-      "source_qualification": "SOURCE_UNRESOLVED",
-      "evaluator_status": "BLOCKED",
-      "blocked_by": [
-        "DATA_MISSING",
-        "SOURCE_UNRESOLVED"
-      ],
+      "data_capability_application": {
+        "data_status": {
+          "from": "MISSING",
+          "to": "AVAILABLE"
+        },
+        "source_qualification": {
+          "from": "SOURCE_UNRESOLVED",
+          "to": "SOURCE_RESOLVED"
+        },
+        "source": "CIO 판정 2026-08-16 · P2-b — Azure constant-currency 성장률 관측 capability 확보. 동일 최근 4개 Item 2.02 8-K 에서 exhibit identity 4/4 · secondary cross-check 4/4 · exhibit 취득 4/4 · extraction identity 4/4 · provenance 4/4 이고, 저장소 raw fixture 회귀값과 live 관측값이 4/4 일치했다. ⛔ 조건(45% 기준선 · 3%p 하회)의 참·거짓과 무관하다. ⛔ build_header 오염 결함은 별건으로 OPEN 이며 이 승격이 닫지 않는다.",
+        "acquisition_contract": {
+          "primary_acquisition": "SEC EDGAR — Microsoft 제출 8-K item 2.02 (CIK 0000789019), full submission `.txt` 의 <DOCUMENT> SGML header 에서 <TYPE>EX-99.1 정확 일치로 exhibit 식별",
+          "decision_observation": "EX-99.1 내부 `Selected Product and Service {Revenue|Information} Constant Currency Reconciliation` 표의 `Azure and other cloud services[ revenue]` 행 · `Percentage Change Y/Y Constant Currency` 컬럼",
+          "secondary_verification": "`{accession}-index.html` 의 Type 컬럼 교차확인 (충돌 시 fail-closed)",
+          "independent_cross_check": "Microsoft IR Metrics — 사람이 확인하는 대조용, 자동 취득 경로에서는 제외",
+          "deferred_to_operations": [
+            "revision detection",
+            "historical backfill",
+            "persistent incremental cursor",
+            "상시 network monitoring",
+            "evaluator wiring"
+          ],
+          "known_open_defect": "build_header 오염 — Azure 행 위 다른 data-row 내용이 헤더문자열에 흡수된다. 현재 4개 문서에서는 컬럼 분류가 옳았으나 구조적 안전성은 증명되지 않았다 (OPEN · 별건 Gate)."
+        },
+        "untouched_legacy_fields": [
+          "condition_semantics",
+          "scope",
+          "data_capability"
+        ],
+        "not_an_evaluator_approval": true
+      },
+      "source_qualification": "SOURCE_RESOLVED",
+      "evaluator_status": "READY",
+      "blocked_by": [],
       "identity_namespace": "RULE",
       "in_evaluator_population": true,
       "evaluator_consumable": false

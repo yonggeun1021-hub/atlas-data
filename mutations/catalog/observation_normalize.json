@@ -1,0 +1,602 @@
+{
+ "target": "observation/normalize.py",
+ "regression": "test/test_observation_normalize.py",
+ "origin": "S2 신규 표면 — CIO 승인 2026-08-16 (Observation Layer S2 · Normalization)",
+ "note": "⛔ expected_killers 는 이 변이가 깨뜨리기로 **선언한** 검사다. 회귀 출력의 실패 줄에 대한 부분 문자열로 대조한다. 관측 결과를 사후에 베껴 넣지 않는다. ★ 이 catalog 는 층 ③ Normalization + Record 표면만 다룬다 — store · pair 는 S3 이후 Gate 다. ★ `classification = equivalent_due_to_redundant_validation` · `active_kill_requirement = false` 인 항목은 build preflight ↔ validate_record 의 의도된 이중 방어에 가려 관측 가능한 차이를 만들지 않는 변이다. ⛔ 죽이려고 회귀를 비틀지 않는다 · ⛔ 이중 방어를 걷어내지 않는다.",
+ "mutations": [
+  {
+   "id": "N-SIGN-1",
+   "origin_label": "N-SIGN-1",
+   "note": "회계식 괄호를 음수로 해석하지 않는다 — `(1)%` 가 +1 이 된다",
+   "anchors_expected": 1,
+   "anchor": "        sign, digits = SIGN_PARENS, \"-\" + m.group(1)",
+   "replacement": "        sign, digits = SIGN_PARENS, m.group(1)",
+   "expected_killers": [
+    "'(1)%' → numeric '-1'"
+   ]
+  },
+  {
+   "id": "N-SIGN-2",
+   "origin_label": "N-SIGN-2",
+   "note": "sign_convention 을 하나로 뭉갠다 — 표기 provenance 가 사라진다",
+   "anchors_expected": 1,
+   "anchor": "SIGN_PARENS = \"accounting_parentheses\"",
+   "replacement": "SIGN_PARENS = \"none\"",
+   "expected_killers": [
+    "두 표기의 sign_convention 은 다르다",
+    "sign_convention = accounting_parentheses"
+   ]
+  },
+  {
+   "id": "N-SIGN-3",
+   "origin_label": "N-SIGN-3",
+   "note": "explicit_minus 를 괄호와 같은 이름으로 만든다",
+   "anchors_expected": 1,
+   "anchor": "SIGN_MINUS = \"explicit_minus\"",
+   "replacement": "SIGN_MINUS = \"accounting_parentheses\"",
+   "expected_killers": [
+    "두 표기의 sign_convention 은 다르다",
+    "sign_convention = explicit_minus"
+   ]
+  },
+  {
+   "id": "N-FLOAT-1",
+   "origin_label": "N-FLOAT-1",
+   "note": "★ exact decimal 대신 float 를 쓴다 — 10%p 경계 판정이 반올림에 오염된다",
+   "anchors_expected": 1,
+   "anchor": "        value = Decimal(digits)",
+   "replacement": "        value = float(digits)",
+   "expected_killers": [
+    "normalize.py 가 `float()` 를 호출하지 않는다",
+    "0.1 + 0.2 == 0.3 (exact decimal)"
+   ]
+  },
+  {
+   "id": "N-FLOAT-2",
+   "origin_label": "N-FLOAT-2",
+   "note": "numeric 을 문자열이 아니라 수치로 직렬화한다 — JSON 에 float 가 유입된다",
+   "anchors_expected": 1,
+   "anchor": "        \"numeric_value\": str(value),    # ★ JSON 은 문자열. ⛔ float 로 만들지 않는다",
+   "replacement": "        \"numeric_value\": float(value),",
+   "expected_killers": [
+    "numeric 이 문자열이다 (JSON 직렬화 계약)",
+    "normalize.py 가 `float()` 를 호출하지 않는다"
+   ]
+  },
+  {
+   "id": "N-RAW-1",
+   "origin_label": "N-RAW-1",
+   "note": "raw 문면을 폐기하고 정규화값으로 덮는다 — source 복원성 상실",
+   "anchors_expected": 1,
+   "anchor": "        \"raw_value\": raw,               # ★ 원문 그대로 — 폐기 금지",
+   "replacement": "        \"raw_value\": str(value) + \"%\",",
+   "expected_killers": [
+    "raw 문면이 보존된다",
+    "두 표기의 raw 는 다르다 — source 복원성이 유지된다"
+   ]
+  },
+  {
+   "id": "N-LOOSE-1",
+   "origin_label": "N-LOOSE-1",
+   "note": "`%` 없는 숫자를 자동 수용한다 — unit 없는 값이 관측값이 된다",
+   "anchors_expected": 1,
+   "anchor": "RE_PLAIN = re.compile(rf\"^({_NUM})%$\")",
+   "replacement": "RE_PLAIN = re.compile(rf\"^({_NUM})%?$\")",
+   "expected_killers": [
+    "'1' → fail-closed (unit 없음)",
+    "'51' → fail-closed (percent 기호 없음)"
+   ]
+  },
+  {
+   "id": "N-LOOSE-2",
+   "origin_label": "N-LOOSE-2",
+   "note": "입력을 임의로 trim 한다 — malformed 보정 금지 위반",
+   "anchors_expected": 1,
+   "anchor": "    if raw == \"\":\n        raise NormalizationError(\"빈 문자열\")",
+   "replacement": "    raw = raw.strip()\n    if raw == \"\":\n        raise NormalizationError(\"빈 문자열\")",
+   "expected_killers": [
+    "' 51%' → fail-closed (선행 공백 — 임의 trim 금지)",
+    "'51% ' → fail-closed (후행 공백 — 임의 trim 금지)"
+   ]
+  },
+  {
+   "id": "N-LOOSE-3",
+   "origin_label": "N-LOOSE-3",
+   "note": "괄호 앵커를 풀어 불균형 괄호를 통과시킨다",
+   "anchors_expected": 1,
+   "anchor": "RE_PARENS = re.compile(rf\"^\\(({_NUM})\\)%$\")",
+   "replacement": "RE_PARENS = re.compile(rf\"^\\(?({_NUM})\\)?%$\")",
+   "expected_killers": [
+    "'(1%' → fail-closed (괄호 불균형(열림))",
+    "'1)%' → fail-closed (괄호 불균형(닫힘))"
+   ]
+  },
+  {
+   "id": "N-FAILOPEN-1",
+   "origin_label": "N-FAILOPEN-1",
+   "note": "★ 실패를 예외 대신 값으로 삼킨다 — 기존 collector `_n()` 의 fail-open 성질 재유입",
+   "anchors_expected": 1,
+   "anchor": "            if not m:\n                raise NormalizationError(f\"승인된 percent 표기가 아니다: {raw!r}\")",
+   "replacement": "            if not m:\n                return {\"raw_value\": raw, \"numeric_value\": \"0\", \"unit\": UNIT_PCT, \"sign_convention\": \"none\"}",
+   "expected_killers": [
+    "'n/a' → fail-closed (숫자가 아니다)",
+    "record fail-closed — decision raw 가 malformed"
+   ]
+  },
+  {
+   "id": "N-TYPE-1",
+   "origin_label": "N-TYPE-1",
+   "note": "문자열이 아닌 입력을 문자열로 강제 변환한다 — float/int 유입 경로가 열린다",
+   "anchors_expected": 1,
+   "anchor": "    if not isinstance(raw, str):\n        raise NormalizationError(f\"문자열이 아니다: {type(raw).__name__}\")",
+   "replacement": "    raw = str(raw)",
+   "expected_killers": [
+    "입력이 **타입 오류**로 거부된다 (형식 오류가 아니라)"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "None → fail-closed (None 입력)",
+      "51 → fail-closed (int 입력)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "입력이 **타입 오류**로 거부된다 (형식 오류가 아니라)"
+     ],
+     "reason": "v1 은 「실패한다」만 선언했는데, `str()` 강제 변환 후에도 형식 검사에 걸려 여전히 실패하므로 그 검사는 변이 하에서도 PASS 한다. 타입 계약을 소유하는 것은 실패 **사유**를 구별하는 C-1b 절 검사다."
+    }
+   ]
+  },
+  {
+   "id": "N-PERIOD-1",
+   "origin_label": "N-PERIOD-1",
+   "note": "기간 문면 앵커를 푼다 — 승인되지 않은 표기가 통과한다",
+   "anchors_expected": 1,
+   "anchor": "RE_PERIOD_END = re.compile(r\"^([A-Z][a-z]+) (\\d{1,2}), (\\d{4})$\")",
+   "replacement": "RE_PERIOD_END = re.compile(r\"([A-Za-z]+) (\\d{1,2}),? (\\d{4})\")",
+   "expected_killers": [
+    "기간 'September 30 2025' → fail-closed (쉼표 없음)",
+    "기간 'september 30, 2025' → fail-closed (소문자 시작)"
+   ]
+  },
+  {
+   "id": "N-PERIOD-2",
+   "origin_label": "N-PERIOD-2",
+   "note": "알 수 없는 월 이름을 기본값으로 보정한다",
+   "anchors_expected": 1,
+   "anchor": "    month = _MONTHS.get(m.group(1).lower())\n    if month is None:\n        raise NormalizationError(f\"알 수 없는 월 이름: {m.group(1)!r}\")",
+   "replacement": "    month = _MONTHS.get(m.group(1).lower()) or 1",
+   "expected_killers": [
+    "기간 'Smarch 30, 2025' → fail-closed (없는 월)"
+   ]
+  },
+  {
+   "id": "N-PERIOD-3",
+   "origin_label": "N-PERIOD-3",
+   "note": "기간 raw 문면을 버린다",
+   "anchors_expected": 1,
+   "anchor": "    return {\"period_end_raw\": raw, \"economic_period_end\": d.isoformat()}",
+   "replacement": "    return {\"period_end_raw\": \"\", \"economic_period_end\": d.isoformat()}",
+   "expected_killers": [
+    "기간 raw 문면이 보존된다"
+   ]
+  },
+  {
+   "id": "R-LAYER-1",
+   "origin_label": "R-LAYER-1",
+   "note": "★ 층 침범 — record 가 persisted=True 로 만든다 (층 ④ 침범)",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "        \"persisted\": False,     # ★ 층 ④ 가 아직 처리하지 않았다",
+   "replacement": "        \"persisted\": True,",
+   "expected_killers": [
+    "record 생성"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "persisted = False (층 ④ 미침범)"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "record 생성"
+     ],
+     "reason": "v1 은 `persisted = False (층 ④ 미침범)` 를 killer 로 선언했으나, 그 검사는 record 가 만들어진 뒤에야 실행된다. 변이 하에서는 `validate_record` 가 먼저 잡아 **record 자체가 만들어지지 않으므로** 선언 검사가 실행되지 않는다. 계약을 소유한 검사는 `record 생성`이다."
+    }
+   ]
+  },
+  {
+   "id": "R-LAYER-2",
+   "origin_label": "R-LAYER-2",
+   "note": "★ 이미 normalized 라고 주장하는 draft 를 받아들인다 — 층 ② 침범을 못 잡는다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if draft.get(\"normalized\") is not False:",
+   "replacement": "    if False and draft.get(\"normalized\") is not False:",
+   "expected_killers": [
+    "record fail-closed — draft 가 이미 normalized 라고 주장"
+   ]
+  },
+  {
+   "id": "R-EVID-1",
+   "origin_label": "R-EVID-1",
+   "note": "★ evidence 를 Decision 값으로 승격시킨다 — D-3 계약 위반",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "            \"is_decision_value\": False,     # ★ evidence 는 Decision 값으로 승격되지 않는다",
+   "replacement": "            \"is_decision_value\": True,",
+   "expected_killers": [
+    "record 생성"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "evidence 가 Decision 값이 아니다",
+      "Decision 값은 정확히 1개다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "record 생성"
+     ],
+     "reason": "v1 선언 검사들은 record 가 만들어진 뒤 실행된다. 변이 하에서는 `validate_record` 의 evidence 승격 검사가 먼저 잡아 record 가 만들어지지 않는다 — build/validate 이중 게이트의 귀결이다. 계약을 소유한 검사는 `record 생성`이다."
+    }
+   ]
+  },
+  {
+   "id": "R-EVID-2",
+   "origin_label": "R-EVID-2",
+   "note": "evidence 열을 통째로 버린다 — CC·impact 보존 계약 위반",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "        \"evidence_columns\": evidence,",
+   "replacement": "        \"evidence_columns\": [],",
+   "expected_killers": [
+    "record 생성"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "evidence 가 cc_impact · cc 두 건이다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "record 생성"
+     ],
+     "reason": "S2.1 에서 validate_record 가 evidence key 집합을 독립 검증하게 되면서, 변이 하에서는 record 자체가 만들어지지 않는다 — 선언 검사가 실행될 기회가 없다. 계약을 소유한 검사는 `record 생성`이다."
+    }
+   ]
+  },
+  {
+   "id": "R-COL-1",
+   "origin_label": "R-COL-1",
+   "note": "Decision 열 계약 검사를 없앤다 — cc 열이 Decision 으로 들어올 수 있다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if decision.get(\"column_key\") != \"gaap\":",
+   "replacement": "    if False and decision.get(\"column_key\") != \"gaap\":",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 Decision column_key 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — Decision 열이 cc 로 뒤바뀜"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "R-COL-2",
+   "origin_label": "R-COL-2",
+   "note": "Decision 열 identity 검사를 없앤다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if not _identity_contains(decision.get(\"column_identity\") or \"\",\n                              EXPECTED_DECISION_COLUMN_IDENTITY):",
+   "replacement": "    if False:",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 Decision column identity 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — Decision 열 identity 오염"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "R-NARROW-1",
+   "origin_label": "R-NARROW-1",
+   "note": "narrowing exactly-one 증거 검사를 완화한다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "        if narrowing.get(k) != 1:\n            raise RecordInvariantError(f\"narrowing `{k}` 가 정확히 1이 아니다: {narrowing.get(k)!r}\")",
+   "replacement": "        if narrowing.get(k) is None:\n            raise RecordInvariantError(f\"narrowing `{k}` 가 정확히 1이 아니다: {narrowing.get(k)!r}\")",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 narrowing exactly-one 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — narrowing row 가 2",
+      "record fail-closed — narrowing table 이 0"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "R-PROV-1",
+   "origin_label": "R-PROV-1",
+   "note": "provenance 필수 항목 검사를 없앤다 — 출처 없는 record 가 생긴다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    prov = draft.get(\"provenance\") or {}\n    missing = [k for k in REQUIRED_PROVENANCE if not prov.get(k)]\n    if missing:\n        raise RecordInvariantError(f\"provenance 필수 항목이 없다: {missing}\")\n\n    # ── normalization — 실패하면 record 를 만들지 않는다 ───────────────",
+   "replacement": "    prov = draft.get(\"provenance\") or {}\n\n    # ── normalization — 실패하면 record 를 만들지 않는다 ───────────────",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 provenance 필수 항목 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — provenance 가 비었음",
+      "record fail-closed — provenance accession 누락"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "R-IDENT-1",
+   "origin_label": "R-IDENT-1",
+   "note": "measurement identity 검사를 없앤다 — total RPO 가 들어와도 통과한다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if draft.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
+   "replacement": "    if False and draft.get(\"measurement_identity\") != EXPECTED_MEASUREMENT:",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build preflight 의 measurement identity 검사. 그러나 validate_record 의 동일 검사 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — measurement identity 오염"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "R-QUARTER-1",
+   "origin_label": "R-QUARTER-1",
+   "note": "economic period 가 quarter 라는 invariant 를 없앤다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    if draft.get(\"economic_period_kind\") != EXPECTED_PERIOD_KIND:",
+   "replacement": "    if False and draft.get(\"economic_period_kind\") != EXPECTED_PERIOD_KIND:",
+   "expected_killers": [
+    "record fail-closed — period kind 가 quarter 아님"
+   ]
+  },
+  {
+   "id": "R-VALID-1",
+   "origin_label": "R-VALID-1",
+   "note": "★ validate_record 의 float 검사를 없앤다 — numeric 에 float 가 앉을 수 있다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    n = field.get(\"numeric_value\")\n    if not isinstance(n, str):\n        raise RecordInvariantError(f\"{where} numeric_value 가 문자열이 아니다 — float 유입 의심\")",
+   "replacement": "    n = field.get(\"numeric_value\")",
+   "expected_killers": [
+    "validate fail-closed — evidence numeric 이 float 이다"
+   ],
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "validate fail-closed — numeric 이 float 이면 잡는다"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "★★ validate fail-closed"
+     ],
+     "reason": "v1 은 `validate fail-closed — numeric 이 float 이면 잡는다` 전문을 선언했으나 회귀 출력의 실패 줄과 부분 문자열 대조에 실패했다. 같은 검사를 더 안정적인 접두 문면으로 좁혔다 — ⛔ 다른 검사로 바꾸지 않았다."
+    },
+    {
+     "declared_v1": [
+      "★★ validate fail-closed"
+     ],
+     "fired": false,
+     "corrected_to": [
+      "validate fail-closed — evidence numeric 이 float 이다"
+     ],
+     "reason": "S2.1 에서 float 검사가 `_check_numeric()` 로 옮겨져 기존 anchor 가 0건이 됐다(NOT_APPLICABLE). anchor 를 새 위치로 옮기고, 계약을 소유한 검사도 E-3 독립 fault matrix 의 float 항목으로 좁혔다."
+    }
+   ]
+  },
+  {
+   "id": "R-VALID-2",
+   "origin_label": "R-VALID-2",
+   "note": "조립 후 재검증을 건너뛴다 — validate 와 build 의 이중 방어가 사라진다",
+   "target": "observation/record.py",
+   "anchors_expected": 1,
+   "anchor": "    validate_record(record)\n    return record",
+   "replacement": "    return record",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: build 말미의 validate_record 재호출. 그러나 build 자신의 preflight — build 는 자신이 조립한 record 만 만들므로 재검증 제거가 공개 API 에서 관측 가능한 차이를 만들지 않는다 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "record fail-closed — draft 가 이미 persisted 라고 주장"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "N-CAL-1",
+   "origin_label": "N-CAL-1",
+   "note": "★ 실제 calendar 검증을 제거하고 일자 범위만 본다 — 존재하지 않는 날짜가 canonical store key 가 된다 (INVALID_CALENDAR_DATE_ACCEPTED 재유입)",
+   "anchors_expected": 1,
+   "anchor": "    try:\n        # ★ `date()` 는 존재하지 않는 날짜를 ValueError 로 거부한다 — rollover 하지 않는다.\n        d = _dt.date(year, month, day)\n    except ValueError as e:\n        raise NormalizationError(f\"존재하지 않는 날짜다: {raw!r} ({e})\") from e\n    return {\"period_end_raw\": raw, \"economic_period_end\": d.isoformat()}",
+   "replacement": "    if not 1 <= day <= 31:\n        raise NormalizationError(f\"일자 범위를 벗어난다: {raw!r}\")\n    return {\"period_end_raw\": raw, \"economic_period_end\": f\"{year:04d}-{month:02d}-{day:02d}\"}",
+   "expected_killers": [
+    "'February 31, 2025' → fail-closed",
+    "'April 31, 2025' → fail-closed",
+    "존재하지 않는 날짜가 rollover 로 보정되지 않는다"
+   ]
+  },
+  {
+   "id": "N-CAL-2",
+   "origin_label": "N-CAL-2",
+   "note": "★ 존재하지 않는 날짜를 rollover 로 보정한다 (2월 31일 → 3월 3일)",
+   "anchors_expected": 1,
+   "anchor": "        d = _dt.date(year, month, day)\n    except ValueError as e:",
+   "replacement": "        d = _dt.date(year, month, 1) + _dt.timedelta(days=day - 1)\n    except ValueError as e:",
+   "expected_killers": [
+    "'February 31, 2025' → fail-closed",
+    "존재하지 않는 날짜가 rollover 로 보정되지 않는다"
+   ]
+  },
+  {
+   "id": "N-CAL-3",
+   "origin_label": "N-CAL-3",
+   "note": "윤년 판정을 무시하고 2월을 항상 29일까지 허용한다",
+   "anchors_expected": 1,
+   "anchor": "        d = _dt.date(year, month, day)\n    except ValueError as e:",
+   "replacement": "        d = _dt.date(2024 if (month == 2 and day == 29) else year, month, day)\n    except ValueError as e:",
+   "expected_killers": [
+    "'February 29, 2025' → fail-closed",
+    "'February 29, 1900' → fail-closed"
+   ]
+  },
+  {
+   "id": "R-VALID-3",
+   "origin_label": "R-VALID-3",
+   "target": "observation/record.py",
+   "note": "★ validate 의 subject 계약 검사를 없앤다 — Store 가 남의 record 를 받을 때 뚫린다",
+   "anchors_expected": 1,
+   "anchor": "    # ── identity 계약 — 값까지 검증한다 (존재 여부만 보지 않는다) ──────\n    if record.get(\"subject\") != EXPECTED_SUBJECT:\n        raise RecordInvariantError(f\"subject 가 계약과 다르다: {record.get('subject')!r}\")",
+   "replacement": "    # ── identity 계약 ──",
+   "expected_killers": [
+    "validate fail-closed — subject 가 MSFT 가 아니다"
+   ]
+  },
+  {
+   "id": "R-VALID-4",
+   "origin_label": "R-VALID-4",
+   "target": "observation/record.py",
+   "note": "★ validate 의 Decision 열 계약 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if d.get(\"column_key\") != \"gaap\":\n        raise RecordInvariantError(f\"Decision 열이 GAAP 계약이 아니다: {d.get('column_key')!r}\")",
+   "replacement": "    pass",
+   "expected_killers": [
+    "validate fail-closed — Decision column_key 가 cc 다"
+   ]
+  },
+  {
+   "id": "R-VALID-5",
+   "origin_label": "R-VALID-5",
+   "target": "observation/record.py",
+   "note": "★ validate 의 evidence 키 집합·순서 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if keys != EXPECTED_EVIDENCE_KEYS:",
+   "replacement": "    if False and keys != EXPECTED_EVIDENCE_KEYS:",
+   "expected_killers": [
+    "validate fail-closed — evidence key 집합이 다르다",
+    "validate fail-closed — evidence key 순서가 다르다"
+   ]
+  },
+  {
+   "id": "R-VALID-6",
+   "origin_label": "R-VALID-6",
+   "target": "observation/record.py",
+   "note": "★ validate 의 column narrowing 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if narrowing.get(\"column_candidates\") != EXPECTED_COLUMN_NARROWING:",
+   "replacement": "    if False and narrowing.get(\"column_candidates\") != EXPECTED_COLUMN_NARROWING:",
+   "expected_killers": [
+    "validate fail-closed — column_candidates 가 각각 1이 아니다"
+   ]
+  },
+  {
+   "id": "R-VALID-7",
+   "origin_label": "R-VALID-7",
+   "target": "observation/record.py",
+   "note": "★ validate 가 economic_period_end 의 실제 달력 유효성을 보지 않는다",
+   "anchors_expected": 1,
+   "anchor": "    try:\n        _dt.date(int(pe[0:4]), int(pe[5:7]), int(pe[8:10]))\n    except ValueError as e:\n        raise RecordInvariantError(f\"economic_period_end 가 존재하지 않는 날짜다: {pe!r} ({e})\") from e",
+   "replacement": "    pass",
+   "expected_killers": [
+    "validate fail-closed — ★ economic_period_end 가 존재하지 않는 날짜다"
+   ]
+  },
+  {
+   "id": "R-VALID-8",
+   "origin_label": "R-VALID-8",
+   "target": "observation/record.py",
+   "note": "validate 의 Decision 값 개수 검사를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if n_decision != 1:",
+   "replacement": "    if False and n_decision != 1:",
+   "expected_killers": [],
+   "classification": "equivalent_due_to_redundant_validation",
+   "active_kill_requirement": false,
+   "equivalence_reason": "제거 대상: validate_record 의 Decision 값 개수 검사. 그러나 인접한 `is_decision_value` 검사 — decision 쪽 0개도, evidence 쪽 2개도 각각의 필드 검사가 먼저 잡는다 가 같은 실패를 잡아 **외부 관측 가능한 행동 변화가 없다** — fail-closed 는 그대로 유지된다. ⛔ 이 변이를 죽이려고 회귀를 비틀거나 이중 방어를 걷어내지 않는다. ★ 이중 방어는 CIO 판정 S2.1 이 명시적으로 유지하라고 한 설계다.",
+   "declaration_history": [
+    {
+     "declared_v1": [
+      "validate fail-closed — Decision 값이 0개다",
+      "validate fail-closed — Decision 값이 2개다"
+     ],
+     "fired": false,
+     "corrected_to": [],
+     "reason": "S2.1 에서 validate_record 를 authoritative gate 로 강화한 뒤 재실행한 결과, 이 변이는 이중 방어에 가려 관측 가능한 차이를 만들지 않는다. active kill requirement 에서 제외하고 분류로 보존한다. ⛔ 무조건 equivalent 로 고정한 것이 아니라 S2.1 수정 후 재실행으로 판정했다."
+    }
+   ]
+  },
+  {
+   "id": "R-VALID-9",
+   "origin_label": "R-VALID-9",
+   "target": "observation/record.py",
+   "note": "validate 의 sign_convention allowlist 를 없앤다",
+   "anchors_expected": 1,
+   "anchor": "    if d.get(\"sign_convention\") not in ALLOWED_SIGN_CONVENTIONS:",
+   "replacement": "    if False and d.get(\"sign_convention\") not in ALLOWED_SIGN_CONVENTIONS:",
+   "expected_killers": [
+    "validate fail-closed — 승인되지 않은 sign_convention"
+   ]
+  },
+  {
+   "id": "R-VALID-10",
+   "origin_label": "R-VALID-10",
+   "target": "observation/record.py",
+   "note": "validate 의 period_end_raw 보존 검사를 없앤다 — source 복원성 상실을 못 잡는다",
+   "anchors_expected": 1,
+   "anchor": "    if not record.get(\"period_end_raw\"):",
+   "replacement": "    if False and not record.get(\"period_end_raw\"):",
+   "expected_killers": [
+    "validate fail-closed — period_end_raw 가 사라졌다"
+   ]
+  }
+ ]
+}

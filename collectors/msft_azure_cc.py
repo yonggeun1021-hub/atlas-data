@@ -35,7 +35,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "collectors"))
 # ★ 표 파싱 유틸은 C4 에서 이미 승인·검증된 것을 재사용한다. 중복 구현하지 않는다.
 from c4_sec_edgar_check import (TableCollector, strip_html, drop_empty_columns,  # noqa: E402
-                                build_header, evidence, get)
+                                evidence, get)
+# ⛔ `build_header` 는 **일부러 import 하지 않는다.** 아래에 MSFT 전용으로 둔다 —
+#    `bind_columns` 가 이미 local 인 것과 같은 방향이다 (CIO 판정 A · 2026-08-16).
+#    ⇒ 공유 표면이 6개에서 5개로 줄고, 이 파일의 수정이 C4/TSMC 에 닿지 않는다.
 
 CIK = "0000789019"
 SUBMISSIONS_URL = f"https://data.sec.gov/submissions/CIK{CIK}.json"
@@ -44,16 +47,74 @@ ARCHIVE_BASE = "https://www.sec.gov/Archives/edgar/data/789019"
 EARNINGS_ITEM = "2.02"          # Results of Operations and Financial Condition
 EXHIBIT_TYPE = "EX-99.1"
 
+# ══════════════════════════════════════════════════════════════════════
+# Exhibit identity 계약 (CIO 판정 2026-08-15)
+#   ⛔ `index.json` 의 `type` 을 SEC document type 으로 쓰지 않는다 — 실측 결과
+#      그 필드는 `text.gif` · `compressed.gif` 두 값뿐인 **디렉터리 아이콘 종류**다.
+#   ★ Primary identity source = **full submission `.txt`** 의 `<DOCUMENT>` 블록
+#        <TYPE> · <SEQUENCE> · <FILENAME> · <DESCRIPTION>
+#     ⛔ `{accession}-index-headers.html` 로 대체하지 않는다 — **CIO 불승인**
+#        (2026-08-16). 그 문서에서도 동일 필드가 관측되는 것은 사실이나, SEC 가
+#        「해당 filing 에서 제출된 모든 document」의 원본 경로로 명시하는 것은 full
+#        `.txt` 이고 `-index-headers.html` 은 별도 제공물이다. **현재 표본에서
+#        같다는 것만으로 동등하다고 간주하지 않는다** — P3 에서 엄격히 적용한 원칙을
+#        4KB 절약을 위해 P2 에서 풀지 않는다. 성능 문제가 실제로 발생하면 그때
+#        동등성을 별도 검증해 계약 변경안을 올린다.
+#   ★ Secondary cross-check = `{accession}-index.html` 의 Type 컬럼
+#   ⛔ 파일명 패턴(`ex99_1`)은 **hint 로만** 쓰고 identity 근거로 쓰지 않는다.
+#   ⛔ primary 와 secondary 가 충돌하거나 후보가 1건이 아니면 fail-closed.
+#      「EX-99.1 이면 무조건 한 파일」이라는 가정도 하지 않는다 — 복수 EX-99.1 이
+#      실재하므로 1건이 아니면 ambiguity 로 막는다.
+RE_DOC_BLOCK = re.compile(
+    r"<TYPE>(?P<type>[^\s<]+)\s*"
+    r"(?:<SEQUENCE>(?P<seq>[^\s<]*)\s*)?"
+    r"(?:<FILENAME>(?P<filename>[^\s<]*)\s*)?"
+    r"(?:<DESCRIPTION>(?P<desc>[^\n<]*))?", re.I)
+FILENAME_HINT = re.compile(r"ex.?99.?1", re.I)      # ⛔ hint 전용
+
+# 실패 로그 상한 — 후보 전체를 남기되 무한정 쏟지 않는다.
+CAND_LOG_LIMIT = 20
+
 # ⛔ 상한. 상한에 걸려 못 본 후보는 반드시 로그에 남긴다 (조용한 절단 금지).
 MAX_FILINGS = 4                 # 복수 과거 분기 재현 확인용
 
 POLITE_DELAY_SEC = 0.5
 
 # ── 문서 식별 — 내용으로 판정한다 ────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════
+# Extraction identity 문면 이력 (CIO 승인 2026-08-16)
+#
+#   ★ 이것은 **관측 정의나 source contract 의 변경이 아니다.** Microsoft 가
+#     확인된 문면을 바꾼 데 대한 **extraction identity 갱신**이다.
+#     관측 대상(Azure constant-currency 성장률)·컬럼 3종의 문면과 순서는 불변이다.
+#
+#   ┌ FY26 Q1(2025-10-29) · Q2(2026-01-28) — 구형
+#   │   표 제목  Selected Product and Service **Revenue** Constant Currency Reconciliation
+#   │   행 라벨  Azure and other cloud services
+#   └ FY26 Q3(2026-04-29) · Q4(2026-07-29) — 신형
+#       표 제목  Selected Product and Service **Information** Constant Currency Reconciliation
+#       행 라벨  Azure and other cloud services **revenue**
+#
+#   ★ 같은 경계에서 **두 문면이 함께** 바뀌었다. 원문 확인 결과 `revenue` 가 표
+#     제목에서 각 행 라벨로 내려갔고, 매출이 아닌 행(Commercial remaining
+#     performance obligation)에는 붙지 않았다 — 의미상 일관된 rename 이다.
+#     ⇒ 제목만 고치면 행 라벨에서 다시 막힌다. 실제로 그렇게 실패했다.
+#
+#   ⛔ **관측된 두 형태만 폐쇄 열거한다.** `.*` 같은 일반화는 금지한다 (CIO 판정).
+#      미지의 세 번째 문면은 fail-closed 로 막고 CIO 판정으로 올린다 —
+#      조용히 통과시키면 다음 변경을 놓친다.
+#   ⛔ 앵커(`^…$`)를 풀지 않는다.
+# ══════════════════════════════════════════════════════════════════════
 RECON_TABLE_TITLE = re.compile(
-    r"Selected\s+Product\s+and\s+Service\s+Revenue\s+Constant\s+Currency\s+Reconciliation",
-    re.I)
-AZURE_ROW = re.compile(r"^Azure\s+and\s+other\s+cloud\s+services$", re.I)
+    r"Selected\s+Product\s+and\s+Service\s+(?:Revenue|Information)\s+"
+    r"Constant\s+Currency\s+Reconciliation", re.I)
+
+# ★ Azure 행 identity 는 **한 곳에서만** 정의한다.
+#   이전에는 identify() 가 비앵커 `re.search`, 결합이 앵커 `match` 를 써서 같은
+#   대상을 다른 엄격도로 검사했다. 그래서 live 로그에 `✓ Azure … 항목` 이 찍혔는데
+#   실제 결합은 불가능했다 — 진단이 사실과 어긋났다. 그 불일치를 구조로 막는다.
+AZURE_ROW = re.compile(
+    r"^Azure\s+and\s+other\s+cloud\s+services(?:\s+revenue)?$", re.I)
 
 # ── 컬럼 결합 — 이름이 비슷한 컬럼이 여럿이므로 의미로 가른다 ──────────
 #   실측 헤더(FY2025 Q4): Percentage Change Y/Y (GAAP) · Constant Currency Impact ·
@@ -65,17 +126,229 @@ RE_IMPACT = re.compile(r"impact", re.I)
 RE_PCT_VALUE = re.compile(r"^\(?-?\d+(?:\.\d+)?\)?\s*%?$")
 
 
+def parse_document_blocks(sgml_text: str) -> list:
+    """full submission `.txt` 의 `<DOCUMENT>` 블록에서 TYPE/SEQUENCE/FILENAME/DESCRIPTION.
+
+    ★ **`<DOCUMENT>` 로 먼저 자르고, 각 조각에서 `<TEXT>` 앞의 SGML 헤더만** 본다.
+      full `.txt` 는 각 document 의 **본문까지** 담는다. `<TYPE>` 을 문서 전체에서
+      무작정 훑으면 본문(XBRL·HTML) 안의 `<TYPE>` 이 유령 후보가 되어 「정확히 1건」
+      판정을 오염시킨다. 계약이 지목하는 것은 `<DOCUMENT>` 의 **SGML 헤더**다.
+    ⛔ 본문에서 식별 근거를 찾지 않는다.
+    """
+    out = []
+    for chunk in re.split(r"<DOCUMENT>", sgml_text, flags=re.I)[1:]:
+        header = re.split(r"<TEXT>", chunk, maxsplit=1, flags=re.I)[0]
+        m = RE_DOC_BLOCK.search(header)
+        if not m:
+            continue
+        out.append({"type": (m.group("type") or "").strip(),
+                    "sequence": (m.group("seq") or "").strip(),
+                    "filename": (m.group("filename") or "").strip(),
+                    "description": (m.group("desc") or "").strip()})
+    return out
+
+
+def index_html_types(html_text: str) -> dict:
+    """secondary — `{accession}-index.html` 의 Type 컬럼을 filename → type 으로 돌려준다."""
+    p = TableCollector()
+    p.feed(html_text)
+    out = {}
+    for rows in p.tables:
+        rows = drop_empty_columns(rows)
+        if not rows:
+            continue
+        head = [c.strip().lower() for c in rows[0]]
+        if "document" not in head or "type" not in head:
+            continue
+        di, ti = head.index("document"), head.index("type")
+        for r in rows[1:]:
+            if len(r) <= max(di, ti):
+                continue
+            name = re.sub(r"\s*iXBRL\s*$", "", r[di]).strip()
+            if name:
+                out[name] = r[ti].strip()
+    return out
+
+
+def log_candidates(docs, reason):
+    """⛔ 공통 규칙 — 필터 결과만 남기지 않는다. **무엇을 필터링했는지** 함께 남긴다.
+
+    (실패가 세 번 반복된 뒤 고정한 collector 공통 진단 규칙)
+    """
+    print(f"    ✗ {reason}")
+    print(f"    후보 전체 {len(docs)}건 (상한 {CAND_LOG_LIMIT}):")
+    for d in docs[:CAND_LOG_LIMIT]:
+        print(f"      TYPE={d['type']!r} SEQ={d['sequence']!r} "
+              f"FILE={d['filename']!r} DESC={d['description'][:40]!r}")
+    if len(docs) > CAND_LOG_LIMIT:
+        print(f"      … 나머지 {len(docs) - CAND_LOG_LIMIT}건 생략")
+
+
+def select_exhibit(docs, sec_types=None):
+    """`<DOCUMENT>` 블록 목록에서 EX-99.1 을 **하나** 식별한다.
+
+    ★ 판정 근거는 `<TYPE>` **정확 일치**뿐이다.
+      · 파일명이 `ex99_1` 형태가 아니어도 `<TYPE>EX-99.1` 이면 식별한다.
+      · 파일명이 `ex99_1` 형태여도 `<TYPE>` 이 다르면 거부한다.
+    ⛔ 0건 · 2건 이상은 모두 fail-closed — 「EX-99.1 이면 무조건 한 파일」로 가정하지 않는다.
+    ⛔ `sec_types` (secondary `-index.html` Type 컬럼) 와 충돌하면 거부한다.
+    ⛔ 이 함수는 네트워크를 쓰지 않는다 — 판정만 담아 회귀가 검증할 수 있게 분리했다.
+
+    돌려주는 것: `(filename | None, problems: list, chosen | None)`
+    """
+    hits = [d for d in docs if d["type"].upper() == EXHIBIT_TYPE]
+    if len(hits) != 1:
+        return None, [f"<TYPE>{EXHIBIT_TYPE} 후보가 정확히 1건이 아니다 "
+                      f"({len(hits)}건) — 복수여도 임의로 고르지 않는다"], None
+    chosen = hits[0]
+    target = chosen["filename"]
+    if not target:
+        return None, ["식별된 <DOCUMENT> 에 <FILENAME> 이 없다"], chosen
+    if sec_types is None:                      # secondary 미조회 — primary 만 판정
+        return target, [], chosen
+    sec = sec_types.get(target)
+    if sec is None:
+        return None, [f"secondary 에서 {target} 의 Type 을 찾지 못했다 — 추정하지 않는다"], chosen
+    if sec.upper() != EXHIBIT_TYPE:
+        return None, [f"primary({EXHIBIT_TYPE}) 와 secondary({sec}) 가 충돌한다 "
+                      f"— fail-closed"], chosen
+    return target, [], chosen
+
+
 def find_azure_table(tables):
-    """`Azure and other cloud services` 행을 가진 표를 후보로 삼는다."""
+    """`AZURE_ROW` 와 일치하는 행을 **전부** 낸다. (ti, rows, ri) 목록.
+
+    ⛔ 예전에는 표마다 첫 행에서 `break` 했다. 그래서 같은 표에 동일 identity 가
+       둘이면 **위쪽 행이 조용히 선택**됐다 — silent wrong 의 원인이었다.
+       여기서는 고르지 않는다. 고르는 판단은 `select_observation` 이 하고,
+       모호하면 거기서 멈춘다.
+    """
     out = []
     for ti, rows in enumerate(tables):
         rows = drop_empty_columns(rows)
         for ri, r in enumerate(rows):
-            if r and any(AZURE_ROW.match(c) for c in r):
-                if ri > 0:
-                    out.append((ti, rows, ri))
-                break
+            if r and any(AZURE_ROW.match(c.strip()) for c in r) and ri > 0:
+                out.append((ti, rows, ri))
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 좁히기 순서 — period → table → row → column (CIO 승인 2026-08-16)
+#   ★ 각 단계에서 후보가 **정확히 1건**이 아니면 fail-closed 한다.
+#     exhibit identity 에서 이미 확립한 규율을 이 층에도 적용한다.
+#   ⛔ 첫 번째를 고르지 않는다 — 문서 배치 순서가 값을 정하게 두지 않는다.
+#
+#   ★ period 는 **계약**이다. RULE-0021 의 관측값은 해당 fiscal quarter 의
+#     YoY constant-currency 성장률이며, 연간·YTD·TTM·run-rate 로 대체하지 않는다.
+#     (CIO 판정 2026-08-16 · extraction_identity_contract 에 기록)
+QUARTER_PERIOD = re.compile(
+    r"Three\s+Months\s+Ended\s+([A-Z][a-z]+\s+\d{1,2},\s*\d{4})", re.I)
+# 분기가 아닌 기간 — 관측 대상이 아니다. 조용히 통과시키지 않기 위해 명시한다.
+NON_QUARTER_PERIOD = re.compile(
+    r"(?:Year|Six\s+Months|Nine\s+Months|Twelve\s+Months)\s+Ended", re.I)
+
+
+def table_period(rows, ri):
+    """표의 기간 문면을 **의미로** 찾는다. 위치(열 번호)로 찾지 않는다.
+
+    ★ 실측: 구형은 열 1, 신형은 열 0 에 기간이 있다. 위치로 잡으면 깨진다.
+    돌려주는 것: ("QUARTER", 기간말) · ("NON_QUARTER", 문면) · None
+    """
+    for r in rows[:ri]:
+        for c in r:
+            m = QUARTER_PERIOD.search(c)
+            if m:
+                return ("QUARTER", m.group(1).strip())
+            if NON_QUARTER_PERIOD.search(c):
+                return ("NON_QUARTER", c.strip())
+    return None
+
+
+def select_observation(tables):
+    """period → table → row 로 좁힌다. (rows, ri, period_end, problems).
+
+    ⛔ 어느 단계든 후보가 정확히 1건이 아니면 값을 만들지 않는다.
+    """
+    cands = find_azure_table(tables)
+    if not cands:
+        return None, None, None, ["Azure 행(AZURE_ROW 일치)이 0건이다"]
+
+    # ① period identity — 분기표만 남긴다
+    kept, dropped = [], []
+    for ti, rows, ri in cands:
+        per = table_period(rows, ri)
+        if per and per[0] == "QUARTER":
+            kept.append((ti, rows, ri, per[1]))
+        else:
+            dropped.append((ti, ri, per))
+    if not kept:
+        return None, None, None, [
+            f"분기(Three Months Ended) 표가 0건이다 — 연간·YTD 로 대체하지 않는다. "
+            f"후보 {[(ti, ri, p) for ti, ri, p in dropped]}"]
+
+    # ② table identity — 분기표가 정확히 1건이어야 한다
+    tis = sorted({ti for ti, _, _, _ in kept})
+    if len(tis) != 1:
+        return None, None, None, [
+            f"분기 조건을 만족하는 표가 정확히 1건이 아니다 ({len(tis)}건: table {tis}) "
+            f"— 문서 순서로 고르지 않는다"]
+
+    # ③ row identity — 그 표 안 Azure 행이 정확히 1건이어야 한다
+    same = [k for k in kept if k[0] == tis[0]]
+    if len(same) != 1:
+        return None, None, None, [
+            f"표[{tis[0]}] 안 Azure 행이 정확히 1건이 아니다 "
+            f"({len(same)}건: row {[k[2] for k in same]}) — 위쪽 행을 고르지 않는다"]
+
+    ti, rows, ri, period_end = same[0]
+    return rows, ri, period_end, []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# MSFT 전용 header 구성 — C4 의 `build_header` 를 대체한다 (CIO 판정 A · 2026-08-16)
+#
+#   ★ 고치는 것: 공용 `build_header` 는 대상 행 **위 모든 행**을 열 단위로 이어
+#     붙인다. 그래서 헤더 문자열에 **다른 data-row 의 라벨과 값**이 섞인다.
+#     실측(live run 로그):
+#       header[0] = 'Three Months Ended June 30, 2026 Microsoft Cloud revenue
+#                    Commercial remaining performance obligation … Dynamics 365 revenue'
+#     컬럼 분류는 이 문자열의 단어로 하므로, 어떤 **행 라벨**이 `constant currency`
+#     나 `percentage change` 를 갖게 되면 컬럼 정체성이 오염된다.
+#     ★ 신형 문면부터 행 라벨에 지표명이 들어가기 시작해 위험이 커졌다.
+#
+#   ★ 격리 이유: `build_header` 는 C4(TSMC RULE-0003/0007/0008, P3 CLOSED)와
+#     공유된다. 공용 계약을 바꾸면 이미 닫힌 Gate 를 다시 열게 된다.
+#     실측 결함은 MSFT 에서만 확인됐으므로 **여기서만** 격리한다.
+#     ⛔ `c4_sec_edgar_check.build_header` 를 수정하지 않는다.
+#
+#   ★ 판별 기준은 **셀 의미**다. ⛔ 행 번호·열 번호를 박지 않는다.
+#     값 행(data row)의 관측 가능한 표식 = 퍼센트 값 셀을 하나라도 갖는다.
+#     실측 확인: 구형·신형 4개 fixture 모두에서 기간 행·컬럼 헤더 행은 퍼센트 값이
+#     없고, 지표 행은 전부 갖는다.
+#   ⛔ 헤더 행을 하나도 못 찾으면 만들어내지 않는다 — 빈 헤더를 돌려주면
+#      `bind_columns` 가 「정확히 1개가 아니다」로 fail-closed 한다.
+def is_data_row(row) -> bool:
+    """값 행인가 — 퍼센트 값 셀을 하나라도 가지면 값 행이다."""
+    return any(RE_PCT_VALUE.match(c.strip()) for c in row if c.strip())
+
+
+def build_header(rows, data_i):
+    """대상 행 위의 **헤더 행만** 열 단위로 이어 붙인다.
+
+    ⛔ 다른 data-row 의 라벨·값은 헤더 identity 에 넣지 않는다.
+    ⛔ C4 의 동명 함수를 대체한다 (import 하지 않는다).
+    """
+    width = len(rows[data_i])
+    cols = []
+    for i in range(width):
+        parts = []
+        for r in rows[:data_i]:
+            if is_data_row(r):          # ★ 값 행은 헤더가 아니다 — 건너뛴다
+                continue
+            if i < len(r) and r[i]:
+                parts.append(r[i])
+        cols.append(re.sub(r"\s+", " ", " ".join(parts)).strip())
+    return cols
 
 
 def bind_columns(header, data):
@@ -111,14 +384,22 @@ def bind_columns(header, data):
     return out, []
 
 
-def identify(text):
-    """실적 발표문인지 **내용**으로 판정한다."""
+def identify(text, tables):
+    """실적 발표문인지 **내용**으로 판정한다.
+
+    ★ Azure 항목 판정은 `find_azure_table` 과 **동일한 `AZURE_ROW` predicate** 로
+      표의 셀을 본다 (CIO 판정 2026-08-16 항목 3).
+      ⛔ 문서 전체 텍스트를 비앵커로 훑지 않는다 — 그러면 여기서는 통과하고
+         결합에서 실패하는 어긋남이 생긴다. 실제로 그 일이 있었다.
+    """
+    azure_cell = any(AZURE_ROW.match(c.strip())
+                     for rows in tables for r in rows for c in r)
     return [
         ("Microsoft 문서", bool(re.search(r"Microsoft", text, re.I)), r"Microsoft"),
         ("constant currency reconciliation 표 제목",
          bool(RECON_TABLE_TITLE.search(text)), r"Constant\s+Currency"),
-        ("`Azure and other cloud services` 항목",
-         bool(re.search(r"Azure and other cloud services", text, re.I)), r"Azure"),
+        ("`Azure and other cloud services` 행 (AZURE_ROW 일치)",
+         azure_cell, r"Azure"),
     ]
 
 
@@ -127,26 +408,57 @@ def observe_one(c, errs):
     acc = c["accession"].replace("-", "")
     print(f"\n  ── {c['filing_date']} · {c['accession']} · items {c['items']!r}")
 
-    # ① filing index 에서 EX-99.1 을 **type 으로** 지목한다 (파일명 추측 금지)
+    # ① Exhibit identity — primary = **full submission `.txt`** 의 <DOCUMENT> 블록 <TYPE>
+    #    ⛔ index.json 의 type 은 쓰지 않는다 (디렉터리 아이콘 값이다)
+    #    ⛔ -index-headers.html 로 대체하지 않는다 (CIO 불승인 2026-08-16)
     time.sleep(POLITE_DELAY_SEC)
     try:
-        _, raw = get(f"{ARCHIVE_BASE}/{acc}/index.json")
+        _, raw = get(f"{ARCHIVE_BASE}/{acc}/{c['accession']}.txt")
     except Exception as e:                                       # noqa: BLE001
-        print(f"    ✗ index 조회 실패 — {type(e).__name__}: {e}")
+        print(f"    ✗ full submission .txt 조회 실패 — {type(e).__name__}: {e}")
         return None, False
-    items = json.loads(raw.decode("utf-8"))["directory"]["item"]
-    ex = [it for it in items if (it.get("type") or "").upper() == EXHIBIT_TYPE]
-    print(f"    {EXHIBIT_TYPE} 문서 {len(ex)}건 {[i['name'] for i in ex]}")
-    if len(ex) != 1:
-        print(f"    ✗ {EXHIBIT_TYPE} 이 정확히 1건이 아니다 — 임의로 고르지 않는다")
+    docs = parse_document_blocks(raw.decode("utf-8", errors="replace"))
+    n_hit = sum(1 for d in docs if d["type"].upper() == EXHIBIT_TYPE)
+    print(f"    <DOCUMENT> 블록 {len(docs)}건 · <TYPE>{EXHIBIT_TYPE} 정확 일치 {n_hit}건")
+
+    # primary 단독 판정 먼저 — 여기서 걸리면 secondary 를 조회하지 않는다
+    target, probs, chosen = select_exhibit(docs, sec_types=None)
+    if target is None:
+        log_candidates(docs, "; ".join(probs))
         return None, False
+    print(f"    primary  TYPE={chosen['type']!r} SEQ={chosen['sequence']!r} "
+          f"FILE={target!r} DESC={chosen['description'][:40]!r}")
+    # 파일명 패턴은 **hint 로만** 기록한다 — 판정 근거가 아니다
+    print(f"    (hint) 파일명이 ex99_1 형태인가 {bool(FILENAME_HINT.search(target))} "
+          f"— ⛔ identity 근거로 쓰지 않는다")
+
+    # secondary cross-check — {accession}-index.html 의 Type 컬럼
+    time.sleep(POLITE_DELAY_SEC)
+    try:
+        _, ihtml = get(f"{ARCHIVE_BASE}/{acc}/{c['accession']}-index.html")
+        sec_types = index_html_types(ihtml.decode("utf-8", errors="replace"))
+    except Exception as e:                                       # noqa: BLE001
+        print(f"    ✗ secondary index 조회 실패 — {type(e).__name__}: {e}")
+        return None, False
+    print(f"    secondary index.html Type[{target}] = {sec_types.get(target)!r}")
+    target2, probs2, _ = select_exhibit(docs, sec_types=sec_types)
+    if target2 is None:
+        print(f"    ✗ {'; '.join(probs2)}")
+        print(f"      secondary 목록 {list(sec_types.items())[:CAND_LOG_LIMIT]}")
+        log_candidates(docs, "primary/secondary 교차확인 실패 — 후보 집합을 함께 남긴다")
+        return None, False
+    print("    ✓ primary · secondary 일치")
+    ex = [{"name": target2}]
 
     # ② 문서 취득 + 내용 식별
     time.sleep(POLITE_DELAY_SEC)
     rec, body = get(f"{ARCHIVE_BASE}/{acc}/{ex[0]['name']}")
     html_text = body.decode("utf-8", errors="replace")
     text = strip_html(html_text)
-    checks = identify(text)
+    # ★ 표를 먼저 파싱한다 — identify 가 결합과 **같은 predicate** 로 셀을 보기 때문이다.
+    p = TableCollector()
+    p.feed(html_text)
+    checks = identify(text, p.tables)
     for label, v, probe in checks:
         print(f"    {'✓' if v else '✗'} {label}")
         if not v:
@@ -156,24 +468,36 @@ def observe_one(c, errs):
         print("    → 실적 발표문으로 확정하지 못했다. 값을 읽지 않는다")
         return None, False
 
-    # ③ Azure 행 → 세 컬럼 의미 결합
-    p = TableCollector()
-    p.feed(html_text)
-    cands = find_azure_table(p.tables)
-    print(f"    Azure 행을 가진 표 {len(cands)}건")
+    # ③ period → table → row 로 좁힌 뒤 컬럼 의미 결합
+    #    (표는 ② 에서 이미 파싱했다 — 같은 객체를 쓴다)
+    all_cands = find_azure_table(p.tables)
+    print(f"    AZURE_ROW 일치 행 {len(all_cands)}건 "
+          f"(표 {sorted({t for t, _, _ in all_cands})})")
+    rows, ri, period_end, sel_probs = select_observation(p.tables)
+    if rows is None:
+        print(f"    ✗ 관측 대상을 결정론적으로 좁히지 못했다 — 값을 읽지 않는다")
+        for x in sel_probs:
+            print(f"      사유 {x}")
+        print(f"      후보 전체 (상한 {CAND_LOG_LIMIT}):")
+        for ti, rws, r_i in all_cands[:CAND_LOG_LIMIT]:
+            print(f"        table[{ti}] row[{r_i}] period={table_period(rws, r_i)} "
+                  f"label={rws[r_i][0][:40]!r}")
+        if len(all_cands) > CAND_LOG_LIMIT:
+            print(f"        … 나머지 {len(all_cands) - CAND_LOG_LIMIT}건 생략")
+        return None, False
+    print(f"    ✓ period identity  {period_end}  (분기표 1건 · Azure 행 1건)")
     bound, why = None, []
-    for ti, rows, ri in cands:
-        header = build_header(rows, ri)
-        b, probs = bind_columns(header, rows[ri])
-        if b:
-            bound = b
-            print(f"    → table[{ti}] 에서 결합 성공")
-            break
-        why.append((ti, probs, header, rows[ri]))
+    header = build_header(rows, ri)
+    b, probs = bind_columns(header, rows[ri])
+    if b:
+        bound = b
+        print(f"    → 결합 성공")
+    else:
+        why.append((ri, probs, header, rows[ri]))
     if bound is None:
         print("    ✗ 컬럼을 의미로 결합하지 못했다 — 값을 읽지 않는다")
-        for ti, probs, header, drow in why[:2]:
-            print(f"      table[{ti}] 사유 {probs}")
+        for r_i, probs, header, drow in why[:2]:
+            print(f"      row[{r_i}] 사유 {probs}")
             print(f"        header {header}")
             print(f"        data   {drow}")
         print("      ★ 위 행렬이 다음 수정의 근거다 — 마크업을 추측하지 않는다.")
@@ -197,6 +521,7 @@ def observe_one(c, errs):
     print(f"    참고: GAAP + 영향 = cc 인가 → {note} (기록만 · 보정하지 않는다)")
 
     return {"accession": c["accession"], "filing_date": c["filing_date"],
+            "period_end": period_end,
             "report_date": c["report_date"], "acceptance": c["acceptance"],
             "items": c["items"], "exhibit": ex[0]["name"],
             "final_url": rec["final_url"],
