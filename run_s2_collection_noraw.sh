@@ -23,19 +23,20 @@ fi
 
 log() { printf '%s\n' "$*" | tee -a "$LOG"; }
 
-SERIES=("WRESBAL" "TOTBKCR")
+PUBLISHED=()
 COMPLETED=0
 
 rollback_incomplete_run() {
   local rc=$?
   if [ "$COMPLETED" -ne 1 ]; then
     local sid final
-    for sid in "${SERIES[@]}"; do
+    for sid in "${PUBLISHED[@]}"; do
       final="${ATLAS_FRED_DERIVED_DIR}/${sid}/runs/${RUN_ID}"
       if [ -d "$final" ]; then
         rm -rf -- "$final"
       fi
     done
+    rm -f -- "$SUM"
   fi
   return "$rc"
 }
@@ -52,7 +53,9 @@ log "Atlas S-2 no-raw run started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 log "run_id=${RUN_ID} tool=${TOOL} batch=${BATCH} root=${ATLAS_FRED_DERIVED_DIR}"
 
 run_series "WRESBAL" "2008-09-10"
+PUBLISHED+=("WRESBAL")
 run_series "TOTBKCR" "2008-10-01"
+PUBLISHED+=("TOTBKCR")
 
 ROOT="$ATLAS_FRED_DERIVED_DIR" RID="$RUN_ID" python3 - <<'PY' > "$SUM"
 import json, os
