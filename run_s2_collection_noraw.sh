@@ -22,6 +22,25 @@ if [ ! -f "$TOOL" ]; then
 fi
 
 log() { printf '%s\n' "$*" | tee -a "$LOG"; }
+
+SERIES=("WRESBAL" "TOTBKCR")
+COMPLETED=0
+
+rollback_incomplete_run() {
+  local rc=$?
+  if [ "$COMPLETED" -ne 1 ]; then
+    local sid final
+    for sid in "${SERIES[@]}"; do
+      final="${ATLAS_FRED_DERIVED_DIR}/${sid}/runs/${RUN_ID}"
+      if [ -d "$final" ]; then
+        rm -rf -- "$final"
+      fi
+    done
+  fi
+  return "$rc"
+}
+trap rollback_incomplete_run EXIT
+
 run_series() {
   local sid="$1" obs="$2"
   log ""
@@ -63,3 +82,4 @@ PY
 
 cat "$SUM" | tee -a "$LOG"
 log "Atlas S-2 no-raw run completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+COMPLETED=1
