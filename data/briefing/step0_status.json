@@ -1,0 +1,58 @@
+{
+  "collectors": {
+    "dart": {
+      "collected_at_utc": "2026-08-18T21:50:45+00:00",
+      "collected_for_kst_date": "2026-08-19",
+      "failed": 0,
+      "freshness": "fresh",
+      "ok": 5,
+      "source_file": "data/latest_dart.json",
+      "source_sha256": "2456f1ff66d3452e2a36f963fbfbb7478fc26c66bf1a8b44ad75de2e402f9534"
+    },
+    "krx": {
+      "collected_at_utc": "2026-08-18T21:50:31+00:00",
+      "collected_for_kst_date": "2026-08-19",
+      "failed": 0,
+      "freshness": "fresh",
+      "ok": 5,
+      "source_file": "data/latest_krx.json",
+      "source_sha256": "3539ffe312f73e00f8c74593307e727f9ac331219816cb34715fd12245ccb5f8"
+    },
+    "sec": {
+      "collected_at_utc": "2026-08-18T21:50:51+00:00",
+      "collected_for_kst_date": "2026-08-19",
+      "failed": 0,
+      "freshness": "fresh",
+      "ok": 7,
+      "source_file": "data/latest_sec.json",
+      "source_sha256": "570b45dd9c614b348f2e78c330dc5dd5d50d61aa64705fbd351bb08214f1bd5c"
+    }
+  },
+  "expected_kst_date": "2026-08-19",
+  "overall": "pass",
+  "purpose": "Atlas briefing Step 0 compact readiness SSOT",
+  "scheduled_collectors": [
+    {
+      "date_basis": "KST",
+      "exact_paths": [
+        "data/latest_krx.json",
+        "data/latest_dart.json",
+        "data/latest_sec.json"
+      ],
+      "name": "daily_collect"
+    },
+    {
+      "date_basis": "UTC",
+      "exact_path_templates": [
+        "evidence/stablecoin/raw/{UTC_DATE}/_downloaded_at.txt",
+        "evidence/stablecoin/raw/{UTC_DATE}/_sha256.txt"
+      ],
+      "name": "stablecoin_daily_capture"
+    }
+  ],
+  "schema_version": 1,
+  "totals": {
+    "failed": 0,
+    "ok": 17
+  }
+}
