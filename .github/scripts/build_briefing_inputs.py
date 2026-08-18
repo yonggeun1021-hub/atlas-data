@@ -3,12 +3,15 @@
 import argparse
 import hashlib
 import json
+import os
+import shutil
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 OUT = DATA / "briefing"
+HEALTH = DATA / "briefing_status.json"
 
 
 def load_json(path):
@@ -71,12 +74,12 @@ def latest_confirmed_daily(stock):
     return max(confirmed, key=lambda x: x[0])
 
 
-def build_krx_views(obj, sha):
+def build_krx_views(obj, sha, out_root):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
         raise RuntimeError("krx:stocks_missing")
 
-    target = OUT / "krx"
+    target = out_root / "krx"
     target.mkdir(parents=True, exist_ok=True)
 
     expected = set()
@@ -135,12 +138,12 @@ def compact_sec_stock(stock):
     return out
 
 
-def build_sec_views(obj, sha):
+def build_sec_views(obj, sha, out_root):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
         raise RuntimeError("sec:stocks_missing")
 
-    target = OUT / "sec"
+    target = out_root / "sec"
     target.mkdir(parents=True, exist_ok=True)
 
     expected = set()
@@ -166,11 +169,69 @@ def build_sec_views(obj, sha):
             path.unlink()
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--today")
-    args = ap.parse_args()
+def atomic_publish(staging, target):
+    backup = target.parent / f".{target.name}.bak.{os.getpid()}"
 
+    if backup.exists():
+        shutil.rmtree(backup)
+
+    had_target = target.exists()
+
+    try:
+        if had_target:
+            target.rename(backup)
+
+        staging.rename(target)
+
+    except Exception:
+        if target.exists() and not had_target:
+            shutil.rmtree(target)
+
+        if backup.exists() and not target.exists():
+            backup.rename(target)
+
+        raise
+
+    else:
+        if backup.exists():
+            shutil.rmtree(backup)
+
+
+def write_health(expected_date, data_ready, read_model_ready, error=None):
+    payload = {
+        "schema_version": 1,
+        "expected_kst_date": expected_date,
+        "data_ready": data_ready,
+        "read_model_ready": read_model_ready,
+        "status": (
+            "ready"
+            if data_ready and read_model_ready
+            else "read_model_degraded"
+            if data_ready
+            else "data_not_ready"
+        ),
+        "error": error,
+    }
+    write_json(HEALTH, payload)
+
+
+def source_data_ready(expected_date):
+    if not expected_date:
+        return False
+
+    for name in ("krx", "dart", "sec"):
+        obj, _ = load_json(DATA / f"latest_{name}.json")
+        summary = require_summary(name, obj)
+        if (
+            obj.get("collected_for_kst_date") != expected_date
+            or summary["failed"] != 0
+        ):
+            return False
+
+    return True
+
+
+def build_and_publish(expected_date, fail_before_publish=False):
     sources = {}
     hashes = {}
 
@@ -189,7 +250,6 @@ def main():
         for name in ("krx", "dart", "sec")
     }
 
-    expected_date = args.today
     freshness = {
         name: (
             "fresh"
@@ -200,10 +260,15 @@ def main():
         for name in dates
     }
 
+    data_ready = (
+        bool(expected_date)
+        and all(dates[name] == expected_date for name in dates)
+        and all(summaries[name]["failed"] == 0 for name in summaries)
+    )
+
     overall = (
         "pass"
-        if all(s["failed"] == 0 for s in summaries.values())
-        and all(v == "fresh" for v in freshness.values())
+        if data_ready and all(v == "fresh" for v in freshness.values())
         else "fail"
     )
 
@@ -245,9 +310,63 @@ def main():
             **source_meta(name, sources[name], hashes[name]),
         }
 
-    write_json(OUT / "step0_status.json", status)
-    build_krx_views(sources["krx"], hashes["krx"])
-    build_sec_views(sources["sec"], hashes["sec"])
+    staging = DATA / f".briefing.tmp.{os.getpid()}"
+
+    if staging.exists():
+        shutil.rmtree(staging)
+
+    try:
+        write_json(staging / "step0_status.json", status)
+        build_krx_views(sources["krx"], hashes["krx"], staging)
+        build_sec_views(sources["sec"], hashes["sec"], staging)
+
+        if fail_before_publish:
+            raise RuntimeError("injected_failure_before_publish")
+
+        atomic_publish(staging, OUT)
+
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging)
+        raise
+
+    write_health(
+        expected_date=expected_date,
+        data_ready=data_ready,
+        read_model_ready=True,
+        error=None,
+    )
+
+    return status
+
+
+def run(expected_date, fail_before_publish=False):
+    try:
+        return build_and_publish(
+            expected_date,
+            fail_before_publish=fail_before_publish,
+        )
+    except Exception as exc:
+        try:
+            data_ready = source_data_ready(expected_date)
+        except Exception:
+            data_ready = False
+
+        write_health(
+            expected_date=expected_date,
+            data_ready=data_ready,
+            read_model_ready=False,
+            error=f"{type(exc).__name__}:{exc}",
+        )
+        raise
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--today")
+    args = ap.parse_args()
+
+    status = run(args.today)
 
     print(
         f"PASS build: total_ok={status['totals']['ok']} "

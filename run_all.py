@@ -85,6 +85,10 @@ APPROVED_TESTS = [
     #   bounded SEC view, truncated JSON fail-closed 계약을 검증한다.
     #   ⛔ live network 없음 — committed local data 기반.
     "test/test_briefing_inputs.py",
+    # ★ P0-03 hardening — Daily Collect workflow repair-path 계약.
+    #   Guard=fresh 는 collector만 skip하고 briefing read model은 검증/repair를 계속한다.
+    #   ⛔ live network 없음 — workflow YAML 구조만 실제 파싱해 검증한다.
+    "test/test_p003_workflow_contract.py",
     # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
     #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
     "test/test_tsmc_monthly.py",
