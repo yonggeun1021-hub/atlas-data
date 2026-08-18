@@ -63,7 +63,7 @@ BUILDERS = [
 COMPARED = [out for _, out in BUILDERS]
 NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 
-# ★ 승인된 기존 회귀 14파일. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
+# ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
     "test/test_canonical_identity.py",
@@ -80,6 +80,11 @@ APPROVED_TESTS = [
     "test/test_rules_extract.py",
     "test/test_rules_ssot.py",
     "test/test_ssot_mapping.py",
+    # ★ P0-03 — briefing read model 회귀.
+    #   Step 0 summary/source hash/date-basis, KRX tail-symbol exact view,
+    #   bounded SEC view, truncated JSON fail-closed 계약을 검증한다.
+    #   ⛔ live network 없음 — committed local data 기반.
+    "test/test_briefing_inputs.py",
     # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
     #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
     "test/test_tsmc_monthly.py",
