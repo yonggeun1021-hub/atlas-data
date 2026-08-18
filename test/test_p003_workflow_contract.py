@@ -21,15 +21,27 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WF_PATH = ROOT / ".github/workflows/collect.yml"
+ACTIONS_PASS_PATH = ROOT / ".github/workflows/actions-pass.yml"
 
 with WF_PATH.open(encoding="utf-8") as fh:
     WF = yaml.safe_load(fh)
 
+with ACTIONS_PASS_PATH.open(encoding="utf-8") as fh:
+    ACTIONS_PASS_WF = yaml.safe_load(fh)
+
 STEPS = WF["jobs"]["collect"]["steps"]
+ACTIONS_PASS_STEPS = ACTIONS_PASS_WF["jobs"]["actions-pass"]["steps"]
 
 
 def step(name):
     for item in STEPS:
+        if item.get("name") == name:
+            return item
+    return None
+
+
+def actions_pass_step(name):
+    for item in ACTIONS_PASS_STEPS:
         if item.get("name") == name:
             return item
     return None
@@ -113,6 +125,16 @@ class P003WorkflowContractTest(unittest.TestCase):
             setup.get("if"),
             "steps.guard.outputs.skip != 'yes'",
         )
+
+    def test_actions_pass_does_not_delete_tracked_briefing_bundle(self):
+        regression = actions_pass_step(
+            "P0-03 briefing read model regression"
+        )
+
+        self.assertIsNotNone(regression)
+        command = regression.get("run", "")
+        self.assertIn("test/test_briefing_inputs.py", command)
+        self.assertNotIn("rm -rf data/briefing", command)
 
 
 if __name__ == "__main__":
