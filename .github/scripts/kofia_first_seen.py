@@ -187,16 +187,29 @@ def safe_gateway_error(raw: bytes, service_key: str) -> str:
             payload = json.loads(text)
         except json.JSONDecodeError:
             payload = None
-        if isinstance(payload, dict):
-            header = payload.get("response", payload).get("header", payload)
-            if isinstance(header, dict):
-                for key in ("resultCode", "resultMsg"):
-                    value = header.get(key)
-                    if isinstance(value, (str, int)):
+        allowed = {
+            "errMsg",
+            "returnAuthMsg",
+            "returnReasonCode",
+            "resultCode",
+            "resultMsg",
+        }
+
+        def collect(value: object) -> None:
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    if key in allowed and isinstance(nested, (str, int)):
                         cleaned = re.sub(
-                            r"[^0-9A-Za-z가-힣_ .:/()-]", "?", str(value)
+                            r"[^0-9A-Za-z가-힣_ .:/()-]", "?", str(nested)
                         )[:200]
                         fields.append(f"{key}={cleaned}")
+                    else:
+                        collect(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    collect(nested)
+
+        collect(payload)
     return " ".join(fields) if fields else "gateway_reason=UNPARSED"
 
 

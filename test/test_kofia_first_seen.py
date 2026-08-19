@@ -147,6 +147,23 @@ class HTTPErrorOpener:
         raise HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(raw))
 
 
+class JSONHTTPErrorOpener:
+    def __call__(self, request, timeout=60):
+        raw = json.dumps(
+            {
+                "OpenAPI_ServiceResponse": {
+                    "cmmMsgHeader": {
+                        "errMsg": "SERVICE_ACCESS_DENIED_ERROR",
+                        "returnAuthMsg": "서비스 접근거부",
+                        "returnReasonCode": "20",
+                        "debug": TOKEN,
+                    }
+                }
+            }
+        ).encode()
+        raise HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(raw))
+
+
 def test_capture_contract():
     contract = copy.deepcopy(CAPTURE_CONTRACT)
     contract["probe_lookback_calendar_days"] = 3
@@ -213,6 +230,16 @@ class KofiaFirstSeenTest(unittest.TestCase):
         self.assertIn("SERVICE_ACCESS_DENIED_ERROR", message)
         self.assertIn("returnReasonCode=20", message)
         self.assertNotIn(TOKEN, message)
+        with self.assertRaises(MODULE.CaptureError) as json_caught:
+            MODULE.fetch_raw(
+                request,
+                opener=JSONHTTPErrorOpener(),
+                service_key=TOKEN,
+            )
+        json_message = str(json_caught.exception)
+        self.assertIn("errMsg=SERVICE_ACCESS_DENIED_ERROR", json_message)
+        self.assertIn("returnReasonCode=20", json_message)
+        self.assertNotIn(TOKEN, json_message)
 
     def test_first_capture_preserves_raw_and_marks_missing_dates(self):
         opener = FakeOpener(exact=exact_rows())
