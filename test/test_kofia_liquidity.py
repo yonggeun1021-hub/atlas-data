@@ -92,7 +92,7 @@ class KofiaLiquidityContractTest(unittest.TestCase):
 
         self.assertEqual(
             CONTRACT["contract_version"],
-            "kofia_liquidity_source/v2",
+            "kofia_liquidity_source/v3",
         )
         self.assertEqual(CONTRACT["catalog_id"], "15094809")
         self.assertEqual(
@@ -293,6 +293,8 @@ class KofiaLiquidityContractTest(unittest.TestCase):
             "0": Decimal("0"),
             "123": Decimal("123"),
             "0.25": Decimal("0.25"),
+            ".25": Decimal("0.25"),
+            ".0": Decimal("0.0"),
             "123.00": Decimal("123.00"),
         }
         for raw, expected in accepted.items():
@@ -302,7 +304,19 @@ class KofiaLiquidityContractTest(unittest.TestCase):
                     expected,
                 )
 
-        rejected = ["", " ", "-1", "+1", "01", "1e3", "1,000", "NaN", "-"]
+        rejected = [
+            "",
+            " ",
+            ".",
+            "-1",
+            "-.1",
+            "+1",
+            "01",
+            "1e3",
+            "1,000",
+            "NaN",
+            "-",
+        ]
         for raw in rejected:
             with self.subTest(raw=raw), self.assertRaisesRegex(
                 MODULE.KofiaContractError,
@@ -321,6 +335,7 @@ class KofiaLiquidityContractTest(unittest.TestCase):
             key: (str(value) if key != "basDt" else value)
             for key, value in investor.items()
         }
+        investor["ucolMnyVsOppsTrdRlImpt"] = ".5"
         credit = credit_row()
         credit = {
             key: (str(value) if key != "basDt" else value)

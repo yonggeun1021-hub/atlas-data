@@ -28,15 +28,22 @@ CONTRACT_PATH = ROOT / "config" / "kofia_liquidity_contract.json"
 UTC = dt.timezone.utc
 KST = ZoneInfo("Asia/Seoul")
 BAS_DT = re.compile(r"^[0-9]{8}$")
-DECIMAL_TEXT = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
+DECIMAL_TEXT = re.compile(
+    r"^(?:(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|\.[0-9]+)$"
+)
 GROUPED_DECIMAL_TEXT = re.compile(
     r"^(?:0|[1-9][0-9]{0,2}(?:,[0-9]{3})+)(?:\.[0-9]+)?$"
 )
 EXPECTED_NUMERIC_TRANSPORT_POLICY = {
     "official_swagger_type": "number",
-    "observed_compatibility": "canonical_unsigned_decimal_string",
+    "observed_compatibility": [
+        "canonical_unsigned_decimal_string",
+        "leading_fraction_decimal_string",
+    ],
     "accepted_json_types": ["number", "canonical_numeric_string"],
-    "accepted_string_pattern": r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$",
+    "accepted_string_pattern": (
+        r"^(?:(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|\.[0-9]+)$"
+    ),
     "rejected_string_forms": [
         "blank",
         "surrounding_whitespace",
@@ -119,7 +126,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     }
     if set(contract) != expected or contract.get("schema_version") != 1:
         fail("CONTRACT_INVALID", "schema or fields")
-    if contract.get("contract_version") != "kofia_liquidity_source/v2":
+    if contract.get("contract_version") != "kofia_liquidity_source/v3":
         fail("CONTRACT_INVALID", "contract_version")
     if contract.get("source_authority") != (
         "Korea Financial Investment Association"
