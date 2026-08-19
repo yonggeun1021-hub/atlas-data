@@ -66,6 +66,9 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ runner summary 자체가 승인 목록의 현재 개수를 표시하는지 검증한다.
+    #   고정 숫자 drift가 실제 실행 증거를 축소·과장하지 못하게 한다.
+    "test/test_runner_reporting.py",
     # ★ CI runtime maintenance — official Node 24 action releases.
     #   checkout/setup-python을 검증된 release commit SHA로 고정해 mutable tag와
     #   Node 20 deprecation을 제거한다. workflow 권한·trigger·run 내용은 불변이다.
@@ -451,6 +454,11 @@ class Runner:
         return ok
 
 
+def approved_test_label():
+    """Render the current approved-test population without a stale literal."""
+    return f"[4/5] 승인 회귀 {len(APPROVED_TESTS)}파일"
+
+
 def main():
     r = Runner()
     print("Atlas Actions runner — Python", sys.version.split()[0])
@@ -484,7 +492,7 @@ def main():
                     print("[3/5] committed ↔ rebuilt byte 비교")
                     r.compare(kept)
 
-        print("[4/5] 승인 회귀 14파일")
+        print(approved_test_label())
         r.approved_tests()
 
         # ★ `--no-fi` 는 **Fault Injection suite 전용** 스위치다. FI-1 · FI-4 는 이

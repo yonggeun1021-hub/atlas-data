@@ -3,7 +3,7 @@
     FI-1 committed artifact drift        REQUIRED PASS
     FI-2 required input/artifact missing REQUIRED PASS
     FI-3 frozen input tamper             ★ KNOWN GAP / NOT GATED — 여기서 검증하지 않는다
-    FI-4 approved 14-test omission       REQUIRED PASS
+    FI-4 approved-test omission          REQUIRED PASS
     FI-5 malformed required JSON         REQUIRED PASS
     FI-6 invalid vocabulary value        REQUIRED PASS — 결함 C (CIO 판정 2026-08-15)
 
@@ -124,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix="fi2_") as d:
           r2.returncode == 0, (r2.stdout + r2.stderr)[-300:])
 
 # ══════════════════════════════════════════════════════════════════════
-print("FI-4 approved 14-test omission")
+print("FI-4 approved-test omission")
 with tempfile.TemporaryDirectory(prefix="fi4_") as d:
     clone(d)
     dropped = "test/test_merge_decision.py"
