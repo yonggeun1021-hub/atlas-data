@@ -262,6 +262,12 @@ class KoreaBreadthTest(unittest.TestCase):
         self.assertEqual(WF["permissions"]["contents"], "read")
 
         steps = WF["jobs"]["korea-breadth-live-proof"]["steps"]
+        dependency_step = next(
+            step
+            for step in steps
+            if step.get("name") == "Install CI contract dependencies"
+        )
+        self.assertIn("requirements-ci.txt", dependency_step["run"])
         proof = next(
             step
             for step in steps
