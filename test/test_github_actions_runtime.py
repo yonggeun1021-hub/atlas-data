@@ -54,7 +54,11 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
         self.assertFalse(self.contract["mutable_tag_authorized"])
         self.assertEqual(
             set(self.contract["actions"]),
-            {"actions/checkout", "actions/setup-python"},
+            {
+                "actions/checkout",
+                "actions/setup-python",
+                "actions/upload-artifact",
+            },
         )
         for action, item in self.contract["actions"].items():
             self.assertRegex(item["commit_sha"], SHA)
@@ -75,6 +79,7 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
 
         self.assertEqual(len(observed["actions/checkout"]), 20)
         self.assertEqual(len(observed["actions/setup-python"]), 18)
+        self.assertEqual(len(observed["actions/upload-artifact"]), 6)
 
     def test_no_mutable_or_retired_refs_remain_in_workflows(self):
         raw = "\n".join(
@@ -84,8 +89,10 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
         for retired in (
             "actions/checkout@v4",
             "actions/setup-python@v5",
+            "actions/upload-artifact@v4",
             "93cb6efe18208431cddfb8368fd83d5badbf9bfd",
             "a26af69be951a213d495a4c3e4e4022e16d87065",
+            "ea165f8d65b6e75b540449e92b4886f43607fa02",
         ):
             self.assertNotIn(retired, raw)
 
