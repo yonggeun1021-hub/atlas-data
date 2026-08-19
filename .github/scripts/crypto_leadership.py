@@ -132,7 +132,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "schema_version": 1,
         "contract_version": "crypto_leadership_contract/v1",
         "source_helper": ".github/scripts/crypto_breadth.py",
-        "source_transform_version": "crypto_breadth_observation/v1",
+        "source_transform_version": "crypto_breadth_observation/v2",
         "market_timezone": "UTC",
         "measurement": "raw_relative_strength_observation",
         "window_policy": "exact_contiguous_calendar_days",
@@ -570,6 +570,7 @@ def build_transform(
     snapshot_root: Path,
     contract_path: Path = CONTRACT_PATH,
     universe_policy_path: Path = UNIVERSE_POLICY_PATH,
+    exclusion_taxonomy_path: Path = BREADTH.EXCLUSION_TAXONOMY_PATH,
     leadership_policy_path: Path = LEADERSHIP_POLICY_PATH,
     taxonomy_path: Path = TAXONOMY_PATH,
     identity_exceptions_path: Path = IDENTITY_EXCEPTIONS_PATH,
@@ -596,6 +597,7 @@ def build_transform(
         source_point = BREADTH.build_transform(
             path,
             universe_policy_path=universe_policy_path,
+            exclusion_taxonomy_path=exclusion_taxonomy_path,
             identity_exceptions_path=identity_exceptions_path,
         )
         if source_point["as_of_date"] != day.isoformat():
@@ -781,6 +783,11 @@ def main(argv=None) -> int:
         "--universe-policy", type=Path, default=UNIVERSE_POLICY_PATH
     )
     transform.add_argument(
+        "--exclusion-taxonomy",
+        type=Path,
+        default=BREADTH.EXCLUSION_TAXONOMY_PATH,
+    )
+    transform.add_argument(
         "--leadership-policy", type=Path, default=LEADERSHIP_POLICY_PATH
     )
     transform.add_argument("--taxonomy", type=Path, default=TAXONOMY_PATH)
@@ -795,6 +802,7 @@ def main(argv=None) -> int:
             args.snapshot_root,
             contract_path=args.contract,
             universe_policy_path=args.universe_policy,
+            exclusion_taxonomy_path=args.exclusion_taxonomy,
             leadership_policy_path=args.leadership_policy,
             taxonomy_path=args.taxonomy,
             identity_exceptions_path=args.identity_exceptions,

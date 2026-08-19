@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "policy_version": "crypto_breadth_universe/draft-v1",
-  "approval_status": "UNRATIFIED",
+  "policy_version": "crypto_breadth_universe/v1",
+  "approval_status": "RATIFIED",
   "source_name": "kraken_spot_market_data",
   "universe_kind": "breadth_source_coverage_not_investable",
-  "effective_from": null,
+  "effective_from": "2026-08-19",
   "quote_currency": "USD",
   "allowed_asset_statuses": [
     "enabled"
@@ -12,7 +12,12 @@
   "allowed_pair_statuses": [
     "online"
   ],
-  "excluded_canonical_assets": [],
-  "minimum_asset_count": null,
-  "selection_rule": "all_matching_pairs_minus_explicit_canonical_exclusions"
+  "ranking_lookback_finalized_days": 30,
+  "ranking_metric": "sum_daily_vwap_times_base_volume",
+  "ranking_end_policy": "previous_day_before_observation_as_of",
+  "target_asset_count": 100,
+  "minimum_observation_coverage_bps": 9000,
+  "btc_policy": "reference_only_excluded_from_alt_participation",
+  "unknown_taxonomy_policy": "fail_closed_unknown",
+  "selection_rule": "trailing_30d_usd_turnover_top_n_after_explicit_taxonomy"
 }

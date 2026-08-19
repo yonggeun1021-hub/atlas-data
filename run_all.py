@@ -136,8 +136,8 @@ APPROVED_TESTS = [
     "test/test_btc_trend.py",
     # ★ P1-CR-06 — Crypto Breadth / Alt participation PIT universe 계약.
     #   날짜별 Assets·AssetPairs·OHLC snapshot과 effective-dated identity를 묶고
-    #   ratified universe 없이는 계산을 막으며 raw advance/decline만 재현한다.
-    #   ⛔ live Kraken/workflow/tracked factor 없음 — temp multi-asset fixtures only.
+    #   ratified 30일 turnover Top-100·명시 taxonomy·90% coverage gate를 재현한다.
+    #   ⛔ 테스트의 live Kraken/tracked factor 없음 — fake fetcher + temp fixtures only.
     "test/test_crypto_breadth.py",
     # ★ P1-CR-07 — Crypto Leadership PIT relative-strength 계약.
     #   CR-06 날짜별 snapshot을 재사용해 BTC/ETH/Alt/sector/chain 원시 상대강도를

@@ -33,17 +33,17 @@ a lookback, taxonomy, coverage minimum, classification, or threshold.
 The helper requires all three policy inputs to be `RATIFIED` and effective for
 the full window:
 
-1. `crypto_breadth_universe_policy.json` — the as-captured source coverage
-   universe from P1-CR-06.  It is not an investable universe.
+1. `crypto_breadth_universe_policy.json` and its exclusion taxonomy — the
+   as-captured Top-100 source coverage universe from P1-CR-06.  It is not an
+   investable universe.
 2. `crypto_leadership_policy.json` — exact lookback, daily group aggregation,
    required groups, and minimum daily coverage.
 3. `crypto_asset_taxonomy.json` — effective-dated canonical-asset mappings to
    BTC/ETH/Alt buckets, sectors, and chains.
 
-All repository defaults are deliberately `UNRATIFIED`.  The Master Map and
-Technical Master Plan do not yet ratify those choices, so the helper refuses to
-calculate with the default files.  Changing a default to `RATIFIED` requires a
-separate decision and review; this implementation does not make that decision.
+The CR-06 universe and exclusion rules are ratified, but CR-07's leadership
+lookback and sector/chain taxonomy remain `UNRATIFIED`.  The helper therefore
+still refuses to calculate with all repository defaults.
 
 ## Point-in-time and coverage rules
 
@@ -91,6 +91,7 @@ After separately ratified policy files and qualified snapshots exist:
 python3 .github/scripts/crypto_leadership.py transform \
   /tmp/crypto-breadth/raw \
   --universe-policy /tmp/ratified-crypto-universe.json \
+  --exclusion-taxonomy /tmp/ratified-crypto-exclusion-taxonomy.json \
   --leadership-policy /tmp/ratified-crypto-leadership.json \
   --taxonomy /tmp/ratified-crypto-taxonomy.json \
   --end-date 2026-08-19 \

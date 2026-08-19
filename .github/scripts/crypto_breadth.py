@@ -10,6 +10,8 @@ the current Kraken listing must never be used to backfill historical membership.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import datetime as dt
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 import gzip
@@ -27,6 +29,9 @@ CONTRACT_PATH = ROOT / "config" / "crypto_breadth_contract.json"
 UNIVERSE_POLICY_PATH = (
     ROOT / "config" / "crypto_breadth_universe_policy.json"
 )
+EXCLUSION_TAXONOMY_PATH = (
+    ROOT / "config" / "crypto_breadth_exclusion_taxonomy.json"
+)
 IDENTITY_EXCEPTIONS_PATH = (
     ROOT / "config" / "crypto_asset_identity_exceptions.json"
 )
@@ -35,12 +40,14 @@ CAPTURE_VERSION = re.compile(r"^crypto-breadth-capture/v[1-9][0-9]*$")
 IDENTITY_POLICY_VERSION = re.compile(
     r"^crypto_asset_identity_exceptions/v[1-9][0-9]*$"
 )
+TAXONOMY_POLICY_VERSION = re.compile(
+    r"^crypto_breadth_exclusion_taxonomy/v[1-9][0-9]*$"
+)
 ASSET_ID = re.compile(r"^[A-Z0-9._-]{1,32}$")
-OHLC_STEM = re.compile(r"^[0-9a-f]{64}$")
 SHA_LINE = re.compile(
     r"^([0-9a-f]{64})  "
     r"(kraken_assets\.json|kraken_asset_pairs\.json|"
-    r"ohlc/[0-9a-f]{64}\.json)$"
+    r"kraken_ohlc_responses\.ndjson)$"
 )
 
 
@@ -87,7 +94,12 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "capture_mode",
         "assets_raw_file",
         "asset_pairs_raw_file",
-        "ohlc_directory",
+        "ohlc_bundle_raw_file",
+        "ohlc_bundle_format",
+        "capture_lookback_calendar_days",
+        "ranking_lookback_finalized_days",
+        "ranking_end_policy",
+        "ranking_metric",
         "minimum_finalized_candles",
         "maximum_response_rows",
         "current_candle_policy",
@@ -113,7 +125,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         ),
         "ohlc_endpoint_template": (
             "https://api.kraken.com/0/public/OHLC?"
-            "pair={PAIR}&interval=1440&assetVersion=1"
+            "pair={PAIR}&interval=1440&since={SINCE}&assetVersion=1"
         ),
         "asset_version": 1,
         "asset_class": "currency",
@@ -123,7 +135,14 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "capture_mode": "direct_fetch_append_only",
         "assets_raw_file": "kraken_assets.json.gz",
         "asset_pairs_raw_file": "kraken_asset_pairs.json.gz",
-        "ohlc_directory": "ohlc",
+        "ohlc_bundle_raw_file": "kraken_ohlc_responses.ndjson.gz",
+        "ohlc_bundle_format": (
+            "sorted_pair_id_base64_raw_response_ndjson"
+        ),
+        "capture_lookback_calendar_days": 40,
+        "ranking_lookback_finalized_days": 30,
+        "ranking_end_policy": "previous_day_before_observation_as_of",
+        "ranking_metric": "sum_daily_vwap_times_base_volume",
         "minimum_finalized_candles": 2,
         "maximum_response_rows": 720,
         "current_candle_policy": "exclude_last_row_always",
@@ -138,8 +157,8 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "identity_exception_policy": (
             "explicit_effective_dated_fail_closed"
         ),
-        "transform_version": "crypto_breadth_observation/v1",
-        "replay_version": "crypto_breadth_replay/v1",
+        "transform_version": "crypto_breadth_observation/v2",
+        "replay_version": "crypto_breadth_replay/v2",
         "output_decimal_places": 12,
         "rounding": "ROUND_HALF_EVEN",
     }
@@ -274,8 +293,13 @@ def load_universe_policy(path: Path = UNIVERSE_POLICY_PATH) -> dict:
         "quote_currency",
         "allowed_asset_statuses",
         "allowed_pair_statuses",
-        "excluded_canonical_assets",
-        "minimum_asset_count",
+        "ranking_lookback_finalized_days",
+        "ranking_metric",
+        "ranking_end_policy",
+        "target_asset_count",
+        "minimum_observation_coverage_bps",
+        "btc_policy",
+        "unknown_taxonomy_policy",
         "selection_rule",
     }
     if set(policy) != expected:
@@ -290,9 +314,24 @@ def load_universe_policy(path: Path = UNIVERSE_POLICY_PATH) -> dict:
         != "breadth_source_coverage_not_investable"
         or policy.get("quote_currency") != "USD"
         or policy.get("selection_rule")
-        != "all_matching_pairs_minus_explicit_canonical_exclusions"
+        != "trailing_30d_usd_turnover_top_n_after_explicit_taxonomy"
+        or policy.get("ranking_lookback_finalized_days") != 30
+        or policy.get("ranking_metric")
+        != "sum_daily_vwap_times_base_volume"
+        or policy.get("ranking_end_policy")
+        != "previous_day_before_observation_as_of"
+        or policy.get("btc_policy")
+        != "reference_only_excluded_from_alt_participation"
+        or policy.get("unknown_taxonomy_policy")
+        != "fail_closed_unknown"
     ):
         fail("UNIVERSE_POLICY_INVALID", "header or semantics")
+    target = policy.get("target_asset_count")
+    coverage = policy.get("minimum_observation_coverage_bps")
+    if type(target) is not int or target < 2:
+        fail("UNIVERSE_POLICY_INVALID", "target_asset_count")
+    if type(coverage) is not int or not 1 <= coverage <= 10000:
+        fail("UNIVERSE_POLICY_INVALID", "minimum_observation_coverage_bps")
     for key in ("allowed_asset_statuses", "allowed_pair_statuses"):
         values = policy.get(key)
         if (
@@ -301,19 +340,6 @@ def load_universe_policy(path: Path = UNIVERSE_POLICY_PATH) -> dict:
             or values != sorted(set(values))
         ):
             fail("UNIVERSE_POLICY_INVALID", key)
-    excluded = policy.get("excluded_canonical_assets")
-    if (
-        not isinstance(excluded, list)
-        or any(
-            not isinstance(item, str) or ASSET_ID.fullmatch(item) is None
-            for item in excluded
-        )
-        or excluded != sorted(set(excluded))
-    ):
-        fail("UNIVERSE_POLICY_INVALID", "excluded_canonical_assets")
-    minimum = policy.get("minimum_asset_count")
-    if minimum is not None and (type(minimum) is not int or minimum < 2):
-        fail("UNIVERSE_POLICY_INVALID", "minimum_asset_count")
     effective = policy.get("effective_from")
     if effective is not None:
         parse_date(effective, "UNIVERSE_POLICY_INVALID", "effective_from")
@@ -327,7 +353,6 @@ def require_ratified_policy(policy: dict, as_of: dt.date) -> None:
         policy["effective_from"] is None
         or not policy["allowed_asset_statuses"]
         or not policy["allowed_pair_statuses"]
-        or policy["minimum_asset_count"] is None
     ):
         fail("UNIVERSE_POLICY_INVALID", "ratified fields incomplete")
     effective = parse_date(
@@ -337,6 +362,124 @@ def require_ratified_policy(policy: dict, as_of: dt.date) -> None:
     )
     if effective > as_of:
         fail("UNIVERSE_POLICY_NOT_EFFECTIVE", as_of.isoformat())
+
+
+def load_exclusion_taxonomy(
+    path: Path = EXCLUSION_TAXONOMY_PATH,
+) -> dict:
+    policy = read_json(path, "TAXONOMY_POLICY_INVALID")
+    expected = {
+        "schema_version",
+        "policy_version",
+        "approval_status",
+        "source_name",
+        "effective_from",
+        "eligible_category",
+        "excluded_categories",
+        "unknown_asset_policy",
+        "records",
+    }
+    if set(policy) != expected:
+        fail("TAXONOMY_POLICY_INVALID", "schema")
+    if (
+        policy.get("schema_version") != 1
+        or not isinstance(policy.get("policy_version"), str)
+        or TAXONOMY_POLICY_VERSION.fullmatch(policy["policy_version"])
+        is None
+        or policy.get("approval_status") not in {"UNRATIFIED", "RATIFIED"}
+        or policy.get("source_name") != "kraken_spot_market_data"
+        or policy.get("eligible_category") != "eligible_crypto"
+        or policy.get("unknown_asset_policy") != "fail_closed_unknown"
+    ):
+        fail("TAXONOMY_POLICY_INVALID", "header")
+    excluded = policy.get("excluded_categories")
+    required_excluded = [
+        "commodity_linked",
+        "fiat",
+        "stablecoin",
+        "staked",
+        "wrapped",
+    ]
+    if excluded != required_excluded:
+        fail("TAXONOMY_POLICY_INVALID", "excluded_categories")
+    effective = parse_date(
+        policy.get("effective_from"),
+        "TAXONOMY_POLICY_INVALID",
+        "effective_from",
+    )
+    records = policy.get("records")
+    if not isinstance(records, list):
+        fail("TAXONOMY_POLICY_INVALID", "records")
+    normalized = []
+    valid_categories = {policy["eligible_category"], *excluded}
+    for index, record in enumerate(records):
+        expected_record = {
+            "canonical_asset_id",
+            "category",
+            "effective_from",
+            "effective_to",
+            "reason",
+        }
+        if not isinstance(record, dict) or set(record) != expected_record:
+            fail("TAXONOMY_POLICY_INVALID", f"record {index} schema")
+        asset_id = record["canonical_asset_id"]
+        if (
+            not isinstance(asset_id, str)
+            or ASSET_ID.fullmatch(asset_id) is None
+            or record["category"] not in valid_categories
+            or not isinstance(record["reason"], str)
+            or not record["reason"].strip()
+        ):
+            fail("TAXONOMY_POLICY_INVALID", f"record {index}")
+        start = parse_date(
+            record["effective_from"],
+            "TAXONOMY_POLICY_INVALID",
+            f"record {index} effective_from",
+        )
+        end = None
+        if record["effective_to"] is not None:
+            end = parse_date(
+                record["effective_to"],
+                "TAXONOMY_POLICY_INVALID",
+                f"record {index} effective_to",
+            )
+            if end < start:
+                fail("TAXONOMY_POLICY_INVALID", f"record {index} range")
+        normalized.append(record | {"_start": start, "_end": end})
+    if records != sorted(records, key=lambda item: (
+        item["canonical_asset_id"], item["effective_from"]
+    )):
+        fail("TAXONOMY_POLICY_INVALID", "record order")
+    by_asset = {}
+    for record in normalized:
+        by_asset.setdefault(record["canonical_asset_id"], []).append(record)
+    for asset_id, asset_records in by_asset.items():
+        for before, after in zip(asset_records, asset_records[1:]):
+            before_end = before["_end"] or dt.date.max
+            if after["_start"] <= before_end:
+                fail("TAXONOMY_RANGE_OVERLAP", asset_id)
+    return policy | {
+        "_effective": effective,
+        "_records_by_asset": by_asset,
+    }
+
+
+def require_ratified_taxonomy(policy: dict, as_of: dt.date) -> None:
+    if policy["approval_status"] != "RATIFIED":
+        fail("TAXONOMY_POLICY_UNRATIFIED", policy["policy_version"])
+    if policy["_effective"] > as_of:
+        fail("TAXONOMY_POLICY_NOT_EFFECTIVE", as_of.isoformat())
+
+
+def taxonomy_category(asset_id: str, day: dt.date, policy: dict) -> Optional[str]:
+    matches = []
+    for record in policy["_records_by_asset"].get(asset_id, []):
+        end = record["_end"] or dt.date.max
+        if record["_start"] <= day <= end:
+            matches.append(record)
+    if len(matches) > 1:
+        fail("TAXONOMY_RANGE_OVERLAP", asset_id)
+    return matches[0]["category"] if matches else None
 
 
 def snapshot_date(snapshot_dir: Path) -> dt.date:
@@ -396,7 +539,9 @@ def checksum_index(snapshot_dir: Path, raw_names: set) -> dict:
     return parsed
 
 
-def read_raw(snapshot_dir: Path, relative_gz: str, expected_sha: str) -> dict:
+def read_raw_bytes(
+    snapshot_dir: Path, relative_gz: str, expected_sha: str
+) -> dict:
     path = Path(snapshot_dir) / relative_gz
     try:
         with gzip.open(path, "rb") as stream:
@@ -406,21 +551,96 @@ def read_raw(snapshot_dir: Path, relative_gz: str, expected_sha: str) -> dict:
     actual_sha = hashlib.sha256(raw).hexdigest()
     if actual_sha != expected_sha:
         fail("CHECKSUM_MISMATCH", raw_checksum_name(relative_gz))
+    return {
+        "file": relative_gz,
+        "response_sha256": actual_sha,
+        "byte_length": len(raw),
+        "raw": raw,
+    }
+
+
+def read_raw(snapshot_dir: Path, relative_gz: str, expected_sha: str) -> dict:
+    item = read_raw_bytes(snapshot_dir, relative_gz, expected_sha)
     try:
         payload = json.loads(
-            raw,
+            item["raw"],
             parse_float=Decimal,
             parse_int=int,
             parse_constant=reject_json_constant,
         )
     except (json.JSONDecodeError, InvalidOperation) as exc:
         fail("RAW_RESPONSE_INVALID", f"{relative_gz}: {exc}")
-    return {
-        "file": relative_gz,
-        "response_sha256": actual_sha,
-        "byte_length": len(raw),
+    return item | {
         "payload": payload,
     }
+
+
+def read_ohlc_bundle(
+    snapshot_dir: Path,
+    relative_gz: str,
+    expected_sha: str,
+    vintage: dt.date,
+    contract: dict,
+) -> tuple[dict, dict]:
+    bundle = read_raw_bytes(snapshot_dir, relative_gz, expected_sha)
+    series = {}
+    pair_ids = []
+    for index, raw_line in enumerate(bundle["raw"].splitlines()):
+        if not raw_line:
+            fail("OHLC_BUNDLE_INVALID", f"empty line {index}")
+        try:
+            record = json.loads(raw_line)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            fail("OHLC_BUNDLE_INVALID", f"line {index}: {exc}")
+        if not isinstance(record, dict) or set(record) != {
+            "pair_id",
+            "response_sha256",
+            "body_b64",
+        }:
+            fail("OHLC_BUNDLE_INVALID", f"line {index} schema")
+        pair_id = record["pair_id"]
+        response_sha = record["response_sha256"]
+        if (
+            not isinstance(pair_id, str)
+            or not isinstance(response_sha, str)
+            or re.fullmatch(r"[0-9a-f]{64}", response_sha) is None
+            or not isinstance(record["body_b64"], str)
+        ):
+            fail("OHLC_BUNDLE_INVALID", f"line {index} fields")
+        try:
+            raw = base64.b64decode(record["body_b64"], validate=True)
+        except (binascii.Error, ValueError, TypeError) as exc:
+            fail("OHLC_BUNDLE_INVALID", f"line {index} base64: {exc}")
+        if hashlib.sha256(raw).hexdigest() != response_sha:
+            fail("OHLC_INNER_CHECKSUM_MISMATCH", pair_id)
+        try:
+            payload = json.loads(
+                raw,
+                parse_float=Decimal,
+                parse_int=int,
+                parse_constant=reject_json_constant,
+            )
+        except (json.JSONDecodeError, InvalidOperation) as exc:
+            fail("RAW_RESPONSE_INVALID", f"{pair_id}: {exc}")
+        item = normalize_ohlc(
+            payload,
+            vintage,
+            contract,
+            ohlc_file_name(pair_id),
+        )
+        if item["pair_id"] != pair_id:
+            fail("OHLC_PAIR_MISMATCH", f"{pair_id}: {item['pair_id']}")
+        if pair_id in series:
+            fail("OHLC_PAIR_DUPLICATE", pair_id)
+        pair_ids.append(pair_id)
+        series[pair_id] = item | {
+            "file": f"{relative_gz}#{pair_id}",
+            "response_sha256": response_sha,
+            "byte_length": len(raw),
+        }
+    if not series or pair_ids != sorted(pair_ids):
+        fail("OHLC_BUNDLE_INVALID", "empty, duplicate, or unsorted pairs")
+    return bundle, series
 
 
 def source_result(payload: object, label: str) -> dict:
@@ -553,6 +773,7 @@ def normalize_candle(row: object, index: int, pair_id: str) -> dict:
     return {
         "date": day,
         "close": close,
+        "vwap": vwap,
         "volume": volume,
         "trade_count": trades,
     }
@@ -596,22 +817,46 @@ def normalize_ohlc(
         fail("FINALIZED_BOUNDARY_INVALID", pair_id)
     expected_t = vintage - dt.timedelta(days=1)
     expected_t_minus_1 = vintage - dt.timedelta(days=2)
-    if (
-        finalized[-1]["date"] != expected_t
-        or finalized[-2]["date"] != expected_t_minus_1
-    ):
-        fail("MISSING_EXACT_T_OR_T_MINUS_1", pair_id)
+    by_day = {item["date"]: item for item in finalized}
+    ranking_days = contract["ranking_lookback_finalized_days"]
+    ranking_start = expected_t_minus_1 - dt.timedelta(days=ranking_days - 1)
+    expected_ranking_dates = [
+        ranking_start + dt.timedelta(days=offset)
+        for offset in range(ranking_days)
+    ]
+    ranking_complete = all(day in by_day for day in expected_ranking_dates)
+    trailing_turnover = None
+    if ranking_complete:
+        trailing_turnover = sum(
+            (
+                by_day[day]["vwap"] * by_day[day]["volume"]
+                for day in expected_ranking_dates
+            ),
+            Decimal(0),
+        )
+    previous = by_day.get(expected_t_minus_1)
+    latest = by_day.get(expected_t)
     if relative_file != ohlc_file_name(pair_id):
         fail("OHLC_FILENAME_MISMATCH", pair_id)
     return {
         "pair_id": pair_id,
         "response_rows": len(candles),
         "finalized_rows": len(finalized),
-        "latest_finalized_day": expected_t.isoformat(),
-        "previous_finalized_day": expected_t_minus_1.isoformat(),
+        "latest_finalized_day": (
+            expected_t.isoformat() if latest is not None else None
+        ),
+        "previous_finalized_day": (
+            expected_t_minus_1.isoformat() if previous is not None else None
+        ),
         "current_excluded_day": current["date"].isoformat(),
-        "previous_close": finalized[-2]["close"],
-        "latest_close": finalized[-1]["close"],
+        "ranking_start_day": ranking_start.isoformat(),
+        "ranking_end_day": expected_t_minus_1.isoformat(),
+        "ranking_history_complete": ranking_complete,
+        "trailing_usd_turnover": trailing_turnover,
+        "previous_close": (
+            previous["close"] if previous is not None else None
+        ),
+        "latest_close": latest["close"] if latest is not None else None,
     }
 
 
@@ -632,40 +877,29 @@ def source_core(
     snapshot_dir = Path(snapshot_dir)
     vintage = snapshot_date(snapshot_dir)
     fetched = downloaded_at(snapshot_dir, vintage)
-    ohlc_dir = snapshot_dir / contract["ohlc_directory"]
-    try:
-        ohlc_files = sorted(
-            path.relative_to(snapshot_dir).as_posix()
-            for path in ohlc_dir.glob("*.json.gz")
-            if path.is_file()
-        )
-    except OSError as exc:
-        fail("RAW_FILE_INVALID", str(exc))
-    if not ohlc_files or any(
-        OHLC_STEM.fullmatch(Path(name).name.removesuffix(".json.gz")) is None
-        for name in ohlc_files
-    ):
-        fail("OHLC_FILE_INVENTORY_INVALID", str(ohlc_dir))
+    ohlc_bundle_file = contract["ohlc_bundle_raw_file"]
     relative_files = [
         contract["assets_raw_file"],
         contract["asset_pairs_raw_file"],
-    ] + ohlc_files
+        ohlc_bundle_file,
+    ]
     discovered_gzip = sorted(
         path.relative_to(snapshot_dir).as_posix()
-        for path in snapshot_dir.rglob("*.json.gz")
+        for path in snapshot_dir.rglob("*.gz")
         if path.is_file()
     )
     if discovered_gzip != sorted(relative_files):
         fail("RAW_FILE_INVENTORY_INVALID", str(snapshot_dir))
     raw_names = {raw_checksum_name(name) for name in relative_files}
     checksums = checksum_index(snapshot_dir, raw_names)
+    catalog_files = relative_files[:2]
     raw_items = {
         name: read_raw(
             snapshot_dir,
             name,
             checksums[raw_checksum_name(name)],
         )
-        for name in relative_files
+        for name in catalog_files
     }
     assets = normalize_assets(
         raw_items[contract["assets_raw_file"]]["payload"]
@@ -674,21 +908,16 @@ def source_core(
         raw_items[contract["asset_pairs_raw_file"]]["payload"],
         assets,
     )
-    ohlc = {}
-    for name in ohlc_files:
-        series = normalize_ohlc(
-            raw_items[name]["payload"], vintage, contract, name
-        )
-        pair_id = series["pair_id"]
+    ohlc_bundle, ohlc = read_ohlc_bundle(
+        snapshot_dir,
+        ohlc_bundle_file,
+        checksums[raw_checksum_name(ohlc_bundle_file)],
+        vintage,
+        contract,
+    )
+    for pair_id in ohlc:
         if pair_id not in pairs:
             fail("OHLC_PAIR_NOT_IN_CAPTURED_CATALOG", pair_id)
-        if pair_id in ohlc:
-            fail("OHLC_PAIR_DUPLICATE", pair_id)
-        ohlc[pair_id] = series | {
-            "file": name,
-            "response_sha256": raw_items[name]["response_sha256"],
-            "byte_length": raw_items[name]["byte_length"],
-        }
     return {
         "snapshot_date": vintage.isoformat(),
         "vintage": vintage,
@@ -701,6 +930,7 @@ def source_core(
         "ohlc": ohlc,
         "assets_raw": raw_items[contract["assets_raw_file"]],
         "pairs_raw": raw_items[contract["asset_pairs_raw_file"]],
+        "ohlc_bundle_raw": ohlc_bundle,
     }
 
 
@@ -730,6 +960,16 @@ def manifest_payload(core: dict, capture_version: str) -> dict:
                 "latest_finalized_day": item["latest_finalized_day"],
                 "previous_finalized_day": item["previous_finalized_day"],
                 "current_excluded_day": item["current_excluded_day"],
+                "ranking_start_day": item["ranking_start_day"],
+                "ranking_end_day": item["ranking_end_day"],
+                "ranking_history_complete": item[
+                    "ranking_history_complete"
+                ],
+                "trailing_usd_turnover": (
+                    render_decimal(item["trailing_usd_turnover"], 12)
+                    if item["trailing_usd_turnover"] is not None
+                    else None
+                ),
             }
         )
     return {
@@ -754,6 +994,7 @@ def manifest_payload(core: dict, capture_version: str) -> dict:
         "raw": {
             "assets": raw_manifest_entry(core["assets_raw"]),
             "asset_pairs": raw_manifest_entry(core["pairs_raw"]),
+            "ohlc_bundle": raw_manifest_entry(core["ohlc_bundle_raw"]),
             "ohlc": series,
         },
         "catalog_counts": {
@@ -870,13 +1111,16 @@ def direction(previous: Decimal, latest: Decimal) -> str:
 def qualified_members(
     core: dict,
     universe_policy: dict,
-) -> list:
+    taxonomy_policy: dict,
+) -> dict:
     as_of = core["vintage"] - dt.timedelta(days=1)
     require_ratified_policy(universe_policy, as_of)
+    require_ratified_taxonomy(taxonomy_policy, as_of)
     allowed_assets = set(universe_policy["allowed_asset_statuses"])
     allowed_pairs = set(universe_policy["allowed_pair_statuses"])
-    excluded = set(universe_policy["excluded_canonical_assets"])
-    members = []
+    excluded_categories = set(taxonomy_policy["excluded_categories"])
+    ranked = []
+    ranking_ineligible = []
     canonical_seen = {}
     for pair_id in sorted(core["pairs"]):
         pair = core["pairs"][pair_id]
@@ -890,8 +1134,6 @@ def qualified_members(
         canonical = canonical_identity(
             pair["base"], as_of, core["identity"]
         )
-        if canonical in excluded:
-            continue
         if canonical in canonical_seen:
             fail(
                 "CANONICAL_ASSET_DUPLICATE",
@@ -900,34 +1142,135 @@ def qualified_members(
         canonical_seen[canonical] = pair_id
         series = core["ohlc"].get(pair_id)
         if series is None:
-            members.append(
+            fail("CAPTURE_COVERAGE_INCOMPLETE", pair_id)
+        candidate = {
+            "pair_id": pair_id,
+            "source_asset_id": pair["base"],
+            "canonical_asset_id": canonical,
+            "series": series,
+        }
+        if not series["ranking_history_complete"]:
+            ranking_ineligible.append(
                 {
                     "pair_id": pair_id,
-                    "source_asset_id": pair["base"],
                     "canonical_asset_id": canonical,
-                    "series": None,
+                    "reason": "INSUFFICIENT_EXACT_30D_HISTORY",
                 }
             )
             continue
-        members.append(
-            {
-                "pair_id": pair_id,
-                "source_asset_id": pair["base"],
-                "canonical_asset_id": canonical,
-                "series": series,
+        ranked.append(candidate)
+    ranked.sort(
+        key=lambda item: (
+            -item["series"]["trailing_usd_turnover"],
+            item["canonical_asset_id"],
+            item["pair_id"],
+        )
+    )
+    target = universe_policy["target_asset_count"]
+    selected = []
+    taxonomy_unknown = []
+    excluded = []
+    for rank, item in enumerate(ranked, start=1):
+        category = taxonomy_category(
+            item["canonical_asset_id"], as_of, taxonomy_policy
+        )
+        summary = {
+            "rank_before_taxonomy": rank,
+            "canonical_asset_id": item["canonical_asset_id"],
+            "pair_id": item["pair_id"],
+            "trailing_usd_turnover": render_decimal(
+                item["series"]["trailing_usd_turnover"], 12
+            ),
+        }
+        if category is None:
+            taxonomy_unknown.append(summary)
+            continue
+        if category in excluded_categories:
+            excluded.append(summary | {"category": category})
+            continue
+        if category != taxonomy_policy["eligible_category"]:
+            fail("TAXONOMY_CATEGORY_INVALID", category)
+        selected.append(
+            item
+            | {
+                "rank_before_taxonomy": rank,
+                "selected_rank": len(selected) + 1,
+                "taxonomy_category": category,
             }
         )
-    missing = [item["pair_id"] for item in members if item["series"] is None]
-    if missing:
-        fail("COVERAGE_INCOMPLETE", ",".join(missing))
-    minimum = universe_policy["minimum_asset_count"]
-    if len(members) < minimum:
-        fail("UNIVERSE_BELOW_RATIFIED_MINIMUM", str(len(members)))
-    if not any(item["canonical_asset_id"] == "BTC" for item in members):
-        fail("BTC_REFERENCE_MISSING", as_of.isoformat())
-    if not any(item["canonical_asset_id"] != "BTC" for item in members):
-        fail("ALT_UNIVERSE_EMPTY", as_of.isoformat())
-    return members
+        if len(selected) == target:
+            break
+    diagnostics = {
+        "ranked_candidate_count": len(ranked),
+        "ranking_ineligible_count": len(ranking_ineligible),
+        "ranking_ineligible": ranking_ineligible,
+        "taxonomy_excluded_before_cutoff": excluded,
+        "taxonomy_unknown_before_cutoff": taxonomy_unknown,
+    }
+    if taxonomy_unknown:
+        return {
+            "status": "UNKNOWN",
+            "reason": "TAXONOMY_COVERAGE_UNKNOWN",
+            "members": [],
+            "diagnostics": diagnostics,
+        }
+    if len(selected) < target:
+        return {
+            "status": "UNKNOWN",
+            "reason": "RANK_ELIGIBLE_UNIVERSE_BELOW_TARGET",
+            "members": [],
+            "diagnostics": diagnostics
+            | {"known_eligible_count": len(selected)},
+        }
+    if not any(item["canonical_asset_id"] == "BTC" for item in selected):
+        return {
+            "status": "UNKNOWN",
+            "reason": "BTC_REFERENCE_NOT_SELECTED",
+            "members": [],
+            "diagnostics": diagnostics,
+        }
+    observed = [
+        item
+        for item in selected
+        if item["series"]["previous_close"] is not None
+        and item["series"]["latest_close"] is not None
+    ]
+    observed_ids = {item["canonical_asset_id"] for item in observed}
+    missing = [
+        {
+            "canonical_asset_id": item["canonical_asset_id"],
+            "pair_id": item["pair_id"],
+        }
+        for item in selected
+        if item["canonical_asset_id"] not in observed_ids
+    ]
+    coverage_bps = len(observed) * 10000 // target
+    diagnostics |= {
+        "selected_asset_count": len(selected),
+        "observed_asset_count": len(observed),
+        "observation_coverage_bps": coverage_bps,
+        "missing_observation_members": missing,
+    }
+    if "BTC" not in observed_ids:
+        return {
+            "status": "UNKNOWN",
+            "reason": "BTC_REFERENCE_OBSERVATION_MISSING",
+            "members": [],
+            "diagnostics": diagnostics,
+        }
+    if coverage_bps < universe_policy["minimum_observation_coverage_bps"]:
+        return {
+            "status": "UNKNOWN",
+            "reason": "OBSERVATION_COVERAGE_BELOW_90_PERCENT",
+            "members": [],
+            "diagnostics": diagnostics,
+        }
+    return {
+        "status": "OBSERVED_UNCLASSIFIED",
+        "reason": None,
+        "members": observed,
+        "diagnostics": diagnostics,
+    }
 
 
 def member_payload(item: dict) -> dict:
@@ -936,6 +1279,12 @@ def member_payload(item: dict) -> dict:
         "canonical_asset_id": item["canonical_asset_id"],
         "source_asset_id": item["source_asset_id"],
         "pair_id": item["pair_id"],
+        "rank_before_taxonomy": item["rank_before_taxonomy"],
+        "selected_rank": item["selected_rank"],
+        "taxonomy_category": item["taxonomy_category"],
+        "trailing_30d_usd_turnover": render_decimal(
+            series["trailing_usd_turnover"], 12
+        ),
         "previous_finalized_day": series["previous_finalized_day"],
         "latest_finalized_day": series["latest_finalized_day"],
         "previous_close": render_decimal(series["previous_close"], 12),
@@ -975,6 +1324,7 @@ def build_transform(
     snapshot_dir: Path,
     contract: Optional[dict] = None,
     universe_policy_path: Path = UNIVERSE_POLICY_PATH,
+    exclusion_taxonomy_path: Path = EXCLUSION_TAXONOMY_PATH,
     identity_exceptions_path: Path = IDENTITY_EXCEPTIONS_PATH,
 ) -> dict:
     contract = load_contract() if contract is None else contract
@@ -985,34 +1335,114 @@ def build_transform(
     )
     manifest = validate_manifest(core, snapshot_dir)
     universe_policy = load_universe_policy(universe_policy_path)
-    members = qualified_members(core, universe_policy)
+    taxonomy_policy = load_exclusion_taxonomy(exclusion_taxonomy_path)
+    selection = qualified_members(
+        core, universe_policy, taxonomy_policy
+    )
+    members = selection["members"]
     rendered = [member_payload(item) for item in members]
     rendered.sort(key=lambda item: item["canonical_asset_id"])
     btc = [item for item in rendered if item["canonical_asset_id"] == "BTC"]
     alts = [item for item in rendered if item["canonical_asset_id"] != "BTC"]
     manifest_sha = file_sha256(Path(snapshot_dir) / "_manifest.json")
     as_of = (core["vintage"] - dt.timedelta(days=1)).isoformat()
+    diagnostics = selection["diagnostics"]
+    universe = {
+        "kind": universe_policy["universe_kind"],
+        "policy_version": universe_policy["policy_version"],
+        "policy_sha256": file_sha256(universe_policy_path),
+        "approval_status": universe_policy["approval_status"],
+        "effective_from": universe_policy["effective_from"],
+        "quote_currency": universe_policy["quote_currency"],
+        "selection_rule": universe_policy["selection_rule"],
+        "ranking_lookback_finalized_days": universe_policy[
+            "ranking_lookback_finalized_days"
+        ],
+        "ranking_metric": universe_policy["ranking_metric"],
+        "ranking_end_policy": universe_policy["ranking_end_policy"],
+        "target_asset_count": universe_policy["target_asset_count"],
+        "minimum_observation_coverage_bps": universe_policy[
+            "minimum_observation_coverage_bps"
+        ],
+        "taxonomy": {
+            "policy_version": taxonomy_policy["policy_version"],
+            "policy_sha256": file_sha256(exclusion_taxonomy_path),
+            "approval_status": taxonomy_policy["approval_status"],
+            "effective_from": taxonomy_policy["effective_from"],
+            "eligible_category": taxonomy_policy["eligible_category"],
+            "excluded_categories": taxonomy_policy["excluded_categories"],
+        },
+        "ranked_candidate_count": diagnostics["ranked_candidate_count"],
+        "ranking_ineligible_count": diagnostics[
+            "ranking_ineligible_count"
+        ],
+        "ranking_ineligible": diagnostics["ranking_ineligible"],
+        "taxonomy_excluded_before_cutoff": diagnostics[
+            "taxonomy_excluded_before_cutoff"
+        ],
+        "taxonomy_unknown_before_cutoff": diagnostics[
+            "taxonomy_unknown_before_cutoff"
+        ],
+        "selected_asset_count": diagnostics.get("selected_asset_count", 0),
+        "observed_asset_count": diagnostics.get("observed_asset_count", 0),
+        "observation_coverage_bps": diagnostics.get(
+            "observation_coverage_bps", 0
+        ),
+        "coverage_complete": (
+            diagnostics.get("observed_asset_count")
+            == universe_policy["target_asset_count"]
+        ),
+        "missing_observation_members": diagnostics.get(
+            "missing_observation_members", []
+        ),
+        "members": rendered,
+    }
+    lineage = {
+        "pit_status": "qualified_as_captured_universe",
+        "vintage_date": core["snapshot_date"],
+        "available_at": core["fetched_at_utc"],
+        "capture_version": manifest["capture_version"],
+        "manifest_sha256": manifest_sha,
+        "identity_policy_version": core["identity"]["policy_version"],
+        "identity_policy_sha256": core["identity_policy_sha256"],
+        "historical_universe_policy": contract[
+            "historical_universe_policy"
+        ],
+    }
+    if selection["status"] == "UNKNOWN":
+        return {
+            "schema_version": 2,
+            "transform_version": contract["transform_version"],
+            "market": "CRYPTO",
+            "measurement": "raw_alt_participation",
+            "status": "UNKNOWN",
+            "unknown_reason": selection["reason"],
+            "as_of_date": as_of,
+            "previous_date": (
+                core["vintage"] - dt.timedelta(days=2)
+            ).isoformat(),
+            "universe": universe,
+            "btc_reference": None,
+            "alt_participation": None,
+            "current_candle": {
+                "date": core["snapshot_date"],
+                "excluded_for_every_member": True,
+                "reason": "source_documents_not_yet_committed_timeframe",
+            },
+            "lineage": lineage,
+        } | authority_boundary()
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "transform_version": contract["transform_version"],
         "market": "CRYPTO",
         "measurement": "raw_alt_participation",
-        "status": "OBSERVED_UNCLASSIFIED",
+        "status": selection["status"],
+        "unknown_reason": None,
         "as_of_date": as_of,
         "previous_date": (
             core["vintage"] - dt.timedelta(days=2)
         ).isoformat(),
-        "universe": {
-            "kind": universe_policy["universe_kind"],
-            "policy_version": universe_policy["policy_version"],
-            "policy_sha256": file_sha256(universe_policy_path),
-            "approval_status": universe_policy["approval_status"],
-            "effective_from": universe_policy["effective_from"],
-            "quote_currency": universe_policy["quote_currency"],
-            "asset_count": len(rendered),
-            "coverage_complete": True,
-            "members": rendered,
-        },
+        "universe": universe,
         "btc_reference": btc[0],
         "alt_participation": participation(
             alts, contract["output_decimal_places"]
@@ -1022,18 +1452,7 @@ def build_transform(
             "excluded_for_every_member": True,
             "reason": "source_documents_not_yet_committed_timeframe",
         },
-        "lineage": {
-            "pit_status": "qualified_as_captured_universe",
-            "vintage_date": core["snapshot_date"],
-            "available_at": core["fetched_at_utc"],
-            "capture_version": manifest["capture_version"],
-            "manifest_sha256": manifest_sha,
-            "identity_policy_version": core["identity"]["policy_version"],
-            "identity_policy_sha256": core["identity_policy_sha256"],
-            "historical_universe_policy": contract[
-                "historical_universe_policy"
-            ],
-        },
+        "lineage": lineage,
     } | authority_boundary()
 
 
@@ -1047,6 +1466,7 @@ def build_replay(
     snapshot_root: Path,
     contract: Optional[dict] = None,
     universe_policy_path: Path = UNIVERSE_POLICY_PATH,
+    exclusion_taxonomy_path: Path = EXCLUSION_TAXONOMY_PATH,
     identity_exceptions_path: Path = IDENTITY_EXCEPTIONS_PATH,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1075,13 +1495,14 @@ def build_replay(
                 path,
                 contract=contract,
                 universe_policy_path=universe_policy_path,
+                exclusion_taxonomy_path=exclusion_taxonomy_path,
                 identity_exceptions_path=identity_exceptions_path,
             )
         )
     if not points:
         fail("REPLAY_RANGE_EMPTY", f"{start_date}..{end_date}")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "replay_version": contract["replay_version"],
         "transform_version": contract["transform_version"],
         "mode": "independent_as_captured_daily_snapshots",
@@ -1116,6 +1537,9 @@ def main(argv=None) -> int:
         "--universe-policy", type=Path, default=UNIVERSE_POLICY_PATH
     )
     transform.add_argument(
+        "--exclusion-taxonomy", type=Path, default=EXCLUSION_TAXONOMY_PATH
+    )
+    transform.add_argument(
         "--identity-exceptions", type=Path, default=IDENTITY_EXCEPTIONS_PATH
     )
     transform.add_argument("--out", type=Path)
@@ -1124,6 +1548,9 @@ def main(argv=None) -> int:
     replay.add_argument("snapshot_root", type=Path)
     replay.add_argument(
         "--universe-policy", type=Path, default=UNIVERSE_POLICY_PATH
+    )
+    replay.add_argument(
+        "--exclusion-taxonomy", type=Path, default=EXCLUSION_TAXONOMY_PATH
     )
     replay.add_argument(
         "--identity-exceptions", type=Path, default=IDENTITY_EXCEPTIONS_PATH
@@ -1151,12 +1578,14 @@ def main(argv=None) -> int:
         payload = build_transform(
             args.snapshot_dir,
             universe_policy_path=args.universe_policy,
+            exclusion_taxonomy_path=args.exclusion_taxonomy,
             identity_exceptions_path=args.identity_exceptions,
         )
     else:
         payload = build_replay(
             args.snapshot_root,
             universe_policy_path=args.universe_policy,
+            exclusion_taxonomy_path=args.exclusion_taxonomy,
             identity_exceptions_path=args.identity_exceptions,
             start_date=args.start_date,
             end_date=args.end_date,
