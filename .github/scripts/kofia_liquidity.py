@@ -193,6 +193,41 @@ def parse_observation_date(value: object, label: str) -> dt.date:
         fail("OBSERVATION_DATE_INVALID", label)
 
 
+def safe_character_classes(value: str) -> str:
+    """Return a bounded character-class pattern, never the source text."""
+    classes = []
+    for character in value[:32]:
+        if character.isascii() and character.isdigit():
+            current = "digit"
+        elif character == ".":
+            current = "dot"
+        elif character == ",":
+            current = "comma"
+        elif character == "-":
+            current = "minus"
+        elif character == "+":
+            current = "plus"
+        elif character == "%":
+            current = "percent"
+        elif character in "eE":
+            current = "exponent"
+        elif character.isspace():
+            current = "whitespace"
+        else:
+            current = "other"
+        if classes and classes[-1][0] == current:
+            classes[-1][1] += 1
+        else:
+            classes.append([current, 1])
+    pattern = ",".join(
+        name if count == 1 else f"{name}*{count}"
+        for name, count in classes
+    )
+    if len(value) > 32:
+        pattern += ",truncated"
+    return pattern or "empty"
+
+
 def safe_value_shape(value: object) -> str:
     """Describe an unexpected source value without logging its contents."""
     if isinstance(value, str):
@@ -201,7 +236,8 @@ def safe_value_shape(value: object) -> str:
             f"str(length={len(value)},stripped_length={len(stripped)},"
             f"decimal_text={str(DECIMAL_TEXT.fullmatch(stripped) is not None).lower()},"
             "grouped_decimal_text="
-            f"{str(GROUPED_DECIMAL_TEXT.fullmatch(stripped) is not None).lower()})"
+            f"{str(GROUPED_DECIMAL_TEXT.fullmatch(stripped) is not None).lower()},"
+            f"character_classes={safe_character_classes(value)})"
         )
     if value is None:
         return "null"

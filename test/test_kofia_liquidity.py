@@ -275,9 +275,18 @@ class KofiaLiquidityContractTest(unittest.TestCase):
 
         self.assertEqual(MODULE.safe_value_shape(" - "), (
             "str(length=3,stripped_length=1,decimal_text=false,"
-            "grouped_decimal_text=false)"
+            "grouped_decimal_text=false,"
+            "character_classes=whitespace,minus,whitespace)"
         ))
         self.assertEqual(MODULE.safe_value_shape(None), "null")
+        self.assertIn("character_classes=dot,digit", MODULE.safe_value_shape(".0"))
+        self.assertIn("character_classes=minus,digit", MODULE.safe_value_shape("-1"))
+        self.assertIn("character_classes=digit,percent", MODULE.safe_value_shape("0%"))
+        self.assertIn("character_classes=minus*2", MODULE.safe_value_shape("--"))
+        self.assertIn(
+            "character_classes=digit,exponent,digit",
+            MODULE.safe_value_shape("1e3"),
+        )
 
     def test_canonical_numeric_text_is_normalized_and_other_text_fails_closed(self):
         accepted = {
