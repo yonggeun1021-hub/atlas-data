@@ -7,6 +7,7 @@
 3. briefing read model build는 Guard=fresh 에서도 실행 가능하다.
 4. Commit data도 read-model-only repair를 저장할 수 있다.
 5. Guard=fresh 안내문이 workflow 전체 종료라고 잘못 표현하지 않는다.
+6. 임시 schedule 없이 정규 3회 수집 슬롯만 유지한다.
 
 증명하지 못하는 것:
 - 실제 GitHub Actions runner 실행 결과
@@ -135,6 +136,20 @@ class P003WorkflowContractTest(unittest.TestCase):
         command = regression.get("run", "")
         self.assertIn("test/test_briefing_inputs.py", command)
         self.assertNotIn("rm -rf data/briefing", command)
+
+    def test_daily_collect_has_only_production_schedule_slots(self):
+        triggers = WF.get("on", WF.get(True))
+        schedules = triggers["schedule"]
+        crons = {item["cron"] for item in schedules}
+
+        self.assertEqual(
+            crons,
+            {
+                "5 21 * * 0-4",
+                "25 21 * * 0-4",
+                "45 21 * * 0-4",
+            },
+        )
 
 
 if __name__ == "__main__":
