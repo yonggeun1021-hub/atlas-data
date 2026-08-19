@@ -339,6 +339,17 @@ class P004KrxPostCloseTest(unittest.TestCase):
         command = commit.get("run", "")
         self.assertIn("data/observations/krx_post_close", command)
         self.assertIn("data/incident/krx_post_close", command)
+        self.assertIn('if [ -d "$evidence_path" ]', command)
+        self.assertIn("successful collection produced no staged", command)
+        self.assertNotIn("|| true", command)
+        self.assertEqual(
+            commit.get("env", {}).get("GUARD_SKIP"),
+            "${{ steps.guard.outputs.skip }}",
+        )
+        self.assertEqual(
+            commit.get("env", {}).get("COLLECT_OUTCOME"),
+            "${{ steps.post_close.outcome }}",
+        )
         self.assertNotIn("latest_krx.json", command)
         self.assertNotIn("data/briefing", command)
 
