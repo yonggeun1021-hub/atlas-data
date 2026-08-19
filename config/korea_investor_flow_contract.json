@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_investor_flow_coverage/v1",
+  "source": {
+    "authority": "Korea Exchange",
+    "system": "KRX Information Data System",
+    "adapter": "pykrx",
+    "payload_source_label": "KRX 정보데이터시스템 (pykrx)",
+    "source_tier": "Official"
+  },
+  "coverage": {
+    "observation_grain": "tracked_security",
+    "market_venue_scope": "KRX_ONLY",
+    "security_market_segment_status": "not_recorded_in_payload",
+    "nxt_included": false,
+    "whole_korea_market_claim_authorized": false,
+    "covered_sources": [
+      "net_value",
+      "net_volume"
+    ],
+    "basic_investor_categories": [
+      "기관합계",
+      "외국인합계",
+      "개인",
+      "기타법인"
+    ]
+  },
+  "finality": {
+    "same_day_confirmation": "next_day",
+    "confirmed_reason": "prior_session",
+    "same_day_rows_decision_eligible": false,
+    "source_release_time_status": "unverified",
+    "available_at_policy": "primary_source_release_evidence_required",
+    "collector_observed_at_is_available_at": false
+  },
+  "missing_policy": {
+    "source_row_absent": "SOURCE_ROW_MISSING",
+    "investor_category_absent": "INVESTOR_CATEGORY_MISSING",
+    "venue_not_covered": "VENUE_NOT_INCLUDED",
+    "observed_zero": "OBSERVED_ZERO",
+    "stock_collection_failed": "SOURCE_FAILED"
+  },
+  "authority": {
+    "decision_eligible": false,
+    "regime_score_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  }
+}
