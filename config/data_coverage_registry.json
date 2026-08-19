@@ -1,0 +1,676 @@
+{
+  "schema_version": 1,
+  "registry_version": "data_coverage_registry/2026-08-20",
+  "inventory_basis": {
+    "regime": "config/regime_output_contract.json",
+    "discovery": "Atlas Master WBS P3 Discovery snapshot 2026-08-20",
+    "rule": "config/rules.json"
+  },
+  "sources": [
+    {
+      "source_id": "dart_open_api",
+      "name": "DART Open API",
+      "cost_status": "FREE",
+      "evidence_ref": "collectors/dart.py"
+    },
+    {
+      "source_id": "defillama_stablecoins_api",
+      "name": "DefiLlama Stablecoins API",
+      "cost_status": "FREE",
+      "evidence_ref": "config/stablecoin_endpoint_contract.json"
+    },
+    {
+      "source_id": "fred_s2",
+      "name": "FRED WRESBAL/TOTBKCR",
+      "cost_status": "FREE",
+      "evidence_ref": "atlas_fred_s2_noraw.py"
+    },
+    {
+      "source_id": "kofia_open_api",
+      "name": "KOFIA Statistics Open API",
+      "cost_status": "FREE",
+      "evidence_ref": "config/kofia_liquidity_contract.json"
+    },
+    {
+      "source_id": "kraken_public_api",
+      "name": "Kraken Public Market Data API",
+      "cost_status": "FREE",
+      "evidence_ref": "config/crypto_breadth_contract.json"
+    },
+    {
+      "source_id": "krx_open_api_index_daily",
+      "name": "KRX Open API Index Daily",
+      "cost_status": "FREE",
+      "evidence_ref": "atlas_krx_r2_openapi_probe.py"
+    },
+    {
+      "source_id": "krx_open_api_stock_daily",
+      "name": "KRX Open API Stock Daily",
+      "cost_status": "FREE",
+      "evidence_ref": "config/korea_breadth_contract.json"
+    },
+    {
+      "source_id": "microsoft_sec_issuer_disclosure",
+      "name": "Microsoft SEC and issuer disclosure",
+      "cost_status": "FREE",
+      "evidence_ref": "collectors/msft_sec_results_acquisition.py"
+    },
+    {
+      "source_id": "nasdaq_trader_symbol_directory",
+      "name": "Nasdaq Trader Symbol Directory",
+      "cost_status": "FREE",
+      "evidence_ref": "config/us_breadth_forward_contract.json"
+    },
+    {
+      "source_id": "sec_edgar",
+      "name": "SEC EDGAR",
+      "cost_status": "FREE",
+      "evidence_ref": "collectors/sec.py"
+    },
+    {
+      "source_id": "tiingo_us_daily_price",
+      "name": "Tiingo US Daily Price transient contract",
+      "cost_status": "FREE_TIER",
+      "evidence_ref": "atlas_tiingo_r1_transient.py"
+    },
+    {
+      "source_id": "tsmc_investor_relations",
+      "name": "TSMC Investor Relations",
+      "cost_status": "FREE",
+      "evidence_ref": "collectors/tsmc_monthly.py"
+    }
+  ],
+  "regime_consumers": [
+    {
+      "consumer_id": "REGIME:CRYPTO:BREADTH",
+      "market": "CRYPTO",
+      "axis": "BREADTH",
+      "input_requirement": "eligible crypto asset participation",
+      "source_ids": [
+        "kraken_public_api"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "finalized UTC daily buckets; scheduled live history still accumulating"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "CR-06 transform exists; first scheduled Top-100 evidence remains an operations gate."
+    },
+    {
+      "consumer_id": "REGIME:CRYPTO:LEADERSHIP",
+      "market": "CRYPTO",
+      "axis": "LEADERSHIP",
+      "input_requirement": "BTC/ETH/Alt and sector-chain relative strength",
+      "source_ids": [
+        "kraken_public_api"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "7-day pilot and 30-day primary finalized UTC windows"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Price replay is implemented; sector/chain taxonomy and live windows remain incomplete."
+    },
+    {
+      "consumer_id": "REGIME:CRYPTO:LIQUIDITY",
+      "market": "CRYPTO",
+      "axis": "LIQUIDITY",
+      "input_requirement": "stablecoin net issuance",
+      "source_ids": [
+        "defillama_stablecoins_api"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "append-only daily capture with explicit revision lineage"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Endpoint, PIT revision, schedule, and net-issuance contracts are implemented."
+    },
+    {
+      "consumer_id": "REGIME:CRYPTO:RISK_VOL",
+      "market": "CRYPTO",
+      "axis": "RISK_VOL",
+      "input_requirement": "BTC realized volatility and drawdown",
+      "source_ids": [
+        "kraken_public_api"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "finalized UTC daily close; current candle excluded"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Transform exists; stress threshold and Regime weight remain unauthorized."
+    },
+    {
+      "consumer_id": "REGIME:CRYPTO:TREND",
+      "market": "CRYPTO",
+      "axis": "TREND",
+      "input_requirement": "BTC finalized daily close and 200DMA",
+      "source_ids": [
+        "kraken_public_api"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "finalized UTC daily close; exact 200-close window"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Source and transform contracts exist; live capture history is forward-only."
+    },
+    {
+      "consumer_id": "REGIME:KR:BREADTH",
+      "market": "KR",
+      "axis": "BREADTH",
+      "input_requirement": "KOSPI/KOSDAQ advance-decline participation",
+      "source_ids": [
+        "krx_open_api_stock_daily"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "PARTIAL",
+        "policy": "exact trading-date rows verified; official publication timing not separately ratified"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Historical and recent KOSPI/KOSDAQ live proof is complete."
+    },
+    {
+      "consumer_id": "REGIME:KR:LEADERSHIP",
+      "market": "KR",
+      "axis": "LEADERSHIP",
+      "input_requirement": "KOSPI/KOSDAQ/sector/theme relative strength",
+      "source_ids": [
+        "krx_open_api_index_daily",
+        "krx_open_api_stock_daily"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Transform exists; stable taxonomy identity and official publication timing remain open."
+    },
+    {
+      "consumer_id": "REGIME:KR:LIQUIDITY",
+      "market": "KR",
+      "axis": "LIQUIDITY",
+      "input_requirement": "investor deposits and margin credit",
+      "source_ids": [
+        "kofia_open_api"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Official operations are known; API raw unit, durable history, and source release time remain open."
+    },
+    {
+      "consumer_id": "REGIME:KR:RISK_VOL",
+      "market": "KR",
+      "axis": "RISK_VOL",
+      "input_requirement": "KOSPI realized volatility and drawdown",
+      "source_ids": [
+        "krx_open_api_index_daily"
+      ],
+      "source_status": "UNRATIFIED",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Derived transform exists but input and publication-timing policy is still unratified."
+    },
+    {
+      "consumer_id": "REGIME:KR:TREND",
+      "market": "KR",
+      "axis": "TREND",
+      "input_requirement": "official KOSPI/KOSDAQ index trend",
+      "source_ids": [
+        "krx_open_api_index_daily"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Index service is approved; axis transform and official availability policy are not ratified."
+    },
+    {
+      "consumer_id": "REGIME:US:BREADTH",
+      "market": "US",
+      "axis": "BREADTH",
+      "input_requirement": "point-in-time membership and member price participation",
+      "source_ids": [
+        "nasdaq_trader_symbol_directory",
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "PARTIAL",
+        "policy": "forward daily membership capture; authoritative historical delisted coverage unavailable"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Forward source contract exists; historical universe reconstruction remains incomplete."
+    },
+    {
+      "consumer_id": "REGIME:US:LEADERSHIP",
+      "market": "US",
+      "axis": "LEADERSHIP",
+      "input_requirement": "market-relative strength and group participation",
+      "source_ids": [
+        "nasdaq_trader_symbol_directory",
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "UNRATIFIED",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Transform capability exists; price, benchmark, universe, and coverage policies remain unratified."
+    },
+    {
+      "consumer_id": "REGIME:US:LIQUIDITY",
+      "market": "US",
+      "axis": "LIQUIDITY",
+      "input_requirement": "FRED reserve balance and bank credit vintages",
+      "source_ids": [
+        "fred_s2"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "point-in-time vintage with rollback and no-raw retention contract"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Source capability and temporal rollback contract are complete."
+    },
+    {
+      "consumer_id": "REGIME:US:RISK_VOL",
+      "market": "US",
+      "axis": "RISK_VOL",
+      "input_requirement": "US realized volatility and drawdown",
+      "source_ids": [
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "UNRATIFIED",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Transform capability exists; source identity, session calendar, and lookbacks remain unratified."
+    },
+    {
+      "consumer_id": "REGIME:US:TREND",
+      "market": "US",
+      "axis": "TREND",
+      "input_requirement": "temporally eligible US daily close trend",
+      "source_ids": [
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "transient daily price with temporal eligibility and no vendor-price retention"
+      },
+      "fallback": {
+        "status": "DEFINED",
+        "behavior": "UNKNOWN"
+      },
+      "note": "Free-tier transient source contract is implemented; authoritative 2008 PIT remains unavailable."
+    }
+  ],
+  "discovery_consumers": [
+    {
+      "consumer_id": "DISCOVERY:P3-01",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c84819980bed065758bf83a",
+      "work_item": "P3-01 Global Security / Asset Master",
+      "markets": [
+        "Common",
+        "US",
+        "Korea",
+        "Crypto"
+      ],
+      "input_requirement": "시장별 universe 정책",
+      "source_ids": [
+        "kraken_public_api",
+        "krx_open_api_stock_daily",
+        "nasdaq_trader_symbol_directory"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Market-specific source capabilities exist; one cross-market identity master does not."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-02",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c848113a5c0c883eeea967b",
+      "work_item": "P3-02 US investable universe",
+      "markets": [
+        "US"
+      ],
+      "input_requirement": "US market data coverage",
+      "source_ids": [
+        "nasdaq_trader_symbol_directory",
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Forward membership and transient price exist; listing, delisting, liquidity, and tradability policy is open."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-03",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c84811d942efe5602b3e102",
+      "work_item": "P3-03 KOSPI / KOSDAQ universe",
+      "markets": [
+        "Korea"
+      ],
+      "input_requirement": "KRX historical/current universe proof",
+      "source_ids": [
+        "krx_open_api_stock_daily"
+      ],
+      "source_status": "QUALIFIED",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Source proof exists; approved investable-Universe rules are not yet defined."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-04",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c8481e594ecd4b7bc1ac045",
+      "work_item": "P3-04 Crypto investable universe",
+      "markets": [
+        "Crypto"
+      ],
+      "input_requirement": "유동성/거래소/상장폐지/rename 정책",
+      "source_ids": [
+        "kraken_public_api"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "DEFINED",
+        "policy": "append-only UTC daily asset and pair snapshots"
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Source snapshots exist; investability, delisting, and rename policy is open."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-05",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c84818b97abce93e139864f",
+      "work_item": "P3-05 Business Acceleration radar",
+      "markets": [
+        "US",
+        "Korea"
+      ],
+      "input_requirement": "Evidence network",
+      "source_ids": [
+        "dart_open_api",
+        "microsoft_sec_issuer_disclosure",
+        "sec_edgar",
+        "tsmc_investor_relations"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Issuer-specific collectors exist; no complete cross-company evidence network or radar contract exists."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-06",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c84813dabebfc70ba2fb8c5",
+      "work_item": "P3-06 Expectations / Estimate Revision radar",
+      "markets": [
+        "US",
+        "Korea"
+      ],
+      "input_requirement": "consensus/estimate source",
+      "source_ids": [],
+      "source_status": "NOT_IMPLEMENTED",
+      "freshness": {
+        "status": "UNRESOLVED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "No free source is selected; any paid source requires explicit user reapproval."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-07",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c8481038e96fbbf3ff789d9",
+      "work_item": "P3-07 Market Behavior radar",
+      "markets": [
+        "US",
+        "Korea",
+        "Crypto"
+      ],
+      "input_requirement": "price/volume data",
+      "source_ids": [
+        "kraken_public_api",
+        "krx_open_api_stock_daily",
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Market data capabilities exist; anomaly definition and cross-market cadence are open."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-08",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c8481a9b0f6c8d4c57fef27",
+      "work_item": "P3-08 Event / Contract / Policy radar",
+      "markets": [
+        "US",
+        "Korea",
+        "Crypto"
+      ],
+      "input_requirement": "SEC/DART/news/policy ingestion",
+      "source_ids": [
+        "dart_open_api",
+        "sec_edgar"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "SEC/DART capabilities are partial; news and policy ingestion is not implemented."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-09",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c8481589c33f7a800968dde",
+      "work_item": "P3-09 Supply-Demand / Scarcity radar",
+      "markets": [
+        "US",
+        "Korea",
+        "Crypto"
+      ],
+      "input_requirement": "시장별 supply/demand data",
+      "source_ids": [],
+      "source_status": "NOT_IMPLEMENTED",
+      "freshness": {
+        "status": "UNRESOLVED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "No cross-market supply-demand source or measurement contract is selected."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-10",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c84815fb8f0f6cadf8d98c5",
+      "work_item": "P3-10 Valuation / Risk deterioration context",
+      "markets": [
+        "US",
+        "Korea",
+        "Crypto"
+      ],
+      "input_requirement": "fundamental/market data",
+      "source_ids": [
+        "dart_open_api",
+        "kraken_public_api",
+        "krx_open_api_stock_daily",
+        "sec_edgar",
+        "tiingo_us_daily_price"
+      ],
+      "source_status": "PARTIAL",
+      "freshness": {
+        "status": "UNRATIFIED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Underlying source fragments exist; valuation/risk context and coverage contract is not implemented."
+    },
+    {
+      "consumer_id": "DISCOVERY:P3-11",
+      "wbs_url": "https://app.notion.com/3bf9f2d73c84813a8804dd2dbfa99ecb",
+      "work_item": "P3-11 Wildcard Discovery path",
+      "markets": [
+        "US",
+        "Korea",
+        "Crypto"
+      ],
+      "input_requirement": "Discovery Case schema",
+      "source_ids": [],
+      "source_status": "NOT_IMPLEMENTED",
+      "freshness": {
+        "status": "UNRESOLVED",
+        "policy": null
+      },
+      "fallback": {
+        "status": "UNRATIFIED",
+        "behavior": null
+      },
+      "note": "Discovery Case schema and no-auto-promotion path are not implemented."
+    }
+  ],
+  "rule_mapping": {
+    "source_refs": [
+      {
+        "rule_id": "RULE-0003",
+        "source_ids": [
+          "tsmc_investor_relations"
+        ]
+      },
+      {
+        "rule_id": "RULE-0007",
+        "source_ids": [
+          "tsmc_investor_relations"
+        ]
+      },
+      {
+        "rule_id": "RULE-0008",
+        "source_ids": [
+          "tsmc_investor_relations"
+        ]
+      },
+      {
+        "rule_id": "RULE-0021",
+        "source_ids": [
+          "microsoft_sec_issuer_disclosure"
+        ]
+      }
+    ],
+    "freshness": {
+      "status": "UNRESOLVED",
+      "policy": null
+    },
+    "fallback": {
+      "status": "UNRESOLVED",
+      "behavior": null
+    },
+    "note": "Rule source state comes only from config/rules.json; missing freshness and fallback policy is not inferred from evaluator status."
+  }
+}
