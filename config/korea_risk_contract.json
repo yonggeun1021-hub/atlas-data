@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_risk_contract/v1",
+  "transform_version": "korea_risk/v1",
+  "measurement": "korea_risk_vol_derived_features",
+  "return_semantics": "simple_close_to_close",
+  "realized_vol_estimator": "sqrt_mean_squared_simple_returns",
+  "drawdown_semantics": "close_peak_to_trough",
+  "session_coverage_policy": "exact_expected_session_dates_no_fill",
+  "input_retention_policy": "transient_memory_or_stdin_only",
+  "output_retention_policy": "non_reconstructive_derived_features_only",
+  "stress_calibration_status": "UNRATIFIED",
+  "output_decimal_places": 12,
+  "rounding": "ROUND_HALF_EVEN"
+}

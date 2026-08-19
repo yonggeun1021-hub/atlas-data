@@ -71,6 +71,11 @@ APPROVED_TESTS = [
     #   원시 상대수익률만 재현하며 ranking/Regime/Production 권한은 닫아 둔다.
     #   ⛔ live KRX 호출/tracked factor 없음 — temp policies/stdin fixtures only.
     "test/test_korea_leadership.py",
+    # ★ P1-KR-06 — Korea Risk / Vol transient derived-feature contract.
+    #   비준된 KRX index available_at envelope에서 RV/drawdown만 재현하며
+    #   기본 source timing policy와 stress/Regime/Production 권한은 닫아 둔다.
+    #   ⛔ live KRX 호출/tracked factor 없음 — temp policies/stdin fixtures only.
+    "test/test_korea_risk.py",
     # ★ P1-KR-05 — KRX official stock PIT universe + raw breadth pilot.
     #   exact-date KOSPI/KOSDAQ response rows로 source-coverage universe와
     #   advance/decline/unchanged를 재현하되 raw persistence·classification·
