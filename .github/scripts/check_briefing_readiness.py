@@ -170,7 +170,7 @@ def validate_compact_views(data_root, name, source, source_sha, reasons):
             reasons.append(f"{name}:{symbol}:symbol_mismatch")
             continue
 
-        expected_schema = 2 if name == "krx" else 1
+        expected_schema = 2
         if compact.get("schema_version") != expected_schema:
             reasons.append(f"{name}:{symbol}:schema_version_mismatch")
             continue
@@ -215,6 +215,9 @@ def validate_read_model(data_root, expected_date, sources, hashes):
             "compact_path_templates": [
                 "data/briefing/krx/{SYMBOL}.json",
                 "data/briefing/sec/{SYMBOL}.json",
+            ],
+            "optional_evidence_sources": [
+                "data/latest_sec_content.json",
             ],
         }
         if step0.get("read_model_inventory") != expected_inventory:

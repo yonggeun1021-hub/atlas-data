@@ -218,7 +218,53 @@ def build_krx_views(obj, sha, out_root):
             path.unlink()
 
 
-def compact_sec_stock(stock):
+def sec_content_index(content):
+    if content is None:
+        return {}
+    if content.get("schema_version") != "sec_filing_content_run/1":
+        raise RuntimeError("sec_content:schema_invalid")
+    records = content.get("records")
+    if not isinstance(records, list):
+        raise RuntimeError("sec_content:records_missing")
+    out = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise RuntimeError("sec_content:record_invalid")
+        identity = record.get("filing_identity") or {}
+        key = (record.get("ticker"), identity.get("accession"))
+        if not all(isinstance(part, str) and part for part in key):
+            raise RuntimeError("sec_content:identity_invalid")
+        if key in out:
+            raise RuntimeError(f"sec_content:identity_duplicate:{key}")
+        out[key] = record
+    return out
+
+
+def compact_content_record(record, content_source):
+    keep = [
+        "discovery_status",
+        "content_status",
+        "evidence_status",
+        "interpretation_status",
+        "rule_impact",
+        "action",
+        "reasons",
+        "retrieved_at_utc",
+        "extractor_version",
+        "documents",
+        "extracted",
+        "operation",
+        "skip_reason",
+        "publication_status",
+        "raw_cache_policy",
+    ]
+    return {
+        **{key: record.get(key) for key in keep if key in record},
+        "source": content_source,
+    }
+
+
+def compact_sec_stock(stock, symbol=None, content=None, content_source=None):
     keep = [
         "name",
         "atlas_stage",
@@ -235,11 +281,23 @@ def compact_sec_stock(stock):
     ]
     out = {k: stock.get(k) for k in keep if k in stock}
     if isinstance(out.get("filings_recent"), list):
-        out["filings_recent"] = out["filings_recent"][:10]
+        filings = []
+        for source_filing in out["filings_recent"][:10]:
+            if not isinstance(source_filing, dict):
+                continue
+            filing = dict(source_filing)
+            record = (content or {}).get((symbol, filing.get("accession")))
+            if record is not None:
+                compact = compact_content_record(record, content_source)
+                filing["content"] = compact
+                filing["body_captured"] = compact.get("content_status") == "OK"
+                filing["body_capture_status"] = compact.get("content_status")
+            filings.append(filing)
+        out["filings_recent"] = filings
     return out
 
 
-def build_sec_views(obj, sha, out_root):
+def build_sec_views(obj, sha, out_root, content=None, content_sha=None):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
         raise RuntimeError("sec:stocks_missing")
@@ -248,16 +306,31 @@ def build_sec_views(obj, sha, out_root):
     target.mkdir(parents=True, exist_ok=True)
 
     expected = set()
+    content_records = sec_content_index(content)
+    content_source = None
+    if content is not None:
+        content_source = {
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": content_sha,
+            "collected_for_kst_date": content.get("collected_for_kst_date"),
+            "observed_at_utc": content.get("observed_at_utc"),
+            "run_status": content.get("run_status"),
+        }
 
     for symbol, stock in stocks.items():
         if not isinstance(stock, dict):
             continue
 
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "market": "SEC",
             "symbol": symbol,
-            "stock": compact_sec_stock(stock),
+            "stock": compact_sec_stock(
+                stock,
+                symbol=symbol,
+                content=content_records,
+                content_source=content_source,
+            ),
             "source": source_meta("sec", obj, sha),
         }
 
@@ -332,6 +405,49 @@ def source_data_ready(expected_date):
     return True
 
 
+def load_optional_sec_content(expected_date):
+    path = DATA / "latest_sec_content.json"
+    if not path.exists():
+        return None, None, {
+            "status": "missing",
+            "source_file": "data/latest_sec_content.json",
+        }
+    try:
+        content, sha = load_json(path)
+        sec_content_index(content)
+    except Exception as exc:
+        return None, None, {
+            "status": "invalid",
+            "source_file": "data/latest_sec_content.json",
+            "error": f"{type(exc).__name__}:{exc}",
+        }
+    observed_date = content.get("collected_for_kst_date")
+    if not expected_date or observed_date != expected_date:
+        return None, None, {
+            "status": "stale",
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": sha,
+            "collected_for_kst_date": observed_date,
+        }
+    run_status = content.get("run_status")
+    if run_status not in {"OK", "DEGRADED"}:
+        return None, None, {
+            "status": "failed",
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": sha,
+            "collected_for_kst_date": observed_date,
+            "run_status": run_status,
+            "reasons": content.get("reasons", []),
+        }
+    return content, sha, {
+        "status": "available" if run_status == "OK" else "degraded",
+        "source_file": "data/latest_sec_content.json",
+        "source_sha256": sha,
+        "collected_for_kst_date": observed_date,
+        "run_status": run_status,
+    }
+
+
 def build_and_publish(expected_date, fail_before_publish=False):
     sources = {}
     hashes = {}
@@ -340,6 +456,10 @@ def build_and_publish(expected_date, fail_before_publish=False):
         obj, sha = load_json(DATA / f"latest_{name}.json")
         sources[name] = obj
         hashes[name] = sha
+
+    sec_content, sec_content_sha, sec_content_status = (
+        load_optional_sec_content(expected_date)
+    )
 
     summaries = {
         name: require_summary(name, sources[name])
@@ -410,6 +530,12 @@ def build_and_publish(expected_date, fail_before_publish=False):
                 "data/briefing/krx/{SYMBOL}.json",
                 "data/briefing/sec/{SYMBOL}.json",
             ],
+            "optional_evidence_sources": [
+                "data/latest_sec_content.json",
+            ],
+        },
+        "optional_evidence": {
+            "sec_content": sec_content_status,
         },
     }
 
@@ -428,7 +554,13 @@ def build_and_publish(expected_date, fail_before_publish=False):
     try:
         write_json(staging / "step0_status.json", status)
         build_krx_views(sources["krx"], hashes["krx"], staging)
-        build_sec_views(sources["sec"], hashes["sec"], staging)
+        build_sec_views(
+            sources["sec"],
+            hashes["sec"],
+            staging,
+            content=sec_content,
+            content_sha=sec_content_sha,
+        )
 
         if fail_before_publish:
             raise RuntimeError("injected_failure_before_publish")
