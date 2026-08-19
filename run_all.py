@@ -101,6 +101,11 @@ APPROVED_TESTS = [
     #   ratified universe 없이는 계산을 막으며 raw advance/decline만 재현한다.
     #   ⛔ live Kraken/workflow/tracked factor 없음 — temp multi-asset fixtures only.
     "test/test_crypto_breadth.py",
+    # ★ P1-CR-07 — Crypto Leadership PIT relative-strength 계약.
+    #   CR-06 날짜별 snapshot을 재사용해 BTC/ETH/Alt/sector/chain 원시 상대강도를
+    #   재현하되 universe·lookback·taxonomy 미비준이면 계산 자체를 막는다.
+    #   ⛔ live Kraken/workflow/tracked factor 없음 — temp policy/snapshot fixtures only.
+    "test/test_crypto_leadership.py",
     # ★ P0-04 — KRX post-close observation / PM briefing freshness.
     #   morning archive/latest와 분리된 exact-date bundle, observed_unconfirmed,
     #   decision_eligible=false, partial-response incident 경계를 검증한다.

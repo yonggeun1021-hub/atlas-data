@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_leadership_contract/v1",
+  "source_helper": ".github/scripts/crypto_breadth.py",
+  "source_transform_version": "crypto_breadth_observation/v1",
+  "market_timezone": "UTC",
+  "measurement": "raw_relative_strength_observation",
+  "window_policy": "exact_contiguous_calendar_days",
+  "daily_return_semantics": "latest_finalized_close_div_previous_finalized_close",
+  "relative_strength_semantics": "cumulative_gross_return_div_btc_cumulative_gross_return_minus_one",
+  "cross_snapshot_close_policy": "same_asset_adjacent_close_must_match",
+  "current_candle_policy": "exclude_last_row_always",
+  "taxonomy_policy": "explicit_effective_dated_no_overlap",
+  "supported_group_return_methods": [
+    "equal_weight_daily_rebalanced"
+  ],
+  "output_decimal_places": 12,
+  "rounding": "ROUND_HALF_EVEN"
+}
