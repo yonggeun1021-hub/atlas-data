@@ -140,6 +140,11 @@ APPROVED_TESTS = [
     #   NEUTRAL/score/threshold/Production 승격을 차단한다.
     #   ⛔ 시장판정/네트워크/tracked output 없음 — temp gate fixtures only.
     "test/test_regime_coverage_gate.py",
+    # ★ P1-COM-02 ratification — 모든 공통 축 5/5 coverage-only Gate.
+    #   하나라도 UNDEFINED면 BLOCKED/UNKNOWN이고, 5/5여도 freshness와
+    #   classification 정책이 별도 비준되기 전에는 시장 판정을 차단한다.
+    #   ⛔ score/threshold/Production/trading 없음 — temp audit only.
+    "test/test_regime_minimum_coverage.py",
     # ★ P1-COM-01 — Regime 공통 pre-score UNKNOWN output contract.
     #   5축 evidence/coverage/timestamp를 같은 schema로 고정하고 데이터 부족을
     #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
