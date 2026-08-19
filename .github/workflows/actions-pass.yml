@@ -53,7 +53,9 @@ jobs:
       - name: KRX R-2 Open API offline contract regression
         run: python3 atlas_krx_r2_openapi_regression.py atlas_krx_r2_openapi_probe.py
       - name: P0-03 briefing read model regression
-        run: python3 test/test_briefing_inputs.py
+        run: |
+          python3 test/test_briefing_inputs.py
+          python3 test/test_briefing_readiness.py
       - name: Actions PASS gate
         run: python3 run_all.py --authoritative
       - name: 작업 후 dirty artifact 가 없는지
