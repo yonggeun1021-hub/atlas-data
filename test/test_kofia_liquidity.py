@@ -8,6 +8,7 @@ fixture written under a temporary directory.
 import hashlib
 import importlib.util
 import json
+from decimal import Decimal
 from pathlib import Path
 import tempfile
 import unittest
@@ -89,6 +90,10 @@ class KofiaLiquidityContractTest(unittest.TestCase):
     def test_contract_fixes_official_operations_and_unverified_boundaries(self):
         operations = {item["name"]: item for item in CONTRACT["operations"]}
 
+        self.assertEqual(
+            CONTRACT["contract_version"],
+            "kofia_liquidity_source/v2",
+        )
         self.assertEqual(CONTRACT["catalog_id"], "15094809")
         self.assertEqual(
             operations["investor_deposits"]["operation_id"],
@@ -115,6 +120,10 @@ class KofiaLiquidityContractTest(unittest.TestCase):
             "unverified",
         )
         self.assertFalse(CONTRACT["qualification"]["decision_eligible"])
+        self.assertEqual(
+            CONTRACT["numeric_transport_policy"],
+            MODULE.EXPECTED_NUMERIC_TRANSPORT_POLICY,
+        )
 
     def test_contract_schema_drift_is_rejected(self):
         tampered = json.loads(json.dumps(CONTRACT))
@@ -229,9 +238,6 @@ class KofiaLiquidityContractTest(unittest.TestCase):
         negative = investor_row(value=-1)
         cases.append((response([negative]), "VALUE_INVALID"))
 
-        string_number = investor_row(value="100")
-        cases.append((response([string_number]), "VALUE_TYPE_INVALID"))
-
         bad_date = investor_row(date="20260230")
         cases.append((response([bad_date]), "OBSERVATION_DATE_INVALID"))
 
@@ -256,15 +262,15 @@ class KofiaLiquidityContractTest(unittest.TestCase):
                     )
 
     def test_unexpected_value_diagnostic_reports_shape_without_value(self):
-        secret_like_value = "12345678901234567890"
+        secret_like_value = "12345678901234567890e0"
 
         with self.assertRaises(MODULE.KofiaContractError) as caught:
             MODULE.parse_nonnegative_number(secret_like_value, "field")
 
         message = str(caught.exception)
-        self.assertIn("VALUE_TYPE_INVALID: field", message)
-        self.assertIn("observed=str(length=20,stripped_length=20", message)
-        self.assertIn("decimal_text=true", message)
+        self.assertIn("VALUE_TEXT_INVALID: field", message)
+        self.assertIn("observed=str(length=22,stripped_length=22", message)
+        self.assertIn("decimal_text=false", message)
         self.assertNotIn(secret_like_value, message)
 
         self.assertEqual(MODULE.safe_value_shape(" - "), (
@@ -272,6 +278,61 @@ class KofiaLiquidityContractTest(unittest.TestCase):
             "grouped_decimal_text=false)"
         ))
         self.assertEqual(MODULE.safe_value_shape(None), "null")
+
+    def test_canonical_numeric_text_is_normalized_and_other_text_fails_closed(self):
+        accepted = {
+            "0": Decimal("0"),
+            "123": Decimal("123"),
+            "0.25": Decimal("0.25"),
+            "123.00": Decimal("123.00"),
+        }
+        for raw, expected in accepted.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    MODULE.parse_nonnegative_number(raw, "field"),
+                    expected,
+                )
+
+        rejected = ["", " ", "-1", "+1", "01", "1e3", "1,000", "NaN", "-"]
+        for raw in rejected:
+            with self.subTest(raw=raw), self.assertRaisesRegex(
+                MODULE.KofiaContractError,
+                "VALUE_TEXT_INVALID",
+            ):
+                MODULE.parse_nonnegative_number(raw, "field")
+
+        with self.assertRaisesRegex(
+            MODULE.KofiaContractError,
+            "VALUE_TYPE_INVALID",
+        ):
+            MODULE.parse_nonnegative_number(None, "field")
+
+        investor = investor_row(value="100.50")
+        investor = {
+            key: (str(value) if key != "basDt" else value)
+            for key, value in investor.items()
+        }
+        credit = credit_row()
+        credit = {
+            key: (str(value) if key != "basDt" else value)
+            for key, value in credit.items()
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = fixture_paths(
+                tmp,
+                investor=response([investor]),
+                credit=response([credit]),
+            )
+            report = MODULE.build_qualification(
+                paths,
+                "2026-08-19T05:00:00Z",
+                contract=CONTRACT,
+            )
+
+        self.assertEqual(
+            report["operations"]["investor_deposits"]["latest_primary_value_raw"],
+            "100.50",
+        )
 
     def test_future_observation_and_bad_capture_time_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

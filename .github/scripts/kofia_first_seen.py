@@ -76,7 +76,7 @@ def load_capture_contract(path: Path = CAPTURE_CONTRACT_PATH) -> dict:
         fail("CAPTURE_CONTRACT_INVALID", "schema or fields")
     if contract["collector_version"] != "kofia-first-seen-capture/v1":
         fail("CAPTURE_CONTRACT_INVALID", "collector_version")
-    if contract["source_contract_version"] != "kofia_liquidity_source/v1":
+    if contract["source_contract_version"] != "kofia_liquidity_source/v2":
         fail("CAPTURE_CONTRACT_INVALID", "source contract")
     if contract["capture_mode"] != "direct_fetch_append_only":
         fail("CAPTURE_CONTRACT_INVALID", "capture mode")
