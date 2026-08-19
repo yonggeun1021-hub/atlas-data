@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-CR-03 — Stablecoin Net Issuance evidence transform.
+    #   native USD-peg supply의 exact T-1/T-7 차이와 missing/revision lineage를
+    #   검증하며 가격효과·Regime score·운영배선을 분리한다.
+    #   ⛔ live network/tracked output 없음 — committed PIT read-only + temp fixtures.
+    "test/test_stablecoin_net_issuance.py",
     # ★ P1-CR-02 — Stablecoin endpoint / revision / PIT contract.
     #   historical chart revision·reindex·backfill·append와 live snapshot 변화를
     #   분리하고 append-only provenance manifest를 검증한다.
