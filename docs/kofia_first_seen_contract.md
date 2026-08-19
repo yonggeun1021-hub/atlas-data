@@ -29,6 +29,12 @@ operations for each of the most recent eight calendar dates using the official
 exact `basDt` filter.  Weekend and holiday gaps are preserved as missing query
 dates; they are never filled with zero.
 
+Each idempotent GET uses a 20-second connection timeout and at most three
+attempts with 1-second and 3-second backoff after network errors. HTTP errors,
+authentication failures, response-contract failures, and invalid values are
+not retried. If every network attempt fails, the entire staged run is discarded
+and no partial evidence is committed.
+
 Every run has a unique immutable directory:
 
 ```text

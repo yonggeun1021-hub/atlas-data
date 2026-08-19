@@ -10,7 +10,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
 import yaml
@@ -164,6 +164,19 @@ class JSONHTTPErrorOpener:
         raise HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(raw))
 
 
+class TransientNetworkOpener:
+    def __init__(self, failures, raw):
+        self.failures = failures
+        self.raw = raw
+        self.timeouts = []
+
+    def __call__(self, request, timeout=60):
+        self.timeouts.append(timeout)
+        if len(self.timeouts) <= self.failures:
+            raise URLError("timed out")
+        return FakeResponse(self.raw)
+
+
 def test_capture_contract():
     contract = copy.deepcopy(CAPTURE_CONTRACT)
     contract["probe_lookback_calendar_days"] = 3
@@ -191,6 +204,14 @@ class KofiaFirstSeenTest(unittest.TestCase):
         self.assertEqual(
             CAPTURE_CONTRACT["source_contract_version"],
             "kofia_liquidity_source/v2",
+        )
+        self.assertEqual(
+            CAPTURE_CONTRACT["collector_version"],
+            "kofia-first-seen-capture/v2",
+        )
+        self.assertEqual(
+            CAPTURE_CONTRACT["network_retry_policy"],
+            MODULE.EXPECTED_NETWORK_RETRY_POLICY,
         )
         for key in (
             "decision_eligible",
@@ -262,6 +283,63 @@ class KofiaFirstSeenTest(unittest.TestCase):
         self.assertIn("returnReasonCode=20", json_message)
         self.assertNotIn(TOKEN, json_message)
 
+    def test_network_retries_are_bounded(self):
+        request = MODULE.build_request(
+            TOKEN,
+            OPERATIONS["investor_deposits"],
+            SOURCE_CONTRACT,
+            1,
+            10,
+            "20260818",
+        )
+        raw = api_response([investor_row("20260818")])
+        transient = TransientNetworkOpener(2, raw)
+        delays = []
+
+        observed = MODULE.fetch_raw(
+            request,
+            opener=transient,
+            timeout=7,
+            service_key=TOKEN,
+            attempts=3,
+            backoff_seconds=(1, 3),
+            sleeper=delays.append,
+        )
+
+        self.assertEqual(observed, raw)
+        self.assertEqual(transient.timeouts, [7, 7, 7])
+        self.assertEqual(delays, [1, 3])
+
+        exhausted = TransientNetworkOpener(3, raw)
+        exhausted_delays = []
+        with self.assertRaisesRegex(
+            MODULE.CaptureError,
+            "SOURCE_NETWORK_ERROR: request failed after 3 attempts",
+        ):
+            MODULE.fetch_raw(
+                request,
+                opener=exhausted,
+                timeout=7,
+                service_key=TOKEN,
+                attempts=3,
+                backoff_seconds=(1, 3),
+                sleeper=exhausted_delays.append,
+            )
+        self.assertEqual(exhausted.timeouts, [7, 7, 7])
+        self.assertEqual(exhausted_delays, [1, 3])
+
+        with self.assertRaisesRegex(
+            MODULE.CaptureError,
+            "NETWORK_RETRY_POLICY_INVALID",
+        ):
+            MODULE.fetch_raw(
+                request,
+                opener=transient,
+                attempts=3,
+                backoff_seconds=(1,),
+                sleeper=delays.append,
+            )
+
     def test_first_capture_preserves_raw_and_marks_missing_dates(self):
         opener = FakeOpener(exact=exact_rows())
         with tempfile.TemporaryDirectory() as tmp:
@@ -299,6 +377,11 @@ class KofiaFirstSeenTest(unittest.TestCase):
             serialized = (
                 (output / "_manifest.json").read_text()
                 + (output / "_observation.json").read_text()
+            )
+            manifest = json.loads((output / "_manifest.json").read_text())
+            self.assertEqual(
+                manifest["network_retry_policy"],
+                MODULE.EXPECTED_NETWORK_RETRY_POLICY,
             )
             self.assertNotIn(TOKEN, serialized)
             self.assertNotIn("serviceKey", serialized)

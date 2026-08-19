@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -37,6 +38,13 @@ UTC = dt.timezone.utc
 KST = ZoneInfo("Asia/Seoul")
 RUN_ID = re.compile(r"^[1-9][0-9]*$")
 CAPTURE_MODES = frozenset({"first_seen", "full_coverage"})
+EXPECTED_NETWORK_RETRY_POLICY = {
+    "attempts": 3,
+    "timeout_seconds": 20,
+    "backoff_seconds": [1, 3],
+    "retryable_error": "url_error",
+    "http_errors_retryable": False,
+}
 
 
 class CaptureError(RuntimeError):
@@ -60,6 +68,7 @@ def load_capture_contract(path: Path = CAPTURE_CONTRACT_PATH) -> dict:
         "probe_lookback_calendar_days",
         "probe_page_size",
         "full_coverage_page_size",
+        "network_retry_policy",
         "scheduled_slots_kst",
         "first_seen_semantics",
         "observed_range_semantics",
@@ -74,7 +83,7 @@ def load_capture_contract(path: Path = CAPTURE_CONTRACT_PATH) -> dict:
     }
     if set(contract) != expected or contract.get("schema_version") != 1:
         fail("CAPTURE_CONTRACT_INVALID", "schema or fields")
-    if contract["collector_version"] != "kofia-first-seen-capture/v1":
+    if contract["collector_version"] != "kofia-first-seen-capture/v2":
         fail("CAPTURE_CONTRACT_INVALID", "collector_version")
     if contract["source_contract_version"] != "kofia_liquidity_source/v2":
         fail("CAPTURE_CONTRACT_INVALID", "source contract")
@@ -84,6 +93,8 @@ def load_capture_contract(path: Path = CAPTURE_CONTRACT_PATH) -> dict:
         fail("CAPTURE_CONTRACT_INVALID", "lookback too small")
     if contract["probe_page_size"] < 1 or contract["full_coverage_page_size"] < 1:
         fail("CAPTURE_CONTRACT_INVALID", "page size")
+    if contract["network_retry_policy"] != EXPECTED_NETWORK_RETRY_POLICY:
+        fail("CAPTURE_CONTRACT_INVALID", "network retry policy")
     if contract["available_at"] is not None:
         fail("CAPTURE_CONTRACT_INVALID", "available_at must be null")
     for key in (
@@ -216,29 +227,42 @@ def safe_gateway_error(raw: bytes, service_key: str) -> str:
 def fetch_raw(
     request: Request,
     opener=urlopen,
-    timeout: int = 60,
+    timeout: int = 20,
     service_key: str = "",
+    attempts: int = 3,
+    backoff_seconds: tuple[int, ...] | list[int] = (1, 3),
+    sleeper=time.sleep,
 ) -> bytes:
-    try:
-        with opener(request, timeout=timeout) as response:
-            status = getattr(response, "status", None)
-            if status is None:
-                status = response.getcode()
-            raw = response.read()
-    except HTTPError as exc:
+    if attempts < 1 or len(backoff_seconds) != attempts - 1:
+        fail("NETWORK_RETRY_POLICY_INVALID", "attempts/backoff")
+    for attempt in range(1, attempts + 1):
         try:
-            error_raw = exc.read()
-        except OSError:
-            error_raw = b""
-        detail = safe_gateway_error(error_raw, service_key)
-        fail("SOURCE_HTTP_ERROR", f"{exc.code} {detail}")
-    except URLError:
-        fail("SOURCE_NETWORK_ERROR", "request failed")
-    if status != 200:
-        fail("SOURCE_HTTP_ERROR", str(status))
-    if not raw:
-        fail("SOURCE_RESPONSE_EMPTY", "zero bytes")
-    return raw
+            with opener(request, timeout=timeout) as response:
+                status = getattr(response, "status", None)
+                if status is None:
+                    status = response.getcode()
+                raw = response.read()
+        except HTTPError as exc:
+            try:
+                error_raw = exc.read()
+            except OSError:
+                error_raw = b""
+            detail = safe_gateway_error(error_raw, service_key)
+            fail("SOURCE_HTTP_ERROR", f"{exc.code} {detail}")
+        except URLError:
+            if attempt == attempts:
+                fail(
+                    "SOURCE_NETWORK_ERROR",
+                    f"request failed after {attempts} attempts",
+                )
+            sleeper(backoff_seconds[attempt - 1])
+            continue
+        if status != 200:
+            fail("SOURCE_HTTP_ERROR", str(status))
+        if not raw:
+            fail("SOURCE_RESPONSE_EMPTY", "zero bytes")
+        return raw
+    fail("SOURCE_NETWORK_ERROR", "retry loop exhausted")
 
 
 def reject_echoed_service_key(raw: bytes, service_key: str) -> None:
@@ -584,6 +608,18 @@ def capture(
     output_dir.mkdir(parents=True)
 
     operations = operation_map(source_contract)
+    network_policy = capture_contract["network_retry_policy"]
+
+    def fetch(request: Request) -> bytes:
+        return fetch_raw(
+            request,
+            opener=opener,
+            timeout=network_policy["timeout_seconds"],
+            service_key=service_key,
+            attempts=network_policy["attempts"],
+            backoff_seconds=network_policy["backoff_seconds"],
+        )
+
     entries = []
     parsed = {name: [] for name in operations}
     if mode == "first_seen":
@@ -604,7 +640,7 @@ def capture(
                     capture_contract["probe_page_size"],
                     query_date,
                 )
-                raw = fetch_raw(request, opener=opener, service_key=service_key)
+                raw = fetch(request)
                 reject_echoed_service_key(raw, service_key)
                 page = parse_page(raw, operation, 1, query_date)
                 relative = f"raw/{name}/{query_date}.json.gz"
@@ -634,7 +670,7 @@ def capture(
                 request = build_request(
                     service_key, operation, source_contract, page_no, page_size
                 )
-                raw = fetch_raw(request, opener=opener, service_key=service_key)
+                raw = fetch(request)
                 reject_echoed_service_key(raw, service_key)
                 page = parse_page(raw, operation, page_no)
                 if expected_total is None:
@@ -664,6 +700,7 @@ def capture(
         "captured_at_utc": captured_at,
         "capture_date_kst": parsed_time.astimezone(KST).date().isoformat(),
         "github": {"run_id": run_id, "run_attempt": run_attempt},
+        "network_retry_policy": network_policy,
         "raw_responses": entries,
         "service_key_persisted": False,
     }
@@ -715,6 +752,10 @@ def validate_capture(
         fail("MANIFEST_INVALID", "collector_version")
     if manifest.get("source_contract_version") != source_contract["contract_version"]:
         fail("MANIFEST_INVALID", "source_contract_version")
+    if manifest.get("network_retry_policy") != (
+        capture_contract["network_retry_policy"]
+    ):
+        fail("MANIFEST_INVALID", "network_retry_policy")
     if manifest.get("service_key_persisted") is not False:
         fail("MANIFEST_INVALID", "service key boundary")
     if set(manifest) != {
@@ -726,6 +767,7 @@ def validate_capture(
         "captured_at_utc",
         "capture_date_kst",
         "github",
+        "network_retry_policy",
         "raw_responses",
         "service_key_persisted",
     } or manifest.get("schema_version") != 1:
