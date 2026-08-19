@@ -129,6 +129,12 @@ APPROVED_TESTS = [
     #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
     #   ⛔ 시장판정/네트워크/tracked output 없음 — temp envelope fixtures only.
     "test/test_regime_output_contract.py",
+    # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
+    #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
+    #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가
+    #   미비준인 동안 UNKNOWN을 유지하며 score/hysteresis/Production을 차단한다.
+    #   ⛔ live network/workflow/tracked report 없음 — in-memory envelopes only.
+    "test/test_regime_replay_harness.py",
     # ★ P1-CR-05 — BTC Risk / Volatility transform + prefix replay.
     #   qualified BTC PIT close로 RV30·90일 drawdown을 재현하되 stress 임계값,
     #   Regime/Production/trading 권한은 부여하지 않고 gap은 fail-closed한다.
