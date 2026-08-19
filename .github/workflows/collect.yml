@@ -139,6 +139,25 @@ jobs:
           PYTHONPATH: collectors:decision
         run: python decision/event_classifier.py
 
+      # P4-03 — DART metadata 도착과 공시 본문 소비를 같은 성공으로 뭉개지 않는다.
+      # Guard=fresh 여도 이전 원문 실패는 독립적으로 repair할 수 있어야 하므로
+      # always()에서 실행한다. item extraction policy는 아직 미비준이므로
+      # 원문 ZIP/hash/member index만 보존하고 Rule/해석 권한은 계속 차단한다.
+      - name: Capture DART filing content (P4-03)
+        id: dart_content
+        if: always()
+        continue-on-error: true
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          OBSERVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 collectors/dart_filing_content.py \
+            --source data/latest_dart.json \
+            --data-root data \
+            --expected-kst-date "$TODAY" \
+            --observed-at-utc "$OBSERVED_AT"
+
       # P4-02 — metadata 도착과 filing 본문 소비를 같은 성공으로 뭉개지 않는다.
       # Guard=fresh 여도 이전 content 실패는 독립적으로 repair할 수 있어야 하므로
       # always()에서 실행한다. helper가 latest_sec의 오늘 KST 날짜를 다시 검증한다.
