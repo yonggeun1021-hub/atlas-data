@@ -1,13 +1,23 @@
 {
-  "schema_version": 1,
-  "policy_version": "crypto_leadership/draft-v1",
-  "approval_status": "UNRATIFIED",
-  "effective_from": null,
-  "lookback_calendar_days": null,
-  "group_return_method": null,
+  "schema_version": 2,
+  "policy_version": "crypto_leadership/v1",
+  "approval_status": "RATIFIED",
+  "effective_from": "2026-08-19",
+  "windows": [
+    {
+      "window_id": "pilot_7d",
+      "role": "PILOT",
+      "lookback_calendar_days": 7
+    },
+    {
+      "window_id": "primary_30d",
+      "role": "PRIMARY",
+      "lookback_calendar_days": 30
+    }
+  ],
+  "group_return_method": "equal_weight_daily_rebalanced",
   "relative_strength_reference": "BTC",
-  "required_bucket_minimum_members": null,
-  "required_sectors": null,
-  "required_chains": null,
-  "taxonomy_group_minimum_members": null
+  "bucket_policy": "btc_eth_else_alt",
+  "sector_chain_missing_policy": "unknown_group_layer",
+  "group_coverage_policy_status": "UNRATIFIED"
 }
