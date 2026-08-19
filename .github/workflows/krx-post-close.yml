@@ -69,10 +69,27 @@ jobs:
         if: always()
         env:
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          GUARD_SKIP: ${{ steps.guard.outputs.skip }}
+          COLLECT_OUTCOME: ${{ steps.post_close.outcome }}
         run: |
           git config user.name  "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
-          git add data/observations/krx_post_close data/incident/krx_post_close || true
+          for evidence_path in \
+            data/observations/krx_post_close \
+            data/incident/krx_post_close
+          do
+            if [ -d "$evidence_path" ]; then
+              git add -- "$evidence_path"
+            fi
+          done
+
+          if [ "$GUARD_SKIP" != "yes" ] && [ "$COLLECT_OUTCOME" = "success" ]; then
+            if git diff --staged --quiet -- data/observations/krx_post_close; then
+              echo "STOP: successful collection produced no staged observation evidence"
+              exit 2
+            fi
+          fi
+
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
           else

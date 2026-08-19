@@ -1,0 +1,43 @@
+name: P1-KR-05 Korea Breadth Live Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      recent_previous:
+        description: "Previous completed KRX trading date (YYYYMMDD)"
+        required: true
+      recent_date:
+        description: "Current completed KRX trading date (YYYYMMDD)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  korea-breadth-live-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: P1-KR-05 offline contract regression
+        run: python3 test/test_korea_breadth.py
+      - name: P1-KR-05 historical and recent direct proof
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          RECENT_PREVIOUS: ${{ inputs.recent_previous }}
+          RECENT_DATE: ${{ inputs.recent_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_breadth.py \
+            --market kospi \
+            --market kosdaq \
+            --historical-previous 20100104 \
+            --historical-date 20100105 \
+            --recent-previous "$RECENT_PREVIOUS" \
+            --recent-date "$RECENT_DATE"
+      - name: Raw and derived artifact prohibition
+        run: git diff --exit-code
