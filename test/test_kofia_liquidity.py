@@ -21,6 +21,15 @@ SPEC = importlib.util.spec_from_file_location("kofia_liquidity", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 CONTRACT = MODULE.load_contract(CONTRACT_PATH)
+UNIT_SCRIPT = ROOT / ".github" / "scripts" / "kofia_unit_evidence.py"
+UNIT_SPEC = importlib.util.spec_from_file_location(
+    "kofia_unit_evidence", UNIT_SCRIPT
+)
+UNIT_MODULE = importlib.util.module_from_spec(UNIT_SPEC)
+UNIT_SPEC.loader.exec_module(UNIT_MODULE)
+UNIT_CONTRACT = UNIT_MODULE.load_contract()
+UNIT_CAPTURE = ROOT / UNIT_CONTRACT["live_evidence"]["capture_path"]
+UNIT_REPORT = ROOT / "evidence" / "kofia" / "unit_qualification" / "2026-08-19.json"
 
 
 def investor_row(date="20260814", value=100710332):
@@ -412,6 +421,75 @@ class KofiaLiquidityContractTest(unittest.TestCase):
 
         self.assertNotIn("import requests", source)
         self.assertNotIn("import urllib", source)
+        self.assertNotIn("urlopen", source)
+        self.assertNotIn("SERVICE_KEY", source)
+        self.assertNotIn("os.environ", source)
+
+    def test_unit_evidence_conflict_is_reproducible_and_fail_closed(self):
+        report = UNIT_MODULE.build_audit(UNIT_CAPTURE, UNIT_CONTRACT)
+        committed = UNIT_REPORT.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            committed,
+            json.dumps(
+                report,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+        )
+        comparisons = {
+            item["operation"]: item for item in report["comparisons"]
+        }
+        self.assertEqual(
+            comparisons["investor_deposits"]["relation"],
+            "exact",
+        )
+        self.assertEqual(
+            comparisons["credit_financing"]["relation"],
+            "round_half_up_after_division",
+        )
+        self.assertTrue(
+            all(item["relation_verified"] for item in comparisons.values())
+        )
+        conclusion = report["conclusion"]
+        self.assertEqual(
+            conclusion["api_field_unit_status"],
+            "conflicting_primary_evidence",
+        )
+        self.assertIsNone(conclusion["api_raw_unit"])
+        self.assertIsNone(conclusion["normalization_factor"])
+        for key in (
+            "conversion_authorized",
+            "decision_eligible",
+            "regime_score_authorized",
+            "production_wiring_authorized",
+            "trading_action_authorized",
+        ):
+            self.assertFalse(conclusion[key])
+
+    def test_unit_evidence_contract_and_relation_tamper_fail_closed(self):
+        tampered = json.loads(json.dumps(UNIT_CONTRACT))
+        tampered["comparisons"][0]["guide_sample_raw"] = "17461183"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_json(tmp, "unit-contract.json", tampered)
+            with self.assertRaisesRegex(
+                UNIT_MODULE.UnitEvidenceError,
+                "UNIT_CONTRACT_INVALID: comparison identity",
+            ):
+                UNIT_MODULE.load_contract(path)
+
+        live_rows = UNIT_MODULE.load_live_rows(UNIT_CAPTURE, UNIT_CONTRACT)
+        tampered = json.loads(json.dumps(UNIT_CONTRACT))
+        tampered["comparisons"][0]["guide_sample_raw"] = "17461183"
+        with self.assertRaisesRegex(
+            UNIT_MODULE.UnitEvidenceError,
+            "EVIDENCE_RELATION_MISMATCH",
+        ):
+            UNIT_MODULE.compare(tampered, live_rows)
+
+        source = UNIT_SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("urlopen", source)
         self.assertNotIn("SERVICE_KEY", source)
         self.assertNotIn("os.environ", source)
