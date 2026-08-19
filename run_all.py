@@ -66,6 +66,10 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ CI runtime maintenance — official Node 24 action releases.
+    #   checkout/setup-python을 검증된 release commit SHA로 고정해 mutable tag와
+    #   Node 20 deprecation을 제거한다. workflow 권한·trigger·run 내용은 불변이다.
+    "test/test_github_actions_runtime.py",
     # ★ P4-01 — Data Coverage Matrix audit capability.
     #   Regime 15축·Discovery 11입력·Rule SSOT 25건을 전수 집계해 각 항목의
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.

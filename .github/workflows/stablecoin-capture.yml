@@ -26,7 +26,7 @@ jobs:
         id: runner_start
         run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # delayed slot도 event 생성 시점의 낡은 SHA가 아니라 실행 시점의
           # 최신 default branch에서 append-only guard를 판단한다.
