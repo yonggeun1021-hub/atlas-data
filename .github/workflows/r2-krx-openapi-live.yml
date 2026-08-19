@@ -6,7 +6,6 @@ on:
       recent_date:
         description: "Confirmed prior KRX trading date (YYYYMMDD)"
         required: true
-        default: "20260814"
 
 permissions:
   contents: read
@@ -28,6 +27,9 @@ jobs:
         run: |
           test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
           python3 atlas_krx_r2_openapi_probe.py \
+            --market krx \
+            --market kospi \
+            --market kosdaq \
             --date 20100104 \
             --date "$RECENT_DATE"
       - name: Dirty artifact check

@@ -4,7 +4,7 @@ Atlas R2-ENG-001 — KRX OPEN API direct capability probe.
 
 Scope
 -----
-- Direct KRX KOSPI index endpoint capability proof.
+- Direct KRX, KOSPI, and KOSDAQ index endpoint capability proof.
 - AUTH_KEY is accepted from the environment/argument and sent only as a request header.
 - Response bytes and market rows remain in memory and are never written by this module.
 - Console output is limited to non-reconstructive diagnostics.
@@ -21,8 +21,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 
-TOOL_VERSION = "0.1"
-BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd"
+TOOL_VERSION = "0.2"
+BASE_ORIGIN = "https://data-dbg.krx.co.kr"
+DEFAULT_MARKET = "kospi"
+MARKET_PATHS = {
+    "krx": "/svc/apis/idx/krx_dd_trd",
+    "kospi": "/svc/apis/idx/kospi_dd_trd",
+    "kosdaq": "/svc/apis/idx/kosdaq_dd_trd",
+}
 MIN_OFFICIAL_DATE = "20100104"
 REQUIRED_FIELDS = frozenset({
     "BAS_DD",
@@ -36,6 +42,10 @@ class Stop(Exception):
     pass
 
 
+def _has_text(value):
+    return value is not None and bool(str(value).strip())
+
+
 def validate_date(value):
     if not isinstance(value, str) or not DATE_RE.fullmatch(value):
         raise Stop("basDd must be YYYYMMDD")
@@ -46,19 +56,27 @@ def validate_date(value):
     return value
 
 
-def build_request(auth_key, bas_dd):
+def validate_market(value):
+    market = str(value or "").strip().lower()
+    if market not in MARKET_PATHS:
+        raise Stop("market must be one of: %s" % ", ".join(MARKET_PATHS))
+    return market
+
+
+def build_request(auth_key, bas_dd, market=DEFAULT_MARKET):
     key = (auth_key or "").strip()
     if not key:
         raise Stop("KRX_API_KEY is missing")
 
     day = validate_date(bas_dd)
-    url = BASE_URL + "?" + urlencode({"basDd": day})
+    market = validate_market(market)
+    url = BASE_ORIGIN + MARKET_PATHS[market] + "?" + urlencode({"basDd": day})
     request = Request(
         url,
         headers={
             "AUTH_KEY": key,
             "Accept": "application/json",
-            "User-Agent": "Atlas-R2-ENG-001/0.1",
+            "User-Agent": "Atlas-R2-ENG-001/%s" % TOOL_VERSION,
         },
         method="GET",
     )
@@ -107,6 +125,9 @@ def validate_payload(payload, bas_dd):
     if not rows:
         raise Stop("KRX response returned zero rows")
 
+    usable_row_count = 0
+    unavailable_close_count = 0
+
     for row in rows:
         if not isinstance(row, dict):
             raise Stop("KRX row is not an object")
@@ -118,28 +139,47 @@ def validate_payload(payload, bas_dd):
         if str(row["BAS_DD"]) != bas_dd:
             raise Stop("KRX response BAS_DD mismatch")
 
-        if not str(row["IDX_NM"]).strip():
+        if not _has_text(row["IDX_NM"]):
             raise Stop("KRX response IDX_NM is empty")
 
-        if not str(row["CLSPRC_IDX"]).strip():
-            raise Stop("KRX response CLSPRC_IDX is empty")
+        if _has_text(row["CLSPRC_IDX"]):
+            usable_row_count += 1
+        else:
+            # The official series response can include defined index rows whose
+            # close is unavailable on a given date.  Preserve schema checking,
+            # but do not let one unavailable row invalidate other observations.
+            unavailable_close_count += 1
 
-    return len(rows)
+    if usable_row_count == 0:
+        raise Stop("KRX response returned zero usable rows")
+
+    return {
+        "row_count": len(rows),
+        "usable_row_count": usable_row_count,
+        "unavailable_close_count": unavailable_close_count,
+    }
 
 
-def probe_date(auth_key, bas_dd, opener=urlopen):
-    request = build_request(auth_key, bas_dd)
+def probe_date(
+    auth_key,
+    bas_dd,
+    opener=urlopen,
+    market=DEFAULT_MARKET,
+):
+    market = validate_market(market)
+    request = build_request(auth_key, bas_dd, market=market)
     body = _http_fetch(request, opener=opener)
     payload = _decode_payload(body)
-    row_count = validate_payload(payload, bas_dd)
+    counts = validate_payload(payload, bas_dd)
 
     # Deliberately do not return payload/body/market values.
     return {
         "status": "PASS",
         "date": bas_dd,
-        "row_count": row_count,
+        "market": market.upper(),
+        **counts,
         "schema": "PASS",
-        "source": "KRX_OPEN_API_KOSPI",
+        "source": "KRX_OPEN_API_%s_INDEX" % market.upper(),
         "source_capability_proof_only": True,
         "raw_persistence": 0,
         "production_authorized": False,
@@ -153,7 +193,10 @@ def format_summary(result):
     keys = (
         "status",
         "date",
+        "market",
         "row_count",
+        "usable_row_count",
+        "unavailable_close_count",
         "schema",
         "source",
         "source_capability_proof_only",
@@ -166,8 +209,8 @@ def format_summary(result):
     return " ".join("%s=%s" % (key, result[key]) for key in keys)
 
 
-def inspect_request_contract(auth_key, bas_dd):
-    request = build_request(auth_key, bas_dd)
+def inspect_request_contract(auth_key, bas_dd, market=DEFAULT_MARKET):
+    request = build_request(auth_key, bas_dd, market=market)
     parsed = urlparse(request.full_url)
     query = parse_qs(parsed.query, keep_blank_values=True)
     headers = {k.lower(): v for k, v in request.header_items()}
@@ -185,6 +228,16 @@ def inspect_request_contract(auth_key, bas_dd):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--market",
+        action="append",
+        dest="markets",
+        choices=tuple(MARKET_PATHS),
+        help=(
+            "KRX index series endpoint; may be supplied more than once "
+            "(default: kospi)"
+        ),
+    )
+    parser.add_argument(
         "--date",
         action="append",
         dest="dates",
@@ -200,11 +253,13 @@ def main(argv=None):
 
     import os
     key = os.getenv(args.auth_env, "")
+    markets = args.markets or [DEFAULT_MARKET]
 
     try:
-        for day in args.dates:
-            result = probe_date(key, day)
-            print(format_summary(result))
+        for market in markets:
+            for day in args.dates:
+                result = probe_date(key, day, market=market)
+                print(format_summary(result))
         print("R2_KRX_LIVE_PROOF=PASS")
         return 0
     except Stop as exc:

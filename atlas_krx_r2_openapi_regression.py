@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
+from contextlib import redirect_stdout
 from pathlib import Path
 
 SRC = (
@@ -55,24 +57,26 @@ class FakeOpener:
         return FakeResponse(body, self.status)
 
 
+def good_row(day="20100104", close=RAW_SENTINEL):
+    return {
+        "BAS_DD": day,
+        "IDX_CLSS": "fixture-class",
+        "IDX_NM": "fixture-index",
+        "CLSPRC_IDX": close,
+        "CMPPREVDD_IDX": "fixture",
+        "FLUC_RT": "fixture",
+        "OPNPRC_IDX": "fixture",
+        "HGPRC_IDX": "fixture",
+        "LWPRC_IDX": "fixture",
+        "ACC_TRDVOL": "fixture",
+        "ACC_TRDVAL": "fixture",
+        "MKTCAP": "fixture",
+    }
+
+
 def good_payload(day="20100104"):
     return {
-        "OutBlock_1": [
-            {
-                "BAS_DD": day,
-                "IDX_CLSS": "fixture-class",
-                "IDX_NM": "fixture-index",
-                "CLSPRC_IDX": RAW_SENTINEL,
-                "CMPPREVDD_IDX": "fixture",
-                "FLUC_RT": "fixture",
-                "OPNPRC_IDX": "fixture",
-                "HGPRC_IDX": "fixture",
-                "LWPRC_IDX": "fixture",
-                "ACC_TRDVOL": "fixture",
-                "ACC_TRDVAL": "fixture",
-                "MKTCAP": "fixture",
-            }
-        ]
+        "OutBlock_1": [good_row(day)],
     }
 
 
@@ -112,6 +116,8 @@ check(
     "K2 fixture capability succeeds",
     result["status"] == "PASS"
     and result["row_count"] == 1
+    and result["usable_row_count"] == 1
+    and result["unavailable_close_count"] == 0
     and result["schema"] == "PASS",
 )
 
@@ -232,7 +238,7 @@ check(
 )
 
 check(
-    "K14 endpoint contract is HTTPS KRX index path",
+    "K14 default endpoint contract is HTTPS KOSPI index path",
     contract["scheme"] == "https"
     and contract["host"] == "data-dbg.krx.co.kr"
     and contract["path"] == "/svc/apis/idx/kospi_dd_trd",
@@ -250,6 +256,145 @@ check(
 check(
     "K16 raw persistence is explicitly zero",
     result["raw_persistence"] == 0,
+)
+
+mixed = {
+    "OutBlock_1": [
+        good_row(close=RAW_SENTINEL),
+        good_row(close=""),
+    ]
+}
+mixed_result = m.probe_date(
+    TOKEN,
+    "20100104",
+    opener=FakeOpener(mixed),
+)
+
+check(
+    "K17 mixed available/unavailable closes preserve usable observations",
+    mixed_result["row_count"] == 2
+    and mixed_result["usable_row_count"] == 1
+    and mixed_result["unavailable_close_count"] == 1,
+)
+
+all_unavailable = {
+    "OutBlock_1": [
+        good_row(close=""),
+        good_row(close=" "),
+        good_row(close=None),
+    ]
+}
+check(
+    "K18 all unavailable closes fail closed",
+    expect_stop(
+        lambda: m.probe_date(
+            TOKEN,
+            "20100104",
+            opener=FakeOpener(all_unavailable),
+        )
+    ),
+)
+
+expected_paths = {
+    "krx": "/svc/apis/idx/krx_dd_trd",
+    "kospi": "/svc/apis/idx/kospi_dd_trd",
+    "kosdaq": "/svc/apis/idx/kosdaq_dd_trd",
+}
+contracts = {
+    market: m.inspect_request_contract(TOKEN, "20100104", market=market)
+    for market in expected_paths
+}
+check(
+    "K19 KRX/KOSPI/KOSDAQ endpoint paths are explicit",
+    all(contracts[market]["path"] == path for market, path in expected_paths.items()),
+)
+
+check(
+    "K20 all market contracts keep AUTH_KEY header-only",
+    all(
+        contract["auth_header_present"] is True
+        and contract["auth_in_url"] is False
+        and contract["query_keys"] == ["basDd"]
+        for contract in contracts.values()
+    ),
+)
+
+check(
+    "K21 unsupported market fails closed",
+    expect_stop(lambda: m.build_request(TOKEN, "20100104", market="unknown")),
+)
+
+market_results = {
+    market: m.probe_date(
+        TOKEN,
+        "20100104",
+        opener=FakeOpener(good_payload()),
+        market=market,
+    )
+    for market in expected_paths
+}
+check(
+    "K22 result identifies each approved index service without raw values",
+    all(
+        result["market"] == market.upper()
+        and result["source"] == "KRX_OPEN_API_%s_INDEX" % market.upper()
+        and RAW_SENTINEL not in repr(result)
+        for market, result in market_results.items()
+    ),
+)
+
+calls = []
+original_probe_date = m.probe_date
+original_token = os.environ.get("ATLAS_TEST_KRX_KEY")
+
+
+def fake_probe_date(auth_key, bas_dd, opener=m.urlopen, market=m.DEFAULT_MARKET):
+    calls.append((auth_key, bas_dd, market))
+    return {
+        "status": "PASS",
+        "date": bas_dd,
+        "market": market.upper(),
+        "row_count": 1,
+        "usable_row_count": 1,
+        "unavailable_close_count": 0,
+        "schema": "PASS",
+        "source": "KRX_OPEN_API_%s_INDEX" % market.upper(),
+        "source_capability_proof_only": True,
+        "raw_persistence": 0,
+        "production_authorized": False,
+        "redistribution_authorized": False,
+        "regime_score_authorized": False,
+        "trading_authorized": False,
+    }
+
+
+try:
+    os.environ["ATLAS_TEST_KRX_KEY"] = TOKEN
+    m.probe_date = fake_probe_date
+    with redirect_stdout(io.StringIO()):
+        cli_status = m.main([
+            "--auth-env", "ATLAS_TEST_KRX_KEY",
+            "--market", "krx",
+            "--market", "kospi",
+            "--market", "kosdaq",
+            "--date", "20100104",
+            "--date", "20260818",
+        ])
+finally:
+    m.probe_date = original_probe_date
+    if original_token is None:
+        os.environ.pop("ATLAS_TEST_KRX_KEY", None)
+    else:
+        os.environ["ATLAS_TEST_KRX_KEY"] = original_token
+
+check(
+    "K23 CLI executes the full three-market/two-date proof matrix",
+    cli_status == 0
+    and calls == [
+        (TOKEN, day, market)
+        for market in ("krx", "kospi", "kosdaq")
+        for day in ("20100104", "20260818")
+    ],
 )
 
 passed = sum(1 for _, ok, _ in RESULTS if ok)
