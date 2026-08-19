@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "source_name": "kraken_spot_ohlc",
+  "endpoint": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1",
+  "request_pair": "XBTUSD",
+  "response_pair": "BTC/USD",
+  "asset_version": 1,
+  "interval_minutes": 1440,
+  "market_timezone": "UTC",
+  "quote_currency": "USD",
+  "capture_mode": "direct_fetch_append_only",
+  "raw_file": "kraken_ohlc_xbtusd.json.gz",
+  "minimum_finalized_candles": 200,
+  "maximum_documented_finalized_candles": 720,
+  "current_candle_policy": "exclude_last_row_always",
+  "close_semantics": "last_trade_in_finalized_utc_daily_bucket",
+  "gap_policy": "exact_contiguous_utc_calendar_days",
+  "candle_fields": [
+    "time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "vwap",
+    "volume",
+    "trade_count"
+  ],
+  "transform_version": "btc_trend/v1"
+}
