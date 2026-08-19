@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-KR-03 operations evidence — append-only free API capture.
+    #   exact-date first-seen과 complete paginated response를 분리해 보존하고
+    #   Atlas 관측시각을 source available_at으로 승격하지 않는다.
+    #   ⛔ live network/key 없음 — fake opener + temp evidence + workflow 계약만 검증.
+    "test/test_kofia_first_seen.py",
     # ★ P1-US-04 — free forward-only US directory membership capture.
     #   Nasdaq Trader current-day files를 append-only로 누적하고 캡처 간
     #   편입·이탈만 재현한다. 과거 backfill·가격 breadth·유료 소스는 차단하며

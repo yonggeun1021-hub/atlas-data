@@ -1,0 +1,101 @@
+name: P1-KR-03 KOFIA First-Seen Capture
+
+on:
+  schedule:
+    # 06:30, 09:30, 13:30, 17:30, 21:30 KST. Actual runner time is evidence.
+    - cron: "30 21 * * *"
+    - cron: "30 0 * * *"
+    - cron: "30 4 * * *"
+    - cron: "30 8 * * *"
+    - cron: "30 12 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "first_seen or one-off full_coverage"
+        required: true
+        default: first_seen
+        type: choice
+        options:
+          - first_seen
+          - full_coverage
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-kofia-first-seen
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Offline capture regression
+        run: python3 test/test_kofia_first_seen.py
+      - name: Capture immutable KOFIA evidence
+        id: capture
+        env:
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          test -n "$DATA_GO_KR_SERVICE_KEY" || {
+            echo "STOP: DATA_GO_KR_SERVICE_KEY secret missing" >&2
+            exit 2
+          }
+          MODE="first_seen"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE="$DISPATCH_MODE"
+          fi
+          case "$MODE" in
+            first_seen|full_coverage) ;;
+            *) echo "STOP: unsupported mode" >&2; exit 2 ;;
+          esac
+          CAPTURED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          KST_DATE=$(TZ=Asia/Seoul date +%F)
+          RUN_KEY="run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          DIR="evidence/kofia/$MODE/$KST_DATE/$RUN_KEY"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "capture_path=$DIR" >> "$GITHUB_OUTPUT"
+          if [ -e "$DIR" ]; then
+            echo "Append-only target already exists: $DIR" >&2
+            exit 1
+          fi
+          STAGING_PARENT=$(mktemp -d "$RUNNER_TEMP/kofia.XXXXXX")
+          STAGING="$STAGING_PARENT/$RUN_KEY"
+          trap 'rm -rf "$STAGING_PARENT"' EXIT
+          python3 .github/scripts/kofia_first_seen.py capture \
+            --mode "$MODE" \
+            --output-dir "$STAGING" \
+            --captured-at "$CAPTURED_AT" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --evidence-root "evidence/kofia/first_seen"
+          python3 .github/scripts/kofia_first_seen.py validate "$STAGING" \
+            --evidence-root "evidence/kofia/first_seen"
+          mkdir -p "$(dirname "$DIR")"
+          mv "$STAGING" "$DIR"
+          trap - EXIT
+          rm -rf "$STAGING_PARENT"
+      - name: Commit immutable evidence
+        env:
+          CAPTURE_PATH: ${{ steps.capture.outputs.capture_path }}
+          MODE: ${{ steps.capture.outputs.mode }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CAPTURE_PATH"
+          git commit -m "kofia $MODE capture ${CAPTURE_PATH##*/}"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"

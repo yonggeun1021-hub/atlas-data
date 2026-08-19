@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "collector_version": "kofia-first-seen-capture/v1",
+  "source_contract_version": "kofia_liquidity_source/v1",
+  "capture_mode": "direct_fetch_append_only",
+  "probe_lookback_calendar_days": 8,
+  "probe_page_size": 10,
+  "full_coverage_page_size": 1000,
+  "scheduled_slots_kst": ["06:30", "09:30", "13:30", "17:30", "21:30"],
+  "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+  "observed_range_semantics": "complete_api_response_observed_not_durable_source_guarantee",
+  "historical_range_status": "unverified",
+  "source_release_time_status": "atlas_first_seen_sequence_collecting",
+  "api_field_unit_status": "unverified",
+  "available_at": null,
+  "decision_eligible": false,
+  "regime_score_authorized": false,
+  "production_wiring_authorized": false,
+  "trading_action_authorized": false
+}
