@@ -313,7 +313,72 @@ def probe_pair(
     return build_observation(previous, current, scope, contract=contract)
 
 
+def run_probe_matrix(
+    auth_key,
+    markets,
+    pairs,
+    opener=urlopen,
+    contract=None,
+):
+    """Run every market/scope probe without propagating a sibling failure."""
+    contract = contract or load_contract()
+    results = []
+    for market in markets:
+        normalized_market = validate_market(market, contract)
+        for scope, previous_date, current_date in pairs:
+            try:
+                result = probe_pair(
+                    auth_key,
+                    previous_date,
+                    current_date,
+                    normalized_market,
+                    scope,
+                    opener=opener,
+                    contract=contract,
+                )
+            except BreadthError as exc:
+                result = {
+                    "schema_version": 1,
+                    "status": "FAILED",
+                    "scope": scope,
+                    "market": normalized_market.upper(),
+                    "previous_date": previous_date,
+                    "as_of_date": current_date,
+                    "error": str(exc),
+                    "raw_persistence": contract["raw_persistence"],
+                    "breadth_classification_authorized": False,
+                    "threshold_authorized": False,
+                    "regime_score_authorized": False,
+                    "production_wiring_authorized": False,
+                    "trading_action_authorized": False,
+                }
+            results.append(result)
+    return results
+
+
 def format_summary(result):
+    if result["status"] == "FAILED":
+        fields = {
+            "status": result["status"],
+            "scope": result["scope"],
+            "market": result["market"],
+            "previous_date": result["previous_date"],
+            "as_of_date": result["as_of_date"],
+            "error": result["error"],
+            "raw_persistence": result["raw_persistence"],
+            "breadth_classification_authorized": result[
+                "breadth_classification_authorized"
+            ],
+            "regime_score_authorized": result["regime_score_authorized"],
+            "production_wiring_authorized": result[
+                "production_wiring_authorized"
+            ],
+            "trading_action_authorized": result[
+                "trading_action_authorized"
+            ],
+        }
+        return " ".join("%s=%s" % item for item in fields.items())
+
     universe = result["universe"]
     participation = result["participation"]
     fields = {
@@ -365,22 +430,24 @@ def main(argv=None):
         ("historical", args.historical_previous, args.historical_date),
         ("recent", args.recent_previous, args.recent_date),
     )
-    try:
-        for market in markets:
-            for scope, previous_date, current_date in pairs:
-                result = probe_pair(
-                    key,
-                    previous_date,
-                    current_date,
-                    market,
-                    scope,
-                )
-                print(format_summary(result))
-        print("P1_KR05_KOREA_BREADTH_LIVE_PROOF=PASS")
-        return 0
-    except BreadthError as exc:
-        print("STOP: %s" % exc, file=sys.stderr)
+    results = run_probe_matrix(key, markets, pairs)
+    for result in results:
+        print(format_summary(result))
+
+    failed_count = sum(result["status"] == "FAILED" for result in results)
+    ok_count = len(results) - failed_count
+    if failed_count:
+        print(
+            "P1_KR05_KOREA_BREADTH_LIVE_PROOF=FAILED ok=%s failed=%s"
+            % (ok_count, failed_count),
+            file=sys.stderr,
+        )
         return 2
+    print(
+        "P1_KR05_KOREA_BREADTH_LIVE_PROOF=PASS ok=%s failed=0"
+        % ok_count
+    )
+    return 0
 
 
 if __name__ == "__main__":
