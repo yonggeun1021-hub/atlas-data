@@ -2,30 +2,60 @@ name: stablecoin-daily-capture
 
 on:
   schedule:
-    - cron: "20 6 * * *"      # 매일 06:20 UTC (한국 15:20). 깃허브 사정으로 수십 분 늦을 수 있음
+    # 15:20/16:20/17:20 KST. 첫 complete UTC-date snapshot이 이기고,
+    # 뒤 슬롯은 provider 호출 전에 append-only guard에서 종료한다.
+    - cron: "20 6 * * *"
+    - cron: "20 7 * * *"
+    - cron: "20 8 * * *"
   workflow_dispatch:           # 수동 실행 버튼
 
 permissions:
   contents: write
 
+concurrency:
+  group: atlas-stablecoin-daily-capture
+  cancel-in-progress: false
+
 jobs:
   capture:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
+      # checkout보다 앞에서 runner 도착 시각을 직접 관측한다.
+      - name: Capture runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          # delayed slot도 event 생성 시점의 낡은 SHA가 아니라 실행 시점의
+          # 최신 default branch에서 append-only guard를 판단한다.
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Capture raw snapshot (append-only)
+        id: capture
         run: |
           set -euo pipefail
           ROOT="$PWD"
           D=$(date -u +%F)
           DIR="evidence/stablecoin/raw/$D"
+          echo "snapshot_date=$D" >> "$GITHUB_OUTPUT"
           if [ -f "$DIR/_sha256.txt" ]; then
             echo "이미 $D 스냅샷이 존재합니다. 덮어쓰지 않고 종료합니다."
-            echo "SKIP=1" >> $GITHUB_ENV
+            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          mkdir -p "$DIR"; cd "$DIR"
+          if [ -e "$DIR" ]; then
+            echo "불완전한 기존 경로가 있어 덮어쓰지 않습니다: $DIR" >&2
+            echo "result=incomplete_existing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          STAGING_PARENT=$(mktemp -d "$RUNNER_TEMP/stablecoin.XXXXXX")
+          STAGING="$STAGING_PARENT/$D"
+          trap 'rm -rf "$STAGING_PARENT"' EXIT
+          mkdir -p "$STAGING"
+          cd "$STAGING"
 
           # source_observed_at — 반드시 다운로드 직전에 기록
           date -u +%Y-%m-%dT%H:%M:%SZ > _downloaded_at.txt
@@ -78,11 +108,47 @@ jobs:
             --collector-version "stablecoin-capture/v2"
           python3 "$ROOT/.github/scripts/stablecoin_revision_contract.py" validate "$PWD"
 
+          cd "$ROOT"
+          mkdir -p "$(dirname "$DIR")"
+          mv "$STAGING" "$DIR"
+          trap - EXIT
+          rm -rf "$STAGING_PARENT"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
+
+      # provider를 호출하지 않는 operations telemetry다. capture 실패/skip도
+      # 구분할 수 있도록 always()에서 실행한다.
+      - name: Record Stablecoin scheduler telemetry
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
+          ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/record_stablecoin_run.py
+
       - name: Commit
-        if: env.SKIP != '1'
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add evidence/stablecoin/raw
-          git commit -m "stablecoin raw snapshot $(date -u +%F)"
-          git push
+          git add data/operations/stablecoin_capture_runs || true
+          if [ "$CAPTURE_RESULT" = "captured" ]; then
+            git add "evidence/stablecoin/raw/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "stablecoin capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi

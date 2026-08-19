@@ -294,6 +294,12 @@ class StablecoinRevisionContractTest(unittest.TestCase):
         self.assertIn("stablecoin_revision_contract.py\" manifest", script)
         self.assertIn("--collector-version \"stablecoin-capture/v2\"", script)
         self.assertIn("stablecoin_revision_contract.py\" validate", script)
+        commit = steps[commit_index]
+        self.assertEqual(commit.get("if"), "always()")
+        self.assertIn(
+            "data/operations/stablecoin_capture_runs",
+            commit.get("run", ""),
+        )
 
 
 if __name__ == "__main__":
