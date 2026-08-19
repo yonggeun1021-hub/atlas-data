@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "contract_version": "data_coverage_matrix/v1",
+  "expected_consumer_counts": {
+    "REGIME": 15,
+    "DISCOVERY": 11,
+    "RULE": 25,
+    "TOTAL": 51
+  },
+  "regime_source_contract": "config/regime_output_contract.json",
+  "rule_source_contract": "config/rules.json",
+  "required_dimensions": [
+    "source",
+    "freshness",
+    "cost",
+    "fallback"
+  ],
+  "source_statuses": [
+    "QUALIFIED",
+    "PARTIAL",
+    "UNRATIFIED",
+    "UNRESOLVED",
+    "UNRECORDED",
+    "NOT_IMPLEMENTED"
+  ],
+  "freshness_statuses": [
+    "DEFINED",
+    "PARTIAL",
+    "UNRATIFIED",
+    "UNRESOLVED"
+  ],
+  "cost_statuses": [
+    "FREE",
+    "FREE_TIER",
+    "PAID_REAPPROVAL_REQUIRED",
+    "UNRESOLVED"
+  ],
+  "fallback_statuses": [
+    "DEFINED",
+    "UNRATIFIED",
+    "UNRESOLVED"
+  ],
+  "operationally_complete_statuses": {
+    "source": [
+      "QUALIFIED"
+    ],
+    "freshness": [
+      "DEFINED"
+    ],
+    "cost": [
+      "FREE",
+      "FREE_TIER"
+    ],
+    "fallback": [
+      "DEFINED"
+    ]
+  },
+  "paid_source_policy": "USER_REAPPROVAL_REQUIRED_BEFORE_SELECTION_OR_PURCHASE",
+  "authority_mode": "AUDIT_ONLY_NO_RUNTIME_AUTHORITY"
+}

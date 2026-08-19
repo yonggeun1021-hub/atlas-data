@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P4-01 — Data Coverage Matrix audit capability.
+    #   Regime 15축·Discovery 11입력·Rule SSOT 25건을 전수 집계해 각 항목의
+    #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.
+    #   ⛔ source 선택·유료 구매·evaluator/Production/trading 연결 없음.
+    "test/test_data_coverage_matrix.py",
     # ★ P1-KR-03 operations evidence — append-only free API capture.
     #   exact-date first-seen과 complete paginated response를 분리해 보존하고
     #   Atlas 관측시각을 source available_at으로 승격하지 않는다.
