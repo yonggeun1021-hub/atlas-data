@@ -255,6 +255,57 @@ class KoreaBreadthTest(unittest.TestCase):
             after = sorted(os.listdir(tmp))
         self.assertEqual(before, after)
 
+    def test_probe_matrix_isolates_market_and_scope_failures(self):
+        opener = SequenceOpener(
+            [
+                payload([]),
+                payload([row("20260814", RAW_CODE, "10")]),
+                payload([row("20260818", RAW_CODE, "11")]),
+                payload([row("20100104", RAW_CODE, "20")]),
+                payload([row("20100105", RAW_CODE, "19")]),
+                payload([]),
+            ],
+            statuses=[401, 200, 200, 200, 200, 401],
+        )
+        results = MODULE.run_probe_matrix(
+            TOKEN,
+            ("kospi", "kosdaq"),
+            (
+                ("historical", "20100104", "20100105"),
+                ("recent", "20260814", "20260818"),
+            ),
+            opener=opener,
+        )
+
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(opener.requests), 6)
+        self.assertEqual(
+            [
+                (result["market"], result["scope"], result["status"])
+                for result in results
+            ],
+            [
+                ("KOSPI", "historical", "FAILED"),
+                ("KOSPI", "recent", "PASS"),
+                ("KOSDAQ", "historical", "PASS"),
+                ("KOSDAQ", "recent", "FAILED"),
+            ],
+        )
+        failed = [result for result in results if result["status"] == "FAILED"]
+        for result in failed:
+            self.assertEqual(result["error"], "KRX_HTTP_ERROR_401")
+            self.assertEqual(result["raw_persistence"], 0)
+            self.assertFalse(result["breadth_classification_authorized"])
+            self.assertFalse(result["regime_score_authorized"])
+            self.assertFalse(result["production_wiring_authorized"])
+            self.assertFalse(result["trading_action_authorized"])
+
+        summaries = "\n".join(MODULE.format_summary(result) for result in results)
+        self.assertNotIn(TOKEN, summaries)
+        self.assertNotIn(RAW_NAME, summaries)
+        self.assertNotIn(RAW_CODE, summaries)
+        self.assertNotIn("123456", summaries)
+
     def test_live_workflow_is_manual_non_persistent_four_point_matrix(self):
         triggers = WF.get("on", WF.get(True))
         self.assertIn("workflow_dispatch", triggers)
