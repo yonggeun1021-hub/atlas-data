@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-COM-02 — minimum coverage 미비준/증거부족 fail-closed Gate.
+    #   5축이 모두 있어도 미비준 상태에서는 UNKNOWN/BLOCKED만 허용하고
+    #   NEUTRAL/score/threshold/Production 승격을 차단한다.
+    #   ⛔ 시장판정/네트워크/tracked output 없음 — temp gate fixtures only.
+    "test/test_regime_coverage_gate.py",
     # ★ P1-COM-01 — Regime 공통 pre-score UNKNOWN output contract.
     #   5축 evidence/coverage/timestamp를 같은 schema로 고정하고 데이터 부족을
     #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
