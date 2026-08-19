@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_output/v1",
+  "contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
+  "markets": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "market_timezones": {
+    "US": "America/New_York",
+    "KR": "Asia/Seoul",
+    "CRYPTO": "UTC"
+  },
+  "regime_vocabulary": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS",
+    "UNKNOWN"
+  ],
+  "runtime_authorized_regimes": [
+    "UNKNOWN"
+  ],
+  "direction_vocabulary": [
+    "IMPROVING",
+    "STABLE",
+    "DETERIORATING",
+    "UNKNOWN"
+  ],
+  "runtime_authorized_directions": [
+    "UNKNOWN"
+  ],
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "factor_statuses": [
+    "DEFINED",
+    "UNDEFINED"
+  ],
+  "confidence_policy": "null_until_replay_defined",
+  "minimum_coverage_policy": "UNRATIFIED",
+  "neutral_unknown_invariant": "NEUTRAL_IS_OBSERVED_STATE_UNKNOWN_IS_INSUFFICIENT_EVIDENCE",
+  "timestamp_policy": "per_axis_observation_and_utc_availability",
+  "evidence_as_of_policy": "oldest_defined_axis_observation",
+  "available_as_of_policy": "latest_defined_axis_availability",
+  "warning_code_pattern": "^[A-Z][A-Z0-9_]*$",
+  "transform_version_pattern": "^[a-z][a-z0-9_/-]*/v[1-9][0-9]*$"
+}

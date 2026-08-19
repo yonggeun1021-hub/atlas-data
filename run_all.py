@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-COM-01 — Regime 공통 pre-score UNKNOWN output contract.
+    #   5축 evidence/coverage/timestamp를 같은 schema로 고정하고 데이터 부족을
+    #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
+    #   ⛔ 시장판정/네트워크/tracked output 없음 — temp envelope fixtures only.
+    "test/test_regime_output_contract.py",
     # ★ P1-CR-05 — BTC Risk / Volatility transform + prefix replay.
     #   qualified BTC PIT close로 RV30·90일 drawdown을 재현하되 stress 임계값,
     #   Regime/Production/trading 권한은 부여하지 않고 gap은 fail-closed한다.
