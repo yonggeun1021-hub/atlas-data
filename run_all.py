@@ -66,6 +66,9 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ Observation layer 구현 상태가 실제 모듈과 어긋나지 않게 한다.
+    #   ③ Normalization·④ Store는 구현, ⑤ Pair·⑥ Evaluator는 미구현 경계다.
+    "test/test_observation_layer_inventory.py",
     # ★ runner summary 자체가 승인 목록의 현재 개수를 표시하는지 검증한다.
     #   고정 숫자 drift가 실제 실행 증거를 축소·과장하지 못하게 한다.
     "test/test_runner_reporting.py",
