@@ -70,6 +70,10 @@ class BriefingInputsTest(unittest.TestCase):
         self.assertEqual(status["totals"]["ok"], total_ok)
         self.assertEqual(status["totals"]["failed"], total_failed)
         self.assertEqual(status["overall"], "pass")
+        self.assertEqual(
+            status["optional_evidence"]["sec_content"]["status"],
+            "missing",
+        )
 
     def test_krx_tail_symbols_have_exact_views(self):
         for code in ("000660", "005930"):
@@ -219,6 +223,9 @@ class BriefingInputsTest(unittest.TestCase):
                     "data/briefing/krx/{SYMBOL}.json",
                     "data/briefing/sec/{SYMBOL}.json",
                 ],
+                "optional_evidence_sources": [
+                    "data/latest_sec_content.json",
+                ],
             },
         )
 
@@ -228,6 +235,52 @@ class BriefingInputsTest(unittest.TestCase):
             filings = obj["stock"].get("filings_recent", [])
             self.assertLessEqual(len(filings), 10)
             self.assertLess(path.stat().st_size, 32768)
+
+    def test_sec_content_overlay_replaces_legacy_false_without_claiming_interpretation(self):
+        stock = {
+            "name": "TSMC",
+            "filings_recent": [
+                {
+                    "accession": "0001046179-26-000536",
+                    "body_captured": False,
+                    "body_capture_status": "Unimplemented",
+                }
+            ],
+        }
+        content = {
+            ("TSM", "0001046179-26-000536"): {
+                "filing_identity": {"accession": "0001046179-26-000536"},
+                "content_status": "OK",
+                "evidence_status": "OK",
+                "interpretation_status": "UNDETERMINED",
+                "rule_impact": "NONE",
+                "action": "NO_CHANGE",
+                "extracted": [
+                    {
+                        "label": "capital_appropriations",
+                        "value": "29442.50",
+                        "currency": "USD",
+                        "quote": "US$29,442.50 million",
+                        "char_offset": 10,
+                    }
+                ],
+            }
+        }
+        compact = self.module.compact_sec_stock(
+            stock,
+            symbol="TSM",
+            content=content,
+            content_source={"source_file": "data/latest_sec_content.json"},
+        )
+        filing = compact["filings_recent"][0]
+        self.assertTrue(filing["body_captured"])
+        self.assertEqual(filing["body_capture_status"], "OK")
+        self.assertEqual(filing["content"]["evidence_status"], "OK")
+        self.assertEqual(
+            filing["content"]["interpretation_status"], "UNDETERMINED"
+        )
+        self.assertEqual(filing["content"]["rule_impact"], "NONE")
+        self.assertEqual(filing["content"]["action"], "NO_CHANGE")
 
     def test_invalid_json_fails_closed(self):
         spec = importlib.util.spec_from_file_location(

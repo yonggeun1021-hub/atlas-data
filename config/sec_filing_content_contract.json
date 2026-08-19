@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "contract_version": "sec_filing_content/1",
+  "status_values": [
+    "OK",
+    "PENDING",
+    "FAILED",
+    "NOT_APPLICABLE",
+    "UNIMPLEMENTED"
+  ],
+  "interpretation_values": [
+    "UNDETERMINED",
+    "STRENGTHENING",
+    "WEAKENING",
+    "NEUTRAL"
+  ],
+  "rule_impact_values": [
+    "NONE",
+    "INPUT",
+    "TRIGGERED"
+  ],
+  "stage_policy": {
+    "required": [
+      "Ready",
+      "Buy",
+      "Holding",
+      "Candidate"
+    ],
+    "best_effort": [
+      "Discovery"
+    ],
+    "unassigned": "index_only"
+  },
+  "form_policy": {
+    "material": [
+      "8-K",
+      "10-Q",
+      "10-K",
+      "6-K",
+      "20-F"
+    ],
+    "context_exact": [
+      "S-1",
+      "S-3",
+      "SC 13D",
+      "SC 13G"
+    ],
+    "context_prefixes": [
+      "424B"
+    ],
+    "out_of_scope_exact": [
+      "3",
+      "4",
+      "5",
+      "SD",
+      "UPLOAD",
+      "CORRESP",
+      "FWP",
+      "S-8"
+    ]
+  },
+  "document_policy": {
+    "primary_required": true,
+    "exhibit_type_prefix": "EX-99.",
+    "max_document_bytes": 5242880,
+    "max_submission_index_bytes": 20971520,
+    "max_exhibits": 3,
+    "silent_truncation_allowed": false
+  },
+  "retention_policy": {
+    "canonical_hash_url_extracted": "permanent",
+    "raw_cache_days": 90,
+    "permanent_raw_stages": [
+      "Ready",
+      "Buy",
+      "Holding"
+    ],
+    "required_stage_material_raw": "permanent",
+    "source_mutation_behavior": "SOURCE_MUTATED_FAIL_CLOSED_NO_OVERWRITE"
+  },
+  "extractor_version": "sec_filing_content/1",
+  "authority": {
+    "evidence_only": true,
+    "interpretation_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

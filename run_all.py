@@ -82,6 +82,11 @@ APPROVED_TESTS = [
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.
     #   ⛔ source 선택·유료 구매·evaluator/Production/trading 연결 없음.
     "test/test_data_coverage_matrix.py",
+    # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
+    #   Stage/form scope, SGML+index identity, bounded content, immutable hash,
+    #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.
+    #   ⛔ 테스트의 live SEC/Notion/Production/trading 없음 — fake fetcher + temp data.
+    "test/test_sec_filing_content.py",
     # ★ P1-KR-03 operations evidence — append-only free API capture.
     #   exact-date first-seen과 complete paginated response를 분리해 보존하고
     #   Atlas 관측시각을 source available_at으로 승격하지 않는다.
