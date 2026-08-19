@@ -96,6 +96,11 @@ APPROVED_TESTS = [
     #   사용하며 결측·API 오류·해시/manifest 변조를 fail-closed한다.
     #   ⛔ live Kraken 호출 없음 — temp PIT fixtures + workflow YAML 계약.
     "test/test_btc_trend.py",
+    # ★ P1-CR-06 — Crypto Breadth / Alt participation PIT universe 계약.
+    #   날짜별 Assets·AssetPairs·OHLC snapshot과 effective-dated identity를 묶고
+    #   ratified universe 없이는 계산을 막으며 raw advance/decline만 재현한다.
+    #   ⛔ live Kraken/workflow/tracked factor 없음 — temp multi-asset fixtures only.
+    "test/test_crypto_breadth.py",
     # ★ P0-04 — KRX post-close observation / PM briefing freshness.
     #   morning archive/latest와 분리된 exact-date bundle, observed_unconfirmed,
     #   decision_eligible=false, partial-response incident 경계를 검증한다.
