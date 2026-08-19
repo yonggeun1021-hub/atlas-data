@@ -1,0 +1,61 @@
+name: BTC Price Daily Capture
+
+on:
+  schedule:
+    - cron: "20 0 * * *"      # 00:20 UTC; 직전 UTC 일봉 확정 후
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-btc-price-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture immutable Kraken BTC/USD daily OHLC
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          D=$(date -u +%F)
+          DIR="evidence/crypto/btc/raw/$D"
+          if [ -f "$DIR/_manifest.json" ]; then
+            echo "이미 $D BTC price snapshot이 있습니다. 덮어쓰지 않습니다."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          mkdir -p "$DIR"
+          cd "$DIR"
+          date -u +%Y-%m-%dT%H:%M:%SZ > _downloaded_at.txt
+
+          curl --silent --show-error --fail \
+            --retry 3 --retry-delay 5 --max-time 60 \
+            --output kraken_ohlc_xbtusd.json \
+            "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+
+          sha256sum kraken_ohlc_xbtusd.json > _sha256.txt
+          gzip -n kraken_ohlc_xbtusd.json
+
+          python3 "$ROOT/.github/scripts/btc_trend.py" manifest \
+            --snapshot-dir "$PWD" \
+            --capture-version "btc-price-capture/v1"
+          python3 "$ROOT/.github/scripts/btc_trend.py" validate "$PWD"
+          python3 "$ROOT/.github/scripts/btc_trend.py" transform "$PWD" \
+            --out "$RUNNER_TEMP/btc_trend.json"
+
+      - name: Commit BTC price evidence
+        if: env.SKIP != '1'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add evidence/crypto/btc/raw
+          git commit -m "BTC price raw snapshot $(date -u +%F)"
+          git push
