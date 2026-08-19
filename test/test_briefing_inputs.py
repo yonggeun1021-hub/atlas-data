@@ -74,6 +74,10 @@ class BriefingInputsTest(unittest.TestCase):
             status["optional_evidence"]["sec_content"]["status"],
             "missing",
         )
+        self.assertEqual(
+            status["optional_evidence"]["dart_content"]["status"],
+            "missing",
+        )
 
     def test_krx_tail_symbols_have_exact_views(self):
         for code in ("000660", "005930"):
@@ -221,9 +225,11 @@ class BriefingInputsTest(unittest.TestCase):
                 "health_path": "data/briefing_status.json",
                 "compact_path_templates": [
                     "data/briefing/krx/{SYMBOL}.json",
+                    "data/briefing/dart/{SYMBOL}.json",
                     "data/briefing/sec/{SYMBOL}.json",
                 ],
                 "optional_evidence_sources": [
+                    "data/latest_dart_content.json",
                     "data/latest_sec_content.json",
                 ],
             },
@@ -235,6 +241,70 @@ class BriefingInputsTest(unittest.TestCase):
             filings = obj["stock"].get("filings_recent", [])
             self.assertLessEqual(len(filings), 10)
             self.assertLess(path.stat().st_size, 32768)
+
+    def test_dart_compact_view_is_bounded(self):
+        source = json.loads((self.data / "latest_dart.json").read_text())
+        for symbol in source["stocks"]:
+            path = self.out / "dart" / f"{symbol}.json"
+            self.assertTrue(path.is_file())
+            obj = json.loads(path.read_text())
+            self.assertEqual(obj["schema_version"], 2)
+            self.assertEqual(obj["market"], "DART")
+            self.assertLessEqual(len(obj["stock"].get("relevant", [])), 20)
+            self.assertLess(path.stat().st_size, 32768)
+
+    def test_dart_content_overlay_preserves_unratified_item_boundary(self):
+        stock = {
+            "name": "삼성전자",
+            "relevant": [
+                {
+                    "date": "20260820",
+                    "title": "단일판매ㆍ공급계약체결",
+                    "rcept_no": "20260820800123",
+                    "url": (
+                        "https://dart.fss.or.kr/dsaf001/main.do?"
+                        "rcpNo=20260820800123"
+                    ),
+                }
+            ],
+        }
+        content = {
+            ("005930", "20260820800123"): {
+                "filing_identity": {"rcept_no": "20260820800123"},
+                "filing_classification": "MATERIAL_RELEVANT_TITLE",
+                "capture_policy": "required",
+                "content_status": "OK",
+                "evidence_status": "PENDING",
+                "interpretation_status": "UNDETERMINED",
+                "rule_impact": "NONE",
+                "action": "NO_CHANGE",
+                "reasons": ["ITEM_EXTRACTION_POLICY_UNRATIFIED"],
+                "source_archive": {
+                    "source_uri": (
+                        "https://opendart.fss.or.kr/api/document.xml?"
+                        "rcept_no=20260820800123"
+                    ),
+                    "content_sha256": "1" * 64,
+                },
+                "documents": [],
+                "extracted": [],
+            }
+        }
+        compact = self.module.compact_dart_stock(
+            stock,
+            symbol="005930",
+            content=content,
+            content_source={"source_file": "data/latest_dart_content.json"},
+        )
+        item = compact["relevant"][0]
+        self.assertTrue(item["body_captured"])
+        self.assertEqual(item["body_capture_status"], "OK")
+        self.assertEqual(item["content"]["evidence_status"], "PENDING")
+        self.assertEqual(
+            item["content"]["interpretation_status"], "UNDETERMINED"
+        )
+        self.assertEqual(item["content"]["rule_impact"], "NONE")
+        self.assertEqual(item["content"]["action"], "NO_CHANGE")
 
     def test_sec_content_overlay_replaces_legacy_false_without_claiming_interpretation(self):
         stock = {
@@ -334,6 +404,9 @@ class BriefingInputsTest(unittest.TestCase):
         self.assertEqual(status["expected_kst_date"], self.today)
         self.assertTrue((self.out / "step0_status.json").is_file())
         self.assertTrue((self.out / "krx" / "005930.json").is_file())
+
+        dart_views = list((self.out / "dart").glob("*.json"))
+        self.assertTrue(dart_views)
 
         sec_views = list((self.out / "sec").glob("*.json"))
         self.assertTrue(sec_views)

@@ -214,9 +214,11 @@ def validate_read_model(data_root, expected_date, sources, hashes):
             "health_path": "data/briefing_status.json",
             "compact_path_templates": [
                 "data/briefing/krx/{SYMBOL}.json",
+                "data/briefing/dart/{SYMBOL}.json",
                 "data/briefing/sec/{SYMBOL}.json",
             ],
             "optional_evidence_sources": [
+                "data/latest_dart_content.json",
                 "data/latest_sec_content.json",
             ],
         }
@@ -265,7 +267,7 @@ def validate_read_model(data_root, expected_date, sources, hashes):
             reasons.append("health:error_not_null")
 
     compact = {}
-    for name in ("krx", "sec"):
+    for name in ("krx", "dart", "sec"):
         stocks = sources[name].get("stocks")
         if not isinstance(stocks, dict):
             reasons.append(f"{name}:stocks_missing")

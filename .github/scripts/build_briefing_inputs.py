@@ -240,8 +240,32 @@ def sec_content_index(content):
     return out
 
 
+def dart_content_index(content):
+    if content is None:
+        return {}
+    if content.get("schema_version") != "dart_filing_content_run/1":
+        raise RuntimeError("dart_content:schema_invalid")
+    records = content.get("records")
+    if not isinstance(records, list):
+        raise RuntimeError("dart_content:records_missing")
+    out = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise RuntimeError("dart_content:record_invalid")
+        identity = record.get("filing_identity") or {}
+        key = (record.get("ticker"), identity.get("rcept_no"))
+        if not all(isinstance(part, str) and part for part in key):
+            raise RuntimeError("dart_content:identity_invalid")
+        if key in out:
+            raise RuntimeError(f"dart_content:identity_duplicate:{key}")
+        out[key] = record
+    return out
+
+
 def compact_content_record(record, content_source):
     keep = [
+        "filing_classification",
+        "capture_policy",
         "discovery_status",
         "content_status",
         "evidence_status",
@@ -251,6 +275,7 @@ def compact_content_record(record, content_source):
         "reasons",
         "retrieved_at_utc",
         "extractor_version",
+        "source_archive",
         "documents",
         "extracted",
         "operation",
@@ -262,6 +287,80 @@ def compact_content_record(record, content_source):
         **{key: record.get(key) for key in keep if key in record},
         "source": content_source,
     }
+
+
+def compact_dart_stock(stock, symbol=None, content=None, content_source=None):
+    keep = [
+        "name",
+        "atlas_stage",
+        "coverage",
+        "db_state",
+        "in_notion",
+        "corp_code",
+        "status",
+        "total_count",
+        "relevant_count",
+        "relevant",
+    ]
+    out = {key: stock.get(key) for key in keep if key in stock}
+    if isinstance(out.get("relevant"), list):
+        filings = []
+        for source_filing in out["relevant"][:20]:
+            if not isinstance(source_filing, dict):
+                continue
+            filing = dict(source_filing)
+            record = (content or {}).get((symbol, filing.get("rcept_no")))
+            if record is not None:
+                compact = compact_content_record(record, content_source)
+                filing["content"] = compact
+                filing["body_captured"] = compact.get("content_status") == "OK"
+                filing["body_capture_status"] = compact.get("content_status")
+            filings.append(filing)
+        out["relevant"] = filings
+    return out
+
+
+def build_dart_views(obj, sha, out_root, content=None, content_sha=None):
+    stocks = obj.get("stocks")
+    if not isinstance(stocks, dict):
+        raise RuntimeError("dart:stocks_missing")
+
+    target = out_root / "dart"
+    target.mkdir(parents=True, exist_ok=True)
+    expected = set()
+    content_records = dart_content_index(content)
+    content_source = None
+    if content is not None:
+        content_source = {
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": content_sha,
+            "collected_for_kst_date": content.get("collected_for_kst_date"),
+            "observed_at_utc": content.get("observed_at_utc"),
+            "run_status": content.get("run_status"),
+        }
+
+    for symbol, stock in stocks.items():
+        if not isinstance(stock, dict):
+            continue
+        payload = {
+            "schema_version": 2,
+            "market": "DART",
+            "symbol": symbol,
+            "stock": compact_dart_stock(
+                stock,
+                symbol=symbol,
+                content=content_records,
+                content_source=content_source,
+            ),
+            "source": source_meta("dart", obj, sha),
+        }
+        path = target / f"{symbol}.json"
+        write_json(path, payload)
+        expected.add(path.name)
+
+    for path in target.glob("*.json"):
+        if path.name not in expected:
+            path.unlink()
 
 
 def compact_sec_stock(stock, symbol=None, content=None, content_source=None):
@@ -448,6 +547,49 @@ def load_optional_sec_content(expected_date):
     }
 
 
+def load_optional_dart_content(expected_date):
+    path = DATA / "latest_dart_content.json"
+    if not path.exists():
+        return None, None, {
+            "status": "missing",
+            "source_file": "data/latest_dart_content.json",
+        }
+    try:
+        content, sha = load_json(path)
+        dart_content_index(content)
+    except Exception as exc:
+        return None, None, {
+            "status": "invalid",
+            "source_file": "data/latest_dart_content.json",
+            "error": f"{type(exc).__name__}:{exc}",
+        }
+    observed_date = content.get("collected_for_kst_date")
+    if not expected_date or observed_date != expected_date:
+        return None, None, {
+            "status": "stale",
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": sha,
+            "collected_for_kst_date": observed_date,
+        }
+    run_status = content.get("run_status")
+    if run_status not in {"OK", "DEGRADED"}:
+        return None, None, {
+            "status": "failed",
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": sha,
+            "collected_for_kst_date": observed_date,
+            "run_status": run_status,
+            "reasons": content.get("reasons", []),
+        }
+    return content, sha, {
+        "status": "available" if run_status == "OK" else "degraded",
+        "source_file": "data/latest_dart_content.json",
+        "source_sha256": sha,
+        "collected_for_kst_date": observed_date,
+        "run_status": run_status,
+    }
+
+
 def build_and_publish(expected_date, fail_before_publish=False):
     sources = {}
     hashes = {}
@@ -459,6 +601,9 @@ def build_and_publish(expected_date, fail_before_publish=False):
 
     sec_content, sec_content_sha, sec_content_status = (
         load_optional_sec_content(expected_date)
+    )
+    dart_content, dart_content_sha, dart_content_status = (
+        load_optional_dart_content(expected_date)
     )
 
     summaries = {
@@ -528,13 +673,16 @@ def build_and_publish(expected_date, fail_before_publish=False):
             "health_path": "data/briefing_status.json",
             "compact_path_templates": [
                 "data/briefing/krx/{SYMBOL}.json",
+                "data/briefing/dart/{SYMBOL}.json",
                 "data/briefing/sec/{SYMBOL}.json",
             ],
             "optional_evidence_sources": [
+                "data/latest_dart_content.json",
                 "data/latest_sec_content.json",
             ],
         },
         "optional_evidence": {
+            "dart_content": dart_content_status,
             "sec_content": sec_content_status,
         },
     }
@@ -554,6 +702,13 @@ def build_and_publish(expected_date, fail_before_publish=False):
     try:
         write_json(staging / "step0_status.json", status)
         build_krx_views(sources["krx"], hashes["krx"], staging)
+        build_dart_views(
+            sources["dart"],
+            hashes["dart"],
+            staging,
+            content=dart_content,
+            content_sha=dart_content_sha,
+        )
         build_sec_views(
             sources["sec"],
             hashes["sec"],

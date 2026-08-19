@@ -87,6 +87,12 @@ APPROVED_TESTS = [
     #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.
     #   ⛔ 테스트의 live SEC/Notion/Production/trading 없음 — fake fetcher + temp data.
     "test/test_sec_filing_content.py",
+    # ★ P4-03 — OpenDART filing original-document acquisition.
+    #   exact rcept_no ZIP, complete member/hash/text index, bounded archive,
+    #   append-only cache, skip/mutation/status separation을 fail-closed한다.
+    #   item extraction policy 미비준이므로 Evidence PENDING/Rule NONE을 고정한다.
+    #   ⛔ live DART/key/Notion/Production/trading 없음 — fake fetcher + temp data.
+    "test/test_dart_filing_content.py",
     # ★ P1-KR-03 operations evidence — append-only free API capture.
     #   exact-date first-seen과 complete paginated response를 분리해 보존하고
     #   Atlas 관측시각을 source available_at으로 승격하지 않는다.
