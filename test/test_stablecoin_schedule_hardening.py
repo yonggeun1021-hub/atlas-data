@@ -111,7 +111,8 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
         checkout_index = next(
             index
             for index, step in enumerate(STEPS)
-            if step.get("uses") == "actions/checkout@v4"
+            if step.get("uses")
+            == "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
         )
 
         self.assertLess(STEPS.index(runner), checkout_index)

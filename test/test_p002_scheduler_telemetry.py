@@ -191,7 +191,8 @@ class P002SchedulerTelemetryTest(unittest.TestCase):
         checkout_index = next(
             i
             for i, item in enumerate(STEPS)
-            if item.get("uses") == "actions/checkout@v4"
+            if item.get("uses")
+            == "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
         )
         capture = STEPS[capture_index]
 

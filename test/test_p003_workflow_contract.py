@@ -129,7 +129,8 @@ class P003WorkflowContractTest(unittest.TestCase):
             (
                 item
                 for item in STEPS
-                if item.get("uses") == "actions/setup-python@v5"
+                if item.get("uses")
+                == "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
             ),
             None,
         )
