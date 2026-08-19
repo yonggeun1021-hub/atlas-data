@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P0-04 — KRX post-close observation / PM briefing freshness.
+    #   morning archive/latest와 분리된 exact-date bundle, observed_unconfirmed,
+    #   decision_eligible=false, partial-response incident 경계를 검증한다.
+    #   ⛔ live KRX/Notion 호출 없음 — temp data root + workflow YAML 계약.
+    "test/test_p004_krx_post_close.py",
     # ★ P1-CR-03 — Stablecoin Net Issuance evidence transform.
     #   native USD-peg supply의 exact T-1/T-7 차이와 missing/revision lineage를
     #   검증하며 가격효과·Regime score·운영배선을 분리한다.
