@@ -31,6 +31,15 @@
   "expected_kst_date": "2026-08-19",
   "overall": "pass",
   "purpose": "Atlas briefing Step 0 compact readiness SSOT",
+  "read_model_inventory": {
+    "authority_path": "data/briefing/step0_status.json",
+    "compact_path_templates": [
+      "data/briefing/krx/{SYMBOL}.json",
+      "data/briefing/sec/{SYMBOL}.json"
+    ],
+    "date_basis": "KST",
+    "health_path": "data/briefing_status.json"
+  },
   "scheduled_collectors": [
     {
       "date_basis": "KST",

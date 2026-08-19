@@ -1,0 +1,49 @@
+{
+  "classification": "data_ready_read_model_ready",
+  "data_ready": true,
+  "error": null,
+  "expected_kst_date": "2026-08-19",
+  "manual_inspection_required": false,
+  "read_model": {
+    "compact_views": {
+      "krx": {
+        "expected": 5,
+        "valid": 5
+      },
+      "sec": {
+        "expected": 7,
+        "valid": 7
+      }
+    },
+    "health_path": "data/briefing_status.json",
+    "status_path": "data/briefing/step0_status.json"
+  },
+  "read_model_ready": true,
+  "reasons": [],
+  "recovery_action": "none",
+  "schema_version": 1,
+  "sources": {
+    "dart": {
+      "collected_for_kst_date": "2026-08-19",
+      "failed": 0,
+      "ok": 5,
+      "path": "data/latest_dart.json",
+      "source_sha256": "2456f1ff66d3452e2a36f963fbfbb7478fc26c66bf1a8b44ad75de2e402f9534"
+    },
+    "krx": {
+      "collected_for_kst_date": "2026-08-19",
+      "failed": 0,
+      "ok": 5,
+      "path": "data/latest_krx.json",
+      "source_sha256": "3539ffe312f73e00f8c74593307e727f9ac331219816cb34715fd12245ccb5f8"
+    },
+    "sec": {
+      "collected_for_kst_date": "2026-08-19",
+      "failed": 0,
+      "ok": 7,
+      "path": "data/latest_sec.json",
+      "source_sha256": "570b45dd9c614b348f2e78c330dc5dd5d50d61aa64705fbd351bb08214f1bd5c"
+    }
+  },
+  "status": "ready"
+}
