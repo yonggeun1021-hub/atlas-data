@@ -1,0 +1,105 @@
+name: P1-US-04 US Breadth Forward Capture
+
+on:
+  schedule:
+    # 01:20 UTC Tue-Sat: regular US session date after close in both EDT/EST.
+    - cron: "20 1 * * 2-6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-us-breadth-forward-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Offline forward-source regression
+        run: python3 test/test_us_breadth_forward.py
+      - name: Capture official current-day directories append-only
+        id: capture
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          STAGING_PARENT=$(mktemp -d "$RUNNER_TEMP/us-breadth.XXXXXX")
+          CAPTURE="$STAGING_PARENT/capture"
+          trap 'rm -rf "$STAGING_PARENT"' EXIT
+          mkdir -p "$CAPTURE"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$CAPTURE/_downloaded_at.txt"
+
+          fetch () {
+            curl --silent --show-error --fail --location \
+              --retry 3 --retry-delay 5 --max-time 120 \
+              --output "$CAPTURE/$1" "$2"
+          }
+          fetch nasdaqlisted.txt \
+            "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+          fetch otherlisted.txt \
+            "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+
+          cd "$CAPTURE"
+          sha256sum nasdaqlisted.txt otherlisted.txt > _sha256.txt
+          gzip -n nasdaqlisted.txt otherlisted.txt
+          cd "$ROOT"
+
+          SOURCE_DATE=$(python3 .github/scripts/us_breadth_forward.py \
+            source-date "$CAPTURE")
+          DIR="evidence/us_breadth/raw/$SOURCE_DATE"
+          echo "snapshot_date=$SOURCE_DATE" >> "$GITHUB_OUTPUT"
+          if [ -f "$DIR/_manifest.json" ]; then
+            echo "이미 $SOURCE_DATE 스냅샷이 존재합니다. 덮어쓰지 않습니다."
+            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -e "$DIR" ]; then
+            echo "불완전한 기존 경로가 있어 덮어쓰지 않습니다: $DIR" >&2
+            exit 1
+          fi
+
+          DATED="$STAGING_PARENT/$SOURCE_DATE"
+          mv "$CAPTURE" "$DATED"
+          python3 .github/scripts/us_breadth_forward.py manifest "$DATED" \
+            --collector-version us-breadth-forward-capture/v1
+          python3 .github/scripts/us_breadth_forward.py validate "$DATED"
+
+          PREVIOUS=$(find evidence/us_breadth/raw -mindepth 1 -maxdepth 1 \
+            -type d -name '????-??-??' 2>/dev/null | sort | tail -n 1 || true)
+          if [ -n "$PREVIOUS" ]; then
+            python3 .github/scripts/us_breadth_forward.py diff \
+              --previous-dir "$PREVIOUS" --current-dir "$DATED" \
+              --out "$DATED/_membership_diff.json"
+          else
+            python3 .github/scripts/us_breadth_forward.py diff \
+              --current-dir "$DATED" --out "$DATED/_membership_diff.json"
+          fi
+
+          mkdir -p "$(dirname "$DIR")"
+          mv "$DATED" "$DIR"
+          trap - EXIT
+          rm -rf "$STAGING_PARENT"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
+      - name: Commit immutable capture
+        if: steps.capture.outputs.result == 'captured'
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "evidence/us_breadth/raw/$SNAPSHOT_DATE"
+          git commit -m "us breadth universe ${SNAPSHOT_DATE} [${{ github.event_name }}]"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"

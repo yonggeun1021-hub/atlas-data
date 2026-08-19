@@ -66,6 +66,12 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-US-04 — free forward-only US directory membership capture.
+    #   Nasdaq Trader current-day files를 append-only로 누적하고 캡처 간
+    #   편입·이탈만 재현한다. 과거 backfill·가격 breadth·유료 소스는 차단하며
+    #   유료 전환 전 사용자 재승인 체크포인트를 기계적으로 고정한다.
+    #   ⛔ live network 없음 — temp raw fixtures + workflow YAML 계약만 검증.
+    "test/test_us_breadth_forward.py",
     # ★ P1-KR-07 — Korea Leadership transient index-relative contract.
     #   effective-dated KOSPI/KOSDAQ/sector/theme taxonomy와 benchmark 대비
     #   원시 상대수익률만 재현하며 ranking/Regime/Production 권한은 닫아 둔다.

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "approval_status": "FORWARD_ONLY_RATIFIED",
+  "source_name": "nasdaq_trader_symbol_directory",
+  "source_semantics": "current_trading_day_directory_updated_intraday",
+  "capture_mode": "direct_fetch_append_only",
+  "snapshot_date_basis": "source_file_creation_date",
+  "source_file_creation_timezone": "UNSPECIFIED_BY_SOURCE",
+  "historical_universe_policy": "as_captured_forward_only_no_current_state_backfill",
+  "universe_semantics": "source_directory_membership_not_investable_universe",
+  "sources": [
+    {
+      "name": "nasdaq_listed",
+      "endpoint": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+      "raw_file": "nasdaqlisted.txt.gz",
+      "identity_field": "Symbol",
+      "exchange_field": null,
+      "minimum_records": 1000,
+      "required_fields": [
+        "Symbol",
+        "Security Name",
+        "Market Category",
+        "Test Issue",
+        "Financial Status",
+        "Round Lot Size",
+        "ETF",
+        "NextShares"
+      ]
+    },
+    {
+      "name": "other_listed",
+      "endpoint": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
+      "raw_file": "otherlisted.txt.gz",
+      "identity_field": "ACT Symbol",
+      "exchange_field": "Exchange",
+      "minimum_records": 1000,
+      "required_fields": [
+        "ACT Symbol",
+        "Security Name",
+        "Exchange",
+        "CQS Symbol",
+        "ETF",
+        "Round Lot Size",
+        "Test Issue",
+        "NASDAQ Symbol"
+      ]
+    }
+  ],
+  "price_source_status": "UNAVAILABLE_UNQUALIFIED",
+  "historical_reconstruction_authorized": false,
+  "price_breadth_authorized": false,
+  "breadth_classification_authorized": false,
+  "threshold_authorized": false,
+  "regime_score_authorized": false,
+  "production_wiring_authorized": false,
+  "trading_action_authorized": false,
+  "paid_data_checkpoint": {
+    "status": "USER_RECONFIRMATION_REQUIRED",
+    "approved": false,
+    "allowed_without_reconfirmation": [
+      "forward_only_current_day_symbol_directory_capture",
+      "append_only_raw_persistence",
+      "captured_snapshot_membership_diff"
+    ],
+    "stop_before": [
+      "historical_breadth_reconstruction",
+      "delisted_security_ohlcv_acquisition",
+      "paid_api_or_vendor_integration",
+      "license_or_subscription_cost",
+      "trial_that_converts_to_paid"
+    ]
+  }
+}
