@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-US-05 — US Risk / Vol transient derived-feature 계약.
+    #   기존 US price temporal eligibility를 재사용해 PIT/available_at을 검증하고
+    #   synthetic stdin rows에서 RV/drawdown만 계산하며 vendor price 보존을 막는다.
+    #   ⛔ live Tiingo/workflow/tracked factor 없음 — temp policy/in-memory fixtures only.
+    "test/test_us_risk.py",
     # ★ P1-KR-04 — KRX/NXT investor-flow market coverage contract.
     #   기존 KRX 수급을 KRX_ONLY로 고정하고 NXT·한국 전체시장 확대 해석,
     #   당일 확정·관측시각 available_at 승격, 행/컬럼/venue 누락 혼동을 막는다.
