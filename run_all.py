@@ -66,6 +66,12 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-KR-05 — KRX official stock PIT universe + raw breadth pilot.
+    #   exact-date KOSPI/KOSDAQ response rows로 source-coverage universe와
+    #   advance/decline/unchanged를 재현하되 raw persistence·classification·
+    #   Regime/Production/trading 권한을 계속 차단한다.
+    #   ⛔ live KRX 호출 없음 — fixture response + workflow contract only.
+    "test/test_korea_breadth.py",
     # ★ P1-US-06 — US Leadership transient cross-sectional contract.
     #   PIT membership/taxonomy와 market-relative strength/participation을
     #   재현하되 Trend/Breadth/순위/Regime/Production 권한은 부여하지 않는다.
