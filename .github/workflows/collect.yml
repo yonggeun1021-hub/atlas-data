@@ -25,6 +25,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # P0-02 — GitHub scheduler 지연을 커밋 시각으로 역산하지 않는다.
+      # runner가 실제로 명령을 실행하기 시작한 첫 UTC 시각을 먼저 고정한다.
+      - name: Capture runner start time (P0-02)
+        id: runner_start
+        run: |
+          STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "observed_started_at_utc=$STARTED_AT" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       # ────────────────────────────────────────────────────────────────
@@ -42,6 +50,7 @@ jobs:
           RESULT=$(TODAY="$TODAY" python3 .github/scripts/guard.py || echo stale)
           if [ "$RESULT" = "fresh" ]; then SKIP=yes; else SKIP=no; fi
           echo "today_kst=$TODAY / krx+dart+sec=$RESULT / skip=$SKIP"
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
       - name: Collector 재수집 생략 사유 표시
@@ -143,6 +152,21 @@ jobs:
         run: |
           TODAY=$(date +%Y-%m-%d)
           python3 .github/scripts/build_briefing_inputs.py --today "$TODAY"
+
+      # scheduled/manual 및 Guard skip을 같은 계약으로 기록한다.
+      # 데이터 provider를 추가 호출하지 않으며, 실패해도 아래 Commit data가
+      # collector/read-model 결과를 보존할 수 있도록 always()에서 실행한다.
+      - name: Record scheduler telemetry (P0-02)
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_GUARD_RESULT: ${{ steps.guard.outputs.result }}
+          ATLAS_GUARD_SKIP: ${{ steps.guard.outputs.skip }}
+        run: python3 .github/scripts/record_collect_run.py
 
       # Guard=fresh 인 manual run도 read-model-only repair 결과를 저장할 수 있어야 한다.
       # 실제 변경이 없으면 아래 git diff --staged --quiet 에서 커밋 없이 종료한다.
