@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P0-02 — Daily Collect scheduler self-observability.
+    #   slot/run identity, runner-start delay, Guard result/skip을 작은 telemetry로
+    #   남기며 manual/unknown schedule은 지연을 추정하지 않는다.
+    #   ⛔ live GitHub/KRX 호출 없음 — temp output root에서 production helper 검증.
+    "test/test_p002_scheduler_telemetry.py",
     "test/test_canonical_identity.py",
     "test/test_data_source_ambiguity.py",
     "test/test_decision_cards.py",
