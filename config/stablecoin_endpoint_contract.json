@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "source": "DefiLlama Stablecoins API",
+  "capture_mode": "direct_fetch_append_only",
+  "pit_coverage_start": "2026-08-17",
+  "manifest_required_from": "2026-08-20",
+  "endpoints": [
+    {
+      "name": "stablecoincharts_all",
+      "raw_file": "stablecoincharts_all.json.gz",
+      "endpoint": "https://stablecoins.llama.fi/stablecoincharts/all",
+      "semantics": "historical_series",
+      "payload_kind": "array",
+      "records_path": null,
+      "primary_key": "date",
+      "minimum_records": 100,
+      "required_fields": [
+        "date",
+        "totalCirculating",
+        "totalCirculatingUSD"
+      ]
+    },
+    {
+      "name": "stablecoincharts_Terra",
+      "raw_file": "stablecoincharts_Terra.json.gz",
+      "endpoint": "https://stablecoins.llama.fi/stablecoincharts/Terra",
+      "semantics": "historical_series",
+      "payload_kind": "array",
+      "records_path": null,
+      "primary_key": "date",
+      "minimum_records": 100,
+      "required_fields": [
+        "date",
+        "totalCirculating",
+        "totalCirculatingUSD"
+      ]
+    },
+    {
+      "name": "stablecoinchains",
+      "raw_file": "stablecoinchains.json.gz",
+      "endpoint": "https://stablecoins.llama.fi/stablecoinchains",
+      "semantics": "live_snapshot",
+      "payload_kind": "array",
+      "records_path": null,
+      "primary_key": "name",
+      "minimum_records": 100,
+      "required_fields": [
+        "name",
+        "totalCirculatingUSD"
+      ]
+    },
+    {
+      "name": "stablecoins_withprices",
+      "raw_file": "stablecoins_withprices.json.gz",
+      "endpoint": "https://stablecoins.llama.fi/stablecoins?includePrices=true",
+      "semantics": "live_snapshot",
+      "payload_kind": "object_array",
+      "records_path": "peggedAssets",
+      "primary_key": "id",
+      "minimum_records": 100,
+      "required_fields": [
+        "id",
+        "name",
+        "pegType",
+        "circulating"
+      ]
+    }
+  ]
+}
