@@ -164,7 +164,48 @@ def inspect_request(request: Request) -> dict:
     }
 
 
-def fetch_raw(request: Request, opener=urlopen, timeout: int = 60) -> bytes:
+def safe_gateway_error(raw: bytes, service_key: str) -> str:
+    try:
+        text = raw[:8192].decode("utf-8", errors="replace")
+    except AttributeError:
+        return "gateway_reason=UNAVAILABLE"
+    candidates = {
+        str(service_key or "").strip(),
+        unquote(str(service_key or "").strip()),
+    }
+    for value in candidates:
+        if value:
+            text = text.replace(value, "[REDACTED]")
+    fields = []
+    for tag in ("returnAuthMsg", "returnReasonCode", "errMsg"):
+        match = re.search(rf"<{tag}>([^<]{{1,200}})</{tag}>", text)
+        if match:
+            value = re.sub(r"[^0-9A-Za-z가-힣_ .:/()-]", "?", match.group(1))
+            fields.append(f"{tag}={value}")
+    if not fields:
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            header = payload.get("response", payload).get("header", payload)
+            if isinstance(header, dict):
+                for key in ("resultCode", "resultMsg"):
+                    value = header.get(key)
+                    if isinstance(value, (str, int)):
+                        cleaned = re.sub(
+                            r"[^0-9A-Za-z가-힣_ .:/()-]", "?", str(value)
+                        )[:200]
+                        fields.append(f"{key}={cleaned}")
+    return " ".join(fields) if fields else "gateway_reason=UNPARSED"
+
+
+def fetch_raw(
+    request: Request,
+    opener=urlopen,
+    timeout: int = 60,
+    service_key: str = "",
+) -> bytes:
     try:
         with opener(request, timeout=timeout) as response:
             status = getattr(response, "status", None)
@@ -172,7 +213,12 @@ def fetch_raw(request: Request, opener=urlopen, timeout: int = 60) -> bytes:
                 status = response.getcode()
             raw = response.read()
     except HTTPError as exc:
-        fail("SOURCE_HTTP_ERROR", str(exc.code))
+        try:
+            error_raw = exc.read()
+        except OSError:
+            error_raw = b""
+        detail = safe_gateway_error(error_raw, service_key)
+        fail("SOURCE_HTTP_ERROR", f"{exc.code} {detail}")
     except URLError:
         fail("SOURCE_NETWORK_ERROR", "request failed")
     if status != 200:
@@ -545,7 +591,7 @@ def capture(
                     capture_contract["probe_page_size"],
                     query_date,
                 )
-                raw = fetch_raw(request, opener=opener)
+                raw = fetch_raw(request, opener=opener, service_key=service_key)
                 reject_echoed_service_key(raw, service_key)
                 page = parse_page(raw, operation, 1, query_date)
                 relative = f"raw/{name}/{query_date}.json.gz"
@@ -575,7 +621,7 @@ def capture(
                 request = build_request(
                     service_key, operation, source_contract, page_no, page_size
                 )
-                raw = fetch_raw(request, opener=opener)
+                raw = fetch_raw(request, opener=opener, service_key=service_key)
                 reject_echoed_service_key(raw, service_key)
                 page = parse_page(raw, operation, page_no)
                 if expected_total is None:

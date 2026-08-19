@@ -4,11 +4,13 @@
 import copy
 import gzip
 import importlib.util
+import io
 import json
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 
 import yaml
@@ -132,6 +134,19 @@ class FakeOpener:
         return FakeResponse(raw)
 
 
+class HTTPErrorOpener:
+    def __call__(self, request, timeout=60):
+        raw = (
+            "<OpenAPI_ServiceResponse><cmmMsgHeader>"
+            "<errMsg>SERVICE ERROR</errMsg>"
+            "<returnAuthMsg>SERVICE_ACCESS_DENIED_ERROR</returnAuthMsg>"
+            "<returnReasonCode>20</returnReasonCode>"
+            f"<debug>{TOKEN}</debug>"
+            "</cmmMsgHeader></OpenAPI_ServiceResponse>"
+        ).encode()
+        raise HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(raw))
+
+
 def test_capture_contract():
     contract = copy.deepcopy(CAPTURE_CONTRACT)
     contract["probe_lookback_calendar_days"] = 3
@@ -187,6 +202,17 @@ class KofiaFirstSeenTest(unittest.TestCase):
             MODULE.reject_echoed_service_key(
                 json.dumps({"debug": TOKEN}).encode(), TOKEN
             )
+        with self.assertRaises(MODULE.CaptureError) as caught:
+            MODULE.fetch_raw(
+                request,
+                opener=HTTPErrorOpener(),
+                service_key=TOKEN,
+            )
+        message = str(caught.exception)
+        self.assertIn("SOURCE_HTTP_ERROR: 403", message)
+        self.assertIn("SERVICE_ACCESS_DENIED_ERROR", message)
+        self.assertIn("returnReasonCode=20", message)
+        self.assertNotIn(TOKEN, message)
 
     def test_first_capture_preserves_raw_and_marks_missing_dates(self):
         opener = FakeOpener(exact=exact_rows())
