@@ -227,8 +227,15 @@ def meta(s: dict) -> dict:
     }
 
 
-def main() -> None:
-    today = today_kst()
+def collect_payload(today=None, record_stage: bool = True) -> dict:
+    """Collect one KRX payload without choosing a publication path.
+
+    The regular morning collector and the separate post-close observation
+    collector share this production path.  Publication remains deliberately
+    separate so a PM observation can never overwrite the morning archive or
+    ``data/latest_krx.json``.
+    """
+    today = today or today_kst()
     start = (today - dt.timedelta(days=LOOKBACK_DAYS)).strftime("%Y%m%d")
     end = today.strftime("%Y%m%d")
 
@@ -253,7 +260,10 @@ def main() -> None:
     }
 
     universe = load_universe()
-    record_stage_snapshot(universe, today)   # 단계 이력은 수집 성패와 무관하게 먼저 남긴다
+    if record_stage:
+        # 단계 이력은 아침 정본 경로에서만 하루 한 번 기록한다. 오후 관측이
+        # 같은 날짜의 stage snapshot을 다시 쓰는 별도 authority가 되면 안 된다.
+        record_stage_snapshot(universe, today)
     payload["stage_distribution"] = stage_distribution(universe, today)
 
     ok = failed = 0
@@ -303,6 +313,14 @@ def main() -> None:
         "stocks_with_investor_rows_missing": sorted(c for c, v in live.items()
                                                     if v.get("investor_rows_missing")),
     }
+
+    return payload
+
+
+def main() -> None:
+    today = today_kst()
+    payload = collect_payload(today=today, record_stage=True)
+    ok = payload["summary"]["ok"]
 
     if ok == 0:
         save_incident(payload, "krx.json", today)

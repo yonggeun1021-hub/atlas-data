@@ -1,0 +1,81 @@
+name: Atlas KRX Post-Close Observation
+
+on:
+  schedule:
+    # 16:05/16:25/16:45 KST.  GitHub schedule is best-effort, so the first
+    # complete exact-date bundle wins and later slots stop at the guard.
+    # The payload is still unconfirmed: next-morning collection remains the
+    # only path that can promote a same-day row to a decision input.
+    - cron: '5 7 * * 1-5'
+    - cron: '25 7 * * 1-5'
+    - cron: '45 7 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-krx-post-close
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — 오늘자 post-close bundle 확인
+        id: guard
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          RESULT=$(python3 collectors/krx_post_close.py --check --date "$TODAY")
+          if [ "$RESULT" = "fresh" ]; then SKIP=yes; else SKIP=no; fi
+          echo "today_kst=$TODAY / post_close=$RESULT / skip=$SKIP"
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
+      - name: 오늘자 관찰 bundle 존재 — 재수집 생략
+        if: steps.guard.outputs.skip == 'yes'
+        run: echo "오늘자 immutable post-close observation bundle이 이미 있습니다."
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != 'yes'
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install deps
+        if: steps.guard.outputs.skip != 'yes'
+        run: pip install -r requirements.txt
+
+      - name: Collect and publish KRX post-close observation
+        id: post_close
+        if: steps.guard.outputs.skip != 'yes'
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          PYTHONPATH: collectors
+        run: |
+          python3 collectors/krx_post_close.py \
+            --date "${{ steps.guard.outputs.today }}"
+
+      # A partial response is incident evidence, not a briefing read model.
+      # Persist it for diagnosis while retaining the collector's failed job.
+      - name: Commit post-close observation evidence
+        if: always()
+        env:
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+        run: |
+          git config user.name  "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add data/observations/krx_post_close data/incident/krx_post_close || true
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) KRX post-close [${TRIGGER}]"
+            git push
+          fi
