@@ -17,6 +17,7 @@ jobs:
       - name: Capture raw snapshot (append-only)
         run: |
           set -euo pipefail
+          ROOT="$PWD"
           D=$(date -u +%F)
           DIR="evidence/stablecoin/raw/$D"
           if [ -f "$DIR/_sha256.txt" ]; then
@@ -69,6 +70,13 @@ jobs:
           gzip -n *.json
           gunzip -c stablecoincharts_all.json.gz | sha256sum | cut -d' ' -f1 > /tmp/rt.txt
           grep -q "$(cat /tmp/rt.txt)" _sha256.txt && echo "round-trip 해시 일치 확인"
+
+          # P1-CR-02 — endpoint 의미와 PIT provenance를 기계 판독 가능한
+          # manifest로 남기고, 네 응답 전체를 production contract로 검증한다.
+          python3 "$ROOT/.github/scripts/stablecoin_revision_contract.py" manifest \
+            --snapshot-dir "$PWD" \
+            --collector-version "stablecoin-capture/v2"
+          python3 "$ROOT/.github/scripts/stablecoin_revision_contract.py" validate "$PWD"
 
       - name: Commit
         if: env.SKIP != '1'
