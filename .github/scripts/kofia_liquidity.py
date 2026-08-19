@@ -32,6 +32,19 @@ DECIMAL_TEXT = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 GROUPED_DECIMAL_TEXT = re.compile(
     r"^(?:0|[1-9][0-9]{0,2}(?:,[0-9]{3})+)(?:\.[0-9]+)?$"
 )
+EXPECTED_NUMERIC_TRANSPORT_POLICY = {
+    "official_swagger_type": "number",
+    "observed_compatibility": "canonical_unsigned_decimal_string",
+    "accepted_json_types": ["number", "canonical_numeric_string"],
+    "accepted_string_pattern": r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$",
+    "rejected_string_forms": [
+        "blank",
+        "surrounding_whitespace",
+        "sign",
+        "exponent",
+        "group_separator",
+    ],
+}
 EXPECTED_OPERATIONS = [
     {
         "name": "investor_deposits",
@@ -100,12 +113,13 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "authentication",
         "response_format",
         "success_result_code",
+        "numeric_transport_policy",
         "qualification",
         "operations",
     }
     if set(contract) != expected or contract.get("schema_version") != 1:
         fail("CONTRACT_INVALID", "schema or fields")
-    if contract.get("contract_version") != "kofia_liquidity_source/v1":
+    if contract.get("contract_version") != "kofia_liquidity_source/v2":
         fail("CONTRACT_INVALID", "contract_version")
     if contract.get("source_authority") != (
         "Korea Financial Investment Association"
@@ -135,6 +149,10 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         or contract.get("success_result_code") != "00"
     ):
         fail("CONTRACT_INVALID", "transport contract")
+    if contract.get("numeric_transport_policy") != (
+        EXPECTED_NUMERIC_TRANSPORT_POLICY
+    ):
+        fail("CONTRACT_INVALID", "numeric transport policy")
 
     qualification = contract.get("qualification")
     expected_qualification = {
@@ -197,12 +215,14 @@ def safe_value_shape(value: object) -> str:
 
 
 def parse_nonnegative_number(value: object, label: str) -> Decimal:
-    if not isinstance(value, Decimal):
-        fail("VALUE_TYPE_INVALID", f"{label} observed={safe_value_shape(value)}")
-    try:
+    if isinstance(value, str):
+        if DECIMAL_TEXT.fullmatch(value) is None:
+            fail("VALUE_TEXT_INVALID", f"{label} observed={safe_value_shape(value)}")
         parsed = Decimal(value)
-    except InvalidOperation:
-        fail("VALUE_INVALID", label)
+    elif isinstance(value, Decimal):
+        parsed = value
+    else:
+        fail("VALUE_TYPE_INVALID", f"{label} observed={safe_value_shape(value)}")
     if not parsed.is_finite() or parsed < 0:
         fail("VALUE_INVALID", label)
     return parsed

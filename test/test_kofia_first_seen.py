@@ -188,6 +188,10 @@ class KofiaFirstSeenTest(unittest.TestCase):
             "atlas_first_seen_sequence_collecting",
         )
         self.assertIsNone(CAPTURE_CONTRACT["available_at"])
+        self.assertEqual(
+            CAPTURE_CONTRACT["source_contract_version"],
+            "kofia_liquidity_source/v2",
+        )
         for key in (
             "decision_eligible",
             "regime_score_authorized",
@@ -195,6 +199,23 @@ class KofiaFirstSeenTest(unittest.TestCase):
             "trading_action_authorized",
         ):
             self.assertFalse(CAPTURE_CONTRACT[key])
+
+    def test_live_canonical_numeric_text_is_normalized(self):
+        row = credit_row("20260818")
+        row = {
+            key: (str(value) if key != "basDt" else value)
+            for key, value in row.items()
+        }
+
+        page = MODULE.parse_page(
+            api_response([row]),
+            OPERATIONS["credit_financing"],
+            1,
+            "20260818",
+        )
+
+        self.assertEqual(page["rows"][0]["values"]["crdTrFingWhl"], "30867510")
+        self.assertEqual(page["rows"][0]["values"]["crdTrLndrKosdaq"], "400")
 
     def test_request_uses_official_contract_without_exposing_key_in_summary(self):
         operation = OPERATIONS["investor_deposits"]

@@ -44,6 +44,12 @@ in the manifest, observation, output path, console summary, or persisted raw
 request metadata.  Response bytes are gzip-compressed without modification and
 bound by SHA-256 and byte length.
 
+Numeric source fields accept the official JSON `number` representation and the
+canonical unsigned decimal-string representation observed from the live
+gateway. The raw response preserves which representation arrived. Missing,
+blank, signed, exponent, comma-grouped, placeholder, or null values fail closed
+and are never treated as zero.
+
 For a given operation, observation date, and normalized row hash,
 `atlas_first_seen_at_utc` is the earliest timestamp found in the existing
 append-only Atlas sequence.  This is an Atlas observation bound, not a KOFIA
@@ -55,7 +61,8 @@ and starts a separate first-seen lineage.
 The manual `full_coverage` mode requests every page for both operations and
 requires stable `totalCount`, complete pagination, exact official fields,
 unique dates, and non-negative finite numbers.  It records the observed row
-count and min/max `basDt` in a separate immutable directory.
+count and min/max `basDt` in a separate immutable directory. Canonical numeric
+strings use the same explicit normalization contract as scheduled probes.
 
 An observed complete response answers “what this API returned in this run.” It
 does not prove that KOFIA guarantees that range permanently.  Consequently:

@@ -19,6 +19,15 @@ the exact numeric fields fixed in `config/kofia_liquidity_contract.json`.
 FreeSIS separately displays investor deposits and credit financing as KOFIA
 market statistics.
 
+The official Swagger declares those value fields as JSON `number`. A live
+Atlas probe on 2026-08-19 observed `crdTrFingWhl` as a canonical unsigned
+decimal string instead. Source contract v2 therefore accepts either the
+documented JSON number or an exact string matching
+`^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$` and normalizes both through `Decimal`.
+Blank values, whitespace, signs, exponents, grouping separators, placeholders,
+nulls, and container values remain contract failures; none are converted to
+zero.
+
 Primary evidence:
 
 - https://www.data.go.kr/data/15094809/openapi.do
@@ -50,7 +59,8 @@ view must never be substituted for `available_at`.
 It makes no live request and reads no API key.  A response qualifies as a
 coverage observation only when page 1 contains the complete `totalCount`, all
 dates are unique and valid, all documented fields are present exactly, and all
-numeric values are finite and non-negative.
+numeric values are finite and non-negative after the explicit transport
+normalization above.
 
 Example after an approved API capture, with all files outside the repository:
 
