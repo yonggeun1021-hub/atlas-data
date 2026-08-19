@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_stress_replay_packet/v1",
+  "source_contract_version": "regime_output/v1",
+  "market": "US",
+  "market_timezone": "America/New_York",
+  "required_contexts": [
+    "STRESS_2008",
+    "RECENT_BULL",
+    "RECENT_BEAR",
+    "RECENT_SIDEWAYS"
+  ],
+  "allowed_temporal_uses": [
+    "CAUSAL_RESEARCH_ONLY",
+    "REVISED_SENSITIVITY_ONLY"
+  ],
+  "authoritative_historical_pit_status": "UNAVAILABLE",
+  "coverage_policy": "exact_explicit_market_dates_no_fill",
+  "source_sequence_policy": "one_validated_output_per_expected_market_date",
+  "digest_policy": "canonical_json_sha256",
+  "evaluation_status": "UNDEFINED_UNCALIBRATED",
+  "output_retention_policy": "non_reconstructive_regime_evidence_only"
+}
