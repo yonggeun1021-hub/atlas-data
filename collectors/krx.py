@@ -67,6 +67,7 @@ import datetime as dt
 
 from common import (save, save_incident, load_universe, today_kst, now_utc_iso,
                     record_stage_snapshot, stage_distribution)
+from krx_investor_flow import coverage_metadata
 
 if not (os.getenv("KRX_ID") and os.getenv("KRX_PW")):
     print("FATAL: KRX_ID / KRX_PW 환경변수가 없습니다. GitHub Secrets를 확인하세요.")
@@ -251,6 +252,9 @@ def collect_payload(today=None, record_stage: bool = True) -> dict:
 
         # ★ 판정 규칙을 데이터에 함께 실어 보낸다 — 읽는 쪽이 규칙을 추측하지 않게 한다
         "same_day_confirmation": SAME_DAY_CONFIRMATION,
+        # ★ P1-KR-04 — 종목별 수급은 KRX 체결분이다. NXT·한국 전체시장으로
+        #   확대 해석하지 못하도록 venue/finality/missing 경계를 데이터에 동봉한다.
+        "investor_flow_coverage": coverage_metadata(),
         "confirmation_note": (
             "지난 거래일은 실행 시각과 무관하게 확정이다. 당일 행은 항상 unconfirmed 이며 "
             "다음 날 아침 수집에서 확정된다. 미확정 행은 daily 에 관측으로 보존되지만 "

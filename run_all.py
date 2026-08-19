@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-KR-04 — KRX/NXT investor-flow market coverage contract.
+    #   기존 KRX 수급을 KRX_ONLY로 고정하고 NXT·한국 전체시장 확대 해석,
+    #   당일 확정·관측시각 available_at 승격, 행/컬럼/venue 누락 혼동을 막는다.
+    #   ⛔ 신규 API/score/workflow/tracked output 없음 — temp snapshot fixtures only.
+    "test/test_korea_investor_flow.py",
     # ★ P1-KR-03 — KOFIA 투자자예탁금·신용융자 source qualification.
     #   공식 API의 operation/필드/완전 pagination을 검증하되 historical range,
     #   available_at, 단위가 미확정이면 Regime/Production 권한을 fail-closed한다.
