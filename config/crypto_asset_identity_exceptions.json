@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "policy_version": "crypto_asset_identity_exceptions/v1",
+  "source_name": "kraken_spot_market_data",
+  "asset_version": 1,
+  "records": [
+    {
+      "source_asset_id": "BTC",
+      "canonical_asset_id": "BTC",
+      "aliases": [
+        "XBT",
+        "XXBT"
+      ],
+      "effective_from": "1970-01-01",
+      "effective_to": null,
+      "reason": "Kraken assetVersion=1 exposes BTC while documented legacy identifiers include XBT and XXBT"
+    }
+  ]
+}
