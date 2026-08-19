@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-KR-03 — KOFIA 투자자예탁금·신용융자 source qualification.
+    #   공식 API의 operation/필드/완전 pagination을 검증하되 historical range,
+    #   available_at, 단위가 미확정이면 Regime/Production 권한을 fail-closed한다.
+    #   ⛔ live API/key/tracked output 없음 — temp response fixtures only.
+    "test/test_kofia_liquidity.py",
     # ★ P1-COM-02 — minimum coverage 미비준/증거부족 fail-closed Gate.
     #   5축이 모두 있어도 미비준 상태에서는 UNKNOWN/BLOCKED만 허용하고
     #   NEUTRAL/score/threshold/Production 승격을 차단한다.
