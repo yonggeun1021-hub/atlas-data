@@ -28,6 +28,10 @@ CONTRACT_PATH = ROOT / "config" / "kofia_liquidity_contract.json"
 UTC = dt.timezone.utc
 KST = ZoneInfo("Asia/Seoul")
 BAS_DT = re.compile(r"^[0-9]{8}$")
+DECIMAL_TEXT = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
+GROUPED_DECIMAL_TEXT = re.compile(
+    r"^(?:0|[1-9][0-9]{0,2}(?:,[0-9]{3})+)(?:\.[0-9]+)?$"
+)
 EXPECTED_OPERATIONS = [
     {
         "name": "investor_deposits",
@@ -171,9 +175,30 @@ def parse_observation_date(value: object, label: str) -> dt.date:
         fail("OBSERVATION_DATE_INVALID", label)
 
 
+def safe_value_shape(value: object) -> str:
+    """Describe an unexpected source value without logging its contents."""
+    if isinstance(value, str):
+        stripped = value.strip()
+        return (
+            f"str(length={len(value)},stripped_length={len(stripped)},"
+            f"decimal_text={str(DECIMAL_TEXT.fullmatch(stripped) is not None).lower()},"
+            "grouped_decimal_text="
+            f"{str(GROUPED_DECIMAL_TEXT.fullmatch(stripped) is not None).lower()})"
+        )
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, list):
+        return f"list(length={len(value)})"
+    if isinstance(value, dict):
+        return f"object(field_count={len(value)})"
+    return type(value).__name__
+
+
 def parse_nonnegative_number(value: object, label: str) -> Decimal:
     if not isinstance(value, Decimal):
-        fail("VALUE_TYPE_INVALID", label)
+        fail("VALUE_TYPE_INVALID", f"{label} observed={safe_value_shape(value)}")
     try:
         parsed = Decimal(value)
     except InvalidOperation:

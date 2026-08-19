@@ -255,6 +255,24 @@ class KofiaLiquidityContractTest(unittest.TestCase):
                         contract=CONTRACT,
                     )
 
+    def test_unexpected_value_diagnostic_reports_shape_without_value(self):
+        secret_like_value = "12345678901234567890"
+
+        with self.assertRaises(MODULE.KofiaContractError) as caught:
+            MODULE.parse_nonnegative_number(secret_like_value, "field")
+
+        message = str(caught.exception)
+        self.assertIn("VALUE_TYPE_INVALID: field", message)
+        self.assertIn("observed=str(length=20,stripped_length=20", message)
+        self.assertIn("decimal_text=true", message)
+        self.assertNotIn(secret_like_value, message)
+
+        self.assertEqual(MODULE.safe_value_shape(" - "), (
+            "str(length=3,stripped_length=1,decimal_text=false,"
+            "grouped_decimal_text=false)"
+        ))
+        self.assertEqual(MODULE.safe_value_shape(None), "null")
+
     def test_future_observation_and_bad_capture_time_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = fixture_paths(
