@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-US-06 — US Leadership transient cross-sectional contract.
+    #   PIT membership/taxonomy와 market-relative strength/participation을
+    #   재현하되 Trend/Breadth/순위/Regime/Production 권한은 부여하지 않는다.
+    #   ⛔ live Tiingo/workflow/tracked factor 없음 — temp policies/stdin fixtures only.
+    "test/test_us_leadership.py",
     # ★ P1-US-05 — US Risk / Vol transient derived-feature 계약.
     #   기존 US price temporal eligibility를 재사용해 PIT/available_at을 검증하고
     #   synthetic stdin rows에서 RV/drawdown만 계산하며 vendor price 보존을 막는다.

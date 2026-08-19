@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_leadership_contract/v1",
+  "source_temporal_contract": "atlas_price_pit_contract.py/v0.1",
+  "transform_version": "us_leadership/v1",
+  "measurement": "us_cross_sectional_leadership_observation",
+  "market_timezone": "America/New_York",
+  "return_semantics": "simple_close_to_close",
+  "relative_strength_semantics": "cumulative_gross_return_div_benchmark_cumulative_gross_return_minus_one",
+  "participation_semantics": "eligible_non_benchmark_assets_outperforming_benchmark_daily_return_fraction",
+  "group_return_semantics": "equal_weight_daily_rebalanced",
+  "session_coverage_policy": "exact_expected_session_dates_no_fill",
+  "membership_policy": "explicit_effective_dated_no_overlap",
+  "taxonomy_policy": "explicit_effective_dated_no_overlap",
+  "input_retention_policy": "transient_memory_or_stdin_only",
+  "output_retention_policy": "non_reconstructive_derived_observations_only",
+  "output_decimal_places": 12,
+  "rounding": "ROUND_HALF_EVEN"
+}
