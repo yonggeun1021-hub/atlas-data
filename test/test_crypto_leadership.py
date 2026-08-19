@@ -101,7 +101,9 @@ def default_taxonomy_records(include_ada=False):
     ]
     if include_ada:
         records.append(
-            taxonomy_record("ADA", "ALT", ["PAYMENTS"], ["CARDANO"])
+            taxonomy_record(
+                "ADA", "ALT", ["SMART_CONTRACT"], ["SOLANA"]
+            )
         )
     return records
 
@@ -141,13 +143,13 @@ def write_window(root, current=9999, include_ada_after_first=False,
     second_btc = 111 if mismatch else 110
     second = prices(second_btc, 121, 120, 132, 90, 99, current)
     if include_ada_after_first:
-        second["ADA"] = (50, 55, current)
+        second["ADA"] = (200, 210, current)
     BREADTH_FIXTURE.write_snapshot(
         root, vintage="2026-08-19", prices=second
     )
     third = prices(121, "133.1", 132, "158.4", 99, 99, current)
     if include_ada_after_first:
-        third["ADA"] = (55, 60, current)
+        third["ADA"] = (210, 220, current)
     BREADTH_FIXTURE.write_snapshot(
         root, vintage="2026-08-20", prices=third
     )
@@ -158,7 +160,16 @@ def ratified_inputs(tmp, include_ada=False):
     tmp = Path(tmp)
     return {
         "universe_policy_path": BREADTH_FIXTURE.write_policy(
-            tmp / "universe.json", minimum=3
+            tmp / "universe.json", target=3
+        ),
+        "exclusion_taxonomy_path": BREADTH_FIXTURE.write_taxonomy(
+            tmp / "breadth_exclusion_taxonomy.json",
+            {
+                "ADA": "eligible_crypto",
+                "BTC": "eligible_crypto",
+                "ETH": "eligible_crypto",
+                "SOL": "eligible_crypto",
+            },
         ),
         "leadership_policy_path": write_leadership_policy(
             tmp / "leadership.json"
@@ -340,7 +351,7 @@ class CryptoLeadershipTest(unittest.TestCase):
 
             self.assertEqual(
                 [len(point["members"]) for point in result["daily_points"]],
-                [3, 4, 4],
+                [3, 3, 3],
             )
             self.assertEqual(
                 result["partial_window_assets"],
@@ -348,6 +359,14 @@ class CryptoLeadershipTest(unittest.TestCase):
                     {
                         "canonical_asset_id": "ADA",
                         "observed_day_count": 2,
+                        "required_day_count": 3,
+                        "reason": (
+                            "not_present_in_every_as_captured_daily_universe"
+                        ),
+                    },
+                    {
+                        "canonical_asset_id": "SOL",
+                        "observed_day_count": 1,
                         "required_day_count": 3,
                         "reason": (
                             "not_present_in_every_as_captured_daily_universe"
@@ -370,7 +389,7 @@ class CryptoLeadershipTest(unittest.TestCase):
                 )["member_count"]
                 for point in result["daily_points"]
             ]
-            self.assertEqual(alt_counts, [1, 2, 2])
+            self.assertEqual(alt_counts, [1, 1, 1])
             self.assertFalse(
                 result["lineage"]["current_catalog_backfill_authorized"]
             )

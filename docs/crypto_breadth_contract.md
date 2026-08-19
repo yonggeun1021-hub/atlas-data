@@ -1,7 +1,9 @@
 # Crypto Breadth / Alt Participation Contract (P1-CR-06)
 
-Status: source and replay contract implemented; universe policy unratified; no
-Regime or Production authority.
+Status: source, replay, and daily capture contracts implemented; the universe
+rule is ratified effective 2026-08-19; the first qualified live snapshot is
+still pending.  There is no classification, Regime, Production, or trading
+authority.
 
 ## Purpose
 
@@ -15,8 +17,8 @@ The source is Kraken Spot public market data:
 
 - `Assets?assetVersion=1` captures the asset catalog and status;
 - `AssetPairs?assetVersion=1&aclass_base=currency` captures tradable pairs;
-- `OHLC?pair={PAIR}&interval=1440&assetVersion=1` captures each selected daily
-  close series.
+- `OHLC?pair={PAIR}&interval=1440&since={SINCE}&assetVersion=1` captures each
+  candidate USD pair's daily close, VWAP, and base volume series.
 
 Primary source documentation:
 
@@ -26,8 +28,8 @@ Primary source documentation:
 
 Kraken documents that OHLC returns no more than 720 recent entries and always
 includes the current, not-yet-committed timeframe.  The helper therefore
-removes the final row for every pair and requires exact finalized rows for T and
-T-1.  It never treats the current candle as evidence.
+removes the final row for every pair.  It never treats the current candle as
+evidence.
 
 ## Point-in-time universe boundary
 
@@ -43,13 +45,17 @@ append-only date directory:
   _manifest.json
   kraken_assets.json.gz
   kraken_asset_pairs.json.gz
-  ohlc/{sha256(pair_id)}.json.gz
+  kraken_ohlc_responses.ndjson.gz
 ```
 
-The manifest binds the exact raw bytes, catalog counts, OHLC pair list, source
-semantics, and identity-exception policy.  Re-running `manifest` for the same
-snapshot is an append-only violation.  `replay` reads independent daily
-snapshots; it does not carry the newest catalog backward.
+The OHLC bundle has one sorted NDJSON record per pair containing the pair ID,
+the source-body SHA-256, and the exact source body in base64.  This preserves
+every response byte while avoiding roughly 630 separate Git files per day.
+The outer checksum and every inner checksum are verified.  The manifest binds
+the exact raw bytes, catalog counts, OHLC pair list, source semantics, and
+identity-exception policy.  Re-running `manifest` for the same snapshot is an
+append-only violation.  `replay` reads independent daily snapshots; it does
+not carry the newest catalog backward.
 
 ## Identity and rename/reuse
 
@@ -66,18 +72,26 @@ the source documentation also shows legacy XXBT/XBT identifiers.  The v1 table
 records that known BTC alias boundary explicitly.  It does not infer identity
 by removing X/Z prefixes or by parsing a pair string.
 
-## Universe approval gate
+## Ratified universe rule
 
-`config/crypto_breadth_universe_policy.json` is deliberately
-`UNRATIFIED`.  The repository has not approved the final exclusion list or
-minimum breadth coverage.  The production helper refuses `transform` and
-`replay` until a versioned policy has all of the following:
+`config/crypto_breadth_universe_policy.json` is `RATIFIED` effective
+2026-08-19.  For an observation at T, membership is selected as follows:
 
-- `approval_status = RATIFIED` and an effective date;
-- exact allowed asset and pair statuses;
-- an explicit canonical-asset exclusion list;
-- a ratified minimum asset count;
-- the fixed source-coverage rule over the captured pair catalog.
+1. use enabled assets and online Kraken Spot pairs quoted in USD;
+2. for each candidate, sum `daily VWAP × base volume` over the exact 30
+   finalized UTC days ending at T-1;
+3. rank descending by that USD turnover, with canonical asset ID and pair ID
+   as deterministic tie-breakers;
+4. apply the versioned taxonomy in
+   `config/crypto_breadth_exclusion_taxonomy.json` and exclude fiat,
+   stablecoin, wrapped, staked, and commodity-linked assets;
+5. select the first 100 eligible assets.  BTC participates in selection but is
+   emitted only as a reference and is excluded from the Alt breadth fraction.
+
+The T-1 ranking endpoint prevents the T price move being measured from choosing
+its own membership.  A pair without exact 30-day ranking history is explicitly
+rank-ineligible.  An unclassified asset encountered before the 100th eligible
+member makes the whole result `UNKNOWN`; it is never included by default.
 
 This universe is expressly `breadth_source_coverage_not_investable`.  It does
 not claim liquidity, capacity, tradability for an Atlas portfolio, or exchange
@@ -90,10 +104,14 @@ pair, T-1 and T dates, both closes, and `ADVANCE`, `DECLINE`, or `UNCHANGED`.
 BTC is kept as a separate reference.  `alt_participation` excludes BTC and
 contains only asset counts and fractions.
 
-Every pair selected by the ratified policy must have a valid OHLC response.  A
-missing pair, source error, date gap, partial catalog, checksum mismatch,
-identity collision, or absent BTC reference fails closed.  Missing data is
-never converted to zero or neutral.
+The collector must capture every matching USD candidate pair; a missing pair,
+source error, partial catalog, checksum mismatch, or identity collision fails
+the atomic capture.  After a deterministic Top 100 exists, T/T-1 direction is
+calculated only for members with both closes.  Coverage of 90% or more remains
+an explicitly labeled raw observation with the missing members listed.  Below
+90%, or with a missing BTC reference, the breadth output is `UNKNOWN` and both
+BTC and Alt measurements are null.  Missing data is never converted to zero or
+neutral.
 
 All outputs keep these authorities false:
 
@@ -103,15 +121,20 @@ All outputs keep these authorities false:
 - Production wiring;
 - trading action.
 
-## Offline commands
+## Capture and offline commands
 
-The helper makes no request.  Capture is intentionally not connected to a
-workflow in this change.  Once a separately reviewed capture exists:
+The scheduled workflow runs at 00:40 UTC, uses no key or paid service, and
+paces Kraken public OHLC calls at 1.05 seconds per request.  Roughly 630 current
+USD pairs take about 11 minutes.  It stages the entire snapshot outside the
+final evidence path, validates every response and hash, then performs one
+append-only move.  A failed or partial run is not committed.
+
+The offline transform helper itself never calls the network:
 
 ```bash
 python3 .github/scripts/crypto_breadth.py manifest \
   --snapshot-dir /tmp/crypto-breadth/raw/2026-08-20 \
-  --capture-version crypto-breadth-capture/v1
+  --capture-version crypto-breadth-capture/v2
 
 python3 .github/scripts/crypto_breadth.py validate \
   /tmp/crypto-breadth/raw/2026-08-20
@@ -119,11 +142,13 @@ python3 .github/scripts/crypto_breadth.py validate \
 python3 .github/scripts/crypto_breadth.py transform \
   /tmp/crypto-breadth/raw/2026-08-20 \
   --universe-policy /tmp/ratified-crypto-breadth-policy.json \
+  --exclusion-taxonomy /tmp/ratified-crypto-breadth-taxonomy.json \
   --out /tmp/crypto-breadth.json
 
 python3 .github/scripts/crypto_breadth.py replay \
   /tmp/crypto-breadth/raw \
   --universe-policy /tmp/ratified-crypto-breadth-policy.json \
+  --exclusion-taxonomy /tmp/ratified-crypto-breadth-taxonomy.json \
   --out /tmp/crypto-breadth-replay.json
 ```
 
