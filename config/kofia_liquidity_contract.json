@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "contract_version": "kofia_liquidity_source/v1",
+  "source_authority": "Korea Financial Investment Association",
+  "gateway_operator": "Financial Services Commission",
+  "catalog_id": "15094809",
+  "catalog_url": "https://www.data.go.kr/data/15094809/openapi.do",
+  "source_portal_url": "https://freesis.kofia.or.kr/stat/main.do",
+  "base_url": "https://apis.data.go.kr/1160100/service/GetKofiaStatisticsInfoService",
+  "authentication": "data_go_kr_service_key_required",
+  "response_format": "json",
+  "success_result_code": "00",
+  "qualification": {
+    "historical_range_status": "unverified",
+    "source_release_time_status": "unverified",
+    "api_field_unit_status": "unverified",
+    "available_at_policy": "first_seen_primary_evidence_required",
+    "portal_update_cycle_is_available_at": false,
+    "capture_time_is_available_at": false,
+    "decision_eligible": false
+  },
+  "operations": [
+    {
+      "name": "investor_deposits",
+      "operation_id": "getSecuritiesMarketTotalCapitalInfo",
+      "path": "/getSecuritiesMarketTotalCapitalInfo",
+      "observation_date_field": "basDt",
+      "primary_value_field": "invrDpsgAmt",
+      "required_fields": [
+        "onbdDrvPrdTrRcAdvAmt",
+        "toCstRpchCndBndSlgBal",
+        "brkTrdUcolMny",
+        "brkTrdUcolMnyVsOppsTrdAmt",
+        "ucolMnyVsOppsTrdRlImpt",
+        "basDt",
+        "invrDpsgAmt"
+      ]
+    },
+    {
+      "name": "credit_financing",
+      "operation_id": "getGrantingOfCreditBalanceInfo",
+      "path": "/getGrantingOfCreditBalanceInfo",
+      "observation_date_field": "basDt",
+      "primary_value_field": "crdTrFingWhl",
+      "required_fields": [
+        "basDt",
+        "crdTrFingWhl",
+        "crdTrFingScrs",
+        "crdTrFingKosdaq",
+        "crdTrLndrWhl",
+        "crdTrLndrScrs",
+        "crdTrLndrKosdaq",
+        "sbscCapLn",
+        "dpsgScrtMogFing"
+      ]
+    }
+  ]
+}
