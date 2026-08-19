@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "source_name": "KRX_OPEN_API_STOCK_DAILY",
+  "source_tier": "Official",
+  "market_endpoints": {
+    "kospi": "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd",
+    "kosdaq": "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd"
+  },
+  "minimum_official_date": "20100104",
+  "request_date_format": "YYYYMMDD",
+  "response_block": "OutBlock_1",
+  "identity_field": "ISU_CD",
+  "close_field": "TDD_CLSPRC",
+  "universe_semantics": "exact_date_official_response_rows_source_coverage_not_investable",
+  "identity_semantics": "KRX_ISU_CD_exact_no_name_or_ticker_inference",
+  "missing_close_policy": "retain_universe_member_exclude_from_paired_participation",
+  "gap_policy": "explicit_previous_and_current_trading_dates_required",
+  "minimum_paired_price_count": 1,
+  "output_decimal_places": 12,
+  "raw_persistence": 0,
+  "breadth_classification_authorized": false,
+  "threshold_authorized": false,
+  "regime_score_authorized": false,
+  "production_wiring_authorized": false,
+  "trading_action_authorized": false
+}
