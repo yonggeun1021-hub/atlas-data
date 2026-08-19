@@ -139,9 +139,9 @@ APPROVED_TESTS = [
     #   ratified 30일 turnover Top-100·명시 taxonomy·90% coverage gate를 재현한다.
     #   ⛔ 테스트의 live Kraken/tracked factor 없음 — fake fetcher + temp fixtures only.
     "test/test_crypto_breadth.py",
-    # ★ P1-CR-07 — Crypto Leadership PIT relative-strength 계약.
-    #   CR-06 날짜별 snapshot을 재사용해 BTC/ETH/Alt/sector/chain 원시 상대강도를
-    #   재현하되 universe·lookback·taxonomy 미비준이면 계산 자체를 막는다.
+    # ★ P1-CR-07 — Crypto Leadership dual-window PIT relative-strength 계약.
+    #   CR-06 날짜별 snapshot을 재사용해 승인된 7일 pilot/30일 primary를 독립
+    #   판정하고 taxonomy 부재는 sector/chain 층에만 UNKNOWN으로 격리한다.
     #   ⛔ live Kraken/workflow/tracked factor 없음 — temp policy/snapshot fixtures only.
     "test/test_crypto_leadership.py",
     # ★ P0-04 — KRX post-close observation / PM briefing freshness.

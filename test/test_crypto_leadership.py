@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""P1-CR-07 Crypto leadership PIT relative-strength regression.
+"""P1-CR-07 dual-window Crypto leadership regression."""
 
-All source snapshots and ratified policy fixtures live under temporary
-directories.  The tests make no live request and write no tracked factor.
-"""
-
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -39,40 +36,37 @@ def write_json(path, payload):
     return path
 
 
-def write_leadership_policy(
-    path,
-    lookback=3,
-    sectors=None,
-    chains=None,
-    group_minimum=1,
-):
-    payload = {
-        "schema_version": 1,
-        "policy_version": "crypto_leadership/test-v1",
-        "approval_status": "RATIFIED",
-        "effective_from": "2026-01-01",
-        "lookback_calendar_days": lookback,
-        "group_return_method": "equal_weight_daily_rebalanced",
-        "relative_strength_reference": "BTC",
-        "required_bucket_minimum_members": {
-            "ALT": 1,
-            "BTC": 1,
-            "ETH": 1,
+def write_leadership_policy(path, effective="2026-01-01"):
+    return write_json(
+        path,
+        {
+            "schema_version": 2,
+            "policy_version": "crypto_leadership/test-v2",
+            "approval_status": "RATIFIED",
+            "effective_from": effective,
+            "windows": [
+                {
+                    "window_id": "pilot_7d",
+                    "role": "PILOT",
+                    "lookback_calendar_days": 7,
+                },
+                {
+                    "window_id": "primary_30d",
+                    "role": "PRIMARY",
+                    "lookback_calendar_days": 30,
+                },
+            ],
+            "group_return_method": "equal_weight_daily_rebalanced",
+            "relative_strength_reference": "BTC",
+            "bucket_policy": "btc_eth_else_alt",
+            "sector_chain_missing_policy": "unknown_group_layer",
+            "group_coverage_policy_status": "UNRATIFIED",
         },
-        "required_sectors": sorted(
-            sectors or ["MONETARY", "SMART_CONTRACT"]
-        ),
-        "required_chains": sorted(
-            chains or ["BITCOIN", "ETHEREUM", "SOLANA"]
-        ),
-        "taxonomy_group_minimum_members": group_minimum,
-    }
-    return write_json(path, payload)
+    )
 
 
 def taxonomy_record(
     asset_id,
-    bucket,
     sectors,
     chains,
     start="2026-01-01",
@@ -82,103 +76,103 @@ def taxonomy_record(
         "canonical_asset_id": asset_id,
         "effective_from": start,
         "effective_to": end,
-        "bucket": bucket,
+        "bucket": asset_id if asset_id in {"BTC", "ETH"} else "ALT",
         "sectors": sorted(sectors),
         "chains": sorted(chains),
         "reason": "test fixture taxonomy",
     }
 
 
-def default_taxonomy_records(include_ada=False):
-    records = [
-        taxonomy_record("BTC", "BTC", ["MONETARY"], ["BITCOIN"]),
-        taxonomy_record(
-            "ETH", "ETH", ["SMART_CONTRACT"], ["ETHEREUM"]
-        ),
-        taxonomy_record(
-            "SOL", "ALT", ["SMART_CONTRACT"], ["SOLANA"]
-        ),
+def default_taxonomy_records():
+    return [
+        taxonomy_record("BTC", ["MONETARY"], ["BITCOIN"]),
+        taxonomy_record("ETH", ["SMART_CONTRACT"], ["ETHEREUM"]),
+        taxonomy_record("SOL", ["SMART_CONTRACT"], ["SOLANA"]),
     ]
-    if include_ada:
-        records.append(
-            taxonomy_record(
-                "ADA", "ALT", ["SMART_CONTRACT"], ["SOLANA"]
-            )
-        )
-    return records
 
 
-def write_taxonomy(path, records=None):
-    payload = {
-        "schema_version": 1,
-        "policy_version": "crypto_asset_taxonomy/test-v1",
-        "approval_status": "RATIFIED",
-        "source_name": "kraken_spot_market_data",
-        "effective_from": "2026-01-01",
-        "records": records or default_taxonomy_records(),
+def write_taxonomy(path, records=None, approval="RATIFIED"):
+    return write_json(
+        path,
+        {
+            "schema_version": 1,
+            "policy_version": "crypto_asset_taxonomy/test-v1",
+            "approval_status": approval,
+            "source_name": "kraken_spot_market_data",
+            "effective_from": (
+                "2026-01-01" if approval == "RATIFIED" else None
+            ),
+            "records": default_taxonomy_records() if records is None else records,
+        },
+    )
+
+
+def prices_for_index(index, current):
+    return {
+        "BTC": (100 + index, 101 + index, current),
+        "ETH": (200 + 2 * index, 202 + 2 * index, current),
+        "SOL": (300 + index, 301 + index, current),
     }
-    return write_json(path, payload)
 
 
-def prices(previous_btc, latest_btc, previous_eth, latest_eth,
-           previous_sol, latest_sol, current=9999, ada=None):
-    result = {
-        "BTC": (previous_btc, latest_btc, current),
-        "ETH": (previous_eth, latest_eth, current),
-        "SOL": (previous_sol, latest_sol, current),
-    }
-    if ada is not None:
-        result["ADA"] = (ada[0], ada[1], current)
-    return result
-
-
-def write_window(root, current=9999, include_ada_after_first=False,
-                 mismatch=False):
+def write_window(
+    root,
+    days,
+    end_as_of="2026-08-19",
+    current=9999,
+    skip_as_of=None,
+    mismatch_as_of=None,
+):
     root = Path(root)
-    BREADTH_FIXTURE.write_snapshot(
-        root,
-        vintage="2026-08-18",
-        prices=prices(100, 110, 100, 120, 100, 90, current),
-    )
-    second_btc = 111 if mismatch else 110
-    second = prices(second_btc, 121, 120, 132, 90, 99, current)
-    if include_ada_after_first:
-        second["ADA"] = (200, 210, current)
-    BREADTH_FIXTURE.write_snapshot(
-        root, vintage="2026-08-19", prices=second
-    )
-    third = prices(121, "133.1", 132, "158.4", 99, 99, current)
-    if include_ada_after_first:
-        third["ADA"] = (210, 220, current)
-    BREADTH_FIXTURE.write_snapshot(
-        root, vintage="2026-08-20", prices=third
-    )
+    end = dt.date.fromisoformat(end_as_of)
+    start = end - dt.timedelta(days=days - 1)
+    for index in range(days):
+        as_of = start + dt.timedelta(days=index)
+        if as_of.isoformat() == skip_as_of:
+            continue
+        prices = prices_for_index(index, current)
+        if as_of.isoformat() == mismatch_as_of:
+            previous, latest, current_value = prices["BTC"]
+            prices["BTC"] = (previous + 1, latest, current_value)
+        BREADTH_FIXTURE.write_snapshot(
+            root,
+            vintage=(as_of + dt.timedelta(days=1)).isoformat(),
+            prices=prices,
+        )
     return root
 
 
-def ratified_inputs(tmp, include_ada=False):
+def inputs(tmp, taxonomy_path=None, exclusion_taxonomy_path=None):
     tmp = Path(tmp)
     return {
         "universe_policy_path": BREADTH_FIXTURE.write_policy(
             tmp / "universe.json", target=3
         ),
-        "exclusion_taxonomy_path": BREADTH_FIXTURE.write_taxonomy(
-            tmp / "breadth_exclusion_taxonomy.json",
-            {
-                "ADA": "eligible_crypto",
-                "BTC": "eligible_crypto",
-                "ETH": "eligible_crypto",
-                "SOL": "eligible_crypto",
-            },
+        "exclusion_taxonomy_path": (
+            exclusion_taxonomy_path
+            or BREADTH_FIXTURE.write_taxonomy(
+                tmp / "breadth_exclusion_taxonomy.json",
+                {
+                    "BTC": "eligible_crypto",
+                    "ETH": "eligible_crypto",
+                    "SOL": "eligible_crypto",
+                },
+            )
         ),
         "leadership_policy_path": write_leadership_policy(
             tmp / "leadership.json"
         ),
-        "taxonomy_path": write_taxonomy(
-            tmp / "taxonomy.json",
-            default_taxonomy_records(include_ada=include_ada),
+        "taxonomy_path": (
+            taxonomy_path
+            or write_taxonomy(tmp / "taxonomy.json")
         ),
     }
+
+
+def window_by_id(result, window_id):
+    return next(
+        item for item in result["windows"] if item["window_id"] == window_id
+    )
 
 
 def has_float(value):
@@ -192,124 +186,170 @@ def has_float(value):
 
 
 class CryptoLeadershipTest(unittest.TestCase):
-    def test_default_policy_and_taxonomy_keep_authority_closed(self):
-        leadership = MODULE.load_leadership_policy()
+    def test_default_policy_ratifies_only_dual_window_and_keeps_group_gate_closed(self):
+        policy = MODULE.load_leadership_policy()
         taxonomy = MODULE.load_taxonomy()
 
-        self.assertEqual(leadership["approval_status"], "UNRATIFIED")
-        self.assertIsNone(leadership["lookback_calendar_days"])
+        self.assertEqual(policy["approval_status"], "RATIFIED")
+        self.assertEqual(
+            [item["lookback_calendar_days"] for item in policy["windows"]],
+            [7, 30],
+        )
+        self.assertEqual(policy["group_coverage_policy_status"], "UNRATIFIED")
         self.assertEqual(taxonomy["approval_status"], "UNRATIFIED")
         self.assertEqual(taxonomy["records"], [])
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(Path(tmp) / "raw")
-            with self.assertRaisesRegex(
-                MODULE.LeadershipError, "LEADERSHIP_POLICY_UNRATIFIED"
-            ):
-                MODULE.build_transform(root)
-
-            leadership_path = write_leadership_policy(
-                Path(tmp) / "leadership.json"
+            root = write_window(Path(tmp) / "raw", days=3)
+            custom = inputs(tmp)
+            custom.pop("leadership_policy_path")
+            custom.pop("taxonomy_path")
+            result = MODULE.build_transform(root, **custom)
+            self.assertEqual(result["status"], "UNKNOWN")
+            self.assertTrue(
+                all(item["status"] == "UNKNOWN" for item in result["windows"])
             )
-            with self.assertRaisesRegex(
-                MODULE.LeadershipError, "TAXONOMY_UNRATIFIED"
-            ):
-                MODULE.build_transform(
-                    root, leadership_policy_path=leadership_path
-                )
-
-    def test_exact_window_builds_raw_asset_bucket_sector_chain_strength(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(Path(tmp) / "raw")
-            result = MODULE.build_transform(root, **ratified_inputs(tmp))
-
-            self.assertEqual(result["window"]["start_date"], "2026-08-17")
-            self.assertEqual(result["window"]["end_date"], "2026-08-19")
-            self.assertEqual(result["window"]["point_count"], 3)
-            assets = {
-                item["canonical_asset_id"]: item
-                for item in result["asset_relative_strength"]
-            }
-            self.assertEqual(sorted(assets), ["BTC", "ETH", "SOL"])
-            self.assertEqual(assets["BTC"]["cumulative_gross_return"], "1.331")
-            self.assertEqual(assets["BTC"]["relative_strength_vs_btc"], "0")
-            self.assertEqual(assets["ETH"]["cumulative_gross_return"], "1.584")
-            self.assertEqual(
-                assets["ETH"]["relative_strength_vs_btc"],
-                MODULE.render(
-                    MODULE.Decimal("1.584") / MODULE.Decimal("1.331")
-                    - MODULE.Decimal(1),
-                    CONTRACT,
-                ),
-            )
-            groups = result["group_relative_strength"]
-            self.assertEqual(
-                [item["group_id"] for item in groups["bucket"]],
-                ["ALT", "BTC", "ETH"],
-            )
-            smart = next(
-                item
-                for item in groups["sector"]
-                if item["group_id"] == "SMART_CONTRACT"
-            )
-            self.assertEqual(smart["minimum_daily_member_count"], 2)
-            self.assertEqual(smart["cumulative_gross_return"], "1.2705")
-            self.assertEqual(result["partial_window_assets"], [])
-            self.assertFalse(result["leader_classification_authorized"])
             self.assertFalse(result["ranking_authorized"])
-            self.assertFalse(result["regime_score_authorized"])
             self.assertFalse(result["production_wiring_authorized"])
             self.assertFalse(result["trading_action_authorized"])
 
-    def test_current_uncommitted_rows_cannot_change_strength(self):
+    def test_seven_day_pilot_observes_while_primary_stays_unknown(self):
         with tempfile.TemporaryDirectory() as tmp:
-            inputs = ratified_inputs(tmp)
-            low = MODULE.build_transform(
-                write_window(Path(tmp) / "low", current=2), **inputs
-            )
-            high = MODULE.build_transform(
-                write_window(Path(tmp) / "high", current=999999), **inputs
-            )
+            root = write_window(Path(tmp) / "raw", days=7)
+            result = MODULE.build_transform(root, **inputs(tmp))
+            pilot = window_by_id(result, "pilot_7d")
+            primary = window_by_id(result, "primary_30d")
 
+            self.assertEqual(result["status"], "PARTIAL")
+            self.assertEqual(pilot["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(pilot["window"]["available_point_count"], 7)
+            self.assertEqual(primary["status"], "UNKNOWN")
             self.assertEqual(
-                low["asset_relative_strength"], high["asset_relative_strength"]
+                primary["unknown_reason"], "INSUFFICIENT_CONTIGUOUS_HISTORY"
             )
+            self.assertEqual(primary["window"]["available_point_count"], 7)
+            assets = {
+                item["canonical_asset_id"]: item
+                for item in pilot["asset_relative_strength"]
+            }
+            self.assertEqual(sorted(assets), ["BTC", "ETH", "SOL"])
+            self.assertEqual(assets["BTC"]["relative_strength_vs_btc"], "0")
+            buckets = pilot["group_relative_strength"]["bucket"]
             self.assertEqual(
-                low["group_relative_strength"], high["group_relative_strength"]
+                [item["group_id"] for item in buckets], ["ALT", "BTC", "ETH"]
             )
-            self.assertNotEqual(low["lineage"], high["lineage"])
+            self.assertTrue(
+                all(item["status"] == "OBSERVED_UNCLASSIFIED" for item in buckets)
+            )
 
-    def test_window_gap_and_adjacent_close_drift_fail_closed(self):
+    def test_thirty_days_observe_both_windows_independently(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "gap"
-            BREADTH_FIXTURE.write_snapshot(
-                root,
-                vintage="2026-08-18",
-                prices=prices(100, 110, 100, 120, 100, 90),
+            root = write_window(Path(tmp) / "raw", days=30)
+            result = MODULE.build_transform(root, **inputs(tmp))
+            pilot = window_by_id(result, "pilot_7d")
+            primary = window_by_id(result, "primary_30d")
+
+            self.assertEqual(result["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(pilot["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(primary["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(len(pilot["daily_points"]), 7)
+            self.assertEqual(len(primary["daily_points"]), 30)
+            self.assertEqual(
+                len(result["lineage"]["manifest_sha256_by_date"]), 30
             )
-            BREADTH_FIXTURE.write_snapshot(
-                root,
-                vintage="2026-08-20",
-                prices=prices(121, "133.1", 132, "158.4", 99, 99),
+
+    def test_older_gap_stops_primary_without_propagating_to_pilot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_window(
+                Path(tmp) / "raw", days=30, skip_as_of="2026-08-01"
             )
-            with self.assertRaisesRegex(
-                MODULE.LeadershipError, "WINDOW_NOT_CONTIGUOUS"
-            ):
-                MODULE.build_transform(root, **ratified_inputs(tmp))
+            result = MODULE.build_transform(root, **inputs(tmp))
+            pilot = window_by_id(result, "pilot_7d")
+            primary = window_by_id(result, "primary_30d")
+
+            self.assertEqual(result["status"], "PARTIAL")
+            self.assertEqual(pilot["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(primary["status"], "UNKNOWN")
+            self.assertEqual(primary["window"]["missing_dates"], ["2026-08-01"])
+            self.assertEqual(primary["daily_points"], [])
+
+    def test_unratified_or_incomplete_taxonomy_stops_only_sector_chain_layer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_window(Path(tmp) / "raw", days=7)
+            custom = inputs(tmp)
+            custom["taxonomy_path"] = write_taxonomy(
+                Path(tmp) / "unratified.json", records=[], approval="UNRATIFIED"
+            )
+            result = MODULE.build_transform(root, **custom)
+            pilot = window_by_id(result, "pilot_7d")
+
+            self.assertEqual(pilot["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(len(pilot["asset_relative_strength"]), 3)
+            layer = pilot["group_relative_strength"]["sector_chain"]
+            self.assertEqual(layer["status"], "UNKNOWN")
+            self.assertEqual(layer["unknown_reason"], "TAXONOMY_UNRATIFIED")
+            self.assertEqual(layer["sector"], [])
+            self.assertEqual(layer["chain"], [])
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(Path(tmp) / "raw", mismatch=True)
+            root = write_window(Path(tmp) / "raw", days=7)
+            partial_taxonomy = write_taxonomy(
+                Path(tmp) / "partial.json", default_taxonomy_records()[:-1]
+            )
+            result = MODULE.build_transform(
+                root, **inputs(tmp, taxonomy_path=partial_taxonomy)
+            )
+            pilot = window_by_id(result, "pilot_7d")
+            layer = pilot["group_relative_strength"]["sector_chain"]
+            self.assertEqual(pilot["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(layer["unknown_reason"], "TAXONOMY_COVERAGE_UNKNOWN")
+            self.assertEqual(len(layer["missing_asset_dates"]), 7)
+            self.assertTrue(
+                all(item.startswith("SOL@") for item in layer["missing_asset_dates"])
+            )
+
+    def test_complete_taxonomy_still_cannot_invent_group_coverage_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = MODULE.build_transform(
+                write_window(Path(tmp) / "raw", days=7), **inputs(tmp)
+            )
+            pilot = window_by_id(result, "pilot_7d")
+            layer = pilot["group_relative_strength"]["sector_chain"]
+            self.assertEqual(
+                layer["unknown_reason"], "GROUP_COVERAGE_POLICY_UNRATIFIED"
+            )
+            self.assertEqual(layer["missing_asset_dates"], [])
+
+    def test_source_unknown_is_window_unknown_and_structural_drift_hard_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_window(Path(tmp) / "raw", days=7)
+            exclusion = BREADTH_FIXTURE.write_taxonomy(
+                Path(tmp) / "source_taxonomy.json",
+                {"BTC": "eligible_crypto", "ETH": "eligible_crypto"},
+            )
+            result = MODULE.build_transform(
+                root,
+                **inputs(tmp, exclusion_taxonomy_path=exclusion),
+            )
+            pilot = window_by_id(result, "pilot_7d")
+            self.assertEqual(pilot["status"], "UNKNOWN")
+            self.assertEqual(pilot["unknown_reason"], "SOURCE_POINT_UNKNOWN")
+            self.assertEqual(len(pilot["source_unknown_points"]), 7)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_window(
+                Path(tmp) / "raw",
+                days=7,
+                mismatch_as_of="2026-08-18",
+            )
             with self.assertRaisesRegex(
                 MODULE.LeadershipError, "CROSS_SNAPSHOT_CLOSE_MISMATCH.*BTC"
             ):
-                MODULE.build_transform(root, **ratified_inputs(tmp))
+                MODULE.build_transform(root, **inputs(tmp))
 
-    def test_taxonomy_gap_overlap_and_group_coverage_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             overlap = default_taxonomy_records() + [
-                taxonomy_record(
-                    "SOL", "ALT", ["SMART_CONTRACT"], ["SOLANA"]
-                )
+                taxonomy_record("SOL", ["SMART_CONTRACT"], ["SOLANA"])
             ]
             path = write_taxonomy(Path(tmp) / "overlap.json", overlap)
             with self.assertRaisesRegex(
@@ -317,97 +357,35 @@ class CryptoLeadershipTest(unittest.TestCase):
             ):
                 MODULE.load_taxonomy(path)
 
+    def test_current_candle_is_excluded_and_output_is_deterministic_atomic(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(Path(tmp) / "raw")
-            inputs = ratified_inputs(tmp)
-            inputs["taxonomy_path"] = write_taxonomy(
-                Path(tmp) / "missing.json",
-                default_taxonomy_records()[:-1],
+            custom = inputs(tmp)
+            low = MODULE.build_transform(
+                write_window(Path(tmp) / "low", days=7, current=2), **custom
             )
-            with self.assertRaisesRegex(
-                MODULE.LeadershipError, "TAXONOMY_MISSING.*SOL"
-            ):
-                MODULE.build_transform(root, **inputs)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(Path(tmp) / "raw")
-            inputs = ratified_inputs(tmp)
-            inputs["leadership_policy_path"] = write_leadership_policy(
-                Path(tmp) / "coverage.json", sectors=["NOT_PRESENT"]
+            high = MODULE.build_transform(
+                write_window(Path(tmp) / "high", days=7, current=999999), **custom
             )
-            with self.assertRaisesRegex(
-                MODULE.LeadershipError, "GROUP_COVERAGE_INCOMPLETE.*NOT_PRESENT"
-            ):
-                MODULE.build_transform(root, **inputs)
-
-    def test_each_day_uses_its_captured_universe_and_effective_taxonomy(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(
-                Path(tmp) / "raw", include_ada_after_first=True
-            )
-            result = MODULE.build_transform(
-                root, **ratified_inputs(tmp, include_ada=True)
-            )
-
+            low_pilot = window_by_id(low, "pilot_7d")
+            high_pilot = window_by_id(high, "pilot_7d")
             self.assertEqual(
-                [len(point["members"]) for point in result["daily_points"]],
-                [3, 3, 3],
+                low_pilot["asset_relative_strength"],
+                high_pilot["asset_relative_strength"],
             )
             self.assertEqual(
-                result["partial_window_assets"],
-                [
-                    {
-                        "canonical_asset_id": "ADA",
-                        "observed_day_count": 2,
-                        "required_day_count": 3,
-                        "reason": (
-                            "not_present_in_every_as_captured_daily_universe"
-                        ),
-                    },
-                    {
-                        "canonical_asset_id": "SOL",
-                        "observed_day_count": 1,
-                        "required_day_count": 3,
-                        "reason": (
-                            "not_present_in_every_as_captured_daily_universe"
-                        ),
-                    }
-                ],
+                low_pilot["group_relative_strength"],
+                high_pilot["group_relative_strength"],
             )
-            self.assertNotIn(
-                "ADA",
-                [
-                    item["canonical_asset_id"]
-                    for item in result["asset_relative_strength"]
-                ],
-            )
-            alt_counts = [
-                next(
-                    item
-                    for item in point["groups"]["bucket"]
-                    if item["group_id"] == "ALT"
-                )["member_count"]
-                for point in result["daily_points"]
-            ]
-            self.assertEqual(alt_counts, [1, 1, 1])
-            self.assertFalse(
-                result["lineage"]["current_catalog_backfill_authorized"]
-            )
+            self.assertNotEqual(low["lineage"], high["lineage"])
 
-    def test_output_is_deterministic_float_free_and_atomic(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = write_window(Path(tmp) / "raw")
-            inputs = ratified_inputs(tmp)
-            first = MODULE.build_transform(root, **inputs)
-            second = MODULE.build_transform(root, **inputs)
+            repeated = MODULE.build_transform(
+                Path(tmp) / "low", **custom
+            )
             output = Path(tmp) / "output" / "leadership.json"
-            MODULE.write_output(first, output)
-
-            self.assertEqual(first, second)
-            self.assertFalse(has_float(first))
-            self.assertEqual(
-                json.loads(output.read_text(encoding="utf-8")), first
-            )
+            MODULE.write_output(low, output)
+            self.assertEqual(low, repeated)
+            self.assertFalse(has_float(low))
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), low)
             self.assertFalse(list(output.parent.glob(".*.tmp.*")))
 
     def test_no_network_workflow_or_tracked_factor_wiring_is_added(self):
