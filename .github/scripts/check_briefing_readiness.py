@@ -7,8 +7,10 @@ first authority for today's readiness decision.
 """
 
 import argparse
+import datetime as dt
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
@@ -89,6 +91,49 @@ def finish(payload, classification, recovery_action, reasons):
     payload["recovery_action"] = recovery_action
     payload["reasons"] = sorted(set(reasons))
     return payload
+
+
+def persist_health(payload, data_root=DATA):
+    """Atomically persist the final gate result, not the builder's guess."""
+    path = data_root / "briefing_status.json"
+    temporary = data_root / f".briefing_status.tmp.{os.getpid()}"
+    status = (
+        "ready"
+        if payload["classification"] == "data_ready_read_model_ready"
+        else "read_model_degraded"
+        if payload["classification"] == "data_ready_read_model_degraded"
+        else "data_not_ready"
+        if payload["classification"] == "data_not_ready"
+        else "unknown_manual_inspection_required"
+    )
+    artifact = {
+        "schema_version": 1,
+        "expected_kst_date": payload["expected_kst_date"],
+        "data_ready": payload["data_ready"],
+        "read_model_ready": payload["read_model_ready"],
+        "status": status,
+        "error": (
+            None
+            if not payload["reasons"]
+            else ";".join(payload["reasons"])
+        ),
+        "classification": payload["classification"],
+        "manual_inspection_required": payload[
+            "manual_inspection_required"
+        ],
+        "recovery_action": payload["recovery_action"],
+        "reasons": payload["reasons"],
+        "sources": payload["sources"],
+        "read_model": payload["read_model"],
+    }
+    data_root.mkdir(parents=True, exist_ok=True)
+    temporary.write_text(
+        json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    return path
 
 
 def validate_compact_views(data_root, name, source, source_sha, reasons):
@@ -243,6 +288,15 @@ def evaluate(expected_date, data_root=DATA):
             "manual_inspection",
             ["expected_kst_date_missing"],
         )
+    try:
+        dt.date.fromisoformat(expected_date)
+    except (TypeError, ValueError):
+        return finish(
+            payload,
+            "unknown_manual_inspection_required",
+            "manual_inspection",
+            ["expected_kst_date_invalid"],
+        )
 
     sources = {}
     hashes = {}
@@ -315,9 +369,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--today", required=True)
     parser.add_argument("--data-root", type=Path, default=DATA)
+    parser.add_argument("--write-health", action="store_true")
     args = parser.parse_args()
 
     payload = evaluate(args.today, args.data_root)
+    if args.write_health:
+        persist_health(payload, args.data_root)
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return EXIT_CODES[payload["classification"]]
 

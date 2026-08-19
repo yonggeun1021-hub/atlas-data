@@ -65,6 +65,10 @@ class BriefingReadinessTest(unittest.TestCase):
         (self.data / "briefing_status.json").unlink()
 
         result = self.evaluate()
+        self.checker.persist_health(result, self.data)
+        persisted = json.loads(
+            (self.data / "briefing_status.json").read_text()
+        )
 
         self.assertEqual(
             result["classification"],
@@ -74,6 +78,16 @@ class BriefingReadinessTest(unittest.TestCase):
         self.assertFalse(result["read_model_ready"])
         self.assertEqual(
             result["recovery_action"],
+            "repair_read_model_only",
+        )
+        self.assertEqual(
+            persisted["classification"],
+            "data_ready_read_model_degraded",
+        )
+        self.assertTrue(persisted["data_ready"])
+        self.assertFalse(persisted["read_model_ready"])
+        self.assertEqual(
+            persisted["recovery_action"],
             "repair_read_model_only",
         )
 
@@ -155,6 +169,29 @@ class BriefingReadinessTest(unittest.TestCase):
         )
         self.assertTrue(result["manual_inspection_required"])
         self.assertEqual(result["recovery_action"], "manual_inspection")
+
+    def test_invalid_expected_date_requires_manual_inspection(self):
+        result = self.checker.evaluate("not-a-date", self.data)
+
+        self.assertEqual(
+            result["classification"],
+            "unknown_manual_inspection_required",
+        )
+        self.assertEqual(
+            result["reasons"],
+            ["expected_kst_date_invalid"],
+        )
+
+    def test_ready_health_is_stable_when_checked_again(self):
+        first = self.evaluate()
+        self.checker.persist_health(first, self.data)
+        second = self.evaluate()
+
+        self.assertEqual(
+            second["classification"],
+            "data_ready_read_model_ready",
+        )
+        self.assertEqual(second["reasons"], [])
 
     def test_compact_inventory_mismatch_is_degraded(self):
         (self.data / "briefing" / "krx" / "005930.json").unlink()

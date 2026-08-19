@@ -109,6 +109,7 @@ class P003WorkflowContractTest(unittest.TestCase):
             gate.get("run", ""),
         )
         self.assertIn("--today", gate.get("run", ""))
+        self.assertIn("--write-health", gate.get("run", ""))
 
     def test_guard_fresh_message_means_collector_skip_only(self):
         notice = self.require_step("Collector 재수집 생략 사유 표시")

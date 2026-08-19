@@ -162,7 +162,8 @@ jobs:
           TZ: Asia/Seoul
         run: |
           TODAY=$(date +%Y-%m-%d)
-          python3 .github/scripts/check_briefing_readiness.py --today "$TODAY"
+          python3 .github/scripts/check_briefing_readiness.py \
+            --today "$TODAY" --write-health
 
       # scheduled/manual 및 Guard skip을 같은 계약으로 기록한다.
       # 데이터 provider를 추가 호출하지 않으며, 실패해도 아래 Commit data가
