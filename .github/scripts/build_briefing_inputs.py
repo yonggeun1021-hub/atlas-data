@@ -74,6 +74,103 @@ def latest_confirmed_daily(stock):
     return max(confirmed, key=lambda x: x[0])
 
 
+def krx_confirmed_metrics(stock, latest_confirmed_day):
+    sma20 = stock.get("sma20")
+    basis = stock.get("sma20_basis")
+    through = stock.get("sma20_through")
+    status = stock.get("sma20_status")
+
+    numeric_sma20 = (
+        sma20 is None
+        or (
+            isinstance(sma20, (int, float))
+            and not isinstance(sma20, bool)
+        )
+    )
+    valid = (
+        numeric_sma20
+        and type(basis) is int
+        and 0 <= basis <= 20
+        and through == latest_confirmed_day
+        and status in {"ok", "insufficient_confirmed_history"}
+        and (
+            (status == "ok" and sma20 is not None and basis == 20)
+            or (status != "ok" and sma20 is None)
+        )
+    )
+
+    if not valid:
+        return {
+            "history_basis": "confirmed_only",
+            "status": "unknown",
+            "reason": "source_contract_missing_or_invalid",
+            "sma20": None,
+            "sma20_basis": None,
+            "sma20_through": None,
+        }
+
+    return {
+        "history_basis": "confirmed_only",
+        "status": status,
+        "reason": None,
+        "sma20": sma20,
+        "sma20_basis": basis,
+        "sma20_through": through,
+    }
+
+
+def krx_investor_data_completeness(stock):
+    missing_investors = stock.get("missing_investors")
+    missing_rows = stock.get("investor_rows_missing")
+    missing_by_source = stock.get("investor_rows_missing_by_source")
+
+    valid = (
+        isinstance(missing_investors, list)
+        and all(isinstance(x, str) for x in missing_investors)
+        and isinstance(missing_rows, list)
+        and all(isinstance(x, str) for x in missing_rows)
+        and isinstance(missing_by_source, dict)
+        and all(
+            isinstance(source, str)
+            and isinstance(days, list)
+            and all(isinstance(day, str) for day in days)
+            for source, days in missing_by_source.items()
+        )
+    )
+
+    if not valid:
+        return {
+            "status": "unknown",
+            "complete": False,
+            "reason": "source_contract_missing_or_invalid",
+            "missing_investors": None,
+            "investor_rows_missing": None,
+            "investor_rows_missing_by_source": None,
+        }
+
+    complete = not (
+        missing_investors
+        or missing_rows
+        or any(missing_by_source.values())
+    )
+
+    return {
+        "status": "complete" if complete else "incomplete",
+        "complete": complete,
+        "reason": (
+            "no_missing_investor_data"
+            if complete
+            else "reported_missing_investor_data"
+        ),
+        "missing_investors": sorted(missing_investors),
+        "investor_rows_missing": sorted(missing_rows),
+        "investor_rows_missing_by_source": {
+            source: sorted(days)
+            for source, days in sorted(missing_by_source.items())
+        },
+    }
+
+
 def build_krx_views(obj, sha, out_root):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
@@ -91,7 +188,7 @@ def build_krx_views(obj, sha, out_root):
         day, row = latest_confirmed_daily(stock)
 
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "market": "KRX",
             "symbol": code,
             "name": stock.get("name"),
@@ -99,6 +196,10 @@ def build_krx_views(obj, sha, out_root):
             "status": stock.get("status"),
             "latest_confirmed_day": day,
             "latest_confirmed_row": row,
+            "confirmed_metrics": krx_confirmed_metrics(stock, day),
+            "investor_data_completeness": (
+                krx_investor_data_completeness(stock)
+            ),
             "decision_readiness": {
                 "confirmed_through": obj.get("decision_readiness", {}).get(
                     "confirmed_through"

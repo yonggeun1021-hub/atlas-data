@@ -80,6 +80,101 @@ class BriefingInputsTest(unittest.TestCase):
             self.assertIsNotNone(obj["latest_confirmed_day"])
             self.assertIsInstance(obj["latest_confirmed_row"], dict)
 
+    def test_krx_compact_preserves_confirmed_sma20_contract(self):
+        source = json.loads(
+            (self.data / "latest_krx.json").read_text()
+        )
+
+        for code, stock in source["stocks"].items():
+            compact = json.loads(
+                (self.out / "krx" / f"{code}.json").read_text()
+            )
+            metrics = compact["confirmed_metrics"]
+
+            self.assertEqual(compact["schema_version"], 2)
+            self.assertEqual(metrics["history_basis"], "confirmed_only")
+            self.assertEqual(metrics["status"], stock["sma20_status"])
+            self.assertEqual(metrics["sma20"], stock["sma20"])
+            self.assertEqual(
+                metrics["sma20_basis"],
+                stock["sma20_basis"],
+            )
+            self.assertEqual(
+                metrics["sma20_through"],
+                stock["sma20_through"],
+            )
+            self.assertEqual(
+                metrics["sma20_through"],
+                compact["latest_confirmed_day"],
+            )
+
+    def test_krx_compact_has_authoritative_investor_completeness(self):
+        source = json.loads(
+            (self.data / "latest_krx.json").read_text()
+        )
+
+        for code, stock in source["stocks"].items():
+            compact = json.loads(
+                (self.out / "krx" / f"{code}.json").read_text()
+            )
+            completeness = compact["investor_data_completeness"]
+
+            expected_complete = not (
+                stock["missing_investors"]
+                or stock["investor_rows_missing"]
+                or any(stock["investor_rows_missing_by_source"].values())
+            )
+            self.assertEqual(
+                completeness["complete"],
+                expected_complete,
+            )
+            self.assertEqual(
+                completeness["status"],
+                "complete" if expected_complete else "incomplete",
+            )
+            self.assertEqual(
+                completeness["missing_investors"],
+                sorted(stock["missing_investors"]),
+            )
+            self.assertEqual(
+                completeness["investor_rows_missing"],
+                sorted(stock["investor_rows_missing"]),
+            )
+            self.assertEqual(
+                completeness["investor_rows_missing_by_source"],
+                {
+                    source_name: sorted(days)
+                    for source_name, days in sorted(
+                        stock["investor_rows_missing_by_source"].items()
+                    )
+                },
+            )
+
+    def test_krx_missing_source_contract_is_unknown_not_complete(self):
+        metrics = self.module.krx_confirmed_metrics({}, "2026-08-18")
+        completeness = self.module.krx_investor_data_completeness({})
+
+        self.assertEqual(metrics["status"], "unknown")
+        self.assertIsNone(metrics["sma20"])
+        self.assertEqual(completeness["status"], "unknown")
+        self.assertFalse(completeness["complete"])
+
+    def test_krx_reported_investor_gap_is_incomplete(self):
+        completeness = self.module.krx_investor_data_completeness(
+            {
+                "missing_investors": ["기관합계"],
+                "investor_rows_missing": [],
+                "investor_rows_missing_by_source": {},
+            }
+        )
+
+        self.assertEqual(completeness["status"], "incomplete")
+        self.assertFalse(completeness["complete"])
+        self.assertEqual(
+            completeness["reason"],
+            "reported_missing_investor_data",
+        )
+
     def test_source_hash_matches(self):
         krx_hash = hashlib.sha256(
             (self.data / "latest_krx.json").read_bytes()
