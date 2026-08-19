@@ -50,6 +50,10 @@ jobs:
           python3 "$ROOT/.github/scripts/btc_trend.py" validate "$PWD"
           python3 "$ROOT/.github/scripts/btc_trend.py" transform "$PWD" \
             --out "$RUNNER_TEMP/btc_trend.json"
+          python3 "$ROOT/.github/scripts/btc_risk.py" transform "$PWD" \
+            --out "$RUNNER_TEMP/btc_risk.json"
+          python3 "$ROOT/.github/scripts/btc_risk.py" replay "$PWD" \
+            --out "$RUNNER_TEMP/btc_risk_replay.json"
 
       - name: Commit BTC price evidence
         if: env.SKIP != '1'

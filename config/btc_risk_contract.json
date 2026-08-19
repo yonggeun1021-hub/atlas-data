@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "source_contract": "config/btc_price_contract.json",
+  "source_transform_version": "btc_trend/v1",
+  "transform_version": "btc_risk/v1",
+  "stress_feature_version": "btc_stress_features/v1",
+  "replay_version": "btc_risk_replay/v1",
+  "return_semantics": "simple_close_to_close",
+  "realized_vol_lookback_returns": 30,
+  "realized_vol_estimator": "sqrt_mean_squared_simple_returns",
+  "realized_vol_annualization_days": 365,
+  "drawdown_lookback_closes": 90,
+  "drawdown_semantics": "close_peak_to_trough",
+  "replay_mode": "as_captured_prefix_only",
+  "missing_data_policy": "unknown_fail_closed_no_fill",
+  "stress_calibration_status": "UNDEFINED_UNCALIBRATED",
+  "output_decimal_places": 12,
+  "rounding": "ROUND_HALF_EVEN"
+}

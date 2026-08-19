@@ -66,6 +66,11 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # ★ P1-CR-05 — BTC Risk / Volatility transform + prefix replay.
+    #   qualified BTC PIT close로 RV30·90일 drawdown을 재현하되 stress 임계값,
+    #   Regime/Production/trading 권한은 부여하지 않고 gap은 fail-closed한다.
+    #   ⛔ live Kraken 호출/tracked factor 없음 — temp snapshot fixtures only.
+    "test/test_btc_risk.py",
     # ★ P1-CR-04 — BTC Trend source / PIT / 200DMA transform.
     #   Kraken UTC 일봉의 마지막 미확정 row를 제외하고 exact 200일 종가만
     #   사용하며 결측·API 오류·해시/manifest 변조를 fail-closed한다.
