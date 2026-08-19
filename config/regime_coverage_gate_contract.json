@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_coverage_gate/v1",
+  "source_contract_version": "regime_output/v1",
+  "policy_status": "UNRATIFIED",
+  "runtime_authorized_results": [
+    "BLOCKED"
+  ],
+  "minimum_defined_axes": null,
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "axis_missing_reason_codes": {
+    "TREND": "TREND_UNDEFINED",
+    "BREADTH": "BREADTH_UNDEFINED",
+    "RISK_VOL": "RISK_VOL_UNDEFINED",
+    "LIQUIDITY": "LIQUIDITY_UNDEFINED",
+    "LEADERSHIP": "LEADERSHIP_UNDEFINED"
+  },
+  "base_reason_codes": [
+    "MINIMUM_COVERAGE_GATE_UNRATIFIED",
+    "REGIME_SCORE_NOT_AUTHORIZED"
+  ],
+  "fail_closed_regime": "UNKNOWN",
+  "fail_closed_direction": "UNKNOWN",
+  "confidence_policy": "null_until_replay_defined",
+  "neutral_unknown_invariant": "NEUTRAL_IS_OBSERVED_STATE_UNKNOWN_IS_INSUFFICIENT_EVIDENCE"
+}

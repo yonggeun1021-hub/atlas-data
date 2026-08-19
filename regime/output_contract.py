@@ -66,7 +66,11 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "warning_code_pattern",
         "transform_version_pattern",
     }
-    if set(contract) != expected or contract.get("schema_version") != 1:
+    if (
+        set(contract) != expected
+        or type(contract.get("schema_version")) is not int
+        or contract.get("schema_version") != 1
+    ):
         fail("CONTRACT_INVALID", "schema or fields")
     pinned = {
         "contract_version": "regime_output/v1",
@@ -441,7 +445,8 @@ def validate_output(payload: object, contract: Optional[dict] = None) -> dict:
     if not isinstance(payload, dict) or set(payload) != expected:
         fail("OUTPUT_INVALID", "schema or fields")
     if (
-        payload["schema_version"] != 1
+        type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
         or payload["contract_version"] != contract["contract_version"]
         or payload["contract_mode"] != contract["contract_mode"]
     ):
@@ -479,6 +484,14 @@ def validate_output(payload: object, contract: Optional[dict] = None) -> dict:
             contract,
         )
     derived = derived_sections(factors, contract)
+    coverage = payload["coverage"]
+    if not isinstance(coverage, dict):
+        fail("COVERAGE_INVALID", "object required")
+    if (
+        type(coverage.get("defined_count")) is not int
+        or type(coverage.get("required_count")) is not int
+    ):
+        fail("COVERAGE_INVALID", "integer counts required")
     for key in ("coverage", "evidence_as_of", "available_as_of", "warnings"):
         if payload[key] != derived[key]:
             fail("DERIVED_FIELD_MISMATCH", key)
