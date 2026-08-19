@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract_version": "kofia_unit_evidence/v1",
+  "official_guide": {
+    "page_url": "https://www.data.go.kr/data/15094809/openapi.do",
+    "download_url": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000002624267&fileDetailSn=1",
+    "attachment_id": "FILE_000000002624267",
+    "attachment_sequence": "1",
+    "sha256": "49c2d261468fe36ae2684aba407033c5383b5c352c4a1785b7b21bbe664a87b4",
+    "retrieved_date": "2026-08-19",
+    "sample_semantics": "official_response_message_spec_sample_data",
+    "unit_declared": false
+  },
+  "freesis_display": {
+    "url": "https://freesis.kofia.or.kr/stat/main.do",
+    "retrieved_date": "2026-08-19",
+    "display_unit": "million_krw",
+    "scope": "dashboard_display_only_not_api_transport_contract"
+  },
+  "live_evidence": {
+    "capture_path": "evidence/kofia/full_coverage/2026-08-19/run-32262446592-attempt-1",
+    "commit": "246fc40",
+    "run_id": "32262446592",
+    "run_attempt": "1",
+    "collector_version": "kofia-first-seen-capture/v2",
+    "source_contract_version": "kofia_liquidity_source/v3"
+  },
+  "comparisons": [
+    {
+      "operation": "credit_financing",
+      "observation_date": "2022-09-29",
+      "field": "crdTrFingWhl",
+      "guide_sample_raw": "17461184",
+      "relation": "round_half_up_after_division",
+      "divisor": "1000000"
+    },
+    {
+      "operation": "investor_deposits",
+      "observation_date": "2022-09-28",
+      "field": "invrDpsgAmt",
+      "guide_sample_raw": "52567764085909",
+      "relation": "exact",
+      "divisor": null
+    }
+  ],
+  "qualification": {
+    "api_field_unit_status": "conflicting_primary_evidence",
+    "api_raw_unit": null,
+    "normalization_factor": null,
+    "conversion_authorized": false,
+    "decision_eligible": false,
+    "regime_score_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  }
+}

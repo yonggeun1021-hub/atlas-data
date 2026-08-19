@@ -109,9 +109,10 @@ APPROVED_TESTS = [
     #   ⛔ 신규 API/score/workflow/tracked output 없음 — temp snapshot fixtures only.
     "test/test_korea_investor_flow.py",
     # ★ P1-KR-03 — KOFIA 투자자예탁금·신용융자 source qualification.
-    #   공식 API의 operation/필드/완전 pagination을 검증하되 historical range,
-    #   available_at, 단위가 미확정이면 Regime/Production 권한을 fail-closed한다.
-    #   ⛔ live API/key/tracked output 없음 — temp response fixtures only.
+    #   공식 API의 operation/필드/완전 pagination을 검증한다. 공식 가이드의
+    #   operation별 샘플 scale 충돌도 live full-coverage 원문으로 재현하며,
+    #   historical range/available_at/API 단위가 미확정이면 권한을 fail-closed한다.
+    #   ⛔ live API/key 없음 — temp fixtures + committed immutable capture read-only.
     "test/test_kofia_liquidity.py",
     # ★ P1-COM-02 — minimum coverage 미비준/증거부족 fail-closed Gate.
     #   5축이 모두 있어도 미비준 상태에서는 UNKNOWN/BLOCKED만 허용하고

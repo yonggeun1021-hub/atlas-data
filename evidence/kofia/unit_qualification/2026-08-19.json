@@ -1,0 +1,64 @@
+{
+  "comparisons": [
+    {
+      "divisor": "1000000",
+      "field": "crdTrFingWhl",
+      "guide_sample_raw": "17461184",
+      "live_api_raw": "17461183602791",
+      "observation_date": "2022-09-29",
+      "operation": "credit_financing",
+      "relation": "round_half_up_after_division",
+      "relation_verified": true
+    },
+    {
+      "divisor": null,
+      "field": "invrDpsgAmt",
+      "guide_sample_raw": "52567764085909",
+      "live_api_raw": "52567764085909",
+      "observation_date": "2022-09-28",
+      "operation": "investor_deposits",
+      "relation": "exact",
+      "relation_verified": true
+    }
+  ],
+  "conclusion": {
+    "api_field_unit_status": "conflicting_primary_evidence",
+    "api_raw_unit": null,
+    "conversion_authorized": false,
+    "decision_eligible": false,
+    "normalization_factor": null,
+    "production_wiring_authorized": false,
+    "reason_codes": [
+      "OFFICIAL_GUIDE_CROSS_OPERATION_SAMPLE_SCALE_CONFLICT",
+      "FREESIS_DISPLAY_UNIT_IS_NOT_API_TRANSPORT_CONTRACT"
+    ],
+    "regime_score_authorized": false,
+    "trading_action_authorized": false
+  },
+  "contract_version": "kofia_unit_evidence/v1",
+  "freesis_display": {
+    "display_unit": "million_krw",
+    "retrieved_date": "2026-08-19",
+    "scope": "dashboard_display_only_not_api_transport_contract",
+    "url": "https://freesis.kofia.or.kr/stat/main.do"
+  },
+  "live_evidence": {
+    "capture_path": "evidence/kofia/full_coverage/2026-08-19/run-32262446592-attempt-1",
+    "collector_version": "kofia-first-seen-capture/v2",
+    "commit": "246fc40",
+    "run_attempt": "1",
+    "run_id": "32262446592",
+    "source_contract_version": "kofia_liquidity_source/v3"
+  },
+  "official_guide": {
+    "attachment_id": "FILE_000000002624267",
+    "attachment_sequence": "1",
+    "download_url": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000002624267&fileDetailSn=1",
+    "page_url": "https://www.data.go.kr/data/15094809/openapi.do",
+    "retrieved_date": "2026-08-19",
+    "sample_semantics": "official_response_message_spec_sample_data",
+    "sha256": "49c2d261468fe36ae2684aba407033c5383b5c352c4a1785b7b21bbe664a87b4",
+    "unit_declared": false
+  },
+  "schema_version": 1
+}
