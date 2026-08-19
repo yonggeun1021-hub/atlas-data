@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "contract_version": "official_release_evidence/1",
+  "source_hierarchy_status": "UNRATIFIED",
+  "automatic_fallback_authorized": false,
+  "profiles": {
+    "tsmc_ir_monthly_revenue": {
+      "subject": "TSM",
+      "adapter": "tsmc_monthly/1",
+      "identity_kind": "company_ir_web",
+      "source_name": "TSMC Investor Relations — Historical Monthly Revenue",
+      "canonical_url_prefix": "https://investor.tsmc.com/english/monthly-revenue/",
+      "allowed_hosts": ["investor.tsmc.com"],
+      "available_capture_kinds": ["LIVE_OFFICIAL_CAPTURE"]
+    },
+    "msft_official_earnings_release": {
+      "subject": "MSFT",
+      "adapter": "msft_azure_cc/1",
+      "identity_kind": "company_official_release_sec_exhibit",
+      "source_name": "Microsoft official earnings release filed as SEC EX-99.1",
+      "canonical_url_prefix": "https://www.sec.gov/Archives/edgar/data/789019/",
+      "allowed_hosts": ["www.sec.gov"],
+      "available_capture_kinds": ["VERBATIM_SOURCE_SLICE"]
+    }
+  },
+  "blocked_capture_kinds": ["REGRESSION_FIXTURE", "SYNTHETIC_FIXTURE"],
+  "authority": {
+    "evidence_only": true,
+    "source_ranking_authorized": false,
+    "interpretation_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

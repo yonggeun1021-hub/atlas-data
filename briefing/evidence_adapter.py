@@ -65,6 +65,22 @@ class CIODefinitionRequired(NotImplementedError):
     """이 분기를 채우려면 CIO 정의가 필요하다 — 임의로 만들지 않는다."""
 
 
+SOURCE_FACT_LABELS = {
+    "company_ir_web": "기업 IR 원문",
+    "company_official_release_sec_exhibit": "기업 공식발표 원문",
+}
+
+
+def _fact_source_label(env: dict) -> str:
+    src = env.get("source_identity") or {}
+    identity_kind = src.get("identity_kind")
+    if identity_kind is None:
+        return "SEC 원문"
+    if identity_kind not in SOURCE_FACT_LABELS:
+        raise AdapterError(f"알 수 없는 source identity kind: {identity_kind!r}")
+    return SOURCE_FACT_LABELS[identity_kind]
+
+
 def _fact_line(env: dict) -> str:
     """① 확인된 사실 한 줄. ⛔ 형용사를 붙이지 않는다."""
     subj = env["subject"]
@@ -75,7 +91,7 @@ def _fact_line(env: dict) -> str:
     if status == EVIDENCE_AVAILABLE:
         obs = env.get("observation") or {}
         col = obs.get("decision_column_identity") or ""
-        return (f"{subj} · {meas} · {period} — SEC 원문에서 "
+        return (f"{subj} · {meas} · {period} — {_fact_source_label(env)}에서 "
                 f"{obs.get('raw_value')} 확인 ({col})")
     if status == EVIDENCE_BLOCKED:
         # ⛔ 「값은 이런데 막혀 있다」로 쓰지 않는다 — 값을 내보내면 사실로 읽힌다.
@@ -93,6 +109,13 @@ def _source_line(env: dict):
     src = env.get("source_identity")
     if not src:
         return None
+    if src.get("identity_kind") is not None:
+        required = ("source_id", "source_url", "source_sha256", "available_at")
+        missing = [field for field in required if not src.get(field)]
+        if missing:
+            raise AdapterError(f"official-release source identity 결손: {missing}")
+        return (f"출처: {src['source_id']} · {src['available_at']} · "
+                f"{src['source_url']} · sha256 {src['source_sha256'][:12]}")
     return (f"출처: {src.get('accession')} · {src.get('filing_date')} · "
             f"{src.get('exhibit_document')} · sha256 {(src.get('source_sha256') or '')[:12]}")
 

@@ -305,6 +305,10 @@ APPROVED_TESTS = [
     #   ⛔ 브리핑 문안이나 투자 판정 내용 자체는 검증 대상이 아니다.
     #   ⛔ live network 없음 — fixture only.
     "test/test_briefing_evidence_adapter.py",
+    # ★ P4-04 — 승인된 기업 IR/공식발표 두 경로만 evidence envelope 로 정규화.
+    #   source hierarchy·fallback·해석·Rule·Production 권한은 만들지 않는다.
+    #   ⛔ live network 없음 — TSMC/MSFT committed fixture 기반 fail-closed 회귀.
+    "test/test_official_release_evidence.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.

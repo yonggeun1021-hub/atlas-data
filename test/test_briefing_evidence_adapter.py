@@ -180,6 +180,38 @@ with section("C-2. 사실 층 내용 — 원문 표기 그대로"):
     check("★★ 해석 어휘가 섞이지 않는다",
           not any(w in f["line"] for w in INTERPRETIVE), f["line"])
 
+with section("C-3. ★ P4-04 official-release source identity 표기"):
+    ir = envelope()
+    ir["subject"] = "TSM"
+    ir["measurement_identity"] = "TSMC consolidated net revenue monthly YoY"
+    ir["economic_period_end"] = "2026-07-31"
+    ir["observation"]["raw_value"] = "44.7%"
+    ir["observation"]["numeric_value"] = "44.7"
+    ir["observation"]["decision_column_identity"] = "YoY Change"
+    ir["source_identity"] = {
+        "identity_kind": "company_ir_web",
+        "source_id": "tsmc_ir_monthly_revenue",
+        "source_url": "https://investor.tsmc.com/english/monthly-revenue/2026",
+        "source_sha256": "a" * 64,
+        "available_at": "2026-08-15",
+    }
+    block = A.briefing_block([ir], NOT_AUTH)
+    fact = block["confirmed_facts"][0]
+    check("★ SEC 원문으로 잘못 표기하지 않는다", "기업 IR 원문" in fact["line"],
+          fact["line"])
+    check("★ source id·URL·available_at·hash가 함께 간다",
+          "tsmc_ir_monthly_revenue" in fact["source"]
+          and "2026-08-15" in fact["source"]
+          and "investor.tsmc.com" in fact["source"]
+          and "aaaaaaaaaaaa" in fact["source"], fact["source"])
+    bad_kind = copy.deepcopy(ir)
+    bad_kind["source_identity"]["identity_kind"] = "news_article"
+    try:
+        A.briefing_block([bad_kind], NOT_AUTH)
+        check("⛔ 미등록 source identity kind를 거부한다", False, "통과해버렸다")
+    except A.AdapterError:
+        check("⛔ 미등록 source identity kind를 거부한다", True)
+
 with section("D. ★★ 차단된 관측 — 값을 사실처럼 내보내지 않는다"):
     env = envelope(status="EVIDENCE_BLOCKED",
                    blocked=["OBSERVATION_CONFLICT_UNRESOLVED"])
