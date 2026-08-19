@@ -126,6 +126,10 @@ APPROVED_TESTS = [
     #   분리하고 append-only provenance manifest를 검증한다.
     #   ⛔ live DefiLlama 호출 없음 — committed evidence read-only + temp fixtures.
     "test/test_stablecoin_revision_contract.py",
+    # ★ Stablecoin schedule hardening — 15:20/16:20/17:20 3슬롯,
+    #   capture/skip/failure + run lineage telemetry, 외부 17:25 read-only 판정.
+    #   ⛔ live GitHub/DefiLlama/알림 없음 — temp roots + workflow YAML 계약만 검증.
+    "test/test_stablecoin_schedule_hardening.py",
     # ★ P0-02 — Daily Collect scheduler self-observability.
     #   slot/run identity, runner-start delay, Guard result/skip을 작은 telemetry로
     #   남기며 manual/unknown schedule은 지연을 추정하지 않는다.
