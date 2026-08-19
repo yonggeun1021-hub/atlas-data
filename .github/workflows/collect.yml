@@ -153,6 +153,17 @@ jobs:
           TODAY=$(date +%Y-%m-%d)
           python3 .github/scripts/build_briefing_inputs.py --today "$TODAY"
 
+      # 생성시점의 freshness/overall을 그대로 믿지 않는다. 현재 raw 3종의
+      # 날짜·failed를 먼저 재검증한 뒤 published bundle/health/hash를 확인한다.
+      # 실패해도 아래 telemetry/commit은 always()로 실행되어 degraded marker를 보존한다.
+      - name: Verify 06:55 briefing readiness contract (P0-03)
+        if: always()
+        env:
+          TZ: Asia/Seoul
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          python3 .github/scripts/check_briefing_readiness.py --today "$TODAY"
+
       # scheduled/manual 및 Guard skip을 같은 계약으로 기록한다.
       # 데이터 provider를 추가 호출하지 않으며, 실패해도 아래 Commit data가
       # collector/read-model 결과를 보존할 수 있도록 always()에서 실행한다.

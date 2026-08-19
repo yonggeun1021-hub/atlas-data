@@ -206,6 +206,22 @@ class BriefingInputsTest(unittest.TestCase):
             "UTC",
         )
 
+    def test_read_model_inventory_has_exact_authority_paths(self):
+        status = json.loads((self.out / "step0_status.json").read_text())
+
+        self.assertEqual(
+            status["read_model_inventory"],
+            {
+                "date_basis": "KST",
+                "authority_path": "data/briefing/step0_status.json",
+                "health_path": "data/briefing_status.json",
+                "compact_path_templates": [
+                    "data/briefing/krx/{SYMBOL}.json",
+                    "data/briefing/sec/{SYMBOL}.json",
+                ],
+            },
+        )
+
     def test_sec_compact_view_is_bounded(self):
         for path in (self.out / "sec").glob("*.json"):
             obj = json.loads(path.read_text())

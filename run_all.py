@@ -159,6 +159,11 @@ APPROVED_TESTS = [
     #   bounded SEC view, truncated JSON fail-closed 계약을 검증한다.
     #   ⛔ live network 없음 — committed local data 기반.
     "test/test_briefing_inputs.py",
+    # ★ P0-03 06:55 readiness gate — cached overall보다 current raw 날짜를 먼저 본다.
+    #   raw가 오늘자면 stale/missing read model을 collection failure로 확대하지 않고
+    #   read-model-only repair로 분리한다. truncated raw는 manual inspection으로 닫는다.
+    #   ⛔ live network/workflow dispatch 없음 — temp data root에서만 검증한다.
+    "test/test_briefing_readiness.py",
     # ★ P0-03 hardening — Daily Collect workflow repair-path 계약.
     #   Guard=fresh 는 collector만 skip하고 briefing read model은 검증/repair를 계속한다.
     #   ⛔ live network 없음 — workflow YAML 구조만 실제 파싱해 검증한다.

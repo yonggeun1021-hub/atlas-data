@@ -402,6 +402,15 @@ def build_and_publish(expected_date, fail_before_publish=False):
                 ],
             },
         ],
+        "read_model_inventory": {
+            "date_basis": "KST",
+            "authority_path": "data/briefing/step0_status.json",
+            "health_path": "data/briefing_status.json",
+            "compact_path_templates": [
+                "data/briefing/krx/{SYMBOL}.json",
+                "data/briefing/sec/{SYMBOL}.json",
+            ],
+        },
     }
 
     for name in ("krx", "dart", "sec"):
