@@ -203,7 +203,7 @@ class KofiaFirstSeenTest(unittest.TestCase):
         self.assertIsNone(CAPTURE_CONTRACT["available_at"])
         self.assertEqual(
             CAPTURE_CONTRACT["source_contract_version"],
-            "kofia_liquidity_source/v2",
+            "kofia_liquidity_source/v3",
         )
         self.assertEqual(
             CAPTURE_CONTRACT["collector_version"],
@@ -237,6 +237,19 @@ class KofiaFirstSeenTest(unittest.TestCase):
 
         self.assertEqual(page["rows"][0]["values"]["crdTrFingWhl"], "30867510")
         self.assertEqual(page["rows"][0]["values"]["crdTrLndrKosdaq"], "400")
+
+        investor = investor_row("20260818")
+        investor["ucolMnyVsOppsTrdRlImpt"] = ".5"
+        investor_page = MODULE.parse_page(
+            api_response([investor]),
+            OPERATIONS["investor_deposits"],
+            1,
+            "20260818",
+        )
+        self.assertEqual(
+            investor_page["rows"][0]["values"]["ucolMnyVsOppsTrdRlImpt"],
+            "0.5",
+        )
 
     def test_request_uses_official_contract_without_exposing_key_in_summary(self):
         operation = OPERATIONS["investor_deposits"]

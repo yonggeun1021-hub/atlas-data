@@ -51,8 +51,9 @@ request metadata.  Response bytes are gzip-compressed without modification and
 bound by SHA-256 and byte length.
 
 Numeric source fields accept the official JSON `number` representation and the
-canonical unsigned decimal-string representation observed from the live
-gateway. The raw response preserves which representation arrived. Missing,
+canonical unsigned decimal-string representations observed from the live
+gateway, including a fraction with an omitted leading zero. The raw response
+preserves which representation arrived. Missing,
 blank, signed, exponent, comma-grouped, placeholder, or null values fail closed
 and are never treated as zero.
 

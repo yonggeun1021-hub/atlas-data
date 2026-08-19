@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "kofia_liquidity_source/v2",
+  "contract_version": "kofia_liquidity_source/v3",
   "source_authority": "Korea Financial Investment Association",
   "gateway_operator": "Financial Services Commission",
   "catalog_id": "15094809",
@@ -12,9 +12,12 @@
   "success_result_code": "00",
   "numeric_transport_policy": {
     "official_swagger_type": "number",
-    "observed_compatibility": "canonical_unsigned_decimal_string",
+    "observed_compatibility": [
+      "canonical_unsigned_decimal_string",
+      "leading_fraction_decimal_string"
+    ],
     "accepted_json_types": ["number", "canonical_numeric_string"],
-    "accepted_string_pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+    "accepted_string_pattern": "^(?:(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?|\\.[0-9]+)$",
     "rejected_string_forms": [
       "blank",
       "surrounding_whitespace",

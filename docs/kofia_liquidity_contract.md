@@ -21,9 +21,11 @@ market statistics.
 
 The official Swagger declares those value fields as JSON `number`. A live
 Atlas probe on 2026-08-19 observed `crdTrFingWhl` as a canonical unsigned
-decimal string instead. Source contract v2 therefore accepts either the
+decimal string and later observed `ucolMnyVsOppsTrdRlImpt` with a leading zero
+omitted, such as `.x`. Source contract v3 therefore accepts either the
 documented JSON number or an exact string matching
-`^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$` and normalizes both through `Decimal`.
+`^(?:(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|\.[0-9]+)$` and normalizes both through
+`Decimal`; a leading fraction becomes `0.x` in the normalized observation.
 Blank values, whitespace, signs, exponents, grouping separators, placeholders,
 nulls, and container values remain contract failures; none are converted to
 zero.
