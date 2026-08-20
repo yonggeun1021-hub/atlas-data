@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "action_order_idempotency_guard/1",
+  "ledger_schema_version": "action_order_idempotency_ledger/1",
+  "attempt_batch_schema_version": "action_order_attempt_batch/1",
+  "output_schema_version": "action_order_idempotency_result/1",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "identity_fields": [
+    "idempotency_key",
+    "action_id",
+    "order_id"
+  ],
+  "payload_binding": "OPAQUE_INTENT_SHA256",
+  "ledger_mode": "APPEND_ONLY_CANDIDATE_OUTPUT",
+  "duplicate_result": "DUPLICATE_RETRY_BLOCKED",
+  "novel_result": "NOVEL_RECORDED_EXECUTION_NOT_AUTHORIZED",
+  "collision_policy": "HARD_FAIL",
+  "event_identity_policy": "EVENT_ID_MAY_HAVE_DISTINCT_EXPLICIT_ORDERS",
+  "ledger_authority": {
+    "idempotency_history_only": true,
+    "order_execution_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "input_authority": {
+    "attempt_observation_only": true,
+    "order_execution_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "duplicate_guard_only": true,
+    "action_creation_authorized": false,
+    "order_creation_authorized": false,
+    "order_execution_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

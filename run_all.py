@@ -471,6 +471,11 @@ APPROVED_TESTS = [
     #   order intent는 null이다. 직접 translation 시도·authority drift는 거부한다.
     #   ⛔ P8-02/entry/order/sizing/Production/trading 권한 없음.
     "test/test_ready_signal_order_boundary.py",
+    # ★ P9-04 — duplicate Action/Order ID guard capability.
+    #   same key+payload retry는 block, key/payload 또는 action/order ID 충돌은
+    #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
+    #   ⛔ ID 생성/order 생성/broker/Production/trading 권한 없음.
+    "test/test_action_order_idempotency.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
