@@ -94,6 +94,12 @@ APPROVED_TESTS = [
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.
     #   ⛔ source 선택·유료 구매·evaluator/Production/trading 연결 없음.
     "test/test_data_coverage_matrix.py",
+    # ★ P3-08 — existing SEC D1 event → evidence-linked Discovery Case packet.
+    #   ratified taxonomy 결과만 case로 기록하고 exact source-record binding의
+    #   as_of/available_at/source SHA를 보존한다. 중요도·해석·Stage 승격은 금지한다.
+    #   DART item/news/policy/Crypto coverage 미비를 packet에 그대로 표면화한다.
+    #   ⛔ live network/workflow/tracked case 없음 — synthetic D1 + temp output only.
+    "test/test_event_discovery_case.py",
     # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
     #   Stage/form scope, SGML+index identity, bounded content, immutable hash,
     #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.
