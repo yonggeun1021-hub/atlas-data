@@ -57,6 +57,24 @@ def candle(day, close, volume="10.5"):
     ]
 
 
+def no_trade_candle(day, close):
+    value = text_number(close)
+    return [
+        int(
+            dt.datetime.combine(
+                day, dt.time(), tzinfo=dt.timezone.utc
+            ).timestamp()
+        ),
+        value,
+        value,
+        value,
+        value,
+        "0.0000",
+        "0.00000000",
+        0,
+    ]
+
+
 def source_payload(result):
     return {"error": [], "result": result}
 
@@ -366,6 +384,13 @@ class CryptoBreadthTest(unittest.TestCase):
             )
             validated = MODULE.validate_snapshot(snapshot)
             self.assertEqual(validated["ohlc_pair_count"], 3)
+            manifest = MODULE.read_json(
+                snapshot / "_manifest.json", "MANIFEST_INVALID"
+            )
+            self.assertEqual(
+                manifest["source"]["no_trade_candle_policy"],
+                "zero_vwap_zero_volume_zero_trades_flat_ohlc",
+            )
             self.assertEqual(sleeps, [1.0, 1.0])
             with self.assertRaisesRegex(
                 CAPTURE_MODULE.CaptureError, "APPEND_ONLY_VIOLATION"
@@ -392,6 +417,10 @@ class CryptoBreadthTest(unittest.TestCase):
             CONTRACT["current_candle_policy"],
             "exclude_last_row_always",
         )
+        self.assertEqual(
+            CONTRACT["no_trade_candle_policy"],
+            "zero_vwap_zero_volume_zero_trades_flat_ohlc",
+        )
         self.assertEqual(policy["approval_status"], "RATIFIED")
         self.assertEqual(policy["target_asset_count"], 100)
         self.assertEqual(policy["minimum_observation_coverage_bps"], 9000)
@@ -406,6 +435,32 @@ class CryptoBreadthTest(unittest.TestCase):
                 "RANK_ELIGIBLE_UNIVERSE_BELOW_TARGET",
             )
             self.assertFalse(result["production_wiring_authorized"])
+
+    def test_zero_vwap_is_only_the_exact_no_trade_sentinel(self):
+        day = dt.date(2026, 8, 20)
+        normalized = MODULE.normalize_candle(
+            no_trade_candle(day, "0.0867"), 40, "1INCH/USD"
+        )
+        self.assertEqual(normalized["date"], day)
+        self.assertEqual(normalized["vwap"], Decimal(0))
+        self.assertEqual(normalized["volume"], Decimal(0))
+        self.assertEqual(normalized["trade_count"], 0)
+
+        zero_vwap_with_activity = candle(day, "10.0867")
+        zero_vwap_with_activity[5] = "0.0000"
+        with self.assertRaisesRegex(
+            MODULE.BreadthError, "CANDLE_TRADE_ACTIVITY_INVALID"
+        ):
+            MODULE.normalize_candle(
+                zero_vwap_with_activity, 40, "1INCH/USD"
+            )
+
+        nonflat_no_trade = no_trade_candle(day, "0.0867")
+        nonflat_no_trade[2] = "0.0868"
+        with self.assertRaisesRegex(
+            MODULE.BreadthError, "CANDLE_NO_TRADE_SENTINEL_INVALID"
+        ):
+            MODULE.normalize_candle(nonflat_no_trade, 40, "1INCH/USD")
 
     def test_exact_universe_builds_raw_btc_and_alt_participation(self):
         with tempfile.TemporaryDirectory() as tmp:
