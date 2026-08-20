@@ -17,6 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Capture Crypto Breadth runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -40,6 +44,7 @@ jobs:
           fi
           if [ -e "$SNAPSHOT" ]; then
             echo "불완전한 기존 경로가 있어 덮어쓰지 않습니다: $SNAPSHOT" >&2
+            echo "result=incomplete_existing" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           python3 .github/scripts/crypto_breadth_capture.py \
@@ -64,20 +69,8 @@ jobs:
           }, ensure_ascii=False, indent=2))
           PY
           echo "result=captured" >> "$GITHUB_OUTPUT"
-      - name: Commit immutable raw snapshot
-        if: steps.capture.outputs.result == 'captured'
-        env:
-          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "evidence/crypto/breadth/raw/$SNAPSHOT_DATE"
-          git commit -m "crypto breadth raw snapshot $SNAPSHOT_DATE"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
       - name: P1-CR-06 immutable snapshot validation
+        id: breadth_validation
         if: >-
           always() && (steps.capture.outputs.result == 'captured' ||
           steps.capture.outputs.result == 'skipped_existing')
@@ -97,6 +90,7 @@ jobs:
           path: ${{ runner.temp }}/crypto-breadth-live-transform.json
           if-no-files-found: error
       - name: P1-CR-07 transient live replay
+        id: leadership_validation
         if: >-
           always() && (steps.capture.outputs.result == 'captured' ||
           steps.capture.outputs.result == 'skipped_existing')
@@ -109,6 +103,43 @@ jobs:
             evidence/crypto/breadth/raw \
             --end-date "$AS_OF_DATE" \
             --out "$RUNNER_TEMP/crypto-leadership-live-replay.json"
+      - name: Record Crypto Breadth scheduler telemetry
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
+          ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_BREADTH_VALIDATION_OUTCOME: ${{ steps.breadth_validation.outcome }}
+          ATLAS_LEADERSHIP_VALIDATION_OUTCOME: ${{ steps.leadership_validation.outcome }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/record_crypto_breadth_run.py
+      - name: Commit immutable raw snapshot and run telemetry
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/operations/crypto_breadth_capture_runs || true
+          if [ "$CAPTURE_RESULT" = "captured" ]; then
+            git add "evidence/crypto/breadth/raw/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "crypto breadth capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
       - name: Upload P1-CR-07 live replay evidence
         if: >-
           always() && (steps.capture.outputs.result == 'captured' ||
