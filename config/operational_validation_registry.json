@@ -26,7 +26,7 @@
       "automation_state": "SCHEDULED_PRODUCER_HUMAN_CONSUMER",
       "workflow": ".github/workflows/krx-post-close.yml",
       "crons": ["5 7 * * 1-5", "25 7 * * 1-5", "45 7 * * 1-5"],
-      "required_workflow_tokens": ["Collect and publish KRX post-close observation", "krx_post_close.py"],
+      "required_workflow_tokens": ["Collect and publish KRX post-close observation", "krx_post_close.py", "Record KRX post-close scheduler telemetry", "record_krx_post_close_run.py"],
       "remaining_gate": "external 18:00 briefing must visibly consume the observed-unconfirmed read view"
     },
     {
@@ -66,7 +66,7 @@
       "automation_state": "SCHEDULED_INLINE",
       "workflow": ".github/workflows/crypto-breadth-capture.yml",
       "crons": ["40 0 * * *"],
-      "required_workflow_tokens": ["P1-CR-06 immutable snapshot validation", "p1-cr-06-live-transform"],
+      "required_workflow_tokens": ["P1-CR-06 immutable snapshot validation", "p1-cr-06-live-transform", "Record Crypto Breadth scheduler telemetry", "record_crypto_breadth_run.py"],
       "remaining_gate": "first qualified live Top-100 snapshot"
     },
     {
@@ -130,7 +130,7 @@
       "automation_state": "SCHEDULED_UPSTREAM",
       "workflow": ".github/workflows/crypto-breadth-capture.yml",
       "crons": ["40 0 * * *"],
-      "required_workflow_tokens": ["crypto_leadership.py", "p1-cr-07-live-replay"],
+      "required_workflow_tokens": ["crypto_leadership.py", "p1-cr-07-live-replay", "Record Crypto Breadth scheduler telemetry", "record_crypto_breadth_run.py"],
       "remaining_gate": "7-day and 30-day live snapshot windows plus taxonomy coverage"
     },
     {

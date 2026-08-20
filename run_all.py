@@ -199,6 +199,11 @@ APPROVED_TESTS = [
     #   ratified 30일 turnover Top-100·명시 taxonomy·90% coverage gate를 재현한다.
     #   ⛔ 테스트의 live Kraken/tracked factor 없음 — fake fetcher + temp fixtures only.
     "test/test_crypto_breadth.py",
+    # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
+    #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
+    #   Leadership validation 결과를 clone에서 독립 판정한다.
+    #   ⛔ live GitHub/Kraken 없음 — temp output root + workflow YAML only.
+    "test/test_crypto_scheduler_telemetry.py",
     # ★ P1-CR-07 — Crypto Leadership dual-window PIT relative-strength 계약.
     #   CR-06 날짜별 snapshot을 재사용해 승인된 7일 pilot/30일 primary를 독립
     #   판정하고 taxonomy 부재는 sector/chain 층에만 UNKNOWN으로 격리한다.
@@ -209,6 +214,11 @@ APPROVED_TESTS = [
     #   decision_eligible=false, partial-response incident 경계를 검증한다.
     #   ⛔ live KRX/Notion 호출 없음 — temp data root + workflow YAML 계약.
     "test/test_p004_krx_post_close.py",
+    # ★ P0-04 scheduled/manual run lineage — operations telemetry.
+    #   Actions REST 없이도 16:05/16:25/16:45 slot, runner delay, Guard,
+    #   capture/skip/failure를 clone에서 구분하고 미확정 경계는 유지한다.
+    #   ⛔ live GitHub/KRX 없음 — temp output root + workflow YAML only.
+    "test/test_p004_scheduler_telemetry.py",
     # ★ P1-CR-03 — Stablecoin Net Issuance evidence transform.
     #   native USD-peg supply의 exact T-1/T-7 차이와 missing/revision lineage를
     #   검증하며 가격효과·Regime score·운영배선을 분리한다.

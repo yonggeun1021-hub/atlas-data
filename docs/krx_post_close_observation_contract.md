@@ -66,6 +66,19 @@ The first complete bundle wins; later slots skip it.  The three slots handle
 GitHub scheduler delay and source timing variance, while the exact-date and
 append-only guards prevent duplicate publication.
 
+Every runner writes a separate operations-only record to:
+
+```text
+data/operations/krx_post_close_runs/{KST_DATE}/run-{RUN_ID}-attempt-{N}.json
+```
+
+The record preserves the GitHub event and schedule, run identity, directly
+observed runner start time, expected slot and delay, Guard result, and the
+collector's captured/skipped/failed outcome.  A failed Guard prevents the
+provider collection step from running.  Telemetry never confirms the observed
+row and all briefing, regime, production, and trading authority flags remain
+false.
+
 No row is made final because the workflow ran after market close.  Missing
 today rows, missing basic investor rows or columns, a partial stock response,
 an invalid timestamp, or a broken confirmed-history boundary all fail closed
