@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract_version": "ready_signal_order_boundary/1",
+  "input_schema_version": "ready_signal_observation_packet/1",
+  "output_schema_version": "ready_signal_order_boundary_packet/1",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "ready_statuses": [
+    "READY",
+    "NOT_READY",
+    "NOT_EVALUATED"
+  ],
+  "signal_statuses": [
+    "PRESENT",
+    "ABSENT",
+    "NOT_EVALUATED"
+  ],
+  "entry_trigger_status": "NOT_EVALUATED",
+  "order_status": "NOT_EVALUATED",
+  "invariants": [
+    "READY_NEVER_IMPLIES_ENTRY_TRIGGER",
+    "SIGNAL_NEVER_IMPLIES_ORDER"
+  ],
+  "decision_contract_status": "P8_02_UNIMPLEMENTED",
+  "input_authority": {
+    "ready_observation_only": true,
+    "signal_observation_only": true,
+    "entry_trigger_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "boundary_enforcement_only": true,
+    "ready_to_entry_translation_authorized": false,
+    "signal_to_order_translation_authorized": false,
+    "entry_trigger_authorized": false,
+    "order_authorized": false,
+    "position_sizing_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
