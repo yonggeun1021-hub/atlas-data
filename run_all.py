@@ -77,6 +77,13 @@ APPROVED_TESTS = [
     #   고정해 mutable tag와 Node 20 deprecation을 제거한다. workflow 권한·
     #   trigger·run 내용은 불변이다.
     "test/test_github_actions_runtime.py",
+    # ★ 운영 검증 전수 inventory — 진행중/외부대기/보류 WBS 22건을
+    #   server-side schedule / upstream schedule / human gate / policy blocker로
+    #   분류한다. 자동 실행 가능한 코드가 예약 없이 남거나, 미비준 정책을
+    #   schedule로 몰래 승격시키는 drift를 막는다.
+    #   P4-04 TSMC IR은 주 1회 read-only live probe + artifact만 허용한다.
+    #   ⛔ Codex 로컬 예약·tracked data·Rule/Production/trading 변경 없음.
+    "test/test_operational_validation_registry.py",
     # ★ P4-01 — Data Coverage Matrix audit capability.
     #   Regime 15축·Discovery 11입력·Rule SSOT 25건을 전수 집계해 각 항목의
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.

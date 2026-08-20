@@ -334,14 +334,23 @@ class BtcRiskTest(unittest.TestCase):
             {"20 0 * * *"},
         )
         capture = self.require_step("Capture immutable Kraken BTC/USD daily OHLC")
+        validation = self.require_step(
+            "Validate BTC Trend and Risk from immutable snapshot"
+        )
+        upload = self.require_step("Upload BTC Trend and Risk live validation")
         commit = self.require_step("Commit BTC price evidence")
         command = capture.get("run", "")
 
         self.assertEqual(command.count("api.kraken.com/0/public/OHLC"), 1)
-        self.assertIn('btc_risk.py" transform', command)
-        self.assertIn('btc_risk.py" replay', command)
-        self.assertIn("$RUNNER_TEMP/btc_risk.json", command)
-        self.assertIn("$RUNNER_TEMP/btc_risk_replay.json", command)
+        validation_command = validation.get("run", "")
+        self.assertIn("btc_risk.py transform", validation_command)
+        self.assertIn("btc_risk.py replay", validation_command)
+        self.assertIn("$RUNNER_TEMP/btc_risk.json", validation_command)
+        self.assertIn("$RUNNER_TEMP/btc_risk_replay.json", validation_command)
+        self.assertEqual(upload.get("if"), "always() && env.SNAPSHOT_DIR != ''")
+        self.assertIn(
+            "btc_risk_replay.json", upload.get("with", {}).get("path", "")
+        )
         commit_command = commit.get("run", "")
         self.assertIn("git add evidence/crypto/btc/raw", commit_command)
         self.assertNotIn("btc_risk", commit_command)

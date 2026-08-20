@@ -19,6 +19,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
 
       - name: Capture immutable Kraken BTC/USD daily OHLC
         run: |
@@ -26,6 +29,7 @@ jobs:
           ROOT="$PWD"
           D=$(date -u +%F)
           DIR="evidence/crypto/btc/raw/$D"
+          echo "SNAPSHOT_DIR=$DIR" >> "$GITHUB_ENV"
           if [ -f "$DIR/_manifest.json" ]; then
             echo "이미 $D BTC price snapshot이 있습니다. 덮어쓰지 않습니다."
             echo "SKIP=1" >> "$GITHUB_ENV"
@@ -47,19 +51,38 @@ jobs:
           python3 "$ROOT/.github/scripts/btc_trend.py" manifest \
             --snapshot-dir "$PWD" \
             --capture-version "btc-price-capture/v1"
-          python3 "$ROOT/.github/scripts/btc_trend.py" validate "$PWD"
-          python3 "$ROOT/.github/scripts/btc_trend.py" transform "$PWD" \
+
+      - name: Validate BTC Trend and Risk from immutable snapshot
+        if: env.SNAPSHOT_DIR != ''
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/btc_trend.py validate "$SNAPSHOT_DIR"
+          python3 .github/scripts/btc_trend.py transform "$SNAPSHOT_DIR" \
             --out "$RUNNER_TEMP/btc_trend.json"
-          python3 "$ROOT/.github/scripts/btc_risk.py" transform "$PWD" \
+          python3 .github/scripts/btc_risk.py transform "$SNAPSHOT_DIR" \
             --out "$RUNNER_TEMP/btc_risk.json"
-          python3 "$ROOT/.github/scripts/btc_risk.py" replay "$PWD" \
+          python3 .github/scripts/btc_risk.py replay "$SNAPSHOT_DIR" \
             --out "$RUNNER_TEMP/btc_risk_replay.json"
 
       - name: Commit BTC price evidence
         if: env.SKIP != '1'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add evidence/crypto/btc/raw
           git commit -m "BTC price raw snapshot $(date -u +%F)"
-          git push
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+
+      - name: Upload BTC Trend and Risk live validation
+        if: always() && env.SNAPSHOT_DIR != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: btc-trend-risk-live-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/btc_trend.json
+            ${{ runner.temp }}/btc_risk.json
+            ${{ runner.temp }}/btc_risk_replay.json
+          if-no-files-found: error

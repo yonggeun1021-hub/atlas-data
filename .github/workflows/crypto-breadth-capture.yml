@@ -15,7 +15,7 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -77,3 +77,44 @@ jobs:
           git commit -m "crypto breadth raw snapshot $SNAPSHOT_DATE"
           git pull --rebase origin "$DEFAULT_BRANCH"
           git push origin "HEAD:$DEFAULT_BRANCH"
+      - name: P1-CR-06 immutable snapshot validation
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          python3 .github/scripts/crypto_breadth.py transform \
+            "evidence/crypto/breadth/raw/$SNAPSHOT_DATE" \
+            --out "$RUNNER_TEMP/crypto-breadth-live-transform.json"
+      - name: Upload P1-CR-06 live transform evidence
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: p1-cr-06-live-transform-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/crypto-breadth-live-transform.json
+          if-no-files-found: error
+      - name: P1-CR-07 transient live replay
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          set -euo pipefail
+          AS_OF_DATE=$(python3 -c 'import datetime as d,sys; print((d.date.fromisoformat(sys.argv[1])-d.timedelta(days=1)).isoformat())' "$SNAPSHOT_DATE")
+          python3 .github/scripts/crypto_leadership.py transform \
+            evidence/crypto/breadth/raw \
+            --end-date "$AS_OF_DATE" \
+            --out "$RUNNER_TEMP/crypto-leadership-live-replay.json"
+      - name: Upload P1-CR-07 live replay evidence
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: p1-cr-07-live-replay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/crypto-leadership-live-replay.json
+          if-no-files-found: error

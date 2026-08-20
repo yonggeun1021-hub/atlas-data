@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "reviewed_as_of": "2026-08-20",
+  "execution_platform": "github_actions",
+  "local_machine_required": false,
+  "active_wbs_snapshot_count": 22,
+  "automation_states": [
+    "SCHEDULED_INLINE",
+    "SCHEDULED_UPSTREAM",
+    "SCHEDULED_PRODUCER_HUMAN_CONSUMER",
+    "SCHEDULED_READ_ONLY_PROBE",
+    "POLICY_BLOCKED",
+    "PAID_RECONFIRMATION_REQUIRED"
+  ],
+  "items": [
+    {
+      "work_item_id": "P0-02",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/collect.yml",
+      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "required_workflow_tokens": ["Record scheduler telemetry (P0-02)", "record_collect_run.py"],
+      "remaining_gate": "measured scheduled-run sample count 3-5"
+    },
+    {
+      "work_item_id": "P0-04",
+      "automation_state": "SCHEDULED_PRODUCER_HUMAN_CONSUMER",
+      "workflow": ".github/workflows/krx-post-close.yml",
+      "crons": ["5 7 * * 1-5", "25 7 * * 1-5", "45 7 * * 1-5"],
+      "required_workflow_tokens": ["Collect and publish KRX post-close observation", "krx_post_close.py"],
+      "remaining_gate": "external 18:00 briefing must visibly consume the observed-unconfirmed read view"
+    },
+    {
+      "work_item_id": "P1-KR-03",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/p1-kr03-kofia-first-seen.yml",
+      "crons": ["30 21 * * *", "30 0 * * *", "30 4 * * *", "30 8 * * *", "30 12 * * *"],
+      "required_workflow_tokens": ["Capture immutable KOFIA evidence", "kofia_first_seen.py"],
+      "remaining_gate": "official transport unit and source available_at policy"
+    },
+    {
+      "work_item_id": "P1-KR-04",
+      "automation_state": "SCHEDULED_UPSTREAM",
+      "workflow": ".github/workflows/collect.yml",
+      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "required_workflow_tokens": ["Collect KRX"],
+      "remaining_gate": "next-morning prior-session scheduled evidence"
+    },
+    {
+      "work_item_id": "P1-CR-04",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/btc-price-capture.yml",
+      "crons": ["20 0 * * *"],
+      "required_workflow_tokens": ["Validate BTC Trend and Risk from immutable snapshot", "btc-trend-risk-live"],
+      "remaining_gate": "first scheduled immutable capture and committed-byte replay"
+    },
+    {
+      "work_item_id": "P1-CR-05",
+      "automation_state": "SCHEDULED_UPSTREAM",
+      "workflow": ".github/workflows/btc-price-capture.yml",
+      "crons": ["20 0 * * *"],
+      "required_workflow_tokens": ["btc_risk.py", "btc_risk_replay.json"],
+      "remaining_gate": "shared scheduled BTC capture and committed-byte replay"
+    },
+    {
+      "work_item_id": "P1-CR-06",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/crypto-breadth-capture.yml",
+      "crons": ["40 0 * * *"],
+      "required_workflow_tokens": ["P1-CR-06 immutable snapshot validation", "p1-cr-06-live-transform"],
+      "remaining_gate": "first qualified live Top-100 snapshot"
+    },
+    {
+      "work_item_id": "P1-US-03",
+      "automation_state": "PAID_RECONFIRMATION_REQUIRED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "authoritative historical price source requires cost/ROI reconfirmation"
+    },
+    {
+      "work_item_id": "P1-US-04",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/p1-us04-forward-breadth.yml",
+      "crons": ["20 1 * * 2-6"],
+      "required_workflow_tokens": ["Capture official current-day directories append-only", "us_breadth_forward.py"],
+      "remaining_gate": "historical PIT membership and delisted OHLCV require separate reconfirmation"
+    },
+    {
+      "work_item_id": "P1-US-05",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "source, asset, basis, lookback, and calendar are UNRATIFIED"
+    },
+    {
+      "work_item_id": "P1-US-06",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "source, benchmark, lookback, universe, and taxonomy are UNRATIFIED"
+    },
+    {
+      "work_item_id": "P1-US-07",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "default case/source policy and authoritative historical PIT are unavailable"
+    },
+    {
+      "work_item_id": "P1-KR-06",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "official KRX index publication timing and available_at are UNRATIFIED"
+    },
+    {
+      "work_item_id": "P1-KR-07",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "official taxonomy and publication timing are UNRATIFIED"
+    },
+    {
+      "work_item_id": "P1-CR-07",
+      "automation_state": "SCHEDULED_UPSTREAM",
+      "workflow": ".github/workflows/crypto-breadth-capture.yml",
+      "crons": ["40 0 * * *"],
+      "required_workflow_tokens": ["crypto_leadership.py", "p1-cr-07-live-replay"],
+      "remaining_gate": "7-day and 30-day live snapshot windows plus taxonomy coverage"
+    },
+    {
+      "work_item_id": "P1-COM-03",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "classified replay and confirmation policy do not exist"
+    },
+    {
+      "work_item_id": "P1-COM-04",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "minimum sensor coverage and historical/live replay evidence are absent"
+    },
+    {
+      "work_item_id": "P4-02",
+      "automation_state": "SCHEDULED_UPSTREAM",
+      "workflow": ".github/workflows/collect.yml",
+      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "required_workflow_tokens": ["Capture SEC filing content (P4-02)", "latest_sec_content.json"],
+      "remaining_gate": "first post-merge regular Daily Collect output and briefing overlay"
+    },
+    {
+      "work_item_id": "P4-03",
+      "automation_state": "SCHEDULED_UPSTREAM",
+      "workflow": ".github/workflows/collect.yml",
+      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "required_workflow_tokens": ["Capture DART filing content (P4-03)", "dart_filing_content.py"],
+      "remaining_gate": "first relevant live filing plus item-extraction policy"
+    },
+    {
+      "work_item_id": "P4-04",
+      "automation_state": "SCHEDULED_READ_ONLY_PROBE",
+      "workflow": ".github/workflows/tsmc-live-fetch.yml",
+      "crons": ["17 1 * * 1"],
+      "required_workflow_tokens": ["tsmc_official_release_probe.py", "p4-04-tsmc-live-probe"],
+      "remaining_gate": "approved observed publication date and normal data/briefing publication wiring"
+    },
+    {
+      "work_item_id": "P4-06",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "core evidence set, per-source freshness, and confirmation policy are UNRATIFIED"
+    },
+    {
+      "work_item_id": "P5-02",
+      "automation_state": "POLICY_BLOCKED",
+      "workflow": null,
+      "crons": [],
+      "automatic_execution_authorized": false,
+      "blocking_basis": "per-Rule definitions, sources, freshness, fallback, periods, units, and thresholds are unresolved"
+    }
+  ]
+}
