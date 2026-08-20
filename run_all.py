@@ -466,6 +466,11 @@ APPROVED_TESTS = [
     #   내부 notional만 합산한다. cross-currency total/FX conversion/limits는 null.
     #   ⛔ FX source/limit/sizing/order/Production/trading 권한 없음.
     "test/test_currency_exposure.py",
+    # ★ P8-03 — READY ≠ ENTRY / Signal ≠ Order authority invariant.
+    #   source-bound READY/Signal 상태를 보존하되 어떤 조합에서도 entry trigger와
+    #   order intent는 null이다. 직접 translation 시도·authority drift는 거부한다.
+    #   ⛔ P8-02/entry/order/sizing/Production/trading 권한 없음.
+    "test/test_ready_signal_order_boundary.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
