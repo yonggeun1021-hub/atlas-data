@@ -387,6 +387,7 @@ class CryptoBreadthTest(unittest.TestCase):
             manifest = MODULE.read_json(
                 snapshot / "_manifest.json", "MANIFEST_INVALID"
             )
+            self.assertEqual(manifest["source"]["minimum_response_rows"], 1)
             self.assertEqual(
                 manifest["source"]["no_trade_candle_policy"],
                 "zero_vwap_zero_volume_zero_trades_flat_ohlc",
@@ -421,6 +422,7 @@ class CryptoBreadthTest(unittest.TestCase):
             CONTRACT["no_trade_candle_policy"],
             "zero_vwap_zero_volume_zero_trades_flat_ohlc",
         )
+        self.assertEqual(CONTRACT["minimum_response_rows"], 1)
         self.assertEqual(policy["approval_status"], "RATIFIED")
         self.assertEqual(policy["target_asset_count"], 100)
         self.assertEqual(policy["minimum_observation_coverage_bps"], 9000)
@@ -461,6 +463,46 @@ class CryptoBreadthTest(unittest.TestCase):
             MODULE.BreadthError, "CANDLE_NO_TRADE_SENTINEL_INVALID"
         ):
             MODULE.normalize_candle(nonflat_no_trade, 40, "1INCH/USD")
+
+    def test_new_listing_history_is_captured_but_rank_ineligible(self):
+        vintage = dt.date(2026, 8, 20)
+        pair_id = "USDGO/USD"
+        one_finalized_and_current = source_payload(
+            {
+                pair_id: [
+                    candle(vintage - dt.timedelta(days=1), "10.0000"),
+                    no_trade_candle(vintage, "0.9997"),
+                ],
+                "last": int(
+                    dt.datetime.combine(
+                        vintage, dt.time(), tzinfo=dt.timezone.utc
+                    ).timestamp()
+                ),
+            }
+        )
+        normalized = MODULE.normalize_ohlc(
+            one_finalized_and_current,
+            vintage,
+            CONTRACT,
+            MODULE.ohlc_file_name(pair_id),
+        )
+        self.assertEqual(normalized["response_rows"], 2)
+        self.assertEqual(normalized["finalized_rows"], 1)
+        self.assertFalse(normalized["ranking_history_complete"])
+        self.assertIsNone(normalized["previous_finalized_day"])
+        self.assertEqual(normalized["latest_finalized_day"], "2026-08-19")
+        self.assertIsNone(normalized["trailing_usd_turnover"])
+
+        empty = source_payload({pair_id: [], "last": 0})
+        with self.assertRaisesRegex(
+            MODULE.BreadthError, "OHLC_HISTORY_INVALID"
+        ):
+            MODULE.normalize_ohlc(
+                empty,
+                vintage,
+                CONTRACT,
+                MODULE.ohlc_file_name(pair_id),
+            )
 
     def test_exact_universe_builds_raw_btc_and_alt_participation(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -100,6 +100,12 @@ its own membership.  A pair without exact 30-day ranking history is explicitly
 rank-ineligible.  An unclassified asset encountered before the 100th eligible
 member makes the whole result `UNKNOWN`; it is never included by default.
 
+A newly listed online pair can legitimately have only the current row, or only
+one finalized row plus the current row.  Atlas preserves that complete source
+response but keeps the pair rank-ineligible until all 30 required finalized
+ranking dates exist.  Short listing history is not a partial-source failure and
+is never padded or backfilled.
+
 This universe is expressly `breadth_source_coverage_not_investable`.  It does
 not claim liquidity, capacity, tradability for an Atlas portfolio, or exchange
 coverage beyond Kraken.
