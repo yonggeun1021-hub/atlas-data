@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract_version": "rule_evaluator_mutation_matrix/1",
+  "targets": [
+    "rule_evidence_binding/1",
+    "deterministic_rule_evaluator/1"
+  ],
+  "pass_fail_must_remain_zero": true,
+  "scenarios": [
+    {"code": "EVIDENCE_ABSENT", "layer": "binding", "expected": "UNKNOWN"},
+    {"code": "EVIDENCE_BLOCKED", "layer": "binding", "expected": "UNKNOWN"},
+    {"code": "EVIDENCE_LINEAGE_MISSING", "layer": "binding", "expected": "UNKNOWN"},
+    {"code": "EVIDENCE_CONSUMABLE_CONFLICT", "layer": "binding", "expected": "UNKNOWN"},
+    {"code": "OBSERVATION_VALUE_MUTATION", "layer": "evaluation", "expected": "UNDEFINED_NO_PASS_FAIL"},
+    {"code": "DUPLICATE_ENVELOPE_KEY", "layer": "binding", "expected": "REJECT"},
+    {"code": "BINDING_SUBJECT_MISMATCH", "layer": "binding", "expected": "REJECT"},
+    {"code": "HIDDEN_SELECTION_MODE", "layer": "binding", "expected": "REJECT"},
+    {"code": "BINDING_PACKET_DIGEST_TAMPER", "layer": "evaluation", "expected": "REJECT"},
+    {"code": "CONDITION_HASH_DRIFT", "layer": "evaluation", "expected": "REJECT"},
+    {"code": "RULE_REGISTRY_HASH_DRIFT", "layer": "evaluation", "expected": "REJECT"},
+    {"code": "LINKAGE_AUTHORITY_EXPANSION", "layer": "evaluation", "expected": "REJECT"},
+    {"code": "REGISTRY_EVALUATOR_AUTHORITY_EXPANSION", "layer": "evaluation", "expected": "REJECT"}
+  ],
+  "authority": {
+    "test_only": true,
+    "source_selection_authorized": false,
+    "evidence_interpretation_authorized": false,
+    "pass_fail_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
