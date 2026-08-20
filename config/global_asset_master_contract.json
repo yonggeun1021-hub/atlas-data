@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "contract_version": "global_asset_master/1",
+  "input_schema_version": "global_asset_master_input/1",
+  "output_schema_version": "global_asset_master_packet/1",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "allowed_asset_classes": [
+    "CRYPTO_ASSET",
+    "EQUITY"
+  ],
+  "allowed_membership_types": [
+    "MARKET",
+    "THEME",
+    "UNIVERSE"
+  ],
+  "required_lineage_fields": [
+    "source_id",
+    "source_url",
+    "source_sha256",
+    "available_at",
+    "retrieved_at_utc"
+  ],
+  "source_coverage": {
+    "kraken_public_api": "SOURCE_CAPABILITY_EXISTS",
+    "krx_open_api_stock_daily": "SOURCE_CAPABILITY_EXISTS",
+    "nasdaq_trader_symbol_directory": "SOURCE_CAPABILITY_EXISTS"
+  },
+  "effective_interval": "[valid_from, valid_to)",
+  "policy_status": {
+    "cross_market_identity_schema": "IMPLEMENTED",
+    "market_universe_policy": "UNRATIFIED",
+    "theme_taxonomy": "UNRATIFIED",
+    "automatic_identity_merge": "PROHIBITED",
+    "membership_selection": "EXPLICIT_ONLY",
+    "identity_collision": "FAIL_CLOSED"
+  },
+  "authority": {
+    "identity_recording_only": true,
+    "automatic_identity_merge_authorized": false,
+    "theme_inference_authorized": false,
+    "universe_approval_authorized": false,
+    "investability_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
