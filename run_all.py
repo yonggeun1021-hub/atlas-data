@@ -81,9 +81,14 @@ APPROVED_TESTS = [
     #   server-side schedule / upstream schedule / human gate / policy blocker로
     #   분류한다. 자동 실행 가능한 코드가 예약 없이 남거나, 미비준 정책을
     #   schedule로 몰래 승격시키는 drift를 막는다.
-    #   P4-04 TSMC IR은 주 1회 read-only live probe + artifact만 허용한다.
+    #   P4-04 TSMC은 primary SEC + secondary IR 주 1회 read-only probe만 허용한다.
     #   ⛔ Codex 로컬 예약·tracked data·Rule/Production/trading 변경 없음.
     "test/test_operational_validation_registry.py",
+    # ★ TSMC 정본 acquisition contract — SEC 6-K primary live probe.
+    #   최신 monthly-revenue 6-K를 내용으로 식별하고 Consolidated NT$ million
+    #   결정표만 추출한다. 최신 식별 문서가 깨지면 과거 문서로 후퇴하지 않는다.
+    #   ⛔ live network 없음 — fake SEC metadata/documents + temp artifact only.
+    "test/test_tsmc_sec_monthly_probe.py",
     # ★ P4-01 — Data Coverage Matrix audit capability.
     #   Regime 15축·Discovery 11입력·Rule SSOT 25건을 전수 집계해 각 항목의
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.
