@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_inverse_invariant/1",
+  "output_schema_version": "regime_inverse_invariant_packet/1",
+  "upstream_contract_version": "regime_output/v1",
+  "upstream_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
+  "regime_vocabulary": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS",
+    "UNKNOWN"
+  ],
+  "runtime_authorized_regimes": [
+    "UNKNOWN"
+  ],
+  "derived_inverse_evaluation_status": "NOT_EVALUATED",
+  "invariant": "RISK_OFF_STRESS_NEVER_IMPLIES_AUTO_INVERSE_ORDER",
+  "independent_prerequisites": [
+    "HEDGE_INSTRUMENT_ELIGIBILITY_RATIFIED",
+    "BEAR_HEDGE_RISK_BUDGET_RATIFIED",
+    "INVERSE_STRATEGY_RULE_EVALUATION",
+    "ORDER_RISK_CHECKS_AUTHORIZED"
+  ],
+  "upstream_authority": {
+    "minimum_coverage_gate_ratified": false,
+    "thresholds_authorized": false,
+    "weights_authorized": false,
+    "regime_score_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  },
+  "authority": {
+    "invariant_enforcement_only": true,
+    "inverse_instrument_selection_authorized": false,
+    "inverse_strategy_evaluation_authorized": false,
+    "inverse_signal_authorized": false,
+    "inverse_order_authorized": false,
+    "hedge_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
