@@ -146,6 +146,12 @@ APPROVED_TESTS = [
     #   lineage-complete case를 만든다. cross-market score·ranking·Stage·trading 없음.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic series + temp output only.
     "test/test_supply_demand.py",
+    # ★ P3-10 — immutable Discovery Case ref에 valuation/risk raw context를 부착한다.
+    #   exact 2-point value/change와 composite source lineage만 기본 제공하고,
+    #   deterioration 방향·minimum이 명시된 외부 RATIFIED 정책만 label을 허용한다.
+    #   결측은 UNKNOWN/ABSENT, Crypto valuation은 UNDEFINED이며 candidate/Stage/Rule/
+    #   Portfolio/Production/trading 권한은 모두 닫는다. temp output only.
+    "test/test_valuation_risk_context.py",
     # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
     #   Stage/form scope, SGML+index identity, bounded content, immutable hash,
     #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.

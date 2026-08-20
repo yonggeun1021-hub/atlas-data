@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "contract_version": "valuation_risk_context/1",
+  "input_schema_version": "valuation_risk_context_input/1",
+  "output_schema_version": "valuation_risk_context_packet/1",
+  "interpretation_policy_schema_version": "valuation_risk_interpretation_policy/1",
+  "allowed_case_schema_versions": [
+    "business_acceleration_case/1",
+    "discovery_case/1",
+    "market_behavior_case/1",
+    "supply_demand_case/1"
+  ],
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "allowed_dimensions": [
+    "RISK",
+    "VALUATION"
+  ],
+  "allowed_metric_types": {
+    "CRYPTO": {
+      "RISK": [
+        "CURRENT_DRAWDOWN",
+        "MAXIMUM_DRAWDOWN",
+        "REALIZED_VOLATILITY"
+      ],
+      "VALUATION": []
+    },
+    "KOREA": {
+      "RISK": [
+        "CURRENT_DRAWDOWN",
+        "MAXIMUM_DRAWDOWN",
+        "REALIZED_VOLATILITY"
+      ],
+      "VALUATION": [
+        "BOOK_MULTIPLE",
+        "EARNINGS_MULTIPLE",
+        "FREE_CASH_FLOW_YIELD",
+        "SALES_MULTIPLE"
+      ]
+    },
+    "US": {
+      "RISK": [
+        "CURRENT_DRAWDOWN",
+        "MAXIMUM_DRAWDOWN",
+        "REALIZED_VOLATILITY"
+      ],
+      "VALUATION": [
+        "BOOK_MULTIPLE",
+        "EARNINGS_MULTIPLE",
+        "FREE_CASH_FLOW_YIELD",
+        "SALES_MULTIPLE"
+      ]
+    }
+  },
+  "source_requirements": {
+    "CRYPTO": {
+      "RISK": [
+        [
+          "kraken_public_api"
+        ]
+      ],
+      "VALUATION": []
+    },
+    "KOREA": {
+      "RISK": [
+        [
+          "krx_open_api_stock_daily"
+        ]
+      ],
+      "VALUATION": [
+        [
+          "dart_open_api"
+        ],
+        [
+          "krx_open_api_stock_daily"
+        ]
+      ]
+    },
+    "US": {
+      "RISK": [
+        [
+          "tiingo_us_daily_price"
+        ]
+      ],
+      "VALUATION": [
+        [
+          "sec_edgar"
+        ],
+        [
+          "tiingo_us_daily_price"
+        ]
+      ]
+    }
+  },
+  "source_hosts": {
+    "dart_open_api": [
+      "opendart.fss.or.kr"
+    ],
+    "kraken_public_api": [
+      "api.kraken.com"
+    ],
+    "krx_open_api_stock_daily": [
+      "data-dbg.krx.co.kr"
+    ],
+    "sec_edgar": [
+      "data.sec.gov",
+      "www.sec.gov"
+    ],
+    "tiingo_us_daily_price": [
+      "api.tiingo.com"
+    ]
+  },
+  "required_point_count": 2,
+  "feature_contract": {
+    "change": "latest value minus prior value",
+    "deterioration": "external policy direction times change is at least the external minimum"
+  },
+  "output_decimal_places": 12,
+  "source_coverage": {
+    "CRYPTO": {
+      "RISK": "PARTIAL_EXISTING_BTC_RISK_FEATURES",
+      "VALUATION": "UNDEFINED_NO_RATIFIED_METRIC"
+    },
+    "KOREA": {
+      "RISK": "PARTIAL_INPUT_POLICY_AND_RELEASE_TIMING_UNRATIFIED",
+      "VALUATION": "PARTIAL_DART_AND_KRX_SOURCE_FRAGMENTS"
+    },
+    "US": {
+      "RISK": "PARTIAL_INPUT_POLICY_UNRATIFIED",
+      "VALUATION": "PARTIAL_SEC_AND_TRANSIENT_PRICE_SOURCE_FRAGMENTS"
+    }
+  },
+  "policy_status": {
+    "default_interpretation_policy": "ABSENT",
+    "deterioration_direction": "UNRATIFIED",
+    "minimum_change": "UNRATIFIED",
+    "metric_selection": "UNRATIFIED",
+    "source_hierarchy": "UNRATIFIED"
+  },
+  "authority": {
+    "raw_context_attachment_without_policy": true,
+    "deterioration_label_only_with_ratified_policy": true,
+    "candidate_mutation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "portfolio_action_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
