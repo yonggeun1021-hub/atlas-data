@@ -445,6 +445,12 @@ APPROVED_TESTS = [
     #   UNKNOWN/UNDEFINED 또는 hard reject로 고정하고 PASS/FAIL=0을 검증한다.
     #   ⛔ test-only — source/threshold/Production/trading 권한 없음.
     "test/test_rule_evaluator_mutation.py",
+    # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
+    #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
+    #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
+    #   확장·PASS/FAIL 밀반입은 fail-closed로 거부한다.
+    #   ⛔ short eligibility/risk budget/order/Production/trading 권한 없음.
+    "test/test_long_short_invariant.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "contract_version": "long_short_invariant/1",
+  "output_schema_version": "long_short_invariant_packet/1",
+  "upstream_contract_version": "deterministic_rule_evaluator/1",
+  "upstream_schema_version": "deterministic_rule_evaluation_packet/1",
+  "upstream_status": "BOUNDARY_CLASSIFIED_PASS_FAIL_NOT_AUTHORIZED",
+  "canonical_rule_count": 25,
+  "accepted_long_results": [
+    "PASS",
+    "FAIL",
+    "UNKNOWN",
+    "UNDEFINED"
+  ],
+  "derived_short_evaluation_status": "NOT_EVALUATED",
+  "invariant": "LONG_FAIL_NEVER_IMPLIES_SHORT_PASS",
+  "independent_prerequisites": [
+    "HEDGE_INSTRUMENT_ELIGIBILITY_RATIFIED",
+    "BEAR_HEDGE_RISK_BUDGET_RATIFIED",
+    "INDEPENDENT_SHORT_RULE_EVALUATION"
+  ],
+  "upstream_authority": {
+    "boundary_classification_only": true,
+    "evidence_interpretation_authorized": false,
+    "threshold_application_authorized": false,
+    "pass_fail_authorized": false,
+    "downstream_action_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "invariant_enforcement_only": true,
+    "short_candidate_selection_authorized": false,
+    "short_evaluation_authorized": false,
+    "short_pass_authorized": false,
+    "hedge_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
