@@ -133,6 +133,12 @@ APPROVED_TESTS = [
     #   P2-05 state vocabulary/ledger, Regime, Stage, Production, trading은 닫는다.
     #   ⛔ vendor rows/live network/tracked factor 없음 — temp derived packets only.
     "test/test_us_capital_rotation.py",
+    # ★ P2-03 — external RATIFIED policy-gated Korea Theme rotation transform.
+    #   hash-bound Korea Leadership 두 시점을 own-benchmark scope별로만 rank하고
+    #   KRX-only/unverified flow와 non-durable breadth는 context로 격리한다.
+    #   cross-benchmark rank/P2-05 state/Regime/Stage/Production/trading 없음.
+    #   ⛔ source close rows/live network/tracked factor 없음 — temp packets only.
+    "test/test_korea_capital_rotation.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/

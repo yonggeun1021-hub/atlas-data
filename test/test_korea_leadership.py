@@ -125,6 +125,20 @@ class KoreaLeadershipTest(unittest.TestCase):
         self.assertNotIn("expected_session_dates", result)
         self.assertNotIn('"110"', json.dumps(result))
 
+    def test_downstream_lineage_is_hash_bound_and_non_reconstructive(self):
+        result = self.build()
+        digest = result.pop("payload_sha256")
+        self.assertEqual(digest, MODULE.canonical_payload_sha256(result))
+        self.assertEqual(result["measurement"], "korea_index_relative_leadership_observation")
+        self.assertEqual(result["window"]["lookback_sessions"], 1)
+        self.assertTrue(result["window"]["exact_expected_sessions"])
+        self.assertEqual(result["policy"]["approval_status"], "RATIFIED")
+        self.assertEqual(len(result["policy"]["policy_sha256"]), 64)
+        self.assertEqual(len(result["lineage"]["input_sha256"]), 64)
+        self.assertFalse(result["lineage"]["current_membership_backfill_authorized"])
+        self.assertFalse(result["retention"]["source_rows_emitted"])
+        self.assertFalse(result["retention"]["source_closes_emitted"])
+
 
 if __name__ == "__main__":
     unittest.main()

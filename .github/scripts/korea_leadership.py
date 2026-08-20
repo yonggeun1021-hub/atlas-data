@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -153,6 +154,20 @@ def render_decimal(value: Decimal, places: int) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
+def canonical_payload_sha256(value: dict) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError as exc:
+        fail("POLICY_HASH_FAILED", str(exc))
+
+
 def build_transform(payload: dict, policy_path: Path = POLICY_PATH) -> dict:
     contract = load_contract()
     policy = load_policy(policy_path)
@@ -232,16 +247,47 @@ def build_transform(payload: dict, policy_path: Path = POLICY_PATH) -> dict:
             "cumulative_gross_return": render_decimal(gross, places),
             "relative_strength_vs_benchmark": render_decimal(gross / benchmark_gross - 1, places),
         })
-    return {
+    result = {
         "schema_version": 1,
         "contract_version": contract["contract_version"],
         "transform_version": contract["transform_version"],
+        "measurement": contract["measurement"],
         "market": "KOREA",
         "observation_date": payload["observation_date"],
         "available_at": payload["available_at"],
         "status": status,
+        "window": {
+            "first_input_session": dates[0],
+            "first_return_session": dates[1],
+            "last_return_session": dates[-1],
+            "lookback_sessions": policy["lookback_sessions"],
+            "exact_expected_sessions": True,
+        },
         "temporal_eligibility": {"eligibility": eligibility, "publication_timing_source": policy["publication_timing_source"], "authoritative_historical_pit": False},
         "relative_strength_observations": observations,
+        "retention": {
+            "input_policy": contract["input_retention_policy"],
+            "output_policy": contract["output_retention_policy"],
+            "source_rows_emitted": False,
+            "source_closes_emitted": False,
+            "reconstructive_series_emitted": False,
+        },
+        "policy": {
+            "policy_version": policy["policy_version"],
+            "policy_sha256": file_sha256(policy_path),
+            "approval_status": policy["approval_status"],
+            "source_name": policy["source_name"],
+            "session_calendar_source": policy["session_calendar_source"],
+            "publication_timing_source": policy["publication_timing_source"],
+            "effective_dated_taxonomy": True,
+        },
+        "lineage": {
+            "input_sha256": canonical_payload_sha256(payload),
+            "session_count": len(dates),
+            "return_session_count": policy["lookback_sessions"],
+            "session_coverage_complete": True,
+            "current_membership_backfill_authorized": False,
+        },
         "leader_classification_authorized": False,
         "ranking_authorized": False,
         "trend_direction_authorized": False,
@@ -250,6 +296,8 @@ def build_transform(payload: dict, policy_path: Path = POLICY_PATH) -> dict:
         "production_wiring_authorized": False,
         "trading_action_authorized": False,
     }
+    result["payload_sha256"] = canonical_payload_sha256(result)
+    return result
 
 
 def main() -> int:

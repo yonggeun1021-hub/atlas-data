@@ -18,4 +18,9 @@ KRX 지수 종가로 KOSPI/KOSDAQ 및 비준된 sector/theme 지수의 **원시 
 남겨 원천 종가를 재구성할 수 없게 한다. `available_at` 시간 순서와 KST offset을
 검증하며 historical 입력은 `CAUSAL_REPLAY_ONLY`로 격리한다.
 
+Downstream 계약은 packet의 `payload_sha256`, transient 입력 SHA, 비준된
+Leadership 정책 파일 SHA, exact session window, effective-dated taxonomy 표시를
+검증할 수 있다. 이 lineage 추가는 분류 권한을 열지 않으며 원천 종가도 보존하지
+않는다.
+
 모든 classification/ranking/Regime/Production/trading authority는 false다.
