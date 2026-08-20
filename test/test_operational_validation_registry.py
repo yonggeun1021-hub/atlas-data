@@ -18,6 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "config" / "operational_validation_registry.json"
 PROBE_PATH = ROOT / "collectors" / "tsmc_official_release_probe.py"
+SEC_PROBE_PATH = ROOT / "collectors" / "tsmc_sec_monthly_probe.py"
 TSMC_WORKFLOW = ROOT / ".github" / "workflows" / "tsmc-live-fetch.yml"
 
 SPEC = importlib.util.spec_from_file_location("tsmc_official_release_probe", PROBE_PATH)
@@ -135,11 +136,29 @@ class OperationalValidationRegistryTest(unittest.TestCase):
             {"17 1 * * 1"},
         )
         self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertTrue(SEC_PROBE_PATH.is_file())
+        self.assertIn("tsmc_sec_monthly_probe.py", text)
+        self.assertIn("$RUNNER_TEMP/tsmc-sec-monthly-live-probe.json", text)
+        self.assertIn("p4-04-tsmc-sec-primary", text)
         self.assertIn("tsmc_official_release_probe.py", text)
         self.assertIn("$RUNNER_TEMP/tsmc-official-release-live-probe.json", text)
+        self.assertIn("p4-04-tsmc-ir-secondary", text)
         self.assertIn("actions/upload-artifact@043fb46", text)
         self.assertNotIn("git commit", text)
         self.assertNotIn("git push", text)
+
+        steps = workflow["jobs"]["live-fetch"]["steps"]
+        primary = next(
+            step for step in steps
+            if step.get("name") == "TSMC SEC 6-K primary monthly-revenue live validation"
+        )
+        secondary = next(
+            step for step in steps
+            if step.get("name") == "TSMC IR secondary human-verification reachability"
+        )
+        self.assertNotIn("continue-on-error", primary)
+        self.assertEqual(secondary["if"], "always()")
+        self.assertTrue(secondary["continue-on-error"])
 
 
 if __name__ == "__main__":

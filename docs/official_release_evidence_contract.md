@@ -34,3 +34,16 @@ official-release identity, preserving the same facts/evaluation/action separatio
 Evidence only. Source ranking, interpretation, Rule evaluation, Production wiring,
 and trading authority are all false. Live scheduled ingestion and operating proof are
 separate gates; this implementation does not dispatch a workflow or write `data/`.
+
+## Operational transport boundary
+
+The weekly read-only live workflow follows the acquisition contract already locked in
+`config/rules.json`: TSMC's SEC EDGAR 6-K is the automated primary acquisition path,
+and the TSMC IR page is a human secondary-verification surface. The SEC probe must
+parse the exact consolidated NT$ million table and fails closed without falling back
+to IR, prose, a precision table, or an older identified report.
+
+IR reachability is still recorded as a separate artifact. A WAF/HTTP 403 on that
+secondary surface is a warning and does not turn a successful SEC primary probe into
+a failed workflow. This separation does not ratify a new source hierarchy, bypass a
+WAF, publish tracked data, evaluate a Rule, or grant Production/trading authority.

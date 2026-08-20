@@ -1,10 +1,13 @@
-# TSMC Live Fetch Validation — 주 1회 + 수동 실행
+# TSMC Monthly Revenue Live Validation — 주 1회 + 수동 실행
 #
-# 목적 하나뿐이다: GitHub-hosted runner 가 TSMC 공식 IR 에서 **실제 HTML** 을 받아
-# 기존 extractor 가 그대로 해석하는지 검증한다.
+# 정본 acquisition contract 를 그대로 따른다.
+#   · primary acquisition = TSMC 가 제출한 SEC EDGAR 6-K
+#   · secondary verification = TSMC IR 사람이 확인하는 원발표
+# IR WAF 403은 secondary reachability 경고로 남기되 primary SEC 성공을 실패로
+# 바꾸지 않는다. UA/브라우저 위장이나 WAF 우회는 하지 않는다.
 #
 # ⛔ 이 workflow 는 저장소를 쓰지 않는다 — commit · push · fixture 덮어쓰기 없음.
-# ⛔ live 실패 시 fixture fallback 없음. 실패는 실패로 남는다.
+# ⛔ SEC live 실패 시 fixture/IR fallback 없음. primary 실패는 실패로 남는다.
 # ⛔ Rule 상태 변경 · evaluator wiring · Production 연결과 무관하다.
 # ⛔ `run_all.py` 의 결정론적 회귀에는 네트워크를 넣지 않는다 — 이 검증은 분리돼 있다.
 name: tsmc-live-fetch
@@ -33,20 +36,39 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: P4-04 offline adapter regression
+      - name: TSMC SEC primary offline regression
+        run: python3 test/test_tsmc_sec_monthly_probe.py
+
+      - name: TSMC SEC 6-K primary monthly-revenue live validation
+        run: |
+          python3 collectors/tsmc_sec_monthly_probe.py \
+            --out "$RUNNER_TEMP/tsmc-sec-monthly-live-probe.json"
+
+      - name: TSMC SEC primary live probe artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: p4-04-tsmc-sec-primary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tsmc-sec-monthly-live-probe.json
+          if-no-files-found: error
+
+      - name: P4-04 IR secondary adapter offline regression
+        if: always()
         run: python3 test/test_official_release_evidence.py
 
-      - name: TSMC 공식 IR live fetch + P4-04 fail-closed adapter 검증
+      - name: TSMC IR secondary human-verification reachability
+        if: always()
+        continue-on-error: true
         run: |
           python3 collectors/tsmc_official_release_probe.py \
             --year "$(date -u +%Y)" \
             --out "$RUNNER_TEMP/tsmc-official-release-live-probe.json"
 
-      - name: P4-04 live probe artifact
+      - name: P4-04 IR secondary reachability artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: p4-04-tsmc-live-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          name: p4-04-tsmc-ir-secondary-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tsmc-official-release-live-probe.json
           if-no-files-found: error
 

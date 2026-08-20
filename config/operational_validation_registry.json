@@ -170,8 +170,8 @@
       "automation_state": "SCHEDULED_READ_ONLY_PROBE",
       "workflow": ".github/workflows/tsmc-live-fetch.yml",
       "crons": ["17 1 * * 1"],
-      "required_workflow_tokens": ["tsmc_official_release_probe.py", "p4-04-tsmc-live-probe"],
-      "remaining_gate": "approved observed publication date and normal data/briefing publication wiring"
+      "required_workflow_tokens": ["tsmc_sec_monthly_probe.py", "p4-04-tsmc-sec-primary", "tsmc_official_release_probe.py", "p4-04-tsmc-ir-secondary"],
+      "remaining_gate": "primary SEC 6-K scheduled live proof and secondary IR human verification; normal data/briefing publication wiring remains separate"
     },
     {
       "work_item_id": "P4-06",
