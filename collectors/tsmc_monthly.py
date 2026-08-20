@@ -467,7 +467,12 @@ def from_html_fixture(path=HTML_FIXTURE, year=2026, published_at=None,
 
 
 def fetch_live(year: int, timeout=FETCH_TIMEOUT_SEC) -> str:
-    """공식 IR 페이지를 직접 읽는다.
+    """기존 extractor용 text 경로. source hash가 필요하면 bytes API를 쓴다."""
+    return fetch_source_bytes(year, timeout).decode("utf-8", errors="replace")
+
+
+def fetch_source_bytes(year: int, timeout=FETCH_TIMEOUT_SEC) -> bytes:
+    """공식 IR 페이지의 응답 bytes 를 직접 읽는다.
 
     ⛔ 일반 회귀는 이 함수를 호출하지 않는다 (네트워크 의존 금지).
     ⛔ 실패 시 fixture 로 대체하지 않는다 — 예외를 그대로 올린다.
@@ -479,4 +484,4 @@ def fetch_live(year: int, timeout=FETCH_TIMEOUT_SEC) -> str:
     with urllib.request.urlopen(req, timeout=timeout) as r:
         if r.status != 200:
             raise SourceUnavailable(f"HTTP {r.status}")
-        return r.read().decode("utf-8", errors="replace")
+        return r.read()

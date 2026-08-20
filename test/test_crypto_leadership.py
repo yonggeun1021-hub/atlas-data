@@ -388,7 +388,7 @@ class CryptoLeadershipTest(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), low)
             self.assertFalse(list(output.parent.glob(".*.tmp.*")))
 
-    def test_no_network_workflow_or_tracked_factor_wiring_is_added(self):
+    def test_scheduled_replay_is_transient_and_adds_no_network_or_factor(self):
         script = SCRIPT.read_text(encoding="utf-8")
         workflows = "\n".join(
             path.read_text(encoding="utf-8")
@@ -398,8 +398,10 @@ class CryptoLeadershipTest(unittest.TestCase):
         self.assertNotIn("import requests", script)
         self.assertNotIn("import urllib", script)
         self.assertNotIn("subprocess", script)
-        self.assertNotIn("crypto_leadership.py", workflows)
-        self.assertNotIn("crypto_leadership", workflows)
+        self.assertIn("crypto_leadership.py transform", workflows)
+        self.assertIn("$RUNNER_TEMP/crypto-leadership-live-replay.json", workflows)
+        self.assertIn("p1-cr-07-live-replay", workflows)
+        self.assertNotIn("data/factors/crypto_leadership", workflows)
 
 
 if __name__ == "__main__":

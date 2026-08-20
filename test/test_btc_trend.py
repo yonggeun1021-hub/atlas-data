@@ -303,15 +303,26 @@ class BtcTrendTest(unittest.TestCase):
         capture = self.require_step(
             "Capture immutable Kraken BTC/USD daily OHLC"
         )
+        validation = self.require_step(
+            "Validate BTC Trend and Risk from immutable snapshot"
+        )
+        upload = self.require_step("Upload BTC Trend and Risk live validation")
         commit = self.require_step("Commit BTC price evidence")
         command = capture.get("run", "")
 
         self.assertEqual(command.count("api.kraken.com/0/public/OHLC"), 1)
         self.assertIn("_manifest.json", command)
         self.assertIn("btc-price-capture/v1", command)
-        self.assertIn("btc_trend.py\" validate", command)
-        self.assertIn("btc_trend.py\" transform", command)
-        self.assertIn("$RUNNER_TEMP/btc_trend.json", command)
+        self.assertIn("SNAPSHOT_DIR=$DIR", command)
+        validation_command = validation.get("run", "")
+        self.assertIn("btc_trend.py validate", validation_command)
+        self.assertIn("btc_trend.py transform", validation_command)
+        self.assertIn("$RUNNER_TEMP/btc_trend.json", validation_command)
+        self.assertEqual(upload.get("if"), "always() && env.SNAPSHOT_DIR != ''")
+        upload_paths = upload.get("with", {}).get("path", "")
+        self.assertIn("btc_trend.json", upload_paths)
+        self.assertIn("btc_risk.json", upload_paths)
+        self.assertIn("btc_risk_replay.json", upload_paths)
         self.assertEqual(
             commit.get("if"), "env.SKIP != '1'"
         )
