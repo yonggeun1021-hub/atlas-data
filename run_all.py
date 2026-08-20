@@ -440,6 +440,11 @@ APPROVED_TESTS = [
     #   consumable_by_evaluator=false를 존중해 PASS/FAIL은 절대 만들지 않는다.
     #   ⛔ evaluation spec/threshold/source selection/Production/trading 없음.
     "test/test_deterministic_rule_evaluator.py",
+    # ★ P5-05 — P5-03→P5-04 negative/mutation integration matrix.
+    #   evidence 결측·충돌·lineage 오염·hash drift·authority expansion을
+    #   UNKNOWN/UNDEFINED 또는 hard reject로 고정하고 PASS/FAIL=0을 검증한다.
+    #   ⛔ test-only — source/threshold/Production/trading 권한 없음.
+    "test/test_rule_evaluator_mutation.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
