@@ -476,6 +476,11 @@ APPROVED_TESTS = [
     #   배열하되 market ranking/favorable selection/action은 항상 null이다.
     #   ⛔ score/해석/strategy/Production/trading 권한 및 live network 없음.
     "test/test_three_market_regime_header.py",
+    # ★ P8-05 — Rotation ledger + SEC D1 Discovery case briefing read model.
+    #   최신 state 관측과 evidence-linked case를 옮기되 importance/해석/후보
+    #   승격은 만들지 않아 new/existing candidate change는 빈 배열이다.
+    #   ⛔ ranking/promotion/action/Production/trading 및 live network 없음.
+    "test/test_rotation_discovery_briefing.py",
     # ★ P9-04 — duplicate Action/Order ID guard capability.
     #   same key+payload retry는 block, key/payload 또는 action/order ID 충돌은
     #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
