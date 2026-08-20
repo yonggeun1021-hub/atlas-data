@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "contract_version": "supply_demand_radar/1",
+  "input_schema_version": "supply_demand_radar_input/1",
+  "output_schema_version": "supply_demand_radar_packet/1",
+  "candidate_policy_schema_version": "supply_demand_candidate_policy/1",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "allowed_metric_types": {
+    "CRYPTO": [
+      "AGGREGATE_TOKEN_SUPPLY"
+    ],
+    "KOREA": [
+      "INVESTOR_NET_DEMAND_VALUE",
+      "INVESTOR_NET_DEMAND_VOLUME"
+    ],
+    "US": [
+      "SECURITY_SUPPLY"
+    ]
+  },
+  "market_sources": {
+    "CRYPTO": [
+      "defillama_stablecoins_api"
+    ],
+    "KOREA": [
+      "krx_information_data_system_pykrx"
+    ],
+    "US": [
+      "sec_edgar"
+    ]
+  },
+  "source_hosts": {
+    "defillama_stablecoins_api": [
+      "stablecoins.llama.fi"
+    ],
+    "krx_information_data_system_pykrx": [
+      "data.krx.co.kr"
+    ],
+    "sec_edgar": [
+      "data.sec.gov",
+      "www.sec.gov"
+    ]
+  },
+  "required_point_count": 3,
+  "allowed_frequencies": [
+    "DAILY",
+    "MONTHLY",
+    "QUARTERLY",
+    "IRREGULAR"
+  ],
+  "feature_contract": {
+    "prior_change": "value[1] minus value[0]",
+    "latest_change": "value[2] minus value[1]",
+    "acceleration_change": "latest_change minus prior_change"
+  },
+  "candidate_logic": "direction_adjusted_latest_change_gte_minimum_AND_direction_adjusted_acceleration_change_gte_minimum",
+  "output_decimal_places": 12,
+  "source_coverage": {
+    "CRYPTO": "PARTIAL_EXISTING_NET_ISSUANCE_TRANSFORM",
+    "KOREA": "PARTIAL_KRX_ONLY_RELEASE_TIME_UNVERIFIED",
+    "US": "PARTIAL_SEC_SOURCE_NO_SELECTED_METRIC_SERIES"
+  },
+  "policy_status": {
+    "default_candidate_policy": "ABSENT",
+    "improvement_direction": "UNRATIFIED",
+    "minimum_change": "UNRATIFIED",
+    "cross_market_comparability": "UNRATIFIED",
+    "source_hierarchy": "UNRATIFIED",
+    "candidate_ranking": "UNRATIFIED"
+  },
+  "authority": {
+    "raw_feature_observation_only_without_ratified_policy": true,
+    "radar_case_recording_only_with_ratified_policy": true,
+    "source_ranking_authorized": false,
+    "cross_market_scoring_authorized": false,
+    "importance_ranking_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

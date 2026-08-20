@@ -140,6 +140,12 @@ APPROVED_TESTS = [
     #   DART item/news/policy/Crypto coverage 미비를 packet에 그대로 표면화한다.
     #   ⛔ live network/workflow/tracked case 없음 — synthetic D1 + temp output only.
     "test/test_event_discovery_case.py",
+    # ★ P3-09 — policy-gated market-specific supply/demand raw-feature radar.
+    #   exact 3-point evidence의 prior/latest/acceleration change만 계산하고,
+    #   direction·threshold·measurement가 명시된 외부 RATIFIED 정책이 있을 때만
+    #   lineage-complete case를 만든다. cross-market score·ranking·Stage·trading 없음.
+    #   ⛔ live network/workflow/tracked radar 없음 — synthetic series + temp output only.
+    "test/test_supply_demand.py",
     # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
     #   Stage/form scope, SGML+index identity, bounded content, immutable hash,
     #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.

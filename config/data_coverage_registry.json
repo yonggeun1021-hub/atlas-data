@@ -38,6 +38,12 @@
       "evidence_ref": "config/crypto_breadth_contract.json"
     },
     {
+      "source_id": "krx_information_data_system_pykrx",
+      "name": "KRX Information Data System via pykrx",
+      "cost_status": "FREE",
+      "evidence_ref": "config/korea_investor_flow_contract.json"
+    },
+    {
       "source_id": "krx_open_api_index_daily",
       "name": "KRX Open API Index Daily",
       "cost_status": "FREE",
@@ -573,8 +579,12 @@
         "Crypto"
       ],
       "input_requirement": "시장별 supply/demand data",
-      "source_ids": [],
-      "source_status": "NOT_IMPLEMENTED",
+      "source_ids": [
+        "defillama_stablecoins_api",
+        "krx_information_data_system_pykrx",
+        "sec_edgar"
+      ],
+      "source_status": "PARTIAL",
       "freshness": {
         "status": "UNRESOLVED",
         "policy": null
@@ -583,7 +593,7 @@
         "status": "UNRATIFIED",
         "behavior": null
       },
-      "note": "No cross-market supply-demand source or measurement contract is selected."
+      "note": "Policy-neutral three-point changes can be observed from registered market-specific source fragments; improvement direction/threshold policy, US metric selection, Korea release timing, cross-market comparability, source hierarchy, and live radar population remain unratified or unimplemented."
     },
     {
       "consumer_id": "DISCOVERY:P3-10",
