@@ -127,6 +127,12 @@ APPROVED_TESTS = [
     #   Global Asset Master adapter를 만들며 inference/weight/score/Stage/trading 없음.
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
+    # ★ P2-02 — external RATIFIED policy-gated US Theme rotation transform.
+    #   forward-PIT US Leadership 두 시점과 exact taxonomy lineage를 묶어
+    #   deterministic rank·TOP/MIDDLE/BOTTOM·bucket transition만 재현한다.
+    #   P2-05 state vocabulary/ledger, Regime, Stage, Production, trading은 닫는다.
+    #   ⛔ vendor rows/live network/tracked factor 없음 — temp derived packets only.
+    "test/test_us_capital_rotation.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/
