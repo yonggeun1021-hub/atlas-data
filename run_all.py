@@ -336,6 +336,12 @@ APPROVED_TESTS = [
     #   source hierarchy·fallback·해석·Rule·Production 권한은 만들지 않는다.
     #   ⛔ live network 없음 — TSMC/MSFT committed fixture 기반 fail-closed 회귀.
     "test/test_official_release_evidence.py",
+    # ★ P5-03 — canonical Rule ↔ Evidence Envelope lineage binding.
+    #   명시된 exact key만 연결하고 as_of/available_at/source/envelope hash를 보존한다.
+    #   누락·모호성은 unresolved/blocked이며 Rule 결과는 항상 미생성이다.
+    #   ⛔ source 선택·fallback·해석·evaluator/Production/trading 연결 없음.
+    #   ⛔ live network 없음 — synthetic envelope + temp output only.
+    "test/test_rule_evidence_binding.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.

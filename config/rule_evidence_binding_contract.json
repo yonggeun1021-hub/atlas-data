@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "rule_evidence_binding/1",
+  "canonical_rule_registry": "config/rules.json",
+  "canonical_rule_count": 25,
+  "selection_mode": "ALL_REQUIRED",
+  "source_hierarchy_status": "UNRATIFIED",
+  "automatic_binding_authorized": false,
+  "required_lineage_fields": [
+    "source_id",
+    "source_url",
+    "source_sha256",
+    "available_at",
+    "retrieved_at_utc"
+  ],
+  "link_statuses": [
+    "LINK_AVAILABLE",
+    "LINK_BLOCKED",
+    "LINK_UNRESOLVED"
+  ],
+  "authority": {
+    "linkage_only": true,
+    "automatic_source_selection_authorized": false,
+    "interpretation_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
