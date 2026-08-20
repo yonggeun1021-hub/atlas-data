@@ -145,6 +145,12 @@ APPROVED_TESTS = [
     #   asset rank/P2-05 state/Regime/Stage/Production/trading 권한은 닫는다.
     #   ⛔ live network/tracked factor 없음 — upstream temp packets only.
     "test/test_crypto_rotation.py",
+    # ★ P2-05 — external RATIFIED state-policy append-only rotation ledger.
+    #   P2-02~04 structural bucket transition을 exact packet/policy SHA로 묶고
+    #   EMERGING/STRONG/WEAKENING 매핑은 외부 승인정책이 제공할 때만 저장한다.
+    #   US/Korea/Crypto scope는 독립이며 재분류·backfill·Regime/Stage 없음.
+    #   ⛔ repository default policy/live network/tracked ledger 없음 — temp only.
+    "test/test_rotation_state_ledger.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/
