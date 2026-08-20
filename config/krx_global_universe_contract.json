@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_global_universe_adapter/1",
+  "input_schema_version": "krx_global_universe_input/1",
+  "output_schema_version": "krx_global_universe_packet/1",
+  "asset_master_contract_version": "global_asset_master/1",
+  "source_contract": {
+    "path": "config/korea_breadth_contract.json",
+    "schema_version": 1,
+    "source_name": "KRX_OPEN_API_STOCK_DAILY",
+    "universe_semantics": "exact_date_official_response_rows_source_coverage_not_investable",
+    "identity_semantics": "KRX_ISU_CD_exact_no_name_or_ticker_inference"
+  },
+  "required_markets": [
+    "KOSDAQ",
+    "KOSPI"
+  ],
+  "source_id": "krx_open_api_stock_daily",
+  "exchange_id": "XKRX",
+  "quote_currency": "KRW",
+  "asset_class": "EQUITY",
+  "identity_field": "ISU_CD",
+  "display_name_field": "ISU_NM",
+  "market_field": "MKT_NM",
+  "raw_input_encoding": "base64_exact_response_bytes",
+  "membership_semantics": "exact_trading_date_source_coverage_not_investable",
+  "effective_interval": "[trading_date, next_calendar_date)",
+  "policy_status": {
+    "source_coverage_membership": "IMPLEMENTED",
+    "investable_universe_policy": "UNRATIFIED",
+    "liquidity_policy": "UNRATIFIED",
+    "tradability_policy": "UNRATIFIED",
+    "listing_delisting_policy": "UNRATIFIED",
+    "theme_taxonomy": "UNRATIFIED"
+  },
+  "authority": {
+    "source_coverage_universe_only": true,
+    "investable_universe_authorized": false,
+    "liquidity_filter_authorized": false,
+    "tradability_filter_authorized": false,
+    "theme_inference_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

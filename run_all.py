@@ -101,6 +101,12 @@ APPROVED_TESTS = [
     #   Stage promotion, Production, and trading remain explicitly unauthorized.
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
+    # ★ P3-03 — exact-date KOSPI/KOSDAQ source-coverage Master adapter.
+    #   두 KRX 응답 원문 SHA와 lineage를 검증해 모든 ISU_CD를 P3-01 Master의
+    #   하루짜리 PIT membership으로 재현한다. 현재 catalog를 과거/미래로
+    #   역적용하지 않고 liquidity/tradability/investability 정책을 발명하지 않는다.
+    #   ⛔ live KRX/workflow/tracked master 없음 — exact-byte fixtures + temp output only.
+    "test/test_krx_global_universe.py",
     # ★ P3-08 — existing SEC D1 event → evidence-linked Discovery Case packet.
     #   ratified taxonomy 결과만 case로 기록하고 exact source-record binding의
     #   as_of/available_at/source SHA를 보존한다. 중요도·해석·Stage 승격은 금지한다.
