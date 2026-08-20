@@ -471,6 +471,11 @@ APPROVED_TESTS = [
     #   order intent는 null이다. 직접 translation 시도·authority drift는 거부한다.
     #   ⛔ P8-02/entry/order/sizing/Production/trading 권한 없음.
     "test/test_ready_signal_order_boundary.py",
+    # ★ P8-04 — US/KR/Crypto Regime briefing header read model.
+    #   세 source의 state/direction/confidence/time/coverage를 검증 후 그대로
+    #   배열하되 market ranking/favorable selection/action은 항상 null이다.
+    #   ⛔ score/해석/strategy/Production/trading 권한 및 live network 없음.
+    "test/test_three_market_regime_header.py",
     # ★ P9-04 — duplicate Action/Order ID guard capability.
     #   same key+payload retry는 block, key/payload 또는 action/order ID 충돌은
     #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
