@@ -461,6 +461,11 @@ APPROVED_TESTS = [
     #   충돌은 fail-closed다. repository default B1=null에서는 정상 차단된다.
     #   ⛔ bucket 발명/자동배정/limit/sizing/order/Production/trading 권한 없음.
     "test/test_bucket_membership.py",
+    # ★ P7-07 — quote-currency raw exposure aggregation capability.
+    #   Global Asset Master currency와 long-only position을 hash-bind해 같은 통화
+    #   내부 notional만 합산한다. cross-currency total/FX conversion/limits는 null.
+    #   ⛔ FX source/limit/sizing/order/Production/trading 권한 없음.
+    "test/test_currency_exposure.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
