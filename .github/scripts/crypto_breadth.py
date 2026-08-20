@@ -100,7 +100,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "ranking_lookback_finalized_days",
         "ranking_end_policy",
         "ranking_metric",
-        "minimum_finalized_candles",
+        "minimum_response_rows",
         "maximum_response_rows",
         "current_candle_policy",
         "no_trade_candle_policy",
@@ -144,7 +144,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "ranking_lookback_finalized_days": 30,
         "ranking_end_policy": "previous_day_before_observation_as_of",
         "ranking_metric": "sum_daily_vwap_times_base_volume",
-        "minimum_finalized_candles": 2,
+        "minimum_response_rows": 1,
         "maximum_response_rows": 720,
         "current_candle_policy": "exclude_last_row_always",
         "no_trade_candle_policy": (
@@ -810,7 +810,7 @@ def normalize_ohlc(
     if (
         not isinstance(pair_id, str)
         or not isinstance(rows, list)
-        or len(rows) < contract["minimum_finalized_candles"] + 1
+        or len(rows) < contract["minimum_response_rows"]
         or len(rows) > contract["maximum_response_rows"]
     ):
         fail("OHLC_HISTORY_INVALID", pair_id)
@@ -997,6 +997,7 @@ def manifest_payload(core: dict, capture_version: str) -> dict:
             "asset_version": contract["asset_version"],
             "interval_minutes": contract["interval_minutes"],
             "market_timezone": contract["market_timezone"],
+            "minimum_response_rows": contract["minimum_response_rows"],
             "current_candle_policy": contract["current_candle_policy"],
             "no_trade_candle_policy": contract[
                 "no_trade_candle_policy"
