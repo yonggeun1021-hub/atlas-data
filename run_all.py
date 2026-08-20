@@ -101,6 +101,13 @@ APPROVED_TESTS = [
     #   Stage promotion, Production, and trading remain explicitly unauthorized.
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
+    # ★ P3-02 — forward-only Nasdaq directory → Global Asset Master adapter.
+    #   두 공식 source exact bytes/SHA/footer date를 검증해 모든 row를 하루짜리
+    #   source-coverage membership으로 재현한다. test/ETF/financial/exchange 속성은
+    #   보존만 하고 listing/liquidity/tradability/investability 판단은 하지 않는다.
+    #   current→history 역적용·cross-source merge·MIC 추정·유료데이터는 금지한다.
+    #   ⛔ live network/workflow/tracked master 없음 — synthetic + tracked baseline replay.
+    "test/test_us_global_universe.py",
     # ★ P3-03 — exact-date KOSPI/KOSDAQ source-coverage Master adapter.
     #   두 KRX 응답 원문 SHA와 lineage를 검증해 모든 ISU_CD를 P3-01 Master의
     #   하루짜리 PIT membership으로 재현한다. 현재 catalog를 과거/미래로
