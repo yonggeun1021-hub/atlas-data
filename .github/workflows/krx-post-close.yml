@@ -24,7 +24,17 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # checkout보다 앞에서 실제 runner 도착 시각을 직접 관측한다.
+      - name: Capture KRX post-close runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # delayed schedule도 event 생성 당시 SHA가 아니라 현재 default branch의
+          # append-only guard와 telemetry 계약으로 실행한다.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
 
       - name: Guard — 오늘자 post-close bundle 확인
         id: guard
@@ -42,18 +52,18 @@ jobs:
         run: echo "오늘자 immutable post-close observation bundle이 이미 있습니다."
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        if: steps.guard.outputs.skip != 'yes'
+        if: steps.guard.outcome == 'success' && steps.guard.outputs.skip != 'yes'
         with:
           python-version: '3.11'
           cache: pip
 
       - name: Install deps
-        if: steps.guard.outputs.skip != 'yes'
+        if: steps.guard.outcome == 'success' && steps.guard.outputs.skip != 'yes'
         run: pip install -r requirements.txt
 
       - name: Collect and publish KRX post-close observation
         id: post_close
-        if: steps.guard.outputs.skip != 'yes'
+        if: steps.guard.outcome == 'success' && steps.guard.outputs.skip != 'yes'
         env:
           KRX_ID: ${{ secrets.KRX_ID }}
           KRX_PW: ${{ secrets.KRX_PW }}
@@ -63,6 +73,24 @@ jobs:
           python3 collectors/krx_post_close.py \
             --date "${{ steps.guard.outputs.today }}"
 
+      # provider를 호출하지 않는 operations telemetry다. Guard 실패, 기존
+      # bundle skip, collector 실패까지 read-only clone에서 구분할 수 있다.
+      - name: Record KRX post-close scheduler telemetry
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_GUARD_STEP_OUTCOME: ${{ steps.guard.outcome }}
+          ATLAS_GUARD_RESULT: ${{ steps.guard.outputs.result }}
+          ATLAS_GUARD_SKIP: ${{ steps.guard.outputs.skip }}
+          ATLAS_POST_CLOSE_STEP_OUTCOME: ${{ steps.post_close.outcome }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/record_krx_post_close_run.py
+
       # A partial response is incident evidence, not a briefing read model.
       # Persist it for diagnosis while retaining the collector's failed job.
       - name: Commit post-close observation evidence
@@ -71,12 +99,14 @@ jobs:
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
           GUARD_SKIP: ${{ steps.guard.outputs.skip }}
           COLLECT_OUTCOME: ${{ steps.post_close.outcome }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name  "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           for evidence_path in \
             data/observations/krx_post_close \
-            data/incident/krx_post_close
+            data/incident/krx_post_close \
+            data/operations/krx_post_close_runs
           do
             if [ -d "$evidence_path" ]; then
               git add -- "$evidence_path"
@@ -94,5 +124,6 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) KRX post-close [${TRIGGER}]"
-            git push
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
           fi
