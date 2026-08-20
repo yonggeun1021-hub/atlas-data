@@ -435,6 +435,11 @@ APPROVED_TESTS = [
     #   ⛔ source 선택·fallback·해석·evaluator/Production/trading 연결 없음.
     #   ⛔ live network 없음 — synthetic envelope + temp output only.
     "test/test_rule_evidence_binding.py",
+    # ★ P5-04 — deterministic Rule UNKNOWN/UNDEFINED boundary evaluator.
+    #   P5-03 linkage packet과 Rule SSOT exact SHA를 결합하되 P5-02 보류와
+    #   consumable_by_evaluator=false를 존중해 PASS/FAIL은 절대 만들지 않는다.
+    #   ⛔ evaluation spec/threshold/source selection/Production/trading 없음.
+    "test/test_deterministic_rule_evaluator.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
