@@ -21,6 +21,7 @@
   "minimum_finalized_candles": 2,
   "maximum_response_rows": 720,
   "current_candle_policy": "exclude_last_row_always",
+  "no_trade_candle_policy": "zero_vwap_zero_volume_zero_trades_flat_ohlc",
   "close_semantics": "last_trade_in_finalized_utc_daily_bucket",
   "gap_policy": "exact_t_and_t_minus_1_required",
   "candidate_pair_rule": "ratified_policy_over_exact_asset_pairs_snapshot",

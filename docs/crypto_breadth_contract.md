@@ -31,6 +31,13 @@ includes the current, not-yet-committed timeframe.  The helper therefore
 removes the final row for every pair.  It never treats the current candle as
 evidence.
 
+Kraken can represent an interval with no trades as a flat OHLC row whose VWAP,
+base volume, and trade count are all zero.  Atlas accepts that sentinel only
+when all four OHLC prices are identical and all three activity fields are zero.
+A zero VWAP with any reported activity, a partially zero activity tuple, or a
+non-flat no-trade row fails closed.  This source-shape rule does not change the
+existing rule that the final current row is always excluded from observations.
+
 ## Point-in-time universe boundary
 
 `Assets` and `AssetPairs` are current catalogs, not a historical membership

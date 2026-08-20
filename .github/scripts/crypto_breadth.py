@@ -103,6 +103,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "minimum_finalized_candles",
         "maximum_response_rows",
         "current_candle_policy",
+        "no_trade_candle_policy",
         "close_semantics",
         "gap_policy",
         "candidate_pair_rule",
@@ -146,6 +147,9 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         "minimum_finalized_candles": 2,
         "maximum_response_rows": 720,
         "current_candle_policy": "exclude_last_row_always",
+        "no_trade_candle_policy": (
+            "zero_vwap_zero_volume_zero_trades_flat_ohlc"
+        ),
         "close_semantics": "last_trade_in_finalized_utc_daily_bucket",
         "gap_policy": "exact_t_and_t_minus_1_required",
         "candidate_pair_rule": (
@@ -755,19 +759,27 @@ def normalize_candle(row: object, index: int, pair_id: str) -> dict:
     high = decimal_field(row[2], f"{label} high", False)
     low = decimal_field(row[3], f"{label} low", False)
     close = decimal_field(row[4], f"{label} close", False)
-    vwap = decimal_field(row[5], f"{label} vwap", False)
+    vwap = decimal_field(row[5], f"{label} vwap", True)
     volume = decimal_field(row[6], f"{label} volume", True)
     trades = row[7]
     if type(trades) is not int or trades < 0:
         fail("CANDLE_VALUE_INVALID", f"{label} trade_count")
+    no_trade = volume == 0 and trades == 0
+    if (volume == 0) != (trades == 0):
+        fail("CANDLE_TRADE_ACTIVITY_INVALID", label)
+    if no_trade:
+        if vwap != 0 or len({open_price, high, low, close}) != 1:
+            fail("CANDLE_NO_TRADE_SENTINEL_INVALID", label)
+    elif vwap == 0:
+        fail("CANDLE_TRADE_ACTIVITY_INVALID", label)
     if (
         high < low
         or high < open_price
         or high < close
         or low > open_price
         or low > close
-        or vwap < low
-        or vwap > high
+        or (not no_trade and vwap < low)
+        or (not no_trade and vwap > high)
     ):
         fail("CANDLE_OHLC_INVALID", label)
     return {
@@ -986,6 +998,9 @@ def manifest_payload(core: dict, capture_version: str) -> dict:
             "interval_minutes": contract["interval_minutes"],
             "market_timezone": contract["market_timezone"],
             "current_candle_policy": contract["current_candle_policy"],
+            "no_trade_candle_policy": contract[
+                "no_trade_candle_policy"
+            ],
         },
         "identity": {
             "policy_version": core["identity"]["policy_version"],
