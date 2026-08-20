@@ -633,8 +633,16 @@
         "Crypto"
       ],
       "input_requirement": "Discovery Case schema",
-      "source_ids": [],
-      "source_status": "NOT_IMPLEMENTED",
+      "source_ids": [
+        "dart_open_api",
+        "defillama_stablecoins_api",
+        "kraken_public_api",
+        "krx_open_api_stock_daily",
+        "microsoft_sec_issuer_disclosure",
+        "sec_edgar",
+        "tsmc_investor_relations"
+      ],
+      "source_status": "PARTIAL",
       "freshness": {
         "status": "UNRESOLVED",
         "policy": null
@@ -643,7 +651,7 @@
         "status": "UNRATIFIED",
         "behavior": null
       },
-      "note": "Discovery Case schema and no-auto-promotion path are not implemented."
+      "note": "Explicit out-of-theme nominations with at least one source-linked evidence item can create a case-only wildcard record; unsupported nominations remain pending, while strength, importance, taxonomy completeness, live intake/publication, ranking, Stage, Production, and trading remain unratified or unimplemented."
     }
   ],
   "rule_mapping": {
