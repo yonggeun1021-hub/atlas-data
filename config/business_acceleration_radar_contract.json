@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "contract_version": "business_acceleration_radar/1",
+  "input_schema_version": "business_acceleration_radar_input/1",
+  "output_schema_version": "business_acceleration_radar_packet/1",
+  "evidence_schema_version": "evidence_envelope/1",
+  "allowed_metric_types": [
+    "GUIDANCE_GROWTH",
+    "ORDER_GROWTH",
+    "REVENUE_GROWTH"
+  ],
+  "allowed_frequencies": [
+    "MONTHLY",
+    "QUARTERLY"
+  ],
+  "required_point_count": 3,
+  "required_unit": "pct",
+  "output_decimal_places": 12,
+  "pattern_contract": {
+    "TWO_STEP_ACCELERATION_OBSERVED": "both consecutive published growth-rate changes are greater than zero",
+    "LATEST_STEP_UP_ONLY": "latest change is greater than zero but prior change is not",
+    "LATEST_STEP_NOT_UP": "latest change is zero or less",
+    "UNKNOWN_EVIDENCE": "one or more evidence points are unavailable"
+  },
+  "source_coverage": {
+    "dart_open_api": "PARTIAL",
+    "microsoft_sec_issuer_disclosure": "PARTIAL",
+    "msft_official_earnings_release": "PARTIAL",
+    "sec_edgar": "PARTIAL",
+    "tsmc_investor_relations": "PARTIAL",
+    "tsmc_ir_monthly_revenue": "PARTIAL"
+  },
+  "source_hosts": {
+    "dart_open_api": [
+      "opendart.fss.or.kr"
+    ],
+    "microsoft_sec_issuer_disclosure": [
+      "www.sec.gov"
+    ],
+    "msft_official_earnings_release": [
+      "www.sec.gov"
+    ],
+    "sec_edgar": [
+      "www.sec.gov"
+    ],
+    "tsmc_investor_relations": [
+      "investor.tsmc.com"
+    ],
+    "tsmc_ir_monthly_revenue": [
+      "investor.tsmc.com"
+    ]
+  },
+  "policy_status": {
+    "source_hierarchy": "UNRATIFIED",
+    "cross_company_comparability": "UNRATIFIED",
+    "importance_threshold": "UNRATIFIED",
+    "candidate_ranking": "UNRATIFIED",
+    "automatic_stage_promotion": "PROHIBITED"
+  },
+  "authority": {
+    "radar_case_recording_only": true,
+    "source_ranking_authorized": false,
+    "importance_ranking_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
