@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "contract_version": "rotation_state_ledger/1",
+  "policy_schema_version": "rotation_state_policy/1",
+  "ledger_schema_version": "rotation_state_ledger_packet/1",
+  "state_vocabulary": [
+    "EMERGING",
+    "STRONG",
+    "WEAKENING"
+  ],
+  "structural_bucket_transitions": [
+    "BOTTOM_TO_BOTTOM",
+    "BOTTOM_TO_MIDDLE",
+    "BOTTOM_TO_TOP",
+    "MIDDLE_TO_BOTTOM",
+    "MIDDLE_TO_MIDDLE",
+    "MIDDLE_TO_TOP",
+    "TOP_TO_BOTTOM",
+    "TOP_TO_MIDDLE",
+    "TOP_TO_TOP"
+  ],
+  "supported_rotation_packets": {
+    "US": {
+      "schema_version": "us_capital_rotation_packet/1",
+      "contract_version": "us_capital_rotation/1",
+      "measurement": "us_theme_relative_rotation_observation"
+    },
+    "KOREA": {
+      "schema_version": "korea_capital_rotation_packet/1",
+      "contract_version": "korea_capital_rotation/1",
+      "measurement": "korea_theme_relative_rotation_observation"
+    },
+    "CRYPTO": {
+      "schema_version": "crypto_rotation_packet/1",
+      "contract_version": "crypto_rotation/1",
+      "measurement": "crypto_bucket_relative_rotation_observation"
+    }
+  },
+  "repository_default_policy": "ABSENT",
+  "update_semantics": "APPEND_ONLY_IDEMPOTENT_SOURCE_PACKET",
+  "policy_timing": "RATIFIED_BEFORE_OBSERVATION_DATE_UTC_BOUNDARY",
+  "missing_entity_policy": "NO_STATE_INFERENCE_NO_TOMBSTONE",
+  "authority": {
+    "external_ratified_state_policy_only": true,
+    "regime_input_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "briefing_wiring_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
