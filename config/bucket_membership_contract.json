@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract_version": "bucket_membership/1",
+  "input_schema_version": "bucket_assignment_set/1",
+  "output_schema_version": "bucket_membership_packet/1",
+  "canonical_constitution": "config/constitution.json",
+  "repository_default_status": "BLOCKED_UNTIL_CONSTITUTION_B1_RATIFIED",
+  "assignment_mode": "EXPLICIT_RATIFIED_ONLY",
+  "bucket_definition_binding": "OPAQUE_B1_SHA256_EXACT",
+  "effective_interval": "[valid_from, valid_to)",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "allowed_subject_kinds": [
+    "CANDIDATE",
+    "HOLDING"
+  ],
+  "required_assignment_lineage": [
+    "asset_identity_sha256",
+    "discovery_result_sha256",
+    "rule_result_sha256",
+    "holding_record_sha256",
+    "assignment_basis_ref",
+    "assignment_basis_sha256"
+  ],
+  "input_authority": {
+    "membership_assignment_authorized": true,
+    "automatic_assignment_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "membership_registry_validation_only": true,
+    "repository_default_policy_authorized": false,
+    "automatic_assignment_authorized": false,
+    "bucket_limit_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

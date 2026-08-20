@@ -456,6 +456,11 @@ APPROVED_TESTS = [
     #   RISK_OFF/STRESS를 넣어도 inverse instrument/signal/order를 만들지 않는다.
     #   ⛔ hedge eligibility/risk budget/strategy/order/Production/trading 권한 없음.
     "test/test_regime_inverse_invariant.py",
+    # ★ P7-01 — external RATIFIED Constitution B1 + explicit assignment only.
+    #   candidate/holding마다 정확히 한 active bucket을 검증하며 중복·겹침·lineage
+    #   충돌은 fail-closed다. repository default B1=null에서는 정상 차단된다.
+    #   ⛔ bucket 발명/자동배정/limit/sizing/order/Production/trading 권한 없음.
+    "test/test_bucket_membership.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
