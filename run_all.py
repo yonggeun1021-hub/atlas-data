@@ -107,6 +107,12 @@ APPROVED_TESTS = [
     #   역적용하지 않고 liquidity/tradability/investability 정책을 발명하지 않는다.
     #   ⛔ live KRX/workflow/tracked master 없음 — exact-byte fixtures + temp output only.
     "test/test_krx_global_universe.py",
+    # ★ P3-05 — published growth-rate Business Acceleration radar capability.
+    #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
+    #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/
+    #   candidate ranking, Stage 승격, Production, trading 권한은 열지 않는다.
+    #   ⛔ live network/workflow/tracked radar 없음 — synthetic envelopes + temp output only.
+    "test/test_business_acceleration.py",
     # ★ P3-08 — existing SEC D1 event → evidence-linked Discovery Case packet.
     #   ratified taxonomy 결과만 case로 기록하고 exact source-record binding의
     #   as_of/available_at/source SHA를 보존한다. 중요도·해석·Stage 승격은 금지한다.
