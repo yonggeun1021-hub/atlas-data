@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "contract_version": "theme_taxonomy/1",
+  "input_schema_version": "theme_taxonomy_input/1",
+  "output_schema_version": "theme_taxonomy_packet/1",
+  "allowed_markets": [
+    "KOREA",
+    "US"
+  ],
+  "required_markets_for_ratified_graph": [
+    "KOREA",
+    "US"
+  ],
+  "allowed_node_types": [
+    "THEME",
+    "VALUE_CHAIN_SEGMENT"
+  ],
+  "allowed_relation_types": [
+    "CONTAINS",
+    "DEPENDS_ON",
+    "ENABLES",
+    "SUPPLIES"
+  ],
+  "market_sources": {
+    "KOREA": [
+      "dart_open_api"
+    ],
+    "US": [
+      "microsoft_sec_issuer_disclosure",
+      "sec_edgar",
+      "tsmc_investor_relations"
+    ]
+  },
+  "source_hosts": {
+    "dart_open_api": [
+      "opendart.fss.or.kr"
+    ],
+    "microsoft_sec_issuer_disclosure": [
+      "www.sec.gov"
+    ],
+    "sec_edgar": [
+      "data.sec.gov",
+      "www.sec.gov"
+    ],
+    "tsmc_investor_relations": [
+      "investor.tsmc.com"
+    ]
+  },
+  "effective_interval": "[valid_from, valid_to)",
+  "membership_adapter_status": "DETACHED_REQUIRES_SEPARATE_MASTER_INGESTION",
+  "policy_status": {
+    "repository_default_taxonomy": "ABSENT",
+    "theme_selection": "EXTERNAL_RATIFICATION_REQUIRED",
+    "membership_selection": "EXPLICIT_EVIDENCE_LINKED_ONLY",
+    "value_chain_role_vocabulary": "EXTERNAL_TAXONOMY_DEFINED",
+    "source_hierarchy": "UNRATIFIED",
+    "rotation_scoring": "UNRATIFIED"
+  },
+  "authority": {
+    "ratified_graph_validation_only": true,
+    "theme_inference_authorized": false,
+    "membership_inference_authorized": false,
+    "membership_weight_authorized": false,
+    "source_ranking_authorized": false,
+    "rotation_score_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

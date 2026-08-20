@@ -121,6 +121,12 @@ APPROVED_TESTS = [
     #   custody/Stage/Production/trading 권한은 모두 닫는다.
     #   ⛔ live network/workflow/tracked master 없음 — synthetic snapshot + temp output only.
     "test/test_crypto_global_universe.py",
+    # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
+    #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
+    #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached
+    #   Global Asset Master adapter를 만들며 inference/weight/score/Stage/trading 없음.
+    #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
+    "test/test_theme_taxonomy.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/
