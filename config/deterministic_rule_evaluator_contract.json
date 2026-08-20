@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_version": "deterministic_rule_evaluator/1",
+  "output_schema_version": "deterministic_rule_evaluation_packet/1",
+  "upstream_binding_contract_version": "rule_evidence_binding/1",
+  "upstream_binding_schema_version": "rule_evidence_binding_packet/1",
+  "canonical_rule_registry": "config/rules.json",
+  "canonical_rule_count": 25,
+  "result_statuses": [
+    "PASS",
+    "FAIL",
+    "UNKNOWN",
+    "UNDEFINED"
+  ],
+  "classification_precedence": [
+    "RULE_DEFINITION_UNDEFINED_TO_UNDEFINED",
+    "EVIDENCE_OR_RULE_EXECUTION_GAP_TO_UNKNOWN",
+    "EVALUATION_SPEC_OR_AUTHORITY_GAP_TO_UNDEFINED"
+  ],
+  "repository_default_evaluation_spec": "ABSENT",
+  "pass_fail_policy": "PROHIBITED_UNTIL_P5_02_AND_EXPLICIT_EVALUATOR_AUTHORIZATION",
+  "authority": {
+    "boundary_classification_only": true,
+    "evidence_interpretation_authorized": false,
+    "threshold_application_authorized": false,
+    "pass_fail_authorized": false,
+    "downstream_action_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
