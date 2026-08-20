@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "contract_version": "rotation_discovery_briefing/1",
+  "output_schema_version": "rotation_discovery_briefing_packet/1",
+  "rotation_source_contract": "rotation_state_ledger/1",
+  "discovery_source_contract": "event_discovery_case/1",
+  "market_order": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "rotation_states": [
+    "EMERGING",
+    "STRONG",
+    "WEAKENING"
+  ],
+  "evidence_statuses": [
+    "EVIDENCE_LINKED",
+    "EVIDENCE_BLOCKED",
+    "EVIDENCE_UNRESOLVED"
+  ],
+  "slots": [
+    "morning",
+    "evening"
+  ],
+  "status": "ROTATION_DISCOVERY_PRESENTED_NO_PROMOTION_AUTHORITY",
+  "authority": {
+    "briefing_read_model_only": true,
+    "importance_ranking_authorized": false,
+    "interpretation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

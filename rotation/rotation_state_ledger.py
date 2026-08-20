@@ -596,6 +596,12 @@ def _validate_ledger(value: dict, contract: dict) -> dict:
     return copy.deepcopy(value)
 
 
+def validate_ledger(value: dict, contract: Optional[dict] = None) -> dict:
+    """Public read-only validator for downstream audit/read-model consumers."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    return _validate_ledger(value, contract)
+
+
 def apply_rotation(
     rotation_packet: dict,
     state_policy: dict,
