@@ -1,11 +1,11 @@
 {
   "market": "SEC",
-  "schema_version": 1,
+  "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-19T21:56:00+00:00",
-    "collected_for_kst_date": "2026-08-20",
+    "collected_at_utc": "2026-08-20T21:58:58+00:00",
+    "collected_for_kst_date": "2026-08-21",
     "source_file": "data/latest_sec.json",
-    "source_sha256": "ac6eb01a0910bddee04fd2331700bba8add816a4354742a160ae2e0369fb892f"
+    "source_sha256": "2846dfd3a8c082dd3a6f04906bbe53040b101742cf269a1981f475453796efcd"
   },
   "stock": {
     "atlas_stage": null,
@@ -17,8 +17,31 @@
     "filings_recent": [
       {
         "accession": "0001045810-26-000069",
-        "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
+        "body_capture_status": "NOT_APPLICABLE",
         "body_captured": false,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "index_only",
+          "content_status": "NOT_APPLICABLE",
+          "discovery_status": "OK",
+          "documents": [],
+          "evidence_status": "NOT_APPLICABLE",
+          "extracted": [],
+          "extractor_version": "sec_filing_content/1",
+          "interpretation_status": "UNDETERMINED",
+          "publication_status": "NOT_APPLICABLE",
+          "reasons": [
+            "STAGE_NOT_ASSIGNED_FOR_AUTO_CONSUMPTION"
+          ],
+          "rule_impact": "NONE",
+          "source": {
+            "collected_for_kst_date": "2026-08-21",
+            "observed_at_utc": "2026-08-20T21:59:19Z",
+            "run_status": "OK",
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": "1ba3b2cd9abd8135ce773fb799c055eeb892582482a95b1977f0d52ddf46c1ec"
+          }
+        },
         "date": "2026-08-17",
         "form": "8-K",
         "form_class": "domestic",

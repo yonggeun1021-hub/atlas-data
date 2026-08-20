@@ -1,44 +1,65 @@
 {
   "collectors": {
     "dart": {
-      "collected_at_utc": "2026-08-19T21:55:55+00:00",
-      "collected_for_kst_date": "2026-08-20",
+      "collected_at_utc": "2026-08-20T21:58:50+00:00",
+      "collected_for_kst_date": "2026-08-21",
       "failed": 0,
       "freshness": "fresh",
-      "ok": 5,
+      "ok": 6,
       "source_file": "data/latest_dart.json",
-      "source_sha256": "79269440ec0f4ddc9a74f7e6112970eb6134300f884fcf44c189262f5d0dfda0"
+      "source_sha256": "94fae99d0b21eea57b932098100f19fb0c76194202ad747ee2c8d95d8ca7ca60"
     },
     "krx": {
-      "collected_at_utc": "2026-08-19T21:55:43+00:00",
-      "collected_for_kst_date": "2026-08-20",
+      "collected_at_utc": "2026-08-20T21:58:30+00:00",
+      "collected_for_kst_date": "2026-08-21",
       "failed": 0,
       "freshness": "fresh",
-      "ok": 5,
+      "ok": 6,
       "source_file": "data/latest_krx.json",
-      "source_sha256": "323a2fbc00e6670ad8305d53b293d91f9e60bb91e96dfd1f62fca40026e7cd6c"
+      "source_sha256": "c1a7c352c92ec8151e6de51468c62a8ad8c4efa7fe1401f2abfd5a4a4771d352"
     },
     "sec": {
-      "collected_at_utc": "2026-08-19T21:56:00+00:00",
-      "collected_for_kst_date": "2026-08-20",
+      "collected_at_utc": "2026-08-20T21:58:58+00:00",
+      "collected_for_kst_date": "2026-08-21",
       "failed": 0,
       "freshness": "fresh",
       "ok": 7,
       "source_file": "data/latest_sec.json",
-      "source_sha256": "ac6eb01a0910bddee04fd2331700bba8add816a4354742a160ae2e0369fb892f"
+      "source_sha256": "2846dfd3a8c082dd3a6f04906bbe53040b101742cf269a1981f475453796efcd"
     }
   },
-  "expected_kst_date": "2026-08-20",
+  "expected_kst_date": "2026-08-21",
+  "optional_evidence": {
+    "dart_content": {
+      "collected_for_kst_date": "2026-08-21",
+      "run_status": "OK",
+      "source_file": "data/latest_dart_content.json",
+      "source_sha256": "e35df4753ace9748a2627d5369123361b530351e3ece7630c32f7c4f41111ff2",
+      "status": "available"
+    },
+    "sec_content": {
+      "collected_for_kst_date": "2026-08-21",
+      "run_status": "OK",
+      "source_file": "data/latest_sec_content.json",
+      "source_sha256": "1ba3b2cd9abd8135ce773fb799c055eeb892582482a95b1977f0d52ddf46c1ec",
+      "status": "available"
+    }
+  },
   "overall": "pass",
   "purpose": "Atlas briefing Step 0 compact readiness SSOT",
   "read_model_inventory": {
     "authority_path": "data/briefing/step0_status.json",
     "compact_path_templates": [
       "data/briefing/krx/{SYMBOL}.json",
+      "data/briefing/dart/{SYMBOL}.json",
       "data/briefing/sec/{SYMBOL}.json"
     ],
     "date_basis": "KST",
-    "health_path": "data/briefing_status.json"
+    "health_path": "data/briefing_status.json",
+    "optional_evidence_sources": [
+      "data/latest_dart_content.json",
+      "data/latest_sec_content.json"
+    ]
   },
   "scheduled_collectors": [
     {
@@ -62,6 +83,6 @@
   "schema_version": 1,
   "totals": {
     "failed": 0,
-    "ok": 17
+    "ok": 19
   }
 }
