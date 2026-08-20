@@ -73,7 +73,7 @@ class DataCoverageMatrixTest(unittest.TestCase):
             matrix["dimension_status_counts"]["source"]["UNRECORDED"], 9
         )
         self.assertEqual(
-            matrix["dimension_status_counts"]["cost"]["UNRESOLVED"], 24
+            matrix["dimension_status_counts"]["cost"]["UNRESOLVED"], 23
         )
         self.assertEqual(matrix["paid_source_reapproval_required_for"], [])
         self.assertFalse(matrix["source_selection_authorized"])
