@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_rotation/1",
+  "input_schema_version": "crypto_rotation_input/1",
+  "policy_schema_version": "crypto_rotation_policy/1",
+  "output_schema_version": "crypto_rotation_packet/1",
+  "upstream_contract_version": "crypto_leadership_contract/v2",
+  "measurement": "crypto_bucket_relative_rotation_observation",
+  "allowed_window_ids": [
+    "pilot_7d",
+    "primary_30d"
+  ],
+  "bucket_ids": [
+    "ALT",
+    "BTC",
+    "ETH"
+  ],
+  "ranking_metric": "BUCKET_RELATIVE_STRENGTH_VS_BTC",
+  "ranking_order": "DESCENDING",
+  "tie_break": "BUCKET_ID_ASC",
+  "sector_chain_policy": "UNKNOWN_NOT_RANKING_INPUT",
+  "transition_semantics": "PRIOR_BUCKET_TO_CURRENT_BUCKET",
+  "output_decimal_places": 12,
+  "rounding": "ROUND_HALF_EVEN",
+  "repository_default_policy": "ABSENT",
+  "authority": {
+    "external_ratified_rotation_policy_only": true,
+    "sector_chain_ranking_authorized": false,
+    "asset_ranking_authorized": false,
+    "p2_state_vocabulary_authorized": false,
+    "state_ledger_authorized": false,
+    "regime_input_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
