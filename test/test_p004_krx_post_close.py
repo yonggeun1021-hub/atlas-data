@@ -332,13 +332,15 @@ class P004KrxPostCloseTest(unittest.TestCase):
 
         self.assertIn("--check", guard.get("run", ""))
         self.assertEqual(
-            collect.get("if"), "steps.guard.outputs.skip != 'yes'"
+            collect.get("if"),
+            "steps.guard.outcome == 'success' && steps.guard.outputs.skip != 'yes'",
         )
         self.assertIn("krx_post_close.py", collect.get("run", ""))
         self.assertEqual(commit.get("if"), "always()")
         command = commit.get("run", "")
         self.assertIn("data/observations/krx_post_close", command)
         self.assertIn("data/incident/krx_post_close", command)
+        self.assertIn("data/operations/krx_post_close_runs", command)
         self.assertIn('if [ -d "$evidence_path" ]', command)
         self.assertIn("successful collection produced no staged", command)
         self.assertNotIn("|| true", command)
@@ -352,6 +354,8 @@ class P004KrxPostCloseTest(unittest.TestCase):
         )
         self.assertNotIn("latest_krx.json", command)
         self.assertNotIn("data/briefing", command)
+        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', command)
+        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', command)
 
 
 if __name__ == "__main__":

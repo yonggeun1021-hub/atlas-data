@@ -26,7 +26,7 @@
       "automation_state": "SCHEDULED_PRODUCER_HUMAN_CONSUMER",
       "workflow": ".github/workflows/krx-post-close.yml",
       "crons": ["5 7 * * 1-5", "25 7 * * 1-5", "45 7 * * 1-5"],
-      "required_workflow_tokens": ["Collect and publish KRX post-close observation", "krx_post_close.py"],
+      "required_workflow_tokens": ["Collect and publish KRX post-close observation", "krx_post_close.py", "Record KRX post-close scheduler telemetry", "record_krx_post_close_run.py"],
       "remaining_gate": "external 18:00 briefing must visibly consume the observed-unconfirmed read view"
     },
     {

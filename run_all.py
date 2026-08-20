@@ -209,6 +209,11 @@ APPROVED_TESTS = [
     #   decision_eligible=false, partial-response incident 경계를 검증한다.
     #   ⛔ live KRX/Notion 호출 없음 — temp data root + workflow YAML 계약.
     "test/test_p004_krx_post_close.py",
+    # ★ P0-04 scheduled/manual run lineage — operations telemetry.
+    #   Actions REST 없이도 16:05/16:25/16:45 slot, runner delay, Guard,
+    #   capture/skip/failure를 clone에서 구분하고 미확정 경계는 유지한다.
+    #   ⛔ live GitHub/KRX 없음 — temp output root + workflow YAML only.
+    "test/test_p004_scheduler_telemetry.py",
     # ★ P1-CR-03 — Stablecoin Net Issuance evidence transform.
     #   native USD-peg supply의 exact T-1/T-7 차이와 missing/revision lineage를
     #   검증하며 가격효과·Regime score·운영배선을 분리한다.
