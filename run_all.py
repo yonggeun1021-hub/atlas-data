@@ -139,6 +139,12 @@ APPROVED_TESTS = [
     #   cross-benchmark rank/P2-05 state/Regime/Stage/Production/trading 없음.
     #   ⛔ source close rows/live network/tracked factor 없음 — temp packets only.
     "test/test_korea_capital_rotation.py",
+    # ★ P2-04 — external RATIFIED policy-gated BTC/ETH/ALT rotation transform.
+    #   selected 7d/30d Crypto Leadership window 두 시점에서 deterministic bucket
+    #   rank·TOP/MIDDLE/BOTTOM transition만 만든다. sector/chain은 UNKNOWN 유지.
+    #   asset rank/P2-05 state/Regime/Stage/Production/trading 권한은 닫는다.
+    #   ⛔ live network/tracked factor 없음 — upstream temp packets only.
+    "test/test_crypto_rotation.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/
