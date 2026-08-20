@@ -481,6 +481,11 @@ APPROVED_TESTS = [
     #   승격은 만들지 않아 new/existing candidate change는 빈 배열이다.
     #   ⛔ ranking/promotion/action/Production/trading 및 live network 없음.
     "test/test_rotation_discovery_briefing.py",
+    # ★ P9-01 — external RATIFIED freshness policy + caller-supplied quote guard.
+    #   provider timestamp/received time/observed time으로 age와 transport delay를
+    #   계산하되 repository default threshold는 없다. stale은 data 소비만 차단한다.
+    #   ⛔ feed 선택/ENTRY/EXIT/action/order/Production/trading 및 network 없음.
+    "test/test_intraday_freshness.py",
     # ★ P9-04 — duplicate Action/Order ID guard capability.
     #   same key+payload retry는 block, key/payload 또는 action/order ID 충돌은
     #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
