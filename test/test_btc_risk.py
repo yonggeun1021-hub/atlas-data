@@ -352,9 +352,13 @@ class BtcRiskTest(unittest.TestCase):
             "btc_risk_replay.json", upload.get("with", {}).get("path", "")
         )
         commit_command = commit.get("run", "")
-        self.assertIn("git add evidence/crypto/btc/raw", commit_command)
+        self.assertIn(
+            'git add "evidence/crypto/btc/raw/$SNAPSHOT_DATE"',
+            commit_command,
+        )
+        self.assertIn("data/operations/btc_capture_runs", commit_command)
         self.assertNotIn("btc_risk", commit_command)
-        self.assertNotIn("data/", commit_command)
+        self.assertNotIn("data/briefing", commit_command)
 
 
 if __name__ == "__main__":

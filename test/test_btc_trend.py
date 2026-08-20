@@ -323,12 +323,15 @@ class BtcTrendTest(unittest.TestCase):
         self.assertIn("btc_trend.json", upload_paths)
         self.assertIn("btc_risk.json", upload_paths)
         self.assertIn("btc_risk_replay.json", upload_paths)
-        self.assertEqual(
-            commit.get("if"), "env.SKIP != '1'"
-        )
+        self.assertEqual(commit.get("if"), "always()")
         commit_command = commit.get("run", "")
-        self.assertIn("git add evidence/crypto/btc/raw", commit_command)
-        self.assertNotIn("data/", commit_command)
+        self.assertIn(
+            'git add "evidence/crypto/btc/raw/$SNAPSHOT_DATE"',
+            commit_command,
+        )
+        self.assertNotIn("git add evidence/crypto/btc/raw\n", commit_command)
+        self.assertIn("data/operations/btc_capture_runs", commit_command)
+        self.assertNotIn("btc_trend.json", commit_command)
         self.assertNotIn("regime", commit_command.lower())
 
 
