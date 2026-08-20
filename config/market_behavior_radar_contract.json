@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "contract_version": "market_behavior_radar/1",
+  "input_schema_version": "market_behavior_radar_input/1",
+  "output_schema_version": "market_behavior_radar_packet/1",
+  "candidate_policy_schema_version": "market_behavior_candidate_policy/1",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "market_sources": {
+    "CRYPTO": "kraken_public_api",
+    "KOREA": "krx_open_api_stock_daily",
+    "US": "tiingo_us_daily_price"
+  },
+  "source_hosts": {
+    "kraken_public_api": [
+      "api.kraken.com"
+    ],
+    "krx_open_api_stock_daily": [
+      "data-dbg.krx.co.kr"
+    ],
+    "tiingo_us_daily_price": [
+      "api.tiingo.com"
+    ]
+  },
+  "minimum_session_count": 3,
+  "return_semantics": "asset_cumulative_gross_return_div_benchmark_cumulative_gross_return_minus_one",
+  "volume_features": {
+    "LATEST_VS_PRIOR_MEAN": "latest volume divided by arithmetic mean of all prior window volumes",
+    "LATEST_VS_PRIOR_MEDIAN": "latest volume divided by median of all prior window volumes"
+  },
+  "candidate_logic": "relative_strength_gte_threshold_AND_selected_volume_ratio_gte_threshold",
+  "output_decimal_places": 12,
+  "policy_status": {
+    "default_candidate_policy": "ABSENT",
+    "anomaly_threshold": "UNRATIFIED",
+    "cross_market_cadence": "UNRATIFIED",
+    "source_hierarchy": "UNRATIFIED",
+    "candidate_ranking": "UNRATIFIED"
+  },
+  "authority": {
+    "raw_feature_observation_only_without_ratified_policy": true,
+    "radar_case_recording_only_with_ratified_policy": true,
+    "source_ranking_authorized": false,
+    "importance_ranking_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
