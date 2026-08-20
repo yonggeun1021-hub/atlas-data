@@ -451,6 +451,11 @@ APPROVED_TESTS = [
     #   확장·PASS/FAIL 밀반입은 fail-closed로 거부한다.
     #   ⛔ short eligibility/risk budget/order/Production/trading 권한 없음.
     "test/test_long_short_invariant.py",
+    # ★ P6-05 — RISK_OFF/STRESS ≠ automatic inverse order invariant.
+    #   현재 Regime UNKNOWN-only 계약을 검증하고, 독립 primitive에 미래 후보
+    #   RISK_OFF/STRESS를 넣어도 inverse instrument/signal/order를 만들지 않는다.
+    #   ⛔ hedge eligibility/risk budget/strategy/order/Production/trading 권한 없음.
+    "test/test_regime_inverse_invariant.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
