@@ -113,6 +113,13 @@ APPROVED_TESTS = [
     #   candidate ranking, Stage 승격, Production, trading 권한은 열지 않는다.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic envelopes + temp output only.
     "test/test_business_acceleration.py",
+    # ★ P3-07 — policy-gated cross-market price/volume behavior radar capability.
+    #   explicit benchmark 대비 누적 상대강도와 latest/prior mean·median 거래량 비율을
+    #   raw feature로 남긴다. repo 기본 임계값은 없고 외부 RATIFIED 정책이 명시한
+    #   market/window/method/threshold가 모두 맞을 때만 lineage-complete case를 만든다.
+    #   ranking·Stage 승격·Production·trading 권한은 열지 않는다.
+    #   ⛔ live network/workflow/tracked radar 없음 — synthetic series + temp output only.
+    "test/test_market_behavior.py",
     # ★ P3-08 — existing SEC D1 event → evidence-linked Discovery Case packet.
     #   ratified taxonomy 결과만 case로 기록하고 exact source-record binding의
     #   as_of/available_at/source SHA를 보존한다. 중요도·해석·Stage 승격은 금지한다.
