@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "contract_version": "briefing_three_market_regime_header/1",
+  "output_schema_version": "three_market_regime_header/1",
+  "source_contract_version": "regime_output/v1",
+  "required_markets": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "market_labels": {
+    "US": "US",
+    "KR": "Korea",
+    "CRYPTO": "Crypto"
+  },
+  "slots": [
+    "morning",
+    "evening"
+  ],
+  "status": "HEADER_ASSEMBLED_NO_DECISION_AUTHORITY",
+  "source_ordering": "REQUIRED_MARKET_ORDER",
+  "confidence_policy": "PRESERVE_SOURCE_NULL",
+  "authority": {
+    "briefing_read_model_only": true,
+    "market_ranking_authorized": false,
+    "favorable_market_selection_authorized": false,
+    "regime_interpretation_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
