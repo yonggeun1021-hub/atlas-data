@@ -94,6 +94,13 @@ APPROVED_TESTS = [
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.
     #   ⛔ source 선택·유료 구매·evaluator/Production/trading 연결 없음.
     "test/test_data_coverage_matrix.py",
+    # ★ P3-01 — policy-neutral Global Security / Asset Master capability.
+    #   US/Korea/Crypto identity, exchange, currency, alias, and effective-dated
+    #   membership assertions share one schema with exact source lineage.
+    #   Collisions fail closed; theme inference, universe approval, investability,
+    #   Stage promotion, Production, and trading remain explicitly unauthorized.
+    #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
+    "test/test_global_asset_master.py",
     # ★ P3-08 — existing SEC D1 event → evidence-linked Discovery Case packet.
     #   ratified taxonomy 결과만 case로 기록하고 exact source-record binding의
     #   as_of/available_at/source SHA를 보존한다. 중요도·해석·Stage 승격은 금지한다.
