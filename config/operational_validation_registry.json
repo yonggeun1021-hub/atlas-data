@@ -50,7 +50,7 @@
       "automation_state": "SCHEDULED_INLINE",
       "workflow": ".github/workflows/btc-price-capture.yml",
       "crons": ["20 0 * * *"],
-      "required_workflow_tokens": ["Validate BTC Trend and Risk from immutable snapshot", "btc-trend-risk-live"],
+      "required_workflow_tokens": ["Validate BTC Trend and Risk from immutable snapshot", "btc-trend-risk-live", "Record BTC scheduler telemetry", "record_btc_run.py"],
       "remaining_gate": "first scheduled immutable capture and committed-byte replay"
     },
     {
@@ -58,7 +58,7 @@
       "automation_state": "SCHEDULED_UPSTREAM",
       "workflow": ".github/workflows/btc-price-capture.yml",
       "crons": ["20 0 * * *"],
-      "required_workflow_tokens": ["btc_risk.py", "btc_risk_replay.json"],
+      "required_workflow_tokens": ["btc_risk.py", "btc_risk_replay.json", "Record BTC scheduler telemetry", "record_btc_run.py"],
       "remaining_gate": "shared scheduled BTC capture and committed-byte replay"
     },
     {

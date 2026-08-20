@@ -184,6 +184,11 @@ APPROVED_TESTS = [
     #   Regime/Production/trading 권한은 부여하지 않고 gap은 fail-closed한다.
     #   ⛔ live Kraken 호출/tracked factor 없음 — temp snapshot fixtures only.
     "test/test_btc_risk.py",
+    # ★ BTC scheduled/manual execution lineage — clone-observable telemetry.
+    #   run/event/slot/runner delay와 capture/skip/failure·validation을 분리 기록해
+    #   Actions REST 403이어도 예약 실행을 bot commit으로 오판하지 않게 한다.
+    #   ⛔ live GitHub/Kraken 없음 — temp output root + workflow YAML only.
+    "test/test_btc_scheduler_telemetry.py",
     # ★ P1-CR-04 — BTC Trend source / PIT / 200DMA transform.
     #   Kraken UTC 일봉의 마지막 미확정 row를 제외하고 exact 200일 종가만
     #   사용하며 결측·API 오류·해시/manifest 변조를 fail-closed한다.

@@ -18,21 +18,28 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # checkout보다 앞에서 실제 runner 도착 시각을 직접 관측한다.
+      - name: Capture BTC runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Capture immutable Kraken BTC/USD daily OHLC
+        id: capture
         run: |
           set -euo pipefail
           ROOT="$PWD"
           D=$(date -u +%F)
           DIR="evidence/crypto/btc/raw/$D"
           echo "SNAPSHOT_DIR=$DIR" >> "$GITHUB_ENV"
+          echo "snapshot_date=$D" >> "$GITHUB_OUTPUT"
           if [ -f "$DIR/_manifest.json" ]; then
             echo "이미 $D BTC price snapshot이 있습니다. 덮어쓰지 않습니다."
-            echo "SKIP=1" >> "$GITHUB_ENV"
+            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -51,8 +58,10 @@ jobs:
           python3 "$ROOT/.github/scripts/btc_trend.py" manifest \
             --snapshot-dir "$PWD" \
             --capture-version "btc-price-capture/v1"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
 
       - name: Validate BTC Trend and Risk from immutable snapshot
+        id: validation
         if: env.SNAPSHOT_DIR != ''
         run: |
           set -euo pipefail
@@ -64,17 +73,45 @@ jobs:
           python3 .github/scripts/btc_risk.py replay "$SNAPSHOT_DIR" \
             --out "$RUNNER_TEMP/btc_risk_replay.json"
 
-      - name: Commit BTC price evidence
-        if: env.SKIP != '1'
+      # Actions REST 권한이 없는 읽기 전용 관측자도 schedule/manual과
+      # capture/skip/failure를 clone만으로 구분할 수 있게 한다.
+      - name: Record BTC scheduler telemetry
+        if: always()
         env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
+          ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_VALIDATION_STEP_OUTCOME: ${{ steps.validation.outcome }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/record_btc_run.py
+
+      - name: Commit BTC price evidence
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add evidence/crypto/btc/raw
-          git commit -m "BTC price raw snapshot $(date -u +%F)"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          git add data/operations/btc_capture_runs || true
+          if [ "$CAPTURE_RESULT" = "captured" ] && [ "$VALIDATION_OUTCOME" = "success" ]; then
+            git add "evidence/crypto/btc/raw/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "BTC capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
 
       - name: Upload BTC Trend and Risk live validation
         if: always() && env.SNAPSHOT_DIR != ''
