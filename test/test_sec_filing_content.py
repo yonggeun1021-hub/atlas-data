@@ -326,6 +326,23 @@ class SecFilingContentTest(unittest.TestCase):
             self.assertEqual(gzip.decompress(cache_before), FIXTURE.read_bytes())
 
     def test_run_is_temp_isolated_date_guarded_and_publishes_failure_truth(self):
+        def tracked_snapshot():
+            data_root = ROOT / "data"
+            paths = []
+            content_root = data_root / "sec_content"
+            if content_root.exists():
+                paths.extend(
+                    path for path in content_root.rglob("*") if path.is_file()
+                )
+            latest = data_root / "latest_sec_content.json"
+            if latest.exists():
+                paths.append(latest)
+            return {
+                path.relative_to(data_root).as_posix(): path.read_bytes()
+                for path in sorted(paths)
+            }
+
+        tracked_before = tracked_snapshot()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "latest_sec.json"
@@ -356,7 +373,7 @@ class SecFilingContentTest(unittest.TestCase):
             )
             self.assertEqual(run["counts"], {"captured": 1, "skipped": 0, "failed": 0, "not_applicable": 0})
             self.assertTrue((root / "data" / "latest_sec_content.json").is_file())
-            self.assertFalse((ROOT / "data" / "sec_content").exists())
+            self.assertEqual(tracked_snapshot(), tracked_before)
 
             second_fetcher = Fetcher({})
             second = MODULE.run_capture(
@@ -416,6 +433,7 @@ class SecFilingContentTest(unittest.TestCase):
             self.assertEqual(failure["run_status"], "FAILED")
             self.assertEqual(failure["counts"]["failed"], 1)
             self.assertIn("SOURCE_DATE_MISMATCH", failure["reasons"][0])
+            self.assertEqual(tracked_snapshot(), tracked_before)
 
     def test_workflow_is_always_repairable_and_commits_content_state(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
