@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "contract_version": "currency_exposure/1",
+  "input_schema_version": "currency_position_snapshot/1",
+  "output_schema_version": "currency_exposure_packet/1",
+  "upstream_asset_master_schema_version": "global_asset_master_packet/1",
+  "upstream_asset_master_contract_version": "global_asset_master/1",
+  "upstream_asset_master_status": "IDENTITY_MASTER_VALIDATED",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "position_side_policy": "LONG_ONLY_CURRENT_BOUNDARY",
+  "aggregation_policy": "QUOTE_CURRENCY_ONLY_NO_CROSS_CURRENCY_TOTAL",
+  "fx_conversion_policy": "NOT_AUTHORIZED",
+  "reporting_currency_policy": "UNRATIFIED",
+  "exposure_limit_policy": "UNRATIFIED",
+  "decimal_policy": "CANONICAL_NON_EXPONENT_STRING",
+  "upstream_asset_master_authority": {
+    "identity_recording_only": true,
+    "automatic_identity_merge_authorized": false,
+    "theme_inference_authorized": false,
+    "universe_approval_authorized": false,
+    "investability_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "input_authority": {
+    "position_observation_only": true,
+    "short_position_authorized": false,
+    "fx_conversion_authorized": false,
+    "limit_evaluation_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "raw_currency_exposure_aggregation_only": true,
+    "fx_conversion_authorized": false,
+    "cross_currency_total_authorized": false,
+    "exposure_limit_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
