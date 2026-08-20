@@ -114,6 +114,13 @@ APPROVED_TESTS = [
     #   역적용하지 않고 liquidity/tradability/investability 정책을 발명하지 않는다.
     #   ⛔ live KRX/workflow/tracked master 없음 — exact-byte fixtures + temp output only.
     "test/test_krx_global_universe.py",
+    # ★ P3-04 — ratified Crypto breadth selection → Global Asset Master adapter.
+    #   exact append-only Kraken snapshot/manifest/policy/taxonomy/identity lineage와
+    #   full target observation을 요구해 breadth source-coverage membership만 만든다.
+    #   rank·30d turnover는 investability로 재명명하지 않고 liquidity/tradability/
+    #   custody/Stage/Production/trading 권한은 모두 닫는다.
+    #   ⛔ live network/workflow/tracked master 없음 — synthetic snapshot + temp output only.
+    "test/test_crypto_global_universe.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/

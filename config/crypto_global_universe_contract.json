@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_global_universe_adapter/1",
+  "output_schema_version": "crypto_global_universe_packet/1",
+  "asset_master_contract_version": "global_asset_master/1",
+  "source_contract": {
+    "path": "config/crypto_breadth_contract.json",
+    "schema_version": 1,
+    "source_name": "kraken_spot_market_data",
+    "historical_universe_policy": "as_captured_append_only_no_current_state_backfill"
+  },
+  "breadth_universe_policy": {
+    "path": "config/crypto_breadth_universe_policy.json",
+    "approval_status": "RATIFIED",
+    "universe_kind": "breadth_source_coverage_not_investable"
+  },
+  "taxonomy_policy": {
+    "path": "config/crypto_breadth_exclusion_taxonomy.json",
+    "approval_status": "RATIFIED",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
+  "identity_policy_path": "config/crypto_asset_identity_exceptions.json",
+  "source_id": "kraken_public_api",
+  "market": "CRYPTO",
+  "asset_class": "CRYPTO_ASSET",
+  "exchange_id": "KRAKEN",
+  "quote_currency": "USD",
+  "membership_id": "KRAKEN_BREADTH_SOURCE_COVERAGE",
+  "membership_semantics": "ratified_breadth_selection_source_coverage_not_investable",
+  "effective_interval": "[breadth_as_of_date, next_calendar_date)",
+  "coverage_requirement": "selection_observed_and_full_target_coverage",
+  "source_identity_semantics": "exact_asset_pairs_response_plus_validated_manifest_and_component_lineage",
+  "policy_status": {
+    "breadth_source_coverage_selection": "RATIFIED_REUSED_WITHOUT_AUTHORITY_EXPANSION",
+    "exchange_coverage": "KRAKEN_ONLY",
+    "listing_policy": "UNRATIFIED",
+    "delisting_policy": "UNRATIFIED",
+    "rename_policy": "EXPLICIT_EFFECTIVE_DATED_EXCEPTION_ONLY",
+    "liquidity_for_investability": "UNRATIFIED",
+    "tradability_policy": "UNRATIFIED",
+    "custody_policy": "UNRATIFIED",
+    "investable_universe_policy": "UNRATIFIED"
+  },
+  "authority": {
+    "breadth_source_coverage_universe_only": true,
+    "breadth_rank_as_investability_authorized": false,
+    "liquidity_filter_authorized": false,
+    "tradability_filter_authorized": false,
+    "custody_filter_authorized": false,
+    "investable_universe_authorized": false,
+    "current_catalog_backfill_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
