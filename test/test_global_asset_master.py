@@ -194,6 +194,18 @@ class GlobalAssetMasterTests(unittest.TestCase):
         self.assertEqual(packet["policy_status"]["membership_selection"], "EXPLICIT_ONLY")
         self.assertEqual(packet["policy_status"]["theme_taxonomy"], "UNRATIFIED")
 
+    def test_official_us_preferred_symbol_character_is_preserved(self):
+        value = sample_input()
+        us = value["records"][0]
+        us["asset_id"] = "US:NASDAQDIR:PREFERRED"
+        us["primary_symbol"] = "ABR$D"
+        us["aliases"][0]["value"] = "ABR$D"
+        us["identifiers"][0]["value"] = "ABR$D"
+        packet = GAM.build_master(value)
+        record = next(row for row in packet["records"] if row["market"] == "US")
+        self.assertEqual(record["primary_symbol"], "ABR$D")
+        self.assertEqual(record["active_aliases"][0]["value"], "ABR$D")
+
     def test_effective_dated_alias_preserves_history(self):
         packet = GAM.build_master(sample_input())
         btc = next(row for row in packet["records"] if row["market"] == "CRYPTO")

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_global_universe_adapter/1",
+  "input_schema_version": "us_global_universe_input/1",
+  "output_schema_version": "us_global_universe_packet/1",
+  "asset_master_contract_version": "global_asset_master/1",
+  "source_contract": {
+    "path": "config/us_breadth_forward_contract.json",
+    "schema_version": 1,
+    "approval_status": "FORWARD_ONLY_RATIFIED",
+    "universe_semantics": "source_directory_membership_not_investable_universe"
+  },
+  "required_sources": [
+    "nasdaq_listed",
+    "other_listed"
+  ],
+  "source_id": "nasdaq_trader_symbol_directory",
+  "market": "US",
+  "quote_currency": "USD",
+  "asset_class": "EQUITY",
+  "raw_input_encoding": "base64_exact_response_bytes",
+  "identity_semantics": "source_name_plus_exact_primary_symbol_no_cross_source_merge",
+  "asset_id_semantics": "US:NASDAQDIR:plus_first_24_upper_sha256_hex_of_source_name_NUL_symbol",
+  "exchange_id_semantics": "NASDAQ_TRADER_plus_exact_source_exchange_code_no_MIC_inference",
+  "membership_semantics": "exact_source_date_forward_coverage_not_investable",
+  "effective_interval": "[source_date, next_calendar_date)",
+  "source_attribute_policy": "preserve_exact_directory_fields_without_eligibility_interpretation",
+  "policy_status": {
+    "source_coverage_membership": "IMPLEMENTED",
+    "listing_policy": "UNRATIFIED",
+    "delisting_policy": "UNRATIFIED",
+    "security_type_policy": "UNRATIFIED",
+    "liquidity_policy": "UNRATIFIED",
+    "tradability_policy": "UNRATIFIED",
+    "investable_universe_policy": "UNRATIFIED",
+    "source_hierarchy": "UNRATIFIED"
+  },
+  "authority": {
+    "source_coverage_universe_only": true,
+    "cross_source_identity_merge_authorized": false,
+    "exchange_MIC_inference_authorized": false,
+    "security_type_filter_authorized": false,
+    "liquidity_filter_authorized": false,
+    "tradability_filter_authorized": false,
+    "investable_universe_authorized": false,
+    "historical_reconstruction_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "paid_data_acquisition_authorized": false
+  },
+  "paid_data_boundary": "INHERIT_SOURCE_CONTRACT_USER_RECONFIRMATION_REQUIRED"
+}

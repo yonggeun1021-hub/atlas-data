@@ -28,7 +28,7 @@ INPUT_SCHEMA_VERSION = "global_asset_master_input/1"
 OUTPUT_SCHEMA_VERSION = "global_asset_master_packet/1"
 
 ASSET_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,95}$")
-TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9._:/-]{0,95}$")
+TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9$._:/-]{0,95}$")
 NAMESPACE_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,47}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
