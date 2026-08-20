@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "intraday_freshness_guard/1",
+  "snapshot_schema_version": "intraday_quote_batch/1",
+  "policy_schema_version": "intraday_freshness_policy/1",
+  "output_schema_version": "intraday_freshness_result/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "freshness_statuses": [
+    "FRESH",
+    "STALE"
+  ],
+  "stale_reasons": [
+    "PROVIDER_AGE_EXCEEDED",
+    "TRANSPORT_DELAY_EXCEEDED"
+  ],
+  "repository_default_policy": "ABSENT",
+  "policy_requirement": "EXTERNAL_RATIFIED_POLICY_REQUIRED",
+  "time_semantics": "PROVIDER_TIMESTAMP_LE_RECEIVED_AT_LE_OBSERVED_AT",
+  "threshold_semantics": "LESS_THAN_OR_EQUAL_IS_FRESH",
+  "input_authority": {
+    "quote_observation_only": true,
+    "entry_eligibility_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "freshness_guard_only": true,
+    "provider_selection_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exit_eligibility_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
