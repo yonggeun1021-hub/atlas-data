@@ -1,0 +1,67 @@
+# P3-08 Event Discovery Case contract
+
+`discovery/event_case.py`는 기존 SEC D1 분류 결과를 결정론적
+`discovery_case/1` record로 만들고, 호출자가 명시한 evidence lineage를 연결한다.
+
+## 현재 지원 범위
+
+- 입력 분류: `decision/event_classifier.py`의 taxonomy `1.0`, decision `d1_v1`
+- source: SEC EDGAR D1 classification
+- case 생성: `resolved` 또는 `partial` record의 이미 확정된 `event_types` 각각
+- evidence 연결: exact `source_record_key`에 대한 명시적 binding만 사용
+- lineage: `event_as_of`, `available_at`, `retrieved_at_utc`, source URL/accession/SHA,
+  evidence SHA
+
+DART는 item extraction policy가 미비준이고, news/policy/Crypto source는 구현되지
+않았다. 이 상태를 packet의 `source_coverage`에 그대로 노출한다.
+
+## 권한 경계
+
+case는 “분류된 사건이 관측됐다”는 기록이다. “중요하다”, “긍정/부정이다”, “후보로
+승격한다”는 뜻이 아니다.
+
+- `importance_status = IMPORTANCE_UNRATIFIED`
+- `interpretation_status = INTERPRETATION_NOT_AUTHORIZED`
+- `promotion_status = PROMOTION_NOT_AUTHORIZED`
+- `stage_transition = null`
+- `investment_action = null`
+
+importance ranking, 자동 Stage 승격, Rule/Production/trading 권한은 모두 false다.
+
+## Evidence binding
+
+```json
+{
+  "schema_version": "event_case_evidence_bindings/1",
+  "binding_set_id": "caller-approved-set",
+  "bindings": [
+    {
+      "source_record_key": "SNDK|0001628280-26-053346|1.0|d1_v1",
+      "evidence": {
+        "schema_version": "event_source_evidence/1",
+        "source_system": "SEC_EDGAR",
+        "subject": "SNDK",
+        "event_date": "2026-08-05",
+        "source_identity": {
+          "source_id": "sec_edgar",
+          "accession": "0001628280-26-053346",
+          "source_url": "https://www.sec.gov/Archives/edgar/data/...",
+          "source_sha256": "<64 lowercase hex>",
+          "available_at": "2026-08-05",
+          "retrieved_at_utc": "2026-08-06T00:00:00Z"
+        }
+      }
+    }
+  ]
+}
+```
+
+binding 부재는 `EVIDENCE_UNRESOLVED`, 필수 lineage 누락·형식 오류는
+`EVIDENCE_BLOCKED`, 완전하고 identity가 일치하면 `EVIDENCE_LINKED`다. unknown
+record, 중복 record/binding, accession·subject·date·URL 불일치는 fail-closed한다.
+SEC URL은 HTTPS `www.sec.gov`만 허용하고 `available_at`은 event date보다 빠를 수
+없으며 retrieval date는 availability보다 빠를 수 없다. case 생성 대상이 아닌
+`unresolved`/`not_applicable` record에 evidence binding을 붙이는 것도 거부한다.
+
+CLI는 JSONL record와 binding JSON을 읽어 지정된 `--out`에만 원자적으로 쓴다.
+tracked Discovery Case 발행이나 workflow 연결은 아직 하지 않는다.

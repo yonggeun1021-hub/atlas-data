@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "event_discovery_case/1",
+  "case_schema_version": "discovery_case/1",
+  "classification_source": {
+    "module": "decision/event_classifier.py",
+    "taxonomy_version": "1.0",
+    "decision_version": "d1_v1",
+    "supported_resolutions": [
+      "resolved",
+      "partial"
+    ]
+  },
+  "importance_policy_status": "UNRATIFIED",
+  "automatic_promotion_authorized": false,
+  "source_coverage": {
+    "sec_edgar": "CLASSIFICATION_SUPPORTED",
+    "dart_open_api": "ITEM_EXTRACTION_UNRATIFIED",
+    "news": "NOT_IMPLEMENTED",
+    "policy": "NOT_IMPLEMENTED",
+    "crypto": "NOT_IMPLEMENTED"
+  },
+  "evidence_statuses": [
+    "EVIDENCE_LINKED",
+    "EVIDENCE_BLOCKED",
+    "EVIDENCE_UNRESOLVED"
+  ],
+  "required_lineage_fields": [
+    "source_id",
+    "source_url",
+    "source_sha256",
+    "available_at",
+    "retrieved_at_utc"
+  ],
+  "authority": {
+    "case_recording_only": true,
+    "importance_ranking_authorized": false,
+    "interpretation_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
