@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "contract_version": "wildcard_discovery/1",
+  "input_schema_version": "wildcard_discovery_input/1",
+  "output_schema_version": "wildcard_discovery_packet/1",
+  "case_schema_version": "wildcard_discovery_case/1",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "market_sources": {
+    "CRYPTO": [
+      "defillama_stablecoins_api",
+      "kraken_public_api"
+    ],
+    "KOREA": [
+      "dart_open_api",
+      "krx_open_api_stock_daily"
+    ],
+    "US": [
+      "microsoft_sec_issuer_disclosure",
+      "sec_edgar",
+      "tsmc_investor_relations"
+    ]
+  },
+  "source_hosts": {
+    "dart_open_api": [
+      "opendart.fss.or.kr"
+    ],
+    "defillama_stablecoins_api": [
+      "stablecoins.llama.fi"
+    ],
+    "kraken_public_api": [
+      "api.kraken.com"
+    ],
+    "krx_open_api_stock_daily": [
+      "data-dbg.krx.co.kr"
+    ],
+    "microsoft_sec_issuer_disclosure": [
+      "www.sec.gov"
+    ],
+    "sec_edgar": [
+      "data.sec.gov",
+      "www.sec.gov"
+    ],
+    "tsmc_investor_relations": [
+      "investor.tsmc.com"
+    ]
+  },
+  "theme_membership_statuses": [
+    "OUTSIDE_CURRENT_TAXONOMY",
+    "UNRESOLVED"
+  ],
+  "evidence_statuses": [
+    "EVIDENCE_BLOCKED",
+    "EVIDENCE_LINKED",
+    "EVIDENCE_UNRESOLVED"
+  ],
+  "case_evidence_statuses": [
+    "EVIDENCE_LINKED",
+    "EVIDENCE_PARTIAL"
+  ],
+  "nomination_authority": "OBSERVATION_ONLY",
+  "minimum_linked_evidence_for_case": 1,
+  "maximum_evidence_items": 10,
+  "policy_status": {
+    "strength_threshold": "UNRATIFIED",
+    "importance_ranking": "UNRATIFIED",
+    "theme_taxonomy_completeness": "UNRATIFIED",
+    "source_hierarchy": "UNRATIFIED",
+    "candidate_ranking": "UNRATIFIED"
+  },
+  "authority": {
+    "case_recording_only": true,
+    "nomination_text_is_confirmed_fact": false,
+    "strength_claim_authorized": false,
+    "importance_ranking_authorized": false,
+    "candidate_eligibility_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
