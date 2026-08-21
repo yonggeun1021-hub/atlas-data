@@ -6,6 +6,7 @@ import argparse
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,38 @@ LEDGER_SCHEMA_VERSION = "rotation_state_ledger_packet/1"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 BUCKETS = {"TOP", "MIDDLE", "BOTTOM"}
+
+
+def _load_rotation_producer(module_name: str, filename: str):
+    path = Path(__file__).resolve().parent / filename
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"ROTATION_PRODUCER_IMPORT_FAILED:{filename}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+US_ROTATION = _load_rotation_producer(
+    "atlas_us_capital_rotation_for_ledger", "us_capital_rotation.py"
+)
+KOREA_ROTATION = _load_rotation_producer(
+    "atlas_korea_capital_rotation_for_ledger", "korea_capital_rotation.py"
+)
+CRYPTO_ROTATION = _load_rotation_producer(
+    "atlas_crypto_rotation_for_ledger", "crypto_rotation.py"
+)
+PRODUCTION_ROTATION_VALIDATORS = {
+    "US": (US_ROTATION.validate_packet, US_ROTATION.USCapitalRotationError),
+    "KOREA": (
+        KOREA_ROTATION.validate_packet,
+        KOREA_ROTATION.KoreaCapitalRotationError,
+    ),
+    "CRYPTO": (
+        CRYPTO_ROTATION.validate_packet,
+        CRYPTO_ROTATION.CryptoRotationError,
+    ),
+}
 
 
 class RotationStateLedgerError(ValueError):
@@ -227,34 +260,14 @@ def _validate_rotation_packet(value: dict, contract: dict) -> dict:
     market = value.get("market")
     if market not in contract["supported_rotation_packets"]:
         raise RotationStateLedgerError("ROTATION_MARKET_UNSUPPORTED")
+    validator, producer_error = PRODUCTION_ROTATION_VALIDATORS[market]
+    try:
+        validator(value)
+    except producer_error as exc:
+        raise RotationStateLedgerError(
+            f"ROTATION_PACKET_SEMANTIC_INVALID:{market}:{exc}"
+        ) from exc
     expected_identity = contract["supported_rotation_packets"][market]
-    expected_fields = {
-        "US": {
-            "schema_version", "contract_version", "measurement", "market",
-            "as_of_date", "status", "benchmark_asset", "observation_pair",
-            "taxonomy_binding", "rotation_policy", "rotation_policy_effective",
-            "ranking_method", "top_themes", "bottom_themes",
-            "theme_observations", "retention", "lineage", "authority",
-            "unresolved_boundaries", "payload_sha256",
-        },
-        "KOREA": {
-            "schema_version", "contract_version", "measurement", "market",
-            "as_of_date", "status", "observation_pair", "taxonomy_binding",
-            "coverage_context", "rotation_policy", "rotation_policy_effective",
-            "ranking_method", "benchmark_scopes", "retention", "lineage",
-            "authority", "unresolved_boundaries", "payload_sha256",
-        },
-        "CRYPTO": {
-            "schema_version", "contract_version", "measurement", "market",
-            "as_of_date", "status", "window_id", "lookback_calendar_days",
-            "rotation_policy", "rotation_policy_effective", "ranking_method",
-            "top_groups", "bottom_groups", "bucket_observations",
-            "sector_chain_layer", "lineage", "authority",
-            "unresolved_boundaries", "payload_sha256",
-        },
-    }
-    if set(value) != expected_fields[market]:
-        raise RotationStateLedgerError("ROTATION_PACKET_FIELDS_MISMATCH")
     if (
         value.get("schema_version") != expected_identity["schema_version"]
         or value.get("contract_version") != expected_identity["contract_version"]

@@ -150,6 +150,7 @@ APPROVED_TESTS = [
     "test/test_crypto_rotation.py",
     # ★ P2-05 — external RATIFIED state-policy append-only rotation ledger.
     #   P2-02~04 structural bucket transition을 exact packet/policy SHA로 묶고
+    #   세 market production validator를 먼저 호출해 self-rehash 의미 변조를 막는다.
     #   EMERGING/STRONG/WEAKENING 매핑은 외부 승인정책이 제공할 때만 저장한다.
     #   US/Korea/Crypto scope는 독립이며 재분류·backfill·Regime/Stage 없음.
     #   ⛔ repository default policy/live network/tracked ledger 없음 — temp only.

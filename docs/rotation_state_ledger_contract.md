@@ -23,3 +23,19 @@ Crypto BTC/ETH/ALT buckets share the ledger format without being cross-ranked.
 A missing entity creates neither a synthetic state nor a tombstone. Regime,
 Candidate, Stage, briefing, Production, and trading remain unauthorized. The
 CLI writes only to an explicit path outside the repository.
+
+## Producer validation boundary
+
+The ledger does not substitute a generic packet-shape check for producer
+semantics. Before reading an entity or structural transition it dispatches the
+complete packet to the matching P2-02, P2-03, or P2-04 production
+`validate_packet()` implementation. Only a packet that passes its market's
+policy, ranking, bucket, transition, lineage, authority, unresolved-boundary,
+and digest checks can enter the common ledger. A self-rehashed semantic change
+is rejected before the state policy is evaluated.
+
+After producer validation, the ledger still enforces its own independent
+market/scope/entity extraction, state-policy binding, append-only source
+identity chain, missing-entity behavior, and cross-market isolation. Producer
+validation grants no Regime, Candidate, Stage, briefing, Production, or trading
+authority.
