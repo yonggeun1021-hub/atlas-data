@@ -72,6 +72,40 @@ qualified, every membership diff must contain:
 Membership coverage is not advance/decline breadth.  Missing prices are not
 zero, unchanged, neutral, or a successful breadth observation.
 
+## Archive-wide replay and as-of reconstruction
+
+`validate-bundle`/`validate_snapshot_bundle` only ever revalidated one
+snapshot against whichever `--previous-dir` its caller supplied. The
+workflow derives that predecessor with a shell `find | sort | awk`, and
+nothing re-checked that the supplied predecessor was actually the archive's
+true immediately-preceding snapshot -- so a deleted, reordered, or
+mis-linked predecessor could pass an isolated pairwise check.
+
+`replay-archive`/`replay_archive()` closes that gap: it walks
+`evidence/us_breadth/raw/` in captured order and threads each snapshot into
+the *next* call's `previous_dir` itself, so every bundle is revalidated
+against its one true predecessor. Because `validate_snapshot_bundle`
+rebuilds `_membership_diff.json` from that predecessor and requires a
+byte-identical match, a snapshot whose committed diff was built against any
+other baseline -- including one that has since been deleted from the
+archive -- fails `MEMBERSHIP_DIFF_MISMATCH` before any of it is trusted. An
+unexpected file, a malformed directory name, or a symlinked snapshot inside
+`evidence/us_breadth/raw/` fails `ARCHIVE_INVENTORY_INVALID`. The scheduled
+workflow now runs `replay-archive` immediately after a new snapshot is
+placed in its final path and before the commit step, so a bad predecessor
+linkage fails the run instead of being committed.
+
+`universe-as-of`/`universe_as_of(date)` fully replays the archive first,
+then returns the latest snapshot's membership with `snapshot_date <= date`
+-- strict forward-fill across gaps such as weekends, never backward. A date
+earlier than the archive's first snapshot fails
+`AS_OF_BEFORE_ARCHIVE_BASELINE` rather than being silently backfilled from
+current membership. This closes the *universe* half of the original Exit
+Gate for every date the archive already covers going forward; it does not
+and cannot answer for a date before Atlas' first capture, and it still says
+nothing about price advance/decline breadth -- that half remains gated by
+the paid-data checkpoint below.
+
 ## Paid-data confirmation checkpoint
 
 The machine-readable contract contains
@@ -85,8 +119,13 @@ the following:
 - a free trial that converts to a paid plan.
 
 This approval cannot be inferred from the 2026-08-19 forward-only decision.
-The original WBS Exit Gate—rebuilding historical date-specific universe and
-breadth—therefore remains open even after this capture workflow goes live.
+`universe_as_of()` reconstructs date-specific *universe* membership, but only
+from the archive's own first capture forward -- it refuses any date before
+that baseline rather than backfilling it. Date-specific advance/decline
+*breadth* still requires delisted-security OHLCV, which sits on the
+paid-data stop list above. The original WBS Exit Gate therefore remains open
+on the breadth half, and on any universe date before Atlas began capturing,
+even after this capture workflow goes live.
 
 ## Offline verification
 
@@ -97,6 +136,8 @@ python3 .github/scripts/us_breadth_forward.py validate \
 python3 .github/scripts/us_breadth_forward.py validate-bundle \
   evidence/us_breadth/raw/YYYY-MM-DD \
   --previous-dir evidence/us_breadth/raw/PREVIOUS-YYYY-MM-DD
+python3 .github/scripts/us_breadth_forward.py replay-archive
+python3 .github/scripts/us_breadth_forward.py universe-as-of --date YYYY-MM-DD
 ```
 
 No helper command fetches data.  Network access exists only in the dedicated

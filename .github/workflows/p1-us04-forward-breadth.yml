@@ -103,6 +103,9 @@ jobs:
           mv "$DATED" "$DIR"
           trap - EXIT
           rm -rf "$STAGING_PARENT"
+
+          python3 .github/scripts/us_breadth_forward.py replay-archive
+
           echo "result=captured" >> "$GITHUB_OUTPUT"
       - name: Commit immutable capture
         if: steps.capture.outputs.result == 'captured'
