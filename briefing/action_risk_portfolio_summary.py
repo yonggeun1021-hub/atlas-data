@@ -47,6 +47,26 @@ def _load_position_sizing():
 POSITION_SIZING = _load_position_sizing()
 
 
+def _load_portfolio_validator(name: str, relative_path: str):
+    path = ROOT / relative_path
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"PORTFOLIO_VALIDATOR_IMPORT_FAILED:{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CONCENTRATION_GUARD = _load_portfolio_validator(
+    "atlas_concentration_guard_for_p806",
+    "portfolio/concentration_correlation_guard.py",
+)
+PLANNED_LOSS_BUDGET = _load_portfolio_validator(
+    "atlas_planned_loss_for_p806",
+    "portfolio/planned_loss_budget.py",
+)
+
+
 class ActionRiskPortfolioSummaryError(ValueError):
     """Fail-closed P8-06 source or summary violation."""
 
@@ -88,7 +108,7 @@ SOURCE_IDENTITIES = {
         "config/cash_exposure_action_contract.json",
     ),
     "CONCENTRATION_GUARD": (
-        "concentration_correlation_packet/1", "concentration_correlation_guard/1",
+        "concentration_correlation_packet/2", "concentration_correlation_guard/2",
         ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
         "config/concentration_correlation_guard_contract.json",
     ),
@@ -128,7 +148,7 @@ SOURCE_IDENTITIES = {
         "config/market_theme_exposure_budget_contract.json",
     ),
     "PLANNED_LOSS_BUDGET": (
-        "planned_loss_packet/1", "planned_loss_budget/1",
+        "planned_loss_packet/2", "planned_loss_budget/2",
         ["LIMIT_BREACH", "WITHIN_RATIFIED_LOSS_BUDGET"],
         "config/planned_loss_budget_contract.json",
     ),
@@ -154,9 +174,9 @@ def _expected_contract() -> dict:
         "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET",
     ]
     return {
-        "schema_version": 1,
-        "contract_version": "action_risk_portfolio_summary/1",
-        "output_schema_version": "action_risk_portfolio_summary_packet/1",
+        "schema_version": 2,
+        "contract_version": "action_risk_portfolio_summary/2",
+        "output_schema_version": "action_risk_portfolio_summary_packet/2",
         "slots": ["morning", "evening"],
         "action_categories": ["BUY", "WATCH", "REDUCE", "HEDGE", "EXIT", "NOTHING"],
         "runtime_action_status": "NOT_EVALUATED",
@@ -302,6 +322,20 @@ def _validate_source(name: str, packet: dict, contract: dict) -> dict:
             POSITION_SIZING.validate_packet(copy.deepcopy(packet))
         except POSITION_SIZING.PositionSizingError as exc:
             raise ActionRiskPortfolioSummaryError(f"POSITION_SIZING_INVALID:{exc}") from exc
+    if name == "CONCENTRATION_GUARD":
+        try:
+            CONCENTRATION_GUARD.validate_packet(copy.deepcopy(packet))
+        except CONCENTRATION_GUARD.ConcentrationCorrelationError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"CONCENTRATION_GUARD_INVALID:{exc}"
+            ) from exc
+    if name == "PLANNED_LOSS_BUDGET":
+        try:
+            PLANNED_LOSS_BUDGET.validate_packet(copy.deepcopy(packet))
+        except PLANNED_LOSS_BUDGET.PlannedLossBudgetError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"PLANNED_LOSS_BUDGET_INVALID:{exc}"
+            ) from exc
     breaches = packet.get("breaches", [])
     if name in contract["risk_sources"]:
         if not isinstance(breaches, list):
@@ -404,13 +438,12 @@ def _action_rows(source_rows: list[dict], contract: dict) -> list[dict]:
     return rows
 
 
-def build_summary(
+def _assemble(
     source_packets: dict,
     unavailable_reasons: dict,
     generated_at: str,
-    contract: dict | None = None,
+    contract: dict,
 ) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
     generated_at = _utc(generated_at, "GENERATED_AT_INVALID")
     sources = _source_rows(source_packets, unavailable_reasons, contract)
     unified_packet = source_packets["UNIFIED_DECISION"]
@@ -451,6 +484,8 @@ def build_summary(
             "evaluated_action_count": 0,
             "nothing_action": None,
         },
+        "source_packets": copy.deepcopy(source_packets),
+        "unavailable_reasons": copy.deepcopy(unavailable_reasons),
         "lineage": {
             "unified_decision_packet_sha256": unified_packet["packet_sha256"],
             "source_packet_sha256": {
@@ -469,8 +504,49 @@ def build_summary(
             "PRODUCTION_NOT_AUTHORIZED",
         ],
     }
-    packet["packet_sha256"] = payload_sha256(packet)
     return packet
+
+
+def build_summary(
+    source_packets: dict,
+    unavailable_reasons: dict,
+    generated_at: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet = _assemble(source_packets, unavailable_reasons, generated_at, contract)
+    packet["packet_sha256"] = payload_sha256(packet)
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "decision_id", "decision_date",
+        "slot", "generated_at", "status", "actions", "risk_findings", "sources",
+        "summary", "source_packets", "unavailable_reasons", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise ActionRiskPortfolioSummaryError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+    ):
+        raise ActionRiskPortfolioSummaryError("OUTPUT_IDENTITY_INVALID")
+    expected = _assemble(
+        packet.get("source_packets"),
+        packet.get("unavailable_reasons"),
+        packet.get("generated_at"),
+        contract,
+    )
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise ActionRiskPortfolioSummaryError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
+        raise ActionRiskPortfolioSummaryError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
