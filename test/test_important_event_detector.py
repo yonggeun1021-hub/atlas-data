@@ -47,8 +47,8 @@ def rule(
 
 def policy(rows=None, **changes):
     value = {
-        "schema_version": "important_event_policy/1",
-        "contract_version": "important_event_detector/1",
+        "schema_version": CONTRACT["policy_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "policy_id": "IMPORTANT.EVENT.TEST.V1",
         "status": "RATIFIED",
         "ratified_by": "CIO",
@@ -100,8 +100,8 @@ def event(
 
 def batch(rows=None, observed_at="2026-08-21T03:00:00Z"):
     value = {
-        "schema_version": "important_event_observation_batch/1",
-        "contract_version": "important_event_detector/1",
+        "schema_version": CONTRACT["input_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "batch_id": "IMPORTANT.EVENT.BATCH.20260821",
         "observed_at": observed_at,
         "events": [event()] if rows is None else rows,
@@ -211,7 +211,30 @@ class ImportantEventDetectorTests(unittest.TestCase):
         tampered = copy.deepcopy(packet)
         tampered["detections"][0]["notification_status"] = "SENT"
         with self.assertRaisesRegex(MODULE.ImportantEventDetectorError, "PACKET_CONTENT_MISMATCH"):
-            MODULE.validate_packet(tampered, batch(), policy(), CONTRACT)
+            MODULE.validate_packet(tampered, CONTRACT)
+
+    def test_exact_sources_make_output_self_validating(self):
+        source_batch, source_policy = batch(), policy()
+        packet = MODULE.build_packet(
+            source_batch, source_policy, self.DETECTED_AT, CONTRACT
+        )
+        self.assertEqual(packet["source_packets"]["EVENT_BATCH"], source_batch)
+        self.assertEqual(packet["source_packets"]["POLICY"], source_policy)
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+
+        tampered = copy.deepcopy(packet)
+        embedded = tampered["source_packets"]["POLICY"]
+        embedded["authority"]["notification_authorized"] = True
+        embedded["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in embedded.items() if key != "packet_sha256"}
+        )
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in tampered.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ImportantEventDetectorError, "POLICY_IDENTITY_INVALID"
+        ):
+            MODULE.validate_packet(tampered, CONTRACT)
 
     def test_deterministic_permutation_safe_and_inputs_immutable(self):
         rows = [event(), event("SEC.20260821.0002", subject_id="US.XNAS.MSFT")]

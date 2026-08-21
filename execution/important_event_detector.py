@@ -42,11 +42,11 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "important_event_detector/1",
-        "policy_schema_version": "important_event_policy/1",
-        "input_schema_version": "important_event_observation_batch/1",
-        "output_schema_version": "important_event_detection_packet/1",
+        "schema_version": 2,
+        "contract_version": "important_event_detector/2",
+        "policy_schema_version": "important_event_policy/2",
+        "input_schema_version": "important_event_observation_batch/2",
+        "output_schema_version": "important_event_detection_packet/2",
         "markets": ["US", "KOREA", "CRYPTO"],
         "source_kinds": ["SEC_EDGAR", "DART_OPEN_API", "OFFICIAL_NEWS"],
         "importance_levels": ["IMPORTANT", "ROUTINE"],
@@ -363,6 +363,10 @@ def build_packet(event_batch: dict, policy: dict, detected_at: str, contract: di
             "policy_id": checked_policy["policy_id"],
             "policy_sha256": checked_policy["packet_sha256"],
         },
+        "source_packets": {
+            "EVENT_BATCH": copy.deepcopy(event_batch),
+            "POLICY": copy.deepcopy(policy),
+        },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
             "LIVE_SEC_DART_NEWS_ADAPTERS_NOT_WIRED",
@@ -373,16 +377,22 @@ def build_packet(event_batch: dict, policy: dict, detected_at: str, contract: di
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_packet(packet, event_batch, policy, contract)
+    return validate_packet(packet, contract)
 
 
-def validate_packet(packet: dict, event_batch: dict, policy: dict, contract: dict | None = None) -> dict:
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if not isinstance(packet, dict) or set(packet) != {
         "schema_version", "contract_version", "detected_at", "status", "detections",
-        "summary", "lineage", "authority", "unresolved_boundaries", "packet_sha256",
+        "summary", "lineage", "source_packets", "authority",
+        "unresolved_boundaries", "packet_sha256",
     }:
         raise ImportantEventDetectorError("PACKET_FIELDS_MISMATCH")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {"EVENT_BATCH", "POLICY"}:
+        raise ImportantEventDetectorError("PACKET_SOURCE_FIELDS_MISMATCH")
+    event_batch = sources["EVENT_BATCH"]
+    policy = sources["POLICY"]
     detected = _utc(packet.get("detected_at"), "DETECTED_AT_INVALID")
     checked_policy = _validate_policy(policy, detected, contract)
     checked_events = _validate_events(event_batch, detected, contract)

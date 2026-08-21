@@ -6,6 +6,11 @@ policy to normalized SEC, DART, and official-news events by exact
 `IMPORTANT` rule become `ESCALATED`; routine, unmatched, and evidence-blocked
 events remain distinct.
 
+Contract v2 embeds the exact normalized event batch and ratified policy in the
+result. `validate_packet()` therefore revalidates both sources and their SHA
+lineage without requiring caller-supplied side inputs; a self-rehashed source
+authority mutation fails closed.
+
 For escalated events the packet measures delay from `available_at` to the
 caller-supplied detection time and reports `ON_TIME` or `LATE` against the
 ratified rule. It does not infer event types, invent an importance policy, send
