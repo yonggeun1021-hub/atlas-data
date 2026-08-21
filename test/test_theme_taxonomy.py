@@ -135,6 +135,8 @@ class ThemeTaxonomyTests(unittest.TestCase):
         self.assertEqual(packet["graph_status"], "EFFECTIVE_RATIFIED_GRAPH")
         self.assertTrue(packet["theme_membership_authorized"])
         self.assertEqual(packet["covered_markets"], ["KOREA", "US"])
+        self.assertEqual(packet["active_covered_markets"], ["KOREA", "US"])
+        self.assertEqual(packet["active_edge_count"], 2)
         self.assertEqual(packet["node_count"], 3)
         self.assertEqual(packet["edge_count"], 2)
         self.assertEqual(packet["membership_count"], 2)
@@ -178,6 +180,41 @@ class ThemeTaxonomyTests(unittest.TestCase):
         value["edges"] = []
         with self.assertRaisesRegex(TT.ThemeTaxonomyError, "RATIFIED_GRAPH_INCOMPLETE"):
             TT.build_packet(value)
+
+    def test_active_slice_losing_market_coverage_deactivates_the_graph(self):
+        # RATIFIED_MARKET_COVERAGE_INCOMPLETE above only proves both markets
+        # were named *somewhere* across the document's full history. A
+        # membership's own valid_from/valid_to can lapse independently of the
+        # approval's effective window -- here the Korea membership expired
+        # five days before as_of_date. The graph must not report itself
+        # EFFECTIVE_RATIFIED_GRAPH / theme_membership_authorized with an
+        # adapter that, on this observation date, connects only one market.
+        value = fixture()
+        value["memberships"][1]["valid_from"] = "2026-08-01"
+        value["memberships"][1]["valid_to"] = "2026-08-15"
+        packet = TT.build_packet(value)
+        self.assertEqual(packet["graph_status"], "DRAFT_OR_NOT_EFFECTIVE_GRAPH")
+        self.assertFalse(packet["theme_membership_authorized"])
+        self.assertEqual(packet["global_asset_master_membership_adapter"], [])
+        self.assertEqual(packet["active_covered_markets"], ["US"])
+        # The historical-union field still honestly reports both markets
+        # were named in the document at some point -- a different fact from
+        # what is active today.
+        self.assertEqual(packet["covered_markets"], ["KOREA", "US"])
+        self.assertEqual(packet["membership_count"], 2)
+        self.assertEqual(packet["active_membership_count"], 1)
+
+    def test_active_slice_with_no_active_edges_deactivates_the_graph(self):
+        value = fixture()
+        for edge in value["edges"]:
+            edge["valid_from"] = "2026-01-01"
+            edge["valid_to"] = "2026-02-01"
+        packet = TT.build_packet(value)
+        self.assertEqual(packet["graph_status"], "DRAFT_OR_NOT_EFFECTIVE_GRAPH")
+        self.assertFalse(packet["theme_membership_authorized"])
+        self.assertEqual(packet["global_asset_master_membership_adapter"], [])
+        self.assertEqual(packet["active_edge_count"], 0)
+        self.assertEqual(packet["edge_count"], 2)
 
     def test_contains_cycle_and_self_reference_fail_closed(self):
         value = fixture()
