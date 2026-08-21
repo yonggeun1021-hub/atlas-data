@@ -225,15 +225,15 @@ class DailyOrchestratorTest(unittest.TestCase):
         packet = MODULE.build_packet("morning", past_date, "2026-08-20T12:00:00Z")
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
 
-    def test_non_revalidatable_components_are_a_disclosed_bounded_exemption(self):
+    def test_non_revalidatable_components_are_disclosed_but_still_tamper_checked(self):
         # STEP0_READ_MODEL_HEALTH / KRX_PREOPEN_COMPACT / DART_FILING_CONTENT
         # / SEC_FILING_CONTENT read a mutable rolling pointer with no
-        # per-date archive, so they cannot be independently re-derived once
-        # that pointer has moved on. validate_packet() therefore trusts the
-        # persisted row for exactly these four rather than re-fetching --
-        # this test documents and pins that boundary rather than letting it
-        # be a silent, accidental gap. Every other component (e.g.
-        # BTC_TREND above) does NOT get this exemption.
+        # per-date archive, so an honest, untampered packet can legitimately
+        # fail *later* re-validation for these four once the pointer has
+        # moved on -- that limitation is disclosed (constant + boundary
+        # string) rather than a silent gap. It must NOT mean these four are
+        # exempt from tamper detection: validate_packet() no longer trusts
+        # any row blindly, this one included.
         self.assertEqual(
             MODULE.NON_REVALIDATABLE_COMPONENTS,
             frozenset({
@@ -242,24 +242,38 @@ class DailyOrchestratorTest(unittest.TestCase):
             }),
         )
         self.assertIn(
-            "SAME_DAY_ROLLING_POINTER_COMPONENTS_NOT_INDEPENDENTLY_REVALIDATED",
+            "ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER",
             MODULE.build_packet(
                 "morning", DECISION_DATE, MORNING_GENERATED_AT
             )["unresolved_boundaries"],
         )
 
         packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
-        tampered = copy.deepcopy(packet)
-        for row in tampered["components"]:
-            if row["component_id"] == "STEP0_READ_MODEL_HEALTH":
-                row["reason"] = "TAMPERED_REASON_NEVER_REALLY_HAPPENED"
-        unsigned = copy.deepcopy(tampered)
-        del unsigned["packet_sha256"]
-        tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
-        # This does NOT raise: it is the disclosed, tested exemption, not a
-        # silent regression -- confirmed here so a future change that
-        # removes the exemption without updating this test will be noticed.
-        self.assertEqual(MODULE.validate_packet(copy.deepcopy(tampered)), tampered)
+        # A fresh, just-built packet validates cleanly (the mutable pointer
+        # has not moved since -- same moment).
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
+        # Each of the four is also explicitly not claiming eternal
+        # re-derivability.
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        for component_id in MODULE.NON_REVALIDATABLE_COMPONENTS:
+            self.assertFalse(by_id[component_id]["validated"], component_id)
+
+        for component_id in MODULE.NON_REVALIDATABLE_COMPONENTS:
+            tampered = copy.deepcopy(packet)
+            for row in tampered["components"]:
+                if row["component_id"] == component_id:
+                    row["reason"] = "TAMPERED_REASON_NEVER_REALLY_HAPPENED"
+            unsigned = copy.deepcopy(tampered)
+            del unsigned["packet_sha256"]
+            tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+            # This MUST now raise: a prior version of this module trusted
+            # these four rows blindly (frozen_rows) and this exact tamper
+            # slipped past undetected. That blind trust was removed
+            # specifically to close this hole.
+            with self.assertRaisesRegex(
+                MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH", msg=component_id
+            ):
+                MODULE.validate_packet(copy.deepcopy(tampered))
 
     def test_generated_date_mismatch_isolates_unified_decision_not_whole_run(self):
         # decision_date deliberately does not match generated_at's own date.
@@ -519,6 +533,210 @@ class DailyOrchestratorTest(unittest.TestCase):
             self.assertEqual(index["latest_revision"], 2)
             self.assertEqual([r["revision"] for r in index["revisions"]], [1, 2])
 
+    def test_same_day_recovery_publishes_a_new_revision_on_value_change_even_if_status_unchanged(
+        self,
+    ):
+        # A component that stays READY -> READY across two builds, but
+        # whose actual retained value silently changed underneath (e.g. a
+        # same-day corrected re-collection), must still trigger a new
+        # revision. A status-only comparison would wrongly treat this as
+        # "nothing changed" and reuse the stale revision forever.
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_root = Path(tmp) / "daily_briefing"
+            original = MODULE.build_btc_trend
+
+            def _direction_a(decision_date):
+                row = copy.deepcopy(original(decision_date))
+                row["packet"]["direction"] = "ABOVE_200DMA"
+                return row
+
+            MODULE.build_btc_trend = _direction_a
+            try:
+                first = MODULE.publish(
+                    "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+                )
+            finally:
+                MODULE.build_btc_trend = original
+            self.assertTrue(first["created"])
+            first_packet = json.loads((first["path"] / "packet.json").read_text())
+            first_by_id = {
+                row["component_id"]: row for row in first_packet["components"]
+            }
+            self.assertEqual(first_by_id["BTC_TREND"]["status"], "READY")
+            self.assertEqual(
+                first_by_id["BTC_TREND"]["packet"]["direction"], "ABOVE_200DMA"
+            )
+
+            def _direction_b(decision_date):
+                row = copy.deepcopy(original(decision_date))
+                row["packet"]["direction"] = "BELOW_200DMA"
+                return row
+
+            MODULE.build_btc_trend = _direction_b
+            try:
+                second = MODULE.publish(
+                    "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+                )
+            finally:
+                MODULE.build_btc_trend = original
+            # Status is READY both times -- a status-only fingerprint would
+            # call this a no-op. The direction value actually changed, so a
+            # new revision must be created.
+            self.assertTrue(second["created"])
+            self.assertEqual(second["revision"], 2)
+            second_packet = json.loads((second["path"] / "packet.json").read_text())
+            second_by_id = {
+                row["component_id"]: row for row in second_packet["components"]
+            }
+            self.assertEqual(second_by_id["BTC_TREND"]["status"], "READY")
+            self.assertEqual(
+                second_by_id["BTC_TREND"]["packet"]["direction"], "BELOW_200DMA"
+            )
+
+    def test_same_day_recovery_every_revision_independently_validates_and_rejects_tamper(
+        self,
+    ):
+        # After a same-day recovery produces rev-001 (BTC_TREND artificially
+        # DEGRADED) and rev-002 (recovered to READY), BOTH persisted
+        # revisions -- not just the latest one -- must independently
+        # re-validate under their own real build-time conditions, and each
+        # must independently reject a semantic tamper + rehash of its own
+        # bytes. publish()'s existing-revision check is a cheap self-hash
+        # only (see the comment in publish()); this test proves the
+        # stronger guarantee -- full validate_packet() -- separately holds
+        # for every revision that was ever written, not just the one
+        # publish() happens to compare against.
+        #
+        # rev-001 must be revalidated while the same fault injection that
+        # produced it is still active: a DEGRADED-from-exception status is,
+        # by nature, a snapshot of a transient build-time failure, not
+        # re-derivable evidence -- removing the injection before
+        # revalidating it would make an honest, untampered rev-001 fail to
+        # match, which is a fault-injection artifact of this test, not the
+        # property being proven here.
+        def _tamper_and_rehash(persisted, component_id, field_path):
+            tampered = copy.deepcopy(persisted)
+            for row in tampered["components"]:
+                if row["component_id"] == component_id:
+                    target = row
+                    for key in field_path[:-1]:
+                        target = target[key]
+                    target[field_path[-1]] = "TAMPERED"
+            unsigned = copy.deepcopy(tampered)
+            del unsigned["packet_sha256"]
+            tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+            return tampered
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_root = Path(tmp) / "daily_briefing"
+            original = MODULE.BTC_TREND.build_transform
+
+            def _boom(*args, **kwargs):
+                raise RuntimeError("capture not landed yet")
+
+            MODULE.BTC_TREND.build_transform = _boom
+            try:
+                first = MODULE.publish(
+                    "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+                )
+                first_persisted = json.loads(
+                    (first["path"] / "packet.json").read_text()
+                )
+                self.assertEqual(
+                    MODULE.validate_packet(copy.deepcopy(first_persisted)),
+                    first_persisted,
+                )
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+                ):
+                    MODULE.validate_packet(
+                        _tamper_and_rehash(
+                            first_persisted,
+                            "STABLECOIN_NET_ISSUANCE",
+                            ["packet", "daily_status"],
+                        )
+                    )
+            finally:
+                MODULE.BTC_TREND.build_transform = original
+
+            second = MODULE.publish(
+                "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+            )
+            second_persisted = json.loads(
+                (second["path"] / "packet.json").read_text()
+            )
+            self.assertEqual(first["revision"], 1)
+            self.assertEqual(second["revision"], 2)
+            self.assertNotEqual(first["path"], second["path"])
+            self.assertEqual(
+                MODULE.validate_packet(copy.deepcopy(second_persisted)),
+                second_persisted,
+            )
+            with self.assertRaisesRegex(
+                MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+            ):
+                MODULE.validate_packet(
+                    _tamper_and_rehash(
+                        second_persisted,
+                        "STABLECOIN_NET_ISSUANCE",
+                        ["packet", "daily_status"],
+                    )
+                )
+            # rev-001's own persisted bytes on disk are untouched by any of
+            # the above (all tampering happened on in-memory copies).
+            self.assertEqual(
+                json.loads((first["path"] / "packet.json").read_text()),
+                first_persisted,
+            )
+
+    def test_temporal_boundary_rejects_as_of_date_after_decision_date(self):
+        row = MODULE.component_row(
+            "BTC_TREND", "READY", None, as_of_date="2099-01-02"
+        )
+        result = MODULE._enforce_temporal_boundary(
+            row, "2099-01-01", MODULE.dt.datetime.fromisoformat("2099-01-01T12:00:00+00:00")
+        )
+        self.assertEqual(result["status"], "DATA_BLOCKED")
+        self.assertEqual(result["reason"], "AS_OF_DATE_AFTER_DECISION_DATE")
+        self.assertIsNone(result["packet"])
+
+    def test_temporal_boundary_rejects_available_at_after_generated_at(self):
+        # A common, generic check -- proven here directly against the
+        # helper, and again below through build_packet() with a
+        # monkeypatched sensor -- so no future sensor can silently smuggle
+        # not-yet-available evidence past this by simply not implementing
+        # its own guard.
+        row = MODULE.component_row(
+            "KOFIA_FIRST_SEEN", "READY", None,
+            as_of_date="2026-08-21", available_at="2026-08-21T15:00:00Z",
+        )
+        generated_at_dt = MODULE.dt.datetime.fromisoformat("2026-08-21T12:00:00+00:00")
+        result = MODULE._enforce_temporal_boundary(row, "2026-08-21", generated_at_dt)
+        self.assertEqual(result["status"], "DATA_BLOCKED")
+        self.assertEqual(result["reason"], "AVAILABLE_AT_AFTER_GENERATED_AT")
+
+        # And the same afternoon-evidence-not-visible-to-a-morning-packet
+        # scenario end to end through build_packet(), not just the unit
+        # helper: a morning packet generated early in the day must not read
+        # a component whose evidence only became available later that day.
+        original = MODULE.build_btc_trend
+
+        def _afternoon_evidence(decision_date):
+            row = copy.deepcopy(original(decision_date))
+            row["available_at"] = "2026-08-21T15:00:00Z"
+            return row
+
+        MODULE.build_btc_trend = _afternoon_evidence
+        try:
+            packet = MODULE.build_packet(
+                "morning", DECISION_DATE, "2026-08-21T12:00:00Z"
+            )
+        finally:
+            MODULE.build_btc_trend = original
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        self.assertEqual(by_id["BTC_TREND"]["status"], "DATA_BLOCKED")
+        self.assertEqual(by_id["BTC_TREND"]["reason"], "AVAILABLE_AT_AFTER_GENERATED_AT")
+
     def test_existing_corrupted_revision_is_surfaced_not_silently_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence_root = Path(tmp) / "daily_briefing"
@@ -626,6 +844,22 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn('"30 9 * * 1-5") SLOT="evening"', command)
         self.assertNotIn("date +%H", command)
         self.assertNotIn("KST_HOUR", command)
+
+    def test_same_day_recovery_has_no_automatic_trigger_and_says_so(self):
+        # publish() can correctly add a same-day recovery revision when
+        # called again (proven above), but nothing currently re-invokes it
+        # automatically during the day -- only the two approved scheduled
+        # entry points plus manual workflow_dispatch exist. Rather than
+        # fabricating a new, unapproved cron to manufacture that
+        # capability, this is left as an honest, disclosed WBS blocker
+        # baked into every packet, not just documentation prose.
+        schedule = WF.get("on", WF.get(True))["schedule"]
+        self.assertEqual(len(schedule), 2, "no unapproved third schedule entry")
+        packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
+        self.assertIn(
+            "SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED",
+            packet["unresolved_boundaries"],
+        )
 
     def test_workflow_does_not_duplicate_or_alter_existing_collector_schedules(self):
         # The daily briefing workflow must never re-fetch anything the

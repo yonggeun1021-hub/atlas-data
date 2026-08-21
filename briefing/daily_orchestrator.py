@@ -188,6 +188,56 @@ def _latest_run_dir(day_dir: Path) -> Path | None:
     return candidates[-1] if candidates else None
 
 
+def _enforce_temporal_boundary(
+    row: dict, decision_date: str, generated_at_dt: dt.datetime
+) -> dict:
+    """Fail-closed common time boundary applied to every component row,
+    regardless of which builder produced it:
+
+    1. as_of_date must not be after decision_date -- evidence dated later
+       than the day being decided for is a future leak.
+    2. available_at (when the underlying source declares one) must not be
+       after generated_at -- evidence that only became available after
+       this packet was generated did not exist yet at generation time and
+       must not be promoted to a decision-ready status.
+
+    A row that violates either boundary is downgraded to DATA_BLOCKED with
+    a boundary-specific reason, its packet cleared. This is deliberately
+    generic and applied once, centrally, in build_packet() -- a future
+    sensor cannot silently smuggle future-dated or not-yet-available
+    evidence past this check simply by not implementing its own guard.
+    Today every real source's available_at is null (unratified), so this
+    is defense-in-depth rather than something live evidence currently
+    triggers; see test_daily_orchestrator.py for the monkeypatched proof
+    that the mechanism itself works.
+    """
+    as_of_date = row.get("as_of_date")
+    if isinstance(as_of_date, str) and as_of_date > decision_date:
+        return component_row(
+            row["component_id"], "DATA_BLOCKED", "AS_OF_DATE_AFTER_DECISION_DATE",
+            as_of_date=as_of_date,
+        )
+    available_at = row.get("available_at")
+    if available_at is not None:
+        try:
+            available_at_dt = dt.datetime.fromisoformat(
+                str(available_at).replace("Z", "+00:00")
+            )
+        except ValueError:
+            return component_row(
+                row["component_id"], "DATA_BLOCKED", "AVAILABLE_AT_UNPARSEABLE",
+                as_of_date=as_of_date,
+            )
+        if available_at_dt.tzinfo is None:
+            available_at_dt = available_at_dt.replace(tzinfo=UTC)
+        if available_at_dt > generated_at_dt:
+            return component_row(
+                row["component_id"], "DATA_BLOCKED", "AVAILABLE_AT_AFTER_GENERATED_AT",
+                as_of_date=as_of_date,
+            )
+    return row
+
+
 def _dated_dir_for_decision(root: Path, decision_date: str) -> Path | None:
     """Return root/decision_date iff it exists as a real directory.
 
@@ -233,7 +283,11 @@ def build_step0_health(decision_date: str) -> dict:
         reason,
         as_of_date=decision_date,
         source_packet_path="data/briefing_status.json",
-        validated=True,
+        # False, not True: this reads a mutable rolling pointer with no
+        # per-date archive (see NON_REVALIDATABLE_COMPONENTS), so this row
+        # cannot honestly promise to be independently re-derivable at any
+        # future point the way every other component's validated=True does.
+        validated=False,
         packet=payload,
     )
 
@@ -265,7 +319,9 @@ def build_krx_preopen_compact(decision_date: str, step0_packet: dict | None) -> 
         as_of_date=krx.get("collected_for_kst_date"),
         source_packet_path=krx.get("path"),
         source_packet_sha256=krx.get("source_sha256"),
-        validated=True,
+        # False, not True: see NON_REVALIDATABLE_COMPONENTS -- this reads
+        # the same mutable rolling pointer as STEP0_READ_MODEL_HEALTH.
+        validated=False,
         packet={"krx": krx, "dart": sources.get("dart"), "sec": sources.get("sec")},
     )
 
@@ -348,7 +404,9 @@ def _filing_content_status(component_id: str, status_file: str, decision_date: s
         generated_at=payload.get("observed_at_utc"),
         source_packet_path=status_file,
         source_packet_sha256=payload.get("source_sha256"),
-        validated=True,
+        # False, not True: see NON_REVALIDATABLE_COMPONENTS -- this reads
+        # the same class of mutable rolling pointer as STEP0/KRX_PREOPEN.
+        validated=False,
         authority=payload.get("authority"),
         contract_version=payload.get("contract_version"),
         packet={"run_status": payload.get("run_status"), "counts": payload.get("counts"), "record_count": count},
@@ -390,6 +448,10 @@ def build_kofia_first_seen(decision_date: str) -> dict:
         "SOURCE_AVAILABLE_AT_AND_API_UNIT_UNRATIFIED",
         as_of_date=day_dir.name,
         generated_at=observation.get("captured_at_utc"),
+        # Surfaced at the row level too (not only nested inside packet), so
+        # the common _enforce_temporal_boundary() check in build_packet()
+        # can see it uniformly like every other component's available_at.
+        available_at=observation.get("available_at"),
         source_packet_path=str(run_dir.relative_to(ROOT)),
         validated=True,
         packet={
@@ -841,17 +903,33 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
 # archive behind it. Every other component now reads a genuinely immutable,
 # append-only, per-date evidence directory (after the decision_date pinning
 # above), so re-deriving them independently at any future validation time is
-# both possible and required. For these four, that is not possible: once
-# the rolling pointer has moved past decision_date, there is nothing left
-# to independently re-derive it from. validate_packet() therefore trusts
-# the *persisted* row for these four rather than attempting -- and
-# incorrectly failing -- a live re-fetch, while still catching any bit-level
-# tamper of them through the outer packet_sha256 check. This is a disclosed,
-# tested boundary (see PRIOR_EVIDENCE equivalents elsewhere in this repo for
-# the same "cannot prove a mutable, non-archived source's past state"
-# limitation), not a silent gap: it is listed in unresolved_boundaries and
-# a self-rehashed tamper of exactly these four rows is NOT caught, by
-# design and by test.
+# both possible and required, and validate_packet() does exactly that for
+# all 32 components uniformly -- there is no blind-trust shortcut for any
+# of them. An earlier revision of this module *did* special-case these four
+# by trusting the persisted row outright instead of re-deriving it; that
+# shortcut was removed because it meant a semantic tamper of exactly these
+# four rows, followed by recomputing the outer packet_sha256 over the
+# tampered payload, was NOT caught -- the row was inserted verbatim rather
+# than independently re-checked. validate_packet() no longer has any such
+# exemption: tampering any of these four rows and rehashing now fails
+# exactly like tampering any other row, by test.
+#
+# The honest cost of removing that shortcut: because these four have no
+# per-date archive, an independent rebuild of them can only match the
+# persisted row while the mutable pointer file still reflects the same
+# content it did at build time (typically: same collection cycle, often the
+# same day). Once collect.yml's next cycle overwrites the pointer, a later
+# call to validate_packet() on an otherwise-honest, untampered packet will
+# legitimately see these four rows diverge from a fresh rebuild and reject
+# the packet with OUTPUT_MISMATCH -- not because it was tampered, but
+# because there is nothing left to independently re-derive it from. This is
+# a disclosed, tested, structural limitation of a source with no archive
+# (see unresolved_boundaries), not a silent gap and not a false-positive
+# tamper signal to be papered over with a new ad hoc hash policy. Each of
+# these four rows is also marked validated=False rather than True, since
+# "validated" for every other component means "independently re-derivable
+# at any future point," which is not a promise these four can honestly
+# make.
 NON_REVALIDATABLE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
     "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
@@ -863,7 +941,6 @@ def build_packet(
     decision_date: str,
     generated_at: str,
     contract: dict | None = None,
-    frozen_rows: dict[str, dict] | None = None,
 ) -> dict:
     contract = load_contract() if contract is None else contract
     if slot not in contract["slots"]:
@@ -874,20 +951,12 @@ def build_packet(
         fail("GENERATED_AT_INVALID", generated_at)
     if generated_at_dt.tzinfo is None:
         fail("GENERATED_AT_INVALID", "must include a timezone offset")
-    frozen_rows = frozen_rows or {}
-    if not set(frozen_rows) <= NON_REVALIDATABLE_COMPONENTS:
-        fail(
-            "FROZEN_ROWS_INVALID",
-            str(set(frozen_rows) - NON_REVALIDATABLE_COMPONENTS),
-        )
 
     rows: dict[str, dict] = {}
 
-    step0 = frozen_rows.get("STEP0_READ_MODEL_HEALTH") or build_step0_health(decision_date)
+    step0 = build_step0_health(decision_date)
     rows["STEP0_READ_MODEL_HEALTH"] = step0
-    rows["KRX_PREOPEN_COMPACT"] = frozen_rows.get(
-        "KRX_PREOPEN_COMPACT"
-    ) or build_krx_preopen_compact(decision_date, step0["packet"])
+    rows["KRX_PREOPEN_COMPACT"] = build_krx_preopen_compact(decision_date, step0["packet"])
 
     if "KRX_POST_CLOSE" in contract["evening_only_components"] and slot == "evening":
         rows["KRX_POST_CLOSE"] = build_krx_post_close(decision_date, generated_at_dt)
@@ -896,12 +965,8 @@ def build_packet(
             "KRX_POST_CLOSE", "PENDING", "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
         )
 
-    rows["DART_FILING_CONTENT"] = frozen_rows.get(
-        "DART_FILING_CONTENT"
-    ) or build_dart_filing_content(decision_date)
-    rows["SEC_FILING_CONTENT"] = frozen_rows.get(
-        "SEC_FILING_CONTENT"
-    ) or build_sec_filing_content(decision_date)
+    rows["DART_FILING_CONTENT"] = build_dart_filing_content(decision_date)
+    rows["SEC_FILING_CONTENT"] = build_sec_filing_content(decision_date)
     rows["KOFIA_FIRST_SEEN"] = build_kofia_first_seen(decision_date)
     rows["US_BREADTH_MEMBERSHIP"] = build_us_breadth_membership(decision_date)
     rows["BTC_TREND"] = build_btc_trend(decision_date)
@@ -943,6 +1008,22 @@ def build_packet(
             f"missing={set(contract['component_order']) - set(rows)} "
             f"unexpected={set(rows) - set(contract['component_order'])}",
         )
+
+    # Common fail-closed time boundary, applied uniformly to every row
+    # regardless of which builder produced it -- see
+    # _enforce_temporal_boundary(). This pass runs over the final row set,
+    # after UNIFIED_DECISION/ACTION_RISK_PORTFOLIO_SUMMARY have already
+    # consumed their upstream rows; today that ordering is harmless because
+    # neither aggregator consumes a component with a real (non-null)
+    # available_at (REGIME/ROTATION_DISCOVERY/RULE/PORTFOLIO/ACTION_
+    # BOUNDARY are all built empty/UNKNOWN today, and CASH_EXPOSURE/
+    # INVERSE/LONG_SHORT never set available_at). A sensor that both sets a
+    # real available_at *and* feeds an aggregator would need this check
+    # moved earlier, per-row, rather than as one pass at the end -- noted
+    # here rather than silently assumed.
+    for name in rows:
+        rows[name] = _enforce_temporal_boundary(rows[name], decision_date, generated_at_dt)
+
     ordered_components = [rows[name] for name in contract["component_order"]]
 
     counts: dict[str, int] = {status: 0 for status in STATUS_VALUES}
@@ -967,7 +1048,24 @@ def build_packet(
             "PORTFOLIO_CONSTITUTION_NOT_RATIFIED",
             "ACTION_AND_ORDER_NOT_AUTHORIZED",
             "PRODUCTION_NOT_AUTHORIZED",
-            "SAME_DAY_ROLLING_POINTER_COMPONENTS_NOT_INDEPENDENTLY_REVALIDATED",
+            # STEP0_READ_MODEL_HEALTH/KRX_PREOPEN_COMPACT/DART_FILING_
+            # CONTENT/SEC_FILING_CONTENT read a mutable rolling pointer with
+            # no per-date archive: validate_packet() no longer trusts them
+            # blindly (that let semantic tamper slip past undetected), but
+            # that means a genuinely honest, untampered packet can still
+            # legitimately fail re-validation for these four once the
+            # pointer has moved on -- see NON_REVALIDATABLE_COMPONENTS.
+            "ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER",
+            # Same-day recovery (publish() adding a new revision once
+            # DATA_BLOCKED components recover) is a real, tested code path,
+            # but nothing currently re-invokes it automatically during the
+            # day: the workflow has exactly the two approved scheduled
+            # entry points (07:05/18:30 KST) plus manual workflow_dispatch.
+            # A provider-free automatic same-day retry trigger is not
+            # implemented; adding an unapproved new cron to manufacture one
+            # was deliberately not done here -- this is left as an honest
+            # WBS blocker rather than a silently-claimed capability.
+            "SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED",
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
@@ -993,24 +1091,24 @@ def _verify_self_hash(packet: dict) -> None:
 def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     contract = load_contract() if contract is None else contract
     _verify_self_hash(packet)
-    # Every component is independently re-derived from immutable, per-date
-    # evidence except the four NON_REVALIDATABLE_COMPONENTS, which read a
-    # mutable rolling pointer with no historical archive behind it -- those
-    # four are trusted from the persisted packet itself rather than
-    # re-fetched (see the comment on NON_REVALIDATABLE_COMPONENTS). This is
-    # what makes a two-day-old (or older) published packet still
-    # independently verifiable: the 28 revalidatable components are
-    # re-checked against the same frozen evidence they were built from,
-    # regardless of what has been captured since.
-    by_id = {row["component_id"]: row for row in packet.get("components", [])}
-    frozen = {
-        component_id: by_id[component_id]
-        for component_id in NON_REVALIDATABLE_COMPONENTS
-        if component_id in by_id
-    }
+    # Unconditional full rebuild-and-compare, with no exemption for any
+    # component -- see the comment on NON_REVALIDATABLE_COMPONENTS for why a
+    # prior blind-trust shortcut for those four was removed: it let a
+    # semantic tamper of exactly those rows, followed by recomputing the
+    # outer packet_sha256, slip past undetected. Every one of the 32 rows
+    # must now match a genuinely independent rebuild, with no exceptions.
+    #
+    # The honest cost: STEP0_READ_MODEL_HEALTH / KRX_PREOPEN_COMPACT /
+    # DART_FILING_CONTENT / SEC_FILING_CONTENT read a mutable rolling
+    # pointer with no per-date archive, so a rebuild of *those four*
+    # specifically can only match the persisted row while the pointer file
+    # still reflects what it did at build time. A packet may therefore
+    # legitimately fail OUTPUT_MISMATCH later purely because that pointer
+    # moved on -- not because anything was tampered. That is a disclosed,
+    # structural limitation of a source with no archive (see
+    # unresolved_boundaries), not a false-positive tamper signal.
     rebuilt = build_packet(
         packet["slot"], packet["decision_date"], packet["generated_at"], contract,
-        frozen_rows=frozen,
     )
     if rebuilt != packet:
         fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")
@@ -1260,8 +1358,115 @@ def _read_index(date_dir: Path) -> dict | None:
     return _read_json(index_path)
 
 
-def _component_status_vector(packet: dict) -> dict[str, str]:
-    return {row["component_id"]: row["status"] for row in packet["components"]}
+def _component_semantic_fingerprint(packet: dict) -> dict[str, str]:
+    """Per-component fingerprint used to decide whether a same-day
+    republish materially changed anything worth a new revision for.
+
+    Deliberately NOT just {component_id: status}: a component can stay
+    READY -> READY across two builds while its actual retained value,
+    reason, source path/sha, or authority silently changed underneath --
+    e.g. a corrected same-day KRX re-collection, a filing count that grew,
+    or a source path that moved -- and a status-only comparison would miss
+    every one of those as "nothing changed". This hashes every row field
+    except `generated_at`, which legitimately differs on every publish()
+    call (it is the orchestrator's own invocation timestamp) even when
+    nothing substantive changed.
+
+    That same invocation timestamp is also threaded, as an argument, into
+    several downstream synthetic packets built from it -- REGIME (hence
+    also CASH_EXPOSURE_*/INVERSE_*, built from Regime's output),
+    THREE_MARKET_REGIME_HEADER, ROTATION_DISCOVERY, ACTION_BOUNDARY,
+    UNIFIED_DECISION, ACTION_RISK_PORTFOLIO_SUMMARY. It does not merely
+    reappear verbatim there -- those packets also embed *hashes computed
+    over* their own generated_at-tainted content (packet_sha256,
+    source_sha256), which differ unpredictably even after the literal
+    timestamp string is removed, since a hash cannot be un-derived.
+    _strip_fingerprint_noise() therefore drops that known, fixed set of
+    derived/invocation-timestamp key names from the row's nested `packet`
+    content before hashing. Every one of those keys is either purely
+    generated_at-derived or already duplicated by a row-level field that
+    IS still hashed (e.g. a nested `source_sha256` is dropped here, but
+    the row's own `source_packet_sha256` is not) -- so this loses no real
+    signal. Any genuinely real evidence value (direction, drawdown,
+    issuance amount, member count, captured_at_utc, observed_at_utc) is
+    unaffected and still detected as a material change.
+    """
+    fingerprint: dict[str, str] = {}
+    for row in packet["components"]:
+        material = {key: value for key, value in row.items() if key != "generated_at"}
+        material["packet"] = _strip_fingerprint_noise(material.get("packet"))
+        if row["component_id"] in _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS:
+            # These components' own row-level source_packet_sha256 IS their
+            # packet's self-hash (packet.get("packet_sha256")), and that
+            # packet's content is itself built from the generated_at
+            # argument -- so the hash changes on every call even with
+            # identical real content, same as the nested packet_sha256/
+            # source_sha256 fields _strip_fingerprint_noise() already
+            # drops. Real evidence-based components (KRX_PREOPEN_COMPACT,
+            # DART/SEC, KOFIA, BTC/stablecoin/US-breadth/crypto-breadth)
+            # are NOT in this set -- their source_packet_sha256 (when set)
+            # reflects real, generated_at-independent source content and
+            # must remain part of the fingerprint.
+            material["source_packet_sha256"] = None
+        fingerprint[row["component_id"]] = payload_sha256(material)
+    return fingerprint
+
+
+# Components whose packet is built purely from decision_date/slot/
+# generated_at plus already-empty/UNKNOWN upstream state -- no real
+# external evidence feeds them today -- and whose row-level
+# source_packet_sha256 is therefore their own generated_at-tainted
+# self-hash rather than a real, independent source signal. See the comment
+# in _component_semantic_fingerprint() above.
+_GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
+    "KRX_POST_CLOSE", "THREE_MARKET_REGIME_HEADER", "ROTATION_DISCOVERY",
+    "ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY",
+    "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
+    "INVERSE_US", "INVERSE_KOREA", "INVERSE_CRYPTO",
+})
+
+
+_FINGERPRINT_NOISE_KEYS = frozenset({"as_of_utc", "packet_id", "source_as_of"})
+
+
+def _is_fingerprint_noise_key(key: str) -> bool:
+    return (
+        key in _FINGERPRINT_NOISE_KEYS
+        or key.endswith("sha256")
+        or "generated_at" in key
+    )
+
+
+def _strip_fingerprint_noise(value):
+    """Recursively drop known generated_at-derived noise from nested
+    packet content before fingerprinting:
+
+    - Any key containing "generated_at" as a substring (generated_at,
+      source_generated_at, generated_at_kst, and any future field named
+      the same way) -- the literal invocation timestamp, which
+      legitimately differs on every publish() call.
+    - Any key ending in "sha256" (packet_sha256, source_sha256,
+      input_packet_sha256, ...) -- a hash *computed over*
+      generated_at-tainted content, which cannot be un-derived by
+      blanking the literal timestamp string it was built from.
+    - A small fixed set of other timestamp/id fields that are equally
+      generated_at-derived (as_of_utc, packet_id, source_as_of).
+
+    This never drops a row's own top-level source_packet_sha256 (handled
+    separately, per component, in _component_semantic_fingerprint()) or
+    any plain real value (direction, drawdown, issuance amount, member
+    count, status, reason, captured_at_utc, observed_at_utc) -- only
+    nested hash/timestamp fields matching the rules above.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _strip_fingerprint_noise(item)
+            for key, item in value.items()
+            if not _is_fingerprint_noise_key(key)
+        }
+    if isinstance(value, list):
+        return [_strip_fingerprint_noise(item) for item in value]
+    return value
 
 
 def _write_index_atomic(date_dir: Path, index: dict) -> None:
@@ -1312,13 +1517,17 @@ def publish(
             fail("EXISTING_REVISION_INVALID", f"{latest_dir}: {exc}")
         if latest_packet["packet_sha256"] != latest_entry["packet_sha256"]:
             fail("INDEX_ENTRY_MISMATCH", str(latest_dir))
-        if _component_status_vector(latest_packet) == _component_status_vector(packet):
+        if _component_semantic_fingerprint(latest_packet) == _component_semantic_fingerprint(
+            packet
+        ):
             # Every decision_date-pinned component resolves to the same
             # immutable evidence it did before (see NON_REVALIDATABLE_
-            # COMPONENTS for the one disclosed exception), so an identical
-            # status vector means provider-free re-aggregation truly found
-            # nothing new. Publishing an identical-in-substance revision
-            # would be noise, not recovery -- reuse the existing one.
+            # COMPONENTS for the disclosed exception), so an identical
+            # semantic fingerprint -- status, reason, retained values,
+            # source path/sha, authority, all of it, not just status --
+            # means provider-free re-aggregation truly found nothing new.
+            # Publishing an identical-in-substance revision would be noise,
+            # not recovery -- reuse the existing one.
             return {"path": latest_dir, "revision": latest_entry["revision"], "created": False}
 
     revision_number = len(revisions) + 1
