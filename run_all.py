@@ -223,6 +223,7 @@ APPROVED_TESTS = [
     #   ⛔ live network/key 없음 — fake opener + temp evidence + workflow 계약만 검증.
     "test/test_kofia_first_seen.py",
     # ★ P1-US-04 — free forward-only US directory membership capture.
+    #   provider-free skip 전 exact raw/manifest/diff bundle을 재검증한다.
     #   Nasdaq Trader current-day files를 append-only로 누적하고 캡처 간
     #   편입·이탈만 재현한다. 과거 backfill·가격 breadth·유료 소스는 차단하며
     #   유료 전환 전 사용자 재승인 체크포인트를 기계적으로 고정한다.

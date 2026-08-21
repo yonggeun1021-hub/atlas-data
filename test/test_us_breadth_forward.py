@@ -172,6 +172,13 @@ class USBreadthForwardTest(unittest.TestCase):
             before = MODULE.validate_manifest(first, contract)
             after = MODULE.validate_manifest(second, contract)
             result = MODULE.build_membership_diff(after, before, contract)
+            MODULE.write_json_append_only(
+                result, second / "_membership_diff.json"
+            )
+            self.assertEqual(
+                MODULE.validate_snapshot_bundle(second, first, contract),
+                after,
+            )
             self.assertEqual(result["status"], "PASS")
             self.assertEqual(result["membership"]["entered_count"], 2)
             self.assertEqual(result["membership"]["exited_count"], 2)
@@ -182,6 +189,73 @@ class USBreadthForwardTest(unittest.TestCase):
             )
             self.assertIsNone(result["price_breadth"]["advance_fraction"])
             self.assertFalse(result["authority"]["historical_reconstruction_authorized"])
+
+    def test_bundle_validator_rederives_diff_and_rejects_tamper(self):
+        first_rows = {
+            source["name"]: fixture_rows(source, ["AAA", "BBB"])
+            for source in CONTRACT["sources"]
+        }
+        second_rows = {
+            source["name"]: fixture_rows(source, ["BBB", "CCC"])
+            for source in CONTRACT["sources"]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            first, contract = create_snapshot(tmp, "2026-08-19", first_rows)
+            second, _ = create_snapshot(tmp, "2026-08-20", second_rows)
+            first_core = MODULE.validate_manifest(first, contract)
+            second_core = MODULE.validate_manifest(second, contract)
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(first_core, contract=contract),
+                first / "_membership_diff.json",
+            )
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(second_core, first_core, contract),
+                second / "_membership_diff.json",
+            )
+
+            self.assertEqual(
+                MODULE.validate_snapshot_bundle(first, contract=contract),
+                first_core,
+            )
+            self.assertEqual(
+                MODULE.validate_snapshot_bundle(second, first, contract),
+                second_core,
+            )
+
+            diff_path = second / "_membership_diff.json"
+            tampered = json.loads(diff_path.read_text(encoding="utf-8"))
+            tampered["membership"]["entered_count"] += 1
+            diff_path.write_text(
+                json.dumps(tampered, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "MEMBERSHIP_DIFF_MISMATCH"
+            ):
+                MODULE.validate_snapshot_bundle(second, first, contract)
+
+    def test_tracked_bundles_reproduce_exactly_and_inventory_is_closed(self):
+        first = ROOT / "evidence" / "us_breadth" / "raw" / "2026-08-19"
+        second = ROOT / "evidence" / "us_breadth" / "raw" / "2026-08-20"
+        MODULE.validate_snapshot_bundle(first)
+        MODULE.validate_snapshot_bundle(second, first)
+
+        rows = {
+            source["name"]: fixture_rows(source, ["AAA"])
+            for source in CONTRACT["sources"]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            target, contract = create_snapshot(tmp, "2026-08-19", rows)
+            core = MODULE.validate_manifest(target, contract)
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(core, contract=contract),
+                target / "_membership_diff.json",
+            )
+            (target / "unexpected.json").write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "BUNDLE_INVENTORY_MISMATCH"
+            ):
+                MODULE.validate_snapshot_bundle(target, contract=contract)
 
     def test_baseline_does_not_claim_all_members_entered(self):
         current = {
@@ -216,6 +290,9 @@ class USBreadthForwardTest(unittest.TestCase):
         self.assertLess(command.index("_sha256.txt"), command.index("gzip -n"))
         self.assertIn("skipped_existing", command)
         self.assertIn("_membership_diff.json", command)
+        self.assertLess(command.index("PREVIOUS=$("), command.index("skipped_existing"))
+        self.assertLess(command.index("validate-bundle"), command.index("skipped_existing"))
+        self.assertGreater(command.rindex("validate-bundle"), command.index(" diff "))
 
 
 if __name__ == "__main__":
