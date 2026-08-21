@@ -29,6 +29,21 @@ revisions for one subject/measurement/period are blocked rather than selected.
 The briefing adapter accepts both the original SEC identity and the registered
 official-release identity, preserving the same facts/evaluation/action separation.
 
+## Persisted validation
+
+`validate_envelope()` and `validate_bundle()` are the production read boundary for
+persisted official-release evidence. They revalidate the closed source profile,
+source and release identity, acquisition provenance, raw-percent parsing, economic
+period and row/column identity, revision-conflict state, summary counts, authority,
+ordering, and the bundle digest. Recomputing `bundle_sha256` therefore cannot make a
+semantically inconsistent envelope, summary, or authority expansion valid.
+
+The original TSMC normalized response and the Microsoft source slice are not embedded
+in the envelope. Consequently, standalone validation cannot authenticate a coherent
+change that rewrites both the raw percentage and its matching numeric value. Source
+acquisition must authenticate and retain those inputs; the validator proves internal
+semantic consistency and exact contract identity, not external-source authenticity.
+
 ## Authority
 
 Evidence only. Source ranking, interpretation, Rule evaluation, Production wiring,
