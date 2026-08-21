@@ -157,6 +157,11 @@ APPROVED_TESTS = [
     #   candidate ranking, Stage 승격, Production, trading 권한은 열지 않는다.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic envelopes + temp output only.
     "test/test_business_acceleration.py",
+    # ★ P3-06 — external RATIFIED consensus-source contract + exact-vintage revision radar.
+    #   동일 estimate target의 두 vintage를 latest-prior로 재현해 UP/DOWN/UNCHANGED/
+    #   UNKNOWN을 구분한다. 비영(非零) confirmed change만 evidence case로 기록한다.
+    #   ⛔ source 선택/구매/importance/ranking/Stage/Production/trading 없음.
+    "test/test_expectations_revision.py",
     # ★ P3-07 — policy-gated cross-market price/volume behavior radar capability.
     #   explicit benchmark 대비 누적 상대강도와 latest/prior mean·median 거래량 비율을
     #   raw feature로 남긴다. repo 기본 임계값은 없고 외부 RATIFIED 정책이 명시한
