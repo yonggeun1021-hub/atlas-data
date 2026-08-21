@@ -213,6 +213,7 @@ APPROVED_TESTS = [
     # ★ P4-03 — OpenDART filing original-document acquisition.
     #   exact rcept_no ZIP, complete member/hash/text index, bounded archive,
     #   append-only cache, skip/mutation/status separation을 fail-closed한다.
+    #   persisted validator가 retained ZIP에서 member/text index와 authority를 재검증한다.
     #   item extraction policy 미비준이므로 Evidence PENDING/Rule NONE을 고정한다.
     #   ⛔ live DART/key/Notion/Production/trading 없음 — fake fetcher + temp data.
     "test/test_dart_filing_content.py",
