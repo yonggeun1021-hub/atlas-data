@@ -2,10 +2,11 @@
 
 `shadow/atlas_legacy_comparison.py` aligns the P10-01 Shadow ledger, externally
 recorded existing-method judgments, and externally recorded same-window outcomes
-by exact `(decision_id, market)` keys. Contract v3 consumes the Shadow ledger v2
+by exact `(decision_id, market)` keys. Contract v4 consumes the Shadow ledger v3
 chain and embeds the exact Shadow, legacy-judgment, and outcome packets. The
-result is self-validating and inherits the validated P9-03 and P9-05 source
-lineage without interpreting the eligibility or risk values.
+result is self-validating and inherits the exact validated P9-02, P9-03, and
+P9-05 source lineage without interpreting the event, eligibility, or risk
+values.
 
 Missing legacy judgments and outcomes remain explicit. Atlas action is not
 inferred from Regime or `NO_ACTION_AUTHORIZED`; while P8 action authority is

@@ -5,7 +5,7 @@ fixed categories: false positive, miss, stale, and silent error. Every assessed
 decision/window must include all four categories as `PRESENT`, `ABSENT`, or
 `UNVERIFIED`, preventing selective reporting of only favorable cases.
 
-Contract v2 requires an exact, self-validating P10-02 comparison packet. Every
+Contract v3 requires an exact, self-validating P10-02 comparison v4 packet. Every
 assessment must match its comparison packet SHA, evaluation window, decision
 date, and `(decision_id, market)` key; `COMMON` rows must match an existing
 decision across the comparison markets. The output embeds both the assessment

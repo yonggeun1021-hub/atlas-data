@@ -1,9 +1,21 @@
 {
-  "schema_version": 1,
-  "contract_version": "intraday_risk_escalation/1",
-  "input_schema_version": "intraday_risk_observation_batch/1",
-  "policy_schema_version": "intraday_risk_escalation_policy/1",
-  "output_schema_version": "intraday_risk_escalation_packet/1",
+  "schema_version": 2,
+  "contract_version": "intraday_risk_escalation/2",
+  "input_schema_version": "intraday_risk_observation_batch/2",
+  "policy_schema_version": "intraday_risk_escalation_policy/2",
+  "output_schema_version": "intraday_risk_escalation_packet/2",
+  "entry_exit_schema_version": "entry_exit_trigger_eligibility_packet/1",
+  "entry_exit_contract_version": "entry_exit_trigger_eligibility/1",
+  "important_event_schema_version": "important_event_detection_packet/2",
+  "important_event_contract_version": "important_event_detector/2",
+  "validated_upstream_packets": [
+    "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
+    "IMPORTANT_EVENT_DETECTION"
+  ],
+  "lineage_only_upstreams": [
+    "CONCENTRATION_GUARD",
+    "PLANNED_LOSS_BUDGET"
+  ],
   "markets": [
     "US",
     "KOREA",

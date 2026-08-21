@@ -84,6 +84,23 @@ def intraday_evidence(source):
     entry_exit = ENTRY_EXIT_FIXTURE.MODULE.build_packet(
         source, freshness, f"{day}T02:12:00Z", ENTRY_EXIT_FIXTURE.CONTRACT
     )
+    event = INTRADAY_RISK_FIXTURE.IMPORTANT_EVENT_FIXTURE.event(
+        event_id=f"SEC.{day.replace('-', '')}.0001",
+        event_at=f"{day}T01:57:00Z",
+        available_at=f"{day}T01:59:00Z",
+        received_at=f"{day}T01:59:30Z",
+    )
+    event_batch = INTRADAY_RISK_FIXTURE.IMPORTANT_EVENT_FIXTURE.batch(
+        [event], observed_at=f"{day}T02:00:00Z"
+    )
+    important_event = (
+        INTRADAY_RISK_FIXTURE.IMPORTANT_EVENT_FIXTURE.MODULE.build_packet(
+            event_batch,
+            INTRADAY_RISK_FIXTURE.IMPORTANT_EVENT_FIXTURE.policy(),
+            f"{day}T02:05:00Z",
+            INTRADAY_RISK_FIXTURE.IMPORTANT_EVENT_FIXTURE.CONTRACT,
+        )
+    )
     batch = INTRADAY_RISK_FIXTURE.batch()
     batch["batch_id"] = f"INTRADAY.RISK.BATCH.{day.replace('-', '')}"
     batch["observed_at"] = f"{day}T02:13:00Z"
@@ -92,6 +109,9 @@ def intraday_evidence(source):
     batch["upstream_lineage"][
         "entry_exit_trigger_eligibility_packet_sha256"
     ] = entry_exit["packet_sha256"]
+    batch["upstream_lineage"][
+        "important_event_detection_packet_sha256"
+    ] = important_event["packet_sha256"]
     batch.pop("packet_sha256")
     batch["packet_sha256"] = INTRADAY_RISK_FIXTURE.MODULE.payload_sha256(batch)
     start = f"{day}T00:00:00Z"
@@ -99,7 +119,11 @@ def intraday_evidence(source):
         effective_from=start, effective_to=f"{end_day}T00:00:00Z"
     )
     intraday_risk = INTRADAY_RISK_FIXTURE.MODULE.build_packet(
-        batch, policy, INTRADAY_RISK_FIXTURE.CONTRACT
+        batch,
+        policy,
+        entry_exit,
+        important_event,
+        INTRADAY_RISK_FIXTURE.CONTRACT,
     )
     return entry_exit, intraday_risk
 
@@ -260,18 +284,16 @@ class ThreeMarketShadowLedgerTests(unittest.TestCase):
         wrong_batch["packet_sha256"] = INTRADAY_RISK_FIXTURE.MODULE.payload_sha256(
             wrong_batch
         )
-        wrong_lineage = INTRADAY_RISK_FIXTURE.MODULE.build_packet(
-            wrong_batch,
-            intraday_risk["policy_packet"],
-            INTRADAY_RISK_FIXTURE.CONTRACT,
-        )
         with self.assertRaisesRegex(
-            MODULE.ThreeMarketShadowLedgerError,
-            "INTRADAY_RISK_ENTRY_EXIT_LINEAGE_MISMATCH",
+            INTRADAY_RISK_FIXTURE.MODULE.IntradayRiskEscalationError,
+            "ENTRY_EXIT_PACKET_SHA_MISMATCH",
         ):
-            MODULE.append_decision(
-                source, entry_exit, wrong_lineage, "2026-08-21T02:15:00Z",
-                None, CONTRACT,
+            INTRADAY_RISK_FIXTURE.MODULE.build_packet(
+                wrong_batch,
+                intraday_risk["policy_packet"],
+                entry_exit,
+                intraday_risk["source_packets"]["IMPORTANT_EVENT_DETECTION"],
+                INTRADAY_RISK_FIXTURE.CONTRACT,
             )
 
         tampered = copy.deepcopy(entry_exit)
