@@ -9,10 +9,17 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from bridge import rule_evidence_binding as RULE_EVIDENCE_BINDING  # noqa: E402
+
+
 CONTRACT_PATH = ROOT / "config" / "deterministic_rule_evaluator_contract.json"
 RULES_PATH = ROOT / "config" / "rules.json"
 OUTPUT_SCHEMA_VERSION = "deterministic_rule_evaluation_packet/1"
@@ -210,6 +217,16 @@ def _validate_binding_packet(value: dict, rules: dict, contract: dict) -> dict:
     }
     if value.get("summary") != expected_summary:
         raise DeterministicRuleEvaluatorError("BINDING_SUMMARY_MISMATCH")
+    try:
+        RULE_EVIDENCE_BINDING.validate_packet(
+            value,
+            rules=rules,
+            contract=RULE_EVIDENCE_BINDING.load_contract(),
+        )
+    except RULE_EVIDENCE_BINDING.RuleEvidenceBindingError as exc:
+        raise DeterministicRuleEvaluatorError(
+            f"BINDING_PACKET_SEMANTIC_INVALID:{exc}"
+        ) from exc
     return {
         "packet_sha256": digest,
         "inputs": copy.deepcopy(inputs),

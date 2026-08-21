@@ -67,6 +67,13 @@ def binding(rule_id="RULE-0021", subject="MSFT", measurement=MEASUREMENT, period
     }
 
 
+def rehash_packet(value):
+    changed = copy.deepcopy(value)
+    changed.pop("packet_sha256", None)
+    changed["packet_sha256"] = MODULE.payload_sha256(changed)
+    return changed
+
+
 class RuleEvidenceBindingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -271,6 +278,92 @@ class RuleEvidenceBindingTests(unittest.TestCase):
             rules=self.rules, contract=self.contract,
         )
         self.assertEqual(MODULE.canonical_json(packet_a), MODULE.canonical_json(packet_b))
+
+    def test_persisted_packet_validator_accepts_canonical_output(self):
+        packet = MODULE.build_packet(
+            envelopes=[available_envelope()],
+            bindings=binding_doc(binding()),
+            rules=self.rules,
+            contract=self.contract,
+        )
+        checked = MODULE.validate_packet(
+            copy.deepcopy(packet), self.rules, self.contract
+        )
+        self.assertEqual(MODULE.canonical_json(checked), MODULE.canonical_json(packet))
+
+    def test_persisted_packet_validator_rejects_self_rehashed_semantic_drift(self):
+        packet = MODULE.build_packet(
+            envelopes=[available_envelope()],
+            bindings=binding_doc(binding()),
+            rules=self.rules,
+            contract=self.contract,
+        )
+        cases = []
+
+        changed = copy.deepcopy(packet)
+        changed["summary"][MODULE.LINK_AVAILABLE] += 1
+        cases.append((changed, "PACKET_SUMMARY_MISMATCH"))
+
+        changed = copy.deepcopy(packet)
+        row = next(item for item in changed["rules"] if item["rule_id"] == "RULE-0021")
+        row["link_status"] = MODULE.LINK_UNRESOLVED
+        cases.append((changed, "PACKET_BOUND_RULE_DERIVATION_MISMATCH"))
+
+        changed = copy.deepcopy(packet)
+        row = next(item for item in changed["rules"] if item["rule_id"] == "RULE-0021")
+        row["evidence_references"][0]["reference_status"] = MODULE.LINK_BLOCKED
+        cases.append((changed, "PACKET_REFERENCE_STATE_MISMATCH"))
+
+        changed = copy.deepcopy(packet)
+        row = next(item for item in changed["rules"] if item["rule_id"] == "RULE-0021")
+        row["evidence_references"][0]["economic_period_end"] = "2026-03-31"
+        row["evidence_references"][0]["lineage"]["evidence_as_of"] = "2026-03-31"
+        cases.append((changed, "PACKET_BINDING_SET_SHA_MISMATCH"))
+
+        changed = copy.deepcopy(packet)
+        changed["authority"]["rule_evaluation_authorized"] = True
+        cases.append((changed, "PACKET_IDENTITY_MISMATCH"))
+
+        for changed, error in cases:
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(MODULE.RuleEvidenceBindingError, error):
+                    MODULE.validate_packet(
+                        rehash_packet(changed), self.rules, self.contract
+                    )
+
+    def test_build_rejects_available_evidence_with_undeclared_reason(self):
+        envelope = available_envelope(reasons=["UNDECLARED_AVAILABLE_REASON"])
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError,
+            "PACKET_AVAILABLE_REASON_MISMATCH",
+        ):
+            MODULE.build_packet(
+                envelopes=[envelope],
+                bindings=binding_doc(binding()),
+                rules=self.rules,
+                contract=self.contract,
+            )
+
+    def test_validator_revalidates_injected_contract_and_rule_registry(self):
+        packet = MODULE.build_packet(
+            envelopes=[],
+            bindings=binding_doc(),
+            rules=self.rules,
+            contract=self.contract,
+        )
+        contract = copy.deepcopy(self.contract)
+        contract["authority"]["rule_evaluation_authorized"] = True
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError, "AUTHORITY_BOUNDARY_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, self.rules, contract)
+
+        rules = copy.deepcopy(self.rules)
+        rules["rules"][0]["condition_text_sha256"] = "bad"
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError, "RULE_CONDITION_SHA_INVALID"
+        ):
+            MODULE.validate_packet(packet, rules, self.contract)
 
     def test_cli_writes_only_requested_temp_output_atomically(self):
         with tempfile.TemporaryDirectory() as temp:
