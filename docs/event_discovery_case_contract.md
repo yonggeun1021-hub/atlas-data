@@ -71,10 +71,18 @@ evidence 상태와 lineage 형식·시간 순서, authority 봉쇄값, 동일 so
 검증한다. 따라서 값을 바꾸고 `packet_sha256`을 다시 계산해도 semantic drift는
 통과하지 않는다. `build_packet()`도 발행 전에 같은 validator를 호출한다.
 
-원본 D1 JSONL과 evidence binding 본문은 packet에 포함되지 않고 각각 SHA-256만
-남으므로, standalone validation은 입력 원문과의 일치나 입력 completeness를
-증명하지 않는다. 그 증명은 원본 입력을 함께 가진 `build_packet()` 경로의
-책임이며, validator는 보존된 packet 내부의 자족적 계약만 검증한다.
+packet(schema `event_discovery_case_packet/2`)은 `frozen_sources`에 이 packet을
+만드는 데 실제로 쓰인 D1 record 전체(case를 만든 것과 제외된 것 모두)와
+evidence binding 본문을 최소 충분한 snapshot으로 보존한다. `inputs`의
+SHA-256 두 값은 이 `frozen_sources`를 정확히 가리켜야 한다.
+
+`validate_packet()`은 모든 필드 단위 검증을 마친 뒤 마지막 관문으로,
+production 조립 로직(`_build_packet_body()` — `build_packet()`이 쓰는 것과
+동일한 함수, 복사본이 아니다)을 `frozen_sources`에 대해 다시 호출해 case 집합,
+exclusion, summary, `binding_set_id`, `inputs`를 packet 내부 source만으로
+독립 재구축하고 저장된 값과 정확히 일치하는지 대조한다. 따라서 결측 입력,
+뒤늦게 추가된 event, source binding 교체, `packet_sha256`/`inputs` self-rehash
+변조는 필드 단위 검증을 모두 통과하더라도 이 최종 대조에서 fail-closed된다.
 
 CLI는 JSONL record와 binding JSON을 읽어 지정된 `--out`에만 원자적으로 쓴다.
 tracked Discovery Case 발행이나 workflow 연결은 아직 하지 않는다.

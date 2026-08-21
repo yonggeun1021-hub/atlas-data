@@ -62,7 +62,7 @@ def _expected_contract() -> dict:
         "contract_version": "rotation_discovery_briefing/1",
         "output_schema_version": "rotation_discovery_briefing_packet/1",
         "rotation_source_contract": "rotation_state_ledger/1",
-        "discovery_source_contract": "event_discovery_case/1",
+        "discovery_source_contract": "event_discovery_case/2",
         "market_order": ["US", "KOREA", "CRYPTO"],
         "rotation_states": ["EMERGING", "STRONG", "WEAKENING"],
         "evidence_statuses": [

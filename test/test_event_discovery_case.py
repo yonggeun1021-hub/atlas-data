@@ -93,6 +93,19 @@ def rehash(packet):
     return value
 
 
+def rehash_frozen_sources(packet):
+    """Recompute inputs SHA from a tampered frozen_sources, then packet_sha256 --
+    isolates the rebuild-and-compare backstop from the earlier SHA-tie check."""
+    value = copy.deepcopy(packet)
+    value["inputs"] = {
+        "d1_records_sha256": MODULE.payload_sha256(value["frozen_sources"]["records"]),
+        "evidence_bindings_sha256": MODULE.payload_sha256(
+            value["frozen_sources"]["evidence_bindings"]
+        ),
+    }
+    return rehash(value)
+
+
 class EventDiscoveryCaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -240,6 +253,102 @@ class EventDiscoveryCaseTests(unittest.TestCase):
         packet["summary"][MODULE.EVIDENCE_UNRESOLVED] = 0
         with self.assertRaisesRegex(MODULE.EventCaseError, "OUTPUT_SUMMARY_DERIVATION_MISMATCH"):
             MODULE.validate_packet(rehash(packet), self.contract)
+
+    def test_frozen_sources_persist_and_standalone_rebuild_from_them_alone(self):
+        record = d1_record(
+            event_types=["Financial Results", "Other"], item_codes=["2.02", "8.01"],
+        )
+        proof = evidence()
+        packet = MODULE.build_packet(
+            records=[record], evidence_bindings=bindings(binding(record=record, proof=proof)),
+            contract=self.contract,
+        )
+        self.assertEqual(packet["frozen_sources"]["records"], [record])
+        self.assertEqual(
+            packet["frozen_sources"]["evidence_bindings"]["bindings"],
+            [{"source_record_key": record_key(record), "evidence": proof}],
+        )
+        self.assertEqual(
+            MODULE.payload_sha256(packet["frozen_sources"]["records"]),
+            packet["inputs"]["d1_records_sha256"],
+        )
+        self.assertEqual(
+            MODULE.payload_sha256(packet["frozen_sources"]["evidence_bindings"]),
+            packet["inputs"]["evidence_bindings_sha256"],
+        )
+        # Standalone re-validation from nothing but the persisted packet
+        # (which carries the frozen sources) -- no separate records/
+        # evidence_bindings argument is available to validate_packet().
+        checked = MODULE.validate_packet(copy.deepcopy(packet), self.contract)
+        self.assertEqual(MODULE.canonical_json(checked), MODULE.canonical_json(packet))
+
+    def test_missing_input_and_late_added_record_fail_closed_after_self_rehash(self):
+        record = d1_record()
+        packet = MODULE.build_packet(
+            records=[record], evidence_bindings=bindings(), contract=self.contract,
+        )
+        # Missing input: drop the sole frozen record, self-rehash inputs
+        # and packet_sha256 in tandem -- the packet's own cases/summary
+        # still claim one EVIDENCE_UNRESOLVED case, which the (now empty)
+        # frozen source can no longer reproduce.
+        dropped = copy.deepcopy(packet)
+        dropped["frozen_sources"]["records"] = []
+        with self.assertRaisesRegex(
+            MODULE.EventCaseError, "OUTPUT_FROZEN_SOURCES_REBUILD_MISMATCH"
+        ):
+            MODULE.validate_packet(rehash_frozen_sources(dropped), self.contract)
+
+        # Late-added event: a second record appears in frozen_sources that
+        # never went through case/exclusion accounting in the persisted
+        # packet.
+        second = d1_record(accession="0001628280-26-053347", ticker="NVDA")
+        added = copy.deepcopy(packet)
+        added["frozen_sources"]["records"] = sorted(
+            [record, second], key=lambda item: MODULE.D1.record_key(item)
+        )
+        with self.assertRaisesRegex(
+            MODULE.EventCaseError, "OUTPUT_FROZEN_SOURCES_REBUILD_MISMATCH"
+        ):
+            MODULE.validate_packet(rehash_frozen_sources(added), self.contract)
+
+    def test_source_binding_swap_fails_closed_after_self_rehash(self):
+        record = d1_record()
+        original_proof = evidence()
+        packet = MODULE.build_packet(
+            records=[record],
+            evidence_bindings=bindings(binding(record=record, proof=original_proof)),
+            contract=self.contract,
+        )
+        self.assertEqual(packet["cases"][0]["evidence_status"], MODULE.EVIDENCE_LINKED)
+        # Swap the bound evidence for one with a different source SHA --
+        # the packet's own case still claims the ORIGINAL evidence_lineage
+        # and EVIDENCE_LINKED status, which the swapped frozen binding can
+        # no longer reproduce.
+        swapped_proof = evidence(
+            source_identity={**original_proof["source_identity"], "source_sha256": "b" * 64},
+        )
+        swapped = copy.deepcopy(packet)
+        swapped["frozen_sources"]["evidence_bindings"]["bindings"] = [
+            {"source_record_key": record_key(record), "evidence": swapped_proof}
+        ]
+        with self.assertRaisesRegex(
+            MODULE.EventCaseError, "OUTPUT_FROZEN_SOURCES_REBUILD_MISMATCH"
+        ):
+            MODULE.validate_packet(rehash_frozen_sources(swapped), self.contract)
+
+    def test_frozen_sources_self_rehash_tamper_without_updating_inputs_fails_at_sha_tier(self):
+        packet = MODULE.build_packet(
+            records=[d1_record()], evidence_bindings=bindings(), contract=self.contract,
+        )
+        tampered = copy.deepcopy(packet)
+        tampered["frozen_sources"]["records"][0]["item_codes"] = ["9.99"]
+        # packet_sha256 alone is recomputed -- inputs.d1_records_sha256 is
+        # left stale, so the SHA-tie check catches it before the rebuild
+        # backstop is even reached.
+        with self.assertRaisesRegex(
+            MODULE.EventCaseError, "OUTPUT_FROZEN_SOURCES_SHA_MISMATCH"
+        ):
+            MODULE.validate_packet(rehash(tampered), self.contract)
 
     def test_one_filing_with_multiple_resolved_types_creates_distinct_cases(self):
         record = d1_record(
