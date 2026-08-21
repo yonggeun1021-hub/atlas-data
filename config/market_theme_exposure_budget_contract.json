@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract_version": "market_theme_exposure_budget/1",
+  "policy_schema_version": "market_theme_budget_policy/1",
+  "input_schema_version": "market_theme_exposure_input/1",
+  "output_schema_version": "market_theme_exposure_packet/1",
+  "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
+  "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
+  "budget_unit": "NAV_FRACTION",
+  "source_regime_contract_version": "regime_output/v1",
+  "source_regime_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
+  "runtime_authorized_regimes": [
+    "UNKNOWN"
+  ],
+  "runtime_authorized_directions": [
+    "UNKNOWN"
+  ],
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "allowed_scope_types": [
+    "MARKET",
+    "THEME"
+  ],
+  "effective_interval": "[valid_from, valid_to)",
+  "input_authority": {
+    "exposure_measurement_authorized": true,
+    "budget_definition_authorized": false,
+    "automatic_rebalance_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "policy_authority": {
+    "market_theme_budget_definition_authorized": true,
+    "automatic_rebalance_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "market_theme_budget_evaluation_only": true,
+    "repository_default_policy_authorized": false,
+    "regime_scoring_authorized": false,
+    "rotation_inference_authorized": false,
+    "automatic_rebalance_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

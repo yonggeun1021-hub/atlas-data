@@ -482,6 +482,12 @@ APPROVED_TESTS = [
     #   No repository default limit/reduction/sizing/order authority is opened.
     #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
     "test/test_concentration_correlation_guard.py",
+    # ★ P7-04 — Regime-keyed market/theme exposure budget evaluation.
+    #   Only external CIO-RATIFIED exact-scope limits can evaluate measured
+    #   exposure; current Regime input remains PRE_SCORE UNKNOWN-only.
+    #   No default budget/rebalance/sizing/order authority is introduced.
+    #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
+    "test/test_market_theme_exposure_budget.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
