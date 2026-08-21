@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "contract_version": "atlas_legacy_comparison/1",
+  "legacy_batch_schema_version": "legacy_judgment_batch/1",
+  "outcome_batch_schema_version": "comparison_outcome_batch/1",
+  "output_schema_version": "atlas_legacy_comparison_packet/1",
+  "shadow_ledger_schema_version": "three_market_shadow_ledger_packet/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "slots": [
+    "morning",
+    "evening"
+  ],
+  "action_labels": [
+    "BUY",
+    "WATCH",
+    "REDUCE",
+    "HEDGE",
+    "EXIT",
+    "NO_ACTION",
+    "UNDEFINED"
+  ],
+  "outcome_labels": [
+    "POSITIVE",
+    "NEGATIVE",
+    "FLAT",
+    "UNDEFINED"
+  ],
+  "alignment_statuses": [
+    "SAME",
+    "DIFFERENT",
+    "UNDEFINED"
+  ],
+  "comparison_key": "DECISION_ID_MARKET",
+  "missing_policy": "EXPLICIT_ROW_STATUS_NO_IMPUTATION",
+  "effectiveness_policy": "NOT_EVALUATED_UNTIL_RATIFIED_POLICY_AND_OBSERVATIONS",
+  "input_authority": {
+    "external_judgment_observation_only": true,
+    "external_outcome_observation_only": true,
+    "atlas_decision_change_authorized": false,
+    "performance_interpretation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "same_period_evidence_alignment_only": true,
+    "judgment_interpretation_authorized": false,
+    "winner_selection_authorized": false,
+    "performance_claim_authorized": false,
+    "strategy_change_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

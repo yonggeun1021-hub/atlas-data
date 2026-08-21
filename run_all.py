@@ -503,6 +503,11 @@ APPROVED_TESTS = [
     #   역행은 fail-closed이며 real capital/order는 영구 0이다.
     #   ⛔ 해석/성과주장/capital/action/order/Production/trading 및 live network 없음.
     "test/test_three_market_shadow_ledger.py",
+    # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
+    #   Shadow record·external legacy judgment·external outcome을 decision_id+market로
+    #   exact match하며 결측을 명시한다. policy 비준 전 effectiveness/winner는 닫는다.
+    #   ⛔ 성과해석/승자선정/strategy 변경/action/Production/trading 및 network 없음.
+    "test/test_atlas_legacy_comparison.py",
     # ★ P10-04 — opaque Decision SHA change lineage capability.
     #   이전/current hash로 change type을 파생하고 변경 이유·evidence·시각과
     #   chain을 검증한다. Decision payload/interpretation/action은 항상 null이다.
