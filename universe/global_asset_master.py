@@ -432,6 +432,109 @@ def _validate_cross_record_collisions(records: list[dict]) -> None:
                     )
 
 
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate a persisted Global Asset Master packet from retained evidence."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet_fields = {
+        "schema_version",
+        "contract_version",
+        "master_id",
+        "as_of_date",
+        "status",
+        "record_count",
+        "records",
+        "source_coverage",
+        "policy_status",
+        "authority",
+        "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != packet_fields:
+        raise AssetMasterError("OUTPUT_FIELDS_MISMATCH")
+
+    digest = packet.get("payload_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise AssetMasterError("OUTPUT_SHA256_INVALID")
+    payload = copy.deepcopy(packet)
+    payload.pop("payload_sha256")
+    if payload_sha256(payload) != digest:
+        raise AssetMasterError("OUTPUT_SHA256_MISMATCH")
+
+    if packet.get("schema_version") != OUTPUT_SCHEMA_VERSION:
+        raise AssetMasterError("OUTPUT_SCHEMA_MISMATCH")
+    if packet.get("contract_version") != contract["contract_version"]:
+        raise AssetMasterError("OUTPUT_CONTRACT_VERSION_MISMATCH")
+    if packet.get("status") != "IDENTITY_MASTER_VALIDATED":
+        raise AssetMasterError("OUTPUT_STATUS_MISMATCH")
+    master_id = packet.get("master_id")
+    if not isinstance(master_id, str) or TOKEN_RE.fullmatch(master_id) is None:
+        raise AssetMasterError("OUTPUT_MASTER_ID_INVALID")
+    as_of_date = packet.get("as_of_date")
+    if not _valid_date(as_of_date):
+        raise AssetMasterError("OUTPUT_AS_OF_DATE_INVALID")
+
+    rows = packet.get("records")
+    record_count = packet.get("record_count")
+    if (
+        not isinstance(rows, list)
+        or type(record_count) is not int
+        or record_count != len(rows)
+    ):
+        raise AssetMasterError("OUTPUT_RECORD_COUNT_MISMATCH")
+    raw_record_fields = {
+        "asset_id",
+        "market",
+        "asset_class",
+        "display_name",
+        "primary_symbol",
+        "exchange_id",
+        "quote_currency",
+        "identifiers",
+        "aliases",
+        "memberships",
+        "source_identity",
+    }
+    record_fields = raw_record_fields | {
+        "active_aliases",
+        "active_memberships",
+        "universe_approved",
+        "investable_eligible",
+        "stage_transition",
+    }
+    validated = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != record_fields:
+            raise AssetMasterError("OUTPUT_RECORD_FIELDS_MISMATCH")
+        raw = {key: copy.deepcopy(row[key]) for key in raw_record_fields}
+        expected = _validate_record(raw, as_of_date, contract)
+        if row != expected:
+            raise AssetMasterError(
+                f"OUTPUT_RECORD_DERIVATION_MISMATCH:{expected['asset_id']}"
+            )
+        validated.append(expected)
+
+    _validate_cross_record_collisions(validated)
+    if [row["asset_id"] for row in validated] != sorted(
+        row["asset_id"] for row in validated
+    ):
+        raise AssetMasterError("OUTPUT_RECORD_ORDER_MISMATCH")
+
+    expected_boundaries = [
+        "MARKET_UNIVERSE_POLICY_UNRATIFIED",
+        "THEME_TAXONOMY_UNRATIFIED",
+        "LIVE_MASTER_POPULATION_NOT_IMPLEMENTED",
+    ]
+    if packet.get("source_coverage") != contract["source_coverage"]:
+        raise AssetMasterError("OUTPUT_SOURCE_COVERAGE_MISMATCH")
+    if packet.get("policy_status") != contract["policy_status"]:
+        raise AssetMasterError("OUTPUT_POLICY_STATUS_MISMATCH")
+    if packet.get("authority") != contract["authority"]:
+        raise AssetMasterError("OUTPUT_AUTHORITY_MISMATCH")
+    if packet.get("unresolved_boundaries") != expected_boundaries:
+        raise AssetMasterError("OUTPUT_UNRESOLVED_BOUNDARIES_MISMATCH")
+    return copy.deepcopy(packet)
+
+
 def build_master(value: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if not isinstance(value, dict) or value.get("schema_version") != INPUT_SCHEMA_VERSION:
@@ -467,7 +570,7 @@ def build_master(value: dict, contract: dict | None = None) -> dict:
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

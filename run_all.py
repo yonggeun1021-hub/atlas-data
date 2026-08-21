@@ -97,8 +97,10 @@ APPROVED_TESTS = [
     # ★ P3-01 — policy-neutral Global Security / Asset Master capability.
     #   US/Korea/Crypto identity, exchange, currency, alias, and effective-dated
     #   membership assertions share one schema with exact source lineage.
-    #   Collisions fail closed; theme inference, universe approval, investability,
-    #   Stage promotion, Production, and trading remain explicitly unauthorized.
+    #   Persisted output is revalidated from retained identity/interval evidence;
+    #   rehashed semantic tampering and collisions fail closed. Theme inference,
+    #   universe approval, investability, Stage promotion, Production, and trading
+    #   remain explicitly unauthorized.
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
     # ★ P3-02 — forward-only Nasdaq directory → Global Asset Master adapter.
