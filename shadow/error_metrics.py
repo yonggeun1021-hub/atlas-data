@@ -25,7 +25,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 def _load_comparison_validator():
     path = ROOT / "shadow" / "atlas_legacy_comparison.py"
-    spec = importlib.util.spec_from_file_location("atlas_legacy_comparison_v3", path)
+    spec = importlib.util.spec_from_file_location("atlas_legacy_comparison_v4", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"COMPARISON_VALIDATOR_IMPORT_FAILED:{path}")
     module = importlib.util.module_from_spec(spec)
@@ -57,12 +57,12 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 2,
-        "contract_version": "shadow_error_metrics/2",
-        "input_schema_version": "shadow_error_assessment_batch/2",
-        "output_schema_version": "shadow_error_metrics_packet/2",
-        "comparison_schema_version": "atlas_legacy_comparison_packet/3",
-        "comparison_contract_version": "atlas_legacy_comparison/3",
+        "schema_version": 3,
+        "contract_version": "shadow_error_metrics/3",
+        "input_schema_version": "shadow_error_assessment_batch/3",
+        "output_schema_version": "shadow_error_metrics_packet/3",
+        "comparison_schema_version": "atlas_legacy_comparison_packet/4",
+        "comparison_contract_version": "atlas_legacy_comparison/4",
         "markets": ["COMMON", "US", "KOREA", "CRYPTO"],
         "metric_types": ["FALSE_POSITIVE", "MISS", "STALE", "SILENT_ERROR"],
         "metric_statuses": ["PRESENT", "ABSENT", "UNVERIFIED"],

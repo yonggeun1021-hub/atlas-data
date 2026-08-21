@@ -7,10 +7,11 @@ contains the exact three source packets, their SHA-256 lineage, compact US,
 Korea, and Crypto Regime snapshots, Rotation / Discovery counts, eligibility
 counts, and the intraday alert count.
 
-The P9 packets are revalidated by their production validators. The eligibility
-packet must reference the exact Unified Decision packet, and the risk packet
-must reference the exact eligibility packet. A self-rehashed semantic or
-authority mutation therefore fails closed instead of becoming Shadow history.
+Contract v3 revalidates the P9 packets with their production validators. The
+eligibility packet must reference the exact Unified Decision packet, and the
+risk packet must contain that exact eligibility packet plus an exact validated
+P9-02 important-event packet. A self-rehashed semantic or authority mutation
+therefore fails closed instead of becoming Shadow history.
 
 The ledger is permanently zero-capital: `real_capital_deployed="0"` and
 `real_order_count=0`. It does not interpret decisions, generate actions, make

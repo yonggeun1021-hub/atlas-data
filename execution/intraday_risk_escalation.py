@@ -7,6 +7,7 @@ import copy
 import datetime as dt
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,25 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 DECIMAL_RE = re.compile(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$")
+
+
+def _load_validator(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"UPSTREAM_VALIDATOR_IMPORT_FAILED:{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ENTRY_EXIT = _load_validator(
+    "intraday_risk_entry_exit",
+    ROOT / "execution" / "entry_exit_trigger_eligibility.py",
+)
+IMPORTANT_EVENT = _load_validator(
+    "intraday_risk_important_event",
+    ROOT / "execution" / "important_event_detector.py",
+)
 
 
 class IntradayRiskEscalationError(ValueError):
@@ -43,11 +63,23 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "intraday_risk_escalation/1",
-        "input_schema_version": "intraday_risk_observation_batch/1",
-        "policy_schema_version": "intraday_risk_escalation_policy/1",
-        "output_schema_version": "intraday_risk_escalation_packet/1",
+        "schema_version": 2,
+        "contract_version": "intraday_risk_escalation/2",
+        "input_schema_version": "intraday_risk_observation_batch/2",
+        "policy_schema_version": "intraday_risk_escalation_policy/2",
+        "output_schema_version": "intraday_risk_escalation_packet/2",
+        "entry_exit_schema_version": "entry_exit_trigger_eligibility_packet/1",
+        "entry_exit_contract_version": "entry_exit_trigger_eligibility/1",
+        "important_event_schema_version": "important_event_detection_packet/2",
+        "important_event_contract_version": "important_event_detector/2",
+        "validated_upstream_packets": [
+            "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
+            "IMPORTANT_EVENT_DETECTION",
+        ],
+        "lineage_only_upstreams": [
+            "CONCENTRATION_GUARD",
+            "PLANNED_LOSS_BUDGET",
+        ],
         "markets": ["US", "KOREA", "CRYPTO"],
         "metrics": [
             "DRAWDOWN_FRACTION",
@@ -332,6 +364,60 @@ def _metric(metric: str, observed: Decimal, threshold: Decimal, alert: bool, dig
     }
 
 
+def _validate_upstream_packets(
+    entry_exit_value: dict,
+    important_event_value: dict,
+    batch: dict,
+    contract: dict,
+) -> tuple[dict, dict]:
+    try:
+        entry_exit = ENTRY_EXIT.validate_packet(entry_exit_value)
+    except Exception as exc:
+        raise IntradayRiskEscalationError(
+            f"ENTRY_EXIT_PACKET_INVALID:{exc}"
+        ) from exc
+    try:
+        important_event = IMPORTANT_EVENT.validate_packet(important_event_value)
+    except Exception as exc:
+        raise IntradayRiskEscalationError(
+            f"IMPORTANT_EVENT_PACKET_INVALID:{exc}"
+        ) from exc
+    if (
+        entry_exit.get("schema_version") != contract["entry_exit_schema_version"]
+        or entry_exit.get("contract_version")
+        != contract["entry_exit_contract_version"]
+    ):
+        raise IntradayRiskEscalationError("ENTRY_EXIT_PACKET_IDENTITY_INVALID")
+    if (
+        important_event.get("schema_version")
+        != contract["important_event_schema_version"]
+        or important_event.get("contract_version")
+        != contract["important_event_contract_version"]
+    ):
+        raise IntradayRiskEscalationError("IMPORTANT_EVENT_PACKET_IDENTITY_INVALID")
+    upstream = batch["upstream_lineage"]
+    if (
+        upstream["entry_exit_trigger_eligibility_packet_sha256"]
+        != entry_exit["packet_sha256"]
+    ):
+        raise IntradayRiskEscalationError("ENTRY_EXIT_PACKET_SHA_MISMATCH")
+    if (
+        upstream["important_event_detection_packet_sha256"]
+        != important_event["packet_sha256"]
+    ):
+        raise IntradayRiskEscalationError("IMPORTANT_EVENT_PACKET_SHA_MISMATCH")
+    observed = batch["observed"]
+    entry_time = _utc(entry_exit["generated_at"], "ENTRY_EXIT_TIME_INVALID")
+    event_time = _utc(important_event["detected_at"], "IMPORTANT_EVENT_TIME_INVALID")
+    if entry_time > observed:
+        raise IntradayRiskEscalationError("ENTRY_EXIT_PACKET_FROM_FUTURE")
+    if event_time > observed:
+        raise IntradayRiskEscalationError("IMPORTANT_EVENT_PACKET_FROM_FUTURE")
+    if entry_time.strftime("%Y-%m-%d") != observed.strftime("%Y-%m-%d"):
+        raise IntradayRiskEscalationError("ENTRY_EXIT_BATCH_DATE_MISMATCH")
+    return entry_exit, important_event
+
+
 def _evaluate_row(row: dict, thresholds: dict, contract: dict) -> dict:
     reference = Decimal(row["reference_close"])
     opened = Decimal(row["open_price"])
@@ -371,7 +457,13 @@ def _evaluate_row(row: dict, thresholds: dict, contract: dict) -> dict:
     }
 
 
-def _assemble(batch: dict, policy: dict, contract: dict) -> dict:
+def _assemble(
+    batch: dict,
+    policy: dict,
+    entry_exit: dict,
+    important_event: dict,
+    contract: dict,
+) -> dict:
     rows = [
         _evaluate_row(
             row,
@@ -408,6 +500,10 @@ def _assemble(batch: dict, policy: dict, contract: dict) -> dict:
         },
         "source_batch": copy.deepcopy(batch["normalized"]),
         "policy_packet": copy.deepcopy(policy["packet"]),
+        "source_packets": {
+            "ENTRY_EXIT_TRIGGER_ELIGIBILITY": copy.deepcopy(entry_exit),
+            "IMPORTANT_EVENT_DETECTION": copy.deepcopy(important_event),
+        },
         "lineage": {
             "observation_batch_sha256": batch["packet_sha256"],
             "policy_sha256": policy["packet_sha256"],
@@ -415,7 +511,7 @@ def _assemble(batch: dict, policy: dict, contract: dict) -> dict:
         },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "UPSTREAM_PACKETS_ARE_LINEAGE_ONLY_NOT_SEMANTIC_AUTHORITY",
+            "P7_GUARD_PACKETS_ARE_LINEAGE_ONLY_NOT_SEMANTIC_AUTHORITY",
             "EXPOSURE_REDUCTION_POLICY_NOT_AUTHORIZED",
             "STOP_CANDIDATE_POLICY_NOT_AUTHORIZED",
             "NOTIFICATION_NOT_AUTHORIZED",
@@ -424,12 +520,21 @@ def _assemble(batch: dict, policy: dict, contract: dict) -> dict:
     }
 
 
-def build_packet(batch_value: dict, policy_value: dict, contract: dict | None = None) -> dict:
+def build_packet(
+    batch_value: dict,
+    policy_value: dict,
+    entry_exit_value: dict,
+    important_event_value: dict,
+    contract: dict | None = None,
+) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     batch = _validate_batch(batch_value, contract)
     policy = _validate_policy(policy_value, batch["observed"], contract)
     policy["packet"] = copy.deepcopy(policy_value)
-    packet = _assemble(batch, policy, contract)
+    entry_exit, important_event = _validate_upstream_packets(
+        entry_exit_value, important_event_value, batch, contract
+    )
+    packet = _assemble(batch, policy, entry_exit, important_event, contract)
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
 
@@ -439,7 +544,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     fields = {
         "schema_version", "contract_version", "status", "batch_id", "observed_at",
         "policy_id", "results", "summary", "source_batch", "policy_packet",
-        "lineage", "authority", "unresolved_boundaries", "packet_sha256",
+        "source_packets", "lineage", "authority", "unresolved_boundaries",
+        "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise IntradayRiskEscalationError("OUTPUT_FIELDS_MISMATCH")
@@ -451,7 +557,18 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     policy_value = packet.get("policy_packet")
     policy = _validate_policy(policy_value, batch["observed"], contract)
     policy["packet"] = copy.deepcopy(policy_value)
-    expected = _assemble(batch, policy, contract)
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {
+        "ENTRY_EXIT_TRIGGER_ELIGIBILITY", "IMPORTANT_EVENT_DETECTION"
+    }:
+        raise IntradayRiskEscalationError("OUTPUT_SOURCE_PACKETS_INVALID")
+    entry_exit, important_event = _validate_upstream_packets(
+        sources["ENTRY_EXIT_TRIGGER_ELIGIBILITY"],
+        sources["IMPORTANT_EVENT_DETECTION"],
+        batch,
+        contract,
+    )
+    expected = _assemble(batch, policy, entry_exit, important_event, contract)
     actual = copy.deepcopy(packet)
     digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_SHA_INVALID")
     if actual != expected:
@@ -486,9 +603,23 @@ def write_json_atomic(path: Path, value: dict) -> None:
         raise
 
 
-def run(batch_path: Path, policy_path: Path, output_path: Path) -> int:
+def run(
+    batch_path: Path,
+    policy_path: Path,
+    entry_exit_path: Path,
+    important_event_path: Path,
+    output_path: Path,
+) -> int:
     try:
-        write_json_atomic(output_path, build_packet(_read_json(batch_path), _read_json(policy_path)))
+        write_json_atomic(
+            output_path,
+            build_packet(
+                _read_json(batch_path),
+                _read_json(policy_path),
+                _read_json(entry_exit_path),
+                _read_json(important_event_path),
+            ),
+        )
         return 0
     except (IntradayRiskEscalationError, OSError, TypeError, ValueError) as exc:
         print(f"Intraday risk escalation failed: {exc}")
@@ -499,9 +630,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("observation_batch", type=Path)
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--entry-exit", type=Path, required=True)
+    parser.add_argument("--important-event", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    return run(args.observation_batch, args.policy, args.out)
+    return run(
+        args.observation_batch,
+        args.policy,
+        args.entry_exit,
+        args.important_event,
+        args.out,
+    )
 
 
 if __name__ == "__main__":

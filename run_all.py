@@ -574,7 +574,8 @@ APPROVED_TESTS = [
     # ★ P9-05 — external RATIFIED intraday risk escalation thresholds.
     #   drawdown/down-gap/spread/relative-volume을 exact observation에서 계산하지만
     #   ALERT는 evidence일 뿐 reduce/STOP/action/order 후보를 만들지 않는다.
-    #   P9/P7 packet SHA는 lineage only이며 semantic authority가 아니다.
+    #   exact P9-03/P9-02 packet은 production validator로 재검증하고 batch
+    #   SHA/시각과 bind한다. validator가 없는 P7-03/P7-06만 lineage-only다.
     #   ⛔ default threshold/live feed/notification/Production/trading 없음.
     "test/test_intraday_risk_escalation.py",
     # ★ P9-04 — duplicate Action/Order ID guard capability.
@@ -589,7 +590,7 @@ APPROVED_TESTS = [
     #   ⛔ 해석/성과주장/capital/action/order/Production/trading 및 live network 없음.
     "test/test_three_market_shadow_ledger.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
-    #   P9 lineage를 포함한 Shadow v2 record·external legacy judgment·external
+    #   P9 lineage를 포함한 Shadow v3 record·external legacy judgment·external
     #   outcome을 decision_id+market로 exact match하고 세 source를 packet에 보존한다.
     #   policy 비준 전 effectiveness/winner는 닫는다.
     #   ⛔ 성과해석/승자선정/strategy 변경/action/Production/trading 및 network 없음.
