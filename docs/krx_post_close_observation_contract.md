@@ -86,6 +86,20 @@ as `UNKNOWN` incident evidence.
 
 ## Operational exit gate
 
+The read-only evening consumer is:
+
+```text
+briefing/krx_post_close.py
+```
+
+It validates the complete immutable bundle before exposing any value. A valid
+bundle becomes a digest-bound `READY_OBSERVED_UNCONFIRMED` packet whose every
+symbol visibly retains `Observed / Unconfirmed`, `decision_eligible=false`,
+and the confirmed-only decision boundary. A missing, partial, or modified
+bundle becomes `UNKNOWN`; symbol values and numeric counts are not substituted
+with zero, `NEUTRAL`, or an action. The CLI writes only outside the repository
+so the 18:00 observer cannot mutate capture or morning authority.
+
 Code and offline regressions do not close P0-04.  Closure additionally requires
 one real trading-day path from scheduled capture to the compact symbol view and
 the 18:00 briefing, with the briefing visibly respecting

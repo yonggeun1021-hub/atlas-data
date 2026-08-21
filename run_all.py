@@ -312,6 +312,11 @@ APPROVED_TESTS = [
     #   decision_eligible=false, partial-response incident 경계를 검증한다.
     #   ⛔ live KRX/Notion 호출 없음 — temp data root + workflow YAML 계약.
     "test/test_p004_krx_post_close.py",
+    # ★ P0-04 — 18:00 KRX post-close briefing read-only consumer.
+    #   valid bundle은 Observed/Unconfirmed로만 노출하고 missing/partial/tamper는
+    #   값·0·NEUTRAL을 만들지 않은 UNKNOWN으로 닫으며 tracked output을 금지한다.
+    #   ⛔ live KRX/GitHub/Notion 없음 — committed bundle read-only + temp fixtures.
+    "test/test_p004_briefing_consumer.py",
     # ★ P0-04 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 16:05/16:25/16:45 slot, runner delay, Guard,
     #   capture/skip/failure를 clone에서 구분하고 미확정 경계는 유지한다.
