@@ -589,13 +589,13 @@ APPROVED_TESTS = [
     "test/test_three_market_shadow_ledger.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
     #   P9 lineage를 포함한 Shadow v2 record·external legacy judgment·external
-    #   outcome을 decision_id+market로 exact match하며 결측을 명시한다.
+    #   outcome을 decision_id+market로 exact match하고 세 source를 packet에 보존한다.
     #   policy 비준 전 effectiveness/winner는 닫는다.
     #   ⛔ 성과해석/승자선정/strategy 변경/action/Production/trading 및 network 없음.
     "test/test_atlas_legacy_comparison.py",
     # ★ P10-03 — Shadow error metric aggregation.
-    #   모든 assessment가 false-positive/miss/stale/silent-error 4종을 빠짐없이
-    #   PRESENT/ABSENT/UNVERIFIED로 기록하게 하고 verified denominator만 집계한다.
+    #   P10-02 self-validating comparison과 assessment key/window/SHA를 exact bind하고
+    #   false-positive/miss/stale/silent-error 4종의 verified denominator만 집계한다.
     #   0분모는 0%가 아니라 null이며 cause/성과/strategy 변경 권한은 닫는다.
     "test/test_shadow_error_metrics.py",
     # ★ P10-04 — opaque Decision SHA change lineage capability.

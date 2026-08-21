@@ -212,9 +212,7 @@ class AtlasLegacyComparisonTests(unittest.TestCase):
         with self.assertRaisesRegex(
             MODULE.AtlasLegacyComparisonError, "PACKET_CONTENT_MISMATCH"
         ):
-            MODULE.validate_packet(
-                winner, shadow, legacy(), outcomes(), CONTRACT
-            )
+            MODULE.validate_packet(winner, CONTRACT)
 
     def test_lineage_binds_all_three_exact_input_packets(self):
         shadow = shadow_ledger()
@@ -226,6 +224,29 @@ class AtlasLegacyComparisonTests(unittest.TestCase):
         self.assertEqual(packet["lineage"]["shadow_ledger_sha256"], shadow["packet_sha256"])
         self.assertEqual(packet["lineage"]["legacy_batch_sha256"], old["packet_sha256"])
         self.assertEqual(packet["lineage"]["outcome_batch_sha256"], result["packet_sha256"])
+        self.assertEqual(packet["source_packets"]["SHADOW_LEDGER"], shadow)
+        self.assertEqual(packet["source_packets"]["LEGACY_BATCH"], old)
+        self.assertEqual(packet["source_packets"]["OUTCOME_BATCH"], result)
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+
+    def test_self_rehashed_embedded_source_tamper_fails_closed(self):
+        packet = MODULE.build_packet(
+            shadow_ledger(), legacy(), outcomes(), "2026-08-21T03:05:00Z", CONTRACT
+        )
+        packet["source_packets"]["LEGACY_BATCH"]["authority"][
+            "performance_interpretation_authorized"
+        ] = True
+        source = packet["source_packets"]["LEGACY_BATCH"]
+        source["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in source.items() if key != "packet_sha256"}
+        )
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.AtlasLegacyComparisonError, "LEGACY_BATCH_IDENTITY_INVALID"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
 
     def test_build_is_deterministic_and_inputs_are_immutable(self):
         shadow = shadow_ledger()
