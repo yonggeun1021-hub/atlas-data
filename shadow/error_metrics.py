@@ -57,12 +57,12 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 3,
-        "contract_version": "shadow_error_metrics/3",
-        "input_schema_version": "shadow_error_assessment_batch/3",
-        "output_schema_version": "shadow_error_metrics_packet/3",
-        "comparison_schema_version": "atlas_legacy_comparison_packet/4",
-        "comparison_contract_version": "atlas_legacy_comparison/4",
+        "schema_version": 4,
+        "contract_version": "shadow_error_metrics/4",
+        "input_schema_version": "shadow_error_assessment_batch/4",
+        "output_schema_version": "shadow_error_metrics_packet/4",
+        "comparison_schema_version": "atlas_legacy_comparison_packet/5",
+        "comparison_contract_version": "atlas_legacy_comparison/5",
         "markets": ["COMMON", "US", "KOREA", "CRYPTO"],
         "metric_types": ["FALSE_POSITIVE", "MISS", "STALE", "SILENT_ERROR"],
         "metric_statuses": ["PRESENT", "ABSENT", "UNVERIFIED"],

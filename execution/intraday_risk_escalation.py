@@ -40,6 +40,14 @@ IMPORTANT_EVENT = _load_validator(
     "intraday_risk_important_event",
     ROOT / "execution" / "important_event_detector.py",
 )
+CONCENTRATION_GUARD = _load_validator(
+    "intraday_risk_concentration_guard",
+    ROOT / "portfolio" / "concentration_correlation_guard.py",
+)
+PLANNED_LOSS_BUDGET = _load_validator(
+    "intraday_risk_planned_loss_budget",
+    ROOT / "portfolio" / "planned_loss_budget.py",
+)
 
 
 class IntradayRiskEscalationError(ValueError):
@@ -63,23 +71,26 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 2,
-        "contract_version": "intraday_risk_escalation/2",
-        "input_schema_version": "intraday_risk_observation_batch/2",
-        "policy_schema_version": "intraday_risk_escalation_policy/2",
-        "output_schema_version": "intraday_risk_escalation_packet/2",
+        "schema_version": 3,
+        "contract_version": "intraday_risk_escalation/3",
+        "input_schema_version": "intraday_risk_observation_batch/3",
+        "policy_schema_version": "intraday_risk_escalation_policy/3",
+        "output_schema_version": "intraday_risk_escalation_packet/3",
         "entry_exit_schema_version": "entry_exit_trigger_eligibility_packet/1",
         "entry_exit_contract_version": "entry_exit_trigger_eligibility/1",
         "important_event_schema_version": "important_event_detection_packet/2",
         "important_event_contract_version": "important_event_detector/2",
+        "concentration_guard_schema_version": "concentration_correlation_packet/2",
+        "concentration_guard_contract_version": "concentration_correlation_guard/2",
+        "planned_loss_schema_version": "planned_loss_packet/2",
+        "planned_loss_contract_version": "planned_loss_budget/2",
         "validated_upstream_packets": [
             "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
             "IMPORTANT_EVENT_DETECTION",
-        ],
-        "lineage_only_upstreams": [
             "CONCENTRATION_GUARD",
             "PLANNED_LOSS_BUDGET",
         ],
+        "lineage_only_upstreams": [],
         "markets": ["US", "KOREA", "CRYPTO"],
         "metrics": [
             "DRAWDOWN_FRACTION",
@@ -367,9 +378,11 @@ def _metric(metric: str, observed: Decimal, threshold: Decimal, alert: bool, dig
 def _validate_upstream_packets(
     entry_exit_value: dict,
     important_event_value: dict,
+    concentration_value: dict,
+    planned_loss_value: dict,
     batch: dict,
     contract: dict,
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict, dict, dict]:
     try:
         entry_exit = ENTRY_EXIT.validate_packet(entry_exit_value)
     except Exception as exc:
@@ -381,6 +394,18 @@ def _validate_upstream_packets(
     except Exception as exc:
         raise IntradayRiskEscalationError(
             f"IMPORTANT_EVENT_PACKET_INVALID:{exc}"
+        ) from exc
+    try:
+        concentration = CONCENTRATION_GUARD.validate_packet(concentration_value)
+    except Exception as exc:
+        raise IntradayRiskEscalationError(
+            f"CONCENTRATION_GUARD_PACKET_INVALID:{exc}"
+        ) from exc
+    try:
+        planned_loss = PLANNED_LOSS_BUDGET.validate_packet(planned_loss_value)
+    except Exception as exc:
+        raise IntradayRiskEscalationError(
+            f"PLANNED_LOSS_PACKET_INVALID:{exc}"
         ) from exc
     if (
         entry_exit.get("schema_version") != contract["entry_exit_schema_version"]
@@ -395,6 +420,19 @@ def _validate_upstream_packets(
         != contract["important_event_contract_version"]
     ):
         raise IntradayRiskEscalationError("IMPORTANT_EVENT_PACKET_IDENTITY_INVALID")
+    if (
+        concentration.get("schema_version")
+        != contract["concentration_guard_schema_version"]
+        or concentration.get("contract_version")
+        != contract["concentration_guard_contract_version"]
+    ):
+        raise IntradayRiskEscalationError("CONCENTRATION_GUARD_PACKET_IDENTITY_INVALID")
+    if (
+        planned_loss.get("schema_version") != contract["planned_loss_schema_version"]
+        or planned_loss.get("contract_version")
+        != contract["planned_loss_contract_version"]
+    ):
+        raise IntradayRiskEscalationError("PLANNED_LOSS_PACKET_IDENTITY_INVALID")
     upstream = batch["upstream_lineage"]
     if (
         upstream["entry_exit_trigger_eligibility_packet_sha256"]
@@ -406,6 +444,21 @@ def _validate_upstream_packets(
         != important_event["packet_sha256"]
     ):
         raise IntradayRiskEscalationError("IMPORTANT_EVENT_PACKET_SHA_MISMATCH")
+    if (
+        upstream["concentration_guard_packet_sha256"]
+        != concentration["packet_sha256"]
+    ):
+        raise IntradayRiskEscalationError("CONCENTRATION_GUARD_PACKET_SHA_MISMATCH")
+    if (
+        upstream["planned_loss_budget_packet_sha256"]
+        != planned_loss["packet_sha256"]
+    ):
+        raise IntradayRiskEscalationError("PLANNED_LOSS_PACKET_SHA_MISMATCH")
+    if (
+        planned_loss["lineage"]["concentration_guard_packet_sha256"]
+        != concentration["packet_sha256"]
+    ):
+        raise IntradayRiskEscalationError("PLANNED_LOSS_CONCENTRATION_LINEAGE_MISMATCH")
     observed = batch["observed"]
     entry_time = _utc(entry_exit["generated_at"], "ENTRY_EXIT_TIME_INVALID")
     event_time = _utc(important_event["detected_at"], "IMPORTANT_EVENT_TIME_INVALID")
@@ -413,9 +466,28 @@ def _validate_upstream_packets(
         raise IntradayRiskEscalationError("ENTRY_EXIT_PACKET_FROM_FUTURE")
     if event_time > observed:
         raise IntradayRiskEscalationError("IMPORTANT_EVENT_PACKET_FROM_FUTURE")
+    concentration_time = _utc(
+        concentration["source_packets"]["INPUT"]["generated_at_utc"],
+        "CONCENTRATION_GUARD_TIME_INVALID",
+    )
+    planned_loss_time = _utc(
+        planned_loss["source_packets"]["INPUT"]["generated_at_utc"],
+        "PLANNED_LOSS_TIME_INVALID",
+    )
+    if concentration_time > observed:
+        raise IntradayRiskEscalationError("CONCENTRATION_GUARD_PACKET_FROM_FUTURE")
+    if planned_loss_time > observed:
+        raise IntradayRiskEscalationError("PLANNED_LOSS_PACKET_FROM_FUTURE")
+    if planned_loss_time < concentration_time:
+        raise IntradayRiskEscalationError("PLANNED_LOSS_BEFORE_CONCENTRATION_GUARD")
     if entry_time.strftime("%Y-%m-%d") != observed.strftime("%Y-%m-%d"):
         raise IntradayRiskEscalationError("ENTRY_EXIT_BATCH_DATE_MISMATCH")
-    return entry_exit, important_event
+    observed_date = observed.strftime("%Y-%m-%d")
+    if concentration["as_of_date"] != observed_date:
+        raise IntradayRiskEscalationError("CONCENTRATION_GUARD_BATCH_DATE_MISMATCH")
+    if planned_loss["as_of_date"] != observed_date:
+        raise IntradayRiskEscalationError("PLANNED_LOSS_BATCH_DATE_MISMATCH")
+    return entry_exit, important_event, concentration, planned_loss
 
 
 def _evaluate_row(row: dict, thresholds: dict, contract: dict) -> dict:
@@ -462,6 +534,8 @@ def _assemble(
     policy: dict,
     entry_exit: dict,
     important_event: dict,
+    concentration: dict,
+    planned_loss: dict,
     contract: dict,
 ) -> dict:
     rows = [
@@ -503,6 +577,8 @@ def _assemble(
         "source_packets": {
             "ENTRY_EXIT_TRIGGER_ELIGIBILITY": copy.deepcopy(entry_exit),
             "IMPORTANT_EVENT_DETECTION": copy.deepcopy(important_event),
+            "CONCENTRATION_GUARD": copy.deepcopy(concentration),
+            "PLANNED_LOSS_BUDGET": copy.deepcopy(planned_loss),
         },
         "lineage": {
             "observation_batch_sha256": batch["packet_sha256"],
@@ -511,7 +587,6 @@ def _assemble(
         },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "P7_GUARD_PACKETS_ARE_LINEAGE_ONLY_NOT_SEMANTIC_AUTHORITY",
             "EXPOSURE_REDUCTION_POLICY_NOT_AUTHORIZED",
             "STOP_CANDIDATE_POLICY_NOT_AUTHORIZED",
             "NOTIFICATION_NOT_AUTHORIZED",
@@ -525,16 +600,25 @@ def build_packet(
     policy_value: dict,
     entry_exit_value: dict,
     important_event_value: dict,
+    concentration_value: dict,
+    planned_loss_value: dict,
     contract: dict | None = None,
 ) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     batch = _validate_batch(batch_value, contract)
     policy = _validate_policy(policy_value, batch["observed"], contract)
     policy["packet"] = copy.deepcopy(policy_value)
-    entry_exit, important_event = _validate_upstream_packets(
-        entry_exit_value, important_event_value, batch, contract
+    entry_exit, important_event, concentration, planned_loss = _validate_upstream_packets(
+        entry_exit_value,
+        important_event_value,
+        concentration_value,
+        planned_loss_value,
+        batch,
+        contract,
     )
-    packet = _assemble(batch, policy, entry_exit, important_event, contract)
+    packet = _assemble(
+        batch, policy, entry_exit, important_event, concentration, planned_loss, contract
+    )
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
 
@@ -558,17 +642,21 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     policy = _validate_policy(policy_value, batch["observed"], contract)
     policy["packet"] = copy.deepcopy(policy_value)
     sources = packet.get("source_packets")
-    if not isinstance(sources, dict) or set(sources) != {
-        "ENTRY_EXIT_TRIGGER_ELIGIBILITY", "IMPORTANT_EVENT_DETECTION"
-    }:
+    if not isinstance(sources, dict) or set(sources) != set(
+        contract["validated_upstream_packets"]
+    ):
         raise IntradayRiskEscalationError("OUTPUT_SOURCE_PACKETS_INVALID")
-    entry_exit, important_event = _validate_upstream_packets(
+    entry_exit, important_event, concentration, planned_loss = _validate_upstream_packets(
         sources["ENTRY_EXIT_TRIGGER_ELIGIBILITY"],
         sources["IMPORTANT_EVENT_DETECTION"],
+        sources["CONCENTRATION_GUARD"],
+        sources["PLANNED_LOSS_BUDGET"],
         batch,
         contract,
     )
-    expected = _assemble(batch, policy, entry_exit, important_event, contract)
+    expected = _assemble(
+        batch, policy, entry_exit, important_event, concentration, planned_loss, contract
+    )
     actual = copy.deepcopy(packet)
     digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_SHA_INVALID")
     if actual != expected:
@@ -608,6 +696,8 @@ def run(
     policy_path: Path,
     entry_exit_path: Path,
     important_event_path: Path,
+    concentration_path: Path,
+    planned_loss_path: Path,
     output_path: Path,
 ) -> int:
     try:
@@ -618,6 +708,8 @@ def run(
                 _read_json(policy_path),
                 _read_json(entry_exit_path),
                 _read_json(important_event_path),
+                _read_json(concentration_path),
+                _read_json(planned_loss_path),
             ),
         )
         return 0
@@ -632,6 +724,8 @@ def main() -> int:
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--entry-exit", type=Path, required=True)
     parser.add_argument("--important-event", type=Path, required=True)
+    parser.add_argument("--concentration-guard", type=Path, required=True)
+    parser.add_argument("--planned-loss", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     return run(
@@ -639,6 +733,8 @@ def main() -> int:
         args.policy,
         args.entry_exit,
         args.important_event,
+        args.concentration_guard,
+        args.planned_loss,
         args.out,
     )
 

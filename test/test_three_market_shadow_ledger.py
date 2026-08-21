@@ -101,7 +101,10 @@ def intraday_evidence(source):
             INTRADAY_RISK_FIXTURE.IMPORTANT_EVENT_FIXTURE.CONTRACT,
         )
     )
-    batch = INTRADAY_RISK_FIXTURE.batch()
+    concentration, planned_loss = INTRADAY_RISK_FIXTURE.portfolio_packets(day)
+    batch = INTRADAY_RISK_FIXTURE.batch(
+        portfolio=(concentration, planned_loss)
+    )
     batch["batch_id"] = f"INTRADAY.RISK.BATCH.{day.replace('-', '')}"
     batch["observed_at"] = f"{day}T02:13:00Z"
     batch["observations"][0]["provider_timestamp"] = f"{day}T02:12:30Z"
@@ -123,6 +126,8 @@ def intraday_evidence(source):
         policy,
         entry_exit,
         important_event,
+        concentration,
+        planned_loss,
         INTRADAY_RISK_FIXTURE.CONTRACT,
     )
     return entry_exit, intraday_risk
@@ -293,6 +298,8 @@ class ThreeMarketShadowLedgerTests(unittest.TestCase):
                 intraday_risk["policy_packet"],
                 entry_exit,
                 intraday_risk["source_packets"]["IMPORTANT_EVENT_DETECTION"],
+                intraday_risk["source_packets"]["CONCENTRATION_GUARD"],
+                intraday_risk["source_packets"]["PLANNED_LOSS_BUDGET"],
                 INTRADAY_RISK_FIXTURE.CONTRACT,
             )
 

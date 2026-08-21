@@ -1,21 +1,24 @@
 {
-  "schema_version": 2,
-  "contract_version": "intraday_risk_escalation/2",
-  "input_schema_version": "intraday_risk_observation_batch/2",
-  "policy_schema_version": "intraday_risk_escalation_policy/2",
-  "output_schema_version": "intraday_risk_escalation_packet/2",
+  "schema_version": 3,
+  "contract_version": "intraday_risk_escalation/3",
+  "input_schema_version": "intraday_risk_observation_batch/3",
+  "policy_schema_version": "intraday_risk_escalation_policy/3",
+  "output_schema_version": "intraday_risk_escalation_packet/3",
   "entry_exit_schema_version": "entry_exit_trigger_eligibility_packet/1",
   "entry_exit_contract_version": "entry_exit_trigger_eligibility/1",
   "important_event_schema_version": "important_event_detection_packet/2",
   "important_event_contract_version": "important_event_detector/2",
+  "concentration_guard_schema_version": "concentration_correlation_packet/2",
+  "concentration_guard_contract_version": "concentration_correlation_guard/2",
+  "planned_loss_schema_version": "planned_loss_packet/2",
+  "planned_loss_contract_version": "planned_loss_budget/2",
   "validated_upstream_packets": [
     "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
-    "IMPORTANT_EVENT_DETECTION"
-  ],
-  "lineage_only_upstreams": [
+    "IMPORTANT_EVENT_DETECTION",
     "CONCENTRATION_GUARD",
     "PLANNED_LOSS_BUDGET"
   ],
+  "lineage_only_upstreams": [],
   "markets": [
     "US",
     "KOREA",
