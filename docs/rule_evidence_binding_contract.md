@@ -14,6 +14,14 @@
   `LINK_BLOCKED`다. 둘 다 0이나 성공으로 바꾸지 않는다.
 - 입력 순서와 무관한 정렬 및 canonical JSON SHA-256으로 동일 입력은 동일 packet을
   만든다. CLI 출력은 임시 파일을 거쳐 원자적으로 교체한다.
+- `validate_packet()`은 저장된 packet의 Rule 정적 identity, reference 상태 파생,
+  lineage 형식, `ALL_REQUIRED` 결합, binding-set hash, summary, authority, packet hash를
+  다시 계산한다. 바깥 hash만 다시 만든 의미 변조는 유효해지지 않는다.
+
+packet에는 원본 evidence envelope 본문 전체가 들어 있지 않으므로
+`evidence_set_sha256`과 각 `envelope_sha256`의 외부 진위는 standalone validator가
+재구성할 수 없다. 그 진위는 envelope 보존·인증 경계의 책임이며, P5-03 validator는
+packet 내부 의미와 명시 binding의 일관성을 증명한다.
 
 ## 하지 않는 것
 

@@ -197,6 +197,17 @@ class DeterministicRuleEvaluatorTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.DeterministicRuleEvaluatorError, "BINDING_PACKET_IDENTITY_INVALID"):
             MODULE.build_packet(packet, RULES, CONTRACT)
 
+    def test_upstream_production_validator_rejects_reference_state_drift(self):
+        packet = available_binding_packet()
+        row = next(item for item in packet["rules"] if item["rule_id"] == "RULE-0021")
+        row["evidence_references"][0]["reference_status"] = "LINK_BLOCKED"
+        packet = refresh_binding(packet)
+        with self.assertRaisesRegex(
+            MODULE.DeterministicRuleEvaluatorError,
+            "BINDING_PACKET_SEMANTIC_INVALID:PACKET_REFERENCE_STATE_MISMATCH",
+        ):
+            MODULE.build_packet(packet, RULES, CONTRACT)
+
     def test_rule_registry_global_authority_hold_is_required(self):
         rules = copy.deepcopy(RULES)
         rules["consumable_by_evaluator"] = True
