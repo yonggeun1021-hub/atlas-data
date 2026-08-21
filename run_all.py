@@ -476,6 +476,12 @@ APPROVED_TESTS = [
     #   lineage를 검증하되 숫자를 발명하거나 usage·sizing·order를 만들지 않는다.
     #   ⛔ default budget/allocation/sizing/order/Production/trading 없음.
     "test/test_bear_hedge_risk_budget.py",
+    # ★ P7-03 — external CIO-RATIFIED concentration/correlation guard.
+    #   explicit long NAV weights, fractional theme lineage, market totals, and
+    #   complete positive-correlation pair coverage are checked independently.
+    #   No repository default limit/reduction/sizing/order authority is opened.
+    #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
+    "test/test_concentration_correlation_guard.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
