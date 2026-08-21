@@ -74,9 +74,18 @@ order.
 해당 series result에 역대조하고 모든 권한 봉쇄값을 확인한다. 값을 바꾼 뒤
 `payload_sha256`을 다시 계산해도 semantic drift는 통과하지 않는다.
 
-case가 생성되지 않은 series result는 원 evidence envelope를 packet에 보존하지
-않으므로 standalone validator가 원 입력이나 source completeness까지 증명하지는
-않는다. 그 범위는 원 evidence를 직접 검증하는 `build_packet()` 경로에 남는다.
+모든 series result(schema `business_acceleration_radar_packet/2`)는 case
+생성 여부와 무관하게 `evidence_source`에 3개 기간 각각의 원문 `numeric_value`,
+`unit`, `source_identity`를 최소 충분한 frozen snapshot으로 보존한다 (전체
+evidence envelope 전체가 아니라, 표준 재구축에 필요한 최소 필드만). `pattern`
+이 `UNKNOWN_EVIDENCE`이면 `evidence_source`는 `null`이다.
+
+`validate_packet()`은 매 non-`UNKNOWN_EVIDENCE` series마다 `evidence_source`의
+각 항목을 `_validate_source()`로 독립 재검증하고 (host/HTTPS/SHA-256 형식/시간
+순서), 렌더링한 numeric_value가 `values_pct`와 정확히 일치하는지 대조한다.
+따라서 case가 없는 packet도 standalone validator가 값이 자기일관적인 숫자가
+아니라 실제 sourced evidence에서 나왔음을 packet 내부만으로 재증명한다. case로
+승격된 series의 `confirmed_evidence`는 동일한 snapshot의 사본이다.
 
 ## Offline command
 

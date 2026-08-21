@@ -123,12 +123,70 @@ class BusinessAccelerationTests(unittest.TestCase):
         self.assertEqual(BA.canonical_json(checked), BA.canonical_json(packet))
 
     def test_standalone_validator_rejects_rehashed_arithmetic_tamper(self):
+        # Tamper values_pct AND evidence_source in tandem (so the new
+        # source-backed cross-check agrees) to isolate the pre-existing
+        # arithmetic/pattern re-derivation check.
         packet = BA.build_packet(payload())
         packet["series_results"][0]["values_pct"][2] = "31.000000000000"
+        packet["series_results"][0]["evidence_source"][2]["numeric_value"] = "31"
         with self.assertRaisesRegex(
             BA.BusinessAccelerationError, "OUTPUT_PATTERN_DERIVATION_MISMATCH"
         ):
             BA.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_values_pct_unbacked_by_evidence_source(self):
+        # Tampering values_pct WITHOUT touching evidence_source must be
+        # caught by the standalone source-backed re-proof -- not just by
+        # self-consistent arithmetic -- for a series that never created a
+        # case (LATEST_STEP_NOT_UP, no case exists to independently
+        # corroborate the numbers).
+        packet = BA.build_packet(payload([series(("10", "20", "19"))]))
+        self.assertEqual(packet["series_results"][0]["pattern"], "LATEST_STEP_NOT_UP")
+        packet["series_results"][0]["values_pct"][2] = "50.000000000000"
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "OUTPUT_EVIDENCE_SOURCE_VALUE_MISMATCH"
+        ):
+            BA.validate_packet(rehash(packet))
+
+    def test_non_case_series_persists_and_standalone_revalidates_evidence_source(self):
+        # A LATEST_STEP_UP_ONLY series creates no case, yet its
+        # series_result must still carry a frozen evidence_source snapshot
+        # sufficient for validate_packet() to independently reprove source
+        # completeness -- the exact limitation reported for non-case
+        # packets before this fix.
+        packet = BA.build_packet(payload([series(("20", "10", "15"))]))
+        result = packet["series_results"][0]
+        self.assertEqual(result["pattern"], "LATEST_STEP_UP_ONLY")
+        self.assertEqual(packet["case_count"], 0)
+        self.assertEqual(len(result["evidence_source"]), 3)
+        for row in result["evidence_source"]:
+            self.assertEqual(row["source_identity"]["source_id"], "tsmc_ir_monthly_revenue")
+        checked = BA.validate_packet(copy.deepcopy(packet))
+        self.assertEqual(BA.canonical_json(checked), BA.canonical_json(packet))
+
+        # Standalone source re-validation (bad host) fires for a non-case
+        # series too, not only for case-creating ones.
+        tampered = copy.deepcopy(packet)
+        tampered["series_results"][0]["evidence_source"][0]["source_identity"][
+            "source_url"
+        ] = "https://www.sec.gov/Archives/not-tsmc"
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "SOURCE_URL_INVALID"
+        ):
+            BA.validate_packet(rehash(tampered))
+
+    def test_unknown_evidence_series_has_no_evidence_source(self):
+        value = series()
+        value["evidence_points"][1] = unavailable("2026-06-30")
+        packet = BA.build_packet(payload([value]))
+        result = packet["series_results"][0]
+        self.assertIsNone(result["evidence_source"])
+        tampered = copy.deepcopy(packet)
+        tampered["series_results"][0]["evidence_source"] = []
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "OUTPUT_UNKNOWN_PATTERN_MISMATCH"
+        ):
+            BA.validate_packet(rehash(tampered))
 
     def test_standalone_validator_rejects_rehashed_case_evidence_tamper(self):
         packet = BA.build_packet(payload())

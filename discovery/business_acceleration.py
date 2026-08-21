@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "business_acceleration_radar_contract.json"
 
 INPUT_SCHEMA_VERSION = "business_acceleration_radar_input/1"
-OUTPUT_SCHEMA_VERSION = "business_acceleration_radar_packet/1"
+OUTPUT_SCHEMA_VERSION = "business_acceleration_radar_packet/2"
 EVIDENCE_SCHEMA_VERSION = "evidence_envelope/1"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -99,7 +99,7 @@ def _validate_contract(value: dict) -> dict:
     }
     expected = {
         "schema_version": 1,
-        "contract_version": "business_acceleration_radar/1",
+        "contract_version": "business_acceleration_radar/2",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
@@ -338,6 +338,7 @@ def _series_result(series: dict, as_of: dt.datetime, contract: dict) -> tuple[di
             "prior_change_pp": None,
             "latest_change_pp": None,
             "acceleration_change_pp": None,
+            "evidence_source": None,
             "unavailable_evidence": unavailable,
             "radar_case_created": False,
         }, None
@@ -351,6 +352,20 @@ def _series_result(series: dict, as_of: dt.datetime, contract: dict) -> tuple[di
     else:
         pattern = "LATEST_STEP_NOT_UP"
     places = contract["output_decimal_places"]
+    # Persisted regardless of whether a case is created -- a non-case
+    # series_result must remain standalone-reprovable too, so the minimum
+    # sufficient frozen source snapshot (raw numeric_value + source_identity
+    # per period) is kept here, not only in a created case's
+    # confirmed_evidence.
+    evidence_source = [
+        {
+            "economic_period_end": item[0]["economic_period_end"],
+            "numeric_value": item[0]["observation"]["numeric_value"],
+            "unit": item[0]["observation"]["unit"],
+            "source_identity": copy.deepcopy(item[0]["source_identity"]),
+        }
+        for item in checked
+    ]
     result = {
         **base,
         "pattern": pattern,
@@ -358,6 +373,7 @@ def _series_result(series: dict, as_of: dt.datetime, contract: dict) -> tuple[di
         "prior_change_pp": _render(prior_change, places),
         "latest_change_pp": _render(latest_change, places),
         "acceleration_change_pp": _render(latest_change - prior_change, places),
+        "evidence_source": copy.deepcopy(evidence_source),
         "unavailable_evidence": [],
         "radar_case_created": pattern == "TWO_STEP_ACCELERATION_OBSERVED",
     }
@@ -382,15 +398,7 @@ def _series_result(series: dict, as_of: dt.datetime, contract: dict) -> tuple[di
             "latest_change_pp": result["latest_change_pp"],
             "comparison_basis": comparison_basis,
         },
-        "confirmed_evidence": [
-            {
-                "economic_period_end": item[0]["economic_period_end"],
-                "numeric_value": item[0]["observation"]["numeric_value"],
-                "unit": item[0]["observation"]["unit"],
-                "source_identity": copy.deepcopy(item[0]["source_identity"]),
-            }
-            for item in checked
-        ],
+        "confirmed_evidence": copy.deepcopy(evidence_source),
         "unconfirmed_items": [
             "IMPORTANCE_THRESHOLD_UNRATIFIED",
             "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
@@ -464,6 +472,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "prior_change_pp",
         "latest_change_pp",
         "acceleration_change_pp",
+        "evidence_source",
         "unavailable_evidence",
         "radar_case_created",
     }
@@ -522,6 +531,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
                 or result.get("prior_change_pp") is not None
                 or result.get("latest_change_pp") is not None
                 or result.get("acceleration_change_pp") is not None
+                or result.get("evidence_source") is not None
                 or result.get("radar_case_created") is not False
                 or not isinstance(unavailable, list)
                 or not unavailable
@@ -555,6 +565,34 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             values = [_decimal(value, series_id) for value in values_text]
             if values_text != [_render(value, places) for value in values]:
                 raise BusinessAccelerationError("OUTPUT_VALUE_CANONICALIZATION_MISMATCH")
+            # Independently re-prove that values_pct is backed by genuine,
+            # correctly-sourced, temporally-ordered raw evidence -- not just
+            # internally self-consistent numbers. This runs for every
+            # non-UNKNOWN_EVIDENCE series, not only ones that created a case,
+            # closing the standalone-source-completeness gap for non-case
+            # packets.
+            evidence_source = result.get("evidence_source")
+            evidence_fields = {
+                "economic_period_end", "numeric_value", "unit", "source_identity",
+            }
+            if (
+                not isinstance(evidence_source, list)
+                or len(evidence_source) != contract["required_point_count"]
+            ):
+                raise BusinessAccelerationError(f"OUTPUT_EVIDENCE_SOURCE_MISMATCH:{series_id}")
+            for index, row in enumerate(evidence_source):
+                if (
+                    not isinstance(row, dict)
+                    or set(row) != evidence_fields
+                    or row.get("economic_period_end") != periods[index]
+                    or row.get("unit") != contract["required_unit"]
+                    or _render(_decimal(row.get("numeric_value"), series_id), places)
+                    != values_text[index]
+                ):
+                    raise BusinessAccelerationError(
+                        f"OUTPUT_EVIDENCE_SOURCE_VALUE_MISMATCH:{series_id}"
+                    )
+                _validate_source(row.get("source_identity"), as_of, contract, series_id)
             prior = values[1] - values[0]
             latest = values[2] - values[1]
             expected_pattern = (
