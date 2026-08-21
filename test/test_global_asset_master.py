@@ -156,6 +156,13 @@ def sample_input() -> dict:
     }
 
 
+def rehash(packet: dict) -> dict:
+    value = copy.deepcopy(packet)
+    value.pop("payload_sha256", None)
+    value["payload_sha256"] = GAM.payload_sha256(value)
+    return value
+
+
 class GlobalAssetMasterTests(unittest.TestCase):
     def test_cross_market_master_and_authority_boundary(self):
         packet = GAM.build_master(sample_input())
@@ -224,6 +231,38 @@ class GlobalAssetMasterTests(unittest.TestCase):
         self.assertEqual(GAM.canonical_json(first), GAM.canonical_json(second))
         digest = second.pop("payload_sha256")
         self.assertEqual(digest, GAM.payload_sha256(second))
+
+    def test_standalone_validator_accepts_persisted_packet(self):
+        packet = GAM.build_master(sample_input())
+        validated = GAM.validate_packet(copy.deepcopy(packet))
+        self.assertEqual(GAM.canonical_json(validated), GAM.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_derived_membership_tamper(self):
+        packet = GAM.build_master(sample_input())
+        us = next(row for row in packet["records"] if row["market"] == "US")
+        us["active_memberships"] = [
+            row
+            for row in us["active_memberships"]
+            if row["membership_type"] != "THEME"
+        ]
+        with self.assertRaisesRegex(
+            GAM.AssetMasterError, "OUTPUT_RECORD_DERIVATION_MISMATCH"
+        ):
+            GAM.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_authority_expansion(self):
+        packet = GAM.build_master(sample_input())
+        packet["authority"]["investability_authorized"] = True
+        with self.assertRaisesRegex(GAM.AssetMasterError, "OUTPUT_AUTHORITY_MISMATCH"):
+            GAM.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_cross_asset_collision(self):
+        packet = GAM.build_master(sample_input())
+        packet["records"][1]["identifiers"][0] = copy.deepcopy(
+            packet["records"][0]["identifiers"][0]
+        )
+        with self.assertRaisesRegex(GAM.AssetMasterError, "IDENTIFIER_COLLISION"):
+            GAM.validate_packet(rehash(packet))
 
     def test_duplicate_asset_primary_and_identifier_collisions_fail_closed(self):
         duplicate = sample_input()

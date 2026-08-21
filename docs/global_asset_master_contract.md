@@ -64,6 +64,16 @@ SHA-256. The CLI writes only a caller-requested `--out` path, using a staged
 file and atomic replace. Validation completes before publication, so an invalid
 input cannot overwrite an existing output.
 
+`validate_packet()` also validates a persisted output independently of the
+builder call. Because every source identity, alias interval, and membership
+interval is retained in the packet, it re-runs the production record and
+cross-record validators to derive active aliases and memberships, closed
+authority fields, canonical ordering, and collision decisions. Recomputing the
+packet SHA-256 after changing one of those values does not make the packet
+valid. This is a structural and semantic integrity check of retained evidence;
+it does not prove that a provider response was complete or authorize a live
+master population.
+
 Example (input intentionally omitted because no live master is approved):
 
 ```bash
