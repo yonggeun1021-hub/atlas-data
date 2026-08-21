@@ -466,6 +466,11 @@ APPROVED_TESTS = [
     #   target을 NOT_EVALUATED/null/empty로 닫고 authority 밀반입을 거부한다.
     #   ⛔ policy/target/sizing/order/Production/trading 및 tracked output 없음.
     "test/test_cash_exposure_action.py",
+    # ★ P6-02 — explicit CIO-ratified Hedge instrument eligibility registry.
+    #   US/Korea index·sector 수단의 identity/effective date와 cost/tracking-error
+    #   evidence를 exact hash로 검증하되 저장소 default·자동선택·sizing은 금지한다.
+    #   ⛔ instrument 추천/threshold/order/Production/trading 및 tracked output 없음.
+    "test/test_hedge_instrument_eligibility.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
