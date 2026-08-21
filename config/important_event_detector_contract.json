@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract_version": "important_event_detector/1",
+  "policy_schema_version": "important_event_policy/1",
+  "input_schema_version": "important_event_observation_batch/1",
+  "output_schema_version": "important_event_detection_packet/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "source_kinds": [
+    "SEC_EDGAR",
+    "DART_OPEN_API",
+    "OFFICIAL_NEWS"
+  ],
+  "importance_levels": [
+    "IMPORTANT",
+    "ROUTINE"
+  ],
+  "detection_statuses": [
+    "ESCALATED",
+    "ROUTINE",
+    "UNASSESSED",
+    "BLOCKED"
+  ],
+  "timing_statuses": [
+    "ON_TIME",
+    "LATE",
+    "NOT_APPLICABLE"
+  ],
+  "repository_default_policy": "ABSENT",
+  "matching_policy": "EXACT_SOURCE_MARKET_EVENT_TYPE",
+  "escalation_policy": "RATIFIED_IMPORTANT_AND_CONFIRMED_ONLY",
+  "notification_policy": "NOT_SENT_BY_DETECTOR",
+  "input_authority": {
+    "normalized_event_observation_only": true,
+    "importance_classification_authorized": false,
+    "notification_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "ratified_policy_event_detection_only": true,
+    "event_type_inference_authorized": false,
+    "importance_policy_creation_authorized": false,
+    "candidate_promotion_authorized": false,
+    "notification_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
