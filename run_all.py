@@ -479,6 +479,7 @@ APPROVED_TESTS = [
     # ★ P7-03 — external CIO-RATIFIED concentration/correlation guard.
     #   explicit long NAV weights, fractional theme lineage, market totals, and
     #   complete positive-correlation pair coverage are checked independently.
+    #   exact input/policy packets를 내장하고 production validator로 재파생한다.
     #   No repository default limit/reduction/sizing/order authority is opened.
     #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
     "test/test_concentration_correlation_guard.py",
@@ -497,6 +498,7 @@ APPROVED_TESTS = [
     # ★ P7-06 — explicit planned stops bound to ratified Constitution B4/B5/B6.
     #   Each long position loss is recomputed and the simultaneous total is
     #   checked without creating an exit, size, stop order, or trading authority.
+    #   exact input/Constitution을 내장하고 production validator로 재파생한다.
     #   ⛔ tracked Constitution remains not_ratified; synthetic external input only.
     "test/test_planned_loss_budget.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.

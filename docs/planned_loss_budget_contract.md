@@ -21,6 +21,15 @@ under the canonical `portfolio/constitution.py` validator, and have all B2–B7
 values. The tracked repository Constitution remains `not_ratified`; this
 module does not modify it or invent a number.
 
+Contract v2 embeds the canonical validated input packet and the exact checked
+Constitution. `validate_packet()` invokes the same production validators and
+re-derives all position assessments, total loss, breaches, authority, and
+lineage. A self-rehashed output or embedded-Constitution mutation fails closed.
+
+The P8-06 briefing consumer remains pinned to the prior v1 identity until its
+own versioned migration. Contract v2 therefore establishes a producer
+capability without silently widening an existing consumer contract.
+
 `LIMIT_BREACH` is a risk result, not an exit instruction. Recommended exit,
 position sizing, stop orders, Production, and trading authority remain
 null/empty/false. CLI output inside the repository tree is forbidden.

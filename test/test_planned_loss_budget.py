@@ -72,8 +72,8 @@ def input_packet(positions=None, crypto_sha="d" * 64):
             position("BTC", "CRYPTO", 0.05, 100, 90, "USD", "3"),
         ]
     value = {
-        "schema_version": "planned_loss_input/1",
-        "contract_version": "planned_loss_budget/1",
+        "schema_version": CONTRACT["input_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "snapshot_id": "TEST-PLANNED-LOSS-2026-08-21",
         "as_of_date": "2026-08-21",
         "generated_at_utc": "2026-08-21T00:30:00Z",
@@ -129,6 +129,13 @@ class PlannedLossBudgetTests(unittest.TestCase):
         self.assertIsNone(packet["position_sizes"])
         self.assertEqual(packet["lineage"]["input_packet_sha256"], source["packet_sha256"])
         self.assertEqual(packet["lineage"]["constitution_sha256"], MODULE.payload_sha256(ratified))
+        canonical_source = copy.deepcopy(source)
+        canonical_source["positions"] = sorted(
+            canonical_source["positions"], key=lambda row: row["asset_id"]
+        )
+        self.assertEqual(packet["source_packets"]["INPUT"], canonical_source)
+        self.assertEqual(packet["source_packets"]["CONSTITUTION"], ratified)
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
 
     def test_position_weight_stop_and_total_loss_breaches_are_independent(self):
         rows = [
@@ -219,6 +226,31 @@ class PlannedLossBudgetTests(unittest.TestCase):
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
 
+    def test_self_rehashed_output_and_embedded_constitution_tamper_fail_closed(self):
+        packet = MODULE.build_packet(
+            input_packet(), constitution(), "2026-08-21", CONTRACT
+        )
+        packet["summary"]["breach_count"] = 99
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.PlannedLossBudgetError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+        packet = MODULE.build_packet(
+            input_packet(), constitution(), "2026-08-21", CONTRACT
+        )
+        packet["source_packets"]["CONSTITUTION"]["status"] = "not_ratified"
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.PlannedLossBudgetError, "CONSTITUTION_NOT_RATIFIED"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()
@@ -236,7 +268,9 @@ class PlannedLossBudgetTests(unittest.TestCase):
             ratified = write_json(tmp / "constitution.json", constitution())
             output = tmp / "nested" / "packet.json"
             self.assertEqual(MODULE.run(source, ratified, "2026-08-21", output), 0)
-            self.assertEqual(json.loads(output.read_text())["status"], "WITHIN_RATIFIED_LOSS_BUDGET")
+            serialized = json.loads(output.read_text())
+            self.assertEqual(serialized["status"], "WITHIN_RATIFIED_LOSS_BUDGET")
+            self.assertEqual(MODULE.validate_packet(serialized, CONTRACT), serialized)
             forbidden = ROOT / "data" / "planned_loss_budget_test.json"
             self.assertEqual(MODULE.run(source, ratified, "2026-08-21", forbidden), 1)
             self.assertFalse(forbidden.exists())
