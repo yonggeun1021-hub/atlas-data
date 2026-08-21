@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "contract_version": "expectations_revision_radar/1",
+  "source_policy_schema_version": "consensus_estimate_source_policy/1",
+  "input_schema_version": "expectations_revision_radar_input/1",
+  "output_schema_version": "expectations_revision_radar_packet/1",
+  "allowed_markets": [
+    "KOREA",
+    "US"
+  ],
+  "allowed_metric_types": [
+    "EBIT",
+    "EPS",
+    "FREE_CASH_FLOW",
+    "REVENUE"
+  ],
+  "allowed_statistics": [
+    "MEAN",
+    "MEDIAN"
+  ],
+  "required_vintage_count": 2,
+  "revision_directions": [
+    "UPWARD",
+    "DOWNWARD",
+    "UNCHANGED",
+    "UNKNOWN_EVIDENCE"
+  ],
+  "repository_default_source_policy": "ABSENT",
+  "revision_semantics": "LATEST_ESTIMATE_MINUS_PRIOR_ESTIMATE_FOR_EXACT_TARGET",
+  "case_semantics": "NONZERO_CONFIRMED_REVISION_OBSERVED_ONLY",
+  "output_decimal_places": 12,
+  "input_authority": {
+    "normalized_consensus_estimate_observation_only": true,
+    "source_selection_authorized": false,
+    "importance_classification_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "raw_revision_observation_only": true,
+    "source_policy_creation_authorized": false,
+    "importance_classification_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_evaluation_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
