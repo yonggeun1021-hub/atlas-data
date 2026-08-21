@@ -613,6 +613,7 @@ APPROVED_TESTS = [
     # ★ P9-04 — duplicate Action/Order ID guard capability.
     #   same key+payload retry는 block, key/payload 또는 action/order ID 충돌은
     #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
+    #   exact prior ledger/attempt batch를 내장하고 persisted result를 재파생한다.
     #   ⛔ ID 생성/order 생성/broker/Production/trading 권한 없음.
     "test/test_action_order_idempotency.py",
     # ★ P10-01 — append-only zero-capital 3-Market Shadow ledger.
