@@ -389,6 +389,121 @@ class KoreaCapitalRotationTests(unittest.TestCase):
         ):
             KCR.validate_packet(packet)
 
+    def test_observation_pair_persists_available_at_for_standalone_reproof(self):
+        value, policy = make_bundle()
+        packet = KCR.build_packet(value, policy)
+        pair = packet["observation_pair"]
+        self.assertEqual(pair["prior_available_at"], "2026-08-18T09:00:00+00:00")
+        self.assertEqual(pair["current_available_at"], "2026-08-20T09:00:00+00:00")
+        # validate_packet() takes only the persisted packet -- neither upstream
+        # Leadership packet is passed in, so a pass here is itself the proof
+        # that temporal order and ratified-before-prior are standalone-provable.
+        KCR.validate_packet(copy.deepcopy(packet))
+
+    def test_revision_a_and_b_are_each_independently_standalone_verifiable(self):
+        value_a, policy_a = make_bundle()
+        revision_a = KCR.build_packet(value_a, policy_a)
+        # Revision B: source pointer moves -- later available_at for both
+        # observations, as if a fresher upstream snapshot had been read.
+        with tempfile.TemporaryDirectory() as raw:
+            policy_path = write_upstream_policy(Path(raw) / "leadership-policy.json")
+            prior_values = {
+                "11::KOSPI_반도체": "130", "12::KOSPI_바이오": "110", "13::KOSPI_방산": "90",
+                "21::KOSDAQ_반도체": "105", "22::KOSDAQ_바이오": "120", "23::KOSDAQ_로봇": "80",
+            }
+            current_values = {
+                "11::KOSPI_반도체": "110", "12::KOSPI_바이오": "140", "13::KOSPI_방산": "80",
+                "21::KOSDAQ_반도체": "130", "22::KOSDAQ_바이오": "110", "23::KOSDAQ_로봇": "90",
+            }
+            prior_payload = upstream_payload("2026-08-18", prior_values)
+            prior_payload.update({
+                "available_at": "2026-08-18T22:00:00+09:00",
+                "fetched_at": "2026-08-18T22:05:00+09:00",
+                "decision_at": "2026-08-18T22:10:00+09:00",
+            })
+            current_payload = upstream_payload("2026-08-20", current_values)
+            current_payload.update({
+                "available_at": "2026-08-20T22:00:00+09:00",
+                "fetched_at": "2026-08-20T22:05:00+09:00",
+                "decision_at": "2026-08-20T22:10:00+09:00",
+            })
+            moved_prior = KL.build_transform(prior_payload, policy_path)
+            moved_current = KL.build_transform(current_payload, policy_path)
+        moved_value = copy.deepcopy(value_a)
+        moved_value["prior_observation"] = moved_prior
+        moved_value["current_observation"] = moved_current
+        revision_b = KCR.build_packet(moved_value, policy_a)
+        self.assertNotEqual(
+            revision_a["observation_pair"]["prior_available_at"],
+            revision_b["observation_pair"]["prior_available_at"],
+        )
+        # Each revision is re-verified from nothing but its own persisted
+        # packet -- no fault injection, no monkeypatch, no shared live state.
+        KCR.validate_packet(copy.deepcopy(revision_a))
+        KCR.validate_packet(copy.deepcopy(revision_b))
+        self.assertEqual(
+            revision_b["observation_pair"]["prior_available_at"],
+            "2026-08-18T13:00:00+00:00",
+        )
+
+    def test_validate_packet_rejects_missing_invalid_naive_and_malformed_timezone_available_at(self):
+        for field in ("prior_available_at", "current_available_at"):
+            with self.subTest(field=field, case="missing"):
+                value, policy = make_bundle()
+                packet = KCR.build_packet(value, policy)
+                del packet["observation_pair"][field]
+                with self.assertRaisesRegex(
+                    KCR.KoreaCapitalRotationError, "OUTPUT_OBSERVATION_PAIR_INVALID"
+                ):
+                    KCR.validate_packet(packet)
+            code = (
+                "OUTPUT_PRIOR_AVAILABLE_AT_INVALID"
+                if field == "prior_available_at"
+                else "OUTPUT_CURRENT_AVAILABLE_AT_INVALID"
+            )
+            for case, bad_value in (
+                ("not_a_string", 12345),
+                ("unparseable", "not-a-timestamp"),
+                ("naive_no_offset", "2026-08-18T09:00:00"),
+                ("malformed_timezone", "2026-08-18T09:00:00PST"),
+            ):
+                with self.subTest(field=field, case=case):
+                    value, policy = make_bundle()
+                    packet = KCR.build_packet(value, policy)
+                    packet["observation_pair"][field] = bad_value
+                    with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, code):
+                        KCR.validate_packet(packet)
+
+    def test_validate_packet_rejects_available_at_order_and_ratification_tamper_after_self_rehash(self):
+        # Tamper 1: swap persisted available_at order, then re-hash the
+        # packet so the top-level payload_sha256 digest matches the
+        # tampered content -- the temporal-order re-derivation, not the
+        # digest check, must be what catches this.
+        value, policy = make_bundle()
+        packet = KCR.build_packet(value, policy)
+        pair = packet["observation_pair"]
+        pair["prior_available_at"], pair["current_available_at"] = (
+            pair["current_available_at"], pair["prior_available_at"],
+        )
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "OUTPUT_AVAILABLE_AT_ORDER_INVALID"
+        ):
+            KCR.validate_packet(packet)
+
+        # Tamper 2: push the persisted prior_available_at earlier than the
+        # policy's own ratified_at_utc, self-rehash, and confirm the
+        # ratified-before-prior re-proof still fires even though
+        # build_packet() would never have produced this shape.
+        value, policy = make_bundle()
+        packet = KCR.build_packet(value, policy)
+        packet["observation_pair"]["prior_available_at"] = "2026-08-16T00:00:00+00:00"
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "OUTPUT_POLICY_RATIFIED_AFTER_PRIOR_OBSERVATION"
+        ):
+            KCR.validate_packet(packet)
+
     def test_state_regime_stage_production_and_trading_remain_closed(self):
         value, policy = make_bundle()
         packet = KCR.build_packet(value, policy)

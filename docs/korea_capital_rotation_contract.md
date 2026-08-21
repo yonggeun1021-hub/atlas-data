@@ -53,9 +53,15 @@ prior/current ranks, rank changes, TOP/MIDDLE/BOTTOM buckets, transitions, and
 top/bottom summaries. Recomputing `payload_sha256` after changing one of those
 fields cannot make the packet valid.
 
-The v1 output deliberately omits upstream source rows and their
-`available_at` timestamps. The standalone validator can prove that a policy is
-ratified and date-effective from the packet, but it cannot independently prove
-that ratification preceded the prior source's availability. That temporal
-check remains enforced while `build_packet()` validates the two upstream
-packets; the output validator does not invent missing availability evidence.
+The output deliberately omits upstream source rows -- retaining full upstream
+Leadership packets would violate this module's own `output_retention_policy`
+-- but `observation_pair` (schema `korea_capital_rotation_packet/2`) persists
+each observation's own `available_at` alongside its date. `validate_packet()`
+re-parses both timestamps, requiring them present, ISO8601, and
+timezone-aware, and independently re-derives prior-before-current order, the
+effective interval covering both observations, and
+ratified-before-prior-observation from those persisted values alone -- with
+no live source pointer, current file, or monkeypatch -- so a revision's own
+packet remains standalone-reprovable even after live source state moves on,
+and a self-rehashed tamper of any of these facts (order, gap, ratification
+timing) fails closed.

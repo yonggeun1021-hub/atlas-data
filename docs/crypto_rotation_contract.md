@@ -31,10 +31,15 @@ digest. It also requires the sector/chain layer to remain exactly `UNKNOWN` and
 unauthorized as a ranking input. Recomputing `payload_sha256` after changing a
 rank, delta, or sector/chain authority cannot make the packet valid.
 
-The v1 output contains the current `as_of_date`, but deliberately omits the
-prior observation date and both upstream `available_at` timestamps. The
-standalone validator therefore cannot independently re-prove maximum-gap or
-ratified-before-prior availability. Those temporal checks remain enforced when
-`build_packet()` validates both upstream packets. The output validator checks
-every temporal claim that the retained fields support and does not invent the
-omitted evidence.
+The output (schema `crypto_rotation_packet/2`) carries an `observation_pair`
+with the prior and current observation dates, their calendar gap, and both
+upstream `available_at` timestamps -- scalar facts only, not the two full
+upstream Leadership packets. `validate_packet()` re-parses both timestamps,
+requiring them present, ISO8601, and timezone-aware, and independently
+re-derives prior-before-current order, the effective interval covering both
+observations, the maximum-calendar-gap bound, and
+ratified-before-prior-observation from those persisted values alone -- with
+no live source pointer, current file, or monkeypatch -- so a revision's own
+packet remains standalone-reprovable even after live source state moves on,
+and a self-rehashed tamper of any of these facts (order, gap, ratification
+timing) fails closed.

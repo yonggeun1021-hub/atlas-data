@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "crypto_rotation_contract.json"
 INPUT_SCHEMA_VERSION = "crypto_rotation_input/1"
 POLICY_SCHEMA_VERSION = "crypto_rotation_policy/1"
-OUTPUT_SCHEMA_VERSION = "crypto_rotation_packet/1"
+OUTPUT_SCHEMA_VERSION = "crypto_rotation_packet/2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 AUTHORITY_FIELDS = {
@@ -50,7 +50,7 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "crypto_rotation/1",
+        "contract_version": "crypto_rotation/2",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "policy_schema_version": POLICY_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
@@ -491,6 +491,19 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         "measurement": contract["measurement"], "market": "CRYPTO", "as_of_date": as_of.isoformat(),
         "status": "ROTATION_BUCKETS_OBSERVED" if effective else "POLICY_NOT_EFFECTIVE",
         "window_id": window_id, "lookback_calendar_days": current["lookback"],
+        "observation_pair": {
+            "prior_date": prior["as_of_date"].isoformat(),
+            "current_date": current["as_of_date"].isoformat(),
+            "calendar_gap_days": (current["as_of_date"] - prior["as_of_date"]).days,
+            # Both upstream observations' own available_at, persisted so a
+            # standalone validate_packet() call can independently re-prove
+            # temporal order, maximum gap, and ratified-before-prior without
+            # re-reading either full upstream Leadership packet (which this
+            # module retains no rows from) or trusting the persisted
+            # rotation_policy_effective flag blindly.
+            "prior_available_at": prior["available_at"].isoformat(),
+            "current_available_at": current["available_at"].isoformat(),
+        },
         "rotation_policy": checked, "rotation_policy_effective": effective,
         "ranking_method": {
             "metric": contract["ranking_metric"], "order": contract["ranking_order"],
@@ -532,8 +545,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     fields = {
         "schema_version", "contract_version", "measurement", "market",
         "as_of_date", "status", "window_id", "lookback_calendar_days",
-        "rotation_policy", "rotation_policy_effective", "ranking_method",
-        "top_groups", "bottom_groups", "bucket_observations",
+        "observation_pair", "rotation_policy", "rotation_policy_effective",
+        "ranking_method", "top_groups", "bottom_groups", "bucket_observations",
         "sector_chain_layer", "lineage", "authority", "unresolved_boundaries",
         "payload_sha256",
     }
@@ -553,6 +566,32 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     expected_lookback = {"pilot_7d": 7, "primary_30d": 30}[window_id]
     if packet.get("lookback_calendar_days") != expected_lookback:
         raise CryptoRotationError("OUTPUT_LOOKBACK_MISMATCH")
+
+    pair = packet.get("observation_pair")
+    if not isinstance(pair, dict) or set(pair) != {
+        "prior_date", "current_date", "calendar_gap_days",
+        "prior_available_at", "current_available_at",
+    }:
+        raise CryptoRotationError("OUTPUT_OBSERVATION_PAIR_INVALID")
+    prior_date = _date(pair.get("prior_date"), "OUTPUT_PRIOR_DATE_INVALID")
+    current_date = _date(pair.get("current_date"), "OUTPUT_CURRENT_DATE_INVALID")
+    if (
+        not prior_date < current_date == as_of
+        or pair.get("calendar_gap_days") != (current_date - prior_date).days
+    ):
+        raise CryptoRotationError("OUTPUT_OBSERVATION_PAIR_MISMATCH")
+    # Both upstream available_at timestamps, independently re-parsed and
+    # re-ordered here -- not trusted from the persisted rotation_policy_
+    # effective flag. This is what makes prior-vs-current temporal order
+    # standalone-provable without either upstream Leadership packet.
+    prior_available_at = _timestamp(
+        pair.get("prior_available_at"), "OUTPUT_PRIOR_AVAILABLE_AT_INVALID"
+    )
+    current_available_at = _timestamp(
+        pair.get("current_available_at"), "OUTPUT_CURRENT_AVAILABLE_AT_INVALID"
+    )
+    if prior_available_at >= current_available_at:
+        raise CryptoRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
 
     policy = packet.get("rotation_policy")
     policy_fields = {
@@ -597,11 +636,12 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     bottom_count = _positive_int(
         policy.get("bottom_count"), "OUTPUT_BOTTOM_COUNT_INVALID"
     )
-    _positive_int(
+    maximum_gap = _positive_int(
         policy.get("maximum_calendar_gap_days"), "OUTPUT_MAXIMUM_GAP_INVALID"
     )
     if top_count + bottom_count > len(contract["bucket_ids"]):
         raise CryptoRotationError("OUTPUT_POLICY_BUCKETS_OVERLAP")
+    ratified_at = None
     if approval == "UNRATIFIED":
         if policy.get("ratified_by") is not None or policy.get("ratified_at_utc") is not None:
             raise CryptoRotationError("OUTPUT_UNRATIFIED_PROOF_FORBIDDEN")
@@ -613,15 +653,22 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             or not policy["ratified_at_utc"].endswith("Z")
         ):
             raise CryptoRotationError("OUTPUT_RATIFICATION_PROOF_INVALID")
-        _timestamp(policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID")
-    effective = packet.get("rotation_policy_effective")
-    if type(effective) is not bool:
-        raise CryptoRotationError("OUTPUT_POLICY_EFFECTIVE_INVALID")
-    current_date_eligible = (
-        effective_from <= as_of and (effective_to is None or as_of < effective_to)
+        ratified_at = _timestamp(
+            policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID"
+        )
+    covers_both = effective_from <= prior_date and (
+        effective_to is None or current_date < effective_to
     )
-    if effective and (approval != "RATIFIED" or not current_date_eligible):
+    # Standalone re-proof of ratified-before-prior, mirroring build-time
+    # _validate_policy() -- a tampered packet claiming covers_both without
+    # this having actually held must still fail here.
+    if approval == "RATIFIED" and covers_both and ratified_at > prior_available_at:
+        raise CryptoRotationError("OUTPUT_POLICY_RATIFIED_AFTER_PRIOR_OBSERVATION")
+    effective = approval == "RATIFIED" and covers_both
+    if packet.get("rotation_policy_effective") is not effective:
         raise CryptoRotationError("OUTPUT_POLICY_EFFECTIVE_MISMATCH")
+    if effective and (current_date - prior_date).days > maximum_gap:
+        raise CryptoRotationError("OUTPUT_OBSERVATION_GAP_EXCEEDS_POLICY")
 
     raw_rows = packet.get("bucket_observations")
     row_fields = {

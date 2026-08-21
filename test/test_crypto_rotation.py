@@ -451,6 +451,122 @@ class CryptoRotationTest(unittest.TestCase):
         ):
             MODULE.validate_packet(packet, CONTRACT)
 
+    def test_observation_pair_persists_available_at_for_standalone_reproof(self):
+        packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        pair = packet["observation_pair"]
+        self.assertEqual(pair["prior_date"], "2026-08-18")
+        self.assertEqual(pair["current_date"], "2026-08-20")
+        self.assertEqual(pair["calendar_gap_days"], 2)
+        self.assertEqual(pair["prior_available_at"], "2026-08-19T00:30:00+00:00")
+        self.assertEqual(pair["current_available_at"], "2026-08-21T00:30:00+00:00")
+        # validate_packet() takes only the persisted packet -- neither upstream
+        # Leadership packet is passed in, so a pass here is itself the proof
+        # that temporal order, gap, and ratified-before-prior are
+        # standalone-provable.
+        MODULE.validate_packet(copy.deepcopy(packet), CONTRACT)
+
+    def test_revision_a_and_b_are_each_independently_standalone_verifiable(self):
+        revision_a = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        # Revision B: source pointer moves -- later available_at for both
+        # observations, as if a fresher upstream snapshot had been read.
+        moved = {
+            "schema_version": "crypto_rotation_input/1",
+            "as_of_date": "2026-08-20",
+            "prior_observation": leadership_packet(
+                "2026-08-18",
+                "2026-08-19T06:00:00Z",
+                {"ALT": 0.30, "BTC": 0, "ETH": 0.10},
+            ),
+            "current_observation": leadership_packet(
+                "2026-08-20",
+                "2026-08-21T06:00:00Z",
+                {"ALT": 0.10, "BTC": 0, "ETH": 0.40},
+            ),
+        }
+        revision_b = MODULE.build_packet(moved, policy(), CONTRACT)
+        self.assertNotEqual(
+            revision_a["observation_pair"]["prior_available_at"],
+            revision_b["observation_pair"]["prior_available_at"],
+        )
+        # Each revision is re-verified from nothing but its own persisted
+        # packet -- no fault injection, no monkeypatch, no shared live state.
+        MODULE.validate_packet(copy.deepcopy(revision_a), CONTRACT)
+        MODULE.validate_packet(copy.deepcopy(revision_b), CONTRACT)
+        self.assertEqual(
+            revision_b["observation_pair"]["prior_available_at"],
+            "2026-08-19T06:00:00+00:00",
+        )
+
+    def test_validate_packet_rejects_missing_invalid_naive_and_malformed_timezone_available_at(self):
+        for field in ("prior_available_at", "current_available_at"):
+            with self.subTest(field=field, case="missing"):
+                packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+                del packet["observation_pair"][field]
+                with self.assertRaisesRegex(
+                    MODULE.CryptoRotationError, "OUTPUT_OBSERVATION_PAIR_INVALID"
+                ):
+                    MODULE.validate_packet(packet, CONTRACT)
+            code = (
+                "OUTPUT_PRIOR_AVAILABLE_AT_INVALID"
+                if field == "prior_available_at"
+                else "OUTPUT_CURRENT_AVAILABLE_AT_INVALID"
+            )
+            for case, bad_value in (
+                ("not_a_string", 12345),
+                ("unparseable", "not-a-timestamp"),
+                ("naive_no_offset", "2026-08-19T00:30:00"),
+                ("malformed_timezone", "2026-08-19T00:30:00PST"),
+            ):
+                with self.subTest(field=field, case=case):
+                    packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+                    packet["observation_pair"][field] = bad_value
+                    with self.assertRaisesRegex(MODULE.CryptoRotationError, code):
+                        MODULE.validate_packet(packet, CONTRACT)
+
+    def test_validate_packet_rejects_available_at_order_gap_and_ratification_tamper_after_self_rehash(self):
+        # Tamper 1: swap persisted available_at order, then re-hash the
+        # packet so the top-level payload_sha256 digest matches the
+        # tampered content -- the temporal-order re-derivation, not the
+        # digest check, must be what catches this.
+        packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        pair = packet["observation_pair"]
+        pair["prior_available_at"], pair["current_available_at"] = (
+            pair["current_available_at"], pair["prior_available_at"],
+        )
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            MODULE.CryptoRotationError, "OUTPUT_AVAILABLE_AT_ORDER_INVALID"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+        # Tamper 2: push the persisted prior_available_at earlier than the
+        # policy's own ratified_at_utc, self-rehash, and confirm the
+        # ratified-before-prior re-proof still fires even though
+        # build_packet() would never have produced this shape.
+        packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        packet["observation_pair"]["prior_available_at"] = "2026-08-17T00:00:00+00:00"
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            MODULE.CryptoRotationError, "OUTPUT_POLICY_RATIFIED_AFTER_PRIOR_OBSERVATION"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+        # Tamper 3: widen the persisted gap beyond the policy's own
+        # maximum_calendar_gap_days by moving prior_date and prior_
+        # available_at earlier together, self-rehash, and confirm the
+        # gap is independently re-derived from the persisted pair rather
+        # than trusting calendar_gap_days at face value.
+        packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        pair = packet["observation_pair"]
+        pair["prior_date"] = "2026-08-15"
+        pair["calendar_gap_days"] = 5
+        pair["prior_available_at"] = "2026-08-18T01:00:00+00:00"
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            MODULE.CryptoRotationError, "OUTPUT_OBSERVATION_GAP_EXCEEDS_POLICY"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_contract_tamper_and_policy_method_drift_fail_closed(self):
         contract = copy.deepcopy(CONTRACT)
         contract["authority"]["production_authorized"] = True
