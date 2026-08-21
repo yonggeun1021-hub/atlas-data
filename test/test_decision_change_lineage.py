@@ -22,23 +22,52 @@ def load_module(name, path):
 
 
 MODULE = load_module("decision_change_lineage", SOURCE)
+UNIFIED_FIXTURE = load_module(
+    "decision_change_unified_fixture",
+    ROOT / "test" / "test_unified_decision_contract.py",
+)
 CONTRACT = MODULE.load_contract()
 
 
-def snapshot(marker="a", decided_at="2026-08-21T01:00:00Z"):
+def decision(marker="a"):
+    components = UNIFIED_FIXTURE.components()
+    reasons = UNIFIED_FIXTURE.reasons()
+    slot = "morning"
+    generated_at = (
+        "2026-08-21T03:10:00Z" if marker == "c" else "2026-08-21T02:10:00Z"
+    )
+    if marker == "b":
+        components["RULE"] = None
+        reasons["RULE"] = ["SOURCE_PACKET_NOT_PROVIDED"]
+    elif marker == "c":
+        components["ACTION_BOUNDARY"] = None
+        reasons["ACTION_BOUNDARY"] = ["SOURCE_PACKET_NOT_PROVIDED"]
+    return UNIFIED_FIXTURE.MODULE.build_packet(
+        components,
+        reasons,
+        "2026-08-21",
+        slot,
+        generated_at,
+        UNIFIED_FIXTURE.CONTRACT,
+    )
+
+
+def snapshot(marker="a"):
+    packet = decision(marker)
     return {
-        "schema_version": "decision_snapshot_reference/1",
-        "decision_key": "DECISION.US.MSFT",
-        "market": "US",
-        "subject_id": "US.XNAS.MSFT",
-        "decided_at": decided_at,
-        "decision_sha256": marker * 64,
+        "schema_version": CONTRACT["snapshot_schema_version"],
+        "decision_key": CONTRACT["decision_key"],
+        "market": "COMMON",
+        "subject_id": CONTRACT["subject_id"],
+        "decided_at": packet["generated_at"],
+        "decision_sha256": packet["packet_sha256"],
         "source_ref": f"test://decision/{marker}",
-        "source_sha256": marker * 64,
+        "source_sha256": packet["packet_sha256"],
+        "decision_packet": packet,
     }
 
 
-def evidence(evidence_id="EVIDENCE.MSFT.1", available_at="2026-08-21T00:59:00Z"):
+def evidence(evidence_id="EVIDENCE.ATLAS.1", available_at="2026-08-21T03:15:00Z"):
     return {
         "evidence_id": evidence_id,
         "uri": f"test://evidence/{evidence_id}",
@@ -47,11 +76,11 @@ def evidence(evidence_id="EVIDENCE.MSFT.1", available_at="2026-08-21T00:59:00Z")
     }
 
 
-def claim(prior=None, current=None, when="2026-08-21T01:10:00Z", reasons=None, proof=None):
+def claim(prior=None, current=None, when="2026-08-21T03:20:00Z", reasons=None, proof=None):
     return {
-        "decision_key": "DECISION.US.MSFT",
-        "market": "US",
-        "subject_id": "US.XNAS.MSFT",
+        "decision_key": CONTRACT["decision_key"],
+        "market": "COMMON",
+        "subject_id": CONTRACT["subject_id"],
         "change_observed_at": when,
         "prior_snapshot": prior,
         "current_snapshot": current,
@@ -62,10 +91,10 @@ def claim(prior=None, current=None, when="2026-08-21T01:10:00Z", reasons=None, p
 
 def batch(rows=None):
     value = {
-        "schema_version": "decision_change_claim_batch/1",
-        "contract_version": "decision_change_lineage/1",
+        "schema_version": CONTRACT["claim_batch_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "batch_id": "DECISION.LINEAGE.TEST.20260821",
-        "observed_at": "2026-08-21T02:00:00Z",
+        "observed_at": "2026-08-21T04:00:00Z",
         "claims": [claim(snapshot("a"), snapshot("b"))] if rows is None else rows,
         "authority": copy.deepcopy(CONTRACT["input_authority"]),
     }
@@ -74,39 +103,54 @@ def batch(rows=None):
 
 
 class DecisionChangeLineageTests(unittest.TestCase):
-    def test_contract_is_opaque_and_closes_decision_action_authority(self):
+    def test_contract_binds_exact_unified_packet_and_closes_action_authority(self):
         self.assertEqual(
             CONTRACT["repository_decision_contract"],
-            "unified_decision_contract/1_AVAILABLE_OPAQUE_SHA_ONLY",
+            "unified_decision_contract/1_VALIDATED",
         )
-        self.assertEqual(CONTRACT["decision_payload_binding"], "OPAQUE_SHA256_ONLY")
+        self.assertEqual(
+            CONTRACT["decision_payload_binding"],
+            "EXACT_VALIDATED_UNIFIED_DECISION_PACKET",
+        )
+        self.assertEqual(CONTRACT["markets"], ["COMMON"])
         self.assertTrue(CONTRACT["authority"]["lineage_recording_only"])
         for key, value in CONTRACT["authority"].items():
             if key != "lineage_recording_only":
                 self.assertFalse(value, key)
 
     def test_changed_entry_preserves_reason_evidence_time_and_hashes(self):
-        result = MODULE.build_lineage(batch(), CONTRACT)
+        source = batch()
+        result = MODULE.build_lineage(source, CONTRACT)
         entry = result["entries"][0]
         self.assertEqual(entry["change_type"], "CHANGED")
         self.assertEqual(entry["reason_codes"], ["NEW_EVIDENCE"])
-        self.assertEqual(entry["evidence"][0]["evidence_id"], "EVIDENCE.MSFT.1")
-        self.assertEqual(entry["change_observed_at"], "2026-08-21T01:10:00Z")
-        self.assertEqual(entry["prior_snapshot"]["decision_sha256"], "a" * 64)
-        self.assertEqual(entry["current_snapshot"]["decision_sha256"], "b" * 64)
+        self.assertEqual(entry["evidence"][0]["evidence_id"], "EVIDENCE.ATLAS.1")
+        self.assertEqual(entry["change_observed_at"], "2026-08-21T03:20:00Z")
+        self.assertEqual(
+            entry["prior_snapshot"]["decision_sha256"],
+            decision("a")["packet_sha256"],
+        )
+        self.assertEqual(
+            entry["current_snapshot"]["decision_packet"], decision("b")
+        )
         self.assertIsNone(entry["decision_payload"])
         self.assertIsNone(entry["decision_interpretation"])
         self.assertIsNone(entry["action"])
+        self.assertEqual(result["source_claim_batch"], source)
+        self.assertEqual(MODULE.validate_output(result, CONTRACT), result)
 
     def test_created_unchanged_and_retired_are_derived_not_claimed(self):
-        created = claim(None, snapshot("a"), when="2026-08-21T01:00:00Z")
+        created = claim(
+            None, snapshot("a"), when="2026-08-21T02:15:00Z",
+            proof=[evidence(available_at="2026-08-21T02:14:00Z")],
+        )
         unchanged = claim(
-            snapshot("a"), snapshot("a", "2026-08-21T01:10:00Z"),
-            when="2026-08-21T01:10:00Z", reasons=[], proof=[],
+            snapshot("a"), snapshot("a"),
+            when="2026-08-21T02:20:00Z", reasons=[], proof=[],
         )
         retired = claim(
-            snapshot("a", "2026-08-21T01:10:00Z"), None,
-            when="2026-08-21T01:20:00Z",
+            snapshot("a"), None,
+            when="2026-08-21T03:30:00Z",
         )
         result = MODULE.build_lineage(batch([retired, unchanged, created]), CONTRACT)
         self.assertEqual(
@@ -136,8 +180,8 @@ class DecisionChangeLineageTests(unittest.TestCase):
         wrong["subject_id"] = "US.XNAS.NVDA"
         variants = [
             (claim(snapshot("a"), wrong), "SNAPSHOT_IDENTITY_MISMATCH"),
-            (claim(snapshot("a"), snapshot("b"), proof=[evidence(available_at="2026-08-21T01:10:01Z")]), "EVIDENCE_FROM_FUTURE"),
-            (claim(snapshot("a"), snapshot("b"), when="2026-08-21T02:00:01Z"), "CHANGE_FROM_FUTURE"),
+            (claim(snapshot("a"), snapshot("b"), proof=[evidence(available_at="2026-08-21T03:20:01Z")]), "EVIDENCE_FROM_FUTURE"),
+            (claim(snapshot("a"), snapshot("b"), when="2026-08-21T04:00:01Z"), "CHANGE_FROM_FUTURE"),
         ]
         for row, error in variants:
             with self.subTest(error=error), self.assertRaisesRegex(
@@ -146,8 +190,11 @@ class DecisionChangeLineageTests(unittest.TestCase):
                 MODULE.build_lineage(batch([row]), CONTRACT)
 
     def test_chain_break_and_duplicate_identity_fail_closed(self):
-        first = claim(None, snapshot("a"), when="2026-08-21T01:00:00Z")
-        broken = claim(snapshot("b"), snapshot("c"), when="2026-08-21T01:10:00Z")
+        first = claim(
+            None, snapshot("a"), when="2026-08-21T02:15:00Z",
+            proof=[evidence(available_at="2026-08-21T02:14:00Z")],
+        )
+        broken = claim(snapshot("b"), snapshot("c"), when="2026-08-21T03:20:00Z")
         with self.assertRaisesRegex(MODULE.DecisionChangeLineageError, "CLAIM_CHAIN_BROKEN"):
             MODULE.build_lineage(batch([first, broken]), CONTRACT)
         with self.assertRaisesRegex(MODULE.DecisionChangeLineageError, "CLAIM_IDENTITY_DUPLICATE"):
@@ -169,9 +216,33 @@ class DecisionChangeLineageTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.DecisionChangeLineageError, "REASONS_INVALID"):
             MODULE.build_lineage(batch([unordered]), CONTRACT)
 
+    def test_self_rehashed_unified_decision_authority_tamper_fails_closed(self):
+        row = claim(snapshot("a"), snapshot("b"))
+        current = row["current_snapshot"]
+        current["decision_packet"]["authority"][
+            "action_generation_authorized"
+        ] = True
+        current["decision_packet"]["packet_sha256"] = UNIFIED_FIXTURE.MODULE.payload_sha256(
+            {
+                key: value
+                for key, value in current["decision_packet"].items()
+                if key != "packet_sha256"
+            }
+        )
+        current["decision_sha256"] = current["decision_packet"]["packet_sha256"]
+        current["source_sha256"] = current["decision_packet"]["packet_sha256"]
+        source = batch([row])
+        with self.assertRaisesRegex(
+            MODULE.DecisionChangeLineageError, "UNIFIED_DECISION_INVALID"
+        ):
+            MODULE.build_lineage(source, CONTRACT)
+
     def test_deterministic_permutation_safe_and_inputs_immutable(self):
-        created = claim(None, snapshot("a"), when="2026-08-21T01:00:00Z")
-        changed = claim(snapshot("a"), snapshot("b"), when="2026-08-21T01:10:00Z")
+        created = claim(
+            None, snapshot("a"), when="2026-08-21T02:15:00Z",
+            proof=[evidence(available_at="2026-08-21T02:14:00Z")],
+        )
+        changed = claim(snapshot("a"), snapshot("b"), when="2026-08-21T03:20:00Z")
         first_batch = batch([changed, created])
         before = MODULE.canonical_json(first_batch)
         first = MODULE.build_lineage(first_batch, CONTRACT)
@@ -186,12 +257,8 @@ class DecisionChangeLineageTests(unittest.TestCase):
         changed_type["entries"][0]["change_type"] = "UNCHANGED"
         variants.append((changed_type, "OUTPUT_CHANGE_TYPE_INVALID"))
         reversed_time = copy.deepcopy(original)
-        reversed_time["entries"][0]["prior_snapshot"]["decided_at"] = (
-            "2026-08-21T01:01:00Z"
-        )
-        reversed_time["entries"][0]["current_snapshot"]["decided_at"] = (
-            "2026-08-21T01:00:00Z"
-        )
+        reversed_time["entries"][0]["prior_snapshot"] = snapshot("c")
+        reversed_time["entries"][0]["current_snapshot"] = snapshot("a")
         variants.append((reversed_time, "OUTPUT_SNAPSHOT_TIME_REVERSED"))
         payload = copy.deepcopy(original)
         payload["entries"][0]["decision_payload"] = {"secret": "decision"}
