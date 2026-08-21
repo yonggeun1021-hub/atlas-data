@@ -113,6 +113,13 @@ def policy(*, status="RATIFIED", feature="LATEST_VS_PRIOR_MEAN", rules=None) -> 
     }
 
 
+def rehash(packet: dict) -> dict:
+    value = copy.deepcopy(packet)
+    value.pop("payload_sha256", None)
+    value["payload_sha256"] = MB.payload_sha256(value)
+    return value
+
+
 class MarketBehaviorTests(unittest.TestCase):
     def test_raw_features_without_policy_create_no_case(self):
         packet = MB.build_packet(payload())
@@ -143,6 +150,51 @@ class MarketBehaviorTests(unittest.TestCase):
         self.assertIsNone(case["candidate_rank"])
         self.assertIsNone(case["stage_transition"])
         self.assertIsNone(case["action"])
+
+    def test_standalone_validator_accepts_raw_and_policy_packets(self):
+        for packet in (MB.build_packet(payload()), MB.build_packet(payload(), policy())):
+            with self.subTest(policy=packet["candidate_policy"] is not None):
+                checked = MB.validate_packet(copy.deepcopy(packet))
+                self.assertEqual(MB.canonical_json(checked), MB.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_benchmark_feature_tamper(self):
+        packet = MB.build_packet(payload())
+        benchmark = next(
+            feature
+            for feature in packet["market_windows"][0]["features"]
+            if feature["is_benchmark"]
+        )
+        benchmark["relative_strength_vs_benchmark"] = "0.100000000000"
+        with self.assertRaisesRegex(
+            MB.MarketBehaviorError, "OUTPUT_BENCHMARK_RELATIVE_STRENGTH_MISMATCH"
+        ):
+            MB.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_policy_case_set_tamper(self):
+        packet = MB.build_packet(payload(), policy())
+        feature = next(
+            feature
+            for feature in packet["market_windows"][0]["features"]
+            if feature["radar_case_created"]
+        )
+        feature["candidate_policy_match"] = False
+        feature["radar_case_created"] = False
+        with self.assertRaisesRegex(MB.MarketBehaviorError, "OUTPUT_CASE_IDENTITY_MISMATCH"):
+            MB.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_source_lineage_tamper(self):
+        packet = MB.build_packet(payload())
+        packet["market_windows"][0]["features"][0]["source_identity"][
+            "source_url"
+        ] = "https://example.com/not-provider"
+        with self.assertRaisesRegex(MB.MarketBehaviorError, "SOURCE_URL_INVALID"):
+            MB.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_authority_expansion(self):
+        packet = MB.build_packet(payload(), policy())
+        packet["cases"][0]["investable_eligible"] = True
+        with self.assertRaisesRegex(MB.MarketBehaviorError, "OUTPUT_CASE_AUTHORITY_EXPANSION"):
+            MB.validate_packet(rehash(packet))
 
     def test_unratified_policy_never_creates_case_or_accepts_fake_proof(self):
         packet = MB.build_packet(payload(), policy(status="UNRATIFIED"))
