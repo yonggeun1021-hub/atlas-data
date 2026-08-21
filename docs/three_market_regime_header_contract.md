@@ -5,6 +5,12 @@ for each market, ordered as US, Korea, and Crypto. It exposes each source's
 Regime state, direction, confidence, coverage, evidence date, availability,
 warnings, and SHA-256 in one morning/evening header.
 
+Header schema v2 also retains the three complete validated Regime packets in
+`source_packets`. `validate_header()` reruns the production Regime validator and
+rebuilds each projected row, source SHA, market order, summary, authority, and header
+digest. A caller cannot change a projected coverage/evidence field and a plausible
+source SHA, recompute the outer hash, and have the header remain valid.
+
 The current Regime source contract authorizes only `UNKNOWN` state,
 `UNKNOWN` direction, and `confidence=null`. The header preserves those values;
 it cannot turn incomplete evidence into `NEUTRAL`, a score, or a confidence.

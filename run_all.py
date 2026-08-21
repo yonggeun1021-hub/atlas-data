@@ -564,6 +564,7 @@ APPROVED_TESTS = [
     # ★ P8-04 — US/KR/Crypto Regime briefing header read model.
     #   세 source의 state/direction/confidence/time/coverage를 검증 후 그대로
     #   배열하되 market ranking/favorable selection/action은 항상 null이다.
+    #   exact Regime source packets를 내장하고 persisted header를 재파생한다.
     #   ⛔ score/해석/strategy/Production/trading 권한 및 live network 없음.
     "test/test_three_market_regime_header.py",
     # ★ P8-05 — Rotation ledger + SEC D1 Discovery case briefing read model.

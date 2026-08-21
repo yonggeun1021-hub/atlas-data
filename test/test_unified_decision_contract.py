@@ -249,6 +249,24 @@ class UnifiedDecisionContractTests(unittest.TestCase):
                         "2026-08-21T02:10:00Z", CONTRACT,
                     )
 
+    def test_regime_projection_drift_is_rejected_before_unified_assembly(self):
+        source = components()
+        forged = copy.deepcopy(source["REGIME"])
+        forged["markets"][0]["coverage"]["defined_count"] = 1
+        forged["markets"][0]["coverage"]["ratio"] = "1/5"
+        forged["markets"][0]["source_sha256"] = "b" * 64
+        forged.pop("packet_sha256")
+        forged["packet_sha256"] = MODULE.payload_sha256(forged)
+        source["REGIME"] = forged
+        with self.assertRaisesRegex(
+            MODULE.UnifiedDecisionContractError,
+            "COMPONENT_SEMANTIC_INVALID:REGIME:.*HEADER_DERIVATION_MISMATCH",
+        ):
+            MODULE.build_packet(
+                source, reasons(), "2026-08-21", "morning",
+                "2026-08-21T02:10:00Z", CONTRACT,
+            )
+
     def test_forged_bucket_membership_component_is_rejected_before_assembly(self):
         # Mirrors the bucket_membership.py fix: a fabricated membership row for
         # an asset the CIO never actually ratified into the assignment set,
