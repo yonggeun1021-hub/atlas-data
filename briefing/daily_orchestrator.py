@@ -397,12 +397,89 @@ def build_krx_preopen_compact(decision_date: str, step0_packet: dict | None) -> 
 # ---------------------------------------------------------------------------
 
 
-def build_krx_post_close(decision_date: str, generated_at_utc: dt.datetime) -> dict:
+def _read_krx_post_close_observed_at(target: Path) -> str | None:
+    """Conservative real observation timestamp for a KRX post-close
+    bundle: the LATEST of source.json's own collected_at_utc and every
+    per-symbol observed_at_kst. Latest, not earliest -- the packet must
+    not claim readiness before the most-delayed observation in the bundle
+    actually happened. Returns None if nothing parseable is found."""
+    candidates: list[str] = []
+    source_path = target / "source.json"
+    if source_path.exists():
+        try:
+            source = json.loads(source_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            source = {}
+        value = source.get("collected_at_utc")
+        if isinstance(value, str):
+            candidates.append(value)
+    symbols_dir = target / "symbols"
+    if symbols_dir.is_dir():
+        for path in sorted(symbols_dir.glob("*.json")):
+            try:
+                view = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            value = (view.get("observed_row") or {}).get("observed_at_kst")
+            if isinstance(value, str):
+                candidates.append(value)
+    parsed = []
+    for value in candidates:
+        try:
+            parsed.append(dt.datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except ValueError:
+            continue
+    if not parsed:
+        return None
+    return max(parsed).isoformat()
+
+
+def _fetch_krx_post_close_snapshot(decision_date: str) -> dict:
+    """Presence/absence of the KRX post-close bundle, resolved live right
+    now, plus (if present) the conservative real observation timestamp.
+    Frozen into packet["frozen_sources"]: like the other per-date evidence
+    archives, this bundle's *content* is immutable once present (COLLECTOR.
+    check_bundle re-validates it against its own committed source.json
+    every time), but its *presence* is not -- a bundle that does not exist
+    yet at build time (correctly UNKNOWN) can be created later the same
+    evening, and re-deriving an old revision after that would wrongly
+    promote it to READY on independent re-validation."""
+    target = ROOT / "data" / "observations" / "krx_post_close" / decision_date
+    # KRX_POST_CLOSE.COLLECTOR is that module's own already-loaded
+    # reference to collectors/krx_post_close.py -- reused here rather than
+    # loading a second copy of the same collector module.
+    if not KRX_POST_CLOSE.COLLECTOR.check_bundle(decision_date, data_root=ROOT / "data"):
+        return {"kind": "absent"}
+    return {"kind": "present", "observed_at": _read_krx_post_close_observed_at(target)}
+
+
+def _classify_krx_post_close(
+    decision_date: str, generated_at_utc: dt.datetime, snapshot: dict
+) -> dict:
     generated_at_kst = generated_at_utc.astimezone(KST).isoformat(timespec="seconds")
-    try:
-        packet = KRX_POST_CLOSE.build_packet(ROOT / "data", decision_date, generated_at_kst)
-    except Exception as exc:  # noqa: BLE001
-        return _degraded_from_exception("KRX_POST_CLOSE", exc)
+    if snapshot["kind"] == "absent":
+        # Bypass KRX_POST_CLOSE.build_packet() entirely for the frozen
+        # "absent" case: calling it would re-run COLLECTOR.check_bundle()
+        # against LIVE state, which may now return True if the bundle has
+        # since arrived -- exactly the staleness this freeze exists to
+        # prevent. Construct the same UNKNOWN packet that module's own
+        # build_packet() would have produced, purely, with no I/O.
+        contract = KRX_POST_CLOSE.load_contract()
+        logical_root = f"data/observations/krx_post_close/{decision_date}"
+        packet = KRX_POST_CLOSE._unknown_packet(
+            decision_date, generated_at_kst, contract, logical_root,
+            "POST_CLOSE_BUNDLE_MISSING_OR_INVALID",
+        )
+        packet["packet_sha256"] = KRX_POST_CLOSE.payload_sha256(packet)
+    else:
+        # The bundle is immutable once present, so re-reading it here
+        # (unlike re-reading a mutable rolling pointer) reproduces the
+        # exact same content it did at build time -- a genuine, safe
+        # independent re-derivation.
+        try:
+            packet = KRX_POST_CLOSE.build_packet(ROOT / "data", decision_date, generated_at_kst)
+        except Exception as exc:  # noqa: BLE001
+            return _degraded_from_exception("KRX_POST_CLOSE", exc)
     status = packet.get("status")
     if status == "READY_OBSERVED_UNCONFIRMED":
         result_status, reason = "READY", None
@@ -413,13 +490,26 @@ def build_krx_post_close(decision_date: str, generated_at_utc: dt.datetime) -> d
         result_status,
         reason,
         as_of_date=decision_date,
-        generated_at=generated_at_kst,
+        # The real, conservative observation timestamp when known (fed to
+        # _enforce_temporal_boundary below), not the packet's own
+        # invocation-time generated_at_kst -- a packet generated at
+        # exactly the 18:00 KST evening floor must not read a bundle whose
+        # real observations only landed at 18:11.
+        generated_at=snapshot.get("observed_at") or generated_at_kst,
         source_packet_sha256=packet.get("packet_sha256"),
         validated=True,
         authority=packet.get("authority"),
         contract_version=packet.get("contract_version"),
         packet=packet,
     )
+
+
+def build_krx_post_close(
+    decision_date: str, generated_at_utc: dt.datetime, snapshot: dict | None = None
+) -> dict:
+    if snapshot is None:
+        snapshot = _fetch_krx_post_close_snapshot(decision_date)
+    return _classify_krx_post_close(decision_date, generated_at_utc, snapshot)
 
 
 # ---------------------------------------------------------------------------
@@ -1175,13 +1265,16 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
 FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
     "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
-    "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
+    "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
 # snapshot covers both. BTC_TREND and BTC_RISK read the same evidence
 # directory but are frozen (and re-derived) independently -- one extra,
-# cheap snapshot rather than a special-cased shared one.
+# cheap snapshot rather than a special-cased shared one. KRX_POST_CLOSE
+# (evening only) is the same presence/absence-plus-real-observation-time
+# pattern as the six above, applied to
+# data/observations/krx_post_close/{decision_date}/.
 
 
 def build_packet(
@@ -1228,8 +1321,14 @@ def build_packet(
         build_krx_preopen_compact(decision_date, step0["packet"])
     )
 
+    krx_post_close_snapshot = None
     if "KRX_POST_CLOSE" in contract["evening_only_components"] and slot == "evening":
-        rows["KRX_POST_CLOSE"] = _boundary(build_krx_post_close(decision_date, generated_at_dt))
+        krx_post_close_snapshot = frozen_sources.get("KRX_POST_CLOSE")
+        if krx_post_close_snapshot is None:
+            krx_post_close_snapshot = _fetch_krx_post_close_snapshot(decision_date)
+        rows["KRX_POST_CLOSE"] = _boundary(
+            _classify_krx_post_close(decision_date, generated_at_dt, krx_post_close_snapshot)
+        )
     else:
         rows["KRX_POST_CLOSE"] = _blocked(
             "KRX_POST_CLOSE", "PENDING", "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
@@ -1369,6 +1468,14 @@ def build_packet(
             "BTC_RISK": btc_risk_snapshot,
             "STABLECOIN_NET_ISSUANCE": stablecoin_snapshot,
             "CRYPTO_BREADTH": crypto_breadth_snapshot,
+            # Only present for the evening slot, where KRX_POST_CLOSE is
+            # actually fetched -- the morning slot's static PENDING row has
+            # no snapshot to freeze.
+            **(
+                {"KRX_POST_CLOSE": krx_post_close_snapshot}
+                if krx_post_close_snapshot is not None
+                else {}
+            ),
         },
         "unresolved_boundaries": [
             "REGIME_AXIS_LIVE_ADAPTER_NOT_WIRED",

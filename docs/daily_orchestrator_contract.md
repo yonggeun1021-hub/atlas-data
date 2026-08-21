@@ -131,8 +131,7 @@ evidence past this simply by not implementing its own guard:
 That per-sensor `generated_at` is wired to a real, on-disk retrieval
 timestamp, not left null: `KOFIA_FIRST_SEEN` uses `captured_at_utc` from
 its own `_observation.json`; `DART_FILING_CONTENT`/`SEC_FILING_CONTENT`
-use `observed_at_utc` from their status file; `KRX_POST_CLOSE` uses its
-own `generated_at_kst`; and `BTC_TREND`/`BTC_RISK`/
+use `observed_at_utc` from their status file; `BTC_TREND`/`BTC_RISK`/
 `STABLECOIN_NET_ISSUANCE`/`CRYPTO_BREADTH`/`US_BREADTH_MEMBERSHIP` read
 the real `_downloaded_at.txt` every one of these collectors writes
 alongside its raw capture (`_read_downloaded_at()`) -- the actual UTC
@@ -141,6 +140,16 @@ instant the source was fetched, often hours before the packet's own
 downgraded to `DEGRADED`/`DOWNLOADED_AT_MISSING` rather than silently
 promoted to `READY` with an unknown temporal basis
 (`_downloaded_at_guard`).
+
+`KRX_POST_CLOSE` is wired the same way, not to its own `generated_at_kst`
+(which is just the packet's own invocation time, KST-formatted): it uses
+the *conservative* -- latest, not earliest -- of `source.json`'s
+`collected_at_utc` and every per-symbol `symbols/*.json`'s own
+`observed_at_kst` (`_read_krx_post_close_observed_at()`). A bundle whose
+individual symbols were actually observed a few minutes into the evening
+must not be read as `READY` by a packet claiming to have been generated
+right at the 18:00 KST evening floor, even though the bundle as a whole
+exists by then.
 
 A violating row is downgraded to `DATA_BLOCKED` rather than promoted to a
 decision-ready status, *before* `UNIFIED_DECISION`/`ACTION_RISK_PORTFOLIO_
@@ -153,8 +162,14 @@ ISSUANCE` captures for a given `decision_date` are genuinely fetched
 several hours into that day, so a packet claiming `generated_at` of
 midnight UTC that same day correctly sees them as `DATA_BLOCKED`
 (`test_source_retrieval_time_after_generated_at_is_not_promoted_to_
-ready`); see `test_temporal_boundary_rejects_available_at_after_
-generated_at` for the `available_at`-specific proof.
+ready`). Likewise `KRX_POST_CLOSE`'s real bundle for a given
+`decision_date` is genuinely observed several minutes after the 18:00 KST
+evening floor, so a packet claiming `generated_at` of exactly 18:00:00 KST
+that same evening correctly sees it as `DATA_BLOCKED`
+(`test_krx_post_close_real_observed_at_after_generated_at_is_not_
+promoted_to_ready`); see
+`test_temporal_boundary_rejects_available_at_after_generated_at` for the
+`available_at`-specific proof.
 
 ## Determinism and publication
 
@@ -203,26 +218,32 @@ never reads the tampered row as its input -- it re-derives from
   the collector workflow overwrites every cycle with no per-date archive
   behind them. Their frozen snapshot is the raw fetched payload itself.
 - `KOFIA_FIRST_SEEN`/`US_BREADTH_MEMBERSHIP`/`BTC_TREND`/`BTC_RISK`/
-  `STABLECOIN_NET_ISSUANCE`/`CRYPTO_BREADTH` read a genuinely immutable,
-  append-only, per-date evidence archive -- once present, its *content*
-  never changes. What can still change between build time and a later
-  revalidation is *presence*: a directory that does not exist yet at build
-  time (correctly `DATA_BLOCKED`) can be created later the same day, and
-  re-deriving an old revision after that would wrongly promote it to
-  `READY` -- not because the immutable content changed, but because
-  presence/absence itself is not retroactively knowable without recording
-  it. Their frozen snapshot is therefore just the presence/absence fact
-  (plus, once present, the resolved directory name and its
-  `_downloaded_at.txt` value) -- no content digest of the immutable bytes
-  is needed
+  `STABLECOIN_NET_ISSUANCE`/`CRYPTO_BREADTH`/`KRX_POST_CLOSE` read a
+  genuinely immutable, append-only, per-date evidence archive -- once
+  present, its *content* never changes (`KRX_POST_CLOSE.COLLECTOR.
+  check_bundle()` re-validates the bundle against its own committed
+  `source.json` every time it is read, so a re-read is a real, safe
+  independent re-derivation, not a blind trust). What can still change
+  between build time and a later revalidation is *presence*: a directory
+  or bundle that does not exist yet at build time (correctly
+  `DATA_BLOCKED`/`UNKNOWN`) can be created later the same day (or, for
+  `KRX_POST_CLOSE`, the same evening), and re-deriving an old revision
+  after that would wrongly promote it to `READY` -- not because the
+  immutable content changed, but because presence/absence itself is not
+  retroactively knowable without recording it. Their frozen snapshot is
+  therefore just the presence/absence fact (plus, once present, the
+  resolved directory name and its real retrieval timestamp -- see below)
+  -- no content digest of the immutable bytes is needed
   (`test_evidence_that_arrives_after_build_time_never_flips_an_old_data_
-  blocked_revision`).
+  blocked_revision`,
+  `test_krx_post_close_bundle_that_arrives_after_build_time_never_flips_
+  an_old_unknown_revision`).
 
-Because of this, these nine components are re-derivable forever,
+Because of this, these ten components are re-derivable forever,
 independent of live/current-moment state, with no live `data/` access and
 no monkeypatch required at validation time
 (`test_step0_revisions_validate_across_a_rolling_pointer_change_without_
-fault_injection`). All nine are marked `validated: true`, like every other
+fault_injection`). All ten are marked `validated: true`, like every other
 component, and there is no "cannot be independently revalidated" boundary
 in `unresolved_boundaries` any more.
 
