@@ -89,7 +89,12 @@ be converted into Ready, Buy, or an order by this capability.
 
 ## Persisted packet validation
 
-`validate_packet()`은 저장된 window/session boundary, feature 정렬과 canonical
+`market_behavior_radar_packet/2`는 외부 정책의 3필드 요약뿐 아니라 정규화한
+`source_policy` 전체를 보존한다. `validate_packet()`은 이 원본을 ingestion과
+동일한 정책 validator로 다시 검증하고, 정책 SHA·유효기간·exact rule·threshold가
+저장된 feature/case 결과와 정확히 일치하는지 확인한다.
+
+또한 저장된 window/session boundary, feature 정렬과 canonical
 decimal, benchmark의 0 상대강도, volume baseline 상태, asset/benchmark source
 lineage, candidate-policy 상태, case set과 권한 봉쇄를 독립 검증한다. 생성된
 case는 해당 feature·window·source·policy hash에 연결되고 보존된 threshold

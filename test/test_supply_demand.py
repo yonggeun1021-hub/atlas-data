@@ -198,6 +198,15 @@ class SupplyDemandTests(unittest.TestCase):
         with self.assertRaisesRegex(SD.SupplyDemandError, "OUTPUT_CASE_EVIDENCE_MISMATCH"):
             SD.validate_packet(rehash(packet))
 
+    def test_standalone_validator_rejects_rehashed_source_policy_threshold_tamper(self):
+        packet = SD.build_packet(payload(), policy())
+        packet["source_policy"]["rules"][0]["minimum_latest_change"] = "100"
+        forged_sha = SD.payload_sha256(packet["source_policy"])
+        packet["candidate_policy"]["policy_sha256"] = forged_sha
+        packet["cases"][0]["candidate_policy"]["policy_sha256"] = forged_sha
+        with self.assertRaisesRegex(SD.SupplyDemandError, "OUTPUT_POLICY_RESULT_MISMATCH"):
+            SD.validate_packet(rehash(packet))
+
     def test_standalone_validator_rejects_rehashed_authority_expansion(self):
         packet = SD.build_packet(payload(), policy())
         packet["cases"][0]["investable_eligible"] = True

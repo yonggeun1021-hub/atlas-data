@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "supply_demand_radar_contract.json"
 INPUT_SCHEMA_VERSION = "supply_demand_radar_input/1"
-OUTPUT_SCHEMA_VERSION = "supply_demand_radar_packet/1"
+OUTPUT_SCHEMA_VERSION = "supply_demand_radar_packet/2"
 POLICY_SCHEMA_VERSION = "supply_demand_candidate_policy/1"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -450,6 +450,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "series_count",
         "case_count",
         "candidate_policy",
+        "source_policy",
         "series_results",
         "cases",
         "source_coverage",
@@ -477,22 +478,25 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise SupplyDemandError("OUTPUT_IDENTITY_MISMATCH")
     as_of = _utc(as_of_utc)
 
+    source_policy = _validate_policy(packet.get("source_policy"), contract)
+    if (
+        source_policy is not None
+        and source_policy["approval_status"] == "RATIFIED"
+        and _utc(source_policy["ratified_at_utc"]) > as_of
+    ):
+        raise SupplyDemandError("OUTPUT_POLICY_RATIFIED_AFTER_AS_OF")
     policy = packet.get("candidate_policy")
-    if policy is not None:
-        if not isinstance(policy, dict) or set(policy) != {
-            "policy_id",
-            "approval_status",
-            "policy_sha256",
-        }:
-            raise SupplyDemandError("OUTPUT_POLICY_FIELDS_MISMATCH")
-        if (
-            not isinstance(policy.get("policy_id"), str)
-            or TOKEN_RE.fullmatch(policy["policy_id"]) is None
-            or policy.get("approval_status") not in {"RATIFIED", "UNRATIFIED"}
-            or not isinstance(policy.get("policy_sha256"), str)
-            or SHA256_RE.fullmatch(policy["policy_sha256"]) is None
-        ):
-            raise SupplyDemandError("OUTPUT_POLICY_IDENTITY_MISMATCH")
+    expected_policy = (
+        None
+        if source_policy is None
+        else {
+            "policy_id": source_policy["policy_id"],
+            "approval_status": source_policy["approval_status"],
+            "policy_sha256": payload_sha256(source_policy),
+        }
+    )
+    if policy != expected_policy:
+        raise SupplyDemandError("OUTPUT_POLICY_SOURCE_MISMATCH")
 
     results = packet.get("series_results")
     if not isinstance(results, list) or not results:
@@ -660,6 +664,37 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
                 or result.get("acceleration_change") != _render(acceleration, contract)
             ):
                 raise SupplyDemandError("OUTPUT_FEATURE_ARITHMETIC_MISMATCH")
+            rule = _matching_rule(source_policy, result, periods[-1])
+            if source_policy is None or source_policy["approval_status"] != "RATIFIED":
+                expected_status = "ABSENT_OR_UNRATIFIED"
+                expected_match = None
+            elif rule is None:
+                expected_status = "NO_EFFECTIVE_EXACT_RULE"
+                expected_match = None
+            elif any(
+                rule[field] != result[field]
+                for field in (
+                    "measurement_identity",
+                    "metric_type",
+                    "unit",
+                    "frequency",
+                    "comparison_basis",
+                )
+            ):
+                expected_status = "EXACT_RULE_IDENTITY_MISMATCH"
+                expected_match = False
+            else:
+                expected_status = "RATIFIED_EXACT_RULE_APPLIED"
+                sign = (
+                    Decimal(1)
+                    if rule["improvement_direction"] == "HIGHER_IS_IMPROVEMENT"
+                    else Decimal(-1)
+                )
+                expected_match = (
+                    sign * latest >= Decimal(rule["minimum_latest_change"])
+                    and sign * acceleration
+                    >= Decimal(rule["minimum_acceleration_change"])
+                )
             allowed_policy_statuses = {
                 "ABSENT_OR_UNRATIFIED",
                 "NO_EFFECTIVE_EXACT_RULE",
@@ -668,20 +703,10 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             }
             if policy_status not in allowed_policy_statuses:
                 raise SupplyDemandError("OUTPUT_POLICY_STATUS_INVALID")
-            if policy is None or policy["approval_status"] == "UNRATIFIED":
-                if policy_status != "ABSENT_OR_UNRATIFIED" or match is not None:
-                    raise SupplyDemandError("OUTPUT_POLICY_STATUS_MISMATCH")
-            elif policy_status in {"ABSENT_OR_UNRATIFIED"}:
+            if policy_status != expected_status:
                 raise SupplyDemandError("OUTPUT_POLICY_STATUS_MISMATCH")
-            if policy_status in {
-                "NO_EFFECTIVE_EXACT_RULE",
-                "ABSENT_OR_UNRATIFIED",
-            }:
-                if match is not None or created is not False:
-                    raise SupplyDemandError("OUTPUT_POLICY_RESULT_MISMATCH")
-            else:
-                if type(match) is not bool or created is not match:
-                    raise SupplyDemandError("OUTPUT_POLICY_RESULT_MISMATCH")
+            if match is not expected_match or created is not (expected_match is True):
+                raise SupplyDemandError("OUTPUT_POLICY_RESULT_MISMATCH")
             if created:
                 seed = {
                     "policy_id": policy["policy_id"],
@@ -693,6 +718,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
                 result_by_case_id[case_id] = {
                     "result": result,
                     "lineage": lineage_by_period,
+                    "rule": rule,
                 }
         result_keys.append((market, series_id))
     if result_keys != sorted(set(result_keys)):
@@ -725,6 +751,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         if linked is None:
             raise SupplyDemandError("OUTPUT_CASE_IDENTITY_MISMATCH")
         result = linked["result"]
+        rule = linked["rule"]
         why = case.get("why_found")
         why_fields = {
             "measurement_identity",
@@ -776,6 +803,10 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
                 )
             )
             or sign is None
+            or why.get("improvement_direction") != rule["improvement_direction"]
+            or why.get("minimum_latest_change") != rule["minimum_latest_change"]
+            or why.get("minimum_acceleration_change")
+            != rule["minimum_acceleration_change"]
             or why.get("candidate_logic") != contract["candidate_logic"]
             or sign * Decimal(result["latest_change"]) < minimum_latest
             or sign * Decimal(result["acceleration_change"]) < minimum_acceleration
@@ -809,10 +840,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             }
             or case_policy.get("policy_id") != policy["policy_id"]
             or case_policy.get("policy_sha256") != policy["policy_sha256"]
-            or not isinstance(case_policy.get("ratified_by"), str)
-            or not case_policy["ratified_by"].strip()
-            or not _valid_utc(case_policy.get("ratified_at_utc"))
-            or _utc(case_policy["ratified_at_utc"]) > as_of
+            or case_policy.get("ratified_by") != source_policy["ratified_by"]
+            or case_policy.get("ratified_at_utc") != source_policy["ratified_at_utc"]
         ):
             raise SupplyDemandError("OUTPUT_CASE_POLICY_LINEAGE_MISMATCH")
         if (
@@ -890,6 +919,7 @@ def build_packet(value: dict, candidate_policy: dict | None = None, contract: di
             "policy_id": policy["policy_id"], "approval_status": policy["approval_status"],
             "policy_sha256": payload_sha256(policy),
         },
+        "source_policy": copy.deepcopy(policy),
         "series_results": results, "cases": cases,
         "source_coverage": copy.deepcopy(contract["source_coverage"]),
         "policy_status": copy.deepcopy(contract["policy_status"]),

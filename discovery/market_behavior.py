@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "market_behavior_radar_contract.json"
 INPUT_SCHEMA_VERSION = "market_behavior_radar_input/1"
-OUTPUT_SCHEMA_VERSION = "market_behavior_radar_packet/1"
+OUTPUT_SCHEMA_VERSION = "market_behavior_radar_packet/2"
 POLICY_SCHEMA_VERSION = "market_behavior_candidate_policy/1"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -534,7 +534,7 @@ def _output_decimal(value, context: str, contract: dict, *, nonnegative=False) -
 
 
 def validate_packet(packet: dict, contract: dict | None = None) -> dict:
-    """Validate retained output semantics without claiming omitted raw rows/policy."""
+    """Validate retained output semantics and the complete source policy."""
     contract = _validate_contract(contract) if contract is not None else load_contract()
     packet_fields = {
         "schema_version",
@@ -544,6 +544,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "window_count",
         "case_count",
         "candidate_policy",
+        "source_policy",
         "market_windows",
         "cases",
         "policy_status",
@@ -570,22 +571,25 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise MarketBehaviorError("OUTPUT_IDENTITY_MISMATCH")
     as_of = _utc(as_of_utc)
 
+    source_policy = _validate_policy(packet.get("source_policy"), contract)
+    if (
+        source_policy is not None
+        and source_policy["approval_status"] == "RATIFIED"
+        and _utc(source_policy["ratified_at_utc"]) > as_of
+    ):
+        raise MarketBehaviorError("OUTPUT_POLICY_RATIFIED_AFTER_AS_OF")
     policy = packet.get("candidate_policy")
-    if policy is not None:
-        if not isinstance(policy, dict) or set(policy) != {
-            "policy_id",
-            "approval_status",
-            "policy_sha256",
-        }:
-            raise MarketBehaviorError("OUTPUT_POLICY_FIELDS_MISMATCH")
-        if (
-            not isinstance(policy.get("policy_id"), str)
-            or TOKEN_RE.fullmatch(policy["policy_id"]) is None
-            or policy.get("approval_status") not in {"RATIFIED", "UNRATIFIED"}
-            or not isinstance(policy.get("policy_sha256"), str)
-            or SHA256_RE.fullmatch(policy["policy_sha256"]) is None
-        ):
-            raise MarketBehaviorError("OUTPUT_POLICY_IDENTITY_MISMATCH")
+    expected_policy = (
+        None
+        if source_policy is None
+        else {
+            "policy_id": source_policy["policy_id"],
+            "approval_status": source_policy["approval_status"],
+            "policy_sha256": payload_sha256(source_policy),
+        }
+    )
+    if policy != expected_policy:
+        raise MarketBehaviorError("OUTPUT_POLICY_SOURCE_MISMATCH")
 
     windows = packet.get("market_windows")
     if not isinstance(windows, list) or not windows:
@@ -659,20 +663,22 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         ):
             raise MarketBehaviorError("OUTPUT_WINDOW_BOUNDARY_MISMATCH")
         policy_status = window.get("candidate_policy_status")
+        rule = _policy_rule(source_policy, market, window_id, observation_date)
+        expected_policy_status = (
+            "ABSENT_OR_UNRATIFIED"
+            if source_policy is None
+            or source_policy["approval_status"] != "RATIFIED"
+            else "RATIFIED_RULE_APPLIED"
+            if rule is not None
+            else "NO_EFFECTIVE_MATCHING_RULE"
+        )
         if policy_status not in {
             "ABSENT_OR_UNRATIFIED",
             "NO_EFFECTIVE_MATCHING_RULE",
             "RATIFIED_RULE_APPLIED",
         }:
             raise MarketBehaviorError("OUTPUT_WINDOW_POLICY_STATUS_INVALID")
-        if (
-            (policy is None or policy["approval_status"] == "UNRATIFIED")
-            and policy_status != "ABSENT_OR_UNRATIFIED"
-        ):
-            raise MarketBehaviorError("OUTPUT_WINDOW_POLICY_STATUS_MISMATCH")
-        if policy is not None and policy["approval_status"] == "RATIFIED" and (
-            policy_status == "ABSENT_OR_UNRATIFIED"
-        ):
+        if policy_status != expected_policy_status:
             raise MarketBehaviorError("OUTPUT_WINDOW_POLICY_STATUS_MISMATCH")
 
         features = window.get("features")
@@ -735,8 +741,18 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
                 benchmark_source = source
             match = feature.get("candidate_policy_match")
             created = feature.get("radar_case_created")
-            if policy_status == "RATIFIED_RULE_APPLIED":
-                if type(match) is not bool or created is not (match and not is_benchmark):
+            if rule is not None:
+                volume_field = {
+                    "LATEST_VS_PRIOR_MEAN": "latest_volume_vs_prior_mean",
+                    "LATEST_VS_PRIOR_MEDIAN": "latest_volume_vs_prior_median",
+                }[rule["volume_ratio_feature"]]
+                volume_value = feature[volume_field]
+                expected_match = False if is_benchmark else (
+                    volume_value is not None
+                    and Decimal(relative) >= Decimal(rule["relative_strength_min"])
+                    and Decimal(volume_value) >= Decimal(rule["volume_ratio_min"])
+                )
+                if match is not expected_match or created is not expected_match:
                     raise MarketBehaviorError("OUTPUT_FEATURE_POLICY_RESULT_MISMATCH")
                 if is_benchmark and match is not False:
                     raise MarketBehaviorError("OUTPUT_BENCHMARK_POLICY_MATCH_INVALID")
@@ -755,6 +771,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
                     "window": window,
                     "source": source,
                     "benchmark_source": linked_benchmark_source,
+                    "rule": rule,
                 }
             feature_ids.append(asset_id)
         if feature_ids != sorted(set(feature_ids)) or benchmark_count != 1:
@@ -796,6 +813,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             raise MarketBehaviorError("OUTPUT_CASE_IDENTITY_MISMATCH")
         feature = match["feature"]
         window = match["window"]
+        rule = match["rule"]
         why = case.get("why_found")
         why_fields = {
             "benchmark_asset_id",
@@ -826,6 +844,9 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             != feature["relative_strength_vs_benchmark"]
             or ratio_field is None
             or why.get("volume_ratio") != feature[ratio_field]
+            or why.get("relative_strength_min") != rule["relative_strength_min"]
+            or why.get("volume_ratio_feature") != rule["volume_ratio_feature"]
+            or why.get("volume_ratio_min") != rule["volume_ratio_min"]
             or why.get("candidate_logic") != contract["candidate_logic"]
             or Decimal(feature["relative_strength_vs_benchmark"]) < relative_min
             or feature[ratio_field] is None
@@ -851,10 +872,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             }
             or case_policy.get("policy_id") != policy["policy_id"]
             or case_policy.get("policy_sha256") != policy["policy_sha256"]
-            or not isinstance(case_policy.get("ratified_by"), str)
-            or not case_policy["ratified_by"].strip()
-            or not _valid_utc(case_policy.get("ratified_at_utc"))
-            or _utc(case_policy["ratified_at_utc"]) > as_of
+            or case_policy.get("ratified_by") != source_policy["ratified_by"]
+            or case_policy.get("ratified_at_utc") != source_policy["ratified_at_utc"]
         ):
             raise MarketBehaviorError("OUTPUT_CASE_POLICY_LINEAGE_MISMATCH")
         if (
@@ -942,6 +961,7 @@ def build_packet(
                 "policy_sha256": payload_sha256(policy),
             }
         ),
+        "source_policy": copy.deepcopy(policy),
         "market_windows": windows,
         "cases": cases,
         "policy_status": copy.deepcopy(contract["policy_status"]),
