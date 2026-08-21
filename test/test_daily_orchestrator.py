@@ -100,30 +100,51 @@ class DailyOrchestratorTest(unittest.TestCase):
             self.assertEqual(row["source_packet_path"], expected_path, component_id)
             self.assertNotIn("2026-08-21", row["source_packet_path"], component_id)
 
-        # KOFIA has no capture for 2026-08-21, only up to 2026-08-20. Asking
-        # for a decision_date with no exact capture must be DATA_BLOCKED,
-        # never silently fall back to the nearest available capture.
+        # KOFIA_FIRST_SEEN and US_BREADTH_MEMBERSHIP are both fed by live
+        # daily-scheduled captures (p1-kr03-kofia-first-seen.yml,
+        # p1-us04-forward-breadth.yml) that keep appending real evidence for
+        # "today" to this very repo while this suite runs. A decision_date
+        # equal to the literal calendar date this test happens to run on is
+        # therefore NOT a safe stand-in for "a date with no capture" -- the
+        # live cron may capture it later the same day, on either side of a
+        # given test run, which is exactly the flakiness that broke this
+        # assertion once already. Use a date far enough in the future that
+        # no scheduled capture (which only ever writes *today's* date) can
+        # ever produce it, so the "no exact capture" / "never read newer
+        # evidence" property holds no matter when this test executes.
+        never_captured_date = "2099-01-01"
         future_relative_to_capture = MODULE.build_packet(
-            "morning", "2026-08-21", "2026-08-21T12:00:00Z"
+            "morning", never_captured_date, "2026-08-21T12:00:00Z"
         )
-        kofia_row = {
+        components_by_id = {
             row["component_id"]: row
             for row in future_relative_to_capture["components"]
-        }["KOFIA_FIRST_SEEN"]
+        }
+
+        # KOFIA has no capture for a date this far out. Asking for a
+        # decision_date with no exact capture must be DATA_BLOCKED, never
+        # silently fall back to the nearest available capture.
+        kofia_row = components_by_id["KOFIA_FIRST_SEEN"]
         self.assertEqual(kofia_row["status"], "DATA_BLOCKED")
         self.assertEqual(kofia_row["reason"], "NO_CAPTURE_FOR_DECISION_DATE")
 
         # US Breadth membership is a genuine as-of (forward-fill) series by
-        # contract, so requesting a date between two captures must resolve
-        # to the latest capture ON OR BEFORE that date, never a later one.
-        # The archive has 2026-08-19 and 2026-08-20 but nothing for
-        # 2026-08-21; as-of 2026-08-21 must still resolve to 2026-08-20.
-        breadth_row = {
-            row["component_id"]: row
-            for row in future_relative_to_capture["components"]
-        }["US_BREADTH_MEMBERSHIP"]
+        # contract, so requesting a date after every real capture must
+        # resolve to the latest capture ON OR BEFORE that date -- never a
+        # later one, and (since no capture can ever exist for
+        # never_captured_date) never that date itself either. Compare
+        # against whatever the archive's real latest snapshot is at the
+        # moment this test runs, rather than a hardcoded literal that would
+        # go stale as soon as tomorrow's capture lands.
+        real_latest_snapshot = max(
+            path.name
+            for path in MODULE.US_BREADTH.RAW_ROOT.iterdir()
+            if path.is_dir() and len(path.name) == len("2026-08-20")
+        )
+        breadth_row = components_by_id["US_BREADTH_MEMBERSHIP"]
         self.assertEqual(breadth_row["status"], "READY")
-        self.assertEqual(breadth_row["as_of_date"], "2026-08-20")
+        self.assertEqual(breadth_row["as_of_date"], real_latest_snapshot)
+        self.assertNotEqual(breadth_row["as_of_date"], never_captured_date)
 
     def test_evening_slot_includes_observed_unconfirmed_krx_post_close(self):
         packet = MODULE.build_packet("evening", DECISION_DATE, EVENING_GENERATED_AT)
