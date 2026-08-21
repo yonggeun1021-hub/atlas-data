@@ -41,7 +41,12 @@ Rule evaluation, portfolio action, Production, or trading authority.
 
 ## Persisted packet validation
 
-`validate_packet()`은 저장된 candidate reference 형식, dimension grouping,
+`valuation_risk_context_packet/2`는 정규화한 `source_policy` 전체를 보존한다.
+`validate_packet()`은 ingestion과 동일한 정책 validator를 소비 시점에 다시
+실행하고, 정책 SHA·유효기간·exact context rule·방향·minimum으로 interpretation
+label과 proof를 재계산한다.
+
+또한 저장된 candidate reference 형식, dimension grouping,
 2-point status/source lineage, canonical decimal change, missing state,
 interpretation label·proof, candidate/dimension/packet summary와 모든 권한 봉쇄를
 다시 검증한다. source requirement group과 deterioration 방향·minimum 비교도

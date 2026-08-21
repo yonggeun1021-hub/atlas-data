@@ -246,6 +246,19 @@ class ValuationRiskContextTests(unittest.TestCase):
         ):
             VR.validate_packet(rehash(packet))
 
+    def test_standalone_validator_rejects_rehashed_source_policy_threshold_tamper(self):
+        packet = VR.build_packet(payload(contexts=[context()]), policy())
+        packet["source_policy"]["rules"][0]["minimum_change"] = "6"
+        forged_sha = VR.payload_sha256(packet["source_policy"])
+        packet["interpretation_policy"]["policy_sha256"] = forged_sha
+        observed = packet["candidate_contexts"][0]["valuation"]["contexts"][0]
+        observed["interpretation_policy"]["policy_sha256"] = forged_sha
+        observed["interpretation_policy"]["minimum_change"] = "6"
+        with self.assertRaisesRegex(
+            VR.ValuationRiskContextError, "OUTPUT_INTERPRETATION_DERIVATION_MISMATCH"
+        ):
+            VR.validate_packet(rehash(packet))
+
     def test_standalone_validator_rejects_rehashed_authority_expansion(self):
         packet = VR.build_packet(payload())
         packet["candidate_contexts"][0]["portfolio_action"] = {"action": "BUY"}

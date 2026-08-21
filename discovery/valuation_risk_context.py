@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "valuation_risk_context_contract.json"
 INPUT_SCHEMA_VERSION = "valuation_risk_context_input/1"
-OUTPUT_SCHEMA_VERSION = "valuation_risk_context_packet/1"
+OUTPUT_SCHEMA_VERSION = "valuation_risk_context_packet/2"
 POLICY_SCHEMA_VERSION = "valuation_risk_interpretation_policy/1"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -648,65 +648,51 @@ def _validate_output_context(
         change = values[1] - values[0]
         if context.get("change") != _render(change, contract):
             raise ValuationRiskContextError("OUTPUT_CONTEXT_CHANGE_MISMATCH")
-        allowed_statuses = {
-            "ABSENT_OR_UNRATIFIED_POLICY",
-            "NO_EFFECTIVE_EXACT_RULE",
-            "EXACT_RULE_IDENTITY_MISMATCH",
-            "RATIFIED_EXACT_RULE_APPLIED",
-        }
-        if interpretation_status not in allowed_statuses:
-            raise ValuationRiskContextError("OUTPUT_INTERPRETATION_STATUS_INVALID")
-        if policy is None or policy["approval_status"] == "UNRATIFIED":
-            if (
-                interpretation_status != "ABSENT_OR_UNRATIFIED_POLICY"
-                or matched is not None
-            ):
-                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_STATUS_MISMATCH")
-        elif interpretation_status == "ABSENT_OR_UNRATIFIED_POLICY":
-            raise ValuationRiskContextError("OUTPUT_INTERPRETATION_STATUS_MISMATCH")
-        if interpretation_status in {
-            "ABSENT_OR_UNRATIFIED_POLICY",
-            "NO_EFFECTIVE_EXACT_RULE",
-        }:
-            if matched is not None or "interpretation_policy" in context:
-                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_RESULT_MISMATCH")
-        elif interpretation_status == "EXACT_RULE_IDENTITY_MISMATCH":
-            if matched is not False or "interpretation_policy" in context:
-                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_RESULT_MISMATCH")
+        rule = _matching_rule(policy, context, periods[-1])
+        if policy is None or policy["approval_status"] != "RATIFIED":
+            expected_status = "ABSENT_OR_UNRATIFIED_POLICY"
+            expected_match = None
+            expected_proof = None
+        elif rule is None:
+            expected_status = "NO_EFFECTIVE_EXACT_RULE"
+            expected_match = None
+            expected_proof = None
+        elif any(
+            rule[field] != context[field]
+            for field in (
+                "dimension",
+                "measurement_identity",
+                "metric_type",
+                "unit",
+                "comparison_basis",
+            )
+        ):
+            expected_status = "EXACT_RULE_IDENTITY_MISMATCH"
+            expected_match = False
+            expected_proof = None
         else:
-            proof = context.get("interpretation_policy")
-            if type(matched) is not bool or not isinstance(proof, dict) or set(proof) != {
-                "policy_id",
-                "policy_sha256",
-                "ratified_by",
-                "ratified_at_utc",
-                "deterioration_direction",
-                "minimum_change",
-            }:
-                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_POLICY_FIELDS_MISMATCH")
-            direction = proof.get("deterioration_direction")
+            expected_status = "RATIFIED_EXACT_RULE_APPLIED"
             sign = (
                 Decimal(1)
-                if direction == "HIGHER_IS_DETERIORATION"
+                if rule["deterioration_direction"] == "HIGHER_IS_DETERIORATION"
                 else Decimal(-1)
-                if direction == "LOWER_IS_DETERIORATION"
-                else None
             )
-            minimum = _decimal(proof.get("minimum_change"), context_id, nonnegative=True)
-            expected_match = sign is not None and sign * change >= minimum
-            if (
-                policy is None
-                or policy["approval_status"] != "RATIFIED"
-                or proof.get("policy_id") != policy["policy_id"]
-                or proof.get("policy_sha256") != policy["policy_sha256"]
-                or not isinstance(proof.get("ratified_by"), str)
-                or not proof["ratified_by"].strip()
-                or not _valid_utc(proof.get("ratified_at_utc"))
-                or _utc(proof["ratified_at_utc"]) > as_of
-                or sign is None
-                or matched is not expected_match
-            ):
-                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_DERIVATION_MISMATCH")
+            expected_match = sign * change >= Decimal(rule["minimum_change"])
+            expected_proof = {
+                "policy_id": policy["policy_id"],
+                "policy_sha256": policy["policy_sha256"],
+                "ratified_by": policy["ratified_by"],
+                "ratified_at_utc": policy["ratified_at_utc"],
+                "deterioration_direction": rule["deterioration_direction"],
+                "minimum_change": rule["minimum_change"],
+            }
+        if (
+            interpretation_status != expected_status
+            or matched is not expected_match
+            or context.get("interpretation_policy") != expected_proof
+            or (("interpretation_policy" in context) is not (expected_proof is not None))
+        ):
+            raise ValuationRiskContextError("OUTPUT_INTERPRETATION_DERIVATION_MISMATCH")
     return copy.deepcopy(context)
 
 
@@ -722,6 +708,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "context_observation_count",
         "context_complete_candidate_count",
         "interpretation_policy",
+        "source_policy",
         "candidate_contexts",
         "source_coverage",
         "policy_status",
@@ -747,22 +734,30 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     ):
         raise ValuationRiskContextError("OUTPUT_IDENTITY_MISMATCH")
     as_of = _utc(as_of_utc)
-    policy = packet.get("interpretation_policy")
-    if policy is not None:
-        if not isinstance(policy, dict) or set(policy) != {
-            "policy_id",
-            "approval_status",
-            "policy_sha256",
-        }:
-            raise ValuationRiskContextError("OUTPUT_POLICY_FIELDS_MISMATCH")
-        if (
-            not isinstance(policy.get("policy_id"), str)
-            or TOKEN_RE.fullmatch(policy["policy_id"]) is None
-            or policy.get("approval_status") not in {"RATIFIED", "UNRATIFIED"}
-            or not isinstance(policy.get("policy_sha256"), str)
-            or SHA256_RE.fullmatch(policy["policy_sha256"]) is None
-        ):
-            raise ValuationRiskContextError("OUTPUT_POLICY_IDENTITY_MISMATCH")
+    source_policy = _validate_policy(packet.get("source_policy"), contract)
+    if (
+        source_policy is not None
+        and source_policy["approval_status"] == "RATIFIED"
+        and _utc(source_policy["ratified_at_utc"]) > as_of
+    ):
+        raise ValuationRiskContextError("OUTPUT_POLICY_RATIFIED_AFTER_AS_OF")
+    policy_summary = packet.get("interpretation_policy")
+    expected_policy_summary = (
+        None
+        if source_policy is None
+        else {
+            "policy_id": source_policy["policy_id"],
+            "approval_status": source_policy["approval_status"],
+            "policy_sha256": payload_sha256(source_policy),
+        }
+    )
+    if policy_summary != expected_policy_summary:
+        raise ValuationRiskContextError("OUTPUT_POLICY_SOURCE_MISMATCH")
+    policy = (
+        None
+        if source_policy is None
+        else {**source_policy, "policy_sha256": payload_sha256(source_policy)}
+    )
 
     candidates = packet.get("candidate_contexts")
     if not isinstance(candidates, list) or not candidates:
@@ -946,6 +941,7 @@ def build_packet(value: dict, interpretation_policy: dict | None = None, contrac
             "policy_id": policy["policy_id"], "approval_status": policy["approval_status"],
             "policy_sha256": payload_sha256(policy),
         },
+        "source_policy": copy.deepcopy(policy),
         "candidate_contexts": candidate_packets,
         "source_coverage": copy.deepcopy(contract["source_coverage"]),
         "policy_status": copy.deepcopy(contract["policy_status"]),

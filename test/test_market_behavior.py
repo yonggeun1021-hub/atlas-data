@@ -179,7 +179,18 @@ class MarketBehaviorTests(unittest.TestCase):
         )
         feature["candidate_policy_match"] = False
         feature["radar_case_created"] = False
-        with self.assertRaisesRegex(MB.MarketBehaviorError, "OUTPUT_CASE_IDENTITY_MISMATCH"):
+        with self.assertRaisesRegex(MB.MarketBehaviorError, "OUTPUT_FEATURE_POLICY_RESULT_MISMATCH"):
+            MB.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_source_policy_threshold_tamper(self):
+        packet = MB.build_packet(payload(), policy())
+        packet["source_policy"]["rules"][0]["relative_strength_min"] = "0.50"
+        forged_sha = MB.payload_sha256(packet["source_policy"])
+        packet["candidate_policy"]["policy_sha256"] = forged_sha
+        packet["cases"][0]["candidate_policy"]["policy_sha256"] = forged_sha
+        with self.assertRaisesRegex(
+            MB.MarketBehaviorError, "OUTPUT_FEATURE_POLICY_RESULT_MISMATCH"
+        ):
             MB.validate_packet(rehash(packet))
 
     def test_standalone_validator_rejects_rehashed_source_lineage_tamper(self):

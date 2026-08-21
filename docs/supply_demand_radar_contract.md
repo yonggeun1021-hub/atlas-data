@@ -42,7 +42,12 @@ trading authority.
 
 ## Persisted packet validation
 
-`validate_packet()`은 저장된 3개 period/status/source lineage, canonical decimal
+`supply_demand_radar_packet/2`는 정규화한 `source_policy` 전체를 보존한다.
+`validate_packet()`은 ingestion과 동일한 정책 validator를 소비 시점에 다시
+실행하고, 정책 SHA·유효기간·exact series rule·방향·threshold로 policy status와
+case 생성을 재계산한다.
+
+또한 저장된 3개 period/status/source lineage, canonical decimal
 values, prior/latest/acceleration 산술, missing-evidence 상태, policy 결과와 case
 set, summary 및 권한 봉쇄를 다시 검증한다. 생성된 case는 해당 series의 3개
 numeric/source evidence에 역대조되고, 보존된 방향·threshold 비교도 다시
