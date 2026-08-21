@@ -139,6 +139,7 @@ def write_json(path, value):
 
 class MarketThemeExposureBudgetTests(unittest.TestCase):
     def test_contract_is_unknown_only_and_has_no_default_or_action_authority(self):
+        self.assertEqual(CONTRACT["output_schema_version"], "market_theme_exposure_packet/2")
         self.assertEqual(CONTRACT["runtime_authorized_regimes"], ["UNKNOWN"])
         self.assertEqual(CONTRACT["repository_default_status"], "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED")
         self.assertTrue(CONTRACT["authority"]["market_theme_budget_evaluation_only"])
@@ -165,6 +166,17 @@ class MarketThemeExposureBudgetTests(unittest.TestCase):
         self.assertEqual(packet["order_intents"], [])
         self.assertEqual(packet["lineage"]["input_packet_sha256"], source["packet_sha256"])
         self.assertEqual(packet["lineage"]["policy_packet_sha256"], ratified["packet_sha256"])
+        self.assertEqual(
+            packet["source_packets"]["INPUT"]["packet_sha256"], source["packet_sha256"]
+        )
+        self.assertEqual(
+            packet["source_packets"]["POLICY"]["packet_sha256"],
+            ratified["packet_sha256"],
+        )
+        self.assertEqual(
+            packet["source_packets"]["POLICY"]["policy_set_id"],
+            ratified["policy_set_id"],
+        )
 
     def test_market_and_theme_breaches_are_independent(self):
         rows = input_packet()["exposures"]
@@ -297,9 +309,54 @@ class MarketThemeExposureBudgetTests(unittest.TestCase):
         })
         with self.assertRaisesRegex(
             MODULE.MarketThemeExposureBudgetError,
-            "OUTPUT_ASSESSMENT_RESULT_MISMATCH",
+            "OUTPUT_DERIVATION_MISMATCH",
         ):
             MODULE.validate_packet(packet, CONTRACT)
+
+    def test_self_rehashed_exposure_and_limit_forgery_fails_closed(self):
+        packet = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
+        row = next(
+            item
+            for item in packet["assessments"]
+            if item["scope_type"] == "MARKET" and item["market"] == "US"
+        )
+        self.assertEqual((row["exposure"], row["max_exposure"], row["result"]), (0.50, 0.60, "PASS"))
+        row["exposure"] = 0.95
+        row["max_exposure"] = 999
+        row["result"] = "PASS"
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.MarketThemeExposureBudgetError,
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_embedded_policy_is_revalidated_at_consumption(self):
+        original = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
+
+        draft = copy.deepcopy(original)
+        draft["source_packets"]["POLICY"]["status"] = "DRAFT"
+        draft["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in draft.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.MarketThemeExposureBudgetError,
+            "POLICY_IDENTITY_INVALID",
+        ):
+            MODULE.validate_packet(draft, CONTRACT)
+
+        stale_digest = copy.deepcopy(original)
+        stale_digest["source_packets"]["POLICY"]["records"][0]["max_exposure"] = 999
+        stale_digest["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in stale_digest.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.MarketThemeExposureBudgetError,
+            "POLICY_PACKET_SHA_MISMATCH",
+        ):
+            MODULE.validate_packet(stale_digest, CONTRACT)
 
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))

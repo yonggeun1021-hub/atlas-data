@@ -46,7 +46,7 @@ def _expected_contract() -> dict:
         "contract_version": "crypto_exposure_limit/1",
         "policy_schema_version": "crypto_exposure_policy/1",
         "input_schema_version": "crypto_exposure_input/1",
-        "output_schema_version": "crypto_exposure_packet/1",
+        "output_schema_version": "crypto_exposure_packet/2",
         "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
         "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
         "market": "CRYPTO",
@@ -378,16 +378,13 @@ def _assessment(metric: str, subject_id: str, observed: float, maximum: float) -
     }
 
 
-def build_packet(
-    input_value: dict,
-    policy_value: dict,
-    as_of_date: str,
-    contract: dict | None = None,
-) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
-    checked = _validate_input(input_value, as_of, contract)
-    policy = _validate_policy(policy_value, as_of, contract)
+def _source_packet(validated: dict) -> dict:
+    packet = copy.deepcopy(validated["normalized"])
+    packet["packet_sha256"] = validated["packet_sha256"]
+    return packet
+
+
+def _assemble(checked: dict, policy: dict, as_of: str, contract: dict) -> dict:
     source = checked["normalized"]
     limits = policy["normalized"]["limits"]
     positions = source["positions"]
@@ -457,6 +454,10 @@ def build_packet(
         "target_crypto_exposure": None,
         "position_sizes": None,
         "order_intents": [],
+        "source_packets": {
+            "INPUT": _source_packet(checked),
+            "POLICY": _source_packet(policy),
+        },
         "lineage": {
             "input_packet_sha256": checked["packet_sha256"],
             "policy_packet_sha256": policy["packet_sha256"],
@@ -475,6 +476,20 @@ def build_packet(
             "ORDER_NOT_AUTHORIZED",
         ],
     }
+    return packet
+
+
+def build_packet(
+    input_value: dict,
+    policy_value: dict,
+    as_of_date: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
+    checked = _validate_input(input_value, as_of, contract)
+    policy = _validate_policy(policy_value, as_of, contract)
+    packet = _assemble(checked, policy, as_of, contract)
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
 
@@ -485,141 +500,28 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "schema_version", "contract_version", "status", "as_of_date",
         "snapshot_id", "policy_id", "assessments", "breaches", "summary",
         "recommended_action", "target_crypto_exposure", "position_sizes",
-        "order_intents", "lineage", "authority", "unresolved_boundaries",
-        "packet_sha256",
+        "order_intents", "source_packets", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise CryptoExposureLimitError("OUTPUT_FIELDS_MISMATCH")
     if (
         packet.get("schema_version") != contract["output_schema_version"]
         or packet.get("contract_version") != contract["contract_version"]
-        or packet.get("authority") != contract["authority"]
-        or packet.get("recommended_action") is not None
-        or packet.get("target_crypto_exposure") is not None
-        or packet.get("position_sizes") is not None
-        or packet.get("order_intents") != []
     ):
         raise CryptoExposureLimitError("OUTPUT_IDENTITY_INVALID")
-    _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
-    _id(packet.get("snapshot_id"), "OUTPUT_SNAPSHOT_ID_INVALID")
-    _id(packet.get("policy_id"), "OUTPUT_POLICY_ID_INVALID")
-    raw_assessments = packet.get("assessments")
-    assessment_fields = {"metric", "subject_id", "observed", "maximum", "result"}
-    if not isinstance(raw_assessments, list) or len(raw_assessments) < 5:
-        raise CryptoExposureLimitError("OUTPUT_ASSESSMENTS_INVALID")
-    assessments = []
-    for row in raw_assessments:
-        if not isinstance(row, dict) or set(row) != assessment_fields:
-            raise CryptoExposureLimitError("OUTPUT_ASSESSMENT_FIELDS_MISMATCH")
-        observed = _number(row.get("observed"), "OUTPUT_ASSESSMENT_OBSERVED_INVALID")
-        maximum = _number(
-            row.get("maximum"), "OUTPUT_ASSESSMENT_MAXIMUM_INVALID", positive=True
-        )
-        expected_result = "BREACH" if observed > maximum else "PASS"
-        if row.get("result") != expected_result:
-            raise CryptoExposureLimitError("OUTPUT_ASSESSMENT_RESULT_MISMATCH")
-        assessments.append({
-            "metric": row.get("metric"),
-            "subject_id": _id(
-                row.get("subject_id"), "OUTPUT_ASSESSMENT_SUBJECT_INVALID"
-            ),
-            "observed": observed,
-            "maximum": maximum,
-            "result": expected_result,
-        })
-    total_loss_indexes = [
-        index
-        for index, row in enumerate(assessments)
-        if row["metric"] == "TOTAL_PLANNED_LOSS"
-    ]
-    if len(total_loss_indexes) != 1:
-        raise CryptoExposureLimitError("OUTPUT_ASSESSMENT_STRUCTURE_INVALID")
-    total_loss_index = total_loss_indexes[0]
-    exposure_rows = assessments[1:total_loss_index]
-    loss_rows = assessments[total_loss_index + 1:-1]
-    if (
-        assessments[0]["metric"] != "TOTAL_CRYPTO_EXPOSURE"
-        or assessments[0]["subject_id"] != "CRYPTO"
-        or assessments[total_loss_index]["subject_id"] != "CRYPTO"
-        or assessments[-1]["metric"] != "ANNUALIZED_REALIZED_VOLATILITY"
-        or assessments[-1]["subject_id"] != "BTC_REFERENCE"
-        or not exposure_rows
-        or len(exposure_rows) != len(loss_rows)
-        or any(row["metric"] != "SINGLE_CRYPTO_EXPOSURE" for row in exposure_rows)
-        or any(row["metric"] != "SINGLE_PLANNED_LOSS" for row in loss_rows)
-    ):
-        raise CryptoExposureLimitError("OUTPUT_ASSESSMENT_STRUCTURE_INVALID")
-    exposure_assets = [row["subject_id"] for row in exposure_rows]
-    loss_assets = [row["subject_id"] for row in loss_rows]
-    if (
-        exposure_assets != sorted(set(exposure_assets))
-        or loss_assets != exposure_assets
-        or len({row["maximum"] for row in exposure_rows}) != 1
-        or len({row["maximum"] for row in loss_rows}) != 1
-        or any(
-            loss["observed"] > exposure["observed"]
-            for exposure, loss in zip(exposure_rows, loss_rows)
-        )
-        or assessments[0]["observed"]
-        != _rounded_sum(row["observed"] for row in exposure_rows)
-        or assessments[total_loss_index]["observed"]
-        != _rounded_sum(row["observed"] for row in loss_rows)
-    ):
-        raise CryptoExposureLimitError("OUTPUT_ASSESSMENT_DERIVATION_MISMATCH")
-    summary = packet.get("summary")
-    upstream_status = (
-        summary.get("upstream_market_theme_budget_status")
-        if isinstance(summary, dict)
-        else None
-    )
-    if upstream_status not in contract["accepted_market_theme_budget_statuses"]:
-        raise CryptoExposureLimitError("OUTPUT_UPSTREAM_STATUS_INVALID")
-    breaches = [
-        {"metric": row["metric"], "subject_id": row["subject_id"]}
-        for row in assessments
-        if row["result"] == "BREACH"
-    ]
-    if upstream_status == "LIMIT_BREACH":
-        breaches.insert(0, {
-            "metric": "UPSTREAM_MARKET_THEME_BUDGET",
-            "subject_id": "CRYPTO",
-        })
-    if packet.get("breaches") != breaches:
-        raise CryptoExposureLimitError("OUTPUT_BREACHES_MISMATCH")
-    if summary != {
-        "crypto_position_count": len(exposure_rows),
-        "total_crypto_exposure": assessments[0]["observed"],
-        "total_planned_loss": assessments[total_loss_index]["observed"],
-        "upstream_market_theme_budget_status": upstream_status,
-        "breach_count": len(breaches),
-    }:
-        raise CryptoExposureLimitError("OUTPUT_SUMMARY_MISMATCH")
-    expected_status = "LIMIT_BREACH" if breaches else "WITHIN_RATIFIED_LIMITS"
-    if packet.get("status") != expected_status:
-        raise CryptoExposureLimitError("OUTPUT_STATUS_MISMATCH")
-    lineage = packet.get("lineage")
-    lineage_fields = {
-        "input_packet_sha256", "policy_packet_sha256",
-        "portfolio_snapshot_sha256", "crypto_universe_packet_sha256",
-        "market_theme_budget_packet_sha256", "volatility_source_snapshot_sha256",
-        "volatility_observation_sha256",
-    }
-    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
-        raise CryptoExposureLimitError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
-    for key in lineage_fields:
-        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
-    if packet.get("unresolved_boundaries") != [
-        "NO_REPOSITORY_DEFAULT_CRYPTO_LIMIT",
-        "BTC_STRESS_CALIBRATION_UNDEFINED",
-        "NO_AUTOMATIC_POSITION_REDUCTION",
-        "POSITION_SIZING_NOT_AUTHORIZED",
-        "ORDER_NOT_AUTHORIZED",
-    ]:
-        raise CryptoExposureLimitError("OUTPUT_BOUNDARIES_MISMATCH")
-    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
-    normalized = copy.deepcopy(packet)
-    normalized.pop("packet_sha256")
-    if payload_sha256(normalized) != digest:
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {"INPUT", "POLICY"}:
+        raise CryptoExposureLimitError("OUTPUT_SOURCE_PACKETS_INVALID")
+    checked = _validate_input(sources["INPUT"], as_of, contract)
+    policy = _validate_policy(sources["POLICY"], as_of, contract)
+    expected = _assemble(checked, policy, as_of, contract)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise CryptoExposureLimitError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
         raise CryptoExposureLimitError("OUTPUT_PACKET_SHA_MISMATCH")
     return copy.deepcopy(packet)
 

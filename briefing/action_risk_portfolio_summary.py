@@ -160,7 +160,7 @@ SOURCE_IDENTITIES = {
         "config/concentration_correlation_guard_contract.json",
     ),
     "CRYPTO_EXPOSURE_LIMIT": (
-        "crypto_exposure_packet/1", "crypto_exposure_limit/1",
+        "crypto_exposure_packet/2", "crypto_exposure_limit/1",
         ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
         "config/crypto_exposure_limit_contract.json",
     ),
@@ -190,7 +190,7 @@ SOURCE_IDENTITIES = {
         "config/long_short_invariant_contract.json",
     ),
     "MARKET_THEME_BUDGET": (
-        "market_theme_exposure_packet/1", "market_theme_exposure_budget/1",
+        "market_theme_exposure_packet/2", "market_theme_exposure_budget/1",
         ["LIMIT_BREACH", "WITHIN_RATIFIED_BUDGET"],
         "config/market_theme_exposure_budget_contract.json",
     ),
