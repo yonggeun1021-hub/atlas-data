@@ -188,6 +188,24 @@ def _latest_run_dir(day_dir: Path) -> Path | None:
     return candidates[-1] if candidates else None
 
 
+def _dated_dir_for_decision(root: Path, decision_date: str) -> Path | None:
+    """Return root/decision_date iff it exists as a real directory.
+
+    Never falls back to "whatever is latest" -- a daily-capture archive is
+    keyed by capture date, and reading a *different* date's directory and
+    presenting it as this decision_date's evidence would either leak future
+    information (if a later date's evidence happens to already be
+    committed, e.g. during a same-day rerun after a new capture landed) or
+    silently substitute stale data for a day that genuinely has none. Both
+    are wrong; DATA_BLOCKED for this exact date is the only honest result
+    when the exact directory is absent.
+    """
+    candidate = Path(root) / decision_date
+    if candidate.is_dir() and not candidate.is_symlink():
+        return candidate
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Step 0 / read-model health + KRX/DART/SEC compact pre-open read model
 # ---------------------------------------------------------------------------
@@ -287,7 +305,17 @@ def build_krx_post_close(decision_date: str, generated_at_utc: dt.datetime) -> d
 # ---------------------------------------------------------------------------
 
 
-def _filing_content_status(component_id: str, status_file: str) -> dict:
+def _filing_content_status(component_id: str, status_file: str, decision_date: str) -> dict:
+    # data/latest_{dart,sec}_content.json is a mutable rolling pointer --
+    # collect.yml overwrites it every collection cycle. There is no
+    # per-date archive for it. That makes two things true: (1) reading it
+    # for a decision_date other than "whatever it currently says" would be
+    # a future/wrong-date leak, so this component is DATA_BLOCKED for any
+    # decision_date it does not currently attest to; (2) independent
+    # re-validation of a past day's status is not reconstructable from
+    # this file once it has rolled forward -- see NON_REVALIDATABLE_
+    # COMPONENTS and validate_packet() for how that is handled honestly
+    # rather than silently declared stable forever.
     path = ROOT / status_file
     if not path.exists():
         return _blocked(component_id, "UNAVAILABLE", "STATUS_FILE_MISSING")
@@ -295,6 +323,15 @@ def _filing_content_status(component_id: str, status_file: str) -> dict:
         payload = _read_json(path)
     except DailyOrchestratorError as exc:
         return component_row(component_id, "DEGRADED", str(exc))
+    if payload.get("collected_for_kst_date") != decision_date:
+        return component_row(
+            component_id,
+            "DATA_BLOCKED",
+            "NO_CONTENT_STATUS_FOR_DECISION_DATE",
+            as_of_date=payload.get("collected_for_kst_date"),
+            source_packet_path=status_file,
+            validated=False,
+        )
     records = payload.get("records")
     count = len(records) if isinstance(records, list) else records
     if payload.get("run_status") != "OK":
@@ -318,12 +355,16 @@ def _filing_content_status(component_id: str, status_file: str) -> dict:
     )
 
 
-def build_dart_filing_content() -> dict:
-    return _filing_content_status("DART_FILING_CONTENT", "data/latest_dart_content.json")
+def build_dart_filing_content(decision_date: str) -> dict:
+    return _filing_content_status(
+        "DART_FILING_CONTENT", "data/latest_dart_content.json", decision_date
+    )
 
 
-def build_sec_filing_content() -> dict:
-    return _filing_content_status("SEC_FILING_CONTENT", "data/latest_sec_content.json")
+def build_sec_filing_content(decision_date: str) -> dict:
+    return _filing_content_status(
+        "SEC_FILING_CONTENT", "data/latest_sec_content.json", decision_date
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -331,12 +372,14 @@ def build_sec_filing_content() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_kofia_first_seen() -> dict:
+def build_kofia_first_seen(decision_date: str) -> dict:
     evidence_root = ROOT / "evidence" / "kofia" / "first_seen"
-    day_dir = _latest_dated_dir(evidence_root)
+    day_dir = _dated_dir_for_decision(evidence_root, decision_date)
     run_dir = _latest_run_dir(day_dir) if day_dir is not None else None
     if run_dir is None:
-        return _blocked("KOFIA_FIRST_SEEN", "UNAVAILABLE", "NO_COMMITTED_EVIDENCE")
+        return _blocked(
+            "KOFIA_FIRST_SEEN", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
+        )
     try:
         observation = KOFIA.validate_capture(run_dir, evidence_root)
     except Exception as exc:  # noqa: BLE001
@@ -364,15 +407,18 @@ def build_kofia_first_seen() -> dict:
 
 def build_us_breadth_membership(decision_date: str) -> dict:
     raw_root = US_BREADTH.RAW_ROOT
+    # universe_as_of() already forward-fills to the latest snapshot with
+    # snapshot_date <= decision_date and refuses anything after it -- this
+    # is precisely the as-of-date-safe API the module offers for exactly
+    # this purpose. Using anything else (e.g. "whichever snapshot is
+    # currently the newest in the repo") would read future-dated evidence
+    # whenever decision_date is not literally today.
     try:
-        chain = US_BREADTH.replay_archive(raw_root)
-    except Exception as exc:  # noqa: BLE001
-        return _degraded_from_exception("US_BREADTH_MEMBERSHIP", exc)
-    if not chain:
-        return _blocked("US_BREADTH_MEMBERSHIP", "UNAVAILABLE", "ARCHIVE_EMPTY")
-    latest_date = chain[-1]["snapshot_date"]
-    try:
-        universe = US_BREADTH.universe_as_of(latest_date, raw_root)
+        universe = US_BREADTH.universe_as_of(decision_date, raw_root)
+    except US_BREADTH.ContractError as exc:
+        return component_row(
+            "US_BREADTH_MEMBERSHIP", "DATA_BLOCKED", f"{type(exc).__name__}:{exc}"
+        )
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("US_BREADTH_MEMBERSHIP", exc)
     return component_row(
@@ -390,14 +436,10 @@ def build_us_breadth_membership(decision_date: str) -> dict:
     )
 
 
-def _latest_evidence_snapshot(relative_root: str) -> Path | None:
-    return _latest_dated_dir(ROOT / relative_root)
-
-
-def build_btc_trend() -> dict:
-    snapshot = _latest_evidence_snapshot("evidence/crypto/btc/raw")
+def build_btc_trend(decision_date: str) -> dict:
+    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date)
     if snapshot is None:
-        return _blocked("BTC_TREND", "UNAVAILABLE", "NO_COMMITTED_EVIDENCE")
+        return _blocked("BTC_TREND", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     try:
         packet = BTC_TREND.build_transform(snapshot)
     except Exception as exc:  # noqa: BLE001
@@ -415,10 +457,10 @@ def build_btc_trend() -> dict:
     )
 
 
-def build_btc_risk() -> dict:
-    snapshot = _latest_evidence_snapshot("evidence/crypto/btc/raw")
+def build_btc_risk(decision_date: str) -> dict:
+    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date)
     if snapshot is None:
-        return _blocked("BTC_RISK", "UNAVAILABLE", "NO_COMMITTED_EVIDENCE")
+        return _blocked("BTC_RISK", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     try:
         packet = BTC_RISK.build_transform(snapshot)
     except Exception as exc:  # noqa: BLE001
@@ -438,14 +480,17 @@ def build_btc_risk() -> dict:
     )
 
 
-def build_stablecoin() -> dict:
-    snapshot = _latest_evidence_snapshot("evidence/stablecoin/raw")
+def build_stablecoin(decision_date: str) -> dict:
+    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "stablecoin" / "raw", decision_date)
     if snapshot is None:
-        return _blocked("STABLECOIN_NET_ISSUANCE", "UNAVAILABLE", "NO_COMMITTED_EVIDENCE")
+        return _blocked(
+            "STABLECOIN_NET_ISSUANCE", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
+        )
     try:
         packet = STABLECOIN.build_transform(snapshot)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("STABLECOIN_NET_ISSUANCE", exc)
+    latest_row = packet["rows"][-1] if packet.get("rows") else {}
     return component_row(
         "STABLECOIN_NET_ISSUANCE",
         "READY",
@@ -453,14 +498,24 @@ def build_stablecoin() -> dict:
         as_of_date=snapshot.name,
         source_packet_path=f"evidence/stablecoin/raw/{snapshot.name}",
         validated=True,
-        packet={"daily_status": packet.get("daily_status")},
+        packet={
+            "observation_date": latest_row.get("observation_date"),
+            "daily_net_issuance_native_usd_peg": latest_row.get(
+                "daily_net_issuance_native_usd_peg"
+            ),
+            "daily_status": latest_row.get("daily_status"),
+            "weekly_net_issuance_native_usd_peg": latest_row.get(
+                "weekly_net_issuance_native_usd_peg"
+            ),
+            "weekly_status": latest_row.get("weekly_status"),
+        },
     )
 
 
-def build_crypto_breadth() -> dict:
-    snapshot = _latest_evidence_snapshot("evidence/crypto/breadth/raw")
+def build_crypto_breadth(decision_date: str) -> dict:
+    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date)
     if snapshot is None:
-        return _blocked("CRYPTO_BREADTH", "UNAVAILABLE", "NO_COMMITTED_EVIDENCE")
+        return _blocked("CRYPTO_BREADTH", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     try:
         packet = CRYPTO_BREADTH.build_transform(snapshot)
     except Exception as exc:  # noqa: BLE001
@@ -780,11 +835,35 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
 # ---------------------------------------------------------------------------
 
 
+# These four components read a *mutable rolling pointer* file
+# (data/briefing_status.json's inputs, data/latest_{dart,sec}_content.json)
+# that collect.yml overwrites every collection cycle, with no per-date
+# archive behind it. Every other component now reads a genuinely immutable,
+# append-only, per-date evidence directory (after the decision_date pinning
+# above), so re-deriving them independently at any future validation time is
+# both possible and required. For these four, that is not possible: once
+# the rolling pointer has moved past decision_date, there is nothing left
+# to independently re-derive it from. validate_packet() therefore trusts
+# the *persisted* row for these four rather than attempting -- and
+# incorrectly failing -- a live re-fetch, while still catching any bit-level
+# tamper of them through the outer packet_sha256 check. This is a disclosed,
+# tested boundary (see PRIOR_EVIDENCE equivalents elsewhere in this repo for
+# the same "cannot prove a mutable, non-archived source's past state"
+# limitation), not a silent gap: it is listed in unresolved_boundaries and
+# a self-rehashed tamper of exactly these four rows is NOT caught, by
+# design and by test.
+NON_REVALIDATABLE_COMPONENTS = frozenset({
+    "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
+    "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+})
+
+
 def build_packet(
     slot: str,
     decision_date: str,
     generated_at: str,
     contract: dict | None = None,
+    frozen_rows: dict[str, dict] | None = None,
 ) -> dict:
     contract = load_contract() if contract is None else contract
     if slot not in contract["slots"]:
@@ -795,12 +874,20 @@ def build_packet(
         fail("GENERATED_AT_INVALID", generated_at)
     if generated_at_dt.tzinfo is None:
         fail("GENERATED_AT_INVALID", "must include a timezone offset")
+    frozen_rows = frozen_rows or {}
+    if not set(frozen_rows) <= NON_REVALIDATABLE_COMPONENTS:
+        fail(
+            "FROZEN_ROWS_INVALID",
+            str(set(frozen_rows) - NON_REVALIDATABLE_COMPONENTS),
+        )
 
     rows: dict[str, dict] = {}
 
-    step0 = build_step0_health(decision_date)
+    step0 = frozen_rows.get("STEP0_READ_MODEL_HEALTH") or build_step0_health(decision_date)
     rows["STEP0_READ_MODEL_HEALTH"] = step0
-    rows["KRX_PREOPEN_COMPACT"] = build_krx_preopen_compact(decision_date, step0["packet"])
+    rows["KRX_PREOPEN_COMPACT"] = frozen_rows.get(
+        "KRX_PREOPEN_COMPACT"
+    ) or build_krx_preopen_compact(decision_date, step0["packet"])
 
     if "KRX_POST_CLOSE" in contract["evening_only_components"] and slot == "evening":
         rows["KRX_POST_CLOSE"] = build_krx_post_close(decision_date, generated_at_dt)
@@ -809,14 +896,18 @@ def build_packet(
             "KRX_POST_CLOSE", "PENDING", "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
         )
 
-    rows["DART_FILING_CONTENT"] = build_dart_filing_content()
-    rows["SEC_FILING_CONTENT"] = build_sec_filing_content()
-    rows["KOFIA_FIRST_SEEN"] = build_kofia_first_seen()
+    rows["DART_FILING_CONTENT"] = frozen_rows.get(
+        "DART_FILING_CONTENT"
+    ) or build_dart_filing_content(decision_date)
+    rows["SEC_FILING_CONTENT"] = frozen_rows.get(
+        "SEC_FILING_CONTENT"
+    ) or build_sec_filing_content(decision_date)
+    rows["KOFIA_FIRST_SEEN"] = build_kofia_first_seen(decision_date)
     rows["US_BREADTH_MEMBERSHIP"] = build_us_breadth_membership(decision_date)
-    rows["BTC_TREND"] = build_btc_trend()
-    rows["BTC_RISK"] = build_btc_risk()
-    rows["STABLECOIN_NET_ISSUANCE"] = build_stablecoin()
-    rows["CRYPTO_BREADTH"] = build_crypto_breadth()
+    rows["BTC_TREND"] = build_btc_trend(decision_date)
+    rows["BTC_RISK"] = build_btc_risk(decision_date)
+    rows["STABLECOIN_NET_ISSUANCE"] = build_stablecoin(decision_date)
+    rows["CRYPTO_BREADTH"] = build_crypto_breadth(decision_date)
 
     regime_outputs = build_regime_outputs(generated_at)
     rows["THREE_MARKET_REGIME_HEADER"] = build_three_market_header(
@@ -876,14 +967,20 @@ def build_packet(
             "PORTFOLIO_CONSTITUTION_NOT_RATIFIED",
             "ACTION_AND_ORDER_NOT_AUTHORIZED",
             "PRODUCTION_NOT_AUTHORIZED",
+            "SAME_DAY_ROLLING_POINTER_COMPONENTS_NOT_INDEPENDENTLY_REVALIDATED",
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
 
 
-def validate_packet(packet: dict, contract: dict | None = None) -> dict:
-    contract = load_contract() if contract is None else contract
+def _verify_self_hash(packet: dict) -> None:
+    """Cheap tamper check only: does packet_sha256 match the packet's own
+    bytes? Deliberately not a full independent rebuild -- see the caller in
+    publish() for why re-deriving an existing revision from current repo
+    state is the wrong check while more evidence for the same decision_date
+    may still be legitimately arriving.
+    """
     if not isinstance(packet, dict):
         fail("OUTPUT_INVALID", "root must be object")
     digest = packet.get("packet_sha256")
@@ -891,8 +988,29 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     unsigned.pop("packet_sha256", None)
     if payload_sha256(unsigned) != digest:
         fail("OUTPUT_SHA_MISMATCH", "packet_sha256")
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = load_contract() if contract is None else contract
+    _verify_self_hash(packet)
+    # Every component is independently re-derived from immutable, per-date
+    # evidence except the four NON_REVALIDATABLE_COMPONENTS, which read a
+    # mutable rolling pointer with no historical archive behind it -- those
+    # four are trusted from the persisted packet itself rather than
+    # re-fetched (see the comment on NON_REVALIDATABLE_COMPONENTS). This is
+    # what makes a two-day-old (or older) published packet still
+    # independently verifiable: the 28 revalidatable components are
+    # re-checked against the same frozen evidence they were built from,
+    # regardless of what has been captured since.
+    by_id = {row["component_id"]: row for row in packet.get("components", [])}
+    frozen = {
+        component_id: by_id[component_id]
+        for component_id in NON_REVALIDATABLE_COMPONENTS
+        if component_id in by_id
+    }
     rebuilt = build_packet(
-        packet["slot"], packet["decision_date"], packet["generated_at"], contract
+        packet["slot"], packet["decision_date"], packet["generated_at"], contract,
+        frozen_rows=frozen,
     )
     if rebuilt != packet:
         fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")
@@ -933,6 +1051,149 @@ _STATUS_MARK = {
 }
 
 
+def _format_component_detail(row: dict) -> list[str]:
+    """Real, human-meaningful values pulled from a component's own
+    retained packet -- never a raw JSON dump. A component with no packet
+    (blocked/unavailable) contributes nothing here; its status + reason
+    line above already says why there is nothing to show.
+    """
+    cid = row["component_id"]
+    packet = row.get("packet")
+    if not packet:
+        return []
+    lines: list[str] = []
+    try:
+        if cid == "STEP0_READ_MODEL_HEALTH":
+            for name in ("krx", "dart", "sec"):
+                source = (packet.get("sources") or {}).get(name)
+                if source:
+                    lines.append(
+                        f"    - {name}: ok={source.get('ok')} failed={source.get('failed')}"
+                    )
+        elif cid == "KRX_PREOPEN_COMPACT":
+            for name in ("krx", "dart", "sec"):
+                source = packet.get(name)
+                if source:
+                    lines.append(
+                        f"    - {name}: ok={source.get('ok')} failed={source.get('failed')} "
+                        f"date={source.get('collected_for_kst_date')}"
+                    )
+        elif cid == "KRX_POST_CLOSE":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - observed_unconfirmed: symbols={summary.get('observed_symbol_count')} "
+                f"decision_eligible={summary.get('decision_eligible_symbol_count')} "
+                f"confirmed_same_day={summary.get('confirmed_same_day_count')}"
+            )
+        elif cid in ("DART_FILING_CONTENT", "SEC_FILING_CONTENT"):
+            lines.append(
+                f"    - records={packet.get('record_count')} "
+                f"run_status={packet.get('run_status')}"
+            )
+        elif cid == "KOFIA_FIRST_SEEN":
+            lines.append(
+                f"    - captured_at={packet.get('captured_at_utc')} "
+                f"available_at={packet.get('available_at')}"
+            )
+        elif cid == "US_BREADTH_MEMBERSHIP":
+            lines.append(
+                f"    - snapshot_date={packet.get('snapshot_date')} "
+                f"members={packet.get('member_count')}"
+            )
+        elif cid == "BTC_TREND":
+            lines.append(
+                f"    - direction={packet.get('direction')} 200dma={packet.get('dma_200')}"
+            )
+        elif cid == "BTC_RISK":
+            point = packet.get("risk_point", {})
+            drawdown = point.get("drawdown", {})
+            vol = point.get("realized_volatility", {})
+            lines.append(
+                f"    - current_drawdown={drawdown.get('current_fraction')} "
+                f"max_drawdown={drawdown.get('maximum_fraction')} "
+                f"realized_vol_annualized={vol.get('annualized_fraction')}"
+            )
+        elif cid == "STABLECOIN_NET_ISSUANCE":
+            lines.append(
+                f"    - {packet.get('observation_date')}: "
+                f"daily_net_issuance={packet.get('daily_net_issuance_native_usd_peg')} "
+                f"({packet.get('daily_status')}), "
+                f"weekly_net_issuance={packet.get('weekly_net_issuance_native_usd_peg')} "
+                f"({packet.get('weekly_status')})"
+            )
+        elif cid == "CRYPTO_BREADTH":
+            lines.append(
+                f"    - status={packet.get('status')} "
+                f"selected_assets={packet.get('selected_asset_count')}"
+            )
+        elif cid == "THREE_MARKET_REGIME_HEADER":
+            for market in packet.get("markets", []):
+                coverage = market.get("coverage", {})
+                lines.append(
+                    f"    - {market.get('market')}: regime={market.get('regime')} "
+                    f"direction={market.get('direction')} "
+                    f"confidence={market.get('confidence')} "
+                    f"coverage={coverage.get('ratio')}"
+                )
+        elif cid == "ROTATION_DISCOVERY":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - rotation_changes={summary.get('rotation_change_count')} "
+                f"discovery_cases={summary.get('discovery_case_count')} "
+                f"new_candidates={summary.get('new_candidate_count')} "
+                f"existing_candidate_changes={summary.get('existing_candidate_change_count')}"
+            )
+        elif cid == "RULE_EVALUATION":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - total_rules={summary.get('total_rules')} "
+                f"PASS={summary.get('PASS')} FAIL={summary.get('FAIL')} "
+                f"UNKNOWN={summary.get('UNKNOWN')} UNDEFINED={summary.get('UNDEFINED')}"
+            )
+        elif cid == "UNIFIED_DECISION":
+            decision = packet.get("decision", {})
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - state={decision.get('state')} action={decision.get('action')} "
+                f"order_intent={decision.get('order_intent')} "
+                f"available_components={summary.get('available_component_count')}/"
+                f"{summary.get('component_count')}"
+            )
+        elif cid == "ACTION_RISK_PORTFOLIO_SUMMARY":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - available_sources={summary.get('available_source_count')}/"
+                f"{summary.get('source_count')} "
+                f"evaluated_actions={summary.get('evaluated_action_count')} "
+                f"risk_breach_sources={summary.get('risk_breach_source_count')}"
+            )
+        elif cid.startswith("CASH_EXPOSURE_"):
+            lines.append(
+                f"    - regime={packet.get('regime')} "
+                f"cash_action={packet.get('cash_action')} "
+                f"evaluation_status={packet.get('evaluation_status')}"
+            )
+        elif cid.startswith("INVERSE_"):
+            lines.append(
+                f"    - regime={packet.get('regime')} "
+                f"inverse_signal={packet.get('inverse_signal')} "
+                f"invariant_status={packet.get('invariant_status')}"
+            )
+        elif cid == "LONG_SHORT_INVARIANT":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - long_results={summary.get('long_results')} "
+                f"short_pass={summary.get('short_pass')} "
+                f"short_not_evaluated={summary.get('short_not_evaluated')}"
+            )
+    except (AttributeError, TypeError, KeyError):
+        # A packet shape the renderer does not recognize must never break
+        # the whole briefing render -- fall back to no detail line rather
+        # than raising, the status/reason line above still stands.
+        return []
+    return lines
+
+
 def render_markdown(packet: dict) -> str:
     by_id = {row["component_id"]: row for row in packet["components"]}
     lines = [
@@ -956,6 +1217,7 @@ def render_markdown(packet: dict) -> str:
             mark = _STATUS_MARK.get(row["status"], row["status"])
             reason = f" — {row['reason']}" if row["reason"] else ""
             lines.append(f"- **{row['component_id']}**: {mark}{reason}")
+            lines.extend(_format_component_detail(row))
             if row["source_packet_path"]:
                 lines.append(f"  - source: `{row['source_packet_path']}`")
             if row["source_packet_sha256"]:
@@ -972,20 +1234,103 @@ def render_markdown(packet: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Publication (atomic, append-only, outside-repo-forbidden like its peers is
-# NOT applied here on purpose: the orchestrator's whole point is to persist
-# one committed daily record, unlike the ad hoc P8 packet builders it calls).
+# Publication (atomic, append-only revisions, outside-repo-forbidden like its
+# peers is NOT applied here on purpose: the orchestrator's whole point is to
+# persist a committed daily record, unlike the ad hoc P8 packet builders it
+# calls).
+#
+# evidence/daily_briefing/{slot}/{decision_date}/ holds one or more
+# rev-NNN/ directories (packet.json + briefing.md each) plus a
+# deterministic index.json naming the latest one. A first publish for a
+# (slot, decision_date) that produced many DATA_BLOCKED/DEGRADED components
+# (e.g. because a sensor's capture had not landed yet) is not a dead end:
+# calling publish() again the same day re-aggregates from whatever
+# evidence exists *now* -- still provider-free, still decision_date-pinned
+# -- and adds a new revision only if that materially changed something.
+# No prior revision is ever overwritten or deleted.
 # ---------------------------------------------------------------------------
 
+INDEX_SCHEMA_VERSION = 1
 
-def publish(slot: str, decision_date: str, generated_at: str, evidence_root: Path = EVIDENCE_ROOT) -> Path:
+
+def _read_index(date_dir: Path) -> dict | None:
+    index_path = date_dir / "index.json"
+    if not index_path.exists():
+        return None
+    return _read_json(index_path)
+
+
+def _component_status_vector(packet: dict) -> dict[str, str]:
+    return {row["component_id"]: row["status"] for row in packet["components"]}
+
+
+def _write_index_atomic(date_dir: Path, index: dict) -> None:
+    temp = date_dir / f".index.json.tmp.{os.getpid()}"
+    try:
+        temp.write_text(
+            json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temp.replace(date_dir / "index.json")
+    finally:
+        if temp.exists():
+            temp.unlink()
+
+
+def publish(
+    slot: str, decision_date: str, generated_at: str, evidence_root: Path = EVIDENCE_ROOT
+) -> dict:
     packet = build_packet(slot, decision_date, generated_at)
     validate_packet(packet)
     rendered = render_markdown(packet)
-    target_dir = Path(evidence_root) / slot / decision_date
+
+    date_dir = Path(evidence_root) / slot / decision_date
+    index = _read_index(date_dir)
+    revisions = list(index["revisions"]) if index else []
+
+    if revisions:
+        latest_entry = revisions[-1]
+        latest_dir = date_dir / latest_entry["path"]
+        try:
+            latest_packet = _read_json(latest_dir / "packet.json")
+            # A cheap self-hash check, not a full validate_packet()
+            # rebuild-and-compare: while a decision_date's evidence is
+            # still actively arriving (exactly the same-day recovery case
+            # this revision scheme exists for), a component that was
+            # DATA_BLOCKED when the existing revision was published can
+            # legitimately resolve to real evidence now -- that is the
+            # trigger for a new revision, not evidence the existing one was
+            # tampered. A full independent re-derivation would conflate the
+            # two. Self-hash tamper (edited bytes, stale digest) is still
+            # caught; a full independent re-check of a revision that is not
+            # being superseded remains available via validate_packet().
+            _verify_self_hash(latest_packet)
+        except DailyOrchestratorError as exc:
+            # Never skip past a bundle without checking it: a corrupted
+            # existing revision must be surfaced, not silently ignored in
+            # favor of quietly adding a new one on top of it.
+            fail("EXISTING_REVISION_INVALID", f"{latest_dir}: {exc}")
+        if latest_packet["packet_sha256"] != latest_entry["packet_sha256"]:
+            fail("INDEX_ENTRY_MISMATCH", str(latest_dir))
+        if _component_status_vector(latest_packet) == _component_status_vector(packet):
+            # Every decision_date-pinned component resolves to the same
+            # immutable evidence it did before (see NON_REVALIDATABLE_
+            # COMPONENTS for the one disclosed exception), so an identical
+            # status vector means provider-free re-aggregation truly found
+            # nothing new. Publishing an identical-in-substance revision
+            # would be noise, not recovery -- reuse the existing one.
+            return {"path": latest_dir, "revision": latest_entry["revision"], "created": False}
+
+    revision_number = len(revisions) + 1
+    revision_name = f"rev-{revision_number:03d}"
+    target_dir = date_dir / revision_name
     if target_dir.exists():
         fail("APPEND_ONLY_VIOLATION", str(target_dir))
-    temp_dir = target_dir.parent / f".{target_dir.name}.tmp.{os.getpid()}"
+
+    date_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = date_dir / f".{revision_name}.tmp.{os.getpid()}"
+    if temp_dir.exists():
+        _rmtree(temp_dir)
     temp_dir.mkdir(parents=True)
     try:
         (temp_dir / "packet.json").write_text(
@@ -996,10 +1341,29 @@ def publish(slot: str, decision_date: str, generated_at: str, evidence_root: Pat
         temp_dir.replace(target_dir)
     finally:
         if temp_dir.exists():
-            import shutil
+            _rmtree(temp_dir)
 
-            shutil.rmtree(temp_dir)
-    return target_dir
+    new_index = {
+        "schema_version": INDEX_SCHEMA_VERSION,
+        "slot": slot,
+        "decision_date": decision_date,
+        "revisions": revisions + [{
+            "revision": revision_number,
+            "path": revision_name,
+            "packet_sha256": packet["packet_sha256"],
+            "generated_at": generated_at,
+            "component_status_counts": packet["component_status_counts"],
+        }],
+        "latest_revision": revision_number,
+    }
+    _write_index_atomic(date_dir, new_index)
+    return {"path": target_dir, "revision": revision_number, "created": True}
+
+
+def _rmtree(path: Path) -> None:
+    import shutil
+
+    shutil.rmtree(path)
 
 
 def run(argv=None) -> int:
@@ -1031,8 +1395,10 @@ def run(argv=None) -> int:
             print(args.out)
         return 0
     if args.command == "publish":
-        target = publish(args.slot, args.decision_date, args.generated_at)
-        print(target)
+        result = publish(args.slot, args.decision_date, args.generated_at)
+        print(f"path={result['path']}")
+        print(f"revision={result['revision']}")
+        print(f"created={'true' if result['created'] else 'false'}")
         return 0
     packet = _read_json(args.packet_path)
     validate_packet(packet)

@@ -45,18 +45,23 @@ jobs:
         id: briefing
         env:
           DISPATCH_SLOT: ${{ inputs.slot }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
           SLOT="$DISPATCH_SLOT"
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            # Two schedule entries exist above; the KST hour distinguishes
-            # them, since GitHub does not label which cron entry fired.
-            KST_HOUR=$(TZ=Asia/Seoul date +%H)
-            if [ "$KST_HOUR" -lt 12 ]; then
-              SLOT="morning"
-            else
-              SLOT="evening"
-            fi
+            # Determine the slot from the exact cron expression that fired,
+            # not from the KST wall-clock hour the runner happens to start
+            # at -- a large scheduler delay could push a morning run past
+            # noon KST and misclassify it as evening if hour were used.
+            case "$EVENT_SCHEDULE" in
+              "5 22 * * 0-4") SLOT="morning" ;;
+              "30 9 * * 1-5") SLOT="evening" ;;
+              *)
+                echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2
+                exit 2
+                ;;
+            esac
           fi
           case "$SLOT" in
             morning|evening) ;;
@@ -64,20 +69,50 @@ jobs:
           esac
           DECISION_DATE=$(TZ=Asia/Seoul date +%F)
           GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          DIR="evidence/daily_briefing/$SLOT/$DECISION_DATE"
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
-          echo "capture_path=$DIR" >> "$GITHUB_OUTPUT"
-          if [ -e "$DIR" ]; then
-            echo "이미 $SLOT/$DECISION_DATE briefing이 존재합니다. 재발행하지 않습니다." >&2
-            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          python3 briefing/daily_orchestrator.py publish \
+          echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
+
+          # Always call publish -- it is the one that decides, from real
+          # evidence, whether anything changed since the last revision for
+          # this (slot, decision_date). A prior run may have published a
+          # revision with several components DATA_BLOCKED because their
+          # capture had not landed yet; this call re-aggregates from
+          # whatever now exists and adds a new revision only if that
+          # materially changed something (same-day recovery), otherwise it
+          # is a safe no-op.
+          OUTPUT=$(python3 briefing/daily_orchestrator.py publish \
             --slot "$SLOT" \
             --decision-date "$DECISION_DATE" \
-            --generated-at "$GENERATED_AT"
-          python3 briefing/daily_orchestrator.py validate "$DIR/packet.json"
-          echo "result=published" >> "$GITHUB_OUTPUT"
+            --generated-at "$GENERATED_AT")
+          echo "$OUTPUT"
+          CAPTURE_PATH=$(echo "$OUTPUT" | sed -n 's/^path=//p')
+          CREATED=$(echo "$OUTPUT" | sed -n 's/^created=//p')
+          echo "capture_path=$CAPTURE_PATH" >> "$GITHUB_OUTPUT"
+
+          python3 briefing/daily_orchestrator.py validate "$CAPTURE_PATH/packet.json"
+
+          if [ "$CREATED" = "true" ]; then
+            echo "result=published" >> "$GITHUB_OUTPUT"
+          else
+            echo "이미 최신 상태와 동일한 $SLOT/$DECISION_DATE revision이 있어 재발행하지 않습니다: $CAPTURE_PATH" >&2
+            echo "result=no_new_revision" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Storage (this workflow committing evidence/daily_briefing/...)
+          # is not the same thing as delivery to a person. Publishing the
+          # rendered briefing into the job summary is the one delivery path
+          # this workflow itself provides; an external read-only reporter
+          # (matching the P0-02/P0-04 independent-cron pattern) is the
+          # documented path for anything beyond that -- see
+          # docs/daily_orchestrator_contract.md for the exact consumption
+          # command. Push/email/Claude delivery is not implemented here and
+          # must not be reported as done until live delivery evidence
+          # exists.
+          {
+            echo "## Atlas Daily Briefing — $SLOT $DECISION_DATE"
+            echo
+            cat "$CAPTURE_PATH/briefing.md"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Commit immutable daily briefing bundle
         if: steps.briefing.outputs.result == 'published'
         env:
@@ -87,7 +122,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$CAPTURE_PATH"
+          # Stage the whole decision_date directory, not just the new
+          # rev-NNN/ subdirectory: index.json (the deterministic pointer to
+          # the latest revision) lives beside it as a sibling and is
+          # rewritten on every new revision.
+          git add "$(dirname "$CAPTURE_PATH")"
           git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
           git pull --rebase origin "$DEFAULT_BRANCH"
           git push origin "HEAD:$DEFAULT_BRANCH"

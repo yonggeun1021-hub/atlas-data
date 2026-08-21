@@ -85,22 +85,92 @@ and `KRX_PREOPEN_COMPACT` additionally distinguish a collector-data failure
 distinction `check_briefing_readiness.py` already draws -- because the two
 have different remediation paths.
 
+## Point-in-time safety: every sensor is decision_date-pinned
+
+Every filesystem-reading component resolves its evidence relative to
+`decision_date`, never to "whatever is currently newest in the repo":
+
+- `BTC_TREND`, `BTC_RISK`, `STABLECOIN_NET_ISSUANCE`, `CRYPTO_BREADTH` require
+  an evidence directory named *exactly* `decision_date` (`_dated_dir_for_
+  decision`); if it does not exist, the component is `DATA_BLOCKED`, never
+  silently substituted from a different date.
+- `US_BREADTH_MEMBERSHIP` calls `us_breadth_forward.universe_as_of(decision_
+  date, ...)` directly -- the module's own as-of-date-safe forward-fill API,
+  which resolves to the latest snapshot on or before `decision_date` and
+  refuses anything after it.
+- `KOFIA_FIRST_SEEN` requires an exact `decision_date` capture directory;
+  `DART_FILING_CONTENT` / `SEC_FILING_CONTENT` require their mutable status
+  file's own `collected_for_kst_date` to equal `decision_date` before
+  trusting its content.
+- `KRX_PREOPEN_COMPACT` / `STEP0_READ_MODEL_HEALTH` (via `check_briefing_
+  readiness.evaluate(decision_date, ...)`) and `KRX_POST_CLOSE` (via its own
+  `expected_date` argument) were already exact-date-bound by the modules
+  they call.
+
+Replaying an older `decision_date` therefore always resolves to that date's
+own evidence, even when newer evidence for a later date already exists in
+the repository -- this is what makes both future-leak prevention and
+independent re-validation of a closed decision_date possible.
+
 ## Determinism and publication
 
 `build_packet(slot, decision_date, generated_at)` is a pure function of its
 three arguments plus whatever is currently committed to the repository:
 identical arguments against an unchanged repository state produce a
-byte-identical packet. `validate_packet()` independently rebuilds the whole
-packet from the same real evidence and requires an exact match, so a
-hand-edited or corrupted published packet is rejected.
+byte-identical packet.
 
-`publish()` builds and validates entirely in memory, writes to a temporary
-directory, and only then atomically renames it into
-`evidence/daily_briefing/{slot}/{YYYY-MM-DD}/` (`packet.json` +
-`briefing.md`). The target directory is append-only: a second publish
-attempt for an already-published `(slot, date)` fails
-`APPEND_ONLY_VIOLATION` without touching the existing bundle. Any failure
-before that final rename leaves no partial directory behind.
+`validate_packet()` independently re-derives every component from the same
+real, decision_date-pinned evidence and requires an exact match to the
+persisted packet -- with one disclosed, bounded exception. Four components
+(`STEP0_READ_MODEL_HEALTH`, `KRX_PREOPEN_COMPACT`, `DART_FILING_CONTENT`,
+`SEC_FILING_CONTENT` -- `NON_REVALIDATABLE_COMPONENTS`) read a *mutable
+rolling pointer* file that the collector workflow overwrites every cycle,
+with no per-date archive behind it. Once that pointer has moved past
+`decision_date`, there is nothing left to independently re-derive those four
+from, so `validate_packet()` trusts the persisted row for exactly those four
+(passed through as `frozen_rows` to `build_packet`) rather than incorrectly
+failing a live re-fetch. A bit-level edit of any of the four is still caught
+by the outer `packet_sha256` self-hash check; a self-rehashed semantic
+tamper of exactly those four is not caught by design, and is pinned by
+`test_non_revalidatable_components_are_a_disclosed_bounded_exemption`
+rather than left as a silent gap. It is listed in the packet's own
+`unresolved_boundaries` as
+`SAME_DAY_ROLLING_POINTER_COMPONENTS_NOT_INDEPENDENTLY_REVALIDATED`.
+
+## Same-day recovery: append-only revisions, not a single bundle
+
+`evidence/daily_briefing/{slot}/{decision_date}/` holds one or more
+`rev-NNN/` directories (`packet.json` + `briefing.md` each) plus a
+deterministic `index.json` naming the latest revision. `publish()`:
+
+1. Builds and validates a fresh candidate packet.
+2. If a prior revision exists, cheaply self-hash-checks it (tamper
+   detection) -- deliberately *not* a full `validate_packet()` rebuild,
+   because while evidence for `decision_date` may still be actively
+   arriving, re-deriving an older revision against *today's* fuller
+   evidence is expected to disagree with what that older revision correctly
+   recorded at the time (e.g. a component that was `DATA_BLOCKED` before a
+   capture landed). That disagreement is the trigger for a new revision,
+   not evidence of tampering.
+3. Compares the new candidate's per-component status vector against the
+   latest existing revision's. If identical, the candidate is a true
+   no-op -- every decision_date-pinned evidence source is immutable once
+   captured (per the pinning above, modulo the four disclosed exceptions),
+   so an identical status vector means nothing has changed -- and the
+   existing revision is reused (`created: False`) rather than publishing an
+   identical-in-substance duplicate.
+4. If the status vector differs (a previously blocked component now has
+   real evidence), a new `rev-NNN` is published and `index.json` is
+   rewritten to point at it. No prior revision is ever edited or deleted.
+5. A corrupted existing revision (self-hash mismatch) fails closed with
+   `EXISTING_REVISION_INVALID` rather than silently publishing a new
+   revision on top of it.
+
+This means a first same-day run that catches several sensors mid-capture
+(several components `DATA_BLOCKED`) is not a dead end: rerunning the
+workflow later the same day re-aggregates from whatever now exists and adds
+`rev-002` once something real has changed, while `rev-001` stays exactly as
+it was.
 
 Unlike the P8 packet builders it calls (`three_market_regime_header.py`,
 `rotation_discovery.py`, `unified_decision_contract.py`, and the rest, which
@@ -122,19 +192,59 @@ it has nothing real to show; a `PENDING`/`POLICY_BLOCKED`/`DATA_BLOCKED`/
 opens with an explicit statement that no action, order, Production, or
 trading authority is granted.
 
+`_format_component_detail()` pulls actual retained values out of each
+component's own packet -- BTC direction/200DMA, realized-volatility and
+drawdown fractions, the exact stablecoin daily/weekly net issuance amount,
+US breadth member count, per-market Regime state/direction/confidence and
+axis coverage ratio, Rotation/Discovery change counts, Rule PASS/FAIL/
+UNKNOWN/UNDEFINED totals, Unified Decision state, and each P6 packet's
+`cash_action`/`inverse_signal`/`invariant_status`/short-pass counts -- never
+a raw JSON dump. A component with nothing retained (blocked/unavailable)
+contributes no detail line; the status + reason above it already explains
+why. A packet shape the formatter does not recognize falls back to no
+detail line rather than raising, so a future upstream schema change cannot
+break the whole render.
+
+## Storage is not delivery
+
+Committing `evidence/daily_briefing/...` to `main` is *storage*, not proof
+that a person received the briefing. `.github/workflows/daily-briefing.yml`
+also writes the rendered `briefing.md` into the run's job summary
+(`$GITHUB_STEP_SUMMARY`) on every run, published or not -- that is the one
+delivery path this workflow itself provides. Anything beyond that (a push
+notification, an email, a message from Claude/Codex) is not implemented
+here and must not be reported as done until live delivery evidence exists,
+matching how P0-02/P0-04's own "독립 06:57/18:00 caller" gap is tracked: the
+documented, ready-to-use consumption path for an external read-only
+reporter is
+
+```bash
+python3 briefing/daily_orchestrator.py validate \
+  evidence/daily_briefing/{slot}/{decision_date}/rev-NNN/packet.json
+cat evidence/daily_briefing/{slot}/{decision_date}/rev-NNN/briefing.md
+```
+
+using the revision `index.json` names as `latest_revision` to find the
+current `rev-NNN` for a given `(slot, decision_date)`.
+
 ## Scheduling
 
 `.github/workflows/daily-briefing.yml` runs two schedule entries (07:05 KST
-morning, 18:30 KST evening weekdays) plus `workflow_dispatch`. It does not
-call any collector or re-fetch anything the existing `collect.yml` /
-`krx-post-close.yml` workflows already fetched; it runs the offline
-regression, then `briefing/daily_orchestrator.py publish`, then
-`briefing/daily_orchestrator.py validate` on the result, and only commits
-if a new bundle was actually published (an already-published `(slot,
-date)` is skipped, matching the KOFIA/US-breadth append-only workflow
-pattern). A step failure here cannot lose or roll back anything the
-collector workflows already committed, because this workflow never runs
-until after they have.
+morning, 18:30 KST evening weekdays) plus `workflow_dispatch`. The slot is
+determined from the *exact cron expression* GitHub reports fired
+(`github.event.schedule`), not from the KST wall-clock hour the runner
+happens to start at -- a large scheduler delay could otherwise push a
+morning run past noon KST and misclassify it as evening. An unrecognized
+schedule expression fails closed rather than guessing.
+
+The workflow does not call any collector or re-fetch anything the existing
+`collect.yml` / `krx-post-close.yml` workflows already fetched; it runs the
+offline regression, then always calls `briefing/daily_orchestrator.py
+publish` (which itself decides whether a new revision is warranted -- see
+same-day recovery above), then `briefing/daily_orchestrator.py validate` on
+the result, and only commits if `publish` reported `created=true`. A step
+failure here cannot lose or roll back anything the collector workflows
+already committed, because this workflow never runs until after they have.
 
 ## Boundaries this integration does not cross
 
