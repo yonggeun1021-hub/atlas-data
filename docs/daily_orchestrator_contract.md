@@ -114,17 +114,33 @@ independent re-validation of a closed decision_date possible.
 
 On top of the per-sensor guards above, `build_packet()` applies one common,
 generic time boundary to *every* row uniformly (`_enforce_temporal_
-boundary()`), so a future sensor cannot silently smuggle future-dated or
-not-yet-available evidence past this simply by not implementing its own
-guard: `as_of_date` must not be after `decision_date`, and `available_at`
-(when a source declares one) must not be after `generated_at` -- a
-component whose evidence only became available after the packet was
-generated did not exist yet at generation time and is downgraded to
-`DATA_BLOCKED` rather than promoted to a decision-ready status. Every real
-source's `available_at` is null today (unratified), so this is
-defense-in-depth rather than something live evidence currently triggers;
-see `test_temporal_boundary_rejects_available_at_after_generated_at` for
-the monkeypatched proof that the mechanism itself works end to end.
+boundary()`), applied IMMEDIATELY after each row is built -- never after a
+downstream aggregator has already consumed it -- so a future sensor cannot
+silently smuggle future-dated, not-yet-available, or future-captured
+evidence past this simply by not implementing its own guard:
+
+- `as_of_date` must not be after `decision_date`.
+- `available_at` (when a source declares one) must not be after
+  `generated_at` -- evidence that only became available after the packet
+  was generated did not exist yet at generation time.
+- The row's own `generated_at` -- which several real sensors set to a
+  genuine, independent capture/observation timestamp rather than the
+  packet's own invocation time (`KOFIA_FIRST_SEEN`: `captured_at_utc`;
+  `DART_FILING_CONTENT`/`SEC_FILING_CONTENT`: `observed_at_utc`;
+  `KRX_POST_CLOSE`: its own `generated_at_kst`) -- must not be after the
+  packet's own `generated_at` either.
+
+A violating row is downgraded to `DATA_BLOCKED` rather than promoted to a
+decision-ready status, *before* `UNIFIED_DECISION`/`ACTION_RISK_PORTFOLIO_
+SUMMARY` are built, so neither aggregator can ever consume the smuggled
+value even transiently within a single `build_packet()` call
+(`test_temporal_boundary_applies_before_unified_decision_and_action_risk_
+summary`). Every real source's `available_at` is null today (unratified)
+and no real sensor's own capture/observation timestamp has ever exceeded
+the packet's `generated_at`, so this is defense-in-depth rather than
+something live evidence currently triggers; see
+`test_temporal_boundary_rejects_available_at_after_generated_at` for the
+monkeypatched proof that the mechanism itself works end to end.
 
 ## Determinism and publication
 
@@ -133,32 +149,45 @@ three arguments plus whatever is currently committed to the repository:
 identical arguments against an unchanged repository state produce a
 byte-identical packet.
 
-`validate_packet()` independently re-derives *every* component from the same
-real, decision_date-pinned evidence and requires an exact match to the
-persisted packet -- with **no exemption**. An earlier revision of this
-module special-cased four components (`STEP0_READ_MODEL_HEALTH`,
-`KRX_PREOPEN_COMPACT`, `DART_FILING_CONTENT`, `SEC_FILING_CONTENT` --
-`NON_REVALIDATABLE_COMPONENTS`) by trusting the persisted row outright
-instead of re-deriving it (passed through as `frozen_rows`). That shortcut
-was removed: it meant a semantic tamper of exactly those four rows,
-followed by recomputing the outer `packet_sha256` over the tampered
-payload, was not caught. `validate_packet()` no longer has any such
-exemption, by test (`test_non_revalidatable_components_are_disclosed_but_
-still_tamper_checked`).
+`validate_packet()` independently re-derives *every* component and requires
+an exact match to the persisted packet -- with **no blind-trust exemption**
+for any of them. Two prior designs both failed here for
+`STEP0_READ_MODEL_HEALTH`, `KRX_PREOPEN_COMPACT`, `DART_FILING_CONTENT`,
+`SEC_FILING_CONTENT` -- which read `data/briefing_status.json`'s inputs and
+`data/latest_{dart,sec}_content.json`, *mutable rolling pointer* files the
+collector workflow overwrites every cycle with no per-date archive behind
+them:
 
-The honest cost of removing that shortcut: those four components read a
-*mutable rolling pointer* file that the collector workflow overwrites every
-cycle, with no per-date archive behind it. An independent rebuild of them
-can only match the persisted row while that pointer still reflects the same
-content it did at build time -- once it has moved on, a genuinely honest,
-untampered packet can legitimately fail re-validation for these four with
-`OUTPUT_MISMATCH`. That is a disclosed, structural limitation of a source
-with no archive, not a false-positive tamper signal, listed in the packet's
-own `unresolved_boundaries` as
-`ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER`. Each of
-the four is also marked `validated: false` rather than `true`, since
-"validated" for every other component means "independently re-derivable at
-any future point," which these four cannot honestly promise.
+1. Trusting the persisted row outright (`frozen_rows`) instead of
+   re-deriving it. This let a semantic tamper of exactly those rows,
+   followed by recomputing the outer `packet_sha256` over the tampered
+   payload, slip past undetected.
+2. Always re-fetching the live pointer. This meant a genuinely honest,
+   untampered packet could legitimately fail re-validation later purely
+   because the pointer had moved on -- not tampered, just no longer
+   re-derivable from live state.
+
+The actual fix: **freeze the input, not the output.** `build_packet()`
+always populates `packet["frozen_sources"]` with the exact raw snapshot
+`STEP0_READ_MODEL_HEALTH`/`DART_FILING_CONTENT`/`SEC_FILING_CONTENT` (and,
+transitively through `STEP0_READ_MODEL_HEALTH`'s own snapshot,
+`KRX_PREOPEN_COMPACT`, which is derived purely from it) were built from --
+whether building fresh from live state or replaying a persisted packet.
+`validate_packet()` feeds that same, packet-embedded `frozen_sources` back
+into a fresh `build_packet()` call (`FROZEN_SOURCE_COMPONENTS`), so these
+rows are re-derived from data that is now part of the very packet being
+validated, never from the live, mutable `data/` pointer. This is a genuine,
+independent re-derivation, not a blind acceptance of the persisted row: a
+semantic tamper of the row itself (leaving `frozen_sources` untouched)
+still fails, because the rebuild never reads the tampered row as its input
+-- it re-derives from `frozen_sources`, which the tamper never touched.
+Because of this, these components are re-derivable forever, independent of
+today's rolling pointer state, with no live `data/` access and no
+monkeypatch required at validation time
+(`test_step0_revisions_validate_across_a_rolling_pointer_change_without_
+fault_injection`). All four are marked `validated: true`, like every other
+component, and there is no "cannot be independently revalidated" boundary
+in `unresolved_boundaries` any more.
 
 ## Same-day recovery: append-only revisions, not a single bundle
 
@@ -181,14 +210,23 @@ deterministic `index.json` naming the latest revision. `publish()`:
    component can stay `READY -> READY` across two builds while its actual
    retained value, reason, source path/sha, or authority silently changed
    underneath, and a status-only comparison would miss that as "nothing
-   changed". The fingerprint hashes every row field and nested packet
-   value, with the orchestrator's own invocation timestamp (`generated_at`,
-   and everything derived from it -- `packet_sha256`, `source_sha256`,
-   `source_as_of`, `generated_at_kst`, ...) stripped out first, since that
-   legitimately differs on every `publish()` call even when nothing
-   substantive changed. If the fingerprint is identical, the candidate is a
-   true no-op and the existing revision is reused (`created: False`) rather
-   than publishing an identical-in-substance duplicate.
+   changed". The fingerprint hashes every row field at full fidelity for
+   real-evidence/real-deterministic components (including nested source
+   hashes -- e.g. `STEP0_READ_MODEL_HEALTH`'s `sources.krx.source_sha256`
+   changing while status/counts stay identical still triggers a new
+   revision, `test_semantic_fingerprint_includes_real_nested_source_sha_
+   not_just_status`). Noise-stripping (dropping the orchestrator's own
+   invocation timestamp and everything derived from it --
+   `packet_sha256`, `source_sha256`, `source_as_of`, `generated_at_kst`,
+   ...) is applied ONLY to the fixed, known set of purely synthetic
+   components built from `generated_at` with no real external evidence
+   (`_GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS`) -- never as a blanket
+   "drop every key ending in sha256" rule, since the same key name means
+   a real signal in one component's nested content and pure invocation-
+   timestamp noise in another's. If the fingerprint is identical, the
+   candidate is a true no-op and the existing revision is reused
+   (`created: False`) rather than publishing an identical-in-substance
+   duplicate.
 4. If the fingerprint differs (a previously blocked component now has real
    evidence, or a real value/reason/source changed even at the same
    status), a new `rev-NNN` is published and `index.json` is rewritten to
