@@ -106,6 +106,12 @@ BINDING = _load("atlas_daily_binding", "bridge/rule_evidence_binding.py")
 EVALUATOR = _load("atlas_daily_evaluator", "rules/deterministic_rule_evaluator.py")
 ACTION_BOUNDARY = _load("atlas_daily_action_boundary", "decision/ready_signal_order_boundary.py")
 UNIFIED = _load("atlas_daily_unified", "decision/unified_decision_contract.py")
+INVESTMENT_REVIEW = _load(
+    "atlas_daily_investment_review", "decision/investment_decision_review.py"
+)
+INVESTMENT_SHADOW = _load(
+    "atlas_daily_investment_shadow", "shadow/investment_review_shadow_ledger.py"
+)
 CASH_EXPOSURE = _load("atlas_daily_cash_exposure", "portfolio/cash_exposure_action.py")
 INVERSE = _load("atlas_daily_inverse", "portfolio/regime_inverse_invariant.py")
 LONG_SHORT = _load("atlas_daily_long_short", "portfolio/long_short_invariant.py")
@@ -1226,6 +1232,114 @@ def build_unified_decision(
     )
 
 
+def build_investment_decision_review_status(
+    rule_row: dict, decision_date: str, slot: str, generated_at: str
+) -> dict:
+    """Expose the current P8-07 gate without inventing a Thesis or Rule result."""
+    rule_packet = rule_row.get("packet") if isinstance(rule_row, dict) else None
+    rule_sha = rule_packet.get("packet_sha256") if isinstance(rule_packet, dict) else None
+    blockers = [
+        "EXTERNALLY_RATIFIED_TSM_RULE_PACKET_NOT_AVAILABLE",
+        "TSM_THESIS_PACKET_NOT_AVAILABLE",
+    ]
+    if rule_packet is None or not rule_row.get("validated"):
+        blockers.append("P5_RULE_PACKET_NOT_AVAILABLE")
+    else:
+        blockers.extend([
+            "P5_PASS_FAIL_NOT_AUTHORIZED",
+            "P5_DOWNSTREAM_ACTION_NOT_AUTHORIZED",
+        ])
+    blockers = sorted(set(blockers))
+    packet = {
+        "schema_version": "investment_decision_briefing_status/1",
+        "contract_version": "daily_investment_decision_review/1",
+        "decision_date": decision_date,
+        "slot": slot,
+        "generated_at": generated_at,
+        "subject": "TSM",
+        "review_outcome": "BLOCKED",
+        "blockers": blockers,
+        "trade_proposal": None,
+        "money_action": "NONE",
+        "lineage": {
+            "p5_rule_packet_sha256": rule_sha,
+            "p8_contract_version": INVESTMENT_REVIEW.load_contract()["contract_version"],
+        },
+        "authority": {
+            "briefing_status_only": True,
+            "thesis_generation_authorized": False,
+            "rule_pass_fail_authorized": False,
+            "proposal_generation_authorized": False,
+            "capital_authorized": False,
+            "stage_change_authorized": False,
+            "order_authorized": False,
+            "trading_authorized": False,
+        },
+    }
+    packet["packet_sha256"] = INVESTMENT_REVIEW.payload_sha256(packet)
+    return component_row(
+        "INVESTMENT_DECISION_REVIEW",
+        "POLICY_BLOCKED",
+        "P5_OR_THESIS_AUTHORITY_NOT_AVAILABLE",
+        as_of_date=decision_date,
+        generated_at=generated_at,
+        source_packet_sha256=packet["packet_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=packet["contract_version"],
+        packet=packet,
+    )
+
+
+def build_investment_review_shadow_status(
+    review_row: dict, decision_date: str, generated_at: str
+) -> dict:
+    review_packet = review_row.get("packet") if isinstance(review_row, dict) else None
+    packet = {
+        "schema_version": "investment_review_shadow_briefing_status/1",
+        "contract_version": "daily_investment_review_shadow/1",
+        "decision_date": decision_date,
+        "generated_at": generated_at,
+        "review_outcome": (
+            review_packet.get("review_outcome") if isinstance(review_packet, dict) else "BLOCKED"
+        ),
+        "ledger_record_created": False,
+        "reason": "P8_07_REVIEW_NOT_PASS_OR_RATIFIED",
+        "capital": {"authorized": False, "amount": 0},
+        "action": None,
+        "order": None,
+        "stage_change": None,
+        "lineage": {
+            "decision_review_packet_sha256": (
+                review_packet.get("packet_sha256") if isinstance(review_packet, dict) else None
+            ),
+            "p10_contract_version": INVESTMENT_SHADOW.load_contract()["contract_version"],
+        },
+        "authority": {
+            "briefing_status_only": True,
+            "shadow_eligibility_authorized": False,
+            "capital_authorized": False,
+            "action_authorized": False,
+            "order_authorized": False,
+            "stage_change_authorized": False,
+            "trading_authorized": False,
+        },
+    }
+    packet["packet_sha256"] = INVESTMENT_REVIEW.payload_sha256(packet)
+    return component_row(
+        "INVESTMENT_REVIEW_SHADOW",
+        "POLICY_BLOCKED",
+        "NO_RATIFIED_PASS_REVIEW_TO_RECORD",
+        as_of_date=decision_date,
+        generated_at=generated_at,
+        source_packet_sha256=packet["packet_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=packet["contract_version"],
+        packet=packet,
+    )
+
+
 def build_regime_invariant_pair(market: str, regime_output: dict) -> tuple[dict, dict]:
     try:
         cash_packet = CASH_EXPOSURE.build_packet(regime_output)
@@ -1522,6 +1636,11 @@ def build_packet(
     rows["UNIFIED_DECISION"] = _boundary(
         build_unified_decision(rows, decision_date, slot, generated_at)
     )
+    rows["INVESTMENT_DECISION_REVIEW"] = _boundary(
+        build_investment_decision_review_status(
+            rows["RULE_EVALUATION"], decision_date, slot, generated_at
+        )
+    )
 
     for market, key in (("US", "US"), ("KR", "KOREA"), ("CRYPTO", "CRYPTO")):
         cash_row, inverse_row = build_regime_invariant_pair(key, regime_outputs[market])
@@ -1538,6 +1657,11 @@ def build_packet(
     # LONG_SHORT_INVARIANT/INVERSE_* -- all already boundary-checked above.
     rows["ACTION_RISK_PORTFOLIO_SUMMARY"] = _boundary(
         build_action_risk_summary(rows, generated_at)
+    )
+    rows["INVESTMENT_REVIEW_SHADOW"] = _boundary(
+        build_investment_review_shadow_status(
+            rows["INVESTMENT_DECISION_REVIEW"], decision_date, generated_at
+        )
     )
 
     if set(rows) != set(contract["component_order"]):
@@ -1683,7 +1807,9 @@ _SECTION_GROUPS = [
         "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT",
         "PLANNED_LOSS_BUDGET",
     ]),
+    ("Decision Review", ["INVESTMENT_DECISION_REVIEW"]),
     ("Decision & action boundary", ["ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY"]),
+    ("Shadow learning record", ["INVESTMENT_REVIEW_SHADOW"]),
 ]
 
 _STATUS_MARK = {
@@ -1800,6 +1926,21 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"order_intent={decision.get('order_intent')} "
                 f"available_components={summary.get('available_component_count')}/"
                 f"{summary.get('component_count')}"
+            )
+        elif cid == "INVESTMENT_DECISION_REVIEW":
+            lines.append(
+                f"    - subject={packet.get('subject')} "
+                f"review={packet.get('review_outcome')} "
+                f"trade_proposal={packet.get('trade_proposal')} "
+                f"money_action={packet.get('money_action')}"
+            )
+            for blocker in packet.get("blockers", []):
+                lines.append(f"    - blocker={blocker}")
+        elif cid == "INVESTMENT_REVIEW_SHADOW":
+            lines.append(
+                f"    - ledger_record_created={packet.get('ledger_record_created')} "
+                f"capital={packet.get('capital')} action={packet.get('action')} "
+                f"order={packet.get('order')} stage_change={packet.get('stage_change')}"
             )
         elif cid == "ACTION_RISK_PORTFOLIO_SUMMARY":
             summary = packet.get("summary", {})
@@ -1968,6 +2109,7 @@ def _component_semantic_fingerprint(packet: dict) -> dict[str, str]:
 _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
     "KRX_POST_CLOSE", "THREE_MARKET_REGIME_HEADER", "ROTATION_DISCOVERY",
     "ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY",
+    "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
     "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
     "INVERSE_US", "INVERSE_KOREA", "INVERSE_CRYPTO",
 })
