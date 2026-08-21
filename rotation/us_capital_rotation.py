@@ -702,7 +702,282 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate the complete v1 output without inventing omitted source rows."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "measurement", "market",
+        "as_of_date", "status", "benchmark_asset", "observation_pair",
+        "taxonomy_binding", "rotation_policy", "rotation_policy_effective",
+        "ranking_method", "top_themes", "bottom_themes",
+        "theme_observations", "retention", "lineage", "authority",
+        "unresolved_boundaries", "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise USCapitalRotationError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("measurement") != contract["measurement"]
+        or packet.get("market") != "US"
+    ):
+        raise USCapitalRotationError("OUTPUT_IDENTITY_INVALID")
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    _asset(packet.get("benchmark_asset"), "OUTPUT_BENCHMARK_INVALID")
+    pair = packet.get("observation_pair")
+    pair_fields = {
+        "prior_date", "current_date", "calendar_gap_days", "lookback_sessions",
+    }
+    if not isinstance(pair, dict) or set(pair) != pair_fields:
+        raise USCapitalRotationError("OUTPUT_OBSERVATION_PAIR_INVALID")
+    prior_date = _date(pair.get("prior_date"), "OUTPUT_PRIOR_DATE_INVALID")
+    current_date = _date(pair.get("current_date"), "OUTPUT_CURRENT_DATE_INVALID")
+    _positive_int(pair.get("lookback_sessions"), "OUTPUT_LOOKBACK_INVALID")
+    if (
+        not prior_date < current_date == as_of
+        or pair.get("calendar_gap_days") != (current_date - prior_date).days
+    ):
+        raise USCapitalRotationError("OUTPUT_OBSERVATION_PAIR_MISMATCH")
+    binding = _validate_binding(packet.get("taxonomy_binding"), contract)
+    policy = packet.get("rotation_policy")
+    policy_fields = {
+        "schema_version", "policy_id", "approval_status", "ratified_by",
+        "ratified_at_utc", "effective_from", "effective_to",
+        "taxonomy_decision_sha256", "taxonomy_packet_sha256",
+        "upstream_taxonomy_policy_sha256", "theme_ids", "ranking_metric",
+        "ranking_order", "tie_break", "top_count", "bottom_count",
+        "maximum_calendar_gap_days",
+    }
+    if not isinstance(policy, dict) or set(policy) != policy_fields:
+        raise USCapitalRotationError("OUTPUT_POLICY_FIELDS_MISMATCH")
+    if policy.get("schema_version") != POLICY_SCHEMA_VERSION:
+        raise USCapitalRotationError("OUTPUT_POLICY_SCHEMA_MISMATCH")
+    _token(policy.get("policy_id"), "OUTPUT_POLICY_ID_INVALID")
+    status = policy.get("approval_status")
+    if status not in {"RATIFIED", "UNRATIFIED"}:
+        raise USCapitalRotationError("OUTPUT_POLICY_STATUS_INVALID")
+    start = _date(policy.get("effective_from"), "OUTPUT_POLICY_START_INVALID")
+    end = (
+        None
+        if policy.get("effective_to") is None
+        else _date(policy["effective_to"], "OUTPUT_POLICY_END_INVALID")
+    )
+    if end is not None and end <= start:
+        raise USCapitalRotationError("OUTPUT_POLICY_END_INVALID")
+    if (
+        policy.get("taxonomy_decision_sha256") != binding["taxonomy_decision_sha256"]
+        or policy.get("taxonomy_packet_sha256") != binding["taxonomy_packet_sha256"]
+        or policy.get("upstream_taxonomy_policy_sha256")
+        != binding["upstream_taxonomy_policy_sha256"]
+        or policy.get("ranking_metric") != contract["ranking_metric"]
+        or policy.get("ranking_order") != contract["ranking_order"]
+        or policy.get("tie_break") != contract["tie_break"]
+    ):
+        raise USCapitalRotationError("OUTPUT_POLICY_BINDING_INVALID")
+    theme_ids = policy.get("theme_ids")
+    if (
+        not isinstance(theme_ids, list)
+        or theme_ids != sorted(set(theme_ids))
+        or not theme_ids
+        or any(
+            not isinstance(item, str) or TOKEN_RE.fullmatch(item) is None
+            for item in theme_ids
+        )
+    ):
+        raise USCapitalRotationError("OUTPUT_POLICY_THEME_IDS_INVALID")
+    top_count = _positive_int(policy.get("top_count"), "OUTPUT_TOP_COUNT_INVALID")
+    bottom_count = _positive_int(
+        policy.get("bottom_count"), "OUTPUT_BOTTOM_COUNT_INVALID"
+    )
+    maximum_gap = _positive_int(
+        policy.get("maximum_calendar_gap_days"), "OUTPUT_MAXIMUM_GAP_INVALID"
+    )
+    if top_count + bottom_count > len(theme_ids):
+        raise USCapitalRotationError("OUTPUT_POLICY_BUCKETS_OVERLAP")
+    if status == "UNRATIFIED":
+        if (
+            policy.get("ratified_by") is not None
+            or policy.get("ratified_at_utc") is not None
+        ):
+            raise USCapitalRotationError("OUTPUT_UNRATIFIED_PROOF_FORBIDDEN")
+    else:
+        if (
+            not isinstance(policy.get("ratified_by"), str)
+            or not policy["ratified_by"].strip()
+            or not isinstance(policy.get("ratified_at_utc"), str)
+            or not policy["ratified_at_utc"].endswith("Z")
+        ):
+            raise USCapitalRotationError("OUTPUT_RATIFICATION_PROOF_INVALID")
+        _timestamp(policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID")
+    effective = (
+        status == "RATIFIED"
+        and start <= prior_date
+        and (end is None or current_date < end)
+    )
+    if effective and (current_date - prior_date).days > maximum_gap:
+        raise USCapitalRotationError("OUTPUT_OBSERVATION_GAP_EXCEEDS_POLICY")
+    if packet.get("rotation_policy_effective") is not effective:
+        raise USCapitalRotationError("OUTPUT_POLICY_EFFECTIVE_MISMATCH")
+    raw_rows = packet.get("theme_observations")
+    row_fields = {
+        "theme_id", "prior_relative_strength_vs_benchmark",
+        "current_relative_strength_vs_benchmark", "relative_strength_change",
+        "prior_rank", "current_rank", "rank_change", "prior_bucket",
+        "current_bucket", "bucket_transition", "p2_state",
+    }
+    if not isinstance(raw_rows, list) or len(raw_rows) != len(theme_ids):
+        raise USCapitalRotationError("OUTPUT_THEME_OBSERVATIONS_INVALID")
+    rows = []
+    places = contract["output_decimal_places"]
+    for row in raw_rows:
+        if not isinstance(row, dict) or set(row) != row_fields:
+            raise USCapitalRotationError("OUTPUT_THEME_FIELDS_MISMATCH")
+        theme_id = _token(row.get("theme_id"), "OUTPUT_THEME_ID_INVALID")
+        prior = _decimal(
+            row.get("prior_relative_strength_vs_benchmark"),
+            f"OUTPUT_PRIOR_RELATIVE_STRENGTH_INVALID:{theme_id}",
+        )
+        current = _decimal(
+            row.get("current_relative_strength_vs_benchmark"),
+            f"OUTPUT_CURRENT_RELATIVE_STRENGTH_INVALID:{theme_id}",
+        )
+        if (
+            row["prior_relative_strength_vs_benchmark"] != _render(prior, places)
+            or row["current_relative_strength_vs_benchmark"] != _render(current, places)
+            or row.get("relative_strength_change") != _render(current - prior, places)
+            or row.get("p2_state") != "UNDEFINED_PENDING_P2_05"
+        ):
+            raise USCapitalRotationError(
+                f"OUTPUT_THEME_DERIVATION_MISMATCH:{theme_id}"
+            )
+        rows.append({
+            "theme_id": theme_id,
+            "prior": prior,
+            "current": current,
+            "row": row,
+        })
+    if [item["theme_id"] for item in rows] != theme_ids:
+        raise USCapitalRotationError("OUTPUT_THEME_ORDER_MISMATCH")
+    prior_ranked = [
+        item["theme_id"]
+        for item in sorted(
+            rows, key=lambda item: (-item["prior"], item["theme_id"])
+        )
+    ]
+    current_ranked = [
+        item["theme_id"]
+        for item in sorted(
+            rows, key=lambda item: (-item["current"], item["theme_id"])
+        )
+    ]
+    if effective:
+        prior_ranks = {
+            theme_id: index + 1 for index, theme_id in enumerate(prior_ranked)
+        }
+        current_ranks = {
+            theme_id: index + 1 for index, theme_id in enumerate(current_ranked)
+        }
+        prior_buckets = _buckets(prior_ranked, top_count, bottom_count)
+        current_buckets = _buckets(current_ranked, top_count, bottom_count)
+        for item in rows:
+            row = item["row"]
+            theme_id = item["theme_id"]
+            expected = {
+                "prior_rank": prior_ranks[theme_id],
+                "current_rank": current_ranks[theme_id],
+                "rank_change": prior_ranks[theme_id] - current_ranks[theme_id],
+                "prior_bucket": prior_buckets[theme_id],
+                "current_bucket": current_buckets[theme_id],
+                "bucket_transition": (
+                    f"{prior_buckets[theme_id]}_TO_{current_buckets[theme_id]}"
+                ),
+            }
+            if any(row.get(key) != value for key, value in expected.items()):
+                raise USCapitalRotationError(
+                    f"OUTPUT_RANK_BUCKET_MISMATCH:{theme_id}"
+                )
+        if (
+            packet.get("status") != "ROTATION_BUCKETS_OBSERVED"
+            or packet.get("ranking_method") != {
+                "metric": contract["ranking_metric"],
+                "order": contract["ranking_order"],
+                "tie_break": contract["tie_break"],
+            }
+            or packet.get("top_themes") != current_ranked[:top_count]
+            or packet.get("bottom_themes")
+            != list(reversed(current_ranked[-bottom_count:]))
+        ):
+            raise USCapitalRotationError("OUTPUT_RANKING_SUMMARY_MISMATCH")
+    else:
+        for item in rows:
+            row = item["row"]
+            if any(
+                row.get(key) is not None
+                for key in (
+                    "prior_rank", "current_rank", "rank_change", "prior_bucket",
+                    "current_bucket", "bucket_transition",
+                )
+            ):
+                raise USCapitalRotationError("OUTPUT_UNAUTHORIZED_RANKING")
+        if (
+            packet.get("status") != "POLICY_NOT_EFFECTIVE"
+            or packet.get("ranking_method") is not None
+            or packet.get("top_themes") != []
+            or packet.get("bottom_themes") != []
+        ):
+            raise USCapitalRotationError(
+                "OUTPUT_INEFFECTIVE_POLICY_BOUNDARY_MISMATCH"
+            )
+    if packet.get("retention") != {
+        "input_policy": contract["input_retention_policy"],
+        "output_policy": contract["output_retention_policy"],
+        "vendor_rows_received": False,
+        "vendor_prices_emitted": False,
+        "reconstructive_series_emitted": False,
+    }:
+        raise USCapitalRotationError("OUTPUT_RETENTION_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "prior_upstream_packet_sha256", "current_upstream_packet_sha256",
+        "rotation_policy_sha256", "taxonomy_packet_sha256",
+        "upstream_taxonomy_policy_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise USCapitalRotationError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    for key in lineage_fields:
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if (
+        lineage["rotation_policy_sha256"] != payload_sha256(policy)
+        or lineage["taxonomy_packet_sha256"] != binding["taxonomy_packet_sha256"]
+        or lineage["upstream_taxonomy_policy_sha256"]
+        != binding["upstream_taxonomy_policy_sha256"]
+    ):
+        raise USCapitalRotationError("OUTPUT_LINEAGE_BINDING_MISMATCH")
+    expected_authority = copy.deepcopy(contract["authority"]) | {
+        "theme_ranking_authorized": effective,
+        "top_bottom_bucket_authorized": effective,
+        "bucket_transition_authorized": effective,
+    }
+    if packet.get("authority") != expected_authority:
+        raise USCapitalRotationError("OUTPUT_AUTHORITY_MISMATCH")
+    if packet.get("unresolved_boundaries") != [
+        "US_PRICE_AND_BREADTH_OPERATIONAL_SOURCE_INCOMPLETE",
+        "THEME_TAXONOMY_OPERATIONAL_POPULATION_NOT_IMPLEMENTED",
+        "P2_STATE_VOCABULARY_PENDING_P2_05",
+        "ROTATION_LEDGER_NOT_IMPLEMENTED",
+        "BRIEFING_INTEGRATION_NOT_IMPLEMENTED",
+        "PRODUCTION_NOT_AUTHORIZED",
+    ]:
+        raise USCapitalRotationError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("payload_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("payload_sha256")
+    if payload_sha256(normalized) != digest:
+        raise USCapitalRotationError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

@@ -32,6 +32,14 @@ rank and bucket plus a structural `PRIOR_BUCKET_TO_CURRENT_BUCKET` transition.
 The output is alphabetical by Theme ID; ranking is exposed only through
 explicit rank fields and TOP/BOTTOM lists.
 
+`validate_packet()` independently rechecks the output policy/taxonomy binding,
+effective interval, Theme set, numeric change, rank and tie-break order,
+TOP/MIDDLE/BOTTOM assignment, transitions, summary lists, closed authority,
+lineage, retention, and packet hash. A self-rehashed rank, bucket, delta, or
+authority mutation therefore fails closed. The v1 packet does not embed the
+two complete Leadership inputs, so standalone validation does not claim to
+reconstruct source observations omitted from the output schema.
+
 These bucket transitions are not `EMERGING`, `STRONG`, or `WEAKENING`. The P2
 state vocabulary and transition ledger belong to P2-05 and remain undefined.
 
