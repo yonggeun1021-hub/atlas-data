@@ -14,7 +14,12 @@ Accordingly every subject remains `NOT_EVALUATED` with `eligible=null`,
 `trigger=null`, `action=null`, `position_size=null`, and `order_intent=null`.
 Missing or stale quotes and an unavailable Action Boundary are explicit. Full
 source packets and SHA-256 lineage are embedded and revalidated, and any output
-derivation or authority drift fails closed.
+derivation or authority drift fails closed. The freshness source is consumed
+as `intraday_freshness_result/2`: this contract re-runs the P9-01 validator on
+every intraday freshness packet it receives, so a freshness packet whose
+embedded ratified policy fails re-validation (unratified, expired, wrong
+market coverage, or a tampered policy digest) is rejected here as
+`SOURCE_VALIDATION_FAILED:INTRADAY_FRESHNESS` before any subject is assembled.
 
 There is no repository default trigger policy. This module makes no provider
 request, writes only outside the repository, and grants no action, order,

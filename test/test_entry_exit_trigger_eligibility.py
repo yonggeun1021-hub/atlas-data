@@ -166,6 +166,36 @@ class EntryExitTriggerEligibilityTests(unittest.TestCase):
                 unified(), freshness(), "2026-08-21T02:10:30Z", CONTRACT
             )
 
+    def test_forged_freshness_policy_is_rejected_before_source_ingestion(self):
+        # Mirrors the P9-01 exploit: forge policy_id/threshold in the
+        # embedded freshness policy, leave its own packet_sha256 stale, and
+        # only recompute the outer freshness envelope's packet_sha256. The
+        # forged freshness packet must never reach P9-03 subject assembly.
+        stale = FRESHNESS.quote(
+            "US:XNAS:TSM",
+            "US",
+            "2026-08-21T02:09:00Z",
+            "2026-08-21T02:09:05Z",
+        )
+        forged = freshness([stale])
+        self.assertEqual(forged["results"][0]["freshness_status"], "STALE")
+        forged["policy_packet"]["max_provider_age_seconds_by_market"]["US"] = 86400
+        forged["policy_packet"]["policy_id"] = "NEVER.RATIFIED.POLICY"
+        row = forged["results"][0]
+        row["max_provider_age_seconds"] = 86400
+        row["freshness_status"] = "FRESH"
+        row["stale_reasons"] = []
+        row["fresh_for_intraday_consumption"] = True
+        forged["summary"]["fresh_count"] = 1
+        forged["summary"]["stale_count"] = 0
+        forged.pop("packet_sha256")
+        forged["packet_sha256"] = FRESHNESS.MODULE.payload_sha256(forged)
+        with self.assertRaisesRegex(
+            MODULE.EntryExitTriggerEligibilityError,
+            "SOURCE_VALIDATION_FAILED:INTRADAY_FRESHNESS:POLICY_SHA_INVALID",
+        ):
+            MODULE.build_packet(unified(), forged, "2026-08-21T02:12:00Z", CONTRACT)
+
     def test_contract_and_output_authority_tamper_fail_closed(self):
         contract = copy.deepcopy(CONTRACT)
         contract["authority"]["entry_eligibility_authorized"] = True

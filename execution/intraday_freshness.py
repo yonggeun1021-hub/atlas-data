@@ -47,7 +47,7 @@ def _expected_contract() -> dict:
         "contract_version": "intraday_freshness_guard/1",
         "snapshot_schema_version": "intraday_quote_batch/1",
         "policy_schema_version": "intraday_freshness_policy/1",
-        "output_schema_version": "intraday_freshness_result/1",
+        "output_schema_version": "intraday_freshness_result/2",
         "markets": ["US", "KOREA", "CRYPTO"],
         "freshness_statuses": ["FRESH", "STALE"],
         "stale_reasons": [
@@ -176,7 +176,7 @@ def _validate_policy(value: dict, observed: dt.datetime, contract: dict) -> dict
         "max_transport_delay_seconds_by_market",
     ):
         mapping = value.get(field)
-        if not isinstance(mapping, dict) or list(mapping) != contract["markets"]:
+        if not isinstance(mapping, dict) or set(mapping) != set(contract["markets"]):
             raise IntradayFreshnessError(f"POLICY_THRESHOLD_MARKETS_INVALID:{field}")
         if any(type(item) is not int or item < 1 for item in mapping.values()):
             raise IntradayFreshnessError(f"POLICY_THRESHOLD_VALUE_INVALID:{field}")
@@ -314,7 +314,8 @@ def evaluate_freshness(
         "status": "FRESHNESS_EVALUATED_NO_ENTRY_AUTHORITY",
         "batch_id": batch["batch_id"],
         "observed_at": batch["observed_at"],
-        "policy": checked_policy,
+        "policy_id": checked_policy["policy_id"],
+        "policy_packet": copy.deepcopy(policy),
         "summary": {
             "quote_count": len(results),
             "fresh_count": counts["FRESH"],
@@ -323,7 +324,10 @@ def evaluate_freshness(
             "orders_created": 0,
         },
         "results": results,
-        "lineage": {"quote_batch_sha256": batch["packet_sha256"]},
+        "lineage": {
+            "quote_batch_sha256": batch["packet_sha256"],
+            "policy_sha256": checked_policy["packet_sha256"],
+        },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
             "MARKET_DATA_FEED_SELECTION_NOT_AUTHORIZED",
@@ -341,7 +345,7 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "status", "batch_id", "observed_at",
-        "policy", "summary", "results", "lineage", "authority",
+        "policy_id", "policy_packet", "summary", "results", "lineage", "authority",
         "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
@@ -354,37 +358,15 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
     ):
         raise IntradayFreshnessError("OUTPUT_IDENTITY_INVALID")
     observed = _utc(packet.get("observed_at"), "OUTPUT_OBSERVED_AT_INVALID")
-    policy = packet.get("policy")
-    if not isinstance(policy, dict) or set(policy) != {
-        "policy_id", "ratified_by", "ratified_at_utc", "effective_from_utc",
-        "effective_to_utc", "max_provider_age_seconds_by_market",
-        "max_transport_delay_seconds_by_market", "packet_sha256",
-    }:
-        raise IntradayFreshnessError("OUTPUT_POLICY_INVALID")
-    _token(policy.get("policy_id"), "OUTPUT_POLICY_ID_INVALID")
-    _text(policy.get("ratified_by"), "OUTPUT_POLICY_RATIFIED_BY_INVALID")
-    ratified = _utc(policy.get("ratified_at_utc"), "OUTPUT_POLICY_RATIFIED_AT_INVALID")
-    effective_from = _utc(
-        policy.get("effective_from_utc"), "OUTPUT_POLICY_EFFECTIVE_FROM_INVALID"
-    )
-    effective_to = _utc(
-        policy.get("effective_to_utc"), "OUTPUT_POLICY_EFFECTIVE_TO_INVALID"
-    )
-    if ratified > effective_from or effective_to <= effective_from or not (
-        effective_from <= observed < effective_to
-    ):
-        raise IntradayFreshnessError("OUTPUT_POLICY_TIMING_INVALID")
-    if any(
-        not isinstance(policy.get(field), dict)
-        or set(policy[field]) != set(contract["markets"])
-        or any(type(value) is not int or value < 1 for value in policy[field].values())
-        for field in (
-            "max_provider_age_seconds_by_market",
-            "max_transport_delay_seconds_by_market",
-        )
-    ):
-        raise IntradayFreshnessError("OUTPUT_POLICY_THRESHOLDS_INVALID")
-    _sha(policy.get("packet_sha256"), "OUTPUT_POLICY_SHA_INVALID")
+    # Re-run the exact same ratified-policy validator the ingestion path uses.
+    # This is what actually enforces RATIFIED / contract-version / effective
+    # window / market coverage / self-consistent packet_sha256 on the policy
+    # that consumers act on — a shallow subset of the policy embedded here
+    # without re-validation cannot be checked for these properties at all.
+    policy = packet.get("policy_packet")
+    checked_policy = _validate_policy(policy, observed, contract)
+    if packet.get("policy_id") != checked_policy["policy_id"]:
+        raise IntradayFreshnessError("OUTPUT_POLICY_ID_MISMATCH")
     results = packet.get("results")
     if not isinstance(results, list):
         raise IntradayFreshnessError("OUTPUT_RESULTS_NOT_LIST")
@@ -407,8 +389,8 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
         transport = int((received_at - provider_at).total_seconds())
         if market not in contract["markets"] or not (provider_at <= received_at <= observed):
             raise IntradayFreshnessError("OUTPUT_RESULT_TIME_OR_MARKET_INVALID")
-        max_age = policy["max_provider_age_seconds_by_market"][market]
-        max_transport = policy["max_transport_delay_seconds_by_market"][market]
+        max_age = checked_policy["max_provider_age_seconds_by_market"][market]
+        max_transport = checked_policy["max_transport_delay_seconds_by_market"][market]
         reasons = []
         if age > max_age:
             reasons.append("PROVIDER_AGE_EXCEEDED")
@@ -449,9 +431,13 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
     if packet.get("summary") != expected_summary:
         raise IntradayFreshnessError("OUTPUT_SUMMARY_INVALID")
     lineage = packet.get("lineage")
-    if not isinstance(lineage, dict) or set(lineage) != {"quote_batch_sha256"}:
+    if not isinstance(lineage, dict) or set(lineage) != {
+        "quote_batch_sha256", "policy_sha256",
+    }:
         raise IntradayFreshnessError("OUTPUT_LINEAGE_INVALID")
     _sha(lineage.get("quote_batch_sha256"), "OUTPUT_LINEAGE_SHA_INVALID")
+    if lineage.get("policy_sha256") != checked_policy["packet_sha256"]:
+        raise IntradayFreshnessError("OUTPUT_LINEAGE_POLICY_SHA_MISMATCH")
     expected_boundaries = [
         "MARKET_DATA_FEED_SELECTION_NOT_AUTHORIZED",
         "REPOSITORY_DEFAULT_FRESHNESS_POLICY_ABSENT",
