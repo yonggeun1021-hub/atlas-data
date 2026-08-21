@@ -11,6 +11,13 @@ Both packets must be forward-PIT-qualified, use the same benchmark, lookback,
 effective Theme set, and exact upstream taxonomy policy hash, and keep every
 upstream classification and action authority false.
 
+Before extracting Theme rows, P2-02 invokes the P1-US-06 production
+`validate_output()` helper. That validator recomputes asset/group relative
+strength, daily participation fractions, group minimum coverage, temporal
+status, retention, lineage shape, and closed authority from the fields retained
+in each non-reconstructive Leadership packet. A structurally plausible but
+semantically inconsistent upstream packet therefore fails before rotation.
+
 ## Taxonomy and policy binding
 
 No US Theme, benchmark, lookback, ranking count, or transition cadence is a

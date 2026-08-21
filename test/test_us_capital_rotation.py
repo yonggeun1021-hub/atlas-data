@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from decimal import Decimal
 import importlib.util
 import json
 from pathlib import Path
@@ -24,13 +25,16 @@ UPSTREAM_TAXONOMY_SHA = "c" * 64
 
 
 def group(theme_id: str, relative_strength: str) -> dict:
+    relative = UCR._render(Decimal(relative_strength), 12)
     return {
         "group_id": theme_id,
         "observed_session_count": 3,
         "minimum_daily_member_count": 2,
         "required_minimum_member_count": 1,
-        "cumulative_gross_return": "1.05",
-        "relative_strength_vs_benchmark": relative_strength,
+        "cumulative_gross_return": UCR._render(
+            Decimal(1) + Decimal(relative_strength), 12
+        ),
+        "relative_strength_vs_benchmark": relative,
         "classification": "UNDEFINED",
     }
 
@@ -75,8 +79,12 @@ def leadership_packet(
             {
                 "asset": asset,
                 "observed_session_count": 3,
-                "cumulative_gross_return": "1.05",
-                "relative_strength_vs_benchmark": relative,
+                "cumulative_gross_return": UCR._render(
+                    Decimal(1) + Decimal(relative), 12
+                ),
+                "relative_strength_vs_benchmark": UCR._render(
+                    Decimal(relative), 12
+                ),
                 "classification": "UNDEFINED",
             }
             for asset, relative in (
@@ -329,6 +337,17 @@ class USCapitalRotationTests(unittest.TestCase):
         with self.assertRaisesRegex(UCR.USCapitalRotationError, "UPSTREAM_GROUP_RELATIVE_STRENGTH_INVALID"):
             UCR.build_packet(value, policy())
 
+    def test_production_leadership_validator_runs_before_rotation(self):
+        value = input_packet()
+        value["current_observation"]["group_relative_strength"][0][
+            "relative_strength_vs_benchmark"
+        ] = "0.9"
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            "UPSTREAM_PRODUCTION_VALIDATION_FAILED:current:.*OUTPUT_GROUP_RS_MISMATCH",
+        ):
+            UCR.build_packet(value, policy())
+
     def test_policy_is_exact_and_top_bottom_cannot_overlap(self):
         value = policy()
         value["score"] = 1
@@ -342,7 +361,8 @@ class USCapitalRotationTests(unittest.TestCase):
 
     def test_equal_metric_uses_explicit_theme_id_tie_break(self):
         value = input_packet()
-        value["current_observation"]["group_relative_strength"][0]["relative_strength_vs_benchmark"] = "0.40"
+        value["current_observation"]["group_relative_strength"][0]["relative_strength_vs_benchmark"] = "0.4"
+        value["current_observation"]["group_relative_strength"][0]["cumulative_gross_return"] = "1.4"
         packet = UCR.build_packet(value, policy())
         self.assertEqual(packet["top_themes"], ["THEME.COMPUTE"])
         rows = {row["theme_id"]: row for row in packet["theme_observations"]}

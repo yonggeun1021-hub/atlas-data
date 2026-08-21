@@ -6,6 +6,7 @@ tests make no live request and write no tracked vendor data or factor.
 """
 
 from decimal import Decimal
+import copy
 import datetime as dt
 import importlib.util
 import json
@@ -258,6 +259,48 @@ class USLeadershipTest(unittest.TestCase):
         self.assertFalse(result["regime_score_authorized"])
         self.assertFalse(result["production_wiring_authorized"])
         self.assertFalse(result["trading_action_authorized"])
+
+    def test_production_validator_recomputes_retained_semantics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = MODULE.build_transform(payload(), **ratified_inputs(tmp))
+
+        self.assertEqual(MODULE.validate_output(copy.deepcopy(result)), result)
+
+        asset_drift = copy.deepcopy(result)
+        asset_drift["asset_relative_strength"][0][
+            "relative_strength_vs_benchmark"
+        ] = "0.9"
+        with self.assertRaisesRegex(
+            MODULE.USLeadershipError, "OUTPUT_ASSET_RS_MISMATCH"
+        ):
+            MODULE.validate_output(asset_drift)
+
+        group_drift = copy.deepcopy(result)
+        group_drift["group_relative_strength"][0][
+            "relative_strength_vs_benchmark"
+        ] = "0.9"
+        with self.assertRaisesRegex(
+            MODULE.USLeadershipError, "OUTPUT_GROUP_RS_MISMATCH"
+        ):
+            MODULE.validate_output(group_drift)
+
+        fraction_drift = copy.deepcopy(result)
+        fraction_drift["daily_relative_participation"][0][
+            "outperformance_participation_fraction"
+        ] = "0.25"
+        with self.assertRaisesRegex(
+            MODULE.USLeadershipError, "OUTPUT_DAILY_FRACTION_MISMATCH"
+        ):
+            MODULE.validate_output(fraction_drift)
+
+        minimum_drift = copy.deepcopy(result)
+        minimum_drift["group_relative_strength"][0][
+            "minimum_daily_member_count"
+        ] += 1
+        with self.assertRaisesRegex(
+            MODULE.USLeadershipError, "OUTPUT_GROUP_MINIMUM_MISMATCH"
+        ):
+            MODULE.validate_output(minimum_drift)
 
     def test_relative_participation_is_not_market_trend_or_breadth(self):
         with tempfile.TemporaryDirectory() as tmp:
