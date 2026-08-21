@@ -78,6 +78,13 @@ def msft_capture(entry, **changes):
     return value
 
 
+def rehash_bundle(value):
+    changed = copy.deepcopy(value)
+    changed.pop("bundle_sha256", None)
+    changed["bundle_sha256"] = MODULE.payload_sha256(changed)
+    return changed
+
+
 class OfficialReleaseEvidenceTest(unittest.TestCase):
     def setUp(self):
         self.contract = MODULE.load_contract()
@@ -212,6 +219,16 @@ class OfficialReleaseEvidenceTest(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["status"], MODULE.EVIDENCE_BLOCKED)
         self.assertEqual(result[0]["blocked_by"], [MODULE.REVISION_AUTHORITY_UNRESOLVED])
+
+        empty_revision = copy.deepcopy(result[0])
+        empty_revision["audit_provenance"][
+            "revision_candidate_source_sha256"
+        ] = []
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "ENVELOPE_REVISION_STATE_MISMATCH",
+        ):
+            MODULE.validate_envelope(empty_revision, self.contract)
         self.assertIsNone(result[0]["source_identity"])
         self.assertIsNone(result[0]["observation"])
 
@@ -232,6 +249,97 @@ class OfficialReleaseEvidenceTest(unittest.TestCase):
                 key: item for key, item in value.items() if key != "bundle_sha256"
             }),
         )
+
+    def test_standalone_bundle_validator_accepts_all_envelope_states(self):
+        entry = MANIFEST["captured"][0]
+        envelopes = [
+            MODULE.tsmc_monthly_envelopes(
+                TSMC.from_fixture(published_at="2026-08-15"),
+                tsmc_capture(),
+                self.contract,
+            )[0],
+            MODULE.msft_azure_envelope(
+                parsed_msft_observation(entry), msft_capture(entry), self.contract
+            ),
+            MODULE.unresolved_envelope(
+                "TSM", "future official observation", "2026-08-31"
+            ),
+        ]
+        value = MODULE.bundle(envelopes, self.contract)
+        checked = MODULE.validate_bundle(copy.deepcopy(value), self.contract)
+        self.assertEqual(MODULE.canonical_json(checked), MODULE.canonical_json(value))
+
+    def test_standalone_bundle_validator_rejects_rehashed_semantic_drift(self):
+        value = MODULE.bundle(
+            MODULE.tsmc_monthly_envelopes(
+                TSMC.from_fixture(published_at="2026-08-15"),
+                tsmc_capture(),
+                self.contract,
+            ),
+            self.contract,
+        )
+        changed = copy.deepcopy(value)
+        changed["envelopes"][0]["observation"]["numeric_value"] = "99.9"
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "ENVELOPE_OBSERVATION_VALUE_MISMATCH",
+        ):
+            MODULE.validate_bundle(rehash_bundle(changed), self.contract)
+
+        changed = copy.deepcopy(value)
+        changed["summary"][MODULE.EVIDENCE_AVAILABLE] -= 1
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "BUNDLE_SUMMARY_OR_AUTHORITY_MISMATCH",
+        ):
+            MODULE.validate_bundle(rehash_bundle(changed), self.contract)
+
+        changed = copy.deepcopy(value)
+        changed["envelopes"][-1]["observation"]["row_label_raw"] = "Total"
+        changed["envelopes"][-1]["observation"][
+            "decision_column_identity"
+        ] = "Total YoY Change"
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "ENVELOPE_OBSERVATION_IDENTITY_MISMATCH",
+        ):
+            MODULE.validate_bundle(rehash_bundle(changed), self.contract)
+
+        changed = copy.deepcopy(value)
+        changed["authority"]["trading_authorized"] = True
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "BUNDLE_SUMMARY_OR_AUTHORITY_MISMATCH",
+        ):
+            MODULE.validate_bundle(rehash_bundle(changed), self.contract)
+
+    def test_validator_binds_msft_release_url_to_accession_and_exhibit(self):
+        entry = MANIFEST["captured"][0]
+        envelope = MODULE.msft_azure_envelope(
+            parsed_msft_observation(entry), msft_capture(entry), self.contract
+        )
+        envelope["source_identity"]["source_url"] = (
+            "https://www.sec.gov/Archives/edgar/data/789019/"
+            "000119312526191457/msft-ex99_1.htm"
+        )
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "ENVELOPE_RELEASE_IDENTITY_INVALID",
+        ):
+            MODULE.validate_envelope(envelope, self.contract)
+
+    def test_reconcile_rejects_rehashed_envelope_authority_expansion(self):
+        envelope = MODULE.tsmc_monthly_envelopes(
+            TSMC.from_fixture(published_at="2026-08-15"),
+            tsmc_capture(),
+            self.contract,
+        )[0]
+        envelope["consumable"] = False
+        with self.assertRaisesRegex(
+            MODULE.OfficialReleaseEvidenceError,
+            "ENVELOPE_AVAILABLE_STATE_MISMATCH",
+        ):
+            MODULE.reconcile([envelope], self.contract)
 
 
 if __name__ == "__main__":

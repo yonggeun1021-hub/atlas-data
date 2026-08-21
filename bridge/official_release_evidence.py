@@ -221,7 +221,7 @@ def _envelope(
 def unresolved_envelope(subject: str, measurement: str, period_end: str) -> dict:
     if not all(isinstance(x, str) and x for x in (subject, measurement, period_end)):
         raise OfficialReleaseEvidenceError("UNRESOLVED_KEY_INVALID")
-    return {
+    return validate_envelope({
         "schema_version": ENVELOPE_SCHEMA_VERSION,
         "subject": subject,
         "measurement_identity": measurement,
@@ -234,7 +234,393 @@ def unresolved_envelope(subject: str, measurement: str, period_end: str) -> dict
         "source_identity": None,
         "audit_provenance": None,
         "observation": None,
+    })
+
+
+def _valid_date(value) -> bool:
+    if not isinstance(value, str) or DATE_RE.fullmatch(value) is None:
+        return False
+    try:
+        return dt.date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
+def _valid_utc(value) -> bool:
+    if not isinstance(value, str) or UTC_RE.fullmatch(value) is None:
+        return False
+    try:
+        return (
+            dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            == value
+        )
+    except ValueError:
+        return False
+
+
+def _source_id_for_key(subject: str, measurement: str) -> str:
+    if subject == "TSM" and measurement in {
+        "TSMC consolidated net revenue monthly YoY",
+        "TSMC consolidated net revenue cumulative YoY",
+    }:
+        return "tsmc_ir_monthly_revenue"
+    if (
+        subject == "MSFT"
+        and measurement
+        == "Azure and other cloud services revenue YoY constant currency"
+    ):
+        return "msft_official_earnings_release"
+    raise OfficialReleaseEvidenceError("ENVELOPE_PROFILE_NOT_REGISTERED")
+
+
+def _validate_source_identity(
+    source: dict, source_id: str, audit: dict, contract: dict
+) -> list[str]:
+    profile = _profile(contract, source_id)
+    common_fields = {
+        "identity_kind",
+        "source_id",
+        "source_name",
+        "source_url",
+        "source_sha256",
+        "available_at",
+        "retrieved_at_utc",
     }
+    expected_fields = (
+        common_fields
+        if source_id == "tsmc_ir_monthly_revenue"
+        else common_fields
+        | {"accession", "filing_date", "exhibit_type", "exhibit_document"}
+    )
+    if not isinstance(source, dict) or set(source) != expected_fields:
+        raise OfficialReleaseEvidenceError("ENVELOPE_SOURCE_FIELDS_MISMATCH")
+    if (
+        source.get("identity_kind") != profile["identity_kind"]
+        or source.get("source_id") != source_id
+        or source.get("source_name") != profile["source_name"]
+    ):
+        raise OfficialReleaseEvidenceError("ENVELOPE_SOURCE_PROFILE_MISMATCH")
+    _validate_url(source.get("source_url"), profile)
+    blockers = []
+    if not _valid_sha(source.get("source_sha256")) or not _valid_utc(
+        source.get("retrieved_at_utc")
+    ):
+        blockers.append(SOURCE_IDENTITY_INCOMPLETE)
+    available_at = source.get("available_at")
+    if not _valid_date(available_at):
+        blockers.append(AVAILABLE_AT_UNOBSERVED)
+    if (
+        _valid_date(available_at)
+        and _valid_utc(source.get("retrieved_at_utc"))
+        and dt.date.fromisoformat(available_at)
+        > dt.datetime.strptime(
+            source["retrieved_at_utc"], "%Y-%m-%dT%H:%M:%SZ"
+        ).date()
+    ):
+        raise OfficialReleaseEvidenceError("ENVELOPE_SOURCE_TEMPORAL_ORDER_INVALID")
+    capture_kind = audit.get("capture_kind") if isinstance(audit, dict) else None
+    if capture_kind not in profile["available_capture_kinds"]:
+        blockers.append(CAPTURE_NOT_LIVE_OR_VERBATIM)
+    if source_id == "msft_official_earnings_release":
+        accession = source.get("accession")
+        exhibit = source.get("exhibit_document")
+        if (
+            not isinstance(accession, str)
+            or re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession) is None
+            or source.get("exhibit_type") != "EX-99.1"
+            or not isinstance(exhibit, str)
+            or not exhibit.strip()
+            or exhibit.strip() != exhibit
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_RELEASE_IDENTITY_INVALID")
+        accession_path = accession.replace("-", "")
+        source_path = urlparse(source["source_url"]).path
+        if (
+            f"/{accession_path}/" not in source_path
+            or source_path.rsplit("/", 1)[-1] != exhibit
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_RELEASE_IDENTITY_INVALID")
+        if source.get("filing_date") != available_at:
+            blockers.append(AVAILABLE_AT_UNOBSERVED)
+    return list(dict.fromkeys(blockers))
+
+
+def _validate_observation(
+    observation: dict,
+    *,
+    source_id: str,
+    measurement: str,
+    economic_period_end: str,
+) -> None:
+    fields = {
+        "raw_value",
+        "numeric_value",
+        "unit",
+        "sign_convention",
+        "decision_column_identity",
+        "row_label_raw",
+        "period_end_raw",
+        "observed_by",
+    }
+    if not isinstance(observation, dict) or set(observation) != fields:
+        raise OfficialReleaseEvidenceError("ENVELOPE_OBSERVATION_FIELDS_MISMATCH")
+    raw, numeric = _raw_pct(observation.get("raw_value"))
+    if (
+        observation.get("raw_value") != raw
+        or observation.get("numeric_value") != numeric
+        or observation.get("unit") != "pct"
+        or not isinstance(observation.get("observed_by"), str)
+        or not observation["observed_by"]
+    ):
+        raise OfficialReleaseEvidenceError("ENVELOPE_OBSERVATION_VALUE_MISMATCH")
+    if source_id == "tsmc_ir_monthly_revenue":
+        period_raw = observation.get("period_end_raw")
+        if _month_end(period_raw) != economic_period_end:
+            raise OfficialReleaseEvidenceError("ENVELOPE_OBSERVATION_PERIOD_MISMATCH")
+        cumulative = measurement.endswith("cumulative YoY")
+        expected_row = "Total" if cumulative else period_raw
+        expected_column = "Total YoY Change" if cumulative else "YoY Change"
+        if (
+            observation.get("sign_convention") != "minus_or_none"
+            or observation.get("row_label_raw") != expected_row
+            or observation.get("decision_column_identity") != expected_column
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_OBSERVATION_IDENTITY_MISMATCH")
+    else:
+        if _period_end_iso(observation.get("period_end_raw")) != economic_period_end:
+            raise OfficialReleaseEvidenceError("ENVELOPE_OBSERVATION_PERIOD_MISMATCH")
+        if (
+            observation.get("sign_convention") != "parens_minus_or_none"
+            or observation.get("decision_column_identity")
+            != "Percentage Change Y/Y Constant Currency"
+            or observation.get("row_label_raw")
+            != "Azure and other cloud services[ revenue]"
+            or observation.get("observed_by") != "msft_azure_cc"
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_OBSERVATION_IDENTITY_MISMATCH")
+
+
+def _validate_audit(
+    audit: dict,
+    *,
+    source_id: str,
+    measurement: str,
+    economic_period_end: str,
+) -> list[str]:
+    blockers = []
+    if source_id == "tsmc_ir_monthly_revenue":
+        if not isinstance(audit, dict) or set(audit) != {
+            "capture_kind",
+            "collector_version",
+            "source_locator",
+        }:
+            raise OfficialReleaseEvidenceError("ENVELOPE_AUDIT_FIELDS_MISMATCH")
+        if not isinstance(audit.get("collector_version"), str) or not audit[
+            "collector_version"
+        ]:
+            raise OfficialReleaseEvidenceError("ENVELOPE_COLLECTOR_VERSION_INVALID")
+        locator = audit.get("source_locator")
+        cumulative = measurement.endswith("cumulative YoY")
+        expected_fields = (
+            {"table", "row", "column", "through_month"}
+            if cumulative
+            else {"table", "row", "column"}
+        )
+        if not isinstance(locator, dict) or set(locator) != expected_fields:
+            raise OfficialReleaseEvidenceError("ENVELOPE_SOURCE_LOCATOR_MISMATCH")
+        target_month = locator.get("through_month") if cumulative else locator.get("row")
+        if (
+            _month_end(target_month) != economic_period_end
+            or locator.get("table") != f"{target_month[:4]} Monthly Revenue"
+            or locator.get("row") != ("Total" if cumulative else target_month)
+            or locator.get("column") != "YoY Change"
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_SOURCE_LOCATOR_MISMATCH")
+    else:
+        if not isinstance(audit, dict) or set(audit) != {
+            "capture_kind",
+            "slice_sha256",
+            "verbatim_substring_of_source",
+            "source_locator",
+        }:
+            raise OfficialReleaseEvidenceError("ENVELOPE_AUDIT_FIELDS_MISMATCH")
+        locator = audit.get("source_locator")
+        if locator != {
+            "table": "Selected Product and Service Constant Currency Reconciliation",
+            "row": "Azure and other cloud services[ revenue]",
+            "column": "Percentage Change Y/Y Constant Currency",
+        }:
+            raise OfficialReleaseEvidenceError("ENVELOPE_SOURCE_LOCATOR_MISMATCH")
+        if (
+            audit.get("verbatim_substring_of_source") is not True
+            or not _valid_sha(audit.get("slice_sha256"))
+        ):
+            blockers.append(SOURCE_SLICE_NOT_VERBATIM)
+    return blockers
+
+
+def validate_envelope(envelope: dict, contract: dict | None = None) -> dict:
+    """Validate a persisted official-release evidence envelope."""
+    contract = contract or load_contract()
+    fields = {
+        "schema_version",
+        "subject",
+        "measurement_identity",
+        "economic_period_end",
+        "status",
+        "reasons",
+        "consumable",
+        "blocked_by",
+        "acquisition_provenance_present",
+        "source_identity",
+        "audit_provenance",
+        "observation",
+    }
+    if not isinstance(envelope, dict) or set(envelope) != fields:
+        raise OfficialReleaseEvidenceError("ENVELOPE_FIELDS_MISMATCH")
+    subject = envelope.get("subject")
+    measurement = envelope.get("measurement_identity")
+    period_end = envelope.get("economic_period_end")
+    status = envelope.get("status")
+    reasons = envelope.get("reasons")
+    blocked_by = envelope.get("blocked_by")
+    if (
+        envelope.get("schema_version") != ENVELOPE_SCHEMA_VERSION
+        or not all(isinstance(value, str) and value for value in (subject, measurement))
+        or not _valid_date(period_end)
+        or status not in STATUSES
+        or not isinstance(reasons, list)
+        or not isinstance(blocked_by, list)
+        or reasons != list(dict.fromkeys(reasons))
+        or blocked_by != list(dict.fromkeys(blocked_by))
+    ):
+        raise OfficialReleaseEvidenceError("ENVELOPE_IDENTITY_OR_STATUS_INVALID")
+    if status == EVIDENCE_UNRESOLVED:
+        if (
+            reasons != [OBSERVATION_ABSENT]
+            or blocked_by != []
+            or envelope.get("consumable") is not False
+            or envelope.get("acquisition_provenance_present") is not False
+            or envelope.get("source_identity") is not None
+            or envelope.get("audit_provenance") is not None
+            or envelope.get("observation") is not None
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_UNRESOLVED_STATE_MISMATCH")
+        return copy.deepcopy(envelope)
+
+    if reasons == [REVISION_AUTHORITY_UNRESOLVED]:
+        audit = envelope.get("audit_provenance")
+        hashes = (audit or {}).get("revision_candidate_source_sha256")
+        if (
+            status != EVIDENCE_BLOCKED
+            or blocked_by != reasons
+            or envelope.get("consumable") is not False
+            or envelope.get("acquisition_provenance_present") is not False
+            or envelope.get("source_identity") is not None
+            or envelope.get("observation") is not None
+            or not isinstance(audit, dict)
+            or set(audit) != {"revision_candidate_source_sha256"}
+            or not isinstance(hashes, list)
+            or not hashes
+            or hashes != sorted(set(hashes))
+            or any(not _valid_sha(value) for value in hashes)
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_REVISION_STATE_MISMATCH")
+        _source_id_for_key(subject, measurement)
+        return copy.deepcopy(envelope)
+
+    source_id = _source_id_for_key(subject, measurement)
+    audit = envelope.get("audit_provenance")
+    source = envelope.get("source_identity")
+    if not isinstance(source, dict) or not isinstance(audit, dict):
+        raise OfficialReleaseEvidenceError("ENVELOPE_PROVENANCE_MISSING")
+    derived_blockers = _validate_source_identity(source, source_id, audit, contract)
+    derived_blockers.extend(
+        _validate_audit(
+            audit,
+            source_id=source_id,
+            measurement=measurement,
+            economic_period_end=period_end,
+        )
+    )
+    derived_blockers = list(dict.fromkeys(derived_blockers))
+    allowed = {
+        SOURCE_IDENTITY_INCOMPLETE,
+        AVAILABLE_AT_UNOBSERVED,
+        CAPTURE_NOT_LIVE_OR_VERBATIM,
+        SOURCE_SLICE_NOT_VERBATIM,
+        COLLECTOR_NOT_DECISION_READY,
+    }
+    if any(reason not in allowed for reason in reasons) or any(
+        blocker not in reasons for blocker in derived_blockers
+    ):
+        raise OfficialReleaseEvidenceError("ENVELOPE_BLOCKER_DERIVATION_MISMATCH")
+    if status == EVIDENCE_AVAILABLE:
+        if (
+            reasons
+            or blocked_by
+            or envelope.get("consumable") is not True
+            or envelope.get("acquisition_provenance_present") is not True
+            or envelope.get("observation") is None
+        ):
+            raise OfficialReleaseEvidenceError("ENVELOPE_AVAILABLE_STATE_MISMATCH")
+        _validate_observation(
+            envelope["observation"],
+            source_id=source_id,
+            measurement=measurement,
+            economic_period_end=period_end,
+        )
+    elif (
+        not reasons
+        or blocked_by != reasons
+        or envelope.get("consumable") is not False
+        or envelope.get("acquisition_provenance_present") is not True
+        or envelope.get("observation") is not None
+    ):
+        raise OfficialReleaseEvidenceError("ENVELOPE_BLOCKED_STATE_MISMATCH")
+    return copy.deepcopy(envelope)
+
+
+def validate_bundle(value: dict, contract: dict | None = None) -> dict:
+    """Validate a persisted bundle, every envelope, summary, authority, and digest."""
+    contract = contract or load_contract()
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "source_hierarchy_status",
+        "automatic_fallback_authorized",
+        "authority",
+        "summary",
+        "envelopes",
+        "bundle_sha256",
+    }:
+        raise OfficialReleaseEvidenceError("BUNDLE_FIELDS_MISMATCH")
+    digest = value.get("bundle_sha256")
+    unsigned = copy.deepcopy(value)
+    unsigned.pop("bundle_sha256")
+    if not _valid_sha(digest) or payload_sha256(unsigned) != digest:
+        raise OfficialReleaseEvidenceError("BUNDLE_SHA256_MISMATCH")
+    envelopes = value.get("envelopes")
+    if not isinstance(envelopes, list):
+        raise OfficialReleaseEvidenceError("BUNDLE_ENVELOPES_NOT_LIST")
+    checked = [validate_envelope(envelope, contract) for envelope in envelopes]
+    keys = [_key(envelope) for envelope in checked]
+    if keys != sorted(set(keys)):
+        raise OfficialReleaseEvidenceError("BUNDLE_ENVELOPE_ORDER_INVALID")
+    counts = {status: 0 for status in STATUSES}
+    for envelope in checked:
+        counts[envelope["status"]] += 1
+    if (
+        value.get("schema_version") != BUNDLE_SCHEMA_VERSION
+        or value.get("source_hierarchy_status") != contract["source_hierarchy_status"]
+        or value.get("automatic_fallback_authorized")
+        is not contract["automatic_fallback_authorized"]
+        or value.get("authority") != contract["authority"]
+        or value.get("summary") != {"total": len(checked), **counts}
+    ):
+        raise OfficialReleaseEvidenceError("BUNDLE_SUMMARY_OR_AUTHORITY_MISMATCH")
+    return copy.deepcopy(value)
 
 
 def tsmc_monthly_envelopes(
@@ -324,7 +710,7 @@ def tsmc_monthly_envelopes(
         },
         blockers=blockers,
     ))
-    return out
+    return [validate_envelope(envelope, contract) for envelope in out]
 
 
 def msft_azure_envelope(
@@ -362,7 +748,7 @@ def msft_azure_envelope(
         "exhibit_document": capture.get("exhibit_document"),
     })
     raw, numeric = _raw_pct(observation.get("azure_cc_growth_pct"))
-    return _envelope(
+    return validate_envelope(_envelope(
         subject="MSFT",
         measurement="Azure and other cloud services revenue YoY constant currency",
         period_end=period_end,
@@ -388,7 +774,7 @@ def msft_azure_envelope(
             "observed_by": "msft_azure_cc",
         },
         blockers=list(dict.fromkeys(blockers)),
-    )
+    ), contract)
 
 
 def _key(envelope: dict) -> tuple[str, str, str]:
@@ -399,16 +785,14 @@ def _key(envelope: dict) -> tuple[str, str, str]:
     )
 
 
-def reconcile(envelopes: list[dict]) -> list[dict]:
+def reconcile(
+    envelopes: list[dict], contract: dict | None = None
+) -> list[dict]:
     """Deduplicate identical envelopes; block distinct source revisions per key."""
     grouped: dict[tuple[str, str, str], list[dict]] = {}
-    for envelope in envelopes:
-        if not isinstance(envelope, dict) or envelope.get("schema_version") != (
-            ENVELOPE_SCHEMA_VERSION
-        ):
-            raise OfficialReleaseEvidenceError("ENVELOPE_SCHEMA_MISMATCH")
-        if envelope.get("status") not in STATUSES:
-            raise OfficialReleaseEvidenceError("ENVELOPE_STATUS_INVALID")
+    contract = contract or load_contract()
+    for raw_envelope in envelopes:
+        envelope = validate_envelope(raw_envelope, contract)
         key = _key(envelope)
         if not all(isinstance(x, str) and x for x in key):
             raise OfficialReleaseEvidenceError("ENVELOPE_KEY_INVALID")
@@ -434,12 +818,12 @@ def reconcile(envelopes: list[dict]) -> list[dict]:
             observation=None,
             blockers=[REVISION_AUTHORITY_UNRESOLVED],
         ))
-    return out
+    return [validate_envelope(envelope, contract) for envelope in out]
 
 
 def bundle(envelopes: list[dict], contract: dict | None = None) -> dict:
     contract = contract or load_contract()
-    reconciled = reconcile(envelopes)
+    reconciled = reconcile(envelopes, contract)
     counts = {status: 0 for status in STATUSES}
     for envelope in reconciled:
         counts[envelope["status"]] += 1
@@ -452,4 +836,4 @@ def bundle(envelopes: list[dict], contract: dict | None = None) -> dict:
         "envelopes": reconciled,
     }
     body["bundle_sha256"] = payload_sha256(body)
-    return body
+    return validate_bundle(body, contract)

@@ -455,6 +455,8 @@ APPROVED_TESTS = [
     #   ⛔ live network 없음 — fixture only.
     "test/test_briefing_evidence_adapter.py",
     # ★ P4-04 — 승인된 기업 IR/공식발표 두 경로만 evidence envelope 로 정규화.
+    #   persisted envelope/bundle도 source·provenance·값·기간·revision·summary·authority를
+    #   재검증해 self-rehash 의미 변조를 차단한다.
     #   source hierarchy·fallback·해석·Rule·Production 권한은 만들지 않는다.
     #   ⛔ live network 없음 — TSMC/MSFT committed fixture 기반 fail-closed 회귀.
     "test/test_official_release_evidence.py",
