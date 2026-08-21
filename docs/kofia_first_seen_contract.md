@@ -63,6 +63,45 @@ append-only Atlas sequence.  This is an Atlas observation bound, not a KOFIA
 publication timestamp.  A later revision to the same date changes the row hash
 and starts a separate first-seen lineage.
 
+### History replay boundary
+
+Before every scheduled capture issues a single request to the source, and
+again before a staged capture is validated for publication,
+`kofia_first_seen.py` replays the entire committed `first_seen` evidence
+history in `captured_at_utc` order and rebuilds the `atlas_first_seen_at_utc`
+ledger from raw bytes rather than trusting any prior `_observation.json` on
+its face. For each committed bundle the replay:
+
+- rejects a symlink anywhere in the bundle;
+- requires the exact file set the bundle's own `_manifest.json` declares —
+  `_captured_at.txt`, `_manifest.json`, `_observation.json`, and every raw
+  gzip entry the manifest lists — with no unexpected or missing files;
+- decompresses each raw gzip response and re-verifies its SHA-256, byte
+  length, and official response schema against the manifest entry;
+- requires `_manifest.json`, `_observation.json`, and `_captured_at.txt` to
+  match their canonical serialization byte-for-byte (`sort_keys=True`,
+  `indent=2`, trailing newline for the JSON files);
+- regenerates `_observation.json` from that bundle's raw responses using only
+  the ledger accumulated from earlier, already-verified bundles, and rejects
+  the bundle if the regenerated observation does not match the committed one
+  exactly.
+
+Only a bundle that survives every check above contributes its
+`atlas_first_seen_at_utc` values to the ledger used for later captures. A
+tampered, truncated, or semantically altered prior bundle fails the run
+closed — via `CaptureError` codes prefixed `PRIOR_EVIDENCE_*` — before any
+network request is made, and before a new staging capture can be published.
+Empty history (the very first run) is accepted.
+
+This replay validates against the capture and source contracts currently
+checked into the repository. `collector_version` and
+`source_contract_version` have changed twice in this project's history; if
+they change again, bundles captured under a since-superseded contract need
+either a compatible replay path or a documented, evidence-based exemption —
+silently reusing today's contract against a bundle captured under a
+materially different one is out of scope for this replay and must not be
+assumed safe.
+
 ## Full-coverage observation
 
 The manual `full_coverage` mode requests every page for both operations and
