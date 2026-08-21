@@ -45,7 +45,7 @@ def _expected_contract() -> dict:
         "schema_version": 1,
         "contract_version": "bear_hedge_risk_budget/1",
         "input_schema_version": "bear_hedge_budget_set/1",
-        "output_schema_version": "bear_hedge_budget_packet/1",
+        "output_schema_version": "bear_hedge_budget_packet/2",
         "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_BUDGET_RATIFIED",
         "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
         "effective_interval": "[valid_from, valid_to)",
@@ -303,12 +303,15 @@ def _validate_set(value: dict, as_of_date: str, contract: dict) -> dict:
     return {"normalized": normalized, "packet_sha256": digest, "active": active}
 
 
-def build_packet(budget_set: dict, as_of_date: str, contract: dict | None = None) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
-    checked = _validate_set(budget_set, as_of, contract)
+def _source_packet(validated: dict) -> dict:
+    packet = copy.deepcopy(validated["normalized"])
+    packet["packet_sha256"] = validated["packet_sha256"]
+    return packet
+
+
+def _assemble(checked: dict, as_of: str, contract: dict) -> dict:
     active = checked["active"]
-    packet = {
+    return {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
         "status": "BEAR_HEDGE_BUDGET_SET_VALIDATED",
@@ -324,6 +327,7 @@ def build_packet(budget_set: dict, as_of_date: str, contract: dict | None = None
         "budget_usage": None,
         "hedge_size": None,
         "order_intents": [],
+        "source_packets": {"BUDGET_SET": _source_packet(checked)},
         "lineage": {
             "budget_set_packet_sha256": checked["packet_sha256"],
             "portfolio_loss_budget_sha256": checked["normalized"]["portfolio_loss_budget_sha256"],
@@ -336,6 +340,13 @@ def build_packet(budget_set: dict, as_of_date: str, contract: dict | None = None
             "ORDER_NOT_AUTHORIZED",
         ],
     }
+
+
+def build_packet(budget_set: dict, as_of_date: str, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
+    checked = _validate_set(budget_set, as_of, contract)
+    packet = _assemble(checked, as_of, contract)
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
 
@@ -345,7 +356,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     fields = {
         "schema_version", "contract_version", "status", "as_of_date",
         "budget_set_id", "active_budgets", "summary", "budget_usage",
-        "hedge_size", "order_intents", "lineage", "authority",
+        "hedge_size", "order_intents", "source_packets", "lineage", "authority",
         "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
@@ -353,59 +364,19 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     if (
         packet.get("schema_version") != contract["output_schema_version"]
         or packet.get("contract_version") != contract["contract_version"]
-        or packet.get("status") != "BEAR_HEDGE_BUDGET_SET_VALIDATED"
-        or packet.get("authority") != contract["authority"]
-        or packet.get("budget_usage") is not None
-        or packet.get("hedge_size") is not None
-        or packet.get("order_intents") != []
     ):
         raise BearHedgeBudgetError("OUTPUT_IDENTITY_INVALID")
     as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
-    _text(packet.get("budget_set_id"), "OUTPUT_BUDGET_SET_ID_INVALID")
-    raw_budgets = packet.get("active_budgets")
-    if not isinstance(raw_budgets, list):
-        raise BearHedgeBudgetError("OUTPUT_ACTIVE_BUDGETS_INVALID")
-    budgets = sorted(
-        (_record(row, contract) for row in raw_budgets),
-        key=lambda row: (row["risk_budget_id"], row["valid_from"]),
-    )
-    ids = [row["risk_budget_id"] for row in budgets]
-    if (
-        raw_budgets != budgets
-        or len(ids) != len(set(ids))
-        or any(not _active(row["valid_from"], row["valid_to"], as_of) for row in budgets)
-    ):
-        raise BearHedgeBudgetError("OUTPUT_ACTIVE_BUDGETS_MISMATCH")
-    if packet.get("summary") != {
-        "active_count": len(budgets),
-        "portfolio_total_count": sum(
-            row["scope_type"] == "PORTFOLIO_TOTAL" for row in budgets
-        ),
-        "market_count": sum(row["scope_type"] == "MARKET" for row in budgets),
-        "scope_ids": sorted(row["scope_id"] for row in budgets),
-    }:
-        raise BearHedgeBudgetError("OUTPUT_SUMMARY_MISMATCH")
-    lineage = packet.get("lineage")
-    lineage_fields = {
-        "budget_set_packet_sha256", "portfolio_loss_budget_sha256",
-        "long_budget_sha256",
-    }
-    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
-        raise BearHedgeBudgetError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
-    for key in lineage_fields:
-        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
-    if lineage["portfolio_loss_budget_sha256"] == lineage["long_budget_sha256"]:
-        raise BearHedgeBudgetError("OUTPUT_LONG_BUDGET_SHA_MUST_BE_DISTINCT")
-    if packet.get("unresolved_boundaries") != [
-        "LIVE_PORTFOLIO_USAGE_NOT_CONNECTED",
-        "HEDGE_SIZING_NOT_AUTHORIZED",
-        "ORDER_NOT_AUTHORIZED",
-    ]:
-        raise BearHedgeBudgetError("OUTPUT_BOUNDARIES_MISMATCH")
-    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
-    normalized = copy.deepcopy(packet)
-    normalized.pop("packet_sha256")
-    if payload_sha256(normalized) != digest:
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {"BUDGET_SET"}:
+        raise BearHedgeBudgetError("OUTPUT_SOURCE_PACKETS_INVALID")
+    checked = _validate_set(sources["BUDGET_SET"], as_of, contract)
+    expected = _assemble(checked, as_of, contract)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise BearHedgeBudgetError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
         raise BearHedgeBudgetError("OUTPUT_PACKET_SHA_MISMATCH")
     return copy.deepcopy(packet)
 

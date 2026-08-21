@@ -12,14 +12,17 @@ and external policy. P7-03 and P7-06 are re-derived from their exact embedded
 inputs and policy/Constitution. Maximum/target weights, binding limits, and
 breaches are evidence only.
 
-The same production-validation boundary now covers the P6 sources: the three
+The same production-validation boundary covers the P6 sources: the three
 market Cash/Exposure packets, Long/Short invariant, three market Regime/Inverse
 packets, Hedge Eligibility, and Bear/Hedge Budget. Their action boundaries,
 active records, derived rows, summaries, lineage, and closed authorities are
 validated before presentation. Cash and inverse source slots also require their
 exact US/Korea/Crypto market identity. A recomputed source hash cannot hide a
-mutation to those derived or authority-bearing fields; the validators do not
-claim to reconstruct source inputs that their v1 output schemas do not embed.
+mutation to those derived or authority-bearing fields. Hedge Eligibility and
+Bear/Hedge Budget output schema v2 embed and fully revalidate the exact
+CIO-ratified registry or budget set before re-deriving their displayed records.
+An unratified instrument or risk budget therefore cannot propagate into this
+summary through a self-rehashed P6 packet.
 
 P7-04 Market/Theme Budget and P7-05 Crypto Exposure Limit output schema v2
 also pass through their production validators. Each embeds and revalidates its

@@ -39,7 +39,11 @@ python3 portfolio/hedge_instrument_eligibility.py /tmp/registry.json \
 
 The CLI is offline and refuses to write inside the repository.
 
-`validate_packet()` revalidates every active record, effective date, eligibility
-list, summary, closed selection/sizing/order fields, lineage, and packet hash.
-Self-rehashed semantic changes are rejected without introducing a default
-registry or instrument-selection authority.
+Output schema v2 embeds the exact `RATIFIED` registry in
+`source_packets.REGISTRY`. `validate_packet()` reruns the complete registry
+validation at consumption time, including CIO identity, effective interval,
+record history, evidence, authority, and the original registry SHA. It then
+re-derives the active records, eligibility list, summary, closed
+selection/sizing/order fields, and lineage. An unratified instrument cannot be
+added by merely recomputing the output hash. This adds no default registry or
+instrument-selection authority.

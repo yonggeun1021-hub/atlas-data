@@ -135,7 +135,7 @@ def _read_json(path: Path):
 
 SOURCE_IDENTITIES = {
     "BEAR_HEDGE_BUDGET": (
-        "bear_hedge_budget_packet/1", "bear_hedge_risk_budget/1",
+        "bear_hedge_budget_packet/2", "bear_hedge_risk_budget/1",
         ["BEAR_HEDGE_BUDGET_SET_VALIDATED"],
         "config/bear_hedge_risk_budget_contract.json",
     ),
@@ -165,7 +165,7 @@ SOURCE_IDENTITIES = {
         "config/crypto_exposure_limit_contract.json",
     ),
     "HEDGE_ELIGIBILITY": (
-        "hedge_instrument_eligibility_packet/1", "hedge_instrument_eligibility/1",
+        "hedge_instrument_eligibility_packet/2", "hedge_instrument_eligibility/1",
         ["ELIGIBILITY_REGISTRY_VALIDATED"],
         "config/hedge_instrument_eligibility_contract.json",
     ),
