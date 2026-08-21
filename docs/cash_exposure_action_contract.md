@@ -44,3 +44,8 @@ The CLI validates the upstream Regime packet and exact hash lineage, is
 deterministic, makes no network call, and refuses to write inside the
 repository.  It creates no tracked packet, workflow, notification, Production
 action, or trade.
+
+`validate_packet()` also supports standalone output-boundary validation for
+briefing consumers. It rechecks the exact NOT_EVALUATED action fields,
+authority, prerequisites, lineage shape, and packet hash; supplying the
+upstream Regime packet additionally performs the original exact re-derivation.

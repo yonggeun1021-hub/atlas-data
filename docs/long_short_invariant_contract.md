@@ -24,3 +24,8 @@ An actual short evaluation requires all three independent prerequisites named in
 the contract: ratified hedge-instrument eligibility, a separate bear/hedge risk
 budget, and an independent short-rule evaluation. The CLI is offline and writes
 only outside the repository.
+
+`validate_packet()` matches all 25 output rows to the canonical Rule identity,
+reapplies the Long/Short boundary, recomputes the summary, and checks lineage
+and packet hashes. Current no-authority output cannot contain PASS/FAIL, and a
+self-rehashed result or summary change fails closed.

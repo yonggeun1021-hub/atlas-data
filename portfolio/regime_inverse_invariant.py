@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 
 
@@ -17,6 +19,8 @@ CONTRACT_PATH = ROOT / "config" / "regime_inverse_invariant_contract.json"
 UPSTREAM_PATH = ROOT / "regime" / "output_contract.py"
 OUTPUT_SCHEMA_VERSION = "regime_inverse_invariant_packet/1"
 REGIMES = ("RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS", "UNKNOWN")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 class RegimeInverseInvariantError(ValueError):
@@ -89,6 +93,24 @@ def _validate_contract(value: dict) -> dict:
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return _validate_contract(_read_json(Path(path)))
+
+
+def _sha(value, code: str) -> str:
+    if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
+        raise RegimeInverseInvariantError(code)
+    return value
+
+
+def _utc(value, code: str) -> str:
+    if not isinstance(value, str) or UTC_RE.fullmatch(value) is None:
+        raise RegimeInverseInvariantError(code)
+    try:
+        parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise RegimeInverseInvariantError(code) from exc
+    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+        raise RegimeInverseInvariantError(code)
+    return value
 
 
 def _load_upstream_module():
@@ -178,7 +200,57 @@ def build_packet(regime_output: dict, contract: dict | None = None) -> dict:
         "unresolved_boundaries": copy.deepcopy(contract["independent_prerequisites"]),
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "market", "generated_at",
+        "direction", "confidence", "regime", "inverse_instrument",
+        "inverse_signal", "inverse_order_intent", "inverse_evaluation_status",
+        "invariant_status", "reasons", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise RegimeInverseInvariantError("OUTPUT_FIELDS_MISMATCH")
+    upstream = _load_upstream_module()
+    upstream_contract = upstream.load_contract()
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"
+        or packet.get("authority") != contract["authority"]
+        or packet.get("market") not in upstream_contract["markets"]
+        or packet.get("regime") not in contract["runtime_authorized_regimes"]
+        or packet.get("direction") not in upstream_contract["runtime_authorized_directions"]
+        or packet.get("confidence") is not None
+    ):
+        raise RegimeInverseInvariantError("OUTPUT_IDENTITY_INVALID")
+    _utc(packet.get("generated_at"), "OUTPUT_GENERATED_AT_INVALID")
+    expected = classify_regime(packet["regime"], contract)
+    if any(packet.get(key) != value for key, value in expected.items()):
+        raise RegimeInverseInvariantError("OUTPUT_DERIVATION_MISMATCH")
+    lineage = packet.get("lineage")
+    if (
+        not isinstance(lineage, dict)
+        or set(lineage) != {
+            "upstream_regime_output_sha256", "upstream_contract_version",
+            "upstream_contract_mode",
+        }
+        or lineage.get("upstream_contract_version") != contract["upstream_contract_version"]
+        or lineage.get("upstream_contract_mode") != contract["upstream_contract_mode"]
+    ):
+        raise RegimeInverseInvariantError("OUTPUT_LINEAGE_INVALID")
+    _sha(lineage.get("upstream_regime_output_sha256"), "OUTPUT_LINEAGE_SHA_INVALID")
+    if packet.get("unresolved_boundaries") != contract["independent_prerequisites"]:
+        raise RegimeInverseInvariantError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("packet_sha256")
+    if payload_sha256(normalized) != digest:
+        raise RegimeInverseInvariantError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

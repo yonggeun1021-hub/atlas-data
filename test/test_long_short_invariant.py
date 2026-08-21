@@ -188,6 +188,18 @@ class LongShortInvariantTests(unittest.TestCase):
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
         self.assertEqual(MODULE.canonical_json(source), before)
 
+    def test_self_rehashed_output_semantic_tamper_fails_closed(self):
+        packet = MODULE.build_packet(upstream_packet(), CONTRACT)
+        packet["summary"]["short_not_evaluated"] -= 1
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.LongShortInvariantError,
+            "OUTPUT_SUMMARY_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_source_is_offline_and_cli_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()

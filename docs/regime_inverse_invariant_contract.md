@@ -21,3 +21,8 @@ An inverse position requires independent ratification of hedge-instrument
 eligibility, a separate bear/hedge risk budget, an inverse-strategy evaluation,
 and order risk checks. This module does not implement any of those decisions.
 The CLI is offline and writes only outside the repository.
+
+`validate_packet()` checks the current UNKNOWN-only Regime identity, reapplies
+the no-inverse boundary, and validates timestamp, lineage, authority, unresolved
+prerequisites, and packet hash. Self-rehashed inverse fields or reasons fail
+closed without adding strategy or order authority.

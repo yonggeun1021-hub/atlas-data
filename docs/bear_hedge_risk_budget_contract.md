@@ -39,3 +39,8 @@ python3 portfolio/bear_hedge_risk_budget.py /tmp/budget-set.json \
 ```
 
 The CLI is offline and refuses to write inside the repository.
+
+`validate_packet()` revalidates each active budget, its effective date and
+distinct long/portfolio lineage, recomputes the summary, and enforces null
+usage/sizing plus an empty order list. Self-rehashed semantic drift is rejected;
+no default budget or allocation authority is added.

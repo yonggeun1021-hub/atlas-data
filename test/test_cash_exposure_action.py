@@ -160,6 +160,18 @@ class CashExposureActionTests(unittest.TestCase):
         ):
             MODULE.validate_packet(tampered, source, CONTRACT)
 
+    def test_standalone_self_rehashed_boundary_tamper_fails_closed(self):
+        packet = MODULE.build_packet(upstream_output(), CONTRACT)
+        packet["reasons"][0] = "TAMPERED_REASON"
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.CashExposureActionError,
+            "PACKET_BOUNDARY_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, contract=CONTRACT)
+
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()
