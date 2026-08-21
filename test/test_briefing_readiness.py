@@ -143,6 +143,39 @@ class BriefingReadinessTest(unittest.TestCase):
         )
         self.assertIn("read_model:inventory_mismatch", result["reasons"])
 
+    def test_operations_telemetry_is_not_readiness_authority(self):
+        status_path = self.data / "briefing" / "step0_status.json"
+        status = json.loads(status_path.read_text())
+        telemetry_path = self.data / "operations" / "collect_runs"
+        self.assertFalse(telemetry_path.exists())
+
+        status["read_model_inventory"]["operations_telemetry_sources"] = [
+            "data/operations/collect_runs/missing/index.json"
+        ]
+        status_path.write_text(json.dumps(status), encoding="utf-8")
+
+        result = self.evaluate()
+
+        self.assertEqual(
+            result["classification"],
+            "data_ready_read_model_ready",
+        )
+        self.assertEqual(result["reasons"], [])
+
+    def test_unknown_inventory_field_remains_read_model_drift(self):
+        status_path = self.data / "briefing" / "step0_status.json"
+        status = json.loads(status_path.read_text())
+        status["read_model_inventory"]["unexpected_authority"] = True
+        status_path.write_text(json.dumps(status), encoding="utf-8")
+
+        result = self.evaluate()
+
+        self.assertEqual(
+            result["classification"],
+            "data_ready_read_model_degraded",
+        )
+        self.assertIn("read_model:inventory_mismatch", result["reasons"])
+
     def test_confirmed_stale_collector_requires_collection_recovery(self):
         krx_path = self.data / "latest_krx.json"
         krx = json.loads(krx_path.read_text())
