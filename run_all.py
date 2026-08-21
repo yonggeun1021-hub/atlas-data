@@ -137,6 +137,7 @@ APPROVED_TESTS = [
     # ★ P2-03 — external RATIFIED policy-gated Korea Theme rotation transform.
     #   hash-bound Korea Leadership 두 시점을 own-benchmark scope별로만 rank하고
     #   KRX-only/unverified flow와 non-durable breadth는 context로 격리한다.
+    #   output scope/rank/bucket/transition을 재검증해 self-rehash를 거부한다.
     #   cross-benchmark rank/P2-05 state/Regime/Stage/Production/trading 없음.
     #   ⛔ source close rows/live network/tracked factor 없음 — temp packets only.
     "test/test_korea_capital_rotation.py",

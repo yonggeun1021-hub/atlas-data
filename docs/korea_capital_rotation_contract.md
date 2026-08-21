@@ -42,3 +42,20 @@ TOP/MIDDLE/BOTTOM buckets, and structural bucket transitions. It does not emit
 `EMERGING`, `STRONG`, or `WEAKENING`; P2-05 owns that vocabulary and ledger.
 Cross-benchmark ranking, Regime, candidate ranking, Stage, Production, and
 trading remain false. The CLI is offline and can write only outside the repo.
+
+## Standalone output validation
+
+`validate_packet()` treats a stored packet as untrusted. It validates the exact
+identity, observation pair, taxonomy and coverage bindings, embedded policy,
+retention, lineage, authority, unresolved boundaries, and packet digest. For
+each benchmark scope it independently re-derives canonical numeric values,
+prior/current ranks, rank changes, TOP/MIDDLE/BOTTOM buckets, transitions, and
+top/bottom summaries. Recomputing `payload_sha256` after changing one of those
+fields cannot make the packet valid.
+
+The v1 output deliberately omits upstream source rows and their
+`available_at` timestamps. The standalone validator can prove that a policy is
+ratified and date-effective from the packet, but it cannot independently prove
+that ratification preceded the prior source's availability. That temporal
+check remains enforced while `build_packet()` validates the two upstream
+packets; the output validator does not invent missing availability evidence.

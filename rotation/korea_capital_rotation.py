@@ -696,7 +696,376 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate the complete v1 output without inventing omitted source rows."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "measurement", "market",
+        "as_of_date", "status", "observation_pair", "taxonomy_binding",
+        "coverage_context", "rotation_policy", "rotation_policy_effective",
+        "ranking_method", "benchmark_scopes", "retention", "lineage",
+        "authority", "unresolved_boundaries", "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise KoreaCapitalRotationError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("measurement") != contract["measurement"]
+        or packet.get("market") != "KOREA"
+    ):
+        raise KoreaCapitalRotationError("OUTPUT_IDENTITY_INVALID")
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    pair = packet.get("observation_pair")
+    if not isinstance(pair, dict) or set(pair) != {
+        "prior_date", "current_date", "calendar_gap_days", "lookback_sessions",
+    }:
+        raise KoreaCapitalRotationError("OUTPUT_OBSERVATION_PAIR_INVALID")
+    prior_date = _date(pair.get("prior_date"), "OUTPUT_PRIOR_DATE_INVALID")
+    current_date = _date(pair.get("current_date"), "OUTPUT_CURRENT_DATE_INVALID")
+    _positive_int(pair.get("lookback_sessions"), "OUTPUT_LOOKBACK_INVALID")
+    if (
+        not prior_date < current_date == as_of
+        or pair.get("calendar_gap_days") != (current_date - prior_date).days
+    ):
+        raise KoreaCapitalRotationError("OUTPUT_OBSERVATION_PAIR_MISMATCH")
+    binding = _validate_binding(packet.get("taxonomy_binding"), contract)
+    _validate_context(packet.get("coverage_context"))
+
+    policy = packet.get("rotation_policy")
+    policy_fields = {
+        "schema_version", "policy_id", "approval_status", "ratified_by",
+        "ratified_at_utc", "effective_from", "effective_to",
+        "taxonomy_decision_sha256", "taxonomy_packet_sha256",
+        "upstream_leadership_policy_sha256", "ranking_metric", "ranking_order",
+        "tie_break", "maximum_calendar_gap_days", "benchmark_scopes",
+    }
+    if not isinstance(policy, dict) or set(policy) != policy_fields:
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_FIELDS_MISMATCH")
+    if policy.get("schema_version") != POLICY_SCHEMA_VERSION:
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_SCHEMA_MISMATCH")
+    _token(policy.get("policy_id"), "OUTPUT_POLICY_ID_INVALID")
+    approval = policy.get("approval_status")
+    if approval not in {"RATIFIED", "UNRATIFIED"}:
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_STATUS_INVALID")
+    effective_from = _date(
+        policy.get("effective_from"), "OUTPUT_POLICY_EFFECTIVE_FROM_INVALID"
+    )
+    effective_to = (
+        None
+        if policy.get("effective_to") is None
+        else _date(policy["effective_to"], "OUTPUT_POLICY_EFFECTIVE_TO_INVALID")
+    )
+    if effective_to is not None and effective_to <= effective_from:
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_EFFECTIVE_TO_INVALID")
+    if (
+        policy.get("taxonomy_decision_sha256") != binding["taxonomy_decision_sha256"]
+        or policy.get("taxonomy_packet_sha256") != binding["taxonomy_packet_sha256"]
+        or policy.get("upstream_leadership_policy_sha256")
+        != binding["upstream_leadership_policy_sha256"]
+        or policy.get("ranking_metric") != contract["ranking_metric"]
+        or policy.get("ranking_order") != contract["ranking_order"]
+        or policy.get("tie_break") != contract["tie_break"]
+    ):
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_BINDING_INVALID")
+    maximum_gap = _positive_int(
+        policy.get("maximum_calendar_gap_days"), "OUTPUT_POLICY_MAXIMUM_GAP_INVALID"
+    )
+    if approval == "UNRATIFIED":
+        if policy.get("ratified_by") is not None or policy.get("ratified_at_utc") is not None:
+            raise KoreaCapitalRotationError("OUTPUT_UNRATIFIED_PROOF_FORBIDDEN")
+    else:
+        if (
+            not isinstance(policy.get("ratified_by"), str)
+            or not policy["ratified_by"].strip()
+            or not isinstance(policy.get("ratified_at_utc"), str)
+            or not policy["ratified_at_utc"].endswith("Z")
+        ):
+            raise KoreaCapitalRotationError("OUTPUT_RATIFICATION_PROOF_INVALID")
+        _timestamp(policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID")
+    effective = (
+        approval == "RATIFIED"
+        and effective_from <= prior_date
+        and (effective_to is None or current_date < effective_to)
+    )
+    if effective and (current_date - prior_date).days > maximum_gap:
+        raise KoreaCapitalRotationError("OUTPUT_OBSERVATION_GAP_EXCEEDS_POLICY")
+    if packet.get("rotation_policy_effective") is not effective:
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_EFFECTIVE_MISMATCH")
+
+    raw_policy_scopes = policy.get("benchmark_scopes")
+    if not isinstance(raw_policy_scopes, list) or not raw_policy_scopes:
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_SCOPES_INVALID")
+    policy_scopes = {}
+    policy_scope_order = []
+    all_series = set()
+    all_theme_ids = set()
+    for scope in raw_policy_scopes:
+        if not isinstance(scope, dict) or set(scope) != {
+            "benchmark_identity", "members", "top_count", "bottom_count",
+        }:
+            raise KoreaCapitalRotationError("OUTPUT_POLICY_SCOPE_FIELDS_MISMATCH")
+        benchmark = _identity(
+            scope.get("benchmark_identity"), "OUTPUT_POLICY_BENCHMARK_INVALID"
+        )
+        members = scope.get("members")
+        if not isinstance(members, list) or len(members) < 3:
+            raise KoreaCapitalRotationError(
+                f"OUTPUT_POLICY_SCOPE_MEMBERS_INVALID:{benchmark}"
+            )
+        mapping = {}
+        member_order = []
+        for member in members:
+            if not isinstance(member, dict) or set(member) != {
+                "series_identity", "theme_id",
+            }:
+                raise KoreaCapitalRotationError(
+                    f"OUTPUT_POLICY_MEMBER_FIELDS_MISMATCH:{benchmark}"
+                )
+            series = _identity(
+                member.get("series_identity"), "OUTPUT_POLICY_SERIES_INVALID"
+            )
+            theme_id = _token(member.get("theme_id"), "OUTPUT_POLICY_THEME_ID_INVALID")
+            if series in mapping or series in all_series or theme_id in all_theme_ids:
+                raise KoreaCapitalRotationError("OUTPUT_POLICY_MEMBER_DUPLICATE")
+            mapping[series] = theme_id
+            member_order.append(series)
+            all_series.add(series)
+            all_theme_ids.add(theme_id)
+        if member_order != sorted(member_order):
+            raise KoreaCapitalRotationError(
+                f"OUTPUT_POLICY_MEMBER_ORDER_INVALID:{benchmark}"
+            )
+        top_count = _positive_int(
+            scope.get("top_count"), "OUTPUT_POLICY_TOP_COUNT_INVALID"
+        )
+        bottom_count = _positive_int(
+            scope.get("bottom_count"), "OUTPUT_POLICY_BOTTOM_COUNT_INVALID"
+        )
+        if top_count + bottom_count > len(mapping):
+            raise KoreaCapitalRotationError(
+                f"OUTPUT_POLICY_BUCKETS_OVERLAP:{benchmark}"
+            )
+        if benchmark in policy_scopes:
+            raise KoreaCapitalRotationError("OUTPUT_POLICY_BENCHMARK_DUPLICATE")
+        policy_scope_order.append(benchmark)
+        policy_scopes[benchmark] = {
+            "mapping": mapping,
+            "member_order": member_order,
+            "top_count": top_count,
+            "bottom_count": bottom_count,
+        }
+    if policy_scope_order != sorted(policy_scope_order):
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_SCOPE_ORDER_INVALID")
+
+    raw_outputs = packet.get("benchmark_scopes")
+    if not isinstance(raw_outputs, list) or len(raw_outputs) != len(policy_scopes):
+        raise KoreaCapitalRotationError("OUTPUT_BENCHMARK_SCOPES_INVALID")
+    output_order = []
+    places = contract["output_decimal_places"]
+    for raw_scope in raw_outputs:
+        if not isinstance(raw_scope, dict) or set(raw_scope) != {
+            "benchmark_identity", "top_themes", "bottom_themes",
+            "theme_observations",
+        }:
+            raise KoreaCapitalRotationError("OUTPUT_SCOPE_FIELDS_MISMATCH")
+        benchmark = _identity(
+            raw_scope.get("benchmark_identity"), "OUTPUT_BENCHMARK_ID_INVALID"
+        )
+        if benchmark not in policy_scopes:
+            raise KoreaCapitalRotationError("OUTPUT_BENCHMARK_NOT_IN_POLICY")
+        output_order.append(benchmark)
+        checked_scope = policy_scopes[benchmark]
+        raw_rows = raw_scope.get("theme_observations")
+        if not isinstance(raw_rows, list) or len(raw_rows) != len(checked_scope["mapping"]):
+            raise KoreaCapitalRotationError(
+                f"OUTPUT_THEME_OBSERVATIONS_INVALID:{benchmark}"
+            )
+        rows = []
+        row_fields = {
+            "series_identity", "theme_id", "role",
+            "prior_relative_strength_vs_benchmark",
+            "current_relative_strength_vs_benchmark", "relative_strength_change",
+            "prior_rank_within_benchmark", "current_rank_within_benchmark",
+            "rank_change_within_benchmark", "prior_bucket", "current_bucket",
+            "bucket_transition", "p2_state",
+        }
+        for row in raw_rows:
+            if not isinstance(row, dict) or set(row) != row_fields:
+                raise KoreaCapitalRotationError(
+                    f"OUTPUT_THEME_FIELDS_MISMATCH:{benchmark}"
+                )
+            series = _identity(row.get("series_identity"), "OUTPUT_SERIES_ID_INVALID")
+            theme_id = _token(row.get("theme_id"), "OUTPUT_THEME_ID_INVALID")
+            if (
+                checked_scope["mapping"].get(series) != theme_id
+                or row.get("role") not in contract["eligible_roles"]
+                or row.get("p2_state") != "UNDEFINED_PENDING_P2_05"
+            ):
+                raise KoreaCapitalRotationError(
+                    f"OUTPUT_THEME_BINDING_INVALID:{benchmark}:{series}"
+                )
+            prior = _decimal(
+                row.get("prior_relative_strength_vs_benchmark"),
+                f"OUTPUT_PRIOR_RELATIVE_STRENGTH_INVALID:{series}",
+            )
+            current = _decimal(
+                row.get("current_relative_strength_vs_benchmark"),
+                f"OUTPUT_CURRENT_RELATIVE_STRENGTH_INVALID:{series}",
+            )
+            if (
+                prior <= Decimal(-1)
+                or current <= Decimal(-1)
+                or row["prior_relative_strength_vs_benchmark"] != _render(prior, places)
+                or row["current_relative_strength_vs_benchmark"] != _render(current, places)
+                or row.get("relative_strength_change") != _render(current - prior, places)
+            ):
+                raise KoreaCapitalRotationError(
+                    f"OUTPUT_THEME_DERIVATION_MISMATCH:{series}"
+                )
+            rows.append({"series": series, "theme_id": theme_id, "prior": prior,
+                         "current": current, "row": row})
+        if [item["series"] for item in rows] != checked_scope["member_order"]:
+            raise KoreaCapitalRotationError(
+                f"OUTPUT_THEME_ORDER_MISMATCH:{benchmark}"
+            )
+        prior_ranked = [
+            item["series"]
+            for item in sorted(rows, key=lambda item: (-item["prior"], item["series"]))
+        ]
+        current_ranked = [
+            item["series"]
+            for item in sorted(rows, key=lambda item: (-item["current"], item["series"]))
+        ]
+        if effective:
+            prior_ranks = {
+                series: index + 1 for index, series in enumerate(prior_ranked)
+            }
+            current_ranks = {
+                series: index + 1 for index, series in enumerate(current_ranked)
+            }
+            prior_buckets = _buckets(
+                prior_ranked, checked_scope["top_count"], checked_scope["bottom_count"]
+            )
+            current_buckets = _buckets(
+                current_ranked, checked_scope["top_count"], checked_scope["bottom_count"]
+            )
+            for item in rows:
+                row = item["row"]
+                series = item["series"]
+                expected = {
+                    "prior_rank_within_benchmark": prior_ranks[series],
+                    "current_rank_within_benchmark": current_ranks[series],
+                    "rank_change_within_benchmark": prior_ranks[series] - current_ranks[series],
+                    "prior_bucket": prior_buckets[series],
+                    "current_bucket": current_buckets[series],
+                    "bucket_transition": (
+                        f"{prior_buckets[series]}_TO_{current_buckets[series]}"
+                    ),
+                }
+                if any(row.get(key) != value for key, value in expected.items()):
+                    raise KoreaCapitalRotationError(
+                        f"OUTPUT_RANK_BUCKET_MISMATCH:{benchmark}:{series}"
+                    )
+            expected_top = [
+                checked_scope["mapping"][series]
+                for series in current_ranked[: checked_scope["top_count"]]
+            ]
+            expected_bottom = [
+                checked_scope["mapping"][series]
+                for series in reversed(current_ranked[-checked_scope["bottom_count"] :])
+            ]
+            if (
+                raw_scope.get("top_themes") != expected_top
+                or raw_scope.get("bottom_themes") != expected_bottom
+            ):
+                raise KoreaCapitalRotationError(
+                    f"OUTPUT_RANKING_SUMMARY_MISMATCH:{benchmark}"
+                )
+        else:
+            for item in rows:
+                if any(
+                    item["row"].get(key) is not None
+                    for key in (
+                        "prior_rank_within_benchmark", "current_rank_within_benchmark",
+                        "rank_change_within_benchmark", "prior_bucket", "current_bucket",
+                        "bucket_transition",
+                    )
+                ):
+                    raise KoreaCapitalRotationError("OUTPUT_UNAUTHORIZED_RANKING")
+            if raw_scope.get("top_themes") != [] or raw_scope.get("bottom_themes") != []:
+                raise KoreaCapitalRotationError(
+                    f"OUTPUT_INEFFECTIVE_POLICY_SCOPE_MISMATCH:{benchmark}"
+                )
+    if output_order != policy_scope_order:
+        raise KoreaCapitalRotationError("OUTPUT_SCOPE_ORDER_MISMATCH")
+    expected_ranking_method = (
+        {
+            "metric": contract["ranking_metric"],
+            "order": contract["ranking_order"],
+            "tie_break": contract["tie_break"],
+            "cross_benchmark_ranking": False,
+        }
+        if effective else None
+    )
+    if (
+        packet.get("status")
+        != ("ROTATION_BUCKETS_OBSERVED" if effective else "POLICY_NOT_EFFECTIVE")
+        or packet.get("ranking_method") != expected_ranking_method
+    ):
+        raise KoreaCapitalRotationError("OUTPUT_POLICY_BOUNDARY_MISMATCH")
+    if packet.get("retention") != {
+        "input_policy": contract["input_retention_policy"],
+        "output_policy": contract["output_retention_policy"],
+        "source_close_rows_received": False,
+        "source_closes_emitted": False,
+        "reconstructive_series_emitted": False,
+    }:
+        raise KoreaCapitalRotationError("OUTPUT_RETENTION_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "prior_upstream_packet_sha256", "current_upstream_packet_sha256",
+        "rotation_policy_sha256", "taxonomy_packet_sha256",
+        "upstream_leadership_policy_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise KoreaCapitalRotationError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    for key in lineage_fields:
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if (
+        lineage["rotation_policy_sha256"] != payload_sha256(policy)
+        or lineage["taxonomy_packet_sha256"] != binding["taxonomy_packet_sha256"]
+        or lineage["upstream_leadership_policy_sha256"]
+        != binding["upstream_leadership_policy_sha256"]
+    ):
+        raise KoreaCapitalRotationError("OUTPUT_LINEAGE_BINDING_MISMATCH")
+    expected_authority = copy.deepcopy(contract["authority"]) | {
+        "theme_ranking_within_benchmark_authorized": effective,
+        "top_bottom_bucket_authorized": effective,
+        "bucket_transition_authorized": effective,
+    }
+    if packet.get("authority") != expected_authority:
+        raise KoreaCapitalRotationError("OUTPUT_AUTHORITY_MISMATCH")
+    if packet.get("unresolved_boundaries") != [
+        "KOREA_BREADTH_DURABLE_AVAILABLE_AT_LINEAGE_NOT_IMPLEMENTED",
+        "INVESTOR_FLOW_SOURCE_RELEASE_TIME_UNVERIFIED",
+        "INVESTOR_FLOW_NXT_NOT_INCLUDED",
+        "THEME_TAXONOMY_OPERATIONAL_POPULATION_NOT_IMPLEMENTED",
+        "P2_STATE_VOCABULARY_PENDING_P2_05",
+        "ROTATION_LEDGER_NOT_IMPLEMENTED",
+        "BRIEFING_INTEGRATION_NOT_IMPLEMENTED",
+        "PRODUCTION_NOT_AUTHORIZED",
+    ]:
+        raise KoreaCapitalRotationError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("payload_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("payload_sha256")
+    if payload_sha256(normalized) != digest:
+        raise KoreaCapitalRotationError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
