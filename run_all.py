@@ -535,6 +535,12 @@ APPROVED_TESTS = [
     #   승격은 만들지 않아 new/existing candidate change는 빈 배열이다.
     #   ⛔ ranking/promotion/action/Production/trading 및 live network 없음.
     "test/test_rotation_discovery_briefing.py",
+    # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
+    #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
+    #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
+    #   Risk breaches are evidence, never implicit rebalance/exit/order authority.
+    #   ⛔ live wiring/tracked output 없음 — synthetic packets + temp only.
+    "test/test_action_risk_portfolio_summary.py",
     # ★ P8-02 — Unified Decision Contract.
     #   Regime→Rotation/Discovery→Rule→Portfolio 결과를 exact packet SHA로 한 daily
     #   object에 연결하고 P8-03 action boundary까지 포함한다. 결측 component는

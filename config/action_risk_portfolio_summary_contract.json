@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "contract_version": "action_risk_portfolio_summary/1",
+  "output_schema_version": "action_risk_portfolio_summary_packet/1",
+  "slots": [
+    "morning",
+    "evening"
+  ],
+  "action_categories": [
+    "BUY",
+    "WATCH",
+    "REDUCE",
+    "HEDGE",
+    "EXIT",
+    "NOTHING"
+  ],
+  "runtime_action_status": "NOT_EVALUATED",
+  "source_order": [
+    "UNIFIED_DECISION",
+    "CASH_EXPOSURE_US",
+    "CASH_EXPOSURE_KOREA",
+    "CASH_EXPOSURE_CRYPTO",
+    "LONG_SHORT_INVARIANT",
+    "INVERSE_US",
+    "INVERSE_KOREA",
+    "INVERSE_CRYPTO",
+    "HEDGE_ELIGIBILITY",
+    "BEAR_HEDGE_BUDGET",
+    "CONCENTRATION_GUARD",
+    "MARKET_THEME_BUDGET",
+    "CRYPTO_EXPOSURE_LIMIT",
+    "PLANNED_LOSS_BUDGET"
+  ],
+  "required_sources": [
+    "UNIFIED_DECISION"
+  ],
+  "risk_sources": [
+    "CONCENTRATION_GUARD",
+    "MARKET_THEME_BUDGET",
+    "CRYPTO_EXPOSURE_LIMIT",
+    "PLANNED_LOSS_BUDGET"
+  ],
+  "source_specs": {
+    "BEAR_HEDGE_BUDGET": {
+      "schema_version": "bear_hedge_budget_packet/1",
+      "contract_version": "bear_hedge_risk_budget/1",
+      "statuses": ["BEAR_HEDGE_BUDGET_SET_VALIDATED"],
+      "authority_contract": "config/bear_hedge_risk_budget_contract.json"
+    },
+    "CASH_EXPOSURE_CRYPTO": {
+      "schema_version": "cash_exposure_action_packet/1",
+      "contract_version": "cash_exposure_action_boundary/1",
+      "statuses": ["CASH_EXPOSURE_ACTION_NOT_EVALUATED"],
+      "authority_contract": "config/cash_exposure_action_contract.json"
+    },
+    "CASH_EXPOSURE_KOREA": {
+      "schema_version": "cash_exposure_action_packet/1",
+      "contract_version": "cash_exposure_action_boundary/1",
+      "statuses": ["CASH_EXPOSURE_ACTION_NOT_EVALUATED"],
+      "authority_contract": "config/cash_exposure_action_contract.json"
+    },
+    "CASH_EXPOSURE_US": {
+      "schema_version": "cash_exposure_action_packet/1",
+      "contract_version": "cash_exposure_action_boundary/1",
+      "statuses": ["CASH_EXPOSURE_ACTION_NOT_EVALUATED"],
+      "authority_contract": "config/cash_exposure_action_contract.json"
+    },
+    "CONCENTRATION_GUARD": {
+      "schema_version": "concentration_correlation_packet/1",
+      "contract_version": "concentration_correlation_guard/1",
+      "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
+      "authority_contract": "config/concentration_correlation_guard_contract.json"
+    },
+    "CRYPTO_EXPOSURE_LIMIT": {
+      "schema_version": "crypto_exposure_packet/1",
+      "contract_version": "crypto_exposure_limit/1",
+      "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
+      "authority_contract": "config/crypto_exposure_limit_contract.json"
+    },
+    "HEDGE_ELIGIBILITY": {
+      "schema_version": "hedge_instrument_eligibility_packet/1",
+      "contract_version": "hedge_instrument_eligibility/1",
+      "statuses": ["ELIGIBILITY_REGISTRY_VALIDATED"],
+      "authority_contract": "config/hedge_instrument_eligibility_contract.json"
+    },
+    "INVERSE_CRYPTO": {
+      "schema_version": "regime_inverse_invariant_packet/1",
+      "contract_version": "regime_inverse_invariant/1",
+      "statuses": ["INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"],
+      "authority_contract": "config/regime_inverse_invariant_contract.json"
+    },
+    "INVERSE_KOREA": {
+      "schema_version": "regime_inverse_invariant_packet/1",
+      "contract_version": "regime_inverse_invariant/1",
+      "statuses": ["INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"],
+      "authority_contract": "config/regime_inverse_invariant_contract.json"
+    },
+    "INVERSE_US": {
+      "schema_version": "regime_inverse_invariant_packet/1",
+      "contract_version": "regime_inverse_invariant/1",
+      "statuses": ["INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"],
+      "authority_contract": "config/regime_inverse_invariant_contract.json"
+    },
+    "LONG_SHORT_INVARIANT": {
+      "schema_version": "long_short_invariant_packet/1",
+      "contract_version": "long_short_invariant/1",
+      "statuses": ["INVARIANT_ENFORCED_SHORT_NOT_EVALUATED"],
+      "authority_contract": "config/long_short_invariant_contract.json"
+    },
+    "MARKET_THEME_BUDGET": {
+      "schema_version": "market_theme_exposure_packet/1",
+      "contract_version": "market_theme_exposure_budget/1",
+      "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_BUDGET"],
+      "authority_contract": "config/market_theme_exposure_budget_contract.json"
+    },
+    "PLANNED_LOSS_BUDGET": {
+      "schema_version": "planned_loss_packet/1",
+      "contract_version": "planned_loss_budget/1",
+      "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LOSS_BUDGET"],
+      "authority_contract": "config/planned_loss_budget_contract.json"
+    },
+    "UNIFIED_DECISION": {
+      "schema_version": "unified_daily_decision/1",
+      "contract_version": "unified_decision_contract/1",
+      "statuses": ["DAILY_DECISION_ASSEMBLED_NO_ACTION_AUTHORITY"],
+      "authority_contract": "config/unified_decision_contract.json"
+    }
+  },
+  "authority": {
+    "briefing_read_model_only": true,
+    "source_interpretation_authorized": false,
+    "action_generation_authorized": false,
+    "nothing_action_inference_authorized": false,
+    "position_adjustment_authorized": false,
+    "hedge_selection_authorized": false,
+    "exit_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
