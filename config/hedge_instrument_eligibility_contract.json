@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "contract_version": "hedge_instrument_eligibility/1",
+  "input_schema_version": "hedge_instrument_registry/1",
+  "output_schema_version": "hedge_instrument_eligibility_packet/1",
+  "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_REGISTRY_RATIFIED",
+  "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
+  "effective_interval": "[valid_from, valid_to)",
+  "allowed_markets": [
+    "KOREA",
+    "US"
+  ],
+  "allowed_hedge_scopes": [
+    "INDEX",
+    "SECTOR"
+  ],
+  "required_evidence": [
+    "cost_evidence",
+    "tracking_error_evidence"
+  ],
+  "input_authority": {
+    "registry_eligibility_authorized": true,
+    "automatic_instrument_selection_authorized": false,
+    "hedge_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "eligibility_registry_validation_only": true,
+    "repository_default_registry_authorized": false,
+    "automatic_instrument_selection_authorized": false,
+    "hedge_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
