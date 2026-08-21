@@ -56,11 +56,11 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 2,
-        "contract_version": "atlas_legacy_comparison/2",
-        "legacy_batch_schema_version": "legacy_judgment_batch/2",
-        "outcome_batch_schema_version": "comparison_outcome_batch/2",
-        "output_schema_version": "atlas_legacy_comparison_packet/2",
+        "schema_version": 3,
+        "contract_version": "atlas_legacy_comparison/3",
+        "legacy_batch_schema_version": "legacy_judgment_batch/3",
+        "outcome_batch_schema_version": "comparison_outcome_batch/3",
+        "output_schema_version": "atlas_legacy_comparison_packet/3",
         "shadow_ledger_schema_version": "three_market_shadow_ledger_packet/2",
         "markets": ["US", "KOREA", "CRYPTO"],
         "slots": ["morning", "evening"],
@@ -369,6 +369,11 @@ def build_packet(shadow_ledger: dict, legacy_batch: dict, outcome_batch: dict, o
             "outcome_batch_id": outcomes["batch_id"],
             "outcome_batch_sha256": outcomes["packet_sha256"],
         },
+        "source_packets": {
+            "SHADOW_LEDGER": copy.deepcopy(shadow_ledger),
+            "LEGACY_BATCH": copy.deepcopy(legacy_batch),
+            "OUTCOME_BATCH": copy.deepcopy(outcome_batch),
+        },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
             "LIVE_COMPARISON_OBSERVATIONS_NOT_ESTABLISHED",
@@ -379,17 +384,25 @@ def build_packet(shadow_ledger: dict, legacy_batch: dict, outcome_batch: dict, o
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_packet(packet, shadow_ledger, legacy_batch, outcome_batch, contract)
+    return validate_packet(packet, contract)
 
 
-def validate_packet(packet: dict, shadow_ledger: dict, legacy_batch: dict, outcome_batch: dict, contract: dict | None = None) -> dict:
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if not isinstance(packet, dict) or set(packet) != {
         "schema_version", "contract_version", "observed_at", "status",
-        "evaluation_window_id", "comparisons", "summary", "lineage", "authority",
-        "unresolved_boundaries", "packet_sha256",
+        "evaluation_window_id", "comparisons", "summary", "lineage",
+        "source_packets", "authority", "unresolved_boundaries", "packet_sha256",
     }:
         raise AtlasLegacyComparisonError("PACKET_FIELDS_MISMATCH")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {
+        "SHADOW_LEDGER", "LEGACY_BATCH", "OUTCOME_BATCH"
+    }:
+        raise AtlasLegacyComparisonError("PACKET_SOURCE_FIELDS_MISMATCH")
+    shadow_ledger = sources["SHADOW_LEDGER"]
+    legacy_batch = sources["LEGACY_BATCH"]
+    outcome_batch = sources["OUTCOME_BATCH"]
     observed = _utc(packet.get("observed_at"), "OBSERVED_AT_INVALID")
     try:
         ledger = SHADOW.validate_ledger(shadow_ledger)

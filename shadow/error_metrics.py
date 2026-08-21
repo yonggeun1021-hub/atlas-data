@@ -7,6 +7,7 @@ import copy
 import datetime as dt
 from decimal import Decimal, ROUND_HALF_EVEN
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,19 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _load_comparison_validator():
+    path = ROOT / "shadow" / "atlas_legacy_comparison.py"
+    spec = importlib.util.spec_from_file_location("atlas_legacy_comparison_v3", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"COMPARISON_VALIDATOR_IMPORT_FAILED:{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+COMPARISON = _load_comparison_validator()
 
 
 class ShadowErrorMetricsError(ValueError):
@@ -43,10 +57,12 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "shadow_error_metrics/1",
-        "input_schema_version": "shadow_error_assessment_batch/1",
-        "output_schema_version": "shadow_error_metrics_packet/1",
+        "schema_version": 2,
+        "contract_version": "shadow_error_metrics/2",
+        "input_schema_version": "shadow_error_assessment_batch/2",
+        "output_schema_version": "shadow_error_metrics_packet/2",
+        "comparison_schema_version": "atlas_legacy_comparison_packet/3",
+        "comparison_contract_version": "atlas_legacy_comparison/3",
         "markets": ["COMMON", "US", "KOREA", "CRYPTO"],
         "metric_types": ["FALSE_POSITIVE", "MISS", "STALE", "SILENT_ERROR"],
         "metric_statuses": ["PRESENT", "ABSENT", "UNVERIFIED"],
@@ -158,7 +174,21 @@ def _validate_metric(row: dict, assessment_time: dt.datetime, metric_type: str, 
     return copy.deepcopy(row)
 
 
-def _validate_batch(value: dict, contract: dict) -> dict:
+def _validate_comparison(value: dict, contract: dict) -> dict:
+    try:
+        checked = COMPARISON.validate_packet(value)
+    except Exception as exc:
+        raise ShadowErrorMetricsError(f"COMPARISON_PACKET_INVALID:{exc}") from exc
+    if (
+        checked.get("schema_version") != contract["comparison_schema_version"]
+        or checked.get("contract_version")
+        != contract["comparison_contract_version"]
+    ):
+        raise ShadowErrorMetricsError("COMPARISON_PACKET_IDENTITY_INVALID")
+    return checked
+
+
+def _validate_batch(value: dict, comparison: dict, contract: dict) -> dict:
     fields = {
         "schema_version", "contract_version", "batch_id", "observed_at",
         "assessments", "authority", "packet_sha256",
@@ -173,6 +203,11 @@ def _validate_batch(value: dict, contract: dict) -> dict:
         raise ShadowErrorMetricsError("BATCH_IDENTITY_INVALID")
     batch_id = _token(value.get("batch_id"), "BATCH_ID_INVALID")
     observed = _utc(value.get("observed_at"), "BATCH_TIME_INVALID")
+    comparison_time = _utc(
+        comparison["observed_at"], "COMPARISON_OBSERVED_AT_INVALID"
+    )
+    if comparison_time > observed:
+        raise ShadowErrorMetricsError("COMPARISON_PACKET_FROM_FUTURE")
     digest = _sha(value.get("packet_sha256"), "BATCH_SHA_INVALID")
     normalized = copy.deepcopy(value)
     normalized.pop("packet_sha256")
@@ -186,6 +221,13 @@ def _validate_batch(value: dict, contract: dict) -> dict:
         "assessed_at", "comparison_ref", "comparison_sha256", "metrics",
     }
     assessments = []
+    comparison_by_key = {
+        (row["decision_id"], row["market"]): row
+        for row in comparison["comparisons"]
+    }
+    comparison_by_decision = {}
+    for item in comparison["comparisons"]:
+        comparison_by_decision.setdefault(item["decision_id"], []).append(item)
     for index, row in enumerate(raw):
         context = f"assessment:{index}"
         if not isinstance(row, dict) or set(row) != fields:
@@ -193,6 +235,8 @@ def _validate_batch(value: dict, contract: dict) -> dict:
         assessed = _utc(row.get("assessed_at"), f"ASSESSMENT_TIME_INVALID:{context}")
         if assessed > observed:
             raise ShadowErrorMetricsError(f"ASSESSMENT_FROM_FUTURE:{context}")
+        if assessed < comparison_time:
+            raise ShadowErrorMetricsError(f"ASSESSMENT_BEFORE_COMPARISON:{context}")
         if row.get("market") not in contract["markets"]:
             raise ShadowErrorMetricsError(f"ASSESSMENT_MARKET_INVALID:{context}")
         checked = {
@@ -205,6 +249,25 @@ def _validate_batch(value: dict, contract: dict) -> dict:
             "comparison_ref": _text(row.get("comparison_ref"), f"COMPARISON_REF_INVALID:{context}"),
             "comparison_sha256": _sha(row.get("comparison_sha256"), f"COMPARISON_SHA_INVALID:{context}"),
         }
+        if checked["comparison_sha256"] != comparison["packet_sha256"]:
+            raise ShadowErrorMetricsError(f"COMPARISON_SHA_MISMATCH:{context}")
+        if checked["window_id"] != comparison["evaluation_window_id"]:
+            raise ShadowErrorMetricsError(f"COMPARISON_WINDOW_MISMATCH:{context}")
+        if checked["market"] == "COMMON":
+            candidates = comparison_by_decision.get(checked["decision_id"], [])
+            if not candidates:
+                raise ShadowErrorMetricsError(f"COMPARISON_DECISION_MISSING:{context}")
+            dates = {item["decision_date"] for item in candidates}
+            if dates != {checked["decision_date"]}:
+                raise ShadowErrorMetricsError(f"COMPARISON_DATE_MISMATCH:{context}")
+        else:
+            comparison_row = comparison_by_key.get(
+                (checked["decision_id"], checked["market"])
+            )
+            if comparison_row is None:
+                raise ShadowErrorMetricsError(f"COMPARISON_KEY_MISSING:{context}")
+            if comparison_row["decision_date"] != checked["decision_date"]:
+                raise ShadowErrorMetricsError(f"COMPARISON_DATE_MISMATCH:{context}")
         metrics = row.get("metrics")
         if not isinstance(metrics, list) or [item.get("metric_type") for item in metrics if isinstance(item, dict)] != contract["metric_types"]:
             raise ShadowErrorMetricsError(f"METRIC_SET_INVALID:{context}")
@@ -255,23 +318,46 @@ def _aggregate(assessments: list[dict], contract: dict) -> list[dict]:
     return rows
 
 
-def build_packet(batch: dict, contract: dict | None = None) -> dict:
+def build_packet(
+    batch: dict, comparison_packet: dict, contract: dict | None = None
+) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
-    checked = _validate_batch(batch, contract)
-    packet = build_packet_unchecked(checked, contract)
-    return validate_packet(packet, batch, contract)
+    comparison = _validate_comparison(comparison_packet, contract)
+    checked = _validate_batch(batch, comparison, contract)
+    packet = build_packet_unchecked(
+        checked, batch, comparison_packet, comparison, contract
+    )
+    return validate_packet(packet, contract)
 
 
-def validate_packet(packet: dict, batch: dict, contract: dict | None = None) -> dict:
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
-    checked = _validate_batch(batch, contract)
-    expected = build_packet_unchecked(checked, contract)
+    if not isinstance(packet, dict):
+        raise ShadowErrorMetricsError("PACKET_NOT_OBJECT")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {
+        "ASSESSMENT_BATCH", "ATLAS_LEGACY_COMPARISON"
+    }:
+        raise ShadowErrorMetricsError("PACKET_SOURCE_FIELDS_MISMATCH")
+    batch = sources["ASSESSMENT_BATCH"]
+    comparison_packet = sources["ATLAS_LEGACY_COMPARISON"]
+    comparison = _validate_comparison(comparison_packet, contract)
+    checked = _validate_batch(batch, comparison, contract)
+    expected = build_packet_unchecked(
+        checked, batch, comparison_packet, comparison, contract
+    )
     if packet != expected:
         raise ShadowErrorMetricsError("PACKET_CONTENT_MISMATCH")
     return copy.deepcopy(packet)
 
 
-def build_packet_unchecked(checked: dict, contract: dict) -> dict:
+def build_packet_unchecked(
+    checked: dict,
+    batch: dict,
+    comparison_packet: dict,
+    comparison: dict,
+    contract: dict,
+) -> dict:
     assessments = checked["assessments"]
     metrics = _aggregate(assessments, contract)
     packet = {
@@ -291,7 +377,16 @@ def build_packet_unchecked(checked: dict, contract: dict) -> dict:
             "causal_conclusion": None,
             "strategy_change": None,
         },
-        "lineage": {"assessment_batch_id": checked["batch_id"], "assessment_batch_sha256": checked["packet_sha256"]},
+        "lineage": {
+            "assessment_batch_id": checked["batch_id"],
+            "assessment_batch_sha256": checked["packet_sha256"],
+            "comparison_evaluation_window_id": comparison["evaluation_window_id"],
+            "comparison_packet_sha256": comparison["packet_sha256"],
+        },
+        "source_packets": {
+            "ASSESSMENT_BATCH": copy.deepcopy(batch),
+            "ATLAS_LEGACY_COMPARISON": copy.deepcopy(comparison_packet),
+        },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
             "METRIC_DEFINITIONS_REQUIRE_EXTERNAL_RATIFICATION",
@@ -330,9 +425,12 @@ def write_json_atomic(path: Path, value: dict) -> None:
         raise
 
 
-def run(input_path: Path, output_path: Path) -> int:
+def run(input_path: Path, comparison_path: Path, output_path: Path) -> int:
     try:
-        write_json_atomic(output_path, build_packet(_read_json(input_path)))
+        write_json_atomic(
+            output_path,
+            build_packet(_read_json(input_path), _read_json(comparison_path)),
+        )
         return 0
     except (ShadowErrorMetricsError, OSError, TypeError, ValueError) as exc:
         print(f"Shadow error metrics failed: {exc}")
@@ -342,9 +440,10 @@ def run(input_path: Path, output_path: Path) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
+    parser.add_argument("comparison", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    return run(args.input, args.out)
+    return run(args.input, args.comparison, args.out)
 
 
 if __name__ == "__main__":

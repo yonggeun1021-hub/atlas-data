@@ -22,7 +22,22 @@ def load_module(name, path):
 
 
 MODULE = load_module("shadow_error_metrics", SOURCE)
+COMPARISON_FIXTURE = load_module(
+    "shadow_metrics_comparison_fixture",
+    ROOT / "test" / "test_atlas_legacy_comparison.py",
+)
 CONTRACT = MODULE.load_contract()
+COMPARISON_PACKET = COMPARISON_FIXTURE.MODULE.build_packet(
+    COMPARISON_FIXTURE.shadow_ledger(),
+    COMPARISON_FIXTURE.legacy(),
+    COMPARISON_FIXTURE.outcomes(),
+    "2026-08-21T03:05:00Z",
+    COMPARISON_FIXTURE.CONTRACT,
+)
+
+
+def comparison():
+    return copy.deepcopy(COMPARISON_PACKET)
 
 
 def metric(metric_type, status):
@@ -58,15 +73,15 @@ def assessment(
         "window_id": "WINDOW.SAME.DAY.001",
         "assessed_at": "2026-08-21T04:00:00Z",
         "comparison_ref": "test://comparison/packet",
-        "comparison_sha256": "e" * 64,
+        "comparison_sha256": COMPARISON_PACKET["packet_sha256"],
         "metrics": [metric(kind, statuses[kind]) for kind in CONTRACT["metric_types"]],
     }
 
 
 def batch(rows=None):
     value = {
-        "schema_version": "shadow_error_assessment_batch/1",
-        "contract_version": "shadow_error_metrics/1",
+        "schema_version": CONTRACT["input_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "batch_id": "SHADOW.AUDIT.BATCH.001",
         "observed_at": "2026-08-21T04:05:00Z",
         "assessments": [assessment()] if rows is None else rows,
@@ -92,7 +107,7 @@ class ShadowErrorMetricsTests(unittest.TestCase):
                 self.assertFalse(value, key)
 
     def test_present_absent_and_unverified_counts_use_verified_denominator(self):
-        packet = MODULE.build_packet(batch(), CONTRACT)
+        packet = MODULE.build_packet(batch(), comparison(), CONTRACT)
         metrics = by_metric(packet)
         self.assertEqual(metrics["FALSE_POSITIVE"]["present_count"], 1)
         self.assertEqual(metrics["FALSE_POSITIVE"]["verified_denominator"], 1)
@@ -104,7 +119,7 @@ class ShadowErrorMetricsTests(unittest.TestCase):
         self.assertIsNone(metrics["SILENT_ERROR"]["rate"])
 
     def test_zero_assessments_never_report_zero_percent(self):
-        packet = MODULE.build_packet(batch([]), CONTRACT)
+        packet = MODULE.build_packet(batch([]), comparison(), CONTRACT)
         self.assertEqual(packet["assessment_count"], 0)
         self.assertEqual(packet["summary"]["zero_denominator_metric_count"], 4)
         self.assertTrue(all(row["rate"] is None for row in packet["metrics"]))
@@ -127,7 +142,7 @@ class ShadowErrorMetricsTests(unittest.TestCase):
                 },
             ),
         ]
-        packet = MODULE.build_packet(batch(rows), CONTRACT)
+        packet = MODULE.build_packet(batch(rows), comparison(), CONTRACT)
         metrics = by_metric(packet)
         self.assertEqual(metrics["FALSE_POSITIVE"]["rate"], "0.333333")
         self.assertEqual(metrics["MISS"]["rate"], "0.333333")
@@ -137,58 +152,100 @@ class ShadowErrorMetricsTests(unittest.TestCase):
         missing = assessment()
         missing["metrics"] = missing["metrics"][:-1]
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "METRIC_SET_INVALID"):
-            MODULE.build_packet(batch([missing]), CONTRACT)
+            MODULE.build_packet(batch([missing]), comparison(), CONTRACT)
         reordered = assessment()
         reordered["metrics"] = list(reversed(reordered["metrics"]))
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "METRIC_SET_INVALID"):
-            MODULE.build_packet(batch([reordered]), CONTRACT)
+            MODULE.build_packet(batch([reordered]), comparison(), CONTRACT)
 
     def test_verified_claim_requires_evidence_and_unverified_forbids_it(self):
         no_evidence = assessment()
         no_evidence["metrics"][0]["evidence_ref"] = None
         no_evidence["metrics"][0]["evidence_sha256"] = None
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "METRIC_EVIDENCE_REF_INVALID"):
-            MODULE.build_packet(batch([no_evidence]), CONTRACT)
+            MODULE.build_packet(batch([no_evidence]), comparison(), CONTRACT)
         hidden = assessment()
         hidden["metrics"][-1]["evidence_ref"] = "test://hidden"
         hidden["metrics"][-1]["evidence_sha256"] = "f" * 64
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "UNVERIFIED_HAS_EVIDENCE"):
-            MODULE.build_packet(batch([hidden]), CONTRACT)
+            MODULE.build_packet(batch([hidden]), comparison(), CONTRACT)
 
     def test_duplicate_population_and_authority_drift_fail_closed(self):
         duplicate = batch([assessment(), assessment("ASSESSMENT.US.002")])
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "ASSESSMENT_KEY_DUPLICATE"):
-            MODULE.build_packet(duplicate, CONTRACT)
+            MODULE.build_packet(duplicate, comparison(), CONTRACT)
         drift = batch()
         drift["authority"]["performance_interpretation_authorized"] = True
         drift["packet_sha256"] = MODULE.payload_sha256({
             key: value for key, value in drift.items() if key != "packet_sha256"
         })
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "BATCH_IDENTITY_INVALID"):
-            MODULE.build_packet(drift, CONTRACT)
+            MODULE.build_packet(drift, comparison(), CONTRACT)
+
+    def test_assessments_are_bound_to_exact_comparison_key_window_and_sha(self):
+        wrong_sha = assessment()
+        wrong_sha["comparison_sha256"] = "f" * 64
+        wrong_window = assessment()
+        wrong_window["window_id"] = "WINDOW.OTHER.001"
+        wrong_key = assessment()
+        wrong_key["decision_id"] = "atlas-2026-08-20-morning"
+        wrong_key["decision_date"] = "2026-08-20"
+        cases = [
+            (wrong_sha, "COMPARISON_SHA_MISMATCH"),
+            (wrong_window, "COMPARISON_WINDOW_MISMATCH"),
+            (wrong_key, "COMPARISON_KEY_MISSING"),
+        ]
+        for row, error in cases:
+            with self.subTest(error=error), self.assertRaisesRegex(
+                MODULE.ShadowErrorMetricsError, error
+            ):
+                MODULE.build_packet(batch([row]), comparison(), CONTRACT)
+
+    def test_self_rehashed_embedded_comparison_authority_tamper_fails_closed(self):
+        packet = MODULE.build_packet(batch(), comparison(), CONTRACT)
+        embedded = packet["source_packets"]["ATLAS_LEGACY_COMPARISON"]
+        embedded["authority"]["winner_selection_authorized"] = True
+        embedded["packet_sha256"] = COMPARISON_FIXTURE.MODULE.payload_sha256(
+            {key: value for key, value in embedded.items() if key != "packet_sha256"}
+        )
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ShadowErrorMetricsError, "COMPARISON_PACKET_INVALID"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
 
     def test_output_never_creates_cause_strategy_change_or_action(self):
-        packet = MODULE.build_packet(batch(), CONTRACT)
+        packet = MODULE.build_packet(batch(), comparison(), CONTRACT)
         self.assertIsNone(packet["summary"]["causal_conclusion"])
         self.assertIsNone(packet["summary"]["strategy_change"])
         self.assertFalse(packet["authority"]["action_generation_authorized"])
         tampered = copy.deepcopy(packet)
         tampered["summary"]["strategy_change"] = "REDUCE"
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "PACKET_CONTENT_MISMATCH"):
-            MODULE.validate_packet(tampered, batch(), CONTRACT)
+            MODULE.validate_packet(tampered, CONTRACT)
 
     def test_build_is_deterministic_hash_bound_and_input_immutable(self):
         source = batch()
         before = MODULE.canonical_json(source)
-        first = MODULE.build_packet(source, CONTRACT)
-        second = MODULE.build_packet(source, CONTRACT)
+        first = MODULE.build_packet(source, comparison(), CONTRACT)
+        second = MODULE.build_packet(source, comparison(), CONTRACT)
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
         self.assertEqual(MODULE.canonical_json(source), before)
         self.assertEqual(first["lineage"]["assessment_batch_sha256"], source["packet_sha256"])
+        self.assertEqual(
+            first["lineage"]["comparison_packet_sha256"],
+            COMPARISON_PACKET["packet_sha256"],
+        )
+        self.assertEqual(first["source_packets"]["ASSESSMENT_BATCH"], source)
+        self.assertEqual(
+            first["source_packets"]["ATLAS_LEGACY_COMPARISON"], COMPARISON_PACKET
+        )
         digest = copy.deepcopy(first)
         digest["packet_sha256"] = "0" * 64
         with self.assertRaisesRegex(MODULE.ShadowErrorMetricsError, "PACKET_CONTENT_MISMATCH"):
-            MODULE.validate_packet(digest, source, CONTRACT)
+            MODULE.validate_packet(digest, CONTRACT)
 
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
@@ -203,12 +260,14 @@ class ShadowErrorMetricsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
             input_path = temp / "input.json"
+            comparison_path = temp / "comparison.json"
             input_path.write_text(json.dumps(batch()), encoding="utf-8")
+            comparison_path.write_text(json.dumps(comparison()), encoding="utf-8")
             output = temp / "out" / "metrics.json"
-            self.assertEqual(MODULE.run(input_path, output), 0)
+            self.assertEqual(MODULE.run(input_path, comparison_path, output), 0)
             self.assertEqual(json.loads(output.read_text())["assessment_count"], 1)
             forbidden = ROOT / "data" / "shadow_error_metrics_test.json"
-            self.assertEqual(MODULE.run(input_path, forbidden), 1)
+            self.assertEqual(MODULE.run(input_path, comparison_path, forbidden), 1)
             self.assertFalse(forbidden.exists())
 
 
