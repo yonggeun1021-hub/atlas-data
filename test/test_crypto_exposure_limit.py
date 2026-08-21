@@ -114,6 +114,7 @@ def write_json(path, value):
 
 class CryptoExposureLimitTests(unittest.TestCase):
     def test_contract_has_no_default_limit_or_action_authority(self):
+        self.assertEqual(CONTRACT["output_schema_version"], "crypto_exposure_packet/2")
         self.assertEqual(CONTRACT["volatility_transform_version"], "btc_risk/v1")
         self.assertEqual(CONTRACT["volatility_lookback_returns"], 30)
         self.assertTrue(CONTRACT["authority"]["crypto_exposure_limit_evaluation_only"])
@@ -140,6 +141,10 @@ class CryptoExposureLimitTests(unittest.TestCase):
         self.assertEqual(packet["order_intents"], [])
         self.assertEqual(packet["lineage"]["input_packet_sha256"], source["packet_sha256"])
         self.assertEqual(packet["lineage"]["policy_packet_sha256"], ratified["packet_sha256"])
+        self.assertEqual(
+            packet["source_packets"]["INPUT"]["packet_sha256"], source["packet_sha256"]
+        )
+        self.assertEqual(packet["source_packets"]["POLICY"], ratified)
 
     def test_each_limit_breaches_independently(self):
         packet = MODULE.build_packet(
@@ -259,9 +264,62 @@ class CryptoExposureLimitTests(unittest.TestCase):
         })
         with self.assertRaisesRegex(
             MODULE.CryptoExposureLimitError,
-            "OUTPUT_ASSESSMENT_RESULT_MISMATCH",
+            "OUTPUT_DERIVATION_MISMATCH",
         ):
             MODULE.validate_packet(packet, CONTRACT)
+
+    def test_self_rehashed_exposure_and_limit_forgery_fails_closed(self):
+        packet = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
+        total_loss_index = next(
+            index
+            for index, row in enumerate(packet["assessments"])
+            if row["metric"] == "TOTAL_PLANNED_LOSS"
+        )
+        exposure_rows = packet["assessments"][1:total_loss_index]
+        self.assertEqual(exposure_rows[0]["result"], "PASS")
+        exposure_rows[0]["observed"] = 0.30
+        for row in [packet["assessments"][0], *exposure_rows]:
+            row["maximum"] = 999
+            row["result"] = "PASS"
+        packet["assessments"][0]["observed"] = MODULE._rounded_sum(
+            row["observed"] for row in exposure_rows
+        )
+        packet["summary"]["total_crypto_exposure"] = packet["assessments"][0]["observed"]
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.CryptoExposureLimitError,
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_embedded_policy_is_revalidated_at_consumption(self):
+        original = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
+
+        draft = copy.deepcopy(original)
+        draft["source_packets"]["POLICY"]["status"] = "DRAFT"
+        draft["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in draft.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.CryptoExposureLimitError,
+            "POLICY_IDENTITY_INVALID",
+        ):
+            MODULE.validate_packet(draft, CONTRACT)
+
+        stale_digest = copy.deepcopy(original)
+        stale_digest["source_packets"]["POLICY"]["limits"][
+            "max_single_crypto_exposure"
+        ] = 999
+        stale_digest["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in stale_digest.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.CryptoExposureLimitError,
+            "POLICY_PACKET_SHA_MISMATCH",
+        ):
+            MODULE.validate_packet(stale_digest, CONTRACT)
 
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))

@@ -22,9 +22,11 @@ position, or create an order. Those outputs remain null/empty and all
 Production/trading authority remains false. CLI output inside the repository
 tree is forbidden.
 
-`validate_packet()` rechecks each output assessment's exact scope identity,
-UNKNOWN-only Regime, exposure-versus-maximum result, breach list, summary,
-closed action fields, three-market Regime lineage, authority, and packet hash.
-A self-rehashed result or summary mutation therefore fails closed. Version 1
-does not embed the original input and policy packets, so standalone validation
-does not claim to reconstruct source values omitted from the output schema.
+Output schema `market_theme_exposure_packet/2` embeds the exact normalized
+input and full ratified policy packets. `validate_packet()` re-runs the same
+input and policy validators used at ingestion, including policy status,
+effective interval, complete active budget coverage, source lineage, and both
+source packet hashes. It then rebuilds every assessment, breach, summary, and
+closed action field from those validated sources. Re-hashing an envelope after
+raising a maximum, changing an exposure, or suppressing a breach therefore
+fails closed at the standalone and P8 consumption boundaries.

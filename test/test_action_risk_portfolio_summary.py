@@ -323,7 +323,10 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             with self.subTest(source=name):
                 packets, reasons = bundle()
                 source = packets[name]
-                source["assessments"][0]["result"] = "BREACH"
+                maximum_field = (
+                    "max_exposure" if name == "MARKET_THEME_BUDGET" else "maximum"
+                )
+                source["assessments"][0][maximum_field] = 999
                 source["packet_sha256"] = MODULE.payload_sha256({
                     key: value
                     for key, value in source.items()
@@ -331,7 +334,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                 })
                 with self.assertRaisesRegex(
                     MODULE.ActionRiskPortfolioSummaryError,
-                    f"{name}_INVALID:OUTPUT_ASSESSMENT_RESULT_MISMATCH",
+                    f"{name}_INVALID:OUTPUT_DERIVATION_MISMATCH",
                 ):
                     MODULE.build_summary(
                         packets, reasons, "2026-08-21T00:35:00Z", CONTRACT

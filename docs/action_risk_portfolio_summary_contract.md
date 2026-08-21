@@ -21,10 +21,12 @@ exact US/Korea/Crypto market identity. A recomputed source hash cannot hide a
 mutation to those derived or authority-bearing fields; the validators do not
 claim to reconstruct source inputs that their v1 output schemas do not embed.
 
-P7-04 Market/Theme Budget and P7-05 Crypto Exposure Limit also pass through
-their production output validators. Assessment structure, totals, risk result
-and breach derivation, summaries, action closures, authority, and lineage are
-checked before their findings enter the briefing summary.
+P7-04 Market/Theme Budget and P7-05 Crypto Exposure Limit output schema v2
+also pass through their production validators. Each embeds and revalidates its
+exact input and ratified policy packet before re-deriving limits, measured
+exposures, assessments, breaches, summaries, action closures, authority, and
+lineage. A self-rehashed raised limit or suppressed breach cannot enter the
+briefing summary.
 
 The output embeds the exact 15-source bundle and unavailable-reason map, then
 rebuilds itself during `validate_packet()`. A self-rehashed summary mutation or

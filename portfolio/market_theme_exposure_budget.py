@@ -46,7 +46,7 @@ def _expected_contract() -> dict:
         "contract_version": "market_theme_exposure_budget/1",
         "policy_schema_version": "market_theme_budget_policy/1",
         "input_schema_version": "market_theme_exposure_input/1",
-        "output_schema_version": "market_theme_exposure_packet/1",
+        "output_schema_version": "market_theme_exposure_packet/2",
         "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
         "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
         "budget_unit": "NAV_FRACTION",
@@ -421,16 +421,13 @@ def _validate_input(value: dict, as_of: str, contract: dict) -> dict:
     return {"normalized": normalized, "packet_sha256": digest}
 
 
-def build_packet(
-    input_value: dict,
-    policy_value: dict,
-    as_of_date: str,
-    contract: dict | None = None,
-) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
-    checked = _validate_input(input_value, as_of, contract)
-    policy = _validate_policy(policy_value, as_of, contract)
+def _source_packet(validated: dict) -> dict:
+    packet = copy.deepcopy(validated["normalized"])
+    packet["packet_sha256"] = validated["packet_sha256"]
+    return packet
+
+
+def _assemble(checked: dict, policy: dict, as_of: str, contract: dict) -> dict:
     source = checked["normalized"]
     regime_by_market = {row["market"]: row for row in source["regimes"]}
     active_by_key = {}
@@ -488,6 +485,10 @@ def build_packet(
         "target_exposures": None,
         "position_sizes": None,
         "order_intents": [],
+        "source_packets": {
+            "INPUT": _source_packet(checked),
+            "POLICY": _source_packet(policy),
+        },
         "lineage": {
             "input_packet_sha256": checked["packet_sha256"],
             "policy_packet_sha256": policy["packet_sha256"],
@@ -507,6 +508,20 @@ def build_packet(
             "ORDER_NOT_AUTHORIZED",
         ],
     }
+    return packet
+
+
+def build_packet(
+    input_value: dict,
+    policy_value: dict,
+    as_of_date: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
+    checked = _validate_input(input_value, as_of, contract)
+    policy = _validate_policy(policy_value, as_of, contract)
+    packet = _assemble(checked, policy, as_of, contract)
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
 
@@ -517,151 +532,28 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "schema_version", "contract_version", "status", "as_of_date",
         "snapshot_id", "policy_set_id", "assessments", "breaches", "summary",
         "recommended_rebalance", "target_exposures", "position_sizes",
-        "order_intents", "lineage", "authority", "unresolved_boundaries",
-        "packet_sha256",
+        "order_intents", "source_packets", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise MarketThemeExposureBudgetError("OUTPUT_FIELDS_MISMATCH")
     if (
         packet.get("schema_version") != contract["output_schema_version"]
         or packet.get("contract_version") != contract["contract_version"]
-        or packet.get("authority") != contract["authority"]
-        or packet.get("recommended_rebalance") is not None
-        or packet.get("target_exposures") is not None
-        or packet.get("position_sizes") is not None
-        or packet.get("order_intents") != []
     ):
         raise MarketThemeExposureBudgetError("OUTPUT_IDENTITY_INVALID")
-    _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
-    _id(packet.get("snapshot_id"), "OUTPUT_SNAPSHOT_ID_INVALID")
-    _id(packet.get("policy_set_id"), "OUTPUT_POLICY_SET_ID_INVALID")
-    raw_assessments = packet.get("assessments")
-    assessment_fields = {
-        "scope_type", "market", "scope_id", "regime", "exposure",
-        "max_exposure", "unit", "result", "budget_id",
-        "exposure_source_sha256", "rotation_packet_sha256",
-    }
-    if not isinstance(raw_assessments, list) or not raw_assessments:
-        raise MarketThemeExposureBudgetError("OUTPUT_ASSESSMENTS_EMPTY")
-    assessments = []
-    for row in raw_assessments:
-        if not isinstance(row, dict) or set(row) != assessment_fields:
-            raise MarketThemeExposureBudgetError("OUTPUT_ASSESSMENT_FIELDS_MISMATCH")
-        scope_type = row.get("scope_type")
-        market = row.get("market")
-        scope_id = _id(row.get("scope_id"), "OUTPUT_ASSESSMENT_SCOPE_ID_INVALID")
-        if (
-            scope_type not in contract["allowed_scope_types"]
-            or market not in contract["allowed_markets"]
-            or row.get("regime") not in contract["runtime_authorized_regimes"]
-            or row.get("unit") != contract["budget_unit"]
-        ):
-            raise MarketThemeExposureBudgetError("OUTPUT_ASSESSMENT_IDENTITY_INVALID")
-        rotation_sha = _sha(
-            row.get("rotation_packet_sha256"),
-            "OUTPUT_ROTATION_PACKET_SHA_INVALID",
-            nullable=True,
-        )
-        if scope_type == "MARKET":
-            if scope_id != market or rotation_sha is not None:
-                raise MarketThemeExposureBudgetError("OUTPUT_MARKET_SCOPE_INVALID")
-        elif rotation_sha is None:
-            raise MarketThemeExposureBudgetError("OUTPUT_THEME_ROTATION_REQUIRED")
-        exposure = _number(row.get("exposure"), "OUTPUT_EXPOSURE_INVALID")
-        maximum = _number(
-            row.get("max_exposure"), "OUTPUT_MAX_EXPOSURE_INVALID", positive=True
-        )
-        expected_result = "BREACH" if exposure > maximum else "PASS"
-        if row.get("result") != expected_result:
-            raise MarketThemeExposureBudgetError("OUTPUT_ASSESSMENT_RESULT_MISMATCH")
-        assessments.append({
-            "scope_type": scope_type,
-            "market": market,
-            "scope_id": scope_id,
-            "regime": row["regime"],
-            "exposure": exposure,
-            "max_exposure": maximum,
-            "unit": contract["budget_unit"],
-            "result": expected_result,
-            "budget_id": _id(row.get("budget_id"), "OUTPUT_BUDGET_ID_INVALID"),
-            "exposure_source_sha256": _sha(
-                row.get("exposure_source_sha256"),
-                "OUTPUT_EXPOSURE_SOURCE_SHA_INVALID",
-            ),
-            "rotation_packet_sha256": rotation_sha,
-        })
-    assessments = sorted(
-        assessments,
-        key=lambda row: (row["scope_type"], row["market"], row["scope_id"]),
-    )
-    keys = [
-        (row["scope_type"], row["market"], row["scope_id"])
-        for row in assessments
-    ]
-    if raw_assessments != assessments or len(keys) != len(set(keys)):
-        raise MarketThemeExposureBudgetError("OUTPUT_ASSESSMENT_ORDER_INVALID")
-    breaches = [
-        {
-            "scope_type": row["scope_type"],
-            "market": row["market"],
-            "scope_id": row["scope_id"],
-        }
-        for row in assessments
-        if row["result"] == "BREACH"
-    ]
-    if packet.get("breaches") != breaches:
-        raise MarketThemeExposureBudgetError("OUTPUT_BREACHES_MISMATCH")
-    summary = packet.get("summary")
-    unused = summary.get("unused_active_budget_ids") if isinstance(summary, dict) else None
-    if (
-        not isinstance(unused, list)
-        or unused != sorted(set(unused))
-        or any(_id(value, "OUTPUT_UNUSED_BUDGET_ID_INVALID") != value for value in unused)
-        or set(unused).intersection(row["budget_id"] for row in assessments)
-    ):
-        raise MarketThemeExposureBudgetError("OUTPUT_UNUSED_BUDGET_IDS_INVALID")
-    if summary != {
-        "assessment_count": len(assessments),
-        "market_assessment_count": sum(
-            row["scope_type"] == "MARKET" for row in assessments
-        ),
-        "theme_assessment_count": sum(
-            row["scope_type"] == "THEME" for row in assessments
-        ),
-        "breach_count": len(breaches),
-        "unused_active_budget_ids": unused,
-    }:
-        raise MarketThemeExposureBudgetError("OUTPUT_SUMMARY_MISMATCH")
-    expected_status = "LIMIT_BREACH" if breaches else "WITHIN_RATIFIED_BUDGET"
-    if packet.get("status") != expected_status:
-        raise MarketThemeExposureBudgetError("OUTPUT_STATUS_MISMATCH")
-    lineage = packet.get("lineage")
-    lineage_fields = {
-        "input_packet_sha256", "policy_packet_sha256",
-        "portfolio_snapshot_sha256", "concentration_guard_packet_sha256",
-        "theme_taxonomy_packet_sha256", "regime_packet_sha256_by_market",
-    }
-    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
-        raise MarketThemeExposureBudgetError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
-    for key in lineage_fields - {"regime_packet_sha256_by_market"}:
-        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
-    regimes = lineage.get("regime_packet_sha256_by_market")
-    if not isinstance(regimes, dict) or set(regimes) != set(contract["allowed_markets"]):
-        raise MarketThemeExposureBudgetError("OUTPUT_REGIME_LINEAGE_INVALID")
-    for market in contract["allowed_markets"]:
-        _sha(regimes.get(market), f"OUTPUT_REGIME_LINEAGE_SHA_INVALID:{market}")
-    if packet.get("unresolved_boundaries") != [
-        "NO_REPOSITORY_DEFAULT_EXPOSURE_BUDGET",
-        "CURRENT_REGIME_RUNTIME_UNKNOWN_ONLY",
-        "NO_AUTOMATIC_REBALANCE",
-        "POSITION_SIZING_NOT_AUTHORIZED",
-        "ORDER_NOT_AUTHORIZED",
-    ]:
-        raise MarketThemeExposureBudgetError("OUTPUT_BOUNDARIES_MISMATCH")
-    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
-    normalized = copy.deepcopy(packet)
-    normalized.pop("packet_sha256")
-    if payload_sha256(normalized) != digest:
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {"INPUT", "POLICY"}:
+        raise MarketThemeExposureBudgetError("OUTPUT_SOURCE_PACKETS_INVALID")
+    checked = _validate_input(sources["INPUT"], as_of, contract)
+    policy = _validate_policy(sources["POLICY"], as_of, contract)
+    expected = _assemble(checked, policy, as_of, contract)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise MarketThemeExposureBudgetError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
         raise MarketThemeExposureBudgetError("OUTPUT_PACKET_SHA_MISMATCH")
     return copy.deepcopy(packet)
 

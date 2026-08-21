@@ -23,9 +23,12 @@ not reduction, sizing, or order instructions; those outputs stay null/empty
 and Production/trading authority remains false. CLI output inside the
 repository tree is forbidden.
 
-`validate_packet()` rechecks the fixed assessment structure, per-asset identity,
-total exposure and planned-loss sums, result and breach derivation, upstream
-P7-04 status, summary, closed action fields, lineage, authority, and packet
-hash. Self-rehashed semantic drift fails closed. Version 1 does not embed the
-original position, volatility, and policy packets, so standalone validation
-does not claim to reconstruct source values omitted from the output schema.
+Output schema `crypto_exposure_packet/2` embeds the exact normalized input and
+full ratified policy packets. `validate_packet()` re-runs the ingestion input
+and policy validators, including policy status and effective interval,
+position/volatility identity, upstream P7-04 status, source lineage, and both
+source packet hashes. It then rebuilds every total, per-asset assessment,
+breach, summary, and closed action field from those validated sources.
+Re-hashing an envelope after raising a limit, changing a measured exposure, or
+suppressing a breach therefore fails closed at the standalone and P8
+consumption boundaries.
