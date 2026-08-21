@@ -249,6 +249,30 @@ class UnifiedDecisionContractTests(unittest.TestCase):
                         "2026-08-21T02:10:00Z", CONTRACT,
                     )
 
+    def test_forged_bucket_membership_component_is_rejected_before_assembly(self):
+        # Mirrors the bucket_membership.py fix: a fabricated membership row for
+        # an asset the CIO never actually ratified into the assignment set,
+        # injected directly into PORTFOLIO_BUCKET's active_memberships, must
+        # never reach the assembled Unified Decision packet.
+        source = components()
+        forged = copy.deepcopy(source["PORTFOLIO_BUCKET"])
+        fake_row = copy.deepcopy(forged["active_memberships"][0])
+        fake_row["asset_id"] = "US:XNAS:NEVERRATIFIED"
+        forged["active_memberships"].append(fake_row)
+        forged["summary"]["subject_count"] = len(forged["active_memberships"])
+        forged["summary"]["active_membership_count"] = len(forged["active_memberships"])
+        forged.pop("packet_sha256")
+        forged["packet_sha256"] = MODULE.payload_sha256(forged)
+        source["PORTFOLIO_BUCKET"] = forged
+        with self.assertRaisesRegex(
+            MODULE.UnifiedDecisionContractError,
+            "COMPONENT_SEMANTIC_INVALID:PORTFOLIO_BUCKET:.*OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.build_packet(
+                source, reasons(), "2026-08-21", "morning",
+                "2026-08-21T02:10:00Z", CONTRACT,
+            )
+
     def test_component_slot_and_missing_reason_contracts_fail_closed(self):
         wrong_slot = components()
         wrong_slot["REGIME"] = REGIME_FIXTURE.MODULE.build_header(

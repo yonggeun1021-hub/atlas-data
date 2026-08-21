@@ -349,9 +349,81 @@ class BucketMembershipTests(unittest.TestCase):
         })
         with self.assertRaisesRegex(
             MODULE.BucketMembershipError,
-            "OUTPUT_SUMMARY_MISMATCH",
+            "OUTPUT_DERIVATION_MISMATCH",
         ):
             MODULE.validate_packet(packet, CONTRACT)
+
+    def test_output_embeds_full_source_packets_for_consumer_revalidation(self):
+        constitution = ratified_constitution()
+        packet = MODULE.build_packet(
+            assignment_set(constitution), constitution, "2026-08-21", CONTRACT
+        )
+        sources = packet["source_packets"]
+        self.assertEqual(sources["constitution"], constitution)
+        self.assertEqual(
+            sources["assignment_set"]["assignment_set_id"], "TEST-BUCKET-SET-2026-08-20"
+        )
+        self.assertEqual(
+            packet["lineage"]["assignment_set_sha256"],
+            sources["assignment_set"]["packet_sha256"],
+        )
+
+    def test_consumer_revalidates_membership_against_real_sources(self):
+        constitution = ratified_constitution()
+        original = MODULE.build_packet(
+            assignment_set(constitution), constitution, "2026-08-21", CONTRACT
+        )
+
+        # A packet that never derived from any real assignment_set/constitution
+        # (only self-consistent within its own summary) must be rejected — a
+        # bare lineage SHA pointer with no re-derivable source is not proof.
+        forged_summary_only = copy.deepcopy(original)
+        forged_summary_only["summary"]["subject_count"] += 1
+        forged_summary_only.pop("packet_sha256")
+        forged_summary_only["packet_sha256"] = MODULE.payload_sha256(
+            forged_summary_only
+        )
+        with self.assertRaisesRegex(
+            MODULE.BucketMembershipError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(forged_summary_only, CONTRACT)
+
+        # A fabricated membership row injected directly into active_memberships,
+        # for an asset the CIO never actually ratified into the assignment set,
+        # must be rejected even when every other field stays self-consistent.
+        forged_membership = copy.deepcopy(original)
+        fake_row = copy.deepcopy(forged_membership["active_memberships"][0])
+        fake_row["asset_id"] = "US:XNAS:NEVERRATIFIED"
+        forged_membership["active_memberships"].append(fake_row)
+        forged_membership["summary"]["subject_count"] = len(
+            forged_membership["active_memberships"]
+        )
+        forged_membership["summary"]["active_membership_count"] = len(
+            forged_membership["active_memberships"]
+        )
+        forged_membership.pop("packet_sha256")
+        forged_membership["packet_sha256"] = MODULE.payload_sha256(forged_membership)
+        with self.assertRaisesRegex(
+            MODULE.BucketMembershipError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(forged_membership, CONTRACT)
+
+        # A tampered embedded constitution (e.g. B1 flipped to unratified)
+        # must be rejected — the consumer re-runs the real constitution
+        # validator on the embedded source, not just a format check.
+        forged_constitution = copy.deepcopy(original)
+        forged_constitution["source_packets"]["constitution"]["B1_bucket_definition"] = None
+        forged_constitution.pop("packet_sha256")
+        forged_constitution["packet_sha256"] = MODULE.payload_sha256(
+            forged_constitution
+        )
+        with self.assertRaisesRegex(
+            MODULE.BucketMembershipError, "CONSTITUTION_B1_NOT_RATIFIED"
+        ):
+            MODULE.validate_packet(forged_constitution, CONTRACT)
+
+        # A genuine packet still round-trips through validate_packet.
+        self.assertEqual(MODULE.validate_packet(original, CONTRACT), original)
 
     def test_source_is_offline_and_cli_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))

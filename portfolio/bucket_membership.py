@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "bucket_membership_contract.json"
 CONSTITUTION_PATH = ROOT / "config" / "constitution.json"
 INPUT_SCHEMA_VERSION = "bucket_assignment_set/1"
-OUTPUT_SCHEMA_VERSION = "bucket_membership_packet/1"
+OUTPUT_SCHEMA_VERSION = "bucket_membership_packet/2"
 ASSET_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,95}$")
 BUCKET_ID_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -369,25 +369,19 @@ def _validate_assignment_set(
     return {"normalized": normalized, "packet_sha256": digest, "active": active}
 
 
-def build_packet(
-    assignment_set: dict,
-    constitution: dict,
+def _assemble(
+    checked: dict,
     as_of_date: str,
-    contract: dict | None = None,
+    contract: dict,
+    constitution: dict,
 ) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    as_of_date = _date(as_of_date, "AS_OF_DATE_INVALID")
-    constitution = _validate_constitution(constitution)
-    checked = _validate_assignment_set(
-        assignment_set, constitution, as_of_date, contract
-    )
     normalized = checked["normalized"]
     counts = {market: 0 for market in contract["allowed_markets"]}
     kinds = {kind: 0 for kind in contract["allowed_subject_kinds"]}
     for row in checked["active"]:
         counts[row["market"]] += 1
         kinds[row["subject_kind"]] += 1
-    packet = {
+    return {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
         "status": "MEMBERSHIP_VALIDATED_EXPLICIT_ONLY",
@@ -403,6 +397,10 @@ def build_packet(
         "bucket_definitions": copy.deepcopy(normalized["buckets"]),
         "assignment_history": copy.deepcopy(normalized["assignments"]),
         "active_memberships": copy.deepcopy(checked["active"]),
+        "source_packets": {
+            "assignment_set": {**copy.deepcopy(normalized), "packet_sha256": checked["packet_sha256"]},
+            "constitution": copy.deepcopy(constitution),
+        },
         "lineage": {
             "assignment_set_sha256": checked["packet_sha256"],
             "constitution_sha256": normalized["constitution_sha256"],
@@ -416,6 +414,21 @@ def build_packet(
             "PRODUCTION_NOT_AUTHORIZED",
         ],
     }
+
+
+def build_packet(
+    assignment_set: dict,
+    constitution: dict,
+    as_of_date: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    as_of_date = _date(as_of_date, "AS_OF_DATE_INVALID")
+    checked_constitution = _validate_constitution(constitution)
+    checked = _validate_assignment_set(
+        assignment_set, checked_constitution, as_of_date, contract
+    )
+    packet = _assemble(checked, as_of_date, contract, checked_constitution)
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
 
@@ -425,8 +438,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     fields = {
         "schema_version", "contract_version", "status", "as_of_date",
         "assignment_set_id", "summary", "bucket_definitions",
-        "assignment_history", "active_memberships", "lineage", "authority",
-        "unresolved_boundaries", "packet_sha256",
+        "assignment_history", "active_memberships", "source_packets", "lineage",
+        "authority", "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise BucketMembershipError("OUTPUT_FIELDS_MISMATCH")
@@ -438,105 +451,26 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     ):
         raise BucketMembershipError("OUTPUT_IDENTITY_INVALID")
     as_of_date = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
-    _text(packet.get("assignment_set_id"), "OUTPUT_ASSIGNMENT_SET_ID_INVALID")
-    raw_buckets = packet.get("bucket_definitions")
-    raw_assignments = packet.get("assignment_history")
-    raw_active = packet.get("active_memberships")
-    if (
-        not isinstance(raw_buckets, list)
-        or not raw_buckets
-        or not isinstance(raw_assignments, list)
-        or not raw_assignments
-        or not isinstance(raw_active, list)
-    ):
-        raise BucketMembershipError("OUTPUT_MEMBERSHIP_ROWS_INVALID")
-    buckets = sorted(
-        (_validate_bucket(row) for row in raw_buckets),
-        key=lambda row: row["bucket_id"],
-    )
-    bucket_ids = [row["bucket_id"] for row in buckets]
-    if len(bucket_ids) != len(set(bucket_ids)) or raw_buckets != buckets:
-        raise BucketMembershipError("OUTPUT_BUCKETS_INVALID")
-    assignments = sorted(
-        (
-            _validate_assignment(row, set(bucket_ids), contract)
-            for row in raw_assignments
-        ),
-        key=lambda row: (row["asset_id"], row["valid_from"], row["bucket_id"]),
-    )
-    if raw_assignments != assignments:
-        raise BucketMembershipError("OUTPUT_ASSIGNMENT_HISTORY_INVALID")
-    groups: dict[str, list[dict]] = {}
-    identities: dict[str, str] = {}
-    active = []
-    for row in assignments:
-        owner = identities.setdefault(row["asset_identity_sha256"], row["asset_id"])
-        if owner != row["asset_id"]:
-            raise BucketMembershipError(
-                f"OUTPUT_ASSET_IDENTITY_COLLISION:{owner}:{row['asset_id']}"
-            )
-        groups.setdefault(row["asset_id"], []).append(row)
-    for asset_id, rows in sorted(groups.items()):
-        identity = {
-            (row["subject_kind"], row["market"], row["asset_identity_sha256"])
-            for row in rows
-        }
-        if len(identity) != 1:
-            raise BucketMembershipError(f"OUTPUT_SUBJECT_IDENTITY_DRIFT:{asset_id}")
-        for index, left in enumerate(rows):
-            for right in rows[index + 1:]:
-                if _overlap(
-                    left["valid_from"], left["valid_to"],
-                    right["valid_from"], right["valid_to"],
-                ):
-                    raise BucketMembershipError(
-                        f"OUTPUT_BUCKET_ASSIGNMENT_OVERLAP:{asset_id}"
-                    )
-        current = [
-            row
-            for row in rows
-            if _active(row["valid_from"], row["valid_to"], as_of_date)
-        ]
-        if len(current) != 1:
-            raise BucketMembershipError(
-                f"OUTPUT_ACTIVE_MEMBERSHIP_COUNT_INVALID:{asset_id}"
-            )
-        active.append(copy.deepcopy(current[0]))
-    if raw_active != active:
-        raise BucketMembershipError("OUTPUT_ACTIVE_MEMBERSHIPS_MISMATCH")
-    counts = {market: 0 for market in contract["allowed_markets"]}
-    kinds = {kind: 0 for kind in contract["allowed_subject_kinds"]}
-    for row in active:
-        counts[row["market"]] += 1
-        kinds[row["subject_kind"]] += 1
-    if packet.get("summary") != {
-        "bucket_count": len(buckets),
-        "subject_count": len(active),
-        "active_membership_count": len(active),
-        "by_market": counts,
-        "by_subject_kind": kinds,
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {
+        "assignment_set", "constitution",
     }:
-        raise BucketMembershipError("OUTPUT_SUMMARY_MISMATCH")
-    lineage = packet.get("lineage")
-    lineage_fields = {
-        "assignment_set_sha256", "constitution_sha256",
-        "b1_bucket_definition_sha256",
-    }
-    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
-        raise BucketMembershipError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
-    for key in lineage_fields:
-        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
-    if packet.get("unresolved_boundaries") != [
-        "REPOSITORY_DEFAULT_CONSTITUTION_B1_NOT_RATIFIED",
-        "BUCKET_LIMITS_NOT_AUTHORIZED",
-        "POSITION_SIZING_NOT_AUTHORIZED",
-        "PRODUCTION_NOT_AUTHORIZED",
-    ]:
-        raise BucketMembershipError("OUTPUT_BOUNDARIES_MISMATCH")
-    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
-    normalized = copy.deepcopy(packet)
-    normalized.pop("packet_sha256")
-    if payload_sha256(normalized) != digest:
+        raise BucketMembershipError("OUTPUT_SOURCES_INVALID")
+    # Re-run the exact same ratified-constitution and assignment-set validators
+    # the ingestion path uses. This is what actually enforces B1 ratification,
+    # the assignment set's own effective window, and a self-consistent
+    # packet_sha256 on the registry consumers act on — trusting a bare
+    # lineage SHA pointer here cannot be checked for any of these properties.
+    checked_constitution = _validate_constitution(sources["constitution"])
+    checked = _validate_assignment_set(
+        sources["assignment_set"], checked_constitution, as_of_date, contract
+    )
+    expected = _assemble(checked, as_of_date, contract, checked_constitution)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise BucketMembershipError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
         raise BucketMembershipError("OUTPUT_PACKET_SHA_MISMATCH")
     return copy.deepcopy(packet)
 
