@@ -422,7 +422,158 @@ def build_packet(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "as_of_date",
+        "available_at", "snapshot_id", "summary", "positions",
+        "quote_currency_exposures", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise CurrencyExposureError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "RAW_QUOTE_CURRENCY_EXPOSURE_ONLY"
+        or packet.get("authority") != contract["authority"]
+    ):
+        raise CurrencyExposureError("OUTPUT_IDENTITY_INVALID")
+    as_of_date = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    available_at = _utc(packet.get("available_at"), "OUTPUT_AVAILABLE_AT_INVALID")
+    if available_at[:10] < as_of_date:
+        raise CurrencyExposureError("OUTPUT_AVAILABLE_BEFORE_AS_OF")
+    _text(packet.get("snapshot_id"), "OUTPUT_SNAPSHOT_ID_INVALID")
+    raw_positions = packet.get("positions")
+    position_fields = {
+        "account_id", "position_id", "asset_id", "market", "display_name",
+        "quantity", "price", "price_quote_currency", "raw_notional",
+        "price_as_of", "price_source_ref", "price_source_sha256",
+        "position_record_sha256",
+    }
+    if not isinstance(raw_positions, list):
+        raise CurrencyExposureError("OUTPUT_POSITIONS_INVALID")
+    positions = []
+    for row in raw_positions:
+        if not isinstance(row, dict) or set(row) != position_fields:
+            raise CurrencyExposureError("OUTPUT_POSITION_FIELDS_MISMATCH")
+        account_id = _token(row.get("account_id"), TOKEN_RE, "OUTPUT_ACCOUNT_ID_INVALID")
+        position_id = _token(
+            row.get("position_id"), TOKEN_RE, "OUTPUT_POSITION_ID_INVALID"
+        )
+        asset_id = _token(row.get("asset_id"), ASSET_ID_RE, "OUTPUT_ASSET_ID_INVALID")
+        market = row.get("market")
+        if market not in contract["allowed_markets"]:
+            raise CurrencyExposureError(f"OUTPUT_MARKET_INVALID:{asset_id}")
+        currency = _token(
+            row.get("price_quote_currency"),
+            CURRENCY_RE,
+            f"OUTPUT_CURRENCY_INVALID:{asset_id}",
+        )
+        quantity_text, quantity = _decimal(
+            row.get("quantity"), f"OUTPUT_QUANTITY_INVALID:{asset_id}", positive=True
+        )
+        price_text, price = _decimal(
+            row.get("price"), f"OUTPUT_PRICE_INVALID:{asset_id}", positive=True
+        )
+        if row.get("raw_notional") != _decimal_text(quantity * price):
+            raise CurrencyExposureError(f"OUTPUT_RAW_NOTIONAL_MISMATCH:{asset_id}")
+        price_as_of = _utc(
+            row.get("price_as_of"), f"OUTPUT_PRICE_AS_OF_INVALID:{asset_id}"
+        )
+        if price_as_of > available_at:
+            raise CurrencyExposureError(f"OUTPUT_POSITION_FROM_FUTURE:{asset_id}")
+        normalized = {
+            "account_id": account_id,
+            "position_id": position_id,
+            "asset_id": asset_id,
+            "market": market,
+            "display_name": _text(
+                row.get("display_name"), f"OUTPUT_DISPLAY_NAME_INVALID:{asset_id}"
+            ),
+            "quantity": quantity_text,
+            "price": price_text,
+            "price_quote_currency": currency,
+            "raw_notional": row["raw_notional"],
+            "price_as_of": price_as_of,
+            "price_source_ref": _text(
+                row.get("price_source_ref"),
+                f"OUTPUT_PRICE_SOURCE_REF_INVALID:{asset_id}",
+            ),
+            "price_source_sha256": _sha(
+                row.get("price_source_sha256"),
+                f"OUTPUT_PRICE_SOURCE_SHA_INVALID:{asset_id}",
+            ),
+            "position_record_sha256": _sha(
+                row.get("position_record_sha256"),
+                f"OUTPUT_POSITION_RECORD_SHA_INVALID:{asset_id}",
+            ),
+        }
+        positions.append(normalized)
+    positions.sort(key=lambda row: (row["account_id"], row["position_id"]))
+    identities = [(row["account_id"], row["position_id"]) for row in positions]
+    if len(identities) != len(set(identities)) or raw_positions != positions:
+        raise CurrencyExposureError("OUTPUT_POSITION_ORDER_OR_DUPLICATE_INVALID")
+    currency_totals: dict[str, Decimal] = {}
+    currency_markets: dict[str, set[str]] = {}
+    currency_positions: dict[str, int] = {}
+    for row in positions:
+        currency = row["price_quote_currency"]
+        currency_totals[currency] = currency_totals.get(currency, Decimal(0)) + Decimal(
+            row["raw_notional"]
+        )
+        currency_markets.setdefault(currency, set()).add(row["market"])
+        currency_positions[currency] = currency_positions.get(currency, 0) + 1
+    exposures = [
+        {
+            "quote_currency": currency,
+            "raw_gross_notional": _decimal_text(currency_totals[currency]),
+            "position_count": currency_positions[currency],
+            "markets": sorted(currency_markets[currency]),
+            "fx_conversion_status": "NOT_AUTHORIZED",
+            "limit_status": "UNRATIFIED",
+            "limit_value": None,
+            "breach": None,
+        }
+        for currency in sorted(currency_totals)
+    ]
+    if packet.get("quote_currency_exposures") != exposures:
+        raise CurrencyExposureError("OUTPUT_EXPOSURES_MISMATCH")
+    if packet.get("summary") != {
+        "position_count": len(positions),
+        "quote_currency_count": len(exposures),
+        "cross_currency_total": None,
+        "reporting_currency": None,
+        "reporting_currency_status": "UNRATIFIED",
+    }:
+        raise CurrencyExposureError("OUTPUT_SUMMARY_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "asset_master_id", "asset_master_payload_sha256",
+        "position_snapshot_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise CurrencyExposureError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    _text(lineage.get("asset_master_id"), "OUTPUT_ASSET_MASTER_ID_INVALID")
+    for key in ("asset_master_payload_sha256", "position_snapshot_sha256"):
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if packet.get("unresolved_boundaries") != [
+        "REPORTING_CURRENCY_UNRATIFIED",
+        "FX_RATE_SOURCE_UNRATIFIED",
+        "FX_CONVERSION_NOT_AUTHORIZED",
+        "CURRENCY_EXPOSURE_LIMITS_UNRATIFIED",
+        "POSITION_SIZING_NOT_AUTHORIZED",
+    ]:
+        raise CurrencyExposureError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized_packet = copy.deepcopy(packet)
+    normalized_packet.pop("packet_sha256")
+    if payload_sha256(normalized_packet) != digest:
+        raise CurrencyExposureError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

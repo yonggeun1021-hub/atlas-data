@@ -222,6 +222,33 @@ class UnifiedDecisionContractTests(unittest.TestCase):
                 "2026-08-21T02:10:00Z", CONTRACT,
             )
 
+    def test_all_self_rehashed_component_semantic_tamper_fails_closed(self):
+        summary_fields = {
+            "REGIME": "market_count",
+            "ROTATION_DISCOVERY": "rotation_change_count",
+            "RULE": "UNKNOWN",
+            "PORTFOLIO_BUCKET": "subject_count",
+            "PORTFOLIO_CURRENCY": "position_count",
+            "ACTION_BOUNDARY": "ready_count",
+        }
+        for name, field in summary_fields.items():
+            with self.subTest(component=name):
+                source = components()
+                source[name]["summary"][field] += 1
+                source[name]["packet_sha256"] = MODULE.payload_sha256({
+                    key: value
+                    for key, value in source[name].items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.UnifiedDecisionContractError,
+                    f"COMPONENT_SEMANTIC_INVALID:{name}",
+                ):
+                    MODULE.build_packet(
+                        source, reasons(), "2026-08-21", "morning",
+                        "2026-08-21T02:10:00Z", CONTRACT,
+                    )
+
     def test_component_slot_and_missing_reason_contracts_fail_closed(self):
         wrong_slot = components()
         wrong_slot["REGIME"] = REGIME_FIXTURE.MODULE.build_header(

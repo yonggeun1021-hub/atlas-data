@@ -453,6 +453,7 @@ APPROVED_TESTS = [
     # ★ P5-04 — deterministic Rule UNKNOWN/UNDEFINED boundary evaluator.
     #   P5-03 linkage packet과 Rule SSOT exact SHA를 결합하되 P5-02 보류와
     #   consumable_by_evaluator=false를 존중해 PASS/FAIL은 절대 만들지 않는다.
+    #   output row/summary를 재파생해 self-rehash semantic drift도 거부한다.
     #   ⛔ evaluation spec/threshold/source selection/Production/trading 없음.
     "test/test_deterministic_rule_evaluator.py",
     # ★ P5-05 — P5-03→P5-04 negative/mutation integration matrix.
@@ -515,6 +516,7 @@ APPROVED_TESTS = [
     # ★ P7-01 — external RATIFIED Constitution B1 + explicit assignment only.
     #   candidate/holding마다 정확히 한 active bucket을 검증하며 중복·겹침·lineage
     #   충돌은 fail-closed다. repository default B1=null에서는 정상 차단된다.
+    #   embedded history에서 membership/summary를 재파생해 self-rehash도 거부한다.
     #   ⛔ bucket 발명/자동배정/limit/sizing/order/Production/trading 권한 없음.
     "test/test_bucket_membership.py",
     # ★ P7-02 — externally ratified position sizing parameters.
@@ -526,12 +528,14 @@ APPROVED_TESTS = [
     # ★ P7-07 — quote-currency raw exposure aggregation capability.
     #   Global Asset Master currency와 long-only position을 hash-bind해 같은 통화
     #   내부 notional만 합산한다. cross-currency total/FX conversion/limits는 null.
+    #   position/exposure/summary를 재파생해 self-rehash semantic drift도 거부한다.
     #   ⛔ FX source/limit/sizing/order/Production/trading 권한 없음.
     "test/test_currency_exposure.py",
     # ★ P8-03 — READY ≠ ENTRY / Signal ≠ Order authority invariant.
     #   source-bound READY/Signal 상태를 보존하되 어떤 조합에서도 entry trigger와
     #   order intent는 null이다. 직접 translation 시도·authority drift는 거부한다.
-    #   ⛔ P8-02/entry/order/sizing/Production/trading 권한 없음.
+    #   output 전체를 입력 lineage에서 재파생하며 P8-02가 production validator로 호출한다.
+    #   ⛔ entry/order/sizing/Production/trading 권한 없음.
     "test/test_ready_signal_order_boundary.py",
     # ★ P8-04 — US/KR/Crypto Regime briefing header read model.
     #   세 source의 state/direction/confidence/time/coverage를 검증 후 그대로
@@ -554,6 +558,7 @@ APPROVED_TESTS = [
     #   Regime→Rotation/Discovery→Rule→Portfolio 결과를 exact packet SHA로 한 daily
     #   object에 연결하고 P8-03 action boundary까지 포함한다. 결측 component는
     #   UNAVAILABLE 사유로 남기며 완전 입력이어도 action/entry/size/order는 null이다.
+    #   여섯 component production validator를 모두 호출해 self-rehash drift를 차단한다.
     #   ⛔ 해석/승격/Rule PASS·FAIL/sizing/Production/trading 및 live network 없음.
     "test/test_unified_decision_contract.py",
     # ★ P9-01 — external RATIFIED freshness policy + caller-supplied quote guard.

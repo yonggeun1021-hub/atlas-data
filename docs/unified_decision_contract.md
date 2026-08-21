@@ -11,6 +11,13 @@ its exact `packet_sha256`. A missing source remains an explicit `UNAVAILABLE`
 component with one or more machine-readable reasons; it is never silently
 omitted.
 
+Before assembly, every available component is passed through its production
+validator: Regime, Rotation/Discovery, Rule, Portfolio Bucket, Portfolio
+Currency, and Action Boundary. Exact identity, slot, time, and packet-hash
+checks remain in front of those semantic checks. A component therefore cannot
+change a derived row or summary and regain acceptance merely by recomputing its
+own hash. Component and unified packet schemas are unchanged.
+
 The contract implements assembly and lineage only. It does not authorize Regime
 interpretation, candidate promotion, Rule PASS/FAIL, portfolio sizing, action or
 order generation, Production, or trading. Even when every component is present,

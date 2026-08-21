@@ -292,9 +292,7 @@ def _validate_input(value: dict, contract: dict) -> dict:
     return {"normalized": normalized, "packet_sha256": digest}
 
 
-def build_packet(value: dict, contract: dict | None = None) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    checked = _validate_input(value, contract)
+def _assemble(checked: dict, contract: dict) -> dict:
     source = checked["normalized"]
     rows = []
     ready_count = 0
@@ -329,8 +327,60 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
             "PRODUCTION_NOT_AUTHORIZED",
         ],
     }
-    packet["packet_sha256"] = payload_sha256(packet)
     return packet
+
+
+def build_packet(value: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    checked = _validate_input(value, contract)
+    packet = _assemble(checked, contract)
+    packet["packet_sha256"] = payload_sha256(packet)
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "packet_id", "as_of_utc",
+        "summary", "subjects", "lineage", "authority", "unresolved_boundaries",
+        "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise ReadySignalOrderBoundaryError("OUTPUT_FIELDS_MISMATCH")
+    lineage = packet.get("lineage")
+    if not isinstance(lineage, dict) or set(lineage) != {"input_packet_sha256"}:
+        raise ReadySignalOrderBoundaryError("OUTPUT_LINEAGE_INVALID")
+    subjects = packet.get("subjects")
+    input_fields = {
+        "subject_id", "market", "ready_status", "ready_source_ref",
+        "ready_source_sha256", "signal_status", "signal_id",
+        "signal_source_ref", "signal_source_sha256",
+    }
+    if not isinstance(subjects, list):
+        raise ReadySignalOrderBoundaryError("OUTPUT_SUBJECTS_INVALID")
+    raw_subjects = []
+    for row in subjects:
+        if not isinstance(row, dict) or not input_fields.issubset(row):
+            raise ReadySignalOrderBoundaryError("OUTPUT_SUBJECT_FIELDS_INVALID")
+        raw_subjects.append({key: copy.deepcopy(row[key]) for key in input_fields})
+    source = {
+        "schema_version": contract["input_schema_version"],
+        "contract_version": contract["contract_version"],
+        "packet_id": packet.get("packet_id"),
+        "as_of_utc": packet.get("as_of_utc"),
+        "subjects": raw_subjects,
+        "authority": copy.deepcopy(contract["input_authority"]),
+        "packet_sha256": lineage["input_packet_sha256"],
+    }
+    checked = _validate_input(source, contract)
+    expected = _assemble(checked, contract)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise ReadySignalOrderBoundaryError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
+        raise ReadySignalOrderBoundaryError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

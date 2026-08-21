@@ -26,3 +26,9 @@ membership per subject for the requested date. It authorizes validation only:
 automatic assignment, bucket limits, position sizing, orders, Production, and
 trading all remain false. The CLI is offline and writes only outside the
 repository.
+
+`validate_packet()` revalidates the embedded bucket definitions and assignment
+history, recomputes the active memberships and summary for `as_of_date`, and
+checks lineage and packet hashes. A self-rehashed membership or summary drift
+is rejected. The validator still requires an externally ratified Constitution
+and never infers an assignment.

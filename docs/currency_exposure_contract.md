@@ -24,3 +24,9 @@ feature makes USD/KRW/Crypto quote exposure visible without silently turning an
 unapproved FX source or limit into portfolio authority. Position sizing, orders,
 Production, and trading remain false. The CLI is offline and writes only outside
 the repository.
+
+`validate_packet()` revalidates every emitted position identity and value field,
+recomputes raw notionals, quote-currency aggregations, and the summary, and
+checks lineage and packet hashes. Self-rehashed semantic drift is rejected.
+This adds output integrity only; it does not re-fetch the asset master or
+authorize FX conversion or limits.

@@ -302,7 +302,117 @@ def build_packet(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, rules, contract)
+
+
+def validate_packet(
+    packet: dict,
+    rules: dict | None = None,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    try:
+        rules = _validate_rules(rules) if rules is not None else load_rules()
+    except DeterministicRuleEvaluatorError as exc:
+        raise DeterministicRuleEvaluatorError(
+            f"RULE_REGISTRY_AUTHORITY_INVALID:{exc}"
+        ) from exc
+    fields = {
+        "schema_version", "contract_version", "status", "binding_set_id",
+        "summary", "rules", "lineage", "authority", "unresolved_boundaries",
+        "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise DeterministicRuleEvaluatorError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "BOUNDARY_CLASSIFIED_PASS_FAIL_NOT_AUTHORIZED"
+        or packet.get("authority") != contract["authority"]
+    ):
+        raise DeterministicRuleEvaluatorError("OUTPUT_IDENTITY_INVALID")
+    rows = packet.get("rules")
+    if not isinstance(rows, list) or len(rows) != contract["canonical_rule_count"]:
+        raise DeterministicRuleEvaluatorError("OUTPUT_RULE_COUNT_INVALID")
+    registry = {rule["rule_id"]: rule for rule in rules["rules"]}
+    row_fields = {
+        "rule_id", "subject", "rule_kind", "downstream_effect",
+        "condition_text_sha256", "definition_status", "data_status",
+        "source_qualification", "rule_ssot_evaluator_status",
+        "rule_ssot_blocked_by", "link_status", "link_reasons",
+        "evidence_reference_set_sha256", "result", "reasons",
+        "evaluation_spec_sha256",
+    }
+    counts = {status: 0 for status in RESULT_STATUSES}
+    checked_ids = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != row_fields:
+            raise DeterministicRuleEvaluatorError("OUTPUT_RULE_FIELDS_MISMATCH")
+        rule_id = row.get("rule_id")
+        rule = registry.get(rule_id)
+        if rule is None:
+            raise DeterministicRuleEvaluatorError(f"OUTPUT_RULE_UNKNOWN:{rule_id}")
+        static = {
+            "subject": rule["subject"],
+            "rule_kind": rule["rule_kind"],
+            "downstream_effect": rule["downstream_effect"],
+            "condition_text_sha256": rule["condition_text_sha256"],
+            "definition_status": rule["definition_status"],
+            "data_status": rule["data_status"],
+            "source_qualification": rule["source_qualification"],
+            "rule_ssot_evaluator_status": rule["evaluator_status"],
+            "rule_ssot_blocked_by": rule["blocked_by"],
+        }
+        if any(row.get(key) != value for key, value in static.items()):
+            raise DeterministicRuleEvaluatorError(
+                f"OUTPUT_RULE_REGISTRY_MISMATCH:{rule_id}"
+            )
+        if (
+            row.get("link_status") not in LINK_STATUSES
+            or not isinstance(row.get("link_reasons"), list)
+            or row.get("evaluation_spec_sha256") is not None
+        ):
+            raise DeterministicRuleEvaluatorError(f"OUTPUT_RULE_VALUE_INVALID:{rule_id}")
+        _sha(
+            row.get("evidence_reference_set_sha256"),
+            f"OUTPUT_EVIDENCE_SET_SHA_INVALID:{rule_id}",
+        )
+        expected_result, expected_reasons = _classify(rule, row)
+        if row.get("result") != expected_result or row.get("reasons") != expected_reasons:
+            raise DeterministicRuleEvaluatorError(
+                f"OUTPUT_RULE_DERIVATION_MISMATCH:{rule_id}"
+            )
+        counts[expected_result] += 1
+        checked_ids.append(rule_id)
+    if checked_ids != sorted(registry):
+        raise DeterministicRuleEvaluatorError("OUTPUT_RULE_ORDER_INVALID")
+    if packet.get("summary") != {"total_rules": len(rows), **counts}:
+        raise DeterministicRuleEvaluatorError("OUTPUT_SUMMARY_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "rule_registry_sha256", "binding_packet_sha256", "binding_set_sha256",
+        "evidence_set_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise DeterministicRuleEvaluatorError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    if lineage.get("rule_registry_sha256") != payload_sha256(rules):
+        raise DeterministicRuleEvaluatorError("OUTPUT_RULE_REGISTRY_SHA_MISMATCH")
+    for key in lineage_fields - {"rule_registry_sha256"}:
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if packet.get("unresolved_boundaries") != [
+        "P5_02_RULE_SOURCE_FRESHNESS_THRESHOLD_POLICY_BLOCKED",
+        "RULE_REGISTRY_CONSUMABLE_BY_EVALUATOR_FALSE",
+        "EVALUATION_SPEC_NOT_IMPLEMENTED",
+        "PASS_FAIL_NOT_AUTHORIZED",
+        "PRODUCTION_NOT_AUTHORIZED",
+    ]:
+        raise DeterministicRuleEvaluatorError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("packet_sha256")
+    if payload_sha256(normalized) != digest:
+        raise DeterministicRuleEvaluatorError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
