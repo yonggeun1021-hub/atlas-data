@@ -130,6 +130,7 @@ APPROVED_TESTS = [
     # ★ P2-02 — external RATIFIED policy-gated US Theme rotation transform.
     #   forward-PIT US Leadership 두 시점과 exact taxonomy lineage를 묶어
     #   deterministic rank·TOP/MIDDLE/BOTTOM·bucket transition만 재현한다.
+    #   output policy/rank/bucket/transition을 재검증해 self-rehash를 거부한다.
     #   P2-05 state vocabulary/ledger, Regime, Stage, Production, trading은 닫는다.
     #   ⛔ vendor rows/live network/tracked factor 없음 — temp derived packets only.
     "test/test_us_capital_rotation.py",

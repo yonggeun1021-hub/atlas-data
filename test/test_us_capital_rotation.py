@@ -360,6 +360,27 @@ class USCapitalRotationTests(unittest.TestCase):
         digest = second.pop("payload_sha256")
         self.assertEqual(digest, UCR.payload_sha256(second))
 
+    def test_self_rehashed_rank_and_delta_tamper_fail_closed(self):
+        packet = UCR.build_packet(input_packet(), policy())
+        packet["theme_observations"][0]["current_rank"] = 1
+        packet["payload_sha256"] = UCR.payload_sha256({
+            key: value for key, value in packet.items() if key != "payload_sha256"
+        })
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "OUTPUT_RANK_BUCKET_MISMATCH"
+        ):
+            UCR.validate_packet(packet)
+
+        packet = UCR.build_packet(input_packet(), policy("UNRATIFIED"))
+        packet["theme_observations"][0]["relative_strength_change"] = "9"
+        packet["payload_sha256"] = UCR.payload_sha256({
+            key: value for key, value in packet.items() if key != "payload_sha256"
+        })
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "OUTPUT_THEME_DERIVATION_MISMATCH"
+        ):
+            UCR.validate_packet(packet)
+
     def test_p2_state_regime_stage_production_and_trading_remain_closed(self):
         packet = UCR.build_packet(input_packet(), policy())
         self.assertTrue(packet["authority"]["theme_ranking_authorized"])
