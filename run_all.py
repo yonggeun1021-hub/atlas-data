@@ -159,8 +159,9 @@ APPROVED_TESTS = [
     "test/test_rotation_state_ledger.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
-    #   성장률 상승만 투명하게 기록한다. 결측은 UNKNOWN이며 source/importance/
-    #   candidate ranking, Stage 승격, Production, trading 권한은 열지 않는다.
+    #   성장률 상승만 투명하게 기록한다. Persisted validator가 decimal 산술,
+    #   pattern, case evidence, summary의 self-rehashed drift를 차단한다. 결측은
+    #   UNKNOWN이며 ranking/Stage/Production/trading 권한은 열지 않는다.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic envelopes + temp output only.
     "test/test_business_acceleration.py",
     # ★ P3-06 — external RATIFIED consensus-source contract + exact-vintage revision radar.

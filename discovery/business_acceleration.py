@@ -405,6 +405,289 @@ def _series_result(series: dict, as_of: dt.datetime, contract: dict) -> tuple[di
     return result, case
 
 
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate persisted radar arithmetic and retained case evidence semantics."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet_fields = {
+        "schema_version",
+        "contract_version",
+        "as_of_utc",
+        "status",
+        "series_count",
+        "case_count",
+        "pattern_counts",
+        "series_results",
+        "cases",
+        "source_coverage",
+        "policy_status",
+        "authority",
+        "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != packet_fields:
+        raise BusinessAccelerationError("OUTPUT_FIELDS_MISMATCH")
+    digest = packet.get("payload_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise BusinessAccelerationError("OUTPUT_SHA256_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != digest:
+        raise BusinessAccelerationError("OUTPUT_SHA256_MISMATCH")
+    as_of_utc = packet.get("as_of_utc")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "RADAR_CAPABILITY_RESULT"
+        or not _valid_utc(as_of_utc)
+    ):
+        raise BusinessAccelerationError("OUTPUT_IDENTITY_MISMATCH")
+    as_of = _as_datetime(as_of_utc)
+
+    results = packet.get("series_results")
+    if not isinstance(results, list):
+        raise BusinessAccelerationError("OUTPUT_SERIES_RESULTS_NOT_LIST")
+    result_fields = {
+        "series_id",
+        "asset_id",
+        "subject",
+        "metric_type",
+        "measurement_identity",
+        "frequency",
+        "comparison_basis",
+        "economic_periods",
+        "importance",
+        "candidate_rank",
+        "candidate_eligible",
+        "stage_transition",
+        "pattern",
+        "values_pct",
+        "prior_change_pp",
+        "latest_change_pp",
+        "acceleration_change_pp",
+        "unavailable_evidence",
+        "radar_case_created",
+    }
+    pattern_counts = {key: 0 for key in contract["pattern_contract"]}
+    result_by_case_id = {}
+    series_ids = []
+    places = contract["output_decimal_places"]
+    for result in results:
+        if not isinstance(result, dict) or set(result) != result_fields:
+            raise BusinessAccelerationError("OUTPUT_SERIES_RESULT_FIELDS_MISMATCH")
+        series_id = result.get("series_id")
+        asset_id = result.get("asset_id")
+        subject = result.get("subject")
+        measurement = result.get("measurement_identity")
+        comparison_basis = result.get("comparison_basis")
+        frequency = result.get("frequency")
+        pattern = result.get("pattern")
+        if (
+            not isinstance(series_id, str)
+            or TOKEN_RE.fullmatch(series_id) is None
+            or not isinstance(asset_id, str)
+            or TOKEN_RE.fullmatch(asset_id) is None
+            or not all(
+                isinstance(value, str) and value and value.strip() == value
+                for value in (subject, measurement, comparison_basis)
+            )
+            or result.get("metric_type") not in contract["allowed_metric_types"]
+            or frequency not in contract["allowed_frequencies"]
+            or pattern not in contract["pattern_contract"]
+        ):
+            raise BusinessAccelerationError("OUTPUT_SERIES_IDENTITY_MISMATCH")
+        periods = result.get("economic_periods")
+        if (
+            not isinstance(periods, list)
+            or len(periods) != contract["required_point_count"]
+            or any(not _valid_date(period) for period in periods)
+            or periods != sorted(set(periods))
+            or not all(
+                _next_period(periods[index], periods[index + 1], frequency)
+                for index in range(2)
+            )
+        ):
+            raise BusinessAccelerationError("OUTPUT_SERIES_PERIODS_MISMATCH")
+        if (
+            result.get("importance") != "UNRATIFIED"
+            or result.get("candidate_rank") is not None
+            or result.get("candidate_eligible") is not False
+            or result.get("stage_transition") is not None
+        ):
+            raise BusinessAccelerationError("OUTPUT_SERIES_AUTHORITY_EXPANSION")
+
+        unavailable = result.get("unavailable_evidence")
+        if pattern == "UNKNOWN_EVIDENCE":
+            if (
+                result.get("values_pct") is not None
+                or result.get("prior_change_pp") is not None
+                or result.get("latest_change_pp") is not None
+                or result.get("acceleration_change_pp") is not None
+                or result.get("radar_case_created") is not False
+                or not isinstance(unavailable, list)
+                or not unavailable
+            ):
+                raise BusinessAccelerationError("OUTPUT_UNKNOWN_PATTERN_MISMATCH")
+            unavailable_fields = {"economic_period_end", "status", "reasons"}
+            unavailable_periods = []
+            for row in unavailable:
+                if (
+                    not isinstance(row, dict)
+                    or set(row) != unavailable_fields
+                    or row.get("economic_period_end") not in periods
+                    or row.get("status")
+                    not in {"EVIDENCE_BLOCKED", "EVIDENCE_UNRESOLVED"}
+                    or not isinstance(row.get("reasons"), list)
+                    or not row["reasons"]
+                    or any(not isinstance(reason, str) or not reason for reason in row["reasons"])
+                ):
+                    raise BusinessAccelerationError("OUTPUT_UNAVAILABLE_EVIDENCE_MISMATCH")
+                unavailable_periods.append(row["economic_period_end"])
+            if unavailable_periods != sorted(set(unavailable_periods)):
+                raise BusinessAccelerationError("OUTPUT_UNAVAILABLE_EVIDENCE_ORDER_MISMATCH")
+        else:
+            values_text = result.get("values_pct")
+            if (
+                not isinstance(values_text, list)
+                or len(values_text) != contract["required_point_count"]
+                or unavailable != []
+            ):
+                raise BusinessAccelerationError("OUTPUT_VALUES_MISMATCH")
+            values = [_decimal(value, series_id) for value in values_text]
+            if values_text != [_render(value, places) for value in values]:
+                raise BusinessAccelerationError("OUTPUT_VALUE_CANONICALIZATION_MISMATCH")
+            prior = values[1] - values[0]
+            latest = values[2] - values[1]
+            expected_pattern = (
+                "TWO_STEP_ACCELERATION_OBSERVED"
+                if prior > 0 and latest > 0
+                else "LATEST_STEP_UP_ONLY"
+                if latest > 0
+                else "LATEST_STEP_NOT_UP"
+            )
+            if (
+                pattern != expected_pattern
+                or result.get("prior_change_pp") != _render(prior, places)
+                or result.get("latest_change_pp") != _render(latest, places)
+                or result.get("acceleration_change_pp")
+                != _render(latest - prior, places)
+                or result.get("radar_case_created")
+                is not (pattern == "TWO_STEP_ACCELERATION_OBSERVED")
+            ):
+                raise BusinessAccelerationError("OUTPUT_PATTERN_DERIVATION_MISMATCH")
+        if result["radar_case_created"]:
+            seed = {
+                "series_id": series_id,
+                "asset_id": asset_id,
+                "last_period": periods[-1],
+                "pattern": pattern,
+            }
+            case_id = "RADAR-BA-" + payload_sha256(seed)[:16].upper()
+            result_by_case_id[case_id] = result
+        series_ids.append(series_id)
+        pattern_counts[pattern] += 1
+    if series_ids != sorted(set(series_ids)):
+        raise BusinessAccelerationError("OUTPUT_SERIES_ORDER_OR_DUPLICATE_INVALID")
+
+    cases = packet.get("cases")
+    if not isinstance(cases, list):
+        raise BusinessAccelerationError("OUTPUT_CASES_NOT_LIST")
+    case_fields = {
+        "schema_version",
+        "case_id",
+        "asset_id",
+        "subject",
+        "why_found",
+        "confirmed_evidence",
+        "unconfirmed_items",
+        "importance",
+        "candidate_rank",
+        "candidate_eligible",
+        "stage_transition",
+        "action",
+    }
+    case_ids = []
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != case_fields:
+            raise BusinessAccelerationError("OUTPUT_CASE_FIELDS_MISMATCH")
+        case_id = case.get("case_id")
+        result = result_by_case_id.get(case_id)
+        if (
+            result is None
+            or case.get("schema_version") != "business_acceleration_case/1"
+            or case.get("asset_id") != result["asset_id"]
+            or case.get("subject") != result["subject"]
+        ):
+            raise BusinessAccelerationError("OUTPUT_CASE_IDENTITY_MISMATCH")
+        expected_why = {
+            "pattern": result["pattern"],
+            "published_growth_values_pct": result["values_pct"],
+            "prior_change_pp": result["prior_change_pp"],
+            "latest_change_pp": result["latest_change_pp"],
+            "comparison_basis": result["comparison_basis"],
+        }
+        if case.get("why_found") != expected_why:
+            raise BusinessAccelerationError("OUTPUT_CASE_REASON_DERIVATION_MISMATCH")
+        evidence_rows = case.get("confirmed_evidence")
+        evidence_fields = {
+            "economic_period_end",
+            "numeric_value",
+            "unit",
+            "source_identity",
+        }
+        if not isinstance(evidence_rows, list) or len(evidence_rows) != 3:
+            raise BusinessAccelerationError("OUTPUT_CASE_EVIDENCE_COUNT_MISMATCH")
+        for index, row in enumerate(evidence_rows):
+            if (
+                not isinstance(row, dict)
+                or set(row) != evidence_fields
+                or row.get("economic_period_end") != result["economic_periods"][index]
+                or row.get("unit") != contract["required_unit"]
+                or _render(_decimal(row.get("numeric_value"), case_id), places)
+                != result["values_pct"][index]
+            ):
+                raise BusinessAccelerationError("OUTPUT_CASE_EVIDENCE_VALUE_MISMATCH")
+            _validate_source(row.get("source_identity"), as_of, contract, case_id)
+        if (
+            case.get("unconfirmed_items")
+            != [
+                "IMPORTANCE_THRESHOLD_UNRATIFIED",
+                "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
+                "CANDIDATE_RANKING_UNRATIFIED",
+            ]
+            or case.get("importance") != "UNRATIFIED"
+            or case.get("candidate_rank") is not None
+            or case.get("candidate_eligible") is not False
+            or case.get("stage_transition") is not None
+            or case.get("action") is not None
+        ):
+            raise BusinessAccelerationError("OUTPUT_CASE_AUTHORITY_EXPANSION")
+        case_ids.append(case_id)
+    if case_ids != sorted(set(case_ids)) or set(case_ids) != set(result_by_case_id):
+        raise BusinessAccelerationError("OUTPUT_CASE_SET_OR_ORDER_MISMATCH")
+
+    expected_boundaries = [
+        "COMPLETE_CROSS_COMPANY_EVIDENCE_NETWORK_UNAVAILABLE",
+        "SOURCE_HIERARCHY_UNRATIFIED",
+        "IMPORTANCE_THRESHOLD_UNRATIFIED",
+        "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
+        "CANDIDATE_RANKING_UNRATIFIED",
+        "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+    ]
+    if (
+        type(packet.get("series_count")) is not int
+        or packet["series_count"] != len(results)
+        or type(packet.get("case_count")) is not int
+        or packet["case_count"] != len(cases)
+        or packet.get("pattern_counts") != pattern_counts
+        or packet.get("source_coverage") != contract["source_coverage"]
+        or packet.get("policy_status") != contract["policy_status"]
+        or packet.get("authority") != contract["authority"]
+        or packet.get("unresolved_boundaries") != expected_boundaries
+    ):
+        raise BusinessAccelerationError("OUTPUT_SUMMARY_OR_BOUNDARY_MISMATCH")
+    return copy.deepcopy(packet)
+
+
 def build_packet(value: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if not isinstance(value, dict) or value.get("schema_version") != INPUT_SCHEMA_VERSION:
@@ -455,7 +738,7 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
