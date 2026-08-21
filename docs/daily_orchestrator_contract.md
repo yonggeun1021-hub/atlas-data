@@ -1,5 +1,19 @@
 # Atlas Daily Briefing Integration v1 (P8 orchestrator)
 
+## P8-07 / P10-06 Decision Review integration
+
+The daily packet now includes `INVESTMENT_DECISION_REVIEW` and
+`INVESTMENT_REVIEW_SHADOW`. Until a TSM Thesis and externally ratified
+`RULE-0003` through `RULE-0009` result packet exist, the orchestrator emits a
+deterministic `BLOCKED` review status with `trade_proposal=null` and
+`money_action=NONE`. It also emits `ledger_record_created=false`, zero capital,
+and null action/order/stage change for P10-06.
+
+The briefing therefore exposes the Decision Engine blocker on every morning
+and evening run instead of silently omitting the layer. It does not synthesize
+a Thesis, ratify PASS/FAIL, create a Shadow eligibility, or grant capital/order
+authority.
+
 Status: provider-free daily orchestrator implemented and scheduled; most
 downstream components remain PENDING/POLICY_BLOCKED/DATA_BLOCKED/UNAVAILABLE
 because their own upstream policies are unratified or their own upstream

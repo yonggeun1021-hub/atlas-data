@@ -941,7 +941,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         rendered = MODULE.render_markdown(packet)
         for required in (
             "Data / Read-model health", "3-Market Regime", "Rotation / Theme",
-            "Rule status", "Portfolio / Risk", "Decision & action boundary",
+            "Rule status", "Portfolio / Risk", "Decision Review",
+            "Decision & action boundary", "Shadow learning record",
             "PENDING / UNKNOWN / DEGRADED / BLOCKED components",
             "Unresolved boundaries",
         ):
@@ -987,6 +988,18 @@ class DailyOrchestratorTest(unittest.TestCase):
             rendered,
         )
         self.assertIn("coverage=0/5", rendered)
+        review = by_id["INVESTMENT_DECISION_REVIEW"]
+        self.assertEqual(review["status"], "POLICY_BLOCKED")
+        self.assertEqual(review["packet"]["review_outcome"], "BLOCKED")
+        self.assertIsNone(review["packet"]["trade_proposal"])
+        self.assertEqual(review["packet"]["money_action"], "NONE")
+        self.assertIn("review=BLOCKED", rendered)
+        self.assertIn("trade_proposal=None", rendered)
+        self.assertIn("money_action=NONE", rendered)
+        shadow = by_id["INVESTMENT_REVIEW_SHADOW"]
+        self.assertFalse(shadow["packet"]["ledger_record_created"])
+        self.assertEqual(shadow["packet"]["capital"], {"authorized": False, "amount": 0})
+        self.assertIsNone(shadow["packet"]["order"])
         # No raw JSON dump: braces-and-quotes packet serialization must not
         # appear verbatim (the top-level status-counts summary dict repr is
         # the one intentional exception).
