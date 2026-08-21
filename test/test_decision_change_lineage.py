@@ -75,7 +75,10 @@ def batch(rows=None):
 
 class DecisionChangeLineageTests(unittest.TestCase):
     def test_contract_is_opaque_and_closes_decision_action_authority(self):
-        self.assertEqual(CONTRACT["repository_decision_contract"], "ABSENT")
+        self.assertEqual(
+            CONTRACT["repository_decision_contract"],
+            "unified_decision_contract/1_AVAILABLE_OPAQUE_SHA_ONLY",
+        )
         self.assertEqual(CONTRACT["decision_payload_binding"], "OPAQUE_SHA256_ONLY")
         self.assertTrue(CONTRACT["authority"]["lineage_recording_only"])
         for key, value in CONTRACT["authority"].items():
