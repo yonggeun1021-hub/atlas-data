@@ -474,6 +474,420 @@ def _dimension_packet(items: list[dict]) -> dict:
     }
 
 
+def _output_decimal(value, context: str, contract: dict) -> Decimal:
+    parsed = _decimal(value, context)
+    if value != _render(parsed, contract):
+        raise ValuationRiskContextError(f"OUTPUT_DECIMAL_NOT_CANONICAL:{context}")
+    return parsed
+
+
+def _validate_output_context(
+    context: dict,
+    candidate: dict,
+    as_of: dt.datetime,
+    policy: dict | None,
+    contract: dict,
+) -> dict:
+    base_fields = {
+        "context_id",
+        "case_id",
+        "market",
+        "asset_id",
+        "dimension",
+        "measurement_identity",
+        "metric_type",
+        "unit",
+        "comparison_basis",
+        "expected_periods",
+        "evidence_lineage",
+        "deterioration_policy_match",
+        "feature_status",
+        "values",
+        "change",
+        "interpretation_status",
+        "unavailable_evidence",
+    }
+    if not isinstance(context, dict) or (
+        set(context) != base_fields
+        and set(context) != base_fields | {"interpretation_policy"}
+    ):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_FIELDS_MISMATCH")
+    context_id = context.get("context_id")
+    market = context.get("market")
+    dimension = context.get("dimension")
+    if (
+        not isinstance(context_id, str)
+        or TOKEN_RE.fullmatch(context_id) is None
+        or context.get("case_id") != candidate["case_id"]
+        or market != candidate["market"]
+        or context.get("asset_id") != candidate["asset_id"]
+        or dimension not in contract["allowed_dimensions"]
+        or context.get("metric_type")
+        not in contract["allowed_metric_types"][market][dimension]
+        or any(
+            not isinstance(context.get(field), str) or not context[field].strip()
+            for field in ("measurement_identity", "unit", "comparison_basis")
+        )
+    ):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_IDENTITY_MISMATCH")
+    periods = context.get("expected_periods")
+    if (
+        not isinstance(periods, list)
+        or len(periods) != contract["required_point_count"]
+        or periods != sorted(set(periods))
+        or any(not _valid_date(period) for period in periods)
+        or periods[-1] > as_of.strftime("%Y-%m-%d")
+    ):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_PERIODS_MISMATCH")
+
+    lineage = context.get("evidence_lineage")
+    if not isinstance(lineage, list) or len(lineage) != len(periods):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_LINEAGE_COUNT_MISMATCH")
+    lineage_by_period = {}
+    unavailable_statuses = set()
+    for index, row in enumerate(lineage):
+        if not isinstance(row, dict) or set(row) != {
+            "period_end",
+            "status",
+            "source_identities",
+        }:
+            raise ValuationRiskContextError("OUTPUT_CONTEXT_LINEAGE_FIELDS_MISMATCH")
+        period = row.get("period_end")
+        status = row.get("status")
+        sources = row.get("source_identities")
+        if period != periods[index] or status not in {
+            "EVIDENCE_AVAILABLE",
+            "EVIDENCE_BLOCKED",
+            "EVIDENCE_UNRESOLVED",
+        }:
+            raise ValuationRiskContextError("OUTPUT_CONTEXT_LINEAGE_IDENTITY_MISMATCH")
+        if status == "EVIDENCE_AVAILABLE":
+            if not isinstance(sources, list) or not sources:
+                raise ValuationRiskContextError("OUTPUT_CONTEXT_SOURCES_EMPTY")
+            checked_sources = [
+                _validate_source(
+                    source,
+                    market,
+                    dimension,
+                    period,
+                    as_of,
+                    contract,
+                    f"{context_id}:{period}",
+                )
+                for source in sources
+            ]
+            checked_sources.sort(key=lambda item: item["source_id"])
+            source_ids = [source["source_id"] for source in checked_sources]
+            if source_ids != sorted(set(source_ids)):
+                raise ValuationRiskContextError("OUTPUT_CONTEXT_SOURCE_ORDER_INVALID")
+            for group in contract["source_requirements"][market][dimension]:
+                if not any(source_id in group for source_id in source_ids):
+                    raise ValuationRiskContextError("OUTPUT_CONTEXT_SOURCE_GROUP_MISSING")
+        else:
+            if sources != []:
+                raise ValuationRiskContextError("OUTPUT_UNAVAILABLE_CONTEXT_SOURCE_PRESENT")
+            checked_sources = []
+            unavailable_statuses.add(period)
+        lineage_by_period[period] = {
+            "status": status,
+            "source_identities": checked_sources,
+        }
+
+    unavailable = context.get("unavailable_evidence")
+    if not isinstance(unavailable, list):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_UNAVAILABLE_NOT_LIST")
+    unavailable_periods = []
+    for row in unavailable:
+        if not isinstance(row, dict) or set(row) != {
+            "period_end",
+            "status",
+            "missing_reasons",
+        }:
+            raise ValuationRiskContextError("OUTPUT_CONTEXT_UNAVAILABLE_FIELDS_MISMATCH")
+        period = row.get("period_end")
+        if (
+            period not in unavailable_statuses
+            or row.get("status") != lineage_by_period[period]["status"]
+            or not isinstance(row.get("missing_reasons"), list)
+            or not row["missing_reasons"]
+            or any(not isinstance(reason, str) or not reason for reason in row["missing_reasons"])
+        ):
+            raise ValuationRiskContextError("OUTPUT_CONTEXT_UNAVAILABLE_MISMATCH")
+        unavailable_periods.append(period)
+    if unavailable_periods != sorted(unavailable_statuses):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_UNAVAILABLE_COVERAGE_MISMATCH")
+
+    feature_status = context.get("feature_status")
+    interpretation_status = context.get("interpretation_status")
+    matched = context.get("deterioration_policy_match")
+    if unavailable_statuses:
+        if (
+            feature_status != "UNKNOWN_EVIDENCE"
+            or context.get("values") is not None
+            or context.get("change") is not None
+            or interpretation_status != "NOT_EVALUATED_UNKNOWN_EVIDENCE"
+            or matched is not None
+            or "interpretation_policy" in context
+        ):
+            raise ValuationRiskContextError("OUTPUT_UNKNOWN_CONTEXT_MISMATCH")
+    else:
+        values_text = context.get("values")
+        if (
+            feature_status != "OBSERVED"
+            or not isinstance(values_text, list)
+            or len(values_text) != contract["required_point_count"]
+            or unavailable
+        ):
+            raise ValuationRiskContextError("OUTPUT_OBSERVED_CONTEXT_MISMATCH")
+        values = [
+            _output_decimal(value, f"{context_id}:value", contract)
+            for value in values_text
+        ]
+        if dimension == "RISK" and any(value < 0 for value in values):
+            raise ValuationRiskContextError("OUTPUT_RISK_VALUE_NEGATIVE")
+        change = values[1] - values[0]
+        if context.get("change") != _render(change, contract):
+            raise ValuationRiskContextError("OUTPUT_CONTEXT_CHANGE_MISMATCH")
+        allowed_statuses = {
+            "ABSENT_OR_UNRATIFIED_POLICY",
+            "NO_EFFECTIVE_EXACT_RULE",
+            "EXACT_RULE_IDENTITY_MISMATCH",
+            "RATIFIED_EXACT_RULE_APPLIED",
+        }
+        if interpretation_status not in allowed_statuses:
+            raise ValuationRiskContextError("OUTPUT_INTERPRETATION_STATUS_INVALID")
+        if policy is None or policy["approval_status"] == "UNRATIFIED":
+            if (
+                interpretation_status != "ABSENT_OR_UNRATIFIED_POLICY"
+                or matched is not None
+            ):
+                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_STATUS_MISMATCH")
+        elif interpretation_status == "ABSENT_OR_UNRATIFIED_POLICY":
+            raise ValuationRiskContextError("OUTPUT_INTERPRETATION_STATUS_MISMATCH")
+        if interpretation_status in {
+            "ABSENT_OR_UNRATIFIED_POLICY",
+            "NO_EFFECTIVE_EXACT_RULE",
+        }:
+            if matched is not None or "interpretation_policy" in context:
+                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_RESULT_MISMATCH")
+        elif interpretation_status == "EXACT_RULE_IDENTITY_MISMATCH":
+            if matched is not False or "interpretation_policy" in context:
+                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_RESULT_MISMATCH")
+        else:
+            proof = context.get("interpretation_policy")
+            if type(matched) is not bool or not isinstance(proof, dict) or set(proof) != {
+                "policy_id",
+                "policy_sha256",
+                "ratified_by",
+                "ratified_at_utc",
+                "deterioration_direction",
+                "minimum_change",
+            }:
+                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_POLICY_FIELDS_MISMATCH")
+            direction = proof.get("deterioration_direction")
+            sign = (
+                Decimal(1)
+                if direction == "HIGHER_IS_DETERIORATION"
+                else Decimal(-1)
+                if direction == "LOWER_IS_DETERIORATION"
+                else None
+            )
+            minimum = _decimal(proof.get("minimum_change"), context_id, nonnegative=True)
+            expected_match = sign is not None and sign * change >= minimum
+            if (
+                policy is None
+                or policy["approval_status"] != "RATIFIED"
+                or proof.get("policy_id") != policy["policy_id"]
+                or proof.get("policy_sha256") != policy["policy_sha256"]
+                or not isinstance(proof.get("ratified_by"), str)
+                or not proof["ratified_by"].strip()
+                or not _valid_utc(proof.get("ratified_at_utc"))
+                or _utc(proof["ratified_at_utc"]) > as_of
+                or sign is None
+                or matched is not expected_match
+            ):
+                raise ValuationRiskContextError("OUTPUT_INTERPRETATION_DERIVATION_MISMATCH")
+    return copy.deepcopy(context)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate persisted candidate contexts from retained two-point evidence."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet_fields = {
+        "schema_version",
+        "contract_version",
+        "as_of_utc",
+        "status",
+        "candidate_count",
+        "context_observation_count",
+        "context_complete_candidate_count",
+        "interpretation_policy",
+        "candidate_contexts",
+        "source_coverage",
+        "policy_status",
+        "authority",
+        "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != packet_fields:
+        raise ValuationRiskContextError("OUTPUT_FIELDS_MISMATCH")
+    digest = packet.get("payload_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise ValuationRiskContextError("OUTPUT_SHA256_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != digest:
+        raise ValuationRiskContextError("OUTPUT_SHA256_MISMATCH")
+    as_of_utc = packet.get("as_of_utc")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "VALUATION_RISK_CONTEXT_ATTACHED"
+        or not _valid_utc(as_of_utc)
+    ):
+        raise ValuationRiskContextError("OUTPUT_IDENTITY_MISMATCH")
+    as_of = _utc(as_of_utc)
+    policy = packet.get("interpretation_policy")
+    if policy is not None:
+        if not isinstance(policy, dict) or set(policy) != {
+            "policy_id",
+            "approval_status",
+            "policy_sha256",
+        }:
+            raise ValuationRiskContextError("OUTPUT_POLICY_FIELDS_MISMATCH")
+        if (
+            not isinstance(policy.get("policy_id"), str)
+            or TOKEN_RE.fullmatch(policy["policy_id"]) is None
+            or policy.get("approval_status") not in {"RATIFIED", "UNRATIFIED"}
+            or not isinstance(policy.get("policy_sha256"), str)
+            or SHA256_RE.fullmatch(policy["policy_sha256"]) is None
+        ):
+            raise ValuationRiskContextError("OUTPUT_POLICY_IDENTITY_MISMATCH")
+
+    candidates = packet.get("candidate_contexts")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValuationRiskContextError("OUTPUT_CANDIDATES_EMPTY")
+    candidate_fields = {
+        "candidate_ref",
+        "valuation",
+        "risk",
+        "context_complete",
+        "total_deterioration_match_count",
+        "candidate_rank",
+        "stage_transition",
+        "rule_evaluation",
+        "portfolio_action",
+        "trading_action",
+    }
+    dimension_fields = {
+        "status",
+        "context_count",
+        "deterioration_match_count",
+        "contexts",
+    }
+    candidate_ids = []
+    all_context_ids = []
+    complete_count = 0
+    for candidate_packet in candidates:
+        if not isinstance(candidate_packet, dict) or set(candidate_packet) != candidate_fields:
+            raise ValuationRiskContextError("OUTPUT_CANDIDATE_FIELDS_MISMATCH")
+        candidate = _validate_candidate(
+            candidate_packet.get("candidate_ref"), as_of, contract
+        )
+        if (
+            candidate_packet.get("candidate_rank") is not None
+            or candidate_packet.get("stage_transition") is not None
+            or candidate_packet.get("rule_evaluation") is not None
+            or candidate_packet.get("portfolio_action") is not None
+            or candidate_packet.get("trading_action") is not None
+        ):
+            raise ValuationRiskContextError("OUTPUT_CANDIDATE_AUTHORITY_EXPANSION")
+        dimension_packets = {}
+        for dimension, key in (("VALUATION", "valuation"), ("RISK", "risk")):
+            value = candidate_packet.get(key)
+            if not isinstance(value, dict) or set(value) != dimension_fields:
+                raise ValuationRiskContextError("OUTPUT_DIMENSION_FIELDS_MISMATCH")
+            contexts = value.get("contexts")
+            if not isinstance(contexts, list):
+                raise ValuationRiskContextError("OUTPUT_DIMENSION_CONTEXTS_NOT_LIST")
+            checked = [
+                _validate_output_context(context, candidate, as_of, policy, contract)
+                for context in contexts
+            ]
+            if any(context["dimension"] != dimension for context in checked):
+                raise ValuationRiskContextError("OUTPUT_DIMENSION_CONTEXT_MISMATCH")
+            ids = [context["context_id"] for context in checked]
+            if ids != sorted(set(ids)):
+                raise ValuationRiskContextError("OUTPUT_DIMENSION_CONTEXT_ORDER_INVALID")
+            expected_status = (
+                "EVIDENCE_ABSENT"
+                if not checked
+                else "OBSERVED_RAW_CONTEXT"
+                if any(context["feature_status"] == "OBSERVED" for context in checked)
+                else "UNKNOWN_EVIDENCE"
+            )
+            match_count = sum(
+                context.get("deterioration_policy_match") is True
+                for context in checked
+            )
+            if (
+                value.get("status") != expected_status
+                or type(value.get("context_count")) is not int
+                or value["context_count"] != len(checked)
+                or type(value.get("deterioration_match_count")) is not int
+                or value["deterioration_match_count"] != match_count
+            ):
+                raise ValuationRiskContextError("OUTPUT_DIMENSION_SUMMARY_MISMATCH")
+            dimension_packets[dimension] = value
+            all_context_ids.extend(ids)
+        expected_complete = (
+            dimension_packets["VALUATION"]["status"] == "OBSERVED_RAW_CONTEXT"
+            and dimension_packets["RISK"]["status"] == "OBSERVED_RAW_CONTEXT"
+        )
+        expected_matches = sum(
+            dimension_packets[dimension]["deterioration_match_count"]
+            for dimension in ("VALUATION", "RISK")
+        )
+        if (
+            candidate_packet.get("context_complete") is not expected_complete
+            or type(candidate_packet.get("total_deterioration_match_count")) is not int
+            or candidate_packet["total_deterioration_match_count"] != expected_matches
+        ):
+            raise ValuationRiskContextError("OUTPUT_CANDIDATE_SUMMARY_MISMATCH")
+        candidate_ids.append(candidate["case_id"])
+        complete_count += int(expected_complete)
+    if candidate_ids != sorted(set(candidate_ids)):
+        raise ValuationRiskContextError("OUTPUT_CANDIDATE_ORDER_OR_DUPLICATE_INVALID")
+    if len(all_context_ids) != len(set(all_context_ids)):
+        raise ValuationRiskContextError("OUTPUT_CONTEXT_ID_DUPLICATE")
+
+    expected_boundaries = [
+        "DEFAULT_INTERPRETATION_POLICY_ABSENT",
+        "DETERIORATION_DIRECTION_UNRATIFIED",
+        "MINIMUM_CHANGE_UNRATIFIED",
+        "METRIC_SELECTION_UNRATIFIED",
+        "SOURCE_HIERARCHY_UNRATIFIED",
+        "CRYPTO_VALUATION_UNDEFINED",
+        "US_RISK_INPUT_POLICY_UNRATIFIED",
+        "KOREA_RISK_INPUT_AND_RELEASE_TIMING_UNRATIFIED",
+        "LIVE_CONTEXT_POPULATION_NOT_IMPLEMENTED",
+    ]
+    if (
+        type(packet.get("candidate_count")) is not int
+        or packet["candidate_count"] != len(candidates)
+        or type(packet.get("context_observation_count")) is not int
+        or packet["context_observation_count"] != len(all_context_ids)
+        or type(packet.get("context_complete_candidate_count")) is not int
+        or packet["context_complete_candidate_count"] != complete_count
+        or packet.get("source_coverage") != contract["source_coverage"]
+        or packet.get("policy_status") != contract["policy_status"]
+        or packet.get("authority") != contract["authority"]
+        or packet.get("unresolved_boundaries") != expected_boundaries
+    ):
+        raise ValuationRiskContextError("OUTPUT_SUMMARY_OR_BOUNDARY_MISMATCH")
+    return copy.deepcopy(packet)
+
+
 def build_packet(value: dict, interpretation_policy: dict | None = None, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     policy = _validate_policy(interpretation_policy, contract)
@@ -545,7 +959,7 @@ def build_packet(value: dict, interpretation_policy: dict | None = None, contrac
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

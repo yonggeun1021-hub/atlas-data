@@ -193,7 +193,8 @@ APPROVED_TESTS = [
     "test/test_supply_demand.py",
     # ★ P3-10 — immutable Discovery Case ref에 valuation/risk raw context를 부착한다.
     #   exact 2-point value/change와 composite source lineage만 기본 제공하고,
-    #   deterioration 방향·minimum이 명시된 외부 RATIFIED 정책만 label을 허용한다.
+    #   persisted validator가 grouping/change/lineage/label의 self-rehashed drift를
+    #   차단한다. deterioration 방향·minimum의 외부 RATIFIED 정책만 label을 허용한다.
     #   결측은 UNKNOWN/ABSENT, Crypto valuation은 UNDEFINED이며 candidate/Stage/Rule/
     #   Portfolio/Production/trading 권한은 모두 닫는다. temp output only.
     "test/test_valuation_risk_context.py",

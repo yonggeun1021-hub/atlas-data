@@ -39,6 +39,19 @@ There is no repository default policy, metric selection, or source hierarchy.
 Even a matched deterioration label grants no candidate rank, Stage promotion,
 Rule evaluation, portfolio action, Production, or trading authority.
 
+## Persisted packet validation
+
+`validate_packet()`은 저장된 candidate reference 형식, dimension grouping,
+2-point status/source lineage, canonical decimal change, missing state,
+interpretation label·proof, candidate/dimension/packet summary와 모든 권한 봉쇄를
+다시 검증한다. source requirement group과 deterioration 방향·minimum 비교도
+보존 값에서 재수행하므로 self-rehashed change, lineage, label, action drift는
+실패한다.
+
+원 Discovery Case 본문과 full interpretation-policy rule은 packet에 포함되지 않고
+각각 SHA-256만 남는다. standalone validator는 그 두 원문의 진위를 증명하지
+않으며, 원 입력을 직접 검증하는 `build_packet()`이 해당 경계를 담당한다.
+
 ## Operation
 
 The helper makes no network request and writes only to an explicit path outside

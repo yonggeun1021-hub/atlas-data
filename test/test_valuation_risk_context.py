@@ -144,6 +144,13 @@ def policy(value=None, *, status="RATIFIED", direction="HIGHER_IS_DETERIORATION"
     }
 
 
+def rehash(packet: dict) -> dict:
+    value = copy.deepcopy(packet)
+    value.pop("payload_sha256", None)
+    value["payload_sha256"] = VR.payload_sha256(value)
+    return value
+
+
 class ValuationRiskContextTests(unittest.TestCase):
     def test_raw_context_attaches_both_dimensions_without_interpretation(self):
         packet = VR.build_packet(payload())
@@ -200,6 +207,52 @@ class ValuationRiskContextTests(unittest.TestCase):
         self.assertEqual(result["interpretation_policy"]["policy_id"], "POLICY.VR.1")
         self.assertEqual(result["interpretation_policy"]["ratified_by"], "CIO")
         self.assertEqual(packet["candidate_contexts"][0]["total_deterioration_match_count"], 1)
+
+    def test_standalone_validator_accepts_raw_policy_and_unknown_packets(self):
+        unknown = context()
+        unknown["evidence_points"][1] = missing("2026-08-19")
+        packets = (
+            VR.build_packet(payload()),
+            VR.build_packet(payload(contexts=[context()]), policy()),
+            VR.build_packet(payload(contexts=[unknown]), policy(unknown)),
+        )
+        for packet in packets:
+            with self.subTest(policy=packet["interpretation_policy"] is not None):
+                checked = VR.validate_packet(copy.deepcopy(packet))
+                self.assertEqual(VR.canonical_json(checked), VR.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_change_tamper(self):
+        packet = VR.build_packet(payload())
+        packet["candidate_contexts"][0]["valuation"]["contexts"][0][
+            "change"
+        ] = "6.000000000000"
+        with self.assertRaisesRegex(VR.ValuationRiskContextError, "OUTPUT_CONTEXT_CHANGE_MISMATCH"):
+            VR.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_source_lineage_tamper(self):
+        packet = VR.build_packet(payload())
+        packet["candidate_contexts"][0]["valuation"]["contexts"][0][
+            "evidence_lineage"
+        ][0]["source_identities"][0]["source_url"] = "https://example.com/not-provider"
+        with self.assertRaisesRegex(VR.ValuationRiskContextError, "SOURCE_URL_INVALID"):
+            VR.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_policy_label_tamper(self):
+        packet = VR.build_packet(payload(contexts=[context()]), policy())
+        observed = packet["candidate_contexts"][0]["valuation"]["contexts"][0]
+        observed["interpretation_policy"]["minimum_change"] = "6"
+        with self.assertRaisesRegex(
+            VR.ValuationRiskContextError, "OUTPUT_INTERPRETATION_DERIVATION_MISMATCH"
+        ):
+            VR.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_authority_expansion(self):
+        packet = VR.build_packet(payload())
+        packet["candidate_contexts"][0]["portfolio_action"] = {"action": "BUY"}
+        with self.assertRaisesRegex(
+            VR.ValuationRiskContextError, "OUTPUT_CANDIDATE_AUTHORITY_EXPANSION"
+        ):
+            VR.validate_packet(rehash(packet))
 
     def test_lower_is_deterioration_comes_only_from_external_policy(self):
         value = context(values=("25", "20"))
