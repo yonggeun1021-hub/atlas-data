@@ -93,8 +93,7 @@ def load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def load_contract(path: Path = CONTRACT_PATH) -> dict:
-    value = _read_json(path)
+def _validate_contract(value: dict) -> dict:
     expected_source = {
         "module": "decision/event_classifier.py",
         "taxonomy_version": D1.TAXONOMY_VERSION,
@@ -139,7 +138,11 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         raise EventCaseError("REQUIRED_LINEAGE_FIELDS_MISMATCH")
     if value.get("authority") != expected_authority:
         raise EventCaseError("AUTHORITY_BOUNDARY_MISMATCH")
-    return value
+    return copy.deepcopy(value)
+
+
+def load_contract(path: Path = CONTRACT_PATH) -> dict:
+    return _validate_contract(_read_json(path))
 
 
 def _valid_date(value) -> bool:
@@ -322,11 +325,315 @@ def _case_id(record_key: str, event_type: str) -> str:
     return f"event-case-{payload_sha256(identity)[:24]}"
 
 
+def _output_record_identity(source_record_key: str, contract: dict) -> tuple[str, str]:
+    if not isinstance(source_record_key, str):
+        raise EventCaseError("OUTPUT_SOURCE_RECORD_KEY_INVALID")
+    parts = source_record_key.split("|")
+    source = contract["classification_source"]
+    if (
+        len(parts) != 4
+        or not parts[0]
+        or ACCESSION_RE.fullmatch(parts[1]) is None
+        or parts[2] != source["taxonomy_version"]
+        or parts[3] != source["decision_version"]
+    ):
+        raise EventCaseError(f"OUTPUT_SOURCE_RECORD_KEY_INVALID:{source_record_key}")
+    return parts[0], parts[1]
+
+
+def _output_lineage_reasons(
+    lineage: dict, event_date: str, accession: str, contract: dict
+) -> list[str]:
+    fields = {
+        "event_as_of",
+        "available_at",
+        "retrieved_at_utc",
+        "source_id",
+        "source_url",
+        "source_sha256",
+        "source_accession",
+        "evidence_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != fields:
+        raise EventCaseError("OUTPUT_EVIDENCE_LINEAGE_FIELDS_MISMATCH")
+    if lineage.get("event_as_of") != event_date:
+        raise EventCaseError("OUTPUT_EVIDENCE_EVENT_DATE_MISMATCH")
+    if lineage.get("source_accession") != accession:
+        raise EventCaseError("OUTPUT_EVIDENCE_ACCESSION_MISMATCH")
+    evidence_sha = lineage.get("evidence_sha256")
+    if not isinstance(evidence_sha, str) or SHA256_RE.fullmatch(evidence_sha) is None:
+        raise EventCaseError("OUTPUT_EVIDENCE_SHA256_INVALID")
+
+    missing = []
+    for field in contract["required_lineage_fields"]:
+        if not lineage.get(field):
+            missing.append(field)
+    if lineage.get("source_id") and lineage["source_id"] != "sec_edgar":
+        missing.append("source_id:INVALID")
+    source_url = lineage.get("source_url")
+    if source_url:
+        if not isinstance(source_url, str):
+            missing.append("source_url:INVALID")
+        else:
+            parsed_url = urlparse(source_url)
+            if (
+                parsed_url.scheme != "https"
+                or parsed_url.hostname != "www.sec.gov"
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+            ):
+                missing.append("source_url:INVALID")
+    source_sha = lineage.get("source_sha256")
+    if source_sha and (
+        not isinstance(source_sha, str) or SHA256_RE.fullmatch(source_sha) is None
+    ):
+        missing.append("source_sha256:INVALID")
+    available_at = lineage.get("available_at")
+    retrieved_at = lineage.get("retrieved_at_utc")
+    if available_at and not _valid_available_at(available_at):
+        missing.append("available_at:INVALID")
+    if retrieved_at and not _valid_utc(retrieved_at):
+        missing.append("retrieved_at_utc:INVALID")
+    if _valid_available_at(available_at):
+        available_date = available_at[:10]
+        if available_date < event_date:
+            missing.append("available_at:BEFORE_EVENT")
+        if _valid_utc(retrieved_at) and retrieved_at[:10] < available_date:
+            missing.append("retrieved_at_utc:BEFORE_AVAILABLE")
+    return sorted(set(missing))
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate retained event-case semantics without claiming omitted D1 proof."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet_fields = {
+        "schema_version",
+        "contract_version",
+        "binding_set_id",
+        "importance_policy_status",
+        "automatic_promotion_authorized",
+        "source_coverage",
+        "authority",
+        "inputs",
+        "summary",
+        "cases",
+        "excluded_records",
+        "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != packet_fields:
+        raise EventCaseError("OUTPUT_PACKET_FIELDS_MISMATCH")
+    digest = packet.get("packet_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise EventCaseError("OUTPUT_PACKET_SHA256_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("packet_sha256")
+    if payload_sha256(normalized) != digest:
+        raise EventCaseError("OUTPUT_PACKET_SHA256_MISMATCH")
+    if (
+        packet.get("schema_version") != PACKET_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+    ):
+        raise EventCaseError("OUTPUT_PACKET_IDENTITY_MISMATCH")
+    if not isinstance(packet.get("binding_set_id"), str) or not packet[
+        "binding_set_id"
+    ]:
+        raise EventCaseError("OUTPUT_BINDING_SET_ID_INVALID")
+    if (
+        packet.get("importance_policy_status")
+        != contract["importance_policy_status"]
+        or packet.get("automatic_promotion_authorized")
+        is not contract["automatic_promotion_authorized"]
+        or packet.get("source_coverage") != contract["source_coverage"]
+        or packet.get("authority") != contract["authority"]
+    ):
+        raise EventCaseError("OUTPUT_AUTHORITY_BOUNDARY_MISMATCH")
+    inputs = packet.get("inputs")
+    if not isinstance(inputs, dict) or set(inputs) != {
+        "d1_records_sha256",
+        "evidence_bindings_sha256",
+    }:
+        raise EventCaseError("OUTPUT_INPUTS_FIELDS_MISMATCH")
+    for digest_value in inputs.values():
+        if not isinstance(digest_value, str) or SHA256_RE.fullmatch(digest_value) is None:
+            raise EventCaseError("OUTPUT_INPUT_SHA256_INVALID")
+
+    cases = packet.get("cases")
+    if not isinstance(cases, list):
+        raise EventCaseError("OUTPUT_CASES_NOT_LIST")
+    case_fields = {
+        "schema_version",
+        "case_id",
+        "market",
+        "subject",
+        "subject_name",
+        "event_type",
+        "event_date",
+        "source_record_key",
+        "classification",
+        "evidence_status",
+        "evidence_reasons",
+        "evidence_lineage",
+        "importance_status",
+        "interpretation_status",
+        "promotion_status",
+        "stage_transition",
+        "investment_action",
+    }
+    classification_fields = {
+        "resolution",
+        "taxonomy_version",
+        "decision_version",
+        "item_codes",
+        "unknown_item_codes",
+        "taxonomy_gap_codes",
+        "undetermined",
+    }
+    source_case_identity = {}
+    counts = {status: 0 for status in EVIDENCE_STATUSES}
+    case_ids = []
+    case_source_keys = set()
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != case_fields:
+            raise EventCaseError("OUTPUT_CASE_FIELDS_MISMATCH")
+        source_key = case.get("source_record_key")
+        subject, accession = _output_record_identity(source_key, contract)
+        event_type = case.get("event_type")
+        event_date = case.get("event_date")
+        classification = case.get("classification")
+        if (
+            case.get("schema_version") != CASE_SCHEMA_VERSION
+            or case.get("market") != "US"
+            or case.get("subject") != subject
+            or (
+                case.get("subject_name") is not None
+                and (
+                    not isinstance(case["subject_name"], str)
+                    or not case["subject_name"].strip()
+                )
+            )
+            or event_type not in D1.EVENT_TYPES
+            or not _valid_date(event_date)
+            or case.get("case_id") != _case_id(source_key, event_type)
+        ):
+            raise EventCaseError("OUTPUT_CASE_IDENTITY_MISMATCH")
+        if not isinstance(classification, dict) or set(classification) != (
+            classification_fields
+        ):
+            raise EventCaseError("OUTPUT_CLASSIFICATION_FIELDS_MISMATCH")
+        if (
+            classification.get("resolution")
+            not in contract["classification_source"]["supported_resolutions"]
+            or classification.get("taxonomy_version")
+            != contract["classification_source"]["taxonomy_version"]
+            or classification.get("decision_version")
+            != contract["classification_source"]["decision_version"]
+            or any(
+                not isinstance(classification.get(field), list)
+                or any(not isinstance(value, str) for value in classification[field])
+                for field in (
+                    "item_codes",
+                    "unknown_item_codes",
+                    "taxonomy_gap_codes",
+                    "undetermined",
+                )
+            )
+        ):
+            raise EventCaseError("OUTPUT_CLASSIFICATION_VALUE_MISMATCH")
+        evidence_status = case.get("evidence_status")
+        evidence_reasons = case.get("evidence_reasons")
+        if (
+            evidence_status not in EVIDENCE_STATUSES
+            or not isinstance(evidence_reasons, list)
+            or any(not isinstance(reason, str) or not reason for reason in evidence_reasons)
+        ):
+            raise EventCaseError("OUTPUT_EVIDENCE_STATUS_INVALID")
+        if evidence_status == EVIDENCE_UNRESOLVED:
+            if (
+                evidence_reasons != [EXPLICIT_EVIDENCE_BINDING_ABSENT]
+                or case.get("evidence_lineage") is not None
+            ):
+                raise EventCaseError("OUTPUT_UNRESOLVED_EVIDENCE_MISMATCH")
+        else:
+            missing = _output_lineage_reasons(
+                case.get("evidence_lineage"), event_date, accession, contract
+            )
+            expected_reasons = (
+                []
+                if evidence_status == EVIDENCE_LINKED
+                else [f"{EVIDENCE_LINEAGE_INCOMPLETE}:{','.join(missing)}"]
+            )
+            if (
+                (evidence_status == EVIDENCE_LINKED and missing)
+                or (evidence_status == EVIDENCE_BLOCKED and not missing)
+                or evidence_reasons != expected_reasons
+            ):
+                raise EventCaseError("OUTPUT_EVIDENCE_DERIVATION_MISMATCH")
+        if (
+            case.get("importance_status") != IMPORTANCE_UNRATIFIED
+            or case.get("interpretation_status") != INTERPRETATION_NOT_AUTHORIZED
+            or case.get("promotion_status") != PROMOTION_NOT_AUTHORIZED
+            or case.get("stage_transition") is not None
+            or case.get("investment_action") is not None
+        ):
+            raise EventCaseError("OUTPUT_CASE_AUTHORITY_EXPANSION")
+        common = {
+            key: copy.deepcopy(case[key])
+            for key in (
+                "subject",
+                "subject_name",
+                "event_date",
+                "classification",
+                "evidence_status",
+                "evidence_reasons",
+                "evidence_lineage",
+            )
+        }
+        if source_key in source_case_identity and source_case_identity[source_key] != common:
+            raise EventCaseError(f"OUTPUT_SOURCE_RECORD_CASE_DRIFT:{source_key}")
+        source_case_identity[source_key] = common
+        case_ids.append(case["case_id"])
+        case_source_keys.add(source_key)
+        counts[evidence_status] += 1
+    if case_ids != sorted(set(case_ids)):
+        raise EventCaseError("OUTPUT_CASE_ORDER_OR_DUPLICATE_INVALID")
+
+    excluded = packet.get("excluded_records")
+    if not isinstance(excluded, list):
+        raise EventCaseError("OUTPUT_EXCLUDED_RECORDS_NOT_LIST")
+    allowed_reasons = {
+        "RESOLUTION_UNRESOLVED",
+        "RESOLUTION_NOT_APPLICABLE",
+        "NO_RESOLVED_EVENT_TYPE",
+    }
+    excluded_keys = []
+    for row in excluded:
+        if not isinstance(row, dict) or set(row) != {"source_record_key", "reason"}:
+            raise EventCaseError("OUTPUT_EXCLUDED_RECORD_FIELDS_MISMATCH")
+        source_key = row.get("source_record_key")
+        _output_record_identity(source_key, contract)
+        if row.get("reason") not in allowed_reasons or source_key in case_source_keys:
+            raise EventCaseError("OUTPUT_EXCLUDED_RECORD_VALUE_MISMATCH")
+        excluded_keys.append(source_key)
+    if excluded_keys != sorted(set(excluded_keys)):
+        raise EventCaseError("OUTPUT_EXCLUDED_RECORD_ORDER_OR_DUPLICATE_INVALID")
+
+    summary = packet.get("summary")
+    expected_summary = {
+        "source_records": len(case_source_keys | set(excluded_keys)),
+        "cases": len(cases),
+        "excluded_records": len(excluded),
+        **counts,
+    }
+    if summary != expected_summary:
+        raise EventCaseError("OUTPUT_SUMMARY_DERIVATION_MISMATCH")
+    return copy.deepcopy(packet)
+
+
 def build_packet(
     *, records: list[dict], evidence_bindings: dict, contract: dict | None = None,
 ) -> dict:
     """Build deterministic cases from the ratified SEC D1 classification only."""
-    contract = copy.deepcopy(contract or load_contract())
+    contract = _validate_contract(contract) if contract is not None else load_contract()
     records_by_key = _index_records(records, contract)
     bindings_by_key = _validate_bindings(evidence_bindings, records_by_key, contract)
 
@@ -410,7 +717,7 @@ def build_packet(
         "excluded_records": excluded,
     }
     body["packet_sha256"] = payload_sha256(body)
-    return body
+    return validate_packet(body, contract)
 
 
 def _atomic_write_json(path: Path, value: dict) -> None:

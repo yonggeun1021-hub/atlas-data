@@ -63,5 +63,18 @@ SEC URL은 HTTPS `www.sec.gov`만 허용하고 `available_at`은 event date보�
 없으며 retrieval date는 availability보다 빠를 수 없다. case 생성 대상이 아닌
 `unresolved`/`not_applicable` record에 evidence binding을 붙이는 것도 거부한다.
 
+## Persisted packet validation
+
+`validate_packet()`은 저장된 packet의 case ID, D1 taxonomy/decision identity,
+evidence 상태와 lineage 형식·시간 순서, authority 봉쇄값, 동일 source record에서
+파생된 복수 case의 공통 분류, 정렬, exclusion, summary를 독립적으로 다시
+검증한다. 따라서 값을 바꾸고 `packet_sha256`을 다시 계산해도 semantic drift는
+통과하지 않는다. `build_packet()`도 발행 전에 같은 validator를 호출한다.
+
+원본 D1 JSONL과 evidence binding 본문은 packet에 포함되지 않고 각각 SHA-256만
+남으므로, standalone validation은 입력 원문과의 일치나 입력 completeness를
+증명하지 않는다. 그 증명은 원본 입력을 함께 가진 `build_packet()` 경로의
+책임이며, validator는 보존된 packet 내부의 자족적 계약만 검증한다.
+
 CLI는 JSONL record와 binding JSON을 읽어 지정된 `--out`에만 원자적으로 쓴다.
 tracked Discovery Case 발행이나 workflow 연결은 아직 하지 않는다.

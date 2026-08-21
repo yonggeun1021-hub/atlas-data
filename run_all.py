@@ -177,8 +177,9 @@ APPROVED_TESTS = [
     "test/test_market_behavior.py",
     # ★ P3-08 — existing SEC D1 event → evidence-linked Discovery Case packet.
     #   ratified taxonomy 결과만 case로 기록하고 exact source-record binding의
-    #   as_of/available_at/source SHA를 보존한다. 중요도·해석·Stage 승격은 금지한다.
-    #   DART item/news/policy/Crypto coverage 미비를 packet에 그대로 표면화한다.
+    #   as_of/available_at/source SHA를 보존한다. Persisted packet validator가
+    #   self-rehashed case/classification/evidence/summary drift를 차단한다.
+    #   중요도·해석·Stage 승격은 금지하고 coverage 미비를 그대로 표면화한다.
     #   ⛔ live network/workflow/tracked case 없음 — synthetic D1 + temp output only.
     "test/test_event_discovery_case.py",
     # ★ P3-09 — policy-gated market-specific supply/demand raw-feature radar.
