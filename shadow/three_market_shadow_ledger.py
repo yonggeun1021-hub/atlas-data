@@ -63,15 +63,15 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 3,
-        "contract_version": "three_market_shadow_ledger/3",
-        "ledger_schema_version": "three_market_shadow_ledger_packet/3",
+        "schema_version": 4,
+        "contract_version": "three_market_shadow_ledger/4",
+        "ledger_schema_version": "three_market_shadow_ledger_packet/4",
         "unified_decision_schema_version": "unified_daily_decision/1",
         "unified_decision_contract_version": "unified_decision_contract/1",
         "entry_exit_schema_version": "entry_exit_trigger_eligibility_packet/1",
         "entry_exit_contract_version": "entry_exit_trigger_eligibility/1",
-        "intraday_risk_schema_version": "intraday_risk_escalation_packet/2",
-        "intraday_risk_contract_version": "intraday_risk_escalation/2",
+        "intraday_risk_schema_version": "intraday_risk_escalation_packet/3",
+        "intraday_risk_contract_version": "intraday_risk_escalation/3",
         "markets": ["US", "KOREA", "CRYPTO"],
         "source_regime_markets": ["US", "KR", "CRYPTO"],
         "slots": ["morning", "evening"],
