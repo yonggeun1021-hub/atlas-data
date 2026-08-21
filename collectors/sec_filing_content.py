@@ -437,7 +437,7 @@ def capture_filing(
             )
             skipped["operation"] = "skipped"
             skipped["skip_reason"] = "already_captured"
-            return skipped, {}
+            return validate_manifest(skipped, contract=contract), {}
 
     try:
         urls = source_urls(cik, filing)
@@ -523,7 +523,7 @@ def capture_filing(
             ),
             operation="captured",
         )
-        return result, raw_by_name
+        return validate_manifest(result, raw_by_name, contract), raw_by_name
     except Exception as exc:  # fail-closed record; caller decides process exit
         reason = str(exc) if isinstance(exc, SecContentError) else f"{type(exc).__name__}:{exc}"
         result.update(
@@ -533,6 +533,289 @@ def capture_filing(
             operation="failed",
         )
         return result, {}
+
+
+def _valid_date(value) -> bool:
+    if not isinstance(value, str) or DATE_RE.fullmatch(value) is None:
+        return False
+    try:
+        return dt.date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
+def _valid_utc(value) -> bool:
+    if not isinstance(value, str) or UTC_ISO_RE.fullmatch(value) is None:
+        return False
+    try:
+        return (
+            dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            == value
+        )
+    except ValueError:
+        return False
+
+
+def _validate_manifest_document(
+    row: dict,
+    *,
+    allowed_kinds: set[str],
+    expected_prefix: str,
+    max_bytes: int,
+    context: str,
+) -> dict:
+    if not isinstance(row, dict) or set(row) != {
+        "kind",
+        "source_uri",
+        "document_name",
+        "content_sha256",
+        "content_bytes",
+    }:
+        raise SecContentError(f"MANIFEST_DOCUMENT_FIELDS_MISMATCH:{context}")
+    if row.get("kind") not in allowed_kinds:
+        raise SecContentError(f"MANIFEST_DOCUMENT_KIND_INVALID:{context}")
+    source_uri = row.get("source_uri")
+    _validate_sec_url(source_uri)
+    if not urlparse(source_uri).path.startswith(expected_prefix):
+        raise SecContentError(f"MANIFEST_DOCUMENT_IDENTITY_MISMATCH:{context}")
+    if row.get("document_name") != _document_name(source_uri):
+        raise SecContentError(f"MANIFEST_DOCUMENT_NAME_MISMATCH:{context}")
+    digest = row.get("content_sha256")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise SecContentError(f"MANIFEST_DOCUMENT_SHA256_INVALID:{context}")
+    size = row.get("content_bytes")
+    if type(size) is not int or size <= 0 or size > max_bytes:
+        raise SecContentError(f"MANIFEST_DOCUMENT_SIZE_INVALID:{context}")
+    return copy.deepcopy(row)
+
+
+def validate_manifest(
+    manifest: dict,
+    raw_by_name: dict[str, bytes] | None = None,
+    contract: dict | None = None,
+) -> dict:
+    """Validate a persisted successful SEC manifest and optional raw cache."""
+    contract = contract if contract is not None else load_contract()
+    base_fields = {
+        "schema_version",
+        "ticker",
+        "atlas_stage",
+        "form",
+        "filing_date",
+        "filing_identity",
+        "extractor_version",
+        "form_classification",
+        "capture_policy",
+        "discovery_status",
+        "content_status",
+        "evidence_status",
+        "interpretation_status",
+        "rule_impact",
+        "action",
+        "reasons",
+        "documents",
+        "extracted",
+        "identity_evidence",
+        "retrieved_at_utc",
+        "canonical_identity",
+        "raw_cache_policy",
+        "operation",
+    }
+    allowed_fields = [base_fields]
+    allowed_fields.append(base_fields | {"publication_status"})
+    allowed_fields.append(base_fields | {"skip_reason"})
+    allowed_fields.append(
+        base_fields | {"publication_status", "skip_reason"}
+    )
+    if not isinstance(manifest, dict) or set(manifest) not in allowed_fields:
+        raise SecContentError("MANIFEST_FIELDS_MISMATCH")
+    ticker = manifest.get("ticker")
+    form = manifest.get("form")
+    stage = manifest.get("atlas_stage")
+    filing_date = manifest.get("filing_date")
+    retrieved_at_utc = manifest.get("retrieved_at_utc")
+    if not isinstance(ticker, str) or re.fullmatch(r"[A-Z0-9.-]+", ticker) is None:
+        raise SecContentError("MANIFEST_TICKER_INVALID")
+    if not isinstance(form, str) or not form.strip() or form.strip() != form:
+        raise SecContentError("MANIFEST_FORM_INVALID")
+    if stage not in (
+        set(contract["stage_policy"]["required"])
+        | set(contract["stage_policy"]["best_effort"])
+    ):
+        raise SecContentError("MANIFEST_STAGE_INVALID")
+    if (
+        not _valid_date(filing_date)
+        or not _valid_utc(retrieved_at_utc)
+        or dt.date.fromisoformat(filing_date)
+        > dt.datetime.strptime(retrieved_at_utc, "%Y-%m-%dT%H:%M:%SZ").date()
+    ):
+        raise SecContentError("MANIFEST_TIME_INVALID")
+    identity = manifest.get("filing_identity")
+    if not isinstance(identity, dict) or set(identity) != {"cik", "accession"}:
+        raise SecContentError("MANIFEST_FILING_IDENTITY_FIELDS_MISMATCH")
+    cik = identity.get("cik")
+    accession = identity.get("accession")
+    if not isinstance(cik, str) or re.fullmatch(r"\d{10}", cik) is None:
+        raise SecContentError("MANIFEST_CIK_INVALID")
+    if not isinstance(accession, str) or ACCESSION_RE.fullmatch(accession) is None:
+        raise SecContentError("MANIFEST_ACCESSION_INVALID")
+    expected_prefix = (
+        f"/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/"
+    )
+    plan = filing_plan({"form": form}, stage, contract)
+    expected_cache = (
+        "permanent"
+        if stage in contract["retention_policy"]["permanent_raw_stages"]
+        else f"delete_after_{contract['retention_policy']['raw_cache_days']}_days_allowed"
+    )
+    if (
+        manifest.get("schema_version") != SCHEMA_VERSION
+        or manifest.get("extractor_version") != contract["extractor_version"]
+        or plan["form_classification"] != "MATERIAL"
+        or manifest.get("form_classification") != plan["form_classification"]
+        or manifest.get("capture_policy") != plan["capture_policy"]
+        or manifest.get("discovery_status") != "OK"
+        or manifest.get("content_status") != "OK"
+        or manifest.get("interpretation_status") != "UNDETERMINED"
+        or manifest.get("rule_impact") != "NONE"
+        or manifest.get("action") != "NO_CHANGE"
+        or manifest.get("canonical_identity") != "hash+url+extracted"
+        or manifest.get("raw_cache_policy") != expected_cache
+        or manifest.get("publication_status", "OK") != "OK"
+    ):
+        raise SecContentError("MANIFEST_STATUS_OR_AUTHORITY_MISMATCH")
+    operation = manifest.get("operation")
+    if operation not in {"captured", "skipped"}:
+        raise SecContentError("MANIFEST_OPERATION_INVALID")
+    if (
+        operation == "skipped"
+        and manifest.get("skip_reason") != "already_captured"
+    ) or (operation == "captured" and "skip_reason" in manifest):
+        raise SecContentError("MANIFEST_SKIP_REASON_MISMATCH")
+
+    identity_evidence = manifest.get("identity_evidence")
+    if not isinstance(identity_evidence, dict) or set(identity_evidence) != {
+        "full_submission",
+        "filing_index",
+    }:
+        raise SecContentError("MANIFEST_IDENTITY_EVIDENCE_FIELDS_MISMATCH")
+    checked_identity = {
+        key: _validate_manifest_document(
+            row,
+            allowed_kinds={"identity"},
+            expected_prefix=expected_prefix,
+            max_bytes=contract["document_policy"]["max_submission_index_bytes"],
+            context=key,
+        )
+        for key, row in identity_evidence.items()
+    }
+    if (
+        checked_identity["full_submission"]["document_name"] != f"{accession}.txt"
+        or checked_identity["filing_index"]["document_name"]
+        not in {f"{accession}-index.htm", f"{accession}-index.html"}
+    ):
+        raise SecContentError("MANIFEST_IDENTITY_EVIDENCE_NAME_MISMATCH")
+
+    documents = manifest.get("documents")
+    if not isinstance(documents, list) or not documents:
+        raise SecContentError("MANIFEST_DOCUMENTS_EMPTY")
+    checked_documents = [
+        _validate_manifest_document(
+            row,
+            allowed_kinds={"primary", "exhibit"},
+            expected_prefix=expected_prefix,
+            max_bytes=contract["document_policy"]["max_document_bytes"],
+            context=str(index),
+        )
+        for index, row in enumerate(documents)
+    ]
+    names = [row["document_name"] for row in checked_documents]
+    uris = [row["source_uri"] for row in checked_documents]
+    if (
+        len(names) != len(set(names))
+        or len(uris) != len(set(uris))
+        or checked_documents[0]["kind"] != "primary"
+        or any(row["kind"] != "exhibit" for row in checked_documents[1:])
+        or len(checked_documents) - 1 > contract["document_policy"]["max_exhibits"]
+    ):
+        raise SecContentError("MANIFEST_DOCUMENT_SET_INVALID")
+
+    reasons = manifest.get("reasons")
+    extracted = manifest.get("extracted")
+    evidence_status = manifest.get("evidence_status")
+    if (
+        evidence_status not in {"OK", "PENDING", "FAILED"}
+        or not isinstance(reasons, list)
+        or any(not isinstance(reason, str) or not reason for reason in reasons)
+        or not isinstance(extracted, list)
+    ):
+        raise SecContentError("MANIFEST_EVIDENCE_FIELDS_INVALID")
+    if (
+        (evidence_status == "OK" and (not extracted or reasons))
+        or (evidence_status in {"PENDING", "FAILED"} and (extracted or not reasons))
+    ):
+        raise SecContentError("MANIFEST_EVIDENCE_STATUS_MISMATCH")
+    evidence_fields = {
+        "label",
+        "value",
+        "raw_value",
+        "unit",
+        "currency",
+        "quote",
+        "char_offset",
+        "match_offset",
+        "offset_basis",
+    }
+    for item in extracted:
+        if (
+            not isinstance(item, dict)
+            or set(item) != evidence_fields
+            or any(
+                not isinstance(item.get(field), str) or not item[field]
+                for field in ("label", "value", "raw_value", "unit", "currency", "quote")
+            )
+            or type(item.get("char_offset")) is not int
+            or item["char_offset"] < 0
+            or type(item.get("match_offset")) is not int
+            or item["match_offset"] < 0
+            or item.get("offset_basis") != "normalized_visible_text"
+        ):
+            raise SecContentError("MANIFEST_EXTRACTED_EVIDENCE_INVALID")
+
+    if raw_by_name is not None:
+        if not isinstance(raw_by_name, dict) or set(raw_by_name) != set(names):
+            raise SecContentError("RAW_CACHE_SET_MISMATCH")
+        for row in checked_documents:
+            raw = raw_by_name[row["document_name"]]
+            if not isinstance(raw, bytes):
+                raise SecContentError(f"RAW_CACHE_TYPE_INVALID:{row['document_name']}")
+            if (
+                len(raw) != row["content_bytes"]
+                or hashlib.sha256(raw).hexdigest() != row["content_sha256"]
+            ):
+                raise SecContentError(f"RAW_CACHE_HASH_MISMATCH:{row['document_name']}")
+        try:
+            expected_extracted, expected_reasons = extract_registered_evidence(
+                ticker=ticker,
+                accession=accession,
+                primary_source=raw_by_name[checked_documents[0]["document_name"]],
+            )
+            expected_status = (
+                "OK"
+                if expected_extracted and not expected_reasons
+                else "PENDING"
+            )
+        except SecContentError as exc:
+            expected_extracted, expected_reasons, expected_status = [], [str(exc)], "FAILED"
+        if (
+            extracted != expected_extracted
+            or reasons != expected_reasons
+            or evidence_status != expected_status
+        ):
+            raise SecContentError("MANIFEST_EXTRACTION_DERIVATION_MISMATCH")
+    return copy.deepcopy(manifest)
 
 
 def _json_bytes(value: dict) -> bytes:
@@ -566,9 +849,28 @@ def manifest_dir(data_root: Path, ticker: str, accession: str) -> Path:
     return data_root / "sec_content" / ticker / accession
 
 
-def load_existing_manifest(data_root: Path, ticker: str, accession: str) -> dict | None:
-    path = manifest_dir(data_root, ticker, accession) / "_manifest.json"
-    return _read_json(path) if path.exists() else None
+def load_existing_manifest(
+    data_root: Path,
+    ticker: str,
+    accession: str,
+    contract: dict | None = None,
+) -> dict | None:
+    directory = manifest_dir(data_root, ticker, accession)
+    path = directory / "_manifest.json"
+    if not path.exists():
+        return None
+    manifest = validate_manifest(_read_json(path), contract=contract)
+    raw_by_name = {}
+    for document in manifest["documents"]:
+        name = document["document_name"]
+        target = directory / f"{name}.gz"
+        if not target.exists():
+            raise SecContentError(f"RAW_CACHE_MISSING:{name}")
+        try:
+            raw_by_name[name] = gzip.decompress(target.read_bytes())
+        except (OSError, EOFError) as exc:
+            raise SecContentError(f"RAW_CACHE_INVALID:{name}") from exc
+    return validate_manifest(manifest, raw_by_name, contract)
 
 
 def _manifest_fingerprint(manifest: dict) -> dict:
@@ -600,10 +902,15 @@ def _validate_raw_payload(manifest: dict, raw_by_name: dict[str, bytes]) -> None
 
 
 def persist_success(
-    data_root: Path, manifest: dict, raw_by_name: dict[str, bytes]
+    data_root: Path,
+    manifest: dict,
+    raw_by_name: dict[str, bytes],
+    contract: dict | None = None,
 ) -> None:
+    contract = contract if contract is not None else load_contract()
     if manifest.get("content_status") != "OK":
         raise SecContentError("PERSIST_NON_OK_FORBIDDEN")
+    validate_manifest(manifest, contract=contract)
     _validate_raw_payload(manifest, raw_by_name)
     directory = manifest_dir(
         data_root, manifest["ticker"], manifest["filing_identity"]["accession"]
@@ -615,6 +922,7 @@ def persist_success(
         old = _read_json(manifest_path)
         if _manifest_fingerprint(old) != _manifest_fingerprint(manifest):
             raise SecContentError("SOURCE_MUTATED_FAIL_CLOSED_NO_OVERWRITE")
+        cached_by_name = {}
         for document in manifest["documents"]:
             name = document["document_name"]
             target = directory / f"{name}.gz"
@@ -626,11 +934,14 @@ def persist_success(
                 raise SecContentError(f"RAW_CACHE_INVALID:{name}") from exc
             if hashlib.sha256(cached).hexdigest() != document["content_sha256"]:
                 raise SecContentError(f"RAW_CACHE_MUTATION:{name}")
+            cached_by_name[name] = cached
+        validate_manifest(manifest, cached_by_name, contract)
         _atomic_write(manifest_path, _json_bytes(manifest))
         return
 
     if not raw_by_name:
         raise SecContentError("RAW_CACHE_REQUIRED_FOR_NEW_CAPTURE")
+    validate_manifest(manifest, raw_by_name, contract)
     directory.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{directory.name}.tmp.", dir=directory.parent)
@@ -690,7 +1001,9 @@ def run_capture(
             accession = filing.get("accession", "")
             record = None
             try:
-                existing = load_existing_manifest(data_root, ticker, accession)
+                existing = load_existing_manifest(
+                    data_root, ticker, accession, contract
+                )
                 record, raw = capture_filing(
                     ticker=ticker,
                     cik=cik,
@@ -707,13 +1020,13 @@ def run_capture(
                     counts["not_applicable"] += 1
                 elif operation == "captured":
                     record["publication_status"] = "OK"
-                    persist_success(data_root, record, raw)
+                    persist_success(data_root, record, raw, contract)
                     counts["captured"] += 1
                 elif operation == "skipped":
                     # Skip is itself an auditable operation. It also persists current
                     # Stage and retention policy without another SEC request.
                     record["publication_status"] = "OK"
-                    persist_success(data_root, record, {})
+                    persist_success(data_root, record, {}, contract)
                     counts["skipped"] += 1
                 else:
                     record["publication_status"] = "NOT_PUBLISHED"

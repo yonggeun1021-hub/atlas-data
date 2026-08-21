@@ -173,6 +173,76 @@ class SecFilingContentTest(unittest.TestCase):
             self.assertEqual(text[start : start + len(item["quote"])], item["quote"])
             self.assertIn(item["raw_value"], item["quote"])
 
+    def test_persisted_manifest_validator_rederives_registered_extraction(self):
+        result, raw, _ = self.capture()
+        checked = MODULE.validate_manifest(copy.deepcopy(result), raw, self.contract)
+        self.assertEqual(checked, result)
+
+        changed = copy.deepcopy(result)
+        changed["extracted"][0]["value"] = "999999"
+        with self.assertRaisesRegex(
+            MODULE.SecContentError, "MANIFEST_EXTRACTION_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_manifest(changed, raw, self.contract)
+
+    def test_persisted_manifest_validator_rejects_authority_and_lineage_drift(self):
+        result, raw, _ = self.capture()
+        changed = copy.deepcopy(result)
+        changed["action"] = "BUY"
+        with self.assertRaisesRegex(
+            MODULE.SecContentError, "MANIFEST_STATUS_OR_AUTHORITY_MISMATCH"
+        ):
+            MODULE.validate_manifest(changed, raw, self.contract)
+
+        changed = copy.deepcopy(result)
+        changed["documents"][0]["source_uri"] = "https://example.com/filing.htm"
+        with self.assertRaisesRegex(MODULE.SecContentError, "SOURCE_URI_NOT_SEC_ARCHIVES"):
+            MODULE.validate_manifest(changed, raw, self.contract)
+
+    def test_skip_rejects_semantically_tampered_existing_manifest(self):
+        result, _, _ = self.capture()
+        result["action"] = "BUY"
+        with self.assertRaisesRegex(
+            MODULE.SecContentError, "MANIFEST_STATUS_OR_AUTHORITY_MISMATCH"
+        ):
+            self.capture(existing=result)
+
+    def test_loading_existing_cache_revalidates_manifest_and_raw_extraction(self):
+        result, raw, _ = self.capture()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            MODULE.persist_success(root, result, raw, self.contract)
+            loaded = MODULE.load_existing_manifest(
+                root, "TSM", filing()["accession"], self.contract
+            )
+            self.assertEqual(loaded, result)
+
+            path = MODULE.manifest_dir(root, "TSM", filing()["accession"]) / "_manifest.json"
+            tampered = json.loads(path.read_text(encoding="utf-8"))
+            tampered["extracted"][0]["value"] = "999999"
+            path.write_text(json.dumps(tampered), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.SecContentError, "MANIFEST_EXTRACTION_DERIVATION_MISMATCH"
+            ):
+                MODULE.load_existing_manifest(
+                    root, "TSM", filing()["accession"], self.contract
+                )
+
+    def test_all_tracked_success_manifests_validate_against_raw_cache(self):
+        root = ROOT / "data" / "sec_content"
+        manifests = sorted(root.glob("*/*/_manifest.json"))
+        self.assertTrue(manifests)
+        for path in manifests:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            raw = {
+                row["document_name"]: gzip.decompress(
+                    (path.parent / f"{row['document_name']}.gz").read_bytes()
+                )
+                for row in manifest["documents"]
+            }
+            with self.subTest(path=path):
+                MODULE.validate_manifest(manifest, raw, self.contract)
+
     def test_ex99_is_discovered_from_sgml_and_cross_checked_with_index(self):
         value = filing(accession="0001046179-26-000600")
         value["url"] = value["url"].replace("000536", "000600").replace(
