@@ -245,6 +245,7 @@ APPROVED_TESTS = [
     #   ⛔ live KRX 호출 없음 — fixture response + workflow contract only.
     "test/test_korea_breadth.py",
     # ★ P1-US-06 — US Leadership transient cross-sectional contract.
+    #   retained semantics를 production helper/P2-02 consumer가 재검증한다.
     #   PIT membership/taxonomy와 market-relative strength/participation을
     #   재현하되 Trend/Breadth/순위/Regime/Production 권한은 부여하지 않는다.
     #   ⛔ live Tiingo/workflow/tracked factor 없음 — temp policies/stdin fixtures only.

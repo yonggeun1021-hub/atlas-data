@@ -15,6 +15,7 @@ import copy
 import datetime as dt
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "us_capital_rotation_contract.json"
+LEADERSHIP_SCRIPT = ROOT / ".github" / "scripts" / "us_leadership.py"
 INPUT_SCHEMA_VERSION = "us_capital_rotation_input/1"
 POLICY_SCHEMA_VERSION = "us_capital_rotation_policy/1"
 OUTPUT_SCHEMA_VERSION = "us_capital_rotation_packet/1"
@@ -34,6 +36,20 @@ ASSET_RE = re.compile(r"^[A-Z0-9._-]{1,20}$")
 
 class USCapitalRotationError(ValueError):
     """Fail-closed P2-02 contract violation."""
+
+
+def _load_leadership_module():
+    spec = importlib.util.spec_from_file_location(
+        "atlas_us_leadership_output_validator", LEADERSHIP_SCRIPT
+    )
+    if spec is None or spec.loader is None:
+        raise USCapitalRotationError("UPSTREAM_VALIDATOR_UNAVAILABLE")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+LEADERSHIP = _load_leadership_module()
 
 
 def canonical_json(value) -> str:
@@ -467,6 +483,12 @@ def _validate_upstream(value: dict, label: str, contract: dict) -> dict:
             raise USCapitalRotationError(f"UPSTREAM_DAILY_GROUP_SET_MISMATCH:{label}")
     if daily_dates != sorted(set(daily_dates)) or (daily_dates and daily_dates[-1] != observation_date):
         raise USCapitalRotationError(f"UPSTREAM_DAILY_DATE_ORDER_INVALID:{label}")
+    try:
+        LEADERSHIP.validate_output(copy.deepcopy(value))
+    except LEADERSHIP.USLeadershipError as exc:
+        raise USCapitalRotationError(
+            f"UPSTREAM_PRODUCTION_VALIDATION_FAILED:{label}:{exc}"
+        ) from exc
     return {
         "observation_date": observation_date,
         "available_at": available_at,

@@ -33,6 +33,7 @@ TAXONOMY_PATH = ROOT / "config" / "us_asset_taxonomy.json"
 TEMPORAL_SCRIPT = ROOT / "atlas_price_pit_contract.py"
 ASSET = re.compile(r"^[A-Z0-9._-]{1,20}$")
 GROUP = re.compile(r"^[A-Z0-9][A-Z0-9._-]{0,39}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class USLeadershipError(RuntimeError):
@@ -164,6 +165,36 @@ def render_decimal(value: Decimal, places: int) -> str:
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text
+
+
+def output_decimal(value: object, label: str) -> Decimal:
+    if not isinstance(value, str):
+        fail("OUTPUT_NUMBER_INVALID", label)
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation:
+        fail("OUTPUT_NUMBER_INVALID", label)
+    if not parsed.is_finite():
+        fail("OUTPUT_NUMBER_INVALID", label)
+    return parsed
+
+
+def output_positive_int(value: object, label: str) -> int:
+    if type(value) is not int or value < 1:
+        fail("OUTPUT_INTEGER_INVALID", label)
+    return value
+
+
+def parse_timestamp(value: object, label: str) -> dt.datetime:
+    if not isinstance(value, str):
+        fail("OUTPUT_TIMESTAMP_INVALID", label)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        fail("OUTPUT_TIMESTAMP_INVALID", label)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        fail("OUTPUT_TIMESTAMP_INVALID", label)
+    return parsed
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
@@ -876,7 +907,7 @@ def build_transform(
         "REVISED_SENSITIVITY_ONLY": "REVISED_SENSITIVITY_ONLY",
     }[temporal["eligibility"]]
     available_at = temporal.get("available_at", payload["fetched_at"])
-    return {
+    result = {
         "schema_version": 1,
         "contract_version": contract["contract_version"],
         "transform_version": contract["transform_version"],
@@ -947,6 +978,343 @@ def build_transform(
             "current_membership_backfill_authorized": False,
         },
     } | authority_boundary()
+    return validate_output(result, contract)
+
+
+def validate_output(output: object, contract: Optional[dict] = None) -> dict:
+    """Validate every semantic relation retained by a Leadership output.
+
+    Raw vendor rows are deliberately transient, so this validator does not
+    claim to recompute cumulative returns from prices or authenticate the
+    external policy bodies behind their hashes. It independently recomputes
+    every relation that the non-reconstructive packet retains.
+    """
+
+    if not isinstance(output, dict):
+        fail("OUTPUT_INVALID", "root must be object")
+    ensure_no_float(output, "output")
+    contract = load_contract() if contract is None else contract
+    fields = {
+        "schema_version", "contract_version", "transform_version", "market",
+        "measurement", "status", "observation_date", "available_at",
+        "benchmark_asset", "window", "temporal_eligibility",
+        "asset_relative_strength", "partial_window_assets",
+        "group_relative_strength", "daily_relative_participation", "retention",
+        "policies", "lineage",
+    } | set(authority_boundary())
+    if set(output) != fields:
+        fail("OUTPUT_FIELDS_MISMATCH", "root")
+    if (
+        output.get("schema_version") != 1
+        or output.get("contract_version") != contract["contract_version"]
+        or output.get("transform_version") != contract["transform_version"]
+        or output.get("market") != "US"
+        or output.get("measurement") != contract["measurement"]
+    ):
+        fail("OUTPUT_IDENTITY_INVALID", "contract identity")
+    if any(output.get(key) is not False for key in authority_boundary()):
+        fail("OUTPUT_AUTHORITY_EXPANDED", "authority boundary")
+
+    observation = parse_date(
+        output.get("observation_date"), "OUTPUT_DATE_INVALID", "observation_date"
+    )
+    parse_timestamp(output.get("available_at"), "available_at")
+    benchmark = output.get("benchmark_asset")
+    if not isinstance(benchmark, str) or ASSET.fullmatch(benchmark) is None:
+        fail("OUTPUT_BENCHMARK_INVALID", "benchmark_asset")
+
+    window = output.get("window")
+    window_fields = {
+        "first_input_session", "first_return_session", "last_return_session",
+        "lookback_sessions", "exact_expected_sessions",
+    }
+    if not isinstance(window, dict) or set(window) != window_fields:
+        fail("OUTPUT_WINDOW_INVALID", "schema")
+    first_input = parse_date(
+        window.get("first_input_session"), "OUTPUT_WINDOW_INVALID", "first_input"
+    )
+    first_return = parse_date(
+        window.get("first_return_session"), "OUTPUT_WINDOW_INVALID", "first_return"
+    )
+    last_return = parse_date(
+        window.get("last_return_session"), "OUTPUT_WINDOW_INVALID", "last_return"
+    )
+    lookback = output_positive_int(window.get("lookback_sessions"), "lookback")
+    if (
+        not first_input < first_return <= last_return == observation
+        or window.get("exact_expected_sessions") is not True
+    ):
+        fail("OUTPUT_WINDOW_INVALID", "range or exact coverage")
+
+    temporal = output.get("temporal_eligibility")
+    temporal_fields = {
+        "run_mode", "price_basis", "eligibility", "reason_code",
+        "authoritative_historical_pit", "forward_pit_qualified",
+    }
+    if not isinstance(temporal, dict) or set(temporal) != temporal_fields:
+        fail("OUTPUT_TEMPORAL_INVALID", "schema")
+    eligibility = temporal.get("eligibility")
+    status_by_eligibility = {
+        "FORWARD_PIT_QUALIFIED": "OBSERVED_UNCLASSIFIED",
+        "CAUSAL_RESEARCH_ONLY": "CAUSAL_RESEARCH_ONLY",
+        "REVISED_SENSITIVITY_ONLY": "REVISED_SENSITIVITY_ONLY",
+    }
+    if (
+        eligibility not in status_by_eligibility
+        or output.get("status") != status_by_eligibility[eligibility]
+        or temporal.get("run_mode") not in TEMPORAL.RUN_MODES
+        or temporal.get("price_basis") not in TEMPORAL.PRICE_BASES
+        or not isinstance(temporal.get("reason_code"), str)
+        or not temporal["reason_code"]
+        or temporal.get("authoritative_historical_pit") is not False
+        or temporal.get("forward_pit_qualified")
+        is not (eligibility == "FORWARD_PIT_QUALIFIED")
+        or (temporal.get("run_mode") == "FORWARD_SHADOW")
+        is not (eligibility == "FORWARD_PIT_QUALIFIED")
+    ):
+        fail("OUTPUT_TEMPORAL_INVALID", "status or eligibility")
+
+    places = contract["output_decimal_places"]
+    assets = output.get("asset_relative_strength")
+    if not isinstance(assets, list) or not assets:
+        fail("OUTPUT_ASSETS_INVALID", "empty or non-list")
+    asset_ids = []
+    parsed_assets = {}
+    for index, row in enumerate(assets):
+        expected = {
+            "asset", "observed_session_count", "cumulative_gross_return",
+            "relative_strength_vs_benchmark", "classification",
+        }
+        if not isinstance(row, dict) or set(row) != expected:
+            fail("OUTPUT_ASSET_FIELDS_MISMATCH", str(index))
+        asset = row.get("asset")
+        if not isinstance(asset, str) or ASSET.fullmatch(asset) is None:
+            fail("OUTPUT_ASSET_INVALID", str(index))
+        asset_ids.append(asset)
+        cumulative_value = row.get("cumulative_gross_return")
+        relative_value = row.get("relative_strength_vs_benchmark")
+        cumulative = output_decimal(cumulative_value, f"{asset}.cumulative")
+        relative = output_decimal(relative_value, f"{asset}.relative")
+        if (
+            output_positive_int(row.get("observed_session_count"), asset) != lookback
+            or cumulative <= 0
+            or relative <= Decimal(-1)
+            or cumulative_value != render_decimal(cumulative, places)
+            or relative_value != render_decimal(relative, places)
+            or row.get("classification") != "UNDEFINED"
+        ):
+            fail("OUTPUT_ASSET_SEMANTICS_INVALID", asset)
+        parsed_assets[asset] = {"cumulative": cumulative, "relative": relative}
+    if asset_ids != sorted(set(asset_ids)) or benchmark not in parsed_assets:
+        fail("OUTPUT_ASSET_ORDER_INVALID", "order, duplicate, or benchmark")
+    benchmark_cumulative = parsed_assets[benchmark]["cumulative"]
+    with localcontext() as context:
+        context.prec = 50
+        for row in assets:
+            expected_relative = render_decimal(
+                parsed_assets[row["asset"]]["cumulative"]
+                / benchmark_cumulative
+                - Decimal(1),
+                places,
+            )
+            if row["relative_strength_vs_benchmark"] != expected_relative:
+                fail("OUTPUT_ASSET_RS_MISMATCH", row["asset"])
+
+    partial = output.get("partial_window_assets")
+    if not isinstance(partial, list):
+        fail("OUTPUT_PARTIAL_ASSETS_INVALID", "non-list")
+    partial_ids = []
+    for index, row in enumerate(partial):
+        expected = {
+            "asset", "observed_session_count", "required_session_count", "reason"
+        }
+        if not isinstance(row, dict) or set(row) != expected:
+            fail("OUTPUT_PARTIAL_FIELDS_MISMATCH", str(index))
+        asset = row.get("asset")
+        if not isinstance(asset, str) or ASSET.fullmatch(asset) is None:
+            fail("OUTPUT_PARTIAL_ASSET_INVALID", str(index))
+        observed = output_positive_int(row.get("observed_session_count"), asset)
+        required = output_positive_int(row.get("required_session_count"), asset)
+        if (
+            observed >= required
+            or required != lookback
+            or row.get("reason") != "not_present_in_every_point_in_time_universe"
+        ):
+            fail("OUTPUT_PARTIAL_SEMANTICS_INVALID", asset)
+        partial_ids.append(asset)
+    if partial_ids != sorted(set(partial_ids)) or set(partial_ids) & set(asset_ids):
+        fail("OUTPUT_PARTIAL_ORDER_INVALID", "order, duplicate, or overlap")
+
+    groups = output.get("group_relative_strength")
+    if not isinstance(groups, list) or not groups:
+        fail("OUTPUT_GROUPS_INVALID", "empty or non-list")
+    group_ids = []
+    parsed_groups = {}
+    for index, row in enumerate(groups):
+        expected = {
+            "group_id", "observed_session_count", "minimum_daily_member_count",
+            "required_minimum_member_count", "cumulative_gross_return",
+            "relative_strength_vs_benchmark", "classification",
+        }
+        if not isinstance(row, dict) or set(row) != expected:
+            fail("OUTPUT_GROUP_FIELDS_MISMATCH", str(index))
+        group = row.get("group_id")
+        if not isinstance(group, str) or GROUP.fullmatch(group) is None:
+            fail("OUTPUT_GROUP_INVALID", str(index))
+        group_ids.append(group)
+        observed = output_positive_int(row.get("observed_session_count"), group)
+        minimum = output_positive_int(row.get("minimum_daily_member_count"), group)
+        required = output_positive_int(row.get("required_minimum_member_count"), group)
+        cumulative_value = row.get("cumulative_gross_return")
+        relative_value = row.get("relative_strength_vs_benchmark")
+        cumulative = output_decimal(cumulative_value, f"{group}.cumulative")
+        relative = output_decimal(relative_value, f"{group}.relative")
+        if (
+            observed != lookback
+            or minimum < required
+            or cumulative <= 0
+            or relative <= Decimal(-1)
+            or cumulative_value != render_decimal(cumulative, places)
+            or relative_value != render_decimal(relative, places)
+            or row.get("classification") != "UNDEFINED"
+        ):
+            fail("OUTPUT_GROUP_SEMANTICS_INVALID", group)
+        with localcontext() as context:
+            context.prec = 50
+            expected_relative = render_decimal(
+                cumulative / benchmark_cumulative - Decimal(1), places
+            )
+        if relative_value != expected_relative:
+            fail("OUTPUT_GROUP_RS_MISMATCH", group)
+        parsed_groups[group] = {"minimum": minimum, "required": required}
+    if group_ids != sorted(set(group_ids)):
+        fail("OUTPUT_GROUP_ORDER_INVALID", "order or duplicate")
+
+    daily = output.get("daily_relative_participation")
+    if not isinstance(daily, list) or len(daily) != lookback:
+        fail("OUTPUT_DAILY_INVALID", "length")
+    daily_dates = []
+    observed_group_counts = {group: [] for group in group_ids}
+    for index, row in enumerate(daily):
+        expected = {
+            "session_date", "eligible_non_benchmark_count",
+            "outperforming_benchmark_count", "outperformance_participation_fraction",
+            "required_group_member_counts",
+        }
+        if not isinstance(row, dict) or set(row) != expected:
+            fail("OUTPUT_DAILY_FIELDS_MISMATCH", str(index))
+        day = parse_date(
+            row.get("session_date"), "OUTPUT_DAILY_DATE_INVALID", str(index)
+        )
+        daily_dates.append(day)
+        eligible = output_positive_int(
+            row.get("eligible_non_benchmark_count"), f"daily[{index}].eligible"
+        )
+        outperforming = row.get("outperforming_benchmark_count")
+        if type(outperforming) is not int or not 0 <= outperforming <= eligible:
+            fail("OUTPUT_DAILY_COUNT_INVALID", str(index))
+        fraction_value = row.get("outperformance_participation_fraction")
+        fraction = output_decimal(fraction_value, f"daily[{index}].fraction")
+        expected_fraction = render_decimal(
+            Decimal(outperforming) / Decimal(eligible), places
+        )
+        if fraction_value != expected_fraction or not Decimal(0) <= fraction <= Decimal(1):
+            fail("OUTPUT_DAILY_FRACTION_MISMATCH", str(index))
+        counts = row.get("required_group_member_counts")
+        if not isinstance(counts, list):
+            fail("OUTPUT_DAILY_GROUPS_INVALID", str(index))
+        count_ids = []
+        for item in counts:
+            if not isinstance(item, dict) or set(item) != {"group_id", "member_count"}:
+                fail("OUTPUT_DAILY_GROUPS_INVALID", str(index))
+            group = item.get("group_id")
+            if not isinstance(group, str) or GROUP.fullmatch(group) is None:
+                fail("OUTPUT_DAILY_GROUP_INVALID", str(index))
+            count_ids.append(group)
+            observed_group_counts.setdefault(group, []).append(
+                output_positive_int(item.get("member_count"), group)
+            )
+        if count_ids != group_ids:
+            fail("OUTPUT_DAILY_GROUP_SET_MISMATCH", str(index))
+    if (
+        daily_dates != sorted(set(daily_dates))
+        or not daily_dates
+        or daily_dates[0] != first_return
+        or daily_dates[-1] != observation
+    ):
+        fail("OUTPUT_DAILY_DATE_ORDER_INVALID", "range or order")
+    for group, values in parsed_groups.items():
+        if min(observed_group_counts[group]) != values["minimum"]:
+            fail("OUTPUT_GROUP_MINIMUM_MISMATCH", group)
+        if any(count < values["required"] for count in observed_group_counts[group]):
+            fail("OUTPUT_GROUP_COVERAGE_INVALID", group)
+
+    retention = output.get("retention")
+    if retention != {
+        "input_policy": contract["input_retention_policy"],
+        "output_policy": contract["output_retention_policy"],
+        "vendor_rows_emitted": False,
+        "vendor_prices_emitted": False,
+        "reconstructive_series_emitted": False,
+    }:
+        fail("OUTPUT_RETENTION_INVALID", "retention boundary")
+
+    policies = output.get("policies")
+    policy_fields = {
+        "leadership": {
+            "policy_version", "policy_sha256", "approval_status",
+            "session_calendar_source",
+        },
+        "universe": {
+            "policy_version", "policy_sha256", "approval_status", "membership_kind"
+        },
+        "taxonomy": {
+            "policy_version", "policy_sha256", "approval_status", "effective_dated"
+        },
+    }
+    if not isinstance(policies, dict) or set(policies) != set(policy_fields):
+        fail("OUTPUT_POLICIES_INVALID", "schema")
+    for name, expected in policy_fields.items():
+        item = policies.get(name)
+        if (
+            not isinstance(item, dict)
+            or set(item) != expected
+            or item.get("approval_status") != "RATIFIED"
+            or not isinstance(item.get("policy_version"), str)
+            or not item["policy_version"].strip()
+            or not isinstance(item.get("policy_sha256"), str)
+            or SHA256.fullmatch(item["policy_sha256"]) is None
+        ):
+            fail("OUTPUT_POLICY_INVALID", name)
+    if (
+        not isinstance(policies["leadership"]["session_calendar_source"], str)
+        or not policies["leadership"]["session_calendar_source"].strip()
+        or policies["universe"]["membership_kind"]
+        != "point_in_time_source_coverage"
+        or policies["taxonomy"]["effective_dated"] is not True
+    ):
+        fail("OUTPUT_POLICY_SEMANTICS_INVALID", "policy projection")
+
+    lineage = output.get("lineage")
+    lineage_fields = {
+        "input_sha256", "source_temporal_contract", "session_count",
+        "return_session_count", "session_coverage_complete",
+        "current_membership_backfill_authorized",
+    }
+    if (
+        not isinstance(lineage, dict)
+        or set(lineage) != lineage_fields
+        or not isinstance(lineage.get("input_sha256"), str)
+        or SHA256.fullmatch(lineage["input_sha256"]) is None
+        or lineage.get("source_temporal_contract")
+        != contract["source_temporal_contract"]
+        or lineage.get("session_count") != lookback + 1
+        or lineage.get("return_session_count") != lookback
+        or lineage.get("session_coverage_complete") is not True
+        or lineage.get("current_membership_backfill_authorized") is not False
+    ):
+        fail("OUTPUT_LINEAGE_INVALID", "lineage")
+    return output
 
 
 def write_output(payload: dict, target: Path) -> Path:

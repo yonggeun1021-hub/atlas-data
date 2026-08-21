@@ -51,6 +51,19 @@ policy/source hashes, but no price rows or reconstructive series. Missing
 sessions, split events, membership/taxonomy gaps or overlaps, insufficient
 group coverage, source mismatch, and unratified policies fail closed.
 
+`validate_output()` treats a serialized derived observation as untrusted. It
+revalidates identity, temporal/status mapping, window and lineage counts,
+retention and authority locks, then independently recomputes every relation
+that the non-reconstructive output retains: asset and group relative strength
+from their cumulative returns and the benchmark, daily participation from
+counts, and group minimum coverage from daily membership counts. P2-02 calls
+this production validator before using either Leadership observation.
+
+The transient vendor rows and complete external policy bodies are deliberately
+not retained. Therefore standalone validation does not claim to recompute the
+cumulative returns from raw prices or authenticate a policy body behind its
+recorded SHA-256; those remain acquisition/policy-lineage responsibilities.
+
 ## Authority boundary
 
 Alphabetical output order is deterministic and is not a ranking. All leader
