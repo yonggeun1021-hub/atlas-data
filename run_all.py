@@ -546,7 +546,8 @@ APPROVED_TESTS = [
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
-    #   Risk breaches are evidence, never implicit rebalance/exit/order authority.
+    #   P7-02/P7-03/P7-06은 production validator로 재검증하고 exact 15-source
+    #   bundle을 내장·재파생한다. Risk breach는 implicit rebalance/exit가 아니다.
     #   ⛔ live wiring/tracked output 없음 — synthetic packets + temp only.
     "test/test_action_risk_portfolio_summary.py",
     # ★ P8-02 — Unified Decision Contract.

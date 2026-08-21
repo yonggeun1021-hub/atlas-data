@@ -4,10 +4,17 @@
 from the exact P8-02 unified decision, P6 action/invariant/hedge sources, and
 P7 portfolio risk packets. Each source is self-hash checked, matched to its
 contract identity and authority map, and recursively checked for unauthorized
-action, target, size, hedge, or order content. P7-02 position sizing is fully
+action, target, size, hedge, or order content. Contract v2 invokes the
+production validators for P7-02 position sizing, P7-03 concentration, and P7-06
+planned loss. P7-02 position sizing is fully
 revalidated with its embedded Constitution, bucket membership, sizing input,
-and external policy; maximum/target weights and binding limits are evidence
-only.
+and external policy. P7-03 and P7-06 are re-derived from their exact embedded
+inputs and policy/Constitution. Maximum/target weights, binding limits, and
+breaches are evidence only.
+
+The output embeds the exact 15-source bundle and unavailable-reason map, then
+rebuilds itself during `validate_packet()`. A self-rehashed summary mutation or
+a self-rehashed P7 semantic mutation therefore fails closed.
 
 The six briefing categories are fixed: Buy, Watch, Reduce, Hedge, Exit, and
 Nothing. Under the current upstream contracts every category remains

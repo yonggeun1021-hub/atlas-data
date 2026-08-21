@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
-  "contract_version": "action_risk_portfolio_summary/1",
-  "output_schema_version": "action_risk_portfolio_summary_packet/1",
+  "schema_version": 2,
+  "contract_version": "action_risk_portfolio_summary/2",
+  "output_schema_version": "action_risk_portfolio_summary_packet/2",
   "slots": [
     "morning",
     "evening"
@@ -68,8 +68,8 @@
       "authority_contract": "config/cash_exposure_action_contract.json"
     },
     "CONCENTRATION_GUARD": {
-      "schema_version": "concentration_correlation_packet/1",
-      "contract_version": "concentration_correlation_guard/1",
+      "schema_version": "concentration_correlation_packet/2",
+      "contract_version": "concentration_correlation_guard/2",
       "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
       "authority_contract": "config/concentration_correlation_guard_contract.json"
     },
@@ -116,8 +116,8 @@
       "authority_contract": "config/market_theme_exposure_budget_contract.json"
     },
     "PLANNED_LOSS_BUDGET": {
-      "schema_version": "planned_loss_packet/1",
-      "contract_version": "planned_loss_budget/1",
+      "schema_version": "planned_loss_packet/2",
+      "contract_version": "planned_loss_budget/2",
       "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LOSS_BUDGET"],
       "authority_contract": "config/planned_loss_budget_contract.json"
     },

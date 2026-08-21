@@ -26,6 +26,13 @@ CONTRACT = MODULE.load_contract()
 POSITION_FIXTURE = load_module(
     "p806_position_sizing_fixture", ROOT / "test" / "test_position_sizing.py"
 )
+CONCENTRATION_FIXTURE = load_module(
+    "p806_concentration_fixture",
+    ROOT / "test" / "test_concentration_correlation_guard.py",
+)
+PLANNED_LOSS_FIXTURE = load_module(
+    "p806_planned_loss_fixture", ROOT / "test" / "test_planned_loss_budget.py"
+)
 
 
 def unified_packet():
@@ -50,6 +57,35 @@ def source_packet(name, status=None, breaches=None):
                 key: value for key, value in packet.items()
                 if key != "packet_sha256"
             })
+        return packet
+    if name == "CONCENTRATION_GUARD":
+        ratified = (
+            CONCENTRATION_FIXTURE.policy(max_market_exposure=0.44)
+            if status == "LIMIT_BREACH"
+            else CONCENTRATION_FIXTURE.policy()
+        )
+        packet = CONCENTRATION_FIXTURE.MODULE.build_packet(
+            CONCENTRATION_FIXTURE.input_packet(),
+            ratified,
+            "2026-08-21",
+            CONCENTRATION_FIXTURE.CONTRACT,
+        )
+        if status is not None:
+            assert packet["status"] == status
+        if breaches is not None:
+            assert packet["breaches"] == breaches
+        return packet
+    if name == "PLANNED_LOSS_BUDGET":
+        packet = PLANNED_LOSS_FIXTURE.MODULE.build_packet(
+            PLANNED_LOSS_FIXTURE.input_packet(),
+            PLANNED_LOSS_FIXTURE.constitution(),
+            "2026-08-21",
+            PLANNED_LOSS_FIXTURE.CONTRACT,
+        )
+        if status is not None:
+            assert packet["status"] == status
+        if breaches is not None:
+            assert packet["breaches"] == breaches
         return packet
     spec = CONTRACT["source_specs"][name]
     packet = {
@@ -180,6 +216,37 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                 packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
             )
 
+    def test_p7_risk_packets_require_full_production_validation(self):
+        packets, reasons = bundle()
+        concentration = packets["CONCENTRATION_GUARD"]
+        concentration["summary"]["breach_count"] = 99
+        concentration["packet_sha256"] = MODULE.payload_sha256(
+            {
+                key: value
+                for key, value in concentration.items()
+                if key != "packet_sha256"
+            }
+        )
+        with self.assertRaisesRegex(
+            MODULE.ActionRiskPortfolioSummaryError, "CONCENTRATION_GUARD_INVALID"
+        ):
+            MODULE.build_summary(
+                packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+            )
+
+        packets, reasons = bundle()
+        planned = packets["PLANNED_LOSS_BUDGET"]
+        planned["summary"]["breach_count"] = 99
+        planned["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in planned.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ActionRiskPortfolioSummaryError, "PLANNED_LOSS_BUDGET_INVALID"
+        ):
+            MODULE.build_summary(
+                packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+            )
+
     def test_required_unified_source_and_same_day_time_are_enforced(self):
         packets, reasons = bundle()
         packets["UNIFIED_DECISION"] = None
@@ -236,8 +303,25 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             packets["UNIFIED_DECISION"]["packet_sha256"],
         )
         self.assertEqual(set(first["lineage"]["source_packet_sha256"]), set(CONTRACT["source_order"]))
+        self.assertEqual(first["source_packets"], packets)
+        self.assertEqual(first["unavailable_reasons"], reasons)
+        self.assertEqual(MODULE.validate_packet(first, CONTRACT), first)
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
+
+    def test_self_rehashed_summary_tamper_fails_closed(self):
+        packets, reasons = bundle()
+        packet = MODULE.build_summary(
+            packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+        )
+        packet["summary"]["risk_breach_source_count"] = 99
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ActionRiskPortfolioSummaryError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
 
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
@@ -259,7 +343,9 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             })
             output = tmp / "nested" / "packet.json"
             self.assertEqual(MODULE.run(source, "2026-08-21T00:35:00Z", output), 0)
-            self.assertEqual(json.loads(output.read_text())["summary"]["action_category_count"], 6)
+            serialized = json.loads(output.read_text())
+            self.assertEqual(serialized["summary"]["action_category_count"], 6)
+            self.assertEqual(MODULE.validate_packet(serialized, CONTRACT), serialized)
             forbidden = ROOT / "data" / "action_risk_summary_test.json"
             self.assertEqual(MODULE.run(source, "2026-08-21T00:35:00Z", forbidden), 1)
             self.assertFalse(forbidden.exists())
