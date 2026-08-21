@@ -2,6 +2,8 @@
 """P2-05 common rotation state ledger regression."""
 
 import copy
+import datetime as dt
+from decimal import Decimal
 import importlib.util
 import json
 from pathlib import Path
@@ -22,6 +24,15 @@ def load_module(name, path):
 
 MODULE = load_module("rotation_state_ledger", SCRIPT)
 CONTRACT = MODULE.load_contract()
+US_FIXTURE = load_module(
+    "us_rotation_state_fixture", ROOT / "test" / "test_us_capital_rotation.py"
+)
+KOREA_FIXTURE = load_module(
+    "korea_rotation_state_fixture", ROOT / "test" / "test_korea_capital_rotation.py"
+)
+CRYPTO_FIXTURE = load_module(
+    "crypto_rotation_state_fixture", ROOT / "test" / "test_crypto_rotation.py"
+)
 
 
 def refresh_packet(value):
@@ -40,202 +51,115 @@ def write_json(path, value):
     return path
 
 
-def authority():
-    return {
-        "p2_state_vocabulary_authorized": False,
-        "state_ledger_authorized": False,
-        "bucket_transition_authorized": True,
-        "production_authorized": False,
-        "trading_authorized": False,
-    }
+def _move_packet_date(packet, as_of_date, producer):
+    result = copy.deepcopy(packet)
+    if result["as_of_date"] == as_of_date:
+        return result
+    current = dt.date.fromisoformat(as_of_date)
+    result["as_of_date"] = as_of_date
+    pair = result.get("observation_pair")
+    if pair is not None:
+        gap = pair["calendar_gap_days"]
+        pair["current_date"] = as_of_date
+        pair["prior_date"] = (current - dt.timedelta(days=gap)).isoformat()
+    result = refresh_packet(result)
+    producer.validate_packet(result)
+    return result
 
 
-def us_observation(
-    theme_id,
-    prior_bucket,
-    current_bucket,
-    prior_rank,
-    current_rank,
+def _rederive_us_packet(packet, prior_values, current_values, keep_theme_ids=None):
+    result = copy.deepcopy(packet)
+    producer = US_FIXTURE.UCR
+    policy = result["rotation_policy"]
+    if keep_theme_ids is not None:
+        policy["theme_ids"] = sorted(keep_theme_ids)
+        result["theme_observations"] = [
+            row for row in result["theme_observations"]
+            if row["theme_id"] in keep_theme_ids
+        ]
+    rows = result["theme_observations"]
+    for row in rows:
+        theme_id = row["theme_id"]
+        prior = Decimal(prior_values[theme_id])
+        current = Decimal(current_values[theme_id])
+        row["prior_relative_strength_vs_benchmark"] = producer._render(prior, 12)
+        row["current_relative_strength_vs_benchmark"] = producer._render(current, 12)
+        row["relative_strength_change"] = producer._render(current - prior, 12)
+    prior_ranked = sorted(
+        policy["theme_ids"], key=lambda item: (-Decimal(prior_values[item]), item)
+    )
+    current_ranked = sorted(
+        policy["theme_ids"], key=lambda item: (-Decimal(current_values[item]), item)
+    )
+    prior_ranks = {item: index + 1 for index, item in enumerate(prior_ranked)}
+    current_ranks = {item: index + 1 for index, item in enumerate(current_ranked)}
+    prior_buckets = producer._buckets(
+        prior_ranked, policy["top_count"], policy["bottom_count"]
+    )
+    current_buckets = producer._buckets(
+        current_ranked, policy["top_count"], policy["bottom_count"]
+    )
+    for row in rows:
+        theme_id = row["theme_id"]
+        row.update({
+            "prior_rank": prior_ranks[theme_id],
+            "current_rank": current_ranks[theme_id],
+            "rank_change": prior_ranks[theme_id] - current_ranks[theme_id],
+            "prior_bucket": prior_buckets[theme_id],
+            "current_bucket": current_buckets[theme_id],
+            "bucket_transition": (
+                f"{prior_buckets[theme_id]}_TO_{current_buckets[theme_id]}"
+            ),
+        })
+    result["top_themes"] = current_ranked[: policy["top_count"]]
+    result["bottom_themes"] = list(
+        reversed(current_ranked[-policy["bottom_count"] :])
+    )
+    result["lineage"]["rotation_policy_sha256"] = producer.payload_sha256(policy)
+    result = refresh_packet(result)
+    producer.validate_packet(result)
+    return result
+
+
+def us_packet(
+    as_of_date="2026-08-20", *, prior_values=None, current_values=None,
+    keep_theme_ids=None,
 ):
-    return {
-        "theme_id": theme_id,
-        "prior_relative_strength_vs_benchmark": "0.1",
-        "current_relative_strength_vs_benchmark": "0.2",
-        "relative_strength_change": "0.1",
-        "prior_rank": prior_rank,
-        "current_rank": current_rank,
-        "rank_change": prior_rank - current_rank,
-        "prior_bucket": prior_bucket,
-        "current_bucket": current_bucket,
-        "bucket_transition": f"{prior_bucket}_TO_{current_bucket}",
-        "p2_state": "UNDEFINED_PENDING_P2_05",
-    }
-
-
-def korea_observation(
-    series_identity,
-    theme_id,
-    prior_bucket,
-    current_bucket,
-    prior_rank,
-    current_rank,
-):
-    return {
-        "series_identity": series_identity,
-        "theme_id": theme_id,
-        "role": "THEME_PROXY",
-        "prior_relative_strength_vs_benchmark": "0.1",
-        "current_relative_strength_vs_benchmark": "0.2",
-        "relative_strength_change": "0.1",
-        "prior_rank_within_benchmark": prior_rank,
-        "current_rank_within_benchmark": current_rank,
-        "rank_change_within_benchmark": prior_rank - current_rank,
-        "prior_bucket": prior_bucket,
-        "current_bucket": current_bucket,
-        "bucket_transition": f"{prior_bucket}_TO_{current_bucket}",
-        "p2_state": "UNDEFINED_PENDING_P2_05",
-    }
-
-
-def crypto_observation(
-    bucket_id,
-    prior_bucket,
-    current_bucket,
-    prior_rank,
-    current_rank,
-):
-    return {
-        "bucket_id": bucket_id,
-        "prior_relative_strength_vs_btc": "0.1",
-        "current_relative_strength_vs_btc": "0.2",
-        "relative_strength_change": "0.1",
-        "prior_rank": prior_rank,
-        "current_rank": current_rank,
-        "rank_change": prior_rank - current_rank,
-        "prior_bucket": prior_bucket,
-        "current_bucket": current_bucket,
-        "bucket_transition": f"{prior_bucket}_TO_{current_bucket}",
-        "p2_state": "UNDEFINED_PENDING_P2_05",
-    }
-
-
-def us_packet(as_of_date="2026-08-20", observations=None):
-    rotation_policy = {"policy_id": "US.ROTATION.TEST.V1"}
-    rotation_policy_sha = MODULE.payload_sha256(rotation_policy)
-    value = {
-        "schema_version": "us_capital_rotation_packet/1",
-        "contract_version": "us_capital_rotation/1",
-        "measurement": "us_theme_relative_rotation_observation",
-        "market": "US",
-        "as_of_date": as_of_date,
-        "status": "ROTATION_BUCKETS_OBSERVED",
-        "benchmark_asset": "SPY",
-        "observation_pair": {},
-        "taxonomy_binding": {},
-        "rotation_policy": rotation_policy,
-        "rotation_policy_effective": True,
-        "ranking_method": {},
-        "top_themes": [],
-        "bottom_themes": [],
-        "theme_observations": observations or [
-            us_observation("THEME.AI", "BOTTOM", "MIDDLE", 2, 2),
-            us_observation("THEME.ENERGY", "MIDDLE", "TOP", 1, 1),
-        ],
-        "retention": {},
-        "lineage": {"rotation_policy_sha256": rotation_policy_sha},
-        "authority": authority(),
-        "unresolved_boundaries": [],
-    }
-    return refresh_packet(value)
+    packet = US_FIXTURE.UCR.build_packet(
+        US_FIXTURE.input_packet(), US_FIXTURE.policy()
+    )
+    packet = _move_packet_date(packet, as_of_date, US_FIXTURE.UCR)
+    if prior_values is not None or current_values is not None or keep_theme_ids is not None:
+        existing = {
+            row["theme_id"]: row for row in packet["theme_observations"]
+        }
+        prior_values = prior_values or {
+            key: row["prior_relative_strength_vs_benchmark"]
+            for key, row in existing.items()
+        }
+        current_values = current_values or {
+            key: row["current_relative_strength_vs_benchmark"]
+            for key, row in existing.items()
+        }
+        packet = _rederive_us_packet(
+            packet, prior_values, current_values, keep_theme_ids
+        )
+    return packet
 
 
 def korea_packet(as_of_date="2026-08-20"):
-    rotation_policy = {"policy_id": "KOREA.ROTATION.TEST.V1"}
-    rotation_policy_sha = MODULE.payload_sha256(rotation_policy)
-    value = {
-        "schema_version": "korea_capital_rotation_packet/1",
-        "contract_version": "korea_capital_rotation/1",
-        "measurement": "korea_theme_relative_rotation_observation",
-        "market": "KOREA",
-        "as_of_date": as_of_date,
-        "status": "ROTATION_BUCKETS_OBSERVED",
-        "observation_pair": {},
-        "taxonomy_binding": {},
-        "coverage_context": {},
-        "rotation_policy": rotation_policy,
-        "rotation_policy_effective": True,
-        "ranking_method": {},
-        "benchmark_scopes": [
-            {
-                "benchmark_identity": "KRX:KOSDAQ",
-                "top_themes": [],
-                "bottom_themes": [],
-                "theme_observations": [
-                    korea_observation(
-                        "KRX:KOSDAQ:SEMICON",
-                        "THEME.SEMICON",
-                        "BOTTOM",
-                        "MIDDLE",
-                        1,
-                        1,
-                    )
-                ],
-            },
-            {
-                "benchmark_identity": "KRX:KOSPI",
-                "top_themes": [],
-                "bottom_themes": [],
-                "theme_observations": [
-                    korea_observation(
-                        "KRX:KOSPI:POWER",
-                        "THEME.POWER",
-                        "MIDDLE",
-                        "TOP",
-                        1,
-                        1,
-                    )
-                ],
-            },
-        ],
-        "retention": {},
-        "lineage": {"rotation_policy_sha256": rotation_policy_sha},
-        "authority": authority(),
-        "unresolved_boundaries": [],
-    }
-    return refresh_packet(value)
+    input_value, rotation_policy = KOREA_FIXTURE.make_bundle()
+    packet = KOREA_FIXTURE.KCR.build_packet(input_value, rotation_policy)
+    return _move_packet_date(packet, as_of_date, KOREA_FIXTURE.KCR)
 
 
 def crypto_packet(as_of_date="2026-08-20"):
-    rotation_policy = {"policy_id": "CRYPTO.ROTATION.TEST.V1"}
-    rotation_policy_sha = MODULE.payload_sha256(rotation_policy)
-    value = {
-        "schema_version": "crypto_rotation_packet/1",
-        "contract_version": "crypto_rotation/1",
-        "measurement": "crypto_bucket_relative_rotation_observation",
-        "market": "CRYPTO",
-        "as_of_date": as_of_date,
-        "status": "ROTATION_BUCKETS_OBSERVED",
-        "window_id": "pilot_7d",
-        "lookback_calendar_days": 7,
-        "rotation_policy": rotation_policy,
-        "rotation_policy_effective": True,
-        "ranking_method": {},
-        "top_groups": [],
-        "bottom_groups": [],
-        "bucket_observations": [
-            crypto_observation("ALT", "BOTTOM", "MIDDLE", 3, 2),
-            crypto_observation("BTC", "MIDDLE", "BOTTOM", 2, 3),
-            crypto_observation("ETH", "MIDDLE", "TOP", 1, 1),
-        ],
-        "sector_chain_layer": {
-            "status": "UNKNOWN",
-            "ranking_input_authorized": False,
-        },
-        "lineage": {"rotation_policy_sha256": rotation_policy_sha},
-        "authority": authority(),
-        "unresolved_boundaries": [],
-    }
-    return refresh_packet(value)
+    packet = CRYPTO_FIXTURE.MODULE.build_packet(
+        CRYPTO_FIXTURE.input_packet(),
+        CRYPTO_FIXTURE.policy(),
+        CRYPTO_FIXTURE.CONTRACT,
+    )
+    return _move_packet_date(packet, as_of_date, CRYPTO_FIXTURE.MODULE)
 
 
 def state_mapping():
@@ -304,12 +228,12 @@ class RotationStateLedgerTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "STATE_HISTORY_OBSERVED")
         self.assertEqual(result["ledger_revision"], 1)
-        self.assertEqual(records["THEME.AI"][0]["current_p2_state"], "EMERGING")
+        self.assertEqual(records["THEME.COMPUTE"][0]["current_p2_state"], "WEAKENING")
         self.assertEqual(
-            records["THEME.AI"][0]["state_transition"],
-            "UNINITIALIZED_TO_EMERGING",
+            records["THEME.COMPUTE"][0]["state_transition"],
+            "UNINITIALIZED_TO_WEAKENING",
         )
-        self.assertEqual(records["THEME.ENERGY"][0]["current_p2_state"], "STRONG")
+        self.assertEqual(records["THEME.NETWORK"][0]["current_p2_state"], "STRONG")
         self.assertEqual(
             result["source_packets"][0]["input_packet_sha256"],
             packet["payload_sha256"],
@@ -329,10 +253,14 @@ class RotationStateLedgerTest(unittest.TestCase):
         )
         second_packet = us_packet(
             "2026-08-21",
-            [
-                us_observation("THEME.AI", "MIDDLE", "TOP", 2, 1),
-                us_observation("THEME.ENERGY", "TOP", "MIDDLE", 1, 2),
-            ],
+            prior_values={
+                "THEME.COMPUTE": "0.2", "THEME.NETWORK": "0.4",
+                "THEME.POWER": "0",
+            },
+            current_values={
+                "THEME.COMPUTE": "0.5", "THEME.NETWORK": "0.3",
+                "THEME.POWER": "0",
+            },
         )
         result = MODULE.apply_rotation(
             second_packet,
@@ -343,18 +271,18 @@ class RotationStateLedgerTest(unittest.TestCase):
         records = records_by_entity(result, "US")
 
         self.assertEqual(result["ledger_revision"], 2)
-        self.assertEqual(len(result["records"]), 4)
+        self.assertEqual(len(result["records"]), 6)
         self.assertEqual(
-            records["THEME.AI"][1]["state_transition"],
-            "EMERGING_TO_STRONG",
+            records["THEME.COMPUTE"][1]["state_transition"],
+            "WEAKENING_TO_STRONG",
         )
         self.assertEqual(
-            records["THEME.ENERGY"][1]["state_transition"],
+            records["THEME.NETWORK"][1]["state_transition"],
             "STRONG_TO_WEAKENING",
         )
         self.assertEqual(
-            records["THEME.AI"][1]["prior_record_sha256"],
-            records["THEME.AI"][0]["record_sha256"],
+            records["THEME.COMPUTE"][1]["prior_record_sha256"],
+            records["THEME.COMPUTE"][0]["record_sha256"],
         )
 
     def test_korea_benchmark_scopes_remain_independent(self):
@@ -362,11 +290,17 @@ class RotationStateLedgerTest(unittest.TestCase):
         result = MODULE.apply_rotation(packet, policy_for(packet), contract=CONTRACT)
         self.assertEqual(
             result["source_packets"][0]["scope_ids"],
-            ["KRX:KOSDAQ", "KRX:KOSPI"],
+            ["01::KOSPI", "02::KOSDAQ"],
         )
         rows = {(item["scope_id"], item["entity_id"]): item for item in result["records"]}
-        self.assertEqual(rows[("KRX:KOSDAQ", "THEME.SEMICON")]["current_p2_state"], "EMERGING")
-        self.assertEqual(rows[("KRX:KOSPI", "THEME.POWER")]["current_p2_state"], "STRONG")
+        self.assertEqual(
+            rows[("02::KOSDAQ", "THEME.KR.KOSDAQ.SEMICONDUCTOR")]["current_p2_state"],
+            "STRONG",
+        )
+        self.assertEqual(
+            rows[("01::KOSPI", "THEME.KR.KOSPI.BIO")]["current_p2_state"],
+            "STRONG",
+        )
 
     def test_crypto_btc_eth_alt_buckets_use_the_same_ledger_without_sector_inference(self):
         packet = crypto_packet()
@@ -374,7 +308,7 @@ class RotationStateLedgerTest(unittest.TestCase):
         rows = records_by_entity(result, "CRYPTO")
         self.assertEqual(sorted(rows), ["ALT", "BTC", "ETH"])
         self.assertEqual(rows["ALT"][0]["scope_id"], "BTC_RELATIVE_BUCKETS")
-        self.assertEqual(rows["ALT"][0]["current_p2_state"], "EMERGING")
+        self.assertEqual(rows["ALT"][0]["current_p2_state"], "WEAKENING")
         self.assertEqual(rows["BTC"][0]["current_p2_state"], "WEAKENING")
         self.assertEqual(rows["ETH"][0]["current_p2_state"], "STRONG")
         self.assertNotIn("sector", MODULE.canonical_json(result).lower())
@@ -474,15 +408,18 @@ class RotationStateLedgerTest(unittest.TestCase):
         tampered = copy.deepcopy(packet)
         tampered["theme_observations"][0]["current_bucket"] = "TOP"
         variants = [
-            (tampered, "ROTATION_PACKET_SHA_MISMATCH"),
-            (refresh_packet(dict(packet, status="POLICY_NOT_EFFECTIVE")), "ROTATION_PACKET_IDENTITY_INVALID"),
+            (tampered, "ROTATION_PACKET_SEMANTIC_INVALID:US"),
+            (
+                refresh_packet(dict(packet, status="POLICY_NOT_EFFECTIVE")),
+                "ROTATION_PACKET_SEMANTIC_INVALID:US",
+            ),
         ]
         expanded = copy.deepcopy(packet)
         expanded["authority"]["p2_state_vocabulary_authorized"] = True
-        variants.append((refresh_packet(expanded), "ROTATION_PACKET_AUTHORITY_INVALID"))
+        variants.append((refresh_packet(expanded), "ROTATION_PACKET_SEMANTIC_INVALID:US"))
         classified = copy.deepcopy(packet)
         classified["theme_observations"][0]["p2_state"] = "STRONG"
-        variants.append((refresh_packet(classified), "ROTATION_OBSERVATION_INVALID"))
+        variants.append((refresh_packet(classified), "ROTATION_PACKET_SEMANTIC_INVALID:US"))
         for value, error in variants:
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationStateLedgerError, error
@@ -493,8 +430,28 @@ class RotationStateLedgerTest(unittest.TestCase):
         packet = us_packet()
         packet["theme_observations"][0]["bucket_transition"] = "BOTTOM_TO_TOP"
         packet = refresh_packet(packet)
-        with self.assertRaisesRegex(MODULE.RotationStateLedgerError, "ROTATION_OBSERVATION_INVALID"):
+        with self.assertRaisesRegex(
+            MODULE.RotationStateLedgerError, "ROTATION_PACKET_SEMANTIC_INVALID:US"
+        ):
             MODULE.apply_rotation(packet, policy_for(packet), contract=CONTRACT)
+
+    def test_all_market_production_validators_reject_self_rehashed_semantic_tamper(self):
+        us = us_packet()
+        us["theme_observations"][0]["current_rank"] = 3
+        korea = korea_packet()
+        korea["benchmark_scopes"][0]["theme_observations"][0][
+            "current_rank_within_benchmark"
+        ] = 3
+        crypto = crypto_packet()
+        crypto["sector_chain_layer"]["status"] = "OBSERVED_UNCLASSIFIED"
+        for packet in (us, korea, crypto):
+            market = packet["market"]
+            packet = refresh_packet(packet)
+            with self.subTest(market=market), self.assertRaisesRegex(
+                MODULE.RotationStateLedgerError,
+                f"ROTATION_PACKET_SEMANTIC_INVALID:{market}",
+            ):
+                MODULE.apply_rotation(packet, policy_for(packet), contract=CONTRACT)
 
     def test_exact_packet_reapply_is_byte_idempotent_but_policy_conflict_fails(self):
         packet = us_packet()
@@ -517,7 +474,14 @@ class RotationStateLedgerTest(unittest.TestCase):
         )
         stale = us_packet(
             "2026-08-20",
-            [us_observation("THEME.AI", "MIDDLE", "TOP", 2, 1)],
+            prior_values={
+                "THEME.COMPUTE": "0.2", "THEME.NETWORK": "0.4",
+                "THEME.POWER": "0",
+            },
+            current_values={
+                "THEME.COMPUTE": "0.5", "THEME.NETWORK": "0.3",
+                "THEME.POWER": "0",
+            },
         )
         with self.assertRaisesRegex(MODULE.RotationStateLedgerError, "LEDGER_NON_FORWARD_OBSERVATION"):
             MODULE.apply_rotation(stale, policy_for(stale), ledger, CONTRACT)
@@ -533,22 +497,44 @@ class RotationStateLedgerTest(unittest.TestCase):
         )
         second = us_packet(
             "2026-08-21",
-            [us_observation("THEME.AI", "MIDDLE", "TOP", 2, 1)],
+            prior_values={
+                "THEME.COMPUTE": "0.2", "THEME.NETWORK": "0.4",
+                "THEME.POWER": "0",
+            },
+            current_values={
+                "THEME.COMPUTE": "0.5", "THEME.NETWORK": "0.3",
+                "THEME.POWER": "0",
+            },
+            keep_theme_ids=["THEME.COMPUTE", "THEME.NETWORK"],
         )
         result = MODULE.apply_rotation(second, policy_for(second), ledger, CONTRACT)
         records = records_by_entity(result, "US")
-        self.assertEqual(len(records["THEME.AI"]), 2)
-        self.assertEqual(len(records["THEME.ENERGY"]), 1)
+        self.assertEqual(len(records["THEME.COMPUTE"]), 2)
+        self.assertEqual(len(records["THEME.POWER"]), 1)
         self.assertNotIn("tombstone", MODULE.canonical_json(result).lower())
 
     def test_source_identity_drift_fails_instead_of_silent_chain_join(self):
         first = korea_packet()
         ledger = MODULE.apply_rotation(first, policy_for(first), contract=CONTRACT)
         second = korea_packet("2026-08-21")
-        second["benchmark_scopes"][0]["theme_observations"][0][
-            "series_identity"
-        ] = "KRX:KOSDAQ:DIFFERENT_PROXY"
+        scope = second["benchmark_scopes"][0]
+        row = scope["theme_observations"][0]
+        old_identity = row["series_identity"]
+        new_identity = f"{old_identity}_V2"
+        row["series_identity"] = new_identity
+        policy_scope = second["rotation_policy"]["benchmark_scopes"][0]
+        member = next(
+            item for item in policy_scope["members"]
+            if item["series_identity"] == old_identity
+        )
+        member["series_identity"] = new_identity
+        policy_scope["members"].sort(key=lambda item: item["series_identity"])
+        scope["theme_observations"].sort(key=lambda item: item["series_identity"])
+        second["lineage"]["rotation_policy_sha256"] = MODULE.payload_sha256(
+            second["rotation_policy"]
+        )
         second = refresh_packet(second)
+        KOREA_FIXTURE.KCR.validate_packet(second)
         with self.assertRaisesRegex(MODULE.RotationStateLedgerError, "LEDGER_SOURCE_IDENTITY_DRIFT"):
             MODULE.apply_rotation(second, policy_for(second), ledger, CONTRACT)
 
