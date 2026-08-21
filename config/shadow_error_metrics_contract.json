@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "contract_version": "shadow_error_metrics/1",
+  "input_schema_version": "shadow_error_assessment_batch/1",
+  "output_schema_version": "shadow_error_metrics_packet/1",
+  "markets": [
+    "COMMON",
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "metric_types": [
+    "FALSE_POSITIVE",
+    "MISS",
+    "STALE",
+    "SILENT_ERROR"
+  ],
+  "metric_statuses": [
+    "PRESENT",
+    "ABSENT",
+    "UNVERIFIED"
+  ],
+  "assessment_policy": "EVERY_ASSESSMENT_CONTAINS_ALL_METRICS",
+  "rate_policy": "PRESENT_DIVIDED_BY_PRESENT_PLUS_ABSENT_SIX_DP_HALF_EVEN",
+  "zero_denominator_policy": "NULL_NOT_ZERO",
+  "classification_policy": "EXTERNAL_EVIDENCE_BOUND_NO_INFERENCE",
+  "input_authority": {
+    "external_error_assessment_only": true,
+    "metric_definition_authorized": false,
+    "performance_interpretation_authorized": false,
+    "strategy_change_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "error_metric_aggregation_only": true,
+    "error_classification_authorized": false,
+    "causal_interpretation_authorized": false,
+    "performance_claim_authorized": false,
+    "strategy_change_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

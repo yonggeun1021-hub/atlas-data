@@ -508,6 +508,11 @@ APPROVED_TESTS = [
     #   exact match하며 결측을 명시한다. policy 비준 전 effectiveness/winner는 닫는다.
     #   ⛔ 성과해석/승자선정/strategy 변경/action/Production/trading 및 network 없음.
     "test/test_atlas_legacy_comparison.py",
+    # ★ P10-03 — Shadow error metric aggregation.
+    #   모든 assessment가 false-positive/miss/stale/silent-error 4종을 빠짐없이
+    #   PRESENT/ABSENT/UNVERIFIED로 기록하게 하고 verified denominator만 집계한다.
+    #   0분모는 0%가 아니라 null이며 cause/성과/strategy 변경 권한은 닫는다.
+    "test/test_shadow_error_metrics.py",
     # ★ P10-04 — opaque Decision SHA change lineage capability.
     #   이전/current hash로 change type을 파생하고 변경 이유·evidence·시각과
     #   chain을 검증한다. Decision payload/interpretation/action은 항상 null이다.
