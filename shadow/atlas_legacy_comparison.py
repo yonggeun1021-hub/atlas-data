@@ -56,12 +56,12 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "atlas_legacy_comparison/1",
-        "legacy_batch_schema_version": "legacy_judgment_batch/1",
-        "outcome_batch_schema_version": "comparison_outcome_batch/1",
-        "output_schema_version": "atlas_legacy_comparison_packet/1",
-        "shadow_ledger_schema_version": "three_market_shadow_ledger_packet/1",
+        "schema_version": 2,
+        "contract_version": "atlas_legacy_comparison/2",
+        "legacy_batch_schema_version": "legacy_judgment_batch/2",
+        "outcome_batch_schema_version": "comparison_outcome_batch/2",
+        "output_schema_version": "atlas_legacy_comparison_packet/2",
+        "shadow_ledger_schema_version": "three_market_shadow_ledger_packet/2",
         "markets": ["US", "KOREA", "CRYPTO"],
         "slots": ["morning", "evening"],
         "action_labels": [
