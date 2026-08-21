@@ -224,6 +224,60 @@ def _case_id(submission: dict) -> str:
     return "RADAR-WC-" + payload_sha256(seed)[:16].upper()
 
 
+def _case_from_submission(submission: dict, contract: dict) -> dict | None:
+    linked = [
+        item for item in submission["evidence"] if item["status"] == "EVIDENCE_LINKED"
+    ]
+    unlinked = [
+        item for item in submission["evidence"] if item["status"] != "EVIDENCE_LINKED"
+    ]
+    if len(linked) < contract["minimum_linked_evidence_for_case"]:
+        return None
+    return {
+        "schema_version": contract["case_schema_version"],
+        "case_id": _case_id(submission),
+        "market": submission["market"],
+        "asset_id": submission["asset_id"],
+        "subject": submission["subject"],
+        "observation_date": submission["observed_on"],
+        "discovery_path": "WILDCARD_OUTSIDE_THEME",
+        "theme_membership_status": submission["theme_membership_status"],
+        "theme_ids": [],
+        "why_found": {
+            "basis": "EXPLICIT_WILDCARD_NOMINATION_WITH_SOURCE_LINKED_EVIDENCE",
+            "strength_status": "UNRATIFIED",
+            "importance_status": "UNRATIFIED",
+        },
+        "nomination": copy.deepcopy(submission["nomination"]),
+        "evidence_status": "EVIDENCE_LINKED" if not unlinked else "EVIDENCE_PARTIAL",
+        "linked_evidence": [
+            {
+                "evidence_id": item["evidence_id"],
+                "claim_text": item["claim_text"],
+                "claim_status": "SOURCE_LINKED_OBSERVATION_NOT_INTERPRETED",
+                "source_identity": copy.deepcopy(item["source_identity"]),
+                "audit_provenance": copy.deepcopy(item["audit_provenance"]),
+            }
+            for item in linked
+        ],
+        "unresolved_evidence": [
+            {
+                "evidence_id": item["evidence_id"],
+                "status": item["status"],
+                "missing_reasons": copy.deepcopy(item["missing_reasons"]),
+            }
+            for item in unlinked
+        ],
+        "strength_status": "UNRATIFIED",
+        "importance": "UNRATIFIED",
+        "candidate_eligible": False,
+        "candidate_rank": None,
+        "stage_transition": None,
+        "rule_evaluation": None,
+        "action": None,
+    }
+
+
 def _submission_result(value: dict, as_of: dt.datetime, contract: dict) -> tuple[dict, dict | None]:
     fields = {
         "submission_id", "market", "asset_id", "subject", "observed_on",
@@ -278,6 +332,7 @@ def _submission_result(value: dict, as_of: dt.datetime, contract: dict) -> tuple
         raise WildcardDiscoveryError(f"EVIDENCE_ID_DUPLICATE:{submission_id}")
     linked = [item for item in checked if item["status"] == "EVIDENCE_LINKED"]
     unlinked = [item for item in checked if item["status"] != "EVIDENCE_LINKED"]
+    case_created = len(linked) >= contract["minimum_linked_evidence_for_case"]
     normalized = {
         "submission_id": submission_id, "market": market, "asset_id": asset_id,
         "subject": subject, "observed_on": observed_on,
@@ -288,49 +343,192 @@ def _submission_result(value: dict, as_of: dt.datetime, contract: dict) -> tuple
             "hypothesis": hypothesis, "text_status": "UNCONFIRMED_NOMINATION_TEXT",
         },
         "linked_evidence_count": len(linked), "unlinked_evidence_count": len(unlinked),
-        "case_created": False,
+        "case_created": case_created,
+        "pending_reason": None if case_created else "NO_SOURCE_LINKED_EVIDENCE",
+        "evidence": copy.deepcopy(checked),
     }
-    if len(linked) < contract["minimum_linked_evidence_for_case"]:
-        return {
-            **normalized,
-            "pending_reason": "NO_SOURCE_LINKED_EVIDENCE",
-            "evidence": copy.deepcopy(checked),
-        }, None
-    normalized["case_created"] = True
-    normalized["pending_reason"] = None
-    case = {
-        "schema_version": contract["case_schema_version"],
-        "case_id": _case_id(value), "market": market, "asset_id": asset_id,
-        "subject": subject, "observation_date": observed_on,
-        "discovery_path": "WILDCARD_OUTSIDE_THEME",
-        "theme_membership_status": theme_status, "theme_ids": [],
-        "why_found": {
-            "basis": "EXPLICIT_WILDCARD_NOMINATION_WITH_SOURCE_LINKED_EVIDENCE",
-            "strength_status": "UNRATIFIED", "importance_status": "UNRATIFIED",
-        },
-        "nomination": copy.deepcopy(normalized["nomination"]),
-        "evidence_status": "EVIDENCE_LINKED" if not unlinked else "EVIDENCE_PARTIAL",
-        "linked_evidence": [
-            {
-                "evidence_id": item["evidence_id"], "claim_text": item["claim_text"],
-                "claim_status": "SOURCE_LINKED_OBSERVATION_NOT_INTERPRETED",
-                "source_identity": copy.deepcopy(item["source_identity"]),
-                "audit_provenance": copy.deepcopy(item["audit_provenance"]),
-            }
-            for item in linked
-        ],
-        "unresolved_evidence": [
-            {
-                "evidence_id": item["evidence_id"], "status": item["status"],
-                "missing_reasons": copy.deepcopy(item["missing_reasons"]),
-            }
-            for item in unlinked
-        ],
-        "strength_status": "UNRATIFIED", "importance": "UNRATIFIED",
-        "candidate_eligible": False, "candidate_rank": None,
-        "stage_transition": None, "rule_evaluation": None, "action": None,
+    return normalized, _case_from_submission(normalized, contract)
+
+
+def _validate_output_submission(value: dict, as_of: dt.datetime, contract: dict) -> dict:
+    fields = {
+        "submission_id",
+        "market",
+        "asset_id",
+        "subject",
+        "observed_on",
+        "theme_membership_status",
+        "theme_ids",
+        "nomination",
+        "linked_evidence_count",
+        "unlinked_evidence_count",
+        "case_created",
+        "pending_reason",
+        "evidence",
     }
-    return {**normalized, "evidence": copy.deepcopy(checked)}, case
+    if not isinstance(value, dict) or set(value) != fields:
+        raise WildcardDiscoveryError("OUTPUT_SUBMISSION_FIELDS_MISMATCH")
+    submission_id = value.get("submission_id")
+    asset_id = value.get("asset_id")
+    market = value.get("market")
+    if not isinstance(submission_id, str) or TOKEN_RE.fullmatch(submission_id) is None:
+        raise WildcardDiscoveryError("OUTPUT_SUBMISSION_ID_INVALID")
+    if not isinstance(asset_id, str) or TOKEN_RE.fullmatch(asset_id) is None:
+        raise WildcardDiscoveryError(f"OUTPUT_ASSET_ID_INVALID:{submission_id}")
+    if market not in contract["allowed_markets"]:
+        raise WildcardDiscoveryError(f"OUTPUT_MARKET_INVALID:{submission_id}")
+    _nonempty_text(value.get("subject"), f"OUTPUT_SUBJECT_INVALID:{submission_id}")
+    observed_on = value.get("observed_on")
+    if not _valid_date(observed_on) or dt.date.fromisoformat(observed_on) > as_of.date():
+        raise WildcardDiscoveryError(f"OUTPUT_OBSERVED_ON_INVALID:{submission_id}")
+    if value.get("theme_membership_status") not in contract["theme_membership_statuses"]:
+        raise WildcardDiscoveryError(f"OUTPUT_THEME_STATUS_INVALID:{submission_id}")
+    if value.get("theme_ids") != []:
+        raise WildcardDiscoveryError(f"OUTPUT_THEME_IDS_FORBIDDEN:{submission_id}")
+
+    nomination = value.get("nomination")
+    if not isinstance(nomination, dict) or set(nomination) != {
+        "nominated_by",
+        "nominated_at_utc",
+        "authority",
+        "submission_reason",
+        "hypothesis",
+        "text_status",
+    }:
+        raise WildcardDiscoveryError(f"OUTPUT_NOMINATION_FIELDS_MISMATCH:{submission_id}")
+    _nonempty_text(
+        nomination.get("nominated_by"), f"OUTPUT_NOMINATOR_INVALID:{submission_id}"
+    )
+    nominated_at_utc = nomination.get("nominated_at_utc")
+    if (
+        not _valid_utc(nominated_at_utc)
+        or _utc(nominated_at_utc) > as_of
+        or dt.date.fromisoformat(observed_on) > _utc(nominated_at_utc).date()
+    ):
+        raise WildcardDiscoveryError(f"OUTPUT_NOMINATED_AT_INVALID:{submission_id}")
+    if (
+        nomination.get("authority") != contract["nomination_authority"]
+        or nomination.get("text_status") != "UNCONFIRMED_NOMINATION_TEXT"
+    ):
+        raise WildcardDiscoveryError(f"OUTPUT_NOMINATION_AUTHORITY_INVALID:{submission_id}")
+    _nonempty_text(
+        nomination.get("submission_reason"),
+        f"OUTPUT_SUBMISSION_REASON_INVALID:{submission_id}",
+    )
+    _nonempty_text(
+        nomination.get("hypothesis"), f"OUTPUT_HYPOTHESIS_INVALID:{submission_id}"
+    )
+
+    evidence = value.get("evidence")
+    if (
+        not isinstance(evidence, list)
+        or not evidence
+        or len(evidence) > contract["maximum_evidence_items"]
+    ):
+        raise WildcardDiscoveryError(f"OUTPUT_EVIDENCE_COUNT_INVALID:{submission_id}")
+    checked = [
+        _validate_evidence(
+            item, market, _utc(nominated_at_utc), as_of, contract
+        )
+        for item in evidence
+    ]
+    evidence_ids = [item["evidence_id"] for item in checked]
+    if evidence_ids != sorted(set(evidence_ids)):
+        raise WildcardDiscoveryError(f"OUTPUT_EVIDENCE_ORDER_INVALID:{submission_id}")
+    linked_count = sum(item["status"] == "EVIDENCE_LINKED" for item in checked)
+    unlinked_count = len(checked) - linked_count
+    case_created = linked_count >= contract["minimum_linked_evidence_for_case"]
+    pending_reason = None if case_created else "NO_SOURCE_LINKED_EVIDENCE"
+    if (
+        type(value.get("linked_evidence_count")) is not int
+        or value["linked_evidence_count"] != linked_count
+        or type(value.get("unlinked_evidence_count")) is not int
+        or value["unlinked_evidence_count"] != unlinked_count
+        or value.get("case_created") is not case_created
+        or value.get("pending_reason") != pending_reason
+    ):
+        raise WildcardDiscoveryError(f"OUTPUT_SUBMISSION_SUMMARY_MISMATCH:{submission_id}")
+    return copy.deepcopy(value)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate a persisted wildcard packet from its retained submissions."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version",
+        "contract_version",
+        "as_of_utc",
+        "status",
+        "submission_count",
+        "case_count",
+        "pending_count",
+        "submissions",
+        "cases",
+        "source_coverage",
+        "policy_status",
+        "authority",
+        "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise WildcardDiscoveryError("OUTPUT_FIELDS_MISMATCH")
+    digest = packet.get("payload_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise WildcardDiscoveryError("OUTPUT_SHA256_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != digest:
+        raise WildcardDiscoveryError("OUTPUT_SHA256_MISMATCH")
+    as_of_utc = packet.get("as_of_utc")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "WILDCARD_INTAKE_RECORDED"
+        or not _valid_utc(as_of_utc)
+    ):
+        raise WildcardDiscoveryError("OUTPUT_IDENTITY_MISMATCH")
+    submissions = packet.get("submissions")
+    if not isinstance(submissions, list) or not submissions:
+        raise WildcardDiscoveryError("OUTPUT_SUBMISSIONS_EMPTY")
+    checked = [
+        _validate_output_submission(value, _utc(as_of_utc), contract)
+        for value in submissions
+    ]
+    submission_ids = [value["submission_id"] for value in checked]
+    if submission_ids != sorted(set(submission_ids)):
+        raise WildcardDiscoveryError("OUTPUT_SUBMISSION_ORDER_INVALID")
+    expected_cases = [
+        case
+        for case in (_case_from_submission(value, contract) for value in checked)
+        if case is not None
+    ]
+    expected_cases.sort(key=lambda value: value["case_id"])
+    if packet.get("cases") != expected_cases:
+        raise WildcardDiscoveryError("OUTPUT_CASE_DERIVATION_MISMATCH")
+    expected_boundaries = [
+        "STRENGTH_THRESHOLD_UNRATIFIED",
+        "IMPORTANCE_RANKING_UNRATIFIED",
+        "THEME_TAXONOMY_COMPLETENESS_UNRATIFIED",
+        "SOURCE_HIERARCHY_UNRATIFIED",
+        "CANDIDATE_RANKING_UNRATIFIED",
+        "LIVE_WILDCARD_INTAKE_NOT_IMPLEMENTED",
+        "TRACKED_CASE_PUBLICATION_NOT_IMPLEMENTED",
+    ]
+    case_count = len(expected_cases)
+    if (
+        type(packet.get("submission_count")) is not int
+        or packet["submission_count"] != len(checked)
+        or type(packet.get("case_count")) is not int
+        or packet["case_count"] != case_count
+        or type(packet.get("pending_count")) is not int
+        or packet["pending_count"] != len(checked) - case_count
+        or packet.get("source_coverage") != contract["market_sources"]
+        or packet.get("policy_status") != contract["policy_status"]
+        or packet.get("authority") != contract["authority"]
+        or packet.get("unresolved_boundaries") != expected_boundaries
+    ):
+        raise WildcardDiscoveryError("OUTPUT_SUMMARY_OR_BOUNDARY_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def build_packet(value: dict, contract: dict | None = None) -> dict:
@@ -375,7 +573,7 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
