@@ -21,8 +21,21 @@ availability rule:
   historical PIT;
 - present-day historical `ADJUSTED` is `REVISED_SENSITIVITY_ONLY`.
 
-`available_at` is the Atlas ingestion timestamp.  A current fetch timestamp
-does not manufacture a historical payload vintage.
+The temporal contract issues `available_at` only for `FORWARD_PIT_QUALIFIED`
+Forward Shadow inputs. For both historical backfill classes it deliberately
+withholds `available_at`, because a present-day fetch does not prove when the
+source made an old row available. `build_transform` records the Atlas
+ingestion timestamp (`fetched_at`) in that case instead — it is the only
+capture-time fact it has — but fails closed with
+`AVAILABLE_AT_PRECEDES_OBSERVATION` if that timestamp would predate the
+`observation_date` it is attached to. `validate_output()` independently
+re-derives the same relation, plus every other structural relation the
+non-reconstructive output retains (window ordering, status/eligibility
+mapping, stress feature-vector cross-references, retention and authority
+locks, lineage hash shapes), so a hand-edited or corrupted artifact cannot
+silently claim availability before its own observation. It does not
+recompute realized volatility or drawdown from raw closes, since those rows
+are transient and not retained.
 
 ## Approval gate
 

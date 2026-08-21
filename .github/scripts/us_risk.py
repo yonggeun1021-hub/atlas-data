@@ -281,6 +281,36 @@ def ensure_no_float(value: object, label: str = "input") -> None:
             ensure_no_float(item, f"{label}[{index}]")
 
 
+def parse_timestamp(value: object, label: str) -> dt.datetime:
+    if not isinstance(value, str):
+        fail("OUTPUT_TIMESTAMP_INVALID", label)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        fail("OUTPUT_TIMESTAMP_INVALID", label)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        fail("OUTPUT_TIMESTAMP_INVALID", label)
+    return parsed
+
+
+def output_decimal(value: object, label: str) -> Decimal:
+    if not isinstance(value, str):
+        fail("OUTPUT_NUMBER_INVALID", label)
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation:
+        fail("OUTPUT_NUMBER_INVALID", label)
+    if not parsed.is_finite():
+        fail("OUTPUT_NUMBER_INVALID", label)
+    return parsed
+
+
+def output_positive_int(value: object, label: str) -> int:
+    if type(value) is not int or value < 1:
+        fail("OUTPUT_INTEGER_INVALID", label)
+    return value
+
+
 def normalize_input(payload: dict, policy: dict) -> dict:
     ensure_no_float(payload)
     expected = {
@@ -524,7 +554,23 @@ def build_transform(
     temporal = temporal_classification(payload)
     realized = realized_volatility(normalized["rows"], policy, contract)
     decline = drawdown(normalized["rows"], policy, contract)
+    # atlas_price_pit_contract.classify() only issues available_at for
+    # FORWARD_SHADOW: a decision-time-qualified capture instant. For
+    # HISTORICAL_BACKFILL it deliberately withholds available_at, because a
+    # present-day fetch does not prove when the source made an old row
+    # available. This transform still records the Atlas ingestion instant in
+    # that case (it is the only capture-time fact it has), but never lets
+    # that fallback silently predate the very observation it describes --
+    # the one relation every downstream consumer of an "available_at" field
+    # (see rotation/us_capital_rotation.py's _validate_upstream) assumes
+    # holds.
     available_at = temporal.get("available_at", payload["fetched_at"])
+    available_at_dt = parse_timestamp(available_at, "available_at")
+    if available_at_dt.date() < normalized["observation_date"]:
+        fail(
+            "AVAILABLE_AT_PRECEDES_OBSERVATION",
+            f"{available_at} < {normalized['observation_date'].isoformat()}",
+        )
     output_status = {
         "FORWARD_PIT_QUALIFIED": "AVAILABLE_UNCALIBRATED",
         "CAUSAL_RESEARCH_ONLY": "CAUSAL_RESEARCH_ONLY",
@@ -585,6 +631,228 @@ def build_transform(
             "missing_data_policy": contract["session_coverage_policy"],
         },
     } | authority_boundary()
+
+
+def validate_output(output: object, contract: Optional[dict] = None) -> dict:
+    """Independently re-derive every semantic relation a US Risk/Vol output
+    retains.
+
+    Vendor rows and prices are transient by contract, so this validator does
+    not re-fetch or re-compute realized volatility/drawdown from raw closes.
+    It re-derives the structural and cross-field relations the persisted,
+    non-reconstructive packet itself claims to hold -- including the
+    available_at <-> observation_date ordering build_transform enforces, so
+    a hand-edited or corrupted artifact cannot silently claim availability
+    before its own observation date.
+    """
+
+    if not isinstance(output, dict):
+        fail("OUTPUT_INVALID", "root must be object")
+    ensure_no_float(output, "output")
+    contract = load_contract() if contract is None else contract
+    fields = {
+        "schema_version", "contract_version", "transform_version", "market",
+        "asset", "quote_currency", "measurement", "status",
+        "observation_date", "available_at", "temporal_eligibility",
+        "realized_volatility", "drawdown", "stress_features", "retention",
+        "lineage",
+    } | set(authority_boundary())
+    if set(output) != fields:
+        fail("OUTPUT_FIELDS_MISMATCH", "root")
+    if (
+        output.get("schema_version") != 1
+        or output.get("contract_version") != contract["contract_version"]
+        or output.get("transform_version") != contract["transform_version"]
+        or output.get("market") != "US"
+        or output.get("measurement") != contract["measurement"]
+    ):
+        fail("OUTPUT_IDENTITY_INVALID", "contract identity")
+    if any(output.get(key) is not False for key in authority_boundary()):
+        fail("OUTPUT_AUTHORITY_EXPANDED", "authority boundary")
+
+    asset = output.get("asset")
+    if not isinstance(asset, str) or ASSET.fullmatch(asset) is None:
+        fail("OUTPUT_ASSET_INVALID", "asset")
+    if output.get("quote_currency") != "USD":
+        fail("OUTPUT_ASSET_INVALID", "quote_currency")
+
+    observation = parse_date(
+        output.get("observation_date"), "OUTPUT_DATE_INVALID", "observation_date"
+    )
+    available_at_dt = parse_timestamp(output.get("available_at"), "available_at")
+    if available_at_dt.date() < observation:
+        fail("OUTPUT_AVAILABLE_AT_INVALID", "precedes observation_date")
+
+    temporal = output.get("temporal_eligibility")
+    temporal_fields = {
+        "run_mode", "price_basis", "eligibility", "reason_code",
+        "authoritative_historical_pit", "forward_pit_qualified",
+    }
+    if not isinstance(temporal, dict) or set(temporal) != temporal_fields:
+        fail("OUTPUT_TEMPORAL_INVALID", "schema")
+    eligibility = temporal.get("eligibility")
+    status_by_eligibility = {
+        "FORWARD_PIT_QUALIFIED": "AVAILABLE_UNCALIBRATED",
+        "CAUSAL_RESEARCH_ONLY": "CAUSAL_RESEARCH_ONLY",
+        "REVISED_SENSITIVITY_ONLY": "REVISED_SENSITIVITY_ONLY",
+    }
+    if (
+        eligibility not in status_by_eligibility
+        or output.get("status") != status_by_eligibility[eligibility]
+        or temporal.get("run_mode") not in TEMPORAL.RUN_MODES
+        or temporal.get("price_basis") not in TEMPORAL.PRICE_BASES
+        or not isinstance(temporal.get("reason_code"), str)
+        or not temporal["reason_code"]
+        or temporal.get("authoritative_historical_pit") is not False
+        or temporal.get("forward_pit_qualified")
+        is not (eligibility == "FORWARD_PIT_QUALIFIED")
+        or (temporal.get("run_mode") == "FORWARD_SHADOW")
+        is not (eligibility == "FORWARD_PIT_QUALIFIED")
+    ):
+        fail("OUTPUT_TEMPORAL_INVALID", "status or eligibility")
+
+    realized = output.get("realized_volatility")
+    realized_fields = {
+        "lookback_returns", "window_start", "window_end", "return_semantics",
+        "estimator", "annualization_sessions", "annualized_fraction",
+    }
+    if not isinstance(realized, dict) or set(realized) != realized_fields:
+        fail("OUTPUT_REALIZED_INVALID", "schema")
+    output_positive_int(realized.get("lookback_returns"), "lookback_returns")
+    window_start = parse_date(
+        realized.get("window_start"), "OUTPUT_REALIZED_INVALID", "window_start"
+    )
+    window_end = parse_date(
+        realized.get("window_end"), "OUTPUT_REALIZED_INVALID", "window_end"
+    )
+    if (
+        window_start > window_end
+        or window_end != observation
+        or realized.get("return_semantics") != contract["return_semantics"]
+        or realized.get("estimator") != contract["realized_vol_estimator"]
+    ):
+        fail("OUTPUT_REALIZED_INVALID", "window or semantics")
+    output_positive_int(
+        realized.get("annualization_sessions"), "annualization_sessions"
+    )
+    annualized = output_decimal(
+        realized.get("annualized_fraction"), "annualized_fraction"
+    )
+    if annualized < 0:
+        fail("OUTPUT_REALIZED_INVALID", "negative annualized_fraction")
+
+    decline = output.get("drawdown")
+    decline_fields = {
+        "lookback_closes", "window_start", "window_end", "semantics",
+        "current_fraction", "current_peak_day", "maximum_fraction",
+        "maximum_peak_day", "maximum_trough_day",
+    }
+    if not isinstance(decline, dict) or set(decline) != decline_fields:
+        fail("OUTPUT_DRAWDOWN_INVALID", "schema")
+    output_positive_int(decline.get("lookback_closes"), "lookback_closes")
+    decline_start = parse_date(
+        decline.get("window_start"), "OUTPUT_DRAWDOWN_INVALID", "window_start"
+    )
+    decline_end = parse_date(
+        decline.get("window_end"), "OUTPUT_DRAWDOWN_INVALID", "window_end"
+    )
+    peak_day = parse_date(
+        decline.get("current_peak_day"), "OUTPUT_DRAWDOWN_INVALID", "current_peak_day"
+    )
+    maximum_peak_day = parse_date(
+        decline.get("maximum_peak_day"),
+        "OUTPUT_DRAWDOWN_INVALID",
+        "maximum_peak_day",
+    )
+    maximum_trough_day = parse_date(
+        decline.get("maximum_trough_day"),
+        "OUTPUT_DRAWDOWN_INVALID",
+        "maximum_trough_day",
+    )
+    if (
+        decline_start > decline_end
+        or decline_end != observation
+        or not decline_start <= peak_day <= decline_end
+        or not decline_start <= maximum_peak_day <= maximum_trough_day <= decline_end
+        or decline.get("semantics") != contract["drawdown_semantics"]
+    ):
+        fail("OUTPUT_DRAWDOWN_INVALID", "window ordering or semantics")
+    current_fraction = output_decimal(
+        decline.get("current_fraction"), "current_fraction"
+    )
+    maximum_fraction = output_decimal(
+        decline.get("maximum_fraction"), "maximum_fraction"
+    )
+    if current_fraction > 0 or maximum_fraction > 0:
+        fail("OUTPUT_DRAWDOWN_INVALID", "positive drawdown fraction")
+    if maximum_fraction > current_fraction:
+        fail("OUTPUT_DRAWDOWN_INVALID", "maximum less severe than current")
+
+    stress = output.get("stress_features")
+    stress_fields = {
+        "calibration_status", "thresholds_applied", "classification",
+        "feature_vector",
+    }
+    if not isinstance(stress, dict) or set(stress) != stress_fields:
+        fail("OUTPUT_STRESS_INVALID", "schema")
+    if (
+        stress.get("calibration_status") != contract["stress_calibration_status"]
+        or stress.get("thresholds_applied") is not False
+        or stress.get("classification") != "UNDEFINED"
+    ):
+        fail("OUTPUT_STRESS_INVALID", "calibration boundary")
+    vector = stress.get("feature_vector")
+    vector_fields = {
+        "realized_vol_annualized_fraction", "current_drawdown_fraction",
+        "maximum_drawdown_fraction",
+    }
+    if (
+        not isinstance(vector, dict)
+        or set(vector) != vector_fields
+        or vector.get("realized_vol_annualized_fraction")
+        != realized.get("annualized_fraction")
+        or vector.get("current_drawdown_fraction") != decline.get("current_fraction")
+        or vector.get("maximum_drawdown_fraction") != decline.get("maximum_fraction")
+    ):
+        fail("OUTPUT_STRESS_INVALID", "feature_vector mismatch")
+
+    retention = output.get("retention")
+    if retention != {
+        "input_policy": contract["input_retention_policy"],
+        "output_policy": contract["output_retention_policy"],
+        "vendor_rows_emitted": False,
+        "vendor_prices_emitted": False,
+        "reconstructive_series_emitted": False,
+    }:
+        fail("OUTPUT_RETENTION_INVALID", "retention boundary")
+
+    lineage = output.get("lineage")
+    lineage_fields = {
+        "input_sha256", "policy_version", "policy_sha256",
+        "source_temporal_contract", "session_calendar_source",
+        "session_count", "session_coverage_complete", "missing_data_policy",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        fail("OUTPUT_LINEAGE_INVALID", "schema")
+    sha_pattern = re.compile(r"^[0-9a-f]{64}$")
+    if (
+        not isinstance(lineage.get("input_sha256"), str)
+        or sha_pattern.fullmatch(lineage["input_sha256"]) is None
+        or not isinstance(lineage.get("policy_version"), str)
+        or not lineage["policy_version"]
+        or not isinstance(lineage.get("policy_sha256"), str)
+        or sha_pattern.fullmatch(lineage["policy_sha256"]) is None
+        or lineage.get("source_temporal_contract")
+        != contract["source_temporal_contract"]
+        or not isinstance(lineage.get("session_calendar_source"), str)
+        or not lineage["session_calendar_source"]
+        or lineage.get("session_coverage_complete") is not True
+        or lineage.get("missing_data_policy") != contract["session_coverage_policy"]
+    ):
+        fail("OUTPUT_LINEAGE_INVALID", "fields")
+    output_positive_int(lineage.get("session_count"), "session_count")
+
+    return output
 
 
 def write_output(payload: dict, target: Path) -> Path:

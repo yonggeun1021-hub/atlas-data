@@ -906,7 +906,20 @@ def build_transform(
         "CAUSAL_RESEARCH_ONLY": "CAUSAL_RESEARCH_ONLY",
         "REVISED_SENSITIVITY_ONLY": "REVISED_SENSITIVITY_ONLY",
     }[temporal["eligibility"]]
+    # atlas_price_pit_contract.classify() only issues available_at for
+    # FORWARD_SHADOW; HISTORICAL_BACKFILL deliberately withholds it because a
+    # present-day fetch does not prove when the source made an old row
+    # available. This transform still records the Atlas ingestion instant in
+    # that case, but never lets that fallback silently predate the very
+    # observation it describes -- the relation rotation/us_capital_rotation.py's
+    # _validate_upstream already assumes holds for any available_at field.
     available_at = temporal.get("available_at", payload["fetched_at"])
+    available_at_dt = parse_timestamp(available_at, "available_at")
+    if available_at_dt.date() < normalized["observation_date"]:
+        fail(
+            "AVAILABLE_AT_PRECEDES_OBSERVATION",
+            f"{available_at} < {normalized['observation_date'].isoformat()}",
+        )
     result = {
         "schema_version": 1,
         "contract_version": contract["contract_version"],
@@ -1018,7 +1031,9 @@ def validate_output(output: object, contract: Optional[dict] = None) -> dict:
     observation = parse_date(
         output.get("observation_date"), "OUTPUT_DATE_INVALID", "observation_date"
     )
-    parse_timestamp(output.get("available_at"), "available_at")
+    available_at_dt = parse_timestamp(output.get("available_at"), "available_at")
+    if available_at_dt.date() < observation:
+        fail("OUTPUT_AVAILABLE_AT_INVALID", "precedes observation_date")
     benchmark = output.get("benchmark_asset")
     if not isinstance(benchmark, str) or ASSET.fullmatch(benchmark) is None:
         fail("OUTPUT_BENCHMARK_INVALID", "benchmark_asset")

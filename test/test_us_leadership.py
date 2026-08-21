@@ -302,6 +302,13 @@ class USLeadershipTest(unittest.TestCase):
         ):
             MODULE.validate_output(minimum_drift)
 
+        stale_available_at = copy.deepcopy(result)
+        stale_available_at["available_at"] = "2026-08-01T00:00:00Z"
+        with self.assertRaisesRegex(
+            MODULE.USLeadershipError, "OUTPUT_AVAILABLE_AT_INVALID"
+        ):
+            MODULE.validate_output(stale_available_at)
+
     def test_relative_participation_is_not_market_trend_or_breadth(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = MODULE.build_transform(payload(), **ratified_inputs(tmp))
@@ -350,6 +357,25 @@ class USLeadershipTest(unittest.TestCase):
             )
             self.assertEqual(adjusted["status"], "REVISED_SENSITIVITY_ONLY")
             self.assertFalse(adjusted["regime_axis_input_authorized"])
+            # Neither backfill class gets a source-issued available_at from
+            # the temporal contract; both must fall back to the exact
+            # fetched_at Atlas ingestion instant, never a manufactured one.
+            self.assertEqual(historical["available_at"], "2026-08-19T12:00:00Z")
+            self.assertEqual(adjusted["available_at"], "2026-08-19T12:00:00Z")
+
+    def test_available_at_cannot_precede_observation_date(self):
+        # A HISTORICAL_BACKFILL payload whose fetched_at falls before the
+        # observation_date it backfills would silently claim the row was
+        # "available" before it existed. build_transform must refuse this
+        # rather than let a reversed timestamp reach a persisted artifact.
+        with tempfile.TemporaryDirectory() as tmp:
+            inputs = ratified_inputs(tmp)
+            reversed_backfill = payload(run_mode="HISTORICAL_BACKFILL")
+            reversed_backfill["fetched_at"] = "2026-08-01T00:00:00Z"
+            with self.assertRaisesRegex(
+                MODULE.USLeadershipError, "AVAILABLE_AT_PRECEDES_OBSERVATION"
+            ):
+                MODULE.build_transform(reversed_backfill, **inputs)
 
     def test_each_session_uses_effective_membership_and_marks_partial_assets(self):
         prices = {

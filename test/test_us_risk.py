@@ -5,6 +5,7 @@ Every price row is synthetic and lives in memory or a temporary directory.
 The tests make no live request and write no tracked vendor data or feature.
 """
 
+import copy
 from decimal import Decimal
 import datetime as dt
 import importlib.util
@@ -247,6 +248,83 @@ class USRiskTest(unittest.TestCase):
                 adjusted["status"], "REVISED_SENSITIVITY_ONLY"
             )
             self.assertFalse(adjusted["regime_score_authorized"])
+            # HISTORICAL_BACKFILL never gets a source-issued available_at
+            # from the temporal contract; the transform falls back to its
+            # own fetched_at (Atlas ingestion instant), and both classes
+            # must carry that exact value, not a manufactured vintage.
+            self.assertEqual(raw["available_at"], "2026-08-19T12:00:00Z")
+            self.assertEqual(adjusted["available_at"], "2026-08-19T12:00:00Z")
+
+    def test_available_at_cannot_precede_observation_date(self):
+        # A HISTORICAL_BACKFILL payload whose fetched_at falls before the
+        # observation_date it backfills would silently claim the row was
+        # "available" before it existed. build_transform must refuse this
+        # rather than let a reversed timestamp reach a persisted artifact.
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = write_policy(Path(tmp) / "policy.json")
+            reversed_backfill = payload(run_mode="HISTORICAL_BACKFILL")
+            reversed_backfill["fetched_at"] = "2026-08-01T00:00:00Z"
+            with self.assertRaisesRegex(
+                MODULE.USRiskError, "AVAILABLE_AT_PRECEDES_OBSERVATION"
+            ):
+                MODULE.build_transform(
+                    reversed_backfill, input_policy_path=policy
+                )
+
+    def test_production_validator_recomputes_retained_semantics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = write_policy(Path(tmp) / "policy.json")
+            forward = MODULE.build_transform(
+                payload(["100", "120", "90", "80", "100"]),
+                input_policy_path=policy,
+            )
+            historical_policy = write_policy(Path(tmp) / "historical.json")
+            historical = MODULE.build_transform(
+                payload(run_mode="HISTORICAL_BACKFILL"),
+                input_policy_path=historical_policy,
+            )
+
+        for result in (forward, historical):
+            self.assertEqual(
+                MODULE.validate_output(copy.deepcopy(result)), result
+            )
+
+            stale = copy.deepcopy(result)
+            stale["available_at"] = "2026-08-01T00:00:00Z"
+            with self.assertRaisesRegex(
+                MODULE.USRiskError, "OUTPUT_AVAILABLE_AT_INVALID"
+            ):
+                MODULE.validate_output(stale)
+
+            missing_field = copy.deepcopy(result)
+            del missing_field["lineage"]
+            with self.assertRaisesRegex(
+                MODULE.USRiskError, "OUTPUT_FIELDS_MISMATCH"
+            ):
+                MODULE.validate_output(missing_field)
+
+            authority_drift = copy.deepcopy(result)
+            authority_drift["regime_score_authorized"] = True
+            with self.assertRaisesRegex(
+                MODULE.USRiskError, "OUTPUT_AUTHORITY_EXPANDED"
+            ):
+                MODULE.validate_output(authority_drift)
+
+            vector_drift = copy.deepcopy(result)
+            vector_drift["stress_features"]["feature_vector"][
+                "current_drawdown_fraction"
+            ] = "-0.999999999999"
+            with self.assertRaisesRegex(
+                MODULE.USRiskError, "OUTPUT_STRESS_INVALID"
+            ):
+                MODULE.validate_output(vector_drift)
+
+            retention_drift = copy.deepcopy(result)
+            retention_drift["retention"]["vendor_rows_emitted"] = True
+            with self.assertRaisesRegex(
+                MODULE.USRiskError, "OUTPUT_RETENTION_INVALID"
+            ):
+                MODULE.validate_output(retention_drift)
 
     def test_session_gap_duplicate_and_split_event_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
