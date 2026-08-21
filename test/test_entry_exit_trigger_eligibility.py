@@ -171,7 +171,14 @@ class EntryExitTriggerEligibilityTests(unittest.TestCase):
         # embedded freshness policy, leave its own packet_sha256 stale, and
         # only recompute the outer freshness envelope's packet_sha256. The
         # forged freshness packet must never reach P9-03 subject assembly.
-        forged = freshness()
+        stale = FRESHNESS.quote(
+            "US:XNAS:TSM",
+            "US",
+            "2026-08-21T02:09:00Z",
+            "2026-08-21T02:09:05Z",
+        )
+        forged = freshness([stale])
+        self.assertEqual(forged["results"][0]["freshness_status"], "STALE")
         forged["policy_packet"]["max_provider_age_seconds_by_market"]["US"] = 86400
         forged["policy_packet"]["policy_id"] = "NEVER.RATIFIED.POLICY"
         row = forged["results"][0]

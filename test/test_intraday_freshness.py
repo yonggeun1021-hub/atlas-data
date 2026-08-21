@@ -201,7 +201,14 @@ class IntradayFreshnessTests(unittest.TestCase):
         )
 
     def test_consumer_revalidates_embedded_policy_and_rejects_forgery(self):
-        original = MODULE.evaluate_freshness(batch(), policy(), CONTRACT)
+        stale_quote = quote(
+            provider_timestamp="2026-08-21T01:08:00Z",
+            received_at="2026-08-21T01:08:05Z",
+        )
+        original = MODULE.evaluate_freshness(
+            batch([stale_quote]), policy(), CONTRACT
+        )
+        self.assertEqual(original["results"][0]["freshness_status"], "STALE")
 
         # Mirrors the original exploit: forge policy_id/threshold in the
         # embedded policy, leave its own packet_sha256 stale, and only
@@ -239,6 +246,44 @@ class IntradayFreshnessTests(unittest.TestCase):
             MODULE.IntradayFreshnessError, "POLICY_IDENTITY_INVALID"
         ):
             MODULE.validate_output(draft, CONTRACT)
+
+        # The consumer must independently enforce the policy's input-contract
+        # binding even when both the embedded and outer digests are recomputed.
+        wrong_contract = copy.deepcopy(original)
+        wrong_contract["policy_packet"]["input_contract_version"] = (
+            "intraday_freshness_guard/999"
+        )
+        wrong_contract["policy_packet"].pop("packet_sha256")
+        wrong_contract["policy_packet"]["packet_sha256"] = MODULE.payload_sha256(
+            wrong_contract["policy_packet"]
+        )
+        wrong_contract["lineage"]["policy_sha256"] = wrong_contract[
+            "policy_packet"
+        ]["packet_sha256"]
+        wrong_contract.pop("packet_sha256")
+        wrong_contract["packet_sha256"] = MODULE.payload_sha256(wrong_contract)
+        with self.assertRaisesRegex(
+            MODULE.IntradayFreshnessError, "POLICY_IDENTITY_INVALID"
+        ):
+            MODULE.validate_output(wrong_contract, CONTRACT)
+
+        # The effective window is also rechecked at consumption time. The end
+        # is exclusive, so equality with observed_at is already ineffective.
+        ineffective = copy.deepcopy(original)
+        ineffective["policy_packet"]["effective_to_utc"] = original["observed_at"]
+        ineffective["policy_packet"].pop("packet_sha256")
+        ineffective["policy_packet"]["packet_sha256"] = MODULE.payload_sha256(
+            ineffective["policy_packet"]
+        )
+        ineffective["lineage"]["policy_sha256"] = ineffective["policy_packet"][
+            "packet_sha256"
+        ]
+        ineffective.pop("packet_sha256")
+        ineffective["packet_sha256"] = MODULE.payload_sha256(ineffective)
+        with self.assertRaisesRegex(
+            MODULE.IntradayFreshnessError, "POLICY_NOT_EFFECTIVE"
+        ):
+            MODULE.validate_output(ineffective, CONTRACT)
 
         # policy_id at the top level must match the embedded policy_packet.
         id_mismatch = copy.deepcopy(original)
