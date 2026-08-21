@@ -87,6 +87,20 @@ Source ranking, importance ranking, candidate ranking, Rule evaluation, Stage
 promotion, Production, and trading authorities are false. A radar case cannot
 be converted into Ready, Buy, or an order by this capability.
 
+## Persisted packet validation
+
+`validate_packet()`은 저장된 window/session boundary, feature 정렬과 canonical
+decimal, benchmark의 0 상대강도, volume baseline 상태, asset/benchmark source
+lineage, candidate-policy 상태, case set과 권한 봉쇄를 독립 검증한다. 생성된
+case는 해당 feature·window·source·policy hash에 연결되고 보존된 threshold
+비교가 실제 통과했는지 다시 확인한다. self-rehashed identity, lineage, case-set,
+authority drift는 실패한다.
+
+raw price/volume rows와 candidate policy rule 본문은 packet에 포함되지 않는다.
+따라서 standalone validator는 feature 자체를 원시 행에서 재계산하거나 policy
+hash가 특정 원문을 가리키는지 증명하지 않는다. 그 책임은 두 원 입력을 함께
+검증하는 `build_packet()`에 남으며, persisted validation은 보존된 의미만 다룬다.
+
 ## Offline command
 
 Raw feature observation:

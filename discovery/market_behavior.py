@@ -526,6 +526,370 @@ def _apply_policy(window: dict, policy: dict | None, contract: dict) -> list[dic
     return cases
 
 
+def _output_decimal(value, context: str, contract: dict, *, nonnegative=False) -> str:
+    parsed = _decimal(value, context, nonnegative=nonnegative)
+    if value != _render(parsed, contract):
+        raise MarketBehaviorError(f"OUTPUT_DECIMAL_NOT_CANONICAL:{context}")
+    return value
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate retained output semantics without claiming omitted raw rows/policy."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet_fields = {
+        "schema_version",
+        "contract_version",
+        "as_of_utc",
+        "status",
+        "window_count",
+        "case_count",
+        "candidate_policy",
+        "market_windows",
+        "cases",
+        "policy_status",
+        "authority",
+        "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != packet_fields:
+        raise MarketBehaviorError("OUTPUT_FIELDS_MISMATCH")
+    digest = packet.get("payload_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise MarketBehaviorError("OUTPUT_SHA256_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != digest:
+        raise MarketBehaviorError("OUTPUT_SHA256_MISMATCH")
+    as_of_utc = packet.get("as_of_utc")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "MARKET_BEHAVIOR_FEATURES_OBSERVED"
+        or not _valid_utc(as_of_utc)
+    ):
+        raise MarketBehaviorError("OUTPUT_IDENTITY_MISMATCH")
+    as_of = _utc(as_of_utc)
+
+    policy = packet.get("candidate_policy")
+    if policy is not None:
+        if not isinstance(policy, dict) or set(policy) != {
+            "policy_id",
+            "approval_status",
+            "policy_sha256",
+        }:
+            raise MarketBehaviorError("OUTPUT_POLICY_FIELDS_MISMATCH")
+        if (
+            not isinstance(policy.get("policy_id"), str)
+            or TOKEN_RE.fullmatch(policy["policy_id"]) is None
+            or policy.get("approval_status") not in {"RATIFIED", "UNRATIFIED"}
+            or not isinstance(policy.get("policy_sha256"), str)
+            or SHA256_RE.fullmatch(policy["policy_sha256"]) is None
+        ):
+            raise MarketBehaviorError("OUTPUT_POLICY_IDENTITY_MISMATCH")
+
+    windows = packet.get("market_windows")
+    if not isinstance(windows, list) or not windows:
+        raise MarketBehaviorError("OUTPUT_WINDOWS_EMPTY")
+    window_fields = {
+        "window_id",
+        "market",
+        "observation_date",
+        "benchmark_asset_id",
+        "price_basis",
+        "window",
+        "features",
+        "raw_rows_emitted",
+        "reconstructive_price_volume_series_emitted",
+        "candidate_policy_status",
+    }
+    feature_fields = {
+        "asset_id",
+        "is_benchmark",
+        "observed_session_count",
+        "relative_strength_vs_benchmark",
+        "latest_volume_vs_prior_mean",
+        "latest_volume_vs_prior_median",
+        "volume_baseline_status",
+        "source_identity",
+        "benchmark_source_identity",
+        "candidate_policy_match",
+        "radar_case_created",
+        "candidate_rank",
+        "stage_transition",
+        "action",
+    }
+    features_by_case_id = {}
+    window_keys = []
+    for window in windows:
+        if not isinstance(window, dict) or set(window) != window_fields:
+            raise MarketBehaviorError("OUTPUT_WINDOW_FIELDS_MISMATCH")
+        market = window.get("market")
+        window_id = window.get("window_id")
+        benchmark_id = window.get("benchmark_asset_id")
+        observation_date = window.get("observation_date")
+        if (
+            market not in contract["allowed_markets"]
+            or not isinstance(window_id, str)
+            or TOKEN_RE.fullmatch(window_id) is None
+            or not isinstance(benchmark_id, str)
+            or TOKEN_RE.fullmatch(benchmark_id) is None
+            or not _valid_date(observation_date)
+            or observation_date > as_of_utc[:10]
+            or not isinstance(window.get("price_basis"), str)
+            or not window["price_basis"].strip()
+            or window.get("raw_rows_emitted") is not False
+            or window.get("reconstructive_price_volume_series_emitted") is not False
+        ):
+            raise MarketBehaviorError("OUTPUT_WINDOW_IDENTITY_MISMATCH")
+        boundary = window.get("window")
+        if not isinstance(boundary, dict) or set(boundary) != {
+            "first_session",
+            "last_session",
+            "session_count",
+            "exact_expected_sessions",
+        }:
+            raise MarketBehaviorError("OUTPUT_WINDOW_BOUNDARY_FIELDS_MISMATCH")
+        if (
+            not _valid_date(boundary.get("first_session"))
+            or boundary.get("last_session") != observation_date
+            or boundary["first_session"] > boundary["last_session"]
+            or type(boundary.get("session_count")) is not int
+            or boundary["session_count"] < contract["minimum_session_count"]
+            or boundary.get("exact_expected_sessions") is not True
+        ):
+            raise MarketBehaviorError("OUTPUT_WINDOW_BOUNDARY_MISMATCH")
+        policy_status = window.get("candidate_policy_status")
+        if policy_status not in {
+            "ABSENT_OR_UNRATIFIED",
+            "NO_EFFECTIVE_MATCHING_RULE",
+            "RATIFIED_RULE_APPLIED",
+        }:
+            raise MarketBehaviorError("OUTPUT_WINDOW_POLICY_STATUS_INVALID")
+        if (
+            (policy is None or policy["approval_status"] == "UNRATIFIED")
+            and policy_status != "ABSENT_OR_UNRATIFIED"
+        ):
+            raise MarketBehaviorError("OUTPUT_WINDOW_POLICY_STATUS_MISMATCH")
+        if policy is not None and policy["approval_status"] == "RATIFIED" and (
+            policy_status == "ABSENT_OR_UNRATIFIED"
+        ):
+            raise MarketBehaviorError("OUTPUT_WINDOW_POLICY_STATUS_MISMATCH")
+
+        features = window.get("features")
+        if not isinstance(features, list) or not features:
+            raise MarketBehaviorError("OUTPUT_FEATURES_EMPTY")
+        benchmark_source = None
+        feature_ids = []
+        benchmark_count = 0
+        for feature in features:
+            if not isinstance(feature, dict) or set(feature) != feature_fields:
+                raise MarketBehaviorError("OUTPUT_FEATURE_FIELDS_MISMATCH")
+            asset_id = feature.get("asset_id")
+            is_benchmark = asset_id == benchmark_id
+            if (
+                not isinstance(asset_id, str)
+                or TOKEN_RE.fullmatch(asset_id) is None
+                or feature.get("is_benchmark") is not is_benchmark
+                or type(feature.get("observed_session_count")) is not int
+                or feature["observed_session_count"] != boundary["session_count"]
+                or feature.get("candidate_rank") is not None
+                or feature.get("stage_transition") is not None
+                or feature.get("action") is not None
+            ):
+                raise MarketBehaviorError("OUTPUT_FEATURE_IDENTITY_OR_AUTHORITY_MISMATCH")
+            relative = _output_decimal(
+                feature.get("relative_strength_vs_benchmark"), asset_id, contract
+            )
+            if is_benchmark and relative != _render(Decimal(0), contract):
+                raise MarketBehaviorError("OUTPUT_BENCHMARK_RELATIVE_STRENGTH_MISMATCH")
+            ratios = []
+            for field in (
+                "latest_volume_vs_prior_mean",
+                "latest_volume_vs_prior_median",
+            ):
+                value = feature.get(field)
+                ratios.append(
+                    None
+                    if value is None
+                    else _output_decimal(value, f"{asset_id}:{field}", contract, nonnegative=True)
+                )
+            baseline = feature.get("volume_baseline_status")
+            if (
+                baseline not in {"OBSERVED", "ZERO_BASELINE_UNKNOWN"}
+                or (baseline == "OBSERVED" and any(value is None for value in ratios))
+                or (baseline == "ZERO_BASELINE_UNKNOWN" and all(value is not None for value in ratios))
+            ):
+                raise MarketBehaviorError("OUTPUT_VOLUME_BASELINE_MISMATCH")
+            source = _validate_source(
+                feature.get("source_identity"), market, as_of, contract, asset_id
+            )
+            linked_benchmark_source = _validate_source(
+                feature.get("benchmark_source_identity"),
+                market,
+                as_of,
+                contract,
+                f"{asset_id}:benchmark",
+            )
+            if is_benchmark:
+                benchmark_count += 1
+                benchmark_source = source
+            match = feature.get("candidate_policy_match")
+            created = feature.get("radar_case_created")
+            if policy_status == "RATIFIED_RULE_APPLIED":
+                if type(match) is not bool or created is not (match and not is_benchmark):
+                    raise MarketBehaviorError("OUTPUT_FEATURE_POLICY_RESULT_MISMATCH")
+                if is_benchmark and match is not False:
+                    raise MarketBehaviorError("OUTPUT_BENCHMARK_POLICY_MATCH_INVALID")
+            elif match is not None or created is not False:
+                raise MarketBehaviorError("OUTPUT_FEATURE_POLICY_RESULT_MISMATCH")
+            if created:
+                seed = {
+                    "policy_id": policy["policy_id"],
+                    "window_id": window_id,
+                    "asset_id": asset_id,
+                    "observation_date": observation_date,
+                }
+                case_id = "RADAR-MB-" + payload_sha256(seed)[:16].upper()
+                features_by_case_id[case_id] = {
+                    "feature": feature,
+                    "window": window,
+                    "source": source,
+                    "benchmark_source": linked_benchmark_source,
+                }
+            feature_ids.append(asset_id)
+        if feature_ids != sorted(set(feature_ids)) or benchmark_count != 1:
+            raise MarketBehaviorError("OUTPUT_FEATURE_ORDER_OR_BENCHMARK_MISMATCH")
+        if any(
+            feature["benchmark_source_identity"] != benchmark_source
+            for feature in features
+        ):
+            raise MarketBehaviorError("OUTPUT_BENCHMARK_SOURCE_DRIFT")
+        window_keys.append((market, window_id))
+    if window_keys != sorted(set(window_keys)):
+        raise MarketBehaviorError("OUTPUT_WINDOW_ORDER_OR_DUPLICATE_INVALID")
+
+    cases = packet.get("cases")
+    if not isinstance(cases, list):
+        raise MarketBehaviorError("OUTPUT_CASES_NOT_LIST")
+    case_fields = {
+        "schema_version",
+        "case_id",
+        "asset_id",
+        "market",
+        "observation_date",
+        "why_found",
+        "source_identity",
+        "candidate_policy",
+        "importance",
+        "candidate_rank",
+        "investable_eligible",
+        "stage_transition",
+        "action",
+    }
+    case_ids = []
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != case_fields:
+            raise MarketBehaviorError("OUTPUT_CASE_FIELDS_MISMATCH")
+        case_id = case.get("case_id")
+        match = features_by_case_id.get(case_id)
+        if match is None:
+            raise MarketBehaviorError("OUTPUT_CASE_IDENTITY_MISMATCH")
+        feature = match["feature"]
+        window = match["window"]
+        why = case.get("why_found")
+        why_fields = {
+            "benchmark_asset_id",
+            "window",
+            "relative_strength_vs_benchmark",
+            "relative_strength_min",
+            "volume_ratio_feature",
+            "volume_ratio",
+            "volume_ratio_min",
+            "candidate_logic",
+        }
+        if not isinstance(why, dict) or set(why) != why_fields:
+            raise MarketBehaviorError("OUTPUT_CASE_REASON_FIELDS_MISMATCH")
+        ratio_field = {
+            "LATEST_VS_PRIOR_MEAN": "latest_volume_vs_prior_mean",
+            "LATEST_VS_PRIOR_MEDIAN": "latest_volume_vs_prior_median",
+        }.get(why.get("volume_ratio_feature"))
+        relative_min = _decimal(why.get("relative_strength_min"), case_id)
+        volume_min = _decimal(why.get("volume_ratio_min"), case_id, nonnegative=True)
+        if (
+            case.get("schema_version") != "market_behavior_case/1"
+            or case.get("asset_id") != feature["asset_id"]
+            or case.get("market") != window["market"]
+            or case.get("observation_date") != window["observation_date"]
+            or why.get("benchmark_asset_id") != window["benchmark_asset_id"]
+            or why.get("window") != window["window"]
+            or why.get("relative_strength_vs_benchmark")
+            != feature["relative_strength_vs_benchmark"]
+            or ratio_field is None
+            or why.get("volume_ratio") != feature[ratio_field]
+            or why.get("candidate_logic") != contract["candidate_logic"]
+            or Decimal(feature["relative_strength_vs_benchmark"]) < relative_min
+            or feature[ratio_field] is None
+            or Decimal(feature[ratio_field]) < volume_min
+        ):
+            raise MarketBehaviorError("OUTPUT_CASE_REASON_DERIVATION_MISMATCH")
+        source_identity = case.get("source_identity")
+        if source_identity != {
+            "asset": match["source"],
+            "benchmark": match["benchmark_source"],
+        }:
+            raise MarketBehaviorError("OUTPUT_CASE_SOURCE_LINEAGE_MISMATCH")
+        case_policy = case.get("candidate_policy")
+        if (
+            policy is None
+            or policy["approval_status"] != "RATIFIED"
+            or not isinstance(case_policy, dict)
+            or set(case_policy) != {
+                "policy_id",
+                "policy_sha256",
+                "ratified_by",
+                "ratified_at_utc",
+            }
+            or case_policy.get("policy_id") != policy["policy_id"]
+            or case_policy.get("policy_sha256") != policy["policy_sha256"]
+            or not isinstance(case_policy.get("ratified_by"), str)
+            or not case_policy["ratified_by"].strip()
+            or not _valid_utc(case_policy.get("ratified_at_utc"))
+            or _utc(case_policy["ratified_at_utc"]) > as_of
+        ):
+            raise MarketBehaviorError("OUTPUT_CASE_POLICY_LINEAGE_MISMATCH")
+        if (
+            case.get("importance") != "UNRATIFIED"
+            or case.get("candidate_rank") is not None
+            or case.get("investable_eligible") is not False
+            or case.get("stage_transition") is not None
+            or case.get("action") is not None
+        ):
+            raise MarketBehaviorError("OUTPUT_CASE_AUTHORITY_EXPANSION")
+        case_ids.append(case_id)
+    if case_ids != sorted(set(case_ids)) or set(case_ids) != set(features_by_case_id):
+        raise MarketBehaviorError("OUTPUT_CASE_SET_OR_ORDER_MISMATCH")
+
+    expected_boundaries = [
+        "DEFAULT_CANDIDATE_POLICY_ABSENT",
+        "ANOMALY_THRESHOLD_UNRATIFIED",
+        "CROSS_MARKET_CADENCE_UNRATIFIED",
+        "SOURCE_HIERARCHY_UNRATIFIED",
+        "CANDIDATE_RANKING_UNRATIFIED",
+        "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+    ]
+    if (
+        type(packet.get("window_count")) is not int
+        or packet["window_count"] != len(windows)
+        or type(packet.get("case_count")) is not int
+        or packet["case_count"] != len(cases)
+        or packet.get("policy_status") != contract["policy_status"]
+        or packet.get("authority") != contract["authority"]
+        or packet.get("unresolved_boundaries") != expected_boundaries
+    ):
+        raise MarketBehaviorError("OUTPUT_SUMMARY_OR_BOUNDARY_MISMATCH")
+    return copy.deepcopy(packet)
+
+
 def build_packet(
     value: dict, candidate_policy: dict | None = None, contract: dict | None = None
 ) -> dict:
@@ -592,7 +956,7 @@ def build_packet(
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

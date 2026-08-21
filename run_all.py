@@ -171,8 +171,9 @@ APPROVED_TESTS = [
     "test/test_expectations_revision.py",
     # ★ P3-07 — policy-gated cross-market price/volume behavior radar capability.
     #   explicit benchmark 대비 누적 상대강도와 latest/prior mean·median 거래량 비율을
-    #   raw feature로 남긴다. repo 기본 임계값은 없고 외부 RATIFIED 정책이 명시한
-    #   market/window/method/threshold가 모두 맞을 때만 lineage-complete case를 만든다.
+    #   raw feature로 남긴다. Persisted validator가 feature/source/policy/case-set의
+    #   self-rehashed drift를 차단한다. repo 기본 임계값은 없고 외부 RATIFIED 정책이
+    #   명시한 market/window/method/threshold가 맞을 때만 case를 만든다.
     #   ranking·Stage 승격·Production·trading 권한은 열지 않는다.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic series + temp output only.
     "test/test_market_behavior.py",
