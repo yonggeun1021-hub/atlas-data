@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "contract_version": "collect_recovery_gate/1",
+  "packet_schema_version": "collect_recovery_gate_packet/1",
+  "timezone": "Asia/Seoul",
+  "gate_open_time_kst": "06:57:00",
+  "candidate_window_end_kst": "06:58:30",
+  "warning_window_end_kst": "07:00:00",
+  "timing_statuses": [
+    "NOT_OPEN",
+    "WITHIN_CANDIDATE_WINDOW",
+    "LATE_WARNING_REVIEW_REQUIRED",
+    "ROLE_UNSUITABLE"
+  ],
+  "classifications": [
+    "RECOVERY_WINDOW_OPEN",
+    "DATA_READY",
+    "DATA_READY_BRIEFING_READ_MODEL_DEGRADED",
+    "DATA_NOT_READY",
+    "UNKNOWN_MANUAL_INSPECTION_REQUIRED"
+  ],
+  "readiness_contract": "check_briefing_readiness.py/evaluate",
+  "source_precedence": "CURRENT_RAW_COLLECTOR_PREDICATES_THEN_READ_MODEL",
+  "automatic_dispatch_policy": "PROHIBITED",
+  "authority": {
+    "source_read_only_classification_only": true,
+    "before_0657_recovery_authorized": false,
+    "automatic_workflow_dispatch_authorized": false,
+    "collector_rerun_for_read_model_degradation_authorized": false,
+    "notification_delivery_authorized": false,
+    "schedule_change_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
