@@ -567,7 +567,8 @@ APPROVED_TESTS = [
     # ★ P9-02 — external RATIFIED importance policy + normalized event detector.
     #   SEC/DART/official-news 사건을 exact source/market/event type으로만 매칭해
     #   confirmed IMPORTANT를 승격하고 available_at→detected_at 지연을 측정한다.
-    #   routine/unmatched/blocked는 분리하며 repository default policy는 없다.
+    #   exact event/policy source를 내장·재검증하고 routine/unmatched/blocked는
+    #   분리하며 repository default policy는 없다.
     #   ⛔ live adapter/notification/action/order/Production/trading 및 network 없음.
     "test/test_important_event_detector.py",
     # ★ P9-05 — external RATIFIED intraday risk escalation thresholds.
