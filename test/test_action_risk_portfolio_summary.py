@@ -33,6 +33,13 @@ CONCENTRATION_FIXTURE = load_module(
 PLANNED_LOSS_FIXTURE = load_module(
     "p806_planned_loss_fixture", ROOT / "test" / "test_planned_loss_budget.py"
 )
+MARKET_THEME_FIXTURE = load_module(
+    "p806_market_theme_fixture",
+    ROOT / "test" / "test_market_theme_exposure_budget.py",
+)
+CRYPTO_LIMIT_FIXTURE = load_module(
+    "p806_crypto_limit_fixture", ROOT / "test" / "test_crypto_exposure_limit.py"
+)
 CASH_FIXTURE = load_module(
     "p806_cash_fixture", ROOT / "test" / "test_cash_exposure_action.py"
 )
@@ -99,6 +106,20 @@ def source_packet(name, status=None, breaches=None):
     if name == "LONG_SHORT_INVARIANT":
         return LONG_SHORT_FIXTURE.MODULE.build_packet(
             LONG_SHORT_FIXTURE.upstream_packet(), LONG_SHORT_FIXTURE.CONTRACT
+        )
+    if name == "MARKET_THEME_BUDGET":
+        return MARKET_THEME_FIXTURE.MODULE.build_packet(
+            MARKET_THEME_FIXTURE.input_packet(),
+            MARKET_THEME_FIXTURE.policy(),
+            "2026-08-21",
+            MARKET_THEME_FIXTURE.CONTRACT,
+        )
+    if name == "CRYPTO_EXPOSURE_LIMIT":
+        return CRYPTO_LIMIT_FIXTURE.MODULE.build_packet(
+            CRYPTO_LIMIT_FIXTURE.input_packet(),
+            CRYPTO_LIMIT_FIXTURE.policy(),
+            "2026-08-21",
+            CRYPTO_LIMIT_FIXTURE.CONTRACT,
         )
     if name == "POSITION_SIZING":
         packet = POSITION_FIXTURE.build()
@@ -297,6 +318,24 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             MODULE.build_summary(
                 packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
             )
+
+        for name in ["MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT"]:
+            with self.subTest(source=name):
+                packets, reasons = bundle()
+                source = packets[name]
+                source["assessments"][0]["result"] = "BREACH"
+                source["packet_sha256"] = MODULE.payload_sha256({
+                    key: value
+                    for key, value in source.items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.ActionRiskPortfolioSummaryError,
+                    f"{name}_INVALID:OUTPUT_ASSESSMENT_RESULT_MISMATCH",
+                ):
+                    MODULE.build_summary(
+                        packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                    )
 
     def test_p6_packets_require_full_production_validation(self):
         names = [

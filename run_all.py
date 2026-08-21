@@ -490,12 +490,14 @@ APPROVED_TESTS = [
     # ★ P7-04 — Regime-keyed market/theme exposure budget evaluation.
     #   Only external CIO-RATIFIED exact-scope limits can evaluate measured
     #   exposure; current Regime input remains PRE_SCORE UNKNOWN-only.
+    #   output assessment/result/breach/summary를 재검증해 self-rehash를 거부한다.
     #   No default budget/rebalance/sizing/order authority is introduced.
     #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
     "test/test_market_theme_exposure_budget.py",
     # ★ P7-05 — explicit Crypto exposure/planned-loss/volatility limits.
     #   CIO-RATIFIED policy and exact Crypto universe + btc_risk/v1 lineage are
     #   required; uncalibrated Stress never becomes a Regime or trade signal.
+    #   output assessment/total/breach/summary를 재검증해 self-rehash를 거부한다.
     #   No default limit/reduction/sizing/order authority is introduced.
     #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
     "test/test_crypto_exposure_limit.py",
@@ -555,7 +557,7 @@ APPROVED_TESTS = [
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
-    #   P6 9-source와 P7-02/P7-03/P7-06을 production validator로 재검증하고
+    #   P6 9-source와 P7-02~P7-06 risk source를 production validator로 재검증하고
     #   exact 15-source bundle을 내장·재파생한다. Risk breach는 action이 아니다.
     #   ⛔ live wiring/tracked output 없음 — synthetic packets + temp only.
     "test/test_action_risk_portfolio_summary.py",

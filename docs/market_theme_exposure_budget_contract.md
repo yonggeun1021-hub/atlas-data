@@ -21,3 +21,10 @@ not infer Rotation, score Regime, rebalance, choose target exposures, size a
 position, or create an order. Those outputs remain null/empty and all
 Production/trading authority remains false. CLI output inside the repository
 tree is forbidden.
+
+`validate_packet()` rechecks each output assessment's exact scope identity,
+UNKNOWN-only Regime, exposure-versus-maximum result, breach list, summary,
+closed action fields, three-market Regime lineage, authority, and packet hash.
+A self-rehashed result or summary mutation therefore fails closed. Version 1
+does not embed the original input and policy packets, so standalone validation
+does not claim to reconstruct source values omitted from the output schema.
