@@ -45,6 +45,17 @@ inputs must be captured after the 20:15 America/New_York qualification cutoff.
 Current RAW historical backfill is causal-research-only; adjusted history is
 revised-sensitivity-only. Neither becomes an archived historical vintage.
 
+The temporal contract issues `available_at` only for `FORWARD_PIT_QUALIFIED`
+Forward Shadow inputs. For both historical backfill classes it deliberately
+withholds `available_at`, because a present-day fetch does not prove when the
+source made an old row available. `build_transform` records the Atlas
+ingestion instant (`fetched_at`) in that case instead — it is the only
+capture-time fact it has — but fails closed with
+`AVAILABLE_AT_PRECEDES_OBSERVATION` if that instant would predate the
+`observation_date` it is attached to. `validate_output()` independently
+re-derives the same relation, so a hand-edited or corrupted artifact cannot
+claim availability before its own observation.
+
 Vendor price rows are consumed only from memory/stdin. Output contains bounded
 cumulative relative-strength observations, daily participation counts, and
 policy/source hashes, but no price rows or reconstructive series. Missing
