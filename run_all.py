@@ -515,6 +515,12 @@ APPROVED_TESTS = [
     #   충돌은 fail-closed다. repository default B1=null에서는 정상 차단된다.
     #   ⛔ bucket 발명/자동배정/limit/sizing/order/Production/trading 권한 없음.
     "test/test_bucket_membership.py",
+    # ★ P7-02 — externally ratified position sizing parameters.
+    #   Constitution deployment/bucket/position/evidence/loss 한도와 현금·현재노출,
+    #   planned stop을 MIN formula로 연결해 maximum/target weight를 계산한다.
+    #   repository default policy는 없고 blocked input은 size=0으로 닫는다.
+    #   ⛔ candidate selection/ENTRY/action/order/Production/trading 권한 없음.
+    "test/test_position_sizing.py",
     # ★ P7-07 — quote-currency raw exposure aggregation capability.
     #   Global Asset Master currency와 long-only position을 hash-bind해 같은 통화
     #   내부 notional만 합산한다. cross-currency total/FX conversion/limits는 null.
