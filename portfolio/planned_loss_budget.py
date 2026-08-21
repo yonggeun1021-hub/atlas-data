@@ -57,10 +57,10 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "planned_loss_budget/1",
-        "input_schema_version": "planned_loss_input/1",
-        "output_schema_version": "planned_loss_packet/1",
+        "schema_version": 2,
+        "contract_version": "planned_loss_budget/2",
+        "input_schema_version": "planned_loss_input/2",
+        "output_schema_version": "planned_loss_packet/2",
         "canonical_constitution": "config/constitution.json",
         "repository_default_status": "BLOCKED_UNTIL_CONSTITUTION_B2_B7_RATIFIED",
         "constitution_status_required": "ratified",
@@ -341,16 +341,20 @@ def _assessment(metric: str, asset_id: str, observed: float, maximum: float) -> 
     }
 
 
-def build_packet(
-    input_value: dict,
-    constitution_value: dict,
-    as_of_date: str,
-    contract: dict | None = None,
+def _input_source_packet(validated: dict) -> dict:
+    packet = copy.deepcopy(validated["normalized"])
+    for position in packet["positions"]:
+        position.pop("stop_distance_fraction")
+    packet["packet_sha256"] = validated["packet_sha256"]
+    return packet
+
+
+def _assemble(
+    checked: dict,
+    constitution: dict,
+    as_of: str,
+    contract: dict,
 ) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
-    constitution = _validate_constitution(constitution_value, as_of)
-    checked = _validate_input(input_value, as_of, contract)
     source = checked["normalized"]
     positions = source["positions"]
     max_position = constitution["normalized"]["B4_position_max_pct"] / 100
@@ -409,6 +413,10 @@ def build_packet(
         "recommended_exit": None,
         "stop_order_intents": [],
         "position_sizes": None,
+        "source_packets": {
+            "INPUT": _input_source_packet(checked),
+            "CONSTITUTION": copy.deepcopy(constitution["normalized"]),
+        },
         "lineage": {
             "input_packet_sha256": checked["packet_sha256"],
             "constitution_sha256": constitution["sha256"],
@@ -425,8 +433,54 @@ def build_packet(
             "ORDER_NOT_AUTHORIZED",
         ],
     }
-    packet["packet_sha256"] = payload_sha256(packet)
     return packet
+
+
+def build_packet(
+    input_value: dict,
+    constitution_value: dict,
+    as_of_date: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
+    constitution = _validate_constitution(constitution_value, as_of)
+    checked = _validate_input(input_value, as_of, contract)
+    packet = _assemble(checked, constitution, as_of, contract)
+    packet["packet_sha256"] = payload_sha256(packet)
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "as_of_date",
+        "snapshot_id", "constitution_version", "positions", "assessments",
+        "breaches", "summary", "recommended_exit", "stop_order_intents",
+        "position_sizes", "source_packets", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise PlannedLossBudgetError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+    ):
+        raise PlannedLossBudgetError("OUTPUT_IDENTITY_INVALID")
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_INVALID")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {"INPUT", "CONSTITUTION"}:
+        raise PlannedLossBudgetError("OUTPUT_SOURCE_PACKETS_INVALID")
+    checked = _validate_input(sources["INPUT"], as_of, contract)
+    constitution = _validate_constitution(sources["CONSTITUTION"], as_of)
+    expected = _assemble(checked, constitution, as_of, contract)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise PlannedLossBudgetError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
+        raise PlannedLossBudgetError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

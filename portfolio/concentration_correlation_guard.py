@@ -42,11 +42,11 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "concentration_correlation_guard/1",
-        "policy_schema_version": "concentration_correlation_policy/1",
-        "input_schema_version": "concentration_correlation_input/1",
-        "output_schema_version": "concentration_correlation_packet/1",
+        "schema_version": 2,
+        "contract_version": "concentration_correlation_guard/2",
+        "policy_schema_version": "concentration_correlation_policy/2",
+        "input_schema_version": "concentration_correlation_input/2",
+        "output_schema_version": "concentration_correlation_packet/2",
         "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
         "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
         "position_basis": "LONG_NAV_FRACTION",
@@ -455,16 +455,13 @@ def _clusters(positions: list[dict], correlations: list[dict], threshold: float)
     return sorted((members for members in groups.values() if len(members) >= 2), key=lambda x: tuple(x))
 
 
-def build_packet(
-    input_value: dict,
-    policy_value: dict,
-    as_of_date: str,
-    contract: dict | None = None,
-) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
-    policy = _validate_policy(policy_value, as_of, contract)
-    checked = _validate_input(input_value, as_of, contract)
+def _source_packet(validated: dict) -> dict:
+    packet = copy.deepcopy(validated["normalized"])
+    packet["packet_sha256"] = validated["packet_sha256"]
+    return packet
+
+
+def _assemble(checked: dict, policy: dict, as_of: str, contract: dict) -> dict:
     source = checked["normalized"]
     limits = policy["normalized"]["limits"]
     positions = source["positions"]
@@ -539,6 +536,10 @@ def build_packet(
         "target_weights": None,
         "position_size": None,
         "order_intents": [],
+        "source_packets": {
+            "INPUT": _source_packet(checked),
+            "POLICY": _source_packet(policy),
+        },
         "lineage": {
             "policy_packet_sha256": policy["packet_sha256"],
             "input_packet_sha256": checked["packet_sha256"],
@@ -555,8 +556,55 @@ def build_packet(
             "ORDER_NOT_AUTHORIZED",
         ],
     }
-    packet["packet_sha256"] = payload_sha256(packet)
     return packet
+
+
+def build_packet(
+    input_value: dict,
+    policy_value: dict,
+    as_of_date: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
+    policy = _validate_policy(policy_value, as_of, contract)
+    checked = _validate_input(input_value, as_of, contract)
+    packet = _assemble(checked, policy, as_of, contract)
+    packet["packet_sha256"] = payload_sha256(packet)
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "as_of_date", "policy_id",
+        "snapshot_id", "position_assessments", "market_assessments",
+        "theme_assessments", "correlated_cluster_assessments", "breaches",
+        "summary", "recommended_action", "target_weights", "position_size",
+        "order_intents", "source_packets", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise ConcentrationCorrelationError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+    ):
+        raise ConcentrationCorrelationError("OUTPUT_IDENTITY_INVALID")
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_INVALID")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {"INPUT", "POLICY"}:
+        raise ConcentrationCorrelationError("OUTPUT_SOURCE_PACKETS_INVALID")
+    checked = _validate_input(sources["INPUT"], as_of, contract)
+    policy = _validate_policy(sources["POLICY"], as_of, contract)
+    expected = _assemble(checked, policy, as_of, contract)
+    actual = copy.deepcopy(packet)
+    digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
+    if actual != expected:
+        raise ConcentrationCorrelationError("OUTPUT_DERIVATION_MISMATCH")
+    if payload_sha256(expected) != digest:
+        raise ConcentrationCorrelationError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

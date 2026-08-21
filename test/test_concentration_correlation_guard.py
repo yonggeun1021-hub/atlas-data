@@ -64,8 +64,8 @@ def policy(**limit_overrides):
     }
     limits.update(limit_overrides)
     value = {
-        "schema_version": "concentration_correlation_policy/1",
-        "contract_version": "concentration_correlation_guard/1",
+        "schema_version": CONTRACT["policy_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "policy_id": "TEST-CONCENTRATION-2026",
         "status": "RATIFIED",
         "ratified_by": "CIO",
@@ -99,8 +99,8 @@ def input_packet(positions=None, correlations=None):
     if correlations is None:
         correlations = [pair("AAA", "BBB", 0.80), pair("AAA", "CCC", 0.10), pair("BBB", "CCC", -0.20)]
     value = {
-        "schema_version": "concentration_correlation_input/1",
-        "contract_version": "concentration_correlation_guard/1",
+        "schema_version": CONTRACT["input_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "snapshot_id": "TEST-PORTFOLIO-2026-08-21",
         "as_of_date": "2026-08-21",
         "generated_at_utc": "2026-08-21T00:20:00Z",
@@ -161,6 +161,9 @@ class ConcentrationCorrelationGuardTests(unittest.TestCase):
         self.assertEqual(packet["order_intents"], [])
         self.assertEqual(packet["lineage"]["input_packet_sha256"], source["packet_sha256"])
         self.assertEqual(packet["lineage"]["policy_packet_sha256"], ratified["packet_sha256"])
+        self.assertEqual(packet["source_packets"]["INPUT"], source)
+        self.assertEqual(packet["source_packets"]["POLICY"], ratified)
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
 
     def test_position_theme_market_and_cluster_breaches_are_independent(self):
         packet = MODULE.build_packet(
@@ -253,6 +256,31 @@ class ConcentrationCorrelationGuardTests(unittest.TestCase):
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
 
+    def test_self_rehashed_output_and_embedded_policy_tamper_fail_closed(self):
+        packet = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
+        packet["summary"]["breach_count"] = 99
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ConcentrationCorrelationError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+        packet = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
+        embedded = packet["source_packets"]["POLICY"]
+        embedded["authority"]["order_authorized"] = True
+        embedded["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in embedded.items() if key != "packet_sha256"}
+        )
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ConcentrationCorrelationError, "POLICY_IDENTITY_INVALID"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()
@@ -270,7 +298,9 @@ class ConcentrationCorrelationGuardTests(unittest.TestCase):
             ratified = write_json(tmp / "policy.json", policy())
             output = tmp / "nested" / "packet.json"
             self.assertEqual(MODULE.run(source, ratified, "2026-08-21", output), 0)
-            self.assertEqual(json.loads(output.read_text())["status"], "WITHIN_RATIFIED_LIMITS")
+            serialized = json.loads(output.read_text())
+            self.assertEqual(serialized["status"], "WITHIN_RATIFIED_LIMITS")
+            self.assertEqual(MODULE.validate_packet(serialized, CONTRACT), serialized)
             forbidden = ROOT / "data" / "concentration_guard_test.json"
             self.assertEqual(MODULE.run(source, ratified, "2026-08-21", forbidden), 1)
             self.assertFalse(forbidden.exists())

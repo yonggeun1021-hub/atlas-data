@@ -21,6 +21,16 @@ does not infer a theme, correlation cluster, market weight, or missing pair.
 Portfolio, bucket, taxonomy, correlation-dataset, position, identity, and
 membership evidence hashes are preserved as lineage.
 
+Contract v2 embeds the canonical validated input and exact ratified policy
+packets. `validate_packet()` re-runs both production input validators and
+re-derives every exposure, cluster, breach, summary, authority, and lineage
+field. Rehashing a changed output or embedded policy therefore cannot turn a
+semantic mutation into valid evidence.
+
+The P8-06 briefing consumer remains pinned to the prior v1 identity until its
+own versioned migration. Contract v2 therefore establishes a producer
+capability; it does not silently change an existing consumer contract.
+
 `WITHIN_RATIFIED_LIMITS` and `LIMIT_BREACH` are risk-check results only. Neither
 result chooses a reduction, target weight, position size, hedge, or order.
 Those fields stay null/empty and Production/trading authority remains false.
