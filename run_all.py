@@ -598,10 +598,10 @@ APPROVED_TESTS = [
     #   false-positive/miss/stale/silent-error 4종의 verified denominator만 집계한다.
     #   0분모는 0%가 아니라 null이며 cause/성과/strategy 변경 권한은 닫는다.
     "test/test_shadow_error_metrics.py",
-    # ★ P10-04 — opaque Decision SHA change lineage capability.
-    #   이전/current hash로 change type을 파생하고 변경 이유·evidence·시각과
-    #   chain을 검증한다. Decision payload/interpretation/action은 항상 null이다.
-    #   ⛔ Unified Decision Contract/Shadow wiring/Production/trading 없음.
+    # ★ P10-04 — exact Unified Decision change lineage capability.
+    #   이전/current P8-02 packet을 production validator로 재검증하고 packet
+    #   SHA·생성시각·변경 이유·evidence·chain을 검증한다. 해석/action은 null이다.
+    #   ⛔ live Decision/Shadow wiring/Production/trading 없음.
     "test/test_decision_change_lineage.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의

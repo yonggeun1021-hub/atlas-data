@@ -1,15 +1,16 @@
 {
-  "schema_version": 1,
-  "contract_version": "decision_change_lineage/1",
-  "snapshot_schema_version": "decision_snapshot_reference/1",
-  "claim_batch_schema_version": "decision_change_claim_batch/1",
-  "output_schema_version": "decision_change_lineage_packet/1",
+  "schema_version": 2,
+  "contract_version": "decision_change_lineage/2",
+  "snapshot_schema_version": "decision_snapshot_reference/2",
+  "claim_batch_schema_version": "decision_change_claim_batch/2",
+  "output_schema_version": "decision_change_lineage_packet/2",
+  "unified_decision_schema_version": "unified_daily_decision/1",
+  "unified_decision_contract_version": "unified_decision_contract/1",
   "markets": [
-    "COMMON",
-    "US",
-    "KOREA",
-    "CRYPTO"
+    "COMMON"
   ],
+  "decision_key": "ATLAS.UNIFIED.DAILY",
+  "subject_id": "ATLAS.UNIFIED.THREE_MARKET",
   "change_types": [
     "CREATED",
     "UNCHANGED",
@@ -20,8 +21,9 @@
   "changed_evidence_policy": "REASON_AND_EVIDENCE_REQUIRED",
   "unchanged_evidence_policy": "REASON_AND_EVIDENCE_MUST_BE_EMPTY",
   "lineage_policy": "PRIOR_MUST_EQUAL_PREVIOUS_CURRENT_WITHIN_BATCH",
-  "decision_payload_binding": "OPAQUE_SHA256_ONLY",
-  "repository_decision_contract": "unified_decision_contract/1_AVAILABLE_OPAQUE_SHA_ONLY",
+  "decision_payload_binding": "EXACT_VALIDATED_UNIFIED_DECISION_PACKET",
+  "source_sha_semantics": "MUST_EQUAL_UNIFIED_DECISION_PACKET_SHA256",
+  "repository_decision_contract": "unified_decision_contract/1_VALIDATED",
   "input_authority": {
     "change_claim_observation_only": true,
     "decision_creation_authorized": false,

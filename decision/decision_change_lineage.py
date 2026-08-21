@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""P10-04 opaque Decision change lineage recorder."""
+"""P10-04 exact Unified Decision change lineage recorder."""
 from __future__ import annotations
 
 import argparse
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,21 @@ CONTRACT_PATH = ROOT / "config" / "decision_change_lineage_contract.json"
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
+
+
+def _load_unified_validator():
+    path = ROOT / "decision" / "unified_decision_contract.py"
+    spec = importlib.util.spec_from_file_location(
+        "atlas_decision_change_unified", path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"UNIFIED_VALIDATOR_IMPORT_FAILED:{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+UNIFIED = _load_unified_validator()
 
 
 class DecisionChangeLineageError(ValueError):
@@ -41,21 +57,24 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "decision_change_lineage/1",
-        "snapshot_schema_version": "decision_snapshot_reference/1",
-        "claim_batch_schema_version": "decision_change_claim_batch/1",
-        "output_schema_version": "decision_change_lineage_packet/1",
-        "markets": ["COMMON", "US", "KOREA", "CRYPTO"],
+        "schema_version": 2,
+        "contract_version": "decision_change_lineage/2",
+        "snapshot_schema_version": "decision_snapshot_reference/2",
+        "claim_batch_schema_version": "decision_change_claim_batch/2",
+        "output_schema_version": "decision_change_lineage_packet/2",
+        "unified_decision_schema_version": "unified_daily_decision/1",
+        "unified_decision_contract_version": "unified_decision_contract/1",
+        "markets": ["COMMON"],
+        "decision_key": "ATLAS.UNIFIED.DAILY",
+        "subject_id": "ATLAS.UNIFIED.THREE_MARKET",
         "change_types": ["CREATED", "UNCHANGED", "CHANGED", "RETIRED"],
         "reason_code_pattern": "^[A-Z][A-Z0-9_]*$",
         "changed_evidence_policy": "REASON_AND_EVIDENCE_REQUIRED",
         "unchanged_evidence_policy": "REASON_AND_EVIDENCE_MUST_BE_EMPTY",
         "lineage_policy": "PRIOR_MUST_EQUAL_PREVIOUS_CURRENT_WITHIN_BATCH",
-        "decision_payload_binding": "OPAQUE_SHA256_ONLY",
-        "repository_decision_contract": (
-            "unified_decision_contract/1_AVAILABLE_OPAQUE_SHA_ONLY"
-        ),
+        "decision_payload_binding": "EXACT_VALIDATED_UNIFIED_DECISION_PACKET",
+        "source_sha_semantics": "MUST_EQUAL_UNIFIED_DECISION_PACKET_SHA256",
+        "repository_decision_contract": "unified_decision_contract/1_VALIDATED",
         "input_authority": {
             "change_claim_observation_only": True,
             "decision_creation_authorized": False,
@@ -146,7 +165,7 @@ def _validate_snapshot(
         return None
     fields = {
         "schema_version", "decision_key", "market", "subject_id", "decided_at",
-        "decision_sha256", "source_ref", "source_sha256",
+        "decision_sha256", "source_ref", "source_sha256", "decision_packet",
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise DecisionChangeLineageError(f"SNAPSHOT_FIELDS_MISMATCH:{context}")
@@ -160,19 +179,43 @@ def _validate_snapshot(
     decided = _utc(value.get("decided_at"), f"SNAPSHOT_TIME_INVALID:{context}")
     if decided > change_time:
         raise DecisionChangeLineageError(f"SNAPSHOT_FROM_FUTURE:{context}")
+    try:
+        decision_packet = UNIFIED.validate_packet(value.get("decision_packet"))
+    except Exception as exc:
+        raise DecisionChangeLineageError(
+            f"UNIFIED_DECISION_INVALID:{context}:{exc}"
+        ) from exc
+    if (
+        decision_packet.get("schema_version")
+        != contract["unified_decision_schema_version"]
+        or decision_packet.get("contract_version")
+        != contract["unified_decision_contract_version"]
+    ):
+        raise DecisionChangeLineageError(
+            f"UNIFIED_DECISION_IDENTITY_INVALID:{context}"
+        )
+    decision_sha = _sha(
+        value.get("decision_sha256"), f"DECISION_SHA_INVALID:{context}"
+    )
+    source_sha = _sha(
+        value.get("source_sha256"), f"SOURCE_SHA_INVALID:{context}"
+    )
+    if decision_sha != decision_packet["packet_sha256"]:
+        raise DecisionChangeLineageError(f"DECISION_PACKET_SHA_MISMATCH:{context}")
+    if source_sha != decision_packet["packet_sha256"]:
+        raise DecisionChangeLineageError(f"SOURCE_PACKET_SHA_MISMATCH:{context}")
+    if value["decided_at"] != decision_packet["generated_at"]:
+        raise DecisionChangeLineageError(f"DECISION_PACKET_TIME_MISMATCH:{context}")
     return {
         "schema_version": contract["snapshot_schema_version"],
         "decision_key": decision_key,
         "market": market,
         "subject_id": subject_id,
         "decided_at": value["decided_at"],
-        "decision_sha256": _sha(
-            value.get("decision_sha256"), f"DECISION_SHA_INVALID:{context}"
-        ),
+        "decision_sha256": decision_sha,
         "source_ref": _text(value.get("source_ref"), f"SOURCE_REF_INVALID:{context}"),
-        "source_sha256": _sha(
-            value.get("source_sha256"), f"SOURCE_SHA_INVALID:{context}"
-        ),
+        "source_sha256": source_sha,
+        "decision_packet": decision_packet,
     }
 
 
@@ -263,6 +306,12 @@ def _validate_batch(value: dict, contract: dict) -> dict:
         if market not in contract["markets"]:
             raise DecisionChangeLineageError(f"MARKET_INVALID:{context}:{market}")
         subject_id = _token(claim.get("subject_id"), f"SUBJECT_ID_INVALID:{context}")
+        if (
+            decision_key != contract["decision_key"]
+            or market != "COMMON"
+            or subject_id != contract["subject_id"]
+        ):
+            raise DecisionChangeLineageError(f"DECISION_SCOPE_INVALID:{context}")
         change_time = _utc(
             claim.get("change_observed_at"), f"CHANGE_TIME_INVALID:{context}"
         )
@@ -319,11 +368,26 @@ def _validate_batch(value: dict, contract: dict) -> dict:
         "claims": claims,
         "authority": copy.deepcopy(contract["input_authority"]),
     }
+    normalized_claims = []
+    for claim in claims:
+        normalized_claim = copy.deepcopy(claim)
+        normalized_claim.pop("change_type")
+        normalized_claims.append(normalized_claim)
+    normalized_packet = {
+        "schema_version": contract["claim_batch_schema_version"],
+        "contract_version": contract["contract_version"],
+        "batch_id": batch_id,
+        "observed_at": value["observed_at"],
+        "claims": normalized_claims,
+        "authority": copy.deepcopy(contract["input_authority"]),
+    }
+    normalized_packet["packet_sha256"] = payload_sha256(normalized_packet)
     return {
         "batch_id": batch_id,
         "observed_at": value["observed_at"],
         "claims": claims,
         "semantic_sha256": payload_sha256(semantic),
+        "normalized_packet": normalized_packet,
     }
 
 
@@ -355,12 +419,12 @@ def build_lineage(claim_batch: dict, contract: dict | None = None) -> dict:
         },
         "entries": entries,
         "lineage": {"claim_batch_sha256": batch["semantic_sha256"]},
+        "source_claim_batch": copy.deepcopy(batch["normalized_packet"]),
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "UNIFIED_DECISION_CONTRACT_NOT_IMPLEMENTED",
-            "DECISION_PAYLOAD_OPAQUE_SHA_ONLY",
+            "LIVE_DECISION_LINEAGE_WIRING_NOT_IMPLEMENTED",
             "DECISION_INTERPRETATION_NOT_AUTHORIZED",
-            "PRODUCTION_SHADOW_LEDGER_NOT_IMPLEMENTED",
+            "SHADOW_LEDGER_LINEAGE_WIRING_NOT_IMPLEMENTED",
             "PRODUCTION_NOT_AUTHORIZED",
         ],
     }
@@ -373,7 +437,7 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
     fields = {
         "schema_version", "contract_version", "status", "batch_id", "observed_at",
         "summary", "entries", "lineage", "authority", "unresolved_boundaries",
-        "packet_sha256",
+        "source_claim_batch", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise DecisionChangeLineageError("OUTPUT_FIELDS_MISMATCH")
@@ -387,6 +451,13 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
         raise DecisionChangeLineageError("OUTPUT_IDENTITY_INVALID")
     _token(packet.get("batch_id"), "OUTPUT_BATCH_ID_INVALID")
     observed = _utc(packet.get("observed_at"), "OUTPUT_OBSERVED_AT_INVALID")
+    source_batch = packet.get("source_claim_batch")
+    source = _validate_batch(source_batch, contract)
+    if (
+        packet["batch_id"] != source["batch_id"]
+        or packet["observed_at"] != source["observed_at"]
+    ):
+        raise DecisionChangeLineageError("OUTPUT_SOURCE_IDENTITY_MISMATCH")
     entries = packet.get("entries")
     if not isinstance(entries, list):
         raise DecisionChangeLineageError("OUTPUT_ENTRIES_NOT_LIST")
@@ -468,15 +539,28 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
     }
     if packet.get("summary") != expected_summary:
         raise DecisionChangeLineageError("OUTPUT_SUMMARY_INVALID")
+    expected_entries = []
+    for claim in source["claims"]:
+        expected_entry = copy.deepcopy(claim)
+        expected_entry["decision_payload"] = None
+        expected_entry["decision_interpretation"] = None
+        expected_entry["action"] = None
+        expected_entry["entry_sha256"] = payload_sha256(expected_entry)
+        expected_entries.append(expected_entry)
+    if entries != expected_entries:
+        raise DecisionChangeLineageError("OUTPUT_SOURCE_DERIVATION_MISMATCH")
     lineage = packet.get("lineage")
     if not isinstance(lineage, dict) or set(lineage) != {"claim_batch_sha256"}:
         raise DecisionChangeLineageError("OUTPUT_LINEAGE_INVALID")
-    _sha(lineage.get("claim_batch_sha256"), "OUTPUT_LINEAGE_SHA_INVALID")
+    if (
+        _sha(lineage.get("claim_batch_sha256"), "OUTPUT_LINEAGE_SHA_INVALID")
+        != source["semantic_sha256"]
+    ):
+        raise DecisionChangeLineageError("OUTPUT_LINEAGE_SHA_MISMATCH")
     expected_boundaries = [
-        "UNIFIED_DECISION_CONTRACT_NOT_IMPLEMENTED",
-        "DECISION_PAYLOAD_OPAQUE_SHA_ONLY",
+        "LIVE_DECISION_LINEAGE_WIRING_NOT_IMPLEMENTED",
         "DECISION_INTERPRETATION_NOT_AUTHORIZED",
-        "PRODUCTION_SHADOW_LEDGER_NOT_IMPLEMENTED",
+        "SHADOW_LEDGER_LINEAGE_WIRING_NOT_IMPLEMENTED",
         "PRODUCTION_NOT_AUTHORIZED",
     ]
     if packet.get("unresolved_boundaries") != expected_boundaries:
@@ -524,7 +608,9 @@ def run(batch_path: Path, output_path: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Record opaque Decision change lineage")
+    parser = argparse.ArgumentParser(
+        description="Record exact Unified Decision change lineage"
+    )
     parser.add_argument("claim_batch", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
