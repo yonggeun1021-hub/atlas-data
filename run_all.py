@@ -460,6 +460,12 @@ APPROVED_TESTS = [
     #   UNKNOWN/UNDEFINED 또는 hard reject로 고정하고 PASS/FAIL=0을 검증한다.
     #   ⛔ test-only — source/threshold/Production/trading 권한 없음.
     "test/test_rule_evaluator_mutation.py",
+    # ★ P6-01 — Cash / Exposure Reduction independent action boundary.
+    #   현금 유지와 long 노출축소를 short/hedge/inverse/order와 별도 필드로 두되,
+    #   Regime·portfolio·cash policy·risk budget이 미비준인 현재는 모든 action과
+    #   target을 NOT_EVALUATED/null/empty로 닫고 authority 밀반입을 거부한다.
+    #   ⛔ policy/target/sizing/order/Production/trading 및 tracked output 없음.
+    "test/test_cash_exposure_action.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority

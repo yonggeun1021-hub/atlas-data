@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "contract_version": "cash_exposure_action_boundary/1",
+  "output_schema_version": "cash_exposure_action_packet/1",
+  "upstream_contract_version": "regime_output/v1",
+  "upstream_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
+  "runtime_authorized_regimes": [
+    "UNKNOWN"
+  ],
+  "action_vocabulary": [
+    "HOLD_CASH",
+    "REDUCE_EXPOSURE",
+    "NO_CHANGE"
+  ],
+  "runtime_evaluation_status": "NOT_EVALUATED",
+  "invariant": "CASH_AND_EXPOSURE_REDUCTION_ARE_INDEPENDENT_FROM_SHORT_HEDGE_AND_ORDER",
+  "independent_prerequisites": [
+    "REGIME_CLASSIFICATION_AUTHORIZED",
+    "PORTFOLIO_EXPOSURE_SNAPSHOT_AVAILABLE",
+    "CASH_EXPOSURE_POLICY_RATIFIED",
+    "PORTFOLIO_RISK_BUDGET_RATIFIED",
+    "ACTION_RISK_CHECKS_AUTHORIZED"
+  ],
+  "upstream_authority": {
+    "minimum_coverage_gate_ratified": false,
+    "thresholds_authorized": false,
+    "weights_authorized": false,
+    "regime_score_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  },
+  "authority": {
+    "independent_action_boundary_only": true,
+    "cash_action_authorized": false,
+    "exposure_reduction_authorized": false,
+    "target_weight_authorized": false,
+    "position_adjustment_authorized": false,
+    "short_authorized": false,
+    "hedge_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
