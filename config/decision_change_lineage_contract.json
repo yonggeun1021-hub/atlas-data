@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "decision_change_lineage/1",
+  "snapshot_schema_version": "decision_snapshot_reference/1",
+  "claim_batch_schema_version": "decision_change_claim_batch/1",
+  "output_schema_version": "decision_change_lineage_packet/1",
+  "markets": [
+    "COMMON",
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "change_types": [
+    "CREATED",
+    "UNCHANGED",
+    "CHANGED",
+    "RETIRED"
+  ],
+  "reason_code_pattern": "^[A-Z][A-Z0-9_]*$",
+  "changed_evidence_policy": "REASON_AND_EVIDENCE_REQUIRED",
+  "unchanged_evidence_policy": "REASON_AND_EVIDENCE_MUST_BE_EMPTY",
+  "lineage_policy": "PRIOR_MUST_EQUAL_PREVIOUS_CURRENT_WITHIN_BATCH",
+  "decision_payload_binding": "OPAQUE_SHA256_ONLY",
+  "repository_decision_contract": "ABSENT",
+  "input_authority": {
+    "change_claim_observation_only": true,
+    "decision_creation_authorized": false,
+    "decision_change_authorized": false,
+    "action_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "lineage_recording_only": true,
+    "decision_interpretation_authorized": false,
+    "decision_creation_authorized": false,
+    "decision_change_authorized": false,
+    "candidate_promotion_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
