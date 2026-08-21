@@ -516,14 +516,77 @@ def build_sec_filing_content(decision_date: str, snapshot: dict | None = None) -
 # ---------------------------------------------------------------------------
 
 
-def build_kofia_first_seen(decision_date: str) -> dict:
+def _read_downloaded_at(resolved_dir: Path) -> str | None:
+    """Every real collector for these evidence archives (BTC, stablecoin,
+    crypto breadth, US breadth) writes a top-level _downloaded_at.txt
+    alongside the raw capture -- the real UTC instant the source was
+    actually fetched, distinct from (and usually much earlier in the day
+    than) the packet's own generated_at. Returns None if genuinely
+    absent, which callers must treat as "temporal basis unknown", never
+    silently as "fine"."""
+    path = resolved_dir / "_downloaded_at.txt"
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    return text or None
+
+
+def _downloaded_at_guard(component_id: str, snapshot: dict) -> dict | None:
+    """None if the snapshot carries a real downloaded_at timestamp (safe
+    to proceed to READY/validated=True); otherwise a DEGRADED row. A
+    component whose temporal basis is genuinely unknown must never be
+    promoted to a decision-ready, validated status -- unlike every real
+    committed archive today (which always has _downloaded_at.txt), a
+    missing timestamp means there is nothing to prove this evidence was
+    not fetched after the packet claims to have been generated."""
+    if snapshot.get("downloaded_at") is not None:
+        return None
+    return component_row(component_id, "DEGRADED", "DOWNLOADED_AT_MISSING")
+
+
+def _fetch_dated_evidence_snapshot(root: Path, decision_date: str) -> dict:
+    """Raw snapshot for an exact-date evidence archive (BTC/stablecoin/
+    crypto breadth/KOFIA), read live right now. Frozen into
+    packet["frozen_sources"] at build time: presence/absence of the
+    directory at build time is fixed forever, so a later
+    validate_packet() call can never see a directory that didn't exist
+    yet at build time and wrongly promote a DATA_BLOCKED revision to
+    READY just because the same-dated capture landed afterward. Once
+    present, the directory is a genuinely immutable, append-only, per-date
+    archive (unlike the mutable rolling pointers _fetch_step0_snapshot/
+    _fetch_filing_snapshot freeze) -- re-reading it later reproduces the
+    same content, so only the presence/absence fact, not its bytes, needs
+    freezing."""
+    resolved = _dated_dir_for_decision(root, decision_date)
+    if resolved is None:
+        return {"kind": "absent"}
+    return {
+        "kind": "present",
+        "resolved_dir": str(resolved.relative_to(ROOT)),
+        "downloaded_at": _read_downloaded_at(resolved),
+    }
+
+
+def _fetch_kofia_snapshot(decision_date: str) -> dict:
     evidence_root = ROOT / "evidence" / "kofia" / "first_seen"
     day_dir = _dated_dir_for_decision(evidence_root, decision_date)
     run_dir = _latest_run_dir(day_dir) if day_dir is not None else None
     if run_dir is None:
+        return {"kind": "absent"}
+    return {
+        "kind": "present",
+        "resolved_dir": str(run_dir.relative_to(ROOT)),
+        "as_of_date": day_dir.name,
+    }
+
+
+def _classify_kofia(snapshot: dict) -> dict:
+    if snapshot["kind"] == "absent":
         return _blocked(
             "KOFIA_FIRST_SEEN", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
         )
+    run_dir = ROOT / snapshot["resolved_dir"]
+    evidence_root = ROOT / "evidence" / "kofia" / "first_seen"
     try:
         observation = KOFIA.validate_capture(run_dir, evidence_root)
     except Exception as exc:  # noqa: BLE001
@@ -532,13 +595,15 @@ def build_kofia_first_seen(decision_date: str) -> dict:
         "KOFIA_FIRST_SEEN",
         "POLICY_BLOCKED",
         "SOURCE_AVAILABLE_AT_AND_API_UNIT_UNRATIFIED",
-        as_of_date=day_dir.name,
+        as_of_date=snapshot["as_of_date"],
         generated_at=observation.get("captured_at_utc"),
         # Surfaced at the row level too (not only nested inside packet), so
         # the common _enforce_temporal_boundary() check in build_packet()
         # can see it uniformly like every other component's available_at.
         available_at=observation.get("available_at"),
-        source_packet_path=str(run_dir.relative_to(ROOT)),
+        source_packet_path=snapshot["resolved_dir"],
+        # True: frozen into packet["frozen_sources"] at build time -- see
+        # FROZEN_SOURCE_COMPONENTS.
         validated=True,
         packet={
             "captured_at_utc": observation.get("captured_at_utc"),
@@ -548,13 +613,18 @@ def build_kofia_first_seen(decision_date: str) -> dict:
     )
 
 
+def build_kofia_first_seen(decision_date: str, snapshot: dict | None = None) -> dict:
+    if snapshot is None:
+        snapshot = _fetch_kofia_snapshot(decision_date)
+    return _classify_kofia(snapshot)
+
+
 # ---------------------------------------------------------------------------
 # Crypto/US sensors already committed as live evidence
 # ---------------------------------------------------------------------------
 
 
-def build_us_breadth_membership(decision_date: str) -> dict:
-    raw_root = US_BREADTH.RAW_ROOT
+def _fetch_us_breadth_snapshot(decision_date: str, raw_root: Path) -> dict:
     # universe_as_of() already forward-fills to the latest snapshot with
     # snapshot_date <= decision_date and refuses anything after it -- this
     # is precisely the as-of-date-safe API the module offers for exactly
@@ -564,9 +634,32 @@ def build_us_breadth_membership(decision_date: str) -> dict:
     try:
         universe = US_BREADTH.universe_as_of(decision_date, raw_root)
     except US_BREADTH.ContractError as exc:
-        return component_row(
-            "US_BREADTH_MEMBERSHIP", "DATA_BLOCKED", f"{type(exc).__name__}:{exc}"
-        )
+        return {"kind": "unresolved", "value": f"{type(exc).__name__}:{exc}"}
+    except Exception as exc:  # noqa: BLE001
+        return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
+    snapshot_dir = Path(raw_root) / universe["snapshot_date"]
+    return {
+        "kind": "resolved",
+        "snapshot_date": universe["snapshot_date"],
+        "downloaded_at": _read_downloaded_at(snapshot_dir),
+    }
+
+
+def _classify_us_breadth(raw_root: Path, snapshot: dict) -> dict:
+    if snapshot["kind"] == "unresolved":
+        return component_row("US_BREADTH_MEMBERSHIP", "DATA_BLOCKED", snapshot["value"])
+    if snapshot["kind"] == "error":
+        return component_row("US_BREADTH_MEMBERSHIP", "DEGRADED", snapshot["value"])
+    guard = _downloaded_at_guard("US_BREADTH_MEMBERSHIP", snapshot)
+    if guard is not None:
+        return guard
+    # Re-pin to the EXACT resolved snapshot_date frozen at build time --
+    # calling universe_as_of() with that snapshot's own date as the as-of
+    # target always resolves to exactly that snapshot (it is <= itself and
+    # is the latest such), immune to any later-archived snapshot added to
+    # the archive since (which would only matter for dates AFTER it).
+    try:
+        universe = US_BREADTH.universe_as_of(snapshot["snapshot_date"], raw_root)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("US_BREADTH_MEMBERSHIP", exc)
     return component_row(
@@ -574,7 +667,10 @@ def build_us_breadth_membership(decision_date: str) -> dict:
         "READY",
         None,
         as_of_date=universe["snapshot_date"],
+        generated_at=snapshot["downloaded_at"],
         source_packet_path=f"evidence/us_breadth/raw/{universe['snapshot_date']}",
+        # True: frozen into packet["frozen_sources"] at build time -- see
+        # FROZEN_SOURCE_COMPONENTS.
         validated=True,
         packet={
             "snapshot_date": universe["snapshot_date"],
@@ -584,20 +680,33 @@ def build_us_breadth_membership(decision_date: str) -> dict:
     )
 
 
-def build_btc_trend(decision_date: str) -> dict:
-    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date)
+def build_us_breadth_membership(decision_date: str, snapshot: dict | None = None) -> dict:
+    raw_root = US_BREADTH.RAW_ROOT
     if snapshot is None:
+        snapshot = _fetch_us_breadth_snapshot(decision_date, raw_root)
+    return _classify_us_breadth(raw_root, snapshot)
+
+
+def _classify_btc_trend(snapshot: dict) -> dict:
+    if snapshot["kind"] == "absent":
         return _blocked("BTC_TREND", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
+    guard = _downloaded_at_guard("BTC_TREND", snapshot)
+    if guard is not None:
+        return guard
+    resolved = ROOT / snapshot["resolved_dir"]
     try:
-        packet = BTC_TREND.build_transform(snapshot)
+        packet = BTC_TREND.build_transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("BTC_TREND", exc)
     return component_row(
         "BTC_TREND",
         "READY",
         None,
-        as_of_date=snapshot.name,
-        source_packet_path=f"evidence/crypto/btc/raw/{snapshot.name}",
+        as_of_date=resolved.name,
+        generated_at=snapshot["downloaded_at"],
+        source_packet_path=snapshot["resolved_dir"],
+        # True: frozen into packet["frozen_sources"] at build time -- see
+        # FROZEN_SOURCE_COMPONENTS.
         validated=True,
         authority={k: v for k, v in packet.items() if k.endswith("_authorized")},
         contract_version=packet.get("transform_version"),
@@ -605,20 +714,32 @@ def build_btc_trend(decision_date: str) -> dict:
     )
 
 
-def build_btc_risk(decision_date: str) -> dict:
-    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date)
+def build_btc_trend(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
+        snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+        )
+    return _classify_btc_trend(snapshot)
+
+
+def _classify_btc_risk(snapshot: dict) -> dict:
+    if snapshot["kind"] == "absent":
         return _blocked("BTC_RISK", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
+    guard = _downloaded_at_guard("BTC_RISK", snapshot)
+    if guard is not None:
+        return guard
+    resolved = ROOT / snapshot["resolved_dir"]
     try:
-        packet = BTC_RISK.build_transform(snapshot)
+        packet = BTC_RISK.build_transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("BTC_RISK", exc)
     return component_row(
         "BTC_RISK",
         "READY",
         None,
-        as_of_date=snapshot.name,
-        source_packet_path=f"evidence/crypto/btc/raw/{snapshot.name}",
+        as_of_date=resolved.name,
+        generated_at=snapshot["downloaded_at"],
+        source_packet_path=snapshot["resolved_dir"],
         validated=True,
         contract_version=packet.get("transform_version"),
         packet={
@@ -628,14 +749,25 @@ def build_btc_risk(decision_date: str) -> dict:
     )
 
 
-def build_stablecoin(decision_date: str) -> dict:
-    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "stablecoin" / "raw", decision_date)
+def build_btc_risk(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
+        snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+        )
+    return _classify_btc_risk(snapshot)
+
+
+def _classify_stablecoin(snapshot: dict) -> dict:
+    if snapshot["kind"] == "absent":
         return _blocked(
             "STABLECOIN_NET_ISSUANCE", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
         )
+    guard = _downloaded_at_guard("STABLECOIN_NET_ISSUANCE", snapshot)
+    if guard is not None:
+        return guard
+    resolved = ROOT / snapshot["resolved_dir"]
     try:
-        packet = STABLECOIN.build_transform(snapshot)
+        packet = STABLECOIN.build_transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("STABLECOIN_NET_ISSUANCE", exc)
     latest_row = packet["rows"][-1] if packet.get("rows") else {}
@@ -643,8 +775,9 @@ def build_stablecoin(decision_date: str) -> dict:
         "STABLECOIN_NET_ISSUANCE",
         "READY",
         None,
-        as_of_date=snapshot.name,
-        source_packet_path=f"evidence/stablecoin/raw/{snapshot.name}",
+        as_of_date=resolved.name,
+        generated_at=snapshot["downloaded_at"],
+        source_packet_path=snapshot["resolved_dir"],
         validated=True,
         packet={
             "observation_date": latest_row.get("observation_date"),
@@ -660,12 +793,23 @@ def build_stablecoin(decision_date: str) -> dict:
     )
 
 
-def build_crypto_breadth(decision_date: str) -> dict:
-    snapshot = _dated_dir_for_decision(ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date)
+def build_stablecoin(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
+        snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "stablecoin" / "raw", decision_date
+        )
+    return _classify_stablecoin(snapshot)
+
+
+def _classify_crypto_breadth(snapshot: dict) -> dict:
+    if snapshot["kind"] == "absent":
         return _blocked("CRYPTO_BREADTH", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
+    guard = _downloaded_at_guard("CRYPTO_BREADTH", snapshot)
+    if guard is not None:
+        return guard
+    resolved = ROOT / snapshot["resolved_dir"]
     try:
-        packet = CRYPTO_BREADTH.build_transform(snapshot)
+        packet = CRYPTO_BREADTH.build_transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("CRYPTO_BREADTH", exc)
     status = packet.get("status")
@@ -678,11 +822,20 @@ def build_crypto_breadth(decision_date: str) -> dict:
         "CRYPTO_BREADTH",
         result_status,
         reason,
-        as_of_date=snapshot.name,
-        source_packet_path=f"evidence/crypto/breadth/raw/{snapshot.name}",
+        as_of_date=resolved.name,
+        generated_at=snapshot["downloaded_at"],
+        source_packet_path=snapshot["resolved_dir"],
         validated=True,
         packet={"status": status, "selected_asset_count": packet.get("selected_asset_count")},
     )
+
+
+def build_crypto_breadth(decision_date: str, snapshot: dict | None = None) -> dict:
+    if snapshot is None:
+        snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
+        )
+    return _classify_crypto_breadth(snapshot)
 
 
 # ---------------------------------------------------------------------------
@@ -1007,12 +1160,28 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
 # dependency on today's rolling pointer state. This is why these four are
 # now validated=True like every other component, and why there is no
 # "cannot be independently revalidated" boundary listed any more.
+# KOFIA_FIRST_SEEN/US_BREADTH_MEMBERSHIP/BTC_TREND/BTC_RISK/
+# STABLECOIN_NET_ISSUANCE/CRYPTO_BREADTH read a genuinely immutable,
+# append-only, per-date evidence archive -- unlike the three above, their
+# *content*, once present, never changes. Their staleness risk is
+# different: a directory that did not exist yet at build time (correctly
+# DATA_BLOCKED) can be created later the same day, and re-deriving an old
+# revision after that would wrongly promote it to READY -- not because
+# the immutable content changed, but because presence/absence itself is
+# not retroactively knowable without recording it. Freezing just that
+# presence/absence fact (plus, once present, the resolved directory name)
+# is therefore sufficient here -- no digest of the immutable bytes is
+# needed, unlike the three above.
 FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+    "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
+    "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
-# snapshot covers both.
+# snapshot covers both. BTC_TREND and BTC_RISK read the same evidence
+# directory but are frozen (and re-derived) independently -- one extra,
+# cheap snapshot rather than a special-cased shared one.
 
 
 def build_packet(
@@ -1078,12 +1247,46 @@ def build_packet(
     rows["SEC_FILING_CONTENT"] = _boundary(_classify_filing_content(
         "SEC_FILING_CONTENT", "data/latest_sec_content.json", decision_date, sec_snapshot
     ))
-    rows["KOFIA_FIRST_SEEN"] = _boundary(build_kofia_first_seen(decision_date))
-    rows["US_BREADTH_MEMBERSHIP"] = _boundary(build_us_breadth_membership(decision_date))
-    rows["BTC_TREND"] = _boundary(build_btc_trend(decision_date))
-    rows["BTC_RISK"] = _boundary(build_btc_risk(decision_date))
-    rows["STABLECOIN_NET_ISSUANCE"] = _boundary(build_stablecoin(decision_date))
-    rows["CRYPTO_BREADTH"] = _boundary(build_crypto_breadth(decision_date))
+    kofia_snapshot = frozen_sources.get("KOFIA_FIRST_SEEN")
+    if kofia_snapshot is None:
+        kofia_snapshot = _fetch_kofia_snapshot(decision_date)
+    rows["KOFIA_FIRST_SEEN"] = _boundary(_classify_kofia(kofia_snapshot))
+
+    us_breadth_raw_root = US_BREADTH.RAW_ROOT
+    us_breadth_snapshot = frozen_sources.get("US_BREADTH_MEMBERSHIP")
+    if us_breadth_snapshot is None:
+        us_breadth_snapshot = _fetch_us_breadth_snapshot(decision_date, us_breadth_raw_root)
+    rows["US_BREADTH_MEMBERSHIP"] = _boundary(
+        _classify_us_breadth(us_breadth_raw_root, us_breadth_snapshot)
+    )
+
+    btc_snapshot = frozen_sources.get("BTC_TREND")
+    if btc_snapshot is None:
+        btc_snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+        )
+    rows["BTC_TREND"] = _boundary(_classify_btc_trend(btc_snapshot))
+
+    btc_risk_snapshot = frozen_sources.get("BTC_RISK")
+    if btc_risk_snapshot is None:
+        btc_risk_snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+        )
+    rows["BTC_RISK"] = _boundary(_classify_btc_risk(btc_risk_snapshot))
+
+    stablecoin_snapshot = frozen_sources.get("STABLECOIN_NET_ISSUANCE")
+    if stablecoin_snapshot is None:
+        stablecoin_snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "stablecoin" / "raw", decision_date
+        )
+    rows["STABLECOIN_NET_ISSUANCE"] = _boundary(_classify_stablecoin(stablecoin_snapshot))
+
+    crypto_breadth_snapshot = frozen_sources.get("CRYPTO_BREADTH")
+    if crypto_breadth_snapshot is None:
+        crypto_breadth_snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
+        )
+    rows["CRYPTO_BREADTH"] = _boundary(_classify_crypto_breadth(crypto_breadth_snapshot))
 
     regime_outputs = build_regime_outputs(generated_at)
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
@@ -1148,17 +1351,24 @@ def build_packet(
         "component_status_counts": counts,
         "components": ordered_components,
         "authority": copy.deepcopy(contract["authority"]),
-        # The exact input snapshots STEP0_READ_MODEL_HEALTH/DART_FILING_
-        # CONTENT/SEC_FILING_CONTENT (and, transitively, KRX_PREOPEN_
-        # COMPACT) were built from -- see FROZEN_SOURCE_COMPONENTS. Part of
-        # the hashed packet like everything else, so it is tamper-protected
-        # the same way; validate_packet() feeds it straight back into
-        # build_packet() to independently re-derive those rows without ever
-        # touching the live, mutable data/ pointer again.
+        # The exact input snapshots every FROZEN_SOURCE_COMPONENTS row was
+        # built from. Part of the hashed packet like everything else, so it
+        # is tamper-protected the same way; validate_packet() feeds it
+        # straight back into build_packet() to independently re-derive
+        # those rows without ever touching live, mutable state, and
+        # without letting evidence that did not exist yet at build time
+        # (an archive directory created later the same day) silently
+        # promote an old DATA_BLOCKED revision to READY on re-validation.
         "frozen_sources": {
             "STEP0_READ_MODEL_HEALTH": step0_snapshot,
             "DART_FILING_CONTENT": dart_snapshot,
             "SEC_FILING_CONTENT": sec_snapshot,
+            "KOFIA_FIRST_SEEN": kofia_snapshot,
+            "US_BREADTH_MEMBERSHIP": us_breadth_snapshot,
+            "BTC_TREND": btc_snapshot,
+            "BTC_RISK": btc_risk_snapshot,
+            "STABLECOIN_NET_ISSUANCE": stablecoin_snapshot,
+            "CRYPTO_BREADTH": crypto_breadth_snapshot,
         },
         "unresolved_boundaries": [
             "REGIME_AXIS_LIVE_ADAPTER_NOT_WIRED",
@@ -1203,20 +1413,21 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     contract = load_contract() if contract is None else contract
     _verify_self_hash(packet)
     # Unconditional full rebuild-and-compare, with no blind-trust exemption
-    # for any component. The 28 real-evidence/real-deterministic components
-    # are rebuilt from their genuinely immutable, per-date-pinned evidence
-    # on disk (unaffected by anything that has happened since). STEP0_
-    # READ_MODEL_HEALTH/DART_FILING_CONTENT/SEC_FILING_CONTENT (and,
-    # transitively through it, KRX_PREOPEN_COMPACT) are rebuilt from
-    # packet["frozen_sources"] -- the exact input snapshot persisted inside
-    # this very packet at build time -- rather than the live, mutable data/
-    # pointer, which may have moved on since. Both paths are genuine,
-    # independent re-derivations, not a blind acceptance of the persisted
-    # row: a semantic tamper of any row, including those four, still fails
-    # here, because the rebuild never reads the tampered row itself as an
-    # input to reproduce -- it re-derives it from source data (real disk
-    # evidence, or this packet's own frozen_sources) that the tamper never
-    # touched.
+    # for any component. Every FROZEN_SOURCE_COMPONENTS row (STEP0/DART/
+    # SEC's mutable rolling pointer; KOFIA/US_BREADTH/BTC_TREND/BTC_RISK/
+    # STABLECOIN/CRYPTO_BREADTH's genuinely immutable but presence-may-
+    # arrive-later evidence archives) is rebuilt from packet[
+    # "frozen_sources"] -- the exact input snapshot persisted inside this
+    # very packet at build time -- rather than live, current-moment state,
+    # which may have moved on (mutable pointer) or newly appeared (an
+    # archive directory created later the same day) since. Every other
+    # component is rebuilt from its own real, per-date-pinned evidence on
+    # disk directly, unaffected by anything that has happened since. Both
+    # paths are genuine, independent re-derivations, not a blind acceptance
+    # of the persisted row: a semantic tamper of any row still fails here,
+    # because the rebuild never reads the tampered row itself as an input
+    # to reproduce -- it re-derives from source data (real disk evidence,
+    # or this packet's own frozen_sources) that the tamper never touched.
     frozen_sources = packet.get("frozen_sources") or {}
     rebuilt = build_packet(
         packet["slot"], packet["decision_date"], packet["generated_at"], contract,

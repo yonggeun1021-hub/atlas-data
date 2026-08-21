@@ -228,22 +228,34 @@ class DailyOrchestratorTest(unittest.TestCase):
     def test_frozen_source_components_are_genuinely_independently_revalidatable(self):
         # STEP0_READ_MODEL_HEALTH / DART_FILING_CONTENT / SEC_FILING_CONTENT
         # (and, transitively through it, KRX_PREOPEN_COMPACT) read a mutable
-        # rolling pointer with no per-date archive. Two prior designs both
-        # failed here: blindly trusting the persisted row let semantic
-        # tamper slip past undetected; always re-fetching the live pointer
-        # meant an honest packet could legitimately fail revalidation once
-        # the pointer moved on. The fix: freeze the *input* snapshot into
-        # packet["frozen_sources"] and re-derive these rows purely from
-        # that -- genuinely independent, no live data/ access, no
-        # "cannot be revalidated" boundary any more.
+        # rolling pointer with no per-date archive. KOFIA_FIRST_SEEN /
+        # US_BREADTH_MEMBERSHIP / BTC_TREND / BTC_RISK /
+        # STABLECOIN_NET_ISSUANCE / CRYPTO_BREADTH read a genuinely
+        # immutable, append-only, per-date archive whose *presence* (not
+        # content) can still change between build time and a later
+        # revalidation, if the same-dated capture lands afterward. All nine
+        # are frozen the same way: packet["frozen_sources"] carries the
+        # exact input snapshot each was built from, and validate_packet()
+        # re-derives them purely from that -- genuinely independent, no
+        # live data/ access, no "cannot be revalidated" boundary any more.
         self.assertEqual(
             MODULE.FROZEN_SOURCE_COMPONENTS,
             frozenset({
                 "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+                "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
+                "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
             }),
         )
+        # Built late in the day (not MORNING_GENERATED_AT) so that no real
+        # sensor's own genuine capture/observation timestamp (e.g. KOFIA's
+        # real captured_at_utc, which can legitimately land well into the
+        # KST evening) trips the _enforce_temporal_boundary source-
+        # generated_at check below and confuses this test's focus, which is
+        # frozen-source re-derivability, not the temporal boundary itself
+        # (covered separately).
+        late_generated_at = f"{DECISION_DATE}T23:59:00Z"
         boundaries = MODULE.build_packet(
-            "morning", DECISION_DATE, MORNING_GENERATED_AT
+            "morning", DECISION_DATE, late_generated_at
         )["unresolved_boundaries"]
         for stale_boundary in (
             "ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER",
@@ -251,29 +263,21 @@ class DailyOrchestratorTest(unittest.TestCase):
         ):
             self.assertNotIn(stale_boundary, boundaries)
 
-        packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
+        packet = MODULE.build_packet("morning", DECISION_DATE, late_generated_at)
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
         self.assertIn("frozen_sources", packet)
-        self.assertEqual(
-            set(packet["frozen_sources"]),
-            {"STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT"},
-        )
-        # All four now honestly claim genuine re-derivability, like every
-        # other component.
+        self.assertEqual(set(packet["frozen_sources"]), MODULE.FROZEN_SOURCE_COMPONENTS)
+        # All of them now honestly claim genuine re-derivability, like
+        # every other component (KRX_PREOPEN_COMPACT rides on STEP0's own
+        # freeze).
         by_id = {row["component_id"]: row for row in packet["components"]}
-        for component_id in (
-            "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
-            "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
-        ):
+        for component_id in MODULE.FROZEN_SOURCE_COMPONENTS | {"KRX_PREOPEN_COMPACT"}:
             self.assertTrue(by_id[component_id]["validated"], component_id)
 
         # Tampering the row itself (leaving frozen_sources untouched) is
         # still caught -- the rebuild re-derives from frozen_sources, which
         # the tamper never touched, so it disagrees with the tampered row.
-        for component_id in (
-            "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
-            "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
-        ):
+        for component_id in MODULE.FROZEN_SOURCE_COMPONENTS | {"KRX_PREOPEN_COMPACT"}:
             tampered = copy.deepcopy(packet)
             for row in tampered["components"]:
                 if row["component_id"] == component_id:
@@ -285,6 +289,91 @@ class DailyOrchestratorTest(unittest.TestCase):
                 MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH", msg=component_id
             ):
                 MODULE.validate_packet(copy.deepcopy(tampered))
+
+    def test_evidence_that_arrives_after_build_time_never_flips_an_old_data_blocked_revision(
+        self,
+    ):
+        # The literal scenario from review: rev-001 published while
+        # BTC_TREND's evidence directory for decision_date does not exist
+        # yet (DATA_BLOCKED), the directory is created afterward (same-day
+        # capture landing), rev-002 published (now READY) -- and BOTH
+        # revisions must still validate with NO fault injection active,
+        # because presence/absence was frozen at each revision's own build
+        # time, not re-derived from current disk state.
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_root = Path(tmp) / "daily_briefing"
+            original_fetch = MODULE._fetch_dated_evidence_snapshot
+
+            def _btc_absent(root, decision_date):
+                if root == ROOT / "evidence" / "crypto" / "btc" / "raw":
+                    return {"kind": "absent"}
+                return original_fetch(root, decision_date)
+
+            MODULE._fetch_dated_evidence_snapshot = _btc_absent
+            try:
+                first = MODULE.publish(
+                    "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+                )
+            finally:
+                MODULE._fetch_dated_evidence_snapshot = original_fetch
+            first_persisted = json.loads((first["path"] / "packet.json").read_text())
+            first_by_id = {
+                row["component_id"]: row for row in first_persisted["components"]
+            }
+            self.assertEqual(first_by_id["BTC_TREND"]["status"], "DATA_BLOCKED")
+            self.assertEqual(
+                first_persisted["frozen_sources"]["BTC_TREND"]["kind"], "absent"
+            )
+
+            # The real evidence directory for DECISION_DATE genuinely
+            # exists in this repo (used throughout this suite) -- so a
+            # plain, un-monkeypatched republish now sees it "arrive".
+            second = MODULE.publish(
+                "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+            )
+            second_persisted = json.loads((second["path"] / "packet.json").read_text())
+            second_by_id = {
+                row["component_id"]: row for row in second_persisted["components"]
+            }
+            self.assertTrue(second["created"])
+            self.assertEqual(second_by_id["BTC_TREND"]["status"], "READY")
+            self.assertEqual(
+                second_persisted["frozen_sources"]["BTC_TREND"]["kind"], "present"
+            )
+
+            # No fault injection active here -- rev-001 must still say
+            # DATA_BLOCKED on independent re-validation, never flipped to
+            # READY just because the directory exists on disk right now.
+            revalidated_first = MODULE.validate_packet(copy.deepcopy(first_persisted))
+            self.assertEqual(revalidated_first, first_persisted)
+            revalidated_first_by_id = {
+                row["component_id"]: row for row in revalidated_first["components"]
+            }
+            self.assertEqual(revalidated_first_by_id["BTC_TREND"]["status"], "DATA_BLOCKED")
+            self.assertEqual(
+                MODULE.validate_packet(copy.deepcopy(second_persisted)), second_persisted
+            )
+
+    def test_source_retrieval_time_after_generated_at_is_not_promoted_to_ready(self):
+        # Real, un-monkeypatched repro from review: this repo's real BTC/
+        # stablecoin captures for DECISION_DATE were genuinely fetched
+        # (per their own _downloaded_at.txt) several hours after
+        # midnight UTC. A packet claiming to have been generated at
+        # midnight UTC that same day must not read evidence retrieved
+        # after that moment as READY -- it did not exist yet when the
+        # packet claims to have been assembled.
+        packet = MODULE.build_packet(
+            "morning", DECISION_DATE, f"{DECISION_DATE}T00:00:00Z"
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        for component_id in ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE"):
+            self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED", component_id)
+            self.assertEqual(
+                by_id[component_id]["reason"],
+                "SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT",
+                component_id,
+            )
+            self.assertFalse(by_id[component_id]["validated"], component_id)
 
     def test_step0_revisions_validate_across_a_rolling_pointer_change_without_fault_injection(
         self,
@@ -726,20 +815,20 @@ class DailyOrchestratorTest(unittest.TestCase):
         # "nothing changed" and reuse the stale revision forever.
         with tempfile.TemporaryDirectory() as tmp:
             evidence_root = Path(tmp) / "daily_briefing"
-            original = MODULE.build_btc_trend
+            original = MODULE.BTC_TREND.build_transform
 
-            def _direction_a(decision_date):
-                row = copy.deepcopy(original(decision_date))
-                row["packet"]["direction"] = "ABOVE_200DMA"
-                return row
+            def _direction_a(*args, **kwargs):
+                packet = copy.deepcopy(original(*args, **kwargs))
+                packet["direction"] = "ABOVE_200DMA"
+                return packet
 
-            MODULE.build_btc_trend = _direction_a
+            MODULE.BTC_TREND.build_transform = _direction_a
             try:
                 first = MODULE.publish(
                     "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
                 )
             finally:
-                MODULE.build_btc_trend = original
+                MODULE.BTC_TREND.build_transform = original
             self.assertTrue(first["created"])
             first_packet = json.loads((first["path"] / "packet.json").read_text())
             first_by_id = {
@@ -750,18 +839,18 @@ class DailyOrchestratorTest(unittest.TestCase):
                 first_by_id["BTC_TREND"]["packet"]["direction"], "ABOVE_200DMA"
             )
 
-            def _direction_b(decision_date):
-                row = copy.deepcopy(original(decision_date))
-                row["packet"]["direction"] = "BELOW_200DMA"
-                return row
+            def _direction_b(*args, **kwargs):
+                packet = copy.deepcopy(original(*args, **kwargs))
+                packet["direction"] = "BELOW_200DMA"
+                return packet
 
-            MODULE.build_btc_trend = _direction_b
+            MODULE.BTC_TREND.build_transform = _direction_b
             try:
                 second = MODULE.publish(
                     "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
                 )
             finally:
-                MODULE.build_btc_trend = original
+                MODULE.BTC_TREND.build_transform = original
             # Status is READY both times -- a status-only fingerprint would
             # call this a no-op. The direction value actually changed, so a
             # new revision must be created.
@@ -902,20 +991,20 @@ class DailyOrchestratorTest(unittest.TestCase):
         # scenario end to end through build_packet(), not just the unit
         # helper: a morning packet generated early in the day must not read
         # a component whose evidence only became available later that day.
-        original = MODULE.build_btc_trend
+        original = MODULE._classify_btc_trend
 
-        def _afternoon_evidence(decision_date):
-            row = copy.deepcopy(original(decision_date))
+        def _afternoon_evidence(snapshot):
+            row = copy.deepcopy(original(snapshot))
             row["available_at"] = "2026-08-21T15:00:00Z"
             return row
 
-        MODULE.build_btc_trend = _afternoon_evidence
+        MODULE._classify_btc_trend = _afternoon_evidence
         try:
             packet = MODULE.build_packet(
                 "morning", DECISION_DATE, "2026-08-21T12:00:00Z"
             )
         finally:
-            MODULE.build_btc_trend = original
+            MODULE._classify_btc_trend = original
         by_id = {row["component_id"]: row for row in packet["components"]}
         self.assertEqual(by_id["BTC_TREND"]["status"], "DATA_BLOCKED")
         self.assertEqual(by_id["BTC_TREND"]["reason"], "AVAILABLE_AT_AFTER_GENERATED_AT")
