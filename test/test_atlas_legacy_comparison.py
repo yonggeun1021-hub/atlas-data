@@ -29,9 +29,8 @@ CONTRACT = MODULE.load_contract()
 
 
 def shadow_ledger():
-    return SHADOW_FIXTURE.MODULE.append_decision(
-        SHADOW_FIXTURE.decision(), "2026-08-21T02:15:00Z", None,
-        SHADOW_FIXTURE.CONTRACT,
+    return SHADOW_FIXTURE.append(
+        SHADOW_FIXTURE.decision(), "2026-08-21T02:15:00Z"
     )
 
 
@@ -50,8 +49,8 @@ def judgment(market, action="WATCH"):
 
 def legacy(rows=None):
     value = {
-        "schema_version": "legacy_judgment_batch/1",
-        "contract_version": "atlas_legacy_comparison/1",
+        "schema_version": CONTRACT["legacy_batch_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "batch_id": "LEGACY.BATCH.001",
         "observed_at": "2026-08-21T03:00:00Z",
         "judgments": [judgment(market) for market in CONTRACT["markets"]] if rows is None else rows,
@@ -74,8 +73,8 @@ def outcome(market, label="POSITIVE"):
 
 def outcomes(rows=None):
     value = {
-        "schema_version": "comparison_outcome_batch/1",
-        "contract_version": "atlas_legacy_comparison/1",
+        "schema_version": CONTRACT["outcome_batch_schema_version"],
+        "contract_version": CONTRACT["contract_version"],
         "batch_id": "OUTCOME.BATCH.001",
         "observed_at": "2026-08-21T03:00:00Z",
         "evaluation_window_id": "WINDOW.SAME.DAY.001",

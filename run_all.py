@@ -582,14 +582,15 @@ APPROVED_TESTS = [
     #   ⛔ ID 생성/order 생성/broker/Production/trading 권한 없음.
     "test/test_action_order_idempotency.py",
     # ★ P10-01 — append-only zero-capital 3-Market Shadow ledger.
-    #   P8-02 exact Decision과 US/KR/Crypto Regime·Rotation/Discovery를 일별
-    #   hash chain으로 기록한다. duplicate retry는 idempotent, payload conflict와
-    #   역행은 fail-closed이며 real capital/order는 영구 0이다.
+    #   P8-02 exact Decision + P9-03 ENTRY/EXIT + P9-05 intraday risk를 일별
+    #   hash chain으로 기록한다. 세 packet lineage mismatch, duplicate evidence
+    #   conflict와 역행은 fail-closed이며 real capital/order는 영구 0이다.
     #   ⛔ 해석/성과주장/capital/action/order/Production/trading 및 live network 없음.
     "test/test_three_market_shadow_ledger.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
-    #   Shadow record·external legacy judgment·external outcome을 decision_id+market로
-    #   exact match하며 결측을 명시한다. policy 비준 전 effectiveness/winner는 닫는다.
+    #   P9 lineage를 포함한 Shadow v2 record·external legacy judgment·external
+    #   outcome을 decision_id+market로 exact match하며 결측을 명시한다.
+    #   policy 비준 전 effectiveness/winner는 닫는다.
     #   ⛔ 성과해석/승자선정/strategy 변경/action/Production/trading 및 network 없음.
     "test/test_atlas_legacy_comparison.py",
     # ★ P10-03 — Shadow error metric aggregation.

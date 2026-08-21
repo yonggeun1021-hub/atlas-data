@@ -1,9 +1,13 @@
 {
-  "schema_version": 1,
-  "contract_version": "three_market_shadow_ledger/1",
-  "ledger_schema_version": "three_market_shadow_ledger_packet/1",
+  "schema_version": 2,
+  "contract_version": "three_market_shadow_ledger/2",
+  "ledger_schema_version": "three_market_shadow_ledger_packet/2",
   "unified_decision_schema_version": "unified_daily_decision/1",
   "unified_decision_contract_version": "unified_decision_contract/1",
+  "entry_exit_schema_version": "entry_exit_trigger_eligibility_packet/1",
+  "entry_exit_contract_version": "entry_exit_trigger_eligibility/1",
+  "intraday_risk_schema_version": "intraday_risk_escalation_packet/1",
+  "intraday_risk_contract_version": "intraday_risk_escalation/1",
   "markets": [
     "US",
     "KOREA",
@@ -24,8 +28,14 @@
     "REGIME",
     "ROTATION_DISCOVERY"
   ],
+  "required_evidence_packets": [
+    "UNIFIED_DECISION",
+    "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
+    "INTRADAY_RISK_ESCALATION"
+  ],
   "authority": {
     "shadow_observation_recording_only": true,
+    "intraday_evidence_recording_only": true,
     "decision_interpretation_authorized": false,
     "performance_claim_authorized": false,
     "capital_allocation_authorized": false,
