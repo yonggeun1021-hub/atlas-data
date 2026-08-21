@@ -28,6 +28,7 @@ UTC = dt.timezone.utc
 SHA_LINE = re.compile(r"^([0-9a-f]{64})  ([A-Za-z0-9_.-]+)$")
 CREATION_LINE = re.compile(r"^File Creation Time: ([0-9]{10}:[0-9]{2})$")
 COLLECTOR_VERSION = re.compile(r"^us-breadth-forward-capture/v[1-9][0-9]*$")
+DATE_DIR = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 class ContractError(RuntimeError):
@@ -529,6 +530,99 @@ def validate_snapshot_bundle(
     return current
 
 
+def discover_archive_snapshots(raw_root: Path) -> list[Path]:
+    """List every snapshot directory under raw_root in date order.
+
+    Fails closed on any entry that is not a symlink-free directory named
+    exactly YYYY-MM-DD: an unexpected file, a renamed/malformed directory,
+    or a symlinked snapshot must stop archive-wide reconstruction rather
+    than be silently skipped.
+    """
+
+    raw_root = Path(raw_root)
+    if not raw_root.exists():
+        return []
+    if raw_root.is_symlink():
+        fail("ARCHIVE_INVENTORY_INVALID", str(raw_root))
+    snapshots = []
+    for child in sorted(raw_root.iterdir(), key=lambda path: path.name):
+        if child.is_symlink() or not child.is_dir() or (
+            DATE_DIR.fullmatch(child.name) is None
+        ):
+            fail("ARCHIVE_INVENTORY_INVALID", str(child))
+        snapshots.append(child)
+    return snapshots
+
+
+def replay_archive(
+    raw_root: Path = RAW_ROOT, contract: dict | None = None
+) -> list[dict]:
+    """Revalidate every committed snapshot in captured order.
+
+    Each bundle is validated against its true immediate predecessor in the
+    archive -- never a caller-supplied one -- by walking the sorted archive
+    and threading each snapshot_dir into the next call's previous_dir.
+    validate_snapshot_bundle rebuilds the exact membership diff from that
+    predecessor and requires a byte-identical match against the committed
+    _membership_diff.json, so a snapshot whose persisted diff was built
+    against any other baseline -- a skipped day, a deleted predecessor, a
+    reordered or renamed capture -- fails closed on
+    MEMBERSHIP_DIFF_MISMATCH before any of it can be trusted. An archive
+    with no snapshots yet (the very first run) returns an empty chain.
+    """
+
+    contract = load_contract() if contract is None else contract
+    chain = []
+    previous_dir = None
+    for snapshot_dir in discover_archive_snapshots(raw_root):
+        chain.append(validate_snapshot_bundle(snapshot_dir, previous_dir, contract))
+        previous_dir = snapshot_dir
+    return chain
+
+
+def universe_as_of(
+    as_of_date: str, raw_root: Path = RAW_ROOT, contract: dict | None = None
+) -> dict:
+    """Reconstruct the as-captured universe on or before as_of_date.
+
+    The archive is fully replayed first, so the returned membership is only
+    ever drawn from a snapshot that survived every validate_snapshot_bundle
+    check. Selection is strictly forward-fill: the latest snapshot with
+    snapshot_date <= as_of_date, matching the ratified
+    as_captured_forward_only_no_current_state_backfill boundary. A date
+    before the archive's first snapshot is refused rather than backfilled
+    from current membership.
+    """
+
+    contract = load_contract() if contract is None else contract
+    try:
+        target = dt.date.fromisoformat(as_of_date)
+    except ValueError:
+        fail("AS_OF_DATE_INVALID", as_of_date)
+    chain = replay_archive(raw_root, contract)
+    if not chain:
+        fail("ARCHIVE_EMPTY", str(raw_root))
+    eligible = [
+        core
+        for core in chain
+        if dt.date.fromisoformat(core["snapshot_date"]) <= target
+    ]
+    if not eligible:
+        fail(
+            "AS_OF_BEFORE_ARCHIVE_BASELINE",
+            f"{as_of_date} < {chain[0]['snapshot_date']}",
+        )
+    selected = eligible[-1]
+    return {
+        "as_of_date": as_of_date,
+        "snapshot_date": selected["snapshot_date"],
+        "historical_universe_policy": contract["historical_universe_policy"],
+        "universe_semantics": contract["universe_semantics"],
+        "members": selected["members"],
+        "source_counts": selected["source_counts"],
+    }
+
+
 def write_json_append_only(payload: dict, target: Path) -> Path:
     target = Path(target)
     if target.exists():
@@ -583,6 +677,13 @@ def run(argv=None) -> int:
     diff.add_argument("--current-dir", type=Path, required=True)
     diff.add_argument("--previous-dir", type=Path)
     diff.add_argument("--out", type=Path, required=True)
+
+    replay = sub.add_parser("replay-archive")
+    replay.add_argument("--raw-root", type=Path, default=RAW_ROOT)
+
+    as_of = sub.add_parser("universe-as-of")
+    as_of.add_argument("--date", required=True)
+    as_of.add_argument("--raw-root", type=Path, default=RAW_ROOT)
     args = parser.parse_args(argv)
 
     if args.command == "source-date":
@@ -611,6 +712,28 @@ def run(argv=None) -> int:
             f" date={core['snapshot_date']}"
             f" members={len(core['members'])}"
             " membership_diff=REPRODUCED"
+            " price_breadth=UNKNOWN_PRICE_SOURCE_UNAVAILABLE"
+        )
+        return 0
+    if args.command == "replay-archive":
+        chain = replay_archive(args.raw_root)
+        earliest = chain[0]["snapshot_date"] if chain else None
+        latest = chain[-1]["snapshot_date"] if chain else None
+        print(
+            "US breadth archive replay PASS"
+            f" bundles={len(chain)}"
+            f" earliest={earliest}"
+            f" latest={latest}"
+            " price_breadth=UNKNOWN_PRICE_SOURCE_UNAVAILABLE"
+        )
+        return 0
+    if args.command == "universe-as-of":
+        result = universe_as_of(args.date, args.raw_root)
+        print(
+            "US breadth universe_as_of PASS"
+            f" as_of={result['as_of_date']}"
+            f" snapshot_date={result['snapshot_date']}"
+            f" members={len(result['members'])}"
             " price_breadth=UNKNOWN_PRICE_SOURCE_UNAVAILABLE"
         )
         return 0

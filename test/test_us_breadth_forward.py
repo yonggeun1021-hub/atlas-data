@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -257,6 +258,177 @@ class USBreadthForwardTest(unittest.TestCase):
             ):
                 MODULE.validate_snapshot_bundle(target, contract=contract)
 
+    def test_tracked_archive_replays_exactly_via_true_predecessor_chain(self):
+        # This walks whatever the committed evidence/us_breadth/raw/ archive
+        # actually contains -- not two hardcoded dates -- so every future
+        # scheduled capture is automatically covered by this regression
+        # without a code change.
+        raw_root = ROOT / "evidence" / "us_breadth" / "raw"
+        tracked_dates = sorted(
+            path.name
+            for path in raw_root.iterdir()
+            if path.is_dir() and MODULE.DATE_DIR.fullmatch(path.name)
+        )
+        self.assertTrue(tracked_dates)
+
+        chain = MODULE.replay_archive(raw_root)
+        self.assertEqual(
+            [core["snapshot_date"] for core in chain], tracked_dates
+        )
+
+        latest = MODULE.universe_as_of(tracked_dates[-1], raw_root)
+        self.assertEqual(latest["snapshot_date"], tracked_dates[-1])
+        self.assertEqual(latest["members"], chain[-1]["members"])
+        self.assertEqual(
+            latest["historical_universe_policy"],
+            "as_captured_forward_only_no_current_state_backfill",
+        )
+
+        before_baseline = (
+            dt.date.fromisoformat(tracked_dates[0]) - dt.timedelta(days=1)
+        ).isoformat()
+        with self.assertRaisesRegex(
+            MODULE.ContractError, "AS_OF_BEFORE_ARCHIVE_BASELINE"
+        ):
+            MODULE.universe_as_of(before_baseline, raw_root)
+
+    def test_replay_archive_rejects_deleted_middle_snapshot(self):
+        # A snapshot's persisted _membership_diff.json records the diff
+        # against its true immediate predecessor. If that predecessor is
+        # later deleted, replay_archive must not silently accept the next
+        # remaining snapshot as a fresh baseline -- the committed diff still
+        # claims a non-baseline PASS against a predecessor that is gone.
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_root = Path(tmp) / "raw"
+            raw_root.mkdir()
+            rows_a = {
+                s["name"]: fixture_rows(s, ["AAA"]) for s in CONTRACT["sources"]
+            }
+            rows_b = {
+                s["name"]: fixture_rows(s, ["AAA", "BBB"])
+                for s in CONTRACT["sources"]
+            }
+            rows_c = {
+                s["name"]: fixture_rows(s, ["AAA", "BBB", "CCC"])
+                for s in CONTRACT["sources"]
+            }
+            first, contract = create_snapshot(raw_root, "2026-08-17", rows_a)
+            second, _ = create_snapshot(raw_root, "2026-08-18", rows_b)
+            third, _ = create_snapshot(raw_root, "2026-08-19", rows_c)
+            first_core = MODULE.validate_manifest(first, contract)
+            second_core = MODULE.validate_manifest(second, contract)
+            third_core = MODULE.validate_manifest(third, contract)
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(first_core, contract=contract),
+                first / "_membership_diff.json",
+            )
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(
+                    second_core, first_core, contract
+                ),
+                second / "_membership_diff.json",
+            )
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(
+                    third_core, second_core, contract
+                ),
+                third / "_membership_diff.json",
+            )
+
+            chain = MODULE.replay_archive(raw_root, contract)
+            self.assertEqual(
+                [core["snapshot_date"] for core in chain],
+                ["2026-08-17", "2026-08-18", "2026-08-19"],
+            )
+
+            shutil.rmtree(second)
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "MEMBERSHIP_DIFF_MISMATCH"
+            ):
+                MODULE.replay_archive(raw_root, contract)
+
+    def test_replay_archive_rejects_unexpected_entries_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_root = Path(tmp) / "raw"
+            raw_root.mkdir()
+            rows = {
+                s["name"]: fixture_rows(s, ["AAA"]) for s in CONTRACT["sources"]
+            }
+            first, contract = create_snapshot(raw_root, "2026-08-19", rows)
+            core = MODULE.validate_manifest(first, contract)
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(core, contract=contract),
+                first / "_membership_diff.json",
+            )
+
+            (raw_root / "not-a-date").mkdir()
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "ARCHIVE_INVENTORY_INVALID"
+            ):
+                MODULE.replay_archive(raw_root, contract)
+            shutil.rmtree(raw_root / "not-a-date")
+
+            (raw_root / "2026-08-20").symlink_to(first)
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "ARCHIVE_INVENTORY_INVALID"
+            ):
+                MODULE.replay_archive(raw_root, contract)
+
+    def test_universe_as_of_forward_fills_across_gaps_and_refuses_pre_archive(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_root = Path(tmp) / "raw"
+            raw_root.mkdir()
+            rows_a = {
+                s["name"]: fixture_rows(s, ["AAA"]) for s in CONTRACT["sources"]
+            }
+            rows_b = {
+                s["name"]: fixture_rows(s, ["AAA", "BBB"])
+                for s in CONTRACT["sources"]
+            }
+            # Friday capture, then Monday -- a weekend gap between them.
+            first, contract = create_snapshot(raw_root, "2026-08-14", rows_a)
+            second, _ = create_snapshot(raw_root, "2026-08-17", rows_b)
+            first_core = MODULE.validate_manifest(first, contract)
+            second_core = MODULE.validate_manifest(second, contract)
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(first_core, contract=contract),
+                first / "_membership_diff.json",
+            )
+            MODULE.write_json_append_only(
+                MODULE.build_membership_diff(
+                    second_core, first_core, contract
+                ),
+                second / "_membership_diff.json",
+            )
+
+            weekend = MODULE.universe_as_of("2026-08-15", raw_root, contract)
+            self.assertEqual(weekend["snapshot_date"], "2026-08-14")
+            self.assertEqual(
+                set(weekend["members"]), set(first_core["members"])
+            )
+
+            exact = MODULE.universe_as_of("2026-08-17", raw_root, contract)
+            self.assertEqual(exact["snapshot_date"], "2026-08-17")
+            self.assertEqual(
+                set(exact["members"]), set(second_core["members"])
+            )
+
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "AS_OF_BEFORE_ARCHIVE_BASELINE"
+            ):
+                MODULE.universe_as_of("2026-08-13", raw_root, contract)
+
+    def test_universe_as_of_empty_archive_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                MODULE.ContractError, "ARCHIVE_EMPTY"
+            ):
+                MODULE.universe_as_of(
+                    "2026-08-19", Path(tmp) / "does-not-exist", CONTRACT
+                )
+
     def test_baseline_does_not_claim_all_members_entered(self):
         current = {
             "snapshot_date": "2026-08-19",
@@ -293,6 +465,13 @@ class USBreadthForwardTest(unittest.TestCase):
         self.assertLess(command.index("PREVIOUS=$("), command.index("skipped_existing"))
         self.assertLess(command.index("validate-bundle"), command.index("skipped_existing"))
         self.assertGreater(command.rindex("validate-bundle"), command.index(" diff "))
+        self.assertIn("replay-archive", command)
+        self.assertLess(
+            command.index('mv "$DATED" "$DIR"'), command.index("replay-archive")
+        )
+        self.assertLess(
+            command.index("replay-archive"), command.rindex("result=captured")
+        )
 
 
 if __name__ == "__main__":
