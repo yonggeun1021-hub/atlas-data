@@ -194,6 +194,30 @@ def exact_rows():
     }
 
 
+def seed_first_seen_bundle(evidence_root, run_id, captured_at):
+    """Capture one committed first-seen bundle under ``evidence_root`` and
+    return (bundle_dir, capture_contract) for tests that tamper with it."""
+    contract = test_capture_contract()
+    staging = evidence_root.parent / f"staging-{run_id}"
+    MODULE.capture(
+        "first_seen",
+        staging,
+        captured_at,
+        run_id,
+        "1",
+        TOKEN,
+        evidence_root,
+        opener=FakeOpener(exact=exact_rows()),
+        capture_contract=contract,
+        source_contract=SOURCE_CONTRACT,
+    )
+    kst_date = MODULE.parse_captured_at(captured_at).astimezone(MODULE.KST).date().isoformat()
+    final = evidence_root / kst_date / f"run-{run_id}-attempt-1"
+    final.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(staging, final)
+    return final, contract
+
+
 class KofiaFirstSeenTest(unittest.TestCase):
     def test_contract_keeps_first_seen_and_decision_authority_separate(self):
         self.assertEqual(
@@ -578,6 +602,227 @@ class KofiaFirstSeenTest(unittest.TestCase):
                     capture_contract=test_capture_contract(),
                     source_contract=SOURCE_CONTRACT,
                 )
+
+    def test_history_replay_reproduces_tracked_evidence_and_preserves_earliest_seen(self):
+        evidence_root = ROOT / "evidence" / "kofia" / "first_seen"
+        trusted = MODULE.read_prior_first_seen(
+            evidence_root, CAPTURE_CONTRACT, SOURCE_CONTRACT
+        )
+        self.assertTrue(trusted)
+        for key, seen in trusted.items():
+            operation, day, digest = key
+            self.assertIn(operation, OPERATIONS)
+            self.assertRegex(seen, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_history_replay_empty_history_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trusted = MODULE.read_prior_first_seen(
+                Path(tmp) / "does-not-exist", CAPTURE_CONTRACT, SOURCE_CONTRACT
+            )
+            self.assertEqual(trusted, {})
+
+    def test_history_replay_three_valid_bundles_preserve_earliest_first_seen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            seed_first_seen_bundle(evidence, "60", "2026-08-19T01:00:00Z")
+            seed_first_seen_bundle(evidence, "61", "2026-08-19T04:00:00Z")
+            seed_first_seen_bundle(evidence, "62", "2026-08-19T08:00:00Z")
+            trusted = MODULE.read_prior_first_seen(
+                evidence, test_capture_contract(), SOURCE_CONTRACT
+            )
+            key = next(k for k in trusted if k[0] == "credit_financing")
+            self.assertEqual(trusted[key], "2026-08-19T01:00:00Z")
+
+    def test_history_replay_rejects_semantic_tamper_of_prior_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            bundle, contract = seed_first_seen_bundle(evidence, "70", "2026-08-19T01:00:00Z")
+            obs_path = bundle / "_observation.json"
+            payload = json.loads(obs_path.read_text(encoding="utf-8"))
+            row = payload["operations"]["credit_financing"]["observed_rows"][-1]
+            row["atlas_first_seen_at_utc"] = "2026-08-18T00:00:00Z"
+            obs_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            opener = FakeOpener(exact=exact_rows())
+            with self.assertRaisesRegex(MODULE.CaptureError, "PRIOR_EVIDENCE_TAMPERED"):
+                MODULE.capture(
+                    "first_seen",
+                    Path(tmp) / "second",
+                    "2026-08-19T04:00:00Z",
+                    "71",
+                    "1",
+                    TOKEN,
+                    evidence,
+                    opener=opener,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+            self.assertEqual(opener.requests, [])
+
+    def test_history_replay_rejects_raw_tamper_of_prior_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            bundle, contract = seed_first_seen_bundle(evidence, "72", "2026-08-19T01:00:00Z")
+            raw_path = next((bundle / "raw").glob("**/*.json.gz"))
+            with gzip.open(raw_path, "rb") as stream:
+                raw = stream.read()
+            with gzip.GzipFile(raw_path, "wb", mtime=0) as stream:
+                stream.write(raw + b" ")
+            opener = FakeOpener(exact=exact_rows())
+            with self.assertRaisesRegex(MODULE.CaptureError, "PRIOR_EVIDENCE_RAW_TAMPERED"):
+                MODULE.capture(
+                    "first_seen",
+                    Path(tmp) / "second",
+                    "2026-08-19T04:00:00Z",
+                    "73",
+                    "1",
+                    TOKEN,
+                    evidence,
+                    opener=opener,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+            self.assertEqual(opener.requests, [])
+
+    def test_history_replay_rejects_missing_declared_raw_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            bundle, contract = seed_first_seen_bundle(evidence, "74", "2026-08-19T01:00:00Z")
+            raw_path = next((bundle / "raw").glob("**/*.json.gz"))
+            raw_path.unlink()
+            opener = FakeOpener(exact=exact_rows())
+            with self.assertRaisesRegex(MODULE.CaptureError, "PRIOR_EVIDENCE_RAW_INVALID"):
+                MODULE.capture(
+                    "first_seen",
+                    Path(tmp) / "second",
+                    "2026-08-19T04:00:00Z",
+                    "75",
+                    "1",
+                    TOKEN,
+                    evidence,
+                    opener=opener,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+            self.assertEqual(opener.requests, [])
+
+    def test_history_replay_rejects_unexpected_extra_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            bundle, contract = seed_first_seen_bundle(evidence, "76", "2026-08-19T01:00:00Z")
+            (bundle / "raw" / "unexpected.txt").write_text("stray", encoding="utf-8")
+            opener = FakeOpener(exact=exact_rows())
+            with self.assertRaisesRegex(
+                MODULE.CaptureError, "PRIOR_EVIDENCE_INVENTORY_MISMATCH"
+            ):
+                MODULE.capture(
+                    "first_seen",
+                    Path(tmp) / "second",
+                    "2026-08-19T04:00:00Z",
+                    "77",
+                    "1",
+                    TOKEN,
+                    evidence,
+                    opener=opener,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+            self.assertEqual(opener.requests, [])
+
+    def test_history_replay_rejects_noncanonical_manifest_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            bundle, contract = seed_first_seen_bundle(evidence, "78", "2026-08-19T01:00:00Z")
+            manifest_path = bundle / "_manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            opener = FakeOpener(exact=exact_rows())
+            with self.assertRaisesRegex(
+                MODULE.CaptureError, "PRIOR_EVIDENCE_NONCANONICAL"
+            ):
+                MODULE.capture(
+                    "first_seen",
+                    Path(tmp) / "second",
+                    "2026-08-19T04:00:00Z",
+                    "79",
+                    "1",
+                    TOKEN,
+                    evidence,
+                    opener=opener,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+            self.assertEqual(opener.requests, [])
+
+    def test_history_replay_rejects_symlink_in_prior_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            bundle, contract = seed_first_seen_bundle(evidence, "80", "2026-08-19T01:00:00Z")
+            link = bundle / "raw" / "sneaky-link.json.gz"
+            real_target = next((bundle / "raw").glob("**/*.json.gz"))
+            link.symlink_to(real_target)
+            opener = FakeOpener(exact=exact_rows())
+            with self.assertRaisesRegex(MODULE.CaptureError, "PRIOR_EVIDENCE_SYMLINK"):
+                MODULE.capture(
+                    "first_seen",
+                    Path(tmp) / "second",
+                    "2026-08-19T04:00:00Z",
+                    "81",
+                    "1",
+                    TOKEN,
+                    evidence,
+                    opener=opener,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+            self.assertEqual(opener.requests, [])
+
+    def test_validate_capture_also_enforces_history_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clean_prior = Path(tmp) / "clean-prior"
+            staging = Path(tmp) / "staging"
+            contract = test_capture_contract()
+            MODULE.capture(
+                "first_seen",
+                staging,
+                "2026-08-19T04:00:00Z",
+                "90",
+                "1",
+                TOKEN,
+                clean_prior,
+                opener=FakeOpener(exact=exact_rows()),
+                capture_contract=contract,
+                source_contract=SOURCE_CONTRACT,
+            )
+            tampered_evidence = Path(tmp) / "tampered-evidence"
+            bundle, _ = seed_first_seen_bundle(
+                tampered_evidence, "91", "2026-08-19T01:00:00Z"
+            )
+            obs_path = bundle / "_observation.json"
+            payload = json.loads(obs_path.read_text(encoding="utf-8"))
+            row = payload["operations"]["investor_deposits"]["observed_rows"][-1]
+            row["atlas_first_seen_at_utc"] = "2026-08-01T00:00:00Z"
+            obs_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(MODULE.CaptureError, "PRIOR_EVIDENCE_TAMPERED"):
+                MODULE.validate_capture(
+                    staging,
+                    tampered_evidence,
+                    capture_contract=contract,
+                    source_contract=SOURCE_CONTRACT,
+                )
+
+    def test_workflow_runs_offline_regression_before_capture_and_provider_calls(self):
+        steps = WF["jobs"]["capture"]["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertLess(
+            names.index("Offline capture regression"),
+            names.index("Capture immutable KOFIA evidence"),
+        )
 
     def test_workflow_has_free_secret_bound_slots_and_append_only_staging(self):
         triggers = WF.get("on", WF.get(True))

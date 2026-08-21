@@ -417,24 +417,172 @@ def manifest_entry(
     }
 
 
-def read_prior_first_seen(evidence_root: Path) -> dict[tuple[str, str, str], str]:
-    result = {}
+def _reject_symlinks(bundle: Path) -> None:
+    if bundle.is_symlink():
+        fail("PRIOR_EVIDENCE_SYMLINK", str(bundle))
+    for path in bundle.rglob("*"):
+        if path.is_symlink():
+            fail("PRIOR_EVIDENCE_SYMLINK", str(path))
+
+
+def _verify_first_seen_bundle(
+    bundle: Path,
+    captured_at: str,
+    trusted_prior: dict[tuple[str, str, str], str],
+    capture_contract: dict,
+    source_contract: dict,
+    operations: dict[str, dict],
+) -> dict[tuple[str, str, str], str]:
+    """Rebuild one committed bundle from its raw gzip evidence and refuse to
+    trust it unless every declared file is present, unmodified, and its
+    ``_observation.json`` reproduces byte-for-byte from that raw evidence
+    plus the already-verified prior ledger."""
+    _reject_symlinks(bundle)
+    try:
+        manifest_text = (bundle / "_manifest.json").read_text(encoding="utf-8")
+        manifest = json.loads(manifest_text)
+        observation_text = (bundle / "_observation.json").read_text(encoding="utf-8")
+        observation = json.loads(observation_text)
+    except (OSError, json.JSONDecodeError) as exc:
+        fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: {exc}")
+
+    if manifest.get("mode") != "first_seen" or observation.get("mode") != "first_seen":
+        fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: mode")
+    if manifest.get("captured_at_utc") != captured_at:
+        fail("PRIOR_EVIDENCE_TAMPERED", f"{bundle}: captured_at mismatch")
+
+    canonical_manifest = (
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    if canonical_manifest != manifest_text:
+        fail("PRIOR_EVIDENCE_NONCANONICAL", f"{bundle}/_manifest.json")
+    canonical_observation = (
+        json.dumps(observation, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    if canonical_observation != observation_text:
+        fail("PRIOR_EVIDENCE_NONCANONICAL", f"{bundle}/_observation.json")
+
+    entries = manifest.get("raw_responses")
+    if not isinstance(entries, list) or not entries:
+        fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: raw_responses")
+
+    expected_files = {
+        bundle / "_captured_at.txt",
+        bundle / "_manifest.json",
+        bundle / "_observation.json",
+    }
+    parsed: dict[str, list[dict]] = {name: [] for name in operations}
+    query_dates: list[str] = []
+    raw_paths_seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: raw entry")
+        name = entry.get("operation")
+        if name not in operations:
+            fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: operation")
+        relative = entry.get("raw_file")
+        if not isinstance(relative, str):
+            fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: raw_file")
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            fail("PRIOR_EVIDENCE_PATH_ESCAPE", f"{bundle}: {relative}")
+        expected_relative = f"raw/{name}/{entry.get('query_date')}.json.gz"
+        if relative != expected_relative or relative in raw_paths_seen:
+            fail("PRIOR_EVIDENCE_TAMPERED", f"{bundle}: raw path identity {relative}")
+        raw_paths_seen.add(relative)
+        raw_path = bundle / relative_path
+        expected_files.add(raw_path)
+        try:
+            with gzip.open(raw_path, "rb") as stream:
+                raw = stream.read()
+        except (OSError, EOFError) as exc:
+            fail("PRIOR_EVIDENCE_RAW_INVALID", f"{bundle}: {relative}: {exc}")
+        if hashlib.sha256(raw).hexdigest() != entry.get("response_sha256"):
+            fail("PRIOR_EVIDENCE_RAW_TAMPERED", f"{bundle}: {relative}")
+        if len(raw) != entry.get("byte_length"):
+            fail("PRIOR_EVIDENCE_RAW_TAMPERED", f"{bundle}: {relative}")
+        page = parse_page(
+            raw, operations[name], entry.get("page_no"), entry.get("query_date")
+        )
+        expected_entry = manifest_entry(
+            raw, relative, operations[name], page, entry.get("query_date")
+        )
+        if entry != expected_entry:
+            fail("PRIOR_EVIDENCE_TAMPERED", f"{bundle}: manifest entry {relative}")
+        parsed[name].append(page)
+        if entry.get("query_date") is not None:
+            query_dates.append(entry["query_date"])
+
+    actual_files = {path for path in bundle.rglob("*") if path.is_file()}
+    if actual_files != expected_files:
+        fail(
+            "PRIOR_EVIDENCE_INVENTORY_MISMATCH",
+            f"{bundle}: unexpected="
+            f"{sorted(str(p) for p in actual_files - expected_files)} missing="
+            f"{sorted(str(p) for p in expected_files - actual_files)}",
+        )
+
+    unique_dates = sorted(set(query_dates), reverse=True)
+    expected_observation = build_probe_observation(
+        parsed,
+        unique_dates,
+        captured_at,
+        trusted_prior,
+        capture_contract,
+        source_contract,
+    )
+    if observation != expected_observation:
+        fail("PRIOR_EVIDENCE_TAMPERED", f"{bundle}: observation mismatch")
+
+    updated = dict(trusted_prior)
+    for name, item in observation.get("operations", {}).items():
+        for row in item.get("observed_rows", []):
+            key = (name, row["observation_date"], row["row_sha256"])
+            seen = row["atlas_first_seen_at_utc"]
+            updated[key] = min(updated.get(key, seen), seen)
+    return updated
+
+
+def read_prior_first_seen(
+    evidence_root: Path,
+    capture_contract: dict,
+    source_contract: dict,
+) -> dict[tuple[str, str, str], str]:
+    """Replay every committed first-seen bundle, oldest capture first, from
+    its raw gzip evidence. A prior bundle that was partially deleted, whose
+    raw evidence no longer matches its manifest, or whose ``_observation.json``
+    was semantically altered fails closed instead of silently poisoning the
+    ``atlas_first_seen_at_utc`` lineage of later captures. Empty history (the
+    very first run) is accepted."""
     root = Path(evidence_root)
     if not root.exists():
-        return result
-    for path in sorted(root.glob("**/_observation.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            fail("PRIOR_EVIDENCE_INVALID", str(path))
-        if payload.get("mode") != "first_seen":
+        return {}
+    operations = operation_map(source_contract)
+
+    ordered: list[tuple[str, Path]] = []
+    for bundle in root.glob("*/*"):
+        if not bundle.is_dir() or bundle.is_symlink():
             continue
-        for operation, item in payload.get("operations", {}).items():
-            for row in item.get("observed_rows", []):
-                key = (operation, row["observation_date"], row["row_sha256"])
-                seen = row["atlas_first_seen_at_utc"]
-                result[key] = min(result.get(key, seen), seen)
-    return result
+        captured_at_path = bundle / "_captured_at.txt"
+        if not captured_at_path.exists():
+            fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: missing _captured_at.txt")
+        try:
+            captured_at_raw = captured_at_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            fail("PRIOR_EVIDENCE_INVALID", f"{bundle}: {exc}")
+        if captured_at_raw != captured_at_raw.strip() + "\n":
+            fail("PRIOR_EVIDENCE_NONCANONICAL", f"{bundle}/_captured_at.txt")
+        captured_at = captured_at_raw.strip()
+        parse_captured_at(captured_at)
+        ordered.append((captured_at, bundle))
+    ordered.sort(key=lambda item: (item[0], item[1].parent.name, item[1].name))
+
+    trusted: dict[tuple[str, str, str], str] = {}
+    for captured_at, bundle in ordered:
+        trusted = _verify_first_seen_bundle(
+            bundle, captured_at, trusted, capture_contract, source_contract, operations
+        )
+    return trusted
 
 
 def authority_fields(capture_contract: dict) -> dict:
@@ -623,6 +771,10 @@ def capture(
     entries = []
     parsed = {name: [] for name in operations}
     if mode == "first_seen":
+        # History must be verified from raw evidence before any provider
+        # request is issued: a poisoned or partially deleted prior bundle
+        # must fail closed without spending a live call against the source.
+        prior = read_prior_first_seen(evidence_root, capture_contract, source_contract)
         days = capture_contract["probe_lookback_calendar_days"]
         kst_day = parsed_time.astimezone(KST).date()
         query_dates = [
@@ -649,7 +801,6 @@ def capture(
                     manifest_entry(raw, relative, operation, page, query_date)
                 )
                 parsed[name].append(page)
-        prior = read_prior_first_seen(evidence_root)
         observation = build_probe_observation(
             parsed,
             query_dates,
@@ -854,7 +1005,7 @@ def validate_capture(
             parsed,
             unique_dates,
             captured_at,
-            read_prior_first_seen(evidence_root),
+            read_prior_first_seen(evidence_root, capture_contract, source_contract),
             capture_contract,
             source_contract,
         )
