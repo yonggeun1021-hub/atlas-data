@@ -26,6 +26,7 @@
     "INVERSE_CRYPTO",
     "HEDGE_ELIGIBILITY",
     "BEAR_HEDGE_BUDGET",
+    "POSITION_SIZING",
     "CONCENTRATION_GUARD",
     "MARKET_THEME_BUDGET",
     "CRYPTO_EXPOSURE_LIMIT",
@@ -35,6 +36,7 @@
     "UNIFIED_DECISION"
   ],
   "risk_sources": [
+    "POSITION_SIZING",
     "CONCENTRATION_GUARD",
     "MARKET_THEME_BUDGET",
     "CRYPTO_EXPOSURE_LIMIT",
@@ -118,6 +120,15 @@
       "contract_version": "planned_loss_budget/1",
       "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LOSS_BUDGET"],
       "authority_contract": "config/planned_loss_budget_contract.json"
+    },
+    "POSITION_SIZING": {
+      "schema_version": "position_sizing_packet/1",
+      "contract_version": "position_sizing/1",
+      "statuses": [
+        "MAXIMUM_AND_TARGET_SIZED_NO_ACTION_AUTHORITY",
+        "SIZING_BLOCKED"
+      ],
+      "authority_contract": "config/position_sizing_contract.json"
     },
     "UNIFIED_DECISION": {
       "schema_version": "unified_daily_decision/1",

@@ -34,6 +34,19 @@ def _load_unified():
 UNIFIED = _load_unified()
 
 
+def _load_position_sizing():
+    path = ROOT / "portfolio" / "position_sizing.py"
+    spec = importlib.util.spec_from_file_location("atlas_position_sizing_for_p806", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"POSITION_SIZING_IMPORT_FAILED:{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+POSITION_SIZING = _load_position_sizing()
+
+
 class ActionRiskPortfolioSummaryError(ValueError):
     """Fail-closed P8-06 source or summary violation."""
 
@@ -119,6 +132,11 @@ SOURCE_IDENTITIES = {
         ["LIMIT_BREACH", "WITHIN_RATIFIED_LOSS_BUDGET"],
         "config/planned_loss_budget_contract.json",
     ),
+    "POSITION_SIZING": (
+        "position_sizing_packet/1", "position_sizing/1",
+        ["MAXIMUM_AND_TARGET_SIZED_NO_ACTION_AUTHORITY", "SIZING_BLOCKED"],
+        "config/position_sizing_contract.json",
+    ),
     "UNIFIED_DECISION": (
         "unified_daily_decision/1", "unified_decision_contract/1",
         ["DAILY_DECISION_ASSEMBLED_NO_ACTION_AUTHORITY"],
@@ -132,8 +150,8 @@ def _expected_contract() -> dict:
         "UNIFIED_DECISION", "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA",
         "CASH_EXPOSURE_CRYPTO", "LONG_SHORT_INVARIANT", "INVERSE_US",
         "INVERSE_KOREA", "INVERSE_CRYPTO", "HEDGE_ELIGIBILITY",
-        "BEAR_HEDGE_BUDGET", "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET",
-        "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET",
+        "BEAR_HEDGE_BUDGET", "POSITION_SIZING", "CONCENTRATION_GUARD",
+        "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET",
     ]
     return {
         "schema_version": 1,
@@ -145,7 +163,7 @@ def _expected_contract() -> dict:
         "source_order": source_order,
         "required_sources": ["UNIFIED_DECISION"],
         "risk_sources": [
-            "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET",
+            "POSITION_SIZING", "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET",
             "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET",
         ],
         "source_specs": {
@@ -279,6 +297,11 @@ def _validate_source(name: str, packet: dict, contract: dict) -> dict:
             UNIFIED.validate_packet(copy.deepcopy(packet))
         except UNIFIED.UnifiedDecisionContractError as exc:
             raise ActionRiskPortfolioSummaryError(f"UNIFIED_DECISION_INVALID:{exc}") from exc
+    if name == "POSITION_SIZING":
+        try:
+            POSITION_SIZING.validate_packet(copy.deepcopy(packet))
+        except POSITION_SIZING.PositionSizingError as exc:
+            raise ActionRiskPortfolioSummaryError(f"POSITION_SIZING_INVALID:{exc}") from exc
     breaches = packet.get("breaches", [])
     if name in contract["risk_sources"]:
         if not isinstance(breaches, list):
@@ -292,6 +315,22 @@ def _validate_source(name: str, packet: dict, contract: dict) -> dict:
         "source_packet_sha256": digest,
         "unavailable_reasons": [],
         "breaches": copy.deepcopy(breaches) if name in contract["risk_sources"] else [],
+        "sizing": (
+            {
+                "asset_id": packet["asset_id"],
+                "market": packet["market"],
+                "bucket_id": packet["bucket_id"],
+                "evidence_state": packet["evidence_state"],
+                "stop_distance_fraction": packet["stop_distance_fraction"],
+                "maximum_position_weight_nav_fraction": packet["maximum_position_weight_nav_fraction"],
+                "target_position_weight_nav_fraction": packet["target_position_weight_nav_fraction"],
+                "planned_loss_at_max_nav_fraction": packet["planned_loss_at_max_nav_fraction"],
+                "planned_loss_at_target_nav_fraction": packet["planned_loss_at_target_nav_fraction"],
+                "binding_limits": copy.deepcopy(packet["binding_limits"]),
+                "blocking_reasons": copy.deepcopy(packet["blocking_reasons"]),
+            }
+            if name == "POSITION_SIZING" else None
+        ),
     }
 
 
@@ -317,6 +356,7 @@ def _source_rows(source_packets: dict, unavailable_reasons: dict, contract: dict
                     reasons, f"UNAVAILABLE_REASONS_INVALID:{name}"
                 ),
                 "breaches": [],
+                "sizing": None,
             })
         else:
             if reasons != []:
@@ -326,7 +366,7 @@ def _source_rows(source_packets: dict, unavailable_reasons: dict, contract: dict
 
 
 ACTION_SOURCES = {
-    "BUY": ["UNIFIED_DECISION"],
+    "BUY": ["UNIFIED_DECISION", "POSITION_SIZING"],
     "WATCH": ["UNIFIED_DECISION"],
     "REDUCE": ["CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO"],
     "HEDGE": [
@@ -386,6 +426,7 @@ def build_summary(
             "source_status": row["source_status"],
             "source_packet_sha256": row["source_packet_sha256"],
             "breaches": copy.deepcopy(row["breaches"]),
+            "sizing": copy.deepcopy(row["sizing"]),
             "unavailable_reasons": list(row["unavailable_reasons"]),
         }
         for row in sources if row["name"] in contract["risk_sources"]

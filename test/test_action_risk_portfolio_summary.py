@@ -23,6 +23,9 @@ def load_module(name, path):
 
 MODULE = load_module("action_risk_portfolio_summary", SOURCE)
 CONTRACT = MODULE.load_contract()
+POSITION_FIXTURE = load_module(
+    "p806_position_sizing_fixture", ROOT / "test" / "test_position_sizing.py"
+)
 
 
 def unified_packet():
@@ -39,6 +42,15 @@ def unified_packet():
 
 
 def source_packet(name, status=None, breaches=None):
+    if name == "POSITION_SIZING":
+        packet = POSITION_FIXTURE.build()
+        if status is not None and status != packet["status"]:
+            packet["status"] = status
+            packet["packet_sha256"] = MODULE.payload_sha256({
+                key: value for key, value in packet.items()
+                if key != "packet_sha256"
+            })
+        return packet
     spec = CONTRACT["source_specs"][name]
     packet = {
         "schema_version": spec["schema_version"],
@@ -101,8 +113,8 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         self.assertTrue(all(row["evaluation_status"] == "NOT_EVALUATED" for row in packet["actions"]))
         self.assertTrue(all(row["action"] is None for row in packet["actions"]))
         self.assertEqual(packet["summary"], {
-            "source_count": 14,
-            "available_source_count": 14,
+            "source_count": 15,
+            "available_source_count": 15,
             "unavailable_source_count": 0,
             "risk_breach_source_count": 0,
             "action_category_count": 6,
@@ -116,7 +128,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         packets, reasons = bundle(all_available=False)
         packet = MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
         self.assertEqual(packet["summary"]["available_source_count"], 1)
-        self.assertEqual(packet["summary"]["unavailable_source_count"], 13)
+        self.assertEqual(packet["summary"]["unavailable_source_count"], 14)
         reduce_row = next(row for row in packet["actions"] if row["category"] == "REDUCE")
         self.assertIn("SOURCE_UNAVAILABLE:CASH_EXPOSURE_US", reduce_row["reasons"])
         self.assertEqual(reduce_row["evidence_packet_sha256"], [])
@@ -132,6 +144,41 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         self.assertEqual(finding["breaches"], breach)
         self.assertEqual(packet["summary"]["risk_breach_source_count"], 1)
         self.assertTrue(all(row["action"] is None for row in packet["actions"]))
+
+    def test_position_sizing_is_fully_validated_and_never_becomes_buy(self):
+        packets, reasons = bundle()
+        packet = MODULE.build_summary(
+            packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+        )
+        finding = next(
+            row for row in packet["risk_findings"]
+            if row["source"] == "POSITION_SIZING"
+        )
+        self.assertEqual(
+            finding["sizing"]["maximum_position_weight_nav_fraction"], "0.02"
+        )
+        self.assertEqual(
+            finding["sizing"]["target_position_weight_nav_fraction"], "0.01"
+        )
+        buy = next(row for row in packet["actions"] if row["category"] == "BUY")
+        self.assertIn(
+            packets["POSITION_SIZING"]["packet_sha256"],
+            buy["evidence_packet_sha256"],
+        )
+        self.assertIsNone(buy["action"])
+
+        tampered = packets["POSITION_SIZING"]
+        tampered["target_position_weight_nav_fraction"] = "0.5"
+        tampered["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in tampered.items()
+            if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.ActionRiskPortfolioSummaryError, "POSITION_SIZING_INVALID"
+        ):
+            MODULE.build_summary(
+                packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+            )
 
     def test_required_unified_source_and_same_day_time_are_enforced(self):
         packets, reasons = bundle()
