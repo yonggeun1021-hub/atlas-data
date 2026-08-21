@@ -1,0 +1,93 @@
+name: Atlas Daily Briefing Integration v1
+
+on:
+  schedule:
+    # 07:05 KST weekday morning slot -- after the 06:57 P0-02 recovery gate,
+    # confirmed-history only. Sun-Thu UTC == Mon-Fri KST next day.
+    - cron: "5 22 * * 0-4"
+    # 18:30 KST weekday evening slot -- after the P0-04 18:00 KRX post-close
+    # cutoff. Mon-Fri UTC == Mon-Fri KST same day.
+    - cron: "30 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "morning or evening (required for manual dispatch)"
+        required: true
+        type: choice
+        options:
+          - morning
+          - evening
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-daily-briefing
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Offline daily orchestrator regression
+        run: python3 test/test_daily_orchestrator.py
+      - name: Publish provider-free daily briefing packet
+        id: briefing
+        env:
+          DISPATCH_SLOT: ${{ inputs.slot }}
+        run: |
+          set -euo pipefail
+          SLOT="$DISPATCH_SLOT"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Two schedule entries exist above; the KST hour distinguishes
+            # them, since GitHub does not label which cron entry fired.
+            KST_HOUR=$(TZ=Asia/Seoul date +%H)
+            if [ "$KST_HOUR" -lt 12 ]; then
+              SLOT="morning"
+            else
+              SLOT="evening"
+            fi
+          fi
+          case "$SLOT" in
+            morning|evening) ;;
+            *) echo "STOP: unsupported slot" >&2; exit 2 ;;
+          esac
+          DECISION_DATE=$(TZ=Asia/Seoul date +%F)
+          GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          DIR="evidence/daily_briefing/$SLOT/$DECISION_DATE"
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "capture_path=$DIR" >> "$GITHUB_OUTPUT"
+          if [ -e "$DIR" ]; then
+            echo "이미 $SLOT/$DECISION_DATE briefing이 존재합니다. 재발행하지 않습니다." >&2
+            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 briefing/daily_orchestrator.py publish \
+            --slot "$SLOT" \
+            --decision-date "$DECISION_DATE" \
+            --generated-at "$GENERATED_AT"
+          python3 briefing/daily_orchestrator.py validate "$DIR/packet.json"
+          echo "result=published" >> "$GITHUB_OUTPUT"
+      - name: Commit immutable daily briefing bundle
+        if: steps.briefing.outputs.result == 'published'
+        env:
+          CAPTURE_PATH: ${{ steps.briefing.outputs.capture_path }}
+          SLOT: ${{ steps.briefing.outputs.slot }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CAPTURE_PATH"
+          git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"

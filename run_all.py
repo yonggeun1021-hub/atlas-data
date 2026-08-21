@@ -588,6 +588,16 @@ APPROVED_TESTS = [
     #   여섯 component production validator를 모두 호출해 self-rehash drift를 차단한다.
     #   ⛔ 해석/승격/Rule PASS·FAIL/sizing/Production/trading 및 live network 없음.
     "test/test_unified_decision_contract.py",
+    # ★ P8 Atlas Daily Briefing Integration v1 — provider-free daily orchestrator.
+    #   기존 persisted evidence/packet만 소비해 Regime→Rotation/Discovery→Rule→
+    #   Portfolio/Risk→Unified Decision→Action/Risk 요약을 하나의 daily briefing
+    #   packet으로 연결한다. LIVE_READY component만 실제 값을 담고, 나머지는
+    #   PENDING/POLICY_BLOCKED/DATA_BLOCKED/UNAVAILABLE 사유로 남는다.
+    #   morning은 confirmed history만, evening은 observed_unconfirmed KRX
+    #   post-close를 포함하되 decision/action/order eligibility는 계속 false다.
+    #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
+    #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
+    "test/test_daily_orchestrator.py",
     # ★ P9-01 — external RATIFIED freshness policy + caller-supplied quote guard.
     #   provider timestamp/received time/observed time으로 age와 transport delay를
     #   계산하되 repository default threshold는 없다. stale은 data 소비만 차단한다.
