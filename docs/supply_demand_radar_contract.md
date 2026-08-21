@@ -40,6 +40,19 @@ source identities plus the policy hash and ratification proof. It still grants
 no importance, ranking, investability, Stage transition, Production, rule, or
 trading authority.
 
+## Persisted packet validation
+
+`validate_packet()`은 저장된 3개 period/status/source lineage, canonical decimal
+values, prior/latest/acceleration 산술, missing-evidence 상태, policy 결과와 case
+set, summary 및 권한 봉쇄를 다시 검증한다. 생성된 case는 해당 series의 3개
+numeric/source evidence에 역대조되고, 보존된 방향·threshold 비교도 다시
+수행한다. self-rehashed arithmetic, lineage, case-evidence, authority drift는
+실패한다.
+
+full candidate-policy rule 본문은 packet에 포함되지 않고 hash만 남으므로,
+standalone validator는 policy hash의 원문 진위를 증명하지 않는다. 그 범위는
+원 policy를 직접 검증하는 `build_packet()` 경로에 남는다.
+
 ## Operation
 
 The helper has no network or workflow wiring and only writes to the explicit

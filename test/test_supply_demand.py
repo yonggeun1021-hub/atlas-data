@@ -122,6 +122,13 @@ def policy(value=None, *, status="RATIFIED", direction="HIGHER_IS_IMPROVEMENT") 
     }
 
 
+def rehash(packet: dict) -> dict:
+    value = copy.deepcopy(packet)
+    value.pop("payload_sha256", None)
+    value["payload_sha256"] = SD.payload_sha256(value)
+    return value
+
+
 class SupplyDemandTests(unittest.TestCase):
     def test_raw_features_without_policy_create_no_case(self):
         packet = SD.build_packet(payload())
@@ -157,6 +164,45 @@ class SupplyDemandTests(unittest.TestCase):
         self.assertIsNone(case["candidate_rank"])
         self.assertIsNone(case["stage_transition"])
         self.assertIsNone(case["action"])
+
+    def test_standalone_validator_accepts_raw_policy_and_unknown_packets(self):
+        unknown = series()
+        unknown["evidence_points"][1] = missing("2026-07-31")
+        packets = (
+            SD.build_packet(payload()),
+            SD.build_packet(payload(), policy()),
+            SD.build_packet(payload([unknown]), policy(unknown)),
+        )
+        for packet in packets:
+            with self.subTest(status=packet["series_results"][0]["feature_status"]):
+                checked = SD.validate_packet(copy.deepcopy(packet))
+                self.assertEqual(SD.canonical_json(checked), SD.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_arithmetic_tamper(self):
+        packet = SD.build_packet(payload())
+        packet["series_results"][0]["latest_change"] = "21.000000000000"
+        with self.assertRaisesRegex(SD.SupplyDemandError, "OUTPUT_FEATURE_ARITHMETIC_MISMATCH"):
+            SD.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_lineage_tamper(self):
+        packet = SD.build_packet(payload())
+        packet["series_results"][0]["evidence_lineage"][0]["source_identity"][
+            "source_url"
+        ] = "https://example.com/not-provider"
+        with self.assertRaisesRegex(SD.SupplyDemandError, "SOURCE_URL_INVALID"):
+            SD.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_case_evidence_tamper(self):
+        packet = SD.build_packet(payload(), policy())
+        packet["cases"][0]["confirmed_evidence"][2]["numeric_value"] = "131"
+        with self.assertRaisesRegex(SD.SupplyDemandError, "OUTPUT_CASE_EVIDENCE_MISMATCH"):
+            SD.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_authority_expansion(self):
+        packet = SD.build_packet(payload(), policy())
+        packet["cases"][0]["investable_eligible"] = True
+        with self.assertRaisesRegex(SD.SupplyDemandError, "OUTPUT_CASE_AUTHORITY_EXPANSION"):
+            SD.validate_packet(rehash(packet))
 
     def test_lower_is_improvement_is_only_external_policy_semantics(self):
         value = series(("130", "120", "100"))

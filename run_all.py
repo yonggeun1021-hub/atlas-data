@@ -186,8 +186,9 @@ APPROVED_TESTS = [
     "test/test_event_discovery_case.py",
     # ★ P3-09 — policy-gated market-specific supply/demand raw-feature radar.
     #   exact 3-point evidence의 prior/latest/acceleration change만 계산하고,
-    #   direction·threshold·measurement가 명시된 외부 RATIFIED 정책이 있을 때만
-    #   lineage-complete case를 만든다. cross-market score·ranking·Stage·trading 없음.
+    #   persisted validator가 arithmetic/lineage/policy/case의 self-rehashed drift를
+    #   차단한다. direction·threshold·measurement가 명시된 외부 RATIFIED 정책이
+    #   있을 때만 case를 만든다. cross-market score·ranking·Stage·trading 없음.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic series + temp output only.
     "test/test_supply_demand.py",
     # ★ P3-10 — immutable Discovery Case ref에 valuation/risk raw context를 부착한다.

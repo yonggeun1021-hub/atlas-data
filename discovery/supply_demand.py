@@ -432,6 +432,426 @@ def _series_result(series: dict, as_of: dt.datetime, policy: dict | None, contra
     return result, case
 
 
+def _output_decimal(value, context: str, contract: dict) -> Decimal:
+    parsed = _decimal(value, context)
+    if value != _render(parsed, contract):
+        raise SupplyDemandError(f"OUTPUT_DECIMAL_NOT_CANONICAL:{context}")
+    return parsed
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate persisted raw features, lineage, cases, and authority boundaries."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    packet_fields = {
+        "schema_version",
+        "contract_version",
+        "as_of_utc",
+        "status",
+        "series_count",
+        "case_count",
+        "candidate_policy",
+        "series_results",
+        "cases",
+        "source_coverage",
+        "policy_status",
+        "authority",
+        "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != packet_fields:
+        raise SupplyDemandError("OUTPUT_FIELDS_MISMATCH")
+    digest = packet.get("payload_sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise SupplyDemandError("OUTPUT_SHA256_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != digest:
+        raise SupplyDemandError("OUTPUT_SHA256_MISMATCH")
+    as_of_utc = packet.get("as_of_utc")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "SUPPLY_DEMAND_FEATURES_OBSERVED"
+        or not _valid_utc(as_of_utc)
+    ):
+        raise SupplyDemandError("OUTPUT_IDENTITY_MISMATCH")
+    as_of = _utc(as_of_utc)
+
+    policy = packet.get("candidate_policy")
+    if policy is not None:
+        if not isinstance(policy, dict) or set(policy) != {
+            "policy_id",
+            "approval_status",
+            "policy_sha256",
+        }:
+            raise SupplyDemandError("OUTPUT_POLICY_FIELDS_MISMATCH")
+        if (
+            not isinstance(policy.get("policy_id"), str)
+            or TOKEN_RE.fullmatch(policy["policy_id"]) is None
+            or policy.get("approval_status") not in {"RATIFIED", "UNRATIFIED"}
+            or not isinstance(policy.get("policy_sha256"), str)
+            or SHA256_RE.fullmatch(policy["policy_sha256"]) is None
+        ):
+            raise SupplyDemandError("OUTPUT_POLICY_IDENTITY_MISMATCH")
+
+    results = packet.get("series_results")
+    if not isinstance(results, list) or not results:
+        raise SupplyDemandError("OUTPUT_SERIES_EMPTY")
+    result_fields = {
+        "series_id",
+        "market",
+        "asset_id",
+        "measurement_identity",
+        "metric_type",
+        "unit",
+        "frequency",
+        "comparison_basis",
+        "expected_periods",
+        "evidence_lineage",
+        "candidate_policy_match",
+        "radar_case_created",
+        "importance",
+        "candidate_rank",
+        "investable_eligible",
+        "stage_transition",
+        "action",
+        "feature_status",
+        "values",
+        "prior_change",
+        "latest_change",
+        "acceleration_change",
+        "unavailable_evidence",
+        "candidate_policy_status",
+    }
+    result_by_case_id = {}
+    result_keys = []
+    for result in results:
+        if not isinstance(result, dict) or set(result) != result_fields:
+            raise SupplyDemandError("OUTPUT_SERIES_RESULT_FIELDS_MISMATCH")
+        series_id = result.get("series_id")
+        market = result.get("market")
+        asset_id = result.get("asset_id")
+        frequency = result.get("frequency")
+        if (
+            not isinstance(series_id, str)
+            or TOKEN_RE.fullmatch(series_id) is None
+            or market not in contract["allowed_markets"]
+            or not isinstance(asset_id, str)
+            or TOKEN_RE.fullmatch(asset_id) is None
+            or result.get("metric_type") not in contract["allowed_metric_types"][market]
+            or frequency not in contract["allowed_frequencies"]
+            or any(
+                not isinstance(result.get(field), str) or not result[field].strip()
+                for field in ("measurement_identity", "unit", "comparison_basis")
+            )
+        ):
+            raise SupplyDemandError("OUTPUT_SERIES_IDENTITY_MISMATCH")
+        periods = result.get("expected_periods")
+        if (
+            not isinstance(periods, list)
+            or len(periods) != contract["required_point_count"]
+            or periods != sorted(set(periods))
+            or any(not _valid_date(period) for period in periods)
+            or periods[-1] > as_of_utc[:10]
+        ):
+            raise SupplyDemandError("OUTPUT_SERIES_PERIODS_MISMATCH")
+        if (
+            result.get("importance") != "UNRATIFIED"
+            or result.get("candidate_rank") is not None
+            or result.get("investable_eligible") is not False
+            or result.get("stage_transition") is not None
+            or result.get("action") is not None
+        ):
+            raise SupplyDemandError("OUTPUT_SERIES_AUTHORITY_EXPANSION")
+
+        lineage = result.get("evidence_lineage")
+        if not isinstance(lineage, list) or len(lineage) != len(periods):
+            raise SupplyDemandError("OUTPUT_EVIDENCE_LINEAGE_COUNT_MISMATCH")
+        lineage_by_period = {}
+        unavailable_statuses = set()
+        for index, row in enumerate(lineage):
+            if not isinstance(row, dict) or set(row) != {
+                "period_end",
+                "status",
+                "source_identity",
+            }:
+                raise SupplyDemandError("OUTPUT_EVIDENCE_LINEAGE_FIELDS_MISMATCH")
+            period = row.get("period_end")
+            status = row.get("status")
+            if period != periods[index] or status not in {
+                "EVIDENCE_AVAILABLE",
+                "EVIDENCE_BLOCKED",
+                "EVIDENCE_UNRESOLVED",
+            }:
+                raise SupplyDemandError("OUTPUT_EVIDENCE_LINEAGE_IDENTITY_MISMATCH")
+            if status == "EVIDENCE_AVAILABLE":
+                source = _validate_source(
+                    row.get("source_identity"), market, as_of, contract, period
+                )
+            else:
+                if row.get("source_identity") is not None:
+                    raise SupplyDemandError("OUTPUT_UNAVAILABLE_SOURCE_PRESENT")
+                source = None
+                unavailable_statuses.add(period)
+            lineage_by_period[period] = {"status": status, "source_identity": source}
+
+        unavailable = result.get("unavailable_evidence")
+        if not isinstance(unavailable, list):
+            raise SupplyDemandError("OUTPUT_UNAVAILABLE_EVIDENCE_NOT_LIST")
+        unavailable_periods = []
+        for row in unavailable:
+            if not isinstance(row, dict) or set(row) != {
+                "period_end",
+                "status",
+                "missing_reasons",
+            }:
+                raise SupplyDemandError("OUTPUT_UNAVAILABLE_EVIDENCE_FIELDS_MISMATCH")
+            period = row.get("period_end")
+            if (
+                period not in unavailable_statuses
+                or row.get("status") != lineage_by_period[period]["status"]
+                or not isinstance(row.get("missing_reasons"), list)
+                or not row["missing_reasons"]
+                or any(
+                    not isinstance(reason, str) or not reason
+                    for reason in row["missing_reasons"]
+                )
+            ):
+                raise SupplyDemandError("OUTPUT_UNAVAILABLE_EVIDENCE_MISMATCH")
+            unavailable_periods.append(period)
+        if unavailable_periods != sorted(unavailable_statuses):
+            raise SupplyDemandError("OUTPUT_UNAVAILABLE_EVIDENCE_COVERAGE_MISMATCH")
+
+        feature_status = result.get("feature_status")
+        policy_status = result.get("candidate_policy_status")
+        match = result.get("candidate_policy_match")
+        created = result.get("radar_case_created")
+        if unavailable_statuses:
+            if (
+                feature_status != "UNKNOWN_EVIDENCE"
+                or result.get("values") is not None
+                or result.get("prior_change") is not None
+                or result.get("latest_change") is not None
+                or result.get("acceleration_change") is not None
+                or policy_status != "NOT_EVALUATED_UNKNOWN_EVIDENCE"
+                or match is not None
+                or created is not False
+            ):
+                raise SupplyDemandError("OUTPUT_UNKNOWN_FEATURE_MISMATCH")
+        else:
+            values_text = result.get("values")
+            if (
+                feature_status != "OBSERVED"
+                or not isinstance(values_text, list)
+                or len(values_text) != contract["required_point_count"]
+                or unavailable
+            ):
+                raise SupplyDemandError("OUTPUT_OBSERVED_FEATURE_MISMATCH")
+            values = [
+                _output_decimal(value, f"{series_id}:value", contract)
+                for value in values_text
+            ]
+            prior = values[1] - values[0]
+            latest = values[2] - values[1]
+            acceleration = latest - prior
+            if (
+                result.get("prior_change") != _render(prior, contract)
+                or result.get("latest_change") != _render(latest, contract)
+                or result.get("acceleration_change") != _render(acceleration, contract)
+            ):
+                raise SupplyDemandError("OUTPUT_FEATURE_ARITHMETIC_MISMATCH")
+            allowed_policy_statuses = {
+                "ABSENT_OR_UNRATIFIED",
+                "NO_EFFECTIVE_EXACT_RULE",
+                "EXACT_RULE_IDENTITY_MISMATCH",
+                "RATIFIED_EXACT_RULE_APPLIED",
+            }
+            if policy_status not in allowed_policy_statuses:
+                raise SupplyDemandError("OUTPUT_POLICY_STATUS_INVALID")
+            if policy is None or policy["approval_status"] == "UNRATIFIED":
+                if policy_status != "ABSENT_OR_UNRATIFIED" or match is not None:
+                    raise SupplyDemandError("OUTPUT_POLICY_STATUS_MISMATCH")
+            elif policy_status in {"ABSENT_OR_UNRATIFIED"}:
+                raise SupplyDemandError("OUTPUT_POLICY_STATUS_MISMATCH")
+            if policy_status in {
+                "NO_EFFECTIVE_EXACT_RULE",
+                "ABSENT_OR_UNRATIFIED",
+            }:
+                if match is not None or created is not False:
+                    raise SupplyDemandError("OUTPUT_POLICY_RESULT_MISMATCH")
+            else:
+                if type(match) is not bool or created is not match:
+                    raise SupplyDemandError("OUTPUT_POLICY_RESULT_MISMATCH")
+            if created:
+                seed = {
+                    "policy_id": policy["policy_id"],
+                    "market": market,
+                    "series_id": series_id,
+                    "last_period": periods[-1],
+                }
+                case_id = "RADAR-SD-" + payload_sha256(seed)[:16].upper()
+                result_by_case_id[case_id] = {
+                    "result": result,
+                    "lineage": lineage_by_period,
+                }
+        result_keys.append((market, series_id))
+    if result_keys != sorted(set(result_keys)):
+        raise SupplyDemandError("OUTPUT_SERIES_ORDER_OR_DUPLICATE_INVALID")
+
+    cases = packet.get("cases")
+    if not isinstance(cases, list):
+        raise SupplyDemandError("OUTPUT_CASES_NOT_LIST")
+    case_fields = {
+        "schema_version",
+        "case_id",
+        "market",
+        "asset_id",
+        "observation_date",
+        "why_found",
+        "confirmed_evidence",
+        "candidate_policy",
+        "importance",
+        "candidate_rank",
+        "investable_eligible",
+        "stage_transition",
+        "action",
+    }
+    case_ids = []
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != case_fields:
+            raise SupplyDemandError("OUTPUT_CASE_FIELDS_MISMATCH")
+        case_id = case.get("case_id")
+        linked = result_by_case_id.get(case_id)
+        if linked is None:
+            raise SupplyDemandError("OUTPUT_CASE_IDENTITY_MISMATCH")
+        result = linked["result"]
+        why = case.get("why_found")
+        why_fields = {
+            "measurement_identity",
+            "metric_type",
+            "unit",
+            "frequency",
+            "comparison_basis",
+            "values",
+            "prior_change",
+            "latest_change",
+            "acceleration_change",
+            "improvement_direction",
+            "minimum_latest_change",
+            "minimum_acceleration_change",
+            "candidate_logic",
+        }
+        if not isinstance(why, dict) or set(why) != why_fields:
+            raise SupplyDemandError("OUTPUT_CASE_REASON_FIELDS_MISMATCH")
+        sign = (
+            Decimal(1)
+            if why.get("improvement_direction") == "HIGHER_IS_IMPROVEMENT"
+            else Decimal(-1)
+            if why.get("improvement_direction") == "LOWER_IS_IMPROVEMENT"
+            else None
+        )
+        minimum_latest = _decimal(
+            why.get("minimum_latest_change"), case_id, nonnegative=True
+        )
+        minimum_acceleration = _decimal(
+            why.get("minimum_acceleration_change"), case_id, nonnegative=True
+        )
+        if (
+            case.get("schema_version") != "supply_demand_case/1"
+            or case.get("market") != result["market"]
+            or case.get("asset_id") != result["asset_id"]
+            or case.get("observation_date") != result["expected_periods"][-1]
+            or any(
+                why.get(field) != result[field]
+                for field in (
+                    "measurement_identity",
+                    "metric_type",
+                    "unit",
+                    "frequency",
+                    "comparison_basis",
+                    "values",
+                    "prior_change",
+                    "latest_change",
+                    "acceleration_change",
+                )
+            )
+            or sign is None
+            or why.get("candidate_logic") != contract["candidate_logic"]
+            or sign * Decimal(result["latest_change"]) < minimum_latest
+            or sign * Decimal(result["acceleration_change"]) < minimum_acceleration
+        ):
+            raise SupplyDemandError("OUTPUT_CASE_REASON_DERIVATION_MISMATCH")
+        evidence = case.get("confirmed_evidence")
+        if not isinstance(evidence, list) or len(evidence) != 3:
+            raise SupplyDemandError("OUTPUT_CASE_EVIDENCE_COUNT_MISMATCH")
+        for index, row in enumerate(evidence):
+            period = result["expected_periods"][index]
+            if (
+                not isinstance(row, dict)
+                or set(row) != {"period_end", "numeric_value", "source_identity"}
+                or row.get("period_end") != period
+                or _render(_decimal(row.get("numeric_value"), case_id), contract)
+                != result["values"][index]
+                or row.get("source_identity")
+                != linked["lineage"][period]["source_identity"]
+            ):
+                raise SupplyDemandError("OUTPUT_CASE_EVIDENCE_MISMATCH")
+        case_policy = case.get("candidate_policy")
+        if (
+            policy is None
+            or policy["approval_status"] != "RATIFIED"
+            or not isinstance(case_policy, dict)
+            or set(case_policy) != {
+                "policy_id",
+                "policy_sha256",
+                "ratified_by",
+                "ratified_at_utc",
+            }
+            or case_policy.get("policy_id") != policy["policy_id"]
+            or case_policy.get("policy_sha256") != policy["policy_sha256"]
+            or not isinstance(case_policy.get("ratified_by"), str)
+            or not case_policy["ratified_by"].strip()
+            or not _valid_utc(case_policy.get("ratified_at_utc"))
+            or _utc(case_policy["ratified_at_utc"]) > as_of
+        ):
+            raise SupplyDemandError("OUTPUT_CASE_POLICY_LINEAGE_MISMATCH")
+        if (
+            case.get("importance") != "UNRATIFIED"
+            or case.get("candidate_rank") is not None
+            or case.get("investable_eligible") is not False
+            or case.get("stage_transition") is not None
+            or case.get("action") is not None
+        ):
+            raise SupplyDemandError("OUTPUT_CASE_AUTHORITY_EXPANSION")
+        case_ids.append(case_id)
+    if case_ids != sorted(set(case_ids)) or set(case_ids) != set(result_by_case_id):
+        raise SupplyDemandError("OUTPUT_CASE_SET_OR_ORDER_MISMATCH")
+
+    expected_boundaries = [
+        "DEFAULT_CANDIDATE_POLICY_ABSENT",
+        "IMPROVEMENT_DIRECTION_UNRATIFIED",
+        "MINIMUM_CHANGE_UNRATIFIED",
+        "CROSS_MARKET_COMPARABILITY_UNRATIFIED",
+        "SOURCE_HIERARCHY_UNRATIFIED",
+        "CANDIDATE_RANKING_UNRATIFIED",
+        "KOREA_SOURCE_RELEASE_TIME_UNVERIFIED",
+        "US_METRIC_SERIES_NOT_SELECTED",
+        "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+    ]
+    if (
+        type(packet.get("series_count")) is not int
+        or packet["series_count"] != len(results)
+        or type(packet.get("case_count")) is not int
+        or packet["case_count"] != len(cases)
+        or packet.get("source_coverage") != contract["source_coverage"]
+        or packet.get("policy_status") != contract["policy_status"]
+        or packet.get("authority") != contract["authority"]
+        or packet.get("unresolved_boundaries") != expected_boundaries
+    ):
+        raise SupplyDemandError("OUTPUT_SUMMARY_OR_BOUNDARY_MISMATCH")
+    return copy.deepcopy(packet)
+
+
 def build_packet(value: dict, candidate_policy: dict | None = None, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     policy = _validate_policy(candidate_policy, contract)
@@ -483,7 +903,7 @@ def build_packet(value: dict, candidate_policy: dict | None = None, contract: di
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
