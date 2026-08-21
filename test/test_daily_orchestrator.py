@@ -463,6 +463,91 @@ class DailyOrchestratorTest(unittest.TestCase):
         )
         self.assertFalse(by_id["KRX_POST_CLOSE"]["validated"])
 
+    def test_step0_and_krx_preopen_real_collected_at_after_generated_at_is_not_promoted_to_ready(
+        self,
+    ):
+        # Real, un-monkeypatched repro found by audit: data/latest_{krx,
+        # dart,sec}.json each carry a real collected_at_utc, but
+        # check_briefing_readiness.py's own evaluate() result never
+        # surfaces it, so STEP0_READ_MODEL_HEALTH/KRX_PREOPEN_COMPACT had
+        # no real retrieval-time boundary at all -- the same class of gap
+        # already fixed for every other evidence-reading component. A
+        # packet claiming to have been generated before krx/dart/sec were
+        # actually collected must not read them as READY.
+        collected_at_values = []
+        for name in ("krx", "dart", "sec"):
+            payload = json.loads((ROOT / "data" / f"latest_{name}.json").read_text())
+            collected_at_values.append(payload["collected_at_utc"])
+        earliest_real_collection = min(
+            MODULE.dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            for value in collected_at_values
+        )
+        before_any_collection = (
+            earliest_real_collection - MODULE.dt.timedelta(hours=1)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        packet = MODULE.build_packet("morning", DECISION_DATE, before_any_collection)
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        self.assertEqual(by_id["STEP0_READ_MODEL_HEALTH"]["status"], "DATA_BLOCKED")
+        self.assertEqual(
+            by_id["STEP0_READ_MODEL_HEALTH"]["reason"],
+            "SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT",
+        )
+        self.assertFalse(by_id["STEP0_READ_MODEL_HEALTH"]["validated"])
+        # KRX_PREOPEN_COMPACT cascades: with STEP0 unavailable, it has no
+        # source to derive from.
+        self.assertEqual(by_id["KRX_PREOPEN_COMPACT"]["status"], "UNKNOWN")
+        self.assertEqual(
+            by_id["KRX_PREOPEN_COMPACT"]["reason"], "STEP0_READ_MODEL_HEALTH_UNAVAILABLE"
+        )
+
+    def test_frozen_source_tamper_leaving_the_row_untouched_is_caught_for_every_component(
+        self,
+    ):
+        # Complements the row-tamper tests above: tampering
+        # packet["frozen_sources"][X] directly -- the *input* -- while
+        # leaving packet["components"] (the *output* row) untouched must
+        # also be caught. validate_packet() always re-derives every
+        # FROZEN_SOURCE_COMPONENTS row from frozen_sources, so an input
+        # that no longer matches the persisted output necessarily produces
+        # a different rebuilt row, which disagrees with the untouched
+        # persisted one. This was already true by construction but had no
+        # explicit regression covering it.
+        late_generated_at = f"{DECISION_DATE}T14:59:00Z"  # 23:59 KST
+        packet = MODULE.build_packet("evening", DECISION_DATE, late_generated_at)
+
+        # Each component's snapshot has its own "kind" vocabulary
+        # (_fetch_step0_snapshot's error/payload differs from
+        # _fetch_dated_evidence_snapshot's absent/present, etc.) -- these
+        # are the "no real evidence" shape each one's own _classify_*
+        # function actually recognizes, so the tamper is realistic rather
+        # than an arbitrary malformed shape that would raise a raw
+        # KeyError instead of exercising the real comparison.
+        no_evidence_shape = {
+            "STEP0_READ_MODEL_HEALTH": {"kind": "error", "value": "TAMPERED"},
+            "DART_FILING_CONTENT": {"kind": "missing", "value": None},
+            "SEC_FILING_CONTENT": {"kind": "missing", "value": None},
+            "KOFIA_FIRST_SEEN": {"kind": "absent"},
+            "US_BREADTH_MEMBERSHIP": {"kind": "unresolved", "value": "TAMPERED"},
+            "BTC_TREND": {"kind": "absent"},
+            "BTC_RISK": {"kind": "absent"},
+            "STABLECOIN_NET_ISSUANCE": {"kind": "absent"},
+            "CRYPTO_BREADTH": {"kind": "absent"},
+            "KRX_POST_CLOSE": {"kind": "absent"},
+        }
+        self.assertEqual(set(no_evidence_shape), MODULE.FROZEN_SOURCE_COMPONENTS)
+
+        for component_id in MODULE.FROZEN_SOURCE_COMPONENTS:
+            tampered = copy.deepcopy(packet)
+            tampered["frozen_sources"][component_id] = no_evidence_shape[component_id]
+            unsigned = copy.deepcopy(tampered)
+            del unsigned["packet_sha256"]
+            tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+            with self.assertRaisesRegex(
+                MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH", msg=component_id
+            ):
+                MODULE.validate_packet(copy.deepcopy(tampered))
+
     def test_step0_revisions_validate_across_a_rolling_pointer_change_without_fault_injection(
         self,
     ):
