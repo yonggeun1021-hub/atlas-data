@@ -112,6 +112,20 @@ own evidence, even when newer evidence for a later date already exists in
 the repository -- this is what makes both future-leak prevention and
 independent re-validation of a closed decision_date possible.
 
+On top of the per-sensor guards above, `build_packet()` applies one common,
+generic time boundary to *every* row uniformly (`_enforce_temporal_
+boundary()`), so a future sensor cannot silently smuggle future-dated or
+not-yet-available evidence past this simply by not implementing its own
+guard: `as_of_date` must not be after `decision_date`, and `available_at`
+(when a source declares one) must not be after `generated_at` -- a
+component whose evidence only became available after the packet was
+generated did not exist yet at generation time and is downgraded to
+`DATA_BLOCKED` rather than promoted to a decision-ready status. Every real
+source's `available_at` is null today (unratified), so this is
+defense-in-depth rather than something live evidence currently triggers;
+see `test_temporal_boundary_rejects_available_at_after_generated_at` for
+the monkeypatched proof that the mechanism itself works end to end.
+
 ## Determinism and publication
 
 `build_packet(slot, decision_date, generated_at)` is a pure function of its
@@ -119,23 +133,32 @@ three arguments plus whatever is currently committed to the repository:
 identical arguments against an unchanged repository state produce a
 byte-identical packet.
 
-`validate_packet()` independently re-derives every component from the same
+`validate_packet()` independently re-derives *every* component from the same
 real, decision_date-pinned evidence and requires an exact match to the
-persisted packet -- with one disclosed, bounded exception. Four components
-(`STEP0_READ_MODEL_HEALTH`, `KRX_PREOPEN_COMPACT`, `DART_FILING_CONTENT`,
-`SEC_FILING_CONTENT` -- `NON_REVALIDATABLE_COMPONENTS`) read a *mutable
-rolling pointer* file that the collector workflow overwrites every cycle,
-with no per-date archive behind it. Once that pointer has moved past
-`decision_date`, there is nothing left to independently re-derive those four
-from, so `validate_packet()` trusts the persisted row for exactly those four
-(passed through as `frozen_rows` to `build_packet`) rather than incorrectly
-failing a live re-fetch. A bit-level edit of any of the four is still caught
-by the outer `packet_sha256` self-hash check; a self-rehashed semantic
-tamper of exactly those four is not caught by design, and is pinned by
-`test_non_revalidatable_components_are_a_disclosed_bounded_exemption`
-rather than left as a silent gap. It is listed in the packet's own
-`unresolved_boundaries` as
-`SAME_DAY_ROLLING_POINTER_COMPONENTS_NOT_INDEPENDENTLY_REVALIDATED`.
+persisted packet -- with **no exemption**. An earlier revision of this
+module special-cased four components (`STEP0_READ_MODEL_HEALTH`,
+`KRX_PREOPEN_COMPACT`, `DART_FILING_CONTENT`, `SEC_FILING_CONTENT` --
+`NON_REVALIDATABLE_COMPONENTS`) by trusting the persisted row outright
+instead of re-deriving it (passed through as `frozen_rows`). That shortcut
+was removed: it meant a semantic tamper of exactly those four rows,
+followed by recomputing the outer `packet_sha256` over the tampered
+payload, was not caught. `validate_packet()` no longer has any such
+exemption, by test (`test_non_revalidatable_components_are_disclosed_but_
+still_tamper_checked`).
+
+The honest cost of removing that shortcut: those four components read a
+*mutable rolling pointer* file that the collector workflow overwrites every
+cycle, with no per-date archive behind it. An independent rebuild of them
+can only match the persisted row while that pointer still reflects the same
+content it did at build time -- once it has moved on, a genuinely honest,
+untampered packet can legitimately fail re-validation for these four with
+`OUTPUT_MISMATCH`. That is a disclosed, structural limitation of a source
+with no archive, not a false-positive tamper signal, listed in the packet's
+own `unresolved_boundaries` as
+`ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER`. Each of
+the four is also marked `validated: false` rather than `true`, since
+"validated" for every other component means "independently re-derivable at
+any future point," which these four cannot honestly promise.
 
 ## Same-day recovery: append-only revisions, not a single bundle
 
@@ -152,16 +175,24 @@ deterministic `index.json` naming the latest revision. `publish()`:
    recorded at the time (e.g. a component that was `DATA_BLOCKED` before a
    capture landed). That disagreement is the trigger for a new revision,
    not evidence of tampering.
-3. Compares the new candidate's per-component status vector against the
-   latest existing revision's. If identical, the candidate is a true
-   no-op -- every decision_date-pinned evidence source is immutable once
-   captured (per the pinning above, modulo the four disclosed exceptions),
-   so an identical status vector means nothing has changed -- and the
-   existing revision is reused (`created: False`) rather than publishing an
-   identical-in-substance duplicate.
-4. If the status vector differs (a previously blocked component now has
-   real evidence), a new `rev-NNN` is published and `index.json` is
-   rewritten to point at it. No prior revision is ever edited or deleted.
+3. Compares the new candidate's per-component *semantic fingerprint*
+   against the latest existing revision's (`_component_semantic_
+   fingerprint()`) -- deliberately not just `{component_id: status}`: a
+   component can stay `READY -> READY` across two builds while its actual
+   retained value, reason, source path/sha, or authority silently changed
+   underneath, and a status-only comparison would miss that as "nothing
+   changed". The fingerprint hashes every row field and nested packet
+   value, with the orchestrator's own invocation timestamp (`generated_at`,
+   and everything derived from it -- `packet_sha256`, `source_sha256`,
+   `source_as_of`, `generated_at_kst`, ...) stripped out first, since that
+   legitimately differs on every `publish()` call even when nothing
+   substantive changed. If the fingerprint is identical, the candidate is a
+   true no-op and the existing revision is reused (`created: False`) rather
+   than publishing an identical-in-substance duplicate.
+4. If the fingerprint differs (a previously blocked component now has real
+   evidence, or a real value/reason/source changed even at the same
+   status), a new `rev-NNN` is published and `index.json` is rewritten to
+   point at it. No prior revision is ever edited or deleted.
 5. A corrupted existing revision (self-hash mismatch) fails closed with
    `EXISTING_REVISION_INVALID` rather than silently publishing a new
    revision on top of it.
@@ -170,7 +201,20 @@ This means a first same-day run that catches several sensors mid-capture
 (several components `DATA_BLOCKED`) is not a dead end: rerunning the
 workflow later the same day re-aggregates from whatever now exists and adds
 `rev-002` once something real has changed, while `rev-001` stays exactly as
-it was.
+it was. Every revision that has ever been published -- not only the latest
+-- independently re-validates on its own under its own real build-time
+conditions, and independently rejects a semantic tamper of its own bytes
+(`test_same_day_recovery_every_revision_independently_validates_and_rejects_
+tamper`).
+
+**No automatic same-day retrigger is scheduled.** `publish()` correctly adds
+a recovery revision when called again, but nothing currently re-invokes it
+automatically during the day: the workflow has exactly the two approved
+scheduled entry points (07:05/18:30 KST) plus manual `workflow_dispatch`. A
+provider-free automatic same-day retry trigger is not implemented, and an
+unapproved new cron was deliberately not added to manufacture one -- this is
+an honest WBS blocker, disclosed in every packet's `unresolved_boundaries`
+as `SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED`.
 
 Unlike the P8 packet builders it calls (`three_market_regime_header.py`,
 `rotation_discovery.py`, `unified_decision_contract.py`, and the rest, which
@@ -258,3 +302,7 @@ already committed, because this workflow never runs until after they have.
   is forced `false` independent of what the embedded packet claims.
 - No paid data, secret, or new provider call is introduced. The module
   contains no HTTP client of any kind.
+- No new, unapproved cron schedule is introduced to manufacture an
+  automatic same-day recovery retrigger. That capability is disclosed as an
+  open WBS blocker instead (`SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_
+  SCHEDULED`), not silently claimed.
