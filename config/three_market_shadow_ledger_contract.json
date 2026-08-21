@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "contract_version": "three_market_shadow_ledger/1",
+  "ledger_schema_version": "three_market_shadow_ledger_packet/1",
+  "unified_decision_schema_version": "unified_daily_decision/1",
+  "unified_decision_contract_version": "unified_decision_contract/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "source_regime_markets": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "slots": [
+    "morning",
+    "evening"
+  ],
+  "capital_mode": "ZERO_CAPITAL_SHADOW_ONLY",
+  "append_semantics": "FORWARD_ONLY_ONE_RECORD_PER_DECISION_ID_IDEMPOTENT",
+  "required_available_components": [
+    "REGIME",
+    "ROTATION_DISCOVERY"
+  ],
+  "authority": {
+    "shadow_observation_recording_only": true,
+    "decision_interpretation_authorized": false,
+    "performance_claim_authorized": false,
+    "capital_allocation_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

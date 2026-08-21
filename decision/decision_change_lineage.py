@@ -53,7 +53,9 @@ def _expected_contract() -> dict:
         "unchanged_evidence_policy": "REASON_AND_EVIDENCE_MUST_BE_EMPTY",
         "lineage_policy": "PRIOR_MUST_EQUAL_PREVIOUS_CURRENT_WITHIN_BATCH",
         "decision_payload_binding": "OPAQUE_SHA256_ONLY",
-        "repository_decision_contract": "ABSENT",
+        "repository_decision_contract": (
+            "unified_decision_contract/1_AVAILABLE_OPAQUE_SHA_ONLY"
+        ),
         "input_authority": {
             "change_claim_observation_only": True,
             "decision_creation_authorized": False,
