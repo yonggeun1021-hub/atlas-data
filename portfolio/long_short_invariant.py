@@ -14,6 +14,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "long_short_invariant_contract.json"
+RULES_PATH = ROOT / "config" / "rules.json"
 OUTPUT_SCHEMA_VERSION = "long_short_invariant_packet/1"
 LONG_RESULTS = ("PASS", "FAIL", "UNKNOWN", "UNDEFINED")
 RULE_ID_RE = re.compile(r"^RULE-\d{4}$")
@@ -251,7 +252,90 @@ def build_packet(upstream_packet: dict, contract: dict | None = None) -> dict:
         "unresolved_boundaries": copy.deepcopy(contract["independent_prerequisites"]),
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "binding_set_id",
+        "summary", "rules", "lineage", "authority", "unresolved_boundaries",
+        "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise LongShortInvariantError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "INVARIANT_ENFORCED_SHORT_NOT_EVALUATED"
+        or packet.get("authority") != contract["authority"]
+        or not isinstance(packet.get("binding_set_id"), str)
+        or not packet["binding_set_id"]
+    ):
+        raise LongShortInvariantError("OUTPUT_IDENTITY_INVALID")
+    canonical = _read_json(RULES_PATH)
+    canonical_rows = canonical.get("rules") if isinstance(canonical, dict) else None
+    if not isinstance(canonical_rows, list) or len(canonical_rows) != contract["canonical_rule_count"]:
+        raise LongShortInvariantError("OUTPUT_CANONICAL_RULES_INVALID")
+    registry = {row.get("rule_id"): row for row in canonical_rows}
+    rows = packet.get("rules")
+    row_fields = {
+        "rule_id", "subject", "condition_text_sha256", "long_result",
+        "short_result", "short_evaluation_status", "invariant_status", "reasons",
+    }
+    if not isinstance(rows, list) or len(rows) != contract["canonical_rule_count"]:
+        raise LongShortInvariantError("OUTPUT_RULE_COUNT_INVALID")
+    counts = {status: 0 for status in LONG_RESULTS}
+    checked_ids = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != row_fields:
+            raise LongShortInvariantError("OUTPUT_RULE_FIELDS_MISMATCH")
+        rule_id = row.get("rule_id")
+        rule = registry.get(rule_id)
+        result = row.get("long_result")
+        if (
+            rule is None
+            or row.get("subject") != rule.get("subject")
+            or row.get("condition_text_sha256") != rule.get("condition_text_sha256")
+            or result not in LONG_RESULTS
+        ):
+            raise LongShortInvariantError(f"OUTPUT_RULE_IDENTITY_INVALID:{rule_id}")
+        if result in {"PASS", "FAIL"}:
+            raise LongShortInvariantError("OUTPUT_PASS_FAIL_WITHOUT_AUTHORITY")
+        expected = classify_long_result(result, contract)
+        if any(row.get(key) != value for key, value in expected.items()):
+            raise LongShortInvariantError(f"OUTPUT_RULE_DERIVATION_MISMATCH:{rule_id}")
+        counts[result] += 1
+        checked_ids.append(rule_id)
+    if checked_ids != sorted(registry):
+        raise LongShortInvariantError("OUTPUT_RULE_ORDER_INVALID")
+    if packet.get("summary") != {
+        "total_rules": len(rows),
+        "long_results": counts,
+        "short_results_created": 0,
+        "short_pass": 0,
+        "short_not_evaluated": len(rows),
+    }:
+        raise LongShortInvariantError("OUTPUT_SUMMARY_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "upstream_evaluator_packet_sha256", "rule_registry_sha256",
+        "binding_packet_sha256", "binding_set_sha256", "evidence_set_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise LongShortInvariantError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    for key in lineage_fields:
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if lineage["rule_registry_sha256"] != payload_sha256(canonical):
+        raise LongShortInvariantError("OUTPUT_RULE_REGISTRY_SHA_MISMATCH")
+    if packet.get("unresolved_boundaries") != contract["independent_prerequisites"]:
+        raise LongShortInvariantError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("packet_sha256")
+    if payload_sha256(normalized) != digest:
+        raise LongShortInvariantError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

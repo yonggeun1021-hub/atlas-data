@@ -222,19 +222,69 @@ def build_packet(regime_output: dict, contract: dict | None = None) -> dict:
 
 def validate_packet(
     packet: dict,
-    regime_output: dict,
+    regime_output: dict | None = None,
     contract: dict | None = None,
 ) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
-    upstream = _validate_upstream(regime_output, contract)
-    if not isinstance(packet, dict) or "packet_sha256" not in packet:
+    fields = {
+        "schema_version", "contract_version", "status", "market", "generated_at",
+        "regime", "direction", "confidence", "evaluation_status", "cash_action",
+        "exposure_reduction_action", "target_cash_weight", "target_gross_exposure",
+        "position_adjustments", "short_intents", "hedge_intents", "order_intents",
+        "reasons", "lineage", "independent_action_fields", "invariant", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
         raise CashExposureActionError("PACKET_FIELDS_MISMATCH")
     unsigned = copy.deepcopy(packet)
     digest = unsigned.pop("packet_sha256")
     if not isinstance(digest, str) or digest != payload_sha256(unsigned):
         raise CashExposureActionError("PACKET_SHA_MISMATCH")
-    if unsigned != _compose(upstream, contract):
-        raise CashExposureActionError("PACKET_CONTENT_MISMATCH")
+    if regime_output is not None:
+        upstream = _validate_upstream(regime_output, contract)
+        if unsigned != _compose(upstream, contract):
+            raise CashExposureActionError("PACKET_CONTENT_MISMATCH")
+    upstream_module = _load_upstream_module()
+    upstream_contract = upstream_module.load_contract()
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "CASH_EXPOSURE_ACTION_NOT_EVALUATED"
+        or packet.get("market") not in upstream_contract["markets"]
+        or packet.get("direction")
+        not in upstream_contract["runtime_authorized_directions"]
+        or packet.get("confidence") is not None
+        or packet.get("authority") != contract["authority"]
+        or packet.get("invariant") != contract["invariant"]
+        or packet.get("unresolved_boundaries") != contract["independent_prerequisites"]
+        or packet.get("independent_action_fields")
+        != ["cash_action", "exposure_reduction_action"]
+    ):
+        raise CashExposureActionError("PACKET_IDENTITY_INVALID")
+    try:
+        upstream_module.parse_utc(packet.get("generated_at"), "generated_at")
+    except upstream_module.OutputContractError as exc:
+        raise CashExposureActionError("PACKET_GENERATED_AT_INVALID") from exc
+    boundary = independent_action_boundary(packet.get("regime"), contract)
+    if any(packet.get(key) != value for key, value in boundary.items()):
+        raise CashExposureActionError("PACKET_BOUNDARY_MISMATCH")
+    lineage = packet.get("lineage")
+    if (
+        not isinstance(lineage, dict)
+        or set(lineage) != {
+            "upstream_regime_output_sha256", "upstream_contract_version",
+            "upstream_contract_mode",
+        }
+        or not isinstance(lineage.get("upstream_regime_output_sha256"), str)
+        or len(lineage["upstream_regime_output_sha256"]) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in lineage["upstream_regime_output_sha256"]
+        )
+        or lineage.get("upstream_contract_version") != contract["upstream_contract_version"]
+        or lineage.get("upstream_contract_mode") != contract["upstream_contract_mode"]
+    ):
+        raise CashExposureActionError("PACKET_LINEAGE_INVALID")
     assert_no_unauthorized_action(
         cash_action=packet["cash_action"],
         exposure_reduction_action=packet["exposure_reduction_action"],

@@ -33,6 +33,21 @@ CONCENTRATION_FIXTURE = load_module(
 PLANNED_LOSS_FIXTURE = load_module(
     "p806_planned_loss_fixture", ROOT / "test" / "test_planned_loss_budget.py"
 )
+CASH_FIXTURE = load_module(
+    "p806_cash_fixture", ROOT / "test" / "test_cash_exposure_action.py"
+)
+HEDGE_FIXTURE = load_module(
+    "p806_hedge_fixture", ROOT / "test" / "test_hedge_instrument_eligibility.py"
+)
+BEAR_BUDGET_FIXTURE = load_module(
+    "p806_bear_budget_fixture", ROOT / "test" / "test_bear_hedge_risk_budget.py"
+)
+LONG_SHORT_FIXTURE = load_module(
+    "p806_long_short_fixture", ROOT / "test" / "test_long_short_invariant.py"
+)
+INVERSE_FIXTURE = load_module(
+    "p806_inverse_fixture", ROOT / "test" / "test_regime_inverse_invariant.py"
+)
 
 
 def unified_packet():
@@ -49,6 +64,42 @@ def unified_packet():
 
 
 def source_packet(name, status=None, breaches=None):
+    cash_markets = {
+        "CASH_EXPOSURE_US": "US",
+        "CASH_EXPOSURE_KOREA": "KR",
+        "CASH_EXPOSURE_CRYPTO": "CRYPTO",
+    }
+    inverse_markets = {
+        "INVERSE_US": "US",
+        "INVERSE_KOREA": "KR",
+        "INVERSE_CRYPTO": "CRYPTO",
+    }
+    if name in cash_markets:
+        return CASH_FIXTURE.MODULE.build_packet(
+            CASH_FIXTURE.upstream_output(cash_markets[name]),
+            CASH_FIXTURE.CONTRACT,
+        )
+    if name in inverse_markets:
+        upstream = INVERSE_FIXTURE.REGIME.build_unknown_output(
+            inverse_markets[name], "2026-08-21T01:00:00Z"
+        )
+        return INVERSE_FIXTURE.MODULE.build_packet(
+            upstream, INVERSE_FIXTURE.CONTRACT
+        )
+    if name == "HEDGE_ELIGIBILITY":
+        return HEDGE_FIXTURE.MODULE.build_packet(
+            HEDGE_FIXTURE.registry(), "2026-08-21", HEDGE_FIXTURE.CONTRACT
+        )
+    if name == "BEAR_HEDGE_BUDGET":
+        return BEAR_BUDGET_FIXTURE.MODULE.build_packet(
+            BEAR_BUDGET_FIXTURE.budget_set(),
+            "2026-08-21",
+            BEAR_BUDGET_FIXTURE.CONTRACT,
+        )
+    if name == "LONG_SHORT_INVARIANT":
+        return LONG_SHORT_FIXTURE.MODULE.build_packet(
+            LONG_SHORT_FIXTURE.upstream_packet(), LONG_SHORT_FIXTURE.CONTRACT
+        )
     if name == "POSITION_SIZING":
         packet = POSITION_FIXTURE.build()
         if status is not None and status != packet["status"]:
@@ -247,6 +298,39 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                 packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
             )
 
+    def test_p6_packets_require_full_production_validation(self):
+        names = [
+            "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
+            "LONG_SHORT_INVARIANT", "INVERSE_US", "INVERSE_KOREA",
+            "INVERSE_CRYPTO", "HEDGE_ELIGIBILITY", "BEAR_HEDGE_BUDGET",
+        ]
+        for name in names:
+            with self.subTest(source=name):
+                packets, reasons = bundle()
+                source = packets[name]
+                if name.startswith("CASH_EXPOSURE") or name.startswith("INVERSE_"):
+                    source["market"] = {
+                        "US": "KR",
+                        "KR": "CRYPTO",
+                        "CRYPTO": "US",
+                    }[source["market"]]
+                elif name == "LONG_SHORT_INVARIANT":
+                    source["summary"]["short_not_evaluated"] -= 1
+                else:
+                    source["summary"]["active_count"] += 1
+                source["packet_sha256"] = MODULE.payload_sha256({
+                    key: value
+                    for key, value in source.items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.ActionRiskPortfolioSummaryError,
+                    f"P6_SOURCE_INVALID:{name}",
+                ):
+                    MODULE.build_summary(
+                        packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                    )
+
     def test_required_unified_source_and_same_day_time_are_enforced(self):
         packets, reasons = bundle()
         packets["UNIFIED_DECISION"] = None
@@ -263,7 +347,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
 
     def test_source_hash_authority_and_action_smuggling_fail_closed(self):
         packets, reasons = bundle()
-        packets["CASH_EXPOSURE_US"]["evidence"]["source"] = "TAMPER"
+        packets["CASH_EXPOSURE_US"]["reasons"][0] = "TAMPER"
         with self.assertRaisesRegex(MODULE.ActionRiskPortfolioSummaryError, "SOURCE_PACKET_SHA_MISMATCH"):
             MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
 

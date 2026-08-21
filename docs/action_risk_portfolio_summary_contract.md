@@ -12,6 +12,15 @@ and external policy. P7-03 and P7-06 are re-derived from their exact embedded
 inputs and policy/Constitution. Maximum/target weights, binding limits, and
 breaches are evidence only.
 
+The same production-validation boundary now covers the P6 sources: the three
+market Cash/Exposure packets, Long/Short invariant, three market Regime/Inverse
+packets, Hedge Eligibility, and Bear/Hedge Budget. Their action boundaries,
+active records, derived rows, summaries, lineage, and closed authorities are
+validated before presentation. Cash and inverse source slots also require their
+exact US/Korea/Crypto market identity. A recomputed source hash cannot hide a
+mutation to those derived or authority-bearing fields; the validators do not
+claim to reconstruct source inputs that their v1 output schemas do not embed.
+
 The output embeds the exact 15-source bundle and unavailable-reason map, then
 rebuilds itself during `validate_packet()`. A self-rehashed summary mutation or
 a self-rehashed P7 semantic mutation therefore fails closed.

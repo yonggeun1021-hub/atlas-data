@@ -227,6 +227,18 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
         ):
             MODULE.build_packet(tampered, "2026-08-21", CONTRACT)
 
+    def test_self_rehashed_output_semantic_tamper_fails_closed(self):
+        packet = MODULE.build_packet(registry(), "2026-08-21", CONTRACT)
+        packet["summary"]["active_count"] += 1
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.HedgeEligibilityError,
+            "OUTPUT_SUMMARY_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()

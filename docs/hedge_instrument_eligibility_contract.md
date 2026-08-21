@@ -38,3 +38,8 @@ python3 portfolio/hedge_instrument_eligibility.py /tmp/registry.json \
 ```
 
 The CLI is offline and refuses to write inside the repository.
+
+`validate_packet()` revalidates every active record, effective date, eligibility
+list, summary, closed selection/sizing/order fields, lineage, and packet hash.
+Self-rehashed semantic changes are rejected without introducing a default
+registry or instrument-selection authority.

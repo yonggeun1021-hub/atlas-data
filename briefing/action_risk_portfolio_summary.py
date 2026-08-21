@@ -65,6 +65,45 @@ PLANNED_LOSS_BUDGET = _load_portfolio_validator(
     "atlas_planned_loss_for_p806",
     "portfolio/planned_loss_budget.py",
 )
+CASH_EXPOSURE_ACTION = _load_portfolio_validator(
+    "atlas_cash_exposure_for_p806",
+    "portfolio/cash_exposure_action.py",
+)
+HEDGE_ELIGIBILITY = _load_portfolio_validator(
+    "atlas_hedge_eligibility_for_p806",
+    "portfolio/hedge_instrument_eligibility.py",
+)
+BEAR_HEDGE_BUDGET = _load_portfolio_validator(
+    "atlas_bear_hedge_budget_for_p806",
+    "portfolio/bear_hedge_risk_budget.py",
+)
+LONG_SHORT_INVARIANT = _load_portfolio_validator(
+    "atlas_long_short_for_p806",
+    "portfolio/long_short_invariant.py",
+)
+REGIME_INVERSE_INVARIANT = _load_portfolio_validator(
+    "atlas_regime_inverse_for_p806",
+    "portfolio/regime_inverse_invariant.py",
+)
+P6_VALIDATORS = {
+    "CASH_EXPOSURE_US": CASH_EXPOSURE_ACTION,
+    "CASH_EXPOSURE_KOREA": CASH_EXPOSURE_ACTION,
+    "CASH_EXPOSURE_CRYPTO": CASH_EXPOSURE_ACTION,
+    "LONG_SHORT_INVARIANT": LONG_SHORT_INVARIANT,
+    "INVERSE_US": REGIME_INVERSE_INVARIANT,
+    "INVERSE_KOREA": REGIME_INVERSE_INVARIANT,
+    "INVERSE_CRYPTO": REGIME_INVERSE_INVARIANT,
+    "HEDGE_ELIGIBILITY": HEDGE_ELIGIBILITY,
+    "BEAR_HEDGE_BUDGET": BEAR_HEDGE_BUDGET,
+}
+P6_EXPECTED_MARKETS = {
+    "CASH_EXPOSURE_US": "US",
+    "CASH_EXPOSURE_KOREA": "KR",
+    "CASH_EXPOSURE_CRYPTO": "CRYPTO",
+    "INVERSE_US": "US",
+    "INVERSE_KOREA": "KR",
+    "INVERSE_CRYPTO": "CRYPTO",
+}
 
 
 class ActionRiskPortfolioSummaryError(ValueError):
@@ -335,6 +374,19 @@ def _validate_source(name: str, packet: dict, contract: dict) -> dict:
         except PLANNED_LOSS_BUDGET.PlannedLossBudgetError as exc:
             raise ActionRiskPortfolioSummaryError(
                 f"PLANNED_LOSS_BUDGET_INVALID:{exc}"
+            ) from exc
+    if name in P6_VALIDATORS:
+        validator = P6_VALIDATORS[name]
+        try:
+            validator.validate_packet(copy.deepcopy(packet))
+            if (
+                name in P6_EXPECTED_MARKETS
+                and packet.get("market") != P6_EXPECTED_MARKETS[name]
+            ):
+                raise ValueError("SOURCE_MARKET_MISMATCH")
+        except ValueError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"P6_SOURCE_INVALID:{name}:{exc}"
             ) from exc
     breaches = packet.get("breaches", [])
     if name in contract["risk_sources"]:

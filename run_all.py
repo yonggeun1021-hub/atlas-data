@@ -465,16 +465,19 @@ APPROVED_TESTS = [
     #   현금 유지와 long 노출축소를 short/hedge/inverse/order와 별도 필드로 두되,
     #   Regime·portfolio·cash policy·risk budget이 미비준인 현재는 모든 action과
     #   target을 NOT_EVALUATED/null/empty로 닫고 authority 밀반입을 거부한다.
+    #   standalone output validator가 self-rehash action-boundary drift도 거부한다.
     #   ⛔ policy/target/sizing/order/Production/trading 및 tracked output 없음.
     "test/test_cash_exposure_action.py",
     # ★ P6-02 — explicit CIO-ratified Hedge instrument eligibility registry.
     #   US/Korea index·sector 수단의 identity/effective date와 cost/tracking-error
     #   evidence를 exact hash로 검증하되 저장소 default·자동선택·sizing은 금지한다.
+    #   active record/eligibility/summary output을 재검증해 self-rehash를 거부한다.
     #   ⛔ instrument 추천/threshold/order/Production/trading 및 tracked output 없음.
     "test/test_hedge_instrument_eligibility.py",
     # ★ P6-03 — explicit CIO-ratified Bear/Hedge risk-budget registry.
     #   portfolio/long budget exact distinct SHA와 loss/exposure/horizon/eligibility
     #   lineage를 검증하되 숫자를 발명하거나 usage·sizing·order를 만들지 않는다.
+    #   active budget/summary output을 재검증해 self-rehash drift도 거부한다.
     #   ⛔ default budget/allocation/sizing/order/Production/trading 없음.
     "test/test_bear_hedge_risk_budget.py",
     # ★ P7-03 — external CIO-RATIFIED concentration/correlation guard.
@@ -506,11 +509,13 @@ APPROVED_TESTS = [
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
     #   확장·PASS/FAIL 밀반입은 fail-closed로 거부한다.
+    #   canonical Rule identity에서 25개 output/summary를 재파생한다.
     #   ⛔ short eligibility/risk budget/order/Production/trading 권한 없음.
     "test/test_long_short_invariant.py",
     # ★ P6-05 — RISK_OFF/STRESS ≠ automatic inverse order invariant.
     #   현재 Regime UNKNOWN-only 계약을 검증하고, 독립 primitive에 미래 후보
     #   RISK_OFF/STRESS를 넣어도 inverse instrument/signal/order를 만들지 않는다.
+    #   standalone output validator가 self-rehash boundary drift도 거부한다.
     #   ⛔ hedge eligibility/risk budget/strategy/order/Production/trading 권한 없음.
     "test/test_regime_inverse_invariant.py",
     # ★ P7-01 — external RATIFIED Constitution B1 + explicit assignment only.
@@ -550,8 +555,8 @@ APPROVED_TESTS = [
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
-    #   P7-02/P7-03/P7-06은 production validator로 재검증하고 exact 15-source
-    #   bundle을 내장·재파생한다. Risk breach는 implicit rebalance/exit가 아니다.
+    #   P6 9-source와 P7-02/P7-03/P7-06을 production validator로 재검증하고
+    #   exact 15-source bundle을 내장·재파생한다. Risk breach는 action이 아니다.
     #   ⛔ live wiring/tracked output 없음 — synthetic packets + temp only.
     "test/test_action_risk_portfolio_summary.py",
     # ★ P8-02 — Unified Decision Contract.

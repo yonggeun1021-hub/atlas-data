@@ -371,7 +371,78 @@ def build_packet(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "as_of_date",
+        "registry_id", "active_records", "eligible_instruments", "summary",
+        "selected_instrument", "hedge_size", "order_intents", "lineage",
+        "authority", "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise HedgeEligibilityError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "ELIGIBILITY_REGISTRY_VALIDATED"
+        or packet.get("authority") != contract["authority"]
+        or packet.get("selected_instrument") is not None
+        or packet.get("hedge_size") is not None
+        or packet.get("order_intents") != []
+    ):
+        raise HedgeEligibilityError("OUTPUT_IDENTITY_INVALID")
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    _text(packet.get("registry_id"), "OUTPUT_REGISTRY_ID_INVALID")
+    raw_records = packet.get("active_records")
+    if not isinstance(raw_records, list):
+        raise HedgeEligibilityError("OUTPUT_ACTIVE_RECORDS_INVALID")
+    records = sorted(
+        (_record(row, contract) for row in raw_records),
+        key=lambda row: (row["instrument_id"], row["valid_from"]),
+    )
+    ids = [row["instrument_id"] for row in records]
+    if (
+        raw_records != records
+        or len(ids) != len(set(ids))
+        or any(not _active(row["valid_from"], row["valid_to"], as_of) for row in records)
+    ):
+        raise HedgeEligibilityError("OUTPUT_ACTIVE_RECORDS_MISMATCH")
+    eligible = [row["instrument_id"] for row in records if row["eligible"]]
+    if packet.get("eligible_instruments") != eligible:
+        raise HedgeEligibilityError("OUTPUT_ELIGIBLE_INSTRUMENTS_MISMATCH")
+    if packet.get("summary") != {
+        "active_count": len(records),
+        "eligible_count": len(eligible),
+        "ineligible_count": len(records) - len(eligible),
+        "by_scope": {
+            scope: sum(row["hedge_scope"] == scope for row in records)
+            for scope in contract["allowed_hedge_scopes"]
+        },
+    }:
+        raise HedgeEligibilityError("OUTPUT_SUMMARY_MISMATCH")
+    lineage = packet.get("lineage")
+    if (
+        not isinstance(lineage, dict)
+        or set(lineage) != {"registry_packet_sha256", "registry_content_sha256"}
+        or _sha(lineage.get("registry_packet_sha256"), "OUTPUT_LINEAGE_SHA_INVALID")
+        != _sha(lineage.get("registry_content_sha256"), "OUTPUT_LINEAGE_SHA_INVALID")
+    ):
+        raise HedgeEligibilityError("OUTPUT_LINEAGE_INVALID")
+    if packet.get("unresolved_boundaries") != [
+        "AUTOMATIC_INSTRUMENT_SELECTION_NOT_AUTHORIZED",
+        "HEDGE_SIZING_NOT_AUTHORIZED",
+        "ORDER_NOT_AUTHORIZED",
+    ]:
+        raise HedgeEligibilityError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("packet_sha256")
+    if payload_sha256(normalized) != digest:
+        raise HedgeEligibilityError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
