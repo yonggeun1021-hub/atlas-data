@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "ratified_rule_decision/1",
+  "output_schema_version": "ratified_rule_decision_packet/1",
+  "slice_id": "TSM_DECISION_SLICE_V1",
+  "subject": "TSM",
+  "required_rule_ids": [
+    "RULE-0003",
+    "RULE-0004",
+    "RULE-0005",
+    "RULE-0006",
+    "RULE-0007",
+    "RULE-0008",
+    "RULE-0009"
+  ],
+  "result_statuses": ["PASS", "FAIL"],
+  "authority": {
+    "external_ratified_result_validation_only": true,
+    "threshold_invention_authorized": false,
+    "rule_re_evaluation_authorized": false,
+    "stage_change_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

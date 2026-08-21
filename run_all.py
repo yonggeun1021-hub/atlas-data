@@ -475,6 +475,11 @@ APPROVED_TESTS = [
     #   output row/summary를 재파생해 self-rehash semantic drift도 거부한다.
     #   ⛔ evaluation spec/threshold/source selection/Production/trading 없음.
     "test/test_deterministic_rule_evaluator.py",
+    # ★ P5-02 — externally ratified complete TSM Rule result slice validator.
+    #   RULE-0003~0009를 canonical condition SHA, evidence set, human evaluator,
+    #   authority ref에 bind한다. PASS/FAIL을 계산하지 않고 외부 비준 결과만 검증한다.
+    #   ⛔ threshold 발명/Rule 재평가/Stage/action/order/Production/trading 없음.
+    "test/test_ratified_rule_decision.py",
     # ★ P5-05 — P5-03→P5-04 negative/mutation integration matrix.
     #   evidence 결측·충돌·lineage 오염·hash drift·authority expansion을
     #   UNKNOWN/UNDEFINED 또는 hard reject로 고정하고 PASS/FAIL=0을 검증한다.
@@ -588,6 +593,12 @@ APPROVED_TESTS = [
     #   여섯 component production validator를 모두 호출해 self-rehash drift를 차단한다.
     #   ⛔ 해석/승격/Rule PASS·FAIL/sizing/Production/trading 및 live network 없음.
     "test/test_unified_decision_contract.py",
+    # ★ P8-07 — Evidence → Thesis → Buy Review fail-closed TSM slice.
+    #   explicit supporting/counter evidence, earnings conversion, invalidation과
+    #   exact evidence-set SHA를 P5 Rule packet에 연결한다. routine UNKNOWN/
+    #   UNDEFINED는 BLOCKED이며 외부 비준된 full slice만 PASS/REJECTED를 연다.
+    #   PASS proposal도 zero-capital review-only이고 broker/order 권한은 없다.
+    "test/test_investment_decision_review.py",
     # ★ P8 Atlas Daily Briefing Integration v1 — provider-free daily orchestrator.
     #   기존 persisted evidence/packet만 소비해 Regime→Rotation/Discovery→Rule→
     #   Portfolio/Risk→Unified Decision→Action/Risk 요약을 하나의 daily briefing
@@ -635,6 +646,10 @@ APPROVED_TESTS = [
     #   conflict와 역행은 fail-closed이며 real capital/order는 영구 0이다.
     #   ⛔ 해석/성과주장/capital/action/order/Production/trading 및 live network 없음.
     "test/test_three_market_shadow_ledger.py",
+    # ★ P10-06 — P8-07 Investment Review append-only zero-capital ledger.
+    #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
+    #   Shadow 편입·Stage 변경·capital/action/order로 승격되지 않는다.
+    "test/test_investment_review_shadow_ledger.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
     #   P7/P9 lineage를 포함한 Shadow v4 record·external legacy judgment·external
     #   outcome을 decision_id+market로 exact match하고 세 source를 packet에 보존한다.

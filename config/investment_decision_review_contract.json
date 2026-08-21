@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "investment_decision_review/1",
+  "output_schema_version": "investment_decision_review_packet/1",
+  "supported_subjects": ["TSM"],
+  "required_rule_ids": {
+    "TSM": [
+      "RULE-0003",
+      "RULE-0004",
+      "RULE-0005",
+      "RULE-0006",
+      "RULE-0007",
+      "RULE-0008",
+      "RULE-0009"
+    ]
+  },
+  "outcomes": ["PASS", "REJECTED", "BLOCKED"],
+  "authority": {
+    "thesis_assembly_only": true,
+    "rule_result_consumption_only": true,
+    "trade_proposal_draft_authorized": true,
+    "stage_promotion_authorized": false,
+    "rule_pass_fail_authorized": false,
+    "trade_proposal_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
