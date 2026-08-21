@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "contract_version": "position_sizing/1",
+  "input_schema_version": "position_sizing_input/1",
+  "policy_schema_version": "position_sizing_policy/1",
+  "output_schema_version": "position_sizing_packet/1",
+  "formula_id": "MIN_RATIFIED_LIMITS_THEN_TARGET_UTILIZATION_V1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "evidence_states": [
+    "backtest_only",
+    "forward_early",
+    "forward_established",
+    "operating"
+  ],
+  "limit_order": [
+    "DEPLOYMENT_HEADROOM",
+    "CASH_AVAILABLE",
+    "BUCKET_HEADROOM",
+    "POSITION_MAX",
+    "EVIDENCE_MAX",
+    "PORTFOLIO_LOSS_HEADROOM",
+    "PER_POSITION_LOSS"
+  ],
+  "repository_default_policy": "ABSENT",
+  "policy_requirement": "EXTERNAL_RATIFIED_SIZING_POLICY_REQUIRED",
+  "rounding_digits": 12,
+  "input_authority": {
+    "candidate_and_portfolio_state_only": true,
+    "sizing_formula_authorized": false,
+    "target_selection_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "policy_authority": {
+    "sizing_parameters_only": true,
+    "candidate_selection_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "ratified_limit_calculation_only": true,
+    "candidate_selection_authorized": false,
+    "entry_trigger_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
