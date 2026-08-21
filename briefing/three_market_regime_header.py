@@ -58,7 +58,7 @@ def _expected_contract() -> dict:
     return {
         "schema_version": 1,
         "contract_version": "briefing_three_market_regime_header/1",
-        "output_schema_version": "three_market_regime_header/1",
+        "output_schema_version": "three_market_regime_header/2",
         "source_contract_version": "regime_output/v1",
         "required_markets": ["US", "KR", "CRYPTO"],
         "market_labels": {"US": "US", "KR": "Korea", "CRYPTO": "Crypto"},
@@ -93,7 +93,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return _validate_contract(_read_json(Path(path)))
 
 
-def _source_row(source: dict, contract: dict, header_generated_at: str) -> dict:
+def _source_row(source: dict, contract: dict, header_generated_at: str) -> tuple[dict, dict]:
     try:
         validated = regime_output.validate_output(copy.deepcopy(source))
         source_generated = regime_output.parse_utc(
@@ -112,7 +112,7 @@ def _source_row(source: dict, contract: dict, header_generated_at: str) -> dict:
     if validated["contract_version"] != contract["source_contract_version"]:
         raise ThreeMarketRegimeHeaderError(f"SOURCE_CONTRACT_INVALID:{market}")
     coverage = validated["coverage"]
-    return {
+    return validated, {
         "market": market,
         "label": contract["market_labels"][market],
         "market_timezone": validated["market_timezone"],
@@ -133,7 +133,7 @@ def _source_row(source: dict, contract: dict, header_generated_at: str) -> dict:
     }
 
 
-def build_header(
+def _assemble_header(
     sources: list[dict],
     slot: str,
     generated_at: str,
@@ -158,13 +158,17 @@ def build_header(
             raise ThreeMarketRegimeHeaderError(f"SOURCE_MARKET_DUPLICATE:{market}")
         if market not in contract["required_markets"]:
             raise ThreeMarketRegimeHeaderError(f"SOURCE_MARKET_UNEXPECTED:{market}")
-        by_market[market] = _source_row(source, contract, generated_at)
+        validated, row = _source_row(source, contract, generated_at)
+        by_market[market] = {"source": validated, "row": row}
 
     missing = [market for market in contract["required_markets"] if market not in by_market]
     if missing:
         raise ThreeMarketRegimeHeaderError(f"SOURCE_MARKET_MISSING:{','.join(missing)}")
 
-    markets = [by_market[market] for market in contract["required_markets"]]
+    markets = [by_market[market]["row"] for market in contract["required_markets"]]
+    source_packets = [
+        by_market[market]["source"] for market in contract["required_markets"]
+    ]
     packet = {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
@@ -172,6 +176,7 @@ def build_header(
         "generated_at": generated_at,
         "status": contract["status"],
         "markets": markets,
+        "source_packets": source_packets,
         "summary": {
             "market_count": len(markets),
             "required_market_count": len(contract["required_markets"]),
@@ -190,14 +195,27 @@ def build_header(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_header(packet, contract)
+    return packet
+
+
+def build_header(
+    sources: list[dict],
+    slot: str,
+    generated_at: str,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    return validate_header(
+        _assemble_header(sources, slot, generated_at, contract), contract
+    )
 
 
 def validate_header(packet: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "slot", "generated_at", "status",
-        "markets", "summary", "authority", "unresolved_boundaries", "packet_sha256",
+        "markets", "source_packets", "summary", "authority",
+        "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise ThreeMarketRegimeHeaderError("HEADER_FIELDS_MISMATCH")
@@ -295,6 +313,19 @@ def validate_header(packet: dict, contract: dict | None = None) -> dict:
     normalized.pop("packet_sha256")
     if payload_sha256(normalized) != digest:
         raise ThreeMarketRegimeHeaderError("HEADER_SHA_MISMATCH")
+    try:
+        expected = _assemble_header(
+            packet.get("source_packets"),
+            packet["slot"],
+            packet["generated_at"],
+            contract,
+        )
+    except ThreeMarketRegimeHeaderError as exc:
+        raise ThreeMarketRegimeHeaderError(
+            f"HEADER_SOURCE_PACKET_INVALID:{exc}"
+        ) from exc
+    if canonical_json(packet) != canonical_json(expected):
+        raise ThreeMarketRegimeHeaderError("HEADER_DERIVATION_MISMATCH")
     return copy.deepcopy(packet)
 
 

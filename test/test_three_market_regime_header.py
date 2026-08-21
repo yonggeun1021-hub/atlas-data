@@ -34,6 +34,13 @@ def sources():
     return [source("US"), source("KR"), source("CRYPTO")]
 
 
+def rehash_header(value):
+    changed = copy.deepcopy(value)
+    changed.pop("packet_sha256", None)
+    changed["packet_sha256"] = MODULE.payload_sha256(changed)
+    return changed
+
+
 class ThreeMarketRegimeHeaderTests(unittest.TestCase):
     def test_contract_is_read_model_only_and_closes_decision_authority(self):
         self.assertEqual(CONTRACT["required_markets"], ["US", "KR", "CRYPTO"])
@@ -134,6 +141,31 @@ class ThreeMarketRegimeHeaderTests(unittest.TestCase):
             {row["market"]: row["source_sha256"] for row in packet["markets"]},
             expected,
         )
+        self.assertEqual(packet["source_packets"], values)
+        self.assertEqual(packet["schema_version"], "three_market_regime_header/2")
+
+    def test_self_rehashed_projection_and_source_substitution_fail_closed(self):
+        original = MODULE.build_header(
+            sources(), "morning", "2026-08-21T01:10:00Z", CONTRACT
+        )
+
+        projection = copy.deepcopy(original)
+        projection["markets"][0]["coverage"]["defined_count"] = 1
+        projection["markets"][0]["coverage"]["ratio"] = "1/5"
+        projection["markets"][0]["source_sha256"] = "b" * 64
+        with self.assertRaisesRegex(
+            MODULE.ThreeMarketRegimeHeaderError, "HEADER_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_header(rehash_header(projection), CONTRACT)
+
+        substitution = copy.deepcopy(original)
+        substitution["source_packets"][0] = source(
+            "US", generated="2026-08-21T00:59:00Z"
+        )
+        with self.assertRaisesRegex(
+            MODULE.ThreeMarketRegimeHeaderError, "HEADER_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_header(rehash_header(substitution), CONTRACT)
 
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
