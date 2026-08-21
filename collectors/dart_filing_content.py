@@ -392,7 +392,7 @@ def capture_filing(
                 )
                 skipped["operation"] = "skipped"
                 skipped["skip_reason"] = "already_captured"
-                return skipped, None, {}
+                return validate_manifest(skipped, contract=contract), None, {}
 
         raw_zip = fetcher(rcept_no)
         documents, raw_members = parse_archive(raw_zip, contract)
@@ -419,7 +419,9 @@ def capture_filing(
             reasons=["ITEM_EXTRACTION_POLICY_UNRATIFIED"],
             operation="captured",
         )
-        return result, raw_zip, raw_members
+        return validate_manifest(
+            result, raw_zip, raw_members, contract
+        ), raw_zip, raw_members
     except Exception as exc:
         result.update(
             content_status="PENDING",
@@ -433,6 +435,232 @@ def capture_filing(
         return result, None, {}
 
 
+def _valid_date_yyyymmdd(value) -> bool:
+    if not isinstance(value, str) or re.fullmatch(r"\d{8}", value) is None:
+        return False
+    try:
+        return dt.datetime.strptime(value, "%Y%m%d").strftime("%Y%m%d") == value
+    except ValueError:
+        return False
+
+
+def _valid_utc(value) -> bool:
+    if not isinstance(value, str) or UTC_ISO_RE.fullmatch(value) is None:
+        return False
+    try:
+        return (
+            dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            == value
+        )
+    except ValueError:
+        return False
+
+
+def validate_manifest(
+    manifest: dict,
+    raw_zip: bytes | None = None,
+    raw_members: dict[str, bytes] | None = None,
+    contract: dict | None = None,
+) -> dict:
+    """Validate one persisted successful DART receipt and optional raw cache."""
+    contract = contract if contract is not None else load_contract()
+    base_fields = {
+        "schema_version",
+        "ticker",
+        "name",
+        "atlas_stage",
+        "filing_date",
+        "title",
+        "filing_identity",
+        "extractor_version",
+        "filing_classification",
+        "capture_policy",
+        "discovery_status",
+        "content_status",
+        "evidence_status",
+        "interpretation_status",
+        "rule_impact",
+        "action",
+        "reasons",
+        "source_archive",
+        "documents",
+        "extracted",
+        "raw_cache_policy",
+        "retrieved_at_utc",
+        "operation",
+    }
+    allowed_fields = [base_fields]
+    allowed_fields.append(base_fields | {"publication_status"})
+    allowed_fields.append(base_fields | {"skip_reason"})
+    allowed_fields.append(base_fields | {"publication_status", "skip_reason"})
+    if not isinstance(manifest, dict) or set(manifest) not in allowed_fields:
+        raise DartContentError("MANIFEST_FIELDS_MISMATCH")
+    ticker = manifest.get("ticker")
+    name = manifest.get("name")
+    stage = manifest.get("atlas_stage")
+    filing_date = manifest.get("filing_date")
+    title = manifest.get("title")
+    retrieved_at_utc = manifest.get("retrieved_at_utc")
+    if not isinstance(ticker, str) or STOCK_CODE_RE.fullmatch(ticker) is None:
+        raise DartContentError("MANIFEST_STOCK_CODE_INVALID")
+    if name is not None and (
+        not isinstance(name, str) or not name.strip() or name.strip() != name
+    ):
+        raise DartContentError("MANIFEST_COMPANY_NAME_INVALID")
+    if not isinstance(title, str) or not title.strip() or title.strip() != title:
+        raise DartContentError("MANIFEST_TITLE_INVALID")
+    if stage not in (
+        set(contract["stage_policy"]["required"])
+        | set(contract["stage_policy"]["best_effort"])
+    ):
+        raise DartContentError("MANIFEST_STAGE_INVALID")
+    if (
+        not _valid_date_yyyymmdd(filing_date)
+        or not _valid_utc(retrieved_at_utc)
+        or dt.datetime.strptime(filing_date, "%Y%m%d").date()
+        > dt.datetime.strptime(retrieved_at_utc, "%Y-%m-%dT%H:%M:%SZ").date()
+    ):
+        raise DartContentError("MANIFEST_TIME_INVALID")
+    identity = manifest.get("filing_identity")
+    if not isinstance(identity, dict) or set(identity) != {"stock_code", "rcept_no"}:
+        raise DartContentError("MANIFEST_FILING_IDENTITY_FIELDS_MISMATCH")
+    rcept_no = identity.get("rcept_no")
+    if identity.get("stock_code") != ticker:
+        raise DartContentError("MANIFEST_STOCK_IDENTITY_MISMATCH")
+    if not isinstance(rcept_no, str) or RCEPT_NO_RE.fullmatch(rcept_no) is None:
+        raise DartContentError("MANIFEST_RCEPT_NO_INVALID")
+
+    plan = filing_plan({"title": title}, stage, contract)
+    expected_cache_policy = _raw_cache_policy(plan, stage, contract)
+    if (
+        manifest.get("schema_version") != SCHEMA_VERSION
+        or manifest.get("extractor_version") != contract["extractor_version"]
+        or plan["filing_classification"] != "MATERIAL_RELEVANT_TITLE"
+        or manifest.get("filing_classification") != plan["filing_classification"]
+        or manifest.get("capture_policy") != plan["capture_policy"]
+        or manifest.get("discovery_status") != "OK"
+        or manifest.get("content_status") != "OK"
+        or manifest.get("evidence_status") != "PENDING"
+        or manifest.get("interpretation_status") != "UNDETERMINED"
+        or manifest.get("rule_impact") != "NONE"
+        or manifest.get("action") != "NO_CHANGE"
+        or manifest.get("reasons") != ["ITEM_EXTRACTION_POLICY_UNRATIFIED"]
+        or manifest.get("extracted") != []
+        or manifest.get("raw_cache_policy") != expected_cache_policy
+        or manifest.get("publication_status", "OK") != "OK"
+    ):
+        raise DartContentError("MANIFEST_STATUS_OR_AUTHORITY_MISMATCH")
+    operation = manifest.get("operation")
+    if operation not in {"captured", "skipped"}:
+        raise DartContentError("MANIFEST_OPERATION_INVALID")
+    if (
+        operation == "skipped"
+        and manifest.get("skip_reason") != "already_captured"
+    ) or (operation == "captured" and "skip_reason" in manifest):
+        raise DartContentError("MANIFEST_SKIP_REASON_MISMATCH")
+
+    archive = manifest.get("source_archive")
+    if not isinstance(archive, dict) or set(archive) != {
+        "source_uri",
+        "rcept_no",
+        "content_sha256",
+        "content_bytes",
+    }:
+        raise DartContentError("MANIFEST_SOURCE_ARCHIVE_FIELDS_MISMATCH")
+    digest = archive.get("content_sha256")
+    size = archive.get("content_bytes")
+    if (
+        archive.get("source_uri") != canonical_source_uri(rcept_no)
+        or archive.get("rcept_no") != rcept_no
+        or not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        or type(size) is not int
+        or size <= 0
+        or size > contract["archive_policy"]["max_zip_bytes"]
+    ):
+        raise DartContentError("MANIFEST_SOURCE_ARCHIVE_IDENTITY_MISMATCH")
+
+    documents = manifest.get("documents")
+    policy = contract["archive_policy"]
+    if (
+        not isinstance(documents, list)
+        or not documents
+        or len(documents) > policy["max_members"]
+    ):
+        raise DartContentError("MANIFEST_DOCUMENT_COUNT_INVALID")
+    member_names = []
+    cache_names = []
+    total_bytes = 0
+    fields = {
+        "member_name",
+        "cache_name",
+        "content_sha256",
+        "content_bytes",
+        "text_status",
+        "normalized_text_sha256",
+        "normalized_text_chars",
+        "offset_basis",
+    }
+    for index, document in enumerate(documents, 1):
+        if not isinstance(document, dict) or set(document) != fields:
+            raise DartContentError(f"MANIFEST_DOCUMENT_FIELDS_MISMATCH:{index}")
+        member_name = document.get("member_name")
+        _validate_member_name(member_name, policy["max_member_name_chars"])
+        content_sha256 = document.get("content_sha256")
+        content_bytes = document.get("content_bytes")
+        if (
+            not isinstance(content_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", content_sha256) is None
+            or type(content_bytes) is not int
+            or content_bytes < 0
+            or content_bytes > policy["max_member_bytes"]
+            or document.get("cache_name")
+            != f"member-{index:03d}-{content_sha256[:16]}.gz"
+        ):
+            raise DartContentError(f"MANIFEST_DOCUMENT_IDENTITY_MISMATCH:{index}")
+        total_bytes += content_bytes
+        extension = PurePosixPath(member_name).suffix.lower()
+        if extension in policy["text_member_extensions"]:
+            text_digest = document.get("normalized_text_sha256")
+            text_chars = document.get("normalized_text_chars")
+            if (
+                document.get("text_status") != "OK"
+                or not isinstance(text_digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", text_digest) is None
+                or type(text_chars) is not int
+                or text_chars < 0
+                or document.get("offset_basis") != "normalized_visible_text"
+            ):
+                raise DartContentError(f"MANIFEST_TEXT_INDEX_INVALID:{index}")
+        elif (
+            document.get("text_status") != "NOT_APPLICABLE_BINARY"
+            or document.get("normalized_text_sha256") is not None
+            or document.get("normalized_text_chars") is not None
+            or document.get("offset_basis") is not None
+        ):
+            raise DartContentError(f"MANIFEST_BINARY_INDEX_INVALID:{index}")
+        member_names.append(member_name)
+        cache_names.append(document["cache_name"])
+    if (
+        len(member_names) != len(set(member_names))
+        or len(cache_names) != len(set(cache_names))
+        or total_bytes > policy["max_total_uncompressed_bytes"]
+    ):
+        raise DartContentError("MANIFEST_DOCUMENT_SET_INVALID")
+
+    if raw_zip is not None or raw_members is not None:
+        if not isinstance(raw_zip, bytes) or not isinstance(raw_members, dict):
+            raise DartContentError("RAW_CACHE_INPUT_INCOMPLETE")
+        if len(raw_zip) != size or hashlib.sha256(raw_zip).hexdigest() != digest:
+            raise DartContentError("RAW_ARCHIVE_MUTATION")
+        expected_documents, expected_members = parse_archive(raw_zip, contract)
+        if documents != expected_documents or raw_members != expected_members:
+            raise DartContentError("MANIFEST_ARCHIVE_DERIVATION_MISMATCH")
+    return copy.deepcopy(manifest)
+
+
 def manifest_dir(data_root: Path, ticker: str, rcept_no: str) -> Path:
     if not STOCK_CODE_RE.fullmatch(ticker or ""):
         raise DartContentError(f"STOCK_CODE_INVALID:{ticker!r}")
@@ -442,15 +670,18 @@ def manifest_dir(data_root: Path, ticker: str, rcept_no: str) -> Path:
 
 
 def load_existing_manifest(
-    data_root: Path, ticker: str, rcept_no: str
+    data_root: Path,
+    ticker: str,
+    rcept_no: str,
+    contract: dict | None = None,
 ) -> dict | None:
-    path = manifest_dir(data_root, ticker, rcept_no) / "_manifest.json"
+    directory = manifest_dir(data_root, ticker, rcept_no)
+    path = directory / "_manifest.json"
     if not path.exists():
         return None
-    manifest = _read_json(path)
-    if manifest.get("schema_version") != SCHEMA_VERSION:
-        raise DartContentError("EXISTING_MANIFEST_SCHEMA_MISMATCH")
-    return manifest
+    manifest = validate_manifest(_read_json(path), contract=contract)
+    raw_zip, raw_members = _validate_existing_cache(directory, manifest)
+    return validate_manifest(manifest, raw_zip, raw_members, contract)
 
 
 def _json_bytes(value: dict) -> bytes:
@@ -481,15 +712,19 @@ def _atomic_write(path: Path, raw: bytes) -> None:
         raise
 
 
-def _validate_existing_cache(directory: Path, manifest: dict) -> None:
+def _validate_existing_cache(
+    directory: Path, manifest: dict
+) -> tuple[bytes, dict[str, bytes]]:
     source_path = directory / "_source.zip"
     archive = manifest.get("source_archive") or {}
     if not source_path.is_file():
         raise DartContentError("RAW_ARCHIVE_MISSING")
-    if hashlib.sha256(source_path.read_bytes()).hexdigest() != archive.get(
+    raw_zip = source_path.read_bytes()
+    if hashlib.sha256(raw_zip).hexdigest() != archive.get(
         "content_sha256"
     ):
         raise DartContentError("RAW_ARCHIVE_MUTATION")
+    raw_members = {}
     for document in manifest.get("documents") or []:
         target = directory / document["cache_name"]
         if not target.is_file():
@@ -506,6 +741,8 @@ def _validate_existing_cache(directory: Path, manifest: dict) -> None:
             raise DartContentError(
                 f"RAW_MEMBER_CACHE_MUTATION:{document['cache_name']}"
             )
+        raw_members[document["cache_name"]] = raw
+    return raw_zip, raw_members
 
 
 def persist_success(
@@ -513,7 +750,10 @@ def persist_success(
     manifest: dict,
     raw_zip: bytes | None,
     raw_members: dict[str, bytes],
+    contract: dict | None = None,
 ) -> None:
+    contract = contract if contract is not None else load_contract()
+    validate_manifest(manifest, contract=contract)
     identity = manifest["filing_identity"]
     directory = manifest_dir(
         data_root, identity["stock_code"], identity["rcept_no"]
@@ -527,12 +767,16 @@ def persist_success(
             raise DartContentError(
                 "SOURCE_MUTATED_FAIL_CLOSED_NO_OVERWRITE"
             )
-        _validate_existing_cache(directory, existing)
+        existing = validate_manifest(existing, contract=contract)
+        cached_zip, cached_members = _validate_existing_cache(directory, existing)
+        validate_manifest(existing, cached_zip, cached_members, contract)
+        validate_manifest(manifest, cached_zip, cached_members, contract)
         _atomic_write(manifest_path, _json_bytes(manifest))
         return
 
     if raw_zip is None or not raw_members:
         raise DartContentError("RAW_CACHE_REQUIRED_FOR_NEW_CAPTURE")
+    validate_manifest(manifest, raw_zip, raw_members, contract)
     directory.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{directory.name}.tmp.", dir=directory.parent)
@@ -600,7 +844,9 @@ def run_capture(
             seen_receipts.add(identity_key)
             record = None
             try:
-                existing = load_existing_manifest(data_root, ticker, rcept_no)
+                existing = load_existing_manifest(
+                    data_root, ticker, rcept_no, contract
+                )
                 record, raw_zip, raw_members = capture_filing(
                     ticker=ticker,
                     stage=stage,
@@ -614,11 +860,13 @@ def run_capture(
                     record["publication_status"] = "NOT_APPLICABLE"
                     counts["not_applicable"] += 1
                 elif record.get("operation") == "captured":
-                    persist_success(data_root, record, raw_zip, raw_members)
+                    persist_success(
+                        data_root, record, raw_zip, raw_members, contract
+                    )
                     record["publication_status"] = "OK"
                     counts["captured"] += 1
                 elif record.get("operation") == "skipped":
-                    persist_success(data_root, record, None, {})
+                    persist_success(data_root, record, None, {}, contract)
                     record["publication_status"] = "OK"
                     counts["skipped"] += 1
                 else:

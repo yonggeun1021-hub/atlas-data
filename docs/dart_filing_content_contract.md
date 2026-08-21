@@ -36,6 +36,16 @@ records `content_status=OK` after complete acquisition but leaves
 `evidence_status=PENDING` with `ITEM_EXTRACTION_POLICY_UNRATIFIED`. It does not infer
 numbers, meaning, direction, Rule impact, Stage, Production state, or a trading action.
 
+`validate_manifest()` treats a persisted successful receipt as untrusted. It
+revalidates stock/receipt identity, relevant-title and Stage acquisition policy,
+status/authority locks, credential-free source identity, ZIP/member sizes and hashes,
+deterministic cache names, normalized-text indexes, retention, and skip semantics.
+When the retained source ZIP and member caches are supplied, the validator parses the
+archive again and requires the entire document index and every member byte to match
+exactly. Production loading performs this full check before provider-free skip reuse,
+so a semantically altered manifest or cache cannot be accepted by merely retaining a
+plausible receipt number or hash.
+
 Daily Collect runs the helper independently from metadata collection so Guard=fresh
 can repair content-only failures. Run truth is published to
 `data/latest_dart_content.json`; immutable receipt directories are under

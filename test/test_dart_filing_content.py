@@ -167,6 +167,73 @@ class DartFilingContentTest(unittest.TestCase):
         )
         self.assertIsNone(binary["documents"][0]["normalized_text_sha256"])
 
+    def test_persisted_manifest_validator_rederives_archive_member_index(self):
+        result, raw_zip, members, _ = self.capture()
+        checked = MODULE.validate_manifest(
+            copy.deepcopy(result), raw_zip, members, self.contract
+        )
+        self.assertEqual(checked, result)
+
+        changed = copy.deepcopy(result)
+        changed["documents"][0]["normalized_text_sha256"] = "0" * 64
+        with self.assertRaisesRegex(
+            MODULE.DartContentError, "MANIFEST_ARCHIVE_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_manifest(changed, raw_zip, members, self.contract)
+
+    def test_persisted_manifest_validator_rejects_authority_and_source_drift(self):
+        result, raw_zip, members, _ = self.capture()
+        changed = copy.deepcopy(result)
+        changed["action"] = "BUY"
+        with self.assertRaisesRegex(
+            MODULE.DartContentError, "MANIFEST_STATUS_OR_AUTHORITY_MISMATCH"
+        ):
+            MODULE.validate_manifest(changed, raw_zip, members, self.contract)
+
+        changed = copy.deepcopy(result)
+        changed["source_archive"]["source_uri"] = "https://example.com/document.zip"
+        with self.assertRaisesRegex(
+            MODULE.DartContentError, "MANIFEST_SOURCE_ARCHIVE_IDENTITY_MISMATCH"
+        ):
+            MODULE.validate_manifest(changed, raw_zip, members, self.contract)
+
+    def test_loading_existing_cache_revalidates_manifest_and_archive(self):
+        result, raw_zip, members, _ = self.capture()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            MODULE.persist_success(
+                root, result, raw_zip, members, self.contract
+            )
+            loaded = MODULE.load_existing_manifest(
+                root, "005930", filing()["rcept_no"], self.contract
+            )
+            self.assertEqual(loaded, result)
+
+            path = MODULE.manifest_dir(
+                root, "005930", filing()["rcept_no"]
+            ) / "_manifest.json"
+            tampered = json.loads(path.read_text(encoding="utf-8"))
+            tampered["documents"][0]["normalized_text_chars"] += 1
+            path.write_text(json.dumps(tampered), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.DartContentError, "MANIFEST_ARCHIVE_DERIVATION_MISMATCH"
+            ):
+                MODULE.load_existing_manifest(
+                    root, "005930", filing()["rcept_no"], self.contract
+                )
+
+    def test_provider_free_skip_rejects_semantically_tampered_manifest(self):
+        result, _, _, _ = self.capture()
+        result["action"] = "BUY"
+        failed, raw_zip, members, fetcher = self.capture(
+            existing=result, raw=AssertionError("provider must not be called")
+        )
+        self.assertEqual(failed["operation"], "failed")
+        self.assertIn("MANIFEST_STATUS_OR_AUTHORITY_MISMATCH", failed["reasons"][0])
+        self.assertIsNone(raw_zip)
+        self.assertEqual(members, {})
+        self.assertEqual(fetcher.calls, [])
+
     def test_identity_archive_and_limits_fail_without_partial_content(self):
         bad_url = filing(
             url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260820800999"
