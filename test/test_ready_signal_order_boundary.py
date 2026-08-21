@@ -75,7 +75,10 @@ class ReadySignalOrderBoundaryTests(unittest.TestCase):
             "READY_NEVER_IMPLIES_ENTRY_TRIGGER",
             "SIGNAL_NEVER_IMPLIES_ORDER",
         ])
-        self.assertEqual(CONTRACT["decision_contract_status"], "P8_02_UNIMPLEMENTED")
+        self.assertEqual(
+            CONTRACT["decision_contract_status"],
+            "P8_02_CONTRACT_AVAILABLE_NO_ACTION_AUTHORITY",
+        )
         self.assertTrue(CONTRACT["authority"]["boundary_enforcement_only"])
         for key, value in CONTRACT["authority"].items():
             if key != "boundary_enforcement_only":

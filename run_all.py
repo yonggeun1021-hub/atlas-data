@@ -481,6 +481,12 @@ APPROVED_TESTS = [
     #   승격은 만들지 않아 new/existing candidate change는 빈 배열이다.
     #   ⛔ ranking/promotion/action/Production/trading 및 live network 없음.
     "test/test_rotation_discovery_briefing.py",
+    # ★ P8-02 — Unified Decision Contract.
+    #   Regime→Rotation/Discovery→Rule→Portfolio 결과를 exact packet SHA로 한 daily
+    #   object에 연결하고 P8-03 action boundary까지 포함한다. 결측 component는
+    #   UNAVAILABLE 사유로 남기며 완전 입력이어도 action/entry/size/order는 null이다.
+    #   ⛔ 해석/승격/Rule PASS·FAIL/sizing/Production/trading 및 live network 없음.
+    "test/test_unified_decision_contract.py",
     # ★ P9-01 — external RATIFIED freshness policy + caller-supplied quote guard.
     #   provider timestamp/received time/observed time으로 age와 transport delay를
     #   계산하되 repository default threshold는 없다. stale은 data 소비만 차단한다.

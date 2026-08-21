@@ -57,7 +57,7 @@ def _expected_contract() -> dict:
             "READY_NEVER_IMPLIES_ENTRY_TRIGGER",
             "SIGNAL_NEVER_IMPLIES_ORDER",
         ],
-        "decision_contract_status": "P8_02_UNIMPLEMENTED",
+        "decision_contract_status": "P8_02_CONTRACT_AVAILABLE_NO_ACTION_AUTHORITY",
         "input_authority": {
             "ready_observation_only": True,
             "signal_observation_only": True,
@@ -308,7 +308,7 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
     packet = {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
-        "status": "ACTION_BOUNDARY_ENFORCED_DECISION_CONTRACT_PENDING",
+        "status": "ACTION_BOUNDARY_ENFORCED_NO_ACTION_AUTHORITY",
         "packet_id": source["packet_id"],
         "as_of_utc": source["as_of_utc"],
         "summary": {
@@ -322,7 +322,7 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         "lineage": {"input_packet_sha256": checked["packet_sha256"]},
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "P8_02_UNIFIED_DECISION_CONTRACT_UNIMPLEMENTED",
+            "P8_02_AVAILABLE_ACTION_AUTHORITY_CLOSED",
             "ENTRY_TRIGGER_POLICY_UNRATIFIED",
             "ORDER_ELIGIBILITY_POLICY_UNRATIFIED",
             "POSITION_SIZING_NOT_AUTHORIZED",

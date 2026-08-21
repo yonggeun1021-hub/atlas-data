@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "contract_version": "unified_decision_contract/1",
+  "output_schema_version": "unified_daily_decision/1",
+  "slots": [
+    "morning",
+    "evening"
+  ],
+  "component_order": [
+    "REGIME",
+    "ROTATION_DISCOVERY",
+    "RULE",
+    "PORTFOLIO_BUCKET",
+    "PORTFOLIO_CURRENCY",
+    "ACTION_BOUNDARY"
+  ],
+  "pipeline_order": [
+    "REGIME",
+    "ROTATION_DISCOVERY",
+    "RULE",
+    "PORTFOLIO"
+  ],
+  "components": {
+    "REGIME": {
+      "schema_version": "three_market_regime_header/1",
+      "contract_version": "briefing_three_market_regime_header/1",
+      "status": "HEADER_ASSEMBLED_NO_DECISION_AUTHORITY",
+      "authority": {
+        "briefing_read_model_only": true,
+        "market_ranking_authorized": false,
+        "favorable_market_selection_authorized": false,
+        "regime_interpretation_authorized": false,
+        "strategy_eligibility_authorized": false,
+        "action_generation_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "required_fields": [
+        "schema_version",
+        "contract_version",
+        "slot",
+        "generated_at",
+        "status",
+        "markets",
+        "summary",
+        "authority",
+        "unresolved_boundaries",
+        "packet_sha256"
+      ],
+      "source_time_field": "generated_at"
+    },
+    "ROTATION_DISCOVERY": {
+      "schema_version": "rotation_discovery_briefing_packet/1",
+      "contract_version": "rotation_discovery_briefing/1",
+      "status": "ROTATION_DISCOVERY_PRESENTED_NO_PROMOTION_AUTHORITY",
+      "authority": {
+        "briefing_read_model_only": true,
+        "importance_ranking_authorized": false,
+        "interpretation_authorized": false,
+        "candidate_ranking_authorized": false,
+        "stage_promotion_authorized": false,
+        "action_generation_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "required_fields": [
+        "schema_version",
+        "contract_version",
+        "slot",
+        "generated_at",
+        "status",
+        "rotation",
+        "discovery",
+        "summary",
+        "authority",
+        "unresolved_boundaries",
+        "packet_sha256"
+      ],
+      "source_time_field": "generated_at"
+    },
+    "RULE": {
+      "schema_version": "deterministic_rule_evaluation_packet/1",
+      "contract_version": "deterministic_rule_evaluator/1",
+      "status": "BOUNDARY_CLASSIFIED_PASS_FAIL_NOT_AUTHORIZED",
+      "authority": {
+        "boundary_classification_only": true,
+        "evidence_interpretation_authorized": false,
+        "threshold_application_authorized": false,
+        "pass_fail_authorized": false,
+        "downstream_action_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "required_fields": [
+        "schema_version",
+        "contract_version",
+        "status",
+        "binding_set_id",
+        "summary",
+        "rules",
+        "lineage",
+        "authority",
+        "unresolved_boundaries",
+        "packet_sha256"
+      ],
+      "source_time_field": null
+    },
+    "PORTFOLIO_BUCKET": {
+      "schema_version": "bucket_membership_packet/1",
+      "contract_version": "bucket_membership/1",
+      "status": "MEMBERSHIP_VALIDATED_EXPLICIT_ONLY",
+      "authority": {
+        "membership_registry_validation_only": true,
+        "repository_default_policy_authorized": false,
+        "automatic_assignment_authorized": false,
+        "bucket_limit_authorized": false,
+        "position_sizing_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "required_fields": [
+        "schema_version",
+        "contract_version",
+        "status",
+        "as_of_date",
+        "assignment_set_id",
+        "summary",
+        "bucket_definitions",
+        "assignment_history",
+        "active_memberships",
+        "lineage",
+        "authority",
+        "unresolved_boundaries",
+        "packet_sha256"
+      ],
+      "source_time_field": "as_of_date"
+    },
+    "PORTFOLIO_CURRENCY": {
+      "schema_version": "currency_exposure_packet/1",
+      "contract_version": "currency_exposure/1",
+      "status": "RAW_QUOTE_CURRENCY_EXPOSURE_ONLY",
+      "authority": {
+        "raw_currency_exposure_aggregation_only": true,
+        "fx_conversion_authorized": false,
+        "cross_currency_total_authorized": false,
+        "exposure_limit_authorized": false,
+        "position_sizing_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "required_fields": [
+        "schema_version",
+        "contract_version",
+        "status",
+        "as_of_date",
+        "available_at",
+        "snapshot_id",
+        "summary",
+        "positions",
+        "quote_currency_exposures",
+        "lineage",
+        "authority",
+        "unresolved_boundaries",
+        "packet_sha256"
+      ],
+      "source_time_field": "available_at"
+    },
+    "ACTION_BOUNDARY": {
+      "schema_version": "ready_signal_order_boundary_packet/1",
+      "contract_version": "ready_signal_order_boundary/1",
+      "status": "ACTION_BOUNDARY_ENFORCED_NO_ACTION_AUTHORITY",
+      "authority": {
+        "boundary_enforcement_only": true,
+        "ready_to_entry_translation_authorized": false,
+        "signal_to_order_translation_authorized": false,
+        "entry_trigger_authorized": false,
+        "order_authorized": false,
+        "position_sizing_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "required_fields": [
+        "schema_version",
+        "contract_version",
+        "status",
+        "packet_id",
+        "as_of_utc",
+        "summary",
+        "subjects",
+        "lineage",
+        "authority",
+        "unresolved_boundaries",
+        "packet_sha256"
+      ],
+      "source_time_field": "as_of_utc"
+    }
+  },
+  "authority": {
+    "daily_decision_assembly_only": true,
+    "source_interpretation_authorized": false,
+    "stage_promotion_authorized": false,
+    "rule_pass_fail_authorized": false,
+    "portfolio_sizing_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
