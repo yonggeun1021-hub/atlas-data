@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "contract_version": "bear_hedge_risk_budget/1",
+  "input_schema_version": "bear_hedge_budget_set/1",
+  "output_schema_version": "bear_hedge_budget_packet/1",
+  "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_BUDGET_RATIFIED",
+  "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
+  "effective_interval": "[valid_from, valid_to)",
+  "allowed_scope_types": [
+    "MARKET",
+    "PORTFOLIO_TOTAL"
+  ],
+  "allowed_scope_ids": [
+    "CRYPTO",
+    "GLOBAL",
+    "KOREA",
+    "US"
+  ],
+  "budget_unit": "NAV_FRACTION",
+  "long_budget_separation": "EXACT_DISTINCT_SHA_REQUIRED",
+  "input_authority": {
+    "budget_definition_authorized": true,
+    "automatic_budget_allocation_authorized": false,
+    "hedge_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "budget_registry_validation_only": true,
+    "repository_default_budget_authorized": false,
+    "automatic_budget_allocation_authorized": false,
+    "hedge_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

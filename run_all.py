@@ -471,6 +471,11 @@ APPROVED_TESTS = [
     #   evidence를 exact hash로 검증하되 저장소 default·자동선택·sizing은 금지한다.
     #   ⛔ instrument 추천/threshold/order/Production/trading 및 tracked output 없음.
     "test/test_hedge_instrument_eligibility.py",
+    # ★ P6-03 — explicit CIO-ratified Bear/Hedge risk-budget registry.
+    #   portfolio/long budget exact distinct SHA와 loss/exposure/horizon/eligibility
+    #   lineage를 검증하되 숫자를 발명하거나 usage·sizing·order를 만들지 않는다.
+    #   ⛔ default budget/allocation/sizing/order/Production/trading 없음.
+    "test/test_bear_hedge_risk_budget.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
