@@ -125,22 +125,36 @@ evidence past this simply by not implementing its own guard:
   was generated did not exist yet at generation time.
 - The row's own `generated_at` -- which several real sensors set to a
   genuine, independent capture/observation timestamp rather than the
-  packet's own invocation time (`KOFIA_FIRST_SEEN`: `captured_at_utc`;
-  `DART_FILING_CONTENT`/`SEC_FILING_CONTENT`: `observed_at_utc`;
-  `KRX_POST_CLOSE`: its own `generated_at_kst`) -- must not be after the
-  packet's own `generated_at` either.
+  packet's own invocation time -- must not be after the packet's own
+  `generated_at` either.
+
+That per-sensor `generated_at` is wired to a real, on-disk retrieval
+timestamp, not left null: `KOFIA_FIRST_SEEN` uses `captured_at_utc` from
+its own `_observation.json`; `DART_FILING_CONTENT`/`SEC_FILING_CONTENT`
+use `observed_at_utc` from their status file; `KRX_POST_CLOSE` uses its
+own `generated_at_kst`; and `BTC_TREND`/`BTC_RISK`/
+`STABLECOIN_NET_ISSUANCE`/`CRYPTO_BREADTH`/`US_BREADTH_MEMBERSHIP` read
+the real `_downloaded_at.txt` every one of these collectors writes
+alongside its raw capture (`_read_downloaded_at()`) -- the actual UTC
+instant the source was fetched, often hours before the packet's own
+`generated_at`. If that file is genuinely absent, the component is
+downgraded to `DEGRADED`/`DOWNLOADED_AT_MISSING` rather than silently
+promoted to `READY` with an unknown temporal basis
+(`_downloaded_at_guard`).
 
 A violating row is downgraded to `DATA_BLOCKED` rather than promoted to a
 decision-ready status, *before* `UNIFIED_DECISION`/`ACTION_RISK_PORTFOLIO_
 SUMMARY` are built, so neither aggregator can ever consume the smuggled
 value even transiently within a single `build_packet()` call
 (`test_temporal_boundary_applies_before_unified_decision_and_action_risk_
-summary`). Every real source's `available_at` is null today (unratified)
-and no real sensor's own capture/observation timestamp has ever exceeded
-the packet's `generated_at`, so this is defense-in-depth rather than
-something live evidence currently triggers; see
-`test_temporal_boundary_rejects_available_at_after_generated_at` for the
-monkeypatched proof that the mechanism itself works end to end.
+summary`). This is real, live-triggering behaviour today, not merely
+defense-in-depth: this repo's own real `BTC_TREND`/`STABLECOIN_NET_
+ISSUANCE` captures for a given `decision_date` are genuinely fetched
+several hours into that day, so a packet claiming `generated_at` of
+midnight UTC that same day correctly sees them as `DATA_BLOCKED`
+(`test_source_retrieval_time_after_generated_at_is_not_promoted_to_
+ready`); see `test_temporal_boundary_rejects_available_at_after_
+generated_at` for the `available_at`-specific proof.
 
 ## Determinism and publication
 
@@ -169,23 +183,46 @@ them:
 
 The actual fix: **freeze the input, not the output.** `build_packet()`
 always populates `packet["frozen_sources"]` with the exact raw snapshot
-`STEP0_READ_MODEL_HEALTH`/`DART_FILING_CONTENT`/`SEC_FILING_CONTENT` (and,
-transitively through `STEP0_READ_MODEL_HEALTH`'s own snapshot,
-`KRX_PREOPEN_COMPACT`, which is derived purely from it) were built from --
-whether building fresh from live state or replaying a persisted packet.
+every `FROZEN_SOURCE_COMPONENTS` row was built from -- whether building
+fresh from live state or replaying a persisted packet.
 `validate_packet()` feeds that same, packet-embedded `frozen_sources` back
-into a fresh `build_packet()` call (`FROZEN_SOURCE_COMPONENTS`), so these
-rows are re-derived from data that is now part of the very packet being
-validated, never from the live, mutable `data/` pointer. This is a genuine,
-independent re-derivation, not a blind acceptance of the persisted row: a
-semantic tamper of the row itself (leaving `frozen_sources` untouched)
-still fails, because the rebuild never reads the tampered row as its input
--- it re-derives from `frozen_sources`, which the tamper never touched.
-Because of this, these components are re-derivable forever, independent of
-today's rolling pointer state, with no live `data/` access and no
-monkeypatch required at validation time
+into a fresh `build_packet()` call, so these rows are re-derived from data
+that is now part of the very packet being validated, never from live,
+current-moment state. This is a genuine, independent re-derivation, not a
+blind acceptance of the persisted row: a semantic tamper of the row itself
+(leaving `frozen_sources` untouched) still fails, because the rebuild
+never reads the tampered row as its input -- it re-derives from
+`frozen_sources`, which the tamper never touched.
+
+`FROZEN_SOURCE_COMPONENTS` covers two distinct kinds of staleness:
+
+- `STEP0_READ_MODEL_HEALTH`/`DART_FILING_CONTENT`/`SEC_FILING_CONTENT`
+  (and, transitively through `STEP0_READ_MODEL_HEALTH`'s own snapshot,
+  `KRX_PREOPEN_COMPACT`) read `data/briefing_status.json`'s inputs and
+  `data/latest_{dart,sec}_content.json` -- *mutable rolling pointer* files
+  the collector workflow overwrites every cycle with no per-date archive
+  behind them. Their frozen snapshot is the raw fetched payload itself.
+- `KOFIA_FIRST_SEEN`/`US_BREADTH_MEMBERSHIP`/`BTC_TREND`/`BTC_RISK`/
+  `STABLECOIN_NET_ISSUANCE`/`CRYPTO_BREADTH` read a genuinely immutable,
+  append-only, per-date evidence archive -- once present, its *content*
+  never changes. What can still change between build time and a later
+  revalidation is *presence*: a directory that does not exist yet at build
+  time (correctly `DATA_BLOCKED`) can be created later the same day, and
+  re-deriving an old revision after that would wrongly promote it to
+  `READY` -- not because the immutable content changed, but because
+  presence/absence itself is not retroactively knowable without recording
+  it. Their frozen snapshot is therefore just the presence/absence fact
+  (plus, once present, the resolved directory name and its
+  `_downloaded_at.txt` value) -- no content digest of the immutable bytes
+  is needed
+  (`test_evidence_that_arrives_after_build_time_never_flips_an_old_data_
+  blocked_revision`).
+
+Because of this, these nine components are re-derivable forever,
+independent of live/current-moment state, with no live `data/` access and
+no monkeypatch required at validation time
 (`test_step0_revisions_validate_across_a_rolling_pointer_change_without_
-fault_injection`). All four are marked `validated: true`, like every other
+fault_injection`). All nine are marked `validated: true`, like every other
 component, and there is no "cannot be independently revalidated" boundary
 in `unresolved_boundaries` any more.
 
