@@ -523,7 +523,256 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    """Validate complete v1 output semantics without inventing omitted dates."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "measurement", "market",
+        "as_of_date", "status", "window_id", "lookback_calendar_days",
+        "rotation_policy", "rotation_policy_effective", "ranking_method",
+        "top_groups", "bottom_groups", "bucket_observations",
+        "sector_chain_layer", "lineage", "authority", "unresolved_boundaries",
+        "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise CryptoRotationError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("measurement") != contract["measurement"]
+        or packet.get("market") != "CRYPTO"
+    ):
+        raise CryptoRotationError("OUTPUT_IDENTITY_INVALID")
+    as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    window_id = packet.get("window_id")
+    if window_id not in contract["allowed_window_ids"]:
+        raise CryptoRotationError("OUTPUT_WINDOW_INVALID")
+    expected_lookback = {"pilot_7d": 7, "primary_30d": 30}[window_id]
+    if packet.get("lookback_calendar_days") != expected_lookback:
+        raise CryptoRotationError("OUTPUT_LOOKBACK_MISMATCH")
+
+    policy = packet.get("rotation_policy")
+    policy_fields = {
+        "schema_version", "policy_id", "approval_status", "ratified_by",
+        "ratified_at_utc", "effective_from", "effective_to", "window_id",
+        "bucket_ids", "universe_policy_sha256", "leadership_policy_sha256",
+        "taxonomy_policy_sha256", "ranking_metric", "ranking_order", "tie_break",
+        "top_count", "bottom_count", "maximum_calendar_gap_days",
+    }
+    if not isinstance(policy, dict) or set(policy) != policy_fields:
+        raise CryptoRotationError("OUTPUT_POLICY_FIELDS_MISMATCH")
+    if policy.get("schema_version") != POLICY_SCHEMA_VERSION:
+        raise CryptoRotationError("OUTPUT_POLICY_SCHEMA_MISMATCH")
+    _token(policy.get("policy_id"), "OUTPUT_POLICY_ID_INVALID")
+    approval = policy.get("approval_status")
+    if approval not in {"RATIFIED", "UNRATIFIED"}:
+        raise CryptoRotationError("OUTPUT_POLICY_STATUS_INVALID")
+    effective_from = _date(
+        policy.get("effective_from"), "OUTPUT_POLICY_EFFECTIVE_FROM_INVALID"
+    )
+    effective_to = (
+        None
+        if policy.get("effective_to") is None
+        else _date(policy["effective_to"], "OUTPUT_POLICY_EFFECTIVE_TO_INVALID")
+    )
+    if effective_to is not None and effective_to <= effective_from:
+        raise CryptoRotationError("OUTPUT_POLICY_EFFECTIVE_TO_INVALID")
+    if (
+        policy.get("window_id") != window_id
+        or policy.get("bucket_ids") != contract["bucket_ids"]
+        or policy.get("ranking_metric") != contract["ranking_metric"]
+        or policy.get("ranking_order") != contract["ranking_order"]
+        or policy.get("tie_break") != contract["tie_break"]
+    ):
+        raise CryptoRotationError("OUTPUT_POLICY_BINDING_INVALID")
+    for field in (
+        "universe_policy_sha256", "leadership_policy_sha256",
+        "taxonomy_policy_sha256",
+    ):
+        _sha(policy.get(field), f"OUTPUT_POLICY_SHA_INVALID:{field}")
+    top_count = _positive_int(policy.get("top_count"), "OUTPUT_TOP_COUNT_INVALID")
+    bottom_count = _positive_int(
+        policy.get("bottom_count"), "OUTPUT_BOTTOM_COUNT_INVALID"
+    )
+    _positive_int(
+        policy.get("maximum_calendar_gap_days"), "OUTPUT_MAXIMUM_GAP_INVALID"
+    )
+    if top_count + bottom_count > len(contract["bucket_ids"]):
+        raise CryptoRotationError("OUTPUT_POLICY_BUCKETS_OVERLAP")
+    if approval == "UNRATIFIED":
+        if policy.get("ratified_by") is not None or policy.get("ratified_at_utc") is not None:
+            raise CryptoRotationError("OUTPUT_UNRATIFIED_PROOF_FORBIDDEN")
+    else:
+        if (
+            not isinstance(policy.get("ratified_by"), str)
+            or not policy["ratified_by"].strip()
+            or not isinstance(policy.get("ratified_at_utc"), str)
+            or not policy["ratified_at_utc"].endswith("Z")
+        ):
+            raise CryptoRotationError("OUTPUT_RATIFICATION_PROOF_INVALID")
+        _timestamp(policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID")
+    effective = packet.get("rotation_policy_effective")
+    if type(effective) is not bool:
+        raise CryptoRotationError("OUTPUT_POLICY_EFFECTIVE_INVALID")
+    current_date_eligible = (
+        effective_from <= as_of and (effective_to is None or as_of < effective_to)
+    )
+    if effective and (approval != "RATIFIED" or not current_date_eligible):
+        raise CryptoRotationError("OUTPUT_POLICY_EFFECTIVE_MISMATCH")
+
+    raw_rows = packet.get("bucket_observations")
+    row_fields = {
+        "bucket_id", "prior_relative_strength_vs_btc",
+        "current_relative_strength_vs_btc", "relative_strength_change",
+        "prior_rank", "current_rank", "rank_change", "prior_bucket",
+        "current_bucket", "bucket_transition", "p2_state",
+    }
+    if not isinstance(raw_rows, list) or len(raw_rows) != len(contract["bucket_ids"]):
+        raise CryptoRotationError("OUTPUT_BUCKET_OBSERVATIONS_INVALID")
+    rows = []
+    places = contract["output_decimal_places"]
+    for row in raw_rows:
+        if not isinstance(row, dict) or set(row) != row_fields:
+            raise CryptoRotationError("OUTPUT_BUCKET_FIELDS_MISMATCH")
+        bucket_id = row.get("bucket_id")
+        if bucket_id not in contract["bucket_ids"]:
+            raise CryptoRotationError("OUTPUT_BUCKET_ID_INVALID")
+        prior = _decimal(
+            row.get("prior_relative_strength_vs_btc"),
+            f"OUTPUT_PRIOR_RELATIVE_STRENGTH_INVALID:{bucket_id}",
+        )
+        current = _decimal(
+            row.get("current_relative_strength_vs_btc"),
+            f"OUTPUT_CURRENT_RELATIVE_STRENGTH_INVALID:{bucket_id}",
+        )
+        if (
+            prior <= Decimal(-1)
+            or current <= Decimal(-1)
+            or row["prior_relative_strength_vs_btc"] != _render(prior, places)
+            or row["current_relative_strength_vs_btc"] != _render(current, places)
+            or row.get("relative_strength_change") != _render(current - prior, places)
+            or row.get("p2_state") != "UNDEFINED_PENDING_P2_05"
+            or (bucket_id == "BTC" and (prior != 0 or current != 0))
+        ):
+            raise CryptoRotationError(
+                f"OUTPUT_BUCKET_DERIVATION_MISMATCH:{bucket_id}"
+            )
+        rows.append({"bucket_id": bucket_id, "prior": prior, "current": current,
+                     "row": row})
+    if [item["bucket_id"] for item in rows] != contract["bucket_ids"]:
+        raise CryptoRotationError("OUTPUT_BUCKET_ORDER_MISMATCH")
+    prior_ranked = [
+        item["bucket_id"]
+        for item in sorted(rows, key=lambda item: (-item["prior"], item["bucket_id"]))
+    ]
+    current_ranked = [
+        item["bucket_id"]
+        for item in sorted(rows, key=lambda item: (-item["current"], item["bucket_id"]))
+    ]
+    if effective:
+        prior_ranks = {
+            bucket_id: index + 1 for index, bucket_id in enumerate(prior_ranked)
+        }
+        current_ranks = {
+            bucket_id: index + 1 for index, bucket_id in enumerate(current_ranked)
+        }
+        prior_buckets = _buckets(prior_ranked, top_count, bottom_count)
+        current_buckets = _buckets(current_ranked, top_count, bottom_count)
+        for item in rows:
+            row = item["row"]
+            bucket_id = item["bucket_id"]
+            expected = {
+                "prior_rank": prior_ranks[bucket_id],
+                "current_rank": current_ranks[bucket_id],
+                "rank_change": prior_ranks[bucket_id] - current_ranks[bucket_id],
+                "prior_bucket": prior_buckets[bucket_id],
+                "current_bucket": current_buckets[bucket_id],
+                "bucket_transition": (
+                    f"{prior_buckets[bucket_id]}_TO_{current_buckets[bucket_id]}"
+                ),
+            }
+            if any(row.get(key) != value for key, value in expected.items()):
+                raise CryptoRotationError(
+                    f"OUTPUT_RANK_BUCKET_MISMATCH:{bucket_id}"
+                )
+        expected_ranking = {
+            "metric": contract["ranking_metric"],
+            "order": contract["ranking_order"],
+            "tie_break": contract["tie_break"],
+        }
+        if (
+            packet.get("status") != "ROTATION_BUCKETS_OBSERVED"
+            or packet.get("ranking_method") != expected_ranking
+            or packet.get("top_groups") != current_ranked[:top_count]
+            or packet.get("bottom_groups")
+            != list(reversed(current_ranked[-bottom_count:]))
+        ):
+            raise CryptoRotationError("OUTPUT_RANKING_SUMMARY_MISMATCH")
+    else:
+        for item in rows:
+            if any(
+                item["row"].get(key) is not None
+                for key in (
+                    "prior_rank", "current_rank", "rank_change", "prior_bucket",
+                    "current_bucket", "bucket_transition",
+                )
+            ):
+                raise CryptoRotationError("OUTPUT_UNAUTHORIZED_RANKING")
+        if (
+            packet.get("status") != "POLICY_NOT_EFFECTIVE"
+            or packet.get("ranking_method") is not None
+            or packet.get("top_groups") != []
+            or packet.get("bottom_groups") != []
+        ):
+            raise CryptoRotationError("OUTPUT_INEFFECTIVE_POLICY_BOUNDARY_MISMATCH")
+    if packet.get("sector_chain_layer") != {
+        "status": "UNKNOWN",
+        "ranking_input_authorized": False,
+        "reason": "GROUP_COVERAGE_POLICY_UNRATIFIED",
+    }:
+        raise CryptoRotationError("OUTPUT_SECTOR_CHAIN_BOUNDARY_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "prior_upstream_packet_sha256", "current_upstream_packet_sha256",
+        "rotation_policy_sha256", "universe_policy_sha256",
+        "leadership_policy_sha256", "taxonomy_policy_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise CryptoRotationError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    for key in lineage_fields:
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if (
+        lineage["rotation_policy_sha256"] != payload_sha256(policy)
+        or lineage["universe_policy_sha256"] != policy["universe_policy_sha256"]
+        or lineage["leadership_policy_sha256"] != policy["leadership_policy_sha256"]
+        or lineage["taxonomy_policy_sha256"] != policy["taxonomy_policy_sha256"]
+    ):
+        raise CryptoRotationError("OUTPUT_LINEAGE_BINDING_MISMATCH")
+    expected_authority = copy.deepcopy(contract["authority"]) | {
+        "bucket_ranking_authorized": effective,
+        "top_bottom_bucket_authorized": effective,
+        "bucket_transition_authorized": effective,
+    }
+    if packet.get("authority") != expected_authority:
+        raise CryptoRotationError("OUTPUT_AUTHORITY_MISMATCH")
+    if packet.get("unresolved_boundaries") != [
+        "SECTOR_CHAIN_GROUP_COVERAGE_POLICY_UNRATIFIED",
+        "SECTOR_CHAIN_ROTATION_NOT_IMPLEMENTED",
+        "P2_STATE_VOCABULARY_PENDING_P2_05",
+        "ROTATION_LEDGER_NOT_IMPLEMENTED",
+        "BRIEFING_INTEGRATION_NOT_IMPLEMENTED",
+        "PRODUCTION_NOT_AUTHORIZED",
+    ]:
+        raise CryptoRotationError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("payload_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("payload_sha256")
+    if payload_sha256(normalized) != digest:
+        raise CryptoRotationError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

@@ -40,6 +40,11 @@ def write_json(path, payload):
     return path
 
 
+def rehash_output(packet):
+    packet.pop("payload_sha256", None)
+    packet["payload_sha256"] = MODULE.payload_sha256(packet)
+
+
 def bucket_record(bucket_id, relative_strength, lookback):
     return {
         "group_id": bucket_id,
@@ -411,6 +416,40 @@ class CryptoRotationTest(unittest.TestCase):
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
         digest = first.pop("payload_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
+
+    def test_output_validator_rejects_self_rehashed_rank_tamper(self):
+        packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        packet["bucket_observations"][0]["current_rank"] = 3
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            MODULE.CryptoRotationError, "OUTPUT_RANK_BUCKET_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_output_validator_rejects_self_rehashed_delta_tamper(self):
+        packet = MODULE.build_packet(
+            input_packet(),
+            policy(approval_status="UNRATIFIED", ratified_by=None, ratified_at_utc=None),
+            CONTRACT,
+        )
+        packet["bucket_observations"][0]["relative_strength_change"] = "0"
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            MODULE.CryptoRotationError, "OUTPUT_BUCKET_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_output_validator_keeps_sector_chain_unknown_after_self_rehash(self):
+        packet = MODULE.build_packet(input_packet(), policy(), CONTRACT)
+        packet["sector_chain_layer"].update({
+            "status": "OBSERVED_UNCLASSIFIED",
+            "ranking_input_authorized": True,
+        })
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            MODULE.CryptoRotationError, "OUTPUT_SECTOR_CHAIN_BOUNDARY_MISMATCH"
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
 
     def test_contract_tamper_and_policy_method_drift_fail_closed(self):
         contract = copy.deepcopy(CONTRACT)
