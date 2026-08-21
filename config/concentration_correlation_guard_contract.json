@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "concentration_correlation_guard/1",
+  "policy_schema_version": "concentration_correlation_policy/1",
+  "input_schema_version": "concentration_correlation_input/1",
+  "output_schema_version": "concentration_correlation_packet/1",
+  "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
+  "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
+  "position_basis": "LONG_NAV_FRACTION",
+  "theme_allocation_mode": "EXPLICIT_FRACTIONAL",
+  "correlation_graph_rule": "POSITIVE_CORRELATION_AT_OR_ABOVE_RATIFIED_THRESHOLD",
+  "pair_coverage": "COMPLETE_UNORDERED_ACTIVE_ASSET_PAIRS",
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "input_authority": {
+    "guard_evaluation_input_authorized": true,
+    "automatic_position_reduction_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "policy_authority": {
+    "concentration_limit_definition_authorized": true,
+    "correlation_method_definition_authorized": true,
+    "automatic_position_reduction_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "concentration_correlation_evaluation_only": true,
+    "repository_default_policy_authorized": false,
+    "automatic_position_reduction_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
