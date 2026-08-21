@@ -30,7 +30,11 @@ evidence/us_breadth/raw/{SOURCE_DATE}/
 The directory date comes from both source footers, not from the runner clock.
 The source does not specify a timezone for that footer, so Atlas preserves the
 raw value and does not invent one.  A second capture for the same source date is
-skipped and incomplete existing directories fail instead of being overwritten.
+skipped only after provider-free bundle validation. That validation reparses
+both raw source files, exact-matches the manifest, requires the closed six-file
+inventory, and rebuilds `_membership_diff.json` from the current and preceding
+snapshot. Missing, extra, non-canonical, or semantically changed files fail
+instead of being silently reused or overwritten.
 
 Primary source definitions:
 
@@ -90,6 +94,9 @@ breadth—therefore remains open even after this capture workflow goes live.
 python3 test/test_us_breadth_forward.py
 python3 .github/scripts/us_breadth_forward.py validate \
   evidence/us_breadth/raw/YYYY-MM-DD
+python3 .github/scripts/us_breadth_forward.py validate-bundle \
+  evidence/us_breadth/raw/YYYY-MM-DD \
+  --previous-dir evidence/us_breadth/raw/PREVIOUS-YYYY-MM-DD
 ```
 
 No helper command fetches data.  Network access exists only in the dedicated

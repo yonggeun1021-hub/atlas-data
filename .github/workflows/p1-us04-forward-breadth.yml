@@ -58,8 +58,17 @@ jobs:
           SOURCE_DATE=$(python3 .github/scripts/us_breadth_forward.py \
             source-date "$CAPTURE")
           DIR="evidence/us_breadth/raw/$SOURCE_DATE"
+          PREVIOUS=$(find evidence/us_breadth/raw -mindepth 1 -maxdepth 1 \
+            -type d -name '????-??-??' 2>/dev/null | LC_ALL=C sort | \
+            awk -v current="$DIR" '$0 < current' | tail -n 1 || true)
           echo "snapshot_date=$SOURCE_DATE" >> "$GITHUB_OUTPUT"
           if [ -f "$DIR/_manifest.json" ]; then
+            if [ -n "$PREVIOUS" ]; then
+              python3 .github/scripts/us_breadth_forward.py validate-bundle \
+                "$DIR" --previous-dir "$PREVIOUS"
+            else
+              python3 .github/scripts/us_breadth_forward.py validate-bundle "$DIR"
+            fi
             echo "이미 $SOURCE_DATE 스냅샷이 존재합니다. 덮어쓰지 않습니다."
             echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
             exit 0
@@ -75,8 +84,6 @@ jobs:
             --collector-version us-breadth-forward-capture/v1
           python3 .github/scripts/us_breadth_forward.py validate "$DATED"
 
-          PREVIOUS=$(find evidence/us_breadth/raw -mindepth 1 -maxdepth 1 \
-            -type d -name '????-??-??' 2>/dev/null | sort | tail -n 1 || true)
           if [ -n "$PREVIOUS" ]; then
             python3 .github/scripts/us_breadth_forward.py diff \
               --previous-dir "$PREVIOUS" --current-dir "$DATED" \
@@ -84,6 +91,12 @@ jobs:
           else
             python3 .github/scripts/us_breadth_forward.py diff \
               --current-dir "$DATED" --out "$DATED/_membership_diff.json"
+          fi
+          if [ -n "$PREVIOUS" ]; then
+            python3 .github/scripts/us_breadth_forward.py validate-bundle \
+              "$DATED" --previous-dir "$PREVIOUS"
+          else
+            python3 .github/scripts/us_breadth_forward.py validate-bundle "$DATED"
           fi
 
           mkdir -p "$(dirname "$DIR")"

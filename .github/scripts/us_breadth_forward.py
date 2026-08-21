@@ -434,6 +434,101 @@ def build_membership_diff(
     return result
 
 
+def validate_snapshot_bundle(
+    snapshot_dir: Path,
+    previous_dir: Path | None = None,
+    contract: dict | None = None,
+) -> dict:
+    """Revalidate an immutable snapshot and its exact membership diff."""
+
+    contract = load_contract() if contract is None else contract
+    snapshot_dir = Path(snapshot_dir)
+    expected_files = {
+        "_downloaded_at.txt",
+        "_sha256.txt",
+        "_manifest.json",
+        "_membership_diff.json",
+        *(source["raw_file"] for source in contract["sources"]),
+    }
+    try:
+        children = list(snapshot_dir.iterdir())
+    except OSError as exc:
+        fail("BUNDLE_INVENTORY_INVALID", str(exc))
+    actual_files = {child.name for child in children}
+    if actual_files != expected_files:
+        fail(
+            "BUNDLE_INVENTORY_MISMATCH",
+            f"expected={sorted(expected_files)} actual={sorted(actual_files)}",
+        )
+    if any(not child.is_file() or child.is_symlink() for child in children):
+        fail("BUNDLE_INVENTORY_INVALID", "regular files only")
+
+    current = validate_manifest(snapshot_dir, contract)
+    manifest_path = snapshot_dir / "_manifest.json"
+    try:
+        manifest_raw = manifest_path.read_text(encoding="utf-8")
+        manifest = json.loads(manifest_raw)
+        downloaded_raw = (snapshot_dir / "_downloaded_at.txt").read_text(
+            encoding="utf-8"
+        )
+        checksum_raw = (snapshot_dir / "_sha256.txt").read_text(
+            encoding="utf-8"
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        fail("BUNDLE_METADATA_INVALID", str(exc))
+    expected_manifest_value = expected_manifest(
+        current, contract, manifest["collector_version"]
+    )
+    expected_manifest_raw = (
+        json.dumps(
+            expected_manifest_value,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    if manifest_raw != expected_manifest_raw:
+        fail("MANIFEST_BYTES_MISMATCH", snapshot_dir.name)
+    if downloaded_raw != current["fetched_at_utc"] + "\n":
+        fail("DOWNLOADED_AT_BYTES_MISMATCH", snapshot_dir.name)
+    expected_checksum_raw = "".join(
+        f"{endpoint['response_sha256']}  {endpoint['raw_file'].removesuffix('.gz')}\n"
+        for endpoint in current["endpoints"]
+    )
+    if checksum_raw != expected_checksum_raw:
+        fail("CHECKSUM_BYTES_MISMATCH", snapshot_dir.name)
+    previous = None
+    if previous_dir is not None:
+        previous_dir = Path(previous_dir)
+        if previous_dir.resolve() == snapshot_dir.resolve():
+            fail("SNAPSHOT_PAIR_NOT_ORDERED", "previous equals current")
+        previous = validate_manifest(previous_dir, contract)
+    expected_diff = build_membership_diff(current, previous, contract)
+    path = snapshot_dir / "_membership_diff.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+        actual_diff = json.loads(
+            raw,
+            parse_constant=lambda value: fail(
+                "MEMBERSHIP_DIFF_INVALID", f"constant={value}"
+            ),
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        fail("MEMBERSHIP_DIFF_INVALID", str(exc))
+    if not isinstance(actual_diff, dict):
+        fail("MEMBERSHIP_DIFF_INVALID", "root must be object")
+    if actual_diff != expected_diff:
+        fail("MEMBERSHIP_DIFF_MISMATCH", snapshot_dir.name)
+    expected_bytes = (
+        json.dumps(expected_diff, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n"
+    )
+    if raw != expected_bytes:
+        fail("MEMBERSHIP_DIFF_BYTES_MISMATCH", snapshot_dir.name)
+    return current
+
+
 def write_json_append_only(payload: dict, target: Path) -> Path:
     target = Path(target)
     if target.exists():
@@ -480,6 +575,10 @@ def run(argv=None) -> int:
     validate = sub.add_parser("validate")
     validate.add_argument("snapshot_dir", type=Path)
 
+    validate_bundle = sub.add_parser("validate-bundle")
+    validate_bundle.add_argument("snapshot_dir", type=Path)
+    validate_bundle.add_argument("--previous-dir", type=Path)
+
     diff = sub.add_parser("diff")
     diff.add_argument("--current-dir", type=Path, required=True)
     diff.add_argument("--previous-dir", type=Path)
@@ -499,6 +598,19 @@ def run(argv=None) -> int:
             "US breadth forward snapshot PASS"
             f" date={core['snapshot_date']}"
             f" members={len(core['members'])}"
+            " price_breadth=UNKNOWN_PRICE_SOURCE_UNAVAILABLE"
+        )
+        return 0
+    if args.command == "validate-bundle":
+        core = validate_snapshot_bundle(
+            args.snapshot_dir,
+            previous_dir=args.previous_dir,
+        )
+        print(
+            "US breadth forward bundle PASS"
+            f" date={core['snapshot_date']}"
+            f" members={len(core['members'])}"
+            " membership_diff=REPRODUCED"
             " price_breadth=UNKNOWN_PRICE_SOURCE_UNAVAILABLE"
         )
         return 0
