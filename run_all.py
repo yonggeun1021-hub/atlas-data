@@ -144,6 +144,7 @@ APPROVED_TESTS = [
     # ★ P2-04 — external RATIFIED policy-gated BTC/ETH/ALT rotation transform.
     #   selected 7d/30d Crypto Leadership window 두 시점에서 deterministic bucket
     #   rank·TOP/MIDDLE/BOTTOM transition만 만든다. sector/chain은 UNKNOWN 유지.
+    #   output rank/bucket/transition/UNKNOWN 경계를 재검증해 self-rehash를 거부한다.
     #   asset rank/P2-05 state/Regime/Stage/Production/trading 권한은 닫는다.
     #   ⛔ live network/tracked factor 없음 — upstream temp packets only.
     "test/test_crypto_rotation.py",
