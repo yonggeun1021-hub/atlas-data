@@ -417,9 +417,28 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
     edges_out = sorted(edges, key=lambda item: item["edge_id"])
     memberships_out = sorted(memberships, key=lambda item: item["membership_id"])
     active_nodes = [item for item in nodes_out if _active(item["valid_from"], item["valid_to"], as_of_date)]
+    active_edges = [item for item in edges_out if _active(item["valid_from"], item["valid_to"], as_of_date)]
     active_memberships = [item for item in memberships_out if _active(item["valid_from"], item["valid_to"], as_of_date)]
+    active_covered_markets = sorted({item["market"] for item in active_memberships})
+    # RATIFIED_MARKET_COVERAGE_INCOMPLETE above only proves the ratified
+    # *document* once named both markets somewhere across its full history.
+    # Individual edges/memberships carry their own valid_from/valid_to, which
+    # can lapse or not yet have started independently of the approval's own
+    # effective window. A graph is only truly EFFECTIVE_RATIFIED_GRAPH -- and
+    # only then may it authorize the Global Asset Master membership adapter,
+    # the thing that actually "connects US/KR names into a common Theme
+    # graph" -- when the markets required for ratification are still active
+    # as of as_of_date, with at least one active edge to place them in.
+    # Otherwise this is temporal inactivity, not a document defect, so it
+    # deactivates exactly like a not-yet-effective approval window does
+    # rather than raising.
+    graph_currently_effective = (
+        effective_ratified
+        and bool(active_edges)
+        and active_covered_markets == contract["required_markets_for_ratified_graph"]
+    )
     adapter = []
-    if effective_ratified:
+    if graph_currently_effective:
         adapter = [
             {
                 "adapter_status": contract["membership_adapter_status"],
@@ -441,14 +460,16 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "contract_version": contract["contract_version"], "taxonomy_id": taxonomy_id,
         "as_of_date": as_of_date,
-        "graph_status": "EFFECTIVE_RATIFIED_GRAPH" if effective_ratified else "DRAFT_OR_NOT_EFFECTIVE_GRAPH",
+        "graph_status": "EFFECTIVE_RATIFIED_GRAPH" if graph_currently_effective else "DRAFT_OR_NOT_EFFECTIVE_GRAPH",
         "approval": approval,
         "node_count": len(nodes_out), "edge_count": len(edges_out),
         "membership_count": len(memberships_out),
         "active_node_count": len(active_nodes), "active_membership_count": len(active_memberships),
+        "active_edge_count": len(active_edges),
         "covered_markets": sorted({item["market"] for item in memberships_out}),
+        "active_covered_markets": active_covered_markets,
         "nodes": nodes_out, "edges": edges_out, "memberships": memberships_out,
-        "theme_membership_authorized": effective_ratified,
+        "theme_membership_authorized": graph_currently_effective,
         "global_asset_master_membership_adapter": adapter,
         "policy_status": copy.deepcopy(contract["policy_status"]),
         "authority": copy.deepcopy(contract["authority"]),
