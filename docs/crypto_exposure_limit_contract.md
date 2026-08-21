@@ -22,3 +22,10 @@ can produce `WITHIN_RATIFIED_LIMITS` or `LIMIT_BREACH`. Both are risk checks,
 not reduction, sizing, or order instructions; those outputs stay null/empty
 and Production/trading authority remains false. CLI output inside the
 repository tree is forbidden.
+
+`validate_packet()` rechecks the fixed assessment structure, per-asset identity,
+total exposure and planned-loss sums, result and breach derivation, upstream
+P7-04 status, summary, closed action fields, lineage, authority, and packet
+hash. Self-rehashed semantic drift fails closed. Version 1 does not embed the
+original position, volatility, and policy packets, so standalone validation
+does not claim to reconstruct source values omitted from the output schema.

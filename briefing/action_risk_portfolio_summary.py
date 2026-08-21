@@ -65,6 +65,14 @@ PLANNED_LOSS_BUDGET = _load_portfolio_validator(
     "atlas_planned_loss_for_p806",
     "portfolio/planned_loss_budget.py",
 )
+MARKET_THEME_BUDGET = _load_portfolio_validator(
+    "atlas_market_theme_budget_for_p806",
+    "portfolio/market_theme_exposure_budget.py",
+)
+CRYPTO_EXPOSURE_LIMIT = _load_portfolio_validator(
+    "atlas_crypto_exposure_limit_for_p806",
+    "portfolio/crypto_exposure_limit.py",
+)
 CASH_EXPOSURE_ACTION = _load_portfolio_validator(
     "atlas_cash_exposure_for_p806",
     "portfolio/cash_exposure_action.py",
@@ -374,6 +382,20 @@ def _validate_source(name: str, packet: dict, contract: dict) -> dict:
         except PLANNED_LOSS_BUDGET.PlannedLossBudgetError as exc:
             raise ActionRiskPortfolioSummaryError(
                 f"PLANNED_LOSS_BUDGET_INVALID:{exc}"
+            ) from exc
+    if name == "MARKET_THEME_BUDGET":
+        try:
+            MARKET_THEME_BUDGET.validate_packet(copy.deepcopy(packet))
+        except MARKET_THEME_BUDGET.MarketThemeExposureBudgetError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"MARKET_THEME_BUDGET_INVALID:{exc}"
+            ) from exc
+    if name == "CRYPTO_EXPOSURE_LIMIT":
+        try:
+            CRYPTO_EXPOSURE_LIMIT.validate_packet(copy.deepcopy(packet))
+        except CRYPTO_EXPOSURE_LIMIT.CryptoExposureLimitError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"CRYPTO_EXPOSURE_LIMIT_INVALID:{exc}"
             ) from exc
     if name in P6_VALIDATORS:
         validator = P6_VALIDATORS[name]
