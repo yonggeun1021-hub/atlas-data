@@ -552,6 +552,12 @@ APPROVED_TESTS = [
     #   계산하되 repository default threshold는 없다. stale은 data 소비만 차단한다.
     #   ⛔ feed 선택/ENTRY/EXIT/action/order/Production/trading 및 network 없음.
     "test/test_intraday_freshness.py",
+    # ★ P9-03 — ENTRY / EXIT trigger eligibility audit.
+    #   validated Unified Decision과 intraday freshness를 subject별 연결하지만
+    #   READY·generic signal·fresh quote를 ENTRY/EXIT로 승격하지 않는다.
+    #   모든 eligibility/trigger/action/order는 NOT_EVALUATED/null로 닫는다.
+    #   ⛔ trigger policy/position state/Production/trading 및 live network 없음.
+    "test/test_entry_exit_trigger_eligibility.py",
     # ★ P9-02 — external RATIFIED importance policy + normalized event detector.
     #   SEC/DART/official-news 사건을 exact source/market/event type으로만 매칭해
     #   confirmed IMPORTANT를 승격하고 available_at→detected_at 지연을 측정한다.

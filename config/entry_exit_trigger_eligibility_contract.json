@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract_version": "entry_exit_trigger_eligibility/1",
+  "output_schema_version": "entry_exit_trigger_eligibility_packet/1",
+  "source_contracts": {
+    "UNIFIED_DECISION": {
+      "schema_version": "unified_daily_decision/1",
+      "contract_version": "unified_decision_contract/1",
+      "status": "DAILY_DECISION_ASSEMBLED_NO_ACTION_AUTHORITY",
+      "validator": "decision/unified_decision_contract.py"
+    },
+    "INTRADAY_FRESHNESS": {
+      "schema_version": "intraday_freshness_result/1",
+      "contract_version": "intraday_freshness_guard/1",
+      "status": "FRESHNESS_EVALUATED_NO_ENTRY_AUTHORITY",
+      "validator": "execution/intraday_freshness.py"
+    }
+  },
+  "trigger_kinds": [
+    "ENTRY",
+    "EXIT"
+  ],
+  "evaluation_status": "NOT_EVALUATED",
+  "repository_default_trigger_policy": "ABSENT",
+  "policy_requirement": "EXTERNAL_RATIFIED_TRIGGER_POLICY_REQUIRED",
+  "invariants": [
+    "READY_AND_FRESH_ARE_NECESSARY_NOT_SUFFICIENT_FOR_ENTRY",
+    "GENERIC_SIGNAL_HAS_NO_ENTRY_EXIT_KIND_AUTHORITY",
+    "EXIT_REQUIRES_SEPARATE_POSITION_RULE_AND_TRIGGER_EVIDENCE",
+    "RISK_OR_FRESHNESS_STATE_NEVER_AUTO_GENERATES_ACTION",
+    "TRIGGER_ELIGIBILITY_NEVER_IMPLIES_ORDER"
+  ],
+  "authority": {
+    "structural_eligibility_audit_only": true,
+    "trigger_policy_authorized": false,
+    "signal_kind_interpretation_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exit_eligibility_authorized": false,
+    "action_generation_authorized": false,
+    "position_sizing_authorized": false,
+    "order_generation_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

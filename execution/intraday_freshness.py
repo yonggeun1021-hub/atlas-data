@@ -376,7 +376,7 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
         raise IntradayFreshnessError("OUTPUT_POLICY_TIMING_INVALID")
     if any(
         not isinstance(policy.get(field), dict)
-        or list(policy[field]) != contract["markets"]
+        or set(policy[field]) != set(contract["markets"])
         or any(type(value) is not int or value < 1 for value in policy[field].values())
         for field in (
             "max_provider_age_seconds_by_market",
