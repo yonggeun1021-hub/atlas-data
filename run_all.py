@@ -564,6 +564,12 @@ APPROVED_TESTS = [
     #   routine/unmatched/blocked는 분리하며 repository default policy는 없다.
     #   ⛔ live adapter/notification/action/order/Production/trading 및 network 없음.
     "test/test_important_event_detector.py",
+    # ★ P9-05 — external RATIFIED intraday risk escalation thresholds.
+    #   drawdown/down-gap/spread/relative-volume을 exact observation에서 계산하지만
+    #   ALERT는 evidence일 뿐 reduce/STOP/action/order 후보를 만들지 않는다.
+    #   P9/P7 packet SHA는 lineage only이며 semantic authority가 아니다.
+    #   ⛔ default threshold/live feed/notification/Production/trading 없음.
+    "test/test_intraday_risk_escalation.py",
     # ★ P9-04 — duplicate Action/Order ID guard capability.
     #   same key+payload retry는 block, key/payload 또는 action/order ID 충돌은
     #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
