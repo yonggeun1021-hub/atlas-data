@@ -243,19 +243,24 @@ class DailyOrchestratorTest(unittest.TestCase):
             frozenset({
                 "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
                 "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
-                "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
+                "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
             }),
         )
-        # Built late in the day (not MORNING_GENERATED_AT) so that no real
-        # sensor's own genuine capture/observation timestamp (e.g. KOFIA's
-        # real captured_at_utc, which can legitimately land well into the
-        # KST evening) trips the _enforce_temporal_boundary source-
-        # generated_at check below and confuses this test's focus, which is
-        # frozen-source re-derivability, not the temporal boundary itself
-        # (covered separately).
-        late_generated_at = f"{DECISION_DATE}T23:59:00Z"
+        # Built late in the KST day, on the evening slot (so KRX_POST_CLOSE
+        # is actually fetched too) -- not MORNING_GENERATED_AT or a bare
+        # end-of-UTC-day value, so that no real sensor's own genuine
+        # capture/observation timestamp (KOFIA's real captured_at_utc,
+        # KRX_POST_CLOSE's real observed_at_kst, both of which can
+        # legitimately land well into the KST evening) trips the
+        # _enforce_temporal_boundary source-generated_at check below and
+        # confuses this test's focus, which is frozen-source
+        # re-derivability, not the temporal boundary itself (covered
+        # separately). 14:59:00Z = 23:59:00 KST on DECISION_DATE itself --
+        # after the 18:00 KST evening floor, still the same KST calendar
+        # date, and after every real timestamp this suite's evidence has.
+        late_generated_at = f"{DECISION_DATE}T14:59:00Z"
         boundaries = MODULE.build_packet(
-            "morning", DECISION_DATE, late_generated_at
+            "evening", DECISION_DATE, late_generated_at
         )["unresolved_boundaries"]
         for stale_boundary in (
             "ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER",
@@ -263,7 +268,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         ):
             self.assertNotIn(stale_boundary, boundaries)
 
-        packet = MODULE.build_packet("morning", DECISION_DATE, late_generated_at)
+        packet = MODULE.build_packet("evening", DECISION_DATE, late_generated_at)
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
         self.assertIn("frozen_sources", packet)
         self.assertEqual(set(packet["frozen_sources"]), MODULE.FROZEN_SOURCE_COMPONENTS)
@@ -374,6 +379,89 @@ class DailyOrchestratorTest(unittest.TestCase):
                 component_id,
             )
             self.assertFalse(by_id[component_id]["validated"], component_id)
+
+    def test_krx_post_close_bundle_that_arrives_after_build_time_never_flips_an_old_unknown_revision(
+        self,
+    ):
+        # The same literal scenario as BTC_TREND above, for KRX_POST_CLOSE
+        # specifically: rev-001 published while the bundle for
+        # decision_date does not exist yet (UNKNOWN), the bundle is
+        # created afterward (same-evening arrival), rev-002 published (now
+        # READY) -- and BOTH revisions must still validate with NO fault
+        # injection active, because presence/absence was frozen at each
+        # revision's own build time.
+        evening_generated_at = f"{DECISION_DATE}T14:59:00Z"  # 23:59 KST
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_root = Path(tmp) / "daily_briefing"
+            original_fetch = MODULE._fetch_krx_post_close_snapshot
+
+            def _absent(decision_date):
+                return {"kind": "absent"}
+
+            MODULE._fetch_krx_post_close_snapshot = _absent
+            try:
+                first = MODULE.publish(
+                    "evening", DECISION_DATE, evening_generated_at, evidence_root
+                )
+            finally:
+                MODULE._fetch_krx_post_close_snapshot = original_fetch
+            first_persisted = json.loads((first["path"] / "packet.json").read_text())
+            first_by_id = {
+                row["component_id"]: row for row in first_persisted["components"]
+            }
+            self.assertEqual(first_by_id["KRX_POST_CLOSE"]["status"], "UNKNOWN")
+            self.assertEqual(
+                first_persisted["frozen_sources"]["KRX_POST_CLOSE"]["kind"], "absent"
+            )
+
+            # The real bundle for DECISION_DATE genuinely exists in this
+            # repo -- so a plain, un-monkeypatched republish now sees it.
+            second = MODULE.publish(
+                "evening", DECISION_DATE, f"{DECISION_DATE}T14:59:30Z", evidence_root
+            )
+            second_persisted = json.loads((second["path"] / "packet.json").read_text())
+            second_by_id = {
+                row["component_id"]: row for row in second_persisted["components"]
+            }
+            self.assertTrue(second["created"])
+            self.assertEqual(second_by_id["KRX_POST_CLOSE"]["status"], "READY")
+            self.assertEqual(
+                second_persisted["frozen_sources"]["KRX_POST_CLOSE"]["kind"], "present"
+            )
+
+            # No fault injection active here -- rev-001 must still say
+            # UNKNOWN on independent re-validation, never flipped to READY
+            # just because the bundle exists on disk right now.
+            revalidated_first = MODULE.validate_packet(copy.deepcopy(first_persisted))
+            self.assertEqual(revalidated_first, first_persisted)
+            revalidated_first_by_id = {
+                row["component_id"]: row for row in revalidated_first["components"]
+            }
+            self.assertEqual(revalidated_first_by_id["KRX_POST_CLOSE"]["status"], "UNKNOWN")
+            self.assertEqual(
+                MODULE.validate_packet(copy.deepcopy(second_persisted)), second_persisted
+            )
+
+    def test_krx_post_close_real_observed_at_after_generated_at_is_not_promoted_to_ready(
+        self,
+    ):
+        # Real, un-monkeypatched repro from review: this repo's real
+        # KRX_POST_CLOSE bundle for DECISION_DATE was genuinely observed
+        # (per its own source.json collected_at_utc / symbols/*.json
+        # observed_at_kst) at 18:11 KST. A packet claiming to have been
+        # generated at exactly the 18:00 KST evening floor that same day
+        # must not read those observations as READY -- they did not exist
+        # yet at that moment.
+        packet = MODULE.build_packet(
+            "evening", DECISION_DATE, f"{DECISION_DATE}T09:00:00Z"  # 18:00:00 KST
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        self.assertEqual(by_id["KRX_POST_CLOSE"]["status"], "DATA_BLOCKED")
+        self.assertEqual(
+            by_id["KRX_POST_CLOSE"]["reason"],
+            "SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT",
+        )
+        self.assertFalse(by_id["KRX_POST_CLOSE"]["validated"])
 
     def test_step0_revisions_validate_across_a_rolling_pointer_change_without_fault_injection(
         self,
