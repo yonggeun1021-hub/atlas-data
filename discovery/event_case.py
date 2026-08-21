@@ -33,7 +33,7 @@ import event_classifier as D1                                      # noqa: E402
 CONTRACT_PATH = ROOT / "config" / "event_discovery_case_contract.json"
 CONTRACT_SCHEMA_VERSION = 1
 CASE_SCHEMA_VERSION = "discovery_case/1"
-PACKET_SCHEMA_VERSION = "event_discovery_case_packet/1"
+PACKET_SCHEMA_VERSION = "event_discovery_case_packet/2"
 BINDING_SCHEMA_VERSION = "event_case_evidence_bindings/1"
 EVIDENCE_SCHEMA_VERSION = "event_source_evidence/1"
 
@@ -118,7 +118,7 @@ def _validate_contract(value: dict) -> dict:
     }
     if not isinstance(value, dict) or value.get("schema_version") != CONTRACT_SCHEMA_VERSION:
         raise EventCaseError("CONTRACT_SCHEMA_MISMATCH")
-    if value.get("contract_version") != "event_discovery_case/1":
+    if value.get("contract_version") != "event_discovery_case/2":
         raise EventCaseError("CONTRACT_VERSION_MISMATCH")
     if value.get("case_schema_version") != CASE_SCHEMA_VERSION:
         raise EventCaseError("CASE_SCHEMA_VERSION_MISMATCH")
@@ -415,6 +415,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "source_coverage",
         "authority",
         "inputs",
+        "frozen_sources",
         "summary",
         "cases",
         "excluded_records",
@@ -456,6 +457,19 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     for digest_value in inputs.values():
         if not isinstance(digest_value, str) or SHA256_RE.fullmatch(digest_value) is None:
             raise EventCaseError("OUTPUT_INPUT_SHA256_INVALID")
+
+    frozen = packet.get("frozen_sources")
+    if not isinstance(frozen, dict) or set(frozen) != {"records", "evidence_bindings"}:
+        raise EventCaseError("OUTPUT_FROZEN_SOURCES_FIELDS_MISMATCH")
+    frozen_records = frozen.get("records")
+    frozen_bindings = frozen.get("evidence_bindings")
+    if not isinstance(frozen_records, list) or not isinstance(frozen_bindings, dict):
+        raise EventCaseError("OUTPUT_FROZEN_SOURCES_SHAPE_INVALID")
+    if (
+        payload_sha256(frozen_records) != inputs["d1_records_sha256"]
+        or payload_sha256(frozen_bindings) != inputs["evidence_bindings_sha256"]
+    ):
+        raise EventCaseError("OUTPUT_FROZEN_SOURCES_SHA_MISMATCH")
 
     cases = packet.get("cases")
     if not isinstance(cases, list):
@@ -626,14 +640,48 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     }
     if summary != expected_summary:
         raise EventCaseError("OUTPUT_SUMMARY_DERIVATION_MISMATCH")
+
+    # Final backstop: reconstruct the packet purely from its own frozen
+    # sources, reusing the production body-assembly logic directly (not a
+    # copy of it). Every granular check above already passed, so this
+    # specifically catches a well-formed-looking packet whose persisted
+    # case set, exclusion list, or summary no longer matches what its own
+    # frozen_sources.records/evidence_bindings actually produce -- late-
+    # added evidence, a swapped source binding, or a record/binding
+    # substitution consistent enough to pass field-by-field checks but
+    # not to reproduce the same build. This is what makes source
+    # completeness standalone-reprovable without the caller's original
+    # inputs, even after a consistent self-rehash of packet_sha256/
+    # inputs.
+    try:
+        rebuilt = _build_packet_body(
+            records=copy.deepcopy(frozen_records),
+            evidence_bindings=copy.deepcopy(frozen_bindings),
+            contract=contract,
+        )
+    except EventCaseError as exc:
+        raise EventCaseError(f"OUTPUT_FROZEN_SOURCES_REBUILD_FAILED:{exc}") from exc
+    if any(
+        rebuilt[key] != packet[key]
+        for key in (
+            "binding_set_id", "inputs", "summary", "cases", "excluded_records",
+        )
+    ):
+        raise EventCaseError("OUTPUT_FROZEN_SOURCES_REBUILD_MISMATCH")
     return copy.deepcopy(packet)
 
 
-def build_packet(
-    *, records: list[dict], evidence_bindings: dict, contract: dict | None = None,
+def _build_packet_body(
+    *, records: list[dict], evidence_bindings: dict, contract: dict,
 ) -> dict:
-    """Build deterministic cases from the ratified SEC D1 classification only."""
-    contract = _validate_contract(contract) if contract is not None else load_contract()
+    """Pure packet assembly -- deliberately does not self-validate.
+
+    Shared by build_packet() (which self-validates its own output exactly
+    once) and validate_packet()'s standalone rebuild-from-frozen_sources
+    step. validate_packet() calls this directly, not build_packet(), so
+    that reconstructing a persisted packet from its own frozen sources
+    never recurses through build_packet()'s own validate_packet() call.
+    """
     records_by_key = _index_records(records, contract)
     bindings_by_key = _validate_bindings(evidence_bindings, records_by_key, contract)
 
@@ -707,6 +755,16 @@ def build_packet(
             "d1_records_sha256": payload_sha256(normalized_records),
             "evidence_bindings_sha256": payload_sha256(normalized_bindings),
         },
+        # Minimum sufficient frozen snapshot of exactly the D1 records and
+        # evidence bindings this packet was built from -- both case-
+        # generating and excluded records, and every bound evidence row.
+        # Lets validate_packet() independently reconstruct case set,
+        # exclusion, summary, and lineage from packet-internal sources
+        # alone, instead of trusting the SHA-only `inputs` digests.
+        "frozen_sources": {
+            "records": copy.deepcopy(normalized_records),
+            "evidence_bindings": copy.deepcopy(normalized_bindings),
+        },
         "summary": {
             "source_records": len(normalized_records),
             "cases": len(cases),
@@ -717,6 +775,17 @@ def build_packet(
         "excluded_records": excluded,
     }
     body["packet_sha256"] = payload_sha256(body)
+    return body
+
+
+def build_packet(
+    *, records: list[dict], evidence_bindings: dict, contract: dict | None = None,
+) -> dict:
+    """Build deterministic cases from the ratified SEC D1 classification only."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    body = _build_packet_body(
+        records=records, evidence_bindings=evidence_bindings, contract=contract,
+    )
     return validate_packet(body, contract)
 
 
