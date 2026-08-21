@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "contract_version": "intraday_risk_escalation/1",
+  "input_schema_version": "intraday_risk_observation_batch/1",
+  "policy_schema_version": "intraday_risk_escalation_policy/1",
+  "output_schema_version": "intraday_risk_escalation_packet/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "metrics": [
+    "DRAWDOWN_FRACTION",
+    "DOWN_GAP_FRACTION",
+    "SPREAD_BPS",
+    "RELATIVE_VOLUME_FRACTION"
+  ],
+  "risk_statuses": [
+    "NORMAL",
+    "ALERT"
+  ],
+  "repository_default_policy": "ABSENT",
+  "policy_requirement": "EXTERNAL_RATIFIED_POLICY_REQUIRED",
+  "threshold_semantics": {
+    "max_threshold": "GREATER_THAN_IS_ALERT",
+    "min_threshold": "LESS_THAN_IS_ALERT"
+  },
+  "rounding_digits": 12,
+  "input_authority": {
+    "normalized_intraday_risk_observation_only": true,
+    "risk_policy_authorized": false,
+    "exposure_reduction_authorized": false,
+    "stop_candidate_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "policy_authority": {
+    "risk_threshold_policy_only": true,
+    "exposure_reduction_authorized": false,
+    "stop_candidate_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "intraday_risk_evaluation_only": true,
+    "upstream_semantic_interpretation_authorized": false,
+    "exposure_reduction_candidate_authorized": false,
+    "stop_candidate_authorized": false,
+    "action_generation_authorized": false,
+    "position_sizing_authorized": false,
+    "order_generation_authorized": false,
+    "notification_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
