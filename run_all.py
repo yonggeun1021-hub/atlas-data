@@ -360,6 +360,11 @@ APPROVED_TESTS = [
     #   read-model-only repair로 분리한다. truncated raw는 manual inspection으로 닫는다.
     #   ⛔ live network/workflow dispatch 없음 — temp data root에서만 검증한다.
     "test/test_briefing_readiness.py",
+    # ★ P0-02 — 06:57 Recovery Action Gate timing/classification contract.
+    #   06:57 전 FAIL/recovery를 차단하고 current raw→read-model 판정을 재사용해
+    #   DATA READY/degraded/DATA NOT READY를 분리하며 실제 gate delay를 기록한다.
+    #   ⛔ schedule/alert/workflow_dispatch/collector rerun은 실행하지 않는다.
+    "test/test_collect_recovery_gate.py",
     # ★ P0-03 hardening — Daily Collect workflow repair-path 계약.
     #   Guard=fresh 는 collector만 skip하고 briefing read model은 검증/repair를 계속한다.
     #   ⛔ live network 없음 — workflow YAML 구조만 실제 파싱해 검증한다.
