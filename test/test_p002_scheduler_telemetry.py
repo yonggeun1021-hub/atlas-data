@@ -5,6 +5,7 @@ No live GitHub/KRX calls are made. Production helpers are exercised with an
 isolated temporary output root so tracked data/ is never modified.
 """
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -163,12 +164,180 @@ class P002SchedulerTelemetryTest(unittest.TestCase):
                 0,
             )
             paths = list(out_root.rglob("*.json"))
-            self.assertEqual(len(paths), 1)
-            payload = json.loads(paths[0].read_text(encoding="utf-8"))
+            self.assertEqual(len(paths), 2)
+            run_path = next(
+                path for path in paths if path.name.startswith("run-")
+            )
+            index_path = next(
+                path for path in paths if path.name == "index.json"
+            )
+            payload = json.loads(run_path.read_text(encoding="utf-8"))
+            index = json.loads(index_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["github"]["run_id"], 32189764427)
             self.assertEqual(payload["slot"]["delay_seconds"], 2731)
+            self.assertEqual(index["record_count"], 1)
+            self.assertEqual(
+                index["records"][0]["record_sha256"],
+                hashlib.sha256(run_path.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                index["records"][0]["path"],
+                "data/operations/collect_runs/2026-08-19/"
+                "run-32189764427-attempt-1.json",
+            )
+            self.assertEqual(
+                index["records"][0]["slot_id"],
+                "primary_0605_kst",
+            )
+            self.assertEqual(index["records"][0]["timing_status"], "measured")
+            self.assertEqual(index["summary"]["guard_stale_count"], 1)
+            self.assertFalse(index["authority"]["data_readiness_authority"])
 
         self.assertEqual(tracked_root.exists(), tracked_before)
+
+    def test_daily_index_is_sorted_and_rebuilt_from_exact_record_bytes(self):
+        cases = (
+            environment(
+                ATLAS_EVENT_SCHEDULE="45 21 * * 0-4",
+                ATLAS_RUN_ID="300",
+                ATLAS_RUNNER_STARTED_AT_UTC="2026-08-18T22:00:00Z",
+                ATLAS_GUARD_RESULT="fresh",
+                ATLAS_GUARD_SKIP="yes",
+            ),
+            environment(
+                ATLAS_EVENT_SCHEDULE="5 21 * * 0-4",
+                ATLAS_RUN_ID="100",
+                ATLAS_RUNNER_STARTED_AT_UTC="2026-08-18T21:50:31Z",
+            ),
+            environment(
+                ATLAS_EVENT_SCHEDULE="25 21 * * 0-4",
+                ATLAS_RUN_ID="200",
+                ATLAS_RUNNER_STARTED_AT_UTC="2026-08-18T21:55:00Z",
+                ATLAS_GUARD_RESULT="fresh",
+                ATLAS_GUARD_SKIP="yes",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "collect_runs"
+            run_paths = []
+            for item in cases:
+                run_paths.append(
+                    MODULE.write_record(MODULE.build_record(item), out_root)
+                )
+            target = MODULE.write_index(run_paths[0].parent)
+            index = json.loads(target.read_text(encoding="utf-8"))
+
+            self.assertEqual(index, MODULE.validate_index(index))
+            self.assertEqual(index["record_count"], 3)
+            self.assertEqual(
+                [row["run_id"] for row in index["records"]],
+                [100, 200, 300],
+            )
+            self.assertEqual(
+                index["summary"],
+                {
+                    "measured_count": 3,
+                    "guard_skip_count": 2,
+                    "guard_stale_count": 1,
+                },
+            )
+            for path, row in zip(
+                sorted(
+                    run_paths,
+                    key=lambda item: json.loads(item.read_text())["runner"][
+                        "observed_started_at_utc"
+                    ],
+                ),
+                index["records"],
+            ):
+                self.assertEqual(
+                    row["record_sha256"],
+                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                )
+
+    def test_run_record_is_idempotent_but_conflicting_overwrite_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "collect_runs"
+            original = MODULE.build_record(environment())
+            target = MODULE.write_record(original, out_root)
+
+            self.assertEqual(MODULE.write_record(original, out_root), target)
+
+            conflict = MODULE.build_record(
+                environment(ATLAS_GUARD_RESULT="fresh", ATLAS_GUARD_SKIP="yes")
+            )
+            with self.assertRaisesRegex(
+                MODULE.TelemetryError,
+                "telemetry record conflict",
+            ):
+                MODULE.write_record(conflict, out_root)
+
+    def test_malformed_record_or_tampered_index_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "collect_runs"
+            path = MODULE.write_record(
+                MODULE.build_record(environment()),
+                out_root,
+            )
+            malformed = json.loads(path.read_text(encoding="utf-8"))
+            malformed["slot"]["delay_seconds"] += 1
+            path.write_text(json.dumps(malformed), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                MODULE.TelemetryError,
+                "slot derivation mismatch",
+            ):
+                MODULE.build_index(path.parent)
+
+            path.write_text(
+                json.dumps(MODULE.build_record(environment())),
+                encoding="utf-8",
+            )
+            index = MODULE.build_index(path.parent)
+            index["summary"]["guard_stale_count"] = 0
+            unsigned = dict(index)
+            unsigned.pop("index_sha256")
+            index["index_sha256"] = MODULE.payload_sha256(unsigned)
+
+            with self.assertRaisesRegex(
+                MODULE.TelemetryError,
+                "index summary invalid",
+            ):
+                MODULE.validate_index(index)
+
+    def test_rebuild_index_date_needs_no_run_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "collect_runs"
+            path = MODULE.write_record(
+                MODULE.build_record(environment()),
+                out_root,
+            )
+
+            self.assertEqual(
+                MODULE.run(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--rebuild-index-date",
+                        "2026-08-19",
+                    ],
+                    environ={},
+                ),
+                0,
+            )
+            self.assertTrue((path.parent / "index.json").exists())
+
+            with self.assertRaises(MODULE.TelemetryError):
+                MODULE.run(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--rebuild-index-date",
+                        "2026-02-30",
+                    ],
+                    environ={},
+                )
 
     def test_invalid_identity_or_timestamp_fails_closed(self):
         cases = (

@@ -222,7 +222,16 @@ def validate_read_model(data_root, expected_date, sources, hashes):
                 "data/latest_sec_content.json",
             ],
         }
-        if step0.get("read_model_inventory") != expected_inventory:
+        actual_inventory = step0.get("read_model_inventory")
+        if (
+            not isinstance(actual_inventory, dict)
+            or set(actual_inventory) - {"operations_telemetry_sources"}
+            != set(expected_inventory)
+            or any(
+                actual_inventory.get(key) != expected_value
+                for key, expected_value in expected_inventory.items()
+            )
+        ):
             reasons.append("read_model:inventory_mismatch")
 
         collectors = step0.get("collectors")

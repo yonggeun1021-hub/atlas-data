@@ -680,6 +680,14 @@ def build_and_publish(expected_date, fail_before_publish=False):
                 "data/latest_dart_content.json",
                 "data/latest_sec_content.json",
             ],
+            "operations_telemetry_sources": (
+                [
+                    "data/operations/collect_runs/"
+                    f"{expected_date}/index.json"
+                ]
+                if expected_date
+                else []
+            ),
         },
         "optional_evidence": {
             "dart_content": dart_content_status,

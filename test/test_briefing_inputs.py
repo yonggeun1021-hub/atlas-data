@@ -232,8 +232,18 @@ class BriefingInputsTest(unittest.TestCase):
                     "data/latest_dart_content.json",
                     "data/latest_sec_content.json",
                 ],
+                "operations_telemetry_sources": [
+                    "data/operations/collect_runs/"
+                    f"{self.today}/index.json"
+                ],
             },
         )
+
+        scheduled_paths = json.dumps(
+            status["scheduled_collectors"],
+            sort_keys=True,
+        )
+        self.assertNotIn("collect_runs", scheduled_paths)
 
     def test_sec_compact_view_is_bounded(self):
         for path in (self.out / "sec").glob("*.json"):
