@@ -302,40 +302,62 @@ def _dated_dir_for_decision(root: Path, decision_date: str) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def _read_conservative_collected_at_utc(data_root: Path) -> str | None:
-    """The LATEST (most conservative) collected_at_utc across
-    data/latest_{krx,dart,sec}.json -- the same three mutable-pointer
-    files STEP0_READ_MODEL_HEALTH's own BRIEFING_READINESS.evaluate() call
-    already reads, but whose real collection timestamp check_briefing_
-    readiness.py does not surface in its own return value (only
-    collected_for_kst_date, a date with no time-of-day). Read directly
-    here -- an additional, read-only file read; check_briefing_readiness.
-    py itself is not modified -- so the common temporal boundary can catch
-    a packet claiming to have been generated before these sources were
-    actually collected, the same way it already does for every other real
-    source. Returns None if none of the three files have a parseable
-    collected_at_utc."""
-    candidates: list[str] = []
-    for name in ("krx", "dart", "sec"):
-        path = Path(data_root) / f"latest_{name}.json"
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        value = payload.get("collected_at_utc")
-        if isinstance(value, str):
-            candidates.append(value)
-    parsed = []
-    for value in candidates:
-        try:
-            parsed.append(dt.datetime.fromisoformat(value.replace("Z", "+00:00")))
-        except ValueError:
-            continue
-    if not parsed:
+def _read_source_collected_at_utc(data_root: Path, name: str) -> str | None:
+    """Raw collected_at_utc string for data/latest_{name}.json (name is
+    "krx"/"dart"/"sec"), or None if the file is missing/unreadable or the
+    field itself is missing/not a string. Validity (parseable/timezone-
+    aware/exactly UTC) is deliberately NOT checked here -- that happens in
+    _qualify_collected_at_utc, a pure function operating on the frozen
+    raw value, so an invalid-but-present string is still faithfully
+    frozen and independently re-qualifiable later, not silently
+    discarded into a bare None at fetch time."""
+    path = Path(data_root) / f"latest_{name}.json"
+    if not path.exists():
         return None
-    return max(parsed).isoformat()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = payload.get("collected_at_utc")
+    return value if isinstance(value, str) else None
+
+
+def _qualify_collected_at_utc(raw_values: dict[str, str | None]) -> dict:
+    """Pure function: given the three raw collected_at_utc strings (keys
+    "krx"/"dart"/"sec", any of which may be None or invalid), decide
+    whether STEP0_READ_MODEL_HEALTH/KRX_PREOPEN_COMPACT have a real,
+    trustworthy temporal basis at all.
+
+    Every one of the three must independently be present, a string,
+    ISO-8601 parseable, timezone-aware, and exactly UTC (+00:00) -- a
+    naive timestamp or one with a non-UTC offset is exactly the kind of
+    ambiguity a real "was this actually UTC" check exists to catch, not
+    something to silently accept as if it were UTC. Missing/invalid
+    disqualifies the *whole* triple: a packet must not be judged
+    temporally safe based on only two of its three read-model sources.
+
+    On success: {"ok": True, "generated_at": <latest of the three,
+    ISO format>} -- the most conservative (latest) of the three, matching
+    every other conservative-timestamp choice in this module.
+    On failure: {"ok": False, "reason": <first disqualifying reason found,
+    checked in krx/dart/sec order>} -- never a promotion to READY.
+    """
+    parsed: dict[str, dt.datetime] = {}
+    for name in ("krx", "dart", "sec"):
+        value = raw_values.get(name)
+        label = name.upper()
+        if value is None:
+            return {"ok": False, "reason": f"{label}_COLLECTED_AT_UTC_MISSING"}
+        try:
+            candidate = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return {"ok": False, "reason": f"{label}_COLLECTED_AT_UTC_UNPARSEABLE"}
+        if candidate.tzinfo is None:
+            return {"ok": False, "reason": f"{label}_COLLECTED_AT_UTC_NAIVE"}
+        if candidate.utcoffset() != dt.timedelta(0):
+            return {"ok": False, "reason": f"{label}_COLLECTED_AT_UTC_NOT_UTC"}
+        parsed[name] = candidate
+    return {"ok": True, "generated_at": max(parsed.values()).isoformat()}
 
 
 def _fetch_step0_snapshot(decision_date: str) -> dict:
@@ -346,13 +368,20 @@ def _fetch_step0_snapshot(decision_date: str) -> dict:
     STEP0_READ_MODEL_HEALTH's (and, since it is built from this same
     snapshot, KRX_PREOPEN_COMPACT's) status purely from that frozen value
     -- no live re-fetch of the mutable data/ pointer needed, ever again.
+    The raw (unvalidated) collected_at_utc string per source is frozen
+    here; _qualify_collected_at_utc() -- a pure function with no I/O of
+    its own -- re-derives the same qualification verdict from it forever,
+    whether called live or replayed from frozen_sources.
     """
     try:
         payload = BRIEFING_READINESS.evaluate(decision_date, BRIEFING_READINESS.DATA)
     except Exception as exc:  # noqa: BLE001 - isolate any read-model failure
         return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
-    collected_at_utc = _read_conservative_collected_at_utc(BRIEFING_READINESS.DATA)
-    return {"kind": "payload", "value": payload, "collected_at_utc": collected_at_utc}
+    collected_at_utc_raw = {
+        name: _read_source_collected_at_utc(BRIEFING_READINESS.DATA, name)
+        for name in ("krx", "dart", "sec")
+    }
+    return {"kind": "payload", "value": payload, "collected_at_utc_raw": collected_at_utc_raw}
 
 
 def _classify_step0(decision_date: str, snapshot: dict) -> dict:
@@ -372,6 +401,29 @@ def _classify_step0(decision_date: str, snapshot: dict) -> dict:
     reason = None if status == "READY" else (
         ";".join(payload.get("reasons") or []) or classification or "UNCLASSIFIED"
     )
+    qualification = _qualify_collected_at_utc(snapshot.get("collected_at_utc_raw") or {})
+    if not qualification["ok"]:
+        # Fail-closed regardless of what the read-model itself claims: a
+        # missing/invalid/naive/non-UTC collected_at_utc means there is no
+        # trustworthy temporal basis to promote this to READY on, and
+        # this row cannot honestly claim eternal re-derivability either
+        # (a future qualification of the same frozen raw value must be
+        # able to reach the same disqualifying verdict, which it can --
+        # but the row itself was never actually validated against real
+        # timing, so validated stays False here, unlike the qualified
+        # case below).
+        if status == "READY":
+            status = "DEGRADED"
+        reason = f"TEMPORAL_QUALIFICATION_FAILED:{qualification['reason']}"
+        return component_row(
+            "STEP0_READ_MODEL_HEALTH",
+            status,
+            reason,
+            as_of_date=decision_date,
+            source_packet_path="data/briefing_status.json",
+            validated=False,
+            packet=payload,
+        )
     return component_row(
         "STEP0_READ_MODEL_HEALTH",
         status,
@@ -381,7 +433,7 @@ def _classify_step0(decision_date: str, snapshot: dict) -> dict:
         # _enforce_temporal_boundary below), not left null -- a packet
         # generated before krx/dart/sec were actually collected must not
         # read them as READY.
-        generated_at=snapshot.get("collected_at_utc"),
+        generated_at=qualification["generated_at"],
         source_packet_path="data/briefing_status.json",
         # True: this component's underlying input is now frozen into
         # packet["frozen_sources"] at build time (see _fetch_step0_
@@ -400,7 +452,9 @@ def build_step0_health(decision_date: str, snapshot: dict | None = None) -> dict
 
 
 def build_krx_preopen_compact(
-    decision_date: str, step0_packet: dict | None, collected_at_utc: str | None = None
+    decision_date: str,
+    step0_packet: dict | None,
+    collected_at_utc_raw: dict[str, str | None] | None = None,
 ) -> dict:
     if step0_packet is None:
         return _blocked(
@@ -415,10 +469,18 @@ def build_krx_preopen_compact(
     # collectors are fine but the compact per-symbol view has an issue) --
     # these are different failure classes with different remediation paths,
     # and must not be collapsed into one generic DEGRADED status.
+    qualification = _qualify_collected_at_utc(collected_at_utc_raw or {})
     if not step0_packet.get("data_ready"):
         status, reason = "DATA_BLOCKED", "COLLECTOR_DATA_NOT_READY_FOR_DECISION_DATE"
     elif not step0_packet.get("read_model_ready"):
         status, reason = "DEGRADED", "READ_MODEL_ONLY_NOT_FULLY_READY"
+    elif not qualification["ok"]:
+        # Same fail-closed rule as STEP0_READ_MODEL_HEALTH: if the shared
+        # krx/dart/sec collected_at_utc triple did not qualify, KRX_
+        # PREOPEN_COMPACT must never be READY on its own -- there is no
+        # path where STEP0 fails temporal qualification but this sibling,
+        # built from the exact same sources, is still promoted.
+        status, reason = "DEGRADED", f"TEMPORAL_QUALIFICATION_FAILED:{qualification['reason']}"
     else:
         status, reason = "READY", None
     return component_row(
@@ -428,13 +490,16 @@ def build_krx_preopen_compact(
         as_of_date=krx.get("collected_for_kst_date"),
         # Same conservative collected_at_utc as STEP0_READ_MODEL_HEALTH --
         # both derive from the same krx/dart/sec mutable-pointer read.
-        generated_at=collected_at_utc,
+        # Left None whenever qualification failed, matching the row's own
+        # validated=False below.
+        generated_at=qualification["generated_at"] if qualification["ok"] else None,
         source_packet_path=krx.get("path"),
         source_packet_sha256=krx.get("source_sha256"),
-        # True: derived purely from step0_packet, whose own underlying
-        # input is frozen into packet["frozen_sources"] at build time --
-        # see FROZEN_SOURCE_COMPONENTS.
-        validated=True,
+        # True only when the shared timestamp triple actually qualified --
+        # derived purely from step0_packet plus that qualification, whose
+        # own underlying input is frozen into packet["frozen_sources"] at
+        # build time -- see FROZEN_SOURCE_COMPONENTS.
+        validated=qualification["ok"],
         packet={"krx": krx, "dart": sources.get("dart"), "sec": sources.get("sec")},
     )
 
@@ -1366,7 +1431,7 @@ def build_packet(
     rows["STEP0_READ_MODEL_HEALTH"] = step0
     rows["KRX_PREOPEN_COMPACT"] = _boundary(
         build_krx_preopen_compact(
-            decision_date, step0["packet"], step0_snapshot.get("collected_at_utc")
+            decision_date, step0["packet"], step0_snapshot.get("collected_at_utc_raw")
         )
     )
 
