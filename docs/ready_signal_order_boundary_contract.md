@@ -1,8 +1,8 @@
 # P8-03 READY != ENTRY / Signal != Order boundary
 
 This capability keeps candidate qualification, signal observation, entry
-eligibility, and order creation as four separate layers. It does not implement
-the pending P8-02 Unified Decision Contract.
+eligibility, and order creation as four separate layers. P8-02 embeds this
+packet as its final action boundary without widening its authority.
 
 Every subject supplies an explicit, source-hash-bound READY status and signal
 status. The boundary preserves those observations but always emits:
@@ -22,3 +22,8 @@ Duplicate subjects, digest drift, and authority expansion fail closed.
 Entry policy, order eligibility, position sizing, portfolio risk checks,
 Production, and trading remain unauthorized. The CLI is offline and writes only
 outside the repository.
+
+`validate_packet()` reconstructs the exact normalized observation input from
+the embedded subject lineage, reapplies every READY/Signal invariant, and
+compares the complete derived output and packet hash. Self-rehashed changes to
+subject rows or the summary are rejected; no entry or order policy is added.

@@ -22,3 +22,9 @@ registry SHA and deterministically applies this precedence:
 converted to `FAIL`. Output retains the exact Rule condition hash, upstream
 link status/reasons, Rule SSOT states, evidence-reference hash, and packet
 lineage. The CLI is offline and writes only outside the repository.
+
+`validate_packet()` rechecks the complete emitted Rule row set against the
+canonical registry, recomputes every boundary classification and the summary,
+and verifies lineage and packet hashes. Recomputing `packet_sha256` therefore
+cannot legitimize a changed result or summary. This adds output integrity, not
+an evaluation spec or PASS/FAIL authority.

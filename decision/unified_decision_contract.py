@@ -6,6 +6,7 @@ import argparse
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,50 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REASON_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _load_validator(name: str, relative_path: str):
+    path = ROOT / relative_path
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"COMPONENT_VALIDATOR_IMPORT_FAILED:{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+REGIME = _load_validator(
+    "unified_decision_regime_validator",
+    "briefing/three_market_regime_header.py",
+)
+ROTATION_DISCOVERY = _load_validator(
+    "unified_decision_rotation_validator",
+    "briefing/rotation_discovery.py",
+)
+RULE = _load_validator(
+    "unified_decision_rule_validator",
+    "rules/deterministic_rule_evaluator.py",
+)
+PORTFOLIO_BUCKET = _load_validator(
+    "unified_decision_bucket_validator",
+    "portfolio/bucket_membership.py",
+)
+PORTFOLIO_CURRENCY = _load_validator(
+    "unified_decision_currency_validator",
+    "portfolio/currency_exposure.py",
+)
+ACTION_BOUNDARY = _load_validator(
+    "unified_decision_action_validator",
+    "decision/ready_signal_order_boundary.py",
+)
+COMPONENT_VALIDATORS = {
+    "REGIME": (REGIME, "validate_header"),
+    "ROTATION_DISCOVERY": (ROTATION_DISCOVERY, "validate_briefing"),
+    "RULE": (RULE, "validate_packet"),
+    "PORTFOLIO_BUCKET": (PORTFOLIO_BUCKET, "validate_packet"),
+    "PORTFOLIO_CURRENCY": (PORTFOLIO_CURRENCY, "validate_packet"),
+    "ACTION_BOUNDARY": (ACTION_BOUNDARY, "validate_packet"),
+}
 
 
 class UnifiedDecisionContractError(ValueError):
@@ -179,6 +224,13 @@ def _validate_source(name: str, packet: dict, decision_date: str, slot: str, gen
     source_as_of = _validate_source_time(
         name, packet, spec, decision_date, generated_at
     )
+    validator, method_name = COMPONENT_VALIDATORS[name]
+    try:
+        packet = getattr(validator, method_name)(copy.deepcopy(packet))
+    except Exception as exc:
+        raise UnifiedDecisionContractError(
+            f"COMPONENT_SEMANTIC_INVALID:{name}:{exc}"
+        ) from exc
     return {
         "packet": copy.deepcopy(packet),
         "packet_sha256": digest,

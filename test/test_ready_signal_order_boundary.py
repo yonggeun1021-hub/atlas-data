@@ -198,6 +198,18 @@ class ReadySignalOrderBoundaryTests(unittest.TestCase):
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
 
+    def test_self_rehashed_output_semantic_tamper_fails_closed(self):
+        packet = MODULE.build_packet(input_packet(), CONTRACT)
+        packet["summary"]["ready_count"] += 1
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.ReadySignalOrderBoundaryError,
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_source_is_offline_and_cli_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()

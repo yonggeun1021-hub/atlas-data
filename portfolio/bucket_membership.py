@@ -417,7 +417,128 @@ def build_packet(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return packet
+    return validate_packet(packet, contract)
+
+
+def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "as_of_date",
+        "assignment_set_id", "summary", "bucket_definitions",
+        "assignment_history", "active_memberships", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise BucketMembershipError("OUTPUT_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status") != "MEMBERSHIP_VALIDATED_EXPLICIT_ONLY"
+        or packet.get("authority") != contract["authority"]
+    ):
+        raise BucketMembershipError("OUTPUT_IDENTITY_INVALID")
+    as_of_date = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
+    _text(packet.get("assignment_set_id"), "OUTPUT_ASSIGNMENT_SET_ID_INVALID")
+    raw_buckets = packet.get("bucket_definitions")
+    raw_assignments = packet.get("assignment_history")
+    raw_active = packet.get("active_memberships")
+    if (
+        not isinstance(raw_buckets, list)
+        or not raw_buckets
+        or not isinstance(raw_assignments, list)
+        or not raw_assignments
+        or not isinstance(raw_active, list)
+    ):
+        raise BucketMembershipError("OUTPUT_MEMBERSHIP_ROWS_INVALID")
+    buckets = sorted(
+        (_validate_bucket(row) for row in raw_buckets),
+        key=lambda row: row["bucket_id"],
+    )
+    bucket_ids = [row["bucket_id"] for row in buckets]
+    if len(bucket_ids) != len(set(bucket_ids)) or raw_buckets != buckets:
+        raise BucketMembershipError("OUTPUT_BUCKETS_INVALID")
+    assignments = sorted(
+        (
+            _validate_assignment(row, set(bucket_ids), contract)
+            for row in raw_assignments
+        ),
+        key=lambda row: (row["asset_id"], row["valid_from"], row["bucket_id"]),
+    )
+    if raw_assignments != assignments:
+        raise BucketMembershipError("OUTPUT_ASSIGNMENT_HISTORY_INVALID")
+    groups: dict[str, list[dict]] = {}
+    identities: dict[str, str] = {}
+    active = []
+    for row in assignments:
+        owner = identities.setdefault(row["asset_identity_sha256"], row["asset_id"])
+        if owner != row["asset_id"]:
+            raise BucketMembershipError(
+                f"OUTPUT_ASSET_IDENTITY_COLLISION:{owner}:{row['asset_id']}"
+            )
+        groups.setdefault(row["asset_id"], []).append(row)
+    for asset_id, rows in sorted(groups.items()):
+        identity = {
+            (row["subject_kind"], row["market"], row["asset_identity_sha256"])
+            for row in rows
+        }
+        if len(identity) != 1:
+            raise BucketMembershipError(f"OUTPUT_SUBJECT_IDENTITY_DRIFT:{asset_id}")
+        for index, left in enumerate(rows):
+            for right in rows[index + 1:]:
+                if _overlap(
+                    left["valid_from"], left["valid_to"],
+                    right["valid_from"], right["valid_to"],
+                ):
+                    raise BucketMembershipError(
+                        f"OUTPUT_BUCKET_ASSIGNMENT_OVERLAP:{asset_id}"
+                    )
+        current = [
+            row
+            for row in rows
+            if _active(row["valid_from"], row["valid_to"], as_of_date)
+        ]
+        if len(current) != 1:
+            raise BucketMembershipError(
+                f"OUTPUT_ACTIVE_MEMBERSHIP_COUNT_INVALID:{asset_id}"
+            )
+        active.append(copy.deepcopy(current[0]))
+    if raw_active != active:
+        raise BucketMembershipError("OUTPUT_ACTIVE_MEMBERSHIPS_MISMATCH")
+    counts = {market: 0 for market in contract["allowed_markets"]}
+    kinds = {kind: 0 for kind in contract["allowed_subject_kinds"]}
+    for row in active:
+        counts[row["market"]] += 1
+        kinds[row["subject_kind"]] += 1
+    if packet.get("summary") != {
+        "bucket_count": len(buckets),
+        "subject_count": len(active),
+        "active_membership_count": len(active),
+        "by_market": counts,
+        "by_subject_kind": kinds,
+    }:
+        raise BucketMembershipError("OUTPUT_SUMMARY_MISMATCH")
+    lineage = packet.get("lineage")
+    lineage_fields = {
+        "assignment_set_sha256", "constitution_sha256",
+        "b1_bucket_definition_sha256",
+    }
+    if not isinstance(lineage, dict) or set(lineage) != lineage_fields:
+        raise BucketMembershipError("OUTPUT_LINEAGE_FIELDS_MISMATCH")
+    for key in lineage_fields:
+        _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if packet.get("unresolved_boundaries") != [
+        "REPOSITORY_DEFAULT_CONSTITUTION_B1_NOT_RATIFIED",
+        "BUCKET_LIMITS_NOT_AUTHORIZED",
+        "POSITION_SIZING_NOT_AUTHORIZED",
+        "PRODUCTION_NOT_AUTHORIZED",
+    ]:
+        raise BucketMembershipError("OUTPUT_BOUNDARIES_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
+    normalized = copy.deepcopy(packet)
+    normalized.pop("packet_sha256")
+    if payload_sha256(normalized) != digest:
+        raise BucketMembershipError("OUTPUT_PACKET_SHA_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
