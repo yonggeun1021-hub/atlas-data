@@ -491,6 +491,11 @@ APPROVED_TESTS = [
     #   hard fail한다. novel ID는 ledger candidate에만 기록하고 실행하지 않는다.
     #   ⛔ ID 생성/order 생성/broker/Production/trading 권한 없음.
     "test/test_action_order_idempotency.py",
+    # ★ P10-04 — opaque Decision SHA change lineage capability.
+    #   이전/current hash로 change type을 파생하고 변경 이유·evidence·시각과
+    #   chain을 검증한다. Decision payload/interpretation/action은 항상 null이다.
+    #   ⛔ Unified Decision Contract/Shadow wiring/Production/trading 없음.
+    "test/test_decision_change_lineage.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.
