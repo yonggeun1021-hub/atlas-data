@@ -28,7 +28,7 @@ CONTRACT_PATH = ROOT / "config" / "us_capital_rotation_contract.json"
 LEADERSHIP_SCRIPT = ROOT / ".github" / "scripts" / "us_leadership.py"
 INPUT_SCHEMA_VERSION = "us_capital_rotation_input/1"
 POLICY_SCHEMA_VERSION = "us_capital_rotation_policy/1"
-OUTPUT_SCHEMA_VERSION = "us_capital_rotation_packet/1"
+OUTPUT_SCHEMA_VERSION = "us_capital_rotation_packet/2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 ASSET_RE = re.compile(r"^[A-Z0-9._-]{1,20}$")
@@ -70,7 +70,7 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "us_capital_rotation/1",
+        "contract_version": "us_capital_rotation/2",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "policy_schema_version": POLICY_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
@@ -683,6 +683,14 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
             "current_date": current["observation_date"].isoformat(),
             "calendar_gap_days": (current["observation_date"] - prior["observation_date"]).days,
             "lookback_sessions": current["lookback_sessions"],
+            # Both upstream observations' own available_at, persisted so a
+            # standalone validate_packet() call can independently re-prove
+            # temporal order and ratified-before-prior without either
+            # re-reading the two full upstream Leadership packets (which
+            # output_retention_policy forbids retaining) or trusting the
+            # persisted rotation_policy_effective flag blindly.
+            "prior_available_at": prior["available_at"].isoformat(),
+            "current_available_at": current["available_at"].isoformat(),
         },
         "taxonomy_binding": binding,
         "rotation_policy": checked_policy,
@@ -752,6 +760,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     pair = packet.get("observation_pair")
     pair_fields = {
         "prior_date", "current_date", "calendar_gap_days", "lookback_sessions",
+        "prior_available_at", "current_available_at",
     }
     if not isinstance(pair, dict) or set(pair) != pair_fields:
         raise USCapitalRotationError("OUTPUT_OBSERVATION_PAIR_INVALID")
@@ -763,6 +772,18 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         or pair.get("calendar_gap_days") != (current_date - prior_date).days
     ):
         raise USCapitalRotationError("OUTPUT_OBSERVATION_PAIR_MISMATCH")
+    # Both upstream available_at timestamps, independently re-parsed and
+    # re-ordered here -- not trusted from the persisted rotation_policy_
+    # effective flag. This is what makes prior-vs-current temporal order
+    # standalone-provable without either upstream Leadership packet.
+    prior_available_at = _timestamp(
+        pair.get("prior_available_at"), "OUTPUT_PRIOR_AVAILABLE_AT_INVALID"
+    )
+    current_available_at = _timestamp(
+        pair.get("current_available_at"), "OUTPUT_CURRENT_AVAILABLE_AT_INVALID"
+    )
+    if prior_available_at >= current_available_at:
+        raise USCapitalRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
     binding = _validate_binding(packet.get("taxonomy_binding"), contract)
     policy = packet.get("rotation_policy")
     policy_fields = {
@@ -819,6 +840,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     )
     if top_count + bottom_count > len(theme_ids):
         raise USCapitalRotationError("OUTPUT_POLICY_BUCKETS_OVERLAP")
+    ratified_at = None
     if status == "UNRATIFIED":
         if (
             policy.get("ratified_by") is not None
@@ -833,12 +855,21 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             or not policy["ratified_at_utc"].endswith("Z")
         ):
             raise USCapitalRotationError("OUTPUT_RATIFICATION_PROOF_INVALID")
-        _timestamp(policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID")
-    effective = (
-        status == "RATIFIED"
-        and start <= prior_date
-        and (end is None or current_date < end)
-    )
+        ratified_at = _timestamp(
+            policy["ratified_at_utc"], "OUTPUT_RATIFICATION_PROOF_INVALID"
+        )
+    covers_both = start <= prior_date and (end is None or current_date < end)
+    # Standalone re-proof of ratified-before-prior: build_packet() refuses
+    # to ever produce a packet where a policy covering both observations
+    # was ratified after the prior one was already available, but that
+    # refusal only protects packets that genuinely went through build_
+    # packet() -- a tampered packet (e.g. a widened effective_to on an
+    # already-persisted policy) could claim covers_both without this
+    # having actually held. Re-checking it here, from prior_available_at
+    # now persisted in observation_pair, closes that gap.
+    if status == "RATIFIED" and covers_both and ratified_at > prior_available_at:
+        raise USCapitalRotationError("OUTPUT_POLICY_RATIFIED_AFTER_PRIOR_OBSERVATION")
+    effective = status == "RATIFIED" and covers_both
     if effective and (current_date - prior_date).days > maximum_gap:
         raise USCapitalRotationError("OUTPUT_OBSERVATION_GAP_EXCEEDS_POLICY")
     if packet.get("rotation_policy_effective") is not effective:

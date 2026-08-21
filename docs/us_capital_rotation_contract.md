@@ -43,9 +43,18 @@ explicit rank fields and TOP/BOTTOM lists.
 effective interval, Theme set, numeric change, rank and tie-break order,
 TOP/MIDDLE/BOTTOM assignment, transitions, summary lists, closed authority,
 lineage, retention, and packet hash. A self-rehashed rank, bucket, delta, or
-authority mutation therefore fails closed. The v1 packet does not embed the
-two complete Leadership inputs, so standalone validation does not claim to
-reconstruct source observations omitted from the output schema.
+authority mutation therefore fails closed. The packet does not embed the two
+complete Leadership inputs -- retaining full upstream rows would violate this
+module's own `output_retention_policy` -- but `observation_pair` (schema
+`us_capital_rotation_packet/2`) persists each observation's own `available_at`
+alongside its date. `validate_packet()` re-parses both timestamps, requiring
+them present, ISO8601, and timezone-aware, and independently re-derives
+prior-before-current order, the effective interval covering both
+observations, and ratified-before-prior-observation from those persisted
+values alone -- with no live source pointer, current file, or monkeypatch --
+so a revision's own packet remains standalone-reprovable even after live
+source state moves on, and a self-rehashed tamper of any of these facts
+(order, gap, ratification timing) fails closed.
 
 These bucket transitions are not `EMERGING`, `STRONG`, or `WEAKENING`. The P2
 state vocabulary and transition ledger belong to P2-05 and remain undefined.

@@ -426,6 +426,28 @@ class RotationStateLedgerTest(unittest.TestCase):
             ):
                 MODULE.apply_rotation(value, policy_for(packet), contract=CONTRACT)
 
+    def test_stale_producer_schema_version_is_rejected_by_ledger(self):
+        # A producer packet still stamped with the pre-hardening schema/
+        # contract version must never silently pass through the ledger --
+        # it is caught by the producer's own validate_packet() (invoked
+        # first, per PRODUCTION_ROTATION_VALIDATORS) since that producer's
+        # own contract was bumped in the same PR as the ledger's identity
+        # pin in config/rotation_state_ledger_contract.json.
+        packet = us_packet()
+        for field, stale in (
+            ("schema_version", "us_capital_rotation_packet/1"),
+            ("contract_version", "us_capital_rotation/1"),
+        ):
+            with self.subTest(field=field):
+                tampered = copy.deepcopy(packet)
+                tampered[field] = stale
+                tampered = refresh_packet(tampered)
+                with self.assertRaisesRegex(
+                    MODULE.RotationStateLedgerError,
+                    "ROTATION_PACKET_SEMANTIC_INVALID:US:OUTPUT_IDENTITY_INVALID",
+                ):
+                    MODULE.apply_rotation(tampered, policy_for(packet), contract=CONTRACT)
+
     def test_structural_transition_must_match_prior_and_current_bucket(self):
         packet = us_packet()
         packet["theme_observations"][0]["bucket_transition"] = "BOTTOM_TO_TOP"
