@@ -200,8 +200,9 @@ APPROVED_TESTS = [
     "test/test_valuation_risk_context.py",
     # ★ P3-11 — Theme taxonomy 밖 explicit nomination을 evidence-linked case로 기록한다.
     #   nomination text는 unconfirmed, linked evidence 0건이면 pending이며 case가 아니다.
-    #   linked evidence가 있어도 strength/importance/candidate eligibility는 비승인이고
-    #   rank·Stage·Rule·action·Production·trading은 닫힌다. temp output only.
+    #   persisted validator가 source/count/pending/case projection의 self-rehashed drift를
+    #   차단한다. strength/importance/candidate eligibility는 비승인이고 rank·Stage·
+    #   Rule·action·Production·trading은 닫힌다. temp output only.
     "test/test_wildcard_discovery.py",
     # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
     #   Stage/form scope, SGML+index identity, bounded content, immutable hash,

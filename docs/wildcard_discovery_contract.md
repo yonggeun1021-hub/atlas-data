@@ -33,6 +33,19 @@ zero-fill. A recorded case explains only that it came from an explicit wildcard
 nomination with linked evidence. It does not claim algorithmic discovery or
 strength.
 
+## Persisted packet validation
+
+`validate_packet()`은 저장된 submission의 identity, nomination authority,
+evidence status와 source lineage, linked/unlinked 수, pending/case 분기를 다시
+검증한다. 이어서 retained submission만으로 deterministic case ID, partial
+evidence projection, unconfirmed-text marker와 모든 authority lock을 재생성해
+저장된 case와 exact 비교한다. 따라서 payload hash만 다시 계산한 case ID,
+source, count, evidence projection 또는 action 변조도 실패한다.
+
+Source body 자체는 packet에 포함되지 않고 SHA-256 identity만 남는다.
+standalone validator는 그 외부 원문의 진위를 인증하지 않으며, 수집·원문 검증은
+별도 source acquisition 경계다.
+
 ## Authority and operation
 
 Every case keeps strength and importance `UNRATIFIED`, candidate eligibility

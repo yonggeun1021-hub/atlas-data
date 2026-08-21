@@ -94,6 +94,13 @@ def payload(rows=None) -> dict:
     }
 
 
+def rehash(packet: dict) -> dict:
+    value = copy.deepcopy(packet)
+    value.pop("payload_sha256", None)
+    value["payload_sha256"] = WC.payload_sha256(value)
+    return value
+
+
 class WildcardDiscoveryTests(unittest.TestCase):
     def test_linked_nomination_records_case_without_strength_or_promotion(self):
         packet = WC.build_packet(payload())
@@ -140,6 +147,49 @@ class WildcardDiscoveryTests(unittest.TestCase):
             "status": "EVIDENCE_UNRESOLVED",
             "missing_reasons": ["SOURCE_RECORD_NOT_YET_LINKED"],
         }])
+
+    def test_standalone_validator_accepts_linked_pending_and_partial_packets(self):
+        packets = (
+            WC.build_packet(payload()),
+            WC.build_packet(payload([submission(evidence=[unresolved()])])),
+            WC.build_packet(payload([submission(evidence=[linked(), unresolved()])])),
+        )
+        for packet in packets:
+            with self.subTest(cases=packet["case_count"]):
+                checked = WC.validate_packet(copy.deepcopy(packet))
+                self.assertEqual(WC.canonical_json(checked), WC.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_case_derivation_tamper(self):
+        packet = WC.build_packet(payload())
+        packet["cases"][0]["case_id"] = "RADAR-WC-0000000000000000"
+        with self.assertRaisesRegex(
+            WC.WildcardDiscoveryError, "OUTPUT_CASE_DERIVATION_MISMATCH"
+        ):
+            WC.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_source_lineage_tamper(self):
+        packet = WC.build_packet(payload())
+        packet["submissions"][0]["evidence"][0]["source_identity"][
+            "source_url"
+        ] = "https://example.com/not-source"
+        with self.assertRaisesRegex(WC.WildcardDiscoveryError, "SOURCE_URL_INVALID"):
+            WC.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_submission_summary_tamper(self):
+        packet = WC.build_packet(payload())
+        packet["submissions"][0]["linked_evidence_count"] = 0
+        with self.assertRaisesRegex(
+            WC.WildcardDiscoveryError, "OUTPUT_SUBMISSION_SUMMARY_MISMATCH"
+        ):
+            WC.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_authority_expansion(self):
+        packet = WC.build_packet(payload())
+        packet["cases"][0]["action"] = {"action": "BUY"}
+        with self.assertRaisesRegex(
+            WC.WildcardDiscoveryError, "OUTPUT_CASE_DERIVATION_MISMATCH"
+        ):
+            WC.validate_packet(rehash(packet))
 
     def test_theme_membership_is_outside_or_unresolved_with_no_theme_ids(self):
         unresolved_theme = submission()
