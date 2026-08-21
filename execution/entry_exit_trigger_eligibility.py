@@ -63,7 +63,7 @@ def _expected_contract() -> dict:
                 "validator": "decision/unified_decision_contract.py",
             },
             "INTRADAY_FRESHNESS": {
-                "schema_version": "intraday_freshness_result/1",
+                "schema_version": "intraday_freshness_result/2",
                 "contract_version": "intraday_freshness_guard/1",
                 "status": "FRESHNESS_EVALUATED_NO_ENTRY_AUTHORITY",
                 "validator": "execution/intraday_freshness.py",

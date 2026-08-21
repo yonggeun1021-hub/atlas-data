@@ -189,6 +189,81 @@ class IntradayFreshnessTests(unittest.TestCase):
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
         self.assertEqual(MODULE.canonical_json([first_batch, first_policy]), before)
 
+    def test_output_embeds_full_ratified_policy_with_matching_lineage(self):
+        result = MODULE.evaluate_freshness(batch(), policy(), CONTRACT)
+        self.assertEqual(result["schema_version"], "intraday_freshness_result/2")
+        self.assertEqual(result["policy_id"], "INTRADAY.FRESHNESS.TEST.V1")
+        self.assertEqual(result["policy_packet"]["approval_status"], "RATIFIED")
+        self.assertEqual(result["policy_packet"]["policy_id"], result["policy_id"])
+        self.assertEqual(
+            result["lineage"]["policy_sha256"],
+            result["policy_packet"]["packet_sha256"],
+        )
+
+    def test_consumer_revalidates_embedded_policy_and_rejects_forgery(self):
+        original = MODULE.evaluate_freshness(batch(), policy(), CONTRACT)
+
+        # Mirrors the original exploit: forge policy_id/threshold in the
+        # embedded policy, leave its own packet_sha256 stale, and only
+        # recompute the outer envelope's packet_sha256.
+        forged = copy.deepcopy(original)
+        forged["policy_packet"]["max_provider_age_seconds_by_market"]["US"] = 86400
+        forged["policy_packet"]["policy_id"] = "NEVER.RATIFIED.POLICY"
+        forged["policy_packet"]["ratified_by"] = "attacker"
+        row = forged["results"][0]
+        row["max_provider_age_seconds"] = 86400
+        row["freshness_status"] = "FRESH"
+        row["stale_reasons"] = []
+        row["fresh_for_intraday_consumption"] = True
+        forged["summary"]["fresh_count"] = 1
+        forged["summary"]["stale_count"] = 0
+        forged.pop("packet_sha256")
+        forged["packet_sha256"] = MODULE.payload_sha256(forged)
+        with self.assertRaisesRegex(
+            MODULE.IntradayFreshnessError, "POLICY_SHA_INVALID"
+        ):
+            MODULE.validate_output(forged, CONTRACT)
+
+        # Consumption-side re-validation also rejects a DRAFT / unratified
+        # policy even when the embedded packet is internally self-consistent.
+        draft = copy.deepcopy(original)
+        draft["policy_packet"]["approval_status"] = "DRAFT"
+        draft["policy_packet"].pop("packet_sha256")
+        draft["policy_packet"]["packet_sha256"] = MODULE.payload_sha256(
+            draft["policy_packet"]
+        )
+        draft["lineage"]["policy_sha256"] = draft["policy_packet"]["packet_sha256"]
+        draft.pop("packet_sha256")
+        draft["packet_sha256"] = MODULE.payload_sha256(draft)
+        with self.assertRaisesRegex(
+            MODULE.IntradayFreshnessError, "POLICY_IDENTITY_INVALID"
+        ):
+            MODULE.validate_output(draft, CONTRACT)
+
+        # policy_id at the top level must match the embedded policy_packet.
+        id_mismatch = copy.deepcopy(original)
+        id_mismatch["policy_id"] = "SOME.OTHER.POLICY"
+        id_mismatch.pop("packet_sha256")
+        id_mismatch["packet_sha256"] = MODULE.payload_sha256(id_mismatch)
+        with self.assertRaisesRegex(
+            MODULE.IntradayFreshnessError, "OUTPUT_POLICY_ID_MISMATCH"
+        ):
+            MODULE.validate_output(id_mismatch, CONTRACT)
+
+        # lineage.policy_sha256 must match the embedded policy's own digest,
+        # even when policy_packet itself is untouched.
+        lineage_mismatch = copy.deepcopy(original)
+        lineage_mismatch["lineage"]["policy_sha256"] = "0" * 64
+        lineage_mismatch.pop("packet_sha256")
+        lineage_mismatch["packet_sha256"] = MODULE.payload_sha256(lineage_mismatch)
+        with self.assertRaisesRegex(
+            MODULE.IntradayFreshnessError, "OUTPUT_LINEAGE_POLICY_SHA_MISMATCH"
+        ):
+            MODULE.validate_output(lineage_mismatch, CONTRACT)
+
+        # A genuinely valid packet still round-trips through validate_output.
+        self.assertEqual(MODULE.validate_output(original, CONTRACT), original)
+
     def test_output_derivation_summary_and_authority_tamper_fail_closed(self):
         original = MODULE.evaluate_freshness(batch(), policy(), CONTRACT)
         variants = []
