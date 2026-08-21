@@ -27,8 +27,19 @@ automatic assignment, bucket limits, position sizing, orders, Production, and
 trading all remain false. The CLI is offline and writes only outside the
 repository.
 
-`validate_packet()` revalidates the embedded bucket definitions and assignment
-history, recomputes the active memberships and summary for `as_of_date`, and
-checks lineage and packet hashes. A self-rehashed membership or summary drift
-is rejected. The validator still requires an externally ratified Constitution
-and never infers an assignment.
+## Output schema `bucket_membership_packet/2`
+
+The output packet embeds the full ratified Constitution and assignment set
+(`source_packets`) rather than a bare lineage SHA pointer. `validate_packet()`
+re-runs the same `_validate_constitution` / assignment-set validators the
+ingestion path uses on those embedded sources and rebuilds bucket
+definitions, assignment history, active memberships, and the summary from
+scratch, then requires a byte-exact match against the packet plus a
+self-consistent `packet_sha256`. A fabricated membership row — for example an
+asset injected directly into `active_memberships` that was never present in
+any real assignment set — is rejected even when every other field stays
+internally self-consistent, because it can no longer be derived from the
+re-validated sources. Every direct consumer (e.g. the Unified Decision
+Contract's `PORTFOLIO_BUCKET` component) inherits this re-validation for free
+by calling `validate_packet` on any packet it receives. The validator still
+requires an externally ratified Constitution and never infers an assignment.
