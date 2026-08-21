@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "action_order_idempotency_contract.json"
 LEDGER_SCHEMA_VERSION = "action_order_idempotency_ledger/1"
 ATTEMPT_SCHEMA_VERSION = "action_order_attempt_batch/1"
-OUTPUT_SCHEMA_VERSION = "action_order_idempotency_result/1"
+OUTPUT_SCHEMA_VERSION = "action_order_idempotency_result/2"
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -293,14 +293,13 @@ def _validate_batch(value: dict, contract: dict) -> dict:
     return {"normalized": normalized, "packet_sha256": digest}
 
 
-def build_result(
-    ledger: dict,
-    attempt_batch: dict,
-    contract: dict | None = None,
-) -> dict:
-    contract = _validate_contract(contract) if contract is not None else load_contract()
-    checked_ledger = _validate_ledger(ledger, contract)
-    checked_batch = _validate_batch(attempt_batch, contract)
+def _checked_source_packet(checked: dict) -> dict:
+    value = copy.deepcopy(checked["normalized"])
+    value["packet_sha256"] = checked["packet_sha256"]
+    return value
+
+
+def _assemble_result(checked_ledger: dict, checked_batch: dict, contract: dict) -> dict:
     ledger_rows = copy.deepcopy(checked_ledger["normalized"]["records"])
     by_key = {row["idempotency_key"]: row for row in ledger_rows}
     action_ids = {row["action_id"]: row["idempotency_key"] for row in ledger_rows}
@@ -384,6 +383,10 @@ def build_result(
         },
         "decisions": decisions,
         "updated_ledger_candidate": updated_ledger,
+        "source_packets": {
+            "prior_ledger": _checked_source_packet(checked_ledger),
+            "attempt_batch": _checked_source_packet(checked_batch),
+        },
         "lineage": {
             "prior_ledger_sha256": checked_ledger["packet_sha256"],
             "attempt_batch_sha256": checked_batch["packet_sha256"],
@@ -399,6 +402,63 @@ def build_result(
     }
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
+
+
+def validate_result(packet: dict, contract: dict | None = None) -> dict:
+    """Revalidate persisted guard output from its exact embedded source packets."""
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    fields = {
+        "schema_version", "contract_version", "status", "batch_id",
+        "observed_at", "summary", "decisions", "updated_ledger_candidate",
+        "source_packets", "lineage", "authority", "unresolved_boundaries",
+        "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != fields:
+        raise ActionOrderIdempotencyError("OUTPUT_FIELDS_MISMATCH")
+    digest = _sha(packet.get("packet_sha256"), "OUTPUT_SHA_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("packet_sha256")
+    if payload_sha256(unsigned) != digest:
+        raise ActionOrderIdempotencyError("OUTPUT_SHA_MISMATCH")
+    if (
+        packet.get("schema_version") != contract["output_schema_version"]
+        or packet.get("contract_version") != contract["contract_version"]
+        or packet.get("status")
+        != "DUPLICATE_GUARD_EVALUATED_EXECUTION_NOT_AUTHORIZED"
+        or packet.get("authority") != contract["authority"]
+    ):
+        raise ActionOrderIdempotencyError("OUTPUT_IDENTITY_INVALID")
+    sources = packet.get("source_packets")
+    if not isinstance(sources, dict) or set(sources) != {
+        "prior_ledger", "attempt_batch"
+    }:
+        raise ActionOrderIdempotencyError("OUTPUT_SOURCE_PACKETS_INVALID")
+    checked_ledger = _validate_ledger(sources["prior_ledger"], contract)
+    checked_batch = _validate_batch(sources["attempt_batch"], contract)
+    if (
+        canonical_json(sources["prior_ledger"])
+        != canonical_json(_checked_source_packet(checked_ledger))
+        or canonical_json(sources["attempt_batch"])
+        != canonical_json(_checked_source_packet(checked_batch))
+    ):
+        raise ActionOrderIdempotencyError("OUTPUT_SOURCE_PACKETS_NOT_NORMALIZED")
+    expected = _assemble_result(checked_ledger, checked_batch, contract)
+    if canonical_json(packet) != canonical_json(expected):
+        raise ActionOrderIdempotencyError("OUTPUT_DERIVATION_MISMATCH")
+    return copy.deepcopy(packet)
+
+
+def build_result(
+    ledger: dict,
+    attempt_batch: dict,
+    contract: dict | None = None,
+) -> dict:
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    checked_ledger = _validate_ledger(ledger, contract)
+    checked_batch = _validate_batch(attempt_batch, contract)
+    return validate_result(
+        _assemble_result(checked_ledger, checked_batch, contract), contract
+    )
 
 
 def write_json_atomic(path: Path, value: dict) -> None:

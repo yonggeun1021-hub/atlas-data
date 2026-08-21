@@ -94,6 +94,20 @@ def batch(rows=None):
     return value
 
 
+def rehash_result(value):
+    changed = copy.deepcopy(value)
+    changed.pop("packet_sha256", None)
+    changed["packet_sha256"] = MODULE.payload_sha256(changed)
+    return changed
+
+
+def rehash_source(value):
+    changed = copy.deepcopy(value)
+    changed.pop("packet_sha256", None)
+    changed["packet_sha256"] = MODULE.payload_sha256(changed)
+    return changed
+
+
 def write_json(path, value):
     path = Path(path)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -247,6 +261,72 @@ class ActionOrderIdempotencyTests(unittest.TestCase):
         self.assertEqual(MODULE.canonical_json(first_batch), before_batch)
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
+
+    def test_result_embeds_exact_sources_and_round_trips_production_validator(self):
+        prior = ledger([record()])
+        attempts = batch()
+        result = MODULE.build_result(prior, attempts, CONTRACT)
+        self.assertEqual(
+            result["schema_version"], "action_order_idempotency_result/2"
+        )
+        self.assertEqual(result["source_packets"]["prior_ledger"], prior)
+        self.assertEqual(result["source_packets"]["attempt_batch"], attempts)
+        self.assertEqual(
+            MODULE.canonical_json(MODULE.validate_result(result, CONTRACT)),
+            MODULE.canonical_json(result),
+        )
+
+    def test_self_rehashed_result_semantic_drift_fails_closed(self):
+        result = MODULE.build_result(ledger(), batch(), CONTRACT)
+        variants = []
+
+        changed = copy.deepcopy(result)
+        changed["decisions"][0]["result"] = "DUPLICATE_RETRY_BLOCKED"
+        changed["summary"]["novel_recorded_count"] = 0
+        changed["summary"]["duplicate_blocked_count"] = 1
+        variants.append(changed)
+
+        changed = copy.deepcopy(result)
+        changed["updated_ledger_candidate"]["records"] = []
+        nested = copy.deepcopy(changed["updated_ledger_candidate"])
+        nested.pop("packet_sha256")
+        changed["updated_ledger_candidate"]["packet_sha256"] = (
+            MODULE.payload_sha256(nested)
+        )
+        variants.append(changed)
+
+        changed = copy.deepcopy(result)
+        changed["authority"]["order_execution_authorized"] = True
+        variants.append(changed)
+
+        for changed in variants:
+            with self.subTest(changed=changed):
+                with self.assertRaisesRegex(
+                    MODULE.ActionOrderIdempotencyError,
+                    "OUTPUT_(IDENTITY_INVALID|DERIVATION_MISMATCH)",
+                ):
+                    MODULE.validate_result(rehash_result(changed), CONTRACT)
+
+    def test_embedded_source_semantics_are_revalidated_before_derivation(self):
+        result = MODULE.build_result(ledger(), batch(), CONTRACT)
+
+        authority = copy.deepcopy(result)
+        source = authority["source_packets"]["attempt_batch"]
+        source["authority"]["order_execution_authorized"] = True
+        authority["source_packets"]["attempt_batch"] = rehash_source(source)
+        with self.assertRaisesRegex(
+            MODULE.ActionOrderIdempotencyError, "BATCH_IDENTITY_INVALID"
+        ):
+            MODULE.validate_result(rehash_result(authority), CONTRACT)
+
+        substitution = copy.deepcopy(result)
+        source = substitution["source_packets"]["attempt_batch"]
+        source["attempts"][0]["source_ref"] = "test://intent/substituted"
+        substitution["source_packets"]["attempt_batch"] = rehash_source(source)
+        with self.assertRaisesRegex(
+            MODULE.ActionOrderIdempotencyError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_result(rehash_result(substitution), CONTRACT)
 
     def test_source_is_offline_and_cli_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
