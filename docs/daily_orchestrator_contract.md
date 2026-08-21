@@ -136,9 +136,17 @@ use `observed_at_utc` from their status file; `BTC_TREND`/`BTC_RISK`/
 the real `_downloaded_at.txt` every one of these collectors writes
 alongside its raw capture (`_read_downloaded_at()`) -- the actual UTC
 instant the source was fetched, often hours before the packet's own
-`generated_at`. If that file is genuinely absent, the component is
-downgraded to `DEGRADED`/`DOWNLOADED_AT_MISSING` rather than silently
-promoted to `READY` with an unknown temporal basis
+`generated_at`. `STEP0_READ_MODEL_HEALTH`/`KRX_PREOPEN_COMPACT` read the
+same `data/latest_{krx,dart,sec}.json` files
+`BRIEFING_READINESS.evaluate()` already reads, but that function's own
+return value never surfaces their real `collected_at_utc` (only
+`collected_for_kst_date`, a date with no time-of-day) --
+`_read_conservative_collected_at_utc()` reads those three files directly
+(an additional, read-only file read; `check_briefing_readiness.py` itself
+is not modified) and wires the latest of the three in. If a real
+retrieval timestamp is genuinely absent, the component is downgraded to
+`DEGRADED`/`DOWNLOADED_AT_MISSING` rather than silently promoted to
+`READY` with an unknown temporal basis
 (`_downloaded_at_guard`).
 
 `KRX_POST_CLOSE` is wired the same way, not to its own `generated_at_kst`
@@ -167,6 +175,12 @@ ready`). Likewise `KRX_POST_CLOSE`'s real bundle for a given
 evening floor, so a packet claiming `generated_at` of exactly 18:00:00 KST
 that same evening correctly sees it as `DATA_BLOCKED`
 (`test_krx_post_close_real_observed_at_after_generated_at_is_not_
+promoted_to_ready`). Likewise `data/latest_{krx,dart,sec}.json`'s real
+`collected_at_utc` values are genuinely well into the KST morning, so a
+packet claiming `generated_at` before all three were actually collected
+correctly sees `STEP0_READ_MODEL_HEALTH`/`KRX_PREOPEN_COMPACT` as
+`DATA_BLOCKED`
+(`test_step0_and_krx_preopen_real_collected_at_after_generated_at_is_not_
 promoted_to_ready`); see
 `test_temporal_boundary_rejects_available_at_after_generated_at` for the
 `available_at`-specific proof.

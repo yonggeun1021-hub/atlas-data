@@ -302,6 +302,42 @@ def _dated_dir_for_decision(root: Path, decision_date: str) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
+def _read_conservative_collected_at_utc(data_root: Path) -> str | None:
+    """The LATEST (most conservative) collected_at_utc across
+    data/latest_{krx,dart,sec}.json -- the same three mutable-pointer
+    files STEP0_READ_MODEL_HEALTH's own BRIEFING_READINESS.evaluate() call
+    already reads, but whose real collection timestamp check_briefing_
+    readiness.py does not surface in its own return value (only
+    collected_for_kst_date, a date with no time-of-day). Read directly
+    here -- an additional, read-only file read; check_briefing_readiness.
+    py itself is not modified -- so the common temporal boundary can catch
+    a packet claiming to have been generated before these sources were
+    actually collected, the same way it already does for every other real
+    source. Returns None if none of the three files have a parseable
+    collected_at_utc."""
+    candidates: list[str] = []
+    for name in ("krx", "dart", "sec"):
+        path = Path(data_root) / f"latest_{name}.json"
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        value = payload.get("collected_at_utc")
+        if isinstance(value, str):
+            candidates.append(value)
+    parsed = []
+    for value in candidates:
+        try:
+            parsed.append(dt.datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except ValueError:
+            continue
+    if not parsed:
+        return None
+    return max(parsed).isoformat()
+
+
 def _fetch_step0_snapshot(decision_date: str) -> dict:
     """Raw, unclassified snapshot of the read-model health source for
     decision_date, read from live collector state right now. This exact
@@ -315,7 +351,8 @@ def _fetch_step0_snapshot(decision_date: str) -> dict:
         payload = BRIEFING_READINESS.evaluate(decision_date, BRIEFING_READINESS.DATA)
     except Exception as exc:  # noqa: BLE001 - isolate any read-model failure
         return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
-    return {"kind": "payload", "value": payload}
+    collected_at_utc = _read_conservative_collected_at_utc(BRIEFING_READINESS.DATA)
+    return {"kind": "payload", "value": payload, "collected_at_utc": collected_at_utc}
 
 
 def _classify_step0(decision_date: str, snapshot: dict) -> dict:
@@ -340,6 +377,11 @@ def _classify_step0(decision_date: str, snapshot: dict) -> dict:
         status,
         reason,
         as_of_date=decision_date,
+        # The real, conservative collection timestamp (fed to
+        # _enforce_temporal_boundary below), not left null -- a packet
+        # generated before krx/dart/sec were actually collected must not
+        # read them as READY.
+        generated_at=snapshot.get("collected_at_utc"),
         source_packet_path="data/briefing_status.json",
         # True: this component's underlying input is now frozen into
         # packet["frozen_sources"] at build time (see _fetch_step0_
@@ -357,7 +399,9 @@ def build_step0_health(decision_date: str, snapshot: dict | None = None) -> dict
     return _classify_step0(decision_date, snapshot)
 
 
-def build_krx_preopen_compact(decision_date: str, step0_packet: dict | None) -> dict:
+def build_krx_preopen_compact(
+    decision_date: str, step0_packet: dict | None, collected_at_utc: str | None = None
+) -> dict:
     if step0_packet is None:
         return _blocked(
             "KRX_PREOPEN_COMPACT", "UNKNOWN", "STEP0_READ_MODEL_HEALTH_UNAVAILABLE"
@@ -382,6 +426,9 @@ def build_krx_preopen_compact(decision_date: str, step0_packet: dict | None) -> 
         status,
         reason,
         as_of_date=krx.get("collected_for_kst_date"),
+        # Same conservative collected_at_utc as STEP0_READ_MODEL_HEALTH --
+        # both derive from the same krx/dart/sec mutable-pointer read.
+        generated_at=collected_at_utc,
         source_packet_path=krx.get("path"),
         source_packet_sha256=krx.get("source_sha256"),
         # True: derived purely from step0_packet, whose own underlying
@@ -1318,7 +1365,9 @@ def build_packet(
     step0 = _boundary(_classify_step0(decision_date, step0_snapshot))
     rows["STEP0_READ_MODEL_HEALTH"] = step0
     rows["KRX_PREOPEN_COMPACT"] = _boundary(
-        build_krx_preopen_compact(decision_date, step0["packet"])
+        build_krx_preopen_compact(
+            decision_date, step0["packet"], step0_snapshot.get("collected_at_utc")
+        )
     )
 
     krx_post_close_snapshot = None
