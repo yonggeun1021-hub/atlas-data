@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "contract_version": "planned_loss_budget/1",
+  "input_schema_version": "planned_loss_input/1",
+  "output_schema_version": "planned_loss_packet/1",
+  "canonical_constitution": "config/constitution.json",
+  "repository_default_status": "BLOCKED_UNTIL_CONSTITUTION_B2_B7_RATIFIED",
+  "constitution_status_required": "ratified",
+  "position_mode": "LONG_ONLY_EXPLICIT_PLANNED_STOP",
+  "weight_unit": "NAV_FRACTION",
+  "price_rule": "PLANNED_STOP_STRICTLY_BELOW_ENTRY",
+  "loss_formula": "position_weight_nav_fraction*(entry_price-planned_stop_price)/entry_price",
+  "output_decimal_places": 12,
+  "allowed_markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "input_authority": {
+    "planned_stop_measurement_authorized": true,
+    "constitution_definition_authorized": false,
+    "automatic_exit_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "planned_loss_budget_evaluation_only": true,
+    "repository_default_constitution_authorized": false,
+    "automatic_exit_authorized": false,
+    "position_sizing_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -494,6 +494,11 @@ APPROVED_TESTS = [
     #   No default limit/reduction/sizing/order authority is introduced.
     #   ⛔ live data/tracked policy/output 없음 — synthetic packets + temp only.
     "test/test_crypto_exposure_limit.py",
+    # ★ P7-06 — explicit planned stops bound to ratified Constitution B4/B5/B6.
+    #   Each long position loss is recomputed and the simultaneous total is
+    #   checked without creating an exit, size, stop order, or trading authority.
+    #   ⛔ tracked Constitution remains not_ratified; synthetic external input only.
+    "test/test_planned_loss_budget.py",
     # ★ P6-04 — Long FAIL ≠ Short PASS authority invariant.
     #   현재 evaluator 패킷에서는 short result를 전혀 만들지 않고, 독립 primitive는
     #   가상의 Long FAIL도 Short NOT_EVALUATED로만 닫는다. upstream authority
