@@ -225,40 +225,55 @@ class DailyOrchestratorTest(unittest.TestCase):
         packet = MODULE.build_packet("morning", past_date, "2026-08-20T12:00:00Z")
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
 
-    def test_non_revalidatable_components_are_disclosed_but_still_tamper_checked(self):
-        # STEP0_READ_MODEL_HEALTH / KRX_PREOPEN_COMPACT / DART_FILING_CONTENT
-        # / SEC_FILING_CONTENT read a mutable rolling pointer with no
-        # per-date archive, so an honest, untampered packet can legitimately
-        # fail *later* re-validation for these four once the pointer has
-        # moved on -- that limitation is disclosed (constant + boundary
-        # string) rather than a silent gap. It must NOT mean these four are
-        # exempt from tamper detection: validate_packet() no longer trusts
-        # any row blindly, this one included.
+    def test_frozen_source_components_are_genuinely_independently_revalidatable(self):
+        # STEP0_READ_MODEL_HEALTH / DART_FILING_CONTENT / SEC_FILING_CONTENT
+        # (and, transitively through it, KRX_PREOPEN_COMPACT) read a mutable
+        # rolling pointer with no per-date archive. Two prior designs both
+        # failed here: blindly trusting the persisted row let semantic
+        # tamper slip past undetected; always re-fetching the live pointer
+        # meant an honest packet could legitimately fail revalidation once
+        # the pointer moved on. The fix: freeze the *input* snapshot into
+        # packet["frozen_sources"] and re-derive these rows purely from
+        # that -- genuinely independent, no live data/ access, no
+        # "cannot be revalidated" boundary any more.
         self.assertEqual(
-            MODULE.NON_REVALIDATABLE_COMPONENTS,
+            MODULE.FROZEN_SOURCE_COMPONENTS,
             frozenset({
-                "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
-                "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+                "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
             }),
         )
-        self.assertIn(
+        boundaries = MODULE.build_packet(
+            "morning", DECISION_DATE, MORNING_GENERATED_AT
+        )["unresolved_boundaries"]
+        for stale_boundary in (
             "ROLLING_POINTER_COMPONENTS_MAY_FAIL_LATER_REVALIDATION_NOT_TAMPER",
-            MODULE.build_packet(
-                "morning", DECISION_DATE, MORNING_GENERATED_AT
-            )["unresolved_boundaries"],
-        )
+            "SAME_DAY_ROLLING_POINTER_COMPONENTS_NOT_INDEPENDENTLY_REVALIDATED",
+        ):
+            self.assertNotIn(stale_boundary, boundaries)
 
         packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
-        # A fresh, just-built packet validates cleanly (the mutable pointer
-        # has not moved since -- same moment).
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
-        # Each of the four is also explicitly not claiming eternal
-        # re-derivability.
+        self.assertIn("frozen_sources", packet)
+        self.assertEqual(
+            set(packet["frozen_sources"]),
+            {"STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT"},
+        )
+        # All four now honestly claim genuine re-derivability, like every
+        # other component.
         by_id = {row["component_id"]: row for row in packet["components"]}
-        for component_id in MODULE.NON_REVALIDATABLE_COMPONENTS:
-            self.assertFalse(by_id[component_id]["validated"], component_id)
+        for component_id in (
+            "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
+            "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+        ):
+            self.assertTrue(by_id[component_id]["validated"], component_id)
 
-        for component_id in MODULE.NON_REVALIDATABLE_COMPONENTS:
+        # Tampering the row itself (leaving frozen_sources untouched) is
+        # still caught -- the rebuild re-derives from frozen_sources, which
+        # the tamper never touched, so it disagrees with the tampered row.
+        for component_id in (
+            "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
+            "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+        ):
             tampered = copy.deepcopy(packet)
             for row in tampered["components"]:
                 if row["component_id"] == component_id:
@@ -266,14 +281,182 @@ class DailyOrchestratorTest(unittest.TestCase):
             unsigned = copy.deepcopy(tampered)
             del unsigned["packet_sha256"]
             tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
-            # This MUST now raise: a prior version of this module trusted
-            # these four rows blindly (frozen_rows) and this exact tamper
-            # slipped past undetected. That blind trust was removed
-            # specifically to close this hole.
             with self.assertRaisesRegex(
                 MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH", msg=component_id
             ):
                 MODULE.validate_packet(copy.deepcopy(tampered))
+
+    def test_step0_revisions_validate_across_a_rolling_pointer_change_without_fault_injection(
+        self,
+    ):
+        # rev-001 published, the live rolling pointer changes (simulated),
+        # rev-002 published -- then BOTH revisions must independently
+        # validate with NO fault injection or monkeypatch active at
+        # validation time: validate_packet() must never touch the live,
+        # currently-real data/ pointer for these rows at all, only each
+        # packet's own frozen_sources.
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_root = Path(tmp) / "daily_briefing"
+            original_evaluate = MODULE.BRIEFING_READINESS.evaluate
+
+            first = MODULE.publish(
+                "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+            )
+            first_persisted = json.loads((first["path"] / "packet.json").read_text())
+
+            def _drifted_pointer(decision_date, data_root):
+                real = original_evaluate(decision_date, data_root)
+                drifted = copy.deepcopy(real)
+                drifted["classification"] = "data_not_ready"
+                drifted["data_ready"] = False
+                drifted["reasons"] = ["SIMULATED_ROLLING_POINTER_DRIFT"]
+                return drifted
+
+            MODULE.BRIEFING_READINESS.evaluate = _drifted_pointer
+            try:
+                second = MODULE.publish(
+                    "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+                )
+            finally:
+                MODULE.BRIEFING_READINESS.evaluate = original_evaluate
+            second_persisted = json.loads((second["path"] / "packet.json").read_text())
+            # The drift is a real status change -> a new revision.
+            self.assertTrue(second["created"])
+            self.assertEqual(second["revision"], 2)
+            second_by_id = {
+                row["component_id"]: row for row in second_persisted["components"]
+            }
+            self.assertEqual(second_by_id["STEP0_READ_MODEL_HEALTH"]["status"], "DATA_BLOCKED")
+
+            # No fault injection, no monkeypatch active here -- plain
+            # validate_packet() calls, exactly what an external reporter or
+            # a later audit would do.
+            self.assertEqual(
+                MODULE.validate_packet(copy.deepcopy(first_persisted)), first_persisted
+            )
+            self.assertEqual(
+                MODULE.validate_packet(copy.deepcopy(second_persisted)), second_persisted
+            )
+
+    def test_semantic_fingerprint_includes_real_nested_source_sha_not_just_status(self):
+        # A blanket "drop every key ending in sha256" fingerprint rule
+        # would ALSO drop STEP0_READ_MODEL_HEALTH's real, per-source hash
+        # (sources.krx.source_sha256) -- meaning a same-day re-collection
+        # that changes only the underlying file's bytes, with status/counts
+        # unchanged, would wrongly look like a no-op. Prove it is not: only
+        # the nested source_sha256 changes, status/reason/value are
+        # identical, and a new revision must still be published.
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_root = Path(tmp) / "daily_briefing"
+            original_evaluate = MODULE.BRIEFING_READINESS.evaluate
+
+            first = MODULE.publish(
+                "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+            )
+            first_persisted = json.loads((first["path"] / "packet.json").read_text())
+            first_krx_sha = first_persisted["frozen_sources"][
+                "STEP0_READ_MODEL_HEALTH"
+            ]["value"]["sources"]["krx"]["source_sha256"]
+
+            def _same_status_different_source_sha(decision_date, data_root):
+                real = original_evaluate(decision_date, data_root)
+                mutated = copy.deepcopy(real)
+                mutated["sources"]["krx"]["source_sha256"] = "f" * 64
+                return mutated
+
+            MODULE.BRIEFING_READINESS.evaluate = _same_status_different_source_sha
+            try:
+                second = MODULE.publish(
+                    "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+                )
+            finally:
+                MODULE.BRIEFING_READINESS.evaluate = original_evaluate
+            second_persisted = json.loads((second["path"] / "packet.json").read_text())
+
+            first_by_id = {
+                row["component_id"]: row for row in first_persisted["components"]
+            }
+            second_by_id = {
+                row["component_id"]: row for row in second_persisted["components"]
+            }
+            # Status/reason genuinely unchanged...
+            self.assertEqual(
+                first_by_id["STEP0_READ_MODEL_HEALTH"]["status"],
+                second_by_id["STEP0_READ_MODEL_HEALTH"]["status"],
+            )
+            self.assertEqual(
+                first_by_id["STEP0_READ_MODEL_HEALTH"]["reason"],
+                second_by_id["STEP0_READ_MODEL_HEALTH"]["reason"],
+            )
+            # ...only the nested source hash differs...
+            self.assertNotEqual(first_krx_sha, "f" * 64)
+            self.assertEqual(
+                second_persisted["frozen_sources"]["STEP0_READ_MODEL_HEALTH"]["value"][
+                    "sources"
+                ]["krx"]["source_sha256"],
+                "f" * 64,
+            )
+            # ...yet a new revision was still published, because the
+            # fingerprint includes real nested source hashes.
+            self.assertTrue(second["created"])
+            self.assertEqual(second["revision"], 2)
+
+    def test_temporal_boundary_applies_before_unified_decision_and_action_risk_summary(
+        self,
+    ):
+        # A future/not-yet-available upstream row must be downgraded
+        # BEFORE any aggregator consumes it -- not merely at the end of
+        # build_packet() after UNIFIED_DECISION/ACTION_RISK_PORTFOLIO_
+        # SUMMARY have already read it. Inject a violating available_at
+        # into THREE_MARKET_REGIME_HEADER (which UNIFIED_DECISION directly
+        # consumes, and which ACTION_RISK_PORTFOLIO_SUMMARY consumes
+        # transitively through UNIFIED_DECISION) and prove neither
+        # aggregator ever sees the smuggled value.
+        original = MODULE.build_three_market_header
+
+        def _future_header(regime_outputs, slot, generated_at):
+            row = copy.deepcopy(original(regime_outputs, slot, generated_at))
+            row["available_at"] = "2026-08-21T23:59:00Z"
+            return row
+
+        MODULE.build_three_market_header = _future_header
+        try:
+            packet = MODULE.build_packet(
+                "morning", DECISION_DATE, "2026-08-21T12:00:00Z"
+            )
+        finally:
+            MODULE.build_three_market_header = original
+        by_id = {row["component_id"]: row for row in packet["components"]}
+
+        # The upstream row itself is downgraded...
+        self.assertEqual(by_id["THREE_MARKET_REGIME_HEADER"]["status"], "DATA_BLOCKED")
+        self.assertEqual(
+            by_id["THREE_MARKET_REGIME_HEADER"]["reason"], "AVAILABLE_AT_AFTER_GENERATED_AT"
+        )
+        self.assertIsNone(by_id["THREE_MARKET_REGIME_HEADER"]["packet"])
+
+        # ...and UNIFIED_DECISION never received the smuggled REGIME
+        # packet: its own REGIME source is unavailable, with a reason,
+        # exactly as if THREE_MARKET_REGIME_HEADER had been unavailable
+        # from the start.
+        unified_packet = by_id["UNIFIED_DECISION"]["packet"]
+        self.assertIsNotNone(unified_packet)
+        regime_component = next(
+            component
+            for component in unified_packet["components"]
+            if component["component"] == "REGIME"
+        )
+        self.assertEqual(regime_component["availability"], "UNAVAILABLE")
+        self.assertNotEqual(regime_component["unavailable_reasons"], [])
+
+        # ...and it therefore never reaches ACTION_RISK_PORTFOLIO_SUMMARY's
+        # embedded UNIFIED_DECISION source either -- the smuggled
+        # available_at value does not appear anywhere in its packet.
+        summary_packet = by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]["packet"]
+        self.assertIsNotNone(summary_packet)
+        self.assertNotIn(
+            '"available_at": "2026-08-21T23:59:00Z"', json.dumps(summary_packet)
+        )
 
     def test_generated_date_mismatch_isolates_unified_decision_not_whole_run(self):
         # decision_date deliberately does not match generated_at's own date.
