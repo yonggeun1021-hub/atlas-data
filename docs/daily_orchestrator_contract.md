@@ -140,13 +140,35 @@ instant the source was fetched, often hours before the packet's own
 same `data/latest_{krx,dart,sec}.json` files
 `BRIEFING_READINESS.evaluate()` already reads, but that function's own
 return value never surfaces their real `collected_at_utc` (only
-`collected_for_kst_date`, a date with no time-of-day) --
-`_read_conservative_collected_at_utc()` reads those three files directly
-(an additional, read-only file read; `check_briefing_readiness.py` itself
-is not modified) and wires the latest of the three in. If a real
-retrieval timestamp is genuinely absent, the component is downgraded to
-`DEGRADED`/`DOWNLOADED_AT_MISSING` rather than silently promoted to
-`READY` with an unknown temporal basis
+`collected_for_kst_date`, a date with no time-of-day) -- each source's raw
+`collected_at_utc` string is read directly (an additional, read-only file
+read per source; `check_briefing_readiness.py` itself is not modified)
+and frozen as-is, invalid or not.
+
+Whether that raw triple is actually *usable* is decided separately, by
+`_qualify_collected_at_utc()` -- a pure function with no I/O of its own,
+so it re-derives the same verdict from the frozen raw values forever,
+live or replayed. All three of krx/dart/sec must independently be
+present, a string, ISO-8601 parseable, timezone-aware, and exactly UTC
+(`+00:00`/`Z`); a naive timestamp or one with a non-UTC offset
+disqualifies the whole triple -- silently treating an ambiguous offset as
+UTC is exactly the kind of gap this check exists to close. On success,
+`generated_at` is the latest of the three; on failure, both components
+are downgraded (`READY` never survives) to
+`DEGRADED`/`TEMPORAL_QUALIFICATION_FAILED:<KRX|DART|SEC>_COLLECTED_AT_UTC_
+<MISSING|UNPARSEABLE|NAIVE|NOT_UTC>` with `generated_at: null` and
+`validated: false` -- there is no path where a missing or invalid
+timestamp still promotes `STEP0_READ_MODEL_HEALTH` to `READY`, and none
+where `KRX_PREOPEN_COMPACT` is `READY` while its sibling failed
+qualification
+(`test_step0_and_krx_preopen_refuse_ready_on_missing_or_invalid_
+timestamp`, `test_qualify_collected_at_utc_requires_all_three_valid_utc_
+timestamps`).
+
+Every other component whose `generated_at` is wired to a real retrieval
+timestamp downgrades the same way when that timestamp is genuinely
+absent, rather than being silently promoted to `READY` with an unknown
+temporal basis
 (`_downloaded_at_guard`).
 
 `KRX_POST_CLOSE` is wired the same way, not to its own `generated_at_kst`

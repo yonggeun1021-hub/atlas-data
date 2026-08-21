@@ -501,6 +501,142 @@ class DailyOrchestratorTest(unittest.TestCase):
             by_id["KRX_PREOPEN_COMPACT"]["reason"], "STEP0_READ_MODEL_HEALTH_UNAVAILABLE"
         )
 
+    def test_qualify_collected_at_utc_requires_all_three_valid_utc_timestamps(self):
+        # _qualify_collected_at_utc is a pure function -- exercised
+        # directly here for precise coverage of every disqualifying case,
+        # independent of build_packet()'s live data/ state.
+        valid = {
+            "krx": "2026-08-21T06:58:30+00:00",
+            "dart": "2026-08-21T06:58:50+00:00",
+            "sec": "2026-08-21T06:58:58+00:00",  # latest of the three
+        }
+
+        # 1/2/3: missing timestamp for each source in turn.
+        for missing_name in ("krx", "dart", "sec"):
+            broken = dict(valid)
+            broken[missing_name] = None
+            result = MODULE._qualify_collected_at_utc(broken)
+            self.assertFalse(result["ok"], missing_name)
+            self.assertEqual(
+                result["reason"], f"{missing_name.upper()}_COLLECTED_AT_UTC_MISSING"
+            )
+
+        # 4: unparseable ISO timestamp.
+        broken = dict(valid, krx="not-a-timestamp")
+        result = MODULE._qualify_collected_at_utc(broken)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "KRX_COLLECTED_AT_UTC_UNPARSEABLE")
+
+        # 5: naive timestamp (no timezone at all).
+        broken = dict(valid, dart="2026-08-21T06:58:50")
+        result = MODULE._qualify_collected_at_utc(broken)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "DART_COLLECTED_AT_UTC_NAIVE")
+
+        # 6: timezone-aware but not UTC (KST +09:00).
+        broken = dict(valid, sec="2026-08-21T15:58:58+09:00")
+        result = MODULE._qualify_collected_at_utc(broken)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "SEC_COLLECTED_AT_UTC_NOT_UTC")
+
+        # 7: all three genuinely valid -> qualifies, latest (sec) selected.
+        result = MODULE._qualify_collected_at_utc(valid)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["generated_at"], "2026-08-21T06:58:58+00:00")
+
+        # A literal "Z" suffix (as this repo's real files use) is also
+        # accepted as UTC, not just an explicit +00:00 offset.
+        result = MODULE._qualify_collected_at_utc({
+            "krx": "2026-08-21T06:58:30Z",
+            "dart": "2026-08-21T06:58:50Z",
+            "sec": "2026-08-21T06:58:58Z",
+        })
+        self.assertTrue(result["ok"])
+
+    def test_step0_and_krx_preopen_refuse_ready_on_missing_or_invalid_timestamp(self):
+        # The exact bug from review: a snapshot with a missing/invalid
+        # collected_at_utc must never let STEP0_READ_MODEL_HEALTH reach
+        # READY with generated_at=None and validated=True -- and
+        # KRX_PREOPEN_COMPACT, sharing the same disqualified triple, must
+        # never be READY either while its sibling failed qualification.
+        ready_payload = {
+            "classification": "data_ready_read_model_ready",
+            "data_ready": True,
+            "read_model_ready": True,
+            "reasons": [],
+            "sources": {
+                "krx": {
+                    "collected_for_kst_date": DECISION_DATE,
+                    "path": "data/latest_krx.json",
+                    "source_sha256": "f" * 64,
+                },
+                "dart": {"collected_for_kst_date": DECISION_DATE},
+                "sec": {"collected_for_kst_date": DECISION_DATE},
+            },
+        }
+        for broken_raw, case in (
+            ({"krx": None, "dart": None, "sec": None}, "all_missing"),
+            (
+                {
+                    "krx": "2026-08-21T06:58:30+00:00",
+                    "dart": "not-a-timestamp",
+                    "sec": "2026-08-21T06:58:58+00:00",
+                },
+                "one_unparseable",
+            ),
+            (
+                {
+                    "krx": "2026-08-21T06:58:30+00:00",
+                    "dart": "2026-08-21T06:58:50",  # naive
+                    "sec": "2026-08-21T06:58:58+00:00",
+                },
+                "one_naive",
+            ),
+        ):
+            snapshot = {
+                "kind": "payload",
+                "value": ready_payload,
+                "collected_at_utc_raw": broken_raw,
+            }
+            step0_row = MODULE._classify_step0(DECISION_DATE, snapshot)
+            self.assertNotEqual(step0_row["status"], "READY", case)
+            self.assertIsNone(step0_row["generated_at"], case)
+            self.assertFalse(step0_row["validated"], case)
+            self.assertIn("TEMPORAL_QUALIFICATION_FAILED", step0_row["reason"], case)
+
+            krx_preopen_row = MODULE.build_krx_preopen_compact(
+                DECISION_DATE, ready_payload, broken_raw
+            )
+            self.assertNotEqual(krx_preopen_row["status"], "READY", case)
+            self.assertIsNone(krx_preopen_row["generated_at"], case)
+            self.assertFalse(krx_preopen_row["validated"], case)
+            self.assertIn(
+                "TEMPORAL_QUALIFICATION_FAILED", krx_preopen_row["reason"], case
+            )
+
+        # End to end through build_packet(), with a monkeypatched fetch,
+        # to prove the wiring (not just the pure functions in isolation)
+        # never lets either component reach READY.
+        original_fetch = MODULE._fetch_step0_snapshot
+
+        def _missing_timestamps(decision_date):
+            snapshot = original_fetch(decision_date)
+            if snapshot["kind"] == "payload":
+                snapshot = dict(snapshot)
+                snapshot["collected_at_utc_raw"] = {"krx": None, "dart": None, "sec": None}
+            return snapshot
+
+        MODULE._fetch_step0_snapshot = _missing_timestamps
+        try:
+            packet = MODULE.build_packet(
+                "morning", DECISION_DATE, f"{DECISION_DATE}T23:59:00Z"
+            )
+        finally:
+            MODULE._fetch_step0_snapshot = original_fetch
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        self.assertNotEqual(by_id["STEP0_READ_MODEL_HEALTH"]["status"], "READY")
+        self.assertNotEqual(by_id["KRX_PREOPEN_COMPACT"]["status"], "READY")
+
     def test_frozen_source_tamper_leaving_the_row_untouched_is_caught_for_every_component(
         self,
     ):
