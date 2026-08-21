@@ -109,6 +109,11 @@ def rehash(packet: dict) -> None:
     packet["payload_sha256"] = KL.canonical_payload_sha256(packet)
 
 
+def rehash_output(packet: dict) -> None:
+    packet.pop("payload_sha256", None)
+    packet["payload_sha256"] = KCR.payload_sha256(packet)
+
+
 def make_bundle() -> tuple[dict, dict]:
     with tempfile.TemporaryDirectory() as raw:
         policy_path = write_upstream_policy(Path(raw) / "leadership-policy.json")
@@ -354,6 +359,35 @@ class KoreaCapitalRotationTests(unittest.TestCase):
         self.assertEqual(first, second)
         digest = second.pop("payload_sha256")
         self.assertEqual(digest, KCR.payload_sha256(second))
+
+    def test_output_validator_rejects_self_rehashed_rank_tamper(self):
+        value, policy = make_bundle()
+        packet = KCR.build_packet(value, policy)
+        packet["benchmark_scopes"][0]["theme_observations"][0][
+            "current_rank_within_benchmark"
+        ] = 3
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "OUTPUT_RANK_BUCKET_MISMATCH"
+        ):
+            KCR.validate_packet(packet)
+
+    def test_output_validator_rejects_self_rehashed_unratified_delta_tamper(self):
+        value, policy = make_bundle()
+        policy.update({
+            "approval_status": "UNRATIFIED",
+            "ratified_by": None,
+            "ratified_at_utc": None,
+        })
+        packet = KCR.build_packet(value, policy)
+        packet["benchmark_scopes"][0]["theme_observations"][0][
+            "relative_strength_change"
+        ] = "0"
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "OUTPUT_THEME_DERIVATION_MISMATCH"
+        ):
+            KCR.validate_packet(packet)
 
     def test_state_regime_stage_production_and_trading_remain_closed(self):
         value, policy = make_bundle()
