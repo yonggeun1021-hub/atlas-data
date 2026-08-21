@@ -40,7 +40,11 @@ python3 portfolio/bear_hedge_risk_budget.py /tmp/budget-set.json \
 
 The CLI is offline and refuses to write inside the repository.
 
-`validate_packet()` revalidates each active budget, its effective date and
-distinct long/portfolio lineage, recomputes the summary, and enforces null
-usage/sizing plus an empty order list. Self-rehashed semantic drift is rejected;
-no default budget or allocation authority is added.
+Output schema v2 embeds the exact `RATIFIED` set in
+`source_packets.BUDGET_SET`. `validate_packet()` reruns the complete budget-set
+validation at consumption time, including CIO identity, effective interval,
+record history, distinct long/portfolio lineage, authority, and the original
+set SHA. It then re-derives active budgets, the summary, null usage/sizing, and
+the empty order list. An unratified budget cannot be added by merely
+recomputing the output hash; no default budget or allocation authority is
+added.

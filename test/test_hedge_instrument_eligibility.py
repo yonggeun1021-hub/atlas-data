@@ -100,6 +100,10 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
     def test_contract_has_no_default_selection_sizing_or_order_authority(self):
         self.assertEqual(CONTRACT["approval_mode"], "EXPLICIT_CIO_RATIFIED_ONLY")
         self.assertEqual(
+            CONTRACT["output_schema_version"],
+            "hedge_instrument_eligibility_packet/2",
+        )
+        self.assertEqual(
             CONTRACT["repository_default_status"],
             "BLOCKED_UNTIL_EXTERNAL_REGISTRY_RATIFIED",
         )
@@ -216,6 +220,7 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
             first["lineage"]["registry_packet_sha256"],
             value["packet_sha256"],
         )
+        self.assertEqual(first["source_packets"]["REGISTRY"], value)
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
 
@@ -235,7 +240,55 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
         })
         with self.assertRaisesRegex(
             MODULE.HedgeEligibilityError,
-            "OUTPUT_SUMMARY_MISMATCH",
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_unratified_instrument_cannot_be_injected_into_self_rehashed_output(self):
+        packet = MODULE.build_packet(registry(), "2026-08-21", CONTRACT)
+        fake = record(instrument_id="US:ARCX:FAKEHEDGE", marker="f")
+        packet["active_records"] = sorted(
+            packet["active_records"] + [fake],
+            key=lambda row: (row["instrument_id"], row["valid_from"]),
+        )
+        packet["eligible_instruments"] = sorted(
+            row["instrument_id"] for row in packet["active_records"] if row["eligible"]
+        )
+        packet["summary"] = {
+            "active_count": 2,
+            "eligible_count": 2,
+            "ineligible_count": 0,
+            "by_scope": {"INDEX": 2, "SECTOR": 0},
+        }
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.HedgeEligibilityError,
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_embedded_registry_is_fully_revalidated(self):
+        packet = MODULE.build_packet(registry(), "2026-08-21", CONTRACT)
+        packet["source_packets"]["REGISTRY"]["status"] = "DRAFT"
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.HedgeEligibilityError,
+            "REGISTRY_IDENTITY_INVALID",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+        packet = MODULE.build_packet(registry(), "2026-08-21", CONTRACT)
+        packet["source_packets"]["REGISTRY"]["records"][0]["eligible"] = False
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.HedgeEligibilityError,
+            "REGISTRY_PACKET_SHA_MISMATCH",
         ):
             MODULE.validate_packet(packet, CONTRACT)
 

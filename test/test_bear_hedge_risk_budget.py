@@ -87,6 +87,10 @@ class BearHedgeRiskBudgetTests(unittest.TestCase):
     def test_contract_has_no_default_allocation_sizing_or_order_authority(self):
         self.assertEqual(CONTRACT["approval_mode"], "EXPLICIT_CIO_RATIFIED_ONLY")
         self.assertEqual(
+            CONTRACT["output_schema_version"],
+            "bear_hedge_budget_packet/2",
+        )
+        self.assertEqual(
             CONTRACT["long_budget_separation"],
             "EXACT_DISTINCT_SHA_REQUIRED",
         )
@@ -208,6 +212,7 @@ class BearHedgeRiskBudgetTests(unittest.TestCase):
             "portfolio_loss_budget_sha256": "c" * 64,
             "long_budget_sha256": "d" * 64,
         })
+        self.assertEqual(first["source_packets"]["BUDGET_SET"], value)
         digest = first.pop("packet_sha256")
         self.assertEqual(digest, MODULE.payload_sha256(first))
 
@@ -219,7 +224,59 @@ class BearHedgeRiskBudgetTests(unittest.TestCase):
         })
         with self.assertRaisesRegex(
             MODULE.BearHedgeBudgetError,
-            "OUTPUT_SUMMARY_MISMATCH",
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_unratified_budget_cannot_be_injected_into_self_rehashed_output(self):
+        packet = MODULE.build_packet(budget_set(), "2026-08-21", CONTRACT)
+        fake = record(
+            budget_id="BEAR_HEDGE_US",
+            scope_type="MARKET",
+            scope_id="US",
+            marker="e",
+        )
+        fake["max_loss"] = 5.0
+        fake["max_gross_exposure"] = 5.0
+        packet["active_budgets"] = sorted(
+            packet["active_budgets"] + [fake],
+            key=lambda row: (row["risk_budget_id"], row["valid_from"]),
+        )
+        packet["summary"] = {
+            "active_count": 2,
+            "portfolio_total_count": 1,
+            "market_count": 1,
+            "scope_ids": ["GLOBAL", "US"],
+        }
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.BearHedgeBudgetError,
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_embedded_budget_set_is_fully_revalidated(self):
+        packet = MODULE.build_packet(budget_set(), "2026-08-21", CONTRACT)
+        packet["source_packets"]["BUDGET_SET"]["status"] = "DRAFT"
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.BearHedgeBudgetError,
+            "BUDGET_SET_IDENTITY_INVALID",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+        packet = MODULE.build_packet(budget_set(), "2026-08-21", CONTRACT)
+        packet["source_packets"]["BUDGET_SET"]["records"][0]["max_loss"] = 5.0
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.BearHedgeBudgetError,
+            "BUDGET_SET_PACKET_SHA_MISMATCH",
         ):
             MODULE.validate_packet(packet, CONTRACT)
 

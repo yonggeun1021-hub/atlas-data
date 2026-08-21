@@ -373,6 +373,61 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                         packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
                     )
 
+    def test_unratified_hedge_instrument_and_budget_cannot_propagate(self):
+        for name in ["HEDGE_ELIGIBILITY", "BEAR_HEDGE_BUDGET"]:
+            with self.subTest(source=name):
+                packets, reasons = bundle()
+                source = packets[name]
+                if name == "HEDGE_ELIGIBILITY":
+                    fake = HEDGE_FIXTURE.record(
+                        instrument_id="US:ARCX:FAKEHEDGE", marker="f"
+                    )
+                    source["active_records"] = sorted(
+                        source["active_records"] + [fake],
+                        key=lambda row: (row["instrument_id"], row["valid_from"]),
+                    )
+                    source["eligible_instruments"] = sorted(
+                        row["instrument_id"]
+                        for row in source["active_records"]
+                        if row["eligible"]
+                    )
+                    source["summary"] = {
+                        "active_count": 2,
+                        "eligible_count": 2,
+                        "ineligible_count": 0,
+                        "by_scope": {"INDEX": 2, "SECTOR": 0},
+                    }
+                else:
+                    fake = BEAR_BUDGET_FIXTURE.record(
+                        budget_id="BEAR_HEDGE_US",
+                        scope_type="MARKET",
+                        scope_id="US",
+                        marker="e",
+                    )
+                    fake["max_loss"] = 5.0
+                    fake["max_gross_exposure"] = 5.0
+                    source["active_budgets"] = sorted(
+                        source["active_budgets"] + [fake],
+                        key=lambda row: (row["risk_budget_id"], row["valid_from"]),
+                    )
+                    source["summary"] = {
+                        "active_count": 2,
+                        "portfolio_total_count": 1,
+                        "market_count": 1,
+                        "scope_ids": ["GLOBAL", "US"],
+                    }
+                source["packet_sha256"] = MODULE.payload_sha256({
+                    key: value for key, value in source.items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.ActionRiskPortfolioSummaryError,
+                    f"P6_SOURCE_INVALID:{name}:OUTPUT_DERIVATION_MISMATCH",
+                ):
+                    MODULE.build_summary(
+                        packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                    )
+
     def test_required_unified_source_and_same_day_time_are_enforced(self):
         packets, reasons = bundle()
         packets["UNIFIED_DECISION"] = None
