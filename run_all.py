@@ -207,6 +207,7 @@ APPROVED_TESTS = [
     # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
     #   Stage/form scope, SGML+index identity, bounded content, immutable hash,
     #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.
+    #   persisted validator가 raw cache에서 extractor 결과와 authority를 재검증한다.
     #   ⛔ 테스트의 live SEC/Notion/Production/trading 없음 — fake fetcher + temp data.
     "test/test_sec_filing_content.py",
     # ★ P4-03 — OpenDART filing original-document acquisition.

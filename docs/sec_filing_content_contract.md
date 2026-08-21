@@ -34,6 +34,17 @@ and leaves interpretation `UNDETERMINED`, Rule impact `NONE`, and action `NO_CHA
 Every other document remains `evidence_status=PENDING` until an explicit extractor is
 registered; the collector never guesses.
 
+`validate_manifest()` treats every persisted success manifest as untrusted. It
+revalidates filing/SEC Archive identity, Stage/form acquisition policy, immutable
+status and authority fields, identity/document hashes and sizes, cache retention,
+skip semantics, and evidence state. When raw cache bytes are available it verifies
+the exact cache set and re-runs the registered extractor, requiring extracted
+values, currencies, quotes, offsets, reasons, and status to match exactly. Existing
+manifests are validated before provider-free skip reuse and again against the cached
+raw bytes before publication. Full-submission and filing-index bodies are not
+retained, so their manifest hashes remain lineage identities rather than standalone
+body authentication.
+
 ## Operations
 
 The Daily Collect workflow runs this as a content-only repair path even when the raw
