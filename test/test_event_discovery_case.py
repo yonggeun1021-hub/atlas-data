@@ -86,6 +86,13 @@ def binding(record=None, proof=None):
     }
 
 
+def rehash(packet):
+    value = copy.deepcopy(packet)
+    value.pop("packet_sha256", None)
+    value["packet_sha256"] = MODULE.payload_sha256(value)
+    return value
+
+
 class EventDiscoveryCaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -189,6 +196,50 @@ class EventDiscoveryCaseTests(unittest.TestCase):
         )
         self.assertEqual(case["importance_status"], MODULE.IMPORTANCE_UNRATIFIED)
         self.assertIsNone(case["stage_transition"])
+
+    def test_standalone_validator_accepts_persisted_packet(self):
+        packet = MODULE.build_packet(
+            records=[d1_record()],
+            evidence_bindings=bindings(binding()),
+            contract=self.contract,
+        )
+        checked = MODULE.validate_packet(copy.deepcopy(packet), self.contract)
+        self.assertEqual(MODULE.canonical_json(checked), MODULE.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_case_identity_tamper(self):
+        packet = MODULE.build_packet(
+            records=[d1_record()], evidence_bindings=bindings(), contract=self.contract
+        )
+        packet["cases"][0]["case_id"] = "event-case-" + "0" * 24
+        with self.assertRaisesRegex(MODULE.EventCaseError, "OUTPUT_CASE_IDENTITY_MISMATCH"):
+            MODULE.validate_packet(rehash(packet), self.contract)
+
+    def test_standalone_validator_rejects_rehashed_authority_expansion(self):
+        packet = MODULE.build_packet(
+            records=[d1_record()], evidence_bindings=bindings(), contract=self.contract
+        )
+        packet["cases"][0]["importance_status"] = "IMPORTANT"
+        with self.assertRaisesRegex(MODULE.EventCaseError, "OUTPUT_CASE_AUTHORITY_EXPANSION"):
+            MODULE.validate_packet(rehash(packet), self.contract)
+
+    def test_standalone_validator_rejects_same_source_case_drift(self):
+        record = d1_record(
+            event_types=["Financial Results", "Other"], item_codes=["2.02", "8.01"]
+        )
+        packet = MODULE.build_packet(
+            records=[record], evidence_bindings=bindings(), contract=self.contract
+        )
+        packet["cases"][1]["classification"]["item_codes"] = ["8.01"]
+        with self.assertRaisesRegex(MODULE.EventCaseError, "OUTPUT_SOURCE_RECORD_CASE_DRIFT"):
+            MODULE.validate_packet(rehash(packet), self.contract)
+
+    def test_standalone_validator_rejects_rehashed_summary_tamper(self):
+        packet = MODULE.build_packet(
+            records=[d1_record()], evidence_bindings=bindings(), contract=self.contract
+        )
+        packet["summary"][MODULE.EVIDENCE_UNRESOLVED] = 0
+        with self.assertRaisesRegex(MODULE.EventCaseError, "OUTPUT_SUMMARY_DERIVATION_MISMATCH"):
+            MODULE.validate_packet(rehash(packet), self.contract)
 
     def test_one_filing_with_multiple_resolved_types_creates_distinct_cases(self):
         record = d1_record(
@@ -315,6 +366,13 @@ class EventDiscoveryCaseTests(unittest.TestCase):
                     MODULE.build_packet(
                         records=records, evidence_bindings=binding_doc, contract=self.contract
                     )
+
+        expanded = copy.deepcopy(self.contract)
+        expanded["authority"]["stage_promotion_authorized"] = True
+        with self.assertRaisesRegex(MODULE.EventCaseError, "AUTHORITY_BOUNDARY_MISMATCH"):
+            MODULE.build_packet(
+                records=[d1_record()], evidence_bindings=bindings(), contract=expanded
+            )
 
     def test_committed_d1_history_is_read_only_compatible(self):
         path = ROOT / "data" / "event_records.jsonl"
