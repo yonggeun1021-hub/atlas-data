@@ -66,6 +66,18 @@ ranking, Rule evaluation, Stage promotion, Production, and trading authorities
 are false. This capability cannot convert a radar record into Ready, Buy, or an
 order.
 
+## Persisted packet validation
+
+`validate_packet()`은 저장된 모든 series result의 3기간 연속성, 12자리 decimal
+정규화, prior/latest/acceleration 변화, pattern, case 생성 여부, 요약 카운트를
+다시 계산한다. 생성된 case는 보존된 3개 numeric value와 source lineage까지
+해당 series result에 역대조하고 모든 권한 봉쇄값을 확인한다. 값을 바꾼 뒤
+`payload_sha256`을 다시 계산해도 semantic drift는 통과하지 않는다.
+
+case가 생성되지 않은 series result는 원 evidence envelope를 packet에 보존하지
+않으므로 standalone validator가 원 입력이나 source completeness까지 증명하지는
+않는다. 그 범위는 원 evidence를 직접 검증하는 `build_packet()` 경로에 남는다.
+
 ## Offline command
 
 ```bash

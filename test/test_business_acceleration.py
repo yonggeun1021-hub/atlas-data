@@ -89,6 +89,13 @@ def payload(rows=None) -> dict:
     }
 
 
+def rehash(packet: dict) -> dict:
+    value = copy.deepcopy(packet)
+    value.pop("payload_sha256", None)
+    value["payload_sha256"] = BA.payload_sha256(value)
+    return value
+
+
 class BusinessAccelerationTests(unittest.TestCase):
     def test_two_consecutive_growth_rate_increases_create_radar_case(self):
         packet = BA.build_packet(payload())
@@ -109,6 +116,43 @@ class BusinessAccelerationTests(unittest.TestCase):
         self.assertIsNone(case["candidate_rank"])
         self.assertIsNone(case["stage_transition"])
         self.assertIsNone(case["action"])
+
+    def test_standalone_validator_accepts_persisted_packet(self):
+        packet = BA.build_packet(payload())
+        checked = BA.validate_packet(copy.deepcopy(packet))
+        self.assertEqual(BA.canonical_json(checked), BA.canonical_json(packet))
+
+    def test_standalone_validator_rejects_rehashed_arithmetic_tamper(self):
+        packet = BA.build_packet(payload())
+        packet["series_results"][0]["values_pct"][2] = "31.000000000000"
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "OUTPUT_PATTERN_DERIVATION_MISMATCH"
+        ):
+            BA.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_case_evidence_tamper(self):
+        packet = BA.build_packet(payload())
+        packet["cases"][0]["confirmed_evidence"][2]["numeric_value"] = "31"
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "OUTPUT_CASE_EVIDENCE_VALUE_MISMATCH"
+        ):
+            BA.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_case_authority_expansion(self):
+        packet = BA.build_packet(payload())
+        packet["cases"][0]["candidate_eligible"] = True
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "OUTPUT_CASE_AUTHORITY_EXPANSION"
+        ):
+            BA.validate_packet(rehash(packet))
+
+    def test_standalone_validator_rejects_rehashed_pattern_count_tamper(self):
+        packet = BA.build_packet(payload())
+        packet["pattern_counts"]["TWO_STEP_ACCELERATION_OBSERVED"] = 0
+        with self.assertRaisesRegex(
+            BA.BusinessAccelerationError, "OUTPUT_SUMMARY_OR_BOUNDARY_MISMATCH"
+        ):
+            BA.validate_packet(rehash(packet))
 
     def test_latest_step_only_and_non_up_do_not_create_cases(self):
         latest_only = BA.build_packet(payload([series(("20", "10", "15"))]))
