@@ -213,6 +213,11 @@ class IntradayFreshnessTests(unittest.TestCase):
             ):
                 MODULE.validate_output(packet, CONTRACT)
 
+    def test_serialized_output_remains_valid_when_json_key_order_changes(self):
+        packet = MODULE.evaluate_freshness(batch(), policy(), CONTRACT)
+        serialized = json.loads(json.dumps(packet, sort_keys=True))
+        self.assertEqual(MODULE.validate_output(serialized, CONTRACT), serialized)
+
     def test_cli_is_offline_and_writes_only_outside_repository(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
         imported = set()
