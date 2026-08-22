@@ -34,6 +34,41 @@
     touching `decision/alpha_review.py`'s own strict field-set check; round 2
     updates that module directly instead, see its own docstring).
 
+★ CIO review round 3 (`price_reflection/3`) fixed four further defects
+  round 2 left open:
+
+  1. A bare `reflection_reference.expectations_gap_status` STRING (or a bare
+     `event_reaction.direction` with no citation) is not a real reference --
+     a caller can type `"POSITIVE"` without any actual P8-09 evidence behind
+     it. `reflection_reference.expectations_gap_status` is retired; callers
+     now pass `reflection_reference.expectations_gap_packet` (the FULL,
+     already-built P8-09 packet), which this module independently
+     re-validates via `decision/expectations_gap.py`'s own `validate_packet`
+     (hash/tamper/vocab) and cross-checks `subject`/`decision_date` against
+     this packet's own -- see `_validate_reflection_reference`. Likewise
+     `event_reaction.direction` now requires `event_reaction.source_ref` +
+     `event_reaction.source_sha256` (real evidence-lineage citation) before
+     it counts as usable for a reflection verdict.
+  2. `reflection_status` used to compare a generic, "now"-anchored 1-month
+     return against an event that could be dated anywhere up to
+     `decision_date` -- almost entirely PRE-event movement, yet still fed
+     into a reflection judgment. It now requires a real,
+     event/reference-anchored `event_reaction.post_event_return_pct` /
+     `reflection_reference.post_reference_return_pct` (a return the CALLER
+     computed specifically from the reference date forward) -- never the
+     generic `recent_return_windows`/`relative_strength` figures. Without
+     one, `reflection_status` stays `UNKNOWN`.
+  3. `price_state=UNKNOWN` and a non-`UNKNOWN` `reflection_status` can now
+     never coexist -- enforced as a hard structural invariant in both
+     `_classify` (forces `reflection_status` back to `UNKNOWN` if
+     `price_state` came out `UNKNOWN`) and `validate_packet` (raises
+     `OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION` on any
+     packet, however constructed, that violates it).
+  4. `classification_thresholds_approval_status="PROVISIONAL"` now actually
+     gates `decision/alpha_review.py`'s operational output, not just this
+     module's own diagnostic `threshold_basis` field -- see that module's
+     own docstring for the `alpha_review/4` change.
+
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`
 and `reflection_status` are forced to `UNKNOWN` regardless of every other
@@ -71,6 +106,7 @@ import copy
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 import hashlib
+import importlib.util
 import inspect
 import json
 import os
@@ -85,6 +121,25 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# ★ CIO round 3, required item 1: a `reflection_reference.
+#   expectations_gap_packet` must be independently re-validated (hash,
+#   vocab, tamper) against P8-09's OWN builder before its status can ever
+#   serve as a reflection reference -- reused unchanged, same cross-module
+#   pattern `decision/alpha_review.py` already uses for all three of its
+#   upstream packets.
+EXPECTATIONS_GAP = _load_module(
+    "p8_10_expectations_gap", ROOT / "decision" / "expectations_gap.py"
+)
+EG_CONTRACT = EXPECTATIONS_GAP.load_contract()
 
 # Parameter-name substrings this module's public builder must never contain.
 # Enforced both by construction (see build_packet's signature) and by a
@@ -116,9 +171,9 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 2,
-        "contract_version": "price_reflection/2",
-        "output_schema_version": "price_reflection_packet/2",
+        "schema_version": 3,
+        "contract_version": "price_reflection/3",
+        "output_schema_version": "price_reflection_packet/3",
         "allowed_price_state": [
             "OVEREXTENDED", "STRONG_MOMENTUM", "MODERATE", "WEAK", "UNKNOWN",
         ],
@@ -245,9 +300,23 @@ def _validate_relative_strength(value, contract: dict) -> dict:
 
 
 def _validate_event_reaction(value, decision_date: dt.date, contract: dict) -> dict:
-    fields = {"event_date", "direction", "reaction_magnitude_pct"}
+    """CIO round 3, required item 1: `direction` alone (a bare string) is
+    not a real reference -- if the caller declares a direction, it MUST also
+    cite real evidence (`source_ref` + `source_sha256`) backing that claim,
+    or the build fails closed rather than silently accepting an unbacked
+    assertion. Required item 2: `post_event_return_pct` is the caller-
+    computed, event-anchored return (never the generic recent_return_windows/
+    relative_strength figures) -- without it, this event_reaction cannot
+    unlock a confident `reflection_status` (see `_resolve_reflection_basis`)."""
+    fields = {
+        "event_date", "direction", "reaction_magnitude_pct",
+        "source_ref", "source_sha256", "post_event_return_pct",
+    }
     if value is None:
-        return {"event_date": None, "direction": None, "reaction_magnitude_pct": None}
+        return {
+            "event_date": None, "direction": None, "reaction_magnitude_pct": None,
+            "source_ref": None, "source_sha256": None, "post_event_return_pct": None,
+        }
     if not isinstance(value, dict) or not set(value).issubset(fields):
         raise PriceReflectionError("EVENT_REACTION_FIELDS_MISMATCH")
     event_date = None
@@ -259,21 +328,55 @@ def _validate_event_reaction(value, decision_date: dt.date, contract: dict) -> d
     if direction is not None and direction not in contract["allowed_direction"]:
         raise PriceReflectionError("EVENT_REACTION_DIRECTION_INVALID")
     magnitude = _pct(value.get("reaction_magnitude_pct"), "EVENT_REACTION_MAGNITUDE_INVALID")
+
+    source_ref = value.get("source_ref")
+    if source_ref is not None:
+        _token(source_ref, "EVENT_REACTION_SOURCE_REF_INVALID")
+    source_sha256 = value.get("source_sha256")
+    if source_sha256 is not None and SHA256_RE.fullmatch(source_sha256) is None:
+        raise PriceReflectionError("EVENT_REACTION_SOURCE_SHA256_INVALID")
+    # ★ CIO round 3, required item 1: a bare `direction` string is accepted
+    #   here (structurally valid input) but is DELIBERATELY not enough on
+    #   its own to unlock a reflection verdict -- see
+    #   `_resolve_reflection_basis`, which additionally requires
+    #   `source_ref` + `source_sha256` (real evidence lineage) AND
+    #   `post_event_return_pct` before this `direction` may serve as a
+    #   reflection reference. A soft downgrade (still UNKNOWN reflection),
+    #   not a hard build failure -- the caller may legitimately want to
+    #   record a direction it observed without (yet) having a citation.
+
+    post_event_return = _pct(value.get("post_event_return_pct"), "EVENT_REACTION_POST_EVENT_RETURN_INVALID")
+
     return {
         "event_date": event_date.isoformat() if event_date else None,
         "direction": direction,
         "reaction_magnitude_pct": str(magnitude) if magnitude is not None else None,
+        "source_ref": source_ref,
+        "source_sha256": source_sha256,
+        "post_event_return_pct": str(post_event_return) if post_event_return is not None else None,
     }
 
 
-def _validate_reflection_reference(value, decision_date: dt.date, contract: dict) -> dict:
+def _validate_reflection_reference(value, subject: str, decision_date: dt.date, contract: dict) -> dict:
     """The REFERENCE POINT this module requires before it will ever emit a
-    confident `reflection_status` -- see module docstring. All three fields
-    are optional individually; `_has_reference_point` below only needs one
-    of them (or `event_reaction.event_date`) to be present."""
-    fields = {"reference_event_id", "expectation_as_of", "expectations_gap_status"}
+    confident `reflection_status` -- see module docstring.
+
+    CIO round 3, required item 1: `expectations_gap_packet` (the FULL,
+    already-built P8-09 packet) replaces round 2's bare
+    `expectations_gap_status` string. It is independently re-validated via
+    `decision/expectations_gap.py`'s own `validate_packet` (hash/tamper/
+    vocab) and its `subject`/`decision_date` are cross-checked against THIS
+    packet's own -- a mismatched or unvalidatable packet is rejected
+    outright, never silently downgraded to "no reference". Required item 2:
+    `post_reference_return_pct` mirrors `event_reaction.
+    post_event_return_pct` for this path."""
+    fields = {"reference_event_id", "expectation_as_of", "expectations_gap_packet", "post_reference_return_pct"}
     if value is None:
-        return {"reference_event_id": None, "expectation_as_of": None, "expectations_gap_status": None}
+        return {
+            "reference_event_id": None, "expectation_as_of": None,
+            "expectations_gap_status": None, "expectations_gap_packet_sha256": None,
+            "post_reference_return_pct": None,
+        }
     if not isinstance(value, dict) or not set(value).issubset(fields):
         raise PriceReflectionError("REFLECTION_REFERENCE_FIELDS_MISMATCH")
     reference_event_id = value.get("reference_event_id")
@@ -284,17 +387,34 @@ def _validate_reflection_reference(value, decision_date: dt.date, contract: dict
         expectation_as_of = _date(value["expectation_as_of"], "REFLECTION_REFERENCE_EXPECTATION_AS_OF_INVALID")
         if expectation_as_of > decision_date:
             raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATION_AS_OF_IN_FUTURE")
-    gap_status = value.get("expectations_gap_status")
-    if gap_status is not None and gap_status not in contract["allowed_direction"]:
-        # Reuses the SAME closed vocabulary decision/expectations_gap.py's
-        # own `status` field uses (POSITIVE/NEGATIVE/NEUTRAL/UNKNOWN) --
-        # this is a real pass-through of an already-validated P8-09 packet's
-        # status, not a new fabricated vocabulary.
-        raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_STATUS_INVALID")
+
+    gap_status = None
+    gap_sha256 = None
+    eg_packet = value.get("expectations_gap_packet")
+    if eg_packet is not None:
+        if not isinstance(eg_packet, dict):
+            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_INVALID")
+        try:
+            validated = EXPECTATIONS_GAP.validate_packet(eg_packet, EG_CONTRACT)
+        except EXPECTATIONS_GAP.ExpectationsGapError as exc:
+            raise PriceReflectionError(f"REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_INVALID:{exc}") from exc
+        if validated["subject"] != subject:
+            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_SUBJECT_MISMATCH")
+        if validated["decision_date"] != decision_date.isoformat():
+            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_DECISION_DATE_MISMATCH")
+        gap_status = validated["expectations_gap"]["status"]
+        gap_sha256 = validated["packet_sha256"]
+
+    post_reference_return = _pct(
+        value.get("post_reference_return_pct"), "REFLECTION_REFERENCE_POST_REFERENCE_RETURN_INVALID"
+    )
+
     return {
         "reference_event_id": reference_event_id,
         "expectation_as_of": expectation_as_of.isoformat() if expectation_as_of else None,
         "expectations_gap_status": gap_status,
+        "expectations_gap_packet_sha256": gap_sha256,
+        "post_reference_return_pct": str(post_reference_return) if post_reference_return is not None else None,
     }
 
 
@@ -321,9 +441,12 @@ def _has_reference_point(event: dict, reference: dict) -> bool:
     """CIO round 2, required item 2: a reflection judgment requires a
     reference point for WHAT is supposed to be reflected. At least one of
     four real signals must be present -- an event date, an explicit
-    reference-event id, an expectation-capture date, or a real P8-09
-    Expectations Gap status (not UNKNOWN, since an unknown gap has nothing
-    to compare price against either)."""
+    reference-event id, an expectation-capture date, or a real,
+    independently-re-validated P8-09 Expectations Gap status (not UNKNOWN,
+    since an unknown gap has nothing to compare price against either).
+    This is a NECESSARY but not SUFFICIENT condition -- see
+    `_resolve_reflection_basis` for the full, lineage-and-momentum-verified
+    bar a reflection VERDICT additionally requires (round 3)."""
     return (
         event["event_date"] is not None
         or reference["reference_event_id"] is not None
@@ -332,20 +455,45 @@ def _has_reference_point(event: dict, reference: dict) -> bool:
     )
 
 
-def _effective_reference_direction(event: dict, reference: dict) -> str | None:
-    """The directional claim the reference point makes -- what was actually
-    expected, so momentum can be compared against it. Prefers a direct event
-    reaction; falls back to a real Expectations Gap status. Returns None if
-    neither resolves to a comparable POSITIVE/NEGATIVE claim (e.g. only a
-    bare `reference_event_id`/`expectation_as_of` was supplied with no
-    directional content) -- see module docstring: a reference point alone,
-    without a direction to compare against, still cannot support a confident
-    reflection verdict."""
-    if event["direction"] in ("POSITIVE", "NEGATIVE"):
-        return event["direction"]
-    if reference["expectations_gap_status"] in ("POSITIVE", "NEGATIVE"):
-        return reference["expectations_gap_status"]
-    return None
+def _resolve_reflection_basis(event: dict, reference: dict) -> tuple[str | None, Decimal | None, str | None]:
+    """CIO round 3, required items 1+2: returns `(direction, post_event_
+    return, source)` -- and ONLY a non-`None` triple -- when a fully
+    lineage-verified, event/reference-ANCHORED basis exists:
+
+    * event_reaction path: `direction` is POSITIVE/NEGATIVE AND `source_ref`
+      + `source_sha256` (real evidence citation, required together with
+      `direction` at validation time -- see `_validate_event_reaction`) AND
+      `post_event_return_pct` (the real, event-anchored return, never the
+      generic recent_return_windows/relative_strength figures) are all
+      present.
+    * expectations_gap path: `expectations_gap_status` is POSITIVE/NEGATIVE
+      (only ever set here after `_validate_reflection_reference` has already
+      independently re-validated the full upstream P8-09 packet's hash and
+      cross-checked its subject/decision_date -- never a bare caller string)
+      AND `post_reference_return_pct` is present.
+
+    event_reaction is preferred when both are independently satisfiable.
+    Returns `(None, None, None)` otherwise -- including when a reference
+    point technically exists (`_has_reference_point` is True) but isn't
+    fully verified/anchored, which still correctly yields
+    `reflection_status=UNKNOWN` downstream."""
+    if (
+        event["direction"] in ("POSITIVE", "NEGATIVE")
+        and event["source_ref"] is not None
+        and event["source_sha256"] is not None
+        and event["post_event_return_pct"] is not None
+    ):
+        return event["direction"], Decimal(event["post_event_return_pct"]), "EVENT_REACTION"
+    if (
+        reference["expectations_gap_status"] in ("POSITIVE", "NEGATIVE")
+        and reference["post_reference_return_pct"] is not None
+    ):
+        return (
+            reference["expectations_gap_status"],
+            Decimal(reference["post_reference_return_pct"]),
+            "EXPECTATIONS_GAP",
+        )
+    return None, None, None
 
 
 def _price_state(
@@ -396,42 +544,43 @@ def _price_state(
     return "WEAK", reasons, scored_signals
 
 
-def _reflection_status(
-    *, event: dict, reference: dict, m1: Decimal | None, rs_market: Decimal | None, contract: dict,
-) -> tuple[str, list[str]]:
-    """Only ever leaves `UNKNOWN` when a real reference point AND a
-    comparable direction AND real momentum are all present -- see module
-    docstring. Momentum magnitude alone (no matter how large) is never
-    sufficient on its own."""
+def _reflection_status(*, event: dict, reference: dict, contract: dict) -> tuple[str, list[str]]:
+    """Only ever leaves `UNKNOWN` when a real, lineage-verified reference
+    point AND a comparable direction AND a real, EVENT-ANCHORED post-
+    reference return are all present -- see module docstring and
+    `_resolve_reflection_basis`. Deliberately takes NO generic momentum
+    input (no `m1`/`rs_market`) -- CIO round 3, required item 2: a generic,
+    "now"-anchored trailing return can be almost entirely pre-event
+    movement; only a return the caller computed specifically from the
+    reference date forward may ever grade reflection."""
     reasons: list[str] = []
     if not _has_reference_point(event, reference):
         reasons.append("NO_REFLECTION_REFERENCE_POINT")
         return "UNKNOWN", reasons
 
-    effective_direction = _effective_reference_direction(event, reference)
-    momentum_values = [v for v in (m1, rs_market) if v is not None]
-    momentum = sum(momentum_values) / len(momentum_values) if momentum_values else None
-    if effective_direction is None or momentum is None:
-        reasons.append("REFERENCE_POINT_PRESENT_BUT_NO_COMPARABLE_DIRECTION_OR_MOMENTUM")
+    direction, post_return, source = _resolve_reflection_basis(event, reference)
+    if direction is None or post_return is None:
+        reasons.append(
+            "REFERENCE_POINT_PRESENT_BUT_NOT_LINEAGE_VERIFIED_OR_POST_REFERENCE_RETURN_NOT_COMPUTABLE"
+        )
         return "UNKNOWN", reasons
 
-    reasons.append(f"reference_effective_direction:{effective_direction}")
-    reasons.append(f"momentum_avg:{momentum}")
+    reasons.append(f"reflection_basis_source:{source}")
+    reasons.append(f"reflection_effective_direction:{direction}")
+    reasons.append(f"post_reference_return_pct:{post_return}")
 
     thresholds = contract["classification_thresholds"]
     strong_threshold = Decimal(thresholds["strong_momentum_min_pct"])
     mild_threshold = Decimal(thresholds["mild_momentum_min_pct"])
 
-    agrees = (effective_direction == "POSITIVE" and momentum > 0) or (
-        effective_direction == "NEGATIVE" and momentum < 0
-    )
-    if not agrees or abs(momentum) < mild_threshold:
-        reasons.append("MOMENTUM_HAS_NOT_CAUGHT_UP_TO_REFERENCE")
+    agrees = (direction == "POSITIVE" and post_return > 0) or (direction == "NEGATIVE" and post_return < 0)
+    if not agrees or abs(post_return) < mild_threshold:
+        reasons.append("POST_REFERENCE_RETURN_HAS_NOT_CAUGHT_UP_TO_REFERENCE")
         return "UNDER_REFLECTED", reasons
-    if abs(momentum) >= strong_threshold:
-        reasons.append("MOMENTUM_STRONGLY_AGREES_WITH_REFERENCE")
+    if abs(post_return) >= strong_threshold:
+        reasons.append("POST_REFERENCE_RETURN_STRONGLY_AGREES_WITH_REFERENCE")
         return "FULLY_REFLECTED", reasons
-    reasons.append("MOMENTUM_PARTIALLY_AGREES_WITH_REFERENCE")
+    reasons.append("POST_REFERENCE_RETURN_PARTIALLY_AGREES_WITH_REFERENCE")
     return "PARTIALLY_REFLECTED", reasons
 
 
@@ -476,8 +625,21 @@ def _classify(
         volume_change=volume_change, val_pos=val_pos, contract=contract,
     )
     reflection_status, reflection_reasons = _reflection_status(
-        event=event, reference=reference, m1=m1, rs_market=rs_market, contract=contract,
+        event=event, reference=reference, contract=contract,
     )
+
+    # ★ CIO round 3, required item 3: price_state=UNKNOWN and a non-UNKNOWN
+    #   reflection_status must never coexist -- a hard structural invariant,
+    #   not a case-by-case fix. If the momentum/price basis itself couldn't
+    #   be classified, reflection cannot be confidently anything either,
+    #   REGARDLESS of what _reflection_status independently computed (e.g.
+    #   an event-anchored post_reference_return_pct with zero generic price
+    #   signal otherwise). Re-asserted unconditionally in validate_packet()
+    #   below too, so this can never be reintroduced by a future edit or
+    #   bypassed by tampering.
+    if price_state == "UNKNOWN" and reflection_status != "UNKNOWN":
+        reflection_status = "UNKNOWN"
+        reflection_reasons = ["PRICE_STATE_UNKNOWN_BLOCKS_REFLECTION_VERDICT"] + reflection_reasons
 
     reasons = [f"price_state={price_state}"] + price_reasons + \
         [f"reflection_status={reflection_status}"] + reflection_reasons
@@ -544,7 +706,9 @@ def build_packet(
     windows = _validate_recent_return_windows(recent_return_windows, contract)
     strength = _validate_relative_strength(relative_strength, contract)
     event = _validate_event_reaction(event_reaction, decision_date_checked, contract)
-    reference = _validate_reflection_reference(reflection_reference, decision_date_checked, contract)
+    reference = _validate_reflection_reference(
+        reflection_reference, subject_checked, decision_date_checked, contract
+    )
     valuation = _validate_valuation_context(valuation_context, contract)
 
     price_state, reflection_status, confidence, data_state, reasons = _classify(
@@ -590,11 +754,16 @@ def build_packet(
             "event_date": event["event_date"] or "UNKNOWN",
             "direction": event["direction"] or "UNKNOWN",
             "reaction_magnitude_pct": event["reaction_magnitude_pct"] or "UNKNOWN",
+            "source_ref": event["source_ref"] or "UNKNOWN",
+            "source_sha256": event["source_sha256"] or "UNKNOWN",
+            "post_event_return_pct": event["post_event_return_pct"] or "UNKNOWN",
         },
         "reflection_reference": {
             "reference_event_id": reference["reference_event_id"] or "UNKNOWN",
             "expectation_as_of": reference["expectation_as_of"] or "UNKNOWN",
             "expectations_gap_status": reference["expectations_gap_status"] or "UNKNOWN",
+            "expectations_gap_packet_sha256": reference["expectations_gap_packet_sha256"] or "UNKNOWN",
+            "post_reference_return_pct": reference["post_reference_return_pct"] or "UNKNOWN",
         },
         "valuation_context": {
             "metric_type": valuation["metric_type"] or "UNKNOWN",
@@ -668,6 +837,13 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     if (reflection_status == "UNKNOWN") != (data_state != "VALID"):
         raise PriceReflectionError("OUTPUT_DATA_STATE_REFLECTION_STATUS_MISMATCH")
 
+    # ★ CIO round 3, required item 3: structural invariant, re-asserted here
+    #   independent of _classify's own enforcement -- price_state=UNKNOWN
+    #   and a non-UNKNOWN reflection_status can never coexist in ANY packet
+    #   this function accepts, however it was constructed or tampered with.
+    if price_state == "UNKNOWN" and reflection_status != "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION")
+
     if threshold_basis != contract["classification_thresholds_approval_status"]:
         raise PriceReflectionError("OUTPUT_THRESHOLD_BASIS_MISMATCH")
 
@@ -714,7 +890,10 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             _pct(value, "OUTPUT_RECENT_RETURN_WINDOWS_VALUE_INVALID")
 
     er = pr.get("event_reaction")
-    if not isinstance(er, dict) or set(er) != {"event_date", "direction", "reaction_magnitude_pct"}:
+    if not isinstance(er, dict) or set(er) != {
+        "event_date", "direction", "reaction_magnitude_pct",
+        "source_ref", "source_sha256", "post_event_return_pct",
+    }:
         raise PriceReflectionError("OUTPUT_EVENT_REACTION_FIELDS_MISMATCH")
     if er["event_date"] != "UNKNOWN":
         _date(er["event_date"], "OUTPUT_EVENT_REACTION_EVENT_DATE_INVALID")
@@ -726,16 +905,29 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise PriceReflectionError("OUTPUT_EVENT_REACTION_DIRECTION_INVALID")
     if er["reaction_magnitude_pct"] != "UNKNOWN":
         _pct(er["reaction_magnitude_pct"], "OUTPUT_EVENT_REACTION_MAGNITUDE_INVALID")
+    if er["source_sha256"] != "UNKNOWN" and SHA256_RE.fullmatch(er["source_sha256"]) is None:
+        raise PriceReflectionError("OUTPUT_EVENT_REACTION_SOURCE_SHA256_INVALID")
+    if er["post_event_return_pct"] != "UNKNOWN":
+        _pct(er["post_event_return_pct"], "OUTPUT_EVENT_REACTION_POST_EVENT_RETURN_INVALID")
 
     rr = pr.get("reflection_reference")
     if not isinstance(rr, dict) or set(rr) != {
         "reference_event_id", "expectation_as_of", "expectations_gap_status",
+        "expectations_gap_packet_sha256", "post_reference_return_pct",
     }:
         raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_FIELDS_MISMATCH")
     if rr["expectation_as_of"] != "UNKNOWN":
         _date(rr["expectation_as_of"], "OUTPUT_REFLECTION_REFERENCE_EXPECTATION_AS_OF_INVALID")
     if rr["expectations_gap_status"] not in contract["allowed_direction"] + ["UNKNOWN"]:
         raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_EXPECTATIONS_GAP_STATUS_INVALID")
+    if rr["expectations_gap_packet_sha256"] != "UNKNOWN" and SHA256_RE.fullmatch(
+        rr["expectations_gap_packet_sha256"]
+    ) is None:
+        raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_SHA256_INVALID")
+    if rr["post_reference_return_pct"] != "UNKNOWN":
+        _pct(rr["post_reference_return_pct"], "OUTPUT_REFLECTION_REFERENCE_POST_REFERENCE_RETURN_INVALID")
+    if rr["expectations_gap_status"] != "UNKNOWN" and rr["expectations_gap_packet_sha256"] == "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_EXPECTATIONS_GAP_STATUS_REQUIRES_VERIFIED_PACKET")
 
     vc = pr.get("valuation_context")
     if not isinstance(vc, dict) or set(vc) != {"metric_type", "position_in_range"}:

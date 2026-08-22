@@ -9,6 +9,7 @@ against those three upstream modules, not just alpha_review.py in isolation.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime as dt
 import importlib.util
@@ -78,61 +79,132 @@ def build(ft_packet, eg_packet, pr_packet, **kwargs):
     )
 
 
+# ── CIO round 3: ratification simulation ────────────────────────────────
+# `decision/price_reflection.py`'s `classification_thresholds_approval_
+# status` is a hardcoded literal inside that module's own `_expected_
+# contract()` -- by design, no caller-supplied dict can flip it to
+# "RATIFIED" (ratification must be a real, tracked code change, not a
+# parameter anyone can set). To exercise alpha_review's positive-state
+# paths, which required item 4 now gates behind `threshold_basis ==
+# "RATIFIED"`, this context manager patches the TWO independent
+# `price_reflection.py` module instances this test file touches --
+# `PR` (used below to build the input price_reflection packet) and
+# `MODULE.PRICE_REFLECTION`/`MODULE.PR_CONTRACT` (alpha_review.py's own
+# internally-loaded instance, used to re-validate that packet) -- so both
+# agree thresholds are ratified, for the lifetime of a single `with` block
+# only. Never touches the real config file or any other module's state.
+@contextlib.contextmanager
+def ratified_thresholds():
+    pr_original = PR._expected_contract
+    alpha_pr_original = MODULE.PRICE_REFLECTION._expected_contract
+    alpha_pr_contract_original = MODULE.PR_CONTRACT
+
+    def _patched(original):
+        def _fn():
+            value = original()
+            value["classification_thresholds_approval_status"] = "RATIFIED"
+            return value
+        return _fn
+
+    PR._expected_contract = _patched(pr_original)
+    MODULE.PRICE_REFLECTION._expected_contract = _patched(alpha_pr_original)
+    MODULE.PR_CONTRACT = MODULE.PRICE_REFLECTION._expected_contract()
+    try:
+        yield PR._expected_contract()
+    finally:
+        PR._expected_contract = pr_original
+        MODULE.PRICE_REFLECTION._expected_contract = alpha_pr_original
+        MODULE.PR_CONTRACT = alpha_pr_contract_original
+
+
 # ── price_reflection status presets (all decision_date=2026-08-20) ─────────
-# `price_reflection/2` (CIO round 2): `reflection_status` only ever leaves
-# UNKNOWN when a real reference point is supplied -- every preset below that
-# needs a confident (non-UNKNOWN) reflection_status carries a real
-# `event_reaction` with a POSITIVE direction the momentum can be compared
-# against. Momentum magnitude alone (no reference) would otherwise leave
-# EVERY one of these at reflection_status=UNKNOWN regardless of how extreme
-# the price move is -- see decision/price_reflection.py's module docstring.
-_REFERENCE = {"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"}
+# `price_reflection/3` (CIO round 3): `reflection_status` only ever leaves
+# UNKNOWN when a real, LINEAGE-VERIFIED reference point AND a real, event-
+# anchored `post_event_return_pct` are both supplied -- every preset below
+# that needs a confident (non-UNKNOWN) reflection_status carries a real
+# `event_reaction` with `source_ref`/`source_sha256` (evidence citation)
+# and `post_event_return_pct` (never the generic recent_return_windows/
+# relative_strength figures the momentum comparison used to -- and must
+# never again -- use directly). Momentum magnitude alone (no reference, or
+# a reference with no lineage) would otherwise leave EVERY one of these at
+# reflection_status=UNKNOWN regardless of how extreme the price move is --
+# see decision/price_reflection.py's module docstring. These presets ALSO
+# require `threshold_basis=="RATIFIED"` to ever unlock an alpha_review
+# positive state (required item 4) -- callers needing a positive state pass
+# `contract=` from inside a `with ratified_thresholds():` block.
+def _verified_reference(post_event_return_pct: str) -> dict:
+    return {
+        "event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
+        "source_ref": "REAL-FILING-CITATION-1", "source_sha256": "a" * 64,
+        "post_event_return_pct": post_event_return_pct,
+    }
 
 
-def pr_under_reflected():
-    return price_reflection_packet(
+def pr_under_reflected(**overrides):
+    kwargs = dict(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "1"},
         relative_strength={"vs_market": "1"},
-        event_reaction=_REFERENCE,
+        event_reaction=_verified_reference("1"),
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
+    kwargs.update(overrides)
+    return price_reflection_packet(**kwargs)
 
 
-def pr_partially_reflected():
-    return price_reflection_packet(
+def pr_partially_reflected(**overrides):
+    kwargs = dict(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "3"},
         relative_strength={"vs_market": "2"},
-        event_reaction=_REFERENCE,
+        event_reaction=_verified_reference("3"),
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
+    kwargs.update(overrides)
+    return price_reflection_packet(**kwargs)
 
 
-def pr_fully_reflected():
-    return price_reflection_packet(
+def pr_fully_reflected(**overrides):
+    kwargs = dict(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "10"},
         relative_strength={"vs_market": "9"},
-        event_reaction=_REFERENCE,
+        event_reaction=_verified_reference("10"),
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
+    kwargs.update(overrides)
+    return price_reflection_packet(**kwargs)
 
 
-def pr_overextended():
-    return price_reflection_packet(
+def pr_overextended(**overrides):
+    """price_state=OVEREXTENDED itself needs no reference/lineage (it's a
+    pure momentum read, round-2 core fix) -- but alpha_review's gate 3
+    (`reflection_status == "UNKNOWN"`) still blocks EVERYTHING, including a
+    real OVEREXTENDED price_state, until reflection_status is independently
+    resolved. This preset therefore still carries a real, lineage-verified
+    event_reaction (consistent with the rally, so it resolves
+    FULLY_REFLECTED) purely to clear gate 3 -- alpha_review's own
+    WAIT_FOR_PULLBACK gate then fires off `price_state == "OVEREXTENDED"`
+    specifically (not off reflection_status), which is the actual thing
+    this fixture exists to exercise. Also needs a RATIFIED contract to
+    clear the round-3 threshold-ratification arm of gate 3."""
+    kwargs = dict(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "20"},
         relative_strength={"vs_market": "18", "position_vs_recent_high_pct": "1"},
-        event_reaction=_REFERENCE,
+        event_reaction=_verified_reference("18"),
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
+    kwargs.update(overrides)
+    return price_reflection_packet(**kwargs)
 
 
 def pr_overextended_no_reference_point():
     """Real price_state=OVEREXTENDED with NO reference point at all --
     reflection_status must stay UNKNOWN (round-2 core fix: a rally alone is
-    never a reflection verdict)."""
+    never a reflection verdict). Deliberately built under the REAL
+    (PROVISIONAL) contract -- this must stay WAIT_FOR_PRICE regardless of
+    ratification."""
     return price_reflection_packet(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "20"},
@@ -241,25 +313,32 @@ class OpportunityStateClassificationTests(unittest.TestCase):
     def test_wait_for_evidence_narrative_only_core_evidence_gate(self):
         # CIO Gate Hardening gate 4 (NEW): price known, gap not negative, but
         # every observed_fact is NARRATIVE_SOURCED/PRICE_FEED only -- no
-        # EXHIBIT_EXTRACTED fact backs the thesis. Mirrors the real
-        # 298040.KS (Hyosung) Pilot fact pattern's evidence shape (though
-        # 298040.KS itself is intercepted by gate 3 first, since its
-        # price_reflection.status is also UNKNOWN).
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        # EXHIBIT_EXTRACTED fact backs the thesis. Requires ratified
+        # thresholds (CIO round 3, required item 4) since gate 3 now also
+        # blocks on a non-RATIFIED threshold_basis.
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_partially_reflected(contract=ratified_contract)
+            packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr)
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
         self.assertTrue(packet["price_reflection"]["reflection_status"] != "UNKNOWN")
         self.assertEqual(packet["expectations_gap"]["status"], "POSITIVE")
 
     def test_anticipatory_review(self):
-        packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_partially_reflected(contract=ratified_contract)
+            packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr)
         self.assertEqual(packet["opportunity_state"], "ANTICIPATORY_REVIEW")
 
     def test_expectation_exhausted(self):
-        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected())
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_fully_reflected(contract=ratified_contract)
+            packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr)
         self.assertEqual(packet["opportunity_state"], "EXPECTATION_EXHAUSTED")
 
     def test_wait_for_pullback(self):
-        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended())
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_overextended(contract=ratified_contract)
+            packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr)
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PULLBACK")
 
     def test_overextended_price_with_no_reference_point_is_wait_for_price_not_wait_for_pullback(self):
@@ -267,22 +346,42 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         # (price_state=OVEREXTENDED) with NO event/expectation reference
         # point must NOT be treated as a reflection verdict -- it must still
         # hit gate 3 (WAIT_FOR_PRICE), never reach gate 5's WAIT_FOR_PULLBACK.
+        # Built under the REAL (PROVISIONAL) contract -- must stay
+        # WAIT_FOR_PRICE with or without ratification.
         pr = pr_overextended_no_reference_point()
         self.assertEqual(pr["price_reflection"]["price_state"], "OVEREXTENDED")
         self.assertEqual(pr["price_reflection"]["reflection_status"], "UNKNOWN")
         packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr)
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
 
+    def test_provisional_threshold_basis_blocks_positive_state_even_with_full_lineage(self):
+        # CIO round 3, required item 4, exercised end-to-end without the
+        # ratified_thresholds() simulation: a FULLY lineage-verified,
+        # event-anchored reflection_status=FULLY_REFLECTED, built under the
+        # REAL (PROVISIONAL) contract, must still resolve to WAIT_FOR_PRICE
+        # -- never CONFIRMATION_REVIEW/EXPECTATION_EXHAUSTED/etc.
+        pr = pr_fully_reflected()
+        self.assertEqual(pr["price_reflection"]["reflection_status"], "FULLY_REFLECTED")  # sanity
+        self.assertEqual(pr["price_reflection"]["threshold_basis"], "PROVISIONAL")  # sanity
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr)
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
+
     def test_confirmation_review(self):
-        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected())
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_partially_reflected(contract=ratified_contract)
+            packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr)
         self.assertEqual(packet["opportunity_state"], "CONFIRMATION_REVIEW")
 
     def test_wait_for_evidence(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_partially_reflected())
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_partially_reflected(contract=ratified_contract)
+            packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_unknown(), pr)
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
 
     def test_early_discovery(self):
-        packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected())
+        with ratified_thresholds() as ratified_contract:
+            pr = pr_under_reflected(contract=ratified_contract)
+            packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr)
         self.assertEqual(packet["opportunity_state"], "EARLY_DISCOVERY")
 
     def test_all_ten_opportunity_states_are_exercised(self):
@@ -314,12 +413,22 @@ class AnticipatoryReviewGateTests(unittest.TestCase):
         # ft_status_with_exhibit (not plain ft_status) so gate 4
         # (narrative-only-core-evidence) never pre-empts these tests -- see
         # that fixture's docstring.
+        # These tests call anticipatory_review_gates()/classify_opportunity_
+        # state() DIRECTLY (not through the full build() pipeline), so they
+        # never re-validate pr_inner against PRICE_REFLECTION.validate_packet
+        # -- only PR (used to BUILD self.pr) needs the ratified patch, held
+        # open for the lifetime of each test via setUp/tearDown.
+        self._ratified_cm = ratified_thresholds()
+        ratified_contract = self._ratified_cm.__enter__()
         self.ft = ft_status_with_exhibit("PRE_REVENUE_SIGNAL")
         self.eg = eg_positive_proxy()
-        self.pr = pr_partially_reflected()
+        self.pr = pr_partially_reflected(contract=ratified_contract)
         self.gap = self.eg["expectations_gap"]
         self.pr_inner = self.pr["price_reflection"]
         self.decision_date = dt.date.fromisoformat(DECISION_DATE)
+
+    def tearDown(self):
+        self._ratified_cm.__exit__(None, None, None)
 
     def test_baseline_all_seven_gates_hold_and_state_is_anticipatory_review(self):
         gates = MODULE.anticipatory_review_gates(self.ft, self.gap, self.pr_inner, self.decision_date)
@@ -379,7 +488,10 @@ class AnticipatoryReviewGateTests(unittest.TestCase):
         )
 
     def test_gate5_violated_price_fully_reflected(self):
-        pr = pr_fully_reflected()
+        # setUp already entered ratified_thresholds() for this whole test
+        # class -- PR._expected_contract() is currently patched, so the
+        # default (unpatched-provisional) PR_FIXTURE.CONTRACT would mismatch.
+        pr = pr_fully_reflected(contract=PR._expected_contract())
         pr_inner = pr["price_reflection"]
         gates = MODULE.anticipatory_review_gates(self.ft, self.gap, pr_inner, self.decision_date)
         self._assert_exactly_one_gate_false(gates, "gate5_price_not_stretched_or_unknown")
@@ -553,25 +665,44 @@ class TradeProposalAndAuthorityTests(unittest.TestCase):
                 self.assertFalse(value, key)
 
     def test_trade_proposal_is_null_across_every_opportunity_state(self):
-        cases = [
-            (ft_no_evidence(), eg_positive_proxy(), pr_partially_reflected()),                                    # BLOCKED
-            (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                                    # BLOCKED
-            (ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected()),              # REJECTED
-            (ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended()),                                        # REJECTED
-            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended()),                    # WAIT_FOR_THESIS_REPAIR
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown()),         # WAIT_FOR_PRICE
-            (ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),                      # WAIT_FOR_EVIDENCE (narrative-only)
-            (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),         # ANTICIPATORY_REVIEW
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected()),    # EXPECTATION_EXHAUSTED
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended()),    # WAIT_FOR_PULLBACK
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected()), # CONFIRMATION_REVIEW
-            (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected()),                    # EARLY_DISCOVERY
-        ]
         seen_states = set()
-        for ft, eg, pr in cases:
+
+        # ★ PROVISIONAL cases -- built and RUN THROUGH build() entirely
+        # outside ratified_thresholds(): alpha_review.build_packet() always
+        # re-validates the incoming price_reflection packet against the
+        # AMBIENT MODULE.PR_CONTRACT, so a genuinely-PROVISIONAL packet
+        # (threshold_basis="PROVISIONAL") can only be built()-ed while that
+        # ambient contract is also PROVISIONAL (the real, unpatched state).
+        provisional_cases = [
+            (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                                    # BLOCKED
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown()),         # WAIT_FOR_PRICE
+        ]
+        for ft, eg, pr in provisional_cases:
             packet = build(ft, eg, pr)
             self.assertIsNone(packet["trade_proposal"])
             seen_states.add(packet["opportunity_state"])
+
+        # ★ RATIFIED cases -- both the input pr packets AND the build() call
+        # itself must happen inside the same ratified_thresholds() window,
+        # since build() validates the packet against the ambient contract.
+        with ratified_thresholds() as rc:
+            ratified_cases = [
+                (ft_no_evidence(), eg_positive_proxy(), pr_partially_reflected(contract=rc)),                          # BLOCKED
+                (ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected(contract=rc)),   # REJECTED
+                (ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended(contract=rc)),                             # REJECTED
+                (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended(contract=rc)),         # WAIT_FOR_THESIS_REPAIR
+                (ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected(contract=rc)),           # WAIT_FOR_EVIDENCE (narrative-only)
+                (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected(contract=rc)),  # ANTICIPATORY_REVIEW
+                (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected(contract=rc)),  # EXPECTATION_EXHAUSTED
+                (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended(contract=rc)),  # WAIT_FOR_PULLBACK
+                (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected(contract=rc)),  # CONFIRMATION_REVIEW
+                (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected(contract=rc)),         # EARLY_DISCOVERY
+            ]
+            for ft, eg, pr in ratified_cases:
+                packet = build(ft, eg, pr)
+                self.assertIsNone(packet["trade_proposal"])
+                seen_states.add(packet["opportunity_state"])
+
         self.assertEqual(seen_states, set(CONTRACT["opportunity_states"]))
 
     def test_validate_packet_rejects_non_null_trade_proposal(self):

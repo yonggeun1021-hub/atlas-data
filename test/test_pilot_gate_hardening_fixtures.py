@@ -16,6 +16,7 @@ are the concrete proof that can never happen again without a test failure.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 from pathlib import Path
 import unittest
@@ -46,6 +47,38 @@ ALPHA_REVIEW = load_module("gate_hardening_alpha_review", ROOT / "decision" / "a
 FT_FIXTURE = load_module("gate_hardening_ft_fixture", ROOT / "test" / "test_forward_thesis.py")
 EG_FIXTURE = load_module("gate_hardening_eg_fixture", ROOT / "test" / "test_expectations_gap.py")
 PR_FIXTURE = load_module("gate_hardening_pr_fixture", ROOT / "test" / "test_price_reflection.py")
+
+
+# CIO round 3, required item 4: states 4-10 of alpha_review's decision table
+# only unlock once price_reflection.threshold_basis=="RATIFIED" -- see
+# test_alpha_review.py's own ratified_thresholds() docstring for why this is
+# a context-manager simulation (real ratification is a hardcoded literal in
+# decision/price_reflection.py's own _expected_contract(), not a caller
+# parameter). This file loads its OWN independent PRICE_REFLECTION/
+# ALPHA_REVIEW module instances above, so it needs its own copy of the same
+# patch, scoped to those specific instances.
+@contextlib.contextmanager
+def ratified_thresholds():
+    top_level_original = PRICE_REFLECTION._expected_contract
+    alpha_pr_original = ALPHA_REVIEW.PRICE_REFLECTION._expected_contract
+    alpha_pr_contract_original = ALPHA_REVIEW.PR_CONTRACT
+
+    def _patched(original):
+        def _fn():
+            value = original()
+            value["classification_thresholds_approval_status"] = "RATIFIED"
+            return value
+        return _fn
+
+    PRICE_REFLECTION._expected_contract = _patched(top_level_original)
+    ALPHA_REVIEW.PRICE_REFLECTION._expected_contract = _patched(alpha_pr_original)
+    ALPHA_REVIEW.PR_CONTRACT = ALPHA_REVIEW.PRICE_REFLECTION._expected_contract()
+    try:
+        yield PRICE_REFLECTION._expected_contract()
+    finally:
+        PRICE_REFLECTION._expected_contract = top_level_original
+        ALPHA_REVIEW.PRICE_REFLECTION._expected_contract = alpha_pr_original
+        ALPHA_REVIEW.PR_CONTRACT = alpha_pr_contract_original
 
 # Expected post-CIO-Gate-Hardening results for the 4 real Pilot subjects.
 #
@@ -149,30 +182,38 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
         eg_packet = EXPECTATIONS_GAP.build_packet(eg_input, EG_FIXTURE.CONTRACT)
         self.assertNotEqual(eg_packet["expectations_gap"]["status"], "NEGATIVE")
 
-        pr_packet = PRICE_REFLECTION.build_packet(
-            subject="TSM",
-            decision_date=decision_date,
-            generated_at=generated_at,
-            price_as_of="2026-08-19T20:00:00Z",
-            recent_return_windows={"1m": "3"},
-            relative_strength={"vs_market": "2"},
-            # A real reference point is required for reflection_status to
-            # leave UNKNOWN post-CIO-round-2 (see decision/price_reflection.py) --
-            # without one this synthetic fixture would itself now hit gate 3
-            # (WAIT_FOR_PRICE) and never reach gate 4, defeating the point of
-            # this test.
-            event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"},
-            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
-            contract=PR_FIXTURE.CONTRACT,
-        )
-        self.assertNotEqual(pr_packet["price_reflection"]["reflection_status"], "UNKNOWN")
+        with ratified_thresholds() as ratified_contract:
+            pr_packet = PRICE_REFLECTION.build_packet(
+                subject="TSM",
+                decision_date=decision_date,
+                generated_at=generated_at,
+                price_as_of="2026-08-19T20:00:00Z",
+                recent_return_windows={"1m": "3"},
+                relative_strength={"vs_market": "2"},
+                # A real, LINEAGE-VERIFIED reference point + a real,
+                # event-anchored post_event_return_pct are required for
+                # reflection_status to leave UNKNOWN post-CIO-round-3 (see
+                # decision/price_reflection.py) -- without them this
+                # synthetic fixture would itself now hit gate 3
+                # (WAIT_FOR_PRICE) and never reach gate 4, defeating the
+                # point of this test. A RATIFIED threshold_basis is also
+                # required (round 3, required item 4) for the same reason.
+                event_reaction={
+                    "event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
+                    "source_ref": "REAL-CITATION", "source_sha256": "a" * 64,
+                    "post_event_return_pct": "3",
+                },
+                data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+                contract=ratified_contract,
+            )
+            self.assertNotEqual(pr_packet["price_reflection"]["reflection_status"], "UNKNOWN")
 
-        alpha_packet = ALPHA_REVIEW.build_packet(
-            forward_thesis_packet=ft_packet,
-            expectations_gap_packet=eg_packet,
-            price_reflection_packet=pr_packet,
-            generated_at=generated_at,
-        )
+            alpha_packet = ALPHA_REVIEW.build_packet(
+                forward_thesis_packet=ft_packet,
+                expectations_gap_packet=eg_packet,
+                price_reflection_packet=pr_packet,
+                generated_at=generated_at,
+            )
         self.assertEqual(alpha_packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
 
 

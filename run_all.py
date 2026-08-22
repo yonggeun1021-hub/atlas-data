@@ -811,6 +811,19 @@ APPROVED_TESTS = [
     #   (reasons[0] 문자열 인코딩 아님 — round 1 stopgap 폐기). classification_
     #   thresholds는 미비준(PROVISIONAL)임을 contract·매 packet의 threshold_basis
     #   에 명시하며 alpha_review.py도 이번 라운드에 함께 갱신(contract v3)했다.
+    #   CIO round 3(contract v3): (1) bare expectations_gap_status 문자열/
+    #   무근거 event_reaction.direction으로 reference point를 열 수 없도록
+    #   reflection_reference.expectations_gap_packet(P8-09 packet 전체 재검증,
+    #   hash·subject·decision_date 교차확인) + event_reaction.source_ref/
+    #   source_sha256(실 증거 lineage) 요구. (2) reflection 판정은 이제
+    #   post_event_return_pct/post_reference_return_pct(사건 이후로 anchoring된
+    #   실 수익률)만 사용 — 일반 1m/vs_market으로 사건 이전 momentum을 reflection
+    #   판정에 쓰지 않는다. (3) price_state=UNKNOWN + reflection_status≠UNKNOWN
+    #   모순을 _classify와 validate_packet 양쪽에서 구조적으로 차단
+    #   (OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION). (4)
+    #   threshold_basis!=RATIFIED도 alpha_review.py(contract v4)의 WAIT_FOR_PRICE
+    #   게이트를 독립적으로 발동시켜 미비준 임계값이 긍정적 opportunity_state를
+    #   절대 열 수 없게 한다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
@@ -841,6 +854,12 @@ APPROVED_TESTS = [
     #   BLOCKED/REJECTED를 최우선 판정하는 순서 고정 if/elif 분류만 수행한다.
     #   p5_rule_status/portfolio_status는 caller pass-through(기본 NOT_EVALUATED)이며
     #   이 모듈이 직접 계산하지 않는다. trade_proposal은 이 MVP에서 항상 null이다.
+    #   CIO round 3(contract v4): WAIT_FOR_PRICE 게이트가 reflection_status==
+    #   UNKNOWN 뿐 아니라 threshold_basis!=RATIFIED에도 독립적으로 발동 — 미비준
+    #   임계값으로는 어떤 긍정적 opportunity_state도 열리지 않는다(price_reflection.
+    #   py의 실제 contract가 하드코딩된 리터럴이라 캐리어가 flip할 수 없으므로,
+    #   테스트는 ratified_thresholds() 컨텍스트매니저로 두 독립 모듈 인스턴스의
+    #   _expected_contract()를 함께 패치해 비준 시뮬레이션한다).
     #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
     #      action/order/Production/trading 없음.
     "test/test_alpha_review.py",
@@ -878,9 +897,11 @@ APPROVED_TESTS = [
     #   ⛔ Rule/Stage/action/order/Production/trading 권한 없음.
     "test/test_pilot_comparison.py",
     # ★ P8-11 CIO Gate Hardening — real Pilot fixture-pinning (contract_version
-    #   alpha_review/2, alpha_shadow_ledger/2). run_all_pilots()의 실제 4개
+    #   alpha_review/4, alpha_shadow_ledger/2). run_all_pilots()의 실제 4개
     #   subject 결과를 하드닝 이후 값으로 고정 검증한다: TSM/298040.KS는
-    #   WAIT_FOR_PRICE(price_reflection.status=UNKNOWN 차단), 267260.KS는
+    #   WAIT_FOR_PRICE(reflection_status=UNKNOWN 차단 — 298040.KS도 real
+    #   reference point가 없어 round 2 당시의 WAIT_FOR_EVIDENCE에서 정직하게
+    #   되돌아왔다), 267260.KS는
     #   REJECTED(expectations_gap.status=NEGATIVE + earnings_conversion.
     #   status=UNKNOWN), 034020.KS는 그대로 BLOCKED. 4개 subject 전부
     #   shadow_proposal.action != SHADOW_ENTRY_REVIEW라는 blanket assertion과

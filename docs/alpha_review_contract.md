@@ -89,20 +89,33 @@ consulted even when `reflection_status` is already known-non-`UNKNOWN`,
 since an overextended price is still real, useful timing information
 independent of whether a reflection reference exists.
 
+**`alpha_review/4` (CIO review round 3 on PR #212, required item 4).**
+`price_reflection.threshold_basis` is `"PROVISIONAL"` — the momentum/
+reflection classification cutoffs behind `price_state`/`reflection_status`
+have never been CIO-ratified. Row 3 below now ALSO fires whenever
+`threshold_basis != "RATIFIED"`, in addition to `reflection_status==
+UNKNOWN` — so no positive/differentiated `opportunity_state` (rows 5-10) is
+EVER reachable while the underlying thresholds remain provisional,
+regardless of what `price_state`/`reflection_status` value they produced.
+`price_reflection.py` itself is still free to compute and surface real
+`price_state`/`reflection_status` values under provisional thresholds
+(diagnostic output) — this module is where the fail-closed OPERATIONAL
+boundary lives.
+
 `classify_opportunity_state()` is a small, pure, ordered if/elif chain --
 each rule below, once matched, returns immediately (no fallthrough).
 `BLOCKED`, then the Expectations-Gap-negative gate, then the
-Reflection-UNKNOWN gate, then the narrative-only-core-evidence gate, are
-always checked first, before any positive-state classification, so a
-broken/negative/unpriced/thin case can never be shadowed by a positive one.
-In order:
+Reflection-UNKNOWN-or-unratified gate, then the narrative-only-core-evidence
+gate, are always checked first, before any positive-state classification, so
+a broken/negative/unpriced/thin/unratified case can never be shadowed by a
+positive one. In order:
 
 | # | State | Fires when |
 |---|-------|------------|
 | 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND reflection_status==UNKNOWN` (triple-UNKNOWN) |
 | 2a | `REJECTED` | `earnings_conversion.status==CONVERSION_DISAPPOINTED` (independent of gap status) **OR** (`expectations_gap.status==NEGATIVE AND earnings_conversion.status==UNKNOWN`) |
 | 2b | `WAIT_FOR_THESIS_REPAIR` | `expectations_gap.status==NEGATIVE AND earnings_conversion.status!=UNKNOWN` (and 2a didn't already fire) -- a real earnings-conversion hypothesis still stands, just currently disagreed-with by the market proxy |
-| 3 | `WAIT_FOR_PRICE` | `reflection_status==UNKNOWN` (blanket rule: no positive state may ever be reached while reflection is unjudgeable, however strong the thesis/gap or however extreme the raw momentum otherwise looks) |
+| 3 | `WAIT_FOR_PRICE` | `reflection_status==UNKNOWN` **OR** `threshold_basis!="RATIFIED"` (blanket rule: no positive state may ever be reached while reflection is unjudgeable OR the classification thresholds are unratified, however strong the thesis/gap or however extreme the raw momentum otherwise looks) |
 | 4 | `WAIT_FOR_EVIDENCE` (narrative-only-core-evidence gate) | `len(observed_facts)>0 AND` none of them have `source_class==EXHIBIT_EXTRACTED` (only `NARRATIVE_SOURCED`/`PRICE_FEED`) |
 | 5 | `EXPECTATION_EXHAUSTED` | `reflection_status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
 | 6 | `WAIT_FOR_PULLBACK` | (`reflection_status==FULLY_REFLECTED OR price_state==OVEREXTENDED`) `AND expectations_gap.status!=NEGATIVE` |
@@ -121,10 +134,11 @@ non-`NEGATIVE` gap) and `reflection_status==FULLY_REFLECTED` with a
 non-`POSITIVE`, non-`NEGATIVE` gap both resolve to `WAIT_FOR_PULLBACK`. Row
 8's `WAIT_FOR_EVIDENCE` and row 9's `ANTICIPATORY_REVIEW` are, in practice,
 only reachable once rows 1-4 have already been cleared -- i.e. reflection is
-known and at least one `EXHIBIT_EXTRACTED` fact exists -- which is why real
-current Pilot evidence (no ratified P5 packet, no real reference point
-supplied for any subject, and narrative-only evidence for the ones with a
-thesis) never reaches rows 5-10 today.
+known, the threshold basis is RATIFIED, and at least one `EXHIBIT_EXTRACTED`
+fact exists -- which is why real current Pilot evidence (no ratified P5
+packet, no real reference point supplied for any subject, no RATIFIED
+threshold basis, and narrative-only evidence for the ones with a thesis)
+never reaches rows 5-10 today.
 
 ### The 7 `ANTICIPATORY_REVIEW` gates
 

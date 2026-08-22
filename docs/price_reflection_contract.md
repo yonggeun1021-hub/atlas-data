@@ -16,6 +16,50 @@ that expectations/events/a thesis have been "reflected" — reflection
 requires a reference point for WHAT is supposed to be reflected in the
 price.** This module now keeps two claims structurally separate:
 
+## `price_reflection/3` (CIO review round 3): four further defects closed
+
+Round 2's reference-point requirement was necessary but not sufficient —
+round 3 closed four remaining holes CI/the test suite alone didn't catch:
+
+1. **A bare `direction`/`expectations_gap_status` string was still not a
+   real reference.** A caller could type `direction="POSITIVE"` with zero
+   evidence behind it, or a bare `expectations_gap_status="POSITIVE"`
+   string with no actual P8-09 packet. `reflection_reference.
+   expectations_gap_status` is retired; callers now pass `reflection_
+   reference.expectations_gap_packet` (the FULL, already-built P8-09
+   packet), independently re-validated via `decision/expectations_gap.py`'s
+   own `validate_packet` (hash/tamper/vocab) with `subject`/`decision_date`
+   cross-checked against this packet's own. `event_reaction.direction` now
+   requires `event_reaction.source_ref` + `source_sha256` (a real evidence
+   citation) before it counts toward a reflection verdict — still accepted
+   as plain input without them (a caller may legitimately record an
+   observed direction it can't yet cite), just never sufficient alone.
+2. **Reflection was graded off a generic, "now"-anchored return that could
+   be almost entirely PRE-event movement.** `reflection_status` now
+   requires a real, caller-computed `event_reaction.post_event_return_pct`
+   / `reflection_reference.post_reference_return_pct` — a return measured
+   specifically from the reference date forward — never the generic
+   `recent_return_windows`/`relative_strength` figures `price_state` uses.
+3. **`price_state=UNKNOWN` + a non-`UNKNOWN` `reflection_status` could
+   coexist** — CIO's exact reproduction: 1-month return +10%, one positive
+   event/reference point, no other price signal, produced `price_state=
+   UNKNOWN` / `reflection_status=FULLY_REFLECTED` / `data_state=VALID`, a
+   contradiction `alpha_review.py` assumed was structurally impossible. Now
+   a hard invariant in both `_classify` (forces `reflection_status` back to
+   `UNKNOWN` whenever `price_state` came out `UNKNOWN`) and
+   `validate_packet` (`OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_
+   CONTRADICTION`, unconditional on any packet however constructed).
+4. **`threshold_basis="PROVISIONAL"` didn't actually gate anything
+   operational.** `decision/alpha_review.py` (`alpha_review/4`) now treats a
+   non-`RATIFIED` `threshold_basis` as an independent trigger for its
+   blanket `WAIT_FOR_PRICE` gate, alongside `reflection_status=="UNKNOWN"` —
+   no positive/differentiated `opportunity_state` is reachable while
+   thresholds remain provisional, regardless of what `price_state`/
+   `reflection_status` value they produced. `price_reflection.py` itself
+   still computes and surfaces real values under provisional thresholds
+   (diagnostic output); `alpha_review.py` is the fail-closed operational
+   boundary.
+
 - **`price_state`** — `OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK |
   UNKNOWN`. A pure, price/volume-only read on momentum and positioning.
   Momentum alone can never produce a reflection verdict.
@@ -57,7 +101,7 @@ not silently downgrade), or older than the ceiling, **both `price_state` AND
 `UNKNOWN` — unconditionally, regardless of how strong every other input
 looks. This check runs first and short-circuits everything else.
 
-## The reference point requirement (Rule 2)
+## The reference point requirement (Rule 2, tightened in round 3)
 
 `reflection_status` requires a real reference point for what the market was
 supposed to have priced in. At least one of the following must be present:
@@ -67,19 +111,31 @@ supposed to have priced in. At least one of the following must be present:
   token),
 - `reflection_reference.expectation_as_of` (the date an expectation was
   captured), or
-- `reflection_reference.expectations_gap_status` — a real, caller-supplied
-  P8-09 Expectations Gap `status` pass-through (reuses that module's own
-  `POSITIVE | NEGATIVE | NEUTRAL | UNKNOWN` vocabulary verbatim; `UNKNOWN`
-  does not count as a usable reference, since an unknown gap has nothing to
-  compare price against either).
+- `reflection_reference.expectations_gap_packet` — the FULL, already-built
+  P8-09 Expectations Gap packet (not a bare status string, round 3), which
+  this module independently re-validates via `decision/expectations_gap.py`'s
+  own `validate_packet` (hash/tamper/closed-vocab) and cross-checks
+  `subject`/`decision_date` against this packet's own before ever trusting
+  its `status`.
 
-A reference point alone is necessary but not sufficient: the module also
-needs a **comparable direction** (from `event_reaction.direction` or,
-failing that, `reflection_reference.expectations_gap_status` when it is
-`POSITIVE`/`NEGATIVE`) and real momentum to compare it against. A bare
-`reference_event_id`/`expectation_as_of` with no directional content still
-leaves `reflection_status=UNKNOWN` (`REFERENCE_POINT_PRESENT_BUT_NO_
-COMPARABLE_DIRECTION_OR_MOMENTUM`).
+A reference point alone is necessary but not sufficient for a confident
+verdict — `_resolve_reflection_basis` additionally requires, per path:
+
+- **event_reaction path**: `direction` is `POSITIVE`/`NEGATIVE` AND
+  `source_ref` + `source_sha256` (a real evidence citation, round 3) AND
+  `post_event_return_pct` (a real, event-anchored return the caller
+  computed specifically from the reference date forward — never the
+  generic `recent_return_windows`/`relative_strength` figures, round 3)
+  are all present.
+- **expectations_gap path**: the independently-re-validated packet's
+  `status` is `POSITIVE`/`NEGATIVE` AND `post_reference_return_pct` is
+  present.
+
+A bare `direction`/`reference_event_id`/`expectation_as_of` with no
+lineage, no anchored return, or no comparable direction still leaves
+`reflection_status=UNKNOWN` — never a crash, always a graceful downgrade
+(`REFERENCE_POINT_PRESENT_BUT_NOT_LINEAGE_VERIFIED_OR_POST_REFERENCE_
+RETURN_NOT_COMPUTABLE`).
 
 Without any reference point at all, `reflection_status` is `UNKNOWN` and
 `data_state` is `REFLECTION_UNCERTAIN_WITH_VALID_PRICE` — even with
@@ -161,6 +217,16 @@ CIO-ratified final call — consistent with `authority.
 rule_authority_substitution_authorized: false` below. Promoting
 `classification_thresholds_approval_status` to `RATIFIED` requires an actual
 CIO ratification decision on the specific cutoff numbers, not a code change.
+
+**Round 3**: this used to be diagnostic-only in practice — `threshold_basis`
+was surfaced but nothing downstream actually refused to act on a
+provisional-threshold verdict. `decision/alpha_review.py` (`alpha_review/4`)
+now gates its OWN operational `opportunity_state` on it directly: a
+non-`RATIFIED` `threshold_basis` is an independent trigger for its blanket
+`WAIT_FOR_PRICE` state, so no positive/differentiated review state can ever
+be unlocked by a provisional-threshold `price_state`/`reflection_status`
+value. This module's own output is unaffected — it still computes and
+reports the real value either way.
 
 ## Never a Rule verdict
 

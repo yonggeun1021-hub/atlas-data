@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """P8-10 Price Reflection regression.
 
-`price_reflection/2` (CIO review round 2 on PR #212): `price_state` (pure
-momentum) and `reflection_status` (requires a real reference point) are
-structurally separate fields — see decision/price_reflection.py's module
-docstring for the round-1 defect this fixes (momentum alone was standing in
-for a reflection judgment)."""
+`price_reflection/3` (CIO review round 3 on PR #212) fixed four further
+defects round 2 left open — see decision/price_reflection.py's module
+docstring for the full list. In short: (1) a bare `direction`/
+`expectations_gap_status` string is not a real reference — `event_reaction`
+now requires `source_ref`+`source_sha256` lineage, and
+`reflection_reference.expectations_gap_packet` must be the FULL,
+independently re-validated P8-09 packet with matching subject/decision_date;
+(2) reflection grading now uses only a caller-computed, event-anchored
+`post_event_return_pct`/`post_reference_return_pct`, never the generic
+recent_return_windows/relative_strength figures; (3)
+`price_state=UNKNOWN`+non-UNKNOWN `reflection_status` is now a hard,
+structurally-enforced impossibility; (4) `threshold_basis` gates
+`decision/alpha_review.py`'s operational output, tested there."""
 
 import ast
 import copy
@@ -19,6 +27,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "decision" / "price_reflection.py"
+EG_SOURCE = ROOT / "decision" / "expectations_gap.py"
 
 
 def load_module(name, path):
@@ -30,6 +39,21 @@ def load_module(name, path):
 
 MODULE = load_module("price_reflection", SOURCE)
 CONTRACT = MODULE.load_contract()
+EG = load_module("price_reflection_eg_fixture", EG_SOURCE)
+EG_CONTRACT = EG.load_contract()
+
+SHA_A = "a" * 64
+SHA_B = "b" * 64
+
+# A fully lineage-verified, event-anchored positive reference -- the ONLY
+# shape of event_reaction that can unlock a confident reflection_status
+# post-round-3. Individual tests override post_event_return_pct to exercise
+# UNDER/PARTIALLY/FULLY_REFLECTED.
+VERIFIED_POSITIVE_EVENT = {
+    "event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
+    "source_ref": "REAL-FILING-CITATION-1", "source_sha256": SHA_A,
+    "post_event_return_pct": "9",
+}
 
 
 def base_kwargs(**overrides):
@@ -48,6 +72,13 @@ def resign(tampered: dict) -> dict:
         {k: v for k, v in tampered.items() if k != "packet_sha256"}
     )
     return tampered
+
+
+def eg_packet(subject="TSM", decision_date="2026-08-22", generated_at="2026-08-22T00:00:00Z", direction="POSITIVE"):
+    return EG.build_packet({
+        "subject": subject, "decision_date": decision_date, "generated_at": generated_at,
+        "guidance_changes": {"direction": direction, "evidence_note": "real guidance evidence"},
+    }, EG_CONTRACT)
 
 
 class PriceReflectionTests(unittest.TestCase):
@@ -74,7 +105,7 @@ class PriceReflectionTests(unittest.TestCase):
             recent_return_windows={"1m": "25", "3m": "30", "6m": "40"},
             relative_strength={"vs_market": "20", "position_vs_recent_high_pct": "1"},
             valuation_context={"position_in_range": "HIGH"},
-            event_reaction={"event_date": "2026-07-20", "direction": "POSITIVE", "reaction_magnitude_pct": "10"},
+            event_reaction=VERIFIED_POSITIVE_EVENT,
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
         ))
         pr = packet["price_reflection"]
@@ -162,7 +193,28 @@ class PriceReflectionTests(unittest.TestCase):
         self.assertEqual(pr["reflection_status"], "UNKNOWN")
         self.assertNotIn(pr["reflection_status"], ("FULLY_REFLECTED", "PARTIALLY_REFLECTED", "UNDER_REFLECTED"))
 
-    def test_reference_point_via_event_reaction_unlocks_reflection_status(self):
+    # ── CIO round 3, exact reproduction case (verbatim) ─────────────────
+    def test_cio_round3_reproduction_case_no_longer_contradicts(self):
+        """Verbatim repro: 1-month return +10%, 1 positive event/reference
+        point (bare, no lineage/anchored return), no other price signal.
+        Round 2 produced price_state=UNKNOWN / reflection_status=
+        FULLY_REFLECTED / data_state=VALID -- an impossible contradiction.
+        Round 3 must produce BOTH fields UNKNOWN, never that combination."""
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "10"},
+            event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"},
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        pr = packet["price_reflection"]
+        self.assertEqual(pr["price_state"], "UNKNOWN")
+        self.assertEqual(pr["reflection_status"], "UNKNOWN")
+        self.assertEqual(pr["data_state"], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
+        # The specific old (wrong) combination must never appear.
+        self.assertFalse(pr["price_state"] == "UNKNOWN" and pr["reflection_status"] == "FULLY_REFLECTED")
+
+    # ── Required item 1: bare direction/status is not a real reference ──
+    def test_bare_event_direction_without_evidence_lineage_does_not_unlock_reflection(self):
         packet = MODULE.build_packet(**base_kwargs(
             price_as_of="2026-08-21T19:59:00Z",
             recent_return_windows={"1m": "12"},
@@ -171,26 +223,90 @@ class PriceReflectionTests(unittest.TestCase):
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
         ))
         pr = packet["price_reflection"]
-        self.assertEqual(pr["reflection_status"], "FULLY_REFLECTED")
-        self.assertEqual(pr["data_state"], "VALID")
+        self.assertNotEqual(pr["price_state"], "UNKNOWN")  # generic momentum still computable
+        self.assertEqual(pr["reflection_status"], "UNKNOWN")  # but no lineage -> no verdict
+        self.assertIn(
+            "REFERENCE_POINT_PRESENT_BUT_NOT_LINEAGE_VERIFIED_OR_POST_REFERENCE_RETURN_NOT_COMPUTABLE",
+            pr["reasons"],
+        )
 
-    def test_reference_point_via_reflection_reference_expectations_gap_status_unlocks_reflection(self):
+    def test_event_direction_with_lineage_but_no_post_event_return_still_does_not_unlock(self):
         packet = MODULE.build_packet(**base_kwargs(
             price_as_of="2026-08-21T19:59:00Z",
             recent_return_windows={"1m": "12"},
             relative_strength={"vs_market": "10"},
-            reflection_reference={"expectations_gap_status": "POSITIVE"},
+            event_reaction={
+                "event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
+                "source_ref": "REAL-CITATION", "source_sha256": SHA_A,
+                # post_event_return_pct deliberately omitted
+            },
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        self.assertEqual(packet["price_reflection"]["reflection_status"], "UNKNOWN")
+
+    def test_bare_expectations_gap_status_string_is_no_longer_an_accepted_field(self):
+        # Round 2's bare `expectations_gap_status` string field is retired;
+        # only the full `expectations_gap_packet` is accepted now.
+        with self.assertRaisesRegex(MODULE.PriceReflectionError, "REFLECTION_REFERENCE_FIELDS_MISMATCH"):
+            MODULE.build_packet(**base_kwargs(
+                reflection_reference={"expectations_gap_status": "POSITIVE"},
+            ))
+
+    # ── Required item 1: full P8-09 packet verification ─────────────────
+    def test_reflection_reference_via_validated_expectations_gap_packet_unlocks_reflection(self):
+        gap = eg_packet()
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "12"},
+            relative_strength={"vs_market": "10"},
+            reflection_reference={"expectations_gap_packet": gap, "post_reference_return_pct": "9"},
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
         ))
         pr = packet["price_reflection"]
         self.assertEqual(pr["reflection_status"], "FULLY_REFLECTED")
         self.assertEqual(pr["reflection_reference"]["expectations_gap_status"], "POSITIVE")
+        self.assertEqual(pr["reflection_reference"]["expectations_gap_packet_sha256"], gap["packet_sha256"])
+
+    def test_expectations_gap_packet_subject_mismatch_is_rejected(self):
+        gap = eg_packet(subject="OTHER_SUBJECT")
+        with self.assertRaisesRegex(
+            MODULE.PriceReflectionError, "REFLECTION_REFERENCE_EXPECTATIONS_GAP_SUBJECT_MISMATCH"
+        ):
+            MODULE.build_packet(**base_kwargs(
+                price_as_of="2026-08-21T19:59:00Z",
+                reflection_reference={"expectations_gap_packet": gap, "post_reference_return_pct": "9"},
+            ))
+
+    def test_expectations_gap_packet_decision_date_mismatch_is_rejected(self):
+        gap = eg_packet(decision_date="2026-08-21", generated_at="2026-08-21T00:00:00Z")
+        with self.assertRaisesRegex(
+            MODULE.PriceReflectionError, "REFLECTION_REFERENCE_EXPECTATIONS_GAP_DECISION_DATE_MISMATCH"
+        ):
+            MODULE.build_packet(**base_kwargs(
+                price_as_of="2026-08-21T19:59:00Z",
+                reflection_reference={"expectations_gap_packet": gap, "post_reference_return_pct": "9"},
+            ))
+
+    def test_tampered_expectations_gap_packet_is_rejected(self):
+        gap = copy.deepcopy(eg_packet())
+        gap["expectations_gap"]["gap_reasons"].append("INJECTED")  # invalidates packet_sha256
+        with self.assertRaisesRegex(
+            MODULE.PriceReflectionError, "REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_INVALID"
+        ):
+            MODULE.build_packet(**base_kwargs(
+                price_as_of="2026-08-21T19:59:00Z",
+                reflection_reference={"expectations_gap_packet": gap, "post_reference_return_pct": "9"},
+            ))
+
+    def test_expectations_gap_packet_not_a_dict_is_rejected(self):
+        with self.assertRaisesRegex(
+            MODULE.PriceReflectionError, "REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_INVALID"
+        ):
+            MODULE.build_packet(**base_kwargs(
+                reflection_reference={"expectations_gap_packet": "not-a-dict", "post_reference_return_pct": "9"},
+            ))
 
     def test_bare_reference_event_id_with_no_direction_still_leaves_reflection_unknown(self):
-        # Requirement 2 read strictly: a reference point is necessary but a
-        # DIRECTION to compare momentum against is also required -- a bare
-        # reference_event_id with no event_reaction.direction and no
-        # expectations_gap_status still cannot support a confident verdict.
         packet = MODULE.build_packet(**base_kwargs(
             price_as_of="2026-08-21T19:59:00Z",
             recent_return_windows={"1m": "12"},
@@ -201,27 +317,100 @@ class PriceReflectionTests(unittest.TestCase):
         pr = packet["price_reflection"]
         self.assertEqual(pr["reflection_status"], "UNKNOWN")
         self.assertEqual(pr["data_state"], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
-        self.assertIn("REFERENCE_POINT_PRESENT_BUT_NO_COMPARABLE_DIRECTION_OR_MOMENTUM", pr["reasons"])
+
+    # ── Required item 2: only a post-reference-anchored return can grade ──
+    def test_reference_point_via_event_reaction_unlocks_reflection_status(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "12"},
+            relative_strength={"vs_market": "10"},
+            event_reaction=VERIFIED_POSITIVE_EVENT,  # post_event_return_pct=9
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        pr = packet["price_reflection"]
+        self.assertEqual(pr["reflection_status"], "FULLY_REFLECTED")
+        self.assertEqual(pr["data_state"], "VALID")
+
+    def test_reflection_grades_off_post_event_return_not_generic_1m_return(self):
+        # Generic 1m return is huge (25%, would be FULLY_REFLECTED under the
+        # old, wrong logic) but the real, event-anchored post_event_return
+        # is small (1%, almost entirely PRE-event movement) -- must grade
+        # UNDER_REFLECTED off the real anchored figure, not the generic one.
+        # relative_strength.position_vs_recent_high_pct is supplied purely
+        # so price_state itself has >=2 scored signals and is NOT UNKNOWN
+        # (item 3's structural invariant would otherwise force
+        # reflection_status back to UNKNOWN regardless of this test's point).
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "25"},
+            relative_strength={"position_vs_recent_high_pct": "5"},
+            event_reaction={
+                "event_date": "2026-08-20", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
+                "source_ref": "REAL-CITATION", "source_sha256": SHA_A,
+                "post_event_return_pct": "1",
+            },
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        pr = packet["price_reflection"]
+        self.assertNotEqual(pr["price_state"], "UNKNOWN")  # sanity: item 3 invariant not the cause here
+        self.assertEqual(pr["reflection_status"], "UNDER_REFLECTED")
+        self.assertTrue(any("post_reference_return_pct:1" in r for r in pr["reasons"]))
 
     def test_reference_point_with_disagreeing_momentum_is_under_reflected(self):
+        event = dict(VERIFIED_POSITIVE_EVENT, post_event_return_pct="0.5")
         packet = MODULE.build_packet(**base_kwargs(
             price_as_of="2026-08-21T19:59:00Z",
             recent_return_windows={"1m": "1"},
             relative_strength={"vs_market": "0.5"},
-            event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"},
+            event_reaction=event,
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
         ))
         self.assertEqual(packet["price_reflection"]["reflection_status"], "UNDER_REFLECTED")
 
     def test_reference_point_with_moderate_agreeing_momentum_is_partially_reflected(self):
+        event = dict(VERIFIED_POSITIVE_EVENT, post_event_return_pct="4")
         packet = MODULE.build_packet(**base_kwargs(
             price_as_of="2026-08-21T19:59:00Z",
             recent_return_windows={"1m": "4"},
             relative_strength={"vs_market": "3"},
-            event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"},
+            event_reaction=event,
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
         ))
         self.assertEqual(packet["price_reflection"]["reflection_status"], "PARTIALLY_REFLECTED")
+
+    # ── Required item 3: price_state=UNKNOWN blocks any reflection verdict ──
+    def test_price_state_unknown_forces_reflection_unknown_even_with_full_lineage_and_anchored_return(self):
+        # A fully lineage-verified event + a real post_event_return_pct
+        # exist, but there is only ONE generic price signal (m1 alone,
+        # scored_signals=1 < 2) so price_state itself comes out UNKNOWN.
+        # reflection_status must be forced UNKNOWN too -- never FULLY_REFLECTED.
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "10"},
+            event_reaction=VERIFIED_POSITIVE_EVENT,
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        pr = packet["price_reflection"]
+        self.assertEqual(pr["price_state"], "UNKNOWN")
+        self.assertEqual(pr["reflection_status"], "UNKNOWN")
+        self.assertIn("PRICE_STATE_UNKNOWN_BLOCKS_REFLECTION_VERDICT", pr["reasons"])
+
+    def test_price_state_unknown_reflection_status_contradiction_blocked_on_tamper(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "12"},
+            relative_strength={"vs_market": "10"},
+            event_reaction=VERIFIED_POSITIVE_EVENT,
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        self.assertEqual(packet["price_reflection"]["reflection_status"], "FULLY_REFLECTED")  # sanity
+        tampered = resign(copy.deepcopy(packet))
+        tampered["price_reflection"]["price_state"] = "UNKNOWN"
+        tampered = resign(tampered)
+        with self.assertRaisesRegex(
+            MODULE.PriceReflectionError, "OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION"
+        ):
+            MODULE.validate_packet(tampered, CONTRACT)
 
     # ── price_state vocabulary is closed and has no REJECTED-like value ──
     def test_price_state_and_reflection_status_vocabularies_have_no_rejected_value(self):
@@ -238,7 +427,7 @@ class PriceReflectionTests(unittest.TestCase):
             "REFLECTION_UNCERTAIN_WITH_VALID_PRICE", "VALID",
         ]))
 
-    # ── threshold approval status (item 7) ──────────────────────────────
+    # ── threshold approval status (item 7 / round 3 item 4) ─────────────
     def test_classification_thresholds_are_declared_provisional(self):
         self.assertEqual(CONTRACT["classification_thresholds_approval_status"], "PROVISIONAL")
         self.assertIn(
@@ -353,13 +542,11 @@ class PriceReflectionTests(unittest.TestCase):
                 "event_date": "2026-08-25", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
             }))
 
-    def test_reflection_reference_expectations_gap_status_enum_is_closed(self):
-        with self.assertRaisesRegex(
-            MODULE.PriceReflectionError, "REFLECTION_REFERENCE_EXPECTATIONS_GAP_STATUS_INVALID"
-        ):
-            MODULE.build_packet(**base_kwargs(
-                reflection_reference={"expectations_gap_status": "BULLISH"},
-            ))
+    def test_event_reaction_source_sha256_format_is_validated(self):
+        with self.assertRaisesRegex(MODULE.PriceReflectionError, "EVENT_REACTION_SOURCE_SHA256_INVALID"):
+            MODULE.build_packet(**base_kwargs(event_reaction={
+                "source_ref": "X", "source_sha256": "not-a-real-hash",
+            }))
 
     def test_reflection_reference_expectation_as_of_future_is_rejected(self):
         with self.assertRaisesRegex(
@@ -388,13 +575,21 @@ class PriceReflectionTests(unittest.TestCase):
             "schema_version", "contract_version", "generated_at", "subject",
             "decision_date", "price_reflection", "authority", "packet_sha256",
         })
-        self.assertEqual(packet["schema_version"], "price_reflection_packet/2")
-        self.assertEqual(packet["contract_version"], "price_reflection/2")
+        self.assertEqual(packet["schema_version"], "price_reflection_packet/3")
+        self.assertEqual(packet["contract_version"], "price_reflection/3")
         self.assertEqual(set(packet["price_reflection"]), {
             "price_state", "reflection_status", "confidence", "data_state", "threshold_basis",
             "price_as_of", "relative_strength", "recent_return_windows", "event_reaction",
             "reflection_reference", "valuation_context", "reasons", "missing_inputs",
             "data_source_scope",
+        })
+        self.assertEqual(set(packet["price_reflection"]["event_reaction"]), {
+            "event_date", "direction", "reaction_magnitude_pct",
+            "source_ref", "source_sha256", "post_event_return_pct",
+        })
+        self.assertEqual(set(packet["price_reflection"]["reflection_reference"]), {
+            "reference_event_id", "expectation_as_of", "expectations_gap_status",
+            "expectations_gap_packet_sha256", "post_reference_return_pct",
         })
 
     # ── determinism + tamper detection ──────────────────────────────────
@@ -418,9 +613,9 @@ class PriceReflectionTests(unittest.TestCase):
     def test_data_state_reflection_status_consistency_is_enforced_on_tamper(self):
         packet = MODULE.build_packet(**base_kwargs(
             price_as_of="2026-08-21T19:59:00Z",
-            recent_return_windows={"1m": "5"},
-            relative_strength={"vs_market": "3"},
-            event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"},
+            recent_return_windows={"1m": "12"},
+            relative_strength={"vs_market": "10"},
+            event_reaction=VERIFIED_POSITIVE_EVENT,
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
         ))
         self.assertEqual(packet["price_reflection"]["data_state"], "VALID")  # sanity
