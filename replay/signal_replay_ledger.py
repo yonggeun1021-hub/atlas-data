@@ -7,6 +7,18 @@ Every entry's `entry_hash` is a deterministic sha256 of its own canonical
 JSON -- same inputs always produce the same ledger, byte for byte, with no
 wall-clock or random component (satisfies the "deterministic output" hard
 constraint).
+
+★ CIO review fix (flaw 4, PR #210): `forward_metrics` is now built with
+  `entry_date=evaluation_date` explicitly -- the EXACT same trading date the
+  trigger engine evaluated against -- so `signal_evaluation_at` and
+  `hypothetical_entry_at` can never silently diverge (see
+  `forward_metrics.py`'s docstring for the concrete bug this fixes).
+★ CIO review fix (flaw 2/3, PR #210): `action_conversion_gate.evaluate()` is
+  now called with the real `series`/`evaluation_date`/`lookback_dates`
+  context it needs to actually compute conditions 5 and 6, and
+  `classify_gap()` now passes `conditions_1_to_6_all_pass` (not a raw
+  trigger-type count) into `root_cause.classify()`, and defaults
+  `no_position_rule_active=False` (see `root_cause.py`'s docstring for why).
 """
 from __future__ import annotations
 
@@ -20,12 +32,13 @@ from replay.opportunity_trigger import canonical_json, payload_sha256
 from replay.price_series import PriceSeries
 from replay.trigger_engine import detect_all
 
+INVALIDATION_LOOKBACK = 10
 
-def _invalidation_price(series: PriceSeries, decision_date: str) -> float | None:
-    live_dates = series.live_trading_dates_at_or_before(decision_date)
-    if len(live_dates) < 10:
+
+def _invalidation_price(series: PriceSeries, live_dates: list) -> float | None:
+    if len(live_dates) < INVALIDATION_LOOKBACK:
         return None
-    lows = [series.row_on(d)["low"] for d in live_dates[-10:]]
+    lows = [series.row_on(d)["low"] for d in live_dates[-INVALIDATION_LOOKBACK:]]
     return min(lows)
 
 
@@ -43,12 +56,18 @@ def build_entry(series: PriceSeries, decision_date: str, source: str, evidence_s
 
     triggers = detect_all(series, decision_date, source, evidence_sha, peers=peers) if data_available else []
     entry_price = series.close_on(evaluation_date) if data_available else None
-    invalidation_price = _invalidation_price(series, decision_date) if data_available else None
+    invalidation_price = _invalidation_price(series, live_dates)
+    lookback_dates = live_dates[-INVALIDATION_LOOKBACK:] if live_dates else []
 
-    gate_result = acg.evaluate(series.subject, decision_date, triggers, entry_price, invalidation_price)
+    gate_result = acg.evaluate(
+        series.subject, decision_date, triggers, entry_price, invalidation_price,
+        series=series, evaluation_date=evaluation_date, lookback_dates=lookback_dates,
+    )
     existing = erb.existing_ruleset_action_for(bool(triggers))
 
-    forward = compute_forward_metrics(series, decision_date)
+    # ★ flaw-4 fix: entry_date is pinned to evaluation_date, the exact same
+    #   date the trigger fired against -- never independently re-derived.
+    forward = compute_forward_metrics(series, decision_date, entry_date=evaluation_date)
 
     entry = {
         "decision_date": decision_date,
@@ -67,7 +86,7 @@ def build_entry(series: PriceSeries, decision_date: str, source: str, evidence_s
     return entry
 
 
-def classify_gap(entry: dict, no_position_rule_active: bool = True,
+def classify_gap(entry: dict, no_position_rule_active: bool = False,
                   decision_latency_days: int | None = "USE_ENTRY", in_universe: bool = True) -> str | None:
     """Returns a root-cause code if this entry represents a miss/action-gap
     under the PROPOSED ruleset, else None (no gap: either action was taken,
@@ -77,7 +96,14 @@ def classify_gap(entry: dict, no_position_rule_active: bool = True,
     `decision_latency_days` defaults to the entry's own real
     `evaluation_lag_days` (how many days the collector's own finalization
     lag put between decision_date and the freshest live-known data) --
-    pass an explicit value to override for a scenario test."""
+    pass an explicit value to override for a scenario test.
+
+    `no_position_rule_active` defaults to False: this replay has no
+    committed-evidence source for a genuinely-observed, explicit
+    portfolio-level "no position" constraint for any subject (see
+    root_cause.py's docstring) -- it must never be used as a stand-in for
+    the generic "capital is always 0" fact, which GATE_BLOCK already
+    represents correctly."""
     if decision_latency_days == "USE_ENTRY":
         decision_latency_days = entry.get("evaluation_lag_days")
     action_taken = False  # ⛔ structural constant: no ratified Buy/Action/Order authority exists anywhere in this repo
@@ -92,8 +118,8 @@ def classify_gap(entry: dict, no_position_rule_active: bool = True,
         data_available=entry["data_available"],
         in_universe=in_universe,
         had_valid_trigger=bool(entry["triggers"]),
-        had_independent_confirmation=len(entry["proposed_ruleset"]["trigger_types_present"]) >= 2,
-        gate_available=entry["proposed_ruleset"]["condition_7_gate_ratified"],
+        conditions_1_to_6_all_pass=entry["proposed_ruleset"]["conditions_1_to_6_all_pass"],
+        gate_available=entry["proposed_ruleset"]["condition_7_gate_ratified"] == "PASS",
         action_taken=action_taken,
         decision_latency_days=decision_latency_days,
         no_position_rule_active=no_position_rule_active,

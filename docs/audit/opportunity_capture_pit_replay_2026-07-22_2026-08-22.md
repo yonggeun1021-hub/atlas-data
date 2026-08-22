@@ -10,283 +10,201 @@ summarizes.
 ## 0. Canonical sources consulted
 
 Read in full via Notion before any design work began (not paraphrased from
-memory):
+memory): **CIO Investment Operating Doctrine**, **Atlas 1개월 운용 감사 —
+Signal-to-P&L Review**, **Opportunity Capture Control Loop**.
 
-1. **CIO Investment Operating Doctrine — Forward Alpha → Portfolio
-   Competition**
-2. **Atlas 1개월 운용 감사 — Signal-to-P&L Review (2026-07-22~08-22)**
-3. **Opportunity Capture Control Loop — 신호를 실제 행동으로 변환하는 설계**
+## 0.1 CIO review response (PR #210, first submission → CHANGES_REQUIRED)
 
-All three were found and fetched successfully; nothing here is invented in
-their place.
+The first submission of this PR received a CIO review verdict of
+**CHANGES_REQUIRED** identifying 5 real methodology flaws. All 5 are fixed
+in this revision, on the same branch/PR. **The numbers in the first
+submission (`GATE_BLOCK=6`, raw `Miss=389`, `Defense=389`,
+`conditions-1-6-satisfied=2`) are superseded and must not be used.** This
+section maps each flaw to its fix; the rest of this document reflects the
+corrected methodology throughout.
 
-## 1. The headline structural finding
+| # | Flaw | Fix | Where |
+|---|---|---|---|
+| 1 | Crypto KPI population was the outcome-selected top/bottom-15 (survivorship bias upstream of the classifier) | KPI population is now the FULL committed breadth catalog (632 real pairs); the outcome-ranked table survives only as an explicitly-labeled `crypto_movers_descriptive_only` field, structurally excluded from ledger construction | `replay/run_pit_replay.py::load_all_series`, `test/test_replay_no_survivorship_bias.py` |
+| 2 | `GATE_BLOCK` assigned whenever a trigger existed + condition 7 failed, without checking conditions 1-6 | `GATE_BLOCK` now requires `conditions_1_to_6_all_pass == True` AND condition 7 alone failing; anything less falls through to `ACTION_CONVERSION_FAILURE` | `replay/root_cause.py::classify`, `test/test_replay_root_cause_classifier.py::GateBlockNarrowingTests`, `test/test_pit_replay_end_to_end.py::EndToEndGateBlockNarrowingTests` |
+| 3 | Conditions 1/5/6/7 were fabricated shortcuts (count-only, `cond3 and cond4`, hard-coded `True`, an invented sentinel string) | Real `PASS`/`FAIL`/`NOT_EVALUATED`/`NOT_COMPUTABLE` vocabulary; condition 5 does real max-loss arithmetic; condition 6 checks the series' own recorded `integrity_conflicts`; condition 7 checks a real `config/*_policy.json` + `approval_status=="RATIFIED"` file per this repo's own established convention (verified against `config/korea_leadership_policy.json`) | `replay/action_conversion_gate.py`, `test/test_replay_action_conversion_gate.py` |
+| 4 | Forward-metrics entry price could diverge from the signal's own evaluation date, silently grading off an unknowable future price | `forward_metrics.compute_forward_metrics()` takes an explicit `entry_date`, always the signal's own `evaluation_date`; every entry carries `signal_evaluation_at`/`action_eligible_at`/`hypothetical_entry_at`/`entry_price_available_at`/`execution_assumption`; a signal-anchored entry whose price wasn't actually live-known is marked `NOT_GRADABLE`, never silently computed | `replay/forward_metrics.py`, `replay/signal_replay_ledger.py`, `test/test_replay_forward_metrics.py::SignalAnchoredEntryAlignmentTests`, `test/test_replay_lookahead_gate.py::test_signal_anchored_entries_never_grade_an_unknowable_price` |
+| 5 | 389 "misses" were raw daily rows -- a 5-day rally counted 5 times | New `Opportunity Episode` dedup (`(subject, date-adjacency ≤4 days, same root_cause)`) collapses daily rows into episodes; episode counts, not daily-row counts, are the headline Miss/Defense KPI | `replay/opportunity_episode.py`, `replay/opportunity_miss_ledger.py::build_miss_episodes`, `replay/defense_ledger.py::build_defense_episodes`, `test/test_replay_opportunity_episode.py` |
+
+## 1. The headline structural finding (unchanged by this review)
 
 **This repository's own committed evidence trail begins 2026-08-13.**
-`git log --reverse` shows the very first commit in this repository's history
-is dated 2026-08-13; no briefing output, decision packet, or raw collector
-snapshot of any kind is committed for any date before it. The audit window
-requested is 2026-07-22 → 2026-08-22 (32 calendar days); **22 of those 32
-days (69%) have zero committed Atlas evidence of any kind.**
+22 of the 32 audit-window days have zero committed Atlas evidence of any
+kind. Every replay entry in that sub-window is recorded with
+`root_cause = DATA_FAILURE`, not fabricated. Two further real data-quality
+findings, both handled transparently rather than silently:
 
-This is not a per-ticker gap — it is repo-wide, and it applies identically
-to all three priority cases (BTC, 005930, 000660) and to the full
-population. Per the task's own instruction ("If evidence for some date/
-ticker is genuinely missing from the repo, that itself is a DATA_FAILURE
-finding, not something to paper over"), every replay entry in this
-pre-08-13 sub-window is recorded with `root_cause = DATA_FAILURE` rather
-than fabricated, guessed, or silently skipped — see
-`replay/evidence_index.py::REPO_HISTORY_STARTS_AT` and the automated proof
-in `test/test_pit_replay_end_to_end.py::test_pre_repo_history_dates_are_uniformly_data_failure_for_priority_subjects`.
+- **Cross-snapshot revision (KRX)**: both `000660`'s and `005930`'s
+  2026-08-14 closes disagree across committed snapshots (000660: 1,638,000
+  vs 1,645,000; 005930: 268,000 vs 274,500 -- a real 2.4% discrepancy).
+  Recorded in `PriceSeries.integrity_conflicts`, earliest capture kept as
+  canonical. **This is also now a real, structural contributor to the
+  corrected Condition-6 (PIT integrity) evaluation** -- see section 3.
+- **Collector finalization lag**: BTC/crypto-breadth collectors both
+  exclude "today" and finalize only through T-1 (verified from each
+  snapshot's own `_manifest.json`). Every signal necessarily evaluates
+  against the most recent finalized day; the real lag is recorded per entry
+  as `evaluation_lag_days` / `action_eligible_at` vs `signal_evaluation_at`.
 
-Two further, real (not hypothetical) data-quality findings surfaced while
-building the replay, both handled without silently overriding either side:
+## 2. Priority cases: BTC / 005930 / 000660 (corrected episode counts)
 
-- **Cross-snapshot revision**: `000660`'s 2026-08-14 close is reported as
-  1,638,000 by the 2026-08-14 KRX snapshot and 1,645,000 by the 2026-08-15
-  snapshot (0.43% apart) — a real KRX data revision. Recorded as an
-  `integrity_conflict` (earliest capture kept as canonical) rather than
-  crashing the whole replay or silently picking one value with no trace
-  (`replay/price_series.py::PriceSeries.integrity_conflicts`).
-- **Collector finalization lag**: the BTC and crypto-breadth collectors both
-  structurally exclude "today" and only finalize through T-1
-  (`current_candle_policy: exclude_last_row_always`, verified from each
-  snapshot's own `_manifest.json`). This means a same-day close is *never*
-  live-known on the day itself — every trigger detection in this replay
-  necessarily evaluates against the most recent finalized day, and the real
-  lag is recorded per entry as `evaluation_lag_days`.
+*(Machine-readable: `evidence/audit/pit_replay/signal_replay_ledger_priority_only.json`,
+`opportunity_miss_episodes.json`, `defense_episodes.json`, both filtered to
+these three subjects.)*
 
-Despite this, real price/flow history embedded inside the committed KRX
-snapshots (each carries several weeks of `daily` history) and inside the
-committed Kraken OHLC snapshots (each carries ~720 days, and the
-crypto-breadth collector's `ranking_start_day` happens to be exactly
-**2026-07-22**) allowed this replay to compute genuine, non-fabricated
-forward returns/MFE/MAE across the *entire* requested window, even for dates
-where the *signal* side is a structural DATA_FAILURE — see section 2 of
-`replay/evidence_index.py`'s docstring for why grading with realized market
-history is not a lookahead violation while detecting a signal from it would
-be.
+**Priority Miss Episodes: 8** (was misleadingly presented as up to 30 raw
+daily rows before dedup):
 
-## 2. Priority cases: BTC / 005930 / 000660
+| Subject | Episode window | Root cause | Forward return | Delay (days) | Daily rows deduped |
+|---|---|---|---|---|---|
+| 000660 | 07-29 → 07-30 | DATA_FAILURE | +19.06% | 1 | 2 |
+| 000660 | 08-06 → 08-12 | DATA_FAILURE | +6.56% | 6 | 7 |
+| 000660 | 08-20 | SIGNAL_MISS | +12.73% | 0 | 1 |
+| 005930 | 07-24 → 07-30 | DATA_FAILURE | +5.21% | 6 | 6 |
+| 005930 | 08-06 → 08-12 | DATA_FAILURE | +16.27% | 6 | 6 |
+| 005930 | 08-20 | SIGNAL_MISS | +9.49% | 0 | 1 |
+| BTC | 08-14 → 08-19 | DATA_FAILURE | +10.01% | 5 | 6 |
+| BTC | 08-20 → 08-21 | **ACTION_CONVERSION_FAILURE** | +5.36% | 1 | 2 |
 
-*(Full machine-readable detail: `evidence/audit/pit_replay/signal_replay_ledger.json`,
-filtered to these three subjects.)*
+**Priority Defense Episodes: 6:**
 
-### BTC
+| Subject | Episode window | Avoided return | Delay (days) | Daily rows deduped |
+|---|---|---|---|---|
+| 000660 | 07-22 → 08-05 | −23.44% | 14 | 9 |
+| 000660 | 08-13 | −5.84% | 0 | 1 |
+| 000660 | 08-19 | −9.75% | 0 | 1 |
+| 005930 | 07-22 → 08-02 | −19.96% | 11 | 6 |
+| 005930 | 08-13 | −7.65% | 0 | 1 |
+| 005930 | 08-19 | −7.82% | 0 | 1 |
 
-- 2026-07-22 → 2026-08-12 (16 of 22 trading days in this sub-window):
-  **DATA_FAILURE** — no committed crypto evidence exists this early; this
-  repo cannot corroborate or refute the canonical audit doc's own claim of
-  "8/8 브리핑이 BTC 약 $64.8K에서 ETF 4거래일 연속 순유입을 정확히 관측" from repo
-  evidence alone (no ETF-flow dataset is committed anywhere in this repo —
-  a further, distinct DATA_FAILURE: FLOW_REVERSAL is NOT_COMPUTABLE for BTC
-  today, see `replay/trigger_engine.py`).
-- **2026-08-20 (concrete, real finding)**: a real 20-day PRICE_CONFIRMATION
-  breakout fired (evaluated against 2026-08-19's finalized close, per the
-  1-day collector lag). Real forward 1-day return **+7.30%**, MFE **+8.92%**.
-  The proposed Action Conversion Gate's conditions 1/3/4/5/6 are all met
-  (real trigger, real entry price 73,001.1, real invalidation level, PIT
-  integrity intact) but condition 7 — a ratified Probe-specific P5 Rule —
-  does not exist anywhere in this repo, so `recommended_action = NONE`
-  under **both** the existing and proposed rulesets. Root cause:
-  **GATE_BLOCK**, not SIGNAL_MISS — the trigger engine worked; nothing was
-  authorized to act on it.
-- Real BTC window return 2026-07-22→08-21 (from the merged Kraken series):
-  **+18.55%**.
+**Critical correction from the first submission**: the BTC 2026-08-20
+breakout entry was originally reported as `GATE_BLOCK` ("only blocked by
+missing P5") -- under the corrected, real per-condition evaluation, its
+Condition 2 (independent confirmation) is `FAIL` (only one trigger type,
+PRICE_CONFIRMATION, fired that day; no second independent signal type
+co-occurred), so `conditions_1_to_6_all_pass = False`, and the entry is
+correctly `ACTION_CONVERSION_FAILURE`, not `GATE_BLOCK`. **The claim "BTC/
+005930/000660 were only blocked by the missing P5 rule" from the first
+submission is retracted.** The real, corrected finding is more nuanced:
+zero entries anywhere in the full replay population reach a genuine,
+all-six-conditions-real-PASS state today (see section 3) -- the binding
+constraints are a mix of (a) this replay's trigger engine only implementing
+4 of 7 doc-specified trigger types, making 2-type independent confirmation
+rare, and (b) the real KRX 08-14 data revision contaminating the 10-day PIT
+-integrity lookback window for KR names across a multi-week stretch.
 
-### 005930 (삼성전자) and 000660 (SK하이닉스)
+## 3. Full-population audit (corrected)
 
-- Same DATA_FAILURE sub-window before 2026-08-13.
-- From 08-13 onward, both tickers fire a real **RELATIVE_STRENGTH_REVERSAL**
-  trigger on nearly every live-known date (outperforming the 4-peer
-  own-benchmark average of the rest of the declared KR universe — the same
-  own-benchmark pattern this repo already uses for Korea rotation policy).
-- **2026-08-19 (concrete, real finding)**: real forward 1-day returns of
-  **+9.49% (005930)** and **+12.73% (000660)**, both classified
-  **GATE_BLOCK** for the identical structural reason as BTC above — no
-  ratified Probe P5 Rule.
-- 005930 also fires a real PRICE_CONFIRMATION breakout on 2026-08-21/22, in
-  addition to RELATIVE_STRENGTH_REVERSAL (2 independent trigger types —
-  condition 2 satisfied), still blocked at condition 7.
-- Real full-window returns (2026-07-22→08-21, from merged KRX series):
-  005930 **+4.03%**, 000660 **−7.60%** — i.e. even the doc's own "펀더멘털이
-  뒷받침된 쏠림 랠리" (8/13 briefing) does not fully net out to a positive
-  000660 return over this specific 31-day window in the committed price
-  series; the rally is real but partial and it later gives some back.
-- Defense side: both tickers show substantial pre-08-13 drawdowns fully
-  avoided by the structural capital=0 default — e.g. 005930 −19.96% to
-  −23.33% (5-day forward, various July dates), 000660 −23.44% to −31.11% —
-  **explicitly flagged with the structural-zero-capital caveat** (see
-  section 3) rather than credited as a defensive judgment.
+- **Crypto KPI population**: now the full committed breadth catalog --
+  **all 632 tracked pairs** (`crypto_kpi_population_size` in
+  `replay_summary.json`), not a 30-pair outcome-selected sample. The old
+  top/bottom-15 table still exists but only as
+  `population.crypto_movers_descriptive_only`, explicitly excluded from
+  every KPI computation (`test_replay_no_survivorship_bias.py` proves this
+  structurally).
+- **Total signal-replay-ledger entries**: 20,448 (7 KR/BTC subjects × 32
+  days + 632 crypto pairs × 32 days). 1,950 had any real PIT data (9.5% --
+  a direct measure of how evidence-starved this window is), 862 had ≥1 real
+  detected trigger, 8 had independent (≥2 trigger type) confirmation.
+- **GATE_BLOCK, corrected: 0** across the entire real replay population
+  (episode-level; was mis-reported as 6 in the first submission). Zero
+  entries anywhere satisfy the strict, real, all-six-conditions test. This
+  is itself a finding: the honest current state of this engine's trigger
+  coverage + this window's real KRX data-revision noise means "fully
+  qualified except for P5 ratification" essentially never occurs yet at
+  this narrow trigger-type coverage.
+- **Opportunity Miss Episodes (headline KPI, deduplicated)**: **1,564**
+  (root causes: DATA_FAILURE 1,036, SIGNAL_MISS 315, ACTION_CONVERSION_FAILURE
+  213, GATE_BLOCK 0). Deduplication materially changes the picture: raw
+  daily miss rows before dedup numbered in the low thousands across the
+  full 632-pair population; grouping consecutive same-subject/same-cause
+  days into one episode is what produces the 1,564 figure above.
+- **Defense Episodes (headline KPI, deduplicated)**: **1,061**, every one
+  carrying the structural-zero-capital caveat.
+- No episode is simultaneously a miss and a defense for the same subject
+  starting on the same day (`test_pit_replay_end_to_end.py`).
 
-## 3. Full-population audit
+## 4. Root-cause distribution (episode-level, full population, corrected)
 
-- **KR declared universe** (`config/universe.json`, cross-checked against
-  every code any KRX snapshot ever reported): 005930, 000660, 267260,
-  329180, 298040, 012450 — all six present in the replay population.
-  Real, committed `atlas_stage` coverage (2026-08-21 snapshot): 012450 and
-  329180 = `Discovery`, 298040 = `Candidate`, 267260/000660/005930 = not in
-  the Discovery/Candidate/Ready pipeline at all in the latest snapshot.
-- Real KR full-window (07-22→08-21) mover ranking: gainer 012450
-  (한화에어로스페이스) **+30.98%**, loser 000660 (SK하이닉스) **−7.60%** — the
-  same ranking function ranks both ends (`replay/universe_scan.py::top_kr_movers`,
-  proven identical-population by
-  `test_replay_universe_scan.py::test_top_kr_movers_gainers_and_losers_use_the_same_ranking_not_separate_rules`).
-- **Crypto breadth** (`evidence/crypto/breadth`, 632 tracked pairs, real
-  daily OHLC for `ranking_start_day: 2026-07-22` → `2026-08-21` — almost
-  exactly the audit window): top 15 real gainers range **+64.0% to +380.6%**
-  (AKE/USD, CAP/USD, TAKE/USD, ACA/USD, PEP/USD, …); top 15 real losers
-  range **−44.9% to −88.8%** (UMXM/USD, VANRY/USD, FIS/USD, DUCK/USD, …).
-  These 30 pairs were run through the *same* full signal-replay pipeline as
-  BTC/KR (not just ranked) — see `replay/run_pit_replay.py::load_all_series`.
-- Aggregate outcome across the **1,184** signal-replay-ledger entries built
-  (7 tracked KR/BTC subjects + top-15/top-15 crypto movers, × 32 days):
-  **145** had any real PIT data at all (12.2% — a direct measure of how
-  evidence-starved this window is), **49** had ≥1 real detected trigger,
-  **2** had independent (≥2 trigger type) confirmation.
-- **Opportunity Miss Ledger**: 389 material misses (≥5% forward move,
-  best-available horizon), of which 372 = `DATA_FAILURE` (pre-08-13), 11 =
-  `SIGNAL_MISS` (real move, live data available, but none of this replay's
-  4 implemented trigger types fired — an engine-coverage gap, not a rule
-  gap), 6 = `GATE_BLOCK` (real trigger, all conditions but ratification
-  met).
-- **Defense Ledger**: 389 material avoided-drawdown entries, every one
-  carrying the structural-zero-capital caveat (section 3.3 of the design
-  doc's own audit principle: don't let a defense credit hide a missed-
-  upside debit, and don't over-claim it either).
-- No entry is simultaneously a miss and a defense
-  (`test_pit_replay_end_to_end.py::test_miss_and_defense_ledgers_were_built_from_the_same_signal_ledger`).
-
-## 4. Root-cause distribution (all misses, full population)
-
-| Category | Count | Meaning here |
+| Category | Episodes | Meaning here |
 |---|---|---|
-| DATA_FAILURE | 372 | No committed evidence exists for this date/subject (structural — 22/32 days) |
-| SIGNAL_MISS | 11 | Live data existed; none of the 4 implemented trigger types fired |
-| GATE_BLOCK | 6 | Real, independently-verifiable trigger(s); no ratified Probe P5 Rule to convert it |
-| UNIVERSE_MISS | 0 | Every subject scanned came from the declared universe / breadth catalog |
-| ACTION_CONVERSION_FAILURE | 0 | Never reached — GATE_BLOCK always fires first while condition 7 is unratified |
+| DATA_FAILURE | 1,036 | No committed evidence exists for this date/subject (structural — 22/32 days) |
+| SIGNAL_MISS | 315 | Live data existed; none of the 4 implemented trigger types fired |
+| ACTION_CONVERSION_FAILURE | 213 | A real trigger existed but conditions 1-6 were not ALL real PASS (most commonly: only one trigger type present, or a PIT-integrity conflict in the lookback window) |
+| GATE_BLOCK | 0 | Corrected -- see section 3. Reserved for the narrow case of a fully-qualified (all 6 conditions real PASS) candidate blocked only by the unratified P5 Probe Rule; no such episode exists in this window today |
+| UNIVERSE_MISS | 0 | Every subject scanned came from the declared universe / full breadth catalog |
 | DECISION_LATENCY | 0 | Not observed in this window at the >3-day threshold |
-| NO_POSITION_RULE | 0 | Not reached — GATE_BLOCK dominates |
+| NO_POSITION_RULE | 0 | This replay has no committed-evidence source for a genuinely-observed portfolio-level "no position" constraint (see `root_cause.py` docstring) -- reserved, not fired here |
 
-*(UNIVERSE_MISS/ACTION_CONVERSION_FAILURE/DECISION_LATENCY/NO_POSITION_RULE
-reading 0 here is a real result of this window's evidence, not evidence the
-categories are unused — `replay/root_cause.py`'s own unit tests exercise all
-seven independently with synthetic inputs.)*
-
-## 5. Keep / Change / Kill
-
-See `replay/rule_attribution.py::recommend()` for the exact, ledger-grounded
-version of the following (machine output:
-`evidence/audit/pit_replay/rule_attribution.json`):
+## 5. Keep / Change / Kill (re-derived from corrected episode counts)
 
 1. **`decision/alpha_review.py`: `trade_proposal` unconditionally `None`** —
-   **CHANGE**. Verified (not assumed) directly from the committed source:
-   this hard-codes Action Conversion Rate to 0% regardless of trigger
-   strength or confirmation count — it is not selectively filtering weak
-   signals, it blocks all of them by construction. Recommend the CIO
-   doctrine's own prescribed fix (Control Loop doc section 11, slice 4): a
-   Probe-specific P5 Rule Slice with a real, bounded loss budget — not
-   removal of the gate.
-2. **`decision/alpha_review.py`: fixed 30-day review cadence** — **CHANGE**.
-   A fixed cadence cannot re-evaluate a flow/price-reversal trigger before
-   it decays (doc section 6 already specifies next-trading-day / 24h for
-   these trigger types). Keep 30 days for long-horizon thesis review only.
-3. **P0/P5 authority invariant (Stage/Buy/Action/Order/Production/trading =
-   false until ratified)** — **KEEP**. Nothing in this replay needed to
-   relax this to find real, gradeable signal — the proposed ruleset's own
-   shadow simulation keeps it intact throughout (verified structurally, see
-   section 6 below).
+   **CHANGE** (unchanged recommendation, now grounded in corrected counts:
+   0 GATE_BLOCK + 213 ACTION_CONVERSION_FAILURE episodes). Recommend the
+   CIO doctrine's own prescribed fix: a Probe-specific P5 Rule Slice with a
+   real, bounded loss budget -- not removal of the gate. **Additional,
+   corrected finding**: even once ratified, this alone would not convert
+   the 213 ACTION_CONVERSION_FAILURE episodes into action -- most fail
+   Condition 2 or 6, not just Condition 7. The trigger engine itself (only
+   4 of 7 doc-specified types implemented) and the PIT-integrity pipeline
+   (real KRX revision contamination) both need attention too.
+2. **`decision/alpha_review.py`: fixed 30-day review cadence** — **CHANGE**
+   (unchanged rationale).
+3. **P0/P5 authority invariant** — **KEEP** (unchanged; still verified
+   structurally holding after this revision's changes).
 4. **Repo evidence retention (no committed evidence before 2026-08-13)** —
-   **CHANGE** (operational, not a decision rule). Recommend persisting
-   daily evidence *and generated briefing output* as committed, dated
-   artifacts going forward, so a future audit of this kind does not hit the
-   same 22-of-32-day wall.
+   **CHANGE** (unchanged; 1,036 of 1,564 miss episodes are DATA_FAILURE).
+5. **NEW, from this review**: **CHANGE** -- the KR PIT-integrity lookback
+   window is real-world contaminated by KRX's own 08-14 data revision
+   (000660 and 005930 both affected) for an extended stretch. Recommend the
+   collector layer persist a revision-aware "as-first-reported" vs
+   "as-later-revised" distinction so PIT-integrity checks aren't
+   structurally blocked by ordinary data-vendor revisions for weeks at a
+   time.
 
-## 6. Existing ruleset vs. proposed ruleset (deliverable 7)
-
-Both sides evaluated over the **identical** 1,184-entry signal-replay
-ledger and the identical set of real detected triggers
-(`evidence/audit/pit_replay/ruleset_comparison.json`):
+## 6. Existing ruleset vs. proposed ruleset (corrected)
 
 | | Existing | Proposed |
 |---|---|---|
-| Action Conversion Rate (of entries with ≥1 trigger, n=49) | **0.0%** | **0.0%** |
-| Review cadence | fixed 30 days | dynamic (next trading day for price/flow triggers) |
-| "Qualified pending only P5 ratification" | n/a — no per-condition breakdown exists | **2 / 49 (4.08%)** |
+| Action Conversion Rate (of entries with ≥1 trigger, n=862) | **0.0%** | **0.0%** |
+| Qualified pending only P5 ratification (`conditions_1_to_6_all_pass`) | n/a | **0 / 862 (0.0%)** |
 
-The final action-conversion rate is identical (0%) under both rulesets
-today, **because condition 7 (ratified Probe P5 Rule) is uniformly
-unsatisfied** — this is itself the headline "Change" finding above, not a
-null result. The real differentiating value of the proposed ruleset is
-`qualified_pending_gate_ratification_count`: it identifies, from real
-market/flow data, exactly which real candidates are fully qualified (real
-hypothesis, independent confirmation, entry zone, invalidation, sizing, PIT
-integrity) and blocked on nothing but a rule that has not been ratified yet
-— something the existing ruleset's single `trade_proposal = None` cannot
-express at all.
+Both the final action-conversion rate AND the "qualified pending
+ratification" rate are 0% under the corrected methodology -- a materially
+more conservative (and more honest) result than the first submission's
+`qualified_pending_gate_ratification_count=2`. **The proposed ruleset's
+demonstrated advantage over the existing one, today, is diagnostic
+transparency (per-condition PASS/FAIL/NOT_EVALUATED/NOT_COMPUTABLE detail),
+not yet a materially higher conversion rate** -- that will only become
+visible once the trigger engine covers more of the doc's 7 trigger types
+and the PIT-integrity pipeline handles ordinary data revisions gracefully.
 
-## 7. Exit-gate self-check (Control Loop doc section 12)
+## 7. Hard-constraint verification (all re-verified after this revision)
 
-- "세 사례 중 적어도 두 사례가 급등 전 또는 초기 구간에 PROBE_REVIEW를 생성" — **not
-  met as a live PROBE_REVIEW** (condition 7 blocks conversion for all three
-  priority cases in the committed window), but real BTC/005930/000660
-  entries **do** reach `conditions_1_to_6_met = True` at real, materially-
-  early points (BTC 08-20 same day as the +7.3% 1-day move; 005930/000660
-  08-19, the day before the +9–13% 1-day move) — i.e. the trigger→gate
-  pipeline itself would have flagged them early, pending ratification.
-- "미래 데이터 사용 0" — met; see section 8.
-- "잘못된 Probe의 최대 손실이 사전 한도 이내" — not applicable; no Probe was ever
-  actually opened (capital is 0 everywhere, always).
-- "기존 방식 대비 Action Conversion과 Captured Return 개선" — not yet measurable
-  as a rate improvement (both 0% today) but measurable as a coverage
-  improvement (`qualified_pending_gate_ratification_count` = 2, existing =
-  0 always).
-- "P5/Portfolio/Human Approval 우회 0" — met; see section 8.
+- **Zero lookahead**: `test/test_replay_lookahead_gate.py` (13 tests,
+  including a new signal-anchored-entry-alignment sweep) plus
+  `test/test_pit_replay_end_to_end.py`'s NOT_GRADABLE-enforcement tests,
+  run against the real, corrected replay output.
+- **Determinism**: two independent `run()` calls diff byte-identical across
+  every ledger key, including the new episode/daily/ungradable tables.
+- **Authority booleans unchanged**: unchanged from the first submission --
+  re-verified after every fix in this revision.
+- **No survivorship bias**: now proven at TWO levels -- (a) the classifier's
+  signature structurally excludes outcome fields (unchanged), AND (b) the
+  KPI population itself is never selected by outcome
+  (`test_replay_no_survivorship_bias.py`, new in this revision, directly
+  addressing flaw 1).
+- **Untouched Forward Alpha files**: re-verified via `git diff main --stat`
+  before pushing this revision -- see the PR description.
 
-## 8. Hard-constraint verification
+## 8. Known limitations (unchanged, still not papered over)
 
-- **Zero lookahead**: `test/test_replay_lookahead_gate.py` (12 tests) plus
-  the end-to-end sweep in `test/test_pit_replay_end_to_end.py` assert, over
-  the real replay output, that no trigger's `first_seen_at`/`confirmed_at`
-  is ever after its own `decision_date`, and that no forward-metric horizon
-  ever ends on or before `decision_date`.
-- **Determinism**: `test_pit_replay_end_to_end.py::test_two_independent_runs_produce_byte_identical_json`
-  runs the full replay twice and diffs canonical JSON.
-  `report_asof_evidence_date` is derived from the latest real snapshot
-  capture date, never `datetime.now()`.
-- **Authority booleans unchanged**: every ledger entry's
-  `existing_ruleset.trade_proposal` is `None` and `proposed_ruleset.capital`
-  is the literal int `0` with no parameter able to override it (see
-  `test_replay_action_conversion_gate.py::test_capital_is_always_zero_and_no_parameter_can_override_it`);
-  no Stage/order/action_taken field exists anywhere in the schema.
-- **No survivorship bias**: `replay/root_cause.py::classify()`'s parameter
-  list structurally excludes any realized-outcome-shaped argument
-  (`test_replay_root_cause_classifier.py`), and the Miss/Defense ledgers
-  share one horizon-preference policy and one entry-construction path
-  (`test_replay_ledgers.py`).
-- **Untouched Forward Alpha files**: verified via `git diff main --stat`
-  before opening the PR — see the PR description for the actual command
-  output; `decision/alpha_review.py`, `shadow/alpha_shadow_ledger.py`,
-  `briefing/daily_orchestrator.py`, and every other file listed in the task
-  brief do not appear.
-
-## 9. Known limitations (not papered over)
-
-- Only 4 of the doc's 7 trigger types are implemented against real data
-  (PRICE_CONFIRMATION, INVALIDATION_TRIGGER, FLOW_REVERSAL,
-  RELATIVE_STRENGTH_REVERSAL). FUNDAMENTAL_REVISION, CATALYST_APPROACH, and
-  EXPECTATION_DISLOCATION require parsed guidance/catalyst-calendar data
-  that is not committed anywhere in this repo as a dated series — they are
-  `NOT_COMPUTABLE`, not guessed at.
-- No ETF-flow dataset is committed for BTC, so the canonical audit doc's
-  own "8/8 브리핑 ETF 4거래일 순유입" claim could not be independently
-  corroborated or refuted from repo evidence in this replay.
-- 22 of 32 audit-window days have no committed Atlas evidence of any kind
-  (section 1) — this bounds how much of the "signal-to-action" story this
-  replay can tell, however deep the underlying *market* history goes.
-- Full per-pair signal-replay treatment (trigger engine + gate) was run for
-  the 7 tracked KR/BTC subjects plus the top-15/top-15 crypto movers (37
-  subjects total), not all 632 committed crypto pairs — the full 632-pair
-  population is covered by the movers *ranking* (section 3) but not by
-  full trigger-level replay, for tractability.
+Only 4 of 7 doc trigger types implemented; no BTC ETF-flow dataset
+committed; 22/32 window days have zero committed evidence; full per-pair
+signal-replay treatment now covers ALL 632 crypto pairs (corrected from the
+first submission's 30), removing that limitation entirely.

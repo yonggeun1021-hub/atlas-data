@@ -126,14 +126,41 @@ class EndToEndRealEvidenceLookaheadSweepTests(unittest.TestCase):
                 self.assertEqual(entry["triggers"], [], entry)
                 self.assertFalse(entry["data_available"], entry)
 
-    def test_every_ok_forward_horizon_end_date_is_strictly_after_decision_date(self):
+    def test_every_ok_forward_horizon_end_date_is_strictly_after_hypothetical_entry_at(self):
+        # Anchored to hypothetical_entry_at (the signal's own evaluation
+        # date), not decision_date -- entry_date can lag decision_date by
+        # the collector's own finalization delay (see forward_metrics.py's
+        # docstring / CIO review PR #210 flaw 4), so the correct forward
+        # anchor is the entry itself, not the later action_eligible_at date.
         checked = 0
         for entry in self.entries:
-            for h, data in entry["forward_metrics"]["horizons"].items():
+            fm = entry["forward_metrics"]
+            if fm.get("hypothetical_entry_at") is None:
+                continue
+            for h, data in fm["horizons"].items():
                 if data.get("status") == "OK":
                     checked += 1
-                    self.assertGreater(data["end_date"], entry["decision_date"])
+                    self.assertGreater(data["end_date"], fm["hypothetical_entry_at"])
         self.assertGreater(checked, 0, "sanity: at least one horizon should be computable from real evidence")
+
+    def test_signal_anchored_entries_never_grade_an_unknowable_price(self):
+        # CIO review PR #210 flaw 4: whenever forward_metrics graded off an
+        # EXPLICIT, signal-anchored entry_date (a real detected trigger),
+        # that price must have actually been live-known by decision_date --
+        # never NOT_GRADABLE silently ignored, never graded off a
+        # not-yet-known future close.
+        checked = 0
+        for entry in self.entries:
+            fm = entry["forward_metrics"]
+            if fm.get("entry_date_source") != "explicit_signal_evaluation_date":
+                continue
+            if fm.get("status") != "OK":
+                continue
+            checked += 1
+            self.assertLessEqual(fm["hypothetical_entry_at"], entry["decision_date"])
+            self.assertTrue(fm["entry_live_known_asof_decision_date"])
+            self.assertLessEqual(fm["entry_price_available_at"], entry["decision_date"])
+        self.assertGreater(checked, 0, "sanity: at least one real signal-anchored entry should be gradable")
 
 
 if __name__ == "__main__":

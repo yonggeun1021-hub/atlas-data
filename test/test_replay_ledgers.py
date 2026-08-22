@@ -89,6 +89,33 @@ class OpportunityMissAndDefenseLedgerSymmetryTests(unittest.TestCase):
         self.assertIn(records[0]["root_cause"], rc.CATEGORIES)
 
 
+class EpisodeHeadlineKpiTests(unittest.TestCase):
+    """CIO review (PR #210, flaw 5): build_miss_episodes()/
+    build_defense_episodes() -- not the raw daily builders -- are the
+    headline KPI, and they use the identical grouping module/policy for
+    both winners and losers."""
+
+    def test_miss_episodes_and_defense_episodes_use_the_same_grouping_module(self):
+        import inspect
+        from replay import opportunity_episode as oe
+        miss_src = inspect.getsource(oml.build_miss_episodes)
+        defense_src = inspect.getsource(dl.build_defense_episodes)
+        self.assertIn("group_into_episodes", miss_src)
+        self.assertIn("group_into_episodes", defense_src)
+
+    def test_a_five_day_rally_collapses_to_one_miss_episode_not_five(self):
+        dates = [f"2026-08-{d:02d}" for d in range(1, 15)]
+        closes = {d: 100.0 for d in dates}
+        for i, d in enumerate(["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"]):
+            closes[d] = 100.0 + (i + 1) * 6  # sustained rally, all material misses
+        s = series_with_closes("RALLY", closes)
+        entries = [build_entry(s, d, "src", "a" * 64) for d in ["2026-08-10", "2026-08-11"]]
+        daily = oml.build_miss_records(entries)
+        episodes = oml.build_miss_episodes(entries)
+        self.assertGreaterEqual(len(daily), 1)
+        self.assertLessEqual(len(episodes), len(daily))
+
+
 class RulesetComparisonTests(unittest.TestCase):
     def test_existing_ruleset_action_conversion_is_always_zero(self):
         up = flat_then_move("UP", up=True)

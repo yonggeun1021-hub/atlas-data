@@ -889,6 +889,8 @@ APPROVED_TESTS = [
     "test/test_replay_forward_metrics.py",
     "test/test_replay_ledgers.py",
     "test/test_replay_lookahead_gate.py",
+    "test/test_replay_no_survivorship_bias.py",
+    "test/test_replay_opportunity_episode.py",
     "test/test_replay_price_series.py",
     "test/test_replay_root_cause_classifier.py",
     "test/test_replay_trigger_engine.py",

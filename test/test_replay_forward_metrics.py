@@ -68,5 +68,50 @@ class ForwardMetricsTests(unittest.TestCase):
         self.assertEqual(result["entry_close"], 110.0)
 
 
+class SignalAnchoredEntryAlignmentTests(unittest.TestCase):
+    """CIO review (PR #210, flaw 4): when a real detected trigger supplies an
+    explicit entry_date, forward metrics must be anchored to EXACTLY that
+    date, and must refuse to grade if that price was not actually
+    live-known as of the assumed execution time."""
+
+    def test_explicit_entry_date_is_used_verbatim_not_re_derived(self):
+        s = PriceSeries("X")
+        # A later trading date (08-20) exists in the series and WOULD have
+        # been picked by the old naive "latest <= decision_date" logic, but
+        # the signal itself evaluated against 08-19.
+        s._merge_row("2026-08-19", {"close": 100.0, "open": 100, "high": 101, "low": 99}, "2026-08-19")
+        s._merge_row("2026-08-20", {"close": 200.0, "open": 200, "high": 201, "low": 199}, "2026-08-21")
+        result = compute_forward_metrics(s, "2026-08-20", entry_date="2026-08-19")
+        self.assertEqual(result["hypothetical_entry_at"], "2026-08-19")
+        self.assertEqual(result["signal_evaluation_at"], "2026-08-19")
+        self.assertEqual(result["action_eligible_at"], "2026-08-20")
+        self.assertEqual(result["entry_close"], 100.0)  # NOT 200.0 -- the old bug this fixes
+
+    def test_signal_anchored_entry_not_live_known_is_not_gradable(self):
+        s = PriceSeries("X")
+        # entry_date's row exists in the series but was only captured AFTER
+        # decision_date -- i.e. it was not actually knowable at signal time.
+        s._merge_row("2026-08-20", {"close": 200.0, "open": 200, "high": 201, "low": 199}, "2026-08-21")
+        result = compute_forward_metrics(s, "2026-08-20", entry_date="2026-08-20")
+        self.assertEqual(result["status"], "NOT_GRADABLE")
+        self.assertIn("not_gradable_reason", result)
+        for h in ("1", "3", "5", "10"):
+            self.assertEqual(result["horizons"][h]["status"], "NOT_GRADABLE")
+
+    def test_auto_fallback_entry_date_is_never_gated_as_not_gradable(self):
+        # No live signal existed at all (DATA_FAILURE-style date) -- the
+        # auto-fallback opportunity-cost measurement remains OK even though
+        # the price was only knowable retrospectively; that is a distinct,
+        # legitimate use case from a signal-anchored grade (see
+        # forward_metrics.py's docstring).
+        s = PriceSeries("X")
+        s._merge_row("2026-07-22", {"close": 100.0, "open": 100, "high": 101, "low": 99}, "2026-08-13")
+        s._merge_row("2026-07-23", {"close": 110.0, "open": 110, "high": 111, "low": 109}, "2026-08-13")
+        result = compute_forward_metrics(s, "2026-07-22")  # entry_date omitted -> auto fallback
+        self.assertEqual(result["status"], "OK")
+        self.assertFalse(result["entry_live_known_asof_decision_date"])
+        self.assertEqual(result["entry_date_source"], "auto_latest_at_or_before_decision_date")
+
+
 if __name__ == "__main__":
     unittest.main()

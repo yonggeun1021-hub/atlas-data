@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """P11 PIT Replay -- root-cause classifier regression (deliverable 5), plus
-the structural no-survivorship-bias guarantee."""
+the structural no-survivorship-bias guarantee, plus (CIO review, PR #210,
+flaw 2) the GATE_BLOCK-narrowing proof: GATE_BLOCK may only be assigned when
+conditions_1_to_6_all_pass is real, verified True."""
 from __future__ import annotations
 
 import inspect
@@ -16,7 +18,7 @@ from replay import root_cause as rc  # noqa: E402
 
 BASE = dict(
     data_available=True, in_universe=True, had_valid_trigger=True,
-    had_independent_confirmation=True, gate_available=True, action_taken=False,
+    conditions_1_to_6_all_pass=True, gate_available=True, action_taken=False,
     decision_latency_days=0, no_position_rule_active=False,
 )
 
@@ -41,7 +43,7 @@ class RootCauseCategoryTests(unittest.TestCase):
         kwargs = {**BASE, "had_valid_trigger": False}
         self.assertEqual(rc.classify(**kwargs), "SIGNAL_MISS")
 
-    def test_gate_block(self):
+    def test_gate_block_requires_conditions_1_to_6_all_pass_true(self):
         kwargs = {**BASE, "gate_available": False}
         self.assertEqual(rc.classify(**kwargs), "GATE_BLOCK")
 
@@ -60,6 +62,40 @@ class RootCauseCategoryTests(unittest.TestCase):
         kwargs = {**BASE, "action_taken": True}
         with self.assertRaisesRegex(rc.RootCauseError, "NOT_A_MISS_ACTION_WAS_TAKEN"):
             rc.classify(**kwargs)
+
+
+class GateBlockNarrowingTests(unittest.TestCase):
+    """CIO review (PR #210, flaw 2): a trigger existing is NOT sufficient for
+    GATE_BLOCK -- conditions 1-6 must ALL be real, verified PASS. Anything
+    short of that (even with gate_available=False, i.e. condition 7 also
+    failing) must fall through to ACTION_CONVERSION_FAILURE instead."""
+
+    def test_trigger_exists_but_conditions_1_to_6_not_all_pass_is_never_gate_block(self):
+        kwargs = {**BASE, "conditions_1_to_6_all_pass": False, "gate_available": False}
+        result = rc.classify(**kwargs)
+        self.assertNotEqual(result, "GATE_BLOCK")
+        self.assertEqual(result, "ACTION_CONVERSION_FAILURE")
+
+    def test_conditions_1_to_6_all_pass_true_and_gate_available_true_is_not_a_gap_case(self):
+        # This combination means the gate says PROBE_REVIEW_CANDIDATE -- a
+        # real caller would never invoke classify() on such an entry (it is
+        # not a miss), but the classifier itself still must not report
+        # GATE_BLOCK when gate_available is True (no gate is actually
+        # blocking anything).
+        kwargs = {**BASE, "conditions_1_to_6_all_pass": True, "gate_available": True}
+        self.assertNotEqual(rc.classify(**kwargs), "GATE_BLOCK")
+
+    def test_only_the_exact_combination_conditions_pass_true_gate_false_yields_gate_block(self):
+        combos = [
+            (True, False, "GATE_BLOCK"),
+            (True, True, "ACTION_CONVERSION_FAILURE"),
+            (False, False, "ACTION_CONVERSION_FAILURE"),
+            (False, True, "ACTION_CONVERSION_FAILURE"),
+        ]
+        for conditions_pass, gate_avail, expected in combos:
+            with self.subTest(conditions_pass=conditions_pass, gate_avail=gate_avail):
+                kwargs = {**BASE, "conditions_1_to_6_all_pass": conditions_pass, "gate_available": gate_avail}
+                self.assertEqual(rc.classify(**kwargs), expected)
 
 
 class NoSurvivorshipBiasStructuralTests(unittest.TestCase):

@@ -17,7 +17,7 @@ def compare(entries: list[dict]) -> dict:
     proposed_convertible = [e for e in with_trigger
                              if e["proposed_ruleset"]["recommended_action"] == "PROBE_REVIEW_CANDIDATE"]
     proposed_qualified_pending_gate = [e for e in with_trigger
-                                        if e["proposed_ruleset"]["conditions_1_to_6_met"]]
+                                        if e["proposed_ruleset"]["conditions_1_to_6_all_pass"]]
 
     def rate(numerator, denominator):
         return (len(numerator) / len(denominator) * 100.0) if denominator else None
@@ -41,7 +41,7 @@ def compare(entries: list[dict]) -> dict:
             "convertible_count": len(proposed_convertible),
             "review_cadence_days": "dynamic (next trading day for price/flow triggers, per Control Loop doc section 6)",
             "condition_7_gate_ratified_anywhere": any(
-                e["proposed_ruleset"]["condition_7_gate_ratified"] for e in with_trigger
+                e["proposed_ruleset"]["condition_7_gate_ratified"] == "PASS" for e in with_trigger
             ),
             "qualified_pending_gate_ratification_count": len(proposed_qualified_pending_gate),
             "qualified_pending_gate_ratification_rate_pct": rate(proposed_qualified_pending_gate, with_trigger),

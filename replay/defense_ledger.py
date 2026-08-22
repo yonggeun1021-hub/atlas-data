@@ -11,8 +11,20 @@
   this cannot be silently read as a skill claim later -- matching the
   canonical audit doc's own principle 4: don't let a defense credit hide a
   missed-upside debit, and don't over-claim it either.
+
+★ CIO review fix (flaw 5, PR #210): `build_defense_records()` remains the
+  raw, one-row-per-day table; `build_defense_episodes()` is the headline KPI
+  -- same deduplication rule as the Miss ledger, applied identically (same
+  module, same MAX_GAP_DAYS, same grouping key shape) so winners and losers
+  get the exact same treatment, not a convenient one-off.
+★ CIO review fix (flaw 4, PR #210): NOT_GRADABLE entries are excluded from
+  materiality (see opportunity_miss_ledger.is_ungradable -- the same check,
+  reused here rather than re-implemented, to keep the two ledgers
+  symmetric).
 """
 from __future__ import annotations
+
+from replay.opportunity_episode import group_into_episodes
 
 MATERIALITY_DRAWDOWN_THRESHOLD_PCT = -5.0
 # Same "best available horizon" policy as opportunity_miss_ledger.py, applied
@@ -28,6 +40,8 @@ CAVEAT = (
 
 
 def _best_available_horizon(entry: dict) -> tuple[str, dict] | None:
+    if entry["forward_metrics"].get("status") != "OK":
+        return None  # NOT_GRADABLE / NO_ENTRY_PRICE_DATA
     for h in PREFERRED_HORIZONS:
         data = entry["forward_metrics"]["horizons"].get(h, {})
         if data.get("status") == "OK":
@@ -44,6 +58,8 @@ def is_material_defense(entry: dict) -> bool:
 
 
 def build_defense_records(entries: list[dict]) -> list[dict]:
+    """Raw, one-row-per-calendar-day table. NOT the headline KPI -- see
+    `build_defense_episodes()`."""
     out = []
     for entry in entries:
         if not is_material_defense(entry):
@@ -52,6 +68,7 @@ def build_defense_records(entries: list[dict]) -> list[dict]:
         out.append({
             "decision_date": entry["decision_date"],
             "subject": entry["subject"],
+            "root_cause": "AVOIDED_DRAWDOWN",  # constant tag -- gives group_into_episodes a grouping key
             "materiality_horizon_used": horizon_used,
             "avoided_forward_return_pct": data["forward_return_pct"],
             "avoided_mae_pct": data["mae_pct"],
@@ -61,3 +78,14 @@ def build_defense_records(entries: list[dict]) -> list[dict]:
             "source": entry["source"],
         })
     return out
+
+
+def build_defense_episodes(entries: list[dict]) -> list[dict]:
+    """★ Headline Defense KPI (deliverable 3, post-review): deduplicated
+    Opportunity Episodes, not raw daily rows -- same grouping module and
+    tolerance as build_miss_episodes()."""
+    daily = build_defense_records(entries)
+    episodes = group_into_episodes(daily, outcome_field="avoided_forward_return_pct")
+    for ep in episodes:
+        ep["structural_zero_capital_caveat"] = CAVEAT
+    return episodes

@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Keep / Change / Kill recommendation per existing rule (deliverable 6),
 grounded in aggregate counts from the actual ledgers -- not speculative.
+
+★ CIO review fix (flaw 5, PR #210): takes deduplicated Opportunity Episodes
+  (`opportunity_miss_ledger.build_miss_episodes()` /
+  `defense_ledger.build_defense_episodes()`), not raw daily rows, so the
+  evidence counts here cannot be inflated by a single multi-day rally being
+  counted once per calendar day.
 """
 from __future__ import annotations
 
 from collections import Counter
 
 
-def recommend(miss_records: list[dict], defense_records: list[dict], comparison: dict) -> list[dict]:
-    miss_causes = Counter(m["root_cause"] for m in miss_records if m["root_cause"])
+def recommend(miss_episodes: list[dict], defense_episodes: list[dict], comparison: dict) -> list[dict]:
+    miss_causes = Counter(m["root_cause"] for m in miss_episodes if m["root_cause"])
     recs = []
 
     recs.append({
