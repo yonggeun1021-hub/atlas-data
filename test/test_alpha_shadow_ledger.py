@@ -24,27 +24,40 @@ CONTRACT = MODULE.load_contract()
 AR_FIXTURE = load("alpha_shadow_ar_fixture", ROOT / "test" / "test_alpha_review.py")
 
 
+
+# States 5-10 of alpha_review's decision table are only reachable once
+# price_reflection.threshold_basis=="RATIFIED" (CIO round 3, required item
+# 4) -- decision/price_reflection.py's own contract hardcodes PROVISIONAL,
+# so these fixtures must be built inside AR_FIXTURE.ratified_thresholds(),
+# which simulates a real ratification landing (see that context manager's
+# own docstring in test_alpha_review.py). Deferred as lambdas so only the
+# ONE case actually requested per review() call is ever built, under the
+# correct ambient contract state.
+_PLAIN_CASE_BUILDERS = {
+    "blocked_no_evidence": lambda: (AR_FIXTURE.ft_no_evidence(), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected()),
+    "blocked_triple_unknown": lambda: (AR_FIXTURE.ft_status("UNKNOWN"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_unknown()),
+    "rejected_disappointed": lambda: (AR_FIXTURE.ft_status("CONVERSION_DISAPPOINTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected()),
+    "rejected_negative_gap_unknown_earnings": lambda: (AR_FIXTURE.ft_status("UNKNOWN"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
+    "wait_for_thesis_repair": lambda: (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
+    "wait_for_price": lambda: (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_unknown()),
+}
+_RATIFIED_CASE_BUILDERS = {
+    "anticipatory_review": lambda rc: (AR_FIXTURE.ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected(contract=rc)),
+    "expectation_exhausted": lambda rc: (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_fully_reflected(contract=rc)),
+    "wait_for_pullback": lambda rc: (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_overextended(contract=rc)),
+    "confirmation_review": lambda rc: (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected(contract=rc)),
+    "wait_for_evidence": lambda rc: (AR_FIXTURE.ft_status("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_partially_reflected(contract=rc)),
+    "early_discovery": lambda rc: (AR_FIXTURE.ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_under_reflected(contract=rc)),
+}
+
+
 def review(opportunity_state_case="anticipatory_review", p5_rule_status=None):
-    # ft_status_with_exhibit (not plain ft_status) for every state that,
-    # post CIO-Gate-Hardening, needs a real EXHIBIT_EXTRACTED fact to avoid
-    # being pre-empted by gate 4 (narrative-only-core-evidence) -- see
-    # test_alpha_review.py's ft_status_with_exhibit() docstring.
-    cases = {
-        "blocked_no_evidence": (AR_FIXTURE.ft_no_evidence(), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected()),
-        "blocked_triple_unknown": (AR_FIXTURE.ft_status("UNKNOWN"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_unknown()),
-        "rejected_disappointed": (AR_FIXTURE.ft_status("CONVERSION_DISAPPOINTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected()),
-        "rejected_negative_gap_unknown_earnings": (AR_FIXTURE.ft_status("UNKNOWN"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
-        "wait_for_thesis_repair": (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
-        "wait_for_price": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_unknown()),
-        "anticipatory_review": (AR_FIXTURE.ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected()),
-        "expectation_exhausted": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_fully_reflected()),
-        "wait_for_pullback": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_overextended()),
-        "confirmation_review": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected()),
-        "wait_for_evidence": (AR_FIXTURE.ft_status("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_partially_reflected()),
-        "early_discovery": (AR_FIXTURE.ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_under_reflected()),
-    }
-    ft, eg, pr = cases[opportunity_state_case]
     kwargs = {} if p5_rule_status is None else {"p5_rule_status": p5_rule_status}
+    if opportunity_state_case in _RATIFIED_CASE_BUILDERS:
+        with AR_FIXTURE.ratified_thresholds() as rc:
+            ft, eg, pr = _RATIFIED_CASE_BUILDERS[opportunity_state_case](rc)
+            return AR_FIXTURE.build(ft, eg, pr, **kwargs)
+    ft, eg, pr = _PLAIN_CASE_BUILDERS[opportunity_state_case]()
     return AR_FIXTURE.build(ft, eg, pr, **kwargs)
 
 
@@ -264,6 +277,25 @@ class P5GatedActionTests(unittest.TestCase):
         for p5_status in ("PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"):
             self.assertEqual(MODULE.action_for_opportunity_state("BLOCKED", p5_status, CONTRACT), "REJECT")
             self.assertEqual(MODULE.action_for_opportunity_state("WAIT_FOR_PRICE", p5_status, CONTRACT), "WAIT")
+
+    def test_wait_for_rule_ratification_is_unmapped_and_fails_closed(self):
+        # `decision/alpha_review.py`'s CIO round-4 `WAIT_FOR_RULE_RATIFICATION`
+        # state (alpha_review/5, required item 6) is deliberately NOT added to
+        # `shadow/alpha_shadow_ledger.py` -- that module is a real production
+        # file this PR is explicitly forbidden from touching. This asserts
+        # the CURRENT, correct, fail-closed consequence of that boundary: a
+        # WAIT_FOR_RULE_RATIFICATION packet is not silently mapped to WAIT
+        # (or anything else) -- it raises a loud, unambiguous
+        # OPPORTUNITY_STATE_UNMAPPED error, exactly like any other genuinely
+        # unmapped opportunity_state would. Wiring WAIT_FOR_RULE_RATIFICATION
+        # into the shadow ledger's own action table is real, tracked
+        # follow-up work for a future PR that is explicitly permitted to
+        # touch shadow/alpha_shadow_ledger.py -- not silently absorbed here.
+        self.assertNotIn("WAIT_FOR_RULE_RATIFICATION", CONTRACT["opportunity_state_to_action"])
+        with self.assertRaisesRegex(
+            MODULE.AlphaShadowLedgerError, "OPPORTUNITY_STATE_UNMAPPED:WAIT_FOR_RULE_RATIFICATION"
+        ):
+            MODULE.action_for_opportunity_state("WAIT_FOR_RULE_RATIFICATION", "NOT_EVALUATED", CONTRACT)
 
 
 if __name__ == "__main__":

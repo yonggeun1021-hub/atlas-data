@@ -82,6 +82,7 @@ def _load_module(name: str, path: Path):
 FORWARD_THESIS = _load_module("pilot_forward_thesis", ROOT / "decision" / "forward_thesis.py")
 EXPECTATIONS_GAP = _load_module("pilot_expectations_gap", ROOT / "decision" / "expectations_gap.py")
 PRICE_REFLECTION = _load_module("pilot_price_reflection", ROOT / "decision" / "price_reflection.py")
+PRICE_EVIDENCE = _load_module("pilot_price_evidence", ROOT / "decision" / "price_evidence.py")
 ALPHA_REVIEW = _load_module("pilot_alpha_review", ROOT / "decision" / "alpha_review.py")
 ALPHA_SHADOW_LEDGER = _load_module("pilot_alpha_shadow_ledger", ROOT / "shadow" / "alpha_shadow_ledger.py")
 
@@ -389,17 +390,18 @@ def build_tsm_expectations_gap_input(decision_date: str, generated_at: str) -> d
 
 
 def build_tsm_price_reflection_input(decision_date: str, generated_at: str) -> dict:
-    price_manifest = _read_json("evidence/free_market_data/raw/2026-08-22/manifest.json")
-    tsm_bar = next(bar for bar in price_manifest["alpaca"]["bars"] if bar["symbol"] == "TSM")
+    # decision/price_evidence.py (P8-10 real evidence assembly layer) reads
+    # every committed evidence/free_market_data/raw/<date>/ snapshot rather
+    # than just today's -- as of this build only one day is committed for
+    # TSM, so recent_return_windows/relative_strength come back None (never
+    # fabricated from a single point); this widens automatically as the
+    # existing daily cron commits more days, with no change needed here.
+    evidence = PRICE_EVIDENCE.assemble_price_evidence("TSM", decision_date)
     return {
         "subject": "TSM",
         "decision_date": decision_date,
         "generated_at": generated_at,
-        "price_as_of": tsm_bar["provider_timestamp"],
-        "data_source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
-        # No historical time series exists in this repo for TSM (single
-        # point-in-time capture only) -- every other price parameter is left
-        # None rather than fabricated. See PILOT module docstring.
+        **evidence,
     }
 
 
@@ -634,19 +636,18 @@ def build_hyosung_expectations_gap_input(decision_date: str, generated_at: str) 
 
 
 def build_hyosung_price_reflection_input(decision_date: str, generated_at: str) -> dict:
-    krx = _read_json("data/briefing/krx/298040.json")
-    row = krx["latest_confirmed_row"]
-    price_as_of = _to_utc_stamp(row["observed_at_kst"])
+    # decision/price_evidence.py merges every committed data/<date>/krx.json
+    # snapshot's embedded daily window (real KRX closes back to 2026-07-06)
+    # and chain-links a real KOSPI composite proxy from the committed
+    # korea_leadership_context packets (P1-KR-07) -- genuine 1m return,
+    # vs_market, position_vs_recent_high, and volume_change figures, not the
+    # single-point value data/briefing/krx/298040.json alone could support.
+    evidence = PRICE_EVIDENCE.assemble_price_evidence("298040.KS", decision_date)
     return {
         "subject": "298040.KS",
         "decision_date": decision_date,
         "generated_at": generated_at,
-        "price_as_of": price_as_of,
-        "data_source_scope": "KRX_OFFICIAL",
-        # No genuine market-index (KOSPI) return series exists in this repo
-        # to compute a real vs_market figure, and the Korea-specific rule in
-        # price_reflection.py requires 1m + vs_market + position_vs_recent_high
-        # all present or forces UNKNOWN -- left None rather than fabricated.
+        **evidence,
     }
 
 
@@ -825,15 +826,14 @@ def build_hd_hyundai_electric_expectations_gap_input(decision_date: str, generat
 
 
 def build_hd_hyundai_electric_price_reflection_input(decision_date: str, generated_at: str) -> dict:
-    krx = _read_json("data/briefing/krx/267260.json")
-    row = krx["latest_confirmed_row"]
-    price_as_of = _to_utc_stamp(row["observed_at_kst"])
+    # See build_hyosung_price_reflection_input's comment -- same real
+    # KRX + KOSPI-composite evidence assembly, different code.
+    evidence = PRICE_EVIDENCE.assemble_price_evidence("267260.KS", decision_date)
     return {
         "subject": "267260.KS",
         "decision_date": decision_date,
         "generated_at": generated_at,
-        "price_as_of": price_as_of,
-        "data_source_scope": "KRX_OFFICIAL",
+        **evidence,
     }
 
 
@@ -929,11 +929,16 @@ def build_doosan_enerbility_expectations_gap_input(decision_date: str, generated
 
 
 def build_doosan_enerbility_price_reflection_input(decision_date: str, generated_at: str) -> dict:
+    # decision/price_evidence.py confirms this honestly: zero KRX snapshots
+    # carry code 034020 anywhere, so every field below comes back None --
+    # this is the same PRICE_DATA_MISSING outcome as before, now produced by
+    # the shared real evidence-assembly layer instead of a hand-written stub.
+    evidence = PRICE_EVIDENCE.assemble_price_evidence("034020.KS", decision_date)
     return {
         "subject": "034020.KS",
         "decision_date": decision_date,
         "generated_at": generated_at,
-        # No price data of any kind exists for 034020 in this repository.
+        **evidence,
     }
 
 
@@ -1077,7 +1082,8 @@ def compare_pilots(bundles: dict) -> dict:
             "earnings_conversion_visible": earnings_conversion_visible,
             "expectations_gap_status": eg["status"],
             "expectations_gap_confidence": eg["confidence"],
-            "price_reflection_status": pr["status"],
+            "price_reflection_state": pr["price_state"],
+            "price_reflection_status": pr["reflection_status"],
             "price_reflection_confidence": pr["confidence"],
             "nearest_catalyst": nearest_catalyst,
             "next_review_date": ar["next_review_date"],

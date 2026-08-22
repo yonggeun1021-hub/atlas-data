@@ -1,13 +1,25 @@
 {
-  "schema_version": 1,
-  "contract_version": "price_reflection/1",
-  "output_schema_version": "price_reflection_packet/1",
-  "allowed_status": [
+  "schema_version": 6,
+  "contract_version": "price_reflection/6",
+  "output_schema_version": "price_reflection_packet/6",
+  "allowed_price_state": [
+    "OVEREXTENDED",
+    "STRONG_MOMENTUM",
+    "MODERATE",
+    "WEAK",
+    "UNKNOWN"
+  ],
+  "allowed_reflection_status": [
     "UNDER_REFLECTED",
     "PARTIALLY_REFLECTED",
     "FULLY_REFLECTED",
-    "OVEREXTENDED",
     "UNKNOWN"
+  ],
+  "allowed_data_state": [
+    "PRICE_DATA_MISSING",
+    "PRICE_STALE",
+    "REFLECTION_UNCERTAIN_WITH_VALID_PRICE",
+    "VALID"
   ],
   "allowed_confidence": ["LOW", "MEDIUM", "HIGH", "UNKNOWN"],
   "allowed_direction": ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"],
@@ -15,8 +27,16 @@
   "allowed_data_source_scope": [
     "IEX_ONLY_PARTIAL_US_MARKET",
     "KRX_OFFICIAL",
+    "KRAKEN_OHLC",
     "UNKNOWN"
   ],
+  "allowed_event_source_class": [
+    "SEC_FILING_EVENT",
+    "DART_FILING_EVENT",
+    "OFFICIAL_RELEASE_EVENT",
+    "GUIDANCE_CHANGE_EVENT"
+  ],
+  "allowed_threshold_basis": ["PROVISIONAL", "RATIFIED"],
   "korea_data_source_scope": "KRX_OFFICIAL",
   "default_freshness_ceiling_days": 5,
   "classification_thresholds": {
@@ -25,6 +45,7 @@
     "strong_momentum_min_pct": "8",
     "mild_momentum_min_pct": "2"
   },
+  "classification_thresholds_approval_status": "PROVISIONAL",
   "confidence_thresholds": {
     "high_min_scored_signal_count": 4,
     "medium_min_scored_signal_count": 2

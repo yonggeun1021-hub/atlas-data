@@ -1,0 +1,5 @@
+{
+  "note": "TEST FIXTURE ONLY -- this is a synthetic raw source document, not a real corporate filing, disclosure, or official release of any kind. It exists solely to unit-test decision/event_evidence.py's direction-mismatch rejection (CIO round 7, required item 4): a raw source whose own structured observed_direction is NEGATIVE must never be usable to back an envelope claiming direction=POSITIVE, even though a POSITIVE-sounding phrase never even appears here. Never resolvable through decision/price_reflection.py's real build_packet() path and never referenced by any real Pilot subject.",
+  "observed_direction": "NEGATIVE",
+  "disclosure_text": "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated revenue decline used only to exercise citation verification."
+}
