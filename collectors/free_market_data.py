@@ -65,7 +65,7 @@ def fetch_fred(api_key: str, observed_at: dt.datetime, getter=_get) -> tuple[byt
     start = (observed_at.date() - dt.timedelta(days=60)).isoformat()
     query = urllib.parse.urlencode({
         "series_id": "VIXCLS", "api_key": api_key, "file_type": "json",
-        "observation_start": start, "output_type": 4,
+        "observation_start": start,
     })
     raw = getter("https://api.stlouisfed.org/fred/series/observations?" + query)
     try:
