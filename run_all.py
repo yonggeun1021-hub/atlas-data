@@ -261,6 +261,14 @@ APPROVED_TESTS = [
     #   Regime/Production/trading 권한을 계속 차단한다.
     #   ⛔ live KRX 호출 없음 — fixture response + workflow contract only.
     "test/test_korea_breadth.py",
+    # ★ P1-KR-05 shared-fetch derived outputs — 같은 manual live fetch에서
+    #   non-reconstructive Korea Breadth observation packet(시장×scope별,
+    #   available_at=null/decision_eligible=false)과 P3-03 KOSPI/KOSDAQ
+    #   source-coverage packet(krx_global_universe.build_packet() 그대로
+    #   재사용)을 함께 만든다. 신규 endpoint·재요청 없음, raw body·per-symbol
+    #   가격은 어느 출력에도 남지 않으며 $RUNNER_TEMP 밖에는 아무것도 쓰지 않는다.
+    #   ⛔ live KRX 호출 없음 — fixture response + workflow contract only.
+    "test/test_korea_breadth_derived_outputs.py",
     # ★ P1-US-06 — US Leadership transient cross-sectional contract.
     #   retained semantics를 production helper/P2-02 consumer가 재검증한다.
     #   PIT membership/taxonomy와 market-relative strength/participation을
