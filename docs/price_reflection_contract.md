@@ -119,9 +119,7 @@ silently dropping it or upgrading it to an implied market-wide claim.
 There is no `REJECTED` value in either vocabulary — Rule/Portfolio rejection
 is a different system's job.
 
-**`price_state=OVEREXTENDED` means entry-timing risk is elevated. It does
-not mean the underlying business is bad, and it does not by itself mean
-`reflection_status=FULLY_REFLECTED`.** A company can be an excellent
+**`price_state=OVEREXTENDED` means entry-timing risk is elevated. It does not mean the underlying business is bad, and it does not by itself mean `reflection_status=FULLY_REFLECTED`.** A company can be an excellent
 business and still be `OVEREXTENDED` on price after a sharp run — this
 status is about *when* to buy, not *whether* the company is good, and not a
 claim about whether the market has priced in any specific expectation.
