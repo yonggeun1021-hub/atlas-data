@@ -19,17 +19,23 @@ applies uniformly.
 
 Separately, and honestly: even once time passes and this exact lag no
 longer applies, the real qualified_members() gate still returns UNKNOWN
-for the full snapshot, for a genuinely different and much larger reason
-this PR does not attempt to fix -- the gate requires zero taxonomy-
-unknown candidates among ALL ranked candidates it walks through before
-reaching target_asset_count=100 selected, not merely the ones within
-Top-100 rank. Of the 621 total ranked candidates, roughly only the 88
-addressed by this PR (plus the pre-existing ~21 fiat/stablecoin/wrapped/
-staked/commodity_linked records) have ever been individually
-taxonomy-classified at all -- the remaining ~515 are minor altcoins that
-were never in scope for this PR (NIGHT/RE/PLAY only, per the user's own
-explicit instruction; no blanket reclassification of Kraken's full
-listing). This is verified explicitly below, not glossed over.
+for the full snapshot -- corrected finding (2026-08-22, see test_crypto_
+breadth_cutoff_aware_scan.py for the full audit): this is NOT because
+the gate requires the entire ~621-candidate provider universe
+classified. qualified_members() is genuinely cutoff-aware -- it stops
+the instant target_asset_count eligible_crypto assets are found, and a
+candidate ranked below that point is never even visited. The real cause
+is precise and much sharper: only 87 assets have EVER been individually
+ratified eligible_crypto in this repository's history (known_eligible_
+count_so_far in the real evidence below) -- 13 short of target=100 --
+so the scan is structurally unable to stop early and is forced to walk
+the full ranked list looking for enough eligible candidates, correctly
+reporting every taxonomy-unknown one it passes along the way as
+genuinely selection-relevant (any of them could supply one of the
+missing 13 slots). This is a real ratification-coverage shortfall, not
+a scan-order defect, and this PR does not attempt to close it (NIGHT/
+RE/PLAY only, per the user's own explicit instruction -- no blanket
+reclassification of Kraken's full listing).
 """
 from __future__ import annotations
 
@@ -122,7 +128,7 @@ class RealEvidenceUnverifiedIdentityTest(unittest.TestCase):
         self.assertEqual(len(resolved_today), 88)
         self.assertEqual(still_unknown_today, [])
 
-    def test_full_gate_still_honestly_blocked_for_a_different_larger_reason(self):
+    def test_full_gate_still_honestly_blocked_for_a_precise_ratification_shortfall(self):
         # In-memory-only gate-logic probe: same real assets/pairs/ohlc
         # data, only the vintage interpretation is advanced one day past
         # the new records' effective_from (simulating genuinely running
@@ -132,14 +138,18 @@ class RealEvidenceUnverifiedIdentityTest(unittest.TestCase):
         mutated_core["vintage"] = self.core["vintage"] + dt.timedelta(days=1)
         result = CB.qualified_members(mutated_core, self.universe_policy, self.taxonomy_policy)
         # Still UNKNOWN -- not because of NIGHT/RE/PLAY (fully resolved,
-        # per the prior test), but because the real gate requires zero
-        # taxonomy-unknown among ALL ranked candidates it walks through
-        # before reaching target_asset_count selected, and roughly 515
-        # minor altcoins beyond the Top-100-relevant set were never in
-        # scope for this PR (NIGHT/RE/PLAY only, per instruction -- no
-        # blanket reclassification of Kraken's full listing).
+        # per the prior test), and not because the gate requires the
+        # entire provider universe classified (it is cutoff-aware -- see
+        # test_crypto_breadth_cutoff_aware_scan.py). The precise, real
+        # cause: only 87 assets have ever been ratified eligible_crypto
+        # at all, genuinely 13 short of target=100, so the scan cannot
+        # stop early and correctly treats every unknown it passes as
+        # selection-relevant.
         self.assertEqual(result["status"], "UNKNOWN")
         self.assertEqual(result["reason"], "TAXONOMY_COVERAGE_UNKNOWN")
+        self.assertEqual(
+            result["diagnostics"]["known_eligible_count_so_far"], 87
+        )
         remaining_unknown = result["diagnostics"]["taxonomy_unknown_before_cutoff"]
         for asset in PREVIOUSLY_UNCONFIRMED:
             self.assertNotIn(

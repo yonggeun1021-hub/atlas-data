@@ -118,6 +118,42 @@ This universe is expressly `breadth_source_coverage_not_investable`.  It does
 not claim liquidity, capacity, tradability for an Atlas portfolio, or exchange
 coverage beyond Kraken.
 
+### Cutoff-aware scan audit (2026-08-22)
+
+An audit confirmed `qualified_members()` already implements exactly the
+algorithm above, not a "classify the provider's entire universe" policy.
+The ranking loop's own `if len(selected) == target: break` means a
+candidate ranked below the point the target-th `eligible_crypto` asset is
+found is never visited at all, let alone required to carry a taxonomy
+record — proven directly in `test_crypto_breadth_cutoff_aware_scan.py`
+(an asset with no taxonomy record whatsoever, ranked below a satisfied
+target, never appears in `taxonomy_unknown_before_cutoff`; an `EXCLUDED`
+asset within the scan range is skipped and backfilled from the next
+rank; an `UNKNOWN` asset *within* the scan range still blocks, because
+its resolution could change which asset actually fills a slot; a
+mutation that promotes a below-cutoff unknown into the scan range flips
+the result to blocked). No code change to the scan's own logic was made
+because none was needed.
+
+The real 2026-08-22 snapshot's own `TAXONOMY_COVERAGE_UNKNOWN` result is
+not evidence against this: `known_eligible_count_so_far` (see below)
+reports **87** — only 87 assets have ever been individually ratified
+`eligible_crypto` in this repository's history, 13 short of
+`target_asset_count=100`. Because the scan cannot reach target, it is
+structurally forced to walk the full ranked list looking for enough
+eligible candidates, correctly treating every `UNKNOWN` it passes along
+the way as selection-relevant (any one of them could supply one of the
+missing 13 slots). This is a genuine ratification-coverage shortfall —
+more crypto assets need to be individually taxonomy-ratified — not a
+scan-order defect and not evidence that a "100% provider universe"
+policy is required.
+
+`known_eligible_count_so_far` is included in `qualified_members()`'s
+`TAXONOMY_COVERAGE_UNKNOWN` diagnostics (and surfaced in the committed
+`universe` output) specifically so this distinction — real shortfall vs.
+a specific blocking candidate near the cutoff — is visible directly in
+committed evidence, without needing to re-derive it by hand.
+
 ## Output and missing policy
 
 For each included member, the helper emits canonical/source identity, exact

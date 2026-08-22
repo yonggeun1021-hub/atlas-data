@@ -1142,6 +1142,27 @@ def qualified_members(
     universe_policy: dict,
     taxonomy_policy: dict,
 ) -> dict:
+    """2026-08-22 audit finding (see docs/crypto_breadth_contract.md):
+    this function already implements a cutoff-aware Top-N taxonomy scan,
+    NOT a "classify the entire provider universe" policy -- confirmed by
+    direct test (test_crypto_breadth.py::
+    test_cutoff_aware_scan_ignores_unknown_below_the_selection_cutoff):
+    a candidate with no taxonomy record at all, ranked below the point
+    where `len(selected) == target` already fires, is never visited and
+    never appears in taxonomy_unknown_before_cutoff. The `break`
+    immediately below is what makes this true: only candidates strictly
+    at-or-above the rank where the target-th eligible_crypto asset is
+    found are ever classified or reported.
+
+    A real EOD snapshot can still legitimately return UNKNOWN with many
+    entries in taxonomy_unknown_before_cutoff, and that is NOT the same
+    finding as "the algorithm requires 100% universe coverage": it means
+    the number of already-ratified eligible_crypto assets encountered so
+    far (see known_eligible_count_so_far below) is genuinely below
+    target, so every remaining unknown candidate really could supply a
+    missing slot and none can be safely ignored -- a real taxonomy-
+    ratification coverage gap, not a scan-order defect.
+    """
     as_of = core["vintage"] - dt.timedelta(days=1)
     require_ratified_policy(universe_policy, as_of)
     require_ratified_taxonomy(taxonomy_policy, as_of)
@@ -1241,7 +1262,22 @@ def qualified_members(
             "status": "UNKNOWN",
             "reason": "TAXONOMY_COVERAGE_UNKNOWN",
             "members": [],
-            "diagnostics": diagnostics,
+            # known_eligible_count_so_far (= len(selected) when the loop
+            # stopped, whether by reaching target or exhausting ranked)
+            # makes the real root cause directly visible without
+            # forensic re-derivation. Every candidate in taxonomy_
+            # unknown_before_cutoff was necessarily encountered before
+            # the scan finished, so its resolution could in principle
+            # have changed which assets fill the target slots -- that
+            # alone is why this blocks even when known_eligible_count_
+            # so_far already equals target. When it is well below
+            # target, that is the sharper, distinct signal: too few
+            # assets have ever been ratified eligible_crypto at all, a
+            # genuine ratification-coverage gap, not a scan-order
+            # defect -- resolving unknowns cannot be skipped as
+            # "below cutoff, irrelevant" in either case.
+            "diagnostics": diagnostics
+            | {"known_eligible_count_so_far": len(selected)},
         }
     if len(selected) < target:
         return {
@@ -1412,6 +1448,12 @@ def build_transform(
         "taxonomy_unknown_before_cutoff": diagnostics[
             "taxonomy_unknown_before_cutoff"
         ],
+        # Only set when status=UNKNOWN/TAXONOMY_COVERAGE_UNKNOWN --
+        # see qualified_members()'s own docstring. Makes a genuine
+        # ratification-coverage shortfall (known_eligible_count_so_far
+        # well below target_asset_count) directly visible in the
+        # committed evidence, distinct from a scan-order defect.
+        "known_eligible_count_so_far": diagnostics.get("known_eligible_count_so_far"),
         "selected_asset_count": diagnostics.get("selected_asset_count", 0),
         "observed_asset_count": diagnostics.get("observed_asset_count", 0),
         "observation_coverage_bps": diagnostics.get(
