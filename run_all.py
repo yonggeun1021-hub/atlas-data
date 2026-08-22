@@ -261,12 +261,18 @@ APPROVED_TESTS = [
     #   원시 상대수익률만 재현하며 ranking/Regime/Production 권한은 닫아 둔다.
     #   ⛔ live KRX 호출/tracked factor 없음 — temp policies/stdin fixtures only.
     "test/test_korea_leadership.py",
+    # ★ P1-KR-07 — Korea Leadership 최소 비준 정책 Slice. 실 89개 index
+    #   catalog(2026-08-21 live run)를 근거로 48개(benchmark 2 + 공식
+    #   base-market SECTOR 46) INCLUDED, 41개(200/150-family size-tier·
+    #   전략형) EXCLUDED, 0개 UNKNOWN으로 완전 분할한다. 시장별 qualified
+    #   identity 분리, 미래효력·중복 fail-closed, replay/mutation 포함.
+    "test/test_korea_leadership_policy_minimal_slice.py",
     # ★ Korea Leadership live-fetch wiring — real R2 KRX Open API index
     #   endpoint(기존 승인, 신규 endpoint 아님) 재사용해 실 index name/close를
-    #   가져와 korea_leadership.build_transform()을 그대로 시도한다. 현재
-    #   policy가 UNRATIFIED이므로 clean outcome=blocked이 정상이며, raw
-    #   가격은 committed 파일에 절대 남기지 않는다(name catalog + lineage
-    #   SHA만). idempotent/drift fail-closed 포함.
+    #   가져와 korea_leadership.build_transform()을 그대로 시도한다. 정책이
+    #   RATIFIED된 후에는 실제 build_transform()에 도달하며, raw 가격은
+    #   committed 파일에 절대 남기지 않는다(name catalog + lineage SHA만).
+    #   idempotent/drift fail-closed 포함.
     "test/test_korea_leadership_live_fetch.py",
     # ★ P1-KR-06 — Korea Risk / Vol transient derived-feature contract.
     #   비준된 KRX index available_at envelope에서 RV/drawdown만 재현하며

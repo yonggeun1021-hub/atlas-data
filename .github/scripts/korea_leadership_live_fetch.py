@@ -37,6 +37,10 @@ import os
 from pathlib import Path
 import tempfile
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
+
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -117,51 +121,124 @@ def _iso_date(bas_dd: str) -> str:
     return f"{bas_dd[0:4]}-{bas_dd[4:6]}-{bas_dd[6:8]}"
 
 
-def build_upstream_payload(
-    market: str, prior: dict, current: dict, *, run_mode: str = "FORWARD_SHADOW"
-) -> dict:
-    """Real series_rows for every index name present with a real close on
-    BOTH dates -- absent on either date means excluded, never guessed.
-    No price value is retained past this in-memory construction; the
-    caller only persists the attempt's outcome and name catalog."""
-    common_names = sorted(
-        set(prior["index_names_to_close"]) & set(current["index_names_to_close"])
-    )
-    if not common_names:
-        raise LeadershipLiveFetchError(f"NO_COMMON_INDEX_NAMES:{market}")
-    series_rows = [
-        {
-            "series_identity": name,
-            "rows": [
-                {"session_date": _iso_date(prior["bas_dd"]), "close": prior["index_names_to_close"][name]},
-                {"session_date": _iso_date(current["bas_dd"]), "close": current["index_names_to_close"][name]},
-            ],
-        }
-        for name in common_names
-    ]
-    observation_date = _iso_date(current["bas_dd"])
+def _to_kst_iso(utc_iso_z: str) -> str:
+    """korea_leadership.py's own parse_timestamp() requires an ISO
+    timestamp whose utcoffset() is exactly +09:00 (KST) -- a bare UTC
+    "Z" instant (what the real fetch instant is recorded as) fails that
+    check. Converts the SAME real instant into its KST representation;
+    no wall-clock re-sampling, no fabricated time."""
+    parsed = dt.datetime.fromisoformat(utc_iso_z.replace("Z", "+00:00"))
+    return parsed.astimezone(KST).isoformat()
+
+
+def qualified_identity(market: str, index_name: str) -> str:
+    """Canonical identity is index code/market/source lineage, never a
+    bare name string -- KRX's idx/{kospi,kosdaq}_dd_trd rows carry no
+    separate numeric code, so the official IDX_NM is qualified with its
+    exact source market (the real disambiguator: KOSPI's own "IT 서비스"
+    sector index and KOSDAQ's own "IT 서비스" sector index are two
+    distinct real indices that happen to share a name -- a bare name
+    would silently collide them)."""
+    return f"{market.upper()}::{index_name}"
+
+
+def ratified_identities_for(policy: dict, observation_date) -> set[str]:
+    """Every series_identity the ratified policy actually requires for
+    observation_date, across every market -- korea_leadership.py's own
+    build_transform() validates ONE combined KOREA-wide payload per call
+    (KOSPI and KOSDAQ series together, each within its own benchmark
+    scope), never a market at a time, so the required set is never
+    market-filtered here."""
     return {
+        record["series_identity"]
+        for record in policy["records"]
+        if LEADERSHIP.active_record(
+            policy["records"], record["series_identity"], observation_date
+        )
+        is record
+    }
+
+
+def build_combined_upstream_payload(
+    per_market: dict, policy: dict, *, run_mode: str = "FORWARD_SHADOW",
+) -> tuple[dict, dict]:
+    """Real series_rows spanning EVERY market's ratified series_identity
+    present with a real close on both dates, combined into the single
+    payload korea_leadership.build_transform() actually expects (its own
+    PIT taxonomy coverage check spans the whole ratified policy, not one
+    market at a time). Only the ratified policy's own required set is
+    ever included -- an index this repo fetched but the policy never
+    ratified is dropped here, not smuggled into the transform attempt.
+    Coverage gaps (a ratified series missing from either date's real
+    response) are left for build_transform()'s own fail-closed
+    PIT_TAXONOMY_COVERAGE_MISMATCH check, never silently patched here.
+    No price value is retained past this in-memory construction; the
+    caller only persists the attempt's outcome and per-market name
+    catalog. Returns (payload, {market: common_names})."""
+    import datetime as _dt
+
+    current_dates = {data["current"]["bas_dd"] for data in per_market.values()}
+    prior_dates = {data["prior"]["bas_dd"] for data in per_market.values()}
+    if len(current_dates) != 1 or len(prior_dates) != 1:
+        raise LeadershipLiveFetchError("MARKET_DATE_MISMATCH")
+    (current_bas_dd,) = current_dates
+    (prior_bas_dd,) = prior_dates
+    observation_date = _dt.date.fromisoformat(_iso_date(current_bas_dd))
+    required = ratified_identities_for(policy, observation_date)
+
+    common_by_market = {}
+    series_rows = []
+    latest_current_fetch = None
+    for market, data in per_market.items():
+        prior, current = data["prior"], data["current"]
+        common_names = sorted(
+            set(prior["index_names_to_close"]) & set(current["index_names_to_close"])
+        )
+        common_by_market[market] = common_names
+        if latest_current_fetch is None or current["fetched_at_utc"] > latest_current_fetch:
+            latest_current_fetch = current["fetched_at_utc"]
+        for name in common_names:
+            identity = qualified_identity(market, name)
+            if identity not in required:
+                continue
+            series_rows.append({
+                "series_identity": identity,
+                "rows": [
+                    {"session_date": _iso_date(prior_bas_dd), "close": prior["index_names_to_close"][name]},
+                    {"session_date": _iso_date(current_bas_dd), "close": current["index_names_to_close"][name]},
+                ],
+            })
+    if not series_rows:
+        raise LeadershipLiveFetchError("NO_RATIFIED_COMMON_INDEX_NAMES")
+    series_rows.sort(key=lambda row: row["series_identity"])
+    payload = {
         "schema_version": 1,
         "source_name": "KRX_OPEN_API_INDEX_LIVE",
         "market": "KOREA",
         "market_timezone": "Asia/Seoul",
         "run_mode": run_mode,
-        "observation_date": observation_date,
-        "fetched_at": current["fetched_at_utc"],
-        "available_at": current["fetched_at_utc"],
-        "decision_at": current["fetched_at_utc"],
-        "expected_session_dates": [_iso_date(prior["bas_dd"]), observation_date],
+        "observation_date": observation_date.isoformat(),
+        "fetched_at": _to_kst_iso(latest_current_fetch),
+        "available_at": _to_kst_iso(latest_current_fetch),
+        "decision_at": _to_kst_iso(latest_current_fetch),
+        "expected_session_dates": [_iso_date(prior_bas_dd), observation_date.isoformat()],
         "series_rows": series_rows,
-    }, common_names
+    }
+    return payload, common_by_market
 
 
-def attempt_leadership_transform(payload: dict) -> dict:
-    """Calls korea_leadership.build_transform() UNCHANGED. A genuinely
-    UNRATIFIED policy (today's real state) fails closed here -- caught
-    and reported as a clean outcome=blocked, never a job failure and
-    never a fabricated pass."""
+def attempt_leadership_transform(payload: dict, policy_path=None) -> dict:
+    """Calls korea_leadership.build_transform() UNCHANGED -- including its
+    own re-read of the policy from disk (it takes a path, not a dict).
+    policy_path defaults to the real committed file; tests pass their own
+    temp-file path so they never depend on whatever the real file's
+    effective_from happens to be today. A genuinely UNRATIFIED (or not-
+    yet-effective) policy fails closed here -- caught and reported as a
+    clean outcome=blocked, never a job failure and never a fabricated
+    pass."""
+    kwargs = {} if policy_path is None else {"policy_path": policy_path}
     try:
-        packet = LEADERSHIP.build_transform(payload)
+        packet = LEADERSHIP.build_transform(payload, **kwargs)
     except LEADERSHIP.KoreaLeadershipError as exc:
         return {"outcome": "blocked", "reason": str(exc), "packet": None}
     return {"outcome": "populated", "reason": None, "packet": packet}
@@ -190,43 +267,69 @@ def output_path_for(as_of_date: str) -> Path:
 
 
 def run(
-    auth_key: str, prior_date: str, current_date: str, *, opener=urlopen
+    auth_key: str, prior_date: str, current_date: str, *, opener=urlopen, policy_path=None
 ) -> dict:
-    per_market = {}
-    fetched_at_values = []
+    # policy is loaded from the SAME path attempt_leadership_transform()
+    # will have korea_leadership.build_transform() re-read -- filtering
+    # (here) and validation (there) must never see two different
+    # policies for the same run.
+    resolved_path = policy_path if policy_path is not None else LEADERSHIP.POLICY_PATH
+    policy = LEADERSHIP.load_policy(resolved_path)
+    per_market_fetch = {}
+    market_evidence = {}
     for market in REQUIRED_MARKETS:
         prior = fetch_index_family(auth_key, prior_date, market, opener=opener)
         current = fetch_index_family(auth_key, current_date, market, opener=opener)
-        fetched_at_values.append(current["fetched_at_utc"])
-        payload, common_names = build_upstream_payload(market, prior, current)
-        attempt = attempt_leadership_transform(payload)
-        per_market[market.upper()] = {
-            "outcome": attempt["outcome"],
-            "reason": attempt["reason"],
-            "leadership_packet_sha256": (
-                attempt["packet"]["payload_sha256"] if attempt["packet"] else None
-            ),
+        per_market_fetch[market] = {"prior": prior, "current": current}
+        market_evidence[market.upper()] = {
             "raw_response_sha256": {"prior": prior["response_sha256"], "current": current["response_sha256"]},
-            "common_index_name_count": len(common_names),
-            "discovered_index_names": common_names,
         }
+    # ONE combined payload: korea_leadership.build_transform()'s own PIT
+    # taxonomy coverage check spans the whole ratified policy across
+    # every market in a single call, never a market at a time (each
+    # market's series still only ranks within its own benchmark scope
+    # downstream in korea_capital_rotation.py -- this is purely about
+    # what one build_transform() call requires as input).
+    payload, common_by_market = build_combined_upstream_payload(per_market_fetch, policy)
+    attempt = attempt_leadership_transform(payload, policy_path=resolved_path)
+    for market in REQUIRED_MARKETS:
+        common_names = common_by_market.get(market, [])
+        ratified_count = sum(
+            1 for row in payload["series_rows"]
+            if row["series_identity"].startswith(f"{market.upper()}::")
+        )
+        market_evidence[market.upper()].update({
+            "common_index_name_count": len(common_names),
+            "ratified_series_count": ratified_count,
+            "discovered_index_names": common_names,
+        })
     observation_date = _iso_date(current_date)
     # generated_at is derived from the real fetch timestamps recorded
     # during this run, never wall-clock, for byte-identical
     # reproducibility on a rerun against the same source.
+    fetched_at_values = [
+        per_market_fetch[m]["current"]["fetched_at_utc"] for m in REQUIRED_MARKETS
+    ]
     summary = {
         "schema_version": SCHEMA_VERSION,
         "observation_date": observation_date,
         "prior_date": _iso_date(prior_date),
-        "markets": per_market,
+        "outcome": attempt["outcome"],
+        "reason": attempt["reason"],
+        "leadership_packet_sha256": (
+            attempt["packet"]["payload_sha256"] if attempt["packet"] else None
+        ),
+        "markets": market_evidence,
         "generated_at": max(fetched_at_values),
     }
     summary["payload_sha256"] = payload_sha256(summary)
     return summary
 
 
-def populate(auth_key: str, prior_date: str, current_date: str, *, opener=urlopen) -> dict:
-    summary = run(auth_key, prior_date, current_date, opener=opener)
+def populate(
+    auth_key: str, prior_date: str, current_date: str, *, opener=urlopen, policy_path=None
+) -> dict:
+    summary = run(auth_key, prior_date, current_date, opener=opener, policy_path=policy_path)
     path = output_path_for(summary["observation_date"])
     if path.is_file():
         existing = json.loads(path.read_text(encoding="utf-8"))
