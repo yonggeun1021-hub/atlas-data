@@ -217,9 +217,10 @@ def _confirmed_history_market(
       of how the real timestamps compare -- date math alone cannot tell
       a genuine next-day capture from a convenient later catch-up.
     - A first_seen_at claiming to be BEFORE the observation's own
-      as_of_date is structurally impossible (data cannot be seen before
-      the day it describes) and fails closed as a real tamper/defect,
-      not a silently-ignored edge case.
+      as_of_date, or before its own captured_at (chronology reversed),
+      is structurally impossible (data cannot be seen before the day it
+      describes, or before it was even fetched) and fails closed as a
+      real tamper/defect, not a silently-ignored edge case.
     """
     lineage_sha256 = market_fact.get("lineage_sha256")
     if lineage_sha256 is None:
@@ -236,6 +237,17 @@ def _confirmed_history_market(
     first_seen_dt = _parse_timestamp(
         first_seen_at, f"BREADTH_MARKET_FIRST_SEEN_AT_INVALID:{market}"
     )
+    captured_at = market_fact.get("captured_at")
+    if captured_at is not None:
+        captured_dt = _parse_timestamp(
+            captured_at, f"BREADTH_MARKET_CAPTURED_AT_INVALID:{market}"
+        )
+        # first_seen_at can never be genuinely earlier than the instant
+        # this same observation was captured -- a reversal here is a
+        # real tamper/defect signal (chronology broken), never silently
+        # accepted.
+        if first_seen_dt < captured_dt:
+            raise KoreaRotationWireError(f"BREADTH_MARKET_FIRST_SEEN_BEFORE_CAPTURED:{market}")
     if first_seen_dt.date() < as_of_date:
         raise KoreaRotationWireError(f"BREADTH_MARKET_FIRST_SEEN_BEFORE_AS_OF:{market}")
     if capture_mode != "forward_live":

@@ -207,6 +207,7 @@ class ConfirmedHistoryTest(unittest.TestCase):
         source = copy.deepcopy(real_context_source())
         for market in ("KOSPI", "KOSDAQ"):
             source["markets"][market]["first_seen_at"] = "2026-08-21T20:00:00Z"
+            source["markets"][market]["captured_at"] = "2026-08-21T20:00:00Z"
         confirmed = WIRE.build_confirmed_history_context("2026-08-21", source)
         self.assertFalse(confirmed["all_markets_confirmed"])
         self.assertEqual(confirmed["markets"]["KOSPI"]["status"], "SAME_DAY_NOT_YET_CONFIRMED")
@@ -231,8 +232,18 @@ class ConfirmedHistoryTest(unittest.TestCase):
     def test_first_seen_before_as_of_date_fails_closed(self):
         source = copy.deepcopy(real_context_source())
         source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-20T00:00:00Z"
+        source["markets"]["KOSPI"]["captured_at"] = "2026-08-20T00:00:00Z"
         with self.assertRaisesRegex(
             WIRE.KoreaRotationWireError, "BREADTH_MARKET_FIRST_SEEN_BEFORE_AS_OF:KOSPI"
+        ):
+            WIRE.build_confirmed_history_context("2026-08-21", source)
+
+    def test_first_seen_before_captured_at_fails_closed(self):
+        source = copy.deepcopy(real_context_source())
+        source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-22T00:00:00Z"
+        source["markets"]["KOSPI"]["captured_at"] = "2026-08-22T05:00:00Z"
+        with self.assertRaisesRegex(
+            WIRE.KoreaRotationWireError, "BREADTH_MARKET_FIRST_SEEN_BEFORE_CAPTURED:KOSPI"
         ):
             WIRE.build_confirmed_history_context("2026-08-21", source)
 
