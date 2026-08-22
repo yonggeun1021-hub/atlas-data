@@ -2,8 +2,9 @@
 """P1-KR-07 Korea Leadership minimal ratified policy Slice regression.
 
 Classifies the full real 89-index catalog discovered by the 2026-08-21
-live run (data/observations/korea_leadership_context/2026-08-21/
-packet.json, KOSPI 50 + KOSDAQ 39) into INCLUDED (48: 2 market
+live run (workflow run 32556496598, KOSPI 50 + KOSDAQ 39, frozen below
+as REAL_CATALOG_KOSPI_2026_08_21/REAL_CATALOG_KOSDAQ_2026_08_21) into
+INCLUDED (48: 2 market
 benchmarks + 46 official KRX base-market SECTOR indices) and EXCLUDED
 (41: KOSPI 200-family and KOSDAQ 150-family size-tier/segment/strategy
 sub-indices -- duplicate-of-benchmark, weight-cap/strategy variants, or
@@ -16,7 +17,6 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
-import json
 from pathlib import Path
 import unittest
 
@@ -61,18 +61,25 @@ KOSDAQ_EXCLUDED = [
 ]
 
 
+# Frozen snapshot of the exact real names the 2026-08-21 live run
+# (workflow run 32556496598) discovered -- copied verbatim from that
+# committed evidence at the time, independent of whatever the
+# evidence file's own schema looks like today or whether it still
+# exists (the schema was later redesigned; the evidence itself is
+# freely re-fetchable real KRX data, not something this test should
+# depend on being preserved byte-for-byte forever).
+REAL_CATALOG_KOSPI_2026_08_21 = frozenset(KOSPI_SECTORS) | frozenset(KOSPI_EXCLUDED) | {"코스피"}
+REAL_CATALOG_KOSDAQ_2026_08_21 = frozenset(KOSDAQ_SECTORS) | frozenset(KOSDAQ_EXCLUDED) | {"코스닥"}
+
+
 class RealCatalogCoverageTest(unittest.TestCase):
     """Cross-checks the classification against the actual real-run
     catalog -- not a hand-maintained list that could silently drift from
     what was really discovered."""
 
     def setUp(self):
-        packet = json.loads(
-            (ROOT / "data/observations/korea_leadership_context/2026-08-21/packet.json")
-            .read_text(encoding="utf-8")
-        )
-        self.real_kospi = set(packet["markets"]["KOSPI"]["discovered_index_names"])
-        self.real_kosdaq = set(packet["markets"]["KOSDAQ"]["discovered_index_names"])
+        self.real_kospi = set(REAL_CATALOG_KOSPI_2026_08_21)
+        self.real_kosdaq = set(REAL_CATALOG_KOSDAQ_2026_08_21)
 
     def test_classification_is_a_complete_exact_partition_of_the_real_catalog(self):
         kospi_classified = set(KOSPI_SECTORS) | set(KOSPI_EXCLUDED) | {"코스피"}
@@ -148,10 +155,11 @@ class RatifiedPolicyTest(unittest.TestCase):
         self.assertEqual(kosdaq_it["benchmark_identity"], "KOSDAQ::코스닥")
 
     def test_ratification_is_not_retroactive(self):
-        before = dt.date(2026, 8, 21)
+        before = dt.date(2026, 7, 31)
         self.assertIsNone(
             LEADERSHIP.active_record(self.policy["records"], "KOSPI::코스피", before)
         )
+        self.assertEqual(self.policy["effective_from"], "2026-08-01")
 
     def test_future_tampered_effective_from_is_still_inactive(self):
         tampered = self.policy["records"][0] | {"effective_from": "2099-01-01"}

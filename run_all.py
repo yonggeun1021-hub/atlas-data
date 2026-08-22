@@ -165,6 +165,14 @@ APPROVED_TESTS = [
     #   뒤 committed briefing rolling-pointer만 새로 만든다. 실 BLOCKED
     #   end-to-end proof·UNKNOWN/STALE/tamper·재실행 byte-identical 포함.
     "test/test_korea_capital_rotation_ledger_wire.py",
+    # ★ P2-03 실 Leadership observation_pair -> ledger/briefing e2e proof.
+    #   real committed korea_leadership_context 증거로 prior/current
+    #   observation을 구성하고, 실 P1-KR-07 ratified sector identity로
+    #   구조는 유효하나 명시적으로 UNRATIFIED인 rotation_policy를 만들어
+    #   fabrication 없이 status=POLICY_NOT_EFFECTIVE를 재현한다. 실
+    #   Breadth BLOCKED + 실 Leadership 모두 briefing에 노출, 재실행
+    #   byte-identical, standalone 재검증 포함.
+    "test/test_korea_capital_rotation_ledger_proof.py",
     # ★ P1-KR-05 shared-fetch -> P2-03 committed breadth-context lineage.
     #   "recent" scope breadth packet의 payload_sha256/as_of_date/
     #   available_at만 추출해 idempotent하게 commit한다. 원시 가격·종목명
