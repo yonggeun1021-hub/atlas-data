@@ -877,6 +877,28 @@ APPROVED_TESTS = [
     #   긍정/부정 경로를 전부 실증한다 — 실 Pilot/CIO 추적 종목에는 커밋된
     #   envelope/canonical record가 전혀 없으므로 BTC/한국 4종목/TSM/
     #   034020.KS는 이번 라운드에도 reflection_status=UNKNOWN 그대로다.
+    #   CIO round 6(contract v6): REGRESSION_FIXTURE는 이제 합법적인
+    #   capture_kind 값이 전혀 아니며(ALLOWED_CAPTURE_KIND=
+    #   ("LIVE_OFFICIAL_CAPTURE",)), 실제 운영 build_packet() 경로가 호출하는
+    #   verify_event_reaction_claim/verify_expectations_gap_canonical_record는
+    #   test/ 아래 위치한 source_ref/packet_ref를 내용과 무관하게 무조건
+    #   거부한다(경로 기반 구조적 production/test 분리 — 우회 파라미터 없음).
+    #   captured_at 자기신고 필드도 더 이상 그대로 신뢰하지 않는다 —
+    #   _git_first_commit_timestamp가 이 저장소의 실제 git 이력(offline,
+    #   read-only)에서 해당 파일을 처음 추가한 커밋 시각을 조회해
+    #   first_authoritative_seen_at으로 사용하며, 이 값이 decision_at 이전이어야
+    #   하고 자기신고 captured_at은 이 값보다 앞설 수 없다. citation도 이제
+    #   raw_source_ref/raw_source_sha256/published_at/locator/observed_fact를
+    #   요구하는 닫힌 스키마이며, observed_fact가 raw 파일 실제 내용에
+    #   verbatim으로 존재하는지까지 검증한다. 이 모든 검증을 실제로 통과하는
+    #   "위장된" LIVE_OFFICIAL_CAPTURE envelope(subject=TESTONLY-EVENT-
+    #   EVIDENCE-000, 실제 커밋된 raw source 인용)조차 test/ 아래 있다는 이유
+    #   하나만으로 여전히 거부됨을 별도 회귀로 증명한다. 양성 classifier
+    #   arithmetic(실제 수익률 계산·threshold 분류)은 이제
+    #   mocked_event_evidence_verification()/mocked_eg_canonical_
+    #   verification() 같은 test-only 컨텍스트매니저로 "production evidence
+    #   boundary 아래"에서만 검증하며, 실제 build_packet() 경로는 절대 건드리지
+    #   않는다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
@@ -927,6 +949,17 @@ APPROVED_TESTS = [
     #   (test/fixtures/event_evidence/*.json)를 인용하는
     #   verified_event_reaction(fixture_name, event_at)을 재사용한다 — 해시만
     #   맞는 가격 파일이 아니라 실제 event 내용을 구조적으로 담은 envelope다.
+    #   CIO round 6(contract v6, price_reflection v6): REGRESSION_FIXTURE가
+    #   합법 capture_kind 값에서 완전히 제거되고 test/ 아래 citation이 실제
+    #   운영 경로에서 구조적으로 차단되면서, 위 픽스처들은 real build_packet()
+    #   경로를 통해서는 더 이상 확신 있는 verdict를 만들 수 없다. CIO가 명시
+    #   허용한 "production evidence boundary 아래" 원칙에 따라, pr_under_
+    #   reflected/pr_partially_reflected/pr_fully_reflected/pr_overextended
+    #   전부 PR_FIXTURE.mocked_event_evidence_verification() 컨텍스트매니저로
+    #   citation 인증 단계만 test-only로 치환하고(실제 수익률 계산·threshold
+    #   분류는 여전히 real) `PR`(test_alpha_review.py가 재사용하는
+    #   PR_FIXTURE.MODULE과 동일 인스턴스)에만 국한해 패치한다 — 다른 어떤
+    #   caller나 real production 경로도 영향받지 않는다.
     #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
     #      action/order/Production/trading 없음.
     "test/test_alpha_review.py",
@@ -990,7 +1023,12 @@ APPROVED_TESTS = [
     #   유지). CIO round 5: gate 4 fixture는 이제 test_price_reflection.py의
     #   Event Evidence Envelope fixture를 인용한다 — 4개 real Pilot 고정값은
     #   이번 라운드에도 byte-identical(전부 event_reaction/reflection_reference
-    #   미제공이라 영향 없음).
+    #   미제공이라 영향 없음). CIO round 6: gate 4 fixture는 이 파일이 독립적으로
+    #   로드한 PRICE_REFLECTION 인스턴스(PR_FIXTURE.MODULE과는 별개의 네 번째
+    #   모듈 로드)의 EVENT_EVIDENCE.verify_event_reaction_claim을 이 테스트
+    #   호출 범위에서만 test-only로 패치해 citation 인증 단계를 우회한다 —
+    #   4개 real Pilot 고정값은 이번 라운드에도 그대로(전부 reflection_status=
+    #   UNKNOWN 미변경).
     #   ⛔ evidence 획득/Price Reflection 자체 로직/P5 Rule Authority/Stage·
     #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
     #      false다.

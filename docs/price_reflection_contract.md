@@ -190,6 +190,72 @@ docstring for full detail):
   `data_state=REFLECTION_UNCERTAIN_WITH_VALID_PRICE` — momentum magnitude,
   however large, is never a substitute for a reference.
 
+## `price_reflection/6` (CIO review round 6): production/test isolation and real provenance
+
+Round 5 built a real, structured, content-verified Event Evidence Envelope,
+but two production-boundary defects and one provenance gap remained:
+
+1. **`REGRESSION_FIXTURE` was an accepted production `capture_kind`
+   value.** `ALLOWED_CAPTURE_KIND` included it, so the committed
+   `test/fixtures/event_evidence/*.json` files could drive a real
+   `build_packet()` call to a non-`UNKNOWN` verdict. "It's not a current
+   Pilot ticker" was never a real authority boundary — `329180.KS` is a
+   real listed subject. Closed TWO independent ways: `ALLOWED_CAPTURE_KIND`
+   is now `("LIVE_OFFICIAL_CAPTURE",)` only (not even a legal envelope
+   value any more), AND, independently, `decision/event_evidence.py`'s
+   `verify_event_reaction_claim`/`verify_expectations_gap_canonical_record`
+   (the two functions the real `build_packet()` path calls) hard-refuse to
+   even resolve a `source_ref`/`packet_ref` located under this repo's
+   `test/` directory — a structural, path-based production/test boundary
+   with no parameter anywhere that lets a caller opt out.
+2. **`captured_at` was a self-declared backdate, not proven PIT
+   availability.** Every fixture committed in the round-5 PR was first
+   added to this repo's git history on 2026-08-23 yet declared
+   `captured_at=2026-08-14` — the verifier trusted that field outright,
+   the exact retroactive-creation problem this workstream exists to
+   prevent. `_git_first_commit_timestamp` now queries this repo's REAL git
+   history (`git log --follow --diff-filter=A`, offline, read-only) for
+   the earliest commit that actually added the cited file, and THAT — not
+   the self-declared field — is the authoritative gate:
+   `first_authoritative_seen_at <= decision_at` is required, AND the
+   self-declared `captured_at` may never precede
+   `first_authoritative_seen_at`. Unavailable git history means
+   `NOT_COMPUTABLE` (rejected), never a fallback to the self-declared
+   value. Applied to both the Event Evidence Envelope and the P8-09
+   canonical record.
+3. **`citation` was an unconstrained dict that could contain only a free
+   note.** An envelope asserting subject/event_at/direction was still just
+   a newly-typed assertion, never evidence of one. `citation` is now a
+   CLOSED schema: `raw_source_ref` + `raw_source_sha256` (a real,
+   independently hash-verified raw artifact), `published_at` (the raw
+   source's own real announcement timestamp, at-or-before the decision
+   instant), `locator` (where in the document the claimed language
+   appears), and `observed_fact` (the actual quoted text) — which must
+   appear VERBATIM inside the raw source file's real decoded content. A
+   bare free-text note no longer suffices; `direction` is only ever
+   grounded in this observed, hash-verified, location-anchored quotation.
+4. **The output packet now persists** `capture_kind`,
+   `first_authoritative_seen_at`, and the full raw-source lineage
+   (`raw_source_ref`/`raw_source_sha256`/`published_at`/`locator`)
+   alongside the verdict — `validate_packet` re-asserts these as a closed
+   vocabulary and an all-or-nothing field group, independent of how the
+   packet was constructed, so a loaded packet cannot hide how (or whether)
+   the verdict was genuinely obtained.
+
+**Net effect**: until a genuine raw primary-source document is committed
+for a real subject, no envelope can pass ALL of real `LIVE_OFFICIAL_CAPTURE`
+classification + real closed-schema citation to a real raw artifact + real
+git-provable first-availability at-or-before the decision instant — so
+`LIVE_OFFICIAL_CAPTURE` remains genuinely unproducible for every real
+subject in this repo today. Positive classifier arithmetic (return
+computation, threshold classification) is still exercised in tests, but
+strictly "below the production evidence boundary" — directly against
+`decision/event_evidence.py`'s lower-level functions, or via an explicit,
+test-only mock of the citation-verification step on a test file's own
+loaded module instance — never by smuggling a test fixture through the
+real `build_packet()` entry point, which structurally cannot be reached
+with a `test/`-rooted citation at all.
+
 ## Structurally price/volume/reference-point only — never fundamentals
 
 The public builder, `build_packet(...)`, is a keyword-only function whose
@@ -449,7 +515,7 @@ Every figure's evidence dates are checked with
 `replay.lookahead_gate.assert_no_signal_lookahead` (reused unchanged from
 PR #210) before being returned — see `test/test_price_evidence_lookahead.py`.
 
-## Event Evidence Envelope verification (`decision/event_evidence.py`, round 5)
+## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-6)
 
 Real event/reference-point CITATIONS (as opposed to price-endpoint lookups,
 covered by `decision/price_evidence.py` above) are verified by
@@ -460,32 +526,66 @@ record with a fixed schema (`event_evidence_envelope/1`):
 ```json
 {
   "schema_version": "event_evidence_envelope/1",
-  "subject": "329180.KS",
-  "event_at": "2026-07-30T09:30:00Z",
+  "subject": "TESTONLY-EVENT-EVIDENCE-000",
+  "event_at": "2026-08-10T09:30:00Z",
   "direction": "POSITIVE",
   "source_class": "GUIDANCE_CHANGE_EVENT",
-  "capture_kind": "REGRESSION_FIXTURE",
-  "captured_at": "2026-08-14T00:00:00Z",
-  "citation": { "note": "..." }
+  "capture_kind": "LIVE_OFFICIAL_CAPTURE",
+  "captured_at": "2026-08-01T00:00:00Z",
+  "citation": {
+    "raw_source_ref": "path/to/committed/raw/artifact",
+    "raw_source_sha256": "<64-hex>",
+    "published_at": "2026-08-10T09:00:00Z",
+    "locator": "where in the document the claimed language appears",
+    "observed_fact": "the actual quoted/extracted text, verified verbatim in the raw source"
+  }
 }
 ```
 
 `source_class` is a closed vocabulary of real evidentiary categories
 (`SEC_FILING_EVENT`/`DART_FILING_EVENT`/`OFFICIAL_RELEASE_EVENT`/
-`GUIDANCE_CHANGE_EVENT`); `capture_kind`
-(`LIVE_OFFICIAL_CAPTURE`/`REGRESSION_FIXTURE`) mirrors
-`bridge/official_release_evidence.py`'s existing envelope vocabulary. No
-committed envelope exists for any real Pilot/CIO-tracked subject in this
-repo — the three committed under `test/fixtures/event_evidence/` are all
-subject `329180.KS` (not a restricted ticker), `capture_kind=
-REGRESSION_FIXTURE`, and each self-labeled "TEST FIXTURE ONLY" in their own
-`citation.note`, used solely by `test/test_price_reflection.py` to prove
-the verification mechanism is genuinely real (both the positive and
-negative paths), never to unlock anything for a real subject.
+`GUIDANCE_CHANGE_EVENT`). `capture_kind` is `("LIVE_OFFICIAL_CAPTURE",)`
+ONLY (round 6 — `REGRESSION_FIXTURE` retired entirely, mirroring `bridge/
+official_release_evidence.py`'s own `blocked_capture_kinds` philosophy but
+going one step further: the value isn't merely blocked downstream, it's not
+a legal schema value at all).
+
+**Production/test isolation (round 6)**: `verify_event_reaction_claim`/
+`verify_expectations_gap_canonical_record` — the only two functions the
+real, operational `build_packet()` path calls — hard-refuse any citation
+whose resolved path falls under this repo's `test/` directory, with no
+parameter or override anywhere that lets a caller opt out. No committed
+envelope exists for any real Pilot/CIO-tracked subject in this repo. The
+committed fixtures under `test/fixtures/event_evidence/` (three legacy
+`capture_kind=REGRESSION_FIXTURE` envelopes plus one genuinely well-formed
+`LIVE_OFFICIAL_CAPTURE` envelope citing a real, committed synthetic raw
+source, all subject either `329180.KS` or the deliberately-unlisted-ticker-
+format `TESTONLY-EVENT-EVIDENCE-000`) are used ONLY two ways in
+`test/test_price_reflection.py`: (1) cited through the REAL, unmocked
+`build_packet()` to prove they are rejected — every single one, including
+the well-formed `LIVE_OFFICIAL_CAPTURE` envelope, which is rejected purely
+because of its `test/` location; (2) called directly against this module's
+lower-level functions (`_load_envelope`, `_verify_raw_source_citation`,
+`_git_first_commit_timestamp`, `_verify_first_availability`, each with
+`forbid_test_root=False`) to exercise the verification MECHANICS below the
+production boundary. Neither use ever produces a confident verdict through
+the real production entry point.
+
+**Real, git-verified first-availability (round 6)**: `captured_at` is no
+longer trusted by itself. `_git_first_commit_timestamp` runs `git log
+--follow --diff-filter=A --format=%aI -- <path>` (offline, read-only)
+against this repo's own history and takes the EARLIEST commit's author
+timestamp as `first_authoritative_seen_at` — the actual PIT-availability
+gate. `captured_at` may still be echoed for audit purposes but can never
+precede `first_authoritative_seen_at`, and unavailable git history (e.g. an
+uncommitted file) is `NOT_COMPUTABLE`, never a silent fallback to the
+self-declared field. Applied identically to the Event Evidence Envelope and
+the P8-09 canonical record.
 
 The P8-09 canonical record path uses a parallel wrapper schema
 (`expectations_gap_canonical_record/1`) wrapping an already-`validate_
-packet()`-verified P8-09 packet plus its own independent `captured_at`.
+packet()`-verified P8-09 packet plus its own independent `captured_at`,
+subject to the same `test/`-root and git-provenance discipline.
 
 ## CLI
 

@@ -135,24 +135,27 @@ def ratified_thresholds():
 
 
 # ── price_reflection status presets (all decision_date=2026-08-20) ─────────
-# `price_reflection/5` (CIO review round 5): `reflection_status` only ever
-# leaves UNKNOWN when an `event_reaction` citation resolves to a REAL
-# committed Event Evidence Envelope (`decision/event_evidence.py`) whose
-# PARSED CONTENT independently asserts the SAME subject/event_at/direction/
-# source_class the caller claims -- a hash-matching file alone (round 4) is
-# no longer enough, and the return is still always internally computed,
-# never a caller-supplied number (round 4). Every preset below that needs a
-# confident (non-UNKNOWN) reflection_status reuses
-# `PR_FIXTURE.verified_event_reaction()` -- the SAME real committed
-# envelope fixtures (`test/fixtures/event_evidence/*.json`) and
-# REAL_EVIDENCE_SUBJECT (`329180.KS`) test_price_reflection.py itself
-# verifies -- anchored to a real event_at timestamp chosen so the module's
-# own internally-computed return lands in the intended UNDER/PARTIALLY/
-# FULLY_REFLECTED band (see that file's module-level comment for the exact
-# real close prices and derived percentages). These presets ALSO require
-# `threshold_basis=="RATIFIED"` to ever unlock an alpha_review positive
-# state (required item 4) -- callers needing a positive state pass
-# `contract=` from inside a `with ratified_thresholds():` block.
+# `price_reflection/6` (CIO review round 6): `REGRESSION_FIXTURE` is no
+# longer a legal `capture_kind` value AT ALL, and the real, operational
+# `PR.build_packet()` path hard-refuses any citation located under `test/`
+# -- so the committed Event Evidence Envelope fixtures used through round 5
+# can never again produce a confident reflection_status via the real,
+# unmocked chain. Per the CIO's own explicit allowance ("positive
+# classifier mechanics may be unit-tested below the production evidence
+# boundary"), every preset below that needs a confident (non-UNKNOWN)
+# reflection_status now wraps its `price_reflection_packet(...)` call in
+# `PR_FIXTURE.mocked_event_evidence_verification()` -- a test-only context
+# manager (defined in test_price_reflection.py, reused here since `PR` IS
+# `PR_FIXTURE.MODULE`, the same loaded module instance) that replaces ONLY
+# the citation-authenticity check; the REAL return computation and
+# threshold classification underneath are completely genuine, anchored to
+# the SAME real committed envelope fixtures and REAL_EVIDENCE_SUBJECT
+# (`329180.KS`) test_price_reflection.py itself verifies are correctly
+# REJECTED by the real, unmocked path (see that file's own round-6
+# regressions). These presets ALSO require `threshold_basis=="RATIFIED"`
+# to ever unlock an alpha_review positive state (required item 4) --
+# callers needing a positive state pass `contract=` from inside a
+# `with ratified_thresholds():` block.
 def pr_under_reflected(**overrides):
     kwargs = dict(
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
@@ -163,7 +166,8 @@ def pr_under_reflected(**overrides):
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    return price_reflection_packet(**kwargs)
+    with PR_FIXTURE.mocked_event_evidence_verification():
+        return price_reflection_packet(**kwargs)
 
 
 def pr_partially_reflected(**overrides):
@@ -176,7 +180,8 @@ def pr_partially_reflected(**overrides):
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    return price_reflection_packet(**kwargs)
+    with PR_FIXTURE.mocked_event_evidence_verification():
+        return price_reflection_packet(**kwargs)
 
 
 def pr_fully_reflected(**overrides):
@@ -189,7 +194,8 @@ def pr_fully_reflected(**overrides):
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    return price_reflection_packet(**kwargs)
+    with PR_FIXTURE.mocked_event_evidence_verification():
+        return price_reflection_packet(**kwargs)
 
 
 def pr_overextended(**overrides):
@@ -213,7 +219,8 @@ def pr_overextended(**overrides):
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    return price_reflection_packet(**kwargs)
+    with PR_FIXTURE.mocked_event_evidence_verification():
+        return price_reflection_packet(**kwargs)
 
 
 def pr_overextended_no_reference_point():
