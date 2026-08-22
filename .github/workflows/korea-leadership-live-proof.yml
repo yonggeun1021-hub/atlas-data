@@ -1,0 +1,59 @@
+name: Korea Leadership Live Proof
+
+# Manual dispatch only -- no new schedule/cron. Reuses the same already-
+# approved R2 KRX Open API index endpoint (idx/{kospi,kosdaq}_dd_trd)
+# this repo's own "R2 KRX Open API Live Proof" workflow already probes,
+# and the same KRX_API_KEY secret. Not a new provider.
+on:
+  workflow_dispatch:
+    inputs:
+      prior_date:
+        description: "Prior completed KRX trading date (YYYYMMDD)"
+        required: true
+      current_date:
+        description: "Current completed KRX trading date (YYYYMMDD)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  korea-leadership-live-fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Korea Leadership live-fetch offline contract regression
+        run: python3 test/test_korea_leadership_live_fetch.py
+      # Reuses atlas_krx_r2_openapi_probe.py's own request/fetch/decode
+      # primitives unchanged, then attempts korea_leadership.py's own
+      # build_transform() unchanged. config/korea_leadership_policy.json
+      # is genuinely UNRATIFIED today, so this correctly fails closed
+      # (outcome=blocked) rather than fabricating a ratified policy to
+      # force a pass -- see .github/scripts/korea_leadership_live_fetch.py
+      # module docstring.
+      - name: Korea Leadership real KRX index fetch attempt
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          PRIOR_DATE: ${{ inputs.prior_date }}
+          CURRENT_DATE: ${{ inputs.current_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_leadership_live_fetch.py \
+            --prior-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE"
+      - name: Commit Korea Leadership live-fetch attempt evidence
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/observations/korea_leadership_context
+          if git diff --cached --quiet; then
+            echo "no change (verified_existing) -- nothing to commit"
+          else
+            git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [run ${{ github.run_id }}]"
+            git push
+          fi
