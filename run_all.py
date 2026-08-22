@@ -825,6 +825,31 @@ APPROVED_TESTS = [
     #   catalyst_date/hypothetical_return 등 회고평가 필드는 이번 단계에 없다.
     #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
     "test/test_alpha_shadow_ledger.py",
+    # ★ P8-11 stage 2 — real Pilot evidence intake (TSM/298040.KS/267260.KS/
+    #   034020.KS). 저장소에 이미 커밋된 real evidence file만 읽어 forward_thesis/
+    #   expectations_gap/price_reflection input을 조립한다. TSM의 5개 6-K 중
+    #   evidence_status=OK·real extracted quote가 있는 000536만 EXHIBIT_EXTRACTED
+    #   observed_fact를 뒷받침하고, 나머지 4개(EXTRACTOR_NOT_REGISTERED)는
+    #   evidence_lineage로만 인용한다. Hyosung 수주잔고/가이던스는 전부
+    #   NARRATIVE_SOURCED. 034020.KS는 observed_facts/evidence_lineage가 항상
+    #   빈 배열이며 실제 run_all_pilots() 결과 opportunity_state=BLOCKED다.
+    #   packet_sha256는 재실행해도 byte-identical하다.
+    #   ⛔ tracked output 없음 — temp packet only, live network 없음.
+    "test/test_pilot_evidence_intake.py",
+    # ★ P8-11 stage 2 — Alpha Review 브리핑 렌더러. forward_thesis/expectations_gap/
+    #   price_reflection/alpha_review/shadow_ledger_entry 필드만 그대로 옮겨 적는
+    #   순수 렌더링 함수를 검증한다. 12개 절 + 확신도/부족한 데이터 2개 부록이
+    #   합성 fixture와 실제 TSM packet 모두에서 전부 렌더링되는지, 확인된 사실과
+    #   미래 가설이 절대 같은 절에 섞이지 않는지, 확인된 사실 각 줄이 source_class를
+    #   시각적으로 노출하는지, 가격 반영 절이 data_source_scope를 노출하는지 확인한다.
+    #   ⛔ 이 모듈은 아무것도 계산하지 않는다 — rendering only.
+    "test/test_alpha_review_briefing.py",
+    # ★ P8-11 stage 2 — compare_pilots() 실제 4-subject 비교. label은 숨은 점수가
+    #   아니라 opportunity_state 기반의 읽을 수 있는 규칙으로만 결정된다는 것을
+    #   compare_pilots() 내부와 독립적으로 재도출해 검증하고, 034020.KS의 label이
+    #   반드시 BLOCKED인지 확인한다.
+    #   ⛔ Rule/Stage/action/order/Production/trading 권한 없음.
+    "test/test_pilot_comparison.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
