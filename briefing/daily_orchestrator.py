@@ -118,6 +118,17 @@ LONG_SHORT = _load("atlas_daily_long_short", "portfolio/long_short_invariant.py"
 ACTION_SUMMARY = _load("atlas_daily_action_summary", "briefing/action_risk_portfolio_summary.py")
 KRX_POST_CLOSE = _load("atlas_daily_krx_post_close", "briefing/krx_post_close.py")
 BRIEFING_READINESS = _load("atlas_daily_readiness", ".github/scripts/check_briefing_readiness.py")
+# P8-11 stage 2 -- Forward Alpha Review Pilot summary. Loaded defensively: a
+# load failure here must never take down the whole orchestrator (see
+# build_forward_alpha_review_status()'s own try/except for the analogous
+# call-time guard). This is the ONLY `_load(...)` call in this file wrapped
+# this way, precisely because it is new and additive.
+try:
+    PILOT_ALPHA_REVIEW = _load(
+        "atlas_daily_pilot_alpha_review", "decision/pilot_evidence_intake.py"
+    )
+except Exception:  # noqa: BLE001
+    PILOT_ALPHA_REVIEW = None
 BTC_TREND = _load("atlas_daily_btc_trend", ".github/scripts/btc_trend.py")
 BTC_RISK = _load("atlas_daily_btc_risk", ".github/scripts/btc_risk.py")
 STABLECOIN = _load("atlas_daily_stablecoin", ".github/scripts/stablecoin_net_issuance.py")
@@ -1490,6 +1501,105 @@ def build_investment_review_shadow_status(
     )
 
 
+def build_forward_alpha_review_status(decision_date: str, slot: str, generated_at: str) -> dict:
+    """P8-11 stage 2 -- additive Forward Alpha Review Pilot summary.
+
+    Wires in the pre-built Alpha Review outcomes for the four Pilot subjects
+    (TSM / 298040.KS / 267260.KS / 034020.KS) by calling
+    `decision/pilot_evidence_intake.py:run_all_pilots()` + `compare_pilots()`
+    directly (not by reading a pre-generated file off disk -- this repo's
+    committed evidence for the four Pilot subjects is itself already static,
+    so `run_all_pilots()` is cheap, deterministic, and byte-identical on
+    every call; see that module's own determinism regression).
+
+    This is purely informational review-only summary data: no Rule PASS/FAIL,
+    no Stage/Candidate/Ready/Buy promotion, no trade_proposal, and shadow
+    capital is always 0 with human_approval_required always true -- exactly
+    the same authority posture `decision/alpha_review.py` and
+    `shadow/alpha_shadow_ledger.py` already enforce; this function only
+    summarizes their output, never grants anything beyond it.
+
+    Fail-closed like every other builder in this file: if the Pilot module
+    failed to load, or `run_all_pilots()`/`compare_pilots()` raises for any
+    reason (e.g. the real evidence files this depends on later change shape),
+    this returns a DEGRADED/UNAVAILABLE row with the exception recorded as
+    the reason -- it never lets an exception propagate and take down the
+    rest of the daily briefing packet.
+    """
+    if PILOT_ALPHA_REVIEW is None:
+        return component_row(
+            "FORWARD_ALPHA_REVIEW", "UNAVAILABLE", "PILOT_ALPHA_REVIEW_MODULE_LOAD_FAILED",
+        )
+    try:
+        pilot_decision_date = PILOT_ALPHA_REVIEW.PILOT_DECISION_DATE
+        pilot_generated_at = PILOT_ALPHA_REVIEW.PILOT_GENERATED_AT
+        results = PILOT_ALPHA_REVIEW.run_all_pilots(pilot_decision_date, pilot_generated_at)
+        comparison = PILOT_ALPHA_REVIEW.compare_pilots(results)
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("FORWARD_ALPHA_REVIEW", exc)
+
+    subjects = {}
+    for subject, bundle in results.items():
+        alpha = bundle["alpha_review"]
+        shadow = bundle["shadow_ledger_entry"]
+        subjects[subject] = {
+            "opportunity_state": alpha["opportunity_state"],
+            "p5_rule_status": alpha["p5_rule_status"],
+            "portfolio_status": alpha["portfolio_status"],
+            "trade_proposal": alpha["trade_proposal"],
+            "next_review_date": alpha["next_review_date"],
+            "shadow_action": shadow["shadow_proposal"]["action"],
+            "shadow_capital": shadow["shadow_proposal"]["capital"],
+            "shadow_human_approval_required": shadow["shadow_proposal"]["human_approval_required"],
+            "comparison_label": comparison[subject]["label"],
+            "alpha_review_packet_sha256": alpha["packet_sha256"],
+        }
+
+    packet = {
+        "schema_version": "forward_alpha_review_briefing_status/1",
+        "contract_version": "daily_forward_alpha_review/1",
+        "decision_date": decision_date,
+        "slot": slot,
+        "generated_at": generated_at,
+        "pilot_evidence_decision_date": pilot_decision_date,
+        "pilot_evidence_generated_at": pilot_generated_at,
+        "pilot_subjects": subjects,
+        "note": (
+            "Pilot subjects only (TSM/298040.KS/267260.KS/034020.KS), not "
+            "universe-wide. Review-only: no Stage/Candidate/Ready/Buy "
+            "promotion, trade_proposal always null, shadow capital always 0, "
+            "human_approval_required always true."
+        ),
+        "authority": {
+            "briefing_status_only": True,
+            "alpha_review_assembly_only": True,
+            "stage_promotion_authorized": False,
+            "candidate_ready_buy_promotion_authorized": False,
+            "rule_pass_fail_authorized": False,
+            "portfolio_decision_authorized": False,
+            "trade_proposal_authorized": False,
+            "capital_authorized": False,
+            "action_authorized": False,
+            "order_authorized": False,
+            "production_authorized": False,
+            "trading_authorized": False,
+        },
+    }
+    packet["packet_sha256"] = payload_sha256(packet)
+    return component_row(
+        "FORWARD_ALPHA_REVIEW",
+        "READY",
+        None,
+        as_of_date=pilot_decision_date,
+        generated_at=pilot_generated_at,
+        source_packet_sha256=packet["packet_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=packet["contract_version"],
+        packet=packet,
+    )
+
+
 def build_regime_invariant_pair(market: str, regime_output: dict) -> tuple[dict, dict]:
     try:
         cash_packet = CASH_EXPOSURE.build_packet(regime_output)
@@ -1825,6 +1935,12 @@ def build_packet(
             rows["INVESTMENT_DECISION_REVIEW"], decision_date, generated_at
         )
     )
+    # P8-11 stage 2 -- additive, informational-only. Does not feed
+    # UNIFIED_DECISION (see build_unified_decision()'s own fixed packet_map)
+    # or any action/order/Production/trading path.
+    rows["FORWARD_ALPHA_REVIEW"] = _boundary(
+        build_forward_alpha_review_status(decision_date, slot, generated_at)
+    )
 
     if set(rows) != set(contract["component_order"]):
         fail(
@@ -1974,6 +2090,7 @@ _SECTION_GROUPS = [
     ("Decision Review", ["INVESTMENT_DECISION_REVIEW"]),
     ("Decision & action boundary", ["ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY"]),
     ("Shadow learning record", ["INVESTMENT_REVIEW_SHADOW"]),
+    ("Forward Alpha Review (Pilot)", ["FORWARD_ALPHA_REVIEW"]),
 ]
 
 _STATUS_MARK = {
@@ -2160,6 +2277,15 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"short_pass={summary.get('short_pass')} "
                 f"short_not_evaluated={summary.get('short_not_evaluated')}"
             )
+        elif cid == "FORWARD_ALPHA_REVIEW":
+            subjects = packet.get("pilot_subjects", {})
+            lines.append(f"    - pilot_subjects={sorted(subjects)}")
+            for subject, row in sorted(subjects.items()):
+                lines.append(
+                    f"    - {subject}: opportunity_state={row.get('opportunity_state')} "
+                    f"shadow_action={row.get('shadow_action')} "
+                    f"comparison_label={row.get('comparison_label')}"
+                )
     except (AttributeError, TypeError, KeyError):
         # A packet shape the renderer does not recognize must never break
         # the whole briefing render -- fall back to no detail line rather
@@ -2303,6 +2429,14 @@ _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
     "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
     "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
     "INVERSE_US", "INVERSE_KOREA", "INVERSE_CRYPTO",
+    # FORWARD_ALPHA_REVIEW's packet embeds the live decision_date/slot/
+    # generated_at directly (see build_forward_alpha_review_status()), so
+    # its own source_packet_sha256 is likewise a generated_at-tainted
+    # self-hash, not an independent real-evidence signal -- the actual
+    # Pilot evidence it summarizes is pinned to
+    # decision/pilot_evidence_intake.py's own fixed PILOT_DECISION_DATE/
+    # PILOT_GENERATED_AT and does not change per daily-briefing invocation.
+    "FORWARD_ALPHA_REVIEW",
 })
 
 

@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "contract_version": "alpha_review/1",
+  "output_schema_version": "alpha_review_packet/1",
+  "opportunity_states": [
+    "EARLY_DISCOVERY",
+    "ANTICIPATORY_REVIEW",
+    "WAIT_FOR_PULLBACK",
+    "WAIT_FOR_EVIDENCE",
+    "CONFIRMATION_REVIEW",
+    "EXPECTATION_EXHAUSTED",
+    "REJECTED",
+    "BLOCKED"
+  ],
+  "p5_rule_statuses": ["PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"],
+  "default_p5_rule_status": "NOT_EVALUATED",
+  "portfolio_statuses": ["PASS", "FAIL", "UNKNOWN", "NOT_EVALUATED"],
+  "default_portfolio_status": "NOT_EVALUATED",
+  "default_next_review_cadence_days": 30,
+  "authority": {
+    "alpha_review_assembly_only": true,
+    "opportunity_state_classification_only": true,
+    "stage_promotion_authorized": false,
+    "candidate_ready_buy_promotion_authorized": false,
+    "rule_pass_fail_authorized": false,
+    "rule_result_generation_authorized": false,
+    "portfolio_decision_authorized": false,
+    "trade_proposal_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
