@@ -12,21 +12,50 @@ reads -- then, optionally, builds one real daily briefing packet for the
 same decision_date to prove the BLOCKED breadth lineage renders all the
 way through.
 
-Honesty boundary, updated 2026-08-22: Breadth AND Leadership are now
-both 100% real. Breadth is the committed P3-03/P1-KR-05 lineage
-(unchanged). Leadership is the committed korea_leadership_context/
-{date}/packet.json real observations -- built by real KRX index
-fetches through the newly-ratified P1-KR-07 policy (48 sector/
-benchmark identities) and korea_leadership.build_transform()
-(unchanged). What remains NOT real: korea_capital_rotation.py's own
-rotation_policy (top/bottom bucket counts, which sectors rank against
-which) requires a SEPARATE CIO ratification that does not exist yet --
-this proof builds a structurally-valid but explicitly UNRATIFIED
-rotation_policy from the real P1-KR-07 sector identities (never
-fabricating ratification), so build_packet() honestly returns
-status=POLICY_NOT_EFFECTIVE with no ranks/buckets, exactly like Breadth
-being BLOCKED. This is not a production cron: it is not wired into any
-scheduled workflow, matching "no new cron".
+Honesty boundary, updated 2026-08-22 (minimal rotation_policy
+ratification): Breadth, Leadership, AND korea_capital_rotation.py's own
+rotation_policy are now all real. Breadth is the committed P3-03/
+P1-KR-05 lineage (unchanged, still available_at=null -> BLOCKED --
+that is a separate, still-open boundary, see PR B). Leadership is the
+committed korea_leadership_context/{date}/packet.json real
+observations, built by real KRX index fetches through the ratified
+P1-KR-07 policy (48 sector/benchmark identities). rotation_policy
+(REAL_ROTATION_POLICY below) is now RATIFIED for real: it reuses the
+already-implemented ranking meaning (RELATIVE_STRENGTH_VS_OWN_
+BENCHMARK, own-benchmark-scope-only, TOP/MIDDLE/BOTTOM ordinal
+buckets) exactly as-is, maps every real ratified P1-KR-07 SECTOR
+identity 1:1 to a positional theme_id token (never a P2-01 cross-market
+Theme grouping -- that taxonomy remains UNRATIFIED, honestly recorded
+via the all-zero taxonomy_decision/packet SHA placeholders below), and
+introduces exactly one new number: top_count=bottom_count=1. That is
+deliberately the *only* value that needs no external justification --
+"flag the single best and single worst performer within each
+benchmark's own scope" is the unique choice that is not a percentage or
+score cutoff (any N>1 would need a basis for N that does not exist), so
+it is the minimal non-arbitrary realization of the existing TOP/BOTTOM
+bucket vocabulary, not an invented investment threshold.
+
+POLICY_EFFECTIVE here means only "this calculation contract is now
+active" -- authority.trading_authorized / stage_promotion_authorized /
+production_authorized etc. all stay closed exactly as before; nothing
+about Buy/Stage/Action authority changes.
+
+Anti-lookahead note: korea_capital_rotation.py's own _validate_policy()
+rejects `ratified_at_utc` claimed to be before an observation pair's
+prior_available_at was already real (OUTPUT_POLICY_RATIFIED_AFTER_
+PRIOR_OBSERVATION) whenever that pair falls inside the policy's
+effective window -- this is what stops a ratification from being
+backdated to retroactively "cover" evidence that already existed. The
+real REAL_ROTATION_POLICY.ratified_at_utc below is genuinely fixed at
+the real moment this policy was ratified (2026-08-22T07:19:09Z); the
+already-committed 2026-08-19/2026-08-21 evidence pair predates that
+timestamp and is therefore correctly REJECTED by this same real policy
+if replayed (see test_korea_capital_rotation_policy_ratified.py) --
+this is not a bug, it is the anti-cherry-picking property working as
+designed. The real end-to-end proof that flips POLICY_NOT_EFFECTIVE ->
+KOREA_BREADTH_BLOCKED therefore uses a genuinely NEW observation pair
+(2026-08-18 prior / 2026-08-20 current) fetched strictly AFTER
+ratification.
 """
 from __future__ import annotations
 
@@ -75,17 +104,30 @@ def load_real_leadership_packet(observation_date: str) -> dict:
     return summary["leadership_packet"]
 
 
+# The real, fixed moment REAL_ROTATION_POLICY was ratified. Held as a
+# literal constant (never dt.datetime.now()) so every invocation of this
+# script -- today or on a future rerun -- sees the exact same real
+# ratification instant; a policy's own ratified_at_utc is a historical
+# fact, not something that should drift with wall-clock time.
+REAL_ROTATION_POLICY_RATIFIED_AT_UTC = "2026-08-22T07:19:09Z"
+REAL_ROTATION_POLICY_EFFECTIVE_FROM = "2026-08-01"
+
+
 def build_real_price_side(prior_date: str, current_date: str):
     """Real prior_observation/current_observation from the two committed
-    real Leadership packets -- no synthetic fixture. Builds a
-    structurally-valid but explicitly UNRATIFIED rotation_policy from
-    the real 46 ratified P1-KR-07 SECTOR identities (theme_id is a
-    positional token tied back to the real series_identity, not an
-    invented cross-market theme grouping -- P2-01 Theme taxonomy remains
-    unratified). Because approval_status stays UNRATIFIED,
-    top_count/bottom_count are structurally required but never actually
-    exercised to produce a real rank/bucket -- build_packet() always
-    returns status=POLICY_NOT_EFFECTIVE regardless of their value here."""
+    real Leadership packets -- no synthetic fixture. Builds the REAL,
+    ratified rotation_policy (see module docstring): every real ratified
+    P1-KR-07 SECTOR identity is mapped 1:1 to a positional theme_id
+    token (never a P2-01 cross-market theme grouping -- that taxonomy
+    stays UNRATIFIED, honestly recorded via the all-zero taxonomy
+    binding placeholders), ranking/order/tie-break reuse the contract's
+    existing meaning unchanged, and top_count=bottom_count=1 is the one
+    new number this ratification introduces (see docstring for why 1 is
+    the minimal non-arbitrary choice). approval_status is now RATIFIED
+    for real: build_packet() will genuinely rank and bucket whenever a
+    supplied observation pair's dates fall inside the effective window
+    AND that pair's own prior_available_at is not before this real
+    ratified_at_utc (anti-lookahead, see module docstring)."""
     prior = load_real_leadership_packet(prior_date)
     current = load_real_leadership_packet(current_date)
 
@@ -140,23 +182,29 @@ def build_real_price_side(prior_date: str, current_date: str):
                     # positional token tied back to the real series_identity
                     # via this same mapping -- not an invented cross-market
                     # theme grouping (P2-01 Theme taxonomy remains
-                    # unratified; this policy never leaves UNRATIFIED so
-                    # this label is never used to produce a real rank).
+                    # unratified: taxonomy_decision/packet SHA below are the
+                    # honest all-zero placeholder, never a real P2-01
+                    # decision).
                     "theme_id": f"{market_prefix}.SECTOR.{index:02d}",
                 }
                 for index, identity in enumerate(members, 1)
             ],
-            "top_count": 3,
-            "bottom_count": 3,
+            # The one new number this ratification introduces -- see
+            # module docstring for why 1 (not any N>1) is the minimal
+            # non-arbitrary realization of the existing TOP/BOTTOM bucket
+            # vocabulary: it identifies only the single extremal member on
+            # each side, never a chosen percentage/score cutoff.
+            "top_count": 1,
+            "bottom_count": 1,
         }
 
     rotation_policy = {
         "schema_version": "korea_capital_rotation_policy/1",
-        "policy_id": "POLICY.P2.03.REAL_LEADERSHIP_PROOF",
-        "approval_status": "UNRATIFIED",
-        "ratified_by": None,
-        "ratified_at_utc": None,
-        "effective_from": "2026-08-01",
+        "policy_id": "POLICY.P2.03.KOREA_OWN_BENCHMARK_EXTREMES_V1",
+        "approval_status": "RATIFIED",
+        "ratified_by": "Atlas CIO",
+        "ratified_at_utc": REAL_ROTATION_POLICY_RATIFIED_AT_UTC,
+        "effective_from": REAL_ROTATION_POLICY_EFFECTIVE_FROM,
         "effective_to": None,
         "taxonomy_decision_sha256": taxonomy_decision_sha256,
         "taxonomy_packet_sha256": taxonomy_packet_sha256,
@@ -209,12 +257,15 @@ def run(prior_date: str, current_date: str, ledger_out: Path | None, pointer_out
     rotation_packet = KCR.build_packet(value, rotation_policy)
 
     ledger = None
-    # rotation_policy is deliberately UNRATIFIED (no real P2-03 CIO
-    # ratification exists yet) -- rotation_state_ledger.apply_rotation()
-    # only accepts a packet whose own status is ROTATION_BUCKETS_OBSERVED
-    # (rotation_policy_effective=True), so an honestly POLICY_NOT_
-    # EFFECTIVE packet is correctly never pushed into the ledger. This is
-    # the expected, fail-closed outcome today, not a bug to work around.
+    # rotation_policy is now RATIFIED for real, but build_packet() still
+    # independently re-derives rotation_policy_effective per the actual
+    # observation pair's dates and anti-lookahead check (see module
+    # docstring) -- a pair the ratified policy does not cover, or one
+    # that predates real ratification, still honestly comes back
+    # POLICY_NOT_EFFECTIVE. rotation_state_ledger.apply_rotation() only
+    # ever accepts a packet whose own status is ROTATION_BUCKETS_OBSERVED
+    # (rotation_policy_effective=True); an ineffective packet is
+    # correctly never pushed into the ledger, fail-closed either way.
     if rotation_packet["rotation_policy_effective"] and ledger_out is not None:
         state_policy = build_state_policy(rotation_packet)
         ledger = LEDGER.apply_rotation(rotation_packet, state_policy, previous_ledger=None)

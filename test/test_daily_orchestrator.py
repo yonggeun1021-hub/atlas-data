@@ -369,12 +369,20 @@ class DailyOrchestratorTest(unittest.TestCase):
                 self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
                 continue
             if component_id == "KOREA_ROTATION":
-                # Same root cause again: the committed pointer's real
-                # generated_at (from the P1-KR-05 breadth context source
-                # that refreshed it) lands the calendar day after
-                # DECISION_DATE, so the common temporal boundary correctly
-                # blocks it here too.
-                self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
+                # Different root cause from the DATA_BLOCKED cases above:
+                # P2-03's rotation_policy was ratified 2026-08-22 and its
+                # real end-to-end proof required a genuinely POST-
+                # ratification observation pair (anti-lookahead, see
+                # korea_capital_rotation_ledger_proof.py) -- the only real
+                # pair available for that is dated 2026-08-18/2026-08-20,
+                # so the committed pointer's as_of_date is now 2026-08-20,
+                # not DECISION_DATE (2026-08-21). _classify_korea_rotation
+                # correctly returns PENDING (no observation for this exact
+                # decision date), not DATA_BLOCKED (an observation exists
+                # but is temporally rejected) -- still validated=True and
+                # never fabricated.
+                self.assertEqual(by_id[component_id]["status"], "PENDING")
+                self.assertTrue(by_id[component_id]["validated"])
                 continue
             self.assertTrue(by_id[component_id]["validated"], component_id)
 
