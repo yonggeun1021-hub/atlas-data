@@ -920,7 +920,16 @@ class PriceReflectionTests(unittest.TestCase):
         boundary) -- proving both mechanisms actually work, not just that
         they reject everything."""
         envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
-        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+        # decision_at must be derived from BOTH raw sources' real git
+        # first-seen (never hardcoded) -- this test exercises two different
+        # raw source files, each with its own real commit history.
+        official_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(FIXTURES_DIR / TESTONLY_RAW_SOURCE)
+        derivation_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(
+            FIXTURES_DIR / TESTONLY_RAW_SOURCE_DERIVATION
+        )
+        self.assertIsNotNone(official_first_seen, "fixture must be committed for this regression to be meaningful")
+        self.assertIsNotNone(derivation_first_seen, "fixture must be committed for this regression to be meaningful")
+        decision_at = max(official_first_seen, derivation_first_seen) + _dt.timedelta(days=1)
 
         # Route 1: OFFICIAL_STRUCTURED_FIELD.
         with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
@@ -945,6 +954,10 @@ class PriceReflectionTests(unittest.TestCase):
         deriv_citation["raw_source_ref"] = deriv_ref
         deriv_citation["raw_source_sha256"] = _hash(deriv_ref)
         deriv_citation["direction_origin"] = "RATIFIED_DERIVATION"
+        deriv_citation["observed_fact"] = (
+            "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive numeric derivation "
+            "used only to exercise citation verification."
+        )
         with mocked_ratified_direction_tables(derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES):
             lineage = EVENT_EVIDENCE._verify_raw_source_citation(
                 deriv_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
