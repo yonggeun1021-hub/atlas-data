@@ -319,6 +319,14 @@ def run(
         "leadership_packet_sha256": (
             attempt["packet"]["payload_sha256"] if attempt["packet"] else None
         ),
+        # The full Leadership packet itself is safe to persist here --
+        # korea_leadership.py's own output_retention_policy already
+        # guarantees it is non_reconstructive_derived_observations_only
+        # (relative_strength_observations only, never a raw index
+        # close). This is what korea_capital_rotation.py's
+        # prior_observation/current_observation actually need as input,
+        # not just a hash of it.
+        "leadership_packet": attempt["packet"],
         "markets": market_evidence,
         "generated_at": max(fetched_at_values),
     }
