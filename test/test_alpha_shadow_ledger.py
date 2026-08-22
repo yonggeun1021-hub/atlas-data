@@ -24,26 +24,39 @@ CONTRACT = MODULE.load_contract()
 AR_FIXTURE = load("alpha_shadow_ar_fixture", ROOT / "test" / "test_alpha_review.py")
 
 
-def review(opportunity_state_case="anticipatory_review"):
+def review(opportunity_state_case="anticipatory_review", p5_rule_status=None):
+    # ft_status_with_exhibit (not plain ft_status) for every state that,
+    # post CIO-Gate-Hardening, needs a real EXHIBIT_EXTRACTED fact to avoid
+    # being pre-empted by gate 4 (narrative-only-core-evidence) -- see
+    # test_alpha_review.py's ft_status_with_exhibit() docstring.
     cases = {
         "blocked_no_evidence": (AR_FIXTURE.ft_no_evidence(), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected()),
         "blocked_triple_unknown": (AR_FIXTURE.ft_status("UNKNOWN"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_unknown()),
-        "rejected_overextended": (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
         "rejected_disappointed": (AR_FIXTURE.ft_status("CONVERSION_DISAPPOINTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected()),
-        "anticipatory_review": (AR_FIXTURE.ft_status("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected()),
-        "expectation_exhausted": (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_fully_reflected()),
-        "wait_for_pullback": (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_overextended()),
-        "confirmation_review": (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected()),
+        "rejected_negative_gap_unknown_earnings": (AR_FIXTURE.ft_status("UNKNOWN"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
+        "wait_for_thesis_repair": (AR_FIXTURE.ft_status("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_negative_proxy(), AR_FIXTURE.pr_overextended()),
+        "wait_for_price": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_unknown()),
+        "anticipatory_review": (AR_FIXTURE.ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_partially_reflected()),
+        "expectation_exhausted": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_positive_proxy(), AR_FIXTURE.pr_fully_reflected()),
+        "wait_for_pullback": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_overextended()),
+        "confirmation_review": (AR_FIXTURE.ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), AR_FIXTURE.eg_neutral_consensus(), AR_FIXTURE.pr_partially_reflected()),
         "wait_for_evidence": (AR_FIXTURE.ft_status("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_partially_reflected()),
-        "early_discovery": (AR_FIXTURE.ft_status("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_under_reflected()),
+        "early_discovery": (AR_FIXTURE.ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), AR_FIXTURE.eg_unknown(), AR_FIXTURE.pr_under_reflected()),
     }
     ft, eg, pr = cases[opportunity_state_case]
-    return AR_FIXTURE.build(ft, eg, pr)
+    kwargs = {} if p5_rule_status is None else {"p5_rule_status": p5_rule_status}
+    return AR_FIXTURE.build(ft, eg, pr, **kwargs)
 
 
+# Base (pre-p5-gate) opportunity_state -> action mapping, one representative
+# fixture case per opportunity_state. p5_rule_status is left at its default
+# (NOT_EVALUATED) here -- see P5GatedActionTests below for the dedicated
+# PASS-vs-not-PASS regression on the three entry-eligible states.
 CASE_BY_STATE = {
     "BLOCKED": "blocked_no_evidence",
-    "REJECTED": "rejected_overextended",
+    "REJECTED": "rejected_disappointed",
+    "WAIT_FOR_THESIS_REPAIR": "wait_for_thesis_repair",
+    "WAIT_FOR_PRICE": "wait_for_price",
     "ANTICIPATORY_REVIEW": "anticipatory_review",
     "EXPECTATION_EXHAUSTED": "expectation_exhausted",
     "WAIT_FOR_PULLBACK": "wait_for_pullback",
@@ -51,6 +64,10 @@ CASE_BY_STATE = {
     "WAIT_FOR_EVIDENCE": "wait_for_evidence",
     "EARLY_DISCOVERY": "early_discovery",
 }
+
+# The three opportunity_state values whose BASE action is SHADOW_ENTRY_REVIEW
+# -- these are the only ones the p5_rule_status gate can ever affect.
+ENTRY_ELIGIBLE_STATES = ("ANTICIPATORY_REVIEW", "EARLY_DISCOVERY", "CONFIRMATION_REVIEW")
 
 
 class AlphaShadowLedgerTests(unittest.TestCase):
@@ -70,10 +87,16 @@ class AlphaShadowLedgerTests(unittest.TestCase):
         self.assertEqual(record["authority"], expected)
 
     def test_action_mapping_is_exhaustive_over_every_opportunity_state(self):
+        # This proves the BASE table (config/alpha_shadow_ledger_contract.
+        # json's opportunity_state_to_action) exhaustively covers all 10
+        # opportunity_state values, one representative fixture each --
+        # p5_rule_status is forced to PASS here so the base table's own
+        # SHADOW_ENTRY_REVIEW entries are actually observable (see
+        # P5GatedActionTests below for the p5-gating regression itself).
         self.assertEqual(set(CASE_BY_STATE), set(CONTRACT["opportunity_state_to_action"]))
         for state, case in CASE_BY_STATE.items():
             with self.subTest(state=state):
-                packet = review(case)
+                packet = review(case, p5_rule_status="PASS")
                 self.assertEqual(packet["opportunity_state"], state)
                 record = MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1)
                 expected_action = CONTRACT["opportunity_state_to_action"][state]
@@ -129,7 +152,13 @@ class AlphaShadowLedgerTests(unittest.TestCase):
             MODULE.build_record(review(), "2026-08-20T10:00:00Z", 1, "a" * 64)
 
     def test_tamper_detection_rejects_mutated_record(self):
-        record = MODULE.build_record(review(), "2026-08-20T10:00:00Z", 1)
+        # p5_rule_status="PASS" so the record's real action is
+        # SHADOW_ENTRY_REVIEW -- tampering it down to "WAIT" must then be a
+        # genuine, hash-detectable change (with the default NOT_EVALUATED
+        # p5_rule_status, the record's action would already BE "WAIT", so
+        # this tamper would be a no-op and prove nothing).
+        record = MODULE.build_record(review("anticipatory_review", p5_rule_status="PASS"), "2026-08-20T10:00:00Z", 1)
+        self.assertEqual(record["shadow_proposal"]["action"], "SHADOW_ENTRY_REVIEW")
         tampered = copy.deepcopy(record)
         tampered["shadow_proposal"]["action"] = "WAIT"
         with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, "ENTRY_HASH_MISMATCH"):
@@ -161,6 +190,80 @@ class AlphaShadowLedgerTests(unittest.TestCase):
         for field in out_of_scope_fields:
             self.assertNotIn(field, record)
             self.assertNotIn(field, record["shadow_proposal"])
+
+
+class P5GatedActionTests(unittest.TestCase):
+    """CIO Gate Hardening's single most important new regression: the same
+    entry-eligible opportunity_state produces action=WAIT whenever
+    p5_rule_status != "PASS", and action=SHADOW_ENTRY_REVIEW only when
+    p5_rule_status == "PASS". This is what currently prevents ALL real
+    Pilot subjects from ever reaching SHADOW_ENTRY_REVIEW -- p5_rule_status
+    is NOT_EVALUATED for every one of them (no ratified P5 packet exists),
+    regardless of any future evidence improvement -- until a real ratified
+    P5 packet exists for that subject.
+    """
+
+    def test_same_opportunity_state_downgrades_to_wait_unless_p5_status_is_pass(self):
+        for state, case in CASE_BY_STATE.items():
+            if state not in ENTRY_ELIGIBLE_STATES:
+                continue
+            with self.subTest(state=state):
+                for not_pass in ("NOT_EVALUATED", "UNKNOWN", "UNDEFINED", "FAIL"):
+                    packet = review(case, p5_rule_status=not_pass)
+                    self.assertEqual(packet["opportunity_state"], state)
+                    record = MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1)
+                    self.assertEqual(
+                        record["shadow_proposal"]["action"], "WAIT",
+                        f"{state} with p5_rule_status={not_pass} must downgrade to WAIT, "
+                        f"never silently drop the review and never raise.",
+                    )
+
+                packet_pass = review(case, p5_rule_status="PASS")
+                self.assertEqual(packet_pass["opportunity_state"], state)
+                record_pass = MODULE.build_record(packet_pass, "2026-08-20T10:00:00Z", 1)
+                self.assertEqual(record_pass["shadow_proposal"]["action"], "SHADOW_ENTRY_REVIEW")
+
+    def test_default_not_evaluated_p5_status_never_yields_shadow_entry_review(self):
+        # No p5_rule_status supplied at all (AR_FIXTURE.build()'s own
+        # default) -- alpha_review.py's own default is NOT_EVALUATED. Real
+        # Pilot evidence intake explicitly passes p5_rule_status=
+        # "NOT_EVALUATED" for all four subjects too (see
+        # decision/pilot_evidence_intake.py:run_all_pilots()).
+        for state, case in CASE_BY_STATE.items():
+            if state not in ENTRY_ELIGIBLE_STATES:
+                continue
+            with self.subTest(state=state):
+                packet = review(case)
+                self.assertEqual(packet["p5_rule_status"], "NOT_EVALUATED")
+                record = MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1)
+                self.assertEqual(record["shadow_proposal"]["action"], "WAIT")
+
+    def test_non_entry_eligible_states_are_p5_independent(self):
+        # p5_rule_status must never change the action for a state whose
+        # BASE action already isn't SHADOW_ENTRY_REVIEW (REJECT/WAIT stay
+        # REJECT/WAIT no matter what p5_rule_status says).
+        for state, case in CASE_BY_STATE.items():
+            if state in ENTRY_ELIGIBLE_STATES:
+                continue
+            with self.subTest(state=state):
+                base_action = CONTRACT["opportunity_state_to_action"][state]
+                for p5_status in ("PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"):
+                    packet = review(case, p5_rule_status=p5_status)
+                    record = MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1)
+                    self.assertEqual(record["shadow_proposal"]["action"], base_action)
+
+    def test_action_for_opportunity_state_function_directly(self):
+        for not_pass in ("NOT_EVALUATED", "UNKNOWN", "UNDEFINED", "FAIL"):
+            self.assertEqual(
+                MODULE.action_for_opportunity_state("ANTICIPATORY_REVIEW", not_pass, CONTRACT), "WAIT"
+            )
+        self.assertEqual(
+            MODULE.action_for_opportunity_state("ANTICIPATORY_REVIEW", "PASS", CONTRACT), "SHADOW_ENTRY_REVIEW"
+        )
+        # p5_rule_status has zero effect on a REJECT/WAIT-mapped state.
+        for p5_status in ("PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"):
+            self.assertEqual(MODULE.action_for_opportunity_state("BLOCKED", p5_status, CONTRACT), "REJECT")
+            self.assertEqual(MODULE.action_for_opportunity_state("WAIT_FOR_PRICE", p5_status, CONTRACT), "WAIT")
 
 
 if __name__ == "__main__":

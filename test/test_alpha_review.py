@@ -148,6 +148,25 @@ def ft_status(status):
     return forward_thesis_packet(earnings_conversion=FT_FIXTURE.earnings_conversion(status=status))
 
 
+def ft_status_with_exhibit(status):
+    """Same as ft_status(), but with at least one EXHIBIT_EXTRACTED observed
+    fact instead of the default single NARRATIVE_SOURCED one.
+
+    Post CIO-Gate-Hardening, gate 4 (narrative-only-core-evidence) forces
+    WAIT_FOR_EVIDENCE whenever observed_facts is non-empty but none of it is
+    EXHIBIT_EXTRACTED -- BEFORE any positive-state logic ever runs. Every
+    positive-state fixture (ANTICIPATORY_REVIEW, EXPECTATION_EXHAUSTED,
+    WAIT_FOR_PULLBACK, CONFIRMATION_REVIEW, EARLY_DISCOVERY) therefore needs
+    a real EXHIBIT_EXTRACTED fact to actually reach that state, not just the
+    default plain ft_status() fixture.
+    """
+    return forward_thesis_packet(
+        earnings_conversion=FT_FIXTURE.earnings_conversion(status=status),
+        observed_facts=[FT_FIXTURE.observed_fact(source_class="EXHIBIT_EXTRACTED")],
+        evidence_lineage=[FT_FIXTURE.evidence_entry(source_type="SEC_EXHIBIT")],
+    )
+
+
 def ft_no_evidence():
     return forward_thesis_packet(observed_facts=[], evidence_lineage=[])
 
@@ -163,28 +182,63 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         packet = build(ft_status("UNKNOWN"), eg_unknown(), pr_unknown())
         self.assertEqual(packet["opportunity_state"], "BLOCKED")
 
-    def test_rejected_overextended_and_negative_gap(self):
-        packet = build(ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended())
-        self.assertEqual(packet["opportunity_state"], "REJECTED")
-
     def test_rejected_conversion_disappointed(self):
         packet = build(ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected())
         self.assertEqual(packet["opportunity_state"], "REJECTED")
 
-    def test_anticipatory_review(self):
+    def test_rejected_negative_gap_with_unknown_earnings_conversion(self):
+        # CIO Gate Hardening gate 2a: a NEGATIVE gap with NO live
+        # earnings-conversion hypothesis (UNKNOWN) has nothing left to hold
+        # onto -- REJECTED, not WAIT_FOR_THESIS_REPAIR. Mirrors the real
+        # 267260.KS (HD Hyundai Electric) Pilot fact pattern.
+        packet = build(ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended())
+        self.assertEqual(packet["opportunity_state"], "REJECTED")
+
+    def test_wait_for_thesis_repair_negative_gap_with_live_earnings_conversion(self):
+        # CIO Gate Hardening gate 2b (NEW): supersedes the pre-hardening
+        # test_rejected_overextended_and_negative_gap fixture -- a NEGATIVE
+        # gap with a REAL earnings-conversion hypothesis still standing
+        # (REVENUE_CONVERSION_EXPECTED, not UNKNOWN) is now
+        # WAIT_FOR_THESIS_REPAIR, not REJECTED. OVEREXTENDED+NEGATIVE is a
+        # strict subset of this broader NEGATIVE-gap rule -- price status is
+        # irrelevant to this gate.
+        packet = build(ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended())
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_THESIS_REPAIR")
+
+    def test_wait_for_price_blocks_every_positive_state_when_price_is_unknown(self):
+        # CIO Gate Hardening gate 3 (NEW, blanket rule): price UNKNOWN wins
+        # over an otherwise-strong thesis/gap. This is the exact real-world
+        # bug the CIO review found -- TSM reached CONFIRMATION_REVIEW with
+        # price_reflection.status==UNKNOWN pre-hardening.
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown())
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
+
+    def test_wait_for_evidence_narrative_only_core_evidence_gate(self):
+        # CIO Gate Hardening gate 4 (NEW): price known, gap not negative, but
+        # every observed_fact is NARRATIVE_SOURCED/PRICE_FEED only -- no
+        # EXHIBIT_EXTRACTED fact backs the thesis. Mirrors the real
+        # 298040.KS (Hyosung) Pilot fact pattern's evidence shape (though
+        # 298040.KS itself is intercepted by gate 3 first, since its
+        # price_reflection.status is also UNKNOWN).
         packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
+        self.assertTrue(packet["price_reflection"]["status"] != "UNKNOWN")
+        self.assertEqual(packet["expectations_gap"]["status"], "POSITIVE")
+
+    def test_anticipatory_review(self):
+        packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
         self.assertEqual(packet["opportunity_state"], "ANTICIPATORY_REVIEW")
 
     def test_expectation_exhausted(self):
-        packet = build(ft_status("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected())
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected())
         self.assertEqual(packet["opportunity_state"], "EXPECTATION_EXHAUSTED")
 
     def test_wait_for_pullback(self):
-        packet = build(ft_status("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended())
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended())
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PULLBACK")
 
     def test_confirmation_review(self):
-        packet = build(ft_status("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected())
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected())
         self.assertEqual(packet["opportunity_state"], "CONFIRMATION_REVIEW")
 
     def test_wait_for_evidence(self):
@@ -192,16 +246,17 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
 
     def test_early_discovery(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected())
+        packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected())
         self.assertEqual(packet["opportunity_state"], "EARLY_DISCOVERY")
 
-    def test_all_eight_opportunity_states_are_exercised(self):
+    def test_all_ten_opportunity_states_are_exercised(self):
         # Belt-and-suspenders: the contract's closed vocabulary must exactly
-        # equal the 8 states asserted above.
+        # equal the 10 states asserted above (8 pre-hardening + the 2 CIO
+        # Gate Hardening additions, WAIT_FOR_PRICE / WAIT_FOR_THESIS_REPAIR).
         self.assertEqual(sorted(CONTRACT["opportunity_states"]), sorted([
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
-            "REJECTED", "BLOCKED",
+            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_THESIS_REPAIR",
         ]))
 
 
@@ -220,7 +275,10 @@ class AnticipatoryReviewGateTests(unittest.TestCase):
     """
 
     def setUp(self):
-        self.ft = ft_status("PRE_REVENUE_SIGNAL")
+        # ft_status_with_exhibit (not plain ft_status) so gate 4
+        # (narrative-only-core-evidence) never pre-empts these tests -- see
+        # that fixture's docstring.
+        self.ft = ft_status_with_exhibit("PRE_REVENUE_SIGNAL")
         self.eg = eg_positive_proxy()
         self.pr = pr_partially_reflected()
         self.gap = self.eg["expectations_gap"]
@@ -460,16 +518,18 @@ class TradeProposalAndAuthorityTests(unittest.TestCase):
 
     def test_trade_proposal_is_null_across_every_opportunity_state(self):
         cases = [
-            (ft_no_evidence(), eg_positive_proxy(), pr_partially_reflected()),                         # BLOCKED
-            (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                         # BLOCKED
-            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended()),          # REJECTED
-            (ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected()),    # REJECTED
-            (ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),            # ANTICIPATORY_REVIEW
-            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected()),       # EXPECTATION_EXHAUSTED
-            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended()),       # WAIT_FOR_PULLBACK
-            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected()),# CONFIRMATION_REVIEW
-            (ft_status("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_partially_reflected()),                   # WAIT_FOR_EVIDENCE
-            (ft_status("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected()),                       # EARLY_DISCOVERY
+            (ft_no_evidence(), eg_positive_proxy(), pr_partially_reflected()),                                    # BLOCKED
+            (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                                    # BLOCKED
+            (ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected()),              # REJECTED
+            (ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended()),                                        # REJECTED
+            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended()),                    # WAIT_FOR_THESIS_REPAIR
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown()),         # WAIT_FOR_PRICE
+            (ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),                      # WAIT_FOR_EVIDENCE (narrative-only)
+            (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),         # ANTICIPATORY_REVIEW
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected()),    # EXPECTATION_EXHAUSTED
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended()),    # WAIT_FOR_PULLBACK
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected()), # CONFIRMATION_REVIEW
+            (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected()),                    # EARLY_DISCOVERY
         ]
         seen_states = set()
         for ft, eg, pr in cases:

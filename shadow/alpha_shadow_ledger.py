@@ -15,9 +15,19 @@ retrospective learning.
 ★ `shadow_proposal.human_approval_required` is hard-coded to `True`, for the
   same reason.
 ★ `shadow_proposal.action` is a pure, exhaustive function of the input
-  packet's `opportunity_state` (see `OPPORTUNITY_STATE_TO_ACTION` /
-  `config/alpha_shadow_ledger_contract.json`'s `opportunity_state_to_action`)
-  -- never independently chosen.
+  packet's `opportunity_state` AND `p5_rule_status` (see
+  `action_for_opportunity_state()` / `config/alpha_shadow_ledger_contract.
+  json`'s `opportunity_state_to_action`) -- never independently chosen.
+  `SHADOW_ENTRY_REVIEW` is reachable ONLY when BOTH (a) `opportunity_state`
+  is one of the three entry-eligible states (`ANTICIPATORY_REVIEW`,
+  `EARLY_DISCOVERY`, `CONFIRMATION_REVIEW`) AND (b) `p5_rule_status==PASS`.
+  Whenever (a) holds but (b) does not (`NOT_EVALUATED`/`UNKNOWN`/
+  `UNDEFINED`/`FAIL`), the action is downgraded to `WAIT` instead --
+  contract_version `alpha_shadow_ledger/2` (CIO Gate Hardening, defense in
+  depth alongside `decision/alpha_review.py`'s own gates; this is what
+  currently blocks every real Pilot subject from ever reaching
+  `SHADOW_ENTRY_REVIEW`, since no ratified P5 packet exists for any of them
+  yet -- `p5_rule_status` is `NOT_EVALUATED` for all four).
 
 ⛔ Retrospective evaluation is explicitly OUT OF SCOPE for this stage. This
   module does NOT compute `catalyst_date`, `hypothetical_return`,
@@ -86,9 +96,16 @@ def _read(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "alpha_shadow_ledger/1",
+        "contract_version": "alpha_shadow_ledger/2",
         "output_schema_version": "alpha_shadow_ledger_record/1",
         "actions": ["SHADOW_ENTRY_REVIEW", "WAIT", "REJECT"],
+        # ★ CIO Gate Hardening (contract_version alpha_shadow_ledger/2): this
+        #   table is the BASE mapping only. A base "SHADOW_ENTRY_REVIEW" is
+        #   further gated on p5_rule_status=="PASS" by
+        #   action_for_opportunity_state() below -- it downgrades to "WAIT"
+        #   whenever p5_rule_status != "PASS". Every other base action
+        #   (REJECT/WAIT) is p5-independent. See that function and the
+        #   module docstring for the full rule.
         "opportunity_state_to_action": {
             "BLOCKED": "REJECT",
             "REJECTED": "REJECT",
@@ -98,6 +115,8 @@ def _expected_contract() -> dict:
             "WAIT_FOR_PULLBACK": "WAIT",
             "WAIT_FOR_EVIDENCE": "WAIT",
             "EXPECTATION_EXHAUSTED": "WAIT",
+            "WAIT_FOR_PRICE": "WAIT",
+            "WAIT_FOR_THESIS_REPAIR": "WAIT",
         },
         "authority": {
             "append_only_alpha_observation": True,
@@ -152,15 +171,27 @@ def _token(value, code: str) -> str:
     return value
 
 
-def action_for_opportunity_state(opportunity_state: str, contract: dict) -> str:
+def action_for_opportunity_state(opportunity_state: str, p5_rule_status: str, contract: dict) -> str:
+    """`SHADOW_ENTRY_REVIEW` may only ever be returned when BOTH the base
+    table maps `opportunity_state` to `SHADOW_ENTRY_REVIEW` (i.e.
+    `opportunity_state` is one of the three entry-eligible states) AND
+    `p5_rule_status == "PASS"`. Otherwise a base `SHADOW_ENTRY_REVIEW` is
+    downgraded to `WAIT` -- never silently dropped, never an error. Every
+    other base action (`REJECT`/`WAIT`) is untouched by `p5_rule_status`.
+    """
     mapping = contract["opportunity_state_to_action"]
     if opportunity_state not in mapping:
         raise AlphaShadowLedgerError(f"OPPORTUNITY_STATE_UNMAPPED:{opportunity_state}")
-    return mapping[opportunity_state]
+    base_action = mapping[opportunity_state]
+    if base_action == "SHADOW_ENTRY_REVIEW" and p5_rule_status != "PASS":
+        return "WAIT"
+    return base_action
 
 
 def _shadow_proposal(alpha_review_packet: dict, contract: dict) -> dict:
-    action = action_for_opportunity_state(alpha_review_packet["opportunity_state"], contract)
+    action = action_for_opportunity_state(
+        alpha_review_packet["opportunity_state"], alpha_review_packet["p5_rule_status"], contract
+    )
     return {
         # ⛔ HARD-CODED. No parameter in build_record() can ever change this --
         #   see test_alpha_shadow_ledger.py's capital-always-zero regression,
