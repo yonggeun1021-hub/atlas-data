@@ -60,3 +60,44 @@ jobs:
           if-no-files-found: warn
       - name: Raw and derived artifact prohibition
         run: git diff --exit-code
+
+  # Separate job, own checkout -- deliberately never touches the job
+  # above, whose entire point is to prove NOTHING gets committed from a
+  # raw KRX response. Downloads that job's own already-built "recent"
+  # scope artifact (no second KRX request) and commits only the non-
+  # reconstructive per-market lineage summary
+  # (.github/scripts/korea_breadth_context_populate.py) that
+  # rotation/korea_capital_rotation_ledger_wire.py reads to build P2-03's
+  # coverage_context.breadth. No new schedule/cron: still workflow_
+  # dispatch only, same trigger as the job above.
+  korea-breadth-context-commit:
+    needs: korea-breadth-live-proof
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Download P1-KR-05 derived output artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p1-kr05-derived
+      - name: Populate committed Korea Breadth context lineage
+        run: |
+          python3 .github/scripts/korea_breadth_context_populate.py \
+            --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
+            --workflow-run-id "${{ github.run_id }}"
+      - name: Commit Korea Breadth context lineage
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/observations/korea_breadth_context
+          if git diff --cached --quiet; then
+            echo "no change (verified_existing) -- nothing to commit"
+          else
+            git commit -m "korea breadth context lineage $(date -u +%Y-%m-%d) [P1-KR-05 run ${{ github.run_id }}]"
+            git push
+          fi

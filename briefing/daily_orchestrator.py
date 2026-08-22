@@ -720,6 +720,84 @@ def build_sec_filing_content(decision_date: str, snapshot: dict | None = None) -
 
 
 # ---------------------------------------------------------------------------
+# Korea Capital Rotation (P2-03 -> rotation_state_ledger -> briefing wiring)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_korea_rotation_snapshot() -> dict:
+    return _fetch_filing_snapshot("data/latest_korea_rotation.json")
+
+
+def _classify_korea_rotation(decision_date: str, snapshot: dict) -> dict:
+    """Korea Capital Rotation (P2-03) observation, sourced from the
+    committed rolling pointer data/latest_korea_rotation.json --
+    refreshed by rotation/korea_capital_rotation_ledger_wire.py from a
+    real rotation_state_ledger.apply_rotation() call, never derived
+    here. This function does not recompute AVAILABLE/BLOCKED/UNKNOWN/
+    STALE; it only surfaces the pointer's own already-independently-
+    re-derived breadth.status verbatim -- never relabeling it NEUTRAL,
+    PASS, or AVAILABLE. The row's own status reflects only whether a
+    genuine rotation observation exists for this exact decision_date;
+    a BLOCKED/UNKNOWN/STALE Breadth context still yields a real
+    (POLICY_BLOCKED) row with the Breadth blocker surfaced in its
+    packet, not a missing row."""
+    if snapshot["kind"] == "missing":
+        return _blocked("KOREA_ROTATION", "PENDING", "NO_ROTATION_POINTER_PUBLISHED")
+    if snapshot["kind"] == "error":
+        return component_row("KOREA_ROTATION", "DEGRADED", snapshot["value"])
+    payload = snapshot["value"]
+    if payload.get("as_of_date") != decision_date:
+        return component_row(
+            "KOREA_ROTATION",
+            "PENDING",
+            "NO_ROTATION_OBSERVATION_FOR_DECISION_DATE",
+            as_of_date=payload.get("as_of_date"),
+            source_packet_path="data/latest_korea_rotation.json",
+            validated=True,
+        )
+    breadth = payload.get("breadth") if isinstance(payload.get("breadth"), dict) else {}
+    rotation = payload.get("rotation") if isinstance(payload.get("rotation"), dict) else {}
+    breadth_status = breadth.get("status")
+    if payload.get("run_status") != "OK":
+        status, reason = "DEGRADED", f"run_status={payload.get('run_status')}"
+    elif breadth_status == "AVAILABLE":
+        status, reason = "READY", None
+    else:
+        status = "POLICY_BLOCKED"
+        reason = f"KOREA_BREADTH_{breadth_status}:{breadth.get('reason')}"
+    return component_row(
+        "KOREA_ROTATION",
+        status,
+        reason,
+        as_of_date=payload.get("as_of_date"),
+        generated_at=payload.get("generated_at"),
+        source_packet_path="data/latest_korea_rotation.json",
+        source_packet_sha256=payload.get("payload_sha256"),
+        # True: this snapshot is frozen into packet["frozen_sources"] at
+        # build time -- see FROZEN_SOURCE_COMPONENTS.
+        validated=True,
+        authority=payload.get("authority"),
+        contract_version=payload.get("contract_version"),
+        packet={
+            "rotation_status": rotation.get("status"),
+            "rotation_policy_effective": rotation.get("rotation_policy_effective"),
+            "breadth_status": breadth_status,
+            "breadth_reason": breadth.get("reason"),
+            "breadth_decision_eligible": breadth.get("decision_eligible"),
+            "breadth_markets": breadth.get("markets"),
+            "breadth_source_context_path": breadth.get("source_context_path"),
+            "breadth_source_context_sha256": breadth.get("source_context_sha256"),
+        },
+    )
+
+
+def build_korea_rotation(decision_date: str, snapshot: dict | None = None) -> dict:
+    if snapshot is None:
+        snapshot = _fetch_korea_rotation_snapshot()
+    return _classify_korea_rotation(decision_date, snapshot)
+
+
+# ---------------------------------------------------------------------------
 # KOFIA first-seen (persisted evidence only; no provider call)
 # ---------------------------------------------------------------------------
 
@@ -1551,7 +1629,7 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
     "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
     "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
-    "FREE_MARKET_DATA",
+    "FREE_MARKET_DATA", "KOREA_ROTATION",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
@@ -1685,6 +1763,12 @@ def build_packet(
         regime_outputs, slot, generated_at
     ))
     rows["ROTATION_DISCOVERY"] = _boundary(build_rotation_discovery(slot, generated_at))
+    korea_rotation_snapshot = frozen_sources.get("KOREA_ROTATION")
+    if korea_rotation_snapshot is None:
+        korea_rotation_snapshot = _fetch_korea_rotation_snapshot()
+    rows["KOREA_ROTATION"] = _boundary(
+        _classify_korea_rotation(decision_date, korea_rotation_snapshot)
+    )
     rows["RULE_EVALUATION"] = _boundary(build_rule_evaluation())
     rows["PORTFOLIO_BUCKET"] = _blocked(
         "PORTFOLIO_BUCKET", "POLICY_BLOCKED", "CONSTITUTION_NOT_RATIFIED"
@@ -1772,6 +1856,7 @@ def build_packet(
             "BTC_RISK": btc_risk_snapshot,
             "STABLECOIN_NET_ISSUANCE": stablecoin_snapshot,
             "CRYPTO_BREADTH": crypto_breadth_snapshot,
+            "KOREA_ROTATION": korea_rotation_snapshot,
             # Only present for the evening slot, where KRX_POST_CLOSE is
             # actually fetched -- the morning slot's static PENDING row has
             # no snapshot to freeze.
@@ -1862,7 +1947,7 @@ _SECTION_GROUPS = [
         "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
     ]),
     ("3-Market Regime", ["THREE_MARKET_REGIME_HEADER"]),
-    ("Rotation / Theme", ["ROTATION_DISCOVERY"]),
+    ("Rotation / Theme", ["ROTATION_DISCOVERY", "KOREA_ROTATION"]),
     ("New Discovery / candidate change", ["ROTATION_DISCOVERY"]),
     ("Rule status", ["RULE_EVALUATION"]),
     ("Portfolio / Risk", [
@@ -1979,6 +2064,22 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"direction={market.get('direction')} "
                     f"confidence={market.get('confidence')} "
                     f"coverage={coverage.get('ratio')}"
+                )
+        elif cid == "KOREA_ROTATION":
+            lines.append(
+                f"    - rotation={packet.get('rotation_status')} "
+                f"policy_effective={packet.get('rotation_policy_effective')}"
+            )
+            lines.append(
+                f"    - breadth={packet.get('breadth_status')} "
+                f"decision_eligible={packet.get('breadth_decision_eligible')} "
+                f"reason={packet.get('breadth_reason')}"
+            )
+            for market, fact in sorted((packet.get("breadth_markets") or {}).items()):
+                lines.append(
+                    f"    - breadth[{market}]: as_of_date={fact.get('as_of_date')} "
+                    f"available_at={fact.get('available_at')} "
+                    f"lineage_sha256={fact.get('lineage_sha256')}"
                 )
         elif cid == "ROTATION_DISCOVERY":
             summary = packet.get("summary", {})
