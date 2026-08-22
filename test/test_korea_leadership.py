@@ -64,8 +64,24 @@ class KoreaLeadershipTest(unittest.TestCase):
             return MODULE.build_transform(data or payload(), policy)
 
     def test_default_policy_closes_calculation_authority(self):
-        self.assertEqual(MODULE.load_policy()["approval_status"], "UNRATIFIED")
-        with self.assertRaisesRegex(MODULE.KoreaLeadershipError, "LEADERSHIP_POLICY_UNRATIFIED"):
+        # 2026-08-22 minimal Slice ratification: config/korea_leadership_
+        # policy.json is now genuinely RATIFIED (48 records: 2 benchmarks
+        # + 46 official KRX base-market SECTOR indices). The "no
+        # accidental authority" invariant this test guards still holds --
+        # it just now holds a level down: a payload using synthetic
+        # identities the real ratified policy never declared (this
+        # module's own payload() fixture) still fails closed, on
+        # SERIES_NOT_IN_PIT_TAXONOMY rather than an unratified policy.
+        # Authority flags staying false even when a real ratified policy
+        # DOES compute successfully is covered separately by
+        # test_kospi_kosdaq_sector_theme_relative_strength_reproduces
+        # (via its own synthetic-but-ratified policy fixture) and by
+        # test/test_korea_leadership_live_fetch.py's real-policy-reaching
+        # coverage.
+        real_policy = MODULE.load_policy()
+        self.assertEqual(real_policy["approval_status"], "RATIFIED")
+        self.assertEqual(len(real_policy["records"]), 48)
+        with self.assertRaisesRegex(MODULE.KoreaLeadershipError, "INPUT_IDENTITY_MISMATCH"):
             MODULE.build_transform(payload())
 
     def test_kospi_kosdaq_sector_theme_relative_strength_reproduces(self):
