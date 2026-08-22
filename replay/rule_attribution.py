@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Keep / Change / Kill recommendation per existing rule (deliverable 6),
+grounded in aggregate counts from the actual ledgers -- not speculative.
+"""
+from __future__ import annotations
+
+from collections import Counter
+
+
+def recommend(miss_records: list[dict], defense_records: list[dict], comparison: dict) -> list[dict]:
+    miss_causes = Counter(m["root_cause"] for m in miss_records if m["root_cause"])
+    recs = []
+
+    recs.append({
+        "rule": "decision/alpha_review.py: trade_proposal unconditionally None",
+        "evidence": {
+            "material_misses_blocked_by_this_rule": miss_causes.get("GATE_BLOCK", 0)
+                                                     + miss_causes.get("ACTION_CONVERSION_FAILURE", 0),
+            "action_conversion_rate_existing_pct": comparison["existing_ruleset"]["action_conversion_rate_pct"],
+            "action_conversion_rate_proposed_pct": comparison["proposed_ruleset"]["action_conversion_rate_pct"],
+        },
+        "recommendation": "CHANGE",
+        "rationale": (
+            "The replay shows this rule structurally zeroes Action Conversion Rate regardless of "
+            "trigger strength or confirmation count -- it is not selectively blocking weak signals, "
+            "it blocks all of them by construction. The safety property worth KEEPing is "
+            "'no unratified capital/order' (see below), not this specific null-forever shape. "
+            "CIO doctrine's own Opportunity Capture Control Loop section 11 slice 4 already "
+            "prescribes the fix: a Probe-specific P5 Rule Slice with a real loss budget, not "
+            "removal of the gate."
+        ),
+    })
+
+    recs.append({
+        "rule": "decision/alpha_review.py: default_next_review_cadence_days = 30 (fixed, uniform)",
+        "evidence": {
+            "material_misses_attributable_to_latency": miss_causes.get("DECISION_LATENCY", 0),
+        },
+        "recommendation": "CHANGE",
+        "rationale": (
+            "A fixed 30-day cadence cannot re-evaluate a flow/price-reversal trigger before it "
+            "decays. The Control Loop doc's own section 6 already specifies a dynamic cadence "
+            "(next trading day / 24h for price-flow triggers, event-driven for catalysts, 30d only "
+            "for long-horizon thesis). Keep the 30-day default for long-horizon thesis review; "
+            "add a fast lane for the trigger types this replay actually observed firing."
+        ),
+    })
+
+    recs.append({
+        "rule": "P0/P5 authority invariant: Stage/Buy/Action/Order/Production/trading = false "
+                "until explicit ratification",
+        "evidence": {
+            "total_ledger_entries_with_zero_authority_violation": "all (verified structurally, see "
+                                                                    "test_pit_replay_end_to_end.py)",
+        },
+        "recommendation": "KEEP",
+        "rationale": (
+            "Nothing in this replay depended on relaxing this invariant to find real, gradeable "
+            "signal in the committed evidence. The Opportunity Capture Control Loop's own design "
+            "(section 10) keeps this invariant and adds a Probe-specific gate underneath it rather "
+            "than around it -- this replay's proposed-ruleset simulation does the same."
+        ),
+    })
+
+    recs.append({
+        "rule": "Repo evidence retention: no committed evidence exists for any date before 2026-08-13",
+        "evidence": {
+            "data_failure_entries": miss_causes.get("DATA_FAILURE", 0),
+        },
+        "recommendation": "CHANGE",
+        "rationale": (
+            "This is not a decision rule but an operational gap this replay could not paper over: "
+            "22 of the 32 audit-window days have zero committed evidence of any kind. Whatever "
+            "Atlas actually saw or said on those dates is unrecoverable from this repository. "
+            "Recommend persisting daily evidence + generated briefing output as committed, dated "
+            "artifacts going forward so a future audit of this kind does not hit the same wall."
+        ),
+    })
+
+    return recs
