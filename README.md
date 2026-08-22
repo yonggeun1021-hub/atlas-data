@@ -2,6 +2,10 @@
 
 Project Atlas 전용 공식 데이터 수집기.
 
+> 에이전트·새 세션은 작업 전에 반드시 [`AGENTS.md`](AGENTS.md)와
+> [`docs/ATLAS_SESSION_BOOTSTRAP.md`](docs/ATLAS_SESSION_BOOTSTRAP.md)를 읽고,
+> 라이브 Notion 정본·현재 `main`·열린 PR을 재확인해야 한다.
+
 ```
 GitHub Actions (매일 06:00 KST)
   ├ collectors/krx.py   pykrx → KRX 정보데이터시스템 (투자자별 수급 · OHLCV · SMA20)
