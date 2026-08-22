@@ -30,10 +30,53 @@ with WORKFLOW.open(encoding="utf-8") as stream:
     WF = yaml.safe_load(stream)
 
 # A recent date this repo has real committed evidence for across every
-# LIVE_READY sensor exercised by the orchestrator.
+# LIVE_READY sensor exercised by the orchestrator, EXCEPT US_BREADTH_
+# MEMBERSHIP -- see _us_breadth_ready_decision_date_and_generated_at()
+# below for why that one is deliberately resolved separately rather than
+# folded into these two fixed literals.
 DECISION_DATE = "2026-08-21"
 MORNING_GENERATED_AT = "2026-08-21T12:00:00Z"
 EVENING_GENERATED_AT = "2026-08-21T09:30:00Z"  # 18:30 KST
+
+
+def _us_breadth_ready_decision_date_and_generated_at():
+    """(decision_date, generated_at) that resolve the US_BREADTH archive's
+    real latest snapshot to READY right now, computed from disk rather
+    than hardcoded.
+
+    Every snapshot in this archive (verified across 2026-08-20 and
+    2026-08-21, not a one-off) was downloaded on the calendar day AFTER
+    its own snapshot date -- P1-US-04's capture runs ~01:20 UTC and
+    commits ~03:00-04:00 UTC the following morning, a steady-state
+    property of that source, not a delay. That means no generated_at
+    dated the same calendar day as DECISION_DATE can ever be safely after
+    US_BREADTH_MEMBERSHIP's own real downloaded_at, so this sensor cannot
+    be folded into the fixed DECISION_DATE/MORNING_GENERATED_AT pair used
+    for the other LIVE_READY sensors above (STEP0_READ_MODEL_HEALTH /
+    KRX_PREOPEN_COMPACT read a same-day rolling pointer that requires an
+    exact decision_date match, which is what pins DECISION_DATE to
+    2026-08-21 in the first place). Resolved independently here: read the
+    archive's actual latest snapshot date and its actual downloaded_at
+    from disk, and build a generated_at on the day after that snapshot's
+    own date (still >= its decision_date, since as_of_date must not be
+    after decision_date) -- so this keeps resolving to READY as later
+    snapshots are added, with no future re-fix needed for this sensor
+    specifically.
+    """
+    raw_root = MODULE.US_BREADTH.RAW_ROOT
+    latest_snapshot_date = max(
+        path.name
+        for path in raw_root.iterdir()
+        if path.is_dir() and len(path.name) == len("2026-08-20")
+    )
+    downloaded_at = (
+        raw_root / latest_snapshot_date / "_downloaded_at.txt"
+    ).read_text(encoding="utf-8").strip()
+    # End of the download day itself -- always after downloaded_at's own
+    # time-of-day, and still >= latest_snapshot_date (its as_of_date), so
+    # the AS_OF_DATE_AFTER_DECISION_DATE boundary never trips either.
+    generated_at = f"{downloaded_at[:10]}T23:59:59Z"
+    return latest_snapshot_date, generated_at
 
 
 def _walk_authorized_keys(value, path=""):
@@ -65,14 +108,37 @@ class DailyOrchestratorTest(unittest.TestCase):
             "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY",
         )
         # A handful of components this repo genuinely has live evidence for.
+        # US_BREADTH_MEMBERSHIP is checked separately below, not here -- see
+        # _us_breadth_ready_decision_date_and_generated_at() for why it
+        # cannot share DECISION_DATE/MORNING_GENERATED_AT with these.
         for component_id in (
             "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
-            "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
-            "STABLECOIN_NET_ISSUANCE",
+            "BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE",
         ):
             self.assertEqual(
                 by_id[component_id]["status"], "READY", component_id
             )
+        # US_BREADTH_MEMBERSHIP's real evidence genuinely has no
+        # generated_at on DECISION_DATE's own calendar day that could ever
+        # be after it (see helper docstring), so its READY happy path is
+        # exercised here against the archive's real latest snapshot and
+        # its own real generated_at instead -- still a genuine full-packet
+        # build through the same temporal boundary, just not sharing
+        # DECISION_DATE/MORNING_GENERATED_AT with the sensors above.
+        us_breadth_date, us_breadth_generated_at = (
+            _us_breadth_ready_decision_date_and_generated_at()
+        )
+        us_breadth_packet = MODULE.build_packet(
+            "morning", us_breadth_date, us_breadth_generated_at
+        )
+        us_breadth_by_id = {
+            row["component_id"]: row for row in us_breadth_packet["components"]
+        }
+        us_breadth_row = us_breadth_by_id["US_BREADTH_MEMBERSHIP"]
+        self.assertEqual(us_breadth_row["status"], "READY")
+        self.assertEqual(us_breadth_row["as_of_date"], us_breadth_date)
+        self.assertIsNotNone(us_breadth_row["packet"])
+        self.assertGreater(us_breadth_row["packet"]["member_count"], 0)
         # Genuinely unratified/unpopulated components must say so honestly,
         # never silently disappear or read as READY.
         self.assertEqual(by_id["PORTFOLIO_BUCKET"]["status"], "POLICY_BLOCKED")
@@ -113,8 +179,16 @@ class DailyOrchestratorTest(unittest.TestCase):
         # ever produce it, so the "no exact capture" / "never read newer
         # evidence" property holds no matter when this test executes.
         never_captured_date = "2099-01-01"
+        # generated_at must be at least as far in the future as
+        # never_captured_date itself, not a fixed real-ish literal --
+        # otherwise the same live-cron accretion this test guards against
+        # can eventually push US_BREADTH_MEMBERSHIP's real latest
+        # snapshot's downloaded_at past a hardcoded generated_at (exactly
+        # what broke this assertion the second time: the archive's real
+        # latest snapshot is READ dynamically below, but was still being
+        # compared against a fixed "2026-08-21T12:00:00Z" generated_at).
         future_relative_to_capture = MODULE.build_packet(
-            "morning", never_captured_date, "2026-08-21T12:00:00Z"
+            "morning", never_captured_date, f"{never_captured_date}T12:00:00Z"
         )
         components_by_id = {
             row["component_id"]: row
@@ -282,6 +356,16 @@ class DailyOrchestratorTest(unittest.TestCase):
                 # The committed live capture was collected on the following
                 # UTC day, so this historical packet correctly blocks it at
                 # the common temporal boundary.
+                self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
+                continue
+            if component_id == "US_BREADTH_MEMBERSHIP":
+                # Same root cause as FREE_MARKET_DATA above, not a
+                # frozen-source defect: its real downloaded_at lands the
+                # calendar day after DECISION_DATE (see
+                # _us_breadth_ready_decision_date_and_generated_at), so
+                # the common temporal boundary correctly blocks it here
+                # too. The tamper-detection loop below still exercises its
+                # frozen_sources re-derivability regardless of status.
                 self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
                 continue
             self.assertTrue(by_id[component_id]["validated"], component_id)
@@ -907,11 +991,21 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("simulated sensor failure", row["reason"])
 
         # And the full pipeline still assembles every other component even
-        # while BTC_TREND is broken.
+        # while BTC_TREND is broken. Built with the US_BREADTH-ready
+        # decision_date/generated_at (see
+        # _us_breadth_ready_decision_date_and_generated_at) rather than
+        # DECISION_DATE/MORNING_GENERATED_AT, so US_BREADTH_MEMBERSHIP's
+        # own isolation can be asserted honestly alongside STEP0's --
+        # BTC_TREND is exact-date archived like STEP0's own inputs, so its
+        # DEGRADED-from-failure status is unaffected by which of the two
+        # equally-real generated_at values is used here.
+        us_breadth_date, us_breadth_generated_at = (
+            _us_breadth_ready_decision_date_and_generated_at()
+        )
         MODULE.BTC_TREND.build_transform = _boom
         try:
             packet = MODULE.build_packet(
-                "morning", DECISION_DATE, MORNING_GENERATED_AT
+                "morning", us_breadth_date, us_breadth_generated_at
             )
         finally:
             MODULE.BTC_TREND.build_transform = original
@@ -985,9 +1079,25 @@ class DailyOrchestratorTest(unittest.TestCase):
             f"{by_id['STABLECOIN_NET_ISSUANCE']['packet']['daily_net_issuance_native_usd_peg']}",
             rendered,
         )
+        # US_BREADTH_MEMBERSHIP is DATA_BLOCKED (packet=None) under
+        # DECISION_DATE/MORNING_GENERATED_AT -- see
+        # _us_breadth_ready_decision_date_and_generated_at() -- so its real
+        # member_count is checked in a render of its own READY packet
+        # instead, not this one.
+        us_breadth_date, us_breadth_generated_at = (
+            _us_breadth_ready_decision_date_and_generated_at()
+        )
+        us_breadth_packet = MODULE.build_packet(
+            "morning", us_breadth_date, us_breadth_generated_at
+        )
+        us_breadth_rendered = MODULE.render_markdown(us_breadth_packet)
+        us_breadth_row = {
+            row["component_id"]: row for row in us_breadth_packet["components"]
+        }["US_BREADTH_MEMBERSHIP"]
+        self.assertEqual(us_breadth_row["status"], "READY")
         self.assertIn(
-            f"members={by_id['US_BREADTH_MEMBERSHIP']['packet']['member_count']}",
-            rendered,
+            f"members={us_breadth_row['packet']['member_count']}",
+            us_breadth_rendered,
         )
         rule_summary = by_id["RULE_EVALUATION"]["packet"]["summary"]
         self.assertIn(
