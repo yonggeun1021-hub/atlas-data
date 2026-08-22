@@ -79,12 +79,22 @@ def build(ft_packet, eg_packet, pr_packet, **kwargs):
 
 
 # ── price_reflection status presets (all decision_date=2026-08-20) ─────────
+# `price_reflection/2` (CIO round 2): `reflection_status` only ever leaves
+# UNKNOWN when a real reference point is supplied -- every preset below that
+# needs a confident (non-UNKNOWN) reflection_status carries a real
+# `event_reaction` with a POSITIVE direction the momentum can be compared
+# against. Momentum magnitude alone (no reference) would otherwise leave
+# EVERY one of these at reflection_status=UNKNOWN regardless of how extreme
+# the price move is -- see decision/price_reflection.py's module docstring.
+_REFERENCE = {"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"}
+
+
 def pr_under_reflected():
     return price_reflection_packet(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "1"},
         relative_strength={"vs_market": "1"},
-        event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "10"},
+        event_reaction=_REFERENCE,
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
 
@@ -94,6 +104,7 @@ def pr_partially_reflected():
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "3"},
         relative_strength={"vs_market": "2"},
+        event_reaction=_REFERENCE,
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
 
@@ -103,11 +114,25 @@ def pr_fully_reflected():
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "10"},
         relative_strength={"vs_market": "9"},
+        event_reaction=_REFERENCE,
         data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
     )
 
 
 def pr_overextended():
+    return price_reflection_packet(
+        price_as_of="2026-08-19T20:00:00Z",
+        recent_return_windows={"1m": "20"},
+        relative_strength={"vs_market": "18", "position_vs_recent_high_pct": "1"},
+        event_reaction=_REFERENCE,
+        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+    )
+
+
+def pr_overextended_no_reference_point():
+    """Real price_state=OVEREXTENDED with NO reference point at all --
+    reflection_status must stay UNKNOWN (round-2 core fix: a rally alone is
+    never a reflection verdict)."""
     return price_reflection_packet(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "20"},
@@ -222,7 +247,7 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         # price_reflection.status is also UNKNOWN).
         packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
-        self.assertTrue(packet["price_reflection"]["status"] != "UNKNOWN")
+        self.assertTrue(packet["price_reflection"]["reflection_status"] != "UNKNOWN")
         self.assertEqual(packet["expectations_gap"]["status"], "POSITIVE")
 
     def test_anticipatory_review(self):
@@ -236,6 +261,17 @@ class OpportunityStateClassificationTests(unittest.TestCase):
     def test_wait_for_pullback(self):
         packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended())
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PULLBACK")
+
+    def test_overextended_price_with_no_reference_point_is_wait_for_price_not_wait_for_pullback(self):
+        # CIO review round 2 core fix, exercised end-to-end: a real rally
+        # (price_state=OVEREXTENDED) with NO event/expectation reference
+        # point must NOT be treated as a reflection verdict -- it must still
+        # hit gate 3 (WAIT_FOR_PRICE), never reach gate 5's WAIT_FOR_PULLBACK.
+        pr = pr_overextended_no_reference_point()
+        self.assertEqual(pr["price_reflection"]["price_state"], "OVEREXTENDED")
+        self.assertEqual(pr["price_reflection"]["reflection_status"], "UNKNOWN")
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr)
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
 
     def test_confirmation_review(self):
         packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected())

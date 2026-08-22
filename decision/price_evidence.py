@@ -7,10 +7,20 @@ parameters a caller already assembled (see that module's own docstring).
 This module IS that caller for real subjects: it reads real, already
 committed repo evidence and turns it into the exact keyword arguments
 `decision.price_reflection.build_packet()` expects. It never invents a
-price, a benchmark value, or a market-membership fact that is not either
-(a) present in committed evidence, or (b) a narrowly declared, documented
-identity assumption (see `KOREA_STOCK_MARKET_MEMBERSHIP` below) -- never a
-fabricated *price*.
+price or a benchmark value.
+
+★ CIO review round 2 on PR #212: Korea market (KOSPI/KOSDAQ) membership is
+  loaded from `config/korea_market_membership.json` -- an explicit,
+  auditable canonical mapping with source/observation_date/hash/
+  approval_status per entry -- and ONLY entries with `approval_status ==
+  "RATIFIED"` are ever used for `relative_strength.vs_market`. As of this
+  build every entry in that file is `UNRATIFIED` (no committed, hash-
+  verified KRX Open API stock-master lookup exists in this repo confirming
+  market venue per code), so `vs_market` is currently `None` for every
+  Korea subject regardless of code -- see `_ratified_korea_market_of`. This
+  replaces a round-1 hardcoded `KOREA_STOCK_MARKET_MEMBERSHIP` dict a
+  code-comment-only "identity assumption" the CIO correctly rejected as not
+  real evidence.
 
 Three real, reused data sources (no new external API calls):
 
@@ -64,19 +74,36 @@ from replay import lookahead_gate as lg  # noqa: E402
 
 KOREA_LEADERSHIP_CONTEXT_DIR = ROOT / "data" / "observations" / "korea_leadership_context"
 FREE_MARKET_DATA_RAW_DIR = ROOT / "evidence" / "free_market_data" / "raw"
+KOREA_MARKET_MEMBERSHIP_PATH = ROOT / "config" / "korea_market_membership.json"
 
-# Narrow, explicitly declared identity fact -- NOT a price, NOT sourced from
-# any committed repo evidence (config/universe.json's `kr` list only carries
-# code+name, no market-venue field). Both are real-world KOSPI listings.
-# Deliberately closed/allow-listed: an unlisted code simply gets no
-# `vs_market` figure (fails closed to REFLECTION_UNCERTAIN_WITH_VALID_PRICE
-# downstream) rather than a guessed benchmark.
-KOREA_STOCK_MARKET_MEMBERSHIP = {
-    "298040": "KOSPI",  # 효성중공업 (Hyosung Heavy Industries)
-    "267260": "KOSPI",  # HD현대일렉트릭 (HD Hyundai Electric)
-    "005930": "KOSPI",  # 삼성전자 (Samsung Electronics)
-    "000660": "KOSPI",  # SK하이닉스 (SK Hynix)
-}
+
+def load_ratified_korea_market_membership(path: Path = KOREA_MARKET_MEMBERSHIP_PATH) -> dict:
+    """Reads `config/korea_market_membership.json` and returns ONLY the
+    `code -> market_claim` entries whose `approval_status == "RATIFIED"`.
+    Fails closed (empty dict) on a missing/malformed file rather than
+    raising -- a market-benchmark lookup miss is not a builder-crashing
+    condition, it is just `vs_market=None` downstream."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    members = raw.get("members") if isinstance(raw, dict) else None
+    if not isinstance(members, list):
+        return {}
+    out = {}
+    for row in members:
+        if (
+            isinstance(row, dict)
+            and row.get("approval_status") == "RATIFIED"
+            and isinstance(row.get("code"), str)
+            and row.get("market_claim") in ("KOSPI", "KOSDAQ")
+        ):
+            out[row["code"]] = row["market_claim"]
+    return out
+
+
+def _ratified_korea_market_of(code: str) -> str | None:
+    return load_ratified_korea_market_membership().get(code)
 
 RECENT_STOCK_WINDOW_TRADING_DAYS = 21  # ~1 calendar month of KRX trading sessions
 VOLUME_RECENT_TRADING_DAYS = 5
@@ -248,9 +275,13 @@ def _vs_market_pct(
 def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
     """Real KRX evidence -> `build_packet()` kwargs for a Korea subject.
     Never fabricates: any figure the real committed window cannot support is
-    left `None`, which `price_reflection.py`'s own Korea-scope rule then
-    correctly routes to `REFLECTION_UNCERTAIN_WITH_VALID_PRICE` rather than a
-    guessed confident status."""
+    left `None` -- including `relative_strength.vs_market`, which stays
+    `None` for every code until `config/korea_market_membership.json` has a
+    RATIFIED entry for it (see `_ratified_korea_market_of`). A thin/absent
+    signal set here naturally routes `decision/price_reflection.py`'s own
+    classification to `price_state=UNKNOWN`/`reflection_status=UNKNOWN`
+    rather than a guessed confident status -- this module never engineers
+    that outcome itself."""
     snapshots = ei.find_krx_snapshots()
     series = ps.build_krx_series(code, snapshots)
     live_dates = series.live_trading_dates_at_or_before(decision_date)
@@ -283,7 +314,7 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
     volume_change = _volume_change_pct(series, recent_vol_dates, prior_vol_dates) if prior_vol_dates else None
 
     vs_market = None
-    market = KOREA_STOCK_MARKET_MEMBERSHIP.get(code)
+    market = _ratified_korea_market_of(code)
     if market is not None:
         benchmark = KoreaBenchmarkSeries.load(market)
         lg.assert_no_signal_lookahead(

@@ -1,48 +1,64 @@
 #!/usr/bin/env python3
 """P8-10 Price Reflection builder — price/volume-only, never fundamentals.
 
-This module answers one question: *given price, volume, relative-strength,
-event-reaction and valuation-history evidence the caller already has, has the
-market's price already reflected what is known?*
+★ CIO review round 2 (`price_reflection/2`) fixed a real defect in round 1:
+  a price rally is PRICE MOMENTUM, not evidence that the market has
+  "reflected" anything. Reflection is a claim about a specific expectation
+  or event — you cannot judge whether price has caught up to something
+  without knowing what that something is. Round 1 conflated the two into one
+  `status` field and let momentum alone (>=8% => "FULLY_REFLECTED") stand in
+  for a reflection judgment with no event/expectation reference at all. This
+  module now keeps the two claims structurally separate:
+
+  * `price_state`      — OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK |
+    UNKNOWN. A pure, price/volume-only read on momentum and positioning.
+    Momentum alone can never produce a reflection verdict — that's the whole
+    point of this field existing.
+  * `reflection_status` — UNDER_REFLECTED | PARTIALLY_REFLECTED |
+    FULLY_REFLECTED | UNKNOWN. Only ever leaves UNKNOWN when a real
+    REFERENCE POINT is present (see `_has_reference_point` below: an
+    `event_reaction.event_date`, a `reflection_reference.reference_event_id`,
+    a `reflection_reference.expectation_as_of`, or a real, caller-supplied
+    P8-09 Expectations Gap status via `reflection_reference.
+    expectations_gap_status`) AND a comparable direction + momentum exist.
+    Abundant, fresh, valid price data with NO reference point still forces
+    `reflection_status=UNKNOWN` / `data_state=
+    REFLECTION_UNCERTAIN_WITH_VALID_PRICE` — momentum is never a substitute
+    for a reference.
+  * `data_state`        — PRICE_DATA_MISSING | PRICE_STALE |
+    REFLECTION_UNCERTAIN_WITH_VALID_PRICE | VALID. Tracks the REFLECTION
+    judgment specifically (mirrors `reflection_status`): `VALID` iff
+    `reflection_status != "UNKNOWN"`. This is now a real, structured
+    top-level field (not string-parsed out of `reasons` — round 1's
+    `reasons[0]=="DATA_STATE:..."` encoding was an accepted stopgap to avoid
+    touching `decision/alpha_review.py`'s own strict field-set check; round 2
+    updates that module directly instead, see its own docstring).
+
+Staleness is still the loudest rule: if `price_as_of` is missing or older
+than the freshness ceiling relative to `decision_date`, BOTH `price_state`
+and `reflection_status` are forced to `UNKNOWN` regardless of every other
+input. This check runs first and short-circuits everything else.
+
+`classification_thresholds` (15%/8%/3%/2%-style cutoffs) have never been
+CIO-ratified — `classification_thresholds_approval_status` says so explicitly
+in the contract (`"PROVISIONAL"`) and every output packet echoes it verbatim
+as `price_reflection.threshold_basis`. A `PROVISIONAL` basis is not a defect
+in this module (it is the honest, currently-true state of these numbers) but
+IS a signal to every downstream consumer: no `PARTIALLY_REFLECTED`/
+`FULLY_REFLECTED`/`OVEREXTENDED`/`STRONG_MOMENTUM` verdict this module ever
+emits is a CIO-ratified final call — see `authority` below, which already
+sets `rule_authority_substitution_authorized: false` and every trading-path
+boolean `false`; `threshold_basis` makes that same "review signal, not a
+final determination" property visible on the verdict itself, not just in
+the authority block.
 
 It is deliberately blind to thesis quality, conviction, or any fundamental
 narrative — the public builder below (`build_packet`) accepts **only**
-price/volume/valuation-history parameters. There is no "thesis" or
-"fundamental strength" parameter anywhere in its signature: it is
-structurally impossible to feed this module optimism as an input. Good
+price/volume/valuation-history/reference-point parameters. There is no
+"thesis" or "fundamental strength" parameter anywhere in its signature: it
+is structurally impossible to feed this module optimism as an input. Good
 fundamentals alone can never produce `UNDER_REFLECTED`, because this module
 has no channel through which fundamentals could even arrive.
-
-Staleness is the loudest rule here: if `price_as_of` is missing or older than
-the freshness ceiling relative to `decision_date`, `status` is forced to
-`UNKNOWN` regardless of what every other input suggests. See
-`docs/price_reflection_contract.md` for the chosen default ceiling and the
-full classification method.
-
-Whenever `status` is `UNKNOWN`, `reasons[0]` always carries a second, more
-granular `"DATA_STATE:<value>"` marker recording WHY, from a closed,
-real-evidence-only vocabulary (`contract["allowed_data_state"]`):
-`PRICE_DATA_MISSING` (no price at all), `PRICE_STALE` (a price exists but is
-older than the freshness ceiling), or `REFLECTION_UNCERTAIN_WITH_VALID_PRICE`
-(price is fresh and valid, but there isn't enough real relative-strength/
-momentum signal to render a reflection judgment). `reasons[0]` is
-`"DATA_STATE:VALID"` whenever `status` is one of the confident values. See
-`data_state_of()` below for a small parsing helper.
-
-This is deliberately encoded inside the existing `reasons` field rather than
-as a new top-level key: `decision/alpha_review.py` hard-validates the
-`price_reflection` sub-object's field set with a strict `set(pr) != pr_fields`
-check on its own embedded copy, and this PR is explicitly scoped to leave
-that module (and `shadow/alpha_shadow_ledger.py`) untouched -- adding a new
-key there would break `alpha_review.py`'s own validation. `reasons` was
-already an unconstrained list of strings, so this is fully backward
-compatible with every existing consumer.
-
-`OVEREXTENDED` is a legitimate, distinct state — entry-timing risk is
-elevated, not "the company is bad" and not a Rule/Portfolio rejection. There
-is no `REJECTED` value anywhere in this module's vocabulary; Rule/Portfolio
-rejection is a different system's job. This module never emits a P5 Rule
-PASS/FAIL-shaped result.
 
 This module does not fetch evidence itself. It assembles whatever price data
 the caller already has into a closed-vocabulary, deterministic,
@@ -83,20 +99,6 @@ class PriceReflectionError(ValueError):
     """Fail-closed P8-10 Price Reflection contract violation."""
 
 
-def data_state_of(price_reflection: dict) -> str:
-    """Extracts the `"DATA_STATE:<value>"` marker `build_packet` always
-    places at `reasons[0]` -- see module docstring for why this lives inside
-    `reasons` rather than as its own top-level key. Callers should pass an
-    already-`validate_packet`-checked packet's inner `price_reflection`
-    sub-object; this raises the same `OUTPUT_DATA_STATE_MARKER_MISSING`-shaped
-    error `validate_packet` would if that invariant is somehow violated."""
-    reasons = price_reflection.get("reasons")
-    if not isinstance(reasons, list) or not reasons or not isinstance(reasons[0], str) \
-            or not reasons[0].startswith("DATA_STATE:"):
-        raise PriceReflectionError("OUTPUT_DATA_STATE_MARKER_MISSING")
-    return reasons[0][len("DATA_STATE:"):]
-
-
 def canonical_json(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -114,12 +116,14 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "price_reflection/1",
-        "output_schema_version": "price_reflection_packet/1",
-        "allowed_status": [
-            "UNDER_REFLECTED", "PARTIALLY_REFLECTED", "FULLY_REFLECTED",
-            "OVEREXTENDED", "UNKNOWN",
+        "schema_version": 2,
+        "contract_version": "price_reflection/2",
+        "output_schema_version": "price_reflection_packet/2",
+        "allowed_price_state": [
+            "OVEREXTENDED", "STRONG_MOMENTUM", "MODERATE", "WEAK", "UNKNOWN",
+        ],
+        "allowed_reflection_status": [
+            "UNDER_REFLECTED", "PARTIALLY_REFLECTED", "FULLY_REFLECTED", "UNKNOWN",
         ],
         "allowed_data_state": [
             "PRICE_DATA_MISSING", "PRICE_STALE",
@@ -131,12 +135,20 @@ def _expected_contract() -> dict:
         "allowed_data_source_scope": [
             "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "KRAKEN_OHLC", "UNKNOWN",
         ],
+        "allowed_threshold_basis": ["PROVISIONAL", "RATIFIED"],
         "korea_data_source_scope": "KRX_OFFICIAL",
         "default_freshness_ceiling_days": 5,
         "classification_thresholds": {
             "rally_min_1m_return_pct": "15", "near_high_max_distance_pct": "3",
             "strong_momentum_min_pct": "8", "mild_momentum_min_pct": "2",
         },
+        # ★ CIO round 2, required item 7: these specific cutoff numbers have
+        #   never been CIO-ratified (round 1's docs already said so: "the
+        #   spec did not name an exact number"). Declared PROVISIONAL here,
+        #   verifiable in this contract, and echoed on every output packet
+        #   as `price_reflection.threshold_basis` -- never silently upgraded
+        #   to RATIFIED by this module itself.
+        "classification_thresholds_approval_status": "PROVISIONAL",
         "confidence_thresholds": {
             "high_min_scored_signal_count": 4, "medium_min_scored_signal_count": 2,
         },
@@ -161,6 +173,11 @@ def _validate_contract(value: dict) -> dict:
     for key, expected_value in expected.items():
         if value.get(key) != expected_value:
             raise PriceReflectionError(f"CONTRACT_FIELD_MISMATCH:{key}")
+    if expected["classification_thresholds_approval_status"] not in expected["allowed_threshold_basis"]:
+        raise PriceReflectionError("CONTRACT_THRESHOLD_APPROVAL_STATUS_INVALID")
+    for bad in ("REJECTED",):
+        if bad in expected["allowed_price_state"] or bad in expected["allowed_reflection_status"]:
+            raise PriceReflectionError("CONTRACT_VOCABULARY_CONTAINS_REJECTED")
     return copy.deepcopy(value)
 
 
@@ -249,6 +266,38 @@ def _validate_event_reaction(value, decision_date: dt.date, contract: dict) -> d
     }
 
 
+def _validate_reflection_reference(value, decision_date: dt.date, contract: dict) -> dict:
+    """The REFERENCE POINT this module requires before it will ever emit a
+    confident `reflection_status` -- see module docstring. All three fields
+    are optional individually; `_has_reference_point` below only needs one
+    of them (or `event_reaction.event_date`) to be present."""
+    fields = {"reference_event_id", "expectation_as_of", "expectations_gap_status"}
+    if value is None:
+        return {"reference_event_id": None, "expectation_as_of": None, "expectations_gap_status": None}
+    if not isinstance(value, dict) or not set(value).issubset(fields):
+        raise PriceReflectionError("REFLECTION_REFERENCE_FIELDS_MISMATCH")
+    reference_event_id = value.get("reference_event_id")
+    if reference_event_id is not None:
+        _token(reference_event_id, "REFLECTION_REFERENCE_EVENT_ID_INVALID")
+    expectation_as_of = None
+    if value.get("expectation_as_of") is not None:
+        expectation_as_of = _date(value["expectation_as_of"], "REFLECTION_REFERENCE_EXPECTATION_AS_OF_INVALID")
+        if expectation_as_of > decision_date:
+            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATION_AS_OF_IN_FUTURE")
+    gap_status = value.get("expectations_gap_status")
+    if gap_status is not None and gap_status not in contract["allowed_direction"]:
+        # Reuses the SAME closed vocabulary decision/expectations_gap.py's
+        # own `status` field uses (POSITIVE/NEGATIVE/NEUTRAL/UNKNOWN) --
+        # this is a real pass-through of an already-validated P8-09 packet's
+        # status, not a new fabricated vocabulary.
+        raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_STATUS_INVALID")
+    return {
+        "reference_event_id": reference_event_id,
+        "expectation_as_of": expectation_as_of.isoformat() if expectation_as_of else None,
+        "expectations_gap_status": gap_status,
+    }
+
+
 def _validate_valuation_context(value, contract: dict) -> dict:
     fields = {"metric_type", "position_in_range"}
     if value is None:
@@ -268,60 +317,57 @@ def _render_or_unknown(value: Decimal | None) -> str:
     return "UNKNOWN" if value is None else str(value)
 
 
-def _classify(
-    *,
-    price_as_of: str | None,
-    decision_date: dt.date,
-    freshness_ceiling_days: int,
-    data_source_scope: str,
-    windows: dict,
-    strength: dict,
-    event: dict,
-    valuation: dict,
-    contract: dict,
-) -> tuple[str, str, list[str], str]:
-    """Pure, deterministic classification. Rule 1 (staleness) always runs first
-    and, if triggered, short-circuits every other signal unconditionally.
+def _has_reference_point(event: dict, reference: dict) -> bool:
+    """CIO round 2, required item 2: a reflection judgment requires a
+    reference point for WHAT is supposed to be reflected. At least one of
+    four real signals must be present -- an event date, an explicit
+    reference-event id, an expectation-capture date, or a real P8-09
+    Expectations Gap status (not UNKNOWN, since an unknown gap has nothing
+    to compare price against either)."""
+    return (
+        event["event_date"] is not None
+        or reference["reference_event_id"] is not None
+        or reference["expectation_as_of"] is not None
+        or reference["expectations_gap_status"] not in (None, "UNKNOWN")
+    )
 
-    Returns (status, confidence, reasons, data_state). `data_state` is only
-    ever non-`VALID` when `status == "UNKNOWN"` -- it records WHICH of the
-    three real, distinct reasons produced that UNKNOWN (see module
-    docstring): no price at all (`PRICE_DATA_MISSING`), a price too old to
-    trust (`PRICE_STALE`), or a fresh/valid price with too little real
-    signal to render a reflection judgment
-    (`REFLECTION_UNCERTAIN_WITH_VALID_PRICE`)."""
+
+def _effective_reference_direction(event: dict, reference: dict) -> str | None:
+    """The directional claim the reference point makes -- what was actually
+    expected, so momentum can be compared against it. Prefers a direct event
+    reaction; falls back to a real Expectations Gap status. Returns None if
+    neither resolves to a comparable POSITIVE/NEGATIVE claim (e.g. only a
+    bare `reference_event_id`/`expectation_as_of` was supplied with no
+    directional content) -- see module docstring: a reference point alone,
+    without a direction to compare against, still cannot support a confident
+    reflection verdict."""
+    if event["direction"] in ("POSITIVE", "NEGATIVE"):
+        return event["direction"]
+    if reference["expectations_gap_status"] in ("POSITIVE", "NEGATIVE"):
+        return reference["expectations_gap_status"]
+    return None
+
+
+def _price_state(
+    *, m1: Decimal | None, rs_market: Decimal | None, pos_high: Decimal | None,
+    volume_change: Decimal | None, val_pos: str | None, contract: dict,
+) -> tuple[str, list[str], int]:
+    """Pure, price/volume-only momentum read. NEVER produces a reflection
+    verdict -- see module docstring for why this is now structurally
+    separate from `_reflection_status`."""
     reasons: list[str] = []
-
-    if price_as_of is None:
-        return "UNKNOWN", "UNKNOWN", ["PRICE_AS_OF_MISSING"], "PRICE_DATA_MISSING"
-
-    price_as_of_dt = _utc(price_as_of, "PRICE_AS_OF_INVALID")
-    if price_as_of_dt.date() > decision_date:
-        raise PriceReflectionError("PRICE_AS_OF_IN_FUTURE")
-    age_days = (decision_date - price_as_of_dt.date()).days
-    if age_days > freshness_ceiling_days:
-        return "UNKNOWN", "UNKNOWN", [
-            f"PRICE_AS_OF_STALE:age_days={age_days}:ceiling_days={freshness_ceiling_days}"
-        ], "PRICE_STALE"
-
-    m1 = windows["1m"]
-    rs_market = strength["vs_market"]
-    pos_high = strength["position_vs_recent_high_pct"]
-    val_pos = valuation["position_in_range"] if valuation["position_in_range"] != "UNKNOWN" else None
-    event_dir = event["direction"] if event["direction"] not in (None, "UNKNOWN") else None
-
-    korea_scope = contract["korea_data_source_scope"]
-    if data_source_scope == korea_scope and (m1 is None or rs_market is None or pos_high is None):
-        return "UNKNOWN", "UNKNOWN", [
-            "KOREA_PRICE_DATA_INSUFFICIENT:requires_1m_return_and_vs_market_and_position_vs_recent_high"
-        ], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
+    for label, val in (
+        ("1m_return", m1), ("vs_market", rs_market),
+        ("position_vs_recent_high_pct", pos_high), ("volume_change_pct", volume_change),
+    ):
+        if val is not None:
+            reasons.append(f"{label}:{val}")
+    if val_pos is not None:
+        reasons.append(f"valuation_position_in_range:{val_pos}")
 
     scored_signals = sum(
-        signal is not None for signal in (m1, rs_market, pos_high, val_pos, event_dir)
+        signal is not None for signal in (m1, rs_market, pos_high, volume_change, val_pos)
     )
-    if scored_signals < 2:
-        return "UNKNOWN", "UNKNOWN", [f"INSUFFICIENT_PRICE_SIGNALS:scored_count={scored_signals}"], \
-            "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
 
     thresholds = contract["classification_thresholds"]
     rally_threshold = Decimal(thresholds["rally_min_1m_return_pct"])
@@ -329,53 +375,117 @@ def _classify(
     strong_threshold = Decimal(thresholds["strong_momentum_min_pct"])
     mild_threshold = Decimal(thresholds["mild_momentum_min_pct"])
 
-    for label, val in (("1m_return", m1), ("vs_market", rs_market), ("position_vs_recent_high_pct", pos_high)):
-        if val is not None:
-            reasons.append(f"{label}:{val}")
-    if val_pos is not None:
-        reasons.append(f"valuation_position_in_range:{val_pos}")
-    if event_dir is not None:
-        reasons.append(f"event_reaction_direction:{event_dir}")
-
     rally = m1 is not None and m1 >= rally_threshold
     near_high = pos_high is not None and pos_high <= near_high_threshold
     expensive = val_pos == "HIGH"
-
     if rally and (near_high or expensive):
         reasons.append("RALLY_AND_STRETCHED_POSITIONING")
-        status = "OVEREXTENDED"
-    else:
-        momentum_values = [v for v in (m1, rs_market) if v is not None]
-        momentum = sum(momentum_values) / len(momentum_values) if momentum_values else None
-        if momentum is not None:
-            reasons.append(f"momentum_avg:{momentum}")
-        if event_dir in ("POSITIVE", "NEGATIVE") and momentum is not None:
-            agrees = (event_dir == "POSITIVE" and momentum > 0) or (event_dir == "NEGATIVE" and momentum < 0)
-            if not agrees or abs(momentum) < mild_threshold:
-                reasons.append("MOMENTUM_HAS_NOT_CAUGHT_UP_TO_KNOWN_EVENT_REACTION")
-                status = "UNDER_REFLECTED"
-            elif abs(momentum) >= strong_threshold:
-                reasons.append("MOMENTUM_STRONGLY_AGREES_WITH_KNOWN_EVENT_REACTION")
-                status = "FULLY_REFLECTED"
-            else:
-                reasons.append("MOMENTUM_PARTIALLY_AGREES_WITH_KNOWN_EVENT_REACTION")
-                status = "PARTIALLY_REFLECTED"
-        elif momentum is None:
-            status = "UNKNOWN"
-            reasons.append("INSUFFICIENT_PRICE_SIGNALS:no_momentum_signal")
-        elif momentum >= strong_threshold:
-            reasons.append("STRONG_MOMENTUM_NO_CONFIRMED_EVENT_SIGNAL")
-            status = "FULLY_REFLECTED"
-        else:
-            # Flat/negative momentum with no confirmed catalyst never claims
-            # UNDER_REFLECTED — there is no channel here to distinguish "price
-            # hasn't caught up yet" from "there is nothing to catch up to".
-            reasons.append("MODERATE_OR_FLAT_MOMENTUM_NO_CONFIRMED_EVENT_SIGNAL")
-            status = "PARTIALLY_REFLECTED"
+        return "OVEREXTENDED", reasons, scored_signals
 
-    if status == "UNKNOWN":
+    momentum_values = [v for v in (m1, rs_market) if v is not None]
+    momentum = sum(momentum_values) / len(momentum_values) if momentum_values else None
+    if momentum is None or scored_signals < 2:
+        reasons.append(f"INSUFFICIENT_PRICE_SIGNALS:scored_count={scored_signals}")
+        return "UNKNOWN", reasons, scored_signals
+
+    reasons.append(f"momentum_avg:{momentum}")
+    if momentum >= strong_threshold:
+        return "STRONG_MOMENTUM", reasons, scored_signals
+    if momentum >= mild_threshold:
+        return "MODERATE", reasons, scored_signals
+    return "WEAK", reasons, scored_signals
+
+
+def _reflection_status(
+    *, event: dict, reference: dict, m1: Decimal | None, rs_market: Decimal | None, contract: dict,
+) -> tuple[str, list[str]]:
+    """Only ever leaves `UNKNOWN` when a real reference point AND a
+    comparable direction AND real momentum are all present -- see module
+    docstring. Momentum magnitude alone (no matter how large) is never
+    sufficient on its own."""
+    reasons: list[str] = []
+    if not _has_reference_point(event, reference):
+        reasons.append("NO_REFLECTION_REFERENCE_POINT")
+        return "UNKNOWN", reasons
+
+    effective_direction = _effective_reference_direction(event, reference)
+    momentum_values = [v for v in (m1, rs_market) if v is not None]
+    momentum = sum(momentum_values) / len(momentum_values) if momentum_values else None
+    if effective_direction is None or momentum is None:
+        reasons.append("REFERENCE_POINT_PRESENT_BUT_NO_COMPARABLE_DIRECTION_OR_MOMENTUM")
+        return "UNKNOWN", reasons
+
+    reasons.append(f"reference_effective_direction:{effective_direction}")
+    reasons.append(f"momentum_avg:{momentum}")
+
+    thresholds = contract["classification_thresholds"]
+    strong_threshold = Decimal(thresholds["strong_momentum_min_pct"])
+    mild_threshold = Decimal(thresholds["mild_momentum_min_pct"])
+
+    agrees = (effective_direction == "POSITIVE" and momentum > 0) or (
+        effective_direction == "NEGATIVE" and momentum < 0
+    )
+    if not agrees or abs(momentum) < mild_threshold:
+        reasons.append("MOMENTUM_HAS_NOT_CAUGHT_UP_TO_REFERENCE")
+        return "UNDER_REFLECTED", reasons
+    if abs(momentum) >= strong_threshold:
+        reasons.append("MOMENTUM_STRONGLY_AGREES_WITH_REFERENCE")
+        return "FULLY_REFLECTED", reasons
+    reasons.append("MOMENTUM_PARTIALLY_AGREES_WITH_REFERENCE")
+    return "PARTIALLY_REFLECTED", reasons
+
+
+def _classify(
+    *,
+    price_as_of: str | None,
+    decision_date: dt.date,
+    freshness_ceiling_days: int,
+    windows: dict,
+    strength: dict,
+    event: dict,
+    reference: dict,
+    valuation: dict,
+    contract: dict,
+) -> tuple[str, str, str, str, list[str]]:
+    """Pure, deterministic classification. Rule 1 (staleness) always runs
+    first and, if triggered, short-circuits everything else -- both
+    `price_state` and `reflection_status` are forced UNKNOWN.
+
+    Returns (price_state, reflection_status, confidence, data_state,
+    reasons)."""
+    if price_as_of is None:
+        return "UNKNOWN", "UNKNOWN", "UNKNOWN", "PRICE_DATA_MISSING", ["PRICE_AS_OF_MISSING"]
+
+    price_as_of_dt = _utc(price_as_of, "PRICE_AS_OF_INVALID")
+    if price_as_of_dt.date() > decision_date:
+        raise PriceReflectionError("PRICE_AS_OF_IN_FUTURE")
+    age_days = (decision_date - price_as_of_dt.date()).days
+    if age_days > freshness_ceiling_days:
+        return "UNKNOWN", "UNKNOWN", "UNKNOWN", "PRICE_STALE", [
+            f"PRICE_AS_OF_STALE:age_days={age_days}:ceiling_days={freshness_ceiling_days}"
+        ]
+
+    m1 = windows["1m"]
+    rs_market = strength["vs_market"]
+    pos_high = strength["position_vs_recent_high_pct"]
+    volume_change = strength["volume_change_pct"]
+    val_pos = valuation["position_in_range"] if valuation["position_in_range"] != "UNKNOWN" else None
+
+    price_state, price_reasons, scored_signals = _price_state(
+        m1=m1, rs_market=rs_market, pos_high=pos_high,
+        volume_change=volume_change, val_pos=val_pos, contract=contract,
+    )
+    reflection_status, reflection_reasons = _reflection_status(
+        event=event, reference=reference, m1=m1, rs_market=rs_market, contract=contract,
+    )
+
+    reasons = [f"price_state={price_state}"] + price_reasons + \
+        [f"reflection_status={reflection_status}"] + reflection_reasons
+
+    data_state = "VALID" if reflection_status != "UNKNOWN" else "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
+
+    if reflection_status == "UNKNOWN":
         confidence = "UNKNOWN"
-        data_state = "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
     else:
         conf_t = contract["confidence_thresholds"]
         if scored_signals >= conf_t["high_min_scored_signal_count"]:
@@ -384,9 +494,8 @@ def _classify(
             confidence = "MEDIUM"
         else:
             confidence = "LOW"
-        data_state = "VALID"
 
-    return status, confidence, reasons, data_state
+    return price_state, reflection_status, confidence, data_state, reasons
 
 
 def build_packet(
@@ -399,17 +508,19 @@ def build_packet(
     relative_strength: dict | None = None,
     recent_return_windows: dict | None = None,
     event_reaction: dict | None = None,
+    reflection_reference: dict | None = None,
     valuation_context: dict | None = None,
     data_source_scope: str | None = None,
     contract: dict | None = None,
 ) -> dict:
     """Build a Price Reflection packet.
 
-    Every parameter above is price, volume, relative-strength, event-reaction,
-    or valuation-history data (or plumbing: subject/dates/contract). There is
-    no thesis-quality or fundamental-strength parameter — see
-    FORBIDDEN_PARAMETER_SUBSTRINGS and test_price_reflection.py for the
-    signature-inspection regression that guards this.
+    Every parameter above is price, volume, relative-strength, event-
+    reaction, reflection-reference-point, or valuation-history data (or
+    plumbing: subject/dates/contract). There is no thesis-quality or
+    fundamental-strength parameter — see FORBIDDEN_PARAMETER_SUBSTRINGS and
+    test_price_reflection.py for the signature-inspection regression that
+    guards this.
     """
     contract = _validate_contract(contract) if contract is not None else load_contract()
     subject_checked = _token(subject, "SUBJECT_INVALID")
@@ -433,16 +544,17 @@ def build_packet(
     windows = _validate_recent_return_windows(recent_return_windows, contract)
     strength = _validate_relative_strength(relative_strength, contract)
     event = _validate_event_reaction(event_reaction, decision_date_checked, contract)
+    reference = _validate_reflection_reference(reflection_reference, decision_date_checked, contract)
     valuation = _validate_valuation_context(valuation_context, contract)
 
-    status, confidence, reasons, data_state = _classify(
+    price_state, reflection_status, confidence, data_state, reasons = _classify(
         price_as_of=price_as_of,
         decision_date=decision_date_checked,
         freshness_ceiling_days=ceiling,
-        data_source_scope=scope,
         windows=windows,
         strength=strength,
         event=event,
+        reference=reference,
         valuation=valuation,
         contract=contract,
     )
@@ -452,14 +564,16 @@ def build_packet(
         ("relative_strength", relative_strength),
         ("recent_return_windows", recent_return_windows),
         ("event_reaction", event_reaction),
+        ("reflection_reference", reflection_reference),
         ("valuation_context", valuation_context),
     ) if val is None)
 
-    reasons = [f"DATA_STATE:{data_state}"] + reasons
-
     price_reflection = {
-        "status": status,
+        "price_state": price_state,
+        "reflection_status": reflection_status,
         "confidence": confidence,
+        "data_state": data_state,
+        "threshold_basis": contract["classification_thresholds_approval_status"],
         "price_as_of": price_as_of if price_as_of is not None else "UNKNOWN",
         "relative_strength": {
             "vs_market": _render_or_unknown(strength["vs_market"]),
@@ -476,6 +590,11 @@ def build_packet(
             "event_date": event["event_date"] or "UNKNOWN",
             "direction": event["direction"] or "UNKNOWN",
             "reaction_magnitude_pct": event["reaction_magnitude_pct"] or "UNKNOWN",
+        },
+        "reflection_reference": {
+            "reference_event_id": reference["reference_event_id"] or "UNKNOWN",
+            "expectation_as_of": reference["expectation_as_of"] or "UNKNOWN",
+            "expectations_gap_status": reference["expectations_gap_status"] or "UNKNOWN",
         },
         "valuation_context": {
             "metric_type": valuation["metric_type"] or "UNKNOWN",
@@ -519,42 +638,42 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
 
     pr = packet.get("price_reflection")
     pr_fields = {
-        "status", "confidence", "price_as_of", "relative_strength",
-        "recent_return_windows", "event_reaction", "valuation_context",
-        "reasons", "missing_inputs", "data_source_scope",
+        "price_state", "reflection_status", "confidence", "data_state", "threshold_basis",
+        "price_as_of", "relative_strength", "recent_return_windows", "event_reaction",
+        "reflection_reference", "valuation_context", "reasons", "missing_inputs",
+        "data_source_scope",
     }
     if not isinstance(pr, dict) or set(pr) != pr_fields:
         raise PriceReflectionError("OUTPUT_PRICE_REFLECTION_FIELDS_MISMATCH")
 
-    status = pr.get("status")
+    price_state = pr.get("price_state")
+    reflection_status = pr.get("reflection_status")
     confidence = pr.get("confidence")
-    if status not in contract["allowed_status"]:
-        raise PriceReflectionError("OUTPUT_STATUS_INVALID")
+    data_state = pr.get("data_state")
+    threshold_basis = pr.get("threshold_basis")
+
+    if price_state not in contract["allowed_price_state"]:
+        raise PriceReflectionError("OUTPUT_PRICE_STATE_INVALID")
+    if reflection_status not in contract["allowed_reflection_status"]:
+        raise PriceReflectionError("OUTPUT_REFLECTION_STATUS_INVALID")
     if confidence not in contract["allowed_confidence"]:
         raise PriceReflectionError("OUTPUT_CONFIDENCE_INVALID")
-    if status == "UNKNOWN" and confidence != "UNKNOWN":
-        raise PriceReflectionError("OUTPUT_UNKNOWN_STATUS_REQUIRES_UNKNOWN_CONFIDENCE")
-    if "REJECTED" in contract["allowed_status"]:  # defensive: vocabulary must never gain this value
-        raise PriceReflectionError("OUTPUT_VOCABULARY_CONTAINS_REJECTED")
+    if reflection_status == "UNKNOWN" and confidence != "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_UNKNOWN_REFLECTION_STATUS_REQUIRES_UNKNOWN_CONFIDENCE")
+    if "REJECTED" in contract["allowed_price_state"] or "REJECTED" in contract["allowed_reflection_status"]:
+        raise PriceReflectionError("OUTPUT_VOCABULARY_CONTAINS_REJECTED")  # defensive
 
-    reasons_check = pr.get("reasons")
-    if not isinstance(reasons_check, list) or not reasons_check or not isinstance(reasons_check[0], str) \
-            or not reasons_check[0].startswith("DATA_STATE:"):
-        raise PriceReflectionError("OUTPUT_DATA_STATE_MARKER_MISSING")
-    data_state = reasons_check[0][len("DATA_STATE:"):]
     if data_state not in contract["allowed_data_state"]:
         raise PriceReflectionError("OUTPUT_DATA_STATE_INVALID")
-    if (status == "UNKNOWN") != (data_state != "VALID"):
-        raise PriceReflectionError("OUTPUT_DATA_STATE_STATUS_MISMATCH")
+    if (reflection_status == "UNKNOWN") != (data_state != "VALID"):
+        raise PriceReflectionError("OUTPUT_DATA_STATE_REFLECTION_STATUS_MISMATCH")
+
+    if threshold_basis != contract["classification_thresholds_approval_status"]:
+        raise PriceReflectionError("OUTPUT_THRESHOLD_BASIS_MISMATCH")
 
     data_source_scope = pr.get("data_source_scope")
     if data_source_scope not in contract["allowed_data_source_scope"]:
         raise PriceReflectionError("OUTPUT_DATA_SOURCE_SCOPE_INVALID")
-    if data_source_scope == contract["korea_data_source_scope"] and status not in {"UNKNOWN"}:
-        rs = pr.get("relative_strength", {})
-        rw = pr.get("recent_return_windows", {})
-        if "UNKNOWN" in (rw.get("1m"), rs.get("vs_market"), rs.get("position_vs_recent_high_pct")):
-            raise PriceReflectionError("OUTPUT_KOREA_INSUFFICIENT_DATA_MUST_BE_UNKNOWN")
 
     reasons = pr.get("reasons")
     if not isinstance(reasons, list) or not reasons or any(
@@ -565,7 +684,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     missing = pr.get("missing_inputs")
     allowed_missing = {
         "price_as_of", "relative_strength", "recent_return_windows",
-        "event_reaction", "valuation_context",
+        "event_reaction", "reflection_reference", "valuation_context",
     }
     if (
         not isinstance(missing, list)
@@ -607,6 +726,16 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise PriceReflectionError("OUTPUT_EVENT_REACTION_DIRECTION_INVALID")
     if er["reaction_magnitude_pct"] != "UNKNOWN":
         _pct(er["reaction_magnitude_pct"], "OUTPUT_EVENT_REACTION_MAGNITUDE_INVALID")
+
+    rr = pr.get("reflection_reference")
+    if not isinstance(rr, dict) or set(rr) != {
+        "reference_event_id", "expectation_as_of", "expectations_gap_status",
+    }:
+        raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_FIELDS_MISMATCH")
+    if rr["expectation_as_of"] != "UNKNOWN":
+        _date(rr["expectation_as_of"], "OUTPUT_REFLECTION_REFERENCE_EXPECTATION_AS_OF_INVALID")
+    if rr["expectations_gap_status"] not in contract["allowed_direction"] + ["UNKNOWN"]:
+        raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_EXPECTATIONS_GAP_STATUS_INVALID")
 
     vc = pr.get("valuation_context")
     if not isinstance(vc, dict) or set(vc) != {"metric_type", "position_in_range"}:

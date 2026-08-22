@@ -44,6 +44,22 @@ replace that module.
   classification -- so a broken/negative/unpriced/thin case can never be
   shadowed by a positive one (CIO Gate Hardening, contract_version
   `alpha_review/2`).
+
+★ `alpha_review/3` (CIO review round 2 on PR #212): `decision/
+  price_reflection.py` split its old single conflated `status` field into
+  `price_state` (pure momentum, e.g. `OVEREXTENDED`/`STRONG_MOMENTUM`) and
+  `reflection_status` (`UNDER_REFLECTED`/`PARTIALLY_REFLECTED`/
+  `FULLY_REFLECTED`/`UNKNOWN`, only ever non-`UNKNOWN` when a real event/
+  expectation reference point exists) -- see that module's own docstring
+  for the defect this fixes: momentum alone was standing in for a
+  reflection judgment with no reference at all. Gate 3 below
+  (`WAIT_FOR_PRICE`) now keys off `reflection_status == "UNKNOWN"` (the
+  field that actually answers "can we judge reflection"), and every place
+  that used to special-case `pr_status == "OVEREXTENDED"` as a *reflection*
+  signal now reads `pr["price_state"] == "OVEREXTENDED"` instead -- price
+  being overextended is real entry-timing information even when reflection
+  itself is unjudgeable, so it is still consulted, just from the correct
+  field.
 """
 from __future__ import annotations
 
@@ -117,8 +133,8 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "alpha_review/2",
-        "output_schema_version": "alpha_review_packet/2",
+        "contract_version": "alpha_review/3",
+        "output_schema_version": "alpha_review_packet/3",
         "opportunity_states": [
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
@@ -253,7 +269,8 @@ def anticipatory_review_gates(ft: dict, gap: dict, pr: dict, decision_date: dt.d
             or (gap["status"] != "NEGATIVE" and gap["market_expectation_basis"]["basis_type"] == "PROXY")
         ),
         "gate5_price_not_stretched_or_unknown": (
-            pr["status"] not in ("FULLY_REFLECTED", "OVEREXTENDED", "UNKNOWN")
+            pr["reflection_status"] not in ("FULLY_REFLECTED", "UNKNOWN")
+            and pr["price_state"] != "OVEREXTENDED"
         ),
         "gate6_catalysts_and_invalidation_nonempty": (
             len(ft["catalysts"]) > 0 and len(ft["invalidation_conditions"]) > 0
@@ -289,11 +306,12 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
     """
     earnings_status = ft["earnings_conversion"]["status"]
     gap_status = gap["status"]
-    pr_status = pr["status"]
+    reflection_status = pr["reflection_status"]
+    price_state = pr["price_state"]
 
     # 1. BLOCKED -- nothing here has a real evidentiary basis to review.
     no_real_evidence = len(ft["observed_facts"]) == 0 and len(ft["evidence_lineage"]) == 0
-    triple_unknown = earnings_status == "UNKNOWN" and gap_status == "UNKNOWN" and pr_status == "UNKNOWN"
+    triple_unknown = earnings_status == "UNKNOWN" and gap_status == "UNKNOWN" and reflection_status == "UNKNOWN"
     if no_real_evidence or triple_unknown:
         return "BLOCKED"
 
@@ -312,11 +330,14 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
             return "REJECTED"
         return "WAIT_FOR_THESIS_REPAIR"
 
-    # 3. Price-Reflection-UNKNOWN gate -- blanket rule (CIO Gate Hardening):
-    #    no ANTICIPATORY_REVIEW/CONFIRMATION_REVIEW/EARLY_DISCOVERY may ever
-    #    be reached while price is UNKNOWN, no matter how strong the thesis
-    #    otherwise looks.
-    if pr_status == "UNKNOWN":
+    # 3. Reflection-UNKNOWN gate -- blanket rule (CIO Gate Hardening; CIO
+    #    round 2 retargeted this to `reflection_status`, the field that
+    #    actually answers "can we judge reflection" post price/reflection
+    #    split -- see module docstring): no ANTICIPATORY_REVIEW/
+    #    CONFIRMATION_REVIEW/EARLY_DISCOVERY may ever be reached while
+    #    reflection is UNKNOWN, no matter how strong the thesis or how
+    #    extreme the raw momentum otherwise looks.
+    if reflection_status == "UNKNOWN":
         return "WAIT_FOR_PRICE"
 
     # 4. Narrative-only-core-evidence gate -- some observed_facts exist, but
@@ -327,27 +348,37 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
     ):
         return "WAIT_FOR_EVIDENCE"
 
-    # 5. Positive-state logic -- price is known and non-UNKNOWN, gap is not
-    #    NEGATIVE, and evidence is not narrative-only.
+    # 5. Positive-state logic -- reflection is known and non-UNKNOWN (so
+    #    price_state can never itself be UNKNOWN either, by construction:
+    #    reflection_status requires real momentum to have been computed at
+    #    all), gap is not NEGATIVE, and evidence is not narrative-only.
 
     # EXPECTATION_EXHAUSTED -- a positive gap that price has already fully priced in.
     # Reserved specifically for FULLY_REFLECTED + POSITIVE; OVEREXTENDED (any
     # gap) and FULLY_REFLECTED-with-non-POSITIVE fall through to
     # WAIT_FOR_PULLBACK below, per the module spec's tie-break rule.
-    if pr_status == "FULLY_REFLECTED" and gap_status == "POSITIVE":
+    if reflection_status == "FULLY_REFLECTED" and gap_status == "POSITIVE":
         return "EXPECTATION_EXHAUSTED"
 
     # WAIT_FOR_PULLBACK -- good story, bad entry price/timing right now.
-    if pr_status in ("FULLY_REFLECTED", "OVEREXTENDED") and gap_status != "NEGATIVE":
+    # `price_state == OVEREXTENDED` is a pure momentum/positioning signal
+    # (real even without a reflection reference); `reflection_status ==
+    # FULLY_REFLECTED` is the reference-anchored reflection signal. Either
+    # is sufficient grounds to wait for a pullback.
+    if (reflection_status == "FULLY_REFLECTED" or price_state == "OVEREXTENDED") and gap_status != "NEGATIVE":
         return "WAIT_FOR_PULLBACK"
 
     # CONFIRMATION_REVIEW -- conversion is expected/confirmed and price hasn't run.
-    if earnings_status in CONFIRMED_EARNINGS_STATUSES and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED"):
+    if (
+        earnings_status in CONFIRMED_EARNINGS_STATUSES
+        and reflection_status != "FULLY_REFLECTED"
+        and price_state != "OVEREXTENDED"
+    ):
         return "CONFIRMATION_REVIEW"
 
     # WAIT_FOR_EVIDENCE (old rule) -- too early, and the market's own view is
     # itself unclear.
-    if earnings_status in EARLY_EARNINGS_STATUSES and gap_status == "UNKNOWN" and pr_status != "UNDER_REFLECTED":
+    if earnings_status in EARLY_EARNINGS_STATUSES and gap_status == "UNKNOWN" and reflection_status != "UNDER_REFLECTED":
         return "WAIT_FOR_EVIDENCE"
 
     # ANTICIPATORY_REVIEW -- all 7 gates must hold simultaneously.
@@ -378,7 +409,8 @@ def _check_opportunity_state_consistency(
     for their own upstream-supplied-then-not-persisted raw inputs.
     """
     gap_status = gap["status"]
-    pr_status = pr["status"]
+    reflection_status = pr["reflection_status"]
+    price_state = pr["price_state"]
     if state == "REJECTED":
         # Gate 2's single point of truth: CONVERSION_DISAPPOINTED forces
         # REJECTED independent of gap status; a NEGATIVE gap with no live
@@ -390,20 +422,23 @@ def _check_opportunity_state_consistency(
     elif state == "WAIT_FOR_THESIS_REPAIR":
         ok = gap_status == "NEGATIVE" and earnings_status != "UNKNOWN"
     elif state == "WAIT_FOR_PRICE":
-        ok = pr_status == "UNKNOWN"
+        ok = reflection_status == "UNKNOWN"
     elif state == "EXPECTATION_EXHAUSTED":
-        ok = pr_status == "FULLY_REFLECTED" and gap_status == "POSITIVE"
+        ok = reflection_status == "FULLY_REFLECTED" and gap_status == "POSITIVE"
     elif state == "WAIT_FOR_PULLBACK":
-        ok = pr_status in ("FULLY_REFLECTED", "OVEREXTENDED") and gap_status != "NEGATIVE"
+        ok = (reflection_status == "FULLY_REFLECTED" or price_state == "OVEREXTENDED") and gap_status != "NEGATIVE"
     elif state == "CONFIRMATION_REVIEW":
-        # pr_status != UNKNOWN is now part of this invariant too -- gate 3
-        # (WAIT_FOR_PRICE) always intercepts an UNKNOWN price before this
-        # positive state can ever be reached (the exact bug this hardening
-        # closes: CONFIRMATION_REVIEW used to be reachable with
-        # price_reflection.status==UNKNOWN).
+        # reflection_status != UNKNOWN is now part of this invariant too --
+        # gate 3 (WAIT_FOR_PRICE) always intercepts an UNKNOWN reflection
+        # before this positive state can ever be reached (the exact bug the
+        # original hardening closed: CONFIRMATION_REVIEW used to be
+        # reachable with price_reflection.status==UNKNOWN; CIO round 2
+        # retargeted the same invariant onto reflection_status/price_state
+        # after the price/reflection split).
         ok = (
             earnings_status in CONFIRMED_EARNINGS_STATUSES
-            and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED", "UNKNOWN")
+            and reflection_status not in ("FULLY_REFLECTED", "UNKNOWN")
+            and price_state != "OVEREXTENDED"
         )
     elif state in ("WAIT_FOR_EVIDENCE", "EARLY_DISCOVERY"):
         # Both states are reachable via more than one path now (the old
@@ -415,13 +450,14 @@ def _check_opportunity_state_consistency(
         # docstring. The one invariant that IS reconstructable and holds for
         # every path to either state: gates 1-3 must already have passed,
         # i.e. this is real evidence (not BLOCKED), the gap is not NEGATIVE,
-        # and price is not UNKNOWN.
-        ok = gap_status != "NEGATIVE" and pr_status != "UNKNOWN" and earnings_status != "CONVERSION_DISAPPOINTED"
+        # and reflection is not UNKNOWN.
+        ok = gap_status != "NEGATIVE" and reflection_status != "UNKNOWN" and earnings_status != "CONVERSION_DISAPPOINTED"
     elif state == "ANTICIPATORY_REVIEW":
         ok = (
             earnings_status != "UNKNOWN"
             and (gap_status == "POSITIVE" or (gap_status != "NEGATIVE" and gap["market_expectation_basis"]["basis_type"] == "PROXY"))
-            and pr_status not in ("FULLY_REFLECTED", "OVEREXTENDED", "UNKNOWN")
+            and reflection_status not in ("FULLY_REFLECTED", "UNKNOWN")
+            and price_state != "OVEREXTENDED"
             and catalysts_count > 0
             and invalidation_count > 0
         )
@@ -473,7 +509,8 @@ def _entry_conditions(ft: dict, gap: dict, pr: dict, opportunity_state: str) -> 
     lines = [
         f"opportunity_state={opportunity_state}; earnings_conversion.status="
         f"{ft['earnings_conversion']['status']}, expectations_gap.status={gap['status']}, "
-        f"price_reflection.status={pr['status']}.",
+        f"price_reflection.reflection_status={pr['reflection_status']}, "
+        f"price_reflection.price_state={pr['price_state']}.",
     ]
     if opportunity_state in ("ANTICIPATORY_REVIEW", "CONFIRMATION_REVIEW", "EARLY_DISCOVERY"):
         lines.append(
@@ -493,15 +530,15 @@ def _add_conditions(ft: dict, gap: dict, pr: dict) -> list[str]:
         "Add only on a confirmed upgrade of earnings_conversion.status toward "
         "REVENUE_CONVERSION_EXPECTED/MARGIN_CONVERSION_EXPECTED/CONVERSION_CONFIRMED, "
         "sourced from a newer forward_thesis packet version.",
-        "Add only while price_reflection.status remains outside "
-        "(FULLY_REFLECTED, OVEREXTENDED).",
+        "Add only while price_reflection.reflection_status remains outside FULLY_REFLECTED "
+        "and price_reflection.price_state remains outside OVEREXTENDED.",
     ]
 
 
 def _reduce_conditions(ft: dict, gap: dict, pr: dict) -> list[str]:
     return [
         "Reduce if expectations_gap.status turns NEGATIVE.",
-        "Reduce if price_reflection.status becomes OVEREXTENDED.",
+        "Reduce if price_reflection.price_state becomes OVEREXTENDED.",
     ]
 
 
@@ -511,9 +548,10 @@ def _invalidation_conditions(ft: dict) -> list[str]:
     price_reflection-derived condition. Always non-empty as a result."""
     conditions = list(ft["invalidation_conditions"])
     conditions.append(
-        "If price_reflection.status becomes FULLY_REFLECTED or OVEREXTENDED "
-        "before the earnings-conversion thesis firms up "
-        "(see forward_thesis.earnings_conversion.status)."
+        "If price_reflection.reflection_status becomes FULLY_REFLECTED or "
+        "price_reflection.price_state becomes OVEREXTENDED before the "
+        "earnings-conversion thesis firms up (see "
+        "forward_thesis.earnings_conversion.status)."
     )
     return conditions
 
@@ -700,14 +738,17 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
 
     pr = packet.get("price_reflection")
     pr_fields = {
-        "status", "confidence", "price_as_of", "relative_strength",
-        "recent_return_windows", "event_reaction", "valuation_context",
-        "reasons", "missing_inputs", "data_source_scope",
+        "price_state", "reflection_status", "confidence", "data_state", "threshold_basis",
+        "price_as_of", "relative_strength", "recent_return_windows", "event_reaction",
+        "reflection_reference", "valuation_context", "reasons", "missing_inputs",
+        "data_source_scope",
     }
     if not isinstance(pr, dict) or set(pr) != pr_fields:
         raise AlphaReviewError("PRICE_REFLECTION_FIELDS_MISMATCH")
-    if pr.get("status") not in PR_CONTRACT["allowed_status"]:
-        raise AlphaReviewError("PRICE_REFLECTION_STATUS_INVALID")
+    if pr.get("price_state") not in PR_CONTRACT["allowed_price_state"]:
+        raise AlphaReviewError("PRICE_REFLECTION_PRICE_STATE_INVALID")
+    if pr.get("reflection_status") not in PR_CONTRACT["allowed_reflection_status"]:
+        raise AlphaReviewError("PRICE_REFLECTION_REFLECTION_STATUS_INVALID")
     if pr.get("confidence") not in PR_CONTRACT["allowed_confidence"]:
         raise AlphaReviewError("PRICE_REFLECTION_CONFIDENCE_INVALID")
 

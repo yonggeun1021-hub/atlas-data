@@ -72,41 +72,59 @@ module can set it to anything else (`TRADE_PROPOSAL_MUST_BE_NULL`).
 found the pre-hardening gate too loose: real Pilot runs produced
 `SHADOW_ENTRY_REVIEW`-eligible states even though `price_reflection.status
 ==UNKNOWN` for every Pilot, and even for a subject with
-`expectations_gap.status==NEGATIVE`. `classify_opportunity_state()` is a
-small, pure, ordered if/elif chain -- each rule below, once matched, returns
-immediately (no fallthrough). `BLOCKED`, then the Expectations-Gap-negative
-gate, then the Price-Reflection-UNKNOWN gate, then the
-narrative-only-core-evidence gate, are always checked first, before any
-positive-state classification, so a broken/negative/unpriced/thin case can
-never be shadowed by a positive one. In order:
+`expectations_gap.status==NEGATIVE`.
+
+**`alpha_review/3` (CIO review round 2 on PR #212).**
+`decision/price_reflection.py` split its old single conflated `status`
+field into `price_state` (pure momentum: `OVEREXTENDED | STRONG_MOMENTUM |
+MODERATE | WEAK | UNKNOWN`) and `reflection_status` (`UNDER_REFLECTED |
+PARTIALLY_REFLECTED | FULLY_REFLECTED | UNKNOWN`, only ever non-`UNKNOWN`
+when a real event/expectation reference point exists) -- the CIO's
+diagnosis: momentum alone was standing in for a reflection judgment with no
+reference at all. Every gate/table row below that used to read
+`price_reflection.status` now reads `reflection_status` for the "can we
+judge reflection at all" question, and `price_state` for the pure
+momentum/positioning question (e.g. `OVEREXTENDED`) -- `price_state` is
+consulted even when `reflection_status` is already known-non-`UNKNOWN`,
+since an overextended price is still real, useful timing information
+independent of whether a reflection reference exists.
+
+`classify_opportunity_state()` is a small, pure, ordered if/elif chain --
+each rule below, once matched, returns immediately (no fallthrough).
+`BLOCKED`, then the Expectations-Gap-negative gate, then the
+Reflection-UNKNOWN gate, then the narrative-only-core-evidence gate, are
+always checked first, before any positive-state classification, so a
+broken/negative/unpriced/thin case can never be shadowed by a positive one.
+In order:
 
 | # | State | Fires when |
 |---|-------|------------|
-| 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND price_reflection.status==UNKNOWN` (triple-UNKNOWN) |
+| 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND reflection_status==UNKNOWN` (triple-UNKNOWN) |
 | 2a | `REJECTED` | `earnings_conversion.status==CONVERSION_DISAPPOINTED` (independent of gap status) **OR** (`expectations_gap.status==NEGATIVE AND earnings_conversion.status==UNKNOWN`) |
 | 2b | `WAIT_FOR_THESIS_REPAIR` | `expectations_gap.status==NEGATIVE AND earnings_conversion.status!=UNKNOWN` (and 2a didn't already fire) -- a real earnings-conversion hypothesis still stands, just currently disagreed-with by the market proxy |
-| 3 | `WAIT_FOR_PRICE` | `price_reflection.status==UNKNOWN` (blanket rule: no positive state may ever be reached while price is UNKNOWN, however strong the thesis/gap otherwise looks) |
+| 3 | `WAIT_FOR_PRICE` | `reflection_status==UNKNOWN` (blanket rule: no positive state may ever be reached while reflection is unjudgeable, however strong the thesis/gap or however extreme the raw momentum otherwise looks) |
 | 4 | `WAIT_FOR_EVIDENCE` (narrative-only-core-evidence gate) | `len(observed_facts)>0 AND` none of them have `source_class==EXHIBIT_EXTRACTED` (only `NARRATIVE_SOURCED`/`PRICE_FEED`) |
-| 5 | `EXPECTATION_EXHAUSTED` | `price_reflection.status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
-| 6 | `WAIT_FOR_PULLBACK` | `price_reflection.status ∈ {FULLY_REFLECTED, OVEREXTENDED} AND expectations_gap.status!=NEGATIVE` |
-| 7 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND price_reflection.status ∉ {OVEREXTENDED, FULLY_REFLECTED}` (price is already known-non-UNKNOWN by row 3) |
-| 8 | `WAIT_FOR_EVIDENCE` (old rule) | `earnings_conversion.status ∈ {PRE_REVENUE_SIGNAL, BACKLOG_BUILDING, UNKNOWN} AND expectations_gap.status==UNKNOWN AND price_reflection.status!=UNDER_REFLECTED` |
+| 5 | `EXPECTATION_EXHAUSTED` | `reflection_status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
+| 6 | `WAIT_FOR_PULLBACK` | (`reflection_status==FULLY_REFLECTED OR price_state==OVEREXTENDED`) `AND expectations_gap.status!=NEGATIVE` |
+| 7 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND reflection_status!=FULLY_REFLECTED AND price_state!=OVEREXTENDED` (reflection is already known-non-UNKNOWN by row 3) |
+| 8 | `WAIT_FOR_EVIDENCE` (old rule) | `earnings_conversion.status ∈ {PRE_REVENUE_SIGNAL, BACKLOG_BUILDING, UNKNOWN} AND expectations_gap.status==UNKNOWN AND reflection_status!=UNDER_REFLECTED` |
 | 9 | `ANTICIPATORY_REVIEW` | ALL 7 gates below hold simultaneously |
-| 10 | `EARLY_DISCOVERY` | default fallback — has real evidence (not `BLOCKED`), price known, gap not negative, at least one `EXHIBIT_EXTRACTED` fact, but fits none of the above |
+| 10 | `EARLY_DISCOVERY` | default fallback — has real evidence (not `BLOCKED`), reflection known, gap not negative, at least one `EXHIBIT_EXTRACTED` fact, but fits none of the above |
 
 Rows 2a/2b fold in the pre-hardening `OVEREXTENDED+NEGATIVE -> REJECTED`
 clause (now a strict subset of the broader NEGATIVE-gap rule) and the
 `CONVERSION_DISAPPOINTED -> REJECTED` clause, so `REJECTED` keeps exactly
 one point of truth. Row 5 is checked strictly before row 6 so
 `FULLY_REFLECTED + POSITIVE` always resolves to `EXPECTATION_EXHAUSTED`
-rather than `WAIT_FOR_PULLBACK`; `OVEREXTENDED` (any non-`NEGATIVE` gap) and
-`FULLY_REFLECTED` with a non-`POSITIVE`, non-`NEGATIVE` gap both resolve to
-`WAIT_FOR_PULLBACK`. Row 8's `WAIT_FOR_EVIDENCE` and row 9's
-`ANTICIPATORY_REVIEW` are, in practice, only reachable once rows 1-4 have
-already been cleared -- i.e. price is known and at least one
-`EXHIBIT_EXTRACTED` fact exists -- which is why real current Pilot evidence
-(no ratified P5 packet, and either `price_reflection.status==UNKNOWN` or
-narrative-only evidence for every subject) never reaches rows 5-10 today.
+rather than `WAIT_FOR_PULLBACK`; `price_state==OVEREXTENDED` (any
+non-`NEGATIVE` gap) and `reflection_status==FULLY_REFLECTED` with a
+non-`POSITIVE`, non-`NEGATIVE` gap both resolve to `WAIT_FOR_PULLBACK`. Row
+8's `WAIT_FOR_EVIDENCE` and row 9's `ANTICIPATORY_REVIEW` are, in practice,
+only reachable once rows 1-4 have already been cleared -- i.e. reflection is
+known and at least one `EXHIBIT_EXTRACTED` fact exists -- which is why real
+current Pilot evidence (no ratified P5 packet, no real reference point
+supplied for any subject, and narrative-only evidence for the ones with a
+thesis) never reaches rows 5-10 today.
 
 ### The 7 `ANTICIPATORY_REVIEW` gates
 
@@ -122,7 +140,8 @@ All 7 must hold. See `anticipatory_review_gates()`:
 4. `expectations_gap.status==POSITIVE` **OR** (`expectations_gap.status!=
    NEGATIVE AND expectations_gap.market_expectation_basis.basis_type==
    PROXY`).
-5. `price_reflection.status ∉ {FULLY_REFLECTED, OVEREXTENDED, UNKNOWN}`.
+5. `reflection_status ∉ {FULLY_REFLECTED, UNKNOWN} AND price_state !=
+   OVEREXTENDED`.
 6. `len(catalysts)>0 AND len(invalidation_conditions)>0` (re-asserted; both
    already guaranteed non-empty upstream).
 7. No future-dated evidence anywhere in `evidence_lineage`/`observed_facts`

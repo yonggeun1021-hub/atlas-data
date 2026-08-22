@@ -75,6 +75,44 @@ class KoreaBenchmarkSeriesTests(unittest.TestCase):
             self.assertEqual(series.dates(), [])
 
 
+class KoreaMarketMembershipLoaderTests(unittest.TestCase):
+    """`config/korea_market_membership.json` loader -- proves the RATIFIED
+    pathway actually works (not just that everything is currently
+    UNRATIFIED), and that UNRATIFIED/malformed entries are correctly
+    excluded."""
+
+    def test_real_committed_file_has_zero_ratified_entries(self):
+        self.assertEqual(pe.load_ratified_korea_market_membership(), {})
+
+    def test_ratified_entry_is_returned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "korea_market_membership.json"
+            path.write_text(json.dumps({
+                "members": [
+                    {"code": "298040", "market_claim": "KOSPI", "approval_status": "RATIFIED"},
+                    {"code": "267260", "market_claim": "KOSPI", "approval_status": "UNRATIFIED"},
+                ],
+            }), encoding="utf-8")
+            self.assertEqual(pe.load_ratified_korea_market_membership(path), {"298040": "KOSPI"})
+
+    def test_missing_file_returns_empty_dict_not_a_crash(self):
+        self.assertEqual(
+            pe.load_ratified_korea_market_membership(Path("/nonexistent/path.json")), {},
+        )
+
+    def test_malformed_entries_are_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "korea_market_membership.json"
+            path.write_text(json.dumps({
+                "members": [
+                    {"code": "005930", "market_claim": "NYSE", "approval_status": "RATIFIED"},  # bad market
+                    {"code": "000660", "approval_status": "RATIFIED"},  # missing market_claim
+                    "not_a_dict",
+                ],
+            }), encoding="utf-8")
+            self.assertEqual(pe.load_ratified_korea_market_membership(path), {})
+
+
 class KrxStockEvidenceTests(unittest.TestCase):
     def test_hyosung_298040_produces_real_differentiated_evidence(self):
         ev = pe.assemble_krx_stock_evidence("298040", DECISION_DATE)
@@ -82,14 +120,13 @@ class KrxStockEvidenceTests(unittest.TestCase):
         self.assertEqual(ev["data_source_scope"], "KRX_OFFICIAL")
         self.assertIsNotNone(ev["recent_return_windows"])
         self.assertIsNotNone(ev["recent_return_windows"]["1m"])
-        self.assertIsNotNone(ev["relative_strength"]["vs_market"])
         self.assertIsNotNone(ev["relative_strength"]["position_vs_recent_high_pct"])
 
     def test_hd_hyundai_electric_267260_produces_real_differentiated_evidence(self):
         ev = pe.assemble_krx_stock_evidence("267260", DECISION_DATE)
         self.assertIsNotNone(ev["price_as_of"])
         self.assertIsNotNone(ev["recent_return_windows"]["1m"])
-        self.assertIsNotNone(ev["relative_strength"]["vs_market"])
+        self.assertIsNotNone(ev["relative_strength"]["position_vs_recent_high_pct"])
 
     def test_doosan_034020_has_zero_evidence_and_returns_all_none(self):
         ev = pe.assemble_krx_stock_evidence("034020", DECISION_DATE)
@@ -100,15 +137,19 @@ class KrxStockEvidenceTests(unittest.TestCase):
             "relative_strength": None,
         })
 
-    def test_code_without_declared_market_membership_gets_no_vs_market(self):
-        # 012450 (한화에어로스페이스) has real KRX price evidence but is NOT
-        # in KOREA_STOCK_MARKET_MEMBERSHIP -- vs_market must fail closed to
-        # None rather than guess a benchmark.
-        self.assertNotIn("012450", pe.KOREA_STOCK_MARKET_MEMBERSHIP)
-        ev = pe.assemble_krx_stock_evidence("012450", DECISION_DATE)
-        self.assertIsNotNone(ev["price_as_of"])  # real price evidence exists
-        if ev["relative_strength"] is not None:
-            self.assertIsNone(ev["relative_strength"]["vs_market"])
+    def test_no_code_currently_gets_a_ratified_vs_market_benchmark(self):
+        # CIO review round 2 on PR #212: the old hardcoded
+        # KOREA_STOCK_MARKET_MEMBERSHIP dict was retracted ("a code comment
+        # is not real evidence"). config/korea_market_membership.json's
+        # entries are all still UNRATIFIED as of this build, so vs_market
+        # must be None for every Korea code, with real price evidence still
+        # otherwise present -- see test_price_evidence_market_membership.py.
+        self.assertEqual(pe.load_ratified_korea_market_membership(), {})
+        for code in ("298040", "267260", "005930", "000660", "012450"):
+            ev = pe.assemble_krx_stock_evidence(code, DECISION_DATE)
+            self.assertIsNotNone(ev["price_as_of"])  # real price evidence exists
+            if ev["relative_strength"] is not None:
+                self.assertIsNone(ev["relative_strength"]["vs_market"])
 
     def test_result_is_deterministic(self):
         first = pe.assemble_krx_stock_evidence("298040", DECISION_DATE)
@@ -122,7 +163,9 @@ class KrxStockEvidenceTests(unittest.TestCase):
         # module docstring. So for any decision_date strictly before that,
         # zero benchmark sessions are PIT-eligible and vs_market must be
         # None even though the stock's own KRX price history goes back to
-        # 2026-07-06.
+        # 2026-07-06. (Moot as of round 2 since vs_market is currently
+        # always None regardless of decision_date -- kept as a regression in
+        # case a future RATIFIED membership entry lands.)
         ev = pe.assemble_krx_stock_evidence("298040", "2026-08-20")
         self.assertIsNotNone(ev["price_as_of"])
         if ev["relative_strength"] is not None:
@@ -209,7 +252,12 @@ class DispatchTests(unittest.TestCase):
 class EndToEndPriceReflectionWiringTests(unittest.TestCase):
     """Feeds real assembled evidence straight into
     decision.price_reflection.build_packet() -- proves the wiring genuinely
-    stops returning blanket UNKNOWN for the KRX-covered pilots."""
+    stops returning a blanket UNKNOWN `price_state` for the KRX/BTC-covered
+    subjects, while `reflection_status` honestly stays UNKNOWN for all of
+    them (CIO review round 2: no subject's real evidence bundle currently
+    carries an event/expectation reference point -- see
+    decision/pilot_evidence_intake.py's price_reflection input builders,
+    none of which pass `event_reaction`/`reflection_reference`)."""
 
     def _build(self, subject: str, decision_date: str = DECISION_DATE) -> dict:
         evidence = pe.assemble_price_evidence(subject, decision_date)
@@ -218,47 +266,50 @@ class EndToEndPriceReflectionWiringTests(unittest.TestCase):
             generated_at=f"{decision_date}T01:00:00Z", **evidence,
         )
 
-    def test_hyosung_gets_a_confident_non_unknown_status(self):
-        packet = self._build("298040.KS")
-        rp = packet["price_reflection"]
-        self.assertNotEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "VALID")
+    def test_hyosung_gets_a_confident_price_state_but_unknown_reflection(self):
+        rp = self._build("298040.KS")["price_reflection"]
+        self.assertNotEqual(rp["price_state"], "UNKNOWN")
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
+        self.assertEqual(rp["data_state"], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
 
-    def test_hd_hyundai_electric_gets_a_confident_non_unknown_status(self):
-        packet = self._build("267260.KS")
-        rp = packet["price_reflection"]
-        self.assertNotEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "VALID")
+    def test_hd_hyundai_electric_gets_a_confident_price_state_but_unknown_reflection(self):
+        rp = self._build("267260.KS")["price_reflection"]
+        self.assertNotEqual(rp["price_state"], "UNKNOWN")
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
 
     def test_doosan_is_honestly_price_data_missing(self):
-        packet = self._build("034020.KS")
-        rp = packet["price_reflection"]
-        self.assertEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "PRICE_DATA_MISSING")
+        rp = self._build("034020.KS")["price_reflection"]
+        self.assertEqual(rp["price_state"], "UNKNOWN")
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
+        self.assertEqual(rp["data_state"], "PRICE_DATA_MISSING")
 
-    def test_samsung_electronics_005930_gets_a_confident_non_unknown_status(self):
-        packet = self._build("005930.KS")
-        rp = packet["price_reflection"]
-        self.assertNotEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "VALID")
+    def test_samsung_electronics_005930_gets_a_confident_price_state_but_unknown_reflection(self):
+        rp = self._build("005930.KS")["price_reflection"]
+        self.assertNotEqual(rp["price_state"], "UNKNOWN")
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
 
-    def test_sk_hynix_000660_gets_a_confident_non_unknown_status(self):
-        packet = self._build("000660.KS")
-        rp = packet["price_reflection"]
-        self.assertNotEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "VALID")
+    def test_sk_hynix_000660_gets_a_confident_price_state_but_unknown_reflection(self):
+        rp = self._build("000660.KS")["price_reflection"]
+        self.assertNotEqual(rp["price_state"], "UNKNOWN")
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
 
-    def test_btc_gets_a_confident_non_unknown_status(self):
-        packet = self._build("BTC")
-        rp = packet["price_reflection"]
-        self.assertNotEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "VALID")
+    def test_btc_is_overextended_price_state_but_unknown_reflection(self):
+        # The exact CIO round-2 core example: a real, extreme BTC rally is
+        # real price_state=OVEREXTENDED evidence, but with no expectation/
+        # catalyst reference point in this repo's evidence, that is NOT
+        # "future expectations are fully reflected" -- reflection_status
+        # must stay UNKNOWN.
+        rp = self._build("BTC")["price_reflection"]
+        self.assertEqual(rp["price_state"], "OVEREXTENDED")
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
+        self.assertEqual(rp["data_state"], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
 
     def test_tsm_is_reflection_uncertain_with_valid_price(self):
         packet = self._build("TSM")
         rp = packet["price_reflection"]
-        self.assertEqual(rp["status"], "UNKNOWN")
-        self.assertEqual(pr.data_state_of(rp), "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
+        self.assertEqual(rp["price_state"], "UNKNOWN")  # single point, no momentum computable either
+        self.assertEqual(rp["reflection_status"], "UNKNOWN")
+        self.assertEqual(rp["data_state"], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
         self.assertNotEqual(rp["price_as_of"], "UNKNOWN")  # a real, fresh price WAS found
 
     def test_every_built_packet_still_validates(self):

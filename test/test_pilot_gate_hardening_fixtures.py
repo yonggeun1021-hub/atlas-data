@@ -49,24 +49,26 @@ PR_FIXTURE = load_module("gate_hardening_pr_fixture", ROOT / "test" / "test_pric
 
 # Expected post-CIO-Gate-Hardening results for the 4 real Pilot subjects.
 #
-# 298040.KS updated by P8-10 (real historical price + Korea KOSPI/KOSDAQ
-# composite benchmark evidence assembly, decision/price_evidence.py):
-# price_reflection.status is no longer the blanket UNKNOWN placeholder for
-# this subject -- it now genuinely resolves to PARTIALLY_REFLECTED from
-# real KRX price history + a real chain-linked benchmark, so gate 3
-# (WAIT_FOR_PRICE) no longer intercepts it. It now correctly falls through
-# to gate 4 (narrative-only-core-evidence -> WAIT_FOR_EVIDENCE), since none
-# of its observed_facts are EXHIBIT_EXTRACTED -- still a WAIT, never an
-# entry, so the CIO Gate Hardening safety invariant this file exists to pin
-# (no real Pilot ever reaches SHADOW_ENTRY_REVIEW) is unaffected; only the
-# WAIT *reason* is now more accurate. TSM/267260.KS/034020.KS are unchanged
-# (TSM still has only a single-point IEX price snapshot -- honestly
-# REFLECTION_UNCERTAIN_WITH_VALID_PRICE, still UNKNOWN at the status level;
-# 267260.KS's REJECTED and 034020.KS's BLOCKED are both reached via gates
-# that run strictly before the price gate, independent of price status).
+# 298040.KS history: P8-10 round 1 (PR #212 initial) wired real KRX price
+# history + a real chain-linked KOSPI benchmark and this subject briefly
+# reached WAIT_FOR_EVIDENCE (price_reflection.status=PARTIALLY_REFLECTED).
+# CIO review round 2 on the same PR found that classification a real defect
+# -- momentum alone (no event/expectation reference point) was standing in
+# for a reflection judgment. decision/price_reflection.py now splits
+# price_state (pure momentum -- still real, still computed) from
+# reflection_status (only ever non-UNKNOWN with a real reference point),
+# and none of the 4 real Pilots' price_reflection inputs currently carry one
+# (see decision/pilot_evidence_intake.py's price_reflection builders) -- so
+# reflection_status is honestly UNKNOWN for all four, and 298040.KS is back
+# to gate 3 (WAIT_FOR_PRICE), same as TSM. This is the CORRECT, retracted
+# state per CIO instruction, not a regression: real, evidence-backed
+# reflection verdicts require a real reference point, which does not yet
+# exist for any Pilot. TSM/267260.KS/034020.KS are unaffected by this round
+# (267260.KS's REJECTED and 034020.KS's BLOCKED are both reached via gates
+# that run strictly before the price/reflection gate, independent of it).
 EXPECTED = {
     "TSM": ("WAIT_FOR_PRICE", "WAIT"),
-    "298040.KS": ("WAIT_FOR_EVIDENCE", "WAIT"),
+    "298040.KS": ("WAIT_FOR_PRICE", "WAIT"),
     "267260.KS": ("REJECTED", "REJECT"),
     "034020.KS": ("BLOCKED", "REJECT"),
 }
@@ -154,10 +156,16 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
             price_as_of="2026-08-19T20:00:00Z",
             recent_return_windows={"1m": "3"},
             relative_strength={"vs_market": "2"},
+            # A real reference point is required for reflection_status to
+            # leave UNKNOWN post-CIO-round-2 (see decision/price_reflection.py) --
+            # without one this synthetic fixture would itself now hit gate 3
+            # (WAIT_FOR_PRICE) and never reach gate 4, defeating the point of
+            # this test.
+            event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5"},
             data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
             contract=PR_FIXTURE.CONTRACT,
         )
-        self.assertNotEqual(pr_packet["price_reflection"]["status"], "UNKNOWN")
+        self.assertNotEqual(pr_packet["price_reflection"]["reflection_status"], "UNKNOWN")
 
         alpha_packet = ALPHA_REVIEW.build_packet(
             forward_thesis_packet=ft_packet,

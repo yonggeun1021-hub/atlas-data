@@ -797,22 +797,22 @@ APPROVED_TESTS = [
     #   LOW confidence를 강제한다. earnings_reaction event_date는 미래 금지.
     #   ⛔ Rule/Stage/Candidate·Ready·Buy 승격/action/order/Production/trading 없음.
     "test/test_expectations_gap.py",
-    # ★ P8-10 — Forward Alpha MVP Price Reflection builder (price/volume only).
-    #   public builder는 price_as_of/relative_strength/recent_return_windows/
-    #   event_reaction/valuation_context/data_source_scope만 받는 keyword-only
-    #   함수이며 thesis·fundamental 계열 파라미터는 구조적으로 존재할 수 없다.
-    #   price_as_of 결측·미래·staleness(기본 5일 ceiling)는 다른 입력과 무관하게
-    #   status/confidence를 UNKNOWN으로 강제한다. Korea(KRX_OFFICIAL) 입력이
-    #   불완전하면 마찬가지로 UNKNOWN이다. OVEREXTENDED는 timing 신호일 뿐 REJECTED
-    #   가 아니고, 이 vocabulary에는 REJECTED/PASS/FAIL이 아예 없다.
+    # ★ P8-10 — Forward Alpha MVP Price Reflection builder (price/volume only,
+    #   contract v2). CIO review round 2 핵심 수정: momentum만으로 reflection
+    #   판정을 내리던 결함을 제거하기 위해 price_state(순수 momentum:
+    #   OVEREXTENDED/STRONG_MOMENTUM/MODERATE/WEAK/UNKNOWN)와 reflection_status
+    #   (UNDER/PARTIALLY/FULLY_REFLECTED/UNKNOWN)를 구조적으로 분리했다.
+    #   reflection_status는 실제 reference point(event_reaction.event_date /
+    #   reflection_reference.reference_event_id·expectation_as_of·
+    #   expectations_gap_status)가 있고 momentum과 비교 가능한 방향이 있을 때만
+    #   UNKNOWN을 벗어난다 — 가격이 아무리 급등해도 reference 없이는 절대
+    #   FULLY_REFLECTED가 될 수 없다. data_state(PRICE_DATA_MISSING/PRICE_STALE/
+    #   REFLECTION_UNCERTAIN_WITH_VALID_PRICE/VALID)는 이제 실제 top-level 필드
+    #   (reasons[0] 문자열 인코딩 아님 — round 1 stopgap 폐기). classification_
+    #   thresholds는 미비준(PROVISIONAL)임을 contract·매 packet의 threshold_basis
+    #   에 명시하며 alpha_review.py도 이번 라운드에 함께 갱신(contract v3)했다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
-    #   status==UNKNOWN일 때 reasons[0]이 항상 "DATA_STATE:<value>" 마커
-    #   (PRICE_DATA_MISSING/PRICE_STALE/REFLECTION_UNCERTAIN_WITH_VALID_PRICE)를
-    #   실어 blanket UNKNOWN을 실제 근거 기반으로 세분화한다 (data_state_of()로
-    #   파싱). status 자체 vocabulary·field set은 변경하지 않음 — alpha_review.py
-    #   가 embedded price_reflection sub-object에 대해 자체 strict field-set
-    #   검증을 갖고 있어 이 PR에서 손대지 않는 그 모듈과 100% 호환 유지.
     "test/test_price_reflection.py",
     # ★ P8-10 — real historical price + Korea KOSPI/KOSDAQ composite benchmark
     #   evidence assembly (decision/price_evidence.py). KRX 시세는
@@ -823,6 +823,10 @@ APPROVED_TESTS = [
     #   체인링크해 조합한다 (repo에 raw 지수 시계열이 커밋된 적이 없어 이것이
     #   유일한 real, non-fabricated 벤치마크). 034020처럼 evidence가 전무한
     #   subject는 모든 필드가 정직하게 None. 새 external API 호출 없음.
+    #   CIO round 2: 코드-주석 형태였던 KOREA_STOCK_MARKET_MEMBERSHIP 하드코딩을
+    #   폐기하고 config/korea_market_membership.json(source/observation_date/
+    #   source_sha256/approval_status 명시)으로 교체 — 전 항목 UNRATIFIED이므로
+    #   vs_market은 현재 모든 한국 종목에서 정직하게 None이다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_evidence.py",

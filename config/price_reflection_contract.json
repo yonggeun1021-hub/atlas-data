@@ -1,12 +1,18 @@
 {
-  "schema_version": 1,
-  "contract_version": "price_reflection/1",
-  "output_schema_version": "price_reflection_packet/1",
-  "allowed_status": [
+  "schema_version": 2,
+  "contract_version": "price_reflection/2",
+  "output_schema_version": "price_reflection_packet/2",
+  "allowed_price_state": [
+    "OVEREXTENDED",
+    "STRONG_MOMENTUM",
+    "MODERATE",
+    "WEAK",
+    "UNKNOWN"
+  ],
+  "allowed_reflection_status": [
     "UNDER_REFLECTED",
     "PARTIALLY_REFLECTED",
     "FULLY_REFLECTED",
-    "OVEREXTENDED",
     "UNKNOWN"
   ],
   "allowed_data_state": [
@@ -24,6 +30,7 @@
     "KRAKEN_OHLC",
     "UNKNOWN"
   ],
+  "allowed_threshold_basis": ["PROVISIONAL", "RATIFIED"],
   "korea_data_source_scope": "KRX_OFFICIAL",
   "default_freshness_ceiling_days": 5,
   "classification_thresholds": {
@@ -32,6 +39,7 @@
     "strong_momentum_min_pct": "8",
     "mild_momentum_min_pct": "2"
   },
+  "classification_thresholds_approval_status": "PROVISIONAL",
   "confidence_thresholds": {
     "high_min_scored_signal_count": 4,
     "medium_min_scored_signal_count": 2
