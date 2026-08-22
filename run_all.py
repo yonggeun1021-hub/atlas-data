@@ -865,6 +865,38 @@ APPROVED_TESTS = [
     #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
     #      false다.
     "test/test_pilot_gate_hardening_fixtures.py",
+    # ★ P11 Opportunity Capture PIT Replay — brand-new `replay/` module, fully
+    #   additive and decoupled from decision/shadow/briefing (see each test's
+    #   own decoupling assertions). Covers: Opportunity Trigger Event schema
+    #   (independent test suite, deliverable 8), the hard anti-lookahead gate
+    #   (deliverable's explicit hard constraint), price-series PIT/integrity
+    #   handling, forward return/MFE/MAE at 1/3/5/10 trading days
+    #   (deliverable 4), the 7-category root-cause classifier with a
+    #   structural no-survivorship-bias proof (deliverable 5), the proposed
+    #   Action Conversion Gate, the existing-ruleset baseline (read-only
+    #   citation of decision/alpha_review.py, never imported/executed), the
+    #   proposed Opportunity Trigger Engine, the full-population universe
+    #   scan, the three ledgers (deliverables 1-3) with winner/loser
+    #   symmetry, and an end-to-end run against real committed repo evidence
+    #   (determinism + zero authority-boolean violations + priority-subject
+    #   window coverage).
+    #   ⛔ capital is hard-coded 0 everywhere in this module; no Stage/Buy/
+    #      Action/Order/Production/trading authority is added or altered.
+    "test/test_opportunity_trigger.py",
+    "test/test_pit_replay_end_to_end.py",
+    "test/test_replay_action_conversion_gate.py",
+    "test/test_replay_existing_ruleset_baseline.py",
+    "test/test_replay_forward_metrics.py",
+    "test/test_replay_ledgers.py",
+    "test/test_replay_asset_identity.py",
+    "test/test_replay_coverage_gap.py",
+    "test/test_replay_lookahead_gate.py",
+    "test/test_replay_no_survivorship_bias.py",
+    "test/test_replay_opportunity_episode.py",
+    "test/test_replay_price_series.py",
+    "test/test_replay_root_cause_classifier.py",
+    "test/test_replay_trigger_engine.py",
+    "test/test_replay_universe_scan.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

@@ -32,7 +32,17 @@ jobs:
       ATLAS_DISPOSABLE_CHECKOUT: "1"
     steps:
       # full-length commit SHA pin — tag 는 움직일 수 있다.
+      # ★ P10-02/P10-03 PIT Replay CIO review round 4 후속 — fetch-depth: 0
+      #   (전체 히스토리). replay/asset_identity.py 의 backdating-방지 검증
+      #   (test_replay_asset_identity.py::EffectiveFromNeverBackdatedVsRealGitHistoryTests)
+      #   이 config/crypto_breadth_exclusion_taxonomy.json 의 실제 git 커밋
+      #   히스토리를 직접 읽어 effective_from 이 소급 기재되지 않았음을 증명한다 —
+      #   PIT 감사의 핵심 보증이므로 shallow clone(기본 fetch-depth: 1)에서
+      #   이 검증 자체를 건너뛰지 않는다. 이 fetch-depth: 0 은 이 gate에만
+      #   적용되며 다른 workflow(collect.yml 등)의 checkout 은 변경하지 않는다.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'
