@@ -44,6 +44,11 @@ def environment(**overrides):
         "ATLAS_CAPTURE_RESULT": "captured",
         "ATLAS_BREADTH_VALIDATION_OUTCOME": "success",
         "ATLAS_LEADERSHIP_VALIDATION_OUTCOME": "success",
+        "ATLAS_P3_04_STEP_OUTCOME": "success",
+        "ATLAS_P3_04_RESULT": "populated",
+        "ATLAS_P3_04_REASON": "",
+        "ATLAS_P3_04_PATH": "data/observations/crypto_global_universe/2026-08-21/packet.json",
+        "ATLAS_P3_04_SHA256": "a" * 64,
         "ATLAS_REPOSITORY": "yonggeun1021-hub/atlas-data",
         "ATLAS_SERVER_URL": "https://github.com",
     }
@@ -122,6 +127,42 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
             leadership_failed["p1_cr_07_validation"]["result"], "failed"
         )
 
+    def test_p3_04_population_outcome_reason_path_and_sha_are_recorded(self):
+        populated = REC.build_record(environment())
+        blocked = REC.build_record(
+            environment(
+                ATLAS_P3_04_RESULT="blocked",
+                ATLAS_P3_04_REASON="BREADTH_SELECTION_UNKNOWN:TAXONOMY_COVERAGE_UNKNOWN",
+                ATLAS_P3_04_PATH="",
+                ATLAS_P3_04_SHA256="",
+            )
+        )
+        not_run = REC.build_record(
+            environment(
+                ATLAS_P3_04_STEP_OUTCOME="skipped",
+                ATLAS_P3_04_RESULT="", ATLAS_P3_04_REASON="",
+                ATLAS_P3_04_PATH="", ATLAS_P3_04_SHA256="",
+            )
+        )
+
+        self.assertEqual(populated["p3_04_population"]["result"], "populated")
+        self.assertIsNone(populated["p3_04_population"]["reason"])
+        self.assertEqual(
+            populated["p3_04_population"]["output_path"],
+            "data/observations/crypto_global_universe/2026-08-21/packet.json",
+        )
+        self.assertEqual(populated["p3_04_population"]["payload_sha256"], "a" * 64)
+
+        self.assertEqual(blocked["p3_04_population"]["result"], "blocked")
+        self.assertEqual(
+            blocked["p3_04_population"]["reason"],
+            "BREADTH_SELECTION_UNKNOWN:TAXONOMY_COVERAGE_UNKNOWN",
+        )
+        self.assertIsNone(blocked["p3_04_population"]["output_path"])
+        self.assertIsNone(blocked["p3_04_population"]["payload_sha256"])
+
+        self.assertEqual(not_run["p3_04_population"]["result"], "not_run")
+
     def test_authority_is_operations_only(self):
         record = REC.build_record(environment())
 
@@ -166,6 +207,7 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
         capture = self.require_step("Capture complete append-only Kraken USD universe")
         breadth = self.require_step("P1-CR-06 immutable snapshot validation")
         leadership = self.require_step("P1-CR-07 transient live replay")
+        population = self.require_step("Populate P3-04 Crypto source-coverage packet")
         telemetry = self.require_step("Record Crypto Breadth scheduler telemetry")
         checkout_index = next(
             index
@@ -179,8 +221,10 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
         self.assertEqual(capture.get("id"), "capture")
         self.assertEqual(breadth.get("id"), "breadth_validation")
         self.assertEqual(leadership.get("id"), "leadership_validation")
+        self.assertEqual(population.get("id"), "p3_04_population")
         self.assertEqual(telemetry.get("if"), "always()")
-        self.assertGreater(STEPS.index(telemetry), STEPS.index(leadership))
+        self.assertGreater(STEPS.index(population), STEPS.index(leadership))
+        self.assertGreater(STEPS.index(telemetry), STEPS.index(population))
         self.assertIn("record_crypto_breadth_run.py", telemetry.get("run", ""))
         self.assertEqual(
             set(telemetry.get("env", {})),
@@ -194,10 +238,28 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
                 "ATLAS_CAPTURE_RESULT",
                 "ATLAS_BREADTH_VALIDATION_OUTCOME",
                 "ATLAS_LEADERSHIP_VALIDATION_OUTCOME",
+                "ATLAS_P3_04_STEP_OUTCOME",
+                "ATLAS_P3_04_RESULT",
+                "ATLAS_P3_04_REASON",
+                "ATLAS_P3_04_PATH",
+                "ATLAS_P3_04_SHA256",
                 "ATLAS_REPOSITORY",
                 "ATLAS_SERVER_URL",
             },
         )
+
+    def test_population_step_never_fails_job_on_blocked_and_commits_separately(self):
+        population = self.require_step("Populate P3-04 Crypto source-coverage packet")
+        commit_raw = self.require_step("Commit immutable raw snapshot and run telemetry")
+        commit_population = self.require_step("Commit P3-04 source-coverage population")
+
+        self.assertIn("crypto_forward_universe_populate.py", population.get("run", ""))
+        self.assertEqual(commit_population.get("if"), "always()")
+        self.assertGreater(STEPS.index(commit_population), STEPS.index(commit_raw))
+        command = commit_population.get("run", "")
+        self.assertIn("data/observations/crypto_global_universe", command)
+        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', command)
+        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', command)
 
     def test_capture_guard_precedes_network_and_marks_incomplete_path(self):
         capture = self.require_step("Capture complete append-only Kraken USD universe")

@@ -139,6 +139,34 @@ def validation_observation(step_outcome: str) -> dict:
     }
 
 
+def _blank_to_none(value: str) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def population_observation(
+    step_outcome: str, result: str, reason: str, path: str, sha256: str
+) -> dict:
+    outcome = step_outcome.strip().lower() if isinstance(step_outcome, str) else ""
+    declared = result.strip().lower() if isinstance(result, str) else ""
+    if outcome == "failure":
+        normalized = "failed"
+    elif outcome == "cancelled":
+        normalized = "cancelled"
+    elif outcome == "skipped":
+        normalized = "not_run"
+    elif declared in {"populated", "verified_existing", "blocked", "failed"}:
+        normalized = declared
+    else:
+        normalized = "unknown"
+    return {
+        "step_outcome": outcome or "unknown",
+        "result": normalized,
+        "reason": _blank_to_none(reason),
+        "output_path": _blank_to_none(path),
+        "payload_sha256": _blank_to_none(sha256),
+    }
+
+
 def build_record(environ: dict[str, str]) -> dict:
     observed = parse_utc(environ.get("ATLAS_RUNNER_STARTED_AT_UTC", ""))
     event_name = environ.get("ATLAS_EVENT_NAME", "").strip()
@@ -190,6 +218,13 @@ def build_record(environ: dict[str, str]) -> dict:
         "p1_cr_07_validation": validation_observation(
             environ.get("ATLAS_LEADERSHIP_VALIDATION_OUTCOME", "")
         ),
+        "p3_04_population": population_observation(
+            environ.get("ATLAS_P3_04_STEP_OUTCOME", ""),
+            environ.get("ATLAS_P3_04_RESULT", ""),
+            environ.get("ATLAS_P3_04_REASON", ""),
+            environ.get("ATLAS_P3_04_PATH", ""),
+            environ.get("ATLAS_P3_04_SHA256", ""),
+        ),
         "authority_flags": {
             "data_readiness_authorized": False,
             "ranking_authorized": False,
@@ -239,6 +274,7 @@ def run(argv=None, environ=None) -> int:
         f" capture={record['capture']['result']}"
         f" cr06={record['p1_cr_06_validation']['result']}"
         f" cr07={record['p1_cr_07_validation']['result']}"
+        f" p3_04={record['p3_04_population']['result']}"
         f" path={target}"
     )
     return 0

@@ -131,6 +131,14 @@ APPROVED_TESTS = [
     #   custody/Stage/Production/trading 권한은 모두 닫는다.
     #   ⛔ live network/workflow/tracked master 없음 — synthetic snapshot + temp output only.
     "test/test_crypto_global_universe.py",
+    # ★ P3-04 population wiring — P1-CR-06 raw Kraken snapshot → tracked
+    #   source-coverage packet. 기존 build_packet()을 그대로 재사용하고(복사 아님)
+    #   taxonomy/full-coverage 미달이면 임의 승격 없이 deterministic BLOCKED로
+    #   기록한다(job을 실패시키지 않음). raw commit과 분리된 별도 step/commit이라
+    #   population 실패나 BLOCKED가 raw evidence를 손상시키지 않는다. skip/repair는
+    #   provider 호출 없이 커밋된 raw만으로 이뤄지고 기존 cron은 바뀌지 않는다.
+    #   ⛔ investable/Stage/Production/trading 권한 없음 — source coverage only.
+    "test/test_crypto_forward_universe_populate.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached
