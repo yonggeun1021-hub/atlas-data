@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """P2-03 wiring: commit the non-reconstructive per-market lineage summary
 that P1-KR-05's own "recent" scope Korea Breadth observation packets
-already carry (payload_sha256, as_of_date, available_at) -- no raw
-response body, no per-symbol identity or price, no re-fetch.
+already carry (payload_sha256, as_of_date, source_available_at,
+captured_at, first_seen_at) -- no raw response body, no per-symbol
+identity or price, no re-fetch.
 
 Reads the two already-built "recent" scope breadth packets
 (korea-breadth-recent-kospi.json / korea-breadth-recent-kosdaq.json,
@@ -14,6 +15,17 @@ sole tracked anchor rotation/korea_capital_rotation_ledger_wire.py reads
 to build coverage_context.breadth's per-market lineage -- if this file
 is absent for a date, the wiring layer must see UNKNOWN, never a
 default/AVAILABLE guess.
+
+capture_mode is a required, explicitly-declared fact (never inferred
+from timestamps alone): "forward_live" for a genuine live capture
+through this real fetch mechanism (the only mode this repository's own
+workflow ever produces), "historical_backfill" for evidence deliberately
+re-derived long after the fact for testing/regression purposes only.
+rotation/korea_capital_rotation_ledger_wire.py's confirmed-history gate
+treats historical_backfill as permanently ineligible regardless of how
+the real timestamps compare -- date math alone cannot distinguish a
+genuine next-trading-day capture from a convenient later catch-up, so
+this is a declared fact, not derived.
 
 Idempotent: byte-compares against any already-committed packet for the
 same date and fails closed on drift (EXISTING_PACKET_DRIFT_OR_TAMPER),
@@ -29,8 +41,10 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = "korea_breadth_context_lineage/1"
+SCHEMA_VERSION = "korea_breadth_context_lineage/2"
 REQUIRED_MARKETS = ("KOSPI", "KOSDAQ")
+CAPTURE_MODES = ("forward_live", "historical_backfill")
+MARKET_LINEAGE_FIELDS = ("payload_sha256", "as_of_date", "source_available_at", "captured_at", "first_seen_at")
 
 
 class ContextPopulateError(ValueError):
@@ -61,19 +75,22 @@ def load_recent_market_packet(derived_dir: Path, market: str) -> dict:
         raise ContextPopulateError(f"RECENT_PACKET_READ_FAILED:{market}:{exc}") from exc
     if value.get("scope") != "recent" or value.get("market") != market:
         raise ContextPopulateError(f"RECENT_PACKET_IDENTITY_MISMATCH:{market}")
-    for field in ("payload_sha256", "as_of_date", "available_at"):
+    for field in MARKET_LINEAGE_FIELDS:
         if field not in value:
             raise ContextPopulateError(f"RECENT_PACKET_FIELD_MISSING:{market}:{field}")
     return value
 
 
 def build_context_summary(
-    market_packets: dict[str, dict], *, workflow_run_id: str | None
+    market_packets: dict[str, dict], *, workflow_run_id: str | None, capture_mode: str
 ) -> dict:
     """market_packets maps 'KOSPI'/'KOSDAQ' to a loaded "recent" scope
     breadth packet (unchanged, from load_recent_market_packet). Extracts
     only lineage_sha256 (the packet's own payload_sha256)/as_of_date/
-    available_at per market -- never a raw price, symbol, or count."""
+    source_available_at/captured_at/first_seen_at per market -- never a
+    raw price, symbol, or count."""
+    if capture_mode not in CAPTURE_MODES:
+        raise ContextPopulateError(f"CAPTURE_MODE_INVALID:{capture_mode}")
     if set(market_packets) != set(REQUIRED_MARKETS):
         raise ContextPopulateError("MARKETS_INCOMPLETE")
     as_of_dates = set()
@@ -86,7 +103,9 @@ def build_context_summary(
         markets[market] = {
             "lineage_sha256": packet["payload_sha256"],
             "as_of_date": as_of,
-            "available_at": packet["available_at"],
+            "source_available_at": packet["source_available_at"],
+            "captured_at": packet["captured_at"],
+            "first_seen_at": packet["first_seen_at"],
         }
         current_fetch = packet.get("fetched_at_utc", {})
         if isinstance(current_fetch, dict) and current_fetch.get("current"):
@@ -103,6 +122,7 @@ def build_context_summary(
     summary = {
         "schema_version": SCHEMA_VERSION,
         "as_of_date": as_of_date,
+        "capture_mode": capture_mode,
         "markets": markets,
         "source": {
             "producer": "korea_breadth_derived_outputs.py",
@@ -137,11 +157,15 @@ def write_json_atomic(path: Path, value: dict) -> None:
         raise
 
 
-def populate(derived_dir: Path, *, workflow_run_id: str | None = None) -> dict:
+def populate(
+    derived_dir: Path, *, workflow_run_id: str | None = None, capture_mode: str
+) -> dict:
     market_packets = {
         market: load_recent_market_packet(derived_dir, market) for market in REQUIRED_MARKETS
     }
-    summary = build_context_summary(market_packets, workflow_run_id=workflow_run_id)
+    summary = build_context_summary(
+        market_packets, workflow_run_id=workflow_run_id, capture_mode=capture_mode
+    )
     path = output_path_for(summary["as_of_date"])
     if path.is_file():
         try:
@@ -159,9 +183,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--derived-dir", required=True, type=Path)
     parser.add_argument("--workflow-run-id", default=None)
+    parser.add_argument("--capture-mode", required=True, choices=CAPTURE_MODES)
     args = parser.parse_args()
     try:
-        result = populate(args.derived_dir, workflow_run_id=args.workflow_run_id)
+        result = populate(
+            args.derived_dir,
+            workflow_run_id=args.workflow_run_id,
+            capture_mode=args.capture_mode,
+        )
     except ContextPopulateError as exc:
         print(f"korea breadth context population failed reason={exc}")
         return 1

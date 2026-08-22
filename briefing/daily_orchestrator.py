@@ -795,6 +795,11 @@ def _classify_korea_rotation(decision_date: str, snapshot: dict) -> dict:
             "breadth_markets": breadth.get("markets"),
             "breadth_source_context_path": breadth.get("source_context_path"),
             "breadth_source_context_sha256": breadth.get("source_context_sha256"),
+            # Informational only -- retrospective/narrative evidence,
+            # never a decision input; does not affect status/reason
+            # above. See rotation/korea_capital_rotation_ledger_wire.py's
+            # build_confirmed_history_context().
+            "confirmed_history": payload.get("confirmed_history"),
         },
     )
 
