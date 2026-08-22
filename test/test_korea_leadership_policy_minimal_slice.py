@@ -148,10 +148,11 @@ class RatifiedPolicyTest(unittest.TestCase):
         self.assertEqual(kosdaq_it["benchmark_identity"], "KOSDAQ::코스닥")
 
     def test_ratification_is_not_retroactive(self):
-        before = dt.date(2026, 8, 21)
+        before = dt.date(2026, 8, 19)
         self.assertIsNone(
             LEADERSHIP.active_record(self.policy["records"], "KOSPI::코스피", before)
         )
+        self.assertEqual(self.policy["effective_from"], "2026-08-20")
 
     def test_future_tampered_effective_from_is_still_inactive(self):
         tampered = self.policy["records"][0] | {"effective_from": "2099-01-01"}
