@@ -82,6 +82,34 @@ class ObservationPairWorkflowTest(unittest.TestCase):
         self.assertIn("git add data/observations/korea_leadership_context", leadership_section)
         self.assertNotIn("git add data/observations/korea_breadth_context", leadership_section)
 
+    def test_write_jobs_resync_to_live_tip_before_committing(self):
+        # Real fix (2026-08-22, run 32566229770 first-dispatch failure):
+        # actions/checkout resolves to the SHA fixed at workflow_dispatch
+        # start for every job in the run, not main's live tip -- so a
+        # downstream write job does not see an upstream job's own commit
+        # that landed moments earlier in the same run, and its push is
+        # rejected as non-fast-forward even though nothing conflicts. Both
+        # write jobs must re-sync to origin/main's real current tip
+        # immediately before staging/committing their own evidence.
+        jobs = self.workflow["jobs"]
+        for job_name in ("korea-breadth-context-commit", "korea-leadership-live-fetch"):
+            steps = "\n".join(
+                step.get("run", "") for step in jobs[job_name]["steps"] if "run" in step
+            )
+            fetch_index = steps.find("git fetch origin main")
+            reset_index = steps.find("git reset --hard origin/main")
+            add_index = steps.find("git add data/observations")
+            self.assertGreaterEqual(fetch_index, 0, f"{job_name} missing re-sync fetch")
+            self.assertGreaterEqual(reset_index, 0, f"{job_name} missing re-sync reset")
+            self.assertLess(
+                fetch_index, add_index,
+                f"{job_name} must fetch the live tip before staging evidence",
+            )
+            self.assertLess(
+                reset_index, add_index,
+                f"{job_name} must reset onto the live tip before staging evidence",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

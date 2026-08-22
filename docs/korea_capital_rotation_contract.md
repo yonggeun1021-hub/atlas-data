@@ -39,6 +39,28 @@ manual `workflow_dispatch`. A new cron was deliberately NOT added to close
 this gap (matching this project's existing "no new cron" precedent) --
 this is reported as the precise, honest gap it is, not silently closed.
 
+### Real dispatch failure and fix (2026-08-22, run 32566229770)
+
+The workflow's first real dispatch (2026-08-10 prior / 2026-08-11 current)
+surfaced a genuine race: `actions/checkout` resolves to the commit SHA
+fixed when the `workflow_dispatch` run started, for every job in that run
+-- it does not track `main`'s live tip. The Breadth context-commit job
+pushed real evidence mid-run; the downstream Leadership job's own
+checkout still pointed at the pre-run SHA, so its commit was based on a
+stale parent and its push was correctly rejected as non-fast-forward
+(`! [rejected] main -> main (fetch first)`). The real KRX-fetched
+2026-08-11 Leadership packet was committed locally in that job but never
+reached origin, so it was lost when the runner was torn down -- an honest
+infrastructure bug, not a policy or taxonomy gap, and not forced to a
+false pass. Fix: both write jobs (`korea-breadth-context-commit`,
+`korea-leadership-live-fetch`) now `git fetch origin main && git reset
+--hard origin/main` immediately before staging/committing their own
+evidence, so each commit is based on the real live tip -- including any
+commit an earlier job in the same run just pushed -- rather than the
+run's fixed start-of-run SHA. This only re-syncs the branch pointer and
+tracked tree; it does not touch the new untracked evidence file already
+written to disk by the fetch step above it.
+
 ## Own-benchmark scopes
 
 The transform consumes two hash-bound `korea_leadership/v1` derived packets.
