@@ -244,6 +244,7 @@ class DailyOrchestratorTest(unittest.TestCase):
                 "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
                 "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
                 "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
+                "FREE_MARKET_DATA",
             }),
         )
         # Built late in the KST day, on the evening slot (so KRX_POST_CLOSE
@@ -277,6 +278,12 @@ class DailyOrchestratorTest(unittest.TestCase):
         # freeze).
         by_id = {row["component_id"]: row for row in packet["components"]}
         for component_id in MODULE.FROZEN_SOURCE_COMPONENTS | {"KRX_PREOPEN_COMPACT"}:
+            if component_id == "FREE_MARKET_DATA":
+                # The committed live capture was collected on the following
+                # UTC day, so this historical packet correctly blocks it at
+                # the common temporal boundary.
+                self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
+                continue
             self.assertTrue(by_id[component_id]["validated"], component_id)
 
         # Tampering the row itself (leaving frozen_sources untouched) is
@@ -670,6 +677,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             "STABLECOIN_NET_ISSUANCE": {"kind": "absent"},
             "CRYPTO_BREADTH": {"kind": "absent"},
             "KRX_POST_CLOSE": {"kind": "absent"},
+            "FREE_MARKET_DATA": {"kind": "missing"},
         }
         self.assertEqual(set(no_evidence_shape), MODULE.FROZEN_SOURCE_COMPONENTS)
 
