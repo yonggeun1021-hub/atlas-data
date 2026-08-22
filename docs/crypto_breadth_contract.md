@@ -91,14 +91,22 @@ by removing X/Z prefixes or by parsing a pair string.
    as deterministic tie-breakers;
 4. apply the versioned taxonomy in
    `config/crypto_breadth_exclusion_taxonomy.json` and exclude fiat,
-   stablecoin, wrapped, staked, and commodity-linked assets;
+   stablecoin, wrapped, staked, commodity-linked, and unverified-identity
+   assets;
 5. select the first 100 eligible assets.  BTC participates in selection but is
    emitted only as a reference and is excluded from the Alt breadth fraction.
 
 The T-1 ranking endpoint prevents the T price move being measured from choosing
 its own membership.  A pair without exact 30-day ranking history is explicitly
 rank-ineligible.  An unclassified asset encountered before the 100th eligible
-member makes the whole result `UNKNOWN`; it is never included by default.
+member makes the whole result `UNKNOWN`; it is never included by default. An
+explicitly `unverified_identity`-classified asset (policy_version v2,
+2026-08-22 -- canonical on-chain/project identity could not be confirmed by
+two independent sources) is structurally different: it is a real, ratified
+exclusion, so the ranking loop skips it and keeps going, exactly like any
+other excluded category -- it does not itself make the whole result
+`UNKNOWN`, and it is never a claim that the asset is investment-unsuitable,
+only that it is conservatively out of the source-coverage universe.
 
 A newly listed online pair can legitimately have only the current row, or only
 one finalized row plus the current row.  Atlas preserves that complete source

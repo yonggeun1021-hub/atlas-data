@@ -374,6 +374,16 @@ APPROVED_TESTS = [
     #   ratified 30일 turnover Top-100·명시 taxonomy·90% coverage gate를 재현한다.
     #   ⛔ 테스트의 live Kraken/tracked factor 없음 — fake fetcher + temp fixtures only.
     "test/test_crypto_breadth.py",
+    # ★ P3-04 — UNVERIFIED_IDENTITY taxonomy category (policy_version v2,
+    #   2026-08-22): NIGHT/RE/PLAY explicitly excluded via the same general
+    #   excluded_categories mechanism as fiat/stablecoin/wrapped/staked/
+    #   commodity_linked, never a 3-ticker hardcode. Real numerator/
+    #   denominator against the real committed 2026-08-22 snapshot: all 88
+    #   Top-100-rank-relevant unknowns resolved as of today; the full gate
+    #   still honestly stays UNKNOWN for a separate, much larger reason
+    #   (roughly 515 minor altcoins beyond this PR's scope) -- verified
+    #   explicitly, never papered over. Top-100/90% thresholds unchanged.
+    "test/test_crypto_breadth_unverified_identity_real_evidence.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을

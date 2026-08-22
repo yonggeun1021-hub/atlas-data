@@ -1,8 +1,5 @@
 {
-  "schema_version": 1,
-  "policy_version": "crypto_breadth_exclusion_taxonomy/v1",
   "approval_status": "RATIFIED",
-  "source_name": "kraken_spot_market_data",
   "effective_from": "2026-08-19",
   "eligible_category": "eligible_crypto",
   "excluded_categories": [
@@ -10,9 +7,10 @@
     "fiat",
     "stablecoin",
     "staked",
+    "unverified_identity",
     "wrapped"
   ],
-  "unknown_asset_policy": "fail_closed_unknown",
+  "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
   "records": [
     {
       "canonical_asset_id": "AAVE",
@@ -421,6 +419,13 @@
       "reason": "NEAR Protocol native asset"
     },
     {
+      "canonical_asset_id": "NIGHT",
+      "category": "unverified_identity",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Ticker collision between two unrelated, unaffiliated real projects both trading as NIGHT -- no single canonical on-chain/project identity confirmed by two independent sources as of this ratification. Conservatively excluded from source-coverage universe, not an investability claim."
+    },
+    {
       "canonical_asset_id": "ONDO",
       "category": "eligible_crypto",
       "effective_from": "2026-08-22",
@@ -447,6 +452,13 @@
       "effective_from": "2026-08-22",
       "effective_to": null,
       "reason": "Pepe -- Ethereum meme token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "PLAY",
+      "category": "unverified_identity",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "No canonical on-chain/project identity confirmed by two independent sources as of this ratification. Kraken's own AssetPairs/Assets metadata carries no chain/contract/genesis identity field to disambiguate. Conservatively excluded from source-coverage universe, not an investability claim."
     },
     {
       "canonical_asset_id": "POL",
@@ -489,6 +501,13 @@
       "effective_from": "2026-08-22",
       "effective_to": null,
       "reason": "Quant Network native asset"
+    },
+    {
+      "canonical_asset_id": "RE",
+      "category": "unverified_identity",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "No canonical on-chain/project identity confirmed by two independent sources as of this ratification. Kraken's own AssetPairs/Assets metadata carries no chain/contract/genesis identity field to disambiguate. Conservatively excluded from source-coverage universe, not an investability claim."
     },
     {
       "canonical_asset_id": "RENDER",
@@ -756,5 +775,8 @@
       "effective_to": null,
       "reason": "Zcash native asset"
     }
-  ]
+  ],
+  "schema_version": 1,
+  "source_name": "kraken_spot_market_data",
+  "unknown_asset_policy": "fail_closed_unknown"
 }
