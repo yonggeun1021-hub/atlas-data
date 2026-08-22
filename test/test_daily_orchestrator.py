@@ -318,7 +318,7 @@ class DailyOrchestratorTest(unittest.TestCase):
                 "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
                 "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
                 "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
-                "FREE_MARKET_DATA",
+                "FREE_MARKET_DATA", "KOREA_ROTATION",
             }),
         )
         # Built late in the KST day, on the evening slot (so KRX_POST_CLOSE
@@ -366,6 +366,14 @@ class DailyOrchestratorTest(unittest.TestCase):
                 # the common temporal boundary correctly blocks it here
                 # too. The tamper-detection loop below still exercises its
                 # frozen_sources re-derivability regardless of status.
+                self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
+                continue
+            if component_id == "KOREA_ROTATION":
+                # Same root cause again: the committed pointer's real
+                # generated_at (from the P1-KR-05 breadth context source
+                # that refreshed it) lands the calendar day after
+                # DECISION_DATE, so the common temporal boundary correctly
+                # blocks it here too.
                 self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
                 continue
             self.assertTrue(by_id[component_id]["validated"], component_id)
@@ -762,6 +770,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             "CRYPTO_BREADTH": {"kind": "absent"},
             "KRX_POST_CLOSE": {"kind": "absent"},
             "FREE_MARKET_DATA": {"kind": "missing"},
+            "KOREA_ROTATION": {"kind": "missing", "value": None},
         }
         self.assertEqual(set(no_evidence_shape), MODULE.FROZEN_SOURCE_COMPONENTS)
 
@@ -1572,6 +1581,122 @@ class DailyOrchestratorTest(unittest.TestCase):
             "SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED",
             packet["unresolved_boundaries"],
         )
+
+    def test_korea_rotation_missing_pointer_is_pending_not_degraded(self):
+        row = MODULE.build_korea_rotation(
+            DECISION_DATE, snapshot={"kind": "missing", "value": None}
+        )
+        self.assertEqual(row["status"], "PENDING")
+        self.assertEqual(row["reason"], "NO_ROTATION_POINTER_PUBLISHED")
+        self.assertFalse(row["validated"])
+        self.assertIsNone(row["packet"])
+
+    def test_korea_rotation_read_error_is_degraded(self):
+        row = MODULE.build_korea_rotation(
+            DECISION_DATE, snapshot={"kind": "error", "value": "JSON_READ_FAILED"}
+        )
+        self.assertEqual(row["status"], "DEGRADED")
+        self.assertEqual(row["reason"], "JSON_READ_FAILED")
+
+    def test_korea_rotation_wrong_date_pointer_is_pending(self):
+        payload = {
+            "as_of_date": "2026-08-19", "run_status": "OK",
+            "rotation": {"status": "ROTATION_BUCKETS_OBSERVED", "rotation_policy_effective": True},
+            "breadth": {"status": "AVAILABLE", "decision_eligible": True},
+        }
+        row = MODULE.build_korea_rotation(
+            DECISION_DATE, snapshot={"kind": "payload", "value": payload}
+        )
+        self.assertEqual(row["status"], "PENDING")
+        self.assertEqual(row["reason"], "NO_ROTATION_OBSERVATION_FOR_DECISION_DATE")
+        self.assertEqual(row["as_of_date"], "2026-08-19")
+
+    def test_korea_rotation_real_blocked_breadth_surfaces_as_policy_blocked(self):
+        # Exact shape build_briefing_pointer() produces for the real
+        # 2026-08-21 P1-KR-05/P3-03 BLOCKED lineage proof.
+        payload = {
+            "schema_version": "korea_rotation_briefing_pointer/1",
+            "contract_version": "korea_capital_rotation/3",
+            "as_of_date": "2026-08-21",
+            "generated_at": "2026-08-22T03:35:36Z",
+            "run_status": "OK",
+            "rotation": {
+                "status": "ROTATION_BUCKETS_OBSERVED",
+                "rotation_policy_effective": True,
+                "packet_sha256": "a" * 64,
+            },
+            "breadth": {
+                "status": "BLOCKED",
+                "reason": "KOSDAQ_AVAILABLE_AT_NULL,KOSPI_AVAILABLE_AT_NULL",
+                "decision_eligible": False,
+                "ranking_input_authorized": False,
+                "markets": {
+                    "KOSPI": {"lineage_sha256": "b" * 64, "as_of_date": "2026-08-21", "available_at": None},
+                    "KOSDAQ": {"lineage_sha256": "c" * 64, "as_of_date": "2026-08-21", "available_at": None},
+                },
+                "source_context_path": "data/observations/korea_breadth_context/2026-08-21/packet.json",
+                "source_context_sha256": "d" * 64,
+            },
+            "authority": {
+                "ranking_input_authorized": False, "candidate_ranking_authorized": False,
+                "stage_promotion_authorized": False, "production_authorized": False,
+                "trading_authorized": False,
+            },
+        }
+        row = MODULE.build_korea_rotation(
+            "2026-08-21", snapshot={"kind": "payload", "value": payload}
+        )
+        self.assertEqual(row["status"], "POLICY_BLOCKED")
+        self.assertIn("KOREA_BREADTH_BLOCKED", row["reason"])
+        self.assertTrue(row["validated"])
+        self.assertEqual(row["packet"]["breadth_status"], "BLOCKED")
+        self.assertFalse(row["packet"]["breadth_decision_eligible"])
+        self.assertEqual(row["packet"]["breadth_markets"]["KOSPI"]["lineage_sha256"], "b" * 64)
+        # Never relabeled NEUTRAL/AVAILABLE/PASS.
+        self.assertNotEqual(row["packet"]["breadth_status"], "AVAILABLE")
+        for value in row["authority"].values():
+            self.assertFalse(value)
+
+    def test_korea_rotation_available_breadth_is_ready(self):
+        payload = {
+            "as_of_date": DECISION_DATE.replace("2026-08-21", "2026-08-21"),
+            "generated_at": f"{DECISION_DATE}T10:00:00Z",
+            "run_status": "OK",
+            "rotation": {"status": "ROTATION_BUCKETS_OBSERVED", "rotation_policy_effective": True, "packet_sha256": "e" * 64},
+            "breadth": {
+                "status": "AVAILABLE", "reason": "KOSDAQ_AVAILABLE,KOSPI_AVAILABLE",
+                "decision_eligible": True, "ranking_input_authorized": False,
+                "markets": {
+                    "KOSPI": {"lineage_sha256": "f" * 64, "as_of_date": DECISION_DATE, "available_at": f"{DECISION_DATE}T09:00:00Z"},
+                    "KOSDAQ": {"lineage_sha256": "0" * 64, "as_of_date": DECISION_DATE, "available_at": f"{DECISION_DATE}T09:00:00Z"},
+                },
+                "source_context_path": "data/observations/korea_breadth_context/2026-08-21/packet.json",
+                "source_context_sha256": "1" * 64,
+            },
+            "authority": {
+                "ranking_input_authorized": False, "candidate_ranking_authorized": False,
+                "stage_promotion_authorized": False, "production_authorized": False,
+                "trading_authorized": False,
+            },
+        }
+        row = MODULE.build_korea_rotation(
+            DECISION_DATE, snapshot={"kind": "payload", "value": payload}
+        )
+        self.assertEqual(row["status"], "READY")
+        self.assertIsNone(row["reason"])
+
+    def test_korea_rotation_run_status_failed_is_degraded(self):
+        payload = {
+            "as_of_date": DECISION_DATE, "generated_at": f"{DECISION_DATE}T10:00:00Z",
+            "run_status": "FAILED",
+            "rotation": {}, "breadth": {"status": "UNKNOWN"},
+            "authority": {},
+        }
+        row = MODULE.build_korea_rotation(
+            DECISION_DATE, snapshot={"kind": "payload", "value": payload}
+        )
+        self.assertEqual(row["status"], "DEGRADED")
+        self.assertEqual(row["reason"], "run_status=FAILED")
 
     def test_workflow_does_not_duplicate_or_alter_existing_collector_schedules(self):
         # The daily briefing workflow must never re-fetch anything the
