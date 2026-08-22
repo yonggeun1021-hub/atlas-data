@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "korea_capital_rotation_contract.json"
 INPUT_SCHEMA_VERSION = "korea_capital_rotation_input/1"
 POLICY_SCHEMA_VERSION = "korea_capital_rotation_policy/1"
-OUTPUT_SCHEMA_VERSION = "korea_capital_rotation_packet/2"
+OUTPUT_SCHEMA_VERSION = "korea_capital_rotation_packet/3"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 
@@ -45,7 +45,7 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "korea_capital_rotation/2",
+        "contract_version": "korea_capital_rotation/3",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "policy_schema_version": POLICY_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
@@ -60,6 +60,8 @@ def _expected_contract() -> dict:
         "bucket_vocabulary": ["TOP", "MIDDLE", "BOTTOM"],
         "transition_semantics": "PRIOR_BUCKET_TO_CURRENT_BUCKET_WITHIN_BENCHMARK_SCOPE",
         "breadth_context_policy": "OBSERVATION_ONLY_NOT_RANKING_INPUT",
+        "breadth_status_vocabulary": ["AVAILABLE", "BLOCKED", "STALE", "UNKNOWN"],
+        "breadth_required_markets": ["KOSDAQ", "KOSPI"],
         "investor_flow_context_policy": "KRX_ONLY_UNVERIFIED_AVAILABLE_AT_NOT_RANKING_INPUT",
         "effective_interval": "[effective_from, effective_to)",
         "input_retention_policy": "UPSTREAM_DERIVED_PACKETS_ONLY_NO_SOURCE_CLOSE_ROWS",
@@ -205,19 +207,96 @@ def _validate_binding(value: dict, contract: dict) -> dict:
     }
 
 
-def _validate_context(value: dict) -> dict:
+_BREADTH_STATUS_SEVERITY = {"UNKNOWN": 0, "BLOCKED": 1, "STALE": 2, "AVAILABLE": 3}
+
+
+def _validate_breadth_market(value: dict, market: str) -> dict:
+    """Parse one market's minimum-sufficient breadth lineage facts.
+
+    All three fields null together means no observation was supplied for
+    this market at all (-> UNKNOWN downstream). Any other combination
+    requires at least lineage_sha256 and as_of_date -- a market cannot
+    have a partial identity. available_at alone may still be null: that
+    is exactly what every P1-KR-05 Breadth observation packet emits today
+    (decision_eligible=false at the source), and must map to BLOCKED, not
+    be treated as a missing observation.
+    """
+    if not isinstance(value, dict) or set(value) != {
+        "lineage_sha256", "as_of_date", "available_at",
+    }:
+        raise KoreaCapitalRotationError(f"BREADTH_MARKET_FIELDS_MISMATCH:{market}")
+    lineage_sha256 = value.get("lineage_sha256")
+    as_of_date = value.get("as_of_date")
+    available_at = value.get("available_at")
+    if lineage_sha256 is None and as_of_date is None and available_at is None:
+        return {"lineage_sha256": None, "as_of_date": None, "available_at": None}
+    if lineage_sha256 is None or as_of_date is None:
+        raise KoreaCapitalRotationError(f"BREADTH_MARKET_PARTIAL_IDENTITY:{market}")
+    parsed = {
+        "lineage_sha256": _sha(lineage_sha256, f"BREADTH_MARKET_SHA_INVALID:{market}"),
+        "as_of_date": _date(as_of_date, f"BREADTH_MARKET_DATE_INVALID:{market}"),
+        "available_at": (
+            None if available_at is None
+            else _timestamp(available_at, f"BREADTH_MARKET_AVAILABLE_AT_INVALID:{market}")
+        ),
+    }
+    return parsed
+
+
+def _derive_breadth_market_status(
+    parsed: dict, as_of_date: dt.date, freshness_limit_days: int, market: str
+) -> str:
+    if parsed["lineage_sha256"] is None:
+        return "UNKNOWN"
+    if parsed["available_at"] is None:
+        return "BLOCKED"
+    age_days = (as_of_date - parsed["available_at"].date()).days
+    if age_days < 0:
+        raise KoreaCapitalRotationError(f"BREADTH_MARKET_AVAILABLE_AT_AFTER_AS_OF:{market}")
+    if age_days > freshness_limit_days:
+        return "STALE"
+    return "AVAILABLE"
+
+
+def _validate_context(value: dict, as_of_date: dt.date) -> dict:
     fields = {"breadth", "investor_flow"}
     if not isinstance(value, dict) or set(value) != fields:
         raise KoreaCapitalRotationError("COVERAGE_CONTEXT_FIELDS_MISMATCH")
     breadth = value.get("breadth")
     if not isinstance(breadth, dict) or set(breadth) != {
-        "status", "available_at", "lineage_sha256", "ranking_input_authorized"
+        "status", "markets", "freshness_limit_days",
+        "ranking_input_authorized", "decision_eligible",
     }:
         raise KoreaCapitalRotationError("BREADTH_CONTEXT_FIELDS_MISMATCH")
+    freshness_limit_days = _positive_int(
+        breadth.get("freshness_limit_days"), "BREADTH_FRESHNESS_LIMIT_INVALID"
+    )
+    markets = breadth.get("markets")
+    if not isinstance(markets, dict) or set(markets) != {"KOSDAQ", "KOSPI"}:
+        raise KoreaCapitalRotationError("BREADTH_MARKETS_FIELDS_MISMATCH")
+    parsed_markets = {
+        market: _validate_breadth_market(markets[market], market)
+        for market in ("KOSDAQ", "KOSPI")
+    }
+    # Independently re-derived from the raw per-market facts, not trusted
+    # from the caller's own declared status -- exactly like every other
+    # derived field in this contract (rotation_policy_effective, bucket
+    # transitions, ...). The worst per-market status wins: one market
+    # blocked or unknown makes the whole Breadth context that severity,
+    # never averaged or masked by the other market being fresher.
+    per_market_status = {
+        market: _derive_breadth_market_status(
+            parsed, as_of_date, freshness_limit_days, market
+        )
+        for market, parsed in parsed_markets.items()
+    }
+    derived_status = min(
+        per_market_status.values(), key=lambda status: _BREADTH_STATUS_SEVERITY[status]
+    )
+    derived_decision_eligible = derived_status == "AVAILABLE"
     if (
-        breadth.get("status") != "OBSERVATION_ONLY_NO_DURABLE_AVAILABLE_AT_LINEAGE"
-        or breadth.get("available_at") is not None
-        or breadth.get("lineage_sha256") is not None
+        breadth.get("status") != derived_status
+        or breadth.get("decision_eligible") is not derived_decision_eligible
         or breadth.get("ranking_input_authorized") is not False
     ):
         raise KoreaCapitalRotationError("BREADTH_CONTEXT_AUTHORITY_INVALID")
@@ -555,7 +634,7 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         raise KoreaCapitalRotationError("INPUT_FIELDS_MISMATCH")
     as_of_date = _date(value.get("as_of_date"), "AS_OF_DATE_INVALID")
     binding = _validate_binding(value.get("taxonomy_binding"), contract)
-    context = _validate_context(value.get("coverage_context"))
+    context = _validate_context(value.get("coverage_context"), as_of_date)
     prior = _validate_upstream(value.get("prior_observation"), "prior", contract)
     current = _validate_upstream(value.get("current_observation"), "current", contract)
     if not prior["observation_date"] < current["observation_date"] == as_of_date:
@@ -754,7 +833,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     if prior_available_at >= current_available_at:
         raise KoreaCapitalRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
     binding = _validate_binding(packet.get("taxonomy_binding"), contract)
-    _validate_context(packet.get("coverage_context"))
+    _validate_context(packet.get("coverage_context"), as_of)
 
     policy = packet.get("rotation_policy")
     policy_fields = {

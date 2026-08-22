@@ -114,6 +114,29 @@ def rehash_output(packet: dict) -> None:
     packet["payload_sha256"] = KCR.payload_sha256(packet)
 
 
+def breadth_market(lineage_sha256=None, as_of_date=None, available_at=None) -> dict:
+    return {
+        "lineage_sha256": lineage_sha256,
+        "as_of_date": as_of_date,
+        "available_at": available_at,
+    }
+
+
+def breadth_context(
+    status: str, decision_eligible: bool, *, kosdaq=None, kospi=None, freshness_limit_days=3
+) -> dict:
+    return {
+        "status": status,
+        "markets": {
+            "KOSDAQ": kosdaq or breadth_market(),
+            "KOSPI": kospi or breadth_market(),
+        },
+        "freshness_limit_days": freshness_limit_days,
+        "ranking_input_authorized": False,
+        "decision_eligible": decision_eligible,
+    }
+
+
 def make_bundle() -> tuple[dict, dict]:
     with tempfile.TemporaryDirectory() as raw:
         policy_path = write_upstream_policy(Path(raw) / "leadership-policy.json")
@@ -138,10 +161,14 @@ def make_bundle() -> tuple[dict, dict]:
     }
     context = {
         "breadth": {
-            "status": "OBSERVATION_ONLY_NO_DURABLE_AVAILABLE_AT_LINEAGE",
-            "available_at": None,
-            "lineage_sha256": None,
+            "status": "UNKNOWN",
+            "markets": {
+                "KOSDAQ": {"lineage_sha256": None, "as_of_date": None, "available_at": None},
+                "KOSPI": {"lineage_sha256": None, "as_of_date": None, "available_at": None},
+            },
+            "freshness_limit_days": 3,
             "ranking_input_authorized": False,
+            "decision_eligible": False,
         },
         "investor_flow": {
             "status": "KRX_ONLY_PARTIAL_MARKET_COVERAGE",
@@ -278,6 +305,123 @@ class KoreaCapitalRotationTests(unittest.TestCase):
         value["coverage_context"]["investor_flow"]["decision_eligible"] = True
         with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "INVESTOR_FLOW_CONTEXT_AUTHORITY_INVALID"):
             KCR.build_packet(value, policy)
+
+    def test_real_p1_kr05_live_lineage_derives_blocked_not_available(self):
+        # Exact payload_sha256/as_of_date values from a real P1-KR-05
+        # workflow_dispatch live run (2026-08-22 UTC, run 32549348644) --
+        # not a synthetic fixture. Both real Breadth packets have
+        # available_at=null today (source decision_eligible=false), so
+        # this must derive BLOCKED -- never NEUTRAL/AVAILABLE/PASS.
+        value, policy = make_bundle()
+        value["coverage_context"]["breadth"] = breadth_context(
+            "BLOCKED", False,
+            kosdaq=breadth_market(
+                "3be02ecda92a143abb5a825f66a207bd2a92bdef1d8b59b1c28a5ea8b0fcfc94",
+                "2026-08-21", None,
+            ),
+            kospi=breadth_market(
+                "086bddf7313fe0a36d87d86fc028982bc9835e3b4b55d15dff13ecdc2818caf2",
+                "2026-08-21", None,
+            ),
+        )
+        packet = KCR.build_packet(value, policy)
+        self.assertEqual(packet["coverage_context"]["breadth"]["status"], "BLOCKED")
+        self.assertFalse(packet["coverage_context"]["breadth"]["decision_eligible"])
+        checked = KCR.validate_packet(copy.deepcopy(packet))
+        self.assertEqual(checked["coverage_context"]["breadth"]["status"], "BLOCKED")
+
+    def test_breadth_status_derivation_available_stale_unknown_and_worst_wins(self):
+        value, policy = make_bundle()  # as_of_date = 2026-08-20
+        fresh = breadth_market("a" * 64, "2026-08-20", "2026-08-19T18:00:00Z")
+        value["coverage_context"]["breadth"] = breadth_context(
+            "AVAILABLE", True, kosdaq=fresh, kospi=fresh,
+        )
+        packet = KCR.build_packet(value, policy)
+        self.assertEqual(packet["coverage_context"]["breadth"]["status"], "AVAILABLE")
+        self.assertTrue(packet["coverage_context"]["breadth"]["decision_eligible"])
+
+        stale = breadth_market("a" * 64, "2026-08-14", "2026-08-13T18:00:00Z")
+        value2, policy2 = make_bundle()
+        value2["coverage_context"]["breadth"] = breadth_context(
+            "STALE", False, kosdaq=stale, kospi=stale,
+        )
+        packet2 = KCR.build_packet(value2, policy2)
+        self.assertEqual(packet2["coverage_context"]["breadth"]["status"], "STALE")
+        self.assertFalse(packet2["coverage_context"]["breadth"]["decision_eligible"])
+
+        # Worst-per-market wins: one AVAILABLE market plus one market with
+        # no observation at all (UNKNOWN) must not be masked by the
+        # fresher market -- the whole context degrades to UNKNOWN.
+        value3, policy3 = make_bundle()
+        value3["coverage_context"]["breadth"] = breadth_context(
+            "UNKNOWN", False, kosdaq=breadth_market(), kospi=fresh,
+        )
+        packet3 = KCR.build_packet(value3, policy3)
+        self.assertEqual(packet3["coverage_context"]["breadth"]["status"], "UNKNOWN")
+        self.assertFalse(packet3["coverage_context"]["breadth"]["decision_eligible"])
+
+    def test_breadth_status_cannot_be_declared_wrong(self):
+        # Raw facts (available_at null) independently derive BLOCKED --
+        # a caller cannot simply declare AVAILABLE/decision_eligible=True
+        # to bypass the derivation.
+        value, policy = make_bundle()
+        value["coverage_context"]["breadth"] = breadth_context(
+            "AVAILABLE", True,
+            kosdaq=breadth_market("a" * 64, "2026-08-20", None),
+            kospi=breadth_market("a" * 64, "2026-08-20", None),
+        )
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "BREADTH_CONTEXT_AUTHORITY_INVALID"
+        ):
+            KCR.build_packet(value, policy)
+        # Also rejects a NEUTRAL/PASS-style relabeling of a genuinely
+        # BLOCKED context -- the vocabulary is closed to exactly the four
+        # ratified values, nothing else is accepted even if internally
+        # self-consistent.
+        value2, policy2 = make_bundle()
+        value2["coverage_context"]["breadth"] = breadth_context(
+            "NEUTRAL", False,
+            kosdaq=breadth_market("a" * 64, "2026-08-20", None),
+            kospi=breadth_market("a" * 64, "2026-08-20", None),
+        )
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "BREADTH_CONTEXT_AUTHORITY_INVALID"
+        ):
+            KCR.build_packet(value2, policy2)
+
+    def test_breadth_market_partial_identity_and_future_available_at_fail_closed(self):
+        value, policy = make_bundle()
+        value["coverage_context"]["breadth"]["markets"]["KOSPI"] = breadth_market(
+            "a" * 64, None, None,
+        )
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "BREADTH_MARKET_PARTIAL_IDENTITY"
+        ):
+            KCR.build_packet(value, policy)
+
+        value2, policy2 = make_bundle()
+        future = breadth_market("a" * 64, "2026-08-20", "2026-08-25T00:00:00Z")
+        value2["coverage_context"]["breadth"] = breadth_context(
+            "AVAILABLE", True, kosdaq=future, kospi=future,
+        )
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "BREADTH_MARKET_AVAILABLE_AT_AFTER_AS_OF"
+        ):
+            KCR.build_packet(value2, policy2)
+
+    def test_standalone_validator_rejects_rehashed_breadth_status_tamper(self):
+        value, policy = make_bundle()
+        fresh = breadth_market("a" * 64, "2026-08-20", "2026-08-19T18:00:00Z")
+        value["coverage_context"]["breadth"] = breadth_context(
+            "AVAILABLE", True, kosdaq=fresh, kospi=fresh,
+        )
+        packet = KCR.build_packet(value, policy)
+        packet["coverage_context"]["breadth"]["status"] = "STALE"
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "BREADTH_CONTEXT_AUTHORITY_INVALID"
+        ):
+            KCR.validate_packet(packet)
 
     def test_upstream_role_benchmark_and_taxonomy_drift_fail_closed(self):
         value, policy = make_bundle()
