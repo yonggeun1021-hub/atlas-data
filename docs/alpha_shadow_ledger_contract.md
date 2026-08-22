@@ -31,22 +31,36 @@ corresponding parameter anywhere in `build_record()`'s signature — see
 `test_alpha_shadow_ledger.py`'s regression, which inspects the live function
 signature in addition to asserting the values.
 
-## `opportunity_state` → `action` mapping (exhaustive)
+## `opportunity_state` → `action` mapping (exhaustive, P5-gated)
 
-| `opportunity_state` | `action` |
-|---|---|
-| `BLOCKED` | `REJECT` |
-| `REJECTED` | `REJECT` |
-| `ANTICIPATORY_REVIEW` | `SHADOW_ENTRY_REVIEW` |
-| `EARLY_DISCOVERY` | `SHADOW_ENTRY_REVIEW` |
-| `CONFIRMATION_REVIEW` | `SHADOW_ENTRY_REVIEW` |
-| `WAIT_FOR_PULLBACK` | `WAIT` |
-| `WAIT_FOR_EVIDENCE` | `WAIT` |
-| `EXPECTATION_EXHAUSTED` | `WAIT` |
+**CIO Gate Hardening (contract_version `alpha_shadow_ledger/2`).** The table
+below is the *base* mapping (`config/alpha_shadow_ledger_contract.json`'s
+`opportunity_state_to_action`) — every one of the 10 `opportunity_state`
+values maps to exactly one base `action`; there is no fallback/default
+branch. But a base `SHADOW_ENTRY_REVIEW` is **not** the final word:
+`action_for_opportunity_state()` downgrades it to `WAIT` whenever the Alpha
+Review packet's own `p5_rule_status != "PASS"` (i.e. is `NOT_EVALUATED`,
+`UNKNOWN`, `UNDEFINED`, or `FAIL`) — never silently dropped, never an error.
+Every other base action (`REJECT`/`WAIT`) is untouched by `p5_rule_status`.
 
-This mapping is a plain dict lookup (`config/alpha_shadow_ledger_contract.
-json`'s `opportunity_state_to_action`) — every one of the 8 `opportunity_state`
-values maps to exactly one `action`; there is no fallback/default branch.
+| `opportunity_state` | base `action` | actual `action` |
+|---|---|---|
+| `BLOCKED` | `REJECT` | `REJECT` (p5-independent) |
+| `REJECTED` | `REJECT` | `REJECT` (p5-independent) |
+| `ANTICIPATORY_REVIEW` | `SHADOW_ENTRY_REVIEW` | `SHADOW_ENTRY_REVIEW` iff `p5_rule_status==PASS`, else `WAIT` |
+| `EARLY_DISCOVERY` | `SHADOW_ENTRY_REVIEW` | `SHADOW_ENTRY_REVIEW` iff `p5_rule_status==PASS`, else `WAIT` |
+| `CONFIRMATION_REVIEW` | `SHADOW_ENTRY_REVIEW` | `SHADOW_ENTRY_REVIEW` iff `p5_rule_status==PASS`, else `WAIT` |
+| `WAIT_FOR_PULLBACK` | `WAIT` | `WAIT` (p5-independent) |
+| `WAIT_FOR_EVIDENCE` | `WAIT` | `WAIT` (p5-independent) |
+| `EXPECTATION_EXHAUSTED` | `WAIT` | `WAIT` (p5-independent) |
+| `WAIT_FOR_PRICE` | `WAIT` | `WAIT` (p5-independent) |
+| `WAIT_FOR_THESIS_REPAIR` | `WAIT` | `WAIT` (p5-independent) |
+
+Since no ratified P5 packet exists for any real Pilot subject today
+(`p5_rule_status==NOT_EVALUATED` for all four), this gate is what currently
+prevents **every** real Pilot from ever reaching `SHADOW_ENTRY_REVIEW`,
+regardless of any future evidence improvement, until a real ratified P5
+packet exists for that subject.
 
 ## Administrative fields
 

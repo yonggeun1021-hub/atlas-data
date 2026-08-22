@@ -36,10 +36,14 @@ replace that module.
 
 ★ `opportunity_state` classification is a small, pure, deterministically
   ordered if/elif chain (see `classify_opportunity_state()` and
-  `docs/alpha_review_contract.md` for the full decision table). `BLOCKED` and
-  `REJECTED` are always checked first, before any positive-state
-  classification, so a broken/negative case can never be shadowed by a
-  positive one.
+  `docs/alpha_review_contract.md` for the full decision table). `BLOCKED`,
+  then the Expectations-Gap-negative gate (`REJECTED`/
+  `WAIT_FOR_THESIS_REPAIR`), then the Price-Reflection-UNKNOWN gate
+  (`WAIT_FOR_PRICE`), then the narrative-only-core-evidence gate
+  (`WAIT_FOR_EVIDENCE`), are always checked first, before any positive-state
+  classification -- so a broken/negative/unpriced/thin case can never be
+  shadowed by a positive one (CIO Gate Hardening, contract_version
+  `alpha_review/2`).
 """
 from __future__ import annotations
 
@@ -113,12 +117,12 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "alpha_review/1",
-        "output_schema_version": "alpha_review_packet/1",
+        "contract_version": "alpha_review/2",
+        "output_schema_version": "alpha_review_packet/2",
         "opportunity_states": [
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
-            "REJECTED", "BLOCKED",
+            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_THESIS_REPAIR",
         ],
         "p5_rule_statuses": ["PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"],
         "default_p5_rule_status": "NOT_EVALUATED",
@@ -261,28 +265,70 @@ def anticipatory_review_gates(ft: dict, gap: dict, pr: dict, decision_date: dt.d
 def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.date) -> str:
     """Pure, deterministic, auditable `opportunity_state` classification.
 
-    Ordered if/elif chain -- BLOCKED and REJECTED are always checked first,
-    before any positive-state classification. See
+    Ordered if/elif chain, CIO Gate Hardening priority order -- each rule,
+    once matched, returns immediately (no fallthrough). See
     `docs/alpha_review_contract.md` for the full decision table this
     implements.
+
+    1. BLOCKED
+    2. Expectations-Gap-negative gate (REJECTED / WAIT_FOR_THESIS_REPAIR;
+       CONVERSION_DISAPPOINTED folds in here too, so REJECTED has exactly
+       one point of truth)
+    3. Price-Reflection-UNKNOWN gate (WAIT_FOR_PRICE) -- a blanket rule; no
+       positive state may ever be reached while price is UNKNOWN
+    4. Narrative-only-core-evidence gate (WAIT_FOR_EVIDENCE) -- some
+       evidence exists, but none of it is EXHIBIT_EXTRACTED
+    5. Positive-state logic, only reachable once price is known, the gap is
+       not negative, and at least one EXHIBIT_EXTRACTED fact backs the
+       thesis (or there are zero observed_facts at all, which BLOCKED above
+       would already have caught unless evidence_lineage alone is
+       non-empty): EXPECTATION_EXHAUSTED -> WAIT_FOR_PULLBACK ->
+       CONFIRMATION_REVIEW -> old WAIT_FOR_EVIDENCE (early-earnings +
+       gap==UNKNOWN + price!=UNDER_REFLECTED) -> ANTICIPATORY_REVIEW (all 7
+       gates) -> EARLY_DISCOVERY fallback.
     """
     earnings_status = ft["earnings_conversion"]["status"]
     gap_status = gap["status"]
     pr_status = pr["status"]
 
-    # BLOCKED -- nothing here has a real evidentiary basis to review.
+    # 1. BLOCKED -- nothing here has a real evidentiary basis to review.
     no_real_evidence = len(ft["observed_facts"]) == 0 and len(ft["evidence_lineage"]) == 0
     triple_unknown = earnings_status == "UNKNOWN" and gap_status == "UNKNOWN" and pr_status == "UNKNOWN"
     if no_real_evidence or triple_unknown:
         return "BLOCKED"
 
-    # REJECTED -- usable evidence, but the market/price/conversion signal says no.
-    if (pr_status == "OVEREXTENDED" and gap_status == "NEGATIVE") or earnings_status == "CONVERSION_DISAPPOINTED":
+    # 2. Expectations-Gap-negative gate -- REJECTED's single point of truth.
+    #    CONVERSION_DISAPPOINTED forces REJECTED independent of gap status.
+    #    A NEGATIVE gap with no live earnings-conversion hypothesis
+    #    (UNKNOWN) has nothing left to hold onto -- REJECTED. A NEGATIVE gap
+    #    WITH a real earnings-conversion hypothesis still standing may yet
+    #    repair once the market re-prices -- WAIT_FOR_THESIS_REPAIR, not
+    #    REJECTED. (OVEREXTENDED+NEGATIVE, the old REJECTED clause, is now a
+    #    strict subset of this broader NEGATIVE-gap rule.)
+    if earnings_status == "CONVERSION_DISAPPOINTED":
         return "REJECTED"
+    if gap_status == "NEGATIVE":
+        if earnings_status == "UNKNOWN":
+            return "REJECTED"
+        return "WAIT_FOR_THESIS_REPAIR"
 
-    # ANTICIPATORY_REVIEW -- all 7 gates must hold simultaneously.
-    if all(anticipatory_review_gates(ft, gap, pr, decision_date).values()):
-        return "ANTICIPATORY_REVIEW"
+    # 3. Price-Reflection-UNKNOWN gate -- blanket rule (CIO Gate Hardening):
+    #    no ANTICIPATORY_REVIEW/CONFIRMATION_REVIEW/EARLY_DISCOVERY may ever
+    #    be reached while price is UNKNOWN, no matter how strong the thesis
+    #    otherwise looks.
+    if pr_status == "UNKNOWN":
+        return "WAIT_FOR_PRICE"
+
+    # 4. Narrative-only-core-evidence gate -- some observed_facts exist, but
+    #    none of them are EXHIBIT_EXTRACTED (only NARRATIVE_SOURCED and/or
+    #    PRICE_FEED) -- too thin an evidentiary basis for a positive state.
+    if ft["observed_facts"] and not any(
+        fact["source_class"] == "EXHIBIT_EXTRACTED" for fact in ft["observed_facts"]
+    ):
+        return "WAIT_FOR_EVIDENCE"
+
+    # 5. Positive-state logic -- price is known and non-UNKNOWN, gap is not
+    #    NEGATIVE, and evidence is not narrative-only.
 
     # EXPECTATION_EXHAUSTED -- a positive gap that price has already fully priced in.
     # Reserved specifically for FULLY_REFLECTED + POSITIVE; OVEREXTENDED (any
@@ -299,9 +345,14 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
     if earnings_status in CONFIRMED_EARNINGS_STATUSES and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED"):
         return "CONFIRMATION_REVIEW"
 
-    # WAIT_FOR_EVIDENCE -- too early, and the market's own view is itself unclear.
+    # WAIT_FOR_EVIDENCE (old rule) -- too early, and the market's own view is
+    # itself unclear.
     if earnings_status in EARLY_EARNINGS_STATUSES and gap_status == "UNKNOWN" and pr_status != "UNDER_REFLECTED":
         return "WAIT_FOR_EVIDENCE"
+
+    # ANTICIPATORY_REVIEW -- all 7 gates must hold simultaneously.
+    if all(anticipatory_review_gates(ft, gap, pr, decision_date).values()):
+        return "ANTICIPATORY_REVIEW"
 
     # EARLY_DISCOVERY -- default fallback: has real evidence, too early/thin to say more.
     return "EARLY_DISCOVERY"
@@ -329,15 +380,43 @@ def _check_opportunity_state_consistency(
     gap_status = gap["status"]
     pr_status = pr["status"]
     if state == "REJECTED":
-        ok = (pr_status == "OVEREXTENDED" and gap_status == "NEGATIVE") or earnings_status == "CONVERSION_DISAPPOINTED"
+        # Gate 2's single point of truth: CONVERSION_DISAPPOINTED forces
+        # REJECTED independent of gap status; a NEGATIVE gap with no live
+        # earnings-conversion hypothesis (UNKNOWN) is REJECTED too.
+        # OVEREXTENDED+NEGATIVE (the pre-hardening REJECTED clause) is now a
+        # strict subset of the broader NEGATIVE-gap arm below, so it needs
+        # no separate check here.
+        ok = earnings_status == "CONVERSION_DISAPPOINTED" or (gap_status == "NEGATIVE" and earnings_status == "UNKNOWN")
+    elif state == "WAIT_FOR_THESIS_REPAIR":
+        ok = gap_status == "NEGATIVE" and earnings_status != "UNKNOWN"
+    elif state == "WAIT_FOR_PRICE":
+        ok = pr_status == "UNKNOWN"
     elif state == "EXPECTATION_EXHAUSTED":
         ok = pr_status == "FULLY_REFLECTED" and gap_status == "POSITIVE"
     elif state == "WAIT_FOR_PULLBACK":
         ok = pr_status in ("FULLY_REFLECTED", "OVEREXTENDED") and gap_status != "NEGATIVE"
     elif state == "CONFIRMATION_REVIEW":
-        ok = earnings_status in CONFIRMED_EARNINGS_STATUSES and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED")
-    elif state == "WAIT_FOR_EVIDENCE":
-        ok = earnings_status in EARLY_EARNINGS_STATUSES and gap_status == "UNKNOWN" and pr_status != "UNDER_REFLECTED"
+        # pr_status != UNKNOWN is now part of this invariant too -- gate 3
+        # (WAIT_FOR_PRICE) always intercepts an UNKNOWN price before this
+        # positive state can ever be reached (the exact bug this hardening
+        # closes: CONFIRMATION_REVIEW used to be reachable with
+        # price_reflection.status==UNKNOWN).
+        ok = (
+            earnings_status in CONFIRMED_EARNINGS_STATUSES
+            and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED", "UNKNOWN")
+        )
+    elif state in ("WAIT_FOR_EVIDENCE", "EARLY_DISCOVERY"):
+        # Both states are reachable via more than one path now (the old
+        # earnings/gap/price rule or gate-4's narrative-only-core-evidence
+        # rule for WAIT_FOR_EVIDENCE; several positive-state fallthroughs for
+        # EARLY_DISCOVERY) whose full precondition (observed_facts'
+        # source_class) is not persisted as a stand-alone field on this
+        # packet -- not fully reconstructable, see this function's
+        # docstring. The one invariant that IS reconstructable and holds for
+        # every path to either state: gates 1-3 must already have passed,
+        # i.e. this is real evidence (not BLOCKED), the gap is not NEGATIVE,
+        # and price is not UNKNOWN.
+        ok = gap_status != "NEGATIVE" and pr_status != "UNKNOWN" and earnings_status != "CONVERSION_DISAPPOINTED"
     elif state == "ANTICIPATORY_REVIEW":
         ok = (
             earnings_status != "UNKNOWN"
@@ -347,8 +426,8 @@ def _check_opportunity_state_consistency(
             and invalidation_count > 0
         )
     else:
-        # BLOCKED / EARLY_DISCOVERY: no independent, fully-reconstructable
-        # invariant beyond the closed-vocab + hash checks already performed.
+        # BLOCKED: no independent, fully-reconstructable invariant beyond
+        # the closed-vocab + hash checks already performed.
         ok = True
     if not ok:
         raise AlphaReviewError(f"OPPORTUNITY_STATE_INCONSISTENT:{state}")
