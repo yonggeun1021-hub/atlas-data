@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "contract_version": "free_market_data/1",
+  "fred": {
+    "series": ["VIXCLS"],
+    "source_scope": "FRED_OFFICIAL_SERIES_API",
+    "output_type": 4
+  },
+  "alpaca": {
+    "symbols": ["MSFT", "NVDA", "TSM"],
+    "feed": "iex",
+    "source_scope": "IEX_ONLY_PARTIAL_US_MARKET"
+  },
+  "authority": {
+    "evidence_capture_only": true,
+    "us_breadth_authorized": false,
+    "market_wide_price_authorized": false,
+    "entry_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
