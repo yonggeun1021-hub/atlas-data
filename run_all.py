@@ -788,6 +788,26 @@ APPROVED_TESTS = [
     #     `requirements-ci.txt` 에 정식 선언한다.
     #   ⛔ 이 회귀는 workflow 를 **실행하지 않는다** — 정의만 읽는다. dispatch 없음.
     "test/test_rule0022_workflow_contract.py",
+    # ★ P8-09 — Forward Alpha MVP Expectations Gap builder (paid-feed-free proxy).
+    #   guidance/backlog/capex/pricing/margin/IR-target/relative-strength/
+    #   earnings-reaction 여덟 free/official proxy category와 선택적 public_estimates
+    #   를 caller가 이미 분류한 direction으로만 집계한다. public_estimates 부재는
+    #   packet 빌드를 절대 막지 않고 basis_type만 PROXY/UNKNOWN으로 내린다.
+    #   status/magnitude/confidence는 closed enum이며 UNKNOWN status는 항상
+    #   LOW confidence를 강제한다. earnings_reaction event_date는 미래 금지.
+    #   ⛔ Rule/Stage/Candidate·Ready·Buy 승격/action/order/Production/trading 없음.
+    "test/test_expectations_gap.py",
+    # ★ P8-10 — Forward Alpha MVP Price Reflection builder (price/volume only).
+    #   public builder는 price_as_of/relative_strength/recent_return_windows/
+    #   event_reaction/valuation_context/data_source_scope만 받는 keyword-only
+    #   함수이며 thesis·fundamental 계열 파라미터는 구조적으로 존재할 수 없다.
+    #   price_as_of 결측·미래·staleness(기본 5일 ceiling)는 다른 입력과 무관하게
+    #   status/confidence를 UNKNOWN으로 강제한다. Korea(KRX_OFFICIAL) 입력이
+    #   불완전하면 마찬가지로 UNKNOWN이다. OVEREXTENDED는 timing 신호일 뿐 REJECTED
+    #   가 아니고, 이 vocabulary에는 REJECTED/PASS/FAIL이 아예 없다.
+    #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
+    #      trading 및 live network 없음.
+    "test/test_price_reflection.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
