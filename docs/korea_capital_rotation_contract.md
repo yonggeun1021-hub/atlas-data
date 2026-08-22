@@ -6,10 +6,12 @@ KOSPI/KOSDAQ own-benchmark ranking, TOP/MIDDLE/BOTTOM buckets, and state
 ledger records now exist against a real post-ratification observation pair.
 Still open: live P2-01 Theme population (theme_id stays a positional proxy
 tied to the real P1-KR-07 SECTOR identity, never a cross-market Theme
-grouping), Korea Breadth durable `available_at` lineage (still null ->
-BLOCKED, holding the overall decision back regardless of rotation_policy),
-confirmed investor-flow release timing, and live scheduled-cron briefing
-integration (this remains a manual proof, not a cron).
+grouping), Korea Breadth durable `available_at` lineage for real-time
+decision input (still null -> BLOCKED, holding the overall decision back
+regardless of rotation_policy -- see the first-seen/confirmed-history
+section below for what *is* now real and separately tracked), confirmed
+investor-flow release timing, and live scheduled-cron briefing integration
+(this remains a manual proof, not a cron).
 
 ## Own-benchmark scopes
 
@@ -65,6 +67,32 @@ silently become zero, neutral, or total-market flow.
 Therefore this packet is explicitly price-relative rotation, not a complete
 price+breadth+flow capital-allocation claim. Those coverage gaps remain in the
 output.
+
+## P1-KR-05 first-seen lineage vs. confirmed-history (2026-08-22)
+
+`korea_capital_rotation.py`'s own `available_at`/`decision_eligible`/`status`
+above are **unchanged** and stay a genuinely separate, real-time-decision
+concept: `available_at` still means "verified official publication timing,
+same day or earlier" and remains permanently null today (KRX gives none) --
+`BLOCKED` correctly persists regardless of this section.
+
+Separately, the committed breadth-context lineage (`korea_breadth_context_
+lineage/2`) now also carries `source_available_at` (identical to the above,
+still null), `captured_at`, `first_seen_at`, and a required `capture_mode`
+(`forward_live` | `historical_backfill`). `rotation/korea_capital_rotation_
+ledger_wire.py`'s `build_confirmed_history_context()` independently derives,
+per market, whether this observation is `CONFIRMED` (retrospective evidence
+only -- e.g. for a later day's narrative, never a same-day or ranking/trading
+input): a genuine `forward_live` capture becomes confirmed once its own
+`first_seen_at` falls on a calendar date strictly after the observation's own
+`as_of_date`; same-day capture stays `SAME_DAY_NOT_YET_CONFIRMED`;
+`historical_backfill` evidence never confirms regardless of how the real
+timestamps compare (date math alone cannot distinguish a genuine next-day
+capture from a convenient later catch-up); a `first_seen_at` before its own
+`captured_at`, or before the observation's `as_of_date`, fails closed as a
+real chronology defect. This result is surfaced in the briefing pointer's
+`confirmed_history` block, entirely separate from `breadth`/`rotation` --
+it never feeds `ranking_input_authorized` or any decision path.
 
 ## Transition and authority
 

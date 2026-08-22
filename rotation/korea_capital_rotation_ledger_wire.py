@@ -19,6 +19,20 @@ here that disagreed with the module's own derivation would be caught by
 build_packet()'s own BREADTH_CONTEXT_AUTHORITY_INVALID check -- this is
 defense-in-depth, not the only line of defense.
 
+P1-KR-05 first-seen lineage (2026-08-22): coverage_context.breadth's own
+real-time AVAILABLE/BLOCKED/STALE/UNKNOWN status is UNCHANGED --
+source_available_at (verified official publication timing) remains
+permanently null today, an honest, unchanged gap; korea_capital_
+rotation.py's own available_at invariant (same-day-or-earlier) is not
+compatible with a genuinely T+1-confirmed first_seen_at, and is not
+touched here. Separately, build_confirmed_history_context()/the
+briefing pointer's new "confirmed_history" block track first_seen_at/
+capture_mode and become CONFIRMED once a genuine forward_live capture's
+first_seen_at falls strictly after its own observation date -- usable
+only for retrospective/narrative evidence, never wired into
+ranking_input_authorized or any decision-input path. historical_backfill
+evidence stays permanently NOT confirmed regardless of timestamps.
+
 rotation_state_ledger.py's own write_json_atomic() deliberately forbids
 writing inside this repository (the P2 rotation ledger is not yet
 authorized to persist as tracked, production state) -- this module does
@@ -47,7 +61,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 BREADTH_CONTEXT_ROOT = ROOT / "data" / "observations" / "korea_breadth_context"
 BRIEFING_POINTER_PATH = ROOT / "data" / "latest_korea_rotation.json"
-BRIEFING_POINTER_SCHEMA_VERSION = "korea_rotation_briefing_pointer/1"
+BRIEFING_POINTER_SCHEMA_VERSION = "korea_rotation_briefing_pointer/2"
 REQUIRED_MARKETS = ("KOSDAQ", "KOSPI")
 _BREADTH_STATUS_SEVERITY = {"UNKNOWN": 0, "BLOCKED": 1, "STALE": 2, "AVAILABLE": 3}
 
@@ -142,10 +156,25 @@ def _classify_market(
     (not a call into korea_capital_rotation.py's private function) so a
     divergence between this module's own understanding and the producer
     module's is a real, catchable defect rather than the same code path
-    trivially agreeing with itself."""
+    trivially agreeing with itself.
+
+    Deliberately unchanged real-time decision-input semantics: this is
+    korea_capital_rotation.py's own AVAILABLE/BLOCKED/STALE/UNKNOWN
+    vocabulary, which assumes a same-day-or-earlier `available_at` (its
+    own age_days check raises if available_at is ever *after* as_of_date
+    -- the opposite direction of a T+1-confirmed first_seen_at). Only
+    `source_available_at` (an honest, still-permanently-null gap -- KRX
+    gives no verified official publication timing) feeds this slot; a
+    real first-seen-based confirmation is a genuinely different temporal
+    model (see build_confirmed_history_context below) and is
+    deliberately NOT plugged in here, since doing so would either break
+    this real, already-ratified invariant or silently reinterpret it.
+    This is a real, load-bearing architectural boundary -- see this
+    module's docstring and the PR body, not a placeholder to quietly
+    paper over."""
     lineage_sha256 = market_fact.get("lineage_sha256")
     as_of = market_fact.get("as_of_date")
-    available_at = market_fact.get("available_at")
+    available_at = market_fact.get("source_available_at")
     if lineage_sha256 is None and as_of is None and available_at is None:
         return "UNKNOWN"
     if lineage_sha256 is None or as_of is None:
@@ -161,6 +190,107 @@ def _classify_market(
     if age_days > freshness_limit_days:
         return "STALE"
     return "AVAILABLE"
+
+
+_CONFIRMED_HISTORY_STATUS_SEVERITY = {
+    "NO_LINEAGE": 0, "HISTORICAL_BACKFILL_NEVER_ELIGIBLE": 1,
+    "NO_FIRST_SEEN": 1, "SAME_DAY_NOT_YET_CONFIRMED": 2, "CONFIRMED": 3,
+}
+
+
+def _confirmed_history_market(
+    market_fact: dict, capture_mode: str | None, as_of_date: dt.date, market: str
+) -> tuple[str, dt.datetime | None]:
+    """P1-KR-05 first-seen policy (CIO minimum determination, separate
+    from _classify_market's real-time decision-input status above):
+
+    - source_available_at (verified official publication timing) would
+      make an observation confirmed immediately, were it ever non-null
+      -- it never is yet, so this path is honest but currently inert.
+    - Otherwise, a genuine forward_live capture becomes CONFIRMED once
+      its own first_seen_at falls on a calendar date strictly AFTER the
+      observation's own as_of_date ("the next trading day's briefing
+      saw a first-seen later than the observation date") -- same-day
+      capture is explicitly SAME_DAY_NOT_YET_CONFIRMED, never used for a
+      same-day real decision.
+    - historical_backfill evidence is permanently ineligible regardless
+      of how the real timestamps compare -- date math alone cannot tell
+      a genuine next-day capture from a convenient later catch-up.
+    - A first_seen_at claiming to be BEFORE the observation's own
+      as_of_date, or before its own captured_at (chronology reversed),
+      is structurally impossible (data cannot be seen before the day it
+      describes, or before it was even fetched) and fails closed as a
+      real tamper/defect, not a silently-ignored edge case.
+    """
+    lineage_sha256 = market_fact.get("lineage_sha256")
+    if lineage_sha256 is None:
+        return "NO_LINEAGE", None
+    source_available_at = market_fact.get("source_available_at")
+    if source_available_at is not None:
+        confirmed_at = _parse_timestamp(
+            source_available_at, f"BREADTH_MARKET_SOURCE_AVAILABLE_AT_INVALID:{market}"
+        )
+        return "CONFIRMED", confirmed_at
+    first_seen_at = market_fact.get("first_seen_at")
+    if first_seen_at is None:
+        return "NO_FIRST_SEEN", None
+    first_seen_dt = _parse_timestamp(
+        first_seen_at, f"BREADTH_MARKET_FIRST_SEEN_AT_INVALID:{market}"
+    )
+    captured_at = market_fact.get("captured_at")
+    if captured_at is not None:
+        captured_dt = _parse_timestamp(
+            captured_at, f"BREADTH_MARKET_CAPTURED_AT_INVALID:{market}"
+        )
+        # first_seen_at can never be genuinely earlier than the instant
+        # this same observation was captured -- a reversal here is a
+        # real tamper/defect signal (chronology broken), never silently
+        # accepted.
+        if first_seen_dt < captured_dt:
+            raise KoreaRotationWireError(f"BREADTH_MARKET_FIRST_SEEN_BEFORE_CAPTURED:{market}")
+    if first_seen_dt.date() < as_of_date:
+        raise KoreaRotationWireError(f"BREADTH_MARKET_FIRST_SEEN_BEFORE_AS_OF:{market}")
+    if capture_mode != "forward_live":
+        return "HISTORICAL_BACKFILL_NEVER_ELIGIBLE", None
+    if first_seen_dt.date() <= as_of_date:
+        return "SAME_DAY_NOT_YET_CONFIRMED", None
+    return "CONFIRMED", first_seen_dt
+
+
+def build_confirmed_history_context(as_of_date: str, source: dict | None) -> dict:
+    """Per-market confirmed-history evidence, entirely separate from
+    coverage_context.breadth's real-time decision-input status: usable
+    only for retrospective/narrative purposes (e.g. a later briefing
+    honestly describing what already happened), never as a same-day
+    ranking or trading input -- that boundary is enforced by never
+    wiring this into korea_capital_rotation.py's ranking_input_authorized
+    at all, not by a flag here."""
+    as_of = _parse_date(as_of_date, "AS_OF_DATE_INVALID")
+    capture_mode = source.get("capture_mode") if source else None
+    markets = {}
+    for market in REQUIRED_MARKETS:
+        fact = (
+            source.get("markets", {}).get(market, {}) if source else {}
+        )
+        if source is not None and not isinstance(fact, dict):
+            raise KoreaRotationWireError(f"BREADTH_CONTEXT_SOURCE_MARKET_MISSING:{market}")
+        status, confirmed_at = _confirmed_history_market(fact, capture_mode, as_of, market)
+        markets[market] = {
+            "status": status,
+            "confirmed_history_eligible": status == "CONFIRMED",
+            "first_seen_at": fact.get("first_seen_at"),
+            "captured_at": fact.get("captured_at"),
+            "confirmed_at": confirmed_at.isoformat() if confirmed_at else None,
+            "capture_mode": capture_mode,
+        }
+    worst = min(
+        markets, key=lambda m: _CONFIRMED_HISTORY_STATUS_SEVERITY[markets[m]["status"]]
+    )
+    return {
+        "markets": markets,
+        "all_markets_confirmed": all(m["confirmed_history_eligible"] for m in markets.values()),
+        "worst_status": markets[worst]["status"],
+    }
 
 
 def _reason_for(market: str, status: str, fact: dict) -> str:
@@ -183,18 +313,31 @@ def build_coverage_context_breadth(
     invents an AVAILABLE/BLOCKED guess when the file is simply absent)."""
     as_of = _parse_date(as_of_date, "AS_OF_DATE_INVALID")
     facts = {}
+    output_markets = {}
     for market in REQUIRED_MARKETS:
         if source is None:
-            facts[market] = {"lineage_sha256": None, "as_of_date": None, "available_at": None}
+            entry = None
         else:
             entry = source.get("markets", {}).get(market)
             if not isinstance(entry, dict):
                 raise KoreaRotationWireError(f"BREADTH_CONTEXT_SOURCE_MARKET_MISSING:{market}")
-            facts[market] = {
-                "lineage_sha256": entry.get("lineage_sha256"),
-                "as_of_date": entry.get("as_of_date"),
-                "available_at": entry.get("available_at"),
-            }
+        fact = {
+            "lineage_sha256": entry.get("lineage_sha256") if entry else None,
+            "as_of_date": entry.get("as_of_date") if entry else None,
+            "source_available_at": entry.get("source_available_at") if entry else None,
+        }
+        facts[market] = fact
+        # korea_capital_rotation.py's own contract requires exactly
+        # {"lineage_sha256","as_of_date","available_at"} here -- its
+        # real-time decision-input semantics are deliberately UNCHANGED
+        # (see _classify_market's docstring): only source_available_at
+        # (still permanently null today) ever fills this slot, never a
+        # T+1-confirmed first_seen_at.
+        output_markets[market] = {
+            "lineage_sha256": fact["lineage_sha256"],
+            "as_of_date": fact["as_of_date"],
+            "available_at": fact["source_available_at"],
+        }
     per_market_status = {
         market: _classify_market(facts[market], as_of, freshness_limit_days, market)
         for market in REQUIRED_MARKETS
@@ -211,7 +354,7 @@ def build_coverage_context_breadth(
     )
     breadth = {
         "status": derived_status,
-        "markets": facts,
+        "markets": output_markets,
         "freshness_limit_days": freshness_limit_days,
         "ranking_input_authorized": False,
         "decision_eligible": derived_status == "AVAILABLE",
@@ -269,6 +412,12 @@ def build_briefing_pointer(
     breadth = rotation_packet["coverage_context"]["breadth"]
     context_sha256 = context_source.get("payload_sha256") if context_source else None
     _parse_timestamp(generated_at, "GENERATED_AT_INVALID")
+    # Entirely separate from breadth.status/decision_eligible above --
+    # retrospective-only evidence, never a ranking or trading input (see
+    # build_confirmed_history_context's docstring).
+    confirmed_history = build_confirmed_history_context(
+        rotation_packet["as_of_date"], context_source
+    )
     pointer = {
         "schema_version": BRIEFING_POINTER_SCHEMA_VERSION,
         "contract_version": rotation_packet["contract_version"],
@@ -289,6 +438,7 @@ def build_briefing_pointer(
             "source_context_path": context_source_rel_path,
             "source_context_sha256": context_sha256,
         },
+        "confirmed_history": confirmed_history,
         "authority": {
             "ranking_input_authorized": False,
             "candidate_ranking_authorized": False,

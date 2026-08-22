@@ -10,9 +10,13 @@ derived outputs in memory for the manual live-proof workflow:
   - a Korea Breadth observation packet per market/scope: no raw response
     body, no per-symbol identity or price, only source identity/SHA-256/
     fetched_at, shared/entered/exited/paired counts, and advance/
-    decline/unchanged counts. available_at is always null and
-    decision_eligible is always false -- this is a source-observation
-    proof, not a decision input.
+    decline/unchanged counts. source_available_at is always null (KRX
+    gives no verified official publication timing); captured_at/
+    first_seen_at are the real fetch instant -- this is a source-
+    observation proof, not a decision input. Real decision eligibility
+    (confirmed-history, never same-day) is derived downstream, from
+    these raw facts only, by rotation/korea_capital_rotation_ledger_
+    wire.py -- never decided here.
   - one P3-03 exact-date KOSPI/KOSDAQ source-coverage Global Master
     packet, built by universe/krx_global_universe.py's own
     build_packet() unchanged, from the "recent" scope's current-date
@@ -113,8 +117,20 @@ def build_breadth_packet(previous, current, scope, contract=None) -> dict:
             "previous": previous["fetched_at_utc"],
             "current": current["fetched_at_utc"],
         },
-        "available_at": None,
-        "decision_eligible": False,
+        # Time-lineage triad (P1-KR-05 first-seen policy, see
+        # korea_breadth_context_populate.py/korea_capital_rotation_
+        # ledger_wire.py docstrings for the full CIO rule): only what can
+        # actually be proven is recorded, never a fabricated stand-in.
+        # source_available_at stays null -- KRX gives no verified official
+        # publication timing, an honest, unchanged gap. captured_at is the
+        # real instant this script's own request actually completed.
+        # first_seen_at = captured_at is legitimate for a genuine forward
+        # live capture (this fetch is the first and only time this data
+        # was ever observed) -- never used to backdate an already-known
+        # historical value as if it were contemporaneous.
+        "source_available_at": None,
+        "captured_at": current["fetched_at_utc"],
+        "first_seen_at": current["fetched_at_utc"],
         "universe": observation["universe"],
         "participation": observation["participation"],
         "breadth_classification_authorized": observation[

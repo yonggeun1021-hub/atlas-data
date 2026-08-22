@@ -13,28 +13,50 @@
       "KOSDAQ": {
         "as_of_date": "2026-08-20",
         "available_at": null,
-        "lineage_sha256": "80253f2a89122176899d5f3e6010218415f2649843c81fe04e05c552ebf84665"
+        "lineage_sha256": "070d22d22748fc20f07bc2b97df0d624b7247e392cc115e655f7faac9d649a8f"
       },
       "KOSPI": {
         "as_of_date": "2026-08-20",
         "available_at": null,
-        "lineage_sha256": "107eefdb77767df191b3d88f956036bbbbf122dd7db54610a577f6e12d54903b"
+        "lineage_sha256": "d8d482df9fbb248aef20a87c175ef07b947f537a4552e8204b9c4a30e7f8eb18"
       }
     },
     "ranking_input_authorized": false,
     "reason": "KOSDAQ_AVAILABLE_AT_NULL,KOSPI_AVAILABLE_AT_NULL",
     "source_context_path": "data/observations/korea_breadth_context/2026-08-20/packet.json",
-    "source_context_sha256": "4f105b98d0ba396d351f799603bb6cd15c7cd02002d4c662510b44a1a7cd4533",
+    "source_context_sha256": "e8bcb309a62492acd8dc47ec8f24f84c8f3d9a8224dab1d88993ae91e787dc4c",
     "status": "BLOCKED"
   },
+  "confirmed_history": {
+    "all_markets_confirmed": true,
+    "markets": {
+      "KOSDAQ": {
+        "capture_mode": "forward_live",
+        "captured_at": "2026-08-22T07:52:08Z",
+        "confirmed_at": "2026-08-22T07:52:08+00:00",
+        "confirmed_history_eligible": true,
+        "first_seen_at": "2026-08-22T07:52:08Z",
+        "status": "CONFIRMED"
+      },
+      "KOSPI": {
+        "capture_mode": "forward_live",
+        "captured_at": "2026-08-22T07:52:04Z",
+        "confirmed_at": "2026-08-22T07:52:04+00:00",
+        "confirmed_history_eligible": true,
+        "first_seen_at": "2026-08-22T07:52:04Z",
+        "status": "CONFIRMED"
+      }
+    },
+    "worst_status": "CONFIRMED"
+  },
   "contract_version": "korea_capital_rotation/3",
-  "generated_at": "2026-08-22T07:25:33Z",
-  "payload_sha256": "3b378506a2ab362a4c66e2dbfa3f70d09893192260e05212ed018a6f9c26b507",
+  "generated_at": "2026-08-22T07:52:08Z",
+  "payload_sha256": "01620067e2bcec17b912976ca6b8e6c0109b7de513e176cfb27f02fd4725b955",
   "rotation": {
-    "packet_sha256": "a98b83066d2d8e16818d6b625313d3482e1b363cb7ec89f05ec53bb9f6b1b190",
+    "packet_sha256": "ec133df432cfe4689ea5ba646f786f2530757543e7d68f5c81c350ebaccea494",
     "rotation_policy_effective": true,
     "status": "ROTATION_BUCKETS_OBSERVED"
   },
   "run_status": "OK",
-  "schema_version": "korea_rotation_briefing_pointer/1"
+  "schema_version": "korea_rotation_briefing_pointer/2"
 }
