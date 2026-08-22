@@ -262,6 +262,32 @@
   now explicitly named `..._PROVENANCE_NOT_COMPUTABLE`, distinct from plain
   missing price data.
 
+★ CIO review round 9 approved round 8's 3-clock time model, exact-content
+  provenance, and the "mocks live only in test files" principle outright,
+  but found 2 narrower authority-boundary defects, again entirely inside
+  `decision/event_evidence.py` -- this module's own public interface is
+  UNCHANGED by round 9. (1) Round 8's `mocked_ratified_direction_tables()`
+  test helper had been added to `decision/event_evidence.py` itself (a
+  production module) -- any operational caller could have imported it and
+  injected rules at runtime, defeating the empty-table lock. Removed
+  entirely from `decision/`, along with the `contextlib` import that only
+  existed for it; the equivalent helper now lives ONLY inside `test/
+  test_price_reflection.py`, patching that file's own loaded module
+  instance. (2) Round 8's comments treated "a developer added a table
+  entry" as itself the ratification act -- conflating IMPLEMENTATION (code
+  that knows how a mapping/derivation would compute a direction) with
+  AUTHORITY (a genuine Rule Authority decision that a rule is approved).
+  Split into three independent tables: `OFFICIAL_DIRECTION_FIELD_
+  IMPLEMENTATIONS`/`DERIVATION_RULE_IMPLEMENTATIONS` (pure code) and
+  `DIRECTION_RULE_AUTHORITY_REGISTRY` (closed-schema, hash-verified
+  authority records keyed by `rule_id`/`rule_version`). Operational lookup
+  now requires a matching, cross-referenced entry in BOTH an
+  implementation table AND the authority registry with `approval_
+  status=RATIFIED` -- an implementation with no ratified authority is
+  unusable, and a ratified authority record with no matching
+  implementation is equally unusable. All three tables remain intentionally
+  EMPTY in this module's real, committed source.
+
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`
 and `reflection_status` are forced to `UNKNOWN` regardless of every other

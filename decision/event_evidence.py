@@ -247,7 +247,6 @@
 """
 from __future__ import annotations
 
-import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -304,29 +303,70 @@ REQUIRED_CITATION_FIELDS = {
 #   however structured. See module docstring and `_derive_direction`.
 DIRECTION_ORIGIN = ("OFFICIAL_STRUCTURED_FIELD", "RATIFIED_DERIVATION")
 
-# ★ Closed, module-owned ratified table: `(source_class, provider_field,
-#   provider_value) -> direction`. A triple is "ratified" purely by being a
-#   member of this table -- there is no separate approval workflow for this
-#   module to hook into, and it will never invent one unilaterally (same
-#   posture as `ALLOWED_SOURCE_CLASS`/`ALLOWED_CAPTURE_KIND`). Adding a real
-#   entry here (naming a genuine official provider's field/value, e.g. a
-#   specific DART/SEC XBRL tag) IS the ratification act -- a human
-#   reviewing and committing code, never a runtime toggle. Intentionally
-#   EMPTY: no real official-provider structured-field integration exists
-#   anywhere in this repo (no SEC/DART/XBRL parser), so `OFFICIAL_
-#   STRUCTURED_FIELD` remains genuinely unproducible for any real subject
-#   today. Test-only entries are never baked in here -- they are overlaid
-#   transiently by `mocked_ratified_direction_tables()` onto a SPECIFIC
-#   test-loaded module instance only, never committed to this table.
-RATIFIED_OFFICIAL_DIRECTION_FIELDS: dict = {}
+# ★ CIO round 9, defect 2: "a code-table entry is not itself CIO
+#   ratification." Round 8 conflated IMPLEMENTATION (code that knows HOW to
+#   map a provider field, or HOW to compute a derivation, to a direction)
+#   with AUTHORITY (a genuine Rule Authority decision that a given rule is
+#   approved for operational use) -- its own comments literally said
+#   "adding an entry here IS the ratification act", which bypasses the
+#   established Atlas P5 Rule Authority model (implementation code +
+#   ratification record = operationally usable; neither one alone is).
+#   Round 9 splits these into three independent, all EMPTY, structures:
+#
+#   1. `OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS` -- keyed by `(source_class,
+#      provider_field, provider_value)`, this is PURELY code: "if a raw
+#      document ever carries this exact triple, here is the direction it
+#      would map to, and which (rule_id, rule_version) that mapping belongs
+#      to." It answers "what would this rule DO", never "is this rule
+#      APPROVED."
+#   2. `DERIVATION_RULE_IMPLEMENTATIONS` -- keyed by `(rule_id,
+#      rule_version)`, same posture for `RATIFIED_DERIVATION`: a pure
+#      function of real, structured numeric inputs. Also never itself
+#      authority.
+#   3. `DIRECTION_RULE_AUTHORITY_REGISTRY` -- keyed by `(rule_id,
+#      rule_version)`, this is the ONLY place a rule can become
+#      operationally usable. Each entry is a closed-schema authority
+#      record (`approval_status`/`ratified_at`/`evidence_ref`/
+#      `evidence_sha256` -- see `REQUIRED_AUTHORITY_RECORD_FIELDS`), and
+#      `evidence_ref`/`evidence_sha256` are hash-verified against a real
+#      committed file exactly like every other citation in this module
+#      (tamper-evident -- CIO round 9, P2), never a bare string a caller
+#      could type without backing it with anything.
+#
+#   `_derive_direction`/`_lookup_ratified_rule_authority` REQUIRE a matching
+#   entry in BOTH the relevant implementation table AND the authority
+#   registry, cross-checked by `(rule_id, rule_version)` -- an
+#   implementation with no ratified authority record is unusable, and a
+#   ratified authority record with no matching implementation is equally
+#   unusable (see the module's own round-9 regression tests). No rule may
+#   become ratified merely because a developer commits code -- adding an
+#   entry to an implementation table is never, by itself, the ratification
+#   act; only a genuine, cross-matching authority record is. All three
+#   tables are intentionally EMPTY in this module's real, committed
+#   source: no real official-provider structured-field integration and no
+#   real ratified numeric-derivation rule exist anywhere in this repo yet,
+#   and this workstream's own authority registry starts and stays unratified
+#   until a real Rule Authority decision is made and recorded. Nothing here
+#   is ever mutated at runtime by production code -- there is no mock/
+#   override helper anywhere in this module (CIO round 9, defect 1: the
+#   round-8 `mocked_ratified_direction_tables()` helper lived here, which
+#   let ANY caller importing this module inject rules at runtime, defeating
+#   the empty-table lock; it has been removed entirely and now exists ONLY
+#   inside `test/test_price_reflection.py`, patching that file's own
+#   test-loaded module instance, restored via `finally` -- identical scope
+#   to `mocked_event_evidence_verification()`).
+OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS: dict = {}
+DERIVATION_RULE_IMPLEMENTATIONS: dict = {}
+DIRECTION_RULE_AUTHORITY_REGISTRY: dict = {}
 
-# ★ Same posture for `RATIFIED_DERIVATION`: a `(rule_id, rule_version)` pair
-#   is "ratified" purely by being a member of this table. Each entry is a
-#   PURE function of real, structured numeric inputs pulled from the raw
-#   source document -- never a re-typed assertion -- reproducing
-#   `direction` deterministically. Intentionally EMPTY in this module's
-#   real, committed source for the same reason as above.
-RATIFIED_DIRECTION_RULES: dict = {}
+# ★ CIO round 9, P2: closed schema for an authority record. `approval_
+#   status` is deliberately a small closed vocabulary -- only `RATIFIED`
+#   unlocks operational use; `PROPOSED` exists so a record can genuinely
+#   represent "under review, not yet usable" rather than simply being
+#   absent (a real Rule Authority workflow state, not a synonym for
+#   missing).
+REQUIRED_AUTHORITY_RECORD_FIELDS = {"approval_status", "ratified_at", "evidence_ref", "evidence_sha256"}
+AUTHORITY_APPROVAL_STATUS = ("RATIFIED", "PROPOSED")
 
 
 class EventEvidenceError(ValueError):
@@ -527,39 +567,53 @@ def _verify_first_availability(
     return effective_available_at
 
 
-@contextlib.contextmanager
-def mocked_ratified_direction_tables(module, *, official_fields: dict | None = None, derivation_rules: dict | None = None):
-    """Test-only. Temporarily OVERLAYS entries onto a SPECIFIC test-loaded
-    module instance's `RATIFIED_OFFICIAL_DIRECTION_FIELDS`/`RATIFIED_
-    DIRECTION_RULES` tables (never this module's own global state unless a
-    test explicitly loads this file as `module`), restored via `finally` --
-    the same scoping discipline as `mocked_event_evidence_verification()`
-    in `test/test_price_reflection.py`. This module's real, committed
-    tables are both intentionally EMPTY (see their own docstrings); nothing
-    added by this context manager is ever reachable outside a test process
-    that explicitly calls it, and it is never invoked by any production
-    call path."""
-    original_official = dict(module.RATIFIED_OFFICIAL_DIRECTION_FIELDS)
-    original_rules = dict(module.RATIFIED_DIRECTION_RULES)
-    if official_fields:
-        module.RATIFIED_OFFICIAL_DIRECTION_FIELDS.update(official_fields)
-    if derivation_rules:
-        module.RATIFIED_DIRECTION_RULES.update(derivation_rules)
-    try:
-        yield
-    finally:
-        module.RATIFIED_OFFICIAL_DIRECTION_FIELDS.clear()
-        module.RATIFIED_OFFICIAL_DIRECTION_FIELDS.update(original_official)
-        module.RATIFIED_DIRECTION_RULES.clear()
-        module.RATIFIED_DIRECTION_RULES.update(original_rules)
+def _lookup_ratified_rule_authority(rule_id: str, rule_version: str, *, forbid_test_root: bool) -> dict:
+    """CIO round 9, defect 2: the ONLY function in this module that can turn
+    an implementation into something operationally usable. A `(rule_id,
+    rule_version)` pair is usable if and only if `DIRECTION_RULE_AUTHORITY_
+    REGISTRY` has a matching, well-formed, `approval_status=RATIFIED`
+    record whose `evidence_ref`/`evidence_sha256` resolve and hash-verify
+    against a real committed file (tamper-evident -- CIO round 9, P2: a
+    caller cannot simply type a claim, the same discipline every other
+    citation in this module already enforces). Raises on: no record at all,
+    a malformed record (wrong field set), an unrecognized `approval_
+    status`, unverifiable evidence, or a well-formed but not-yet-`RATIFIED`
+    record (e.g. `PROPOSED`) -- never a soft pass. This module's own real
+    registry starts and stays EMPTY (see module docstring), so this always
+    fails for any real rule today."""
+    key = (rule_id, rule_version)
+    record = DIRECTION_RULE_AUTHORITY_REGISTRY.get(key)
+    if record is None:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_RECORD_NOT_FOUND:{key!r}")
+    if not isinstance(record, dict) or set(record) != REQUIRED_AUTHORITY_RECORD_FIELDS:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_RECORD_MALFORMED:{key!r}")
+    approval_status = record.get("approval_status")
+    if approval_status not in AUTHORITY_APPROVAL_STATUS:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_STATUS_INVALID:{key!r}")
+    _parse_utc(
+        record.get("ratified_at"),
+        f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_RATIFIED_AT_INVALID:{key!r}",
+    )
+    evidence_path = _resolve_repo_file(record.get("evidence_ref"), forbid_test_root=forbid_test_root)
+    _verify_hash(evidence_path, record.get("evidence_sha256"))
+    if approval_status != "RATIFIED":
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_NOT_RATIFIED:{key!r}")
+    return record
 
 
-def _derive_direction(raw_document: dict, direction_origin: str, source_class: str, raw_path: Path) -> str:
+def _derive_direction(
+    raw_document: dict, direction_origin: str, source_class: str, raw_path: Path, *, forbid_test_root: bool,
+) -> str:
     """CIO round 8, defect 2: `direction` may ONLY be established via one of
-    the two closed, module-owned ratified routes named in `DIRECTION_
-    ORIGIN` -- never a bare human-curated field, however structured. See
-    module docstring and the `RATIFIED_OFFICIAL_DIRECTION_FIELDS`/
-    `RATIFIED_DIRECTION_RULES` docstrings for why both start EMPTY."""
+    the two closed routes named in `DIRECTION_ORIGIN` -- never a bare
+    human-curated field, however structured. CIO round 9, defect 2:
+    finding a matching IMPLEMENTATION (`OFFICIAL_DIRECTION_FIELD_
+    IMPLEMENTATIONS`/`DERIVATION_RULE_IMPLEMENTATIONS`) is necessary but
+    never sufficient on its own -- `_lookup_ratified_rule_authority` must
+    ALSO find a genuine, cross-matching, RATIFIED authority record for that
+    exact `(rule_id, rule_version)` before the derived direction is
+    returned. Either one missing fails closed; both tables start EMPTY in
+    this module's real, committed source (see module docstring)."""
     if direction_origin == "OFFICIAL_STRUCTURED_FIELD":
         field = raw_document.get("official_direction_field")
         if (
@@ -567,27 +621,31 @@ def _derive_direction(raw_document: dict, direction_origin: str, source_class: s
             or not isinstance(field.get("provider_field"), str) or not isinstance(field.get("provider_value"), str)
         ):
             raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_INVALID:{raw_path}")
-        key = (source_class, field["provider_field"], field["provider_value"])
-        mapped = RATIFIED_OFFICIAL_DIRECTION_FIELDS.get(key)
-        if mapped is None:
-            raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_NOT_RATIFIED:{key!r}")
-        return mapped
+        impl_key = (source_class, field["provider_field"], field["provider_value"])
+        impl = OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS.get(impl_key)
+        if impl is None:
+            raise EventEvidenceError(
+                f"EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_IMPLEMENTATION_NOT_FOUND:{impl_key!r}"
+            )
+        _lookup_ratified_rule_authority(impl["rule_id"], impl["rule_version"], forbid_test_root=forbid_test_root)
+        return impl["direction"]
 
     # direction_origin == "RATIFIED_DERIVATION" -- the only other closed-vocab value.
     derivation = raw_document.get("direction_derivation")
     if not isinstance(derivation, dict) or set(derivation) != {"rule_id", "rule_version", "inputs"}:
         raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_DERIVATION_INVALID:{raw_path}")
     rule_key = (derivation.get("rule_id"), derivation.get("rule_version"))
-    rule = RATIFIED_DIRECTION_RULES.get(rule_key)
-    if rule is None:
-        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_NOT_RATIFIED:{rule_key!r}")
+    impl = DERIVATION_RULE_IMPLEMENTATIONS.get(rule_key)
+    if impl is None:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_IMPLEMENTATION_NOT_FOUND:{rule_key!r}")
     inputs = derivation.get("inputs")
     if not isinstance(inputs, dict) or not all(
         name in inputs and isinstance(inputs[name], (int, float)) and not isinstance(inputs[name], bool)
-        for name in rule["required_inputs"]
+        for name in impl["required_inputs"]
     ):
         raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_DERIVATION_INPUTS_INVALID:{raw_path}")
-    return rule["derive"](inputs)
+    _lookup_ratified_rule_authority(rule_key[0], rule_key[1], forbid_test_root=forbid_test_root)
+    return impl["derive"](inputs)
 
 
 def _verify_raw_source_citation(
@@ -665,7 +723,9 @@ def _verify_raw_source_citation(
     if not isinstance(raw_document, dict):
         raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_NOT_STRUCTURED:{raw_path}")
 
-    derived_direction = _derive_direction(raw_document, direction_origin, source_class, raw_path)
+    derived_direction = _derive_direction(
+        raw_document, direction_origin, source_class, raw_path, forbid_test_root=forbid_test_root,
+    )
     if derived_direction != claimed_direction:
         raise EventEvidenceError(
             f"EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:"

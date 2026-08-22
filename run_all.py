@@ -948,6 +948,29 @@ APPROVED_TESTS = [
     #   가격 데이터 누락과 혼동되지 않게 했다. fetch-depth: 0은
     #   actions-pass.yml에 이미 설정돼 있다(P10-02/03 PIT Replay round 4 후속,
     #   replay/asset_identity.py 검증용 — 이 모듈도 같은 게이트를 탄다).
+    #   CIO round 9: 3-clock 시간모델·exact-content provenance·"mock은 test
+    #   파일에만" 원칙은 그대로 승인. 좁은 범위의 authority 경계 결함 2건.
+    #   (1) round 8의 mocked_ratified_direction_tables()가 production 모듈인
+    #   decision/event_evidence.py 안에 들어있었다 — 어떤 운영 호출자든 이를
+    #   import해 런타임에 rule을 주입할 수 있어 빈 테이블 lock을 무력화할 수
+    #   있었다. decision/ 에서 완전히 제거(그것만을 위해 있던 contextlib
+    #   import도 함께 제거)하고, 동등한 헬퍼는 test/test_price_reflection.py
+    #   안에서만 그 파일 자신이 로드한 모듈 인스턴스를 패치하도록 재구현했다.
+    #   production 모듈에 mock/override 이름이 전혀 없음을 dir() 스캔으로
+    #   구조적으로 검증하는 회귀도 추가했다. (2) round 8의 주석은 "테이블에
+    #   entry를 추가하는 것 자체가 ratification"이라고 명시해, Atlas P5 Rule
+    #   Authority 모델(구현 코드 ≠ 정책 승인)과 충돌했다 — 이제 IMPLEMENTATION
+    #   (OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS/DERIVATION_RULE_
+    #   IMPLEMENTATIONS, 순수 코드)과 AUTHORITY(DIRECTION_RULE_AUTHORITY_
+    #   REGISTRY, rule_id/rule_version/approval_status/ratified_at/
+    #   evidence_ref/evidence_sha256를 갖춘 닫힌 스키마 authority record)를
+    #   분리했다. operational lookup은 이제 rule_id/rule_version이 두 테이블
+    #   모두에 존재하고 authority record의 approval_status가 정확히
+    #   RATIFIED일 때만 통과하며(evidence_ref/evidence_sha256는 다른 citation과
+    #   동일하게 실제 커밋 파일 대상 hash 검증까지 거쳐 tamper-evident),
+    #   implementation만 있고 ratified authority가 없거나 authority만 있고
+    #   matching implementation이 없으면 둘 다 실패한다. 세 테이블 모두 이
+    #   저장소 실제 커밋본에서는 여전히 비어 있다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",

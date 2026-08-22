@@ -139,19 +139,54 @@ TESTONLY_RAW_SOURCE_DERIVATION = "raw_source_testonly_000_derivation.json"
 # `observed_direction` shape -- neither closed route's required structure
 # is present -- proving a bare human-curated claim alone is never enough.
 TESTONLY_RAW_SOURCE_HUMAN_CURATED = "raw_source_testonly_000_human_curated.json"
-# CIO round 8, defect 2: matches ONLY what the two new fixtures above
-# declare; this module's own real RATIFIED_OFFICIAL_DIRECTION_FIELDS/
-# RATIFIED_DIRECTION_RULES tables start and stay EMPTY -- these entries are
-# overlaid transiently via mocked_ratified_direction_tables() and never
+# CIO round 9, defect 2: IMPLEMENTATION and AUTHORITY are separate tables
+# now -- matches ONLY what the two new fixtures above declare; this
+# module's own real OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS/DERIVATION_
+# RULE_IMPLEMENTATIONS/DIRECTION_RULE_AUTHORITY_REGISTRY tables start and
+# stay EMPTY -- these entries are overlaid transiently by THIS FILE's own
+# mocked_ratified_direction_tables() (round 9, defect 1: the mock helper
+# itself no longer lives in decision/event_evidence.py at all) and never
 # committed to the module's own global state.
-TESTONLY_RATIFIED_OFFICIAL_FIELDS = {
-    ("GUIDANCE_CHANGE_EVENT", "guidance_flag", "RAISED"): "POSITIVE",
-    ("GUIDANCE_CHANGE_EVENT", "guidance_flag", "LOWERED"): "NEGATIVE",
+TESTONLY_OFFICIAL_RULE_ID = "TESTONLY-OFFICIAL-GUIDANCE-FLAG"
+TESTONLY_OFFICIAL_RULE_VERSION = "1"
+TESTONLY_OFFICIAL_IMPLEMENTATIONS = {
+    ("GUIDANCE_CHANGE_EVENT", "guidance_flag", "RAISED"): {
+        "direction": "POSITIVE", "rule_id": TESTONLY_OFFICIAL_RULE_ID, "rule_version": TESTONLY_OFFICIAL_RULE_VERSION,
+    },
+    ("GUIDANCE_CHANGE_EVENT", "guidance_flag", "LOWERED"): {
+        "direction": "NEGATIVE", "rule_id": TESTONLY_OFFICIAL_RULE_ID, "rule_version": TESTONLY_OFFICIAL_RULE_VERSION,
+    },
 }
-TESTONLY_RATIFIED_DERIVATION_RULES = {
-    ("TESTONLY_REVENUE_YOY_SIGN", "1"): {
+TESTONLY_DERIVATION_RULE_ID = "TESTONLY_REVENUE_YOY_SIGN"
+TESTONLY_DERIVATION_RULE_VERSION = "1"
+TESTONLY_DERIVATION_IMPLEMENTATIONS = {
+    (TESTONLY_DERIVATION_RULE_ID, TESTONLY_DERIVATION_RULE_VERSION): {
         "required_inputs": ("revenue_yoy_pct",),
         "derive": lambda inputs: "POSITIVE" if inputs["revenue_yoy_pct"] > 0 else "NEGATIVE",
+    },
+}
+# CIO round 9, P2: a genuine authority record needs real, hash-verified
+# evidence -- reuses the already-committed TESTONLY_RAW_SOURCE fixture
+# purely as a stand-in file for hash verification (never interpreted as an
+# actual ratification basis document).
+TESTONLY_AUTHORITY_EVIDENCE_REF = _fixture_ref(TESTONLY_RAW_SOURCE)
+TESTONLY_AUTHORITY_EVIDENCE_SHA256 = _hash(TESTONLY_AUTHORITY_EVIDENCE_REF)
+TESTONLY_AUTHORITY_RECORDS = {
+    (TESTONLY_OFFICIAL_RULE_ID, TESTONLY_OFFICIAL_RULE_VERSION): {
+        "approval_status": "RATIFIED", "ratified_at": "2026-08-01T00:00:00Z",
+        "evidence_ref": TESTONLY_AUTHORITY_EVIDENCE_REF, "evidence_sha256": TESTONLY_AUTHORITY_EVIDENCE_SHA256,
+    },
+    (TESTONLY_DERIVATION_RULE_ID, TESTONLY_DERIVATION_RULE_VERSION): {
+        "approval_status": "RATIFIED", "ratified_at": "2026-08-01T00:00:00Z",
+        "evidence_ref": TESTONLY_AUTHORITY_EVIDENCE_REF, "evidence_sha256": TESTONLY_AUTHORITY_EVIDENCE_SHA256,
+    },
+}
+# A well-formed but NOT-YET-RATIFIED authority record (PROPOSED) -- used to
+# prove a merely-proposed record does not unlock operational use either.
+TESTONLY_AUTHORITY_RECORDS_PROPOSED = {
+    (TESTONLY_OFFICIAL_RULE_ID, TESTONLY_OFFICIAL_RULE_VERSION): {
+        "approval_status": "PROPOSED", "ratified_at": "2026-08-01T00:00:00Z",
+        "evidence_ref": TESTONLY_AUTHORITY_EVIDENCE_REF, "evidence_sha256": TESTONLY_AUTHORITY_EVIDENCE_SHA256,
     },
 }
 TESTONLY_OBSERVED_FACT = (
@@ -256,13 +291,39 @@ def mocked_eg_canonical_verification(reference_decision_date: str = "2026-07-29"
 
 
 @contextlib.contextmanager
-def mocked_ratified_direction_tables(**kwargs):
-    """Thin wrapper around `decision/event_evidence.py`'s own `mocked_
-    ratified_direction_tables()`, always applied to THIS test file's own
-    loaded `EVENT_EVIDENCE` module instance -- never the real module object
-    any other caller sees."""
-    with EVENT_EVIDENCE.mocked_ratified_direction_tables(EVENT_EVIDENCE, **kwargs):
+def mocked_ratified_direction_tables(
+    *, official_implementations=None, derivation_implementations=None, authority_records=None,
+):
+    """CIO round 9, defect 1: this helper now lives ENTIRELY in this test
+    file -- `decision/event_evidence.py` no longer exports (or even
+    imports `contextlib` for) any mock/override mechanism at all. Patches
+    ONLY this test file's own loaded `EVENT_EVIDENCE` module instance's
+    `OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS`/`DERIVATION_RULE_
+    IMPLEMENTATIONS`/`DIRECTION_RULE_AUTHORITY_REGISTRY` dicts, restored
+    via `finally` -- the same scoping discipline as `mocked_event_evidence_
+    verification()`. Note that supplying an implementation WITHOUT a
+    matching `authority_records` entry (or vice versa) is exactly how the
+    round-9 regressions prove "implementation alone is not enough" and
+    "authority alone is not enough" -- callers pass only the piece under
+    test."""
+    original_official = dict(EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS)
+    original_derivation = dict(EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS)
+    original_authority = dict(EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY)
+    if official_implementations:
+        EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS.update(official_implementations)
+    if derivation_implementations:
+        EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS.update(derivation_implementations)
+    if authority_records:
+        EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY.update(authority_records)
+    try:
         yield
+    finally:
+        EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS.clear()
+        EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS.update(original_official)
+        EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS.clear()
+        EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS.update(original_derivation)
+        EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY.clear()
+        EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY.update(original_authority)
 
 
 def base_kwargs(**overrides):
@@ -561,7 +622,9 @@ class PriceReflectionTests(unittest.TestCase):
         citation["published_at"] = first_seen.strftime("%Y-%m-%dT%H:%M:%SZ")
         citation["captured_at"] = first_seen.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             lineage = EVENT_EVIDENCE._verify_raw_source_citation(
                 citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
             )
@@ -662,7 +725,9 @@ class PriceReflectionTests(unittest.TestCase):
         citation["published_at"] = TESTONLY_DECLARED_CAPTURED_AT
         citation["captured_at"] = TESTONLY_DECLARED_CAPTURED_AT  # 2026-08-01, always earlier than first_seen
         decision_at = first_seen - _dt.timedelta(days=5)
-        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             with self.assertRaisesRegex(
                 EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_RAW_SOURCE_NOT_YET_AVAILABLE_AS_OF_DECISION"
             ):
@@ -683,7 +748,9 @@ class PriceReflectionTests(unittest.TestCase):
         citation["raw_source_ref"] = neg_ref
         citation["raw_source_sha256"] = _hash(neg_ref)
         decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
-        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             with self.assertRaisesRegex(
                 EVENT_EVIDENCE.EventEvidenceError,
                 "EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:claimed=POSITIVE!=derived=NEGATIVE",
@@ -702,7 +769,9 @@ class PriceReflectionTests(unittest.TestCase):
         envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
         decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
 
-        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             missing_key_citation = dict(envelope["citation"])
             missing_key_citation["locator"] = "this_key_does_not_exist_in_the_raw_source"
             with self.assertRaisesRegex(
@@ -800,7 +869,9 @@ class PriceReflectionTests(unittest.TestCase):
         citation["published_at"] = (first_seen - _dt.timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         citation["captured_at"] = (first_seen - _dt.timedelta(days=9)).strftime("%Y-%m-%dT%H:%M:%SZ")
         decision_at = first_seen + _dt.timedelta(days=1)
-        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             lineage = EVENT_EVIDENCE._verify_raw_source_citation(
                 citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
             )
@@ -904,8 +975,9 @@ class PriceReflectionTests(unittest.TestCase):
                 citation["raw_source_sha256"] = _hash(human_ref)
                 citation["direction_origin"] = origin
                 with mocked_ratified_direction_tables(
-                    official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS,
-                    derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES,
+                    official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS,
+                    derivation_implementations=TESTONLY_DERIVATION_IMPLEMENTATIONS,
+                    authority_records=TESTONLY_AUTHORITY_RECORDS,
                 ):
                     with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, expected_code):
                         EVENT_EVIDENCE._verify_raw_source_citation(
@@ -932,17 +1004,23 @@ class PriceReflectionTests(unittest.TestCase):
         decision_at = max(official_first_seen, derivation_first_seen) + _dt.timedelta(days=1)
 
         # Route 1: OFFICIAL_STRUCTURED_FIELD.
-        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             citation = dict(envelope["citation"])
             lineage = EVENT_EVIDENCE._verify_raw_source_citation(
                 citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
             )
             self.assertEqual(lineage["direction_origin"], "OFFICIAL_STRUCTURED_FIELD")
 
-        # Without the mock, the identical citation fails -- the table is
-        # genuinely empty in this module's real, unmocked state.
+        # Without the mock, the identical citation fails -- both tables are
+        # genuinely empty in this module's real, unmocked state (round 9:
+        # the IMPLEMENTATION lookup runs first, so that's the failure seen
+        # here -- see the dedicated round-9 regressions below for the
+        # implementation-vs-authority split itself).
         with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_NOT_RATIFIED"
+            EVENT_EVIDENCE.EventEvidenceError,
+            "EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_IMPLEMENTATION_NOT_FOUND",
         ):
             EVENT_EVIDENCE._verify_raw_source_citation(
                 dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
@@ -958,7 +1036,9 @@ class PriceReflectionTests(unittest.TestCase):
             "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive numeric derivation "
             "used only to exercise citation verification."
         )
-        with mocked_ratified_direction_tables(derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES):
+        with mocked_ratified_direction_tables(
+            derivation_implementations=TESTONLY_DERIVATION_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
             lineage = EVENT_EVIDENCE._verify_raw_source_citation(
                 deriv_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
             )
@@ -966,27 +1046,209 @@ class PriceReflectionTests(unittest.TestCase):
 
         # Without the mock, the identical citation fails too.
         with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_NOT_RATIFIED"
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_IMPLEMENTATION_NOT_FOUND"
         ):
             EVENT_EVIDENCE._verify_raw_source_citation(
                 dict(deriv_citation), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
             )
 
     def test_cio_round8_required_regression_f_ratified_tables_start_empty_in_real_module(self):
-        """Required regression (f), the structural half: this module's own
-        real, committed `RATIFIED_OFFICIAL_DIRECTION_FIELDS`/`RATIFIED_
-        DIRECTION_RULES` tables are empty -- nothing from
-        `mocked_ratified_direction_tables()` leaks into the real module
-        state once its `with` block exits."""
-        self.assertEqual(EVENT_EVIDENCE.RATIFIED_OFFICIAL_DIRECTION_FIELDS, {})
-        self.assertEqual(EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES, {})
+        """Required regression (f), the structural half (round 9: extended
+        to all THREE tables, and required regression "current real
+        registry contains no RATIFIED entries" for the authority table
+        specifically): this module's own real, committed
+        `OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS`/`DERIVATION_RULE_
+        IMPLEMENTATIONS`/`DIRECTION_RULE_AUTHORITY_REGISTRY` tables are all
+        empty -- nothing from `mocked_ratified_direction_tables()` (this
+        test file's own helper, round 9) leaks into the real module state
+        once its `with` block exits."""
+        self.assertEqual(EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS, {})
+        self.assertEqual(EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS, {})
+        self.assertEqual(EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY, {})
         with mocked_ratified_direction_tables(
-            official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS, derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES,
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS,
+            derivation_implementations=TESTONLY_DERIVATION_IMPLEMENTATIONS,
+            authority_records=TESTONLY_AUTHORITY_RECORDS,
         ):
-            self.assertTrue(EVENT_EVIDENCE.RATIFIED_OFFICIAL_DIRECTION_FIELDS)
-            self.assertTrue(EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES)
-        self.assertEqual(EVENT_EVIDENCE.RATIFIED_OFFICIAL_DIRECTION_FIELDS, {})
-        self.assertEqual(EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES, {})
+            self.assertTrue(EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS)
+            self.assertTrue(EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS)
+            self.assertTrue(EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY)
+        self.assertEqual(EVENT_EVIDENCE.OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS, {})
+        self.assertEqual(EVENT_EVIDENCE.DERIVATION_RULE_IMPLEMENTATIONS, {})
+        self.assertEqual(EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY, {})
+
+    # ══════════════════════ CIO round 9 regressions ════════════════════════
+
+    def test_cio_round9_production_module_has_no_mock_or_test_override_api(self):
+        """Required regression: "production module has no mocked_/test
+        override callable." Structural, `dir()`-based scan of the real,
+        loaded `decision/event_evidence.py` module -- not merely "we didn't
+        call it in a production code path", but "the capability does not
+        exist in this module at all". Also confirms `contextlib` (the
+        round-8 mock helper's only reason to be imported here) is no
+        longer imported by this module, and that no public function's
+        signature (`build_packet`, `verify_event_reaction_claim`,
+        `_verify_raw_source_citation`) accepts anything resembling a
+        rule-table-injection parameter."""
+        exported_names = [name for name in dir(EVENT_EVIDENCE) if not name.startswith("_")]
+        mock_like = [name for name in exported_names if "mock" in name.lower() or "override" in name.lower()]
+        self.assertEqual(mock_like, [], f"production module exports a mock/override-like name: {mock_like}")
+        self.assertNotIn("contextlib", dir(EVENT_EVIDENCE))
+
+        for func in (
+            MODULE.build_packet,
+            EVENT_EVIDENCE.verify_event_reaction_claim,
+            EVENT_EVIDENCE.verify_expectations_gap_canonical_record,
+            EVENT_EVIDENCE._verify_raw_source_citation,
+        ):
+            for param_name in inspect.signature(func).parameters:
+                lowered = param_name.lower()
+                for forbidden in ("mock", "override", "inject", "table", "authority_record"):
+                    self.assertNotIn(
+                        forbidden, lowered,
+                        f"{func.__name__}'s parameter {param_name!r} looks like a rule-table-injection surface",
+                    )
+
+    def test_cio_round9_implementation_without_ratified_authority_cannot_unlock(self):
+        """Required regression: "mutating or supplying an implemented
+        mapping without RATIFIED authority cannot unlock reflection."
+        A genuine implementation is mocked in (both OFFICIAL_STRUCTURED_
+        FIELD and RATIFIED_DERIVATION routes), but NO matching authority
+        record exists at all -- both must fail."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+
+        with mocked_ratified_direction_tables(official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS):
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_RECORD_NOT_FOUND"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+        deriv_ref = _fixture_ref(TESTONLY_RAW_SOURCE_DERIVATION)
+        deriv_citation = dict(envelope["citation"])
+        deriv_citation["raw_source_ref"] = deriv_ref
+        deriv_citation["raw_source_sha256"] = _hash(deriv_ref)
+        deriv_citation["direction_origin"] = "RATIFIED_DERIVATION"
+        deriv_citation["observed_fact"] = (
+            "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive numeric derivation "
+            "used only to exercise citation verification."
+        )
+        with mocked_ratified_direction_tables(derivation_implementations=TESTONLY_DERIVATION_IMPLEMENTATIONS):
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_RECORD_NOT_FOUND"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    deriv_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+    def test_cio_round9_ratified_authority_without_implementation_cannot_unlock(self):
+        """Required regression: "RATIFIED authority without matching
+        implementation cannot unlock." A genuine, well-formed, RATIFIED
+        authority record is mocked in for BOTH rule_ids, but NO matching
+        implementation exists at all -- both must fail, and specifically
+        with the IMPLEMENTATION_NOT_FOUND code (proving the implementation
+        check, not the authority check, is what's actually blocking)."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+
+        with mocked_ratified_direction_tables(authority_records=TESTONLY_AUTHORITY_RECORDS):
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError,
+                "EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_IMPLEMENTATION_NOT_FOUND",
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+            deriv_ref = _fixture_ref(TESTONLY_RAW_SOURCE_DERIVATION)
+            deriv_citation = dict(envelope["citation"])
+            deriv_citation["raw_source_ref"] = deriv_ref
+            deriv_citation["raw_source_sha256"] = _hash(deriv_ref)
+            deriv_citation["direction_origin"] = "RATIFIED_DERIVATION"
+            deriv_citation["observed_fact"] = (
+                "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive numeric derivation "
+                "used only to exercise citation verification."
+            )
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_IMPLEMENTATION_NOT_FOUND"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    deriv_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+    def test_cio_round9_proposed_authority_status_does_not_unlock(self):
+        """A well-formed authority record that is merely `PROPOSED` (not
+        yet `RATIFIED`) must not unlock operational use either -- proves
+        the status check is real, not merely "a record exists"."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS,
+            authority_records=TESTONLY_AUTHORITY_RECORDS_PROPOSED,
+        ):
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_AUTHORITY_NOT_RATIFIED"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+    def test_cio_round9_authority_evidence_is_hash_verified_tamper_evident(self):
+        """P2: the authority record's `evidence_ref`/`evidence_sha256` are
+        actually hash-verified against a real committed file, not merely
+        checked for presence -- a wrong hash is rejected even though the
+        record is otherwise well-formed and RATIFIED."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+        tampered_authority = {
+            (TESTONLY_OFFICIAL_RULE_ID, TESTONLY_OFFICIAL_RULE_VERSION): {
+                "approval_status": "RATIFIED", "ratified_at": "2026-08-01T00:00:00Z",
+                "evidence_ref": TESTONLY_AUTHORITY_EVIDENCE_REF, "evidence_sha256": "f" * 64,
+            },
+        }
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=tampered_authority,
+        ):
+            with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_SOURCE_HASH_MISMATCH"):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+    def test_cio_round9_only_both_implementation_and_authority_together_pass(self):
+        """Required regression: "only both together can pass in test
+        isolation." Both the implementation AND a genuine RATIFIED
+        authority record are mocked in together -- and only then does the
+        citation verify successfully."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        # decision_at derived from the real, committed raw source's git
+        # first-seen (never hardcoded) -- must be genuinely late enough for
+        # the git-availability gate to pass too, not just the authority
+        # checks under test here.
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(FIXTURES_DIR / TESTONLY_RAW_SOURCE)
+        self.assertIsNotNone(first_seen, "fixture must be committed for this regression to be meaningful")
+        decision_at = first_seen + _dt.timedelta(days=1)
+        with mocked_ratified_direction_tables(
+            official_implementations=TESTONLY_OFFICIAL_IMPLEMENTATIONS, authority_records=TESTONLY_AUTHORITY_RECORDS,
+        ):
+            lineage = EVENT_EVIDENCE._verify_raw_source_citation(
+                dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+            self.assertEqual(lineage["direction_origin"], "OFFICIAL_STRUCTURED_FIELD")
+
+    def test_cio_round9_real_authority_registry_contains_no_ratified_entries(self):
+        """Required regression: "current real registry contains no RATIFIED
+        entries." The real, unmocked module's authority registry is not
+        merely empty (covered by regression f above) -- explicitly, no
+        entry anywhere in it (there are none, but the check is written
+        generally) has `approval_status == "RATIFIED"`."""
+        self.assertEqual(EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY, {})
+        ratified_entries = [
+            key for key, record in EVENT_EVIDENCE.DIRECTION_RULE_AUTHORITY_REGISTRY.items()
+            if isinstance(record, dict) and record.get("approval_status") == "RATIFIED"
+        ]
+        self.assertEqual(ratified_entries, [])
 
     def test_cio_round6_git_provenance_succeeds_when_genuinely_consistent(self):
         """The positive path of `_verify_first_availability` -- proves the

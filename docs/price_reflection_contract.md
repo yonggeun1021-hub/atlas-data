@@ -370,6 +370,54 @@ workflow change needed. A new, analogous ordering guard was also added at
 the envelope level: `captured_at` may never precede `event_at` (mirroring
 the citation's `published_at <= captured_at` check one level up).
 
+## `price_reflection/6` authority-boundary hardening (CIO review round 9)
+
+Round 9 approved round 8's 3-clock time model, exact-content provenance,
+and the "mocks live only in test files" principle outright, but found 2
+narrower authority-boundary defects, again entirely inside
+`decision/event_evidence.py` — this module's own public interface is
+unchanged by round 9:
+
+1. **The test-bypass helper had leaked into production code.**
+   `mocked_ratified_direction_tables()` (round 8) lived inside
+   `decision/event_evidence.py` itself — a production module. Any
+   operational caller could import it and inject a temporary official-field
+   mapping or derivation rule at runtime, defeating the empty-table
+   production lock. Removed entirely from `decision/`, along with the
+   `contextlib` import that existed only for it. The equivalent helper now
+   lives ONLY inside `test/test_price_reflection.py`, patching that file's
+   own loaded module instance, restored via `finally` — the same scope as
+   `mocked_event_evidence_verification()`. A structural test (`dir()`-based
+   scan) confirms the production module exports no `mock`/`override`-like
+   name and no public function accepts a rule-table-injection parameter.
+2. **"Code was added" was being treated as equivalent to "CIO ratified this
+   rule."** Round 8's own comments stated that adding an entry to a
+   `RATIFIED_*` table WAS the ratification act — conflating IMPLEMENTATION
+   (code that knows how a mapping/derivation would compute a direction)
+   with AUTHORITY (a genuine Rule Authority decision that a rule is
+   approved for operational use), bypassing the established Atlas P5 Rule
+   Authority model. Split into three independent, all-empty tables:
+   - `OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS` / `DERIVATION_RULE_
+     IMPLEMENTATIONS` — pure code, keyed the same way round 8's tables
+     were, but each entry now also names the `(rule_id, rule_version)` it
+     belongs to. Never itself authority.
+   - `DIRECTION_RULE_AUTHORITY_REGISTRY` — keyed by `(rule_id,
+     rule_version)`, a closed-schema authority record
+     (`approval_status`/`ratified_at`/`evidence_ref`/`evidence_sha256`).
+     `approval_status` is closed to `("RATIFIED", "PROPOSED")` — only
+     `RATIFIED` unlocks operational use. `evidence_ref`/`evidence_sha256`
+     are hash-verified against a real committed file exactly like every
+     other citation in this module (tamper-evident).
+
+   Operational lookup now requires a matching, cross-referenced entry in
+   BOTH the relevant implementation table AND the authority registry — an
+   implementation with no ratified authority record is unusable, and a
+   ratified authority record with no matching implementation is equally
+   unusable. No rule may become ratified merely because a developer commits
+   code. All three tables remain intentionally empty in this module's real,
+   committed source, so both `direction_origin` routes remain genuinely
+   unproducible for any real subject today.
+
 ## Structurally price/volume/reference-point only — never fundamentals
 
 The public builder, `build_packet(...)`, is a keyword-only function whose
@@ -629,7 +677,7 @@ Every figure's evidence dates are checked with
 `replay.lookahead_gate.assert_no_signal_lookahead` (reused unchanged from
 PR #210) before being returned — see `test/test_price_evidence_lookahead.py`.
 
-## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-8)
+## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-9)
 
 Real event/reference-point CITATIONS (as opposed to price-endpoint lookups,
 covered by `decision/price_evidence.py` above) are verified by
@@ -677,18 +725,22 @@ origin`. For `OFFICIAL_STRUCTURED_FIELD`:
 ```
 
 `(source_class, provider_field, provider_value)` must be a member of this
-module's own closed, module-owned `RATIFIED_OFFICIAL_DIRECTION_FIELDS`
-table (empty in the real, committed module — see round-8 provenance
-hardening section above) and must map to the envelope's claimed
-`direction`. The alternative, `RATIFIED_DERIVATION`, instead requires
+module's own `OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS` table (empty in
+the real, committed module — see round-9 authority-boundary hardening
+section above), whose entry names a `direction` AND the `(rule_id,
+rule_version)` it belongs to — that pair must in turn have a matching,
+well-formed, `approval_status=RATIFIED` record in the SEPARATE
+`DIRECTION_RULE_AUTHORITY_REGISTRY` (round 9: an implementation alone is
+never enough). The alternative, `RATIFIED_DERIVATION`, instead requires
 `direction_derivation: {"rule_id", "rule_version", "inputs"}` looked up
-against `RATIFIED_DIRECTION_RULES` and recomputed from real numeric
-inputs. Either way, `citation.locator` must name a real top-level key of
-the raw document (here, `"disclosure_text"`) whose value contains
-`citation.observed_fact` verbatim (round 7, item 5 — locator is genuinely
-resolved, not merely checked for non-emptiness). A raw document carrying
-only the retired round-7 `observed_direction` shape — a bare human-curated
-claim — satisfies neither structure and is rejected outright.
+against `DERIVATION_RULE_IMPLEMENTATIONS` and recomputed from real numeric
+inputs, subject to the exact same authority-registry cross-check. Either
+way, `citation.locator` must name a real top-level key of the raw document
+(here, `"disclosure_text"`) whose value contains `citation.observed_fact`
+verbatim (round 7, item 5 — locator is genuinely resolved, not merely
+checked for non-emptiness). A raw document carrying only the retired
+round-7 `observed_direction` shape — a bare human-curated claim —
+satisfies neither structure and is rejected outright.
 
 `source_class` is a closed vocabulary of real evidentiary categories
 (`SEC_FILING_EVENT`/`DART_FILING_EVENT`/`OFFICIAL_RELEASE_EVENT`/
