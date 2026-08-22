@@ -66,27 +66,28 @@ class SubjectCandidateFieldTests(unittest.TestCase):
 
 
 class TierComputationTests(unittest.TestCase):
+    """See test_dynamic_clock_pit_tier_invariant.py for the CIO review
+    round 2 PIT-safety regression (compute_tier() no longer accepts any
+    post-hoc/outcome-shaped argument at all -- not even ignored)."""
     LINKED = {"status": "LINKED_EXAMPLE"}
     UNLINKED = {"status": NOT_LINKED}
 
     def test_pit_ineligible_is_always_observation_only(self):
-        result = compute_tier(5, "FAIL", self.LINKED, self.LINKED, None)
+        result = compute_tier(5, "FAIL", self.LINKED, self.LINKED)
         self.assertEqual(result["tier"], TIER_OBSERVATION_ONLY)
         self.assertFalse(result["human_review_required"])
 
-    def test_pit_ineligible_overrides_even_an_audit_exception(self):
-        result = compute_tier(1, "FAIL", self.UNLINKED, self.UNLINKED, {"pr210_episode_id": "x"})
-        self.assertEqual(result["tier"], TIER_OBSERVATION_ONLY)
-
     def test_two_confirmations_with_real_linkage_is_immediate(self):
-        result = compute_tier(2, "PASS", self.LINKED, self.LINKED, None)
+        result = compute_tier(2, "PASS", self.LINKED, self.LINKED)
         self.assertEqual(result["tier"], TIER_IMMEDIATE_REVIEW)
         self.assertTrue(result["human_review_required"])
         self.assertFalse(result["capped_for_missing_linkage"])
 
     def test_two_confirmations_with_no_linkage_is_capped_to_watch(self):
-        # Item 4's default rule: both linkages absent -> never IMMEDIATE_REVIEW.
-        result = compute_tier(2, "PASS", self.UNLINKED, self.UNLINKED, None)
+        # Both linkages absent -> never IMMEDIATE_REVIEW, no exception of
+        # any kind (CIO review round 2 removed the AUDIT_CONFIRMED_MISS
+        # exception entirely -- see test_dynamic_clock_pit_tier_invariant.py).
+        result = compute_tier(2, "PASS", self.UNLINKED, self.UNLINKED)
         self.assertEqual(result["tier"], TIER_WATCH_REVIEW)
         self.assertTrue(result["capped_for_missing_linkage"])
         self.assertFalse(result["human_review_required"])
@@ -94,25 +95,19 @@ class TierComputationTests(unittest.TestCase):
     def test_single_confirmation_with_no_linkage_is_watch_not_capped_flag(self):
         # Base tier is already WATCH_REVIEW here (not IMMEDIATE_REVIEW), so
         # the "capped" flag should be False -- nothing was downgraded.
-        result = compute_tier(1, "PASS", self.UNLINKED, self.UNLINKED, None)
+        result = compute_tier(1, "PASS", self.UNLINKED, self.UNLINKED)
         self.assertEqual(result["tier"], TIER_WATCH_REVIEW)
         self.assertFalse(result["capped_for_missing_linkage"])
 
-    def test_audit_confirmed_miss_elevates_even_a_single_confirmation(self):
-        # BTC's real shape: confirmation_count=1, no linkage, but a real
-        # PR #210-confirmed Miss -- must be elevated to IMMEDIATE_REVIEW.
-        result = compute_tier(1, "PASS", self.UNLINKED, self.UNLINKED, {"pr210_episode_id": "x"})
-        self.assertEqual(result["tier"], TIER_IMMEDIATE_REVIEW)
-        self.assertTrue(result["audit_confirmed_miss_exception_applied"])
-        self.assertFalse(result["capped_for_missing_linkage"])
-        self.assertTrue(result["human_review_required"])
-
-    def test_audit_confirmed_miss_does_not_apply_when_linkage_is_present(self):
-        # Exception is only relevant when it's actually needed; the field is
-        # still reported honestly either way.
-        result = compute_tier(2, "PASS", self.LINKED, self.LINKED, {"pr210_episode_id": "x"})
-        self.assertEqual(result["tier"], TIER_IMMEDIATE_REVIEW)
-        self.assertTrue(result["audit_confirmed_miss_exception_applied"])
+    def test_reason_field_never_mentions_a_percent_or_return(self):
+        # Item 8: the reason string must be template-only, never contain a
+        # forward-return-shaped figure.
+        for args in ((2, "PASS", self.LINKED, self.LINKED),
+                     (2, "PASS", self.UNLINKED, self.UNLINKED),
+                     (1, "PASS", self.UNLINKED, self.UNLINKED),
+                     (1, "FAIL", self.UNLINKED, self.UNLINKED)):
+            result = compute_tier(*args)
+            self.assertNotIn("%", result["reason"])
 
 
 class SubjectCandidateConsolidationTests(unittest.TestCase):

@@ -1633,7 +1633,14 @@ def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str)
     if DYNAMIC_CLOCK is None:
         return component_row("DYNAMIC_CLOCK", "UNAVAILABLE", "DYNAMIC_CLOCK_MODULE_LOAD_FAILED")
     try:
-        report = DYNAMIC_CLOCK.run()
+        # ★ CIO review round 2, item 5: pass the briefing's own real
+        #   decision_date through so episode staleness is evaluated as of
+        #   TODAY, not silently capped at whatever the last evidence
+        #   capture date happens to be (this is an external date the
+        #   caller already computed via a real `date` command -- see
+        #   .github/workflows/daily-briefing.yml -- never datetime.now()
+        #   inside this module or clock/run_dynamic_clock.py).
+        report = DYNAMIC_CLOCK.run(decision_date=decision_date)
         section = DYNAMIC_CLOCK.build_briefing_section(report)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("DYNAMIC_CLOCK", exc)
@@ -1645,6 +1652,11 @@ def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str)
         "slot": slot,
         "generated_at": generated_at,
         "report_asof_evidence_date": report["report_asof_evidence_date"],
+        # ★ CIO review round 2, item 7: surfaced explicitly so this
+        #   component's own READY status is never mistaken for "the
+        #   cadence/tiering policy itself is finally ratified".
+        "policy_approval_status": report["policy_approval_status"],
+        "policy_version": report["policy_version"],
         "markets": section["markets"],
         "note": (
             "Trigger firing is a re-review REQUEST only, never a Buy signal or Action/Order/"
@@ -2376,22 +2388,29 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"comparison_label={row.get('comparison_label')}"
                 )
         elif cid == "DYNAMIC_CLOCK":
+            lines.append(f"    - policy_approval_status={packet.get('policy_approval_status')}")
             markets = packet.get("markets", {})
             for market, m in sorted(markets.items()):
+                tier_counts = m.get("tier_counts", {})
                 lines.append(
-                    f"    - {market}: raw_triggers={m.get('raw_trigger_count')} "
-                    f"immediate_review={len(m.get('immediate_review', []))} "
-                    f"watch_review={len(m.get('watch_review', []))} "
-                    f"observation_only={m.get('observation_only_count')} "
+                    f"    - {market}: raw_triggers(audit only)={m.get('raw_trigger_count_audit_only')} "
+                    f"immediate_review={tier_counts.get('IMMEDIATE_REVIEW')} "
+                    f"watch_review={tier_counts.get('WATCH_REVIEW')} "
+                    f"observation_only={tier_counts.get('OBSERVATION_ONLY')} "
                     f"expired={len(m.get('expired_triggers', []))} "
+                    f"calendar_confidence={m.get('calendar_confidence')} "
                     f"not_computable={m.get('not_computable_trigger_types')}"
                 )
+                # NOTE: `reason` here is always template-derived from
+                # confirmation_count/PIT-eligibility/linkage-presence --
+                # never a forward-return or post-hoc audit figure (CIO
+                # review round 2, item 8).
                 for c in m.get("immediate_review", []):
                     lines.append(
                         f"      - IMMEDIATE_REVIEW {c.get('subject')} "
                         f"trigger_types={c.get('trigger_types')} "
                         f"next_review_at={c.get('next_review_at')} "
-                        f"audit_confirmed_miss={c.get('audit_confirmed_miss')}"
+                        f"reason={c.get('reason')}"
                     )
     except (AttributeError, TypeError, KeyError):
         # A packet shape the renderer does not recognize must never break

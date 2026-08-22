@@ -118,12 +118,58 @@ class PolicyFileFailClosedTests(unittest.TestCase):
 
 class PitIneligibilityDoesNotCrashTieringTests(unittest.TestCase):
     def test_not_computable_pit_status_maps_to_observation_only_not_a_crash(self):
-        result = compute_tier(2, "NOT_COMPUTABLE", {"status": "x"}, {"status": "x"}, None)
+        result = compute_tier(2, "NOT_COMPUTABLE", {"status": "x"}, {"status": "x"})
         self.assertEqual(result["tier"], "OBSERVATION_ONLY")
 
     def test_fail_pit_status_maps_to_observation_only(self):
-        result = compute_tier(3, "FAIL", {"status": "x"}, {"status": "x"}, None)
+        result = compute_tier(3, "FAIL", {"status": "x"}, {"status": "x"})
         self.assertEqual(result["tier"], "OBSERVATION_ONLY")
+
+
+class DecisionDateValidationTests(unittest.TestCase):
+    """CIO review round 2, item 5: `decision_date` fails closed only on a
+    malformed date string. A decision_date earlier than a market's
+    evidence_as_of is NOT an error -- `_effective_as_of` takes max(), so it
+    simply has no effect (see that function's own tests below)."""
+
+    def test_malformed_decision_date_raises(self):
+        from clock.run_dynamic_clock import DynamicClockOrchestratorError, _validate_decision_date
+        with self.assertRaisesRegex(DynamicClockOrchestratorError, "DECISION_DATE_INVALID"):
+            _validate_decision_date("not-a-date")
+
+    def test_none_decision_date_is_always_valid(self):
+        from clock.run_dynamic_clock import _validate_decision_date
+        _validate_decision_date(None)  # must not raise
+
+    def test_any_well_formed_decision_date_is_valid(self):
+        from clock.run_dynamic_clock import _validate_decision_date
+        _validate_decision_date("2020-01-01")  # must not raise, even far in the past
+        _validate_decision_date("2026-08-25")  # must not raise
+
+
+class EffectiveAsOfTests(unittest.TestCase):
+    """`_effective_as_of` is the actual round-2/item-5 staleness fix: the
+    max of decision_date and evidence_as_of, never earlier than either."""
+
+    def test_decision_date_later_than_evidence_wins(self):
+        from clock.run_dynamic_clock import _effective_as_of
+        self.assertEqual(_effective_as_of("2026-08-25", "2026-08-22"), "2026-08-25")
+
+    def test_evidence_later_than_decision_date_wins(self):
+        from clock.run_dynamic_clock import _effective_as_of
+        self.assertEqual(_effective_as_of("2020-01-01", "2026-08-22"), "2026-08-22")
+
+    def test_none_decision_date_falls_back_to_evidence(self):
+        from clock.run_dynamic_clock import _effective_as_of
+        self.assertEqual(_effective_as_of(None, "2026-08-22"), "2026-08-22")
+
+    def test_none_evidence_falls_back_to_decision_date(self):
+        from clock.run_dynamic_clock import _effective_as_of
+        self.assertEqual(_effective_as_of("2026-08-25", None), "2026-08-25")
+
+    def test_both_none_is_none(self):
+        from clock.run_dynamic_clock import _effective_as_of
+        self.assertIsNone(_effective_as_of(None, None))
 
 
 if __name__ == "__main__":

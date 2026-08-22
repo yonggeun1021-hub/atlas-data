@@ -88,5 +88,49 @@ class IdempotencyTests(unittest.TestCase):
         self.assertIn("Committed-output-only guard", text)
 
 
+class AtomicityHardeningTests(unittest.TestCase):
+    """CIO review round 2, item 6: re-sync to the latest main immediately
+    before computing (not after), and fail closed rather than force-push a
+    possibly-stale result if a race is detected at push time."""
+
+    def test_workflow_resyncs_to_latest_main_before_computing(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        resync_idx = text.index("git reset --hard")
+        compute_idx = text.index("clock/run_dynamic_clock.py --decision-date")
+        self.assertLess(resync_idx, compute_idx,
+                         "the re-sync (git fetch + reset --hard) must happen BEFORE computing, not after")
+
+    def test_workflow_never_uses_pull_rebase_before_push(self):
+        # The exact anti-pattern CIO review round 2 rejected: rebasing onto
+        # newer evidence and pushing an already-computed (now possibly
+        # stale) result without recomputing.
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("pull --rebase", text)
+
+    def test_workflow_never_force_pushes(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("--force", text)
+        self.assertNotIn("-f ", text)
+
+    def test_push_step_fails_closed_on_a_race_rather_than_retry_or_force(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("exit 1", text)
+        self.assertIn("real race", text.lower() if "real race" in text.lower() else text)
+
+
+class RealDecisionDateTests(unittest.TestCase):
+    """CIO review round 2, item 5: the workflow computes the real
+    operational decision_date via a real `date` command (never
+    datetime.now() inside the Python module) and passes it through."""
+
+    def test_workflow_computes_decision_date_via_real_date_command(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("TZ=Asia/Seoul date +%F", text)
+
+    def test_workflow_passes_decision_date_to_the_script(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("--decision-date", text)
+
+
 if __name__ == "__main__":
     unittest.main()
