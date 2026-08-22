@@ -353,6 +353,11 @@ APPROVED_TESTS = [
     #   ratified 30일 turnover Top-100·명시 taxonomy·90% coverage gate를 재현한다.
     #   ⛔ 테스트의 live Kraken/tracked factor 없음 — fake fetcher + temp fixtures only.
     "test/test_crypto_breadth.py",
+    # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
+    #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
+    #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
+    #   유지함을 검증한다. ⛔ investability/threshold 완화 없음.
+    "test/test_crypto_taxonomy_minimal_slice.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
