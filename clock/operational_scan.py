@@ -191,6 +191,7 @@ def scan_korea() -> dict:
         "series": kr_series,
         "population_label": "CURRENT_WATCHLIST_OPERATIONAL_COHORT",
         "evidence_dates": [s.capture_date for s in krx_snapshots],
+        "kr_universe_codes": universe_codes | seen_codes,
     }
 
 

@@ -986,6 +986,12 @@ APPROVED_TESTS = [
     "test/test_operational_scan.py",
     "test/test_dynamic_clock_end_to_end.py",
     "test/test_dynamic_clock_fail_closed.py",
+    # ★ CIO review round 1 on PR #211 -- clock policy config/calendar
+    #   (item 5), AUDIT_CONFIRMED_MISS registry (item 4), real workflow
+    #   wiring (item 6).
+    "test/test_dynamic_clock_calendar.py",
+    "test/test_audit_confirmed_miss.py",
+    "test/test_dynamic_clock_workflow_wiring.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

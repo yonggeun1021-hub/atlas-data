@@ -35,54 +35,84 @@ compares against anything except the `detected_at` values it is handed,
 which are themselves already anti-lookahead-checked at construction time by
 `replay.opportunity_trigger.build_trigger_event` (see
 `clock/operational_scan.py`). Given the same event stream, this module
-always produces the same episode history -- no hidden state, no I/O.
+always produces the same episode history -- no hidden state, no I/O beyond
+reading the policy config file once.
+
+★ CIO review round 1 on PR #211: cadence numbers moved OUT of code and into
+  `config/dynamic_clock_policy.json` (`approval_status: "PROVISIONAL_CIO_MVP"`
+  -- an engineering scheduling default, never presented as a ratified
+  investment threshold). Korea now uses a business-day (Mon-Fri) calendar
+  approximation instead of raw calendar days, since KRX does not trade on
+  weekends -- but this repo has NO committed KRX holiday calendar, so every
+  KOREA-market date this module derives carries an explicit
+  `calendar_confidence` flag (`CalendarConfidence.UNVERIFIED_NO_HOLIDAY_CALENDAR`)
+  rather than a silently-confident date. BTC/CRYPTO trade 24/7, so plain
+  calendar-day arithmetic is exact for them
+  (`CalendarConfidence.VERIFIED_24_7`).
 """
 from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import json
+from pathlib import Path
 
 from replay.opportunity_trigger import payload_sha256
 
 DATE_FMT = "%Y-%m-%d"
+ROOT = Path(__file__).resolve().parents[1]
+POLICY_PATH = ROOT / "config" / "dynamic_clock_policy.json"
 
 
 class DynamicClockError(ValueError):
     pass
 
 
-# Cadence policy, one row per Opportunity Trigger Engine type (Control Loop
-# doc section 6, "재검토 시계" / re-review clock):
-#   - price/flow-structure triggers -> next trading day / 24h
-#   - relative-strength confirmation -> next trading day (slightly lower
-#     urgency than an outright price/flow break)
-#   - event catalyst -> right after the event (kept at the same tight
-#     cadence as price/flow so the policy is ready the day this trigger
-#     type becomes computable; see operational_scan.py for why it is
-#     NOT_COMPUTABLE today)
-#   - fundamental revision -> next scheduled announcement (kept long/default
-#     since this repo has no announcement-calendar evidence yet)
-#   - expectation dislocation -> long-thesis default (30 days, same default
-#     the doc explicitly reserves for long-horizon thesis review)
-# `cooldown_days` governs behavior 2 above; `expiry_days` (>= cooldown_days)
-# governs behavior 3. Calendar days, not trading days: this is a
-# human-review SLA, not a market-data window.
-TRIGGER_CLOCK_POLICY: dict[str, dict] = {
-    "PRICE_CONFIRMATION": {"cooldown_days": 1, "expiry_days": 2, "urgency": "HIGH"},
-    "INVALIDATION_TRIGGER": {"cooldown_days": 1, "expiry_days": 2, "urgency": "HIGH"},
-    "FLOW_REVERSAL": {"cooldown_days": 1, "expiry_days": 2, "urgency": "HIGH"},
-    "RELATIVE_STRENGTH_REVERSAL": {"cooldown_days": 1, "expiry_days": 2, "urgency": "MEDIUM"},
-    "CATALYST_APPROACH": {"cooldown_days": 1, "expiry_days": 1, "urgency": "HIGH"},
-    "FUNDAMENTAL_REVISION": {"cooldown_days": 30, "expiry_days": 30, "urgency": "MEDIUM"},
-    "EXPECTATION_DISLOCATION": {"cooldown_days": 30, "expiry_days": 30, "urgency": "LOW"},
+class CalendarConfidence:
+    VERIFIED_24_7 = "VERIFIED_24_7"  # BTC/CRYPTO: every calendar day is a trading day, exact.
+    UNVERIFIED_NO_HOLIDAY_CALENDAR = "UNVERIFIED_NO_HOLIDAY_CALENDAR"  # KOREA: weekday-only approximation.
+
+
+_CALENDAR_TYPE_TO_CONFIDENCE = {
+    "CALENDAR_DAY_24_7": CalendarConfidence.VERIFIED_24_7,
+    "WEEKDAY_BUSINESS_DAY_APPROXIMATION": CalendarConfidence.UNVERIFIED_NO_HOLIDAY_CALENDAR,
 }
+
+_policy_cache: dict | None = None
+
+
+def load_policy(path: Path = POLICY_PATH) -> dict:
+    global _policy_cache
+    if _policy_cache is not None and path == POLICY_PATH:
+        return _policy_cache
+    if not path.is_file():
+        raise DynamicClockError(f"POLICY_FILE_NOT_FOUND:{path}")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    for required in ("policy_version", "approval_status", "trigger_types", "market_calendars"):
+        if required not in doc:
+            raise DynamicClockError(f"POLICY_FILE_MISSING_FIELD:{required}")
+    if path == POLICY_PATH:
+        _policy_cache = doc
+    return doc
 
 
 def policy_for(trigger_type: str) -> dict:
-    policy = TRIGGER_CLOCK_POLICY.get(trigger_type)
+    doc = load_policy()
+    policy = doc["trigger_types"].get(trigger_type)
     if policy is None:
         raise DynamicClockError(f"NO_CLOCK_POLICY_FOR_TRIGGER_TYPE:{trigger_type}")
     return policy
+
+
+def calendar_confidence_for(market: str) -> str:
+    doc = load_policy()
+    calendar = doc["market_calendars"].get(market)
+    if calendar is None:
+        raise DynamicClockError(f"NO_MARKET_CALENDAR_FOR_MARKET:{market}")
+    confidence = _CALENDAR_TYPE_TO_CONFIDENCE.get(calendar["calendar_type"])
+    if confidence is None:
+        raise DynamicClockError(f"UNKNOWN_CALENDAR_TYPE:{calendar['calendar_type']}")
+    return confidence
 
 
 def _parse(date_str: str) -> dt.date:
@@ -93,7 +123,33 @@ def _parse(date_str: str) -> dt.date:
 
 
 def add_days(date_str: str, days: int) -> str:
+    """Plain calendar-day arithmetic -- exact for BTC/CRYPTO (24/7)."""
     return (_parse(date_str) + dt.timedelta(days=days)).strftime(DATE_FMT)
+
+
+def add_business_days(date_str: str, days: int) -> str:
+    """Adds `days` weekdays (Mon-Fri), skipping Saturday/Sunday only -- a
+    real KRX public holiday inside the window is NOT skipped (no committed
+    holiday-calendar evidence exists in this repo; see
+    `calendar_confidence_for`, which callers must surface alongside any date
+    this function returns)."""
+    d = _parse(date_str)
+    remaining = days
+    while remaining > 0:
+        d += dt.timedelta(days=1)
+        if d.weekday() < 5:  # Mon=0 .. Fri=4
+            remaining -= 1
+    return d.strftime(DATE_FMT)
+
+
+def add_review_days(date_str: str, days: int, market: str) -> tuple[str, str]:
+    """Market-aware date arithmetic. Returns (new_date, calendar_confidence).
+    KOREA uses the business-day approximation; BTC/CRYPTO use plain calendar
+    days (exact, since they trade 24/7)."""
+    confidence = calendar_confidence_for(market)
+    if confidence == CalendarConfidence.UNVERIFIED_NO_HOLIDAY_CALENDAR:
+        return add_business_days(date_str, days), confidence
+    return add_days(date_str, days), confidence
 
 
 def _series_id(subject: str, market: str, trigger_type: str) -> str:
@@ -171,10 +227,14 @@ def build_episode_history(subject: str, market: str, trigger_type: str,
                 # this episode would otherwise go stale folds into the SAME
                 # episode (renewal), rather than opening a duplicate review
                 # candidate for a condition that is still developing.
+                expiry, expiry_conf = add_review_days(ev.detected_at, policy["expiry_days"], market)
+                next_review, next_conf = add_review_days(ev.detected_at, policy["cooldown_days"], market)
                 current["evidence_trail"].append(dataclasses.asdict(ev))
                 current["last_detected_at"] = ev.detected_at
-                current["expiry"] = add_days(ev.detected_at, policy["expiry_days"])
-                current["next_review_at"] = add_days(ev.detected_at, policy["cooldown_days"])
+                current["expiry"] = expiry
+                current["expiry_calendar_confidence"] = expiry_conf
+                current["next_review_at"] = next_review
+                current["next_review_at_calendar_confidence"] = next_conf
                 current["renewal_count"] += 1
                 continue
             # Past this episode's expiry: close it, then fall through to
@@ -188,6 +248,8 @@ def build_episode_history(subject: str, market: str, trigger_type: str,
         reactivated_from = None
         if episodes and episodes[-1]["status"] == "EXPIRED":
             reactivated_from = episodes[-1]["episode_id"]
+        expiry, expiry_conf = add_review_days(ev.detected_at, policy["expiry_days"], market)
+        next_review, next_conf = add_review_days(ev.detected_at, policy["cooldown_days"], market)
         current = {
             "episode_id": _episode_id(series_id, ev.detected_at, ev.evidence_hash),
             "series_id": series_id,
@@ -197,8 +259,10 @@ def build_episode_history(subject: str, market: str, trigger_type: str,
             "status": "ACTIVE",
             "opened_at": ev.detected_at,
             "last_detected_at": ev.detected_at,
-            "expiry": add_days(ev.detected_at, policy["expiry_days"]),
-            "next_review_at": add_days(ev.detected_at, policy["cooldown_days"]),
+            "expiry": expiry,
+            "expiry_calendar_confidence": expiry_conf,
+            "next_review_at": next_review,
+            "next_review_at_calendar_confidence": next_conf,
             "urgency": policy["urgency"],
             "renewal_count": 0,
             "reactivated_from_episode_id": reactivated_from,
