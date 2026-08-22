@@ -23,14 +23,6 @@ def _git(*args) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout
 
 
-def _has_git_history() -> bool:
-    try:
-        _git("log", "-1", "--", TAXONOMY_RELATIVE_PATH)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-
 class CryptoTaxonomyRealFileTests(unittest.TestCase):
     def test_real_taxonomy_file_exists_and_is_ratified(self):
         doc = json.loads(ai.CRYPTO_TAXONOMY_PATH.read_text(encoding="utf-8"))
@@ -110,14 +102,42 @@ class EffectiveFromNeverBackdatedVsRealGitHistoryTests(unittest.TestCase):
     the real taxonomy file, every eligible_crypto record's declared
     `effective_from` must be >= the UTC calendar date of the git commit
     that first introduced it -- i.e. never claiming eligibility earlier
-    than the file was actually, git-observably ratified."""
+    than the file was actually, git-observably ratified.
 
-    @classmethod
-    def setUpClass(cls):
-        if not _has_git_history():
-            raise unittest.SkipTest("no git history available for the taxonomy file in this checkout")
+    ★ CIO review round 4 follow-up (CI shallow-clone failure): this test
+      does NOT skip, and does NOT work around a shallow checkout itself
+      (e.g. via `git fetch --unshallow`) -- a shallow clone is a CI
+      configuration defect fixed at the workflow level
+      (`.github/workflows/actions-pass.yml`'s checkout step now uses
+      `fetch-depth: 0`, matching the pattern this repo already uses in
+      six other workflows). If full history genuinely is not available at
+      runtime for any reason, this test MUST FAIL explicitly -- there is
+      no silent pass-through and no soft-skip path anywhere below.
+      `test_full_real_commit_history_was_actually_observed` makes this
+      concrete: it hard-codes the 4 real commit SHAs manually verified for
+      this PR and asserts every one of them was actually read, so the
+      other tests in this class cannot pass merely by "happening not to
+      fail" against a truncated history.
+    """
+
+    # The 4 real commits that have ever touched the taxonomy file, verified
+    # manually via `git log --format="%H" -- config/crypto_breadth_exclusion_taxonomy.json`
+    # during this PR's round-4 CIO review response. If this file is ever
+    # legitimately modified again, ADD to this set -- never remove from it
+    # (removing an entry would silently weaken the "provably read full
+    # history" guarantee this test exists to provide).
+    EXPECTED_REAL_COMMITS = frozenset({
+        "17e0ccada61b8d7f437ea3075dbf9c3337d551f6",
+        "2113e2799bac6fd58620de75c041ba3cfa7b3fcb",
+        "63ba480fc052e33a33897a2058766d8ec52e7171",
+        "c2e8aee13212ca67b21f8a8451434403efec8776",
+    })
 
     def _commits_oldest_first(self):
+        # No try/except around the git subprocess calls anywhere in this
+        # class -- if git is unavailable or the history is truncated, the
+        # resulting exception (or the assertions below) must fail the test,
+        # never be swallowed into a skip.
         raw = _git("log", "--reverse", "--format=%H %aI", "--", TAXONOMY_RELATIVE_PATH)
         out = []
         for line in raw.strip().splitlines():
@@ -126,18 +146,26 @@ class EffectiveFromNeverBackdatedVsRealGitHistoryTests(unittest.TestCase):
             out.append((sha, utc_date))
         return out
 
-    def test_at_least_one_commit_exists(self):
-        self.assertGreater(len(self._commits_oldest_first()), 0)
+    def test_full_real_commit_history_was_actually_observed(self):
+        # ★ Proves this test class exercised FULL history, not a shallow
+        #   subset that merely happened not to trip the backdating check.
+        observed = {sha for sha, _ in self._commits_oldest_first()}
+        missing = self.EXPECTED_REAL_COMMITS - observed
+        self.assertEqual(
+            missing, set(),
+            f"expected all 4 real commits that ever touched {TAXONOMY_RELATIVE_PATH} to be "
+            f"visible in git history; missing {sorted(missing)} -- this means the checkout is "
+            f"shallow (or git history is otherwise truncated) and the backdating-verification "
+            f"test below cannot be trusted to have checked the real ratification history. "
+            f"Fix the checkout step's fetch-depth, do not skip or work around this in test code.",
+        )
 
     def test_no_eligible_record_claims_effective_from_earlier_than_its_real_first_git_appearance(self):
         commits = self._commits_oldest_first()
         first_seen_utc_date: dict[str, str] = {}
         for sha, utc_date in commits:
-            try:
-                raw = _git("show", f"{sha}:{TAXONOMY_RELATIVE_PATH}")
-                doc = json.loads(raw)
-            except (subprocess.CalledProcessError, ValueError):
-                continue
+            raw = _git("show", f"{sha}:{TAXONOMY_RELATIVE_PATH}")
+            doc = json.loads(raw)
             for rec in doc.get("records", []):
                 if rec.get("category") != "eligible_crypto":
                     continue
@@ -149,8 +177,12 @@ class EffectiveFromNeverBackdatedVsRealGitHistoryTests(unittest.TestCase):
         checked = 0
         for asset, effective_from in current.items():
             first_git_date = first_seen_utc_date.get(asset)
-            if first_git_date is None:
-                continue  # not found in any historical commit body -- nothing to cross-check
+            self.assertIsNotNone(
+                first_git_date,
+                f"{asset} is a current eligible_crypto record but was never observed in any "
+                f"historical commit body -- either history is truncated or this record was "
+                f"introduced by an uncommitted/unverifiable change.",
+            )
             checked += 1
             self.assertGreaterEqual(
                 effective_from, first_git_date,
