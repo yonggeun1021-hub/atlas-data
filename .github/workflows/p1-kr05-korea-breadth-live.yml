@@ -24,7 +24,17 @@ jobs:
       - name: Install CI contract dependencies
         run: python3 -m pip install -r requirements-ci.txt
       - name: P1-KR-05 offline contract regression
-        run: python3 test/test_korea_breadth.py
+        run: |
+          python3 test/test_korea_breadth.py
+          python3 test/test_korea_breadth_derived_outputs.py
+      # Shares the exact same fetches as the original direct proof --
+      # .github/scripts/korea_breadth_derived_outputs.py reuses
+      # korea_breadth.py's own request/parse/validate/build_observation
+      # unchanged, so this is not a second set of KRX requests. It builds
+      # a non-reconstructive Korea Breadth observation packet per market/
+      # scope plus one P3-03 KOSPI/KOSDAQ source-coverage packet (reusing
+      # universe/krx_global_universe.py's own build_packet() unchanged),
+      # writing only under $RUNNER_TEMP -- never a tracked repository file.
       - name: P1-KR-05 historical and recent direct proof
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
@@ -32,12 +42,21 @@ jobs:
           RECENT_DATE: ${{ inputs.recent_date }}
         run: |
           test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
-          python3 .github/scripts/korea_breadth.py \
+          mkdir -p "$RUNNER_TEMP/p1-kr05-derived"
+          python3 .github/scripts/korea_breadth_derived_outputs.py \
             --market kospi \
             --market kosdaq \
             --historical-previous 20100104 \
             --historical-date 20100105 \
             --recent-previous "$RECENT_PREVIOUS" \
-            --recent-date "$RECENT_DATE"
+            --recent-date "$RECENT_DATE" \
+            --out-dir "$RUNNER_TEMP/p1-kr05-derived"
+      - name: Upload P1-KR-05 derived output artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p1-kr05-derived
+          if-no-files-found: warn
       - name: Raw and derived artifact prohibition
         run: git diff --exit-code
