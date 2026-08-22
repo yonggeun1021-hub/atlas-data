@@ -702,6 +702,17 @@ APPROVED_TESTS = [
     #   UNDEFINED는 BLOCKED이며 외부 비준된 full slice만 PASS/REJECTED를 연다.
     #   PASS proposal도 zero-capital review-only이고 broker/order 권한은 없다.
     "test/test_investment_decision_review.py",
+    # ★ P8-08 — Forward Thesis / Earnings Conversion evidence-assembly packet.
+    #   observed facts는 evidence_lineage에 resolve되는 source_ref와 decision_date
+    #   이하 as_of를 요구해 forward_inferences로부터 fact/inference를 분리한다.
+    #   generated_at·evidence_lineage filing_date도 as_of_ceiling/decision_date
+    #   이후를 거부한다. earnings_conversion.status 7종 폐쇄 vocabulary는 어느
+    #   값도 downstream을 gate하지 않고(CONVERSION_CONFIRMED 요구 없음) 조기
+    #   단계/저신뢰 thesis도 그대로 packet을 만든다. invalidation_conditions
+    #   빈 배열과 출처 없는 정밀 capital_commitment 수치는 거부한다.
+    #   ⛔ Stage/Rule PASS-FAIL/ticker 매핑/action/order/Production/trading 권한
+    #   없음 — live network/tracked output 없음, temp packet only.
+    "test/test_forward_thesis.py",
     # ★ P8 Atlas Daily Briefing Integration v1 — provider-free daily orchestrator.
     #   기존 persisted evidence/packet만 소비해 Regime→Rotation/Discovery→Rule→
     #   Portfolio/Risk→Unified Decision→Action/Risk 요약을 하나의 daily briefing
