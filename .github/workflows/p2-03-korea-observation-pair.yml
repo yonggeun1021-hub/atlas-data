@@ -1,0 +1,153 @@
+name: P2-03 Korea Observation Pair (Breadth -> Leadership, dependency-ordered)
+
+# 2026-08-22: real job dependency wiring for P2-03's own decision_time
+# no-lookahead requirement (rotation/korea_capital_rotation.py's PIT
+# temporal-invariant correction) -- Korea Breadth capture (job 1-2) must
+# genuinely complete and commit BEFORE Korea Leadership's live fetch
+# (job 3, `needs:` both prior jobs) runs, so Breadth's real first_seen_at
+# is structurally guaranteed to predate Leadership's real available_at
+# (decision_time), never manually sequenced by hand each time.
+#
+# Still workflow_dispatch only -- no new schedule/cron. Reuses the exact
+# same job steps already approved in p1-kr05-korea-breadth-live.yml and
+# korea-leadership-live-proof.yml verbatim (same scripts, same KRX_API_KEY
+# secret, same commit targets) -- this workflow does not duplicate any
+# KRX request logic, it only sequences the two already-approved paths
+# with a real `needs:` dependency GitHub Actions itself enforces. Neither
+# existing workflow is scheduled today, so there is no existing cron to
+# attach a `needs:` step to; see docs/korea_capital_rotation_contract.md
+# for the honest schedule-gap this leaves open (no automatic daily
+# trigger exists for either Leadership or Breadth yet).
+on:
+  workflow_dispatch:
+    inputs:
+      breadth_recent_previous:
+        description: "Breadth: previous completed KRX trading date (YYYYMMDD)"
+        required: true
+      breadth_recent_date:
+        description: "Breadth: current completed KRX trading date (YYYYMMDD)"
+        required: true
+      leadership_prior_date:
+        description: "Leadership: prior completed KRX trading date (YYYYMMDD)"
+        required: true
+      leadership_current_date:
+        description: "Leadership: current completed KRX trading date (YYYYMMDD) -- the P2-03 observation date"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  korea-breadth-live-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: P1-KR-05 offline contract regression
+        run: |
+          python3 test/test_korea_breadth.py
+          python3 test/test_korea_breadth_derived_outputs.py
+      - name: P1-KR-05 historical and recent direct proof
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          RECENT_PREVIOUS: ${{ inputs.breadth_recent_previous }}
+          RECENT_DATE: ${{ inputs.breadth_recent_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          mkdir -p "$RUNNER_TEMP/p1-kr05-derived"
+          python3 .github/scripts/korea_breadth_derived_outputs.py \
+            --market kospi \
+            --market kosdaq \
+            --historical-previous 20100104 \
+            --historical-date 20100105 \
+            --recent-previous "$RECENT_PREVIOUS" \
+            --recent-date "$RECENT_DATE" \
+            --out-dir "$RUNNER_TEMP/p1-kr05-derived"
+      - name: Upload P1-KR-05 derived output artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p1-kr05-derived
+          if-no-files-found: warn
+      - name: Raw and derived artifact prohibition
+        run: git diff --exit-code
+
+  korea-breadth-context-commit:
+    needs: korea-breadth-live-proof
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Download P1-KR-05 derived output artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p1-kr05-derived
+      - name: Populate committed Korea Breadth context lineage
+        run: |
+          python3 .github/scripts/korea_breadth_context_populate.py \
+            --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --capture-mode forward_live
+      - name: Commit Korea Breadth context lineage
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/observations/korea_breadth_context
+          if git diff --cached --quiet; then
+            echo "no change (verified_existing) -- nothing to commit"
+          else
+            git commit -m "korea breadth context lineage $(date -u +%Y-%m-%d) [P2-03 pair run ${{ github.run_id }}]"
+            git push
+          fi
+
+  # Real dependency: this job cannot start until the Breadth context
+  # commit above has genuinely landed on main -- the checkout below then
+  # picks up that real commit before Leadership's own fetch/commit runs,
+  # structurally guaranteeing Breadth's real first_seen_at predates
+  # Leadership's real available_at (decision_time) for a same-day pair,
+  # never a manually-remembered ordering.
+  korea-leadership-live-fetch:
+    needs: korea-breadth-context-commit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Korea Leadership live-fetch offline contract regression
+        run: python3 test/test_korea_leadership_live_fetch.py
+      - name: Korea Leadership real KRX index fetch attempt
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          PRIOR_DATE: ${{ inputs.leadership_prior_date }}
+          CURRENT_DATE: ${{ inputs.leadership_current_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_leadership_live_fetch.py \
+            --prior-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE"
+      - name: Commit Korea Leadership live-fetch attempt evidence
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/observations/korea_leadership_context
+          if git diff --cached --quiet; then
+            echo "no change (verified_existing) -- nothing to commit"
+          else
+            git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [P2-03 pair run ${{ github.run_id }}]"
+            git push
+          fi
