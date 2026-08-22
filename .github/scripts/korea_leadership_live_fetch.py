@@ -69,6 +69,17 @@ def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _now_utc_iso() -> str:
+    """Isolated so tests can pin a single fixed instant across every
+    fetch_index_family() call in one run() -- four real dt.datetime.now()
+    calls (2 markets x 2 dates) each independently truncated to whole
+    seconds can otherwise straddle a real second boundary under a slow/
+    loaded runner, making an "immediate rerun" idempotency check flake
+    on generated_at (= max of these) even though nothing substantive
+    changed."""
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def fetch_index_family(auth_key: str, bas_dd: str, market: str, opener=urlopen) -> dict:
     """One real HTTP fetch via the unchanged R2 probe primitives. Returns
     every real row from OutBlock_1 (IDX_NM/CLSPRC_IDX/BAS_DD), the raw
@@ -92,7 +103,7 @@ def fetch_index_family(auth_key: str, bas_dd: str, market: str, opener=urlopen) 
         if not isinstance(close, str) or not close.strip():
             continue
         parsed[name.strip()] = close.strip()
-    fetched_at_utc = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fetched_at_utc = _now_utc_iso()
     return {
         "market": market,
         "bas_dd": bas_dd,
