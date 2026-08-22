@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "alpha_shadow_ledger/1",
+  "output_schema_version": "alpha_shadow_ledger_record/1",
+  "actions": ["SHADOW_ENTRY_REVIEW", "WAIT", "REJECT"],
+  "opportunity_state_to_action": {
+    "BLOCKED": "REJECT",
+    "REJECTED": "REJECT",
+    "ANTICIPATORY_REVIEW": "SHADOW_ENTRY_REVIEW",
+    "EARLY_DISCOVERY": "SHADOW_ENTRY_REVIEW",
+    "CONFIRMATION_REVIEW": "SHADOW_ENTRY_REVIEW",
+    "WAIT_FOR_PULLBACK": "WAIT",
+    "WAIT_FOR_EVIDENCE": "WAIT",
+    "EXPECTATION_EXHAUSTED": "WAIT"
+  },
+  "authority": {
+    "append_only_alpha_observation": true,
+    "stage_change_authorized": false,
+    "shadow_eligibility_authorized": false,
+    "capital_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

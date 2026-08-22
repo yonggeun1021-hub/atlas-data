@@ -808,6 +808,23 @@ APPROVED_TESTS = [
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
+    # ★ P8-11 — Anticipatory Alpha Review packet builder (Forward Alpha MVP, PR C stage 1).
+    #   이미 검증된 forward_thesis/expectations_gap/price_reflection 3종 packet을
+    #   재검증(subject·decision_date 일치 포함)해 조합하고, 8개 opportunity_state로
+    #   BLOCKED/REJECTED를 최우선 판정하는 순서 고정 if/elif 분류만 수행한다.
+    #   p5_rule_status/portfolio_status는 caller pass-through(기본 NOT_EVALUATED)이며
+    #   이 모듈이 직접 계산하지 않는다. trade_proposal은 이 MVP에서 항상 null이다.
+    #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
+    #      action/order/Production/trading 없음.
+    "test/test_alpha_review.py",
+    # ★ P10-07 — P8-11 Alpha Review append-only zero-capital Shadow ledger.
+    #   investment_review_shadow_ledger(P10-06)와 동일한 hash-chain 패턴으로
+    #   모든 opportunity_state(BLOCKED/REJECTED 포함)를 SHADOW_ENTRY_REVIEW/WAIT/
+    #   REJECT로 exhaustive 매핑해 기록한다. capital은 항상 정수 0, human_approval_
+    #   required는 항상 true이며 override 가능한 parameter가 존재하지 않는다.
+    #   catalyst_date/hypothetical_return 등 회고평가 필드는 이번 단계에 없다.
+    #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
+    "test/test_alpha_shadow_ledger.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
