@@ -102,6 +102,16 @@ jobs:
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
+          # actions/checkout in this job resolved main at the SHA fixed when
+          # this workflow_dispatch run started -- it does not track main's
+          # live tip. A prior job in this same run (or a concurrent run) may
+          # have already pushed since then, so re-sync to the real current
+          # tip before committing, or this push can be rejected as
+          # non-fast-forward even though nothing here actually conflicts.
+          # Only the branch pointer/tracked tree is reset; the new untracked
+          # evidence file written above is left on disk.
+          git fetch origin main
+          git reset --hard origin/main
           git add data/observations/korea_breadth_context
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
@@ -144,6 +154,15 @@ jobs:
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
+          # Same real fix as the Breadth commit job above: this job's own
+          # checkout is pinned to the SHA fixed at workflow_dispatch start,
+          # not main's live tip -- it does NOT include the Breadth job's own
+          # commit that just landed a moment ago in this same run. Re-sync to
+          # the real current tip (which now genuinely includes that Breadth
+          # commit) before committing, so this push is a real fast-forward
+          # instead of being rejected as diverged from a stale base.
+          git fetch origin main
+          git reset --hard origin/main
           git add data/observations/korea_leadership_context
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
