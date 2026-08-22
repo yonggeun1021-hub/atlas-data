@@ -175,19 +175,24 @@ class PopulateTest(unittest.TestCase):
             original_root, original_context_root, original_path_fn = (
                 MODULE.ROOT, MODULE.CONTEXT_ROOT, MODULE.output_path_for
             )
+            original_now = MODULE._now_utc_iso
+            # Pin a single fixed instant across both populate() calls --
+            # four real dt.datetime.now() calls per run() (2 markets x 2
+            # dates), each truncated to whole seconds, can otherwise
+            # straddle a real second boundary on a slow/loaded runner and
+            # make this specific idempotency check flake even though
+            # nothing substantive changed between the two calls.
             MODULE.ROOT = Path(tmp)
             MODULE.CONTEXT_ROOT = Path(tmp) / "data" / "observations" / "korea_leadership_context"
             MODULE.output_path_for = lambda d: MODULE.CONTEXT_ROOT / d / "packet.json"
+            MODULE._now_utc_iso = lambda: "2026-08-20T09:00:00Z"
             try:
                 first = MODULE.populate("KEY", "20260818", "20260820", opener=opener)
                 second = MODULE.populate("KEY", "20260818", "20260820", opener=opener)
-                # Same second in practice (fast fake fetch) -> byte-
-                # identical; a genuinely later re-fetch fails closed on
-                # drift instead (existing precedent, tested next).
-                self.assertIn(second["outcome"], ("verified_existing", "populated"))
-                if second["outcome"] == "verified_existing":
-                    self.assertEqual(first["payload_sha256"], second["payload_sha256"])
+                self.assertEqual(second["outcome"], "verified_existing")
+                self.assertEqual(first["payload_sha256"], second["payload_sha256"])
             finally:
+                MODULE._now_utc_iso = original_now
                 MODULE.ROOT, MODULE.CONTEXT_ROOT, MODULE.output_path_for = (
                     original_root, original_context_root, original_path_fn
                 )

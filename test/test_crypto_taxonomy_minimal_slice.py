@@ -35,11 +35,16 @@ RATIFIED_ELIGIBLE = [
     "TON", "KAS", "BCH", "DASH", "RENDER", "DOT", "ATOM", "QNT", "FLR", "FIL", "SEI",
 ]
 
-# Deliberately NOT ratified in this Slice -- must stay UNKNOWN.
+# Deliberately NOT ratified as of this Slice -- must stay UNKNOWN.
+# PROS/POL/LUNA/SKY/US/HYPE/WEMIX/PEPE/SHIB were resolved and ratified in
+# the later Identity Slice (see test_crypto_taxonomy_identity_slice.py);
+# this list now only covers what remains genuinely unresolved.
 NOT_RATIFIED = [
-    "PROS", "POL", "LUNA", "SKY",  # alias/canonical-identity confirmation needed
-    "RE", "PLAY", "US",  # unresolved -- no confirmed project identity
-    "HYPE", "WEMIX", "PEPE", "SHIB",  # part of the wider 88 proposal, not this minimal Slice
+    "RE", "PLAY",  # unresolved -- no confirmed project identity from 2+ sources
+    "NIGHT",  # genuine ticker collision (Midnight/Cardano privacy chain vs an
+              # unrelated Polygon meme coin sharing the same name/ticker) --
+              # cannot confirm which one this repo's raw snapshot even refers
+              # to from ticker alone, so it stays UNKNOWN rather than guessed.
 ]
 
 
