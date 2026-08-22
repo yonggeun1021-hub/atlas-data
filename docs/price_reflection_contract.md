@@ -50,15 +50,72 @@ round 3 closed four remaining holes CI/the test suite alone didn't catch:
    `validate_packet` (`OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_
    CONTRADICTION`, unconditional on any packet however constructed).
 4. **`threshold_basis="PROVISIONAL"` didn't actually gate anything
-   operational.** `decision/alpha_review.py` (`alpha_review/4`) now treats a
-   non-`RATIFIED` `threshold_basis` as an independent trigger for its
-   blanket `WAIT_FOR_PRICE` gate, alongside `reflection_status=="UNKNOWN"` —
-   no positive/differentiated `opportunity_state` is reachable while
+   operational.** `decision/alpha_review.py` now treats a non-`RATIFIED`
+   `threshold_basis` as an independent trigger blocking any positive/
+   differentiated `opportunity_state` — no such state is reachable while
    thresholds remain provisional, regardless of what `price_state`/
    `reflection_status` value they produced. `price_reflection.py` itself
    still computes and surfaces real values under provisional thresholds
    (diagnostic output); `alpha_review.py` is the fail-closed operational
-   boundary.
+   boundary (round 4, `alpha_review/5`: reported as the dedicated
+   `WAIT_FOR_RULE_RATIFICATION` state rather than the same `WAIT_FOR_PRICE`
+   label a genuine `reflection_status=="UNKNOWN"` uses — see the "Threshold
+   approval status" section below).
+
+## `price_reflection/4` (CIO review round 4): evidence verification made real
+
+Round 3's "evidence verification" was still only a FORMAT check —
+`source_ref`/`source_sha256` were regex-validated but never cross-checked
+against a real committed file, and `post_event_return_pct`/
+`post_reference_return_pct` were still trusted caller-supplied numbers with
+no real price lookup or PIT check behind them. Confirmed reproducible:
+`source_ref="MADE-UP"`, `source_sha256="a"*64` (an arbitrary 64-hex-char
+string), `post_event_return_pct="99"` (all fabricated, no real evidence
+anywhere) produced a confident `FULLY_REFLECTED`. Even the test suite itself
+used a fake `"a"*64` hash and a hand-written return figure — proof the gap
+was structural, not a test-coverage gap. Round 4 closes it completely:
+
+1. **`_verify_evidence_citation`** resolves `event_reaction.source_ref` to a
+   real file under this repo's root and independently recomputes its
+   sha256 with `hashlib.sha256(path.read_bytes()).hexdigest()` — a
+   non-existent path, a path that escapes the repo root (checked via
+   `Path.relative_to`), or a real path with a wrong hash all fail closed
+   (soft-downgrade to `reflection_status=UNKNOWN`, never a crash).
+2. **`post_event_return_pct`/`post_reference_return_pct` are RETIRED as
+   accepted input entirely.** Supplying either field now raises
+   `EVENT_REACTION_FIELDS_MISMATCH`/`REFLECTION_REFERENCE_FIELDS_MISMATCH`
+   — there is no remaining code path anywhere in this module that accepts a
+   return percentage from a caller and uses it.
+3. **The return is always computed internally**, from two real,
+   independently looked-up close prices —
+   `decision/price_evidence.py`'s `real_close_on_date`/
+   `latest_real_close_at_or_before`, themselves built on
+   `replay/price_series.py`/`replay/evidence_index.py` (PR #210, reused
+   unchanged, not reimplemented).
+4. **Both endpoint prices must be PIT-live-known as of `decision_date`**
+   (`PriceSeries.live_known_asof`/`live_trading_dates_at_or_before`) — an
+   evidence row captured after `decision_date` can never be used, matching
+   PR #210's/#211's own anti-lookahead discipline. A real event whose price
+   data was not yet knowable as of the decision timestamp still leaves
+   `reflection_status=UNKNOWN`, even though the event itself is real and
+   correctly cited.
+5. **The return's START price is anchored to a real reference timestamp** —
+   `event_reaction.event_date` for the event path, or the validated P8-09
+   packet's own `decision_date` for the expectations_gap path (echoed as
+   `reflection_reference.expectations_gap_reference_date`) — never an
+   independently caller-chosen window. The END price is always the latest
+   real, PIT-live close at or before this packet's own `decision_date`.
+6. **Any failure at any step makes the return `None`** — file doesn't
+   exist, hash mismatch, no real price evidence for the subject, price row
+   not yet PIT-eligible, no genuine forward date gap between start and end
+   — there is no fallback to a caller-supplied number, ever;
+   `reflection_status` simply stays `UNKNOWN`/data effectively
+   `NOT_COMPUTABLE`. `event_reaction.verified_post_event_return_pct` /
+   `reflection_reference.verified_post_reference_return_pct` (renamed from
+   round 3's `post_event_return_pct`/`post_reference_return_pct` — these are
+   now OUTPUT-only, compute-derived fields, never accepted as input) render
+   `"UNKNOWN"` whenever the corresponding path wasn't the one that actually
+   produced the verdict.
 
 - **`price_state`** — `OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK |
   UNKNOWN`. A pure, price/volume-only read on momentum and positioning.
@@ -101,7 +158,7 @@ not silently downgrade), or older than the ceiling, **both `price_state` AND
 `UNKNOWN` — unconditionally, regardless of how strong every other input
 looks. This check runs first and short-circuits everything else.
 
-## The reference point requirement (Rule 2, tightened in round 3)
+## The reference point requirement (Rule 2, tightened in rounds 3 and 4)
 
 `reflection_status` requires a real reference point for what the market was
 supposed to have priced in. At least one of the following must be present:
@@ -119,23 +176,31 @@ supposed to have priced in. At least one of the following must be present:
   its `status`.
 
 A reference point alone is necessary but not sufficient for a confident
-verdict — `_resolve_reflection_basis` additionally requires, per path:
+verdict — `_resolve_reflection_basis` additionally requires, per path
+(round 4: both paths now hand off to `_compute_verified_return`, the ONLY
+place a return figure can originate — see the round-4 section above):
 
 - **event_reaction path**: `direction` is `POSITIVE`/`NEGATIVE` AND
-  `source_ref` + `source_sha256` (a real evidence citation, round 3) AND
-  `post_event_return_pct` (a real, event-anchored return the caller
-  computed specifically from the reference date forward — never the
-  generic `recent_return_windows`/`relative_strength` figures, round 3)
-  are all present.
+  `event_date` is present AND `source_ref` + `source_sha256` resolve to a
+  REAL, hash-matching committed file (`_verify_evidence_citation`, round 4)
+  AND a real, PIT-verified return is computable from `event_date` forward
+  (`_compute_verified_return`, round 4).
 - **expectations_gap path**: the independently-re-validated packet's
-  `status` is `POSITIVE`/`NEGATIVE` AND `post_reference_return_pct` is
-  present.
+  `status` is `POSITIVE`/`NEGATIVE` AND a real, PIT-verified return is
+  computable from the validated packet's own `decision_date` forward
+  (echoed as `expectations_gap_reference_date`).
 
-A bare `direction`/`reference_event_id`/`expectation_as_of` with no
-lineage, no anchored return, or no comparable direction still leaves
-`reflection_status=UNKNOWN` — never a crash, always a graceful downgrade
-(`REFERENCE_POINT_PRESENT_BUT_NOT_LINEAGE_VERIFIED_OR_POST_REFERENCE_
-RETURN_NOT_COMPUTABLE`).
+`event_reaction` is preferred over `reflection_reference` when both are
+independently satisfiable.
+
+A bare `direction`/`reference_event_id`/`expectation_as_of` with no lineage,
+an unverifiable citation (wrong hash, non-existent file, path-traversal
+attempt), a not-yet-PIT-live event, or no comparable direction all still
+leave `reflection_status=UNKNOWN` — never a crash, always a graceful
+downgrade (`REFERENCE_POINT_PRESENT_BUT_NOT_RECONSTRUCTABLE_FROM_REAL_
+EVIDENCE`, round 4 — renamed from round 3's `..._NOT_LINEAGE_VERIFIED_OR_
+POST_REFERENCE_RETURN_NOT_COMPUTABLE` since a caller-supplied return no
+longer exists to fail to compute).
 
 Without any reference point at all, `reflection_status` is `UNKNOWN` and
 `data_state` is `REFLECTION_UNCERTAIN_WITH_VALID_PRICE` — even with
@@ -220,13 +285,24 @@ CIO ratification decision on the specific cutoff numbers, not a code change.
 
 **Round 3**: this used to be diagnostic-only in practice — `threshold_basis`
 was surfaced but nothing downstream actually refused to act on a
-provisional-threshold verdict. `decision/alpha_review.py` (`alpha_review/4`)
-now gates its OWN operational `opportunity_state` on it directly: a
-non-`RATIFIED` `threshold_basis` is an independent trigger for its blanket
-`WAIT_FOR_PRICE` state, so no positive/differentiated review state can ever
-be unlocked by a provisional-threshold `price_state`/`reflection_status`
-value. This module's own output is unaffected — it still computes and
-reports the real value either way.
+provisional-threshold verdict. `decision/alpha_review.py` now gates its OWN
+operational `opportunity_state` on it directly: a non-`RATIFIED`
+`threshold_basis` is an independent trigger blocking any positive/
+differentiated review state, so no such state can ever be unlocked by a
+provisional-threshold `price_state`/`reflection_status` value. This
+module's own output is unaffected — it still computes and reports the real
+value either way.
+
+**Round 4** (`alpha_review/5`, required item 6): a non-`RATIFIED`
+`threshold_basis` used to collapse into the SAME `WAIT_FOR_PRICE` label as a
+genuine `reflection_status=="UNKNOWN"` real-evidence gap — two structurally
+different problems (no real price data yet vs. real price data with
+unratified cutoffs) reported under one name. `decision/alpha_review.py` now
+reports them as two distinguishable states: `WAIT_FOR_PRICE` remains
+reserved exclusively for `reflection_status=="UNKNOWN"`; a non-`RATIFIED`
+`threshold_basis` with a genuinely known `reflection_status` now reports as
+the dedicated `WAIT_FOR_RULE_RATIFICATION` state instead. See that module's
+own docstring and `docs/alpha_review_contract.md` for the full detail.
 
 ## Never a Rule verdict
 

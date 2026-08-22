@@ -824,6 +824,25 @@ APPROVED_TESTS = [
     #   threshold_basis!=RATIFIED도 alpha_review.py(contract v4)의 WAIT_FOR_PRICE
     #   게이트를 독립적으로 발동시켜 미비준 임계값이 긍정적 opportunity_state를
     #   절대 열 수 없게 한다.
+    #   CIO round 4(contract v4): round 3의 "증거 검증"은 형식(regex) 검증에
+    #   불과했다 — source_ref="MADE-UP"/source_sha256="a"*64/
+    #   post_event_return_pct="99"(전부 조작)가 그대로 FULLY_REFLECTED를
+    #   만들어냈다. (1) _verify_evidence_citation이 source_ref를 저장소 내 실제
+    #   커밋 파일로 resolve하고 그 파일의 실제 바이트에서 sha256을 재계산해
+    #   대조한다(경로 미존재/repo 밖 탈출/해시 불일치는 전부 fail-closed). (2)
+    #   post_event_return_pct/post_reference_return_pct는 입력으로 완전히
+    #   폐지 — 필드를 넘기면 EVENT_REACTION_FIELDS_MISMATCH로 즉시 거부된다.
+    #   (3) 수익률은 이제 항상 decision/price_evidence.py의
+    #   real_close_on_date/latest_real_close_at_or_before(PR #210
+    #   replay/price_series.py 재사용)로 내부 계산되며, 두 endpoint 모두
+    #   decision_date 기준 PIT-live 확인(live_known_asof)을 통과해야 한다. (4)
+    #   수익률의 시작점은 event_reaction.event_date 또는 검증된 P8-09
+    #   packet의 decision_date(expectations_gap_reference_date로 출력)에
+    #   고정 — caller가 임의로 고른 구간이 아니다. (5) 어느 한 단계라도
+    #   실패하면 무조건 UNKNOWN — fallback 없음. 기존 테스트의 "a"*64 가짜
+    #   해시/caller 작성 수익률 fixture는 전부 실제 커밋 파일(data/2026-08-20/
+    #   krx.json)의 실제 재계산 해시와 실제 종가로 교체했다(329180.KS —
+    #   4개 제한 Pilot 티커에는 포함되지 않음).
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
@@ -860,6 +879,15 @@ APPROVED_TESTS = [
     #   py의 실제 contract가 하드코딩된 리터럴이라 캐리어가 flip할 수 없으므로,
     #   테스트는 ratified_thresholds() 컨텍스트매니저로 두 독립 모듈 인스턴스의
     #   _expected_contract()를 함께 패치해 비준 시뮬레이션한다).
+    #   CIO round 4(contract v5, required item 6): reflection_status==UNKNOWN
+    #   (실 증거 부족)과 threshold_basis!=RATIFIED(정책 미비준)를 더는 같은
+    #   WAIT_FOR_PRICE로 뭉뚱그리지 않는다 — reflection이 실제로 판정 가능하지만
+    #   비준만 안 된 경우는 새 WAIT_FOR_RULE_RATIFICATION으로 분리되며, 두 상태를
+    #   나란히 대조하는 전용 회귀도 추가했다. price_reflection.py 픽스처(pr_under_
+    #   reflected/pr_partially_reflected/pr_fully_reflected/pr_overextended)는
+    #   전부 test_price_reflection.py의 real evidence 헬퍼(329180.KS, 실제
+    #   재계산 해시)를 재사용하도록 교체했다 — "a"*64 가짜 해시/caller 작성 수익률
+    #   fixture는 이 파일에 더 이상 없다.
     #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
     #      action/order/Production/trading 없음.
     "test/test_alpha_review.py",
@@ -869,6 +897,12 @@ APPROVED_TESTS = [
     #   REJECT로 exhaustive 매핑해 기록한다. capital은 항상 정수 0, human_approval_
     #   required는 항상 true이며 override 가능한 parameter가 존재하지 않는다.
     #   catalyst_date/hypothetical_return 등 회고평가 필드는 이번 단계에 없다.
+    #   CIO round 4: alpha_review.py의 새 WAIT_FOR_RULE_RATIFICATION 상태는
+    #   프로덕션 파일인 이 모듈(shadow/alpha_shadow_ledger.py, 이번 PR에서 수정
+    #   금지)의 action 매핑에는 의도적으로 추가하지 않았다 — 매핑에 없는
+    #   opportunity_state는 OPPORTUNITY_STATE_UNMAPPED로 loud하게 fail-closed
+    #   된다는 것을 별도 회귀로 확인한다(향후 이 파일 수정이 허용되는 PR에서
+    #   정식으로 매핑을 추가할 별도 작업).
     #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
     "test/test_alpha_shadow_ledger.py",
     # ★ P8-11 stage 2 — real Pilot evidence intake (TSM/298040.KS/267260.KS/
@@ -908,7 +942,13 @@ APPROVED_TESTS = [
     #   trade_proposal=None/capital=0/human_approval_required=True도 확인한다.
     #   gate 4(narrative-only-core-evidence -> WAIT_FOR_EVIDENCE)가 실제
     #   forward_thesis/expectations_gap/price_reflection.build_packet()로
-    #   조립된 synthetic fixture에서 도달 가능함도 별도로 증명한다.
+    #   조립된 synthetic fixture에서 도달 가능함도 별도로 증명한다. CIO round 4:
+    #   gate 4 synthetic fixture의 event_reaction도 test_price_reflection.py의
+    #   real evidence 헬퍼(329180.KS, 실제 재계산 해시)로 교체했다 — 4개 real
+    #   Pilot의 opportunity_state/action 고정값(EXPECTED 테이블)은 round 4
+    #   이후에도 변경 없이 그대로다(전부 reflection_status=UNKNOWN이라
+    #   WAIT_FOR_RULE_RATIFICATION이 아닌 기존 WAIT_FOR_PRICE/REJECTED/BLOCKED를
+    #   유지).
     #   ⛔ evidence 획득/Price Reflection 자체 로직/P5 Rule Authority/Stage·
     #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
     #      false다.

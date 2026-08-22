@@ -75,6 +75,31 @@ replace that module.
   output) -- this module is where the fail-closed OPERATIONAL boundary
   lives, since it is the one that turns those values into a reviewable
   `opportunity_state`.
+
+★ `alpha_review/5` (CIO review round 4 on PR #212, required item 6): the
+  `alpha_review/4` gate above collapsed two structurally different reasons
+  for holding into one `WAIT_FOR_PRICE` label -- "we genuinely cannot judge
+  reflection from real evidence" (`reflection_status == "UNKNOWN"`) and "we
+  CAN judge reflection, but the cutoffs used to judge it are not yet
+  CIO-ratified" (`threshold_basis != "RATIFIED"`). Those are different
+  problems with different remediations (get more/better price evidence, vs.
+  get the thresholds ratified) and collapsing them hid which one applied.
+  Gate 3 is now two ordered sub-gates: `reflection_status == "UNKNOWN"` is
+  checked FIRST and still returns `WAIT_FOR_PRICE` (a genuine price-data/
+  reference-evidence gap); only once `reflection_status` is known-non-
+  `UNKNOWN` does a `threshold_basis != "RATIFIED"` check return the new
+  `WAIT_FOR_RULE_RATIFICATION` state (thresholds awaiting CIO ratification,
+  not a data problem). Both states carry the exact same fail-closed
+  authority (no positive/differentiated state reachable), so this is a pure
+  relabeling for auditability, not a behavior change to the buy/Shadow-entry
+  boundary -- the closed-set structural invariant that used to name only
+  `WAIT_FOR_PRICE` for any non-RATIFIED threshold_basis in `validate_packet()`
+  now names both `WAIT_FOR_PRICE` and `WAIT_FOR_RULE_RATIFICATION`, plus a
+  new, independent structural invariant asserts `reflection_status ==
+  "UNKNOWN"` can never coexist with any opportunity_state other than
+  `BLOCKED`/`REJECTED`/`WAIT_FOR_THESIS_REPAIR`/`WAIT_FOR_PRICE` --
+  regardless of `threshold_basis` -- closing the gap where an UNKNOWN
+  reflection with a RATIFIED threshold_basis was not independently checked.
 """
 from __future__ import annotations
 
@@ -148,12 +173,13 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "alpha_review/4",
-        "output_schema_version": "alpha_review_packet/4",
+        "contract_version": "alpha_review/5",
+        "output_schema_version": "alpha_review_packet/5",
         "opportunity_states": [
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
-            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_THESIS_REPAIR",
+            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_RULE_RATIFICATION",
+            "WAIT_FOR_THESIS_REPAIR",
         ],
         "p5_rule_statuses": ["PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"],
         "default_p5_rule_status": "NOT_EVALUATED",
@@ -346,21 +372,29 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
             return "REJECTED"
         return "WAIT_FOR_THESIS_REPAIR"
 
-    # 3. Reflection-UNKNOWN-or-unratified gate -- blanket rule (CIO Gate
-    #    Hardening; CIO round 2 retargeted this to `reflection_status`, the
-    #    field that actually answers "can we judge reflection" post price/
-    #    reflection split; CIO round 3 required item 4 ADDS the
-    #    threshold-ratification arm): no ANTICIPATORY_REVIEW/
-    #    CONFIRMATION_REVIEW/EARLY_DISCOVERY/WAIT_FOR_PULLBACK/
-    #    EXPECTATION_EXHAUSTED may ever be reached while reflection is
-    #    UNKNOWN, no matter how strong the thesis or how extreme the raw
-    #    momentum otherwise looks -- OR while the classification thresholds
-    #    behind price_state/reflection_status remain PROVISIONAL (not yet
-    #    CIO-ratified). Provisional-threshold verdicts stay diagnostic-only
-    #    in price_reflection.py's own output; this is the point where they
-    #    are prevented from unlocking an operational favorable state.
-    if reflection_status == "UNKNOWN" or not threshold_ratified:
+    # 3. Reflection-UNKNOWN gate, then threshold-ratification gate -- blanket
+    #    rules (CIO Gate Hardening; CIO round 2 retargeted this to
+    #    `reflection_status`, the field that actually answers "can we judge
+    #    reflection" post price/reflection split; CIO round 3 required item 4
+    #    added the threshold-ratification arm; CIO round 4 required item 6
+    #    SPLIT that arm into its own distinguishable state so "we cannot
+    #    judge reflection from real evidence" and "we CAN judge reflection
+    #    but the cutoffs are not yet CIO-ratified" are never reported under
+    #    the same label): no ANTICIPATORY_REVIEW/CONFIRMATION_REVIEW/
+    #    EARLY_DISCOVERY/WAIT_FOR_PULLBACK/EXPECTATION_EXHAUSTED may ever be
+    #    reached while reflection is UNKNOWN, no matter how strong the thesis
+    #    or how extreme the raw momentum otherwise looks -- checked FIRST,
+    #    independent of threshold_basis. Only once reflection is genuinely
+    #    known does a non-RATIFIED threshold_basis block forward progress,
+    #    now under its own name (`WAIT_FOR_RULE_RATIFICATION`) rather than
+    #    being reported as a price-data gap. Provisional-threshold verdicts
+    #    stay diagnostic-only in price_reflection.py's own output; this is
+    #    the point where they are prevented from unlocking an operational
+    #    favorable state.
+    if reflection_status == "UNKNOWN":
         return "WAIT_FOR_PRICE"
+    if not threshold_ratified:
+        return "WAIT_FOR_RULE_RATIFICATION"
 
     # 4. Narrative-only-core-evidence gate -- some observed_facts exist, but
     #    none of them are EXHIBIT_EXTRACTED (only NARRATIVE_SOURCED and/or
@@ -445,10 +479,17 @@ def _check_opportunity_state_consistency(
     elif state == "WAIT_FOR_THESIS_REPAIR":
         ok = gap_status == "NEGATIVE" and earnings_status != "UNKNOWN"
     elif state == "WAIT_FOR_PRICE":
-        # CIO round 3, required item 4: a non-RATIFIED threshold basis is
-        # now its OWN independent trigger for this state, alongside
-        # reflection_status==UNKNOWN.
-        ok = reflection_status == "UNKNOWN" or not threshold_ratified
+        # CIO round 4, required item 6: this state now means ONLY "we
+        # genuinely cannot judge reflection from real evidence" --
+        # threshold-ratification alone (with reflection_status known) is a
+        # different problem and reports as WAIT_FOR_RULE_RATIFICATION below.
+        ok = reflection_status == "UNKNOWN"
+    elif state == "WAIT_FOR_RULE_RATIFICATION":
+        # CIO round 4, required item 6: reflection IS judgeable from real
+        # evidence, but the classification thresholds behind price_state/
+        # reflection_status are not yet CIO-ratified -- a policy gap, not a
+        # data gap.
+        ok = reflection_status != "UNKNOWN" and not threshold_ratified
     elif state == "EXPECTATION_EXHAUSTED":
         ok = reflection_status == "FULLY_REFLECTED" and gap_status == "POSITIVE" and threshold_ratified
     elif state == "WAIT_FOR_PULLBACK":
@@ -792,15 +833,33 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise AlphaReviewError("PRICE_REFLECTION_CONFIDENCE_INVALID")
     if pr.get("threshold_basis") not in PR_CONTRACT["allowed_threshold_basis"]:
         raise AlphaReviewError("PRICE_REFLECTION_THRESHOLD_BASIS_INVALID")
-    # ★ CIO round 3, required item 4: re-assert the same tamper-evident
-    #   invariant classify_opportunity_state()/_check_opportunity_state_
-    #   consistency() enforce -- a non-RATIFIED threshold_basis can never
-    #   coexist with a positive/differentiated opportunity_state on any
-    #   packet this function accepts, however constructed.
+    # ★ CIO round 3, required item 4 (re-scoped by round 4, required item 6):
+    #   re-assert the same tamper-evident invariant classify_opportunity_
+    #   state()/_check_opportunity_state_consistency() enforce -- a
+    #   non-RATIFIED threshold_basis can never coexist with a positive/
+    #   differentiated opportunity_state on any packet this function
+    #   accepts, however constructed. The closed set now names both
+    #   fail-closed labels a non-RATIFIED threshold_basis can legitimately
+    #   produce (WAIT_FOR_PRICE when reflection itself is UNKNOWN,
+    #   WAIT_FOR_RULE_RATIFICATION when reflection is known but thresholds
+    #   are not yet ratified).
     if pr.get("threshold_basis") != "RATIFIED" and packet.get("opportunity_state") not in (
         "BLOCKED", "REJECTED", "WAIT_FOR_THESIS_REPAIR", "WAIT_FOR_PRICE",
+        "WAIT_FOR_RULE_RATIFICATION",
     ):
         raise AlphaReviewError("OUTPUT_UNRATIFIED_THRESHOLD_BASIS_UNLOCKED_OPPORTUNITY_STATE")
+    # ★ CIO round 4, required item 6 (new, independent invariant): a genuine
+    #   reflection_status==UNKNOWN (real-evidence gap) can never coexist
+    #   with any opportunity_state other than the closed fail-set below --
+    #   regardless of threshold_basis. This is deliberately independent of
+    #   the check above: a RATIFIED threshold_basis with an UNKNOWN
+    #   reflection_status was not previously re-asserted here at all (the
+    #   old check above only fired for threshold_basis != RATIFIED), which
+    #   is exactly the gap this closes.
+    if pr.get("reflection_status") == "UNKNOWN" and packet.get("opportunity_state") not in (
+        "BLOCKED", "REJECTED", "WAIT_FOR_THESIS_REPAIR", "WAIT_FOR_PRICE",
+    ):
+        raise AlphaReviewError("OUTPUT_UNKNOWN_REFLECTION_STATUS_UNLOCKED_OPPORTUNITY_STATE")
 
     catalyst_timing = packet.get("catalyst_timing")
     if not isinstance(catalyst_timing, dict) or set(catalyst_timing) != {"catalysts", "expected_start_window"}:

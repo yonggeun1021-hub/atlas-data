@@ -102,24 +102,42 @@ regardless of what `price_state`/`reflection_status` value they produced.
 (diagnostic output) — this module is where the fail-closed OPERATIONAL
 boundary lives.
 
+**`alpha_review/5` (CIO review round 4 on PR #212, required item 6).** Row 3
+below used to collapse two structurally different reasons for holding into
+one `WAIT_FOR_PRICE` label — "we genuinely cannot judge reflection from real
+evidence" (`reflection_status==UNKNOWN`) and "we CAN judge reflection, but
+the cutoffs used to judge it are not yet CIO-ratified"
+(`threshold_basis!="RATIFIED"`). Those are different problems with different
+remediations (get more/better price evidence, vs. get the thresholds
+ratified), and collapsing them hid which one applied. Row 3 is now two
+ordered sub-rows: `reflection_status==UNKNOWN` is checked FIRST and still
+returns `WAIT_FOR_PRICE` (a genuine price-data/reference-evidence gap); only
+once `reflection_status` is known-non-`UNKNOWN` does a non-`RATIFIED`
+`threshold_basis` return the new `WAIT_FOR_RULE_RATIFICATION` state
+(thresholds awaiting CIO ratification, not a data problem). Both states
+carry the exact same fail-closed authority (no positive/differentiated state
+reachable) — this is a relabeling for auditability, not a change to the
+buy/Shadow-entry boundary.
+
 `classify_opportunity_state()` is a small, pure, ordered if/elif chain --
 each rule below, once matched, returns immediately (no fallthrough).
 `BLOCKED`, then the Expectations-Gap-negative gate, then the
-Reflection-UNKNOWN-or-unratified gate, then the narrative-only-core-evidence
-gate, are always checked first, before any positive-state classification, so
-a broken/negative/unpriced/thin/unratified case can never be shadowed by a
-positive one. In order:
+Reflection-UNKNOWN gate, then the threshold-ratification gate, then the
+narrative-only-core-evidence gate, are always checked first, before any
+positive-state classification, so a broken/negative/unpriced/thin/unratified
+case can never be shadowed by a positive one. In order:
 
 | # | State | Fires when |
 |---|-------|------------|
 | 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND reflection_status==UNKNOWN` (triple-UNKNOWN) |
 | 2a | `REJECTED` | `earnings_conversion.status==CONVERSION_DISAPPOINTED` (independent of gap status) **OR** (`expectations_gap.status==NEGATIVE AND earnings_conversion.status==UNKNOWN`) |
 | 2b | `WAIT_FOR_THESIS_REPAIR` | `expectations_gap.status==NEGATIVE AND earnings_conversion.status!=UNKNOWN` (and 2a didn't already fire) -- a real earnings-conversion hypothesis still stands, just currently disagreed-with by the market proxy |
-| 3 | `WAIT_FOR_PRICE` | `reflection_status==UNKNOWN` **OR** `threshold_basis!="RATIFIED"` (blanket rule: no positive state may ever be reached while reflection is unjudgeable OR the classification thresholds are unratified, however strong the thesis/gap or however extreme the raw momentum otherwise looks) |
+| 3a | `WAIT_FOR_PRICE` | `reflection_status==UNKNOWN` (blanket rule, checked FIRST, independent of `threshold_basis`: no positive state may ever be reached while reflection is genuinely unjudgeable from real evidence, however strong the thesis/gap or however extreme the raw momentum otherwise looks) |
+| 3b | `WAIT_FOR_RULE_RATIFICATION` | `reflection_status!=UNKNOWN AND threshold_basis!="RATIFIED"` (round 4: reflection IS judgeable, but the classification thresholds behind it are not yet CIO-ratified -- a policy gap, not a data gap) |
 | 4 | `WAIT_FOR_EVIDENCE` (narrative-only-core-evidence gate) | `len(observed_facts)>0 AND` none of them have `source_class==EXHIBIT_EXTRACTED` (only `NARRATIVE_SOURCED`/`PRICE_FEED`) |
 | 5 | `EXPECTATION_EXHAUSTED` | `reflection_status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
 | 6 | `WAIT_FOR_PULLBACK` | (`reflection_status==FULLY_REFLECTED OR price_state==OVEREXTENDED`) `AND expectations_gap.status!=NEGATIVE` |
-| 7 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND reflection_status!=FULLY_REFLECTED AND price_state!=OVEREXTENDED` (reflection is already known-non-UNKNOWN by row 3) |
+| 7 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND reflection_status!=FULLY_REFLECTED AND price_state!=OVEREXTENDED` (reflection is already known-non-UNKNOWN by row 3a) |
 | 8 | `WAIT_FOR_EVIDENCE` (old rule) | `earnings_conversion.status ∈ {PRE_REVENUE_SIGNAL, BACKLOG_BUILDING, UNKNOWN} AND expectations_gap.status==UNKNOWN AND reflection_status!=UNDER_REFLECTED` |
 | 9 | `ANTICIPATORY_REVIEW` | ALL 7 gates below hold simultaneously |
 | 10 | `EARLY_DISCOVERY` | default fallback — has real evidence (not `BLOCKED`), reflection known, gap not negative, at least one `EXHIBIT_EXTRACTED` fact, but fits none of the above |
@@ -131,14 +149,16 @@ one point of truth. Row 5 is checked strictly before row 6 so
 `FULLY_REFLECTED + POSITIVE` always resolves to `EXPECTATION_EXHAUSTED`
 rather than `WAIT_FOR_PULLBACK`; `price_state==OVEREXTENDED` (any
 non-`NEGATIVE` gap) and `reflection_status==FULLY_REFLECTED` with a
-non-`POSITIVE`, non-`NEGATIVE` gap both resolve to `WAIT_FOR_PULLBACK`. Row
-8's `WAIT_FOR_EVIDENCE` and row 9's `ANTICIPATORY_REVIEW` are, in practice,
-only reachable once rows 1-4 have already been cleared -- i.e. reflection is
+non-`POSITIVE`, non-`NEGATIVE` gap both resolve to `WAIT_FOR_PULLBACK`. Rows
+8/9's `WAIT_FOR_EVIDENCE`/`ANTICIPATORY_REVIEW` are, in practice, only
+reachable once rows 1-3b have already been cleared -- i.e. reflection is
 known, the threshold basis is RATIFIED, and at least one `EXHIBIT_EXTRACTED`
 fact exists -- which is why real current Pilot evidence (no ratified P5
 packet, no real reference point supplied for any subject, no RATIFIED
 threshold basis, and narrative-only evidence for the ones with a thesis)
-never reaches rows 5-10 today.
+never reaches rows 5-10 today: every real Pilot's `reflection_status` is
+genuinely `UNKNOWN`, so all four still land on row 3a (`WAIT_FOR_PRICE`),
+never row 3b.
 
 ### The 7 `ANTICIPATORY_REVIEW` gates
 
@@ -183,6 +203,21 @@ those gates were already enforced once, at `build_packet()` time, against
 the real, freshly re-validated `forward_thesis` packet. This is the same
 boundary `expectations_gap.py`/`price_reflection.py` already accept for
 their own upstream-supplied-then-not-persisted raw category inputs.
+
+**Round 4 structural invariants (in addition to `OPPORTUNITY_STATE_
+INCONSISTENT`):** a non-`RATIFIED` `threshold_basis` can only legitimately
+coexist with `opportunity_state ∈ {BLOCKED, REJECTED,
+WAIT_FOR_THESIS_REPAIR, WAIT_FOR_PRICE, WAIT_FOR_RULE_RATIFICATION}`
+(`OUTPUT_UNRATIFIED_THRESHOLD_BASIS_UNLOCKED_OPPORTUNITY_STATE` otherwise);
+independently, a genuine `reflection_status=="UNKNOWN"` can only
+legitimately coexist with `opportunity_state ∈ {BLOCKED, REJECTED,
+WAIT_FOR_THESIS_REPAIR, WAIT_FOR_PRICE}` — never
+`WAIT_FOR_RULE_RATIFICATION`, and never any positive/differentiated state —
+regardless of `threshold_basis`
+(`OUTPUT_UNKNOWN_REFLECTION_STATUS_UNLOCKED_OPPORTUNITY_STATE` otherwise).
+The second check is new in round 4: previously a `RATIFIED` `threshold_
+basis` paired with an `UNKNOWN` `reflection_status` was not independently
+re-asserted here at all.
 
 ## Authority
 

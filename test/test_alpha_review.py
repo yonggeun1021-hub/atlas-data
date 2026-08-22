@@ -48,21 +48,38 @@ PR = PR_FIXTURE.MODULE
 DECISION_DATE = "2026-08-20"
 GENERATED_AT = "2026-08-20T09:00:00Z"
 
+# ★ CIO round 4 (PR #212): every price_reflection input fixture below that
+# needs a confident (non-UNKNOWN) reflection_status now has to carry a REAL,
+# hash-verified evidence citation and a REAL, internally-computed return --
+# `decision/price_reflection.py` no longer trusts a caller-supplied
+# `post_event_return_pct`/`"a"*64`-style fake hash at all (see that module's
+# and test_price_reflection.py's own docstrings). This file therefore builds
+# its forward_thesis/expectations_gap/price_reflection fixtures against a
+# REAL KRX subject with real, multi-week committed daily closes
+# (`PR_FIXTURE.REAL_EVIDENCE_SUBJECT`, `329180.KS`) instead of `TSM` (which
+# has only a single committed US price point in this repo, insufficient for
+# a real return calculation) -- deliberately NOT one of the four restricted
+# "must remain unchanged" Korea Pilot tickers.
+REAL_EVIDENCE_SUBJECT = PR_FIXTURE.REAL_EVIDENCE_SUBJECT
+
 
 def forward_thesis_packet(**overrides):
+    overrides.setdefault("subject", REAL_EVIDENCE_SUBJECT)
     return FT.build_packet(FT_FIXTURE.minimal_input(**overrides), FT_FIXTURE.CONTRACT)
 
 
 def expectations_gap_packet(**category_overrides):
+    category_overrides.setdefault("subject", REAL_EVIDENCE_SUBJECT)
     value = EG_FIXTURE.base_input(
-        subject="TSM", decision_date=DECISION_DATE, generated_at=GENERATED_AT, **category_overrides
+        decision_date=DECISION_DATE, generated_at=GENERATED_AT, **category_overrides
     )
     return EG.build_packet(value, EG_FIXTURE.CONTRACT)
 
 
 def price_reflection_packet(**overrides):
     kwargs = PR_FIXTURE.base_kwargs(
-        subject="TSM", decision_date=DECISION_DATE, generated_at=GENERATED_AT, contract=PR_FIXTURE.CONTRACT,
+        subject=REAL_EVIDENCE_SUBJECT, decision_date=DECISION_DATE, generated_at=GENERATED_AT,
+        contract=PR_FIXTURE.CONTRACT,
     )
     kwargs.update(overrides)
     return PR.build_packet(**kwargs)
@@ -118,35 +135,30 @@ def ratified_thresholds():
 
 
 # ── price_reflection status presets (all decision_date=2026-08-20) ─────────
-# `price_reflection/3` (CIO round 3): `reflection_status` only ever leaves
-# UNKNOWN when a real, LINEAGE-VERIFIED reference point AND a real, event-
-# anchored `post_event_return_pct` are both supplied -- every preset below
-# that needs a confident (non-UNKNOWN) reflection_status carries a real
-# `event_reaction` with `source_ref`/`source_sha256` (evidence citation)
-# and `post_event_return_pct` (never the generic recent_return_windows/
-# relative_strength figures the momentum comparison used to -- and must
-# never again -- use directly). Momentum magnitude alone (no reference, or
-# a reference with no lineage) would otherwise leave EVERY one of these at
-# reflection_status=UNKNOWN regardless of how extreme the price move is --
-# see decision/price_reflection.py's module docstring. These presets ALSO
-# require `threshold_basis=="RATIFIED"` to ever unlock an alpha_review
-# positive state (required item 4) -- callers needing a positive state pass
+# `price_reflection/4` (CIO review round 4): `reflection_status` only ever
+# leaves UNKNOWN when a real, HASH-VERIFIED evidence citation (a REAL
+# committed file, that file's REAL recomputed sha256) resolves to a real,
+# internally-computed, PIT-verified return -- never a caller-supplied
+# `post_event_return_pct`, and never a fabricated `"a"*64`-style hash (see
+# decision/price_reflection.py's and test_price_reflection.py's own
+# docstrings for the CIO round-4 defect this closes). Every preset below
+# that needs a confident (non-UNKNOWN) reflection_status reuses
+# `PR_FIXTURE.verified_event_reaction()` -- the SAME real evidence file/hash
+# and REAL_EVIDENCE_SUBJECT (`329180.KS`) test_price_reflection.py itself
+# verifies -- anchored to a real event_date chosen so the module's own
+# internally-computed return lands in the intended UNDER/PARTIALLY/
+# FULLY_REFLECTED band (see that file's module-level comment for the exact
+# real close prices and derived percentages). These presets ALSO require
+# `threshold_basis=="RATIFIED"` to ever unlock an alpha_review positive
+# state (required item 4) -- callers needing a positive state pass
 # `contract=` from inside a `with ratified_thresholds():` block.
-def _verified_reference(post_event_return_pct: str) -> dict:
-    return {
-        "event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
-        "source_ref": "REAL-FILING-CITATION-1", "source_sha256": "a" * 64,
-        "post_event_return_pct": post_event_return_pct,
-    }
-
-
 def pr_under_reflected(**overrides):
     kwargs = dict(
-        price_as_of="2026-08-19T20:00:00Z",
+        price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "1"},
         relative_strength={"vs_market": "1"},
-        event_reaction=_verified_reference("1"),
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        event_reaction=PR_FIXTURE.verified_event_reaction("2026-08-18"),  # real -3.17%, disagrees -> UNDER_REFLECTED
+        data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
     return price_reflection_packet(**kwargs)
@@ -154,11 +166,11 @@ def pr_under_reflected(**overrides):
 
 def pr_partially_reflected(**overrides):
     kwargs = dict(
-        price_as_of="2026-08-19T20:00:00Z",
+        price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "3"},
         relative_strength={"vs_market": "2"},
-        event_reaction=_verified_reference("3"),
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-20"),  # real +5.69% -> PARTIALLY_REFLECTED
+        data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
     return price_reflection_packet(**kwargs)
@@ -166,11 +178,11 @@ def pr_partially_reflected(**overrides):
 
 def pr_fully_reflected(**overrides):
     kwargs = dict(
-        price_as_of="2026-08-19T20:00:00Z",
+        price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "10"},
         relative_strength={"vs_market": "9"},
-        event_reaction=_verified_reference("10"),
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-29"),  # real +9.22% -> FULLY_REFLECTED
+        data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
     return price_reflection_packet(**kwargs)
@@ -181,19 +193,19 @@ def pr_overextended(**overrides):
     pure momentum read, round-2 core fix) -- but alpha_review's gate 3
     (`reflection_status == "UNKNOWN"`) still blocks EVERYTHING, including a
     real OVEREXTENDED price_state, until reflection_status is independently
-    resolved. This preset therefore still carries a real, lineage-verified
-    event_reaction (consistent with the rally, so it resolves
-    FULLY_REFLECTED) purely to clear gate 3 -- alpha_review's own
+    resolved. This preset therefore still carries a real, hash-verified
+    event_reaction (the same real +9.22% move used by pr_fully_reflected, so
+    it resolves FULLY_REFLECTED) purely to clear gate 3 -- alpha_review's own
     WAIT_FOR_PULLBACK gate then fires off `price_state == "OVEREXTENDED"`
     specifically (not off reflection_status), which is the actual thing
     this fixture exists to exercise. Also needs a RATIFIED contract to
-    clear the round-3 threshold-ratification arm of gate 3."""
+    clear the round-3/round-4 threshold-ratification arm of gate 3."""
     kwargs = dict(
-        price_as_of="2026-08-19T20:00:00Z",
+        price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "20"},
         relative_strength={"vs_market": "18", "position_vs_recent_high_pct": "1"},
-        event_reaction=_verified_reference("18"),
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-29"),
+        data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
     return price_reflection_packet(**kwargs)
@@ -358,13 +370,43 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         # CIO round 3, required item 4, exercised end-to-end without the
         # ratified_thresholds() simulation: a FULLY lineage-verified,
         # event-anchored reflection_status=FULLY_REFLECTED, built under the
-        # REAL (PROVISIONAL) contract, must still resolve to WAIT_FOR_PRICE
-        # -- never CONFIRMATION_REVIEW/EXPECTATION_EXHAUSTED/etc.
+        # REAL (PROVISIONAL) contract, must still be blocked from any
+        # positive/differentiated state -- never CONFIRMATION_REVIEW/
+        # EXPECTATION_EXHAUSTED/etc. CIO round 4, required item 6: since
+        # reflection_status here is genuinely KNOWN (not UNKNOWN), the
+        # correct blocked label is now the dedicated
+        # WAIT_FOR_RULE_RATIFICATION state, NOT WAIT_FOR_PRICE -- WAIT_FOR_
+        # PRICE is reserved exclusively for a genuine reflection_status==
+        # UNKNOWN (see test_wait_for_rule_ratification_vs_wait_for_price_
+        # are_distinguishable below for the side-by-side contrast).
         pr = pr_fully_reflected()
         self.assertEqual(pr["price_reflection"]["reflection_status"], "FULLY_REFLECTED")  # sanity
         self.assertEqual(pr["price_reflection"]["threshold_basis"], "PROVISIONAL")  # sanity
         packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr)
-        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_RULE_RATIFICATION")
+
+    def test_wait_for_rule_ratification_vs_wait_for_price_are_distinguishable(self):
+        # CIO round 4, required item 6, exercised end-to-end, side by side:
+        # the SAME provisional (unratified) threshold_basis produces two
+        # DIFFERENT opportunity_states depending on whether reflection_status
+        # is genuinely UNKNOWN (a real evidence gap -> WAIT_FOR_PRICE) or
+        # genuinely known but unratified (a policy gap -> WAIT_FOR_RULE_
+        # RATIFICATION) -- collapsing these into one label was exactly the
+        # defect round 4 closed.
+        pr_price_gap = pr_unknown()
+        self.assertEqual(pr_price_gap["price_reflection"]["reflection_status"], "UNKNOWN")
+        packet_price_gap = build(
+            ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_price_gap,
+        )
+        self.assertEqual(packet_price_gap["opportunity_state"], "WAIT_FOR_PRICE")
+
+        pr_policy_gap = pr_fully_reflected()
+        self.assertNotEqual(pr_policy_gap["price_reflection"]["reflection_status"], "UNKNOWN")
+        self.assertEqual(pr_policy_gap["price_reflection"]["threshold_basis"], "PROVISIONAL")
+        packet_policy_gap = build(
+            ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_policy_gap,
+        )
+        self.assertEqual(packet_policy_gap["opportunity_state"], "WAIT_FOR_RULE_RATIFICATION")
 
     def test_confirmation_review(self):
         with ratified_thresholds() as ratified_contract:
@@ -384,14 +426,16 @@ class OpportunityStateClassificationTests(unittest.TestCase):
             packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr)
         self.assertEqual(packet["opportunity_state"], "EARLY_DISCOVERY")
 
-    def test_all_ten_opportunity_states_are_exercised(self):
+    def test_all_eleven_opportunity_states_are_exercised(self):
         # Belt-and-suspenders: the contract's closed vocabulary must exactly
-        # equal the 10 states asserted above (8 pre-hardening + the 2 CIO
-        # Gate Hardening additions, WAIT_FOR_PRICE / WAIT_FOR_THESIS_REPAIR).
+        # equal the 11 states asserted above/below (8 pre-hardening + the 2
+        # CIO Gate Hardening additions, WAIT_FOR_PRICE / WAIT_FOR_THESIS_
+        # REPAIR + CIO round 4's WAIT_FOR_RULE_RATIFICATION split).
         self.assertEqual(sorted(CONTRACT["opportunity_states"]), sorted([
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
-            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_THESIS_REPAIR",
+            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_RULE_RATIFICATION",
+            "WAIT_FOR_THESIS_REPAIR",
         ]))
 
 
@@ -564,7 +608,8 @@ class InputCompositionTests(unittest.TestCase):
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
         pr = PR.build_packet(
-            subject="TSM", decision_date="2026-08-21", generated_at=GENERATED_AT, contract=PR_FIXTURE.CONTRACT,
+            subject=REAL_EVIDENCE_SUBJECT, decision_date="2026-08-21", generated_at=GENERATED_AT,
+            contract=PR_FIXTURE.CONTRACT,
         )
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "DECISION_DATE_MISMATCH_ACROSS_INPUT_PACKETS"):
             build(ft, eg, pr)
@@ -676,6 +721,7 @@ class TradeProposalAndAuthorityTests(unittest.TestCase):
         provisional_cases = [
             (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                                    # BLOCKED
             (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown()),         # WAIT_FOR_PRICE
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected()),    # WAIT_FOR_RULE_RATIFICATION
         ]
         for ft, eg, pr in provisional_cases:
             packet = build(ft, eg, pr)

@@ -278,6 +278,25 @@ class P5GatedActionTests(unittest.TestCase):
             self.assertEqual(MODULE.action_for_opportunity_state("BLOCKED", p5_status, CONTRACT), "REJECT")
             self.assertEqual(MODULE.action_for_opportunity_state("WAIT_FOR_PRICE", p5_status, CONTRACT), "WAIT")
 
+    def test_wait_for_rule_ratification_is_unmapped_and_fails_closed(self):
+        # `decision/alpha_review.py`'s CIO round-4 `WAIT_FOR_RULE_RATIFICATION`
+        # state (alpha_review/5, required item 6) is deliberately NOT added to
+        # `shadow/alpha_shadow_ledger.py` -- that module is a real production
+        # file this PR is explicitly forbidden from touching. This asserts
+        # the CURRENT, correct, fail-closed consequence of that boundary: a
+        # WAIT_FOR_RULE_RATIFICATION packet is not silently mapped to WAIT
+        # (or anything else) -- it raises a loud, unambiguous
+        # OPPORTUNITY_STATE_UNMAPPED error, exactly like any other genuinely
+        # unmapped opportunity_state would. Wiring WAIT_FOR_RULE_RATIFICATION
+        # into the shadow ledger's own action table is real, tracked
+        # follow-up work for a future PR that is explicitly permitted to
+        # touch shadow/alpha_shadow_ledger.py -- not silently absorbed here.
+        self.assertNotIn("WAIT_FOR_RULE_RATIFICATION", CONTRACT["opportunity_state_to_action"])
+        with self.assertRaisesRegex(
+            MODULE.AlphaShadowLedgerError, "OPPORTUNITY_STATE_UNMAPPED:WAIT_FOR_RULE_RATIFICATION"
+        ):
+            MODULE.action_for_opportunity_state("WAIT_FOR_RULE_RATIFICATION", "NOT_EVALUATED", CONTRACT)
+
 
 if __name__ == "__main__":
     unittest.main()

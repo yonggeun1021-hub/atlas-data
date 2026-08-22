@@ -214,6 +214,65 @@ def _krx_code_from_subject(subject: str) -> str | None:
     return base if base.isdigit() and len(base) == 6 else None
 
 
+CRYPTO_SUBJECT_ALIASES = {"BTC", "BTC-USD", "XBTUSD", "BTCUSD"}
+
+
+def _series_for_subject(subject: str):
+    """Returns (kind, series) where kind in {"KRX","BTC","US"} and `series`
+    is a real `replay.price_series.PriceSeries` for KRX/BTC (None for US,
+    which has no multi-day series -- see `_us_price_points`)."""
+    code = _krx_code_from_subject(subject)
+    if code is not None:
+        return "KRX", ps.build_krx_series(code, ei.find_krx_snapshots())
+    if subject in CRYPTO_SUBJECT_ALIASES:
+        return "BTC", ps.build_btc_series(ei.find_btc_snapshots())
+    return "US", None
+
+
+def real_close_on_date(subject: str, trading_date: str, decision_date: str) -> Decimal | None:
+    """CIO round 4, required items 2/3: the ONLY way this module's callers
+    (including `decision/price_reflection.py`'s own internal reflection-
+    return verification) may obtain a price VALUE. Returns the REAL,
+    committed close for `subject` on `trading_date` -- but ONLY if that
+    exact row is PIT-live-known as of `decision_date` (some committed
+    snapshot both reports it AND was itself captured on/before
+    `decision_date`). Returns `None` on any of: unsupported subject, no
+    real evidence for that date, or not yet PIT-eligible -- never a
+    fabricated or proxied value."""
+    kind, series = _series_for_subject(subject)
+    if kind in ("KRX", "BTC"):
+        if not series.live_known_asof(trading_date, decision_date):
+            return None
+        close = series.close_on(trading_date)
+        return Decimal(str(close)) if close is not None else None
+    # US: only single-point-per-day snapshots exist (see _us_price_points),
+    # so "on trading_date" means an exact capture_date match.
+    for point in _us_price_points(subject):
+        if point["capture_date"] == trading_date and point["capture_date"] <= decision_date:
+            return point["close"]
+    return None
+
+
+def latest_real_close_at_or_before(subject: str, decision_date: str) -> tuple[str | None, Decimal | None]:
+    """Companion to `real_close_on_date`: the latest REAL, PIT-live-known
+    `(trading_date, close)` at or before `decision_date`, or `(None, None)`
+    if no such real evidence exists."""
+    kind, series = _series_for_subject(subject)
+    if kind in ("KRX", "BTC"):
+        live_dates = series.live_trading_dates_at_or_before(decision_date)
+        if not live_dates:
+            return None, None
+        latest = live_dates[-1]
+        close = series.close_on(latest)
+        return (latest, Decimal(str(close))) if close is not None else (None, None)
+    points = [p for p in _us_price_points(subject) if p["capture_date"] <= decision_date]
+    if not points:
+        return None, None
+    points.sort(key=lambda p: p["provider_timestamp"])
+    latest = points[-1]
+    return latest["capture_date"], latest["close"]
+
+
 def _stock_return_pct(series: "ps.PriceSeries", start_date: str, end_date: str) -> Decimal | None:
     start_close = series.close_on(start_date)
     end_close = series.close_on(end_date)
@@ -504,9 +563,6 @@ def assemble_crypto_evidence(symbol: str, decision_date: str) -> dict:
         "recent_return_windows": windows,
         "relative_strength": strength,
     }
-
-
-CRYPTO_SUBJECT_ALIASES = {"BTC", "BTC-USD", "XBTUSD", "BTCUSD"}
 
 
 def assemble_price_evidence(subject: str, decision_date: str) -> dict:

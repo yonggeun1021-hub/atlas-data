@@ -163,6 +163,7 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
         generated_at = "2026-08-20T09:00:00Z"
 
         ft_input = FT_FIXTURE.minimal_input(
+            subject=PR_FIXTURE.REAL_EVIDENCE_SUBJECT,
             generated_at=generated_at,
             decision_date=decision_date,
             earnings_conversion=FT_FIXTURE.earnings_conversion(status="PRE_REVENUE_SIGNAL"),
@@ -174,7 +175,7 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
         self.assertTrue(all(f["source_class"] != "EXHIBIT_EXTRACTED" for f in ft_packet["observed_facts"]))
 
         eg_input = EG_FIXTURE.base_input(
-            subject="TSM",
+            subject=PR_FIXTURE.REAL_EVIDENCE_SUBJECT,
             decision_date=decision_date,
             generated_at=generated_at,
             guidance_changes=EG_FIXTURE.category("POSITIVE"),
@@ -183,27 +184,28 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
         self.assertNotEqual(eg_packet["expectations_gap"]["status"], "NEGATIVE")
 
         with ratified_thresholds() as ratified_contract:
+            # CIO round 4: a real, HASH-VERIFIED evidence citation resolving
+            # to a real, internally-computed return is required for
+            # reflection_status to leave UNKNOWN -- decision/price_
+            # reflection.py no longer accepts a caller-supplied
+            # post_event_return_pct or a fabricated "a"*64 hash at all (see
+            # that module's and test_price_reflection.py's own docstrings).
+            # Without a genuinely real citation this synthetic fixture would
+            # itself now hit gate 3 (WAIT_FOR_PRICE) and never reach gate 4,
+            # defeating the point of this test. A RATIFIED threshold_basis
+            # is also required (round 3/4, required item 4/6) for the same
+            # reason -- this module's OWN loaded PRICE_REFLECTION instance
+            # is used to build the event_reaction, matching
+            # PR_FIXTURE.verified_event_reaction()'s real evidence file/hash.
             pr_packet = PRICE_REFLECTION.build_packet(
-                subject="TSM",
+                subject=PR_FIXTURE.REAL_EVIDENCE_SUBJECT,
                 decision_date=decision_date,
                 generated_at=generated_at,
-                price_as_of="2026-08-19T20:00:00Z",
+                price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
                 recent_return_windows={"1m": "3"},
                 relative_strength={"vs_market": "2"},
-                # A real, LINEAGE-VERIFIED reference point + a real,
-                # event-anchored post_event_return_pct are required for
-                # reflection_status to leave UNKNOWN post-CIO-round-3 (see
-                # decision/price_reflection.py) -- without them this
-                # synthetic fixture would itself now hit gate 3
-                # (WAIT_FOR_PRICE) and never reach gate 4, defeating the
-                # point of this test. A RATIFIED threshold_basis is also
-                # required (round 3, required item 4) for the same reason.
-                event_reaction={
-                    "event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "5",
-                    "source_ref": "REAL-CITATION", "source_sha256": "a" * 64,
-                    "post_event_return_pct": "3",
-                },
-                data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+                event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-20"),  # real +5.69%
+                data_source_scope="KRX_OFFICIAL",
                 contract=ratified_contract,
             )
             self.assertNotEqual(pr_packet["price_reflection"]["reflection_status"], "UNKNOWN")
