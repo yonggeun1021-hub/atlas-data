@@ -8,11 +8,13 @@ JSON -- same inputs always produce the same ledger, byte for byte, with no
 wall-clock or random component (satisfies the "deterministic output" hard
 constraint).
 
-★ CIO review fix (flaw 4, PR #210): `forward_metrics` is now built with
-  `entry_date=evaluation_date` explicitly -- the EXACT same trading date the
-  trigger engine evaluated against -- so `signal_evaluation_at` and
-  `hypothetical_entry_at` can never silently diverge (see
-  `forward_metrics.py`'s docstring for the concrete bug this fixes).
+★ CIO review round 4 fix (confirmed lookahead bug): `forward_metrics` is no
+  longer anchored to `evaluation_date` (the trigger's own signal-evaluation
+  date, which is often the PRIOR trading day relative to when the signal
+  was actually knowable). It is now anchored purely to `decision_date`
+  (== `action_eligible_at`); `evaluation_date` is passed through only as
+  diagnostic `signal_evaluation_at` metadata, never as the pricing date --
+  see `forward_metrics.py`'s docstring for the concrete bug this fixes.
 ★ CIO review fix (flaw 2/3, PR #210): `action_conversion_gate.evaluate()` is
   now called with the real `series`/`evaluation_date`/`lookback_dates`
   context it needs to actually compute conditions 5 and 6, and
@@ -67,9 +69,12 @@ def build_entry(series: PriceSeries, decision_date: str, source: str, evidence_s
     )
     existing = erb.existing_ruleset_action_for(bool(triggers))
 
-    # ★ flaw-4 fix: entry_date is pinned to evaluation_date, the exact same
-    #   date the trigger fired against -- never independently re-derived.
-    forward = compute_forward_metrics(series, decision_date, entry_date=evaluation_date)
+    # ★ round-4 fix: entry timing is derived purely from decision_date
+    #   (action_eligible_at) inside compute_forward_metrics -- never from
+    #   evaluation_date, which can be an already-past, no-longer-executable
+    #   trading day. evaluation_date is passed through only as diagnostic
+    #   signal_evaluation_at metadata.
+    forward = compute_forward_metrics(series, decision_date, signal_evaluation_at=evaluation_date)
 
     entry = {
         "decision_date": decision_date,

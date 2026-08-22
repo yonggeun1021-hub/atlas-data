@@ -13,8 +13,28 @@ are two different things:
 numerator AND denominator entirely (see
 `opportunity_miss_ledger.build_miss_episodes` /
 `defense_ledger.build_defense_episodes`) and reported here instead.
+
+★ CIO review round 4 fix (item 7): a BLENDED cross-market
+  `auditable_coverage_pct` (BTC + Korea + Crypto summed together) is
+  reported here ONLY as a secondary, purely operational statistic --
+  "how much of this repo's evidence trail exists at all". BTC, Korea, and
+  Crypto have entirely different population definitions (a dedicated
+  single-asset collector; a current-watchlist diagnostic cohort with no
+  historical PIT reconstruction; a real ratified-taxonomy universe that is
+  empty for most of the window) -- summing them into one number would
+  imply they are one comparable investment-performance population, which
+  they are not. Every caller MUST use the per-market breakdown
+  (`run_pit_replay.py`'s `by_market`) for anything performance-shaped; this
+  blended figure is tagged `NOT_AN_INVESTMENT_PERFORMANCE_KPI` explicitly.
 """
 from __future__ import annotations
+
+BLENDED_METRIC_WARNING = (
+    "This is a blended cross-market operational statistic only "
+    "(BTC + Korea + Crypto summed) -- BTC/Korea/Crypto have different "
+    "population definitions and must never be treated as one comparable "
+    "investment-performance KPI. Use by_market for anything performance-shaped."
+)
 
 
 def build_coverage_gap_report(entries: list[dict]) -> dict:
@@ -50,6 +70,8 @@ def build_coverage_gap_report(entries: list[dict]) -> dict:
         "auditable_entries": len(auditable),
         "unauditable_entries": len(unauditable),
         "auditable_coverage_pct": (len(auditable) / total * 100.0) if total else None,
+        "auditable_coverage_pct_kpi_status": "SECONDARY_OPERATIONAL_METRIC_NOT_A_PERFORMANCE_KPI",
+        "blended_metric_warning": BLENDED_METRIC_WARNING,
         "unauditable_days": sorted({e["decision_date"] for e in unauditable}),
         "unauditable_subjects_entirely": unauditable_subjects_entirely,
         "unauditable_entries_by_subject": dict(sorted(unauditable_by_subject.items())),

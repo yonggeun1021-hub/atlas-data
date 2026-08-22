@@ -142,17 +142,31 @@ class EndToEndNotGradableEnforcementTests(unittest.TestCase):
     def setUpClass(cls):
         cls.report = run()
 
-    def test_no_signal_anchored_ok_entry_has_a_not_live_known_hypothetical_entry(self):
+    def test_every_ok_graded_entry_has_hypothetical_entry_at_strictly_after_action_eligible_at(self):
+        # CIO review round 4 hard invariant (item 9): hypothetical_entry_at
+        # > action_eligible_at for every OK-graded real entry, no exceptions.
         checked = 0
         for entry in self.report["signal_replay_ledger"]:
             fm = entry["forward_metrics"]
-            if fm.get("entry_date_source") != "explicit_signal_evaluation_date":
-                continue
             if fm.get("status") != "OK":
                 continue
             checked += 1
-            self.assertTrue(fm["entry_live_known_asof_decision_date"], entry)
+            self.assertGreater(fm["hypothetical_entry_at"], fm["action_eligible_at"], entry)
+            self.assertEqual(fm["action_eligible_at"], entry["decision_date"])
         self.assertGreater(checked, 0)
+
+    def test_entries_with_no_forward_trading_date_are_not_gradable_not_silently_graded(self):
+        # Near the end of the audit window there is often no committed
+        # trading date after decision_date -- those entries MUST be
+        # NOT_GRADABLE, never silently priced from an earlier date.
+        found_not_gradable = 0
+        for entry in self.report["signal_replay_ledger"]:
+            fm = entry["forward_metrics"]
+            if fm.get("status") == "NOT_GRADABLE":
+                found_not_gradable += 1
+                self.assertIsNone(fm["hypothetical_entry_at"])
+                self.assertIsNone(fm["entry_price"])
+        self.assertGreater(found_not_gradable, 0, "sanity: the window's final days should hit this")
 
     def test_ungradable_ledger_entries_are_excluded_from_miss_and_defense_episodes(self):
         ungradable_keys = {(u["subject"], u["decision_date"]) for u in self.report["ungradable_ledger"]}
@@ -232,6 +246,53 @@ class EndToEndByMarketBreakdownTests(unittest.TestCase):
         for market, data in self.report["by_market"].items():
             self.assertIn("coverage_gap", data)
             self.assertIn("auditable_coverage_pct", data["coverage_gap"])
+
+
+class EndToEndCurrentWatchlistNotTreatedAsHistoricalPitTests(unittest.TestCase):
+    """CIO review round 4, item 5/9: config/universe.json is the CURRENT
+    watchlist, not a reconstructed historical PIT population -- the KOREA
+    market's KPI must be explicitly NOT_COMPUTABLE, and its 6-ticker
+    results must carry the CURRENT_WATCHLIST_DIAGNOSTIC_COHORT label,
+    never presented as a PIT-eligible-universe result."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run()
+
+    def test_korea_kpi_population_status_is_not_computable(self):
+        korea = self.report["by_market"]["KOREA"]
+        self.assertIn("NOT_COMPUTABLE", korea["kpi_population_status"])
+
+    def test_korea_population_label_is_current_watchlist_diagnostic_cohort(self):
+        korea = self.report["by_market"]["KOREA"]
+        self.assertEqual(korea["population_label"], "CURRENT_WATCHLIST_DIAGNOSTIC_COHORT")
+
+    def test_korea_results_still_reported_despite_not_computable_status(self):
+        # The 6-ticker diagnostic results are still shown -- NOT_COMPUTABLE
+        # means "not an approved PIT KPI", not "hidden".
+        korea = self.report["by_market"]["KOREA"]
+        self.assertGreater(korea["entry_count"], 0)
+
+    def test_only_korea_carries_the_diagnostic_cohort_label_not_btc_or_crypto(self):
+        self.assertNotEqual(self.report["by_market"]["BTC"]["population_label"],
+                             "CURRENT_WATCHLIST_DIAGNOSTIC_COHORT")
+        self.assertNotEqual(self.report["by_market"]["CRYPTO"]["population_label"],
+                             "CURRENT_WATCHLIST_DIAGNOSTIC_COHORT")
+
+
+class EndToEndBlendedMetricLabeledSecondaryTests(unittest.TestCase):
+    """CIO review round 4, item 7: the blended cross-market coverage figure
+    must never be presentable as a single investment-performance KPI."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run()
+
+    def test_overall_coverage_gap_is_labeled_secondary_not_a_performance_kpi(self):
+        cg = self.report["coverage_gap"]
+        self.assertEqual(cg["auditable_coverage_pct_kpi_status"], "SECONDARY_OPERATIONAL_METRIC_NOT_A_PERFORMANCE_KPI")
+        self.assertIn("blended_metric_warning", cg)
+        self.assertIn("different population definitions", cg["blended_metric_warning"])
 
 
 if __name__ == "__main__":

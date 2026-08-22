@@ -2,14 +2,11 @@
 
 ★ Status: this document reports a **replay audit (Atlas WBS P10-02/P10-03,
 Shadow Audit)**, not a decision, and is **unrelated to P11 (Real Capital)**.
-Earlier commits on this PR branch used a "P11" label before the phase was
-clarified in CIO review round 3 -- git history is not rewritten, but every
-doc/output-artifact label from this revision forward says P10-02/P10-03 /
-"P10 Audit". Nothing in this document changes any P0/P5 rule, Stage,
-trade_proposal, or trading authority. Every ruleset comparison below is a
-capital=0 shadow simulation. All real orders remain Human Approval. See
-`replay/` for the code and `evidence/audit/pit_replay/` for the
-machine-readable ledgers this document summarizes.
+Nothing in it changes any P0/P5 rule, Stage, trade_proposal, or trading
+authority. Every ruleset comparison below is a capital=0 shadow simulation.
+All real orders remain Human Approval. See `replay/` for the code and
+`evidence/audit/pit_replay/` for the machine-readable ledgers this document
+summarizes.
 
 ## 0. Canonical sources consulted
 
@@ -19,183 +16,202 @@ Operating Doctrine**, **Atlas 1개월 운용 감사 — Signal-to-P&L Review**,
 
 ## 0.1 CIO review history on this PR
 
-- **Round 1 → CHANGES_REQUIRED** (5 flaws: crypto survivorship bias in the
-  first cut, GATE_BLOCK misclassification, fabricated condition shortcuts,
-  entry/signal timestamp divergence, unde-duplicated daily-row miss counts).
-- **Round 2 → still CHANGES_REQUIRED**, but round 1's 5 fixes accepted as
-  correctly done. Round 2 found 5 FURTHER flaws, all fixed in this
-  revision:
+- **Round 1 → CHANGES_REQUIRED** (survivorship bias, GATE_BLOCK
+  misclassification, fabricated condition shortcuts, entry/signal timestamp
+  divergence, un-deduplicated daily-row miss counts).
+- **Round 2 → CHANGES_REQUIRED**, round 1's 5 fixes accepted. Found 5 more
+  (crypto source-catalog contamination, condition 1/5/6 semantics, episode
+  grouping rework, DATA_FAILURE/Miss separation, P11→P10 naming) -- all
+  fixed.
+- **Round 3 → CHANGES_REQUIRED**, round 2's 5 fixes accepted (crypto
+  contamination removed, false GATE_BLOCK removed). Found a **confirmed
+  lookahead bug in the core return calculation**, fixed in this revision:
 
-| # | Flaw (round 2) | Fix |
+### The confirmed bug and its fix
+
+`hypothetical_entry_at` was being set to `signal_evaluation_at` -- the
+trading date a trigger's finalized-close data was computed FROM, which is
+frequently the PRIOR trading day relative to when the signal actually
+became knowable (given the collector's own T-1 finalization lag). Concrete
+case CIO cited: a signal evaluated against 2026-08-19's close but only
+knowable on 2026-08-20 was graded as if entry happened AT 2026-08-19's
+close -- using a price from before the information that would have
+justified buying it even existed. **The previously-reported returns
+005930 +9.49%, 000660 +12.73%, BTC +5.36% are retracted; they were
+inflated by a day of look-back on the entry price.**
+
+**Fix**: one single, uniform rule now applies to EVERY entry (Miss,
+Defense, SIGNAL_MISS, GATE_BLOCK, ACTION_CONVERSION_FAILURE alike -- never
+a different rule per category): `hypothetical_entry_at` = the first real
+trading date in the committed series **strictly after**
+`action_eligible_at` (== `decision_date`), priced at that date's **OPEN**
+(never a same-day fill when only a daily bar exists, never any prior
+day's price). If no such later trading date exists in the committed
+evidence, the entry is `NOT_GRADABLE` -- never silently graded from an
+earlier, already-realized price. `signal_evaluation_at` is retained ONLY
+as diagnostic metadata; it plays no role in pricing. This invariant
+(`hypothetical_entry_at > action_eligible_at`) is enforced structurally
+inside `compute_forward_metrics()` itself (raises `AssertionError` if ever
+violated), not merely asserted in one call site, and is proven against the
+real end-to-end replay output by
+`test_pit_replay_end_to_end.py::test_every_ok_graded_entry_has_hypothetical_entry_at_strictly_after_action_eligible_at`.
+
+No "acceptable overstatement" framing survives anywhere in this codebase --
+grepped and confirmed absent (`test_replay_forward_metrics.py`).
+
+**Further round-4 fixes, also done:**
+
+| # | Item | Fix |
 |---|---|---|
-| 1 | Crypto "632" was a raw Kraken source catalog, not a confirmed investable/PIT-eligible universe -- dumping it all in just traded one bias for a different contamination | Split into `source_coverage_population` (632, coverage-only) vs. the real, ratified `point_in_time_eligible_universe` (`config/crypto_breadth_exclusion_taxonomy.json`, ~87 assets, evaluated per-date against real `effective_from`) |
-| 2 | Conditions 1/5/6 still didn't mean what their labels claimed | Condition 1 now distinguishes `PASS_TACTICAL` (price/flow-structure trigger) from `PASS_FUNDAMENTAL` (real thesis/catalyst -- none implemented today); condition 5 renamed `stop_distance_pct` and `condition_5_position_sizing` is honestly always `NOT_EVALUATED` (no portfolio-sizing data exists anywhere); condition 6 split into `condition_6a_price_integrity` / `condition_6b_asset_identity_status` / `condition_6c_pit_availability` |
-| 3 | Episode grouping (flat 4-day gap) both wrongly merged unrelated rallies and wrongly split continuous ones | Reworked to group on `(subject, trigger_family, real forward-window overlap)`, not a flat calendar gap; renamed field set (`episode_start_date`/`first_signal_date`/`first_action_eligible_date`/`episode_end_date`/`outcome_window_start`/`outcome_window_end`/`representative_forward_return_pct`); `first_signal_date` is `None` on SIGNAL_MISS/DATA_FAILURE episodes (nothing was actually detected) |
-| 4 | DATA_FAILURE entries were counted as Opportunity Misses | Excluded entirely from Miss/Defense KPI numerator AND denominator (applied symmetrically to Defense too); reported instead via a new `Coverage Gap` KPI block (`replay/coverage_gap.py`) |
-| 5 | "P11" naming collided with the real WBS (P11 = Real Capital) | Renamed to P10-02/P10-03 throughout docs/output labels (this section, PR title, `wbs_phase` field) |
+| 5 | `config/universe.json` is the CURRENT watchlist, not a reconstructed historical PIT population | KOREA market's `kpi_population_status` is now `NOT_COMPUTABLE_NO_HISTORICAL_PIT_WATCHLIST_EVIDENCE`; the 6-ticker results are still shown but labeled `CURRENT_WATCHLIST_DIAGNOSTIC_COHORT`, never presented as PIT-eligible |
+| 6 | Crypto taxonomy `effective_from` could in principle be backdated relative to real ratification | Directly verified against real `git log`/`git show` history of `config/crypto_breadth_exclusion_taxonomy.json` (all 4 commits) -- **no backdating found**: every record's `effective_from` matches the UTC calendar date of the commit that first introduced it. Now a permanent automated regression (`test_replay_asset_identity.py::EffectiveFromNeverBackdatedVsRealGitHistoryTests`), not just a one-time manual check |
+| 7 | Blended 45.9% coverage figure risked being read as one performance KPI across incompatible populations | Tagged `SECONDARY_OPERATIONAL_METRIC_NOT_A_PERFORMANCE_KPI` with an explicit `blended_metric_warning`; every performance-shaped question must use `by_market` |
 
-**Round 2's numbers (`Miss=1,564`, `Defense=1,061`, `GATE_BLOCK=0` on a
-632-pair population) are superseded and must not be used** -- see section 3
-for the corrected numbers under the real PIT-eligible population.
+**Round 3's numbers (`Miss=5`, `Defense=3`, per-ticker returns including
+005930 +9.49% / 000660 +12.73% / BTC +5.36%) are superseded and must not
+be used.**
 
 ## 1. The headline structural finding (unchanged across all rounds)
 
-**This repository's own committed evidence trail begins 2026-08-13.**
-22 of the 32 audit-window days have zero committed Atlas evidence of any
-kind. This is now reported as a first-class `Coverage Gap` KPI (section 4),
-not blended into the Opportunity Miss numbers.
+**This repository's own committed evidence trail begins 2026-08-13.** 22 of
+32 audit-window days have zero committed Atlas evidence. Reported via the
+`Coverage Gap` KPI block (section 4), never blended into Miss/Defense.
 
-## 2. Priority cases: BTC / 005930 / 000660 (by market, corrected)
+## 2. Priority cases: BTC / 005930 / 000660 (corrected under fixed entry timing)
 
 *(Machine-readable: `evidence/audit/pit_replay/signal_replay_ledger_priority_only.json`,
-`opportunity_miss_episodes.json`, `defense_episodes.json`,
-`by_market.json`.)*
+`opportunity_miss_episodes.json`, `defense_episodes.json`.)*
 
-### BTC (market: BTC)
+### BTC (population: dedicated collector, KPI-eligible)
 
-- 32 entries in the window; **auditable coverage 9.4%** (3/32 days --
-  BTC's own dedicated collector only has committed evidence 2026-08-20
-  through 08-22).
-- **1 Miss Episode**: `2026-08-20 → 2026-08-21`, root cause
-  `ACTION_CONVERSION_FAILURE` (not GATE_BLOCK -- round-1's retraction still
-  holds), trigger family `PRICE_CONFIRMATION`, representative forward
-  return **+5.36%**.
+- **1 Miss Episode**: `2026-08-20`, `ACTION_CONVERSION_FAILURE`, corrected
+  forward return **+7.30%** (previously mis-reported +5.36% from a
+  backdated entry). Real trail: `signal_evaluation_at` (the trigger's own
+  finalized-close basis) = 2026-08-19; `action_eligible_at` = 2026-08-20;
+  `hypothetical_entry_at` = 2026-08-21 (the first real trading day after
+  the signal became knowable), entered at that day's real OPEN.
 - **0 Defense Episodes** in this window.
-- No BTC ETF-flow dataset is committed anywhere in this repo (see Coverage
-  Gap, section 4) -- the canonical doc's own "8/8 브리핑 ETF 4거래일 순유입"
-  claim could not be independently corroborated or refuted from repo
-  evidence.
 
-### 005930 (삼성전자) and 000660 (SK하이닉스) (market: KOREA)
+### 005930 (market: KOREA, `CURRENT_WATCHLIST_DIAGNOSTIC_COHORT` -- see below)
 
-- 192 entries in the window (6 KR tickers × 32 days); **auditable coverage
-  27.1%** across the whole KR population.
-- **005930**: 1 Miss Episode (`2026-08-20`, `SIGNAL_MISS`, +9.49%); 1
-  Defense Episode (`2026-08-13 → 08-19`, avoided **−7.65%**).
-- **000660**: 1 Miss Episode (`2026-08-20`, `SIGNAL_MISS`, +12.73%); 1
-  Defense Episode (`2026-08-13 → 08-19`, avoided **−5.84%**).
-- A third KR Defense Episode exists for `329180` (`2026-08-14 → 08-18`,
-  avoided **−6.95%**) -- included here because the full-population audit
-  (section 3) explicitly requires the same rules applied to every declared
-  KR ticker, not only the two priority names.
-- Both 005930 and 000660's `SIGNAL_MISS` classification on 2026-08-20 means
-  none of this replay's 4 implemented trigger types fired that day despite
-  a real, material forward move -- an engine-coverage gap (see section 6),
-  not a rule-gate block.
+- **1 Miss Episode**: `2026-08-19`, `ACTION_CONVERSION_FAILURE`, corrected
+  forward return **+5.45%** (was mis-reported +9.49%). `hypothetical_entry_at`
+  = 2026-08-20 at real open 257,000.
+- **1 Defense Episode**: `2026-08-13`, avoided **−10.00%** (was −7.65%
+  under the old, incorrectly-earlier entry timing).
 
-## 3. Full-population audit (corrected under the real PIT-eligible universe)
+### 000660 (market: KOREA, diagnostic cohort)
 
-- **KR declared universe**: unchanged from round 2 -- 6 tickers, all in
-  `config/universe.json`, never contaminated by an ambiguous catalog
-  problem (it was always a small, deliberately curated watchlist).
-- **Crypto, corrected**: `source_coverage_population` = **632 pairs**
-  (pure data-coverage metric, `population.crypto_source_coverage_population`
-  in the machine output) vs. the real Opportunity KPI population
-  `point_in_time_eligible_universe` = **≤87 assets, monotonically date-gated
-  by real `effective_from`** (`config/crypto_breadth_exclusion_taxonomy.json`,
-  `approval_status: RATIFIED`). Per that file's own real ratification
-  history, this eligible set is **EMPTY for every decision_date before
-  2026-08-19**, 3 assets 08-19→08-21, and the full ~86 (BTC excluded to
-  avoid double-counting the dedicated BTC subject) only from 08-22 onward.
-  **`kpi_population_status = NOT_COMPUTABLE_MOSTLY_PRE_2026_08_19`** for
-  the CRYPTO market as a whole -- this is now explicit, not silently
-  substituted with the full catalog.
-- **Total signal-replay-ledger entries, corrected: 316** (was 20,448 under
-  round 2's full-catalog population -- a ~65x reduction, entirely explained
-  by using the real ratified universe instead of the raw source catalog).
-- **Opportunity Miss Episodes, corrected: 5** (was 1,564 under round 2's
-  DATA_FAILURE-inflated, full-catalog population): BTC 1, 005930 1, 000660
-  1, ETH/USD 1, SOL/USD 1. Root causes: SIGNAL_MISS 2, ACTION_CONVERSION_FAILURE
-  3, **GATE_BLOCK 0**.
-- **Defense Episodes, corrected: 3** (was 1,061): 005930, 000660, 329180 --
-  every one carrying the structural-zero-capital caveat.
-- **DATA_FAILURE is no longer part of either number** -- see section 4.
+- **0 Miss Episodes** under the corrected entry timing (the prior +12.73%
+  figure does not survive fixing the entry-price lookahead -- either the
+  corrected forward return no longer clears the 5% materiality threshold
+  or the entry became `NOT_GRADABLE`; see the raw per-day ledger for the
+  exact mechanics).
+- **1 Defense Episode**: `2026-08-13`, avoided **−11.50%** (was −5.84%).
 
-## 4. Coverage Gap KPI block (new, deliverable per CIO review round 2 flaw 4)
+**Both 005930 and 000660 results above are `CURRENT_WATCHLIST_DIAGNOSTIC_COHORT`
+results, NOT an approved PIT-eligible-universe KPI** -- see section 5.
 
-*(Machine-readable: `evidence/audit/pit_replay/coverage_gap.json`,
-per-market breakdown in `by_market.json`.)*
+## 3. Full-population audit, corrected, by market
 
-| | Overall | BTC | KOREA | CRYPTO |
-|---|---|---|---|---|
-| Total entries | 316 | 32 | 192 | 92 |
-| Auditable entries | 145 | 3 | 52 | 90 |
-| **Auditable Coverage** | **45.9%** | **9.4%** | **27.1%** | **97.8%** |
-| Unauditable days | 30 of 32 | 29 | 30 | 1 |
-| Unauditable subjects (entirely) | none | -- | -- | -- |
+| Market | Entries | Miss Episodes | Defense Episodes | Auditable Coverage | KPI Status | Population Label |
+|---|---|---|---|---|---|---|
+| BTC | 32 | 1 | 0 | 9.4% | `OK` | `DEDICATED_COLLECTOR` |
+| KOREA | 192 | 1 | 4 | 27.1% | `NOT_COMPUTABLE_NO_HISTORICAL_PIT_WATCHLIST_EVIDENCE` | `CURRENT_WATCHLIST_DIAGNOSTIC_COHORT` |
+| CRYPTO | 92 | 2 | 0 | 97.8% | `NOT_COMPUTABLE_MOSTLY_PRE_2026_08_19` | `PIT_RATIFIED_ELIGIBLE_UNIVERSE` |
 
-Missing evidence types (overall): (1) no committed Atlas evidence of any
-kind before 2026-08-13; (2) no BTC ETF-flow dataset committed anywhere;
-(3) no committed briefing TEXT output for any date (only raw collector
-snapshots). CRYPTO's high auditable-coverage % is itself explained by its
-tiny, date-gated real population (section 3) -- it is not evidence that
-crypto is better-covered than BTC/KR, it is evidence that its real,
-ratified population barely exists yet.
+**108 previously-graded entries became `NOT_GRADABLE` under the corrected
+entry-timing logic** (up from 0 under round 3's -- itself already
+incorrect -- backdated-entry methodology): 3 each for the 6 KR tickers
+(18), 2 each for BTC/ETH/SOL (6), 1 each for 84 further crypto pairs (84).
+This is expected and correct: near the end of the audit window
+(2026-08-20 → 08-22), there is frequently no committed trading date after
+`decision_date` at all, so no honest entry point can be established.
 
-## 5. Root-cause distribution (episode-level, corrected, DATA_FAILURE excluded)
+**Only BTC's market carries an `OK` KPI status.** KOREA and CRYPTO are both
+`NOT_COMPUTABLE`-flagged for different, real reasons (no historical PIT
+watchlist reconstruction possible for KOREA; ratification timing for
+CRYPTO) -- neither market's Miss/Defense counts above should be read as an
+approved investment-performance number, only BTC's.
 
-| Category | Episodes | Meaning here |
+## 4. Coverage Gap KPI block (secondary metric only, per market never blended)
+
+*(Machine-readable: `evidence/audit/pit_replay/coverage_gap.json` (overall,
+secondary), `by_market.json` (per-market, primary reference).)*
+
+Overall blended auditable coverage: **45.9%** -- tagged
+`SECONDARY_OPERATIONAL_METRIC_NOT_A_PERFORMANCE_KPI` in the machine output;
+BTC (9.4%) / KOREA (27.1%) / CRYPTO (97.8%) must never be summed or
+compared directly as one performance figure, since their population
+definitions are fundamentally different (a dedicated single-asset
+collector; a current-watchlist diagnostic cohort; a real ratified
+universe that is empty for most of the window).
+
+## 5. Korea population status (corrected, round 4)
+
+`config/universe.json`'s 6 tickers are Atlas's **current** watchlist, with
+no committed evidence anywhere in this repo reconstructing what the
+PIT-investable KR population, or Discovery/Candidate/Ready state, actually
+was on 2026-07-22. The official KOREA Opportunity KPI is therefore
+`NOT_COMPUTABLE_NO_HISTORICAL_PIT_WATCHLIST_EVIDENCE`. The 6-ticker Miss/
+Defense results in sections 2-3 are still reported -- explicitly and only
+as a `CURRENT_WATCHLIST_DIAGNOSTIC_COHORT`, never as an approved PIT
+Opportunity Capture KPI.
+
+## 6. Crypto taxonomy ratification-timing verification (round 4)
+
+Directly verified via `git log`/`git show` against every one of the 4 real
+commits that ever touched `config/crypto_breadth_exclusion_taxonomy.json`:
+every `eligible_crypto` record's `effective_from` date matches (never
+predates) the UTC calendar date of the commit that first introduced it.
+**No backdating found.** This is now `test_replay_asset_identity.py::
+EffectiveFromNeverBackdatedVsRealGitHistoryTests`, a permanent regression
+rather than a one-time manual check.
+
+## 7. Root-cause distribution (episode-level, corrected)
+
+| Category | Episodes | Notes |
 |---|---|---|
-| SIGNAL_MISS | 2 | Live data existed; none of the 4 implemented trigger types fired |
-| ACTION_CONVERSION_FAILURE | 3 | A real trigger existed but conditions 1-6 were not ALL real PASS |
-| GATE_BLOCK | 0 | Reserved for conditions-1-6-all-real-PASS blocked only by condition 7 -- structurally unreachable today since condition 5 (position sizing) is always NOT_EVALUATED |
-| UNIVERSE_MISS | 0 | Every subject scanned came from a declared/ratified population |
-| DECISION_LATENCY | 0 | Not observed in this window at the >3-day threshold |
-| NO_POSITION_RULE | 0 | No committed-evidence source for a genuinely-observed portfolio-level constraint |
-| DATA_FAILURE | *(excluded -- see Coverage Gap, section 4)* | 171 unauditable entries reported separately |
+| ACTION_CONVERSION_FAILURE | 3 | BTC (1), 005930 (1), and one crypto pair -- all under corrected entry timing |
+| SIGNAL_MISS / GATE_BLOCK / etc. | 0 | None survive materiality + corrected grading in this replay of the real evidence |
+| DATA_FAILURE | *(excluded -- Coverage Gap, section 4)* | |
 
-## 6. Keep / Change / Kill (re-derived, corrected)
+## 8. Keep / Change / Kill (re-derived, corrected)
 
-1. `decision/alpha_review.py`'s unconditional `trade_proposal=None` —
-   **CHANGE** (unchanged rationale, now grounded in 3 ACTION_CONVERSION_FAILURE
-   + 0 GATE_BLOCK episodes).
-2. `decision/alpha_review.py`'s fixed 30-day cadence — **CHANGE** (unchanged).
-3. P0/P5 authority invariant — **KEEP** (unchanged, re-verified).
-4. Repo evidence retention gap — **CHANGE**, now grounded in the real
-   Coverage Gap numbers (45.9% overall auditable coverage, section 4)
-   rather than a miss-ledger side-effect.
-5. **NEW**: Position sizing data source — **CHANGE**. Even a ratified
-   Probe P5 Rule would have nothing real to size against; recommend a
-   ratified Portfolio Constitution NAV/headroom feed as a co-requisite.
-6. **NEW**: Crypto taxonomy ratification timing — **CHANGE**. The only
-   real ratified crypto eligible-universe this repo has was ratified in
-   the final 1-4 days of the audit window itself -- a genuinely PIT-honest
-   Crypto Opportunity Capture Rate is `NOT_COMPUTABLE` for nearly the
-   entire window, which is an operational gap, not a methodology choice.
+Unchanged recommendations 1-6 from round 3 (P5 trade_proposal=None →
+CHANGE; 30-day cadence → CHANGE; P0/P5 invariant → KEEP; evidence
+retention gap → CHANGE; position-sizing data source → CHANGE; crypto
+taxonomy ratification timing → CHANGE), all still grounded in the
+corrected numbers above. **New (round 4)**: Korea historical-population
+reconstruction — **CHANGE**. Recommend persisting a dated, committed
+Discovery/Candidate/Ready + watchlist snapshot going forward so a future
+audit of this kind can establish a genuine PIT KR population instead of
+falling back to a current-watchlist diagnostic cohort.
 
-## 7. Existing vs. proposed ruleset (corrected population, same conclusion)
+## 9. Hard-constraint verification (re-verified after every round's fixes)
 
-Both sides still show **0% action conversion** -- but now for a more
-complete, honestly-derived reason than round 2: condition 5 (position
-sizing) is structurally always `NOT_EVALUATED` (no portfolio data source
-exists at all), so `conditions_1_to_6_all_pass` can never be `True` today
-regardless of trigger quality. The proposed ruleset's real, demonstrated
-value remains diagnostic transparency (per-condition PASS/FAIL/
-NOT_EVALUATED/NOT_COMPUTABLE detail across a REAL, ratified population),
-not yet a materially higher conversion rate.
-
-## 8. Hard-constraint verification (re-verified after every round's fixes)
-
-- **Zero lookahead**: `test/test_replay_lookahead_gate.py` (13 tests) +
-  `test_pit_replay_end_to_end.py`'s signal-anchored-entry sweep, run
-  against the real, round-3-corrected replay output.
+- **Zero lookahead, including the round-4 entry-timing fix**:
+  `test/test_replay_lookahead_gate.py` (13 tests) +
+  `test_pit_replay_end_to_end.py`'s
+  `test_every_ok_graded_entry_has_hypothetical_entry_at_strictly_after_action_eligible_at`
+  and `test_entries_with_no_forward_trading_date_are_not_gradable_not_silently_graded`,
+  run against the real, round-4-corrected replay output.
 - **Determinism**: two independent `run()` calls diff byte-identical
-  across every ledger key, including the new `coverage_gap`/`by_market`
-  tables.
+  across every ledger key.
 - **Authority booleans unchanged**: re-verified after every fix.
-- **No survivorship bias, two senses now proven**: (a) the classifier's
-  signature structurally excludes outcome fields; (b) the KPI population
-  is never outcome-selected (round 2) AND is never an unclassified raw
-  catalog either (round 3) -- `test_replay_no_survivorship_bias.py`.
+- **No survivorship bias / no source-catalog contamination**: unchanged
+  from round 3, re-verified.
 - **Untouched Forward Alpha files**: re-verified via `git diff main --stat`
   before pushing this revision.
 
-## 9. Known limitations (unchanged plus one new, honestly reported)
+## 10. Known limitations (unchanged plus round-4 additions)
 
 Only 4 of 7 doc trigger types implemented; no BTC ETF-flow dataset
-committed; 22/32 window days have zero committed Atlas evidence at all.
-**New**: the real crypto PIT-eligible universe is empty for all but the
-final ~4 days of the window -- any crypto Opportunity Capture Rate
-computed over this window is necessarily `NOT_COMPUTABLE`-dominated, and
-this replay reports that honestly rather than substituting a larger,
-uncertified population.
+committed; 22/32 window days have zero committed Atlas evidence; crypto
+PIT-eligible universe is empty for all but the final ~4 days of the
+window; **new**: KOREA has no reconstructable historical PIT population at
+all (current-watchlist diagnostic only); **new**: near the end of the
+audit window, most entries cannot be graded at all under the corrected
+entry-timing rule because no committed trading date exists after
+`decision_date` -- this replay reports that honestly as `NOT_GRADABLE`
+rather than approximating an entry price.

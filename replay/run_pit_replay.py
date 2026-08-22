@@ -202,15 +202,30 @@ def run() -> dict:
         m_miss = oml.build_miss_episodes(market_entries)
         m_defense = dl.build_defense_episodes(market_entries)
         m_coverage = cg.build_coverage_gap_report(market_entries)
+        # ★ CIO review round 4, item 5: config/universe.json is the CURRENT
+        #   watchlist, not evidence of what the PIT-investable KR population
+        #   actually was on 2026-07-22. No committed evidence in this repo
+        #   reconstructs an as-of-date historical KR watchlist/Discovery-
+        #   Candidate-Ready population -- so the official KR Opportunity KPI
+        #   is NOT_COMPUTABLE. The 6-ticker results are still reported, but
+        #   explicitly labeled a diagnostic cohort over the CURRENT
+        #   watchlist, never a PIT-eligible-universe result.
+        if market == "CRYPTO":
+            kpi_status = "NOT_COMPUTABLE_MOSTLY_PRE_2026_08_19"
+            population_label = "PIT_RATIFIED_ELIGIBLE_UNIVERSE"
+        elif market == "KOREA":
+            kpi_status = "NOT_COMPUTABLE_NO_HISTORICAL_PIT_WATCHLIST_EVIDENCE"
+            population_label = "CURRENT_WATCHLIST_DIAGNOSTIC_COHORT"
+        else:
+            kpi_status = "OK"
+            population_label = "DEDICATED_COLLECTOR"
         by_market[market] = {
             "entry_count": len(market_entries),
             "miss_episode_count": len(m_miss),
             "defense_episode_count": len(m_defense),
             "coverage_gap": m_coverage,
-            "kpi_population_status": (
-                "NOT_COMPUTABLE_MOSTLY_PRE_2026_08_19"
-                if market == "CRYPTO" else "OK"
-            ),
+            "kpi_population_status": kpi_status,
+            "population_label": population_label,
         }
 
     return {
