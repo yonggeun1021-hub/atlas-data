@@ -807,7 +807,30 @@ APPROVED_TESTS = [
     #   가 아니고, 이 vocabulary에는 REJECTED/PASS/FAIL이 아예 없다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
+    #   status==UNKNOWN일 때 reasons[0]이 항상 "DATA_STATE:<value>" 마커
+    #   (PRICE_DATA_MISSING/PRICE_STALE/REFLECTION_UNCERTAIN_WITH_VALID_PRICE)를
+    #   실어 blanket UNKNOWN을 실제 근거 기반으로 세분화한다 (data_state_of()로
+    #   파싱). status 자체 vocabulary·field set은 변경하지 않음 — alpha_review.py
+    #   가 embedded price_reflection sub-object에 대해 자체 strict field-set
+    #   검증을 갖고 있어 이 PR에서 손대지 않는 그 모듈과 100% 호환 유지.
     "test/test_price_reflection.py",
+    # ★ P8-10 — real historical price + Korea KOSPI/KOSDAQ composite benchmark
+    #   evidence assembly (decision/price_evidence.py). KRX 시세는
+    #   replay/price_series.py + replay/evidence_index.py(PR #210, 변경 없이
+    #   재사용)로 커밋된 data/<date>/krx.json 스냅샷들을 병합하고, 한국 벤치마크는
+    #   data/observations/korea_leadership_context/<date>/packet.json의 실제
+    #   KOSPI_BENCHMARK/KOSDAQ_BENCHMARK day-over-day cumulative_gross_return을
+    #   체인링크해 조합한다 (repo에 raw 지수 시계열이 커밋된 적이 없어 이것이
+    #   유일한 real, non-fabricated 벤치마크). 034020처럼 evidence가 전무한
+    #   subject는 모든 필드가 정직하게 None. 새 external API 호출 없음.
+    #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
+    #      trading 및 live network 없음.
+    "test/test_price_evidence.py",
+    # ★ P8-10 — 위 evidence assembly의 anti-lookahead 전용 회귀
+    #   (replay.lookahead_gate를 재사용해 실제 호출 여부를 확인하고, 합성
+    #   fixture + 실제 커밋된 evidence 양쪽에서 decision_date 이후 캡처된
+    #   스냅샷/벤치마크 세션이 절대 새어들지 않음을 검증한다).
+    "test/test_price_evidence_lookahead.py",
     # ★ P8-11 — Anticipatory Alpha Review packet builder (Forward Alpha MVP, PR C stage 1).
     #   이미 검증된 forward_thesis/expectations_gap/price_reflection 3종 packet을
     #   재검증(subject·decision_date 일치 포함)해 조합하고, 8개 opportunity_state로

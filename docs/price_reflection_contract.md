@@ -66,6 +66,42 @@ Portfolio rejection is a different system's job. A recent sharp rally alone
 valuation-history position) produces `OVEREXTENDED`, not a rejection and not
 an automatic negative status.
 
+## `data_state`: real, distinct reasons behind a blanket `UNKNOWN` (P8-10)
+
+`status == "UNKNOWN"` used to be a single blanket bucket regardless of WHY.
+`reasons[0]` now always carries a `"DATA_STATE:<value>"` marker from a
+closed, real-evidence-only vocabulary (`contract["allowed_data_state"]`),
+parseable with `data_state_of(price_reflection_dict)`:
+
+- **`PRICE_DATA_MISSING`** — no price evidence exists for this subject/period
+  at all (`price_as_of` was never supplied).
+- **`PRICE_STALE`** — a `price_as_of` exists but is older than
+  `freshness_ceiling_days` relative to `decision_date`.
+- **`REFLECTION_UNCERTAIN_WITH_VALID_PRICE`** — `price_as_of` is fresh and
+  valid, but there isn't enough real relative-strength/momentum signal
+  (Korea's 1m + vs_market + position_vs_recent_high requirement unmet, or
+  fewer than 2 of the 5 scoreable signals present) to render a reflection
+  judgment. This is the honest outcome for a subject with only a single
+  point-in-time price snapshot (e.g. TSM, sourced from Alpaca IEX) — a fresh
+  price is known, but no historical series exists yet to judge momentum
+  against.
+- **`VALID`** — set whenever `status` is one of the confident values
+  (`UNDER_REFLECTED | PARTIALLY_REFLECTED | FULLY_REFLECTED | OVEREXTENDED`).
+  `NOT_REFLECTED`/`PARTIALLY_REFLECTED`/`FULLY_REFLECTED`-shaped confident
+  statuses are only ever produced when real evidence genuinely supports
+  them — see `decision/price_evidence.py`, the real historical-price +
+  Korea KOSPI/KOSDAQ composite-benchmark evidence-assembly layer that feeds
+  this module for real subjects.
+
+`data_state` is encoded inside the existing `reasons` field rather than as a
+new top-level key, deliberately: `decision/alpha_review.py` hard-validates
+the embedded `price_reflection` sub-object with its own exact field-set
+check, and is out of scope for this change (see that module and
+`shadow/alpha_shadow_ledger.py`'s own docs for the still-`status`-keyed
+`WAIT_FOR_PRICE` gate this preserves byte-for-byte). `status` itself always
+stays literally `"UNKNOWN"` for all three non-`VALID` `data_state` values,
+so every existing downstream consumer's gate keeps working unchanged.
+
 **`OVEREXTENDED` means entry-timing risk is elevated. It does not mean the
 underlying business is bad.** A company can be an excellent business and
 still be `OVEREXTENDED` on price after a sharp run — this status is about
@@ -93,6 +129,42 @@ contract's `allowed_status` list never gains a `REJECTED`-shaped value.
   "trading_authorized": false
 }
 ```
+
+## Real evidence sources (`decision/price_evidence.py`)
+
+This builder never fetches evidence itself (see top of this doc); real
+subjects are fed by `decision/price_evidence.py`, which assembles genuine
+committed-repo evidence into `build_packet()` kwargs, reusing existing
+collectors rather than inventing new external calls:
+
+- **KRX daily closes** — `replay/price_series.py` + `replay/evidence_index.py`
+  (built for PR #210's PIT replay audit, reused unchanged), merging every
+  committed `data/<date>/krx.json` snapshot's embedded multi-week `daily`
+  window. Covers `298040`/`267260`; `034020` has zero KRX evidence anywhere
+  in this repo (confirmed, not assumed) and honestly returns
+  `PRICE_DATA_MISSING`.
+- **Korea KOSPI/KOSDAQ composite benchmark** — chain-linked from the real,
+  committed `data/observations/korea_leadership_context/<date>/packet.json`
+  `KOSPI_BENCHMARK`/`KOSDAQ_BENCHMARK` day-over-day `cumulative_gross_return`
+  facts (P1-KR-07 real KRX Open API index data). This repo has never
+  committed a raw KOSPI/KOSDAQ index price series (`korea_leadership_live_
+  fetch.py` deliberately never persists raw index closes, only the outcome),
+  so this chain-linked proxy is the only real, non-fabricated market-index
+  series this repo's own evidence can support. Which composite applies to a
+  given KRX code (`KOREA_STOCK_MARKET_MEMBERSHIP`) is a small, explicitly
+  declared identity fact, not sourced from any committed evidence — an
+  undeclared code fails closed to no `vs_market` figure rather than a
+  guessed benchmark.
+- **US single-name price** — `evidence/free_market_data/raw/<date>/
+  manifest.json` (Alpaca IEX). Each day is a single most-recent-bar
+  snapshot; with only one day committed as of this module's build,
+  return-window/relative-strength fields are honestly left `None` rather
+  than computed from one point — this widens automatically as the existing
+  daily cron commits more days.
+
+Every figure's evidence dates are checked with
+`replay.lookahead_gate.assert_no_signal_lookahead` (reused unchanged from
+PR #210) before being returned — see `test/test_price_evidence_lookahead.py`.
 
 ## CLI
 

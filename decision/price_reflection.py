@@ -19,6 +19,25 @@ the freshness ceiling relative to `decision_date`, `status` is forced to
 `docs/price_reflection_contract.md` for the chosen default ceiling and the
 full classification method.
 
+Whenever `status` is `UNKNOWN`, `reasons[0]` always carries a second, more
+granular `"DATA_STATE:<value>"` marker recording WHY, from a closed,
+real-evidence-only vocabulary (`contract["allowed_data_state"]`):
+`PRICE_DATA_MISSING` (no price at all), `PRICE_STALE` (a price exists but is
+older than the freshness ceiling), or `REFLECTION_UNCERTAIN_WITH_VALID_PRICE`
+(price is fresh and valid, but there isn't enough real relative-strength/
+momentum signal to render a reflection judgment). `reasons[0]` is
+`"DATA_STATE:VALID"` whenever `status` is one of the confident values. See
+`data_state_of()` below for a small parsing helper.
+
+This is deliberately encoded inside the existing `reasons` field rather than
+as a new top-level key: `decision/alpha_review.py` hard-validates the
+`price_reflection` sub-object's field set with a strict `set(pr) != pr_fields`
+check on its own embedded copy, and this PR is explicitly scoped to leave
+that module (and `shadow/alpha_shadow_ledger.py`) untouched -- adding a new
+key there would break `alpha_review.py`'s own validation. `reasons` was
+already an unconstrained list of strings, so this is fully backward
+compatible with every existing consumer.
+
 `OVEREXTENDED` is a legitimate, distinct state — entry-timing risk is
 elevated, not "the company is bad" and not a Rule/Portfolio rejection. There
 is no `REJECTED` value anywhere in this module's vocabulary; Rule/Portfolio
@@ -64,6 +83,20 @@ class PriceReflectionError(ValueError):
     """Fail-closed P8-10 Price Reflection contract violation."""
 
 
+def data_state_of(price_reflection: dict) -> str:
+    """Extracts the `"DATA_STATE:<value>"` marker `build_packet` always
+    places at `reasons[0]` -- see module docstring for why this lives inside
+    `reasons` rather than as its own top-level key. Callers should pass an
+    already-`validate_packet`-checked packet's inner `price_reflection`
+    sub-object; this raises the same `OUTPUT_DATA_STATE_MARKER_MISSING`-shaped
+    error `validate_packet` would if that invariant is somehow violated."""
+    reasons = price_reflection.get("reasons")
+    if not isinstance(reasons, list) or not reasons or not isinstance(reasons[0], str) \
+            or not reasons[0].startswith("DATA_STATE:"):
+        raise PriceReflectionError("OUTPUT_DATA_STATE_MARKER_MISSING")
+    return reasons[0][len("DATA_STATE:"):]
+
+
 def canonical_json(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -87,6 +120,10 @@ def _expected_contract() -> dict:
         "allowed_status": [
             "UNDER_REFLECTED", "PARTIALLY_REFLECTED", "FULLY_REFLECTED",
             "OVEREXTENDED", "UNKNOWN",
+        ],
+        "allowed_data_state": [
+            "PRICE_DATA_MISSING", "PRICE_STALE",
+            "REFLECTION_UNCERTAIN_WITH_VALID_PRICE", "VALID",
         ],
         "allowed_confidence": ["LOW", "MEDIUM", "HIGH", "UNKNOWN"],
         "allowed_direction": ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"],
@@ -242,13 +279,21 @@ def _classify(
     event: dict,
     valuation: dict,
     contract: dict,
-) -> tuple[str, str, list[str]]:
+) -> tuple[str, str, list[str], str]:
     """Pure, deterministic classification. Rule 1 (staleness) always runs first
-    and, if triggered, short-circuits every other signal unconditionally."""
+    and, if triggered, short-circuits every other signal unconditionally.
+
+    Returns (status, confidence, reasons, data_state). `data_state` is only
+    ever non-`VALID` when `status == "UNKNOWN"` -- it records WHICH of the
+    three real, distinct reasons produced that UNKNOWN (see module
+    docstring): no price at all (`PRICE_DATA_MISSING`), a price too old to
+    trust (`PRICE_STALE`), or a fresh/valid price with too little real
+    signal to render a reflection judgment
+    (`REFLECTION_UNCERTAIN_WITH_VALID_PRICE`)."""
     reasons: list[str] = []
 
     if price_as_of is None:
-        return "UNKNOWN", "UNKNOWN", ["PRICE_AS_OF_MISSING"]
+        return "UNKNOWN", "UNKNOWN", ["PRICE_AS_OF_MISSING"], "PRICE_DATA_MISSING"
 
     price_as_of_dt = _utc(price_as_of, "PRICE_AS_OF_INVALID")
     if price_as_of_dt.date() > decision_date:
@@ -257,7 +302,7 @@ def _classify(
     if age_days > freshness_ceiling_days:
         return "UNKNOWN", "UNKNOWN", [
             f"PRICE_AS_OF_STALE:age_days={age_days}:ceiling_days={freshness_ceiling_days}"
-        ]
+        ], "PRICE_STALE"
 
     m1 = windows["1m"]
     rs_market = strength["vs_market"]
@@ -269,13 +314,14 @@ def _classify(
     if data_source_scope == korea_scope and (m1 is None or rs_market is None or pos_high is None):
         return "UNKNOWN", "UNKNOWN", [
             "KOREA_PRICE_DATA_INSUFFICIENT:requires_1m_return_and_vs_market_and_position_vs_recent_high"
-        ]
+        ], "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
 
     scored_signals = sum(
         signal is not None for signal in (m1, rs_market, pos_high, val_pos, event_dir)
     )
     if scored_signals < 2:
-        return "UNKNOWN", "UNKNOWN", [f"INSUFFICIENT_PRICE_SIGNALS:scored_count={scored_signals}"]
+        return "UNKNOWN", "UNKNOWN", [f"INSUFFICIENT_PRICE_SIGNALS:scored_count={scored_signals}"], \
+            "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
 
     thresholds = contract["classification_thresholds"]
     rally_threshold = Decimal(thresholds["rally_min_1m_return_pct"])
@@ -329,6 +375,7 @@ def _classify(
 
     if status == "UNKNOWN":
         confidence = "UNKNOWN"
+        data_state = "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
     else:
         conf_t = contract["confidence_thresholds"]
         if scored_signals >= conf_t["high_min_scored_signal_count"]:
@@ -337,8 +384,9 @@ def _classify(
             confidence = "MEDIUM"
         else:
             confidence = "LOW"
+        data_state = "VALID"
 
-    return status, confidence, reasons
+    return status, confidence, reasons, data_state
 
 
 def build_packet(
@@ -387,7 +435,7 @@ def build_packet(
     event = _validate_event_reaction(event_reaction, decision_date_checked, contract)
     valuation = _validate_valuation_context(valuation_context, contract)
 
-    status, confidence, reasons = _classify(
+    status, confidence, reasons, data_state = _classify(
         price_as_of=price_as_of,
         decision_date=decision_date_checked,
         freshness_ceiling_days=ceiling,
@@ -406,6 +454,8 @@ def build_packet(
         ("event_reaction", event_reaction),
         ("valuation_context", valuation_context),
     ) if val is None)
+
+    reasons = [f"DATA_STATE:{data_state}"] + reasons
 
     price_reflection = {
         "status": status,
@@ -487,6 +537,16 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     if "REJECTED" in contract["allowed_status"]:  # defensive: vocabulary must never gain this value
         raise PriceReflectionError("OUTPUT_VOCABULARY_CONTAINS_REJECTED")
 
+    reasons_check = pr.get("reasons")
+    if not isinstance(reasons_check, list) or not reasons_check or not isinstance(reasons_check[0], str) \
+            or not reasons_check[0].startswith("DATA_STATE:"):
+        raise PriceReflectionError("OUTPUT_DATA_STATE_MARKER_MISSING")
+    data_state = reasons_check[0][len("DATA_STATE:"):]
+    if data_state not in contract["allowed_data_state"]:
+        raise PriceReflectionError("OUTPUT_DATA_STATE_INVALID")
+    if (status == "UNKNOWN") != (data_state != "VALID"):
+        raise PriceReflectionError("OUTPUT_DATA_STATE_STATUS_MISMATCH")
+
     data_source_scope = pr.get("data_source_scope")
     if data_source_scope not in contract["allowed_data_source_scope"]:
         raise PriceReflectionError("OUTPUT_DATA_SOURCE_SCOPE_INVALID")
@@ -515,8 +575,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise PriceReflectionError("OUTPUT_MISSING_INPUTS_INVALID")
     if ("price_as_of" in missing) != (pr.get("price_as_of") == "UNKNOWN"):
         raise PriceReflectionError("OUTPUT_MISSING_INPUTS_PRICE_AS_OF_MISMATCH")
-    if "price_as_of" in missing and status != "UNKNOWN":
-        raise PriceReflectionError("OUTPUT_MISSING_PRICE_AS_OF_MUST_BE_UNKNOWN")
+    if "price_as_of" in missing and data_state != "PRICE_DATA_MISSING":
+        raise PriceReflectionError("OUTPUT_MISSING_PRICE_AS_OF_MUST_BE_PRICE_DATA_MISSING")
 
     rs = pr.get("relative_strength")
     if not isinstance(rs, dict) or set(rs) != {

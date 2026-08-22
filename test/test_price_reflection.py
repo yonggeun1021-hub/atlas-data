@@ -157,6 +157,112 @@ class PriceReflectionTests(unittest.TestCase):
         ))
         self.assertEqual(packet["price_reflection"]["status"], "UNKNOWN")
         self.assertEqual(packet["price_reflection"]["confidence"], "UNKNOWN")
+        self.assertEqual(
+            MODULE.data_state_of(packet["price_reflection"]), "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
+        )
+
+    # ── data_state: real, distinct reasons behind a blanket UNKNOWN ─────
+    # Encoded as reasons[0] == "DATA_STATE:<value>" rather than a new
+    # top-level key -- see price_reflection.py's module docstring for why
+    # (decision/alpha_review.py hard-validates the price_reflection
+    # sub-object's exact field set and this PR must not touch that module).
+    def test_data_state_allowed_vocabulary(self):
+        self.assertEqual(sorted(CONTRACT["allowed_data_state"]), sorted([
+            "PRICE_DATA_MISSING", "PRICE_STALE",
+            "REFLECTION_UNCERTAIN_WITH_VALID_PRICE", "VALID",
+        ]))
+
+    def test_data_state_is_price_data_missing_when_no_price_at_all(self):
+        packet = MODULE.build_packet(**base_kwargs())
+        pr = packet["price_reflection"]
+        self.assertEqual(pr["status"], "UNKNOWN")
+        self.assertEqual(MODULE.data_state_of(pr), "PRICE_DATA_MISSING")
+        self.assertEqual(pr["reasons"][0], "DATA_STATE:PRICE_DATA_MISSING")
+
+    def test_data_state_is_price_stale_when_price_too_old(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-01T19:59:00Z",  # 21 days before decision_date
+            recent_return_windows={"1m": "25"},
+            relative_strength={"vs_market": "20"},
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        pr = packet["price_reflection"]
+        self.assertEqual(pr["status"], "UNKNOWN")
+        self.assertEqual(MODULE.data_state_of(pr), "PRICE_STALE")
+
+    def test_data_state_is_reflection_uncertain_when_price_fresh_but_thin_signal(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+            # zero of the five scoreable signals supplied -> INSUFFICIENT_PRICE_SIGNALS
+        ))
+        pr = packet["price_reflection"]
+        self.assertEqual(pr["status"], "UNKNOWN")
+        self.assertEqual(MODULE.data_state_of(pr), "REFLECTION_UNCERTAIN_WITH_VALID_PRICE")
+
+    def test_data_state_is_valid_for_every_confident_status(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "5"},
+            relative_strength={"vs_market": "3"},
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        pr = packet["price_reflection"]
+        self.assertNotEqual(pr["status"], "UNKNOWN")
+        self.assertEqual(MODULE.data_state_of(pr), "VALID")
+
+    def test_data_state_status_consistency_is_enforced_on_tamper(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "5"},
+            relative_strength={"vs_market": "3"},
+            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        ))
+        tampered = copy.deepcopy(packet)
+        tampered["price_reflection"]["reasons"][0] = "DATA_STATE:PRICE_DATA_MISSING"
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(MODULE.PriceReflectionError, "OUTPUT_DATA_STATE_STATUS_MISMATCH"):
+            MODULE.validate_packet(tampered, CONTRACT)
+
+    def test_data_state_enum_is_closed(self):
+        packet = MODULE.build_packet(**base_kwargs())
+        tampered = copy.deepcopy(packet)
+        tampered["price_reflection"]["reasons"][0] = "DATA_STATE:TOTALLY_FINE_TRUST_ME"
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(MODULE.PriceReflectionError, "OUTPUT_DATA_STATE_INVALID"):
+            MODULE.validate_packet(tampered, CONTRACT)
+
+    def test_data_state_marker_missing_is_rejected(self):
+        packet = MODULE.build_packet(**base_kwargs())
+        tampered = copy.deepcopy(packet)
+        tampered["price_reflection"]["reasons"] = ["PRICE_AS_OF_MISSING"]
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(MODULE.PriceReflectionError, "OUTPUT_DATA_STATE_MARKER_MISSING"):
+            MODULE.validate_packet(tampered, CONTRACT)
+
+    def test_alpha_review_price_reflection_field_set_unchanged(self):
+        """decision/alpha_review.py hard-validates the embedded
+        price_reflection sub-object with its own exact field-set check
+        (`set(pr) != pr_fields`) and this PR must not touch that module --
+        so the field set here must stay byte-identical to what it was before
+        this PR (the new data_state signal is carried inside reasons[0]
+        instead, see test_data_state_* above)."""
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "5"},
+            relative_strength={"vs_market": "3"},
+        ))
+        self.assertEqual(set(packet["price_reflection"]), {
+            "status", "confidence", "price_as_of", "relative_strength",
+            "recent_return_windows", "event_reaction", "valuation_context",
+            "reasons", "missing_inputs", "data_source_scope",
+        })
 
     def test_korea_complete_fields_is_not_forced_unknown(self):
         packet = MODULE.build_packet(**base_kwargs(
