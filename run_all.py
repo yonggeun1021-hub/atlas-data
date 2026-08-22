@@ -899,6 +899,31 @@ APPROVED_TESTS = [
     #   verification() 같은 test-only 컨텍스트매니저로 "production evidence
     #   boundary 아래"에서만 검증하며, 실제 build_packet() 경로는 절대 건드리지
     #   않는다.
+    #   CIO round 7: mock 설계 자체는 승인됐으나 production 증거 검증에 4건
+    #   P1 결함이 남아있었다. (1) 경로 단위 first-add만 확인해 오래된 경로의
+    #   내용을 오늘 수정해도 예전 first-seen 날짜를 그대로 물려받을 수 있었다 —
+    #   _git_exact_content_first_seen이 해당 경로의 전체 커밋 이력을 순회하며
+    #   현재 디스크의 바이트와 git이 실제로 기록한 내용이 정확히 일치하는
+    #   "가장 이른" 커밋을 찾도록 교체(내용 수정 시 항상 새 first-seen 발생).
+    #   (2) raw source 원문서 자체에는 git 가용성 검증이 전혀 없었다 —
+    #   _verify_raw_source_citation이 이제 raw source에도 동일한
+    #   _verify_first_availability 게이트를 적용한다(published_at을 자신의
+    #   declared_at으로). (3) captured_at/published_at이 decision_at "이후"로
+    #   선언돼도 통과했다 — _verify_first_availability가 이제
+    #   first_seen<=declared_at<=decision_at 전체 순서를 모든 경로(envelope·
+    #   raw source·EG record)에서 강제한다. (4) 인용된 문구가 raw text 어딘가에
+    #   존재하기만 하면 통과해 "revenue decline" 같은 부정적 문구를
+    #   direction=POSITIVE와 짝지어도 걸러지지 않았다 — 이 저장소에 ratified
+    #   NLP 파생 규칙이 없으므로, raw source가 이제 반드시 구조화된 JSON이며
+    #   자신의 explicit observed_direction 필드(사람이 직접 기록한 authoritative
+    #   source schema 필드)를 갖고, 이 값이 claimed direction과 정확히
+    #   일치해야 한다. (5) locator는 비어있지 않은지만 확인했다 — 이제 raw
+    #   source JSON의 실제 top-level key를 가리켜야 하고 그 값이 observed_fact를
+    #   포함해야 한다. (6) author time(%aI, 커밋 작성자가 임의로 backdate 가능)
+    #   대신 committer time(%cI)을 사용하도록 교체(남은 authority boundary도
+    #   문서화: offline·local-repository 신호일 뿐 제3자 관측 타임스탬프는
+    #   아님). 이 모든 검증을 실제로 통과하는 "위장된" envelope조차 test/ 아래
+    #   있다는 이유만으로 여전히 거부됨을 재확인했다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",

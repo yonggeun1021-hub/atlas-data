@@ -256,6 +256,53 @@ loaded module instance — never by smuggling a test fixture through the
 real `build_packet()` entry point, which structurally cannot be reached
 with a `test/`-rooted citation at all.
 
+## `price_reflection/6` provenance hardening (CIO review round 7)
+
+Round 7 approved the round-6 test-only mock design outright ("normal
+unit-test design... no change needed there") but found 4 P1 defects and 1
+P2 remaining in the PRODUCTION provenance implementation itself — entirely
+inside `decision/event_evidence.py`; this module's own public interface
+(`verify_event_reaction_claim`/`verify_expectations_gap_canonical_record`'s
+signatures and return shapes) is unchanged by round 7:
+
+1. **Path-level first-add was insufficient.** A path added before
+   `decision_at` could be MODIFIED after `decision_at`, and the verifier
+   would read today's edited content while retaining the old file's
+   original first-seen date. `_git_exact_content_first_seen` replaces the
+   retired path-level function: it walks every commit that ever touched
+   the path and finds the EARLIEST one whose git-recorded content is
+   byte-for-byte identical to what's on disk right now. Editing a file
+   always produces a brand-new first-seen date.
+2. **The raw primary-source document had no git-availability check at
+   all.** `_verify_raw_source_citation` now runs the SAME
+   `_verify_first_availability` gate on the raw source file itself,
+   treating `published_at` as its own "declared_at" subject to the
+   identical real, content-addressed ordering check.
+3. **A declared timestamp AFTER `decision_at` could still pass.** Round
+   6's gate only checked that the declared value didn't precede the real
+   first-seen time. Now enforces the full `first_seen <= declared_at <=
+   decision_at` chain everywhere this gate runs (envelope, raw source, EG
+   canonical record).
+4. **A quoted phrase anywhere in the raw text was accepted regardless of
+   its actual meaning** — an envelope could claim `direction=POSITIVE`
+   while citing a "revenue decline" quotation and nothing caught it. There
+   is no ratified NLP/sentiment derivation rule in this repo, so per the
+   CIO's explicit alternative, the raw source document is now required to
+   be real structured JSON carrying its own explicit, human-curated
+   `observed_direction` field — an authoritative source schema field, not
+   a free assertion — which must literally equal the envelope's claimed
+   `direction`.
+5. **`locator` was checked for non-emptiness only.** It must now name a
+   real top-level key in the raw source's parsed JSON whose value
+   genuinely contains `observed_fact`.
+6. **Author time (`%aI`) was used**, a field freely backdatable by whoever
+   writes the commit. Replaced with committer time (`%cI`) everywhere —
+   still only an offline, local-repository signal, not a third-party-
+   observed timestamp; a genuinely tamper-resistant bound would come from
+   a server-side-observed timestamp (e.g. GitHub's own recorded commit
+   time, or a signed append-only ingestion manifest) this module does not
+   have offline access to.
+
 ## Structurally price/volume/reference-point only — never fundamentals
 
 The public builder, `build_packet(...)`, is a keyword-only function whose
@@ -515,7 +562,7 @@ Every figure's evidence dates are checked with
 `replay.lookahead_gate.assert_no_signal_lookahead` (reused unchanged from
 PR #210) before being returned — see `test/test_price_evidence_lookahead.py`.
 
-## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-6)
+## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-7)
 
 Real event/reference-point CITATIONS (as opposed to price-endpoint lookups,
 covered by `decision/price_evidence.py` above) are verified by
@@ -536,11 +583,29 @@ record with a fixed schema (`event_evidence_envelope/1`):
     "raw_source_ref": "path/to/committed/raw/artifact",
     "raw_source_sha256": "<64-hex>",
     "published_at": "2026-08-10T09:00:00Z",
-    "locator": "where in the document the claimed language appears",
-    "observed_fact": "the actual quoted/extracted text, verified verbatim in the raw source"
+    "locator": "the raw source's own top-level JSON key naming where the language appears",
+    "observed_fact": "the actual quoted/extracted text, verified verbatim at that key"
   }
 }
 ```
+
+The `raw_source_ref` document itself (round 7) must be real structured
+JSON with its own explicit `observed_direction` field, e.g.:
+
+```json
+{
+  "observed_direction": "POSITIVE",
+  "disclosure_text": "the actual quoted/extracted text lives here"
+}
+```
+
+`observed_direction` must literally equal the envelope's claimed
+`direction` (required item 4 — direction is never a free assertion,
+always grounded in an explicit, human-curated structured field), and
+`citation.locator` must name a real top-level key of this document (here,
+`"disclosure_text"`) whose value contains `citation.observed_fact`
+verbatim (required item 5 — locator is genuinely resolved, not merely
+checked for non-emptiness).
 
 `source_class` is a closed vocabulary of real evidentiary categories
 (`SEC_FILING_EVENT`/`DART_FILING_EVENT`/`OFFICIAL_RELEASE_EVENT`/
@@ -566,21 +631,26 @@ format `TESTONLY-EVENT-EVIDENCE-000`) are used ONLY two ways in
 the well-formed `LIVE_OFFICIAL_CAPTURE` envelope, which is rejected purely
 because of its `test/` location; (2) called directly against this module's
 lower-level functions (`_load_envelope`, `_verify_raw_source_citation`,
-`_git_first_commit_timestamp`, `_verify_first_availability`, each with
+`_git_exact_content_first_seen`, `_verify_first_availability`, each with
 `forbid_test_root=False`) to exercise the verification MECHANICS below the
 production boundary. Neither use ever produces a confident verdict through
 the real production entry point.
 
-**Real, git-verified first-availability (round 6)**: `captured_at` is no
-longer trusted by itself. `_git_first_commit_timestamp` runs `git log
---follow --diff-filter=A --format=%aI -- <path>` (offline, read-only)
-against this repo's own history and takes the EARLIEST commit's author
-timestamp as `first_authoritative_seen_at` — the actual PIT-availability
-gate. `captured_at` may still be echoed for audit purposes but can never
-precede `first_authoritative_seen_at`, and unavailable git history (e.g. an
-uncommitted file) is `NOT_COMPUTABLE`, never a silent fallback to the
-self-declared field. Applied identically to the Event Evidence Envelope and
-the P8-09 canonical record.
+**Real, content-addressed, git-verified first-availability (rounds 6-7)**:
+`captured_at`/`published_at` are never trusted by themselves.
+`_git_exact_content_first_seen` walks every commit that ever touched the
+cited path and takes the EARLIEST one whose git-recorded content is
+byte-for-byte identical to what's on disk right now, using COMMITTER time
+(`%cI`, round 7 — not the freely-backdatable author time) as
+`first_authoritative_seen_at` — the actual PIT-availability gate.
+`_verify_first_availability` enforces the full ordering `first_seen <=
+declared_at <= decision_at` (round 7: a declared timestamp AFTER
+`decision_at` is rejected too, not just one that precedes `first_seen`),
+and unavailable git history (e.g. an uncommitted file, or content that
+never matches any historical version) is `NOT_COMPUTABLE`, never a silent
+fallback to the self-declared field. Applied identically to the Event
+Evidence Envelope, the raw primary-source document (round 7 — previously
+had no git-availability check at all), and the P8-09 canonical record.
 
 The P8-09 canonical record path uses a parallel wrapper schema
 (`expectations_gap_canonical_record/1`) wrapping an already-`validate_

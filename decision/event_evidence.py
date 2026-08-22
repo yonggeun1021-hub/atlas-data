@@ -39,7 +39,7 @@
      self-declared field surviving intact. Test fixtures remain committed
      under `test/fixtures/event_evidence/` and are exercised ONLY by
      calling this module's lower-level primitives directly (`_load_envelope`,
-     `_verify_raw_source_citation`, `_git_first_commit_timestamp`, with
+     `_verify_raw_source_citation`, `_git_exact_content_first_seen`, with
      `forbid_test_root=False`) -- "classifier mechanics below the
      production evidence boundary", never through the real `build_packet()`
      entry point, which is not reachable with `forbid_test_root=False` from
@@ -49,9 +49,10 @@
      added to THIS repo's git history on 2026-08-23, yet declared
      `captured_at=2026-08-14` -- the verifier trusted that field, which is
      the exact retroactive-creation problem this whole workstream exists to
-     prevent. `_git_first_commit_timestamp` now queries this repo's REAL
-     git history (`git log --follow --diff-filter=A`, offline, read-only)
-     for the earliest commit that actually added the cited file, and that
+     prevent. `_git_exact_content_first_seen` (round 7; round 6's path-only
+     `_git_first_commit_timestamp` is retired) now queries this repo's REAL
+     git history for the earliest commit whose stored content at that path
+     is byte-identical to the file's current content, and that
      timestamp -- not the file's self-declared `captured_at` -- is the
      authoritative gate: `first_authoritative_seen_at <= decision_at` is
      required, AND the self-declared `captured_at` may never precede
@@ -86,6 +87,54 @@
   so `LIVE_OFFICIAL_CAPTURE` remains genuinely unproducible for every real
   subject in this repo today, and every real subject's `reflection_status`
   stays honestly `UNKNOWN`, exactly as required.
+
+★ CIO round 7 approved the mock-based classifier-arithmetic test design
+  (`test/test_price_reflection.py`'s `mocked_event_evidence_verification`/
+  `mocked_eg_canonical_verification`) as sound in principle, but found the
+  PRODUCTION provenance implementation still had 4 P1 defects and 1 P2:
+
+  1. **Path-level first-add was insufficient.** `_git_first_commit_
+     timestamp` (retired) only checked when a PATH was first added --
+     editing that same path's CONTENT today would retain the ORIGINAL
+     file's first-seen date while the verifier reads TODAY's (edited)
+     bytes. `_git_exact_content_first_seen` replaces it: it walks every
+     commit that ever touched the path and finds the EARLIEST one whose
+     git-recorded content is byte-for-byte identical to what's on disk
+     right now. Editing a file always produces a brand-new first-seen date.
+  2. **The raw primary-source document had no git-availability check at
+     all** -- `_verify_raw_source_citation` only hash-verified current
+     bytes and trusted the self-declared `published_at`. It now runs the
+     SAME `_verify_first_availability` gate the envelope itself uses,
+     treating `published_at` as its own "declared_at" subject to the
+     identical real, content-addressed ordering check.
+  3. **`captured_at`/`published_at` could be declared AFTER `decision_at`
+     and still pass** -- round 6's `_verify_first_availability` only
+     checked that the declared value didn't PRECEDE the real first-seen
+     time; it never checked the declared value against the UPPER bound.
+     Now enforces the full `first_seen <= declared_at <= decision_at`
+     chain everywhere this gate is used (envelope, raw source, EG record).
+  4. **A quoted phrase anywhere in the raw text was accepted regardless of
+     its actual meaning** -- an envelope could claim `direction=POSITIVE`
+     while citing a "revenue decline" quotation and nothing caught it,
+     because nothing ever checked the SEMANTIC direction of the observed
+     content against the claim. There is no ratified NLP/sentiment
+     derivation rule in this repo (and this module will never invent one
+     unilaterally), so per the CIO's explicit alternative, the raw source
+     document is now required to be REAL STRUCTURED JSON carrying its own
+     explicit, human-curated `observed_direction` field -- an authoritative
+     source schema field, not a free assertion -- which must literally
+     equal the envelope's claimed `direction`.
+  5. **`locator` was checked for non-emptiness only**, never actually
+     verified against the document. It must now name a real top-level key
+     in the raw source's parsed JSON whose value genuinely contains
+     `observed_fact` -- proving the citation is anchored to a real,
+     resolvable location, not merely a free-text label.
+  6. **`_git_first_commit_timestamp` used author time (`%aI`)**, a field
+     freely backdatable by whoever writes the commit. Replaced with
+     committer time (`%cI`) everywhere -- see `_git_exact_content_first_
+     seen`'s own docstring for the documented, still-remaining authority
+     boundary (an offline, local-repository signal, not a third-party-
+     observed timestamp).
 """
 from __future__ import annotations
 
@@ -193,52 +242,120 @@ def _verify_hash(path: Path, expected_sha256: str) -> None:
         raise EventEvidenceError(f"EVENT_EVIDENCE_SOURCE_HASH_MISMATCH:{path}")
 
 
-def _git_first_commit_timestamp(path: Path) -> dt.datetime | None:
-    """CIO round 6, required items 3/4: the REAL, independently-verifiable
-    first-availability timestamp for a committed file -- this repo's own
-    git history, not the file's self-declared `captured_at`. Runs a
-    read-only, offline `git log` (no network, no writes) asking for every
-    commit that ADDED `path`, and returns the EARLIEST one's author
-    timestamp. Returns `None` -- never a fallback to any other value -- if
-    git is unavailable, the file has no add-history (e.g. uncommitted), or
-    anything about the lookup is ambiguous; callers must treat `None` as
-    NOT_COMPUTABLE and reject, exactly per the CIO's explicit instruction."""
+def _git_relpath(path: Path) -> str:
+    return path.resolve().relative_to(ROOT.resolve()).as_posix()
+
+
+def _parse_git_iso(value: str) -> dt.datetime | None:
+    """`%cI`/`%aI` (strict ISO 8601) may render a UTC offset as a trailing
+    "Z" or as "+00:00" depending on the committer's local git/timezone
+    config -- Python 3.9's `fromisoformat` only accepts the latter."""
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
     try:
-        result = subprocess.run(
-            ["git", "log", "--follow", "--diff-filter=A", "--format=%aI", "--", str(path)],
-            cwd=str(ROOT), capture_output=True, text=True, timeout=15, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
-    if not lines:
-        return None
-    # `git log` lists newest-first; the LAST line is the earliest (first-add)
-    # commit. `%aI` (strict ISO 8601) may render a UTC offset as a trailing
-    # "Z" or as "+00:00" depending on the committer's local git/timezone
-    # config -- Python 3.9's `fromisoformat` only accepts the latter.
-    earliest = lines[-1]
-    if earliest.endswith("Z"):
-        earliest = earliest[:-1] + "+00:00"
-    try:
-        return dt.datetime.fromisoformat(earliest).astimezone(dt.timezone.utc)
+        return dt.datetime.fromisoformat(value).astimezone(dt.timezone.utc)
     except ValueError:
         return None
 
 
+def _git_exact_content_first_seen(path: Path) -> dt.datetime | None:
+    """CIO round 7, required items 1/6: the REAL, content-addressed
+    first-availability timestamp for the EXACT BYTES currently at `path` --
+    not merely the path's own first-add commit (round 6's
+    `_git_first_commit_timestamp`, retired). A path added before
+    `decision_at` can be MODIFIED after `decision_at`; checking only the
+    path's original add-commit would let the verifier read today's
+    (possibly just-edited) content while retroactively inheriting the old
+    file's first-seen date. This walks every commit that ever touched
+    `path` (read-only, offline `git log`), and for each one asks git what
+    content was actually stored at that path in that commit
+    (`git show <commit>:<relpath>`) -- the EARLIEST commit whose stored
+    content byte-for-byte matches what's on disk right now is the real
+    first appearance of THIS SPECIFIC VERSION. Editing the file today
+    produces a brand-new "first seen" (today), exactly as it should.
+
+    Uses COMMITTER time (`%cI`), not author time (`%aI`) -- round 7,
+    required item 6: author time is a field the commit's author can freely
+    backdate to any value; committer time is set by the git client actually
+    recording the commit and is a meaningfully harder value to backdate.
+    This is still only an OFFLINE, LOCAL-REPOSITORY signal, not a
+    third-party-observed timestamp -- a sufficiently privileged actor with
+    write access to the machine making the commit could still forge it.
+    Documented, remaining authority boundary: a genuinely tamper-resistant
+    bound would come from a server-side-observed timestamp this module does
+    not have offline access to (e.g. GitHub's own recorded push/commit time
+    via its API, or a signed append-only ingestion manifest) -- committer
+    time is this round's CIO-specified minimum bar, not a claim of perfect
+    tamper-resistance.
+
+    Returns `None` -- never a fallback to any other value -- if git is
+    unavailable, the path has no history, or the exact current content
+    never matches any historical version recorded for that path (which can
+    happen for content resolved from a symlink or an uncommitted/dirty
+    working tree file); callers must treat `None` as NOT_COMPUTABLE."""
+    try:
+        relpath = _git_relpath(path)
+    except ValueError:
+        return None
+    try:
+        current_bytes = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        log = subprocess.run(
+            ["git", "log", "--format=%H|%cI", "--", relpath],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if log.returncode != 0:
+        return None
+    entries = [ln.strip() for ln in log.stdout.splitlines() if ln.strip()]
+    if not entries:
+        return None
+
+    matches = []
+    for entry in entries:
+        parts = entry.split("|", 1)
+        if len(parts) != 2:
+            continue
+        commit_hash, committer_date = parts
+        try:
+            show = subprocess.run(
+                ["git", "show", f"{commit_hash}:{relpath}"],
+                cwd=str(ROOT), capture_output=True, timeout=15, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if show.returncode != 0:
+            continue
+        if show.stdout == current_bytes:
+            matches.append(committer_date)
+    if not matches:
+        return None
+    # `git log` lists newest-first; the LAST match is the earliest commit
+    # whose stored content matches the exact bytes on disk right now.
+    return _parse_git_iso(matches[-1])
+
+
 def _verify_first_availability(
-    path: Path, declared_captured_at: dt.datetime, decision_at: dt.datetime, label: str,
+    path: Path, declared_at: dt.datetime, decision_at: dt.datetime, label: str,
 ) -> dt.datetime:
-    """Shared PIT-availability gate for both the Event Evidence Envelope
-    and the P8-09 canonical record (CIO round 6, required item 2: "do this
-    for both"). Returns the real, git-verified `first_authoritative_seen_at`
-    on success; raises on any of: git history unavailable (NOT_COMPUTABLE),
-    first appearance after `decision_at` (not yet available), or the
-    self-declared `captured_at` preceding the real first appearance (an
-    impossible backdate)."""
-    first_seen = _git_first_commit_timestamp(path)
+    """Shared, content-addressed PIT-availability gate for the Event
+    Evidence Envelope, the raw primary-source document, and the P8-09
+    canonical record (CIO round 6, required item 2 / round 7, required
+    item 2: apply identically to all three). Enforces the FULL ordering
+    `first_seen <= declared_at <= decision_at` (round 7, required item 3)
+    -- a `declared_at` (e.g. `captured_at`/`published_at`) AFTER
+    `decision_at` is rejected here too, not merely a `declared_at` that
+    precedes `first_seen`; round 6 only checked the latter half. Returns
+    the real, git-verified `first_authoritative_seen_at` on success; raises
+    on any of: exact-content git history unavailable (NOT_COMPUTABLE),
+    first appearance after `decision_at` (not yet available), the declared
+    timestamp preceding the real first appearance (an impossible backdate),
+    or the declared timestamp being AFTER `decision_at` (claiming a future
+    capture)."""
+    first_seen = _git_exact_content_first_seen(path)
     if first_seen is None:
         raise EventEvidenceError(f"{label}_FIRST_AVAILABILITY_NOT_COMPUTABLE:{path}")
     if first_seen > decision_at:
@@ -246,36 +363,57 @@ def _verify_first_availability(
             f"{label}_NOT_YET_AVAILABLE_AS_OF_DECISION:"
             f"first_authoritative_seen_at={first_seen.isoformat()}>decision_at={decision_at.isoformat()}"
         )
-    if declared_captured_at < first_seen:
+    if declared_at < first_seen:
         raise EventEvidenceError(
-            f"{label}_CAPTURED_AT_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE:"
-            f"captured_at={declared_captured_at.isoformat()}<first_authoritative_seen_at={first_seen.isoformat()}"
+            f"{label}_DECLARED_TIMESTAMP_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE:"
+            f"declared_at={declared_at.isoformat()}<first_authoritative_seen_at={first_seen.isoformat()}"
+        )
+    if declared_at > decision_at:
+        raise EventEvidenceError(
+            f"{label}_DECLARED_TIMESTAMP_AFTER_DECISION_AT:"
+            f"declared_at={declared_at.isoformat()}>decision_at={decision_at.isoformat()}"
         )
     return first_seen
 
 
 def _verify_raw_source_citation(
-    citation: dict, decision_at: dt.datetime, *, forbid_test_root: bool,
+    citation: dict, claimed_direction: str, decision_at: dt.datetime, *, forbid_test_root: bool,
 ) -> dict:
-    """CIO round 6, required item 3: a closed citation schema requiring and
-    verifying a real primary-source document -- `raw_source_ref` must
-    resolve to a real committed file whose real recomputed sha256 matches
-    `raw_source_sha256`; `published_at` (the raw source's own real
-    announcement/availability timestamp) must be at-or-before
-    `decision_at`; `locator` must be a real, non-empty description; and
-    `observed_fact` must appear VERBATIM inside the raw source file's own
-    decoded text content -- the "actual location of the claimed language"
-    and "genuinely observed, not just referenced by note" requirements.
+    """CIO round 6, required item 3 (closed citation schema) hardened round
+    7, required items 2/4/5:
+
+    * `raw_source_ref` must resolve to a real committed file -- NEVER
+      under `test/` in production (`forbid_test_root`) -- whose real
+      recomputed sha256 matches `raw_source_sha256`.
+    * `published_at` (the raw source's own real announcement/availability
+      timestamp) must satisfy the FULL `first_seen <= published_at <=
+      decision_at` ordering (round 7, item 3), where `first_seen` is now
+      the raw source's OWN real, content-addressed git-availability
+      (round 7, required item 2: "the raw source has no git-availability
+      check at all" -- closed; a raw source file is subject to the exact
+      same `_verify_first_availability` gate as the envelope itself).
+    * The raw source document must be REAL STRUCTURED JSON (this module's
+      own "authoritative source schema" for what a human curator recorded
+      as genuinely observed -- see module docstring) with a top-level
+      `observed_direction` field that MUST equal `claimed_direction` (round
+      7, required item 4: a bare quoted phrase co-occurring with an
+      unrelated or contradictory claimed `direction` used to pass; there is
+      now no automated sentiment/NLP derivation anywhere in this module --
+      `observed_direction` must be an explicit, structured field a human
+      curator recorded, not inferred from prose).
+    * `locator` must name a REAL top-level key of that JSON document (round
+      7, required item 5: "actually verify locator... not just non-empty")
+      whose string value CONTAINS `observed_fact` VERBATIM -- proving
+      `observed_fact` is not merely present somewhere in the file, but
+      specifically at the cited location.
+
     Raises on any failure. Returns `{"raw_source_ref", "raw_source_sha256",
-    "published_at", "locator"}` on success (never echoes `observed_fact`
-    redundantly beyond what's already been verified)."""
+    "published_at", "locator"}` on success."""
     if not isinstance(citation, dict) or set(citation) != REQUIRED_CITATION_FIELDS:
         raise EventEvidenceError("EVENT_EVIDENCE_CITATION_FIELDS_MISMATCH")
     raw_source_ref = citation.get("raw_source_ref")
     raw_source_sha256 = citation.get("raw_source_sha256")
     published_at = _parse_utc(citation.get("published_at"), "EVENT_EVIDENCE_CITATION_PUBLISHED_AT_INVALID")
-    if published_at > decision_at:
-        raise EventEvidenceError("EVENT_EVIDENCE_CITATION_PUBLISHED_AT_IN_FUTURE")
     locator = citation.get("locator")
     if not isinstance(locator, str) or not locator.strip():
         raise EventEvidenceError("EVENT_EVIDENCE_CITATION_LOCATOR_INVALID")
@@ -285,14 +423,41 @@ def _verify_raw_source_citation(
 
     raw_path = _resolve_repo_file(raw_source_ref, forbid_test_root=forbid_test_root)
     _verify_hash(raw_path, raw_source_sha256)
+
+    # Cheap, content-only checks first (fail fast, and keep these
+    # independent of git subprocess timing/history for testability) --
+    # the git-availability gate (round 7, item 2) runs LAST, after the
+    # document is already known to be structurally valid and semantically
+    # consistent with the claim.
     try:
-        raw_text = raw_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_NOT_TEXT_DECODABLE:{raw_path}") from exc
-    if observed_fact not in raw_text:
+        raw_document = json.loads(raw_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_NOT_STRUCTURED:{raw_path}") from exc
+    if not isinstance(raw_document, dict):
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_NOT_STRUCTURED:{raw_path}")
+
+    observed_direction = raw_document.get("observed_direction")
+    if observed_direction not in ALLOWED_DIRECTION:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_OBSERVED_DIRECTION_INVALID:{raw_path}")
+    if observed_direction != claimed_direction:
         raise EventEvidenceError(
-            f"EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_IN_RAW_SOURCE:{raw_path}"
+            f"EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:"
+            f"claimed={claimed_direction}!=observed={observed_direction}"
         )
+
+    located_value = raw_document.get(locator)
+    if not isinstance(located_value, str):
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_LOCATOR_NOT_FOUND_IN_RAW_SOURCE:{locator!r}")
+    if observed_fact not in located_value:
+        raise EventEvidenceError(
+            f"EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_AT_LOCATOR:{locator!r}"
+        )
+
+    # Round 7, required item 2: the raw source gets the SAME real,
+    # content-addressed, committer-time git-availability gate as the
+    # envelope -- `published_at` is this document's own "declared_at".
+    _verify_first_availability(raw_path, published_at, decision_at, "EVENT_EVIDENCE_RAW_SOURCE")
+
     return {
         "raw_source_ref": raw_source_ref, "raw_source_sha256": raw_source_sha256,
         "published_at": citation["published_at"], "locator": locator,
@@ -343,7 +508,9 @@ def verify_event_reaction_claim(
     captured_at_dt = _parse_utc(envelope["captured_at"], "EVENT_EVIDENCE_ENVELOPE_CAPTURED_AT_INVALID")
     first_seen = _verify_first_availability(path, captured_at_dt, decision_at, "EVENT_EVIDENCE")
 
-    raw_lineage = _verify_raw_source_citation(envelope["citation"], decision_at, forbid_test_root=True)
+    raw_lineage = _verify_raw_source_citation(
+        envelope["citation"], direction, decision_at, forbid_test_root=True,
+    )
 
     return {
         "capture_kind": envelope["capture_kind"],

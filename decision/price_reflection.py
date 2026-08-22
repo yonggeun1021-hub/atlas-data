@@ -181,12 +181,14 @@
      at all -- a structural, path-based production/test separation with no
      parameter anywhere that lets a caller opt out of it.
   3. `captured_at` is no longer trusted as PIT-availability proof by
-     itself. `decision/event_evidence.py`'s `_git_first_commit_timestamp`
-     queries this repo's REAL git history (offline, read-only) for a
-     cited file's earliest add-commit, and that -- not the self-declared
-     field -- is the authoritative gate: the real first-availability must
-     be at-or-before the decision instant, AND the self-declared
-     `captured_at` may never precede it. Unavailable git history means
+     itself. `decision/event_evidence.py`'s git-history first-availability
+     check (hardened round 7 into `_git_exact_content_first_seen` -- see
+     that module's own docstring) queries this repo's REAL git history
+     (offline, read-only) for a cited file's earliest add-commit, and that
+     -- not the self-declared field -- is the authoritative gate: the real
+     first-availability must be at-or-before the decision instant, AND the
+     self-declared `captured_at` may never precede it. Unavailable git
+     history means
      `NOT_COMPUTABLE` (rejected), never a fallback to the self-declared
      value. Applied to both the Event Evidence Envelope and the P8-09
      canonical record.
@@ -218,6 +220,26 @@
   exercised directly against this module's lower-level functions in tests
   -- "below the production evidence boundary" -- never by smuggling a test
   fixture through the real `build_packet()` entry point.
+
+★ CIO review round 7 approved the round-6 test-only mock design outright
+  ("normal unit-test design... no change needed there") but found 4 P1
+  defects and 1 P2 remaining in the PRODUCTION provenance implementation
+  itself, entirely inside `decision/event_evidence.py` -- this module's own
+  public interface (`verify_event_reaction_claim`/`verify_expectations_
+  gap_canonical_record`'s signatures and return shapes) is UNCHANGED by
+  round 7. See `decision/event_evidence.py`'s own docstring for full
+  detail: (1) first-availability is now content-addressed (the exact
+  current bytes, not merely the path's original add-commit) so editing an
+  old file today can never inherit its old first-seen date; (2) the raw
+  primary-source document now gets its own independent git-availability
+  gate, not just the envelope wrapper; (3) a declared timestamp AFTER
+  `decision_at` is now rejected everywhere this gate runs, not just a
+  declared timestamp preceding first-availability; (4) `direction` must
+  now be grounded in the raw source's own explicit, structured
+  `observed_direction` field (never a bare co-occurring quotation); (5)
+  `locator` must now name a real, resolvable key in the raw source whose
+  value genuinely contains the quoted text; (6) the git timestamp basis is
+  now committer time, not the freely-backdatable author time.
 
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`

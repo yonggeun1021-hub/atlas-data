@@ -38,12 +38,14 @@ same file that tests production rejection) uses.
 import ast
 import contextlib
 import copy
+import datetime as _dt
 from decimal import Decimal
 import hashlib
 import importlib.util
 import inspect
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -122,6 +124,12 @@ TESTONLY_SUBJECT = "TESTONLY-EVENT-EVIDENCE-000"
 TESTONLY_LIVE_FIXTURE = "live_official_capture_testonly_000.json"
 TESTONLY_LIVE_EVENT_AT = "2026-08-10T09:30:00Z"
 TESTONLY_RAW_SOURCE = "raw_source_testonly_000.json"
+# CIO round 7, required item 4: a SEPARATE raw source document whose own
+# structured `observed_direction` is NEGATIVE (a "revenue decline"-style
+# disclosure, the CIO's own example) -- used to prove a claimed
+# `direction=POSITIVE` can never be backed by content that is itself
+# genuinely, structurally NEGATIVE.
+TESTONLY_RAW_SOURCE_NEGATIVE = "raw_source_testonly_000_negative.json"
 TESTONLY_OBSERVED_FACT = (
     "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive test disclosure "
     "used only to exercise citation verification."
@@ -509,30 +517,212 @@ class PriceReflectionTests(unittest.TestCase):
         real production path is, by design, never reachable with a `test/`
         citation at all (see the disguised-envelope test above)."""
         envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
-        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
-        lineage = EVENT_EVIDENCE._verify_raw_source_citation(envelope["citation"], decision_at, forbid_test_root=False)
+        raw_path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(raw_path)
+        self.assertIsNotNone(first_seen, "fixture must be committed for this regression to be meaningful")
+        decision_at = first_seen + _dt.timedelta(days=1)
+        citation = dict(envelope["citation"])
+        citation["published_at"] = first_seen.strftime("%Y-%m-%dT%H:%M:%SZ")  # genuinely consistent, re-derived
+
+        lineage = EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
         self.assertEqual(lineage["raw_source_ref"], _fixture_ref(TESTONLY_RAW_SOURCE))
 
         # note-only citation (missing raw_source_ref/_sha256/published_at/locator) fails.
         with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_FIELDS_MISMATCH"):
             EVENT_EVIDENCE._verify_raw_source_citation(
-                {"note": "just a free-text assertion, nothing else"}, decision_at, forbid_test_root=False,
+                {"note": "just a free-text assertion, nothing else"}, "POSITIVE", decision_at, forbid_test_root=False,
             )
 
-        # arbitrary real, hash-matching, but semantically unrelated raw file fails.
-        arbitrary_citation = dict(envelope["citation"])
+        # arbitrary real, hash-matching, but semantically unrelated raw file fails --
+        # it's real JSON, but has no `observed_direction` field at all (round 7,
+        # required item 4: co-presence of a hash-verified file is not enough).
+        arbitrary_citation = dict(citation)
         arbitrary_citation["raw_source_ref"] = REAL_EVIDENCE_SOURCE_REF
         arbitrary_citation["raw_source_sha256"] = REAL_EVIDENCE_SHA256
         with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_IN_RAW_SOURCE"
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_RAW_SOURCE_OBSERVED_DIRECTION_INVALID"
         ):
-            EVENT_EVIDENCE._verify_raw_source_citation(arbitrary_citation, decision_at, forbid_test_root=False)
+            EVENT_EVIDENCE._verify_raw_source_citation(arbitrary_citation, "POSITIVE", decision_at, forbid_test_root=False)
 
         # wrong hash for the real raw source file fails.
-        wrong_hash_citation = dict(envelope["citation"])
+        wrong_hash_citation = dict(citation)
         wrong_hash_citation["raw_source_sha256"] = "f" * 64
         with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_SOURCE_HASH_MISMATCH"):
-            EVENT_EVIDENCE._verify_raw_source_citation(wrong_hash_citation, decision_at, forbid_test_root=False)
+            EVENT_EVIDENCE._verify_raw_source_citation(wrong_hash_citation, "POSITIVE", decision_at, forbid_test_root=False)
+
+    # ══════════════════════ CIO round 7 regressions ════════════════════════
+
+    def test_cio_round7_content_addressed_first_seen_reflects_current_content_not_original_path_add(self):
+        """Required item 1: "editing an old file today must not let it
+        inherit the old file's original first-seen date." `raw_source_
+        testonly_000.json`'s PATH was first added in the round-6 commit,
+        but its CONTENT was edited in round 7 (`observed_direction`/
+        `disclosure_text` fields added, replacing the old
+        `synthetic_disclosure_text` shape). The exact-content first-seen
+        must reflect the round-7 edit, strictly LATER than the path's own
+        original first-add commit -- computed here independently (never
+        hardcoded) via the same git primitive the retired round-6
+        path-level function used, purely for comparison."""
+        path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
+        content_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
+        self.assertIsNotNone(content_first_seen, "fixture must be committed for this regression to be meaningful")
+
+        path_first_add_log = subprocess.run(
+            ["git", "log", "--follow", "--diff-filter=A", "--format=%cI", "--", str(path)],
+            cwd=str(ROOT), capture_output=True, text=True, check=True,
+        )
+        path_first_add_lines = [ln.strip() for ln in path_first_add_log.stdout.splitlines() if ln.strip()]
+        self.assertTrue(path_first_add_lines)
+        path_first_add = EVENT_EVIDENCE._parse_git_iso(path_first_add_lines[-1])
+        self.assertIsNotNone(path_first_add)
+
+        self.assertGreater(
+            content_first_seen, path_first_add,
+            "editing a file's content must produce a NEW, strictly-later first-seen date -- "
+            "otherwise the edited content incorrectly inherited the original path's first-seen date",
+        )
+
+    def test_cio_round7_editing_old_path_content_today_does_not_pass_as_old_evidence(self):
+        """The end-to-end version of item 1: verify the exact CURRENT bytes
+        of the (round-7-edited) raw source cannot be treated as available
+        as of a `decision_at` BEFORE the edit actually landed -- i.e. the
+        content-addressed check genuinely blocks "edit today, claim it was
+        old evidence", not just in isolation but through the real
+        `_verify_first_availability` gate."""
+        path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
+        content_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
+        self.assertIsNotNone(content_first_seen)
+        decision_before_edit = content_first_seen - _dt.timedelta(days=30)
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_NOT_YET_AVAILABLE_AS_OF_DECISION"
+        ):
+            EVENT_EVIDENCE._verify_first_availability(
+                path, content_first_seen, decision_before_edit, "EVENT_EVIDENCE",
+            )
+
+    def test_cio_round7_raw_source_has_its_own_git_availability_gate(self):
+        """Required item 2: "the raw source has no git-availability check
+        at all" -- closed. `_verify_raw_source_citation` now runs
+        `_verify_first_availability` on the raw source file itself (its
+        `published_at` is the raw source's own "declared_at"), completely
+        independent of the envelope's own `captured_at` check."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        raw_path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(raw_path)
+        self.assertIsNotNone(first_seen)
+        citation = dict(envelope["citation"])
+        # published_at deliberately backdated before the raw source's real
+        # first-availability -- must be caught by the RAW SOURCE's own gate.
+        citation["published_at"] = TESTONLY_DECLARED_CAPTURED_AT  # 2026-08-01, always earlier than first_seen
+        decision_at = first_seen + _dt.timedelta(days=1)
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError,
+            "EVENT_EVIDENCE_RAW_SOURCE_DECLARED_TIMESTAMP_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE",
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
+
+    def test_cio_round7_declared_timestamp_after_decision_at_rejected_everywhere(self):
+        """Required item 3: "a captured_at after decision_at must be
+        rejected on every code path" -- round 6 only checked the LOWER
+        bound (`declared_at < first_seen`); a `declared_at` AFTER
+        `decision_at` used to slip through silently. Proven at the shared
+        `_verify_first_availability` gate (used identically by the
+        envelope, the raw source, and the EG canonical record -- one proof
+        here covers all three call sites) AND independently at the raw
+        source's own citation-level entry point."""
+        path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
+        self.assertIsNotNone(first_seen)
+        decision_at = first_seen
+        declared_after_decision = first_seen + _dt.timedelta(days=1)
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_DECLARED_TIMESTAMP_AFTER_DECISION_AT"
+        ):
+            EVENT_EVIDENCE._verify_first_availability(path, declared_after_decision, decision_at, "EVENT_EVIDENCE")
+
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        raw_path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
+        raw_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(raw_path)
+        self.assertIsNotNone(raw_first_seen)
+        citation = dict(envelope["citation"])
+        raw_decision_at = raw_first_seen
+        citation["published_at"] = (raw_first_seen + _dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_RAW_SOURCE_DECLARED_TIMESTAMP_AFTER_DECISION_AT"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", raw_decision_at, forbid_test_root=False)
+
+    def test_cio_round7_negative_observed_fact_with_positive_direction_claim_rejected(self):
+        """Required item 4: "a negative observed fact can be paired with
+        direction=POSITIVE and pass" -- closed. `raw_source_testonly_000_
+        negative.json` genuinely, structurally declares
+        `observed_direction=NEGATIVE` (a "revenue decline"-style
+        disclosure, the CIO's own example) -- citing it while claiming
+        `direction=POSITIVE` must be rejected, never merely because a
+        POSITIVE-sounding phrase happens to be absent, but because the raw
+        source's own structured direction field genuinely disagrees."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        neg_ref = _fixture_ref(TESTONLY_RAW_SOURCE_NEGATIVE)
+        citation = dict(envelope["citation"])
+        citation["raw_source_ref"] = neg_ref
+        citation["raw_source_sha256"] = _hash(neg_ref)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError,
+            "EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:claimed=POSITIVE!=observed=NEGATIVE",
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
+
+    def test_cio_round7_observed_direction_must_be_a_recognized_value(self):
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        citation = dict(envelope["citation"])
+        citation["raw_source_ref"] = REAL_EVIDENCE_SOURCE_REF  # real JSON, no observed_direction field
+        citation["raw_source_sha256"] = REAL_EVIDENCE_SHA256
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_RAW_SOURCE_OBSERVED_DIRECTION_INVALID"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
+
+    def test_cio_round7_bogus_locator_rejected(self):
+        """Required item 5: "actually verify locator against the real
+        document... not just non-empty." A `locator` that names a key that
+        does not exist in the raw source, and a `locator` that names a real
+        key whose value does NOT contain `observed_fact`, both fail."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+
+        missing_key_citation = dict(envelope["citation"])
+        missing_key_citation["locator"] = "this_key_does_not_exist_in_the_raw_source"
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_LOCATOR_NOT_FOUND_IN_RAW_SOURCE"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(missing_key_citation, "POSITIVE", decision_at, forbid_test_root=False)
+
+        # "note" is a real top-level key in the raw source, but its content
+        # is the fixture's own self-description, not `observed_fact`.
+        wrong_key_citation = dict(envelope["citation"])
+        wrong_key_citation["locator"] = "note"
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_AT_LOCATOR"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(wrong_key_citation, "POSITIVE", decision_at, forbid_test_root=False)
+
+    def test_cio_round7_committer_time_used_not_author_time(self):
+        """Required item 6: author time (`%aI`) is a field the commit's
+        author can freely backdate; committer time (`%cI`) is set by the
+        git client actually recording the commit. Static-inspects the
+        actual subprocess invocation to prove `%cI` is what's queried and
+        that the retired, freely-backdatable `%aI` is not used anywhere in
+        this function."""
+        source = inspect.getsource(EVENT_EVIDENCE._git_exact_content_first_seen)
+        # Check the ACTUAL git argument, not any prose mention of %aI in the
+        # function's own docstring (which legitimately explains why author
+        # time was retired) -- "--format=%cI" must be the real git log
+        # format specifier used, and "--format=%aI" must never appear.
+        self.assertIn('"--format=%H|%cI"', source)
+        self.assertNotIn("--format=%aI", source)
+        self.assertNotIn("format=%H|%aI", source)
 
     def test_cio_round6_git_provenance_not_computable_for_uncommitted_file(self):
         """Required confirmation: "missing git/registry provenance is
@@ -543,7 +733,7 @@ class PriceReflectionTests(unittest.TestCase):
             fh.write(b'{"note": "genuinely uncommitted, never in git history"}')
             fh.flush()
             path = Path(fh.name)
-            self.assertIsNone(EVENT_EVIDENCE._git_first_commit_timestamp(path))
+            self.assertIsNone(EVENT_EVIDENCE._git_exact_content_first_seen(path))
             decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
             captured_at = MODULE._utc("2026-08-01T00:00:00Z", "x")
             with self.assertRaisesRegex(
@@ -559,11 +749,10 @@ class PriceReflectionTests(unittest.TestCase):
         rejection against whatever the file's true git history says, not an
         assumed date."""
         path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
-        first_seen = EVENT_EVIDENCE._git_first_commit_timestamp(path)
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
         self.assertIsNotNone(first_seen, "fixture must be committed for this regression to be meaningful")
         captured_at = MODULE._utc(TESTONLY_DECLARED_CAPTURED_AT, "x")  # 2026-08-01, always earlier than first_seen
-        decision_before_first_seen = first_seen.replace(tzinfo=None) - __import__("datetime").timedelta(days=5)
-        decision_at = decision_before_first_seen.replace(tzinfo=__import__("datetime").timezone.utc)
+        decision_at = first_seen - _dt.timedelta(days=5)
         with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_NOT_YET_AVAILABLE_AS_OF_DECISION"):
             EVENT_EVIDENCE._verify_first_availability(path, captured_at, decision_at, "EVENT_EVIDENCE")
 
@@ -575,13 +764,13 @@ class PriceReflectionTests(unittest.TestCase):
         this is a genuine backdating check, not just a decision-date-order
         check in disguise."""
         path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
-        first_seen = EVENT_EVIDENCE._git_first_commit_timestamp(path)
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
         self.assertIsNotNone(first_seen)
         captured_at = MODULE._utc(TESTONLY_DECLARED_CAPTURED_AT, "x")  # 2026-08-01, always earlier than first_seen
-        decision_after_first_seen = first_seen.replace(tzinfo=None) + __import__("datetime").timedelta(days=1)
-        decision_at = decision_after_first_seen.replace(tzinfo=__import__("datetime").timezone.utc)
+        decision_at = first_seen + _dt.timedelta(days=1)
         with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CAPTURED_AT_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE"
+            EVENT_EVIDENCE.EventEvidenceError,
+            "EVENT_EVIDENCE_DECLARED_TIMESTAMP_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE",
         ):
             EVENT_EVIDENCE._verify_first_availability(path, captured_at, decision_at, "EVENT_EVIDENCE")
 
@@ -589,11 +778,11 @@ class PriceReflectionTests(unittest.TestCase):
         """The positive path of `_verify_first_availability` -- proves the
         gate is a real, working comparison, not a function that always
         raises. Uses `first_seen` itself (independently re-derived) as both
-        the declared `captured_at` and `decision_at`, the most conservative
-        genuinely-consistent case (captured_at == first_seen ==
+        the declared timestamp and `decision_at`, the most conservative
+        genuinely-consistent case (declared_at == first_seen ==
         decision_at)."""
         path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
-        first_seen = EVENT_EVIDENCE._git_first_commit_timestamp(path)
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
         self.assertIsNotNone(first_seen)
         result = EVENT_EVIDENCE._verify_first_availability(path, first_seen, first_seen, "EVENT_EVIDENCE")
         self.assertEqual(result, first_seen)
