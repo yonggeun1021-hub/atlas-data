@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "contract_version": "forward_thesis/1",
+  "output_schema_version": "forward_thesis_packet/1",
+  "earnings_conversion_statuses": [
+    "PRE_REVENUE_SIGNAL",
+    "BACKLOG_BUILDING",
+    "REVENUE_CONVERSION_EXPECTED",
+    "MARGIN_CONVERSION_EXPECTED",
+    "CONVERSION_CONFIRMED",
+    "CONVERSION_DISAPPOINTED",
+    "UNKNOWN"
+  ],
+  "confidence_levels": ["LOW", "MEDIUM", "HIGH", "UNKNOWN"],
+  "directions": ["UP", "DOWN", "FLAT", "UNKNOWN"],
+  "observed_fact_source_classes": [
+    "EXHIBIT_EXTRACTED",
+    "NARRATIVE_SOURCED",
+    "PRICE_FEED"
+  ],
+  "evidence_lineage_source_types": [
+    "SEC_EXHIBIT",
+    "DART_EXHIBIT",
+    "NARRATIVE_SOURCED",
+    "PRICE_FEED",
+    "OTHER"
+  ],
+  "authority": {
+    "thesis_assembly_only": true,
+    "forward_inference_generation_authorized": true,
+    "stage_promotion_authorized": false,
+    "candidate_ready_buy_promotion_authorized": false,
+    "rule_pass_fail_authorized": false,
+    "rule_result_generation_authorized": false,
+    "ticker_identity_mapping_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
