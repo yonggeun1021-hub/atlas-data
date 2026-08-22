@@ -74,11 +74,19 @@ FREE_MARKET_DATA_RAW_DIR = ROOT / "evidence" / "free_market_data" / "raw"
 KOREA_STOCK_MARKET_MEMBERSHIP = {
     "298040": "KOSPI",  # 효성중공업 (Hyosung Heavy Industries)
     "267260": "KOSPI",  # HD현대일렉트릭 (HD Hyundai Electric)
+    "005930": "KOSPI",  # 삼성전자 (Samsung Electronics)
+    "000660": "KOSPI",  # SK하이닉스 (SK Hynix)
 }
 
 RECENT_STOCK_WINDOW_TRADING_DAYS = 21  # ~1 calendar month of KRX trading sessions
 VOLUME_RECENT_TRADING_DAYS = 5
 VOLUME_PRIOR_TRADING_DAYS = 15
+
+# BTC trades every calendar day (unlike KRX's weekday-only sessions), so
+# these are literal calendar-day lookbacks, not trading-session counts.
+CRYPTO_RECENT_WINDOW_DAYS = {"1m": 30, "3m": 90, "6m": 180}
+CRYPTO_VOLUME_RECENT_DAYS = 5
+CRYPTO_VOLUME_PRIOR_DAYS = 15
 
 _PCT_QUANT = Decimal("0.000001")
 
@@ -89,8 +97,12 @@ def _pct_str(value: Decimal) -> str:
 
 def _utc_z(value: str) -> str:
     """Real, timezone-aware conversion to the strict `...Z` form
-    `decision/price_reflection.py` requires -- never a naive string slice."""
-    parsed = dt.datetime.fromisoformat(value)
+    `decision/price_reflection.py` requires -- never a naive string slice.
+    `datetime.fromisoformat` only accepts a trailing `Z` from Python 3.11
+    onward, so it is normalized to `+00:00` first for compatibility with
+    this repo's supported Python versions."""
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed = dt.datetime.fromisoformat(normalized)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -381,6 +393,91 @@ def assemble_us_equity_evidence(symbol: str, decision_date: str) -> dict:
     }
 
 
+def assemble_crypto_evidence(symbol: str, decision_date: str) -> dict:
+    """Real BTC evidence -> `build_packet()` kwargs, reusing
+    `replay/price_series.py`'s `build_btc_series` (Kraken OHLC, PR #210)
+    UNCHANGED. Only `BTC` is supported: `evidence/crypto/btc/raw/` is the
+    only single-asset crypto OHLCV series in this repo with real embedded
+    historical depth (~720 real calendar days as of this module's build) --
+    `evidence/crypto/breadth/raw/` covers hundreds of pairs but has no
+    `replay/price_series.py`-shaped series builder for them yet.
+
+    No separate crypto market-index series exists in this repo distinct
+    from BTC's own price (unlike Korea's real KOSPI/KOSDAQ composite), so
+    `relative_strength.vs_market` is left `None` rather than fabricated or
+    made tautological (BTC vs BTC)."""
+    if symbol != "BTC":
+        return {
+            "price_as_of": None,
+            "data_source_scope": "KRAKEN_OHLC",
+            "recent_return_windows": None,
+            "relative_strength": None,
+        }
+
+    snapshots = ei.find_btc_snapshots()
+    series = ps.build_btc_series(snapshots)
+    live_dates = series.live_trading_dates_at_or_before(decision_date)
+    lg.assert_no_signal_lookahead(
+        decision_date,
+        [series.first_capture_date_for(d) for d in live_dates],
+        label="btc_price",
+    )
+
+    latest_snapshot = ei.snapshot_at_or_before(snapshots, decision_date)
+    if latest_snapshot is None or not live_dates:
+        return {
+            "price_as_of": None,
+            "data_source_scope": "KRAKEN_OHLC",
+            "recent_return_windows": None,
+            "relative_strength": None,
+        }
+
+    latest_date = live_dates[-1]
+    # BtcSnapshot doesn't expose a parsed UTC capture instant (only
+    # capture_date) -- its own committed _manifest.json's real fetched_at_utc
+    # is read directly here rather than extending replay/evidence_index.py.
+    manifest = json.loads((latest_snapshot.dir / "_manifest.json").read_text(encoding="utf-8"))
+    price_as_of = _utc_z(manifest["fetched_at_utc"])
+
+    windows = {}
+    for label, lookback_days in CRYPTO_RECENT_WINDOW_DAYS.items():
+        if len(live_dates) > lookback_days:
+            start_date = live_dates[-(lookback_days + 1)]
+            ret = _stock_return_pct(series, start_date, latest_date)
+            windows[label] = _pct_str(ret) if ret is not None else None
+        else:
+            windows[label] = None
+    if not any(v is not None for v in windows.values()):
+        windows = None
+
+    recent_window = live_dates[-(CRYPTO_RECENT_WINDOW_DAYS["1m"] + 1):]
+    pos_high = _position_vs_recent_high_pct(series, recent_window, latest_date)
+
+    recent_vol_dates = live_dates[-CRYPTO_VOLUME_RECENT_DAYS:]
+    prior_vol_dates = live_dates[
+        -(CRYPTO_VOLUME_RECENT_DAYS + CRYPTO_VOLUME_PRIOR_DAYS):-CRYPTO_VOLUME_RECENT_DAYS
+    ]
+    volume_change = _volume_change_pct(series, recent_vol_dates, prior_vol_dates) if prior_vol_dates else None
+
+    strength = None
+    if pos_high is not None or volume_change is not None:
+        strength = {
+            "vs_market": None,
+            "position_vs_recent_high_pct": _pct_str(pos_high) if pos_high is not None else None,
+            "volume_change_pct": _pct_str(volume_change) if volume_change is not None else None,
+        }
+
+    return {
+        "price_as_of": price_as_of,
+        "data_source_scope": "KRAKEN_OHLC",
+        "recent_return_windows": windows,
+        "relative_strength": strength,
+    }
+
+
+CRYPTO_SUBJECT_ALIASES = {"BTC", "BTC-USD", "XBTUSD", "BTCUSD"}
+
+
 def assemble_price_evidence(subject: str, decision_date: str) -> dict:
     """Dispatch by subject shape. Returns kwargs merge-ready for
     `decision.price_reflection.build_packet(subject=..., decision_date=...,
@@ -391,4 +488,6 @@ def assemble_price_evidence(subject: str, decision_date: str) -> dict:
     code = _krx_code_from_subject(subject)
     if code is not None:
         return assemble_krx_stock_evidence(code, decision_date)
+    if subject in CRYPTO_SUBJECT_ALIASES:
+        return assemble_crypto_evidence("BTC", decision_date)
     return assemble_us_equity_evidence(subject, decision_date)

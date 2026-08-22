@@ -101,11 +101,11 @@ class KrxStockEvidenceTests(unittest.TestCase):
         })
 
     def test_code_without_declared_market_membership_gets_no_vs_market(self):
-        # 005930 (삼성전자) has real KRX price evidence but is NOT in
-        # KOREA_STOCK_MARKET_MEMBERSHIP -- vs_market must fail closed to
+        # 012450 (한화에어로스페이스) has real KRX price evidence but is NOT
+        # in KOREA_STOCK_MARKET_MEMBERSHIP -- vs_market must fail closed to
         # None rather than guess a benchmark.
-        self.assertNotIn("005930", pe.KOREA_STOCK_MARKET_MEMBERSHIP)
-        ev = pe.assemble_krx_stock_evidence("005930", DECISION_DATE)
+        self.assertNotIn("012450", pe.KOREA_STOCK_MARKET_MEMBERSHIP)
+        ev = pe.assemble_krx_stock_evidence("012450", DECISION_DATE)
         self.assertIsNotNone(ev["price_as_of"])  # real price evidence exists
         if ev["relative_strength"] is not None:
             self.assertIsNone(ev["relative_strength"]["vs_market"])
@@ -127,6 +127,41 @@ class KrxStockEvidenceTests(unittest.TestCase):
         self.assertIsNotNone(ev["price_as_of"])
         if ev["relative_strength"] is not None:
             self.assertIsNone(ev["relative_strength"]["vs_market"])
+
+
+class CryptoEvidenceTests(unittest.TestCase):
+    def test_btc_produces_real_multi_window_evidence(self):
+        ev = pe.assemble_crypto_evidence("BTC", DECISION_DATE)
+        self.assertIsNotNone(ev["price_as_of"])
+        self.assertEqual(ev["data_source_scope"], "KRAKEN_OHLC")
+        self.assertIsNotNone(ev["recent_return_windows"])
+        # Unlike KRX (~32 real days) and TSM (1 point), BTC's ~720-day
+        # embedded Kraken history genuinely supports all three windows.
+        for label in ("1m", "3m", "6m"):
+            self.assertIsNotNone(ev["recent_return_windows"][label])
+        self.assertIsNotNone(ev["relative_strength"]["position_vs_recent_high_pct"])
+        # No separate crypto market-index series exists in this repo --
+        # vs_market must never be fabricated as tautologically BTC-vs-BTC.
+        self.assertIsNone(ev["relative_strength"]["vs_market"])
+
+    def test_non_btc_crypto_symbol_returns_all_none(self):
+        ev = pe.assemble_crypto_evidence("ETH", DECISION_DATE)
+        self.assertEqual(ev, {
+            "price_as_of": None,
+            "data_source_scope": "KRAKEN_OHLC",
+            "recent_return_windows": None,
+            "relative_strength": None,
+        })
+
+    def test_btc_aliases_all_dispatch_to_the_same_real_series(self):
+        canonical = pe.assemble_price_evidence("BTC", DECISION_DATE)
+        for alias in ("BTC-USD", "XBTUSD", "BTCUSD"):
+            self.assertEqual(pe.assemble_price_evidence(alias, DECISION_DATE), canonical)
+
+    def test_result_is_deterministic(self):
+        first = pe.assemble_crypto_evidence("BTC", DECISION_DATE)
+        second = pe.assemble_crypto_evidence("BTC", DECISION_DATE)
+        self.assertEqual(first, second)
 
 
 class UsEquityEvidenceTests(unittest.TestCase):
@@ -201,6 +236,24 @@ class EndToEndPriceReflectionWiringTests(unittest.TestCase):
         self.assertEqual(rp["status"], "UNKNOWN")
         self.assertEqual(pr.data_state_of(rp), "PRICE_DATA_MISSING")
 
+    def test_samsung_electronics_005930_gets_a_confident_non_unknown_status(self):
+        packet = self._build("005930.KS")
+        rp = packet["price_reflection"]
+        self.assertNotEqual(rp["status"], "UNKNOWN")
+        self.assertEqual(pr.data_state_of(rp), "VALID")
+
+    def test_sk_hynix_000660_gets_a_confident_non_unknown_status(self):
+        packet = self._build("000660.KS")
+        rp = packet["price_reflection"]
+        self.assertNotEqual(rp["status"], "UNKNOWN")
+        self.assertEqual(pr.data_state_of(rp), "VALID")
+
+    def test_btc_gets_a_confident_non_unknown_status(self):
+        packet = self._build("BTC")
+        rp = packet["price_reflection"]
+        self.assertNotEqual(rp["status"], "UNKNOWN")
+        self.assertEqual(pr.data_state_of(rp), "VALID")
+
     def test_tsm_is_reflection_uncertain_with_valid_price(self):
         packet = self._build("TSM")
         rp = packet["price_reflection"]
@@ -209,7 +262,8 @@ class EndToEndPriceReflectionWiringTests(unittest.TestCase):
         self.assertNotEqual(rp["price_as_of"], "UNKNOWN")  # a real, fresh price WAS found
 
     def test_every_built_packet_still_validates(self):
-        for subject in ("298040.KS", "267260.KS", "034020.KS", "TSM"):
+        for subject in ("298040.KS", "267260.KS", "034020.KS", "TSM",
+                         "005930.KS", "000660.KS", "BTC"):
             packet = self._build(subject)
             pr.validate_packet(packet, pr.load_contract())
 

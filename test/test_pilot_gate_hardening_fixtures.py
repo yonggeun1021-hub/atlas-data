@@ -48,9 +48,25 @@ EG_FIXTURE = load_module("gate_hardening_eg_fixture", ROOT / "test" / "test_expe
 PR_FIXTURE = load_module("gate_hardening_pr_fixture", ROOT / "test" / "test_price_reflection.py")
 
 # Expected post-CIO-Gate-Hardening results for the 4 real Pilot subjects.
+#
+# 298040.KS updated by P8-10 (real historical price + Korea KOSPI/KOSDAQ
+# composite benchmark evidence assembly, decision/price_evidence.py):
+# price_reflection.status is no longer the blanket UNKNOWN placeholder for
+# this subject -- it now genuinely resolves to PARTIALLY_REFLECTED from
+# real KRX price history + a real chain-linked benchmark, so gate 3
+# (WAIT_FOR_PRICE) no longer intercepts it. It now correctly falls through
+# to gate 4 (narrative-only-core-evidence -> WAIT_FOR_EVIDENCE), since none
+# of its observed_facts are EXHIBIT_EXTRACTED -- still a WAIT, never an
+# entry, so the CIO Gate Hardening safety invariant this file exists to pin
+# (no real Pilot ever reaches SHADOW_ENTRY_REVIEW) is unaffected; only the
+# WAIT *reason* is now more accurate. TSM/267260.KS/034020.KS are unchanged
+# (TSM still has only a single-point IEX price snapshot -- honestly
+# REFLECTION_UNCERTAIN_WITH_VALID_PRICE, still UNKNOWN at the status level;
+# 267260.KS's REJECTED and 034020.KS's BLOCKED are both reached via gates
+# that run strictly before the price gate, independent of price status).
 EXPECTED = {
     "TSM": ("WAIT_FOR_PRICE", "WAIT"),
-    "298040.KS": ("WAIT_FOR_PRICE", "WAIT"),
+    "298040.KS": ("WAIT_FOR_EVIDENCE", "WAIT"),
     "267260.KS": ("REJECTED", "REJECT"),
     "034020.KS": ("BLOCKED", "REJECT"),
 }

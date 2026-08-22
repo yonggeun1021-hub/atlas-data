@@ -131,6 +131,19 @@ class RealEvidenceEndToEndLookaheadSweepTests(unittest.TestCase):
                 continue
             self.assertLessEqual(ev["price_as_of"][:10], decision_date)
 
+    def test_btc_price_as_of_never_exceeds_decision_date_and_window_grows_monotonically(self):
+        from replay import evidence_index as ei
+        from replay import price_series as ps
+        btc_capture_dates = sorted({s.capture_date for s in ei.find_btc_snapshots()})
+        series = ps.build_btc_series(ei.find_btc_snapshots())
+        counts = []
+        for decision_date in btc_capture_dates:
+            ev = pe.assemble_crypto_evidence("BTC", decision_date)
+            if ev["price_as_of"] is not None:
+                self.assertLessEqual(ev["price_as_of"][:10], decision_date)
+            counts.append(len(series.live_trading_dates_at_or_before(decision_date)))
+        self.assertEqual(counts, sorted(counts))
+
     def test_earlier_decision_dates_see_a_strictly_non_decreasing_evidence_window(self):
         """As decision_date advances through the real committed history, the
         live-known window can only grow or stay flat, never shrink or reach

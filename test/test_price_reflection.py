@@ -310,6 +310,22 @@ class PriceReflectionTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.PriceReflectionError, "DATA_SOURCE_SCOPE_INVALID"):
             MODULE.build_packet(**base_kwargs(data_source_scope="BLOOMBERG_TERMINAL"))
 
+    def test_allowed_data_source_scope_vocabulary(self):
+        self.assertEqual(sorted(CONTRACT["allowed_data_source_scope"]), sorted([
+            "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "KRAKEN_OHLC", "UNKNOWN",
+        ]))
+
+    def test_kraken_ohlc_scope_is_accepted_for_crypto_subjects(self):
+        packet = MODULE.build_packet(**base_kwargs(
+            subject="BTC",
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "18"},
+            relative_strength={"position_vs_recent_high_pct": "0"},
+            data_source_scope="KRAKEN_OHLC",
+        ))
+        self.assertEqual(packet["price_reflection"]["data_source_scope"], "KRAKEN_OHLC")
+        self.assertNotEqual(packet["price_reflection"]["status"], "UNKNOWN")
+
     def test_valuation_position_enum_is_closed(self):
         with self.assertRaisesRegex(MODULE.PriceReflectionError, "VALUATION_CONTEXT_POSITION_INVALID"):
             MODULE.build_packet(**base_kwargs(valuation_context={"position_in_range": "SKY_HIGH"}))

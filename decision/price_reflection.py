@@ -129,7 +129,7 @@ def _expected_contract() -> dict:
         "allowed_direction": ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"],
         "allowed_valuation_position": ["LOW", "MID", "HIGH", "UNKNOWN"],
         "allowed_data_source_scope": [
-            "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "UNKNOWN",
+            "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "KRAKEN_OHLC", "UNKNOWN",
         ],
         "korea_data_source_scope": "KRX_OFFICIAL",
         "default_freshness_ceiling_days": 5,
