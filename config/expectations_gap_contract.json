@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract_version": "expectations_gap/1",
+  "input_schema_version": "expectations_gap_input/1",
+  "output_schema_version": "expectations_gap_packet/1",
+  "input_categories": [
+    "backlog_or_new_orders",
+    "capex_or_expansion",
+    "earnings_reaction",
+    "guidance_changes",
+    "official_ir_targets",
+    "pricing_or_lead_time",
+    "public_estimates",
+    "relative_strength_volume",
+    "revenue_margin_trend"
+  ],
+  "proxy_categories": [
+    "backlog_or_new_orders",
+    "capex_or_expansion",
+    "earnings_reaction",
+    "guidance_changes",
+    "official_ir_targets",
+    "pricing_or_lead_time",
+    "relative_strength_volume",
+    "revenue_margin_trend"
+  ],
+  "consensus_category": "public_estimates",
+  "allowed_directions": ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"],
+  "allowed_status": ["POSITIVE", "NEUTRAL", "NEGATIVE", "UNKNOWN"],
+  "allowed_magnitude": ["SMALL", "MEDIUM", "LARGE", "UNKNOWN"],
+  "allowed_confidence": ["LOW", "MEDIUM", "HIGH"],
+  "allowed_basis_type": ["CONSENSUS", "PROXY", "UNKNOWN"],
+  "magnitude_thresholds": {
+    "large_min_scored_count": 4,
+    "large_min_ratio": "0.75",
+    "medium_min_scored_count": 2,
+    "medium_min_ratio": "0.5"
+  },
+  "confidence_thresholds": {
+    "high_min_scored_count": 4,
+    "high_min_ratio": "0.75",
+    "medium_min_scored_count": 2
+  },
+  "authority": {
+    "expectations_gap_assembly_only": true,
+    "rule_authority_substitution_authorized": false,
+    "stage_promotion_authorized": false,
+    "candidate_ready_buy_promotion_authorized": false,
+    "rule_pass_fail_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

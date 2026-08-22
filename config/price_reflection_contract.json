@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "price_reflection/1",
+  "output_schema_version": "price_reflection_packet/1",
+  "allowed_status": [
+    "UNDER_REFLECTED",
+    "PARTIALLY_REFLECTED",
+    "FULLY_REFLECTED",
+    "OVEREXTENDED",
+    "UNKNOWN"
+  ],
+  "allowed_confidence": ["LOW", "MEDIUM", "HIGH", "UNKNOWN"],
+  "allowed_direction": ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"],
+  "allowed_valuation_position": ["LOW", "MID", "HIGH", "UNKNOWN"],
+  "allowed_data_source_scope": [
+    "IEX_ONLY_PARTIAL_US_MARKET",
+    "KRX_OFFICIAL",
+    "UNKNOWN"
+  ],
+  "korea_data_source_scope": "KRX_OFFICIAL",
+  "default_freshness_ceiling_days": 5,
+  "classification_thresholds": {
+    "rally_min_1m_return_pct": "15",
+    "near_high_max_distance_pct": "3",
+    "strong_momentum_min_pct": "8",
+    "mild_momentum_min_pct": "2"
+  },
+  "confidence_thresholds": {
+    "high_min_scored_signal_count": 4,
+    "medium_min_scored_signal_count": 2
+  },
+  "authority": {
+    "price_reflection_assembly_only": true,
+    "rule_authority_substitution_authorized": false,
+    "stage_promotion_authorized": false,
+    "candidate_ready_buy_promotion_authorized": false,
+    "rule_pass_fail_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
