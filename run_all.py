@@ -365,6 +365,13 @@ APPROVED_TESTS = [
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
     #   유지함을 검증한다. ⛔ investability/threshold 완화 없음.
     "test/test_crypto_taxonomy_minimal_slice.py",
+    # ★ P3-04 — Crypto taxonomy Identity Slice (53개, POL/SKY/LUNA rebrand
+    #   continuity + PROS/US cross-project 식별 + 48개 native asset, 모두
+    #   2개 이상 독립 공식 source로 확인). NIGHT는 2번째 source에서 서로
+    #   무관한 두 프로젝트의 ticker 충돌이 드러나 UNKNOWN 유지 — ticker만으로
+    #   identity를 확정하지 않는다는 규칙의 실제 검증 사례. 실 raw snapshot
+    #   replay로 coverage 여전히 미달·blocked 유지를 재확인한다.
+    "test/test_crypto_taxonomy_identity_slice.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
