@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "contract_version": "alpha_review/1",
-  "output_schema_version": "alpha_review_packet/1",
+  "contract_version": "alpha_review/2",
+  "output_schema_version": "alpha_review_packet/2",
   "opportunity_states": [
     "EARLY_DISCOVERY",
     "ANTICIPATORY_REVIEW",
@@ -10,7 +10,9 @@
     "CONFIRMATION_REVIEW",
     "EXPECTATION_EXHAUSTED",
     "REJECTED",
-    "BLOCKED"
+    "BLOCKED",
+    "WAIT_FOR_PRICE",
+    "WAIT_FOR_THESIS_REPAIR"
   ],
   "p5_rule_statuses": ["PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"],
   "default_p5_rule_status": "NOT_EVALUATED",

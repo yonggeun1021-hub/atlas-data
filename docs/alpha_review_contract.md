@@ -68,26 +68,45 @@ module can set it to anything else (`TRADE_PROPOSAL_MUST_BE_NULL`).
 
 ## `opportunity_state` — closed vocabulary and decision table
 
-`classify_opportunity_state()` is a small, pure, ordered if/elif chain.
-`BLOCKED` and `REJECTED` are always checked first, before any positive-state
-classification, so a broken/negative case can never be shadowed by a
-positive one. In order:
+**CIO Gate Hardening (contract_version `alpha_review/2`).** A CIO review
+found the pre-hardening gate too loose: real Pilot runs produced
+`SHADOW_ENTRY_REVIEW`-eligible states even though `price_reflection.status
+==UNKNOWN` for every Pilot, and even for a subject with
+`expectations_gap.status==NEGATIVE`. `classify_opportunity_state()` is a
+small, pure, ordered if/elif chain -- each rule below, once matched, returns
+immediately (no fallthrough). `BLOCKED`, then the Expectations-Gap-negative
+gate, then the Price-Reflection-UNKNOWN gate, then the
+narrative-only-core-evidence gate, are always checked first, before any
+positive-state classification, so a broken/negative/unpriced/thin case can
+never be shadowed by a positive one. In order:
 
 | # | State | Fires when |
 |---|-------|------------|
 | 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND price_reflection.status==UNKNOWN` (triple-UNKNOWN) |
-| 2 | `REJECTED` | (`price_reflection.status==OVEREXTENDED AND expectations_gap.status==NEGATIVE`) **OR** `earnings_conversion.status==CONVERSION_DISAPPOINTED` |
-| 3 | `ANTICIPATORY_REVIEW` | ALL 7 gates below hold simultaneously |
-| 4 | `EXPECTATION_EXHAUSTED` | `price_reflection.status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
-| 5 | `WAIT_FOR_PULLBACK` | `price_reflection.status ∈ {FULLY_REFLECTED, OVEREXTENDED} AND expectations_gap.status!=NEGATIVE` |
-| 6 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND price_reflection.status ∉ {OVEREXTENDED, FULLY_REFLECTED}` |
-| 7 | `WAIT_FOR_EVIDENCE` | `earnings_conversion.status ∈ {PRE_REVENUE_SIGNAL, BACKLOG_BUILDING, UNKNOWN} AND expectations_gap.status==UNKNOWN AND price_reflection.status!=UNDER_REFLECTED` |
-| 8 | `EARLY_DISCOVERY` | default fallback — has real evidence (not `BLOCKED`), but fits none of the above |
+| 2a | `REJECTED` | `earnings_conversion.status==CONVERSION_DISAPPOINTED` (independent of gap status) **OR** (`expectations_gap.status==NEGATIVE AND earnings_conversion.status==UNKNOWN`) |
+| 2b | `WAIT_FOR_THESIS_REPAIR` | `expectations_gap.status==NEGATIVE AND earnings_conversion.status!=UNKNOWN` (and 2a didn't already fire) -- a real earnings-conversion hypothesis still stands, just currently disagreed-with by the market proxy |
+| 3 | `WAIT_FOR_PRICE` | `price_reflection.status==UNKNOWN` (blanket rule: no positive state may ever be reached while price is UNKNOWN, however strong the thesis/gap otherwise looks) |
+| 4 | `WAIT_FOR_EVIDENCE` (narrative-only-core-evidence gate) | `len(observed_facts)>0 AND` none of them have `source_class==EXHIBIT_EXTRACTED` (only `NARRATIVE_SOURCED`/`PRICE_FEED`) |
+| 5 | `EXPECTATION_EXHAUSTED` | `price_reflection.status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
+| 6 | `WAIT_FOR_PULLBACK` | `price_reflection.status ∈ {FULLY_REFLECTED, OVEREXTENDED} AND expectations_gap.status!=NEGATIVE` |
+| 7 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND price_reflection.status ∉ {OVEREXTENDED, FULLY_REFLECTED}` (price is already known-non-UNKNOWN by row 3) |
+| 8 | `WAIT_FOR_EVIDENCE` (old rule) | `earnings_conversion.status ∈ {PRE_REVENUE_SIGNAL, BACKLOG_BUILDING, UNKNOWN} AND expectations_gap.status==UNKNOWN AND price_reflection.status!=UNDER_REFLECTED` |
+| 9 | `ANTICIPATORY_REVIEW` | ALL 7 gates below hold simultaneously |
+| 10 | `EARLY_DISCOVERY` | default fallback — has real evidence (not `BLOCKED`), price known, gap not negative, at least one `EXHIBIT_EXTRACTED` fact, but fits none of the above |
 
-Row 4 is checked strictly before row 5 so `FULLY_REFLECTED + POSITIVE` always
-resolves to `EXPECTATION_EXHAUSTED` rather than `WAIT_FOR_PULLBACK`;
-`OVEREXTENDED` (any non-`NEGATIVE` gap) and `FULLY_REFLECTED` with a
-non-`POSITIVE`, non-`NEGATIVE` gap both resolve to `WAIT_FOR_PULLBACK`.
+Rows 2a/2b fold in the pre-hardening `OVEREXTENDED+NEGATIVE -> REJECTED`
+clause (now a strict subset of the broader NEGATIVE-gap rule) and the
+`CONVERSION_DISAPPOINTED -> REJECTED` clause, so `REJECTED` keeps exactly
+one point of truth. Row 5 is checked strictly before row 6 so
+`FULLY_REFLECTED + POSITIVE` always resolves to `EXPECTATION_EXHAUSTED`
+rather than `WAIT_FOR_PULLBACK`; `OVEREXTENDED` (any non-`NEGATIVE` gap) and
+`FULLY_REFLECTED` with a non-`POSITIVE`, non-`NEGATIVE` gap both resolve to
+`WAIT_FOR_PULLBACK`. Row 8's `WAIT_FOR_EVIDENCE` and row 9's
+`ANTICIPATORY_REVIEW` are, in practice, only reachable once rows 1-4 have
+already been cleared -- i.e. price is known and at least one
+`EXHIBIT_EXTRACTED` fact exists -- which is why real current Pilot evidence
+(no ratified P5 packet, and either `price_reflection.status==UNKNOWN` or
+narrative-only evidence for every subject) never reaches rows 5-10 today.
 
 ### The 7 `ANTICIPATORY_REVIEW` gates
 

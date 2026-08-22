@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "alpha_shadow_ledger/1",
+  "contract_version": "alpha_shadow_ledger/2",
   "output_schema_version": "alpha_shadow_ledger_record/1",
   "actions": ["SHADOW_ENTRY_REVIEW", "WAIT", "REJECT"],
   "opportunity_state_to_action": {
@@ -11,7 +11,9 @@
     "CONFIRMATION_REVIEW": "SHADOW_ENTRY_REVIEW",
     "WAIT_FOR_PULLBACK": "WAIT",
     "WAIT_FOR_EVIDENCE": "WAIT",
-    "EXPECTATION_EXHAUSTED": "WAIT"
+    "EXPECTATION_EXHAUSTED": "WAIT",
+    "WAIT_FOR_PRICE": "WAIT",
+    "WAIT_FOR_THESIS_REPAIR": "WAIT"
   },
   "authority": {
     "append_only_alpha_observation": true,

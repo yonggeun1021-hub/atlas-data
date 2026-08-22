@@ -850,6 +850,21 @@ APPROVED_TESTS = [
     #   반드시 BLOCKED인지 확인한다.
     #   ⛔ Rule/Stage/action/order/Production/trading 권한 없음.
     "test/test_pilot_comparison.py",
+    # ★ P8-11 CIO Gate Hardening — real Pilot fixture-pinning (contract_version
+    #   alpha_review/2, alpha_shadow_ledger/2). run_all_pilots()의 실제 4개
+    #   subject 결과를 하드닝 이후 값으로 고정 검증한다: TSM/298040.KS는
+    #   WAIT_FOR_PRICE(price_reflection.status=UNKNOWN 차단), 267260.KS는
+    #   REJECTED(expectations_gap.status=NEGATIVE + earnings_conversion.
+    #   status=UNKNOWN), 034020.KS는 그대로 BLOCKED. 4개 subject 전부
+    #   shadow_proposal.action != SHADOW_ENTRY_REVIEW라는 blanket assertion과
+    #   trade_proposal=None/capital=0/human_approval_required=True도 확인한다.
+    #   gate 4(narrative-only-core-evidence -> WAIT_FOR_EVIDENCE)가 실제
+    #   forward_thesis/expectations_gap/price_reflection.build_packet()로
+    #   조립된 synthetic fixture에서 도달 가능함도 별도로 증명한다.
+    #   ⛔ evidence 획득/Price Reflection 자체 로직/P5 Rule Authority/Stage·
+    #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
+    #      false다.
+    "test/test_pilot_gate_hardening_fixtures.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
