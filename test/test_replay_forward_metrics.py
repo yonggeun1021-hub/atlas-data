@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- forward return / MFE / MAE regression (deliverable 4)."""
+"""P10-02/P10-03 PIT Replay -- forward return / MFE / MAE regression (deliverable 4)."""
 from __future__ import annotations
 
 import sys

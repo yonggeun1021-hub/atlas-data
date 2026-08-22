@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- hard anti-lookahead gate regression.
+"""P10-02/P10-03 PIT Replay -- hard anti-lookahead gate regression.
 
 Satisfies the task's explicit hard constraint: "write an explicit automated
 test that fails if any lookahead is detected." This file exercises the gate

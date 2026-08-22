@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- proposed Opportunity Trigger Engine regression."""
+"""P10-02/P10-03 PIT Replay -- proposed Opportunity Trigger Engine regression."""
 from __future__ import annotations
 
 import sys

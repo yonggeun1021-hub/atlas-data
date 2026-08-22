@@ -2,19 +2,22 @@
 """Keep / Change / Kill recommendation per existing rule (deliverable 6),
 grounded in aggregate counts from the actual ledgers -- not speculative.
 
-★ CIO review fix (flaw 5, PR #210): takes deduplicated Opportunity Episodes
-  (`opportunity_miss_ledger.build_miss_episodes()` /
-  `defense_ledger.build_defense_episodes()`), not raw daily rows, so the
-  evidence counts here cannot be inflated by a single multi-day rally being
-  counted once per calendar day.
+★ CIO review round 2 fix (flaw 5): takes deduplicated Opportunity Episodes,
+  not raw daily rows.
+★ CIO review round 3 fix (flaw 4): DATA_FAILURE is no longer present in
+  `miss_episodes` at all (excluded upstream) -- coverage-gap evidence is now
+  taken from a real `coverage_gap` report parameter instead of a Counter
+  lookup that would always read 0.
 """
 from __future__ import annotations
 
 from collections import Counter
 
 
-def recommend(miss_episodes: list[dict], defense_episodes: list[dict], comparison: dict) -> list[dict]:
+def recommend(miss_episodes: list[dict], defense_episodes: list[dict], comparison: dict,
+              coverage_gap: dict | None = None) -> list[dict]:
     miss_causes = Counter(m["root_cause"] for m in miss_episodes if m["root_cause"])
+    coverage_gap = coverage_gap or {}
     recs = []
 
     recs.append({
@@ -71,7 +74,9 @@ def recommend(miss_episodes: list[dict], defense_episodes: list[dict], compariso
     recs.append({
         "rule": "Repo evidence retention: no committed evidence exists for any date before 2026-08-13",
         "evidence": {
-            "data_failure_entries": miss_causes.get("DATA_FAILURE", 0),
+            "unauditable_entries": coverage_gap.get("unauditable_entries", "N/A"),
+            "auditable_coverage_pct": coverage_gap.get("auditable_coverage_pct", "N/A"),
+            "unauditable_days": coverage_gap.get("unauditable_days", []),
         },
         "recommendation": "CHANGE",
         "rationale": (
@@ -80,6 +85,37 @@ def recommend(miss_episodes: list[dict], defense_episodes: list[dict], compariso
             "Atlas actually saw or said on those dates is unrecoverable from this repository. "
             "Recommend persisting daily evidence + generated briefing output as committed, dated "
             "artifacts going forward so a future audit of this kind does not hit the same wall."
+        ),
+    })
+
+    recs.append({
+        "rule": "Position sizing: no Portfolio NAV / per-trade loss allowance / Probe loss budget / "
+                "portfolio headroom data source exists anywhere in this repo",
+        "evidence": {
+            "condition_5_position_sizing_status": "NOT_EVALUATED (structural constant, every entry)",
+        },
+        "recommendation": "CHANGE",
+        "rationale": (
+            "Even a fully-ratified Probe P5 Rule (see recommendation 1) would still have nothing "
+            "real to size against today. This replay deliberately reports stop_distance_pct (a real "
+            "entry-to-invalidation calculation) separately from position sizing rather than letting "
+            "one stand in for the other. Recommend a ratified Portfolio Constitution NAV/headroom "
+            "feed as a prerequisite alongside the Probe P5 Rule Slice, not after it."
+        ),
+    })
+
+    recs.append({
+        "rule": "Crypto asset taxonomy ratification timing (config/crypto_breadth_exclusion_taxonomy.json)",
+        "evidence": {
+            "eligible_crypto_ratified_from": "2026-08-19 (3 assets) / 2026-08-22 (84 more assets)",
+        },
+        "recommendation": "CHANGE",
+        "rationale": (
+            "The only real, ratified PIT-eligible crypto universe this repo has was ratified in the "
+            "last 1-4 days of the audit window -- meaning a genuinely PIT-honest Crypto Opportunity "
+            "Capture Rate is NOT_COMPUTABLE for nearly the entire window, not merely data-sparse. "
+            "This is a real operational gap (taxonomy ratification lagged the audit window itself), "
+            "not something this replay's methodology can fix by picking a different population."
         ),
     })
 

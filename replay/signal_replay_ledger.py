@@ -43,7 +43,8 @@ def _invalidation_price(series: PriceSeries, live_dates: list) -> float | None:
 
 
 def build_entry(series: PriceSeries, decision_date: str, source: str, evidence_sha: str,
-                 peers: dict[str, PriceSeries] | None = None) -> dict:
+                 peers: dict[str, PriceSeries] | None = None,
+                 kr_universe_codes: set | None = None) -> dict:
     live_dates = series.live_trading_dates_at_or_before(decision_date)
     data_available = bool(live_dates)
     evaluation_date = live_dates[-1] if live_dates else None
@@ -62,6 +63,7 @@ def build_entry(series: PriceSeries, decision_date: str, source: str, evidence_s
     gate_result = acg.evaluate(
         series.subject, decision_date, triggers, entry_price, invalidation_price,
         series=series, evaluation_date=evaluation_date, lookback_dates=lookback_dates,
+        kr_universe_codes=kr_universe_codes,
     )
     existing = erb.existing_ruleset_action_for(bool(triggers))
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hard anti-lookahead gate shared by every P11 PIT replay module.
+"""Hard anti-lookahead gate shared by every P10-02/P10-03 PIT replay module.
 
 Two distinct directions matter and this module keeps them explicit:
 

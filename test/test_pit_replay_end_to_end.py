@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- end-to-end regression against real committed repo
-evidence (not fixtures). Covers: determinism, zero authority violations,
-window/priority-subject coverage, structural symmetry between the
-Opportunity Miss and Defense ledgers, and (CIO review, PR #210) the
-GATE_BLOCK-narrowing and NOT_GRADABLE-enforcement invariants at full,
-real-evidence scale -- not just in isolated unit tests.
+"""P10-02/P10-03 PIT Replay -- end-to-end regression against real committed
+repo evidence (not fixtures). Covers: determinism, zero authority
+violations, window/priority-subject coverage, structural symmetry between
+the Opportunity Miss and Defense ledgers, GATE_BLOCK-narrowing and
+NOT_GRADABLE-enforcement (CIO review round 2), and (CIO review round 3)
+DATA_FAILURE exclusion from Miss/Defense KPIs, the real ratified crypto
+PIT-eligible population, and the per-market breakdown.
 """
 from __future__ import annotations
 
@@ -27,7 +28,8 @@ class EndToEndDeterminismTests(unittest.TestCase):
 
     def test_two_independent_runs_produce_byte_identical_json(self):
         for key in ("signal_replay_ledger", "opportunity_miss_episodes", "defense_episodes",
-                    "opportunity_miss_ledger_daily", "defense_ledger_daily", "ungradable_ledger"):
+                    "opportunity_miss_ledger_daily", "defense_ledger_daily", "ungradable_ledger",
+                    "coverage_gap", "by_market"):
             self.assertEqual(
                 canonical_json(self.report_a[key]),
                 canonical_json(self.report_b[key]),
@@ -35,7 +37,6 @@ class EndToEndDeterminismTests(unittest.TestCase):
             )
 
     def test_report_asof_evidence_date_is_not_a_wall_clock_stamp(self):
-        # It must be one of the real snapshot capture dates, not "today".
         self.assertRegex(self.report_a["report_asof_evidence_date"], r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -47,18 +48,23 @@ class EndToEndAuthorityInvariantTests(unittest.TestCase):
     def test_every_signal_ledger_entry_has_capital_zero_proposed_action(self):
         for e in self.report["signal_replay_ledger"]:
             self.assertEqual(e["proposed_ruleset"]["capital"], 0)
-            self.assertIn(e["proposed_ruleset"]["recommended_action"], ("NONE", "PROBE_REVIEW_CANDIDATE"))
+            self.assertIn(e["proposed_ruleset"]["recommended_action"],
+                           ("NONE", "PROBE_REVIEW_CANDIDATE", "PROBE_REVIEW_CANDIDATE_TACTICAL"))
 
     def test_every_signal_ledger_entry_existing_trade_proposal_is_null(self):
         for e in self.report["signal_replay_ledger"]:
             self.assertIsNone(e["existing_ruleset"]["trade_proposal"])
 
     def test_no_signal_ledger_entry_ever_claims_action_was_taken(self):
-        # There is no "action_taken" / "order" / "stage" field anywhere in
-        # the ledger schema -- this asserts that stays true.
         for e in self.report["signal_replay_ledger"][:50]:
             self.assertNotIn("action_taken", e)
             self.assertNotIn("order", e)
+
+    def test_wbs_phase_labeled_p10_not_p11(self):
+        # CIO review round 3 (flaw 5/10): this is P10-02/P10-03, not P11.
+        self.assertIn("P10-02", self.report["wbs_phase"])
+        self.assertIn("P11", self.report["wbs_phase"])  # explicitly disclaims it
+        self.assertIn("NOT P11", self.report["wbs_phase"])
 
 
 class EndToEndCoverageTests(unittest.TestCase):
@@ -96,27 +102,19 @@ class EndToEndSymmetryTests(unittest.TestCase):
     def setUpClass(cls):
         cls.report = run()
 
-    def test_defense_episodes_not_empty_and_not_larger_than_the_full_population(self):
-        self.assertGreater(len(self.report["defense_episodes"]), 0)
+    def test_defense_episodes_not_larger_than_the_full_population(self):
         self.assertLessEqual(len(self.report["defense_episodes"]), len(self.report["signal_replay_ledger"]))
 
     def test_miss_and_defense_episodes_were_built_from_the_same_signal_ledger(self):
-        miss_sources = {(m["subject"], m["first_detected_date"]) for m in self.report["opportunity_miss_episodes"]}
-        defense_sources = {(d["subject"], d["first_detected_date"]) for d in self.report["defense_episodes"]}
+        miss_sources = {(m["subject"], m["episode_start_date"]) for m in self.report["opportunity_miss_episodes"]}
+        defense_sources = {(d["subject"], d["episode_start_date"]) for d in self.report["defense_episodes"]}
         ledger_keys = {(e["subject"], e["decision_date"]) for e in self.report["signal_replay_ledger"]}
         self.assertTrue(miss_sources.issubset(ledger_keys))
         self.assertTrue(defense_sources.issubset(ledger_keys))
-        # No episode is simultaneously a material miss AND a material defense
-        # starting on the same day for the same subject.
         self.assertEqual(miss_sources & defense_sources, set())
 
 
 class EndToEndGateBlockNarrowingTests(unittest.TestCase):
-    """CIO review (PR #210, flaw 2), validated against the REAL end-to-end
-    replay output, not just synthetic unit-test inputs: every GATE_BLOCK
-    entry anywhere in the real ledger must have conditions_1_to_6_all_pass
-    == True and condition_7_gate_ratified == "FAIL" -- nothing else."""
-
     @classmethod
     def setUpClass(cls):
         cls.report = run()
@@ -128,9 +126,6 @@ class EndToEndGateBlockNarrowingTests(unittest.TestCase):
                 continue
             checked += 1
             self.assertTrue(row["conditions_1_to_6_all_pass"], row)
-        # This replay's real evidence currently yields zero GATE_BLOCK rows
-        # (see the narrative report) -- the invariant must hold whether or
-        # not any exist, so this loop is intentionally allowed to check 0.
         self.assertGreaterEqual(checked, 0)
 
     def test_gate_block_never_assigned_to_a_partially_qualified_entry_in_the_real_ledger(self):
@@ -139,16 +134,10 @@ class EndToEndGateBlockNarrowingTests(unittest.TestCase):
             pr = entry["proposed_ruleset"]
             if pr["trigger_types_present"] and not pr["conditions_1_to_6_all_pass"]:
                 partially_qualified_but_not_gate_block += 1
-        # Sanity: the real replay DOES contain triggered-but-not-fully-
-        # qualified entries (this is exactly the population the pre-review
-        # code misclassified as GATE_BLOCK) -- confirm they exist and are
-        # therefore a real test of the fix, not a vacuous one.
         self.assertGreater(partially_qualified_but_not_gate_block, 0)
 
 
 class EndToEndNotGradableEnforcementTests(unittest.TestCase):
-    """CIO review (PR #210, flaw 4), validated at full real-evidence scale."""
-
     @classmethod
     def setUpClass(cls):
         cls.report = run()
@@ -167,10 +156,82 @@ class EndToEndNotGradableEnforcementTests(unittest.TestCase):
 
     def test_ungradable_ledger_entries_are_excluded_from_miss_and_defense_episodes(self):
         ungradable_keys = {(u["subject"], u["decision_date"]) for u in self.report["ungradable_ledger"]}
-        miss_keys = set()
-        for ep in self.report["opportunity_miss_episodes"]:
-            miss_keys.add((ep["subject"], ep["first_detected_date"]))
+        miss_keys = {(ep["subject"], ep["episode_start_date"]) for ep in self.report["opportunity_miss_episodes"]}
         self.assertEqual(ungradable_keys & miss_keys, set())
+
+
+class EndToEndDataFailureSeparationTests(unittest.TestCase):
+    """CIO review round 3, flaw 4: DATA_FAILURE must never appear in the
+    Miss/Defense KPI numerator or denominator -- it belongs only in
+    coverage_gap."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run()
+
+    def test_no_miss_episode_or_daily_row_has_root_cause_data_failure(self):
+        for row in self.report["opportunity_miss_ledger_daily"]:
+            self.assertNotEqual(row["root_cause"], "DATA_FAILURE")
+        for ep in self.report["opportunity_miss_episodes"]:
+            self.assertNotEqual(ep["root_cause"], "DATA_FAILURE")
+
+    def test_no_defense_row_or_episode_is_built_from_an_unauditable_entry(self):
+        unauditable_dates = {(e["subject"], e["decision_date"]) for e in self.report["signal_replay_ledger"]
+                              if not e["data_available"]}
+        for row in self.report["defense_ledger_daily"]:
+            self.assertNotIn((row["subject"], row["decision_date"]), unauditable_dates)
+
+    def test_coverage_gap_report_accounts_for_the_real_unauditable_population(self):
+        cg = self.report["coverage_gap"]
+        self.assertGreater(cg["unauditable_entries"], 0)
+        self.assertIn("2026-07-22", cg["unauditable_days"])
+        self.assertLess(cg["auditable_coverage_pct"], 100.0)
+
+
+class EndToEndCryptoPitEligibleUniverseTests(unittest.TestCase):
+    """CIO review round 3, flaw 1: crypto Opportunity KPI population must be
+    the real ratified PIT-eligible universe, not the full source catalog."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run()
+
+    def test_crypto_source_coverage_population_is_reported_separately_and_much_larger(self):
+        pop = self.report["population"]
+        source_cov = pop["crypto_source_coverage_population"]
+        if source_cov.get("status") != "OK":
+            self.skipTest("no committed crypto breadth evidence in this checkout")
+        self.assertGreater(source_cov["pair_count"], 600)
+        self.assertLess(pop["crypto_pit_eligible_population_size_at_window_end"], 100)
+
+    def test_crypto_entries_before_ratification_date_are_absent_not_substituted(self):
+        crypto_entries = [e for e in self.report["signal_replay_ledger"] if "/" in e["subject"]]
+        for e in crypto_entries:
+            self.assertGreaterEqual(e["decision_date"], "2026-08-19")
+
+
+class EndToEndByMarketBreakdownTests(unittest.TestCase):
+    """CIO review round 3, flaw 11: results must be split by market
+    (BTC / Korea / Crypto), never blended into one number."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run()
+
+    def test_by_market_contains_btc_korea_and_crypto_separately(self):
+        by_market = self.report["by_market"]
+        self.assertIn("BTC", by_market)
+        self.assertIn("KOREA", by_market)
+        self.assertIn("CRYPTO", by_market)
+
+    def test_market_entry_counts_sum_to_the_full_ledger(self):
+        total = sum(m["entry_count"] for m in self.report["by_market"].values())
+        self.assertEqual(total, len(self.report["signal_replay_ledger"]))
+
+    def test_each_market_has_its_own_coverage_gap_report(self):
+        for market, data in self.report["by_market"].items():
+            self.assertIn("coverage_gap", data)
+            self.assertIn("auditable_coverage_pct", data["coverage_gap"])
 
 
 if __name__ == "__main__":

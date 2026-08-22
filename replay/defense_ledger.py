@@ -7,29 +7,25 @@
   the P0/P5 authority-boolean invariants this PR does not touch). That means
   every "avoided drawdown" in this ledger is a structural default (capital
   was never at risk to begin with), not evidence of a deliberate defensive
-  judgment. `structural_zero_capital_caveat` is present on every record so
-  this cannot be silently read as a skill claim later -- matching the
-  canonical audit doc's own principle 4: don't let a defense credit hide a
-  missed-upside debit, and don't over-claim it either.
+  judgment.
 
-★ CIO review fix (flaw 5, PR #210): `build_defense_records()` remains the
-  raw, one-row-per-day table; `build_defense_episodes()` is the headline KPI
-  -- same deduplication rule as the Miss ledger, applied identically (same
-  module, same MAX_GAP_DAYS, same grouping key shape) so winners and losers
-  get the exact same treatment, not a convenient one-off.
-★ CIO review fix (flaw 4, PR #210): NOT_GRADABLE entries are excluded from
-  materiality (see opportunity_miss_ledger.is_ungradable -- the same check,
-  reused here rather than re-implemented, to keep the two ledgers
-  symmetric).
+★ CIO review round 3 fix (flaw 4, applied symmetrically to Defense --
+  the same reasoning applies to a decline as to a rally): entries with
+  `data_available=False` (no preserved evidence for that date/subject at
+  all) are excluded from this ledger entirely and reported via
+  `coverage_gap.py` instead -- "the price fell later, on an unauditable
+  date" is not a defense credit any more than the symmetric case is a miss.
+★ CIO review round 2 fix (flaw 5), reworked round 3 (flaw 3):
+  `build_defense_records()` is the raw daily table (also excludes
+  unauditable rows); `build_defense_episodes()` is the headline KPI, using
+  the identical trigger-family + forward-window-overlap grouping module as
+  Miss, applied symmetrically.
 """
 from __future__ import annotations
 
 from replay.opportunity_episode import group_into_episodes
 
 MATERIALITY_DRAWDOWN_THRESHOLD_PCT = -5.0
-# Same "best available horizon" policy as opportunity_miss_ledger.py, applied
-# uniformly -- this is part of what makes the winner/loser rule application
-# symmetric rather than picking convenient horizons per side.
 PREFERRED_HORIZONS = ("5", "3", "1", "10")
 
 CAVEAT = (
@@ -41,7 +37,7 @@ CAVEAT = (
 
 def _best_available_horizon(entry: dict) -> tuple[str, dict] | None:
     if entry["forward_metrics"].get("status") != "OK":
-        return None  # NOT_GRADABLE / NO_ENTRY_PRICE_DATA
+        return None
     for h in PREFERRED_HORIZONS:
         data = entry["forward_metrics"]["horizons"].get(h, {})
         if data.get("status") == "OK":
@@ -58,10 +54,12 @@ def is_material_defense(entry: dict) -> bool:
 
 
 def build_defense_records(entries: list[dict]) -> list[dict]:
-    """Raw, one-row-per-calendar-day table. NOT the headline KPI -- see
-    `build_defense_episodes()`."""
+    """Raw daily table, EXCLUDING unauditable (data_available=False) rows
+    (flaw 4, applied symmetrically). NOT the headline KPI."""
     out = []
     for entry in entries:
+        if not entry["data_available"]:
+            continue  # ★ flaw-4 fix, symmetric: reported via coverage_gap.py instead
         if not is_material_defense(entry):
             continue
         horizon_used, data = _best_available_horizon(entry)
@@ -69,10 +67,13 @@ def build_defense_records(entries: list[dict]) -> list[dict]:
             "decision_date": entry["decision_date"],
             "subject": entry["subject"],
             "root_cause": "AVOIDED_DRAWDOWN",  # constant tag -- gives group_into_episodes a grouping key
+            "entry_date": entry["forward_metrics"].get("hypothetical_entry_at"),
+            "outcome_window_end": data.get("end_date"),
             "materiality_horizon_used": horizon_used,
             "avoided_forward_return_pct": data["forward_return_pct"],
             "avoided_mae_pct": data["mae_pct"],
             "existing_ruleset_action": entry["existing_ruleset"]["recommended_action"],
+            "triggers_detected": [t["trigger_type"] for t in entry["triggers"]],
             "structural_zero_capital_caveat": CAVEAT,
             "evidence_sha256": entry["evidence_sha256"],
             "source": entry["source"],
@@ -82,8 +83,8 @@ def build_defense_records(entries: list[dict]) -> list[dict]:
 
 def build_defense_episodes(entries: list[dict]) -> list[dict]:
     """★ Headline Defense KPI (deliverable 3, post-review): deduplicated
-    Opportunity Episodes, not raw daily rows -- same grouping module and
-    tolerance as build_miss_episodes()."""
+    Opportunity Episodes over the auditable population only -- same
+    grouping module and rule as build_miss_episodes()."""
     daily = build_defense_records(entries)
     episodes = group_into_episodes(daily, outcome_field="avoided_forward_return_pct")
     for ep in episodes:

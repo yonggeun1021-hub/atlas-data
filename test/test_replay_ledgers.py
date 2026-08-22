@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- Signal Replay / Opportunity Miss / Defense ledger
+"""P10-02/P10-03 PIT Replay -- Signal Replay / Opportunity Miss / Defense ledger
 regression (deliverables 1-3), plus determinism and winner/loser symmetry."""
 from __future__ import annotations
 

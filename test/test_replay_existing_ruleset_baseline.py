@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- existing-ruleset baseline regression. Confirms this
+"""P10-02/P10-03 PIT Replay -- existing-ruleset baseline regression. Confirms this
 module only ever READS decision/alpha_review.py's source text (never
 imports/executes/modifies it) and that its two structural claims are
 re-derivable from the literal committed source."""

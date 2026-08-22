@@ -15,7 +15,8 @@ def compare(entries: list[dict]) -> dict:
 
     existing_convertible = [e for e in with_trigger if e["existing_ruleset"]["action_convertible"]]
     proposed_convertible = [e for e in with_trigger
-                             if e["proposed_ruleset"]["recommended_action"] == "PROBE_REVIEW_CANDIDATE"]
+                             if e["proposed_ruleset"]["recommended_action"]
+                             in ("PROBE_REVIEW_CANDIDATE", "PROBE_REVIEW_CANDIDATE_TACTICAL")]
     proposed_qualified_pending_gate = [e for e in with_trigger
                                         if e["proposed_ruleset"]["conditions_1_to_6_all_pass"]]
 

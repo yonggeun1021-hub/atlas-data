@@ -85,6 +85,24 @@ def top_crypto_movers(breadth_snapshots: list[ei.BreadthSnapshot], window_start:
     }
 
 
+def crypto_source_coverage(breadth_snapshots: list[ei.BreadthSnapshot]) -> dict:
+    """★ CIO review round 3 (flaw 1): a pure DATA-COVERAGE metric --
+    "how many pairs does this repo's committed Kraken breadth catalog have
+    ANY real price data for, over what date range" -- NEVER an opportunity
+    or investable-universe claim. See `asset_identity.py` /
+    `crypto_pit_eligible_pair_ids()` for the actual PIT-eligible Opportunity
+    KPI population, which is a real, ratified, much smaller subset."""
+    if not breadth_snapshots:
+        return {"status": "NO_BREADTH_EVIDENCE", "pair_count": 0}
+    latest = breadth_snapshots[-1]
+    pair_ids = latest.pair_ids()
+    return {
+        "status": "OK",
+        "pair_count": len(pair_ids),
+        "note": "this is a source-catalog coverage count, not a confirmed investable/eligible universe",
+    }
+
+
 def top_kr_movers(krx_snapshots: list[ei.KrxSnapshot], window_start: str, window_end: str) -> dict:
     codes = ei.all_krx_codes(krx_snapshots)
     results = []

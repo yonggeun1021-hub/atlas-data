@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- root-cause classifier regression (deliverable 5), plus
+"""P10-02/P10-03 PIT Replay -- root-cause classifier regression (deliverable 5), plus
 the structural no-survivorship-bias guarantee, plus (CIO review, PR #210,
 flaw 2) the GATE_BLOCK-narrowing proof: GATE_BLOCK may only be assigned when
 conditions_1_to_6_all_pass is real, verified True."""

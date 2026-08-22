@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opportunity Trigger Event schema (P11 Opportunity Capture PIT Replay).
+"""Opportunity Trigger Event schema (P10-02/P10-03 Opportunity Capture PIT Replay).
 
 Implements the event shape described in "Opportunity Capture Control Loop —
 신호를 실제 행동으로 변환하는 설계" section 3 (Opportunity Trigger Engine):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 Opportunity Capture PIT Replay -- Opportunity Trigger Event schema
+"""P10-02/P10-03 Opportunity Capture PIT Replay -- Opportunity Trigger Event schema
 regression. Independent of decision/shadow/briefing code by construction."""
 from __future__ import annotations
 

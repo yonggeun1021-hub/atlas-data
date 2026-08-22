@@ -888,6 +888,8 @@ APPROVED_TESTS = [
     "test/test_replay_existing_ruleset_baseline.py",
     "test/test_replay_forward_metrics.py",
     "test/test_replay_ledgers.py",
+    "test/test_replay_asset_identity.py",
+    "test/test_replay_coverage_gap.py",
     "test/test_replay_lookahead_gate.py",
     "test/test_replay_no_survivorship_bias.py",
     "test/test_replay_opportunity_episode.py",

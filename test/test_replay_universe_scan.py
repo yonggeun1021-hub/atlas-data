@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P11 PIT Replay -- full-population scan regression (deliverable: every
+"""P10-02/P10-03 PIT Replay -- full-population scan regression (deliverable: every
 ticker in the declared universe/seen in evidence, incl. Discovery/Candidate/
 Ready coverage and up/down mover ranking applied uniformly)."""
 from __future__ import annotations
