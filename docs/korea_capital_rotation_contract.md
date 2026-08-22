@@ -1,8 +1,15 @@
 # P2-03 Korea Capital Rotation contract
 
-Status: offline price-relative capability; live Theme population, durable
-breadth lineage, confirmed investor-flow release timing, state ledger, and
-briefing integration remain open.
+Status: 2026-08-22, a minimal own-benchmark rotation_policy is RATIFIED for
+real (see `.github/scripts/korea_capital_rotation_ledger_proof.py`) -- real
+KOSPI/KOSDAQ own-benchmark ranking, TOP/MIDDLE/BOTTOM buckets, and state
+ledger records now exist against a real post-ratification observation pair.
+Still open: live P2-01 Theme population (theme_id stays a positional proxy
+tied to the real P1-KR-07 SECTOR identity, never a cross-market Theme
+grouping), Korea Breadth durable `available_at` lineage (still null ->
+BLOCKED, holding the overall decision back regardless of rotation_policy),
+confirmed investor-flow release timing, and live scheduled-cron briefing
+integration (this remains a manual proof, not a cron).
 
 ## Own-benchmark scopes
 
