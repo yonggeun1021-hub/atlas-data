@@ -758,13 +758,21 @@ def _classify_korea_rotation(decision_date: str, snapshot: dict) -> dict:
     breadth = payload.get("breadth") if isinstance(payload.get("breadth"), dict) else {}
     rotation = payload.get("rotation") if isinstance(payload.get("rotation"), dict) else {}
     breadth_status = breadth.get("status")
+    rotation_policy_effective = rotation.get("rotation_policy_effective")
     if payload.get("run_status") != "OK":
         status, reason = "DEGRADED", f"run_status={payload.get('run_status')}"
-    elif breadth_status == "AVAILABLE":
+    elif breadth_status == "AVAILABLE" and rotation_policy_effective:
         status, reason = "READY", None
     else:
+        # Breadth and Leadership/rotation-policy are two independent
+        # boundaries -- both are surfaced explicitly, never collapsed
+        # into a single generic reason, so a reader can tell which one
+        # (or both) is the actual blocker.
         status = "POLICY_BLOCKED"
-        reason = f"KOREA_BREADTH_{breadth_status}:{breadth.get('reason')}"
+        parts = [f"KOREA_BREADTH_{breadth_status}:{breadth.get('reason')}"]
+        if not rotation_policy_effective:
+            parts.append(f"KOREA_ROTATION_{rotation.get('status')}:ROTATION_POLICY_NOT_RATIFIED")
+        reason = "|".join(parts)
     return component_row(
         "KOREA_ROTATION",
         status,

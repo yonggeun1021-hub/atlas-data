@@ -166,8 +166,8 @@ def build_real_price_side(prior_date: str, current_date: str):
         "tie_break": "SERIES_IDENTITY_ASC",
         "maximum_calendar_gap_days": 30,
         "benchmark_scopes": [
-            scope_for("KOSPI", "KOSPI::코스피"),
             scope_for("KOSDAQ", "KOSDAQ::코스닥"),
+            scope_for("KOSPI", "KOSPI::코스피"),
         ],
     }
     return input_value, rotation_policy
