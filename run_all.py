@@ -992,6 +992,9 @@ APPROVED_TESTS = [
     "test/test_dynamic_clock_calendar.py",
     "test/test_audit_confirmed_miss.py",
     "test/test_dynamic_clock_workflow_wiring.py",
+    # ★ CIO review round 2 on PR #211 -- PIT lookahead violation fix
+    # (AUDIT_CONFIRMED_MISS could no longer promote operational tier).
+    "test/test_dynamic_clock_pit_tier_invariant.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

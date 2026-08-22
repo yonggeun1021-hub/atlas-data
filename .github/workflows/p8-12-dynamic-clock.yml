@@ -45,20 +45,57 @@ jobs:
             test.test_dynamic_clock_end_to_end \
             test.test_dynamic_clock_fail_closed \
             test.test_dynamic_clock_calendar \
-            test.test_audit_confirmed_miss
+            test.test_audit_confirmed_miss \
+            test.test_dynamic_clock_workflow_wiring \
+            test.test_dynamic_clock_pit_tier_invariant
+      # ★ CIO review round 2, item 6 (workflow atomicity hardening):
+      #   the checkout above happened at job START -- by the time we are
+      #   ready to commit, a concurrent collector or another dynamic-clock
+      #   run may have already advanced `origin/main`. Re-sync to the
+      #   ABSOLUTE LATEST `main` immediately before computing (not after),
+      #   so the Dynamic Clock is always computed against the freshest
+      #   evidence available at commit time -- mirrors the real race fix
+      #   already used elsewhere in this repo (`git fetch && git reset
+      #   --hard origin/main` before a write, see PR #205 / p2-03-korea-
+      #   observation-pair.yml's own history for the precedent).
+      - name: Re-sync to the latest main before computing
+        run: |
+          git fetch origin "${{ github.event.repository.default_branch }}"
+          git reset --hard "origin/${{ github.event.repository.default_branch }}"
+      - name: Determine the real operational decision_date
+        id: decision_date
+        run: |
+          echo "value=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
       - name: Recompute Dynamic Clock from currently-committed evidence
-        run: python3 clock/run_dynamic_clock.py
+        env:
+          DECISION_DATE: ${{ steps.decision_date.outputs.value }}
+        run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE"
       - name: Idempotency check + commit only if the evidence actually changed
+        id: commit
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           git add evidence/operational/dynamic_clock
           if git diff --cached --quiet; then
             echo "no change -- Dynamic Clock output identical to the last committed run, nothing to commit"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "P8-12 Dynamic Clock refresh (triggered by ${{ github.event.workflow_run.name || 'workflow_dispatch' }}, run ${{ github.run_id }})"
-            git pull --rebase origin "${{ github.event.repository.default_branch }}"
-            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+            echo "committed=true" >> "$GITHUB_OUTPUT"
           fi
+      # ★ CIO review round 2, item 6: NEVER rebase-then-push here -- a
+      #   rebase could silently land our locally-computed (now
+      #   possibly stale, if `main` moved again between the re-sync step
+      #   above and this push) result on top of newer evidence without
+      #   recomputing against it. Push directly against the commit we
+      #   re-synced to; if that fails (a genuine race -- something else
+      #   pushed in between), FAIL CLOSED rather than force-push a stale
+      #   result. The next real trigger of this workflow (which will fire
+      #   again from whatever just pushed) recomputes fresh.
+      - name: Push (fail closed on a concurrent-push race, never force)
+        if: steps.commit.outputs.committed == 'true'
+        run: |
+          git push origin "HEAD:${{ github.event.repository.default_branch }}" \
+            || { echo "STOP: push rejected -- main advanced since the re-sync step (real race). Not force-pushing a possibly-stale result; the workflow that just landed on main will itself trigger a fresh recompute." >&2; exit 1; }
       - name: Committed-output-only guard (no other tracked file may change)
         run: git diff --exit-code -- . ':!evidence/operational/dynamic_clock'
