@@ -173,6 +173,14 @@ APPROVED_TESTS = [
     #   Breadth BLOCKED + 실 Leadership 모두 briefing에 노출, 재실행
     #   byte-identical, standalone 재검증 포함.
     "test/test_korea_capital_rotation_ledger_proof.py",
+    # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
+    #   workflow (2026-08-22, no new cron): structural YAML checks only --
+    #   still workflow_dispatch-only, real `needs:` chain (Leadership job
+    #   needs the Breadth context-commit job) that structurally guarantees
+    #   Breadth's real first_seen_at predates Leadership's real
+    #   available_at (decision_time), no new fetch logic/endpoint, least-
+    #   privilege permissions per job.
+    "test/test_p2_03_observation_pair_workflow.py",
     # ★ P1-KR-05 shared-fetch -> P2-03 committed breadth-context lineage.
     #   "recent" scope breadth packet의 payload_sha256/as_of_date/
     #   available_at만 추출해 idempotent하게 commit한다. 원시 가격·종목명

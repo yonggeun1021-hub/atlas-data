@@ -18,6 +18,27 @@ integration (this remains a manual proof, not a cron). READY at the P2-03
 level still never grants Buy/Stage/Action/Order/Production/trading authority
 -- those stay closed unconditionally, independent of this contract.
 
+## Observation-pair job dependency and the real schedule gap (2026-08-22)
+
+`.github/workflows/p2-03-korea-observation-pair.yml` sequences the two
+already-approved Korea Breadth (P1-KR-05) and Korea Leadership live-fetch
+paths with a real GitHub Actions `needs:` dependency: Leadership's job
+cannot start until Breadth's own capture-and-commit job has genuinely
+completed and pushed. This structurally guarantees Breadth's real
+`first_seen_at` predates Leadership's real `available_at` (decision_time)
+for a same-day observation, rather than relying on manually remembering
+the correct trigger order each run. It reuses every existing job step
+verbatim -- no new fetch logic, no new endpoint, no duplicate KRX request.
+
+Honest, still-open gap: **neither** Korea Breadth nor Korea Leadership is
+on an actual schedule (cron) today -- both, and this combined workflow,
+remain `workflow_dispatch`-only. There is therefore no existing schedule
+to attach a dependency step to, and no automatic daily trigger produces a
+new P2-03 observation sample on its own; each sample still requires a
+manual `workflow_dispatch`. A new cron was deliberately NOT added to close
+this gap (matching this project's existing "no new cron" precedent) --
+this is reported as the precise, honest gap it is, not silently closed.
+
 ## Own-benchmark scopes
 
 The transform consumes two hash-bound `korea_leadership/v1` derived packets.
