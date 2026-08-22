@@ -1,7 +1,7 @@
 {
-  "schema_version": 4,
-  "contract_version": "price_reflection/4",
-  "output_schema_version": "price_reflection_packet/4",
+  "schema_version": 5,
+  "contract_version": "price_reflection/5",
+  "output_schema_version": "price_reflection_packet/5",
   "allowed_price_state": [
     "OVEREXTENDED",
     "STRONG_MOMENTUM",
@@ -29,6 +29,12 @@
     "KRX_OFFICIAL",
     "KRAKEN_OHLC",
     "UNKNOWN"
+  ],
+  "allowed_event_source_class": [
+    "SEC_FILING_EVENT",
+    "DART_FILING_EVENT",
+    "OFFICIAL_RELEASE_EVENT",
+    "GUIDANCE_CHANGE_EVENT"
   ],
   "allowed_threshold_basis": ["PROVISIONAL", "RATIFIED"],
   "korea_data_source_scope": "KRX_OFFICIAL",

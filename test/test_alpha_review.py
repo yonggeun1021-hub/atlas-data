@@ -135,18 +135,19 @@ def ratified_thresholds():
 
 
 # ── price_reflection status presets (all decision_date=2026-08-20) ─────────
-# `price_reflection/4` (CIO review round 4): `reflection_status` only ever
-# leaves UNKNOWN when a real, HASH-VERIFIED evidence citation (a REAL
-# committed file, that file's REAL recomputed sha256) resolves to a real,
-# internally-computed, PIT-verified return -- never a caller-supplied
-# `post_event_return_pct`, and never a fabricated `"a"*64`-style hash (see
-# decision/price_reflection.py's and test_price_reflection.py's own
-# docstrings for the CIO round-4 defect this closes). Every preset below
-# that needs a confident (non-UNKNOWN) reflection_status reuses
-# `PR_FIXTURE.verified_event_reaction()` -- the SAME real evidence file/hash
-# and REAL_EVIDENCE_SUBJECT (`329180.KS`) test_price_reflection.py itself
-# verifies -- anchored to a real event_date chosen so the module's own
-# internally-computed return lands in the intended UNDER/PARTIALLY/
+# `price_reflection/5` (CIO review round 5): `reflection_status` only ever
+# leaves UNKNOWN when an `event_reaction` citation resolves to a REAL
+# committed Event Evidence Envelope (`decision/event_evidence.py`) whose
+# PARSED CONTENT independently asserts the SAME subject/event_at/direction/
+# source_class the caller claims -- a hash-matching file alone (round 4) is
+# no longer enough, and the return is still always internally computed,
+# never a caller-supplied number (round 4). Every preset below that needs a
+# confident (non-UNKNOWN) reflection_status reuses
+# `PR_FIXTURE.verified_event_reaction()` -- the SAME real committed
+# envelope fixtures (`test/fixtures/event_evidence/*.json`) and
+# REAL_EVIDENCE_SUBJECT (`329180.KS`) test_price_reflection.py itself
+# verifies -- anchored to a real event_at timestamp chosen so the module's
+# own internally-computed return lands in the intended UNDER/PARTIALLY/
 # FULLY_REFLECTED band (see that file's module-level comment for the exact
 # real close prices and derived percentages). These presets ALSO require
 # `threshold_basis=="RATIFIED"` to ever unlock an alpha_review positive
@@ -157,7 +158,8 @@ def pr_under_reflected(**overrides):
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "1"},
         relative_strength={"vs_market": "1"},
-        event_reaction=PR_FIXTURE.verified_event_reaction("2026-08-18"),  # real -3.17%, disagrees -> UNDER_REFLECTED
+        # real -2.07%, disagrees with claimed POSITIVE -> UNDER_REFLECTED
+        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.UNDER_FIXTURE, PR_FIXTURE.UNDER_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
@@ -169,7 +171,8 @@ def pr_partially_reflected(**overrides):
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "3"},
         relative_strength={"vs_market": "2"},
-        event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-20"),  # real +5.69% -> PARTIALLY_REFLECTED
+        # real +5.10% -> PARTIALLY_REFLECTED
+        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.PARTIALLY_FIXTURE, PR_FIXTURE.PARTIALLY_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
@@ -181,7 +184,8 @@ def pr_fully_reflected(**overrides):
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "10"},
         relative_strength={"vs_market": "9"},
-        event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-29"),  # real +9.22% -> FULLY_REFLECTED
+        # real +9.22% -> FULLY_REFLECTED
+        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.FULLY_FIXTURE, PR_FIXTURE.FULLY_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
@@ -193,18 +197,19 @@ def pr_overextended(**overrides):
     pure momentum read, round-2 core fix) -- but alpha_review's gate 3
     (`reflection_status == "UNKNOWN"`) still blocks EVERYTHING, including a
     real OVEREXTENDED price_state, until reflection_status is independently
-    resolved. This preset therefore still carries a real, hash-verified
-    event_reaction (the same real +9.22% move used by pr_fully_reflected, so
-    it resolves FULLY_REFLECTED) purely to clear gate 3 -- alpha_review's own
-    WAIT_FOR_PULLBACK gate then fires off `price_state == "OVEREXTENDED"`
-    specifically (not off reflection_status), which is the actual thing
-    this fixture exists to exercise. Also needs a RATIFIED contract to
-    clear the round-3/round-4 threshold-ratification arm of gate 3."""
+    resolved. This preset therefore still carries a real, hash- and
+    content-verified event_reaction (the same real +9.22% move used by
+    pr_fully_reflected, so it resolves FULLY_REFLECTED) purely to clear
+    gate 3 -- alpha_review's own WAIT_FOR_PULLBACK gate then fires off
+    `price_state == "OVEREXTENDED"` specifically (not off
+    reflection_status), which is the actual thing this fixture exists to
+    exercise. Also needs a RATIFIED contract to clear the round-3/round-4
+    threshold-ratification arm of gate 3."""
     kwargs = dict(
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "20"},
         relative_strength={"vs_market": "18", "position_vs_recent_high_pct": "1"},
-        event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-29"),
+        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.FULLY_FIXTURE, PR_FIXTURE.FULLY_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)

@@ -843,6 +843,40 @@ APPROVED_TESTS = [
     #   해시/caller 작성 수익률 fixture는 전부 실제 커밋 파일(data/2026-08-20/
     #   krx.json)의 실제 재계산 해시와 실제 종가로 교체했다(329180.KS —
     #   4개 제한 Pilot 티커에는 포함되지 않음).
+    #   CIO round 5(contract v5): round 4의 해시 검증은 "해시가 일치하는 파일이
+    #   존재한다"만 증명했지 "그 파일이 실제로 그 이벤트/방향의 증거다"는
+    #   증명하지 못했다 — round 4 회귀 테스트 자체가 data/2026-08-20/krx.json
+    #   (평범한 시세 스냅샷, event 의미 전무)을 329180.KS의 POSITIVE 이벤트
+    #   "증거"로 인용했고 그대로 통과됐다. decision/event_evidence.py(신규)로
+    #   해결: (1) event_reaction.source_ref는 이제 실제 커밋 파일이면서 그
+    #   내용이 구조화된 Event Evidence Envelope(event_evidence_envelope/1)여야
+    #   하고, 그 envelope 자신의 subject/event_at/direction/source_class가
+    #   caller의 주장과 정확히 일치해야 한다 — 일반 가격/설정 파일은 애초에
+    #   그런 필드가 없어 구조적으로 통과 불가. (2) envelope 자신의 captured_at이
+    #   decision instant 이전이어야 한다(replay.lookahead_gate 재사용) — 오늘
+    #   checkout에 파일이 존재한다는 것만으로는 과거 시점에 실제로 입수
+    #   가능했다는 증거가 아니다. (3) reflection_reference.expectations_gap_
+    #   packet(caller가 즉석에서 만들 수 있는 in-memory dict)을 완전히 폐지 —
+    #   expectations_gap_packet_ref/_sha256로 실제 커밋된 wrapper record를
+    #   모듈이 직접 읽어서 검증하며, 그 record 자신의 captured_at도 decision
+    #   instant 이전이어야 한다(즉석 backdated packet은 애초에 커밋된 적이
+    #   없으므로 구조적으로 통과 불가). (4) event_reaction.event_date를
+    #   event_at(전체 UTC 타임스탬프)로 교체 — 이 저장소의 실 가격 증거는
+    #   전부 일간(daily) 단위뿐이라 미검증 session-boundary 표를 지어내는 대신,
+    #   실제 시각이 있는 event_at은 event 당일보다 하루 이전 실 거래일로
+    #   보수적으로 롤백하고, 00:00:00Z(날짜만 아는 경우의 sentinel)는 타이밍
+    #   NOT_COMPUTABLE로 UNKNOWN을 유지한다. (5) caller가 실제로 citation을
+    #   제공했는데 그것이 깨진 경우(미존재 경로/해시 불일치/envelope 아님/내용
+    #   불일치/PIT 미충족)는 이제 조용히 UNKNOWN으로 낮추지 않고
+    #   PriceReflectionError를 명시적으로 발생시킨다 — citation을 아예 안 준
+    #   경우(진짜 증거 없음)만 여전히 soft UNKNOWN이다. 기존 round-4 회귀의
+    #   "가격 파일을 event 증거로 오용" 테스트는 삭제하지 않고 정확히 그
+    #   오용이 이제 거부됨을 증명하도록 재활용했다. 신규 test/fixtures/
+    #   event_evidence/*.json(전부 subject=329180.KS, capture_kind=
+    #   REGRESSION_FIXTURE, "TEST FIXTURE ONLY" 명시)로 검증 메커니즘의
+    #   긍정/부정 경로를 전부 실증한다 — 실 Pilot/CIO 추적 종목에는 커밋된
+    #   envelope/canonical record가 전혀 없으므로 BTC/한국 4종목/TSM/
+    #   034020.KS는 이번 라운드에도 reflection_status=UNKNOWN 그대로다.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
@@ -888,6 +922,11 @@ APPROVED_TESTS = [
     #   전부 test_price_reflection.py의 real evidence 헬퍼(329180.KS, 실제
     #   재계산 해시)를 재사용하도록 교체했다 — "a"*64 가짜 해시/caller 작성 수익률
     #   fixture는 이 파일에 더 이상 없다.
+    #   CIO round 5(contract v5, price_reflection v5): 위 픽스처들은 이제
+    #   test_price_reflection.py의 신규 Event Evidence Envelope fixture
+    #   (test/fixtures/event_evidence/*.json)를 인용하는
+    #   verified_event_reaction(fixture_name, event_at)을 재사용한다 — 해시만
+    #   맞는 가격 파일이 아니라 실제 event 내용을 구조적으로 담은 envelope다.
     #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
     #      action/order/Production/trading 없음.
     "test/test_alpha_review.py",
@@ -948,7 +987,10 @@ APPROVED_TESTS = [
     #   Pilot의 opportunity_state/action 고정값(EXPECTED 테이블)은 round 4
     #   이후에도 변경 없이 그대로다(전부 reflection_status=UNKNOWN이라
     #   WAIT_FOR_RULE_RATIFICATION이 아닌 기존 WAIT_FOR_PRICE/REJECTED/BLOCKED를
-    #   유지).
+    #   유지). CIO round 5: gate 4 fixture는 이제 test_price_reflection.py의
+    #   Event Evidence Envelope fixture를 인용한다 — 4개 real Pilot 고정값은
+    #   이번 라운드에도 byte-identical(전부 event_reaction/reflection_reference
+    #   미제공이라 영향 없음).
     #   ⛔ evidence 획득/Price Reflection 자체 로직/P5 Rule Authority/Stage·
     #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
     #      false다.

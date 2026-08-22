@@ -117,6 +117,68 @@ was structural, not a test-coverage gap. Round 4 closes it completely:
    `"UNKNOWN"` whenever the corresponding path wasn't the one that actually
    produced the verdict.
 
+## `price_reflection/5` (CIO review round 5): evidence CONTENT, not just existence
+
+Round 4's evidence verification proved a hash-matching FILE existed, never
+that it was actually evidence OF the claimed event/direction. Confirmed
+reproducible: `data/2026-08-20/krx.json` (a plain KRX price snapshot, zero
+event semantics) was cited as "evidence" of a POSITIVE event on `329180.KS`
+and the hash-only check accepted it — any tracked file, of any kind, could
+authorize an arbitrary claimed direction as long as its real hash was
+supplied. Closed via `decision/event_evidence.py` (see that module's own
+docstring for full detail):
+
+1. **A hash-matching file is not proof of the claimed event.**
+   `event_reaction.source_ref` must now resolve to a real committed file
+   whose PARSED CONTENT is itself a structured, closed-vocabulary **Event
+   Evidence Envelope** (`event_evidence_envelope/1`) independently
+   asserting the SAME `subject`/`event_at`/`direction`/`source_class` the
+   caller claims. A generic price/config/any-other file has no such fields
+   at all and can never satisfy this, regardless of a correct hash.
+2. **Current-file existence is not PIT availability.** The envelope's own
+   `captured_at` must be at-or-before the decision instant being evaluated
+   — a file merely existing in today's checkout is not proof it was
+   available at some earlier historical `decision_date`; a future-committed
+   envelope fails closed (reusing
+   `replay.lookahead_gate.assert_no_signal_lookahead`).
+3. **The P8-09 path is no longer retrospectively synthesizable.**
+   `reflection_reference.expectations_gap_packet` (a caller-supplied,
+   possibly freshly-fabricated-in-memory dict) is retired entirely.
+   `expectations_gap_packet_ref`/`expectations_gap_packet_sha256` point at
+   a REAL COMMITTED wrapper record this module reads and validates FROM
+   THAT FILE itself — never trusting a caller-supplied dict for this path
+   at all — whose own `captured_at` (independent of anything the embedded
+   packet self-reports) must also be at-or-before the decision instant. A
+   packet built fresh at runtime with a backdated `decision_date` can never
+   satisfy this, because it was never committed at all, let alone before
+   that date.
+4. **Event timing needs a real timestamp, not just a date.**
+   `event_reaction.event_date` is replaced by `event_reaction.event_at` (a
+   full UTC timestamp). This repo's real price evidence is DAILY-
+   granularity only for every subject (KRX/BTC/US) — there is no intraday
+   series anywhere, and no CIO-ratified market-session-boundary rule
+   exists. Rather than fabricate an unratified session table, a genuinely
+   time-stamped `event_at` (any time-of-day other than the `00:00:00Z`
+   sentinel for "date only") rolls the reference date back to the latest
+   REAL, PIT-live trading date STRICTLY BEFORE `event_at`'s own calendar
+   date — guaranteeing the reference close can never accidentally already
+   reflect the event's own trading session. A bare, midnight-UTC
+   `event_at` keeps timing `NOT_COMPUTABLE` (`reflection_status` stays
+   `UNKNOWN`), exactly per the CIO's explicit fallback instruction.
+5. **A supplied-but-corrupt citation now RAISES.** Missing evidence (the
+   caller never supplied a citation at all) is still genuine absence — a
+   soft `UNKNOWN`. A SUPPLIED citation that turns out unresolvable,
+   hash-mismatched, not a valid envelope, semantically mismatched, or
+   not-yet-PIT-available now raises `PriceReflectionError` — it no longer
+   silently blends into the same `UNKNOWN` bucket as "nothing was ever
+   cited", so tampering attempts surface loudly and distinguishably.
+6. **No currently real subject is unlocked by any of this.** No committed
+   Event Evidence Envelope or P8-09 canonical record exists for BTC, any
+   Korea ticker, TSM, or 034020.KS in this repo, and
+   `decision/pilot_evidence_intake.py` never supplies `event_reaction`/
+   `reflection_reference` for any of them — every real subject's
+   `reflection_status` remains honestly `UNKNOWN`.
+
 - **`price_state`** — `OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK |
   UNKNOWN`. A pure, price/volume-only read on momentum and positioning.
   Momentum alone can never produce a reflection verdict.
@@ -158,49 +220,61 @@ not silently downgrade), or older than the ceiling, **both `price_state` AND
 `UNKNOWN` — unconditionally, regardless of how strong every other input
 looks. This check runs first and short-circuits everything else.
 
-## The reference point requirement (Rule 2, tightened in rounds 3 and 4)
+## The reference point requirement (Rule 2, tightened in rounds 3, 4, and 5)
 
 `reflection_status` requires a real reference point for what the market was
 supposed to have priced in. At least one of the following must be present:
 
-- `event_reaction.event_date` (a real, dated event),
+- `event_reaction.event_at` (a real, timestamped event, round 5 — full UTC
+  timestamp, not just a date),
 - `reflection_reference.reference_event_id` (an explicit reference-event
   token),
 - `reflection_reference.expectation_as_of` (the date an expectation was
   captured), or
-- `reflection_reference.expectations_gap_packet` — the FULL, already-built
-  P8-09 Expectations Gap packet (not a bare status string, round 3), which
-  this module independently re-validates via `decision/expectations_gap.py`'s
-  own `validate_packet` (hash/tamper/closed-vocab) and cross-checks
-  `subject`/`decision_date` against this packet's own before ever trusting
-  its `status`.
+- `reflection_reference.expectations_gap_packet_ref` — a path to a REAL
+  COMMITTED P8-09 canonical wrapper record (round 5; replaces round 3's
+  caller-supplied `expectations_gap_packet` dict, which proved only
+  internal self-consistency, never provenance), which this module reads
+  and independently re-validates from disk itself via
+  `decision/expectations_gap.py`'s own `validate_packet` (hash/tamper/
+  closed-vocab) and cross-checks `subject`/`decision_date` against this
+  packet's own before ever trusting its `status`.
 
 A reference point alone is necessary but not sufficient for a confident
 verdict — `_resolve_reflection_basis` additionally requires, per path
-(round 4: both paths now hand off to `_compute_verified_return`, the ONLY
-place a return figure can originate — see the round-4 section above):
+(both paths hand off to `_compute_verified_return`, the ONLY place a return
+figure can originate — see the round-4 section above; verification itself
+now lives in `decision/event_evidence.py`, round 5):
 
 - **event_reaction path**: `direction` is `POSITIVE`/`NEGATIVE` AND
-  `event_date` is present AND `source_ref` + `source_sha256` resolve to a
-  REAL, hash-matching committed file (`_verify_evidence_citation`, round 4)
-  AND a real, PIT-verified return is computable from `event_date` forward
-  (`_compute_verified_return`, round 4).
+  `event_at` is present AND `source_class`/`source_ref`/`source_sha256`
+  resolve to a REAL committed file whose CONTENT is a valid Event Evidence
+  Envelope independently asserting the SAME subject/event_at/direction/
+  source_class (`decision/event_evidence.py`'s `verify_event_reaction_
+  claim`, round 5) AND that envelope's own `captured_at` is at-or-before
+  the decision instant (round 5) AND a real, PIT-verified return is
+  computable from the resolved pre-event reference date forward
+  (`_compute_verified_return`).
 - **expectations_gap path**: the independently-re-validated packet's
-  `status` is `POSITIVE`/`NEGATIVE` AND a real, PIT-verified return is
-  computable from the validated packet's own `decision_date` forward
-  (echoed as `expectations_gap_reference_date`).
+  `status` is `POSITIVE`/`NEGATIVE` AND the wrapper record's own
+  `captured_at` is at-or-before the decision instant (round 5) AND a real,
+  PIT-verified return is computable from the validated packet's own
+  `decision_date` forward (echoed as `expectations_gap_reference_date`).
 
 `event_reaction` is preferred over `reflection_reference` when both are
 independently satisfiable.
 
-A bare `direction`/`reference_event_id`/`expectation_as_of` with no lineage,
-an unverifiable citation (wrong hash, non-existent file, path-traversal
-attempt), a not-yet-PIT-live event, or no comparable direction all still
-leave `reflection_status=UNKNOWN` — never a crash, always a graceful
-downgrade (`REFERENCE_POINT_PRESENT_BUT_NOT_RECONSTRUCTABLE_FROM_REAL_
-EVIDENCE`, round 4 — renamed from round 3's `..._NOT_LINEAGE_VERIFIED_OR_
-POST_REFERENCE_RETURN_NOT_COMPUTABLE` since a caller-supplied return no
-longer exists to fail to compute).
+A bare `direction`/`reference_event_id`/`expectation_as_of` with no
+citation, a date-only `event_at` (no real intraday timing precision, round
+5, required item 4), or no comparable direction all still leave
+`reflection_status=UNKNOWN` — never a crash, always a graceful downgrade
+(`REFERENCE_POINT_PRESENT_BUT_NOT_RECONSTRUCTABLE_FROM_REAL_EVIDENCE`).
+A citation the caller DID supply that turns out unresolvable, hash-
+mismatched, not a valid envelope, semantically mismatched (e.g. a generic
+price file cited as event evidence), or not-yet-PIT-available instead
+RAISES `PriceReflectionError` (round 5, required item 5) — genuine absence
+of a citation and a corrupt supplied citation are no longer blended into
+the same `UNKNOWN` outcome.
 
 Without any reference point at all, `reflection_status` is `UNKNOWN` and
 `data_state` is `REFLECTION_UNCERTAIN_WITH_VALID_PRICE` — even with
@@ -374,6 +448,44 @@ collectors rather than inventing new external calls:
 Every figure's evidence dates are checked with
 `replay.lookahead_gate.assert_no_signal_lookahead` (reused unchanged from
 PR #210) before being returned — see `test/test_price_evidence_lookahead.py`.
+
+## Event Evidence Envelope verification (`decision/event_evidence.py`, round 5)
+
+Real event/reference-point CITATIONS (as opposed to price-endpoint lookups,
+covered by `decision/price_evidence.py` above) are verified by
+`decision/event_evidence.py` — see that module's own docstring for full
+detail. A committed Event Evidence Envelope is a small, self-contained JSON
+record with a fixed schema (`event_evidence_envelope/1`):
+
+```json
+{
+  "schema_version": "event_evidence_envelope/1",
+  "subject": "329180.KS",
+  "event_at": "2026-07-30T09:30:00Z",
+  "direction": "POSITIVE",
+  "source_class": "GUIDANCE_CHANGE_EVENT",
+  "capture_kind": "REGRESSION_FIXTURE",
+  "captured_at": "2026-08-14T00:00:00Z",
+  "citation": { "note": "..." }
+}
+```
+
+`source_class` is a closed vocabulary of real evidentiary categories
+(`SEC_FILING_EVENT`/`DART_FILING_EVENT`/`OFFICIAL_RELEASE_EVENT`/
+`GUIDANCE_CHANGE_EVENT`); `capture_kind`
+(`LIVE_OFFICIAL_CAPTURE`/`REGRESSION_FIXTURE`) mirrors
+`bridge/official_release_evidence.py`'s existing envelope vocabulary. No
+committed envelope exists for any real Pilot/CIO-tracked subject in this
+repo — the three committed under `test/fixtures/event_evidence/` are all
+subject `329180.KS` (not a restricted ticker), `capture_kind=
+REGRESSION_FIXTURE`, and each self-labeled "TEST FIXTURE ONLY" in their own
+`citation.note`, used solely by `test/test_price_reflection.py` to prove
+the verification mechanism is genuinely real (both the positive and
+negative paths), never to unlock anything for a real subject.
+
+The P8-09 canonical record path uses a parallel wrapper schema
+(`expectations_gap_canonical_record/1`) wrapping an already-`validate_
+packet()`-verified P8-09 packet plus its own independent `captured_at`.
 
 ## CLI
 

@@ -110,6 +110,58 @@
      `None` -- there is no fallback to a caller-supplied number, ever;
      `reflection_status` simply stays `UNKNOWN`.
 
+★ CIO review round 5 (`price_reflection/5`) found round 4's evidence
+  verification proved a hash-matching FILE existed, never that it was
+  actually evidence OF the claimed event/direction. Confirmed reproducible:
+  `data/2026-08-20/krx.json` (a plain KRX price snapshot, zero event
+  semantics) was cited as "evidence" of a POSITIVE event on `329180.KS` and
+  the hash-only check accepted it -- any tracked file, of any kind, could
+  authorize an arbitrary claimed direction as long as its real hash was
+  supplied. Closed via `decision/event_evidence.py` (see that module's own
+  docstring for full detail):
+
+  1. `event_reaction.source_ref` must now resolve to a real committed file
+     whose PARSED CONTENT is itself a structured, closed-vocabulary Event
+     Evidence Envelope (`event_evidence_envelope/1`) independently
+     asserting the SAME `subject`/`event_at`/`direction`/`source_class` the
+     caller claims -- a generic price/config/any-other file can never
+     satisfy this, since it has no such fields at all.
+  2. The envelope's own `captured_at` must be at-or-before the decision
+     instant being evaluated -- a file merely existing in today's checkout
+     is not proof it was available at some earlier historical
+     `decision_date`; a future-committed envelope fails closed (reusing
+     `replay.lookahead_gate.assert_no_signal_lookahead`).
+  3. `reflection_reference` no longer accepts a caller-supplied, possibly
+     freshly-fabricated-in-memory P8-09 packet dict at all --
+     `expectations_gap_packet_ref`/`expectations_gap_packet_sha256` point
+     at a REAL COMMITTED wrapper record this module reads and validates
+     from disk itself, whose own `captured_at` (independent of anything the
+     embedded packet self-reports) must also be at-or-before the decision
+     instant. A packet built fresh at runtime with a backdated
+     `decision_date` can never satisfy this, because it was never committed
+     at all, let alone before that date.
+  4. `event_reaction.event_at` is now a full UTC timestamp (not just a
+     date), so pre-market/intraday/after-hours events are at least
+     distinguishable in principle -- see `decision/event_evidence.py`'s
+     `select_pre_event_reference_date` for the daily-granularity-only
+     policy this repo's real price evidence can actually support, and why
+     a bare midnight-UTC `event_at` keeps timing `NOT_COMPUTABLE`
+     (`reflection_status` stays `UNKNOWN`) rather than claiming precision
+     this repo's data cannot back.
+  5. A SUPPLIED citation (event or reflection-reference) that turns out to
+     be unresolvable, hash-mismatched, not a valid envelope, semantically
+     mismatched, or not-yet-PIT-available now RAISES `PriceReflectionError`
+     -- it no longer silently downgrades to `UNKNOWN`. Only a citation the
+     caller never supplied at all is genuine absence (still a soft
+     `UNKNOWN`); a citation that was supplied and turns out corrupt is
+     surfaced loudly, distinguishable from genuine no-evidence.
+  6. None of this unlocks anything for any currently real subject: no
+     committed Event Evidence Envelope or P8-09 canonical record exists for
+     BTC, any Korea ticker, TSM, or 034020.KS in this repo, and
+     `decision/pilot_evidence_intake.py` never supplies `event_reaction`/
+     `reflection_reference` for any of them -- every real subject's
+     `reflection_status` remains honestly `UNKNOWN`.
+
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`
 and `reflection_status` are forced to `UNKNOWN` regardless of every other
@@ -192,6 +244,16 @@ PRICE_EVIDENCE = _load_module(
     "p8_10_price_evidence", ROOT / "decision" / "price_evidence.py"
 )
 
+# ★ CIO round 5: the ONLY way an event_reaction citation or a
+#   reflection_reference P8-09 citation can ever be verified -- structured
+#   Event Evidence Envelope content-matching + PIT availability. See
+#   decision/event_evidence.py's own module docstring for the exact defect
+#   this closes (a hash-matching price file was being accepted as "evidence"
+#   of an unrelated event/direction claim).
+EVENT_EVIDENCE = _load_module(
+    "p8_10_event_evidence", ROOT / "decision" / "event_evidence.py"
+)
+
 # Parameter-name substrings this module's public builder must never contain.
 # Enforced both by construction (see build_packet's signature) and by a
 # regression test that inspects the live signature at test time, so a future
@@ -222,9 +284,9 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 4,
-        "contract_version": "price_reflection/4",
-        "output_schema_version": "price_reflection_packet/4",
+        "schema_version": 5,
+        "contract_version": "price_reflection/5",
+        "output_schema_version": "price_reflection_packet/5",
         "allowed_price_state": [
             "OVEREXTENDED", "STRONG_MOMENTUM", "MODERATE", "WEAK", "UNKNOWN",
         ],
@@ -240,6 +302,13 @@ def _expected_contract() -> dict:
         "allowed_valuation_position": ["LOW", "MID", "HIGH", "UNKNOWN"],
         "allowed_data_source_scope": [
             "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "KRAKEN_OHLC", "UNKNOWN",
+        ],
+        # ★ CIO round 5: closed vocabulary of real evidentiary categories an
+        #   Event Evidence Envelope's `source_class` may declare -- must
+        #   match decision/event_evidence.py's own ALLOWED_SOURCE_CLASS
+        #   exactly (verified by a regression test).
+        "allowed_event_source_class": [
+            "SEC_FILING_EVENT", "DART_FILING_EVENT", "OFFICIAL_RELEASE_EVENT", "GUIDANCE_CHANGE_EVENT",
         ],
         "allowed_threshold_basis": ["PROVISIONAL", "RATIFIED"],
         "korea_data_source_scope": "KRX_OFFICIAL",
@@ -350,34 +419,58 @@ def _validate_relative_strength(value, contract: dict) -> dict:
     return {key: _pct(value.get(key), f"RELATIVE_STRENGTH_{key}_INVALID") for key in fields}
 
 
-def _validate_event_reaction(value, decision_date: dt.date, contract: dict) -> dict:
+def _end_of_day_utc(decision_date: dt.date) -> dt.datetime:
+    """The decision instant this module evaluates PIT availability against.
+    `decision_date` is a bare date (no time-of-day is ever supplied to this
+    module's top-level contract), so the most permissive-yet-safe reading
+    is end-of-day UTC on that date -- anything captured on a LATER calendar
+    day always fails; nothing on decision_date's own day is penalized just
+    for lacking a precise instant."""
+    return dt.datetime(decision_date.year, decision_date.month, decision_date.day, 23, 59, 59, tzinfo=dt.timezone.utc)
+
+
+def _validate_event_reaction(value, subject: str, decision_date: dt.date, contract: dict) -> dict:
     """CIO round 3, required item 1: `direction` alone (a bare string) is
     not a real reference -- if the caller declares a direction, it MUST also
-    cite real evidence (`source_ref` + `source_sha256`) backing that claim.
-    CIO round 4: `post_event_return_pct` is RETIRED as an accepted input --
-    a caller-supplied return figure is never trusted (see module docstring
-    and `_compute_verified_return`). This validator only checks FORMAT
-    (real-file/hash cross-checking happens later, in `_resolve_reflection_
-    basis`, where the decision_date/subject needed to look up real evidence
-    are both in scope)."""
-    fields = {"event_date", "direction", "reaction_magnitude_pct", "source_ref", "source_sha256"}
+    cite real evidence backing that claim. CIO round 4: `post_event_return_
+    pct` is RETIRED as an accepted input -- a caller-supplied return figure
+    is never trusted (see module docstring and `_compute_verified_return`).
+
+    CIO round 5, required items 1/2/4/5: `event_date` is replaced by
+    `event_at` (a full UTC timestamp, item 4) and a new `source_class`
+    field is required alongside `source_ref`/`source_sha256`. Once ALL FIVE
+    of `event_at`/`direction`/`source_class`/`source_ref`/`source_sha256`
+    are present, this function immediately calls `decision/event_evidence.
+    py`'s `verify_event_reaction_claim` -- a REAL, content-matching,
+    PIT-verified Event Evidence Envelope, not just a hash-matching file
+    (item 1) -- and RAISES `PriceReflectionError` on ANY failure (item 5:
+    a supplied-but-corrupt citation is surfaced loudly, never silently
+    downgraded). On success, the real, PIT-live pre-event reference date is
+    also resolved here (item 4) and threaded through internally as
+    `pre_event_reference_date` for `_resolve_reflection_basis` to consume --
+    never independently caller-chosen."""
+    fields = {"event_at", "direction", "reaction_magnitude_pct", "source_class", "source_ref", "source_sha256"}
     if value is None:
         return {
-            "event_date": None, "direction": None, "reaction_magnitude_pct": None,
-            "source_ref": None, "source_sha256": None,
+            "event_at": None, "direction": None, "reaction_magnitude_pct": None,
+            "source_class": None, "source_ref": None, "source_sha256": None,
+            "pre_event_reference_date": None,
         }
     if not isinstance(value, dict) or not set(value).issubset(fields):
         raise PriceReflectionError("EVENT_REACTION_FIELDS_MISMATCH")
-    event_date = None
-    if value.get("event_date") is not None:
-        event_date = _date(value["event_date"], "EVENT_REACTION_EVENT_DATE_INVALID")
-        if event_date > decision_date:
-            raise PriceReflectionError("EVENT_REACTION_EVENT_DATE_IN_FUTURE")
+    event_at = None
+    if value.get("event_at") is not None:
+        event_at = _utc(value["event_at"], "EVENT_REACTION_EVENT_AT_INVALID")
+        if event_at > _end_of_day_utc(decision_date):
+            raise PriceReflectionError("EVENT_REACTION_EVENT_AT_IN_FUTURE")
     direction = value.get("direction")
     if direction is not None and direction not in contract["allowed_direction"]:
         raise PriceReflectionError("EVENT_REACTION_DIRECTION_INVALID")
     magnitude = _pct(value.get("reaction_magnitude_pct"), "EVENT_REACTION_MAGNITUDE_INVALID")
 
+    source_class = value.get("source_class")
+    if source_class is not None and source_class not in contract["allowed_event_source_class"]:
+        raise PriceReflectionError("EVENT_REACTION_SOURCE_CLASS_INVALID")
     source_ref = value.get("source_ref")
     if source_ref is not None and (
         not isinstance(source_ref, str) or SOURCE_REF_RE.fullmatch(source_ref) is None
@@ -386,22 +479,41 @@ def _validate_event_reaction(value, decision_date: dt.date, contract: dict) -> d
     source_sha256 = value.get("source_sha256")
     if source_sha256 is not None and SHA256_RE.fullmatch(source_sha256) is None:
         raise PriceReflectionError("EVENT_REACTION_SOURCE_SHA256_INVALID")
+
     # ★ A bare `direction` string is accepted here (structurally valid
     #   input) but is DELIBERATELY not enough on its own to unlock a
-    #   reflection verdict -- see `_resolve_reflection_basis`, which
-    #   additionally requires `source_ref`/`source_sha256` to resolve to a
-    #   REAL committed file with a REAL matching hash (round 4), and a
-    #   REAL, internally-computed, PIT-verified return (round 4). Soft
-    #   downgrade (still UNKNOWN reflection), not a hard build failure --
-    #   the caller may legitimately want to record a direction it observed
-    #   without (yet) having a citation.
+    #   reflection verdict -- the caller may legitimately want to record a
+    #   direction it observed without (yet) having a full citation. Only
+    #   once ALL FIVE fields below are present does this module attempt
+    #   real verification -- and that verification RAISES on failure
+    #   (round 5, item 5), it never softly ignores a partial/corrupt
+    #   citation the caller DID supply.
+    pre_event_reference_date = None
+    if (
+        event_at is not None and direction in ("POSITIVE", "NEGATIVE")
+        and source_class is not None and source_ref is not None and source_sha256 is not None
+    ):
+        decision_at = _end_of_day_utc(decision_date)
+        try:
+            EVENT_EVIDENCE.verify_event_reaction_claim(
+                subject=subject, event_at=value["event_at"], direction=direction,
+                source_class=source_class, source_ref=source_ref, source_sha256=source_sha256,
+                decision_at=decision_at,
+            )
+        except EVENT_EVIDENCE.EventEvidenceError as exc:
+            raise PriceReflectionError(f"EVENT_REACTION_EVIDENCE_INVALID:{exc}") from exc
+        pre_event_reference_date = EVENT_EVIDENCE.select_pre_event_reference_date(
+            PRICE_EVIDENCE, subject, event_at, decision_date.isoformat(),
+        )
 
     return {
-        "event_date": event_date.isoformat() if event_date else None,
+        "event_at": event_at.strftime("%Y-%m-%dT%H:%M:%SZ") if event_at else None,
         "direction": direction,
         "reaction_magnitude_pct": str(magnitude) if magnitude is not None else None,
+        "source_class": source_class,
         "source_ref": source_ref,
         "source_sha256": source_sha256,
+        "pre_event_reference_date": pre_event_reference_date,
     }
 
 
@@ -425,8 +537,23 @@ def _validate_reflection_reference(value, subject: str, decision_date: dt.date, 
     time gap to measure a return over), never in the future. Echoed as
     `expectations_gap_reference_date` for auditability. Required item 2:
     `post_reference_return_pct` is RETIRED as an accepted input -- see
-    `_compute_verified_return`."""
-    fields = {"reference_event_id", "expectation_as_of", "expectations_gap_packet"}
+    `_compute_verified_return`.
+
+    CIO round 5, required item 3: a caller-supplied, possibly
+    freshly-fabricated-in-memory `expectations_gap_packet` dict is RETIRED
+    as an accepted input entirely -- hash validity only ever proved
+    internal self-consistency, never that Atlas actually possessed the
+    record as of some earlier `decision_date`. Callers now supply
+    `expectations_gap_packet_ref` (a real committed file path) +
+    `expectations_gap_packet_sha256` (that file's real hash); this
+    function reads and validates the packet FROM THAT FILE itself via
+    `decision/event_evidence.py`'s `verify_expectations_gap_canonical_
+    record`, which also requires the wrapper record's own `captured_at`
+    (independent of the embedded packet's self-reported fields) to be
+    at-or-before the decision instant. Raises `PriceReflectionError` on any
+    failure (round 5, item 5 -- a supplied citation that's corrupt or not
+    yet available is surfaced loudly, never silently downgraded)."""
+    fields = {"reference_event_id", "expectation_as_of", "expectations_gap_packet_ref", "expectations_gap_packet_sha256"}
     if value is None:
         return {
             "reference_event_id": None, "expectation_as_of": None,
@@ -447,18 +574,22 @@ def _validate_reflection_reference(value, subject: str, decision_date: dt.date, 
     gap_status = None
     gap_sha256 = None
     gap_reference_date = None
-    eg_packet = value.get("expectations_gap_packet")
-    if eg_packet is not None:
-        if not isinstance(eg_packet, dict):
-            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_INVALID")
+    packet_ref = value.get("expectations_gap_packet_ref")
+    packet_sha256 = value.get("expectations_gap_packet_sha256")
+    if packet_ref is not None or packet_sha256 is not None:
+        if packet_ref is None or packet_sha256 is None:
+            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_REF_AND_SHA256_BOTH_REQUIRED")
+        if not isinstance(packet_sha256, str) or SHA256_RE.fullmatch(packet_sha256) is None:
+            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_SHA256_INVALID")
         try:
-            validated = EXPECTATIONS_GAP.validate_packet(eg_packet, EG_CONTRACT)
-        except EXPECTATIONS_GAP.ExpectationsGapError as exc:
+            validated = EVENT_EVIDENCE.verify_expectations_gap_canonical_record(
+                expectations_gap_module=EXPECTATIONS_GAP, eg_contract=EG_CONTRACT,
+                subject=subject, decision_date=decision_date.isoformat(),
+                decision_at=_end_of_day_utc(decision_date),
+                packet_ref=packet_ref, packet_sha256=packet_sha256,
+            )
+        except EVENT_EVIDENCE.EventEvidenceError as exc:
             raise PriceReflectionError(f"REFLECTION_REFERENCE_EXPECTATIONS_GAP_PACKET_INVALID:{exc}") from exc
-        if validated["subject"] != subject:
-            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_SUBJECT_MISMATCH")
-        if validated["decision_date"] > decision_date.isoformat():
-            raise PriceReflectionError("REFLECTION_REFERENCE_EXPECTATIONS_GAP_DECISION_DATE_IN_FUTURE")
         gap_status = validated["expectations_gap"]["status"]
         gap_sha256 = validated["packet_sha256"]
         gap_reference_date = validated["decision_date"]
@@ -502,35 +633,11 @@ def _has_reference_point(event: dict, reference: dict) -> bool:
     `_resolve_reflection_basis` for the full, lineage-and-momentum-verified
     bar a reflection VERDICT additionally requires (round 3)."""
     return (
-        event["event_date"] is not None
+        event["event_at"] is not None
         or reference["reference_event_id"] is not None
         or reference["expectation_as_of"] is not None
         or reference["expectations_gap_status"] not in (None, "UNKNOWN")
     )
-
-
-def _verify_evidence_citation(source_ref: str, source_sha256: str) -> bool:
-    """CIO round 4, required item 1: `source_ref` must resolve to a REAL
-    file actually committed in this repo, and `source_sha256` must equal
-    that file's REAL, independently recomputed sha256 -- format validity
-    (checked earlier, at `_validate_event_reaction` time) proves nothing on
-    its own, as the CIO's exact repro demonstrated (`source_ref="MADE-UP"`,
-    an arbitrary 64-hex-char `source_sha256`). Fails closed (`False`) on any
-    non-existent path, any path that escapes the repo root, or any hash
-    mismatch -- never raises, since an unverifiable citation is meant to
-    softly leave `reflection_status=UNKNOWN`, not crash the build."""
-    try:
-        candidate = (ROOT / source_ref).resolve()
-        candidate.relative_to(ROOT.resolve())
-    except (ValueError, OSError):
-        return False
-    if not candidate.is_file():
-        return False
-    try:
-        real_hash = hashlib.sha256(candidate.read_bytes()).hexdigest()
-    except OSError:
-        return False
-    return real_hash == source_sha256
 
 
 def _compute_verified_return(subject: str, start_date: str, decision_date: str) -> Decimal | None:
@@ -564,35 +671,38 @@ def _compute_verified_return(subject: str, start_date: str, decision_date: str) 
 def _resolve_reflection_basis(
     *, subject: str, decision_date: str, event: dict, reference: dict,
 ) -> tuple[str | None, Decimal | None, str | None]:
-    """CIO round 3+4, required items 1-4: returns `(direction, computed_
+    """CIO round 3+4+5, required items 1-4: returns `(direction, computed_
     return, source)` -- and ONLY a non-`None` triple -- when a fully
-    real-evidence-verified, event/reference-ANCHORED basis exists:
+    real-evidence-verified, event/reference-ANCHORED basis exists. ALL
+    citation verification (Event Evidence Envelope content-matching and PIT
+    availability for the event path; the committed P8-09 canonical record
+    for the expectations_gap path) has ALREADY happened -- and already
+    RAISED on any failure -- at `_validate_event_reaction`/`_validate_
+    reflection_reference` time (round 5, item 5). By the time this function
+    runs, `event["pre_event_reference_date"]`/`reference["expectations_
+    gap_reference_date"]` are either `None` (no fully-verified basis) or a
+    real, PIT-live trading date this module may safely anchor a return
+    computation to.
 
-    * event_reaction path: `direction` is POSITIVE/NEGATIVE AND `event_date`
-      is present AND `source_ref`/`source_sha256` resolve to a REAL,
-      hash-matching committed file (`_verify_evidence_citation`) AND a real,
-      PIT-verified return is computable from `event_date` forward
+    * event_reaction path: `direction` is POSITIVE/NEGATIVE AND a real
+      `pre_event_reference_date` was resolved (round 5, item 4) AND a real,
+      PIT-verified return is computable from it forward
       (`_compute_verified_return`).
     * expectations_gap path: `expectations_gap_status` is POSITIVE/NEGATIVE
-      (only ever set after `_validate_reflection_reference` has already
-      independently re-validated the full upstream P8-09 packet's hash and
-      cross-checked its subject -- never a bare caller string) AND a real,
-      PIT-verified return is computable from the validated packet's own
-      `decision_date` (`expectations_gap_reference_date`) forward.
+      AND a real, PIT-verified return is computable from the validated
+      packet's own `decision_date` (`expectations_gap_reference_date`)
+      forward.
 
     event_reaction is preferred when both are independently satisfiable.
     Returns `(None, None, None)` otherwise -- including when a reference
     point technically exists (`_has_reference_point` is True) but isn't
-    fully reconstructable from real evidence, which still correctly yields
-    `reflection_status=UNKNOWN` downstream (never a fabricated fallback)."""
-    if (
-        event["direction"] in ("POSITIVE", "NEGATIVE")
-        and event["event_date"] is not None
-        and event["source_ref"] is not None
-        and event["source_sha256"] is not None
-        and _verify_evidence_citation(event["source_ref"], event["source_sha256"])
-    ):
-        computed = _compute_verified_return(subject, event["event_date"], decision_date)
+    fully reconstructable from real evidence (e.g. event timing was
+    `NOT_COMPUTABLE`, or the real close prices themselves aren't PIT-live
+    yet), which still correctly yields `reflection_status=UNKNOWN`
+    downstream (never a fabricated fallback, never a raise -- a genuine
+    data gap, not corruption)."""
+    if event["direction"] in ("POSITIVE", "NEGATIVE") and event["pre_event_reference_date"] is not None:
+        computed = _compute_verified_return(subject, event["pre_event_reference_date"], decision_date)
         if computed is not None:
             return event["direction"], computed, "EVENT_REACTION"
     if (
@@ -829,7 +939,7 @@ def build_packet(
 
     windows = _validate_recent_return_windows(recent_return_windows, contract)
     strength = _validate_relative_strength(relative_strength, contract)
-    event = _validate_event_reaction(event_reaction, decision_date_checked, contract)
+    event = _validate_event_reaction(event_reaction, subject_checked, decision_date_checked, contract)
     reference = _validate_reflection_reference(
         reflection_reference, subject_checked, decision_date_checked, contract
     )
@@ -876,9 +986,10 @@ def build_packet(
             "6m": _render_or_unknown(windows["6m"]),
         },
         "event_reaction": {
-            "event_date": event["event_date"] or "UNKNOWN",
+            "event_at": event["event_at"] or "UNKNOWN",
             "direction": event["direction"] or "UNKNOWN",
             "reaction_magnitude_pct": event["reaction_magnitude_pct"] or "UNKNOWN",
+            "source_class": event["source_class"] or "UNKNOWN",
             "source_ref": event["source_ref"] or "UNKNOWN",
             "source_sha256": event["source_sha256"] or "UNKNOWN",
             "verified_post_event_return_pct": (
@@ -1021,20 +1132,20 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
 
     er = pr.get("event_reaction")
     if not isinstance(er, dict) or set(er) != {
-        "event_date", "direction", "reaction_magnitude_pct",
+        "event_at", "direction", "reaction_magnitude_pct", "source_class",
         "source_ref", "source_sha256", "verified_post_event_return_pct",
     }:
         raise PriceReflectionError("OUTPUT_EVENT_REACTION_FIELDS_MISMATCH")
-    if er["event_date"] != "UNKNOWN":
-        _date(er["event_date"], "OUTPUT_EVENT_REACTION_EVENT_DATE_INVALID")
-        if _date(er["event_date"], "OUTPUT_EVENT_REACTION_EVENT_DATE_INVALID") > _date(
-            packet["decision_date"], "OUTPUT_DECISION_DATE_INVALID"
-        ):
-            raise PriceReflectionError("OUTPUT_EVENT_REACTION_EVENT_DATE_IN_FUTURE")
+    if er["event_at"] != "UNKNOWN":
+        event_at_dt = _utc(er["event_at"], "OUTPUT_EVENT_REACTION_EVENT_AT_INVALID")
+        if event_at_dt > _end_of_day_utc(_date(packet["decision_date"], "OUTPUT_DECISION_DATE_INVALID")):
+            raise PriceReflectionError("OUTPUT_EVENT_REACTION_EVENT_AT_IN_FUTURE")
     if er["direction"] not in contract["allowed_direction"] + ["UNKNOWN"]:
         raise PriceReflectionError("OUTPUT_EVENT_REACTION_DIRECTION_INVALID")
     if er["reaction_magnitude_pct"] != "UNKNOWN":
         _pct(er["reaction_magnitude_pct"], "OUTPUT_EVENT_REACTION_MAGNITUDE_INVALID")
+    if er["source_class"] != "UNKNOWN" and er["source_class"] not in contract["allowed_event_source_class"]:
+        raise PriceReflectionError("OUTPUT_EVENT_REACTION_SOURCE_CLASS_INVALID")
     if er["source_sha256"] != "UNKNOWN" and SHA256_RE.fullmatch(er["source_sha256"]) is None:
         raise PriceReflectionError("OUTPUT_EVENT_REACTION_SOURCE_SHA256_INVALID")
     if er["verified_post_event_return_pct"] != "UNKNOWN":

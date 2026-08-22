@@ -196,7 +196,8 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
             # is also required (round 3/4, required item 4/6) for the same
             # reason -- this module's OWN loaded PRICE_REFLECTION instance
             # is used to build the event_reaction, matching
-            # PR_FIXTURE.verified_event_reaction()'s real evidence file/hash.
+            # PR_FIXTURE.verified_event_reaction()'s real committed Event
+            # Evidence Envelope fixture.
             pr_packet = PRICE_REFLECTION.build_packet(
                 subject=PR_FIXTURE.REAL_EVIDENCE_SUBJECT,
                 decision_date=decision_date,
@@ -204,7 +205,9 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
                 price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
                 recent_return_windows={"1m": "3"},
                 relative_strength={"vs_market": "2"},
-                event_reaction=PR_FIXTURE.verified_event_reaction("2026-07-20"),  # real +5.69%
+                event_reaction=PR_FIXTURE.verified_event_reaction(
+                    PR_FIXTURE.PARTIALLY_FIXTURE, PR_FIXTURE.PARTIALLY_EVENT_AT,
+                ),  # real +5.10%
                 data_source_scope="KRX_OFFICIAL",
                 contract=ratified_contract,
             )
