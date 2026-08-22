@@ -159,6 +159,17 @@ APPROVED_TESTS = [
     #   cross-benchmark rank/P2-05 state/Regime/Stage/Production/trading 없음.
     #   ⛔ source close rows/live network/tracked factor 없음 — temp packets only.
     "test/test_korea_capital_rotation.py",
+    # ★ P2-03 -> rotation_state_ledger -> daily briefing wiring.
+    #   coverage_context.breadth를 실 P3-03 lineage(또는 부재 시 UNKNOWN)로
+    #   구성하고, 기존 rotation_state_ledger.apply_rotation()을 그대로 호출한
+    #   뒤 committed briefing rolling-pointer만 새로 만든다. 실 BLOCKED
+    #   end-to-end proof·UNKNOWN/STALE/tamper·재실행 byte-identical 포함.
+    "test/test_korea_capital_rotation_ledger_wire.py",
+    # ★ P1-KR-05 shared-fetch -> P2-03 committed breadth-context lineage.
+    #   "recent" scope breadth packet의 payload_sha256/as_of_date/
+    #   available_at만 추출해 idempotent하게 commit한다. 원시 가격·종목명
+    #   없음, 재요청 없음, drift/tamper는 fail-closed.
+    "test/test_korea_breadth_context_populate.py",
     # ★ P2-04 — external RATIFIED policy-gated BTC/ETH/ALT rotation transform.
     #   selected 7d/30d Crypto Leadership window 두 시점에서 deterministic bucket
     #   rank·TOP/MIDDLE/BOTTOM transition만 만든다. sector/chain은 UNKNOWN 유지.

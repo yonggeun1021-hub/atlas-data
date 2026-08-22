@@ -58,6 +58,7 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
                 "actions/checkout",
                 "actions/setup-python",
                 "actions/upload-artifact",
+                "actions/download-artifact",
             },
         )
         for action, item in self.contract["actions"].items():
@@ -77,9 +78,10 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
                         observed[action].append((path.name, use))
                         self.assertEqual(use, f"{action}@{item['commit_sha']}")
 
-        self.assertEqual(len(observed["actions/checkout"]), 22)
-        self.assertEqual(len(observed["actions/setup-python"]), 20)
+        self.assertEqual(len(observed["actions/checkout"]), 23)
+        self.assertEqual(len(observed["actions/setup-python"]), 21)
         self.assertEqual(len(observed["actions/upload-artifact"]), 12)
+        self.assertEqual(len(observed["actions/download-artifact"]), 1)
 
     def test_no_mutable_or_retired_refs_remain_in_workflows(self):
         raw = "\n".join(
