@@ -82,8 +82,8 @@
       "automation_state": "SCHEDULED_INLINE",
       "workflow": ".github/workflows/p1-us04-forward-breadth.yml",
       "crons": ["20 1 * * 2-6"],
-      "required_workflow_tokens": ["Capture official current-day directories append-only", "us_breadth_forward.py"],
-      "remaining_gate": "historical PIT membership and delisted OHLCV require separate reconfirmation"
+      "required_workflow_tokens": ["Capture official current-day directories append-only", "us_breadth_forward.py", "Populate P3-02 US Forward Universe source-coverage packet", "us_forward_universe_populate.py"],
+      "remaining_gate": "historical PIT membership and delisted OHLCV require separate reconfirmation; live P3-02 packet population is now wired but has no scheduled proof yet"
     },
     {
       "work_item_id": "P1-US-05",

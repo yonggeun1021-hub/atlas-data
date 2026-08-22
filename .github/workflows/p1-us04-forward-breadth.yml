@@ -119,3 +119,37 @@ jobs:
           git commit -m "us breadth universe ${SNAPSHOT_DATE} [${{ github.event_name }}]"
           git pull --rebase origin "$DEFAULT_BRANCH"
           git push origin "HEAD:$DEFAULT_BRANCH"
+      # P3-02 source-coverage population is deliberately its own step, after
+      # the raw commit above has already landed. Its own failure must never
+      # be able to lose or roll back the immutable raw snapshot already
+      # committed and pushed by the previous step -- it only reads that
+      # committed bundle, never re-fetches or mutates it. Runs on both a
+      # fresh capture and a same-day skip, so a packet missing from an
+      # earlier run is repaired without any provider call.
+      - name: Populate P3-02 US Forward Universe source-coverage packet
+        id: populate
+        if: |
+          always() &&
+          (steps.capture.outputs.result == 'captured' || steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          python3 .github/scripts/us_forward_universe_populate.py "$SNAPSHOT_DATE"
+      - name: Commit P3-02 source-coverage population
+        if: always()
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/us_global_universe/$SNAPSHOT_DATE" ]; then
+            git add "data/observations/us_global_universe/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "us global universe population ${SNAPSHOT_DATE} [${{ github.event_name }}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi

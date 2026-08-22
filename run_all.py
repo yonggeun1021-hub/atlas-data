@@ -110,6 +110,14 @@ APPROVED_TESTS = [
     #   current→history 역적용·cross-source merge·MIC 추정·유료데이터는 금지한다.
     #   ⛔ live network/workflow/tracked master 없음 — synthetic + tracked baseline replay.
     "test/test_us_global_universe.py",
+    # ★ P3-02 population wiring — P1-US-04 raw bundle → tracked source-coverage
+    #   packet. 기존 bundle validator/adapter builder를 재사용하고(복사 아님)
+    #   raw bundle SHA·builder version·generated_at을 기록해 append-only로
+    #   commit한다. 기존 raw commit과 분리된 별도 step이라 derived 실패가
+    #   raw evidence를 손상시키지 않는다. skip/repair는 provider 호출 없이
+    #   커밋된 raw만으로 이뤄지고, 기존 cron/workflow_dispatch는 바뀌지 않는다.
+    #   ⛔ investable/Stage/Production/trading 권한 없음 — source coverage only.
+    "test/test_us_forward_universe_populate.py",
     # ★ P3-03 — exact-date KOSPI/KOSDAQ source-coverage Master adapter.
     #   두 KRX 응답 원문 SHA와 lineage를 검증해 모든 ISU_CD를 P3-01 Master의
     #   하루짜리 PIT membership으로 재현한다. 현재 catalog를 과거/미래로
