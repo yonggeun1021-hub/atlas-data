@@ -895,6 +895,65 @@ def build_us_breadth_membership(decision_date: str, snapshot: dict | None = None
     return _classify_us_breadth(raw_root, snapshot)
 
 
+def _fetch_free_market_data_snapshot() -> dict:
+    path = ROOT / "data" / "latest_free_market_data.json"
+    if not path.exists():
+        return {"kind": "missing"}
+    try:
+        return {"kind": "ready", "value": json.loads(path.read_text(encoding="utf-8"))}
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
+
+
+def _classify_free_market_data(snapshot: dict) -> dict:
+    if snapshot["kind"] == "missing":
+        return _blocked("FREE_MARKET_DATA", "UNAVAILABLE", "LATEST_POINTER_MISSING")
+    if snapshot["kind"] == "error":
+        return component_row("FREE_MARKET_DATA", "DEGRADED", snapshot["value"])
+    payload = snapshot["value"]
+    authority = payload.get("authority")
+    bars = payload.get("alpaca", {}).get("bars")
+    fred = payload.get("fred", {})
+    required_false = (
+        "market_wide_price_authorized", "entry_authorized", "action_authorized",
+        "order_authorized", "broker_submission_authorized", "production_authorized",
+        "trading_authorized",
+    )
+    if (
+        payload.get("schema_version") != "free_market_data_capture/1"
+        or not isinstance(authority, dict)
+        or authority.get("evidence_capture_only") is not True
+        or any(authority.get(key) is not False for key in required_false)
+        or payload.get("alpaca", {}).get("feed") != "iex"
+        or not isinstance(bars, list) or not bars
+        or fred.get("series_id") != "VIXCLS"
+    ):
+        return component_row("FREE_MARKET_DATA", "DEGRADED", "CAPTURE_CONTRACT_INVALID")
+    return component_row(
+        "FREE_MARKET_DATA", "READY", None,
+        as_of_date=fred.get("observation_date"),
+        generated_at=payload.get("observed_at_utc"),
+        available_at=payload.get("observed_at_utc"),
+        source_packet_path="data/latest_free_market_data.json",
+        source_packet_sha256=payload.get("packet_sha256"),
+        validated=True,
+        authority=authority,
+        contract_version=payload.get("contract_version"),
+        packet={
+            "vixcls": {"date": fred.get("observation_date"), "value": fred.get("value")},
+            "alpaca_iex_bars": bars,
+            "source_scope": payload.get("alpaca", {}).get("source_scope"),
+            "scope_warning": "IEX_PARTIAL_EVIDENCE_ONLY_NOT_MARKET_WIDE_OR_TRADE_AUTHORITY",
+        },
+    )
+
+
+def build_free_market_data(snapshot: dict | None = None) -> dict:
+    return _classify_free_market_data(
+        _fetch_free_market_data_snapshot() if snapshot is None else snapshot
+    )
+
+
 def _classify_btc_trend(snapshot: dict) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("BTC_TREND", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
@@ -1492,6 +1551,7 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
     "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
     "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
+    "FREE_MARKET_DATA",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
@@ -1586,6 +1646,11 @@ def build_packet(
     rows["US_BREADTH_MEMBERSHIP"] = _boundary(
         _classify_us_breadth(us_breadth_raw_root, us_breadth_snapshot)
     )
+
+    free_market_snapshot = frozen_sources.get("FREE_MARKET_DATA")
+    if free_market_snapshot is None:
+        free_market_snapshot = _fetch_free_market_data_snapshot()
+    rows["FREE_MARKET_DATA"] = _boundary(_classify_free_market_data(free_market_snapshot))
 
     btc_snapshot = frozen_sources.get("BTC_TREND")
     if btc_snapshot is None:
@@ -1702,6 +1767,7 @@ def build_packet(
             "SEC_FILING_CONTENT": sec_snapshot,
             "KOFIA_FIRST_SEEN": kofia_snapshot,
             "US_BREADTH_MEMBERSHIP": us_breadth_snapshot,
+            "FREE_MARKET_DATA": free_market_snapshot,
             "BTC_TREND": btc_snapshot,
             "BTC_RISK": btc_risk_snapshot,
             "STABLECOIN_NET_ISSUANCE": stablecoin_snapshot,
@@ -1792,7 +1858,7 @@ _SECTION_GROUPS = [
     ("Data / Read-model health", ["STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT", "KRX_POST_CLOSE"]),
     ("Filing & source evidence", ["DART_FILING_CONTENT", "SEC_FILING_CONTENT", "KOFIA_FIRST_SEEN"]),
     ("Sensors", [
-        "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
+        "US_BREADTH_MEMBERSHIP", "FREE_MARKET_DATA", "BTC_TREND", "BTC_RISK",
         "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
     ]),
     ("3-Market Regime", ["THREE_MARKET_REGIME_HEADER"]),
@@ -1868,6 +1934,17 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"    - snapshot_date={packet.get('snapshot_date')} "
                 f"members={packet.get('member_count')}"
             )
+        elif cid == "FREE_MARKET_DATA":
+            vix = packet.get("vixcls", {})
+            bars = packet.get("alpaca_iex_bars", [])
+            lines.append(
+                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
+            )
+            lines.append(
+                "    - Alpaca IEX partial: "
+                + ", ".join(f"{bar.get('symbol')}={bar.get('close')}" for bar in bars)
+            )
+            lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
             lines.append(
                 f"    - direction={packet.get('direction')} 200dma={packet.get('dma_200')}"
