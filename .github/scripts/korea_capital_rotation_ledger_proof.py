@@ -13,10 +13,16 @@ same decision_date to prove the BLOCKED breadth lineage renders all the
 way through.
 
 Honesty boundary, updated 2026-08-22 (minimal rotation_policy
-ratification): Breadth, Leadership, AND korea_capital_rotation.py's own
-rotation_policy are now all real. Breadth is the committed P3-03/
-P1-KR-05 lineage (unchanged, still available_at=null -> BLOCKED --
-that is a separate, still-open boundary, see PR B). Leadership is the
+ratification + PIT temporal-invariant correction): Breadth, Leadership,
+AND korea_capital_rotation.py's own rotation_policy are now all real.
+Breadth is the committed P3-03/P1-KR-05 lineage -- source_available_at
+(verified official publication timing) stays permanently null, an
+honest, unchanged gap, but korea_capital_rotation.py now correctly
+compares first_seen_at against decision_time (never against
+observation_date -- that direction was backwards, see docs/korea_
+capital_rotation_contract.md), so a genuine forward_live capture whose
+first_seen_at predates decision_time is real, independently re-derived
+AVAILABLE, not permanently BLOCKED. Leadership is the
 committed korea_leadership_context/{date}/packet.json real
 observations, built by real KRX index fetches through the ratified
 P1-KR-07 policy (48 sector/benchmark identities). rotation_policy
@@ -252,7 +258,13 @@ def run(prior_date: str, current_date: str, ledger_out: Path | None, pointer_out
     as_of_date = current_date
     value, rotation_policy = build_real_price_side(prior_date, current_date)
     source = WIRE.load_breadth_context_source(as_of_date)
-    breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source)
+    # decision_time: the real current Leadership observation's own
+    # available_at -- no part of this rotation decision could have been
+    # made any earlier than this real, already-KST-validated instant
+    # (see rotation/korea_capital_rotation.py's PIT temporal-invariant
+    # correction, 2026-08-22).
+    decision_time = value["current_observation"]["available_at"]
+    breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source, decision_time)
     value["coverage_context"]["breadth"] = breadth
     rotation_packet = KCR.build_packet(value, rotation_policy)
 

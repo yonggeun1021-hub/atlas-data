@@ -2,15 +2,22 @@
 """P2-03 minimal own-benchmark rotation_policy ratification regression.
 
 Covers both the real ratified policy's construction (BuildRealPriceSide*)
-and the real end-to-end proof against two genuinely different real
+and the real end-to-end proof against three genuinely different real
 observation pairs:
   - the OLD 2026-08-19/2026-08-21 pair, fetched BEFORE this policy was
     ratified -- must be correctly REJECTED by the anti-lookahead check
     (AntiLookaheadRejectionTest), not silently accepted.
-  - the NEW 2026-08-18/2026-08-20 pair, fetched AFTER ratification --
-    must move from POLICY_NOT_EFFECTIVE all the way to a real
-    ROTATION_BUCKETS_OBSERVED packet that is still correctly held back
-    by Breadth (EndToEndRealRatifiedProofTest), never PASS.
+  - the 2026-08-18/2026-08-20 pair, fetched AFTER ratification --
+    ROTATION_BUCKETS_OBSERVED, still correctly held back by Breadth
+    (EndToEndRealRatifiedProofTest): this real evidence's Breadth
+    first_seen_at is genuinely AFTER the current Leadership observation's
+    own available_at (decision_time) -- BLOCKED, not a forced PASS.
+  - the 2026-08-13/2026-08-14 pair (RealAvailableEndToEndProofTest):
+    real evidence where Breadth's first_seen_at genuinely predates
+    decision_time -- READY end-to-end for the first time, proving the
+    PIT temporal-invariant correction (2026-08-22) is not merely
+    theoretical. Buy/Stage/Action/Order/Production/trading authority
+    stay closed regardless.
 """
 from __future__ import annotations
 
@@ -29,7 +36,8 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 OLD_PRIOR, OLD_CURRENT = "2026-08-19", "2026-08-21"  # pre-ratification evidence
-NEW_PRIOR, NEW_CURRENT = "2026-08-18", "2026-08-20"  # post-ratification evidence
+NEW_PRIOR, NEW_CURRENT = "2026-08-18", "2026-08-20"  # post-ratification evidence, Breadth BLOCKED
+AVAILABLE_PRIOR, AVAILABLE_CURRENT = "2026-08-13", "2026-08-14"  # Breadth AVAILABLE (real)
 
 
 class LoadRealLeadershipPacketTest(unittest.TestCase):
@@ -122,7 +130,8 @@ class AntiLookaheadRejectionTest(unittest.TestCase):
         )
         value, rotation_policy = MODULE.build_real_price_side(OLD_PRIOR, OLD_CURRENT)
         source = WIRE.load_breadth_context_source(OLD_CURRENT)
-        breadth, _ = WIRE.build_coverage_context_breadth(OLD_CURRENT, 3, source)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, _ = WIRE.build_coverage_context_breadth(OLD_CURRENT, 3, source, decision_time)
         value["coverage_context"]["breadth"] = breadth
         with self.assertRaisesRegex(
             KCR.KoreaCapitalRotationError, "POLICY_RATIFIED_AFTER_PRIOR_OBSERVATION"
@@ -144,7 +153,8 @@ class EndToEndRealRatifiedProofTest(unittest.TestCase):
         )
         value, rotation_policy = MODULE.build_real_price_side(NEW_PRIOR, NEW_CURRENT)
         source = WIRE.load_breadth_context_source(NEW_CURRENT)
-        breadth, reason = WIRE.build_coverage_context_breadth(NEW_CURRENT, 3, source)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, reason = WIRE.build_coverage_context_breadth(NEW_CURRENT, 3, source, decision_time)
         value["coverage_context"]["breadth"] = breadth
         packet = KCR.build_packet(value, rotation_policy)
         return KCR, WIRE, packet, source, reason
@@ -257,7 +267,8 @@ class TemporalAndScopeIntegrityTest(unittest.TestCase):
         )
         value["as_of_date"] = NEW_PRIOR
         source = WIRE.load_breadth_context_source(NEW_CURRENT)
-        breadth, _ = WIRE.build_coverage_context_breadth(NEW_PRIOR, 3, source)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, _ = WIRE.build_coverage_context_breadth(NEW_PRIOR, 3, source, decision_time)
         # This will legitimately fail closed on either the date-order or
         # the as_of/breadth mismatch check -- both are real, both prove
         # reversal is rejected, not silently accepted.
@@ -272,7 +283,8 @@ class TemporalAndScopeIntegrityTest(unittest.TestCase):
         )
         value, rotation_policy = MODULE.build_real_price_side(NEW_PRIOR, NEW_CURRENT)
         source = WIRE.load_breadth_context_source(NEW_CURRENT)
-        breadth, _ = WIRE.build_coverage_context_breadth(NEW_CURRENT, 3, source)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, _ = WIRE.build_coverage_context_breadth(NEW_CURRENT, 3, source, decision_time)
         value["coverage_context"]["breadth"] = breadth
         # Tamper with one real relative_strength_vs_benchmark value
         # without updating the upstream packet's own payload_sha256.
@@ -291,7 +303,8 @@ class TemporalAndScopeIntegrityTest(unittest.TestCase):
         )
         value, rotation_policy = MODULE.build_real_price_side(NEW_PRIOR, NEW_CURRENT)
         source = WIRE.load_breadth_context_source(NEW_CURRENT)
-        breadth, _ = WIRE.build_coverage_context_breadth(NEW_CURRENT, 3, source)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, _ = WIRE.build_coverage_context_breadth(NEW_CURRENT, 3, source, decision_time)
         value["coverage_context"]["breadth"] = breadth
         scopes = {s["benchmark_identity"]: s for s in rotation_policy["benchmark_scopes"]}
         kosdaq_member = scopes["KOSDAQ::코스닥"]["members"].pop()
@@ -300,6 +313,72 @@ class TemporalAndScopeIntegrityTest(unittest.TestCase):
         scopes["KOSPI::코스피"]["members"].sort(key=lambda m: m["series_identity"])
         with self.assertRaises(KCR.KoreaCapitalRotationError):
             KCR.build_packet(value, rotation_policy)
+
+
+class RealAvailableEndToEndProofTest(unittest.TestCase):
+    """The real 2026-08-13/2026-08-14 pair: Breadth for 2026-08-13 was
+    genuinely fetched BEFORE Leadership for 2026-08-13 (real run
+    32563091197 then 32563128463), and Leadership for 2026-08-14 was
+    fetched after Breadth for 2026-08-14 (real run 32563198793 then
+    32563230714) -- so Breadth's real first_seen_at genuinely predates
+    decision_time (the current Leadership observation's own real
+    available_at). This is the actual, non-synthetic proof that the PIT
+    temporal-invariant correction produces a real READY end-to-end
+    result once the underlying evidence genuinely supports it -- not a
+    forced PASS, and never any Buy/Stage/Action/Order/Production/trading
+    authority."""
+
+    def test_run_produces_real_available_breadth_and_ready_briefing(self):
+        result = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
+        packet = result["rotation_packet"]
+        self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertTrue(packet["rotation_policy_effective"])
+        self.assertEqual(packet["coverage_context"]["breadth"]["status"], "AVAILABLE")
+        self.assertTrue(packet["coverage_context"]["breadth"]["decision_eligible"])
+        for field in (
+            "trading_authorized", "production_authorized", "stage_promotion_authorized",
+            "candidate_ranking_authorized", "regime_input_authorized",
+        ):
+            self.assertFalse(packet["authority"][field])
+
+        KCR = MODULE._load_module(
+            "kcr_for_available_test", "rotation/korea_capital_rotation.py"
+        )
+        checked = KCR.validate_packet(copy.deepcopy(packet))
+        self.assertEqual(checked, packet)
+
+        pointer = result["pointer"]
+        self.assertEqual(pointer["rotation"]["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertEqual(pointer["breadth"]["status"], "AVAILABLE")
+        self.assertTrue(pointer["breadth"]["decision_eligible"])
+
+        daily_orchestrator = MODULE._load_module(
+            "daily_orchestrator_for_available_test", "briefing/daily_orchestrator.py"
+        )
+        row = daily_orchestrator.build_korea_rotation(
+            AVAILABLE_CURRENT, snapshot={"kind": "payload", "value": pointer}
+        )
+        self.assertEqual(row["status"], "READY")
+        self.assertIsNone(row["reason"])
+        for authorized in row["authority"].values():
+            self.assertFalse(authorized)
+
+    def test_rerun_is_byte_identical(self):
+        first = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
+        second = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
+        self.assertEqual(first["rotation_packet"], second["rotation_packet"])
+        self.assertEqual(first["pointer"], second["pointer"])
+
+    def test_ledger_accepts_real_available_packet(self):
+        LEDGER = MODULE._load_module(
+            "ledger_for_available_test", "rotation/rotation_state_ledger.py"
+        )
+        result = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
+        packet = result["rotation_packet"]
+        state_policy = MODULE.build_state_policy(packet)
+        ledger = LEDGER.apply_rotation(packet, state_policy, previous_ledger=None)
+        self.assertEqual(ledger["status"], "STATE_HISTORY_OBSERVED")
+        self.assertEqual(len(ledger["records"]), 46)
 
 
 if __name__ == "__main__":

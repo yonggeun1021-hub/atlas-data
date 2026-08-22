@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "korea_capital_rotation_contract.json"
 INPUT_SCHEMA_VERSION = "korea_capital_rotation_input/1"
 POLICY_SCHEMA_VERSION = "korea_capital_rotation_policy/1"
-OUTPUT_SCHEMA_VERSION = "korea_capital_rotation_packet/3"
+OUTPUT_SCHEMA_VERSION = "korea_capital_rotation_packet/4"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 
@@ -45,7 +45,7 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "korea_capital_rotation/3",
+        "contract_version": "korea_capital_rotation/4",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "policy_schema_version": POLICY_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
@@ -210,55 +210,151 @@ def _validate_binding(value: dict, contract: dict) -> dict:
 _BREADTH_STATUS_SEVERITY = {"UNKNOWN": 0, "BLOCKED": 1, "STALE": 2, "AVAILABLE": 3}
 
 
-def _validate_breadth_market(value: dict, market: str) -> dict:
-    """Parse one market's minimum-sufficient breadth lineage facts.
+BREADTH_CAPTURE_MODES = {"forward_live", "historical_backfill"}
 
-    All three fields null together means no observation was supplied for
+
+def _validate_breadth_market(value: dict, market: str) -> dict:
+    """Parse one market's minimum-sufficient point-in-time breadth
+    lineage facts.
+
+    2026-08-22 PIT temporal-invariant correction (see docs/korea_
+    capital_rotation_contract.md and this PR's body for the full audit):
+    observation_date is the market day this data DESCRIBES; nothing
+    about it can genuinely become available before that day ends, so
+    source_available_at/first_seen_at are only ever validated against
+    observation_date in the ">=", never "<=", direction -- the same
+    direction korea_leadership.py's own upstream available_at already
+    used (UPSTREAM_AVAILABLE_BEFORE_OBSERVATION). The previous
+    available_at<=as_of_date check was backwards, effectively requiring
+    same-day publication and rejecting every genuine T+1-or-later
+    capture as "future" -- fixed here, not worked around.
+
+    All six fields null together means no observation was supplied for
     this market at all (-> UNKNOWN downstream). Any other combination
     requires at least lineage_sha256 and as_of_date -- a market cannot
-    have a partial identity. available_at alone may still be null: that
-    is exactly what every P1-KR-05 Breadth observation packet emits today
-    (decision_eligible=false at the source), and must map to BLOCKED, not
-    be treated as a missing observation.
+    have a partial identity. source_available_at/first_seen_at/
+    capture_mode may still all be null: that is exactly what a Breadth
+    observation with no confirmed timing yet looks like, and must map to
+    BLOCKED, not be treated as a missing observation.
     """
     if not isinstance(value, dict) or set(value) != {
-        "lineage_sha256", "as_of_date", "available_at",
+        "lineage_sha256", "as_of_date", "source_available_at",
+        "captured_at", "first_seen_at", "capture_mode",
     }:
         raise KoreaCapitalRotationError(f"BREADTH_MARKET_FIELDS_MISMATCH:{market}")
     lineage_sha256 = value.get("lineage_sha256")
     as_of_date = value.get("as_of_date")
-    available_at = value.get("available_at")
-    if lineage_sha256 is None and as_of_date is None and available_at is None:
-        return {"lineage_sha256": None, "as_of_date": None, "available_at": None}
+    source_available_at = value.get("source_available_at")
+    captured_at = value.get("captured_at")
+    first_seen_at = value.get("first_seen_at")
+    capture_mode = value.get("capture_mode")
+    if (
+        lineage_sha256 is None and as_of_date is None and source_available_at is None
+        and captured_at is None and first_seen_at is None and capture_mode is None
+    ):
+        return {
+            "lineage_sha256": None, "as_of_date": None, "source_available_at": None,
+            "captured_at": None, "first_seen_at": None, "capture_mode": None,
+        }
     if lineage_sha256 is None or as_of_date is None:
         raise KoreaCapitalRotationError(f"BREADTH_MARKET_PARTIAL_IDENTITY:{market}")
+    if capture_mode is not None and capture_mode not in BREADTH_CAPTURE_MODES:
+        raise KoreaCapitalRotationError(f"BREADTH_MARKET_CAPTURE_MODE_INVALID:{market}")
+    parsed_as_of = _date(as_of_date, f"BREADTH_MARKET_DATE_INVALID:{market}")
     parsed = {
         "lineage_sha256": _sha(lineage_sha256, f"BREADTH_MARKET_SHA_INVALID:{market}"),
-        "as_of_date": _date(as_of_date, f"BREADTH_MARKET_DATE_INVALID:{market}"),
-        "available_at": (
-            None if available_at is None
-            else _timestamp(available_at, f"BREADTH_MARKET_AVAILABLE_AT_INVALID:{market}")
+        "as_of_date": parsed_as_of,
+        "source_available_at": (
+            None if source_available_at is None
+            else _timestamp(
+                source_available_at, f"BREADTH_MARKET_SOURCE_AVAILABLE_AT_INVALID:{market}"
+            )
         ),
+        "captured_at": (
+            None if captured_at is None
+            else _timestamp(captured_at, f"BREADTH_MARKET_CAPTURED_AT_INVALID:{market}")
+        ),
+        "first_seen_at": (
+            None if first_seen_at is None
+            else _timestamp(first_seen_at, f"BREADTH_MARKET_FIRST_SEEN_AT_INVALID:{market}")
+        ),
+        "capture_mode": capture_mode,
     }
+    # Structural chronology: data cannot be seen before it was captured,
+    # or before the day it describes -- a real tamper/defect signal, not
+    # a silently-ignored edge case.
+    if parsed["first_seen_at"] is not None:
+        if (
+            parsed["captured_at"] is not None
+            and parsed["first_seen_at"] < parsed["captured_at"]
+        ):
+            raise KoreaCapitalRotationError(
+                f"BREADTH_MARKET_FIRST_SEEN_BEFORE_CAPTURED:{market}"
+            )
+        if parsed["first_seen_at"].date() < parsed_as_of:
+            raise KoreaCapitalRotationError(f"BREADTH_MARKET_FIRST_SEEN_BEFORE_AS_OF:{market}")
+    if (
+        parsed["source_available_at"] is not None
+        and parsed["source_available_at"].date() < parsed_as_of
+    ):
+        raise KoreaCapitalRotationError(
+            f"BREADTH_MARKET_SOURCE_AVAILABLE_AT_BEFORE_AS_OF:{market}"
+        )
     return parsed
 
 
+def _decision_available_at(parsed: dict) -> dt.datetime | None:
+    """The effective timestamp this market's Breadth observation could
+    honestly be used from, or None if it never became decision-eligible.
+
+    source_available_at (verified official publication timing) is
+    authoritative whenever present. Otherwise, a genuine forward_live
+    capture's first_seen_at stands in for it -- this is real evidence
+    (Atlas itself observed the data at this real instant), not a
+    fabricated stand-in. historical_backfill evidence (or evidence with
+    no declared capture_mode at all) never counts: date math alone
+    cannot distinguish a genuine next-day capture from a convenient
+    later catch-up, so this is a declared fact, not derived.
+    """
+    if parsed["source_available_at"] is not None:
+        return parsed["source_available_at"]
+    if parsed["capture_mode"] != "forward_live":
+        return None
+    return parsed["first_seen_at"]
+
+
 def _derive_breadth_market_status(
-    parsed: dict, as_of_date: dt.date, freshness_limit_days: int, market: str
+    parsed: dict, decision_time: dt.datetime, freshness_limit_days: int, market: str
 ) -> str:
+    """decision_time is the real, already-validated instant no part of
+    this rotation decision could have been made before (see build_packet/
+    validate_packet: the current Leadership observation's own
+    available_at). No-lookahead is decision_available_at <= decision_time
+    -- never decision_available_at <= observation_date, which would wrongly
+    reject every genuine T+1-or-later capture as "from the future".
+
+    A market whose decision_available_at is genuinely AFTER decision_time
+    degrades to BLOCKED, not a hard failure: two independently-scheduled
+    real captures (Leadership, Breadth) can legitimately complete in
+    either order, and this is not itself a tamper/defect signal the way
+    a first_seen_at claiming to predate its own as_of_date is (that
+    still raises, in _validate_breadth_market above) -- it just means
+    this specific Breadth observation was not yet usable by this
+    specific decision."""
     if parsed["lineage_sha256"] is None:
         return "UNKNOWN"
-    if parsed["available_at"] is None:
+    decision_available_at = _decision_available_at(parsed)
+    if decision_available_at is None:
         return "BLOCKED"
-    age_days = (as_of_date - parsed["available_at"].date()).days
-    if age_days < 0:
-        raise KoreaCapitalRotationError(f"BREADTH_MARKET_AVAILABLE_AT_AFTER_AS_OF:{market}")
+    if decision_available_at > decision_time:
+        return "BLOCKED"
+    age_days = (decision_time.date() - decision_available_at.date()).days
     if age_days > freshness_limit_days:
         return "STALE"
     return "AVAILABLE"
 
 
-def _validate_context(value: dict, as_of_date: dt.date) -> dict:
+def _validate_context(value: dict, as_of_date: dt.date, decision_time: dt.datetime) -> dict:
     fields = {"breadth", "investor_flow"}
     if not isinstance(value, dict) or set(value) != fields:
         raise KoreaCapitalRotationError("COVERAGE_CONTEXT_FIELDS_MISMATCH")
@@ -286,7 +382,7 @@ def _validate_context(value: dict, as_of_date: dt.date) -> dict:
     # never averaged or masked by the other market being fresher.
     per_market_status = {
         market: _derive_breadth_market_status(
-            parsed, as_of_date, freshness_limit_days, market
+            parsed, decision_time, freshness_limit_days, market
         )
         for market, parsed in parsed_markets.items()
     }
@@ -634,9 +730,14 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         raise KoreaCapitalRotationError("INPUT_FIELDS_MISMATCH")
     as_of_date = _date(value.get("as_of_date"), "AS_OF_DATE_INVALID")
     binding = _validate_binding(value.get("taxonomy_binding"), contract)
-    context = _validate_context(value.get("coverage_context"), as_of_date)
     prior = _validate_upstream(value.get("prior_observation"), "prior", contract)
     current = _validate_upstream(value.get("current_observation"), "current", contract)
+    # decision_time = the current Leadership observation's own real,
+    # already-KST-validated available_at -- the whole rotation decision
+    # cannot have been made any earlier than this real moment, so it is
+    # the natural, non-fabricated no-lookahead reference point for
+    # Breadth's own timestamps (see _derive_breadth_market_status).
+    context = _validate_context(value.get("coverage_context"), as_of_date, current["available_at"])
     if not prior["observation_date"] < current["observation_date"] == as_of_date:
         raise KoreaCapitalRotationError("OBSERVATION_DATE_ORDER_INVALID")
     if prior["available_at"] >= current["available_at"]:
@@ -833,7 +934,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     if prior_available_at >= current_available_at:
         raise KoreaCapitalRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
     binding = _validate_binding(packet.get("taxonomy_binding"), contract)
-    _validate_context(packet.get("coverage_context"), as_of)
+    _validate_context(packet.get("coverage_context"), as_of, current_available_at)
 
     policy = packet.get("rotation_policy")
     policy_fields = {
