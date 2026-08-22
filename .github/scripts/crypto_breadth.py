@@ -371,6 +371,18 @@ def require_ratified_policy(policy: dict, as_of: dt.date) -> None:
 def load_exclusion_taxonomy(
     path: Path = EXCLUSION_TAXONOMY_PATH,
 ) -> dict:
+    """`unverified_identity` (2026-08-22, policy_version v2): an
+    excluded_categories value for assets whose canonical on-chain/
+    project identity could not be confirmed via at least two independent
+    sources -- conservatively removed from the source-coverage universe,
+    exactly like fiat/stablecoin/wrapped/staked/commodity_linked, never
+    a claim of investment unsuitability. Unlike an unclassified
+    (taxonomy_category=None) asset -- which blocks the whole
+    qualified_members() gate closed (TAXONOMY_COVERAGE_UNKNOWN) -- an
+    explicitly unverified_identity record is a real, ratified
+    classification: the gate skips past it and keeps ranking, exactly
+    like any other excluded category. This does not lower the Top-100
+    target_asset_count or the 90% observation-coverage gate."""
     policy = read_json(path, "TAXONOMY_POLICY_INVALID")
     expected = {
         "schema_version",
@@ -402,6 +414,7 @@ def load_exclusion_taxonomy(
         "fiat",
         "stablecoin",
         "staked",
+        "unverified_identity",
         "wrapped",
     ]
     if excluded != required_excluded:

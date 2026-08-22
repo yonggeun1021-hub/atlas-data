@@ -162,7 +162,7 @@ def write_taxonomy(path, categories, approval="RATIFIED"):
     ]
     payload = {
         "schema_version": 1,
-        "policy_version": "crypto_breadth_exclusion_taxonomy/v1",
+        "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
         "approval_status": approval,
         "source_name": "kraken_spot_market_data",
         "effective_from": "2026-01-01",
@@ -172,6 +172,7 @@ def write_taxonomy(path, categories, approval="RATIFIED"):
             "fiat",
             "stablecoin",
             "staked",
+            "unverified_identity",
             "wrapped",
         ],
         "unknown_asset_policy": "fail_closed_unknown",
@@ -611,6 +612,101 @@ class CryptoBreadthTest(unittest.TestCase):
                 ["DOGE"],
             )
             self.assertIsNone(result["alt_participation"])
+
+    def test_unverified_identity_is_excluded_not_unknown(self):
+        # unverified_identity (policy_version v2, 2026-08-22): an
+        # explicitly-classified excluded category, structurally distinct
+        # from an unclassified (None) asset -- the gate skips past it and
+        # keeps ranking toward target, it does not block the whole gate
+        # UNKNOWN the way a genuinely unclassified asset does. NIGHT is
+        # ranked 3rd (by descending turnover) among 6 candidates so the
+        # target=4 selection loop genuinely passes through it before
+        # completing -- proving skip-and-continue, not merely "never
+        # reached".
+        bases = ["BTC", "ETH", "NIGHT", "SOL", "DOGE", "XRP"]
+        prices = {
+            base: (100 - index, 101 - index, 999)
+            for index, base in enumerate(bases)
+        }
+        categories = {
+            "BTC": "eligible_crypto", "ETH": "eligible_crypto",
+            "SOL": "eligible_crypto", "DOGE": "eligible_crypto",
+            "XRP": "eligible_crypto", "NIGHT": "unverified_identity",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = write_policy(Path(tmp) / "policy.json", target=4)
+            taxonomy = write_taxonomy(Path(tmp) / "taxonomy.json", categories)
+            snapshot = write_snapshot(
+                Path(tmp) / "raw", prices=prices,
+            )
+            result = MODULE.build_transform(
+                snapshot,
+                universe_policy_path=policy,
+                exclusion_taxonomy_path=taxonomy,
+            )
+            self.assertEqual(result["status"], "OBSERVED_UNCLASSIFIED")
+            self.assertEqual(result["universe"]["taxonomy_unknown_before_cutoff"], [])
+            excluded_ids = [
+                item["canonical_asset_id"]
+                for item in result["universe"]["taxonomy_excluded_before_cutoff"]
+            ]
+            self.assertEqual(excluded_ids, ["NIGHT"])
+            selected_ids = {
+                item["canonical_asset_id"] for item in result["universe"]["members"]
+            }
+            self.assertEqual(selected_ids, {"BTC", "ETH", "SOL", "DOGE"})
+            self.assertNotIn("NIGHT", selected_ids)
+            # rank_before_taxonomy is preserved even for a skipped
+            # candidate -- original ticker/rank/source are never lost.
+            self.assertEqual(
+                result["universe"]["taxonomy_excluded_before_cutoff"][0][
+                    "rank_before_taxonomy"
+                ],
+                3,
+            )
+
+    def test_invalid_excluded_categories_list_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            taxonomy_path = Path(tmp) / "taxonomy.json"
+            payload = json.loads(write_taxonomy(taxonomy_path, {}).read_text())
+            # Typo/omission in the required category list -- not the
+            # same as an unratified policy, must still fail closed.
+            payload["excluded_categories"] = [
+                "commodity_linked", "fiat", "stablecoin", "staked", "wrapped",
+            ]  # missing unverified_identity
+            taxonomy_path.write_text(json.dumps(payload, sort_keys=True))
+            with self.assertRaisesRegex(MODULE.BreadthError, "TAXONOMY_POLICY_INVALID"):
+                MODULE.load_exclusion_taxonomy(taxonomy_path)
+
+    def test_unverified_identity_effective_date_gates_replay(self):
+        # A record's own effective_from governs whether it is recognized
+        # as of a given as_of date, independent of when the whole policy
+        # document was ratified -- replay before vs. after the record's
+        # effective_from must differ.
+        record = {
+            "canonical_asset_id": "NIGHT",
+            "category": "unverified_identity",
+            "effective_from": "2026-08-15",
+            "effective_to": None,
+            "reason": "test fixture: identity unresolved",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            taxonomy_path = Path(tmp) / "taxonomy.json"
+            payload = json.loads(write_taxonomy(taxonomy_path, {}).read_text())
+            payload["records"] = [record]
+            taxonomy_path.write_text(json.dumps(payload, sort_keys=True))
+            policy = MODULE.load_exclusion_taxonomy(taxonomy_path)
+            self.assertIsNone(
+                MODULE.taxonomy_category("NIGHT", dt.date(2026, 8, 14), policy)
+            )
+            self.assertEqual(
+                MODULE.taxonomy_category("NIGHT", dt.date(2026, 8, 15), policy),
+                "unverified_identity",
+            )
+            self.assertEqual(
+                MODULE.taxonomy_category("NIGHT", dt.date(2026, 8, 22), policy),
+                "unverified_identity",
+            )
 
     def test_observation_coverage_gate_is_exactly_ninety_percent(self):
         bases = ["BTC"] + [f"A{i}" for i in range(1, 10)]

@@ -37,15 +37,15 @@ RATIFIED_ELIGIBLE = [
 
 # Deliberately NOT ratified as of this Slice -- must stay UNKNOWN.
 # PROS/POL/LUNA/SKY/US/HYPE/WEMIX/PEPE/SHIB were resolved and ratified in
-# the later Identity Slice (see test_crypto_taxonomy_identity_slice.py);
-# this list now only covers what remains genuinely unresolved.
-NOT_RATIFIED = [
-    "RE", "PLAY",  # unresolved -- no confirmed project identity from 2+ sources
-    "NIGHT",  # genuine ticker collision (Midnight/Cardano privacy chain vs an
-              # unrelated Polygon meme coin sharing the same name/ticker) --
-              # cannot confirm which one this repo's raw snapshot even refers
-              # to from ticker alone, so it stays UNKNOWN rather than guessed.
-]
+# the later Identity Slice (see test_crypto_taxonomy_identity_slice.py).
+# RE/PLAY/NIGHT (this Slice's own remaining unresolved set) were never
+# later confirmed as eligible_crypto -- instead, policy_version v2
+# (2026-08-22) explicitly ratified all three as unverified_identity, a
+# real excluded category, not UNKNOWN. See test_crypto_breadth_
+# unverified_identity_real_evidence.py for that classification's
+# regression coverage; this list is now empty because nothing remains
+# genuinely unresolved from this specific historical Slice.
+NOT_RATIFIED: list[str] = []
 
 
 class MinimalTaxonomySliceTest(unittest.TestCase):

@@ -5,12 +5,14 @@ Covers the 53 assets identity-confirmed by 2+ independent official
 sources (Kraken's own listing + a second independent public source,
 usually CoinGecko) in this Slice: POL/SKY/LUNA rebrand-and-fork
 continuity, PROS/US cross-project identity disambiguation, and 48
-further native crypto projects. RE/PLAY stay UNKNOWN (no confirmed
-identity from 2+ sources) and NIGHT stays UNKNOWN despite an initial
-single-source match, because a second source revealed a genuine ticker
-collision between two unrelated real projects sharing the name
-"Midnight"/ticker NIGHT -- exactly the case this Slice's own rule
-("ticker만으로 identity 확정 금지") exists to catch.
+further native crypto projects. RE/PLAY had no confirmed identity from
+2+ sources as of this Slice, and NIGHT had a genuine ticker collision
+between two unrelated real projects sharing the name "Midnight"/ticker
+NIGHT (exactly the case this Slice's own rule -- "ticker만으로 identity
+확정 금지" -- exists to catch) -- all three stayed UNKNOWN here. They
+were later explicitly ratified as `unverified_identity` (policy_version
+v2, 2026-08-22, a real excluded category, never a guessed identity) --
+see test_crypto_breadth_unverified_identity_real_evidence.py.
 """
 from __future__ import annotations
 
@@ -50,11 +52,11 @@ REMAINING_IDENTITY_CONFIRMED = [
 
 ALL_RATIFIED = REBRAND_CONTINUITY + DISAMBIGUATED_IDENTITY + REMAINING_IDENTITY_CONFIRMED
 
-# Genuinely unresolved -- must stay UNKNOWN even after this Slice.
-STILL_UNKNOWN = [
-    "RE", "PLAY",  # no confirmed project identity from 2+ independent sources
-    "NIGHT",  # ticker collision between two unrelated real projects
-]
+# Genuinely unresolved as of this Slice -- later explicitly ratified as
+# unverified_identity (policy_version v2, 2026-08-22), a real excluded
+# category, not UNKNOWN. See test_crypto_breadth_unverified_identity_
+# real_evidence.py for that classification's regression coverage.
+STILL_UNKNOWN: list[str] = []
 
 
 class IdentitySliceTest(unittest.TestCase):
