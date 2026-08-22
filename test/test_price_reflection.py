@@ -124,12 +124,36 @@ TESTONLY_SUBJECT = "TESTONLY-EVENT-EVIDENCE-000"
 TESTONLY_LIVE_FIXTURE = "live_official_capture_testonly_000.json"
 TESTONLY_LIVE_EVENT_AT = "2026-08-10T09:30:00Z"
 TESTONLY_RAW_SOURCE = "raw_source_testonly_000.json"
-# CIO round 7, required item 4: a SEPARATE raw source document whose own
-# structured `observed_direction` is NEGATIVE (a "revenue decline"-style
-# disclosure, the CIO's own example) -- used to prove a claimed
-# `direction=POSITIVE` can never be backed by content that is itself
-# genuinely, structurally NEGATIVE.
+# CIO round 7, required item 4 (schema hardened round 8, defect 2): a
+# SEPARATE raw source document whose own ratified `official_direction_
+# field` maps to NEGATIVE (a "revenue decline"-style disclosure, the CIO's
+# own example) -- used to prove a claimed `direction=POSITIVE` can never be
+# backed by content that is itself genuinely, ratified-mapped NEGATIVE.
 TESTONLY_RAW_SOURCE_NEGATIVE = "raw_source_testonly_000_negative.json"
+# CIO round 8, defect 2: a raw source establishing direction via the OTHER
+# closed route (RATIFIED_DERIVATION, a numeric rule) instead of a
+# structured official field -- proves BOTH routes are genuinely usable, not
+# just one.
+TESTONLY_RAW_SOURCE_DERIVATION = "raw_source_testonly_000_derivation.json"
+# CIO round 8, defect 2: a raw source carrying only the RETIRED round-7
+# `observed_direction` shape -- neither closed route's required structure
+# is present -- proving a bare human-curated claim alone is never enough.
+TESTONLY_RAW_SOURCE_HUMAN_CURATED = "raw_source_testonly_000_human_curated.json"
+# CIO round 8, defect 2: matches ONLY what the two new fixtures above
+# declare; this module's own real RATIFIED_OFFICIAL_DIRECTION_FIELDS/
+# RATIFIED_DIRECTION_RULES tables start and stay EMPTY -- these entries are
+# overlaid transiently via mocked_ratified_direction_tables() and never
+# committed to the module's own global state.
+TESTONLY_RATIFIED_OFFICIAL_FIELDS = {
+    ("GUIDANCE_CHANGE_EVENT", "guidance_flag", "RAISED"): "POSITIVE",
+    ("GUIDANCE_CHANGE_EVENT", "guidance_flag", "LOWERED"): "NEGATIVE",
+}
+TESTONLY_RATIFIED_DERIVATION_RULES = {
+    ("TESTONLY_REVENUE_YOY_SIGN", "1"): {
+        "required_inputs": ("revenue_yoy_pct",),
+        "derive": lambda inputs: "POSITIVE" if inputs["revenue_yoy_pct"] > 0 else "NEGATIVE",
+    },
+}
 TESTONLY_OBSERVED_FACT = (
     "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive test disclosure "
     "used only to exercise citation verification."
@@ -229,6 +253,16 @@ def mocked_eg_canonical_verification(reference_decision_date: str = "2026-07-29"
         yield
     finally:
         MODULE.EVENT_EVIDENCE.verify_expectations_gap_canonical_record = original
+
+
+@contextlib.contextmanager
+def mocked_ratified_direction_tables(**kwargs):
+    """Thin wrapper around `decision/event_evidence.py`'s own `mocked_
+    ratified_direction_tables()`, always applied to THIS test file's own
+    loaded `EVENT_EVIDENCE` module instance -- never the real module object
+    any other caller sees."""
+    with EVENT_EVIDENCE.mocked_ratified_direction_tables(EVENT_EVIDENCE, **kwargs):
+        yield
 
 
 def base_kwargs(**overrides):
@@ -522,33 +556,44 @@ class PriceReflectionTests(unittest.TestCase):
         self.assertIsNotNone(first_seen, "fixture must be committed for this regression to be meaningful")
         decision_at = first_seen + _dt.timedelta(days=1)
         citation = dict(envelope["citation"])
-        citation["published_at"] = first_seen.strftime("%Y-%m-%dT%H:%M:%SZ")  # genuinely consistent, re-derived
+        # genuinely consistent, re-derived (round 8: both published_at and
+        # captured_at are checked, captured_at is the one that touches git).
+        citation["published_at"] = first_seen.strftime("%Y-%m-%dT%H:%M:%SZ")
+        citation["captured_at"] = first_seen.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        lineage = EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
-        self.assertEqual(lineage["raw_source_ref"], _fixture_ref(TESTONLY_RAW_SOURCE))
-
-        # note-only citation (missing raw_source_ref/_sha256/published_at/locator) fails.
-        with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_FIELDS_MISMATCH"):
-            EVENT_EVIDENCE._verify_raw_source_citation(
-                {"note": "just a free-text assertion, nothing else"}, "POSITIVE", decision_at, forbid_test_root=False,
+        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+            lineage = EVENT_EVIDENCE._verify_raw_source_citation(
+                citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
             )
+            self.assertEqual(lineage["raw_source_ref"], _fixture_ref(TESTONLY_RAW_SOURCE))
 
-        # arbitrary real, hash-matching, but semantically unrelated raw file fails --
-        # it's real JSON, but has no `observed_direction` field at all (round 7,
-        # required item 4: co-presence of a hash-verified file is not enough).
-        arbitrary_citation = dict(citation)
-        arbitrary_citation["raw_source_ref"] = REAL_EVIDENCE_SOURCE_REF
-        arbitrary_citation["raw_source_sha256"] = REAL_EVIDENCE_SHA256
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_RAW_SOURCE_OBSERVED_DIRECTION_INVALID"
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(arbitrary_citation, "POSITIVE", decision_at, forbid_test_root=False)
+            # note-only citation (missing every required field) fails.
+            with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_FIELDS_MISMATCH"):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    {"note": "just a free-text assertion, nothing else"}, "POSITIVE", "GUIDANCE_CHANGE_EVENT",
+                    decision_at, forbid_test_root=False,
+                )
 
-        # wrong hash for the real raw source file fails.
-        wrong_hash_citation = dict(citation)
-        wrong_hash_citation["raw_source_sha256"] = "f" * 64
-        with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_SOURCE_HASH_MISMATCH"):
-            EVENT_EVIDENCE._verify_raw_source_citation(wrong_hash_citation, "POSITIVE", decision_at, forbid_test_root=False)
+            # arbitrary real, hash-matching, but semantically unrelated raw file fails --
+            # it's real JSON, but has no `official_direction_field` at all (round 8,
+            # defect 2: co-presence of a hash-verified file is not enough).
+            arbitrary_citation = dict(citation)
+            arbitrary_citation["raw_source_ref"] = REAL_EVIDENCE_SOURCE_REF
+            arbitrary_citation["raw_source_sha256"] = REAL_EVIDENCE_SHA256
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_INVALID"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    arbitrary_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
+
+            # wrong hash for the real raw source file fails.
+            wrong_hash_citation = dict(citation)
+            wrong_hash_citation["raw_source_sha256"] = "f" * 64
+            with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_SOURCE_HASH_MISMATCH"):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    wrong_hash_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
 
     # ══════════════════════ CIO round 7 regressions ════════════════════════
 
@@ -556,13 +601,12 @@ class PriceReflectionTests(unittest.TestCase):
         """Required item 1: "editing an old file today must not let it
         inherit the old file's original first-seen date." `raw_source_
         testonly_000.json`'s PATH was first added in the round-6 commit,
-        but its CONTENT was edited in round 7 (`observed_direction`/
-        `disclosure_text` fields added, replacing the old
-        `synthetic_disclosure_text` shape). The exact-content first-seen
-        must reflect the round-7 edit, strictly LATER than the path's own
-        original first-add commit -- computed here independently (never
-        hardcoded) via the same git primitive the retired round-6
-        path-level function used, purely for comparison."""
+        but its CONTENT was edited in round 7 and again in round 8. The
+        exact-content first-seen must reflect the LATEST edit, strictly
+        LATER than the path's own original first-add commit -- computed
+        here independently (never hardcoded) via the same git primitive
+        the retired round-6 path-level function used, purely for
+        comparison."""
         path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
         content_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
         self.assertIsNotNone(content_first_seen, "fixture must be committed for this regression to be meaningful")
@@ -584,8 +628,8 @@ class PriceReflectionTests(unittest.TestCase):
 
     def test_cio_round7_editing_old_path_content_today_does_not_pass_as_old_evidence(self):
         """The end-to-end version of item 1: verify the exact CURRENT bytes
-        of the (round-7-edited) raw source cannot be treated as available
-        as of a `decision_at` BEFORE the edit actually landed -- i.e. the
+        of the raw source cannot be treated as available as of a
+        `decision_at` BEFORE the edit actually landed -- i.e. the
         content-addressed check genuinely blocks "edit today, claim it was
         old evidence", not just in isolation but through the real
         `_verify_first_availability` gate."""
@@ -602,111 +646,82 @@ class PriceReflectionTests(unittest.TestCase):
 
     def test_cio_round7_raw_source_has_its_own_git_availability_gate(self):
         """Required item 2: "the raw source has no git-availability check
-        at all" -- closed. `_verify_raw_source_citation` now runs
-        `_verify_first_availability` on the raw source file itself (its
-        `published_at` is the raw source's own "declared_at"), completely
-        independent of the envelope's own `captured_at` check."""
+        at all" -- closed. `_verify_raw_source_citation` runs
+        `_verify_first_availability` on the raw source file itself, using
+        the raw source's OWN `captured_at` (round 8, defect 1: NOT
+        `published_at` any more -- see module docstring), completely
+        independent of the envelope's own `captured_at` check. A
+        `decision_at` BEFORE the raw source's real first-availability is
+        rejected here even though the envelope's own gate would have
+        nothing to say about it."""
         envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
         raw_path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
         first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(raw_path)
         self.assertIsNotNone(first_seen)
         citation = dict(envelope["citation"])
-        # published_at deliberately backdated before the raw source's real
-        # first-availability -- must be caught by the RAW SOURCE's own gate.
-        citation["published_at"] = TESTONLY_DECLARED_CAPTURED_AT  # 2026-08-01, always earlier than first_seen
-        decision_at = first_seen + _dt.timedelta(days=1)
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError,
-            "EVENT_EVIDENCE_RAW_SOURCE_DECLARED_TIMESTAMP_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE",
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
+        citation["published_at"] = TESTONLY_DECLARED_CAPTURED_AT
+        citation["captured_at"] = TESTONLY_DECLARED_CAPTURED_AT  # 2026-08-01, always earlier than first_seen
+        decision_at = first_seen - _dt.timedelta(days=5)
+        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_RAW_SOURCE_NOT_YET_AVAILABLE_AS_OF_DECISION"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
 
-    def test_cio_round7_declared_timestamp_after_decision_at_rejected_everywhere(self):
-        """Required item 3: "a captured_at after decision_at must be
-        rejected on every code path" -- round 6 only checked the LOWER
-        bound (`declared_at < first_seen`); a `declared_at` AFTER
-        `decision_at` used to slip through silently. Proven at the shared
-        `_verify_first_availability` gate (used identically by the
-        envelope, the raw source, and the EG canonical record -- one proof
-        here covers all three call sites) AND independently at the raw
-        source's own citation-level entry point."""
-        path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
-        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
-        self.assertIsNotNone(first_seen)
-        decision_at = first_seen
-        declared_after_decision = first_seen + _dt.timedelta(days=1)
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_DECLARED_TIMESTAMP_AFTER_DECISION_AT"
-        ):
-            EVENT_EVIDENCE._verify_first_availability(path, declared_after_decision, decision_at, "EVENT_EVIDENCE")
-
-        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
-        raw_path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
-        raw_first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(raw_path)
-        self.assertIsNotNone(raw_first_seen)
-        citation = dict(envelope["citation"])
-        raw_decision_at = raw_first_seen
-        citation["published_at"] = (raw_first_seen + _dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_RAW_SOURCE_DECLARED_TIMESTAMP_AFTER_DECISION_AT"
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", raw_decision_at, forbid_test_root=False)
-
-    def test_cio_round7_negative_observed_fact_with_positive_direction_claim_rejected(self):
-        """Required item 4: "a negative observed fact can be paired with
-        direction=POSITIVE and pass" -- closed. `raw_source_testonly_000_
-        negative.json` genuinely, structurally declares
-        `observed_direction=NEGATIVE` (a "revenue decline"-style
-        disclosure, the CIO's own example) -- citing it while claiming
-        `direction=POSITIVE` must be rejected, never merely because a
-        POSITIVE-sounding phrase happens to be absent, but because the raw
-        source's own structured direction field genuinely disagrees."""
+    def test_cio_round7_negative_direction_field_with_positive_direction_claim_rejected(self):
+        """Required item 4 (round 7) / defect 2 (round 8): a raw source
+        whose own ratified `official_direction_field` maps to NEGATIVE must
+        never be usable to back an envelope claiming `direction=POSITIVE`,
+        never merely because a POSITIVE-sounding phrase happens to be
+        absent, but because the raw source's own ratified-mapped direction
+        genuinely disagrees."""
         envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
         neg_ref = _fixture_ref(TESTONLY_RAW_SOURCE_NEGATIVE)
         citation = dict(envelope["citation"])
         citation["raw_source_ref"] = neg_ref
         citation["raw_source_sha256"] = _hash(neg_ref)
         decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError,
-            "EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:claimed=POSITIVE!=observed=NEGATIVE",
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
-
-    def test_cio_round7_observed_direction_must_be_a_recognized_value(self):
-        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
-        citation = dict(envelope["citation"])
-        citation["raw_source_ref"] = REAL_EVIDENCE_SOURCE_REF  # real JSON, no observed_direction field
-        citation["raw_source_sha256"] = REAL_EVIDENCE_SHA256
-        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_RAW_SOURCE_OBSERVED_DIRECTION_INVALID"
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(citation, "POSITIVE", decision_at, forbid_test_root=False)
+        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError,
+                "EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:claimed=POSITIVE!=derived=NEGATIVE",
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
 
     def test_cio_round7_bogus_locator_rejected(self):
         """Required item 5: "actually verify locator against the real
         document... not just non-empty." A `locator` that names a key that
         does not exist in the raw source, and a `locator` that names a real
-        key whose value does NOT contain `observed_fact`, both fail."""
+        key whose value does NOT contain `observed_fact`, both fail (the
+        ratified-direction table must be mocked in so these tests reach the
+        locator check at all -- direction is verified first)."""
         envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
         decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
 
-        missing_key_citation = dict(envelope["citation"])
-        missing_key_citation["locator"] = "this_key_does_not_exist_in_the_raw_source"
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_LOCATOR_NOT_FOUND_IN_RAW_SOURCE"
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(missing_key_citation, "POSITIVE", decision_at, forbid_test_root=False)
+        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+            missing_key_citation = dict(envelope["citation"])
+            missing_key_citation["locator"] = "this_key_does_not_exist_in_the_raw_source"
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_LOCATOR_NOT_FOUND_IN_RAW_SOURCE"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    missing_key_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
 
-        # "note" is a real top-level key in the raw source, but its content
-        # is the fixture's own self-description, not `observed_fact`.
-        wrong_key_citation = dict(envelope["citation"])
-        wrong_key_citation["locator"] = "note"
-        with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_AT_LOCATOR"
-        ):
-            EVENT_EVIDENCE._verify_raw_source_citation(wrong_key_citation, "POSITIVE", decision_at, forbid_test_root=False)
+            # "note" is a real top-level key in the raw source, but its content
+            # is the fixture's own self-description, not `observed_fact`.
+            wrong_key_citation = dict(envelope["citation"])
+            wrong_key_citation["locator"] = "note"
+            with self.assertRaisesRegex(
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_AT_LOCATOR"
+            ):
+                EVENT_EVIDENCE._verify_raw_source_citation(
+                    wrong_key_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                )
 
     def test_cio_round7_committer_time_used_not_author_time(self):
         """Required item 6: author time (`%aI`) is a field the commit's
@@ -728,7 +743,9 @@ class PriceReflectionTests(unittest.TestCase):
         """Required confirmation: "missing git/registry provenance is
         NOT_COMPUTABLE." Uses a genuinely fresh, never-committed file
         (created and deleted entirely within this test) so the result is
-        guaranteed `None` regardless of this repo's real commit state."""
+        guaranteed `None` regardless of this repo's real commit state.
+        Round 8: the error code is now explicitly `PROVENANCE_NOT_
+        COMPUTABLE`, distinct from any plain missing-price-data code."""
         with tempfile.NamedTemporaryFile(dir=FIXTURES_DIR, suffix=".json", delete=True) as fh:
             fh.write(b'{"note": "genuinely uncommitted, never in git history"}')
             fh.flush()
@@ -737,7 +754,7 @@ class PriceReflectionTests(unittest.TestCase):
             decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
             captured_at = MODULE._utc("2026-08-01T00:00:00Z", "x")
             with self.assertRaisesRegex(
-                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_FIRST_AVAILABILITY_NOT_COMPUTABLE"
+                EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_PROVENANCE_NOT_COMPUTABLE"
             ):
                 EVENT_EVIDENCE._verify_first_availability(path, captured_at, decision_at, "EVENT_EVIDENCE")
 
@@ -747,7 +764,10 @@ class PriceReflectionTests(unittest.TestCase):
         PR's own real, committed fixture -- its REAL first-availability is
         independently re-derived here (never hardcoded), so this proves the
         rejection against whatever the file's true git history says, not an
-        assumed date."""
+        assumed date. Unaffected by round 8: `effective_available_at =
+        max(captured_at, first_seen) = first_seen` here (since `captured_at`
+        is backdated before `first_seen`), and `first_seen` alone is
+        already after `decision_at`."""
         path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
         first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
         self.assertIsNotNone(first_seen, "fixture must be committed for this regression to be meaningful")
@@ -756,23 +776,204 @@ class PriceReflectionTests(unittest.TestCase):
         with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_NOT_YET_AVAILABLE_AS_OF_DECISION"):
             EVENT_EVIDENCE._verify_first_availability(path, captured_at, decision_at, "EVENT_EVIDENCE")
 
-    def test_cio_round6_git_provenance_rejects_captured_at_preceding_real_first_availability(self):
-        """The OTHER half of required confirmation (b): even once
-        `decision_at` is late enough that the "not yet available" gate
-        alone would pass, a self-declared `captured_at` that precedes the
-        file's REAL first-availability is independently rejected -- proving
-        this is a genuine backdating check, not just a decision-date-order
-        check in disguise."""
+    # ══════════════════════ CIO round 8 regressions ════════════════════════
+    # Both the round-6/7 test-only mock design AND round 7's exact-content-
+    # addressed first-seen direction were approved outright this round.
+    # Stress-testing round 7's time-ordering rule against how evidence is
+    # ACTUALLY collected in the real world found 2 further P1 defects,
+    # covered below.
+
+    def test_cio_round8_required_regression_a_realistic_ordering_now_passes(self):
+        """Required regression (a): "a real source published before
+        capture/commit passes when effective_available_at is before
+        decision." Under round 7's INVERTED rule this exact scenario
+        (published_at < captured_at < git commit, the normal real-world
+        order) was wrongly rejected -- proven here to now succeed."""
+        raw_path = FIXTURES_DIR / TESTONLY_RAW_SOURCE
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(raw_path)
+        self.assertIsNotNone(first_seen, "fixture must be committed for this regression to be meaningful")
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        citation = dict(envelope["citation"])
+        # Realistic order: published well before the file was ever
+        # committed, captured shortly after publication, still before the
+        # commit -- exactly what round 7 wrongly rejected.
+        citation["published_at"] = (first_seen - _dt.timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        citation["captured_at"] = (first_seen - _dt.timedelta(days=9)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        decision_at = first_seen + _dt.timedelta(days=1)
+        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+            lineage = EVENT_EVIDENCE._verify_raw_source_citation(
+                citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+        # effective_available_at is clamped up to the real git floor, since
+        # the self-declared captured_at is (necessarily, in this fixture)
+        # earlier than the commit that actually put these bytes in git.
+        self.assertEqual(lineage["effective_available_at"], first_seen)
+
+    def test_cio_round8_required_regression_b_backdated_captured_at_is_clamped_not_rejected(self):
+        """Required regression (b): "captured before commit cannot backdate
+        effective availability" -- rephrased from round 6/7's version, which
+        REJECTED a `captured_at` preceding `first_seen` outright. Round 8:
+        this must no longer RAISE (that was the bug) -- it must SUCCEED,
+        with `effective_available_at` clamped to the real git floor,
+        proving backdating still cannot make evidence look earlier than
+        reality even though it is no longer treated as an error."""
         path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
         first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
         self.assertIsNotNone(first_seen)
         captured_at = MODULE._utc(TESTONLY_DECLARED_CAPTURED_AT, "x")  # 2026-08-01, always earlier than first_seen
         decision_at = first_seen + _dt.timedelta(days=1)
+        result = EVENT_EVIDENCE._verify_first_availability(path, captured_at, decision_at, "EVENT_EVIDENCE")
+        self.assertEqual(result, first_seen, "backdated captured_at must be clamped UP to the real git floor")
+
+    def test_cio_round8_required_regression_c_decision_between_capture_and_first_seen_fails(self):
+        """Required regression (c): "decision between capture and git
+        first-seen fails." Even though `captured_at` alone would be
+        before `decision_at`, `effective_available_at = max(captured_at,
+        first_seen)` is `first_seen` here (captured_at is backdated), and
+        `first_seen` itself is AFTER `decision_at` -- must still fail."""
+        path = FIXTURES_DIR / TESTONLY_LIVE_FIXTURE
+        first_seen = EVENT_EVIDENCE._git_exact_content_first_seen(path)
+        self.assertIsNotNone(first_seen)
+        captured_at = MODULE._utc(TESTONLY_DECLARED_CAPTURED_AT, "x")  # well before first_seen
+        decision_at = first_seen - _dt.timedelta(hours=1)  # between captured_at and first_seen
+        self.assertLess(captured_at, decision_at)
+        self.assertLess(decision_at, first_seen)
         with self.assertRaisesRegex(
-            EVENT_EVIDENCE.EventEvidenceError,
-            "EVENT_EVIDENCE_DECLARED_TIMESTAMP_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE",
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_NOT_YET_AVAILABLE_AS_OF_DECISION"
         ):
             EVENT_EVIDENCE._verify_first_availability(path, captured_at, decision_at, "EVENT_EVIDENCE")
+
+    def test_cio_round8_published_at_after_captured_at_rejected(self):
+        """`source_published_at <= captured_at` is independently enforced
+        -- you cannot have captured/fetched something before its real-world
+        publication."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        citation = dict(envelope["citation"])
+        citation["published_at"] = "2026-08-10T10:00:00Z"
+        citation["captured_at"] = "2026-08-10T09:00:00Z"  # BEFORE published_at
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_PUBLISHED_AT_AFTER_CAPTURED_AT"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(
+                citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+
+    def test_cio_round8_envelope_captured_at_precedes_event_at_rejected(self):
+        """Mirrors the citation's `published_at <= captured_at` check one
+        level up: an envelope cannot claim to have captured evidence of an
+        event before the event itself occurred. `verify_event_reaction_
+        claim` hardcodes `forbid_test_root=True` (no parameter -- CIO round
+        6), so this check is exercised directly against an envelope loaded
+        via `_load_envelope` (which has no such restriction), exactly like
+        every other "below the production boundary" test in this file."""
+        envelope = dict(EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE))
+        envelope["captured_at"] = "2026-08-10T09:00:00Z"  # BEFORE event_at (2026-08-10T09:30:00Z)
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_ENVELOPE_CAPTURED_AT_PRECEDES_EVENT_AT"
+        ):
+            EVENT_EVIDENCE._verify_envelope_captured_at_not_before_event_at(envelope)
+
+        # The real, committed fixture's own genuine captured_at (AFTER
+        # event_at) passes.
+        real_envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        result = EVENT_EVIDENCE._verify_envelope_captured_at_not_before_event_at(real_envelope)
+        self.assertEqual(result, MODULE._utc(real_envelope["captured_at"], "x"))
+
+    def test_cio_round8_required_regression_d_human_curated_direction_alone_fails(self):
+        """Required regression (d): "human-curated POSITIVE direction
+        fails." `raw_source_testonly_000_human_curated.json` carries only
+        the RETIRED round-7 `observed_direction` shape -- neither closed
+        round-8 structure (`official_direction_field`/`direction_
+        derivation`) is present, so it fails regardless of which
+        `direction_origin` the citation declares, and regardless of
+        whether the ratified tables happen to be mocked in (the raw
+        document itself lacks the required shape -- no table lookup is
+        even reached)."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        human_ref = _fixture_ref(TESTONLY_RAW_SOURCE_HUMAN_CURATED)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+
+        for origin, expected_code in (
+            ("OFFICIAL_STRUCTURED_FIELD", "EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_INVALID"),
+            ("RATIFIED_DERIVATION", "EVENT_EVIDENCE_CITATION_DIRECTION_DERIVATION_INVALID"),
+        ):
+            with self.subTest(direction_origin=origin):
+                citation = dict(envelope["citation"])
+                citation["raw_source_ref"] = human_ref
+                citation["raw_source_sha256"] = _hash(human_ref)
+                citation["direction_origin"] = origin
+                with mocked_ratified_direction_tables(
+                    official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS,
+                    derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES,
+                ):
+                    with self.assertRaisesRegex(EVENT_EVIDENCE.EventEvidenceError, expected_code):
+                        EVENT_EVIDENCE._verify_raw_source_citation(
+                            citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+                        )
+
+    def test_cio_round8_required_regression_e_official_field_and_ratified_derivation_are_the_only_positive_routes(self):
+        """Required regression (e): "official-field or ratified numeric
+        derivation is the only production-positive route." Both closed
+        `direction_origin` routes independently succeed when their table
+        entry is genuinely present (mocked in, below the production
+        boundary) -- proving both mechanisms actually work, not just that
+        they reject everything."""
+        envelope = EVENT_EVIDENCE._load_envelope(FIXTURES_DIR / TESTONLY_LIVE_FIXTURE)
+        decision_at = MODULE._end_of_day_utc(MODULE._date("2026-08-20", "x"))
+
+        # Route 1: OFFICIAL_STRUCTURED_FIELD.
+        with mocked_ratified_direction_tables(official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS):
+            citation = dict(envelope["citation"])
+            lineage = EVENT_EVIDENCE._verify_raw_source_citation(
+                citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+            self.assertEqual(lineage["direction_origin"], "OFFICIAL_STRUCTURED_FIELD")
+
+        # Without the mock, the identical citation fails -- the table is
+        # genuinely empty in this module's real, unmocked state.
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_NOT_RATIFIED"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(
+                dict(envelope["citation"]), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+
+        # Route 2: RATIFIED_DERIVATION.
+        deriv_ref = _fixture_ref(TESTONLY_RAW_SOURCE_DERIVATION)
+        deriv_citation = dict(envelope["citation"])
+        deriv_citation["raw_source_ref"] = deriv_ref
+        deriv_citation["raw_source_sha256"] = _hash(deriv_ref)
+        deriv_citation["direction_origin"] = "RATIFIED_DERIVATION"
+        with mocked_ratified_direction_tables(derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES):
+            lineage = EVENT_EVIDENCE._verify_raw_source_citation(
+                deriv_citation, "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+            self.assertEqual(lineage["direction_origin"], "RATIFIED_DERIVATION")
+
+        # Without the mock, the identical citation fails too.
+        with self.assertRaisesRegex(
+            EVENT_EVIDENCE.EventEvidenceError, "EVENT_EVIDENCE_CITATION_DIRECTION_RULE_NOT_RATIFIED"
+        ):
+            EVENT_EVIDENCE._verify_raw_source_citation(
+                dict(deriv_citation), "POSITIVE", "GUIDANCE_CHANGE_EVENT", decision_at, forbid_test_root=False,
+            )
+
+    def test_cio_round8_required_regression_f_ratified_tables_start_empty_in_real_module(self):
+        """Required regression (f), the structural half: this module's own
+        real, committed `RATIFIED_OFFICIAL_DIRECTION_FIELDS`/`RATIFIED_
+        DIRECTION_RULES` tables are empty -- nothing from
+        `mocked_ratified_direction_tables()` leaks into the real module
+        state once its `with` block exits."""
+        self.assertEqual(EVENT_EVIDENCE.RATIFIED_OFFICIAL_DIRECTION_FIELDS, {})
+        self.assertEqual(EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES, {})
+        with mocked_ratified_direction_tables(
+            official_fields=TESTONLY_RATIFIED_OFFICIAL_FIELDS, derivation_rules=TESTONLY_RATIFIED_DERIVATION_RULES,
+        ):
+            self.assertTrue(EVENT_EVIDENCE.RATIFIED_OFFICIAL_DIRECTION_FIELDS)
+            self.assertTrue(EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES)
+        self.assertEqual(EVENT_EVIDENCE.RATIFIED_OFFICIAL_DIRECTION_FIELDS, {})
+        self.assertEqual(EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES, {})
 
     def test_cio_round6_git_provenance_succeeds_when_genuinely_consistent(self):
         """The positive path of `_verify_first_availability` -- proves the

@@ -303,6 +303,73 @@ signatures and return shapes) is unchanged by round 7:
    time, or a signed append-only ingestion manifest) this module does not
    have offline access to.
 
+## `price_reflection/6` provenance hardening (CIO review round 8)
+
+Round 8 approved BOTH the round-6/7 test-only mock design AND round 7's
+exact-content-addressed first-seen direction outright, but stress-testing
+round 7's time-ordering rule against how evidence is actually collected in
+the real world found 2 further P1 defects, again entirely inside
+`decision/event_evidence.py` — this module's own public interface is
+unchanged by round 8:
+
+1. **Round 7's ordering was inverted for a raw source's `published_at`.**
+   `_verify_first_availability` required `first_seen(raw file's OWN git
+   history) <= published_at`, but a raw source's `published_at` is an
+   external, real-world publication instant that legitimately, ALWAYS
+   precedes when Atlas ingests/commits a copy of it — `published_at`
+   (external) → `captured_at` (Atlas fetches/observes it) → git commit.
+   Requiring `published_at >= git_first_seen` rejected virtually every
+   genuinely legitimate citation. Fixed by modeling three separate clocks:
+   `source_published_at` (external, self-declared, never git-checked
+   directly), `captured_at` (Atlas's own fetch/observation time — this IS
+   the value checked against git), and `exact_content_first_seen_at` (the
+   conservative git-provable floor). `_verify_first_availability` now
+   computes `effective_available_at = max(captured_at,
+   exact_content_first_seen_at)` and only requires `effective_available_at
+   <= decision_at` — a self-declared earlier `captured_at` can never make
+   the effective availability earlier than git's real, provable floor
+   (backdating is still structurally impossible), but a `captured_at` that
+   is honestly later than the commit (the normal case) is no longer falsely
+   rejected. Applied identically to the Event Evidence Envelope's own
+   `captured_at`, the raw source citation's `captured_at`, and the P8-09 EG
+   canonical record's `captured_at`.
+2. **`observed_direction` compared one human-typed assertion to another.**
+   The envelope's claimed `direction` was checked against a raw document's
+   own `observed_direction` field — both ultimately typed by a human, never
+   independent verification. Retired entirely. `citation.direction_origin`
+   is now a closed, two-member vocabulary, and the raw source document must
+   carry one of two closed, module-owned structures:
+   - `OFFICIAL_STRUCTURED_FIELD` — `official_direction_field:
+     {"provider_field", "provider_value"}`, looked up against
+     `RATIFIED_OFFICIAL_DIRECTION_FIELDS` (keyed by `(source_class,
+     provider_field, provider_value)`), a closed table this module owns —
+     adding a real entry (naming a genuine official provider schema field)
+     IS the ratification act. Starts empty: no real official-provider
+     structured-field integration exists in this repo.
+   - `RATIFIED_DERIVATION` — `direction_derivation: {"rule_id",
+     "rule_version", "inputs"}`, looked up against `RATIFIED_DIRECTION_
+     RULES` (keyed by `(rule_id, rule_version)`), each entry a pure
+     function of real, structured numeric inputs. Same empty starting
+     state.
+
+   Both tables are intentionally empty in this module's real, committed
+   source; positive-path mechanics are exercised only via
+   `mocked_ratified_direction_tables()`, a test-only context manager that
+   temporarily overlays entries onto a specific test-loaded module
+   instance's tables, restored via `finally` — the same scoping discipline
+   as `mocked_event_evidence_verification()`.
+
+Additionally: `_verify_first_availability`'s NOT_COMPUTABLE error code is
+now explicitly named `..._PROVENANCE_NOT_COMPUTABLE`, distinct from any
+plain missing-price-data code — this feature structurally requires full git
+history, and any operational workflow invoking it must use a full-history
+checkout (`fetch-depth: 0`). `.github/workflows/actions-pass.yml` already
+sets `fetch-depth: 0` (established for `replay/asset_identity.py`'s own
+git-history backdating check), so this module rides the same gate with no
+workflow change needed. A new, analogous ordering guard was also added at
+the envelope level: `captured_at` may never precede `event_at` (mirroring
+the citation's `published_at <= captured_at` check one level up).
+
 ## Structurally price/volume/reference-point only — never fundamentals
 
 The public builder, `build_packet(...)`, is a keyword-only function whose
@@ -562,7 +629,7 @@ Every figure's evidence dates are checked with
 `replay.lookahead_gate.assert_no_signal_lookahead` (reused unchanged from
 PR #210) before being returned — see `test/test_price_evidence_lookahead.py`.
 
-## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-7)
+## Event Evidence Envelope verification (`decision/event_evidence.py`, rounds 5-8)
 
 Real event/reference-point CITATIONS (as opposed to price-endpoint lookups,
 covered by `decision/price_evidence.py` above) are verified by
@@ -578,34 +645,50 @@ record with a fixed schema (`event_evidence_envelope/1`):
   "direction": "POSITIVE",
   "source_class": "GUIDANCE_CHANGE_EVENT",
   "capture_kind": "LIVE_OFFICIAL_CAPTURE",
-  "captured_at": "2026-08-01T00:00:00Z",
+  "captured_at": "2026-08-10T09:45:00Z",
   "citation": {
     "raw_source_ref": "path/to/committed/raw/artifact",
     "raw_source_sha256": "<64-hex>",
     "published_at": "2026-08-10T09:00:00Z",
+    "captured_at": "2026-08-10T09:15:00Z",
+    "direction_origin": "OFFICIAL_STRUCTURED_FIELD",
     "locator": "the raw source's own top-level JSON key naming where the language appears",
     "observed_fact": "the actual quoted/extracted text, verified verbatim at that key"
   }
 }
 ```
 
-The `raw_source_ref` document itself (round 7) must be real structured
-JSON with its own explicit `observed_direction` field, e.g.:
+The envelope's own `captured_at` may never precede `event_at` (round 8),
+and the citation's `published_at` may never be after its own `captured_at`
+(round 8) — `published_at` is the raw source's EXTERNAL publication clock
+and is never itself checked against git; only `captured_at` (Atlas's own
+fetch/observation time) is, via `effective_available_at = max(captured_at,
+exact_content_first_seen_at) <= decision_at`.
+
+The `raw_source_ref` document itself (round 8) must be real structured JSON
+carrying ONE of two closed structures depending on `citation.direction_
+origin`. For `OFFICIAL_STRUCTURED_FIELD`:
 
 ```json
 {
-  "observed_direction": "POSITIVE",
+  "official_direction_field": {"provider_field": "guidance_flag", "provider_value": "RAISED"},
   "disclosure_text": "the actual quoted/extracted text lives here"
 }
 ```
 
-`observed_direction` must literally equal the envelope's claimed
-`direction` (required item 4 — direction is never a free assertion,
-always grounded in an explicit, human-curated structured field), and
-`citation.locator` must name a real top-level key of this document (here,
-`"disclosure_text"`) whose value contains `citation.observed_fact`
-verbatim (required item 5 — locator is genuinely resolved, not merely
-checked for non-emptiness).
+`(source_class, provider_field, provider_value)` must be a member of this
+module's own closed, module-owned `RATIFIED_OFFICIAL_DIRECTION_FIELDS`
+table (empty in the real, committed module — see round-8 provenance
+hardening section above) and must map to the envelope's claimed
+`direction`. The alternative, `RATIFIED_DERIVATION`, instead requires
+`direction_derivation: {"rule_id", "rule_version", "inputs"}` looked up
+against `RATIFIED_DIRECTION_RULES` and recomputed from real numeric
+inputs. Either way, `citation.locator` must name a real top-level key of
+the raw document (here, `"disclosure_text"`) whose value contains
+`citation.observed_fact` verbatim (round 7, item 5 — locator is genuinely
+resolved, not merely checked for non-emptiness). A raw document carrying
+only the retired round-7 `observed_direction` shape — a bare human-curated
+claim — satisfies neither structure and is rejected outright.
 
 `source_class` is a closed vocabulary of real evidentiary categories
 (`SEC_FILING_EVENT`/`DART_FILING_EVENT`/`OFFICIAL_RELEASE_EVENT`/

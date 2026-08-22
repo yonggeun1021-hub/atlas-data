@@ -1,0 +1,5 @@
+{
+  "note": "TEST FIXTURE ONLY -- this is a synthetic raw source document, not a real corporate filing, disclosure, or official release of any kind. It exists solely to unit-test decision/event_evidence.py's rejection of a bare, human-curated direction claim (CIO round 8, defect 2, required regression: 'a human-curated POSITIVE direction fails'). It deliberately carries the RETIRED round-7 `observed_direction` shape and NEITHER of the two closed round-8 structures (`official_direction_field` / `direction_derivation`) -- proving a human simply re-typing a direction label into structured JSON, however confidently, is never sufficient on its own. Never resolvable through decision/price_reflection.py's real build_packet() path and never referenced by any real Pilot subject.",
+  "observed_direction": "POSITIVE",
+  "disclosure_text": "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive test disclosure used only to exercise citation verification."
+}

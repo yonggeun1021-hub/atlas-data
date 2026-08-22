@@ -1,0 +1,5 @@
+{
+  "note": "TEST FIXTURE ONLY -- this is a synthetic raw source document, not a real corporate filing, disclosure, or official release of any kind. It exists solely to unit-test decision/event_evidence.py's RATIFIED_DERIVATION direction route (CIO round 8, defect 2, required regression: 'official-field or ratified numeric derivation is the only production-positive route'). `direction_derivation` is only ever recognized when a test explicitly overlays a matching (rule_id, rule_version) entry onto EVENT_EVIDENCE.RATIFIED_DIRECTION_RULES via mocked_ratified_direction_tables(); this module's own real, committed table is empty, so this fixture alone establishes nothing in production. Never resolvable through decision/price_reflection.py's real build_packet() path and never referenced by any real Pilot subject.",
+  "direction_derivation": {"rule_id": "TESTONLY_REVENUE_YOY_SIGN", "rule_version": "1", "inputs": {"revenue_yoy_pct": 12.5}},
+  "disclosure_text": "TESTONLY-EVENT-EVIDENCE-000 reports a fabricated positive numeric derivation used only to exercise citation verification."
+}

@@ -241,6 +241,27 @@
   value genuinely contains the quoted text; (6) the git timestamp basis is
   now committer time, not the freely-backdatable author time.
 
+★ CIO review round 8 approved BOTH the round-6/7 test-only mock design AND
+  round 7's exact-content-addressed direction outright, but stress-testing
+  round 7's time-ordering rule against real-world evidence collection found
+  2 further P1 defects, again entirely inside `decision/event_evidence.py`
+  -- this module's own public interface is UNCHANGED by round 8. (1) round
+  7's ordering was INVERTED for a raw source's `published_at`: real
+  publication always precedes when Atlas commits a copy, so requiring
+  `git_first_seen <= published_at` rejected virtually every legitimate
+  citation. Replaced with three separately-modeled clocks (`source_
+  published_at` <= `captured_at`, then `effective_available_at =
+  max(captured_at, exact_content_first_seen_at) <= decision_at`) applied
+  identically to the envelope, the raw source citation, and the P8-09 EG
+  canonical record. (2) `observed_direction` compared one human-typed
+  assertion to another -- never independent verification. Retired; `direction`
+  must now come from one of exactly two closed, module-owned routes
+  (`direction_origin`: `OFFICIAL_STRUCTURED_FIELD` or `RATIFIED_
+  DERIVATION`), both intentionally EMPTY in this module's real, committed
+  tables today. `_verify_first_availability`'s NOT_COMPUTABLE error is also
+  now explicitly named `..._PROVENANCE_NOT_COMPUTABLE`, distinct from plain
+  missing price data.
+
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`
 and `reflection_status` are forced to `UNKNOWN` regardless of every other

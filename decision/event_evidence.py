@@ -135,9 +135,119 @@
      seen`'s own docstring for the documented, still-remaining authority
      boundary (an offline, local-repository signal, not a third-party-
      observed timestamp).
+
+★ CIO round 8 approved BOTH the test-only mock design (round 6/7) AND the
+  exact-content-addressed first-seen direction (round 7) outright, but
+  stress-testing round 7's time-ordering rule against how evidence is
+  ACTUALLY collected in the real world exposed two further production
+  defects:
+
+  1. **Round 7's ordering was INVERTED for a raw source's `published_at`.**
+     `_verify_first_availability` required `first_seen(raw file's OWN git
+     history) <= published_at` -- but a raw source's `published_at` is an
+     EXTERNAL, real-world publication instant that legitimately, ALWAYS
+     precedes when Atlas ingests/commits a copy of it: `published_at`
+     (external) -> `captured_at` (Atlas fetches/observes it) -> git commit
+     (Atlas records it). Requiring `published_at >= git_first_seen` rejected
+     virtually every genuinely legitimate citation, since real publication
+     necessarily happens BEFORE the commit, never after. Fixed by modeling
+     THREE separate clocks instead of conflating them:
+       * `source_published_at` -- the raw source's own external publication
+         time (self-declared, never git-checked directly).
+       * `captured_at` -- Atlas's own collector observation/fetch time
+         (self-declared, but this IS the value checked against git).
+       * `exact_content_first_seen_at` -- the conservative, git-provable
+         floor (round 7's `_git_exact_content_first_seen`).
+     `_verify_first_availability` now computes `effective_available_at =
+     max(captured_at, exact_content_first_seen_at)` and only requires
+     `effective_available_at <= decision_at` -- a self-declared EARLIER
+     `captured_at` can never make the effective availability earlier than
+     git's real, provable floor (backdating is still structurally
+     impossible), but a `captured_at` that is honestly LATER than the
+     commit (the normal case: capture, then later commit) is no longer
+     falsely rejected for merely being later than the file's own git
+     history. Applied identically to the Event Evidence Envelope's own
+     `captured_at`, the raw source citation's `captured_at` (see item 2),
+     and the P8-09 EG canonical record's `captured_at` -- exactly the same
+     three call sites round 7 touched. `effective_available_at` (not the
+     raw git first-seen) is what gets persisted as `first_authoritative_
+     seen_at` in the verified result.
+  2. **The raw source citation gained a NEW required `captured_at` field**
+     (Atlas's own fetch/observation time), separate from `published_at`
+     (the source's own claimed publication time) -- `published_at` is no
+     longer routed through `_verify_first_availability` at all (that was
+     precisely the inverted round-7 rule); it is only checked structurally
+     against `captured_at` (`published_at <= captured_at` -- you cannot
+     have captured something before its real-world publication), and
+     `captured_at` is what actually goes through the git-availability gate
+     against the raw source file's own history.
+  3. **`observed_direction` was a manually-typed assertion in an
+     Atlas-authored JSON wrapper being compared to another manually-typed
+     assertion (the envelope's own `direction`)** -- round 7's fix compared
+     two copies of the same human claim, never independent verification.
+     Retired entirely. `citation.direction_origin` is now a closed,
+     two-member vocabulary (`DIRECTION_ORIGIN`), and the raw source
+     document itself must carry ONE of two closed, module-owned structures
+     depending on which origin is declared:
+       * `OFFICIAL_STRUCTURED_FIELD` -- `official_direction_field:
+         {"provider_field", "provider_value"}`, looked up against
+         `RATIFIED_OFFICIAL_DIRECTION_FIELDS` (keyed by `(source_class,
+         provider_field, provider_value)`), a CLOSED table this module
+         owns -- adding a real entry (naming a genuine official provider
+         schema field, e.g. a specific DART/SEC XBRL tag) IS the
+         ratification act, a human reviewing and committing code, never a
+         runtime toggle or caller-suppliable mapping. Starts EMPTY: no
+         real official-provider structured-field integration exists
+         anywhere in this repo (no SEC/DART/XBRL parser), so this route
+         remains genuinely unproducible for any real subject today.
+       * `RATIFIED_DERIVATION` -- `direction_derivation: {"rule_id",
+         "rule_version", "inputs"}`, looked up against
+         `RATIFIED_DIRECTION_RULES` (keyed by `(rule_id, rule_version)`),
+         each entry a PURE function of real, structured numeric inputs
+         pulled from the raw document -- never a re-typed assertion. Same
+         "adding an entry IS the ratification act" posture, same EMPTY
+         starting state.
+     A raw document supplying only a bare, human-curated `observed_
+     direction`-shaped field (or any structure not matching one of the two
+     closed shapes above) fails outright -- `direction_origin` gates WHICH
+     verification the module attempts, it never accepts a free-standing
+     claimed-direction field as sufficient on its own, however it is
+     phrased or however "structured" its JSON container looks. This
+     module's real, committed tables are both intentionally EMPTY today;
+     positive-path mechanics are exercised only via `mocked_ratified_
+     direction_tables()`, a test-only context manager that temporarily
+     overlays entries onto a SPECIFIC test-loaded module instance's tables
+     (never this module's own global state unless a test explicitly loads
+     this file as that instance), restored via `finally` -- the same
+     scoping discipline as `mocked_event_evidence_verification()`.
+  4. **Explicit `PROVENANCE_NOT_COMPUTABLE` status, distinct from generic
+     missing-price-data.** `_verify_first_availability` already failed
+     closed when git history was unavailable; round 8 renames that error
+     code to literally read `..._PROVENANCE_NOT_COMPUTABLE:...` so it can
+     never be mistaken for (or silently conflated with) an ordinary
+     `PRICE_DATA_MISSING`-style gap -- this is specifically a git-history-
+     availability diagnostic. This whole provenance-verification feature
+     structurally REQUIRES full git history (`git log`/`git show` walking
+     every commit for a path) -- any operational workflow invoking this
+     module MUST use a full-history checkout (`fetch-depth: 0`), reusing
+     the exact pattern already established for `replay/asset_identity.py`'s
+     own git-history backdating check (see `.github/workflows/actions-
+     pass.yml`'s `actions/checkout` step, which already sets `fetch-depth:
+     0` for precisely this reason -- this module rides the same gate, no
+     new workflow change was needed).
+  5. **New, analogous ordering guard at the envelope level**: the
+     envelope's own `captured_at` (when Atlas claims to have captured the
+     EVENT) may never precede `event_at` (the event itself) -- you cannot
+     capture evidence of something before it happened. Mirrors the
+     citation's `published_at <= captured_at` check at the one level up.
+
+  All real subjects in this repo continue to have zero committed
+  `LIVE_OFFICIAL_CAPTURE` envelopes, so `reflection_status` stays honestly
+  `UNKNOWN` for every one of them, unchanged by any of the above.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -180,9 +290,43 @@ REQUIRED_ENVELOPE_FIELDS = {
     "schema_version", "subject", "event_at", "direction", "source_class",
     "capture_kind", "captured_at", "citation",
 }
+# ★ CIO round 8, defect 2: `captured_at` (Atlas's own fetch/observation
+#   time, distinct from `published_at`) and `direction_origin` (the closed
+#   route by which `direction` is established) are NEW required fields --
+#   `observed_direction` is retired entirely (see module docstring).
 REQUIRED_CITATION_FIELDS = {
-    "raw_source_ref", "raw_source_sha256", "published_at", "locator", "observed_fact",
+    "raw_source_ref", "raw_source_sha256", "published_at", "captured_at",
+    "locator", "observed_fact", "direction_origin",
 }
+
+# ★ CIO round 8, defect 2: the ONLY two legitimate routes by which
+#   `direction` may be established -- never a bare human-curated field,
+#   however structured. See module docstring and `_derive_direction`.
+DIRECTION_ORIGIN = ("OFFICIAL_STRUCTURED_FIELD", "RATIFIED_DERIVATION")
+
+# ★ Closed, module-owned ratified table: `(source_class, provider_field,
+#   provider_value) -> direction`. A triple is "ratified" purely by being a
+#   member of this table -- there is no separate approval workflow for this
+#   module to hook into, and it will never invent one unilaterally (same
+#   posture as `ALLOWED_SOURCE_CLASS`/`ALLOWED_CAPTURE_KIND`). Adding a real
+#   entry here (naming a genuine official provider's field/value, e.g. a
+#   specific DART/SEC XBRL tag) IS the ratification act -- a human
+#   reviewing and committing code, never a runtime toggle. Intentionally
+#   EMPTY: no real official-provider structured-field integration exists
+#   anywhere in this repo (no SEC/DART/XBRL parser), so `OFFICIAL_
+#   STRUCTURED_FIELD` remains genuinely unproducible for any real subject
+#   today. Test-only entries are never baked in here -- they are overlaid
+#   transiently by `mocked_ratified_direction_tables()` onto a SPECIFIC
+#   test-loaded module instance only, never committed to this table.
+RATIFIED_OFFICIAL_DIRECTION_FIELDS: dict = {}
+
+# ★ Same posture for `RATIFIED_DERIVATION`: a `(rule_id, rule_version)` pair
+#   is "ratified" purely by being a member of this table. Each entry is a
+#   PURE function of real, structured numeric inputs pulled from the raw
+#   source document -- never a re-typed assertion -- reproducing
+#   `direction` deterministically. Intentionally EMPTY in this module's
+#   real, committed source for the same reason as above.
+RATIFIED_DIRECTION_RULES: dict = {}
 
 
 class EventEvidenceError(ValueError):
@@ -339,68 +483,139 @@ def _git_exact_content_first_seen(path: Path) -> dt.datetime | None:
 
 
 def _verify_first_availability(
-    path: Path, declared_at: dt.datetime, decision_at: dt.datetime, label: str,
+    path: Path, captured_at: dt.datetime, decision_at: dt.datetime, label: str,
 ) -> dt.datetime:
-    """Shared, content-addressed PIT-availability gate for the Event
-    Evidence Envelope, the raw primary-source document, and the P8-09
-    canonical record (CIO round 6, required item 2 / round 7, required
-    item 2: apply identically to all three). Enforces the FULL ordering
-    `first_seen <= declared_at <= decision_at` (round 7, required item 3)
-    -- a `declared_at` (e.g. `captured_at`/`published_at`) AFTER
-    `decision_at` is rejected here too, not merely a `declared_at` that
-    precedes `first_seen`; round 6 only checked the latter half. Returns
-    the real, git-verified `first_authoritative_seen_at` on success; raises
-    on any of: exact-content git history unavailable (NOT_COMPUTABLE),
-    first appearance after `decision_at` (not yet available), the declared
-    timestamp preceding the real first appearance (an impossible backdate),
-    or the declared timestamp being AFTER `decision_at` (claiming a future
-    capture)."""
+    """Shared PIT-availability gate for the Event Evidence Envelope, the raw
+    primary-source document's own `captured_at`, and the P8-09 canonical
+    record (CIO round 6, required item 2 / round 7, required item 2 / round
+    8, defect 1: apply identically to all three).
+
+    CIO round 8 correction: round 7 REJECTED any `declared_at` that
+    preceded the file's real git first-seen -- correct for a self-declared
+    timestamp that might be an impossible backdate, but WRONG for the case
+    this function is actually asked to police, because `captured_at` is
+    Atlas's OWN observation time and is legitimately allowed to be earlier
+    OR later than when the artifact recording it happened to be committed.
+    What must never happen is the EFFECTIVE available-as-of time being
+    EARLIER than what git can actually prove -- so instead of rejecting a
+    `captured_at` that precedes `first_seen`, this now silently CLAMPS the
+    effective availability to `max(captured_at, first_seen)`: a self-
+    declared earlier `captured_at` can never make the effective
+    availability earlier than the real, git-provable floor (backdating is
+    still structurally impossible), but it is no longer falsely required to
+    occur AFTER the commit either (the normal, legitimate case: capture,
+    then commit later).
+
+    Returns `effective_available_at` on success -- this is what callers
+    persist as `first_authoritative_seen_at`, not the raw `first_seen`
+    alone. Raises on either of: exact-content git history unavailable
+    (`..._PROVENANCE_NOT_COMPUTABLE` -- round 8, defect/item 4: a distinct,
+    explicitly-named status, never conflated with plain missing price
+    data), or `effective_available_at` AFTER `decision_at` (covers both
+    "file not yet committed as of the decision instant" and "a future-dated
+    `captured_at` claims a capture that hasn't happened yet" -- either one
+    pushes `effective_available_at` past `decision_at`)."""
     first_seen = _git_exact_content_first_seen(path)
     if first_seen is None:
-        raise EventEvidenceError(f"{label}_FIRST_AVAILABILITY_NOT_COMPUTABLE:{path}")
-    if first_seen > decision_at:
+        raise EventEvidenceError(f"{label}_PROVENANCE_NOT_COMPUTABLE:{path}")
+    effective_available_at = max(captured_at, first_seen)
+    if effective_available_at > decision_at:
         raise EventEvidenceError(
             f"{label}_NOT_YET_AVAILABLE_AS_OF_DECISION:"
-            f"first_authoritative_seen_at={first_seen.isoformat()}>decision_at={decision_at.isoformat()}"
+            f"effective_available_at={effective_available_at.isoformat()}>decision_at={decision_at.isoformat()}"
         )
-    if declared_at < first_seen:
-        raise EventEvidenceError(
-            f"{label}_DECLARED_TIMESTAMP_PRECEDES_FIRST_AUTHORITATIVE_APPEARANCE:"
-            f"declared_at={declared_at.isoformat()}<first_authoritative_seen_at={first_seen.isoformat()}"
-        )
-    if declared_at > decision_at:
-        raise EventEvidenceError(
-            f"{label}_DECLARED_TIMESTAMP_AFTER_DECISION_AT:"
-            f"declared_at={declared_at.isoformat()}>decision_at={decision_at.isoformat()}"
-        )
-    return first_seen
+    return effective_available_at
+
+
+@contextlib.contextmanager
+def mocked_ratified_direction_tables(module, *, official_fields: dict | None = None, derivation_rules: dict | None = None):
+    """Test-only. Temporarily OVERLAYS entries onto a SPECIFIC test-loaded
+    module instance's `RATIFIED_OFFICIAL_DIRECTION_FIELDS`/`RATIFIED_
+    DIRECTION_RULES` tables (never this module's own global state unless a
+    test explicitly loads this file as `module`), restored via `finally` --
+    the same scoping discipline as `mocked_event_evidence_verification()`
+    in `test/test_price_reflection.py`. This module's real, committed
+    tables are both intentionally EMPTY (see their own docstrings); nothing
+    added by this context manager is ever reachable outside a test process
+    that explicitly calls it, and it is never invoked by any production
+    call path."""
+    original_official = dict(module.RATIFIED_OFFICIAL_DIRECTION_FIELDS)
+    original_rules = dict(module.RATIFIED_DIRECTION_RULES)
+    if official_fields:
+        module.RATIFIED_OFFICIAL_DIRECTION_FIELDS.update(official_fields)
+    if derivation_rules:
+        module.RATIFIED_DIRECTION_RULES.update(derivation_rules)
+    try:
+        yield
+    finally:
+        module.RATIFIED_OFFICIAL_DIRECTION_FIELDS.clear()
+        module.RATIFIED_OFFICIAL_DIRECTION_FIELDS.update(original_official)
+        module.RATIFIED_DIRECTION_RULES.clear()
+        module.RATIFIED_DIRECTION_RULES.update(original_rules)
+
+
+def _derive_direction(raw_document: dict, direction_origin: str, source_class: str, raw_path: Path) -> str:
+    """CIO round 8, defect 2: `direction` may ONLY be established via one of
+    the two closed, module-owned ratified routes named in `DIRECTION_
+    ORIGIN` -- never a bare human-curated field, however structured. See
+    module docstring and the `RATIFIED_OFFICIAL_DIRECTION_FIELDS`/
+    `RATIFIED_DIRECTION_RULES` docstrings for why both start EMPTY."""
+    if direction_origin == "OFFICIAL_STRUCTURED_FIELD":
+        field = raw_document.get("official_direction_field")
+        if (
+            not isinstance(field, dict) or set(field) != {"provider_field", "provider_value"}
+            or not isinstance(field.get("provider_field"), str) or not isinstance(field.get("provider_value"), str)
+        ):
+            raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_INVALID:{raw_path}")
+        key = (source_class, field["provider_field"], field["provider_value"])
+        mapped = RATIFIED_OFFICIAL_DIRECTION_FIELDS.get(key)
+        if mapped is None:
+            raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_OFFICIAL_DIRECTION_FIELD_NOT_RATIFIED:{key!r}")
+        return mapped
+
+    # direction_origin == "RATIFIED_DERIVATION" -- the only other closed-vocab value.
+    derivation = raw_document.get("direction_derivation")
+    if not isinstance(derivation, dict) or set(derivation) != {"rule_id", "rule_version", "inputs"}:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_DERIVATION_INVALID:{raw_path}")
+    rule_key = (derivation.get("rule_id"), derivation.get("rule_version"))
+    rule = RATIFIED_DIRECTION_RULES.get(rule_key)
+    if rule is None:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_RULE_NOT_RATIFIED:{rule_key!r}")
+    inputs = derivation.get("inputs")
+    if not isinstance(inputs, dict) or not all(
+        name in inputs and isinstance(inputs[name], (int, float)) and not isinstance(inputs[name], bool)
+        for name in rule["required_inputs"]
+    ):
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_DERIVATION_INPUTS_INVALID:{raw_path}")
+    return rule["derive"](inputs)
 
 
 def _verify_raw_source_citation(
-    citation: dict, claimed_direction: str, decision_at: dt.datetime, *, forbid_test_root: bool,
+    citation: dict, claimed_direction: str, source_class: str, decision_at: dt.datetime, *, forbid_test_root: bool,
 ) -> dict:
     """CIO round 6, required item 3 (closed citation schema) hardened round
-    7, required items 2/4/5:
+    7, required items 2/4/5, and round 8, defects 1/2:
 
     * `raw_source_ref` must resolve to a real committed file -- NEVER
       under `test/` in production (`forbid_test_root`) -- whose real
       recomputed sha256 matches `raw_source_sha256`.
-    * `published_at` (the raw source's own real announcement/availability
-      timestamp) must satisfy the FULL `first_seen <= published_at <=
-      decision_at` ordering (round 7, item 3), where `first_seen` is now
-      the raw source's OWN real, content-addressed git-availability
-      (round 7, required item 2: "the raw source has no git-availability
-      check at all" -- closed; a raw source file is subject to the exact
-      same `_verify_first_availability` gate as the envelope itself).
-    * The raw source document must be REAL STRUCTURED JSON (this module's
-      own "authoritative source schema" for what a human curator recorded
-      as genuinely observed -- see module docstring) with a top-level
-      `observed_direction` field that MUST equal `claimed_direction` (round
-      7, required item 4: a bare quoted phrase co-occurring with an
-      unrelated or contradictory claimed `direction` used to pass; there is
-      now no automated sentiment/NLP derivation anywhere in this module --
-      `observed_direction` must be an explicit, structured field a human
-      curator recorded, not inferred from prose).
+    * `published_at` (the raw source's own real, EXTERNAL announcement
+      time) must be at-or-before `captured_at` (Atlas's own fetch/
+      observation time) -- round 8, defect 1: `published_at` is NEVER
+      itself routed through the git-availability gate any more (round 7's
+      rule was backwards -- see module docstring); only `captured_at` is.
+    * `captured_at` must satisfy `effective_available_at = max(captured_at,
+      raw_source_first_seen) <= decision_at` via `_verify_first_
+      availability` -- the raw source file's OWN real, content-addressed
+      git-availability (round 7, required item 2), now correctly modeled
+      (round 8, defect 1).
+    * `direction_origin` (closed vocabulary, `DIRECTION_ORIGIN`) selects
+      which of the two closed, module-owned ratified routes must
+      independently reproduce `claimed_direction` from the raw document's
+      OWN structured content -- see `_derive_direction` and module
+      docstring (round 8, defect 2). There is no automated sentiment/NLP
+      derivation anywhere in this module, and a bare human-curated
+      assertion is never sufficient on its own, however it is phrased.
     * `locator` must name a REAL top-level key of that JSON document (round
       7, required item 5: "actually verify locator... not just non-empty")
       whose string value CONTAINS `observed_fact` VERBATIM -- proving
@@ -408,12 +623,17 @@ def _verify_raw_source_citation(
       specifically at the cited location.
 
     Raises on any failure. Returns `{"raw_source_ref", "raw_source_sha256",
-    "published_at", "locator"}` on success."""
+    "published_at", "captured_at", "locator", "direction_origin",
+    "effective_available_at"}` on success."""
     if not isinstance(citation, dict) or set(citation) != REQUIRED_CITATION_FIELDS:
         raise EventEvidenceError("EVENT_EVIDENCE_CITATION_FIELDS_MISMATCH")
     raw_source_ref = citation.get("raw_source_ref")
     raw_source_sha256 = citation.get("raw_source_sha256")
     published_at = _parse_utc(citation.get("published_at"), "EVENT_EVIDENCE_CITATION_PUBLISHED_AT_INVALID")
+    captured_at = _parse_utc(citation.get("captured_at"), "EVENT_EVIDENCE_CITATION_CAPTURED_AT_INVALID")
+    direction_origin = citation.get("direction_origin")
+    if direction_origin not in DIRECTION_ORIGIN:
+        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_DIRECTION_ORIGIN_INVALID:{direction_origin!r}")
     locator = citation.get("locator")
     if not isinstance(locator, str) or not locator.strip():
         raise EventEvidenceError("EVENT_EVIDENCE_CITATION_LOCATOR_INVALID")
@@ -421,14 +641,23 @@ def _verify_raw_source_citation(
     if not isinstance(observed_fact, str) or not observed_fact.strip():
         raise EventEvidenceError("EVENT_EVIDENCE_CITATION_OBSERVED_FACT_INVALID")
 
+    # ★ round 8, defect 1: the only ordering check `published_at` itself is
+    #   subject to -- you cannot have captured/fetched something before its
+    #   real-world publication. `published_at` never touches git.
+    if published_at > captured_at:
+        raise EventEvidenceError(
+            "EVENT_EVIDENCE_CITATION_PUBLISHED_AT_AFTER_CAPTURED_AT:"
+            f"published_at={published_at.isoformat()}>captured_at={captured_at.isoformat()}"
+        )
+
     raw_path = _resolve_repo_file(raw_source_ref, forbid_test_root=forbid_test_root)
     _verify_hash(raw_path, raw_source_sha256)
 
     # Cheap, content-only checks first (fail fast, and keep these
     # independent of git subprocess timing/history for testability) --
-    # the git-availability gate (round 7, item 2) runs LAST, after the
-    # document is already known to be structurally valid and semantically
-    # consistent with the claim.
+    # the git-availability gate runs LAST, after the document is already
+    # known to be structurally valid and semantically consistent with the
+    # claim.
     try:
         raw_document = json.loads(raw_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -436,13 +665,11 @@ def _verify_raw_source_citation(
     if not isinstance(raw_document, dict):
         raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_NOT_STRUCTURED:{raw_path}")
 
-    observed_direction = raw_document.get("observed_direction")
-    if observed_direction not in ALLOWED_DIRECTION:
-        raise EventEvidenceError(f"EVENT_EVIDENCE_CITATION_RAW_SOURCE_OBSERVED_DIRECTION_INVALID:{raw_path}")
-    if observed_direction != claimed_direction:
+    derived_direction = _derive_direction(raw_document, direction_origin, source_class, raw_path)
+    if derived_direction != claimed_direction:
         raise EventEvidenceError(
             f"EVENT_EVIDENCE_CITATION_DIRECTION_MISMATCH_WITH_RAW_SOURCE:"
-            f"claimed={claimed_direction}!=observed={observed_direction}"
+            f"claimed={claimed_direction}!=derived={derived_direction}"
         )
 
     located_value = raw_document.get(locator)
@@ -453,15 +680,37 @@ def _verify_raw_source_citation(
             f"EVENT_EVIDENCE_CITATION_OBSERVED_FACT_NOT_FOUND_AT_LOCATOR:{locator!r}"
         )
 
-    # Round 7, required item 2: the raw source gets the SAME real,
-    # content-addressed, committer-time git-availability gate as the
-    # envelope -- `published_at` is this document's own "declared_at".
-    _verify_first_availability(raw_path, published_at, decision_at, "EVENT_EVIDENCE_RAW_SOURCE")
+    # ★ round 8, defect 1: `captured_at` (never `published_at`) is what
+    #   goes through the corrected, max()-clamped git-availability gate.
+    effective_available_at = _verify_first_availability(
+        raw_path, captured_at, decision_at, "EVENT_EVIDENCE_RAW_SOURCE",
+    )
 
     return {
         "raw_source_ref": raw_source_ref, "raw_source_sha256": raw_source_sha256,
-        "published_at": citation["published_at"], "locator": locator,
+        "published_at": citation["published_at"], "captured_at": citation["captured_at"],
+        "locator": locator, "direction_origin": direction_origin,
+        "effective_available_at": effective_available_at,
     }
+
+
+def _verify_envelope_captured_at_not_before_event_at(envelope: dict) -> dt.datetime:
+    """CIO round 8, item 5: mirrors the citation's own `published_at <=
+    captured_at` check one level up -- Atlas cannot claim to have captured
+    evidence of an event before the event itself occurred. Factored out of
+    `verify_event_reaction_claim` (which hardcodes `forbid_test_root=True`
+    with no parameter, so it can never be exercised below the production
+    boundary) so this specific check remains independently testable against
+    an envelope loaded via `_load_envelope` directly, regardless of the
+    envelope file's location. Returns the parsed `captured_at` on success."""
+    event_at_dt = _parse_utc(envelope["event_at"], "EVENT_EVIDENCE_ENVELOPE_EVENT_AT_INVALID")
+    captured_at_dt = _parse_utc(envelope["captured_at"], "EVENT_EVIDENCE_ENVELOPE_CAPTURED_AT_INVALID")
+    if captured_at_dt < event_at_dt:
+        raise EventEvidenceError(
+            "EVENT_EVIDENCE_ENVELOPE_CAPTURED_AT_PRECEDES_EVENT_AT:"
+            f"captured_at={captured_at_dt.isoformat()}<event_at={event_at_dt.isoformat()}"
+        )
+    return captured_at_dt
 
 
 def verify_event_reaction_claim(
@@ -505,16 +754,16 @@ def verify_event_reaction_claim(
     if mismatches:
         raise EventEvidenceError(f"EVENT_EVIDENCE_CLAIM_MISMATCH:{','.join(mismatches)}")
 
-    captured_at_dt = _parse_utc(envelope["captured_at"], "EVENT_EVIDENCE_ENVELOPE_CAPTURED_AT_INVALID")
-    first_seen = _verify_first_availability(path, captured_at_dt, decision_at, "EVENT_EVIDENCE")
+    captured_at_dt = _verify_envelope_captured_at_not_before_event_at(envelope)
+    effective_available_at = _verify_first_availability(path, captured_at_dt, decision_at, "EVENT_EVIDENCE")
 
     raw_lineage = _verify_raw_source_citation(
-        envelope["citation"], direction, decision_at, forbid_test_root=True,
+        envelope["citation"], direction, source_class, decision_at, forbid_test_root=True,
     )
 
     return {
         "capture_kind": envelope["capture_kind"],
-        "first_authoritative_seen_at": first_seen.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "first_authoritative_seen_at": effective_available_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "raw_source_ref": raw_lineage["raw_source_ref"],
         "raw_source_sha256": raw_lineage["raw_source_sha256"],
         "published_at": raw_lineage["published_at"],

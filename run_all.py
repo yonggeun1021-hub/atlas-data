@@ -924,6 +924,30 @@ APPROVED_TESTS = [
     #   문서화: offline·local-repository 신호일 뿐 제3자 관측 타임스탬프는
     #   아님). 이 모든 검증을 실제로 통과하는 "위장된" envelope조차 test/ 아래
     #   있다는 이유만으로 여전히 거부됨을 재확인했다.
+    #   CIO round 8: mock 설계·round 7의 content-addressed first-seen 방향 모두
+    #   그대로 승인됐으나, round 7의 시간순서 규칙을 실제 수집 과정과 대조하니
+    #   P1 결함 2건이 남아있었다. (1) round 7은 raw source의 published_at을
+    #   git 가용성 검증에 그대로 태웠는데, 실제 순서는 "공개 → Atlas 수집
+    #   (captured_at) → git commit"이라 published_at이 commit보다 항상 앞서는
+    #   정상적인 경우조차 거부됐다 — 이제 published_at은 git과 무관하게
+    #   captured_at 이전인지만 확인하고(published_at<=captured_at),
+    #   effective_available_at = max(captured_at, exact_content_first_seen_at)
+    #   가 decision_at 이하인지를 envelope·raw source citation·EG canonical
+    #   record 세 경로 모두에서 동일하게 확인한다(자기신고 captured_at이
+    #   앞당겨져도 effective_available_at은 git 실측값 아래로 내려가지 않음).
+    #   (2) observed_direction은 사람이 입력한 주장을 envelope의 또 다른
+    #   사람 주장과 비교하는 것에 불과했다 — 이제 citation.direction_origin이
+    #   OFFICIAL_STRUCTURED_FIELD(raw source의 official_direction_field를
+    #   이 모듈이 소유한 닫힌 테이블 RATIFIED_OFFICIAL_DIRECTION_FIELDS로
+    #   대조) 또는 RATIFIED_DERIVATION(direction_derivation의 rule_id/
+    #   rule_version을 RATIFIED_DIRECTION_RULES로 대조해 실제 숫자 입력에서
+    #   재계산) 둘 중 하나로만 direction을 인정하며, 두 테이블 모두 이 저장소
+    #   실제 커밋본에서는 비어 있다(mocked_ratified_direction_tables()로만
+    #   테스트에서 일시적으로 채워짐). _verify_first_availability의
+    #   NOT_COMPUTABLE 에러도 이제 PROVENANCE_NOT_COMPUTABLE로 명시해
+    #   가격 데이터 누락과 혼동되지 않게 했다. fetch-depth: 0은
+    #   actions-pass.yml에 이미 설정돼 있다(P10-02/03 PIT Replay round 4 후속,
+    #   replay/asset_identity.py 검증용 — 이 모듈도 같은 게이트를 탄다).
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
