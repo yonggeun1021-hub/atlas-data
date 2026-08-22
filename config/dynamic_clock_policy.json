@@ -1,0 +1,31 @@
+{
+  "policy_version": "dynamic_clock_policy/1",
+  "approval_status": "PROVISIONAL_CIO_MVP",
+  "evidence_basis": "CIO review round 1 on PR #211 (2026-08-22): cadence values mirror the 'Opportunity Capture Control Loop' design doc section 6 ('재검토 시계' -- price/flow triggers next trading day/24h, long-thesis triggers 30 days). These are engineering scheduling defaults for an MVP, not a ratified investment threshold/risk policy -- see approval_status. A future CIO ratification pass may revise every numeric value here without any code change (clock/dynamic_clock.py reads this file, not a hardcoded dict).",
+  "trigger_types": {
+    "PRICE_CONFIRMATION": {"cooldown_days": 1, "expiry_days": 2, "urgency": "HIGH"},
+    "INVALIDATION_TRIGGER": {"cooldown_days": 1, "expiry_days": 2, "urgency": "HIGH"},
+    "FLOW_REVERSAL": {"cooldown_days": 1, "expiry_days": 2, "urgency": "HIGH"},
+    "RELATIVE_STRENGTH_REVERSAL": {"cooldown_days": 1, "expiry_days": 2, "urgency": "MEDIUM"},
+    "CATALYST_APPROACH": {"cooldown_days": 1, "expiry_days": 1, "urgency": "HIGH"},
+    "FUNDAMENTAL_REVISION": {"cooldown_days": 30, "expiry_days": 30, "urgency": "MEDIUM"},
+    "EXPECTATION_DISLOCATION": {"cooldown_days": 30, "expiry_days": 30, "urgency": "LOW"}
+  },
+  "market_calendars": {
+    "BTC": {
+      "calendar_type": "CALENDAR_DAY_24_7",
+      "holiday_calendar_verified": true,
+      "note": "BTC trades continuously; every calendar day is a trading day. No holiday-calendar ambiguity is possible for this market."
+    },
+    "CRYPTO": {
+      "calendar_type": "CALENDAR_DAY_24_7",
+      "holiday_calendar_verified": true,
+      "note": "Crypto breadth pairs trade continuously; every calendar day is a trading day."
+    },
+    "KOREA": {
+      "calendar_type": "WEEKDAY_BUSINESS_DAY_APPROXIMATION",
+      "holiday_calendar_verified": false,
+      "note": "No KRX public-holiday calendar is committed anywhere in this repo's evidence (checked: no config/*holiday* file, no krx.json holiday field). cooldown/expiry/next_review_at for KOREA are computed by skipping Saturday/Sunday ONLY -- a real KRX public holiday inside that window would silently NOT be skipped. Every KOREA-market date derived from this policy therefore carries an explicit uncertainty_flag (see clock/dynamic_clock.py::CalendarConfidence) rather than presenting a confident date. Do not remove holiday_calendar_verified:false without first committing real, sourced KRX holiday-calendar evidence."
+    }
+  }
+}
