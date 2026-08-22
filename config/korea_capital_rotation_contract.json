@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "contract_version": "korea_capital_rotation/2",
+  "contract_version": "korea_capital_rotation/3",
   "input_schema_version": "korea_capital_rotation_input/1",
   "policy_schema_version": "korea_capital_rotation_policy/1",
-  "output_schema_version": "korea_capital_rotation_packet/2",
+  "output_schema_version": "korea_capital_rotation_packet/3",
   "upstream_contract_version": "korea_leadership_contract/v1",
   "upstream_transform_version": "korea_leadership/v1",
   "taxonomy_contract_version": "theme_taxonomy/1",
@@ -22,6 +22,16 @@
   ],
   "transition_semantics": "PRIOR_BUCKET_TO_CURRENT_BUCKET_WITHIN_BENCHMARK_SCOPE",
   "breadth_context_policy": "OBSERVATION_ONLY_NOT_RANKING_INPUT",
+  "breadth_status_vocabulary": [
+    "AVAILABLE",
+    "BLOCKED",
+    "STALE",
+    "UNKNOWN"
+  ],
+  "breadth_required_markets": [
+    "KOSDAQ",
+    "KOSPI"
+  ],
   "investor_flow_context_policy": "KRX_ONLY_UNVERIFIED_AVAILABLE_AT_NOT_RANKING_INPUT",
   "effective_interval": "[effective_from, effective_to)",
   "input_retention_policy": "UPSTREAM_DERIVED_PACKETS_ONLY_NO_SOURCE_CLOSE_ROWS",

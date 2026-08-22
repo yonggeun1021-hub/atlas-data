@@ -94,8 +94,8 @@ def _expected_contract() -> dict:
                 "measurement": "us_theme_relative_rotation_observation",
             },
             "KOREA": {
-                "schema_version": "korea_capital_rotation_packet/2",
-                "contract_version": "korea_capital_rotation/2",
+                "schema_version": "korea_capital_rotation_packet/3",
+                "contract_version": "korea_capital_rotation/3",
                 "measurement": "korea_theme_relative_rotation_observation",
             },
             "CRYPTO": {
