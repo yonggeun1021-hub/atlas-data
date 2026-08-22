@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""P2-03 -> rotation_state_ledger -> daily briefing wiring regression."""
+"""P2-03 -> rotation_state_ledger -> daily briefing wiring regression.
+
+PIT temporal-invariant correction (2026-08-22): decision_time is now a
+required parameter -- the real current Leadership observation's own
+available_at -- and no-lookahead is decision_available_at<=decision_time,
+never <=observation_date. There is no more separate "confirmed_history"
+bypass channel: first-seen evidence flows through the real Breadth
+lineage (coverage_context.breadth) itself.
+"""
 from __future__ import annotations
 
 import copy
@@ -32,15 +40,22 @@ KCR_TEST = _load("test_korea_capital_rotation", "test/test_korea_capital_rotatio
 REAL_KOSDAQ_SHA = "3be02ecda92a143abb5a825f66a207bd2a92bdef1d8b59b1c28a5ea8b0fcfc94"
 REAL_KOSPI_SHA = "086bddf7313fe0a36d87d86fc028982bc9835e3b4b55d15dff13ecdc2818caf2"
 
+# as_of_date "2026-08-21" -> _fixture_bundle's current_observation.available_at
+# (KCR_TEST.upstream_payload sets f"{as_of_date}T18:00:00+09:00").
+DECISION_TIME = "2026-08-21T09:00:00+00:00"
+
 
 def real_context_source() -> dict:
     """Exact real P1-KR-05 run 32549348644 (2026-08-21, KST) lineage --
     same literal values already used by
     test_korea_capital_rotation.py::test_real_p1_kr05_live_lineage_
-    derives_blocked_not_available, now on the v2 (first-seen lineage)
+    derives_blocked_not_available, on the v2 (first-seen lineage)
     schema. source_available_at stays the same honest null gap;
-    captured_at/first_seen_at are the real run's own fetch instant, a
-    genuine forward_live capture, not a synthetic fixture."""
+    captured_at/first_seen_at are the real run's own fetch instant (a
+    day after as_of_date, and after DECISION_TIME above too), a genuine
+    forward_live capture, not a synthetic fixture -- this real evidence
+    still correctly derives BLOCKED (too late for THIS decision_time),
+    not AVAILABLE."""
     summary = {
         "schema_version": "korea_breadth_context_lineage/2",
         "as_of_date": "2026-08-21",
@@ -66,7 +81,9 @@ def real_context_source() -> dict:
 
 class BreadthDerivationTest(unittest.TestCase):
     def test_missing_source_derives_unknown_for_both_markets(self):
-        breadth, reason = WIRE.build_coverage_context_breadth("2026-08-21", 3, None)
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, None, DECISION_TIME
+        )
         self.assertEqual(breadth["status"], "UNKNOWN")
         self.assertFalse(breadth["decision_eligible"])
         self.assertFalse(breadth["ranking_input_authorized"])
@@ -74,53 +91,86 @@ class BreadthDerivationTest(unittest.TestCase):
         self.assertIn("KOSDAQ_NO_LINEAGE_SUPPLIED", reason)
 
     def test_real_lineage_derives_blocked_not_available(self):
+        # This real evidence's first_seen_at (2026-08-22) is genuinely
+        # after DECISION_TIME (2026-08-21T09:00:00Z) -- correctly BLOCKED
+        # (too late for this decision), not AVAILABLE.
         source = real_context_source()
-        breadth, reason = WIRE.build_coverage_context_breadth("2026-08-21", 3, source)
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
         self.assertEqual(breadth["status"], "BLOCKED")
         self.assertFalse(breadth["decision_eligible"])
         self.assertEqual(breadth["markets"]["KOSPI"]["lineage_sha256"], REAL_KOSPI_SHA)
         self.assertEqual(breadth["markets"]["KOSDAQ"]["lineage_sha256"], REAL_KOSDAQ_SHA)
-        self.assertIn("AVAILABLE_AT_NULL", reason)
+        self.assertIn("NOT_YET_DECISION_AVAILABLE", reason)
 
-    def test_available_when_fresh_and_present(self):
+    def test_available_when_source_available_at_before_decision_time(self):
         source = real_context_source()
         source = copy.deepcopy(source)
-        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-20T18:00:00Z"
-        source["markets"]["KOSDAQ"]["source_available_at"] = "2026-08-20T18:00:00Z"
-        breadth, reason = WIRE.build_coverage_context_breadth("2026-08-21", 3, source)
+        # Same calendar day as its own as_of_date, before DECISION_TIME.
+        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSDAQ"]["source_available_at"] = "2026-08-21T05:00:00Z"
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
         self.assertEqual(breadth["status"], "AVAILABLE")
         self.assertTrue(breadth["decision_eligible"])
         self.assertEqual(reason, "KOSDAQ_AVAILABLE,KOSPI_AVAILABLE")
 
-    def test_stale_when_available_at_exceeds_freshness_limit(self):
+    def test_forward_live_first_seen_before_decision_time_is_available(self):
         source = real_context_source()
         source = copy.deepcopy(source)
-        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-01T18:00:00Z"
-        source["markets"]["KOSDAQ"]["source_available_at"] = "2026-08-01T18:00:00Z"
-        breadth, reason = WIRE.build_coverage_context_breadth("2026-08-21", 3, source)
+        source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSPI"]["captured_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSDAQ"]["first_seen_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSDAQ"]["captured_at"] = "2026-08-21T05:00:00Z"
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
+        self.assertEqual(breadth["status"], "AVAILABLE")
+        self.assertTrue(breadth["decision_eligible"])
+
+    def test_stale_when_source_available_at_exceeds_freshness_limit(self):
+        source = real_context_source()
+        source = copy.deepcopy(source)
+        # Market's own as_of_date is genuinely older than decision_time's
+        # date (2026-08-01), so a same-day-or-later source_available_at
+        # for THAT observation is still well before DECISION_TIME
+        # (2026-08-21) -- correctly stale by the freshness_limit_days
+        # window, not a chronology violation.
+        for market in ("KOSPI", "KOSDAQ"):
+            source["markets"][market]["as_of_date"] = "2026-08-01"
+            source["markets"][market]["source_available_at"] = "2026-08-01T18:00:00Z"
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
         self.assertEqual(breadth["status"], "STALE")
         self.assertFalse(breadth["decision_eligible"])
-        self.assertIn("AVAILABLE_AT_STALE", reason)
+        self.assertIn("DECISION_AVAILABLE_AT_STALE", reason)
 
     def test_worst_market_wins_when_one_blocked_one_available(self):
         source = real_context_source()
         source = copy.deepcopy(source)
-        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-20T18:00:00Z"
-        # KOSDAQ stays available_at=None -> BLOCKED, worse than KOSPI's
-        # AVAILABLE -- the overall status must be the worse of the two.
-        breadth, reason = WIRE.build_coverage_context_breadth("2026-08-21", 3, source)
+        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-21T05:00:00Z"
+        # KOSDAQ's first_seen_at stays after DECISION_TIME -> BLOCKED,
+        # worse than KOSPI's AVAILABLE -- the overall status must be the
+        # worse of the two.
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
         self.assertEqual(breadth["status"], "BLOCKED")
-        self.assertIn("KOSDAQ_AVAILABLE_AT_NULL", reason)
+        self.assertIn("KOSDAQ_NOT_YET_DECISION_AVAILABLE", reason)
 
-    def test_available_at_after_as_of_date_fails_closed(self):
+    def test_source_available_at_after_decision_time_degrades_to_blocked_not_error(self):
         source = real_context_source()
         source = copy.deepcopy(source)
-        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-22T00:00:00Z"  # future timestamp
+        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-22T00:00:00Z"
         source["markets"]["KOSDAQ"]["source_available_at"] = "2026-08-22T00:00:00Z"
-        with self.assertRaisesRegex(
-            WIRE.KoreaRotationWireError, "BREADTH_MARKET_AVAILABLE_AT_AFTER_AS_OF"
-        ):
-            WIRE.build_coverage_context_breadth("2026-08-21", 3, source)
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
+        self.assertEqual(breadth["status"], "BLOCKED")
+        self.assertFalse(breadth["decision_eligible"])
 
     def test_partial_market_identity_fails_closed(self):
         source = real_context_source()
@@ -129,7 +179,46 @@ class BreadthDerivationTest(unittest.TestCase):
         with self.assertRaisesRegex(
             WIRE.KoreaRotationWireError, "BREADTH_MARKET_PARTIAL_IDENTITY:KOSPI"
         ):
-            WIRE.build_coverage_context_breadth("2026-08-21", 3, source)
+            WIRE.build_coverage_context_breadth("2026-08-21", 3, source, DECISION_TIME)
+
+    def test_invalid_capture_mode_fails_closed(self):
+        source = real_context_source()
+        source = copy.deepcopy(source)
+        source["capture_mode"] = "not_a_real_mode"
+        with self.assertRaisesRegex(WIRE.KoreaRotationWireError, "BREADTH_CAPTURE_MODE_INVALID"):
+            WIRE.build_coverage_context_breadth("2026-08-21", 3, source, DECISION_TIME)
+
+    def test_historical_backfill_never_available_even_before_decision_time(self):
+        source = real_context_source()
+        source = copy.deepcopy(source)
+        source["capture_mode"] = "historical_backfill"
+        source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSPI"]["captured_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSDAQ"]["first_seen_at"] = "2026-08-21T05:00:00Z"
+        source["markets"]["KOSDAQ"]["captured_at"] = "2026-08-21T05:00:00Z"
+        breadth, reason = WIRE.build_coverage_context_breadth(
+            "2026-08-21", 3, source, DECISION_TIME
+        )
+        self.assertEqual(breadth["status"], "BLOCKED")
+        self.assertFalse(breadth["decision_eligible"])
+
+    def test_first_seen_before_captured_at_or_as_of_date_fails_closed(self):
+        source = real_context_source()
+        reversed_source = copy.deepcopy(source)
+        reversed_source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-21T00:00:00Z"
+        reversed_source["markets"]["KOSPI"]["captured_at"] = "2026-08-21T05:00:00Z"
+        with self.assertRaisesRegex(
+            WIRE.KoreaRotationWireError, "BREADTH_MARKET_FIRST_SEEN_BEFORE_CAPTURED:KOSPI"
+        ):
+            WIRE.build_coverage_context_breadth("2026-08-21", 3, reversed_source, DECISION_TIME)
+
+        before_as_of = copy.deepcopy(source)
+        before_as_of["markets"]["KOSPI"]["first_seen_at"] = "2026-08-20T00:00:00Z"
+        before_as_of["markets"]["KOSPI"]["captured_at"] = "2026-08-20T00:00:00Z"
+        with self.assertRaisesRegex(
+            WIRE.KoreaRotationWireError, "BREADTH_MARKET_FIRST_SEEN_BEFORE_AS_OF:KOSPI"
+        ):
+            WIRE.build_coverage_context_breadth("2026-08-21", 3, before_as_of, DECISION_TIME)
 
     def test_source_sha256_tamper_is_rejected_on_load(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,85 +264,6 @@ class BreadthDerivationTest(unittest.TestCase):
                 self.assertIsNone(WIRE.load_breadth_context_source("2099-01-01"))
             finally:
                 WIRE.BREADTH_CONTEXT_ROOT = original_root
-
-
-class ConfirmedHistoryTest(unittest.TestCase):
-    """P1-KR-05 first-seen policy: entirely separate from breadth.status
-    above -- never a decision/ranking input, only retrospective evidence
-    once genuinely confirmed."""
-
-    def test_missing_source_is_no_lineage_for_both_markets(self):
-        confirmed = WIRE.build_confirmed_history_context("2026-08-21", None)
-        self.assertFalse(confirmed["all_markets_confirmed"])
-        for market in ("KOSPI", "KOSDAQ"):
-            self.assertEqual(confirmed["markets"][market]["status"], "NO_LINEAGE")
-            self.assertFalse(confirmed["markets"][market]["confirmed_history_eligible"])
-
-    def test_real_forward_live_backfill_is_confirmed_via_first_seen(self):
-        # The real committed evidence (fetched 2026-08-22 for an
-        # observation dated 2026-08-21) genuinely satisfies first_seen
-        # strictly-after-as_of_date, tagged forward_live.
-        source = real_context_source()
-        confirmed = WIRE.build_confirmed_history_context("2026-08-21", source)
-        self.assertTrue(confirmed["all_markets_confirmed"])
-        for market in ("KOSPI", "KOSDAQ"):
-            self.assertEqual(confirmed["markets"][market]["status"], "CONFIRMED")
-            self.assertTrue(confirmed["markets"][market]["confirmed_history_eligible"])
-            self.assertEqual(
-                confirmed["markets"][market]["confirmed_at"], "2026-08-22T03:35:36+00:00"
-            )
-
-    def test_same_day_first_seen_is_not_yet_confirmed(self):
-        source = copy.deepcopy(real_context_source())
-        for market in ("KOSPI", "KOSDAQ"):
-            source["markets"][market]["first_seen_at"] = "2026-08-21T20:00:00Z"
-            source["markets"][market]["captured_at"] = "2026-08-21T20:00:00Z"
-        confirmed = WIRE.build_confirmed_history_context("2026-08-21", source)
-        self.assertFalse(confirmed["all_markets_confirmed"])
-        self.assertEqual(confirmed["markets"]["KOSPI"]["status"], "SAME_DAY_NOT_YET_CONFIRMED")
-
-    def test_historical_backfill_never_confirmed_regardless_of_timing(self):
-        source = copy.deepcopy(real_context_source())
-        source["capture_mode"] = "historical_backfill"
-        confirmed = WIRE.build_confirmed_history_context("2026-08-21", source)
-        self.assertFalse(confirmed["all_markets_confirmed"])
-        for market in ("KOSPI", "KOSDAQ"):
-            self.assertEqual(
-                confirmed["markets"][market]["status"], "HISTORICAL_BACKFILL_NEVER_ELIGIBLE"
-            )
-            self.assertFalse(confirmed["markets"][market]["confirmed_history_eligible"])
-
-    def test_missing_first_seen_is_not_confirmed(self):
-        source = copy.deepcopy(real_context_source())
-        source["markets"]["KOSPI"]["first_seen_at"] = None
-        confirmed = WIRE.build_confirmed_history_context("2026-08-21", source)
-        self.assertEqual(confirmed["markets"]["KOSPI"]["status"], "NO_FIRST_SEEN")
-
-    def test_first_seen_before_as_of_date_fails_closed(self):
-        source = copy.deepcopy(real_context_source())
-        source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-20T00:00:00Z"
-        source["markets"]["KOSPI"]["captured_at"] = "2026-08-20T00:00:00Z"
-        with self.assertRaisesRegex(
-            WIRE.KoreaRotationWireError, "BREADTH_MARKET_FIRST_SEEN_BEFORE_AS_OF:KOSPI"
-        ):
-            WIRE.build_confirmed_history_context("2026-08-21", source)
-
-    def test_first_seen_before_captured_at_fails_closed(self):
-        source = copy.deepcopy(real_context_source())
-        source["markets"]["KOSPI"]["first_seen_at"] = "2026-08-22T00:00:00Z"
-        source["markets"]["KOSPI"]["captured_at"] = "2026-08-22T05:00:00Z"
-        with self.assertRaisesRegex(
-            WIRE.KoreaRotationWireError, "BREADTH_MARKET_FIRST_SEEN_BEFORE_CAPTURED:KOSPI"
-        ):
-            WIRE.build_confirmed_history_context("2026-08-21", source)
-
-    def test_source_available_at_confirms_immediately_when_present(self):
-        # Were verified official publication timing ever populated, it
-        # alone is sufficient -- no need to wait on first_seen at all.
-        source = copy.deepcopy(real_context_source())
-        source["markets"]["KOSPI"]["source_available_at"] = "2026-08-21T18:00:00Z"
-        confirmed = WIRE.build_confirmed_history_context("2026-08-21", source)
-        self.assertEqual(confirmed["markets"]["KOSPI"]["status"], "CONFIRMED")
 
 
 def _fixture_bundle(as_of_date: str):
@@ -303,8 +313,9 @@ class EndToEndProofTest(unittest.TestCase):
     def test_real_blocked_lineage_flows_through_ledger_and_pointer(self):
         as_of_date = "2026-08-21"
         source = real_context_source()
-        breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source)
         value, policy = _fixture_bundle(as_of_date)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source, decision_time)
         value["coverage_context"]["breadth"] = breadth
         rotation_packet = KCR.build_packet(value, policy)
         self.assertEqual(rotation_packet["status"], "ROTATION_BUCKETS_OBSERVED")
@@ -328,14 +339,15 @@ class EndToEndProofTest(unittest.TestCase):
         self.assertEqual(
             pointer["breadth"]["markets"]["KOSDAQ"]["lineage_sha256"], REAL_KOSDAQ_SHA
         )
+        # Real first-seen lineage is fully visible directly in the primary
+        # breadth.markets shape now -- no separate bypass channel.
+        self.assertEqual(
+            pointer["breadth"]["markets"]["KOSPI"]["first_seen_at"], "2026-08-22T03:35:36Z"
+        )
+        self.assertEqual(pointer["breadth"]["markets"]["KOSPI"]["capture_mode"], "forward_live")
         self.assertFalse(pointer["breadth"]["decision_eligible"])
         self.assertFalse(pointer["breadth"]["ranking_input_authorized"])
-        # confirmed_history is a genuinely separate channel: this real
-        # evidence's first_seen_at is honestly T+1-confirmed even though
-        # breadth.status stays BLOCKED (no verified source_available_at)
-        # -- proving the two are independent, neither masking the other.
-        self.assertTrue(pointer["confirmed_history"]["all_markets_confirmed"])
-        self.assertEqual(pointer["confirmed_history"]["markets"]["KOSPI"]["status"], "CONFIRMED")
+        self.assertNotIn("confirmed_history", pointer)
         for value_ in pointer["authority"].values():
             self.assertFalse(value_)
 
@@ -350,11 +362,37 @@ class EndToEndProofTest(unittest.TestCase):
         )
         self.assertEqual(pointer_again, pointer)
 
+    def test_real_available_lineage_flows_through_when_first_seen_before_decision_time(self):
+        # The genuinely different, real-world-correct outcome: a
+        # forward_live capture whose first_seen_at predates decision_time
+        # is real, usable evidence -- READY end-to-end, never a forced
+        # PASS. All authority stays closed regardless.
+        as_of_date = "2026-08-21"
+        source = copy.deepcopy(real_context_source())
+        for market in ("KOSPI", "KOSDAQ"):
+            source["markets"][market]["first_seen_at"] = "2026-08-21T05:00:00Z"
+            source["markets"][market]["captured_at"] = "2026-08-21T05:00:00Z"
+        value, policy = _fixture_bundle(as_of_date)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source, decision_time)
+        value["coverage_context"]["breadth"] = breadth
+        rotation_packet = KCR.build_packet(value, policy)
+        self.assertEqual(rotation_packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertTrue(rotation_packet["rotation_policy_effective"])
+        self.assertEqual(rotation_packet["coverage_context"]["breadth"]["status"], "AVAILABLE")
+        self.assertTrue(rotation_packet["coverage_context"]["breadth"]["decision_eligible"])
+        for field in (
+            "trading_authorized", "production_authorized", "stage_promotion_authorized",
+            "candidate_ranking_authorized",
+        ):
+            self.assertFalse(rotation_packet["authority"][field])
+
     def test_pointer_write_is_atomic_and_readable(self):
         as_of_date = "2026-08-21"
         source = real_context_source()
-        breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source)
         value, policy = _fixture_bundle(as_of_date)
+        decision_time = value["current_observation"]["available_at"]
+        breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source, decision_time)
         value["coverage_context"]["breadth"] = breadth
         rotation_packet = KCR.build_packet(value, policy)
         with tempfile.TemporaryDirectory() as tmp:

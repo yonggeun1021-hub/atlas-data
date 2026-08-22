@@ -1,56 +1,56 @@
 {
-  "schema_version": 1,
-  "contract_version": "korea_capital_rotation/3",
-  "input_schema_version": "korea_capital_rotation_input/1",
-  "policy_schema_version": "korea_capital_rotation_policy/1",
-  "output_schema_version": "korea_capital_rotation_packet/3",
-  "upstream_contract_version": "korea_leadership_contract/v1",
-  "upstream_transform_version": "korea_leadership/v1",
-  "taxonomy_contract_version": "theme_taxonomy/1",
-  "measurement": "korea_theme_relative_rotation_observation",
-  "ranking_metric": "RELATIVE_STRENGTH_VS_OWN_BENCHMARK",
-  "ranking_order": "DESCENDING_WITHIN_BENCHMARK_SCOPE",
-  "tie_break": "SERIES_IDENTITY_ASC",
-  "eligible_roles": [
-    "SECTOR",
-    "THEME"
-  ],
-  "bucket_vocabulary": [
-    "TOP",
-    "MIDDLE",
-    "BOTTOM"
-  ],
-  "transition_semantics": "PRIOR_BUCKET_TO_CURRENT_BUCKET_WITHIN_BENCHMARK_SCOPE",
+  "authority": {
+    "breadth_as_ranking_input_authorized": false,
+    "candidate_ranking_authorized": false,
+    "cross_benchmark_ranking_authorized": false,
+    "default_theme_selection_authorized": false,
+    "external_ratified_rotation_policy_only": true,
+    "investor_flow_as_ranking_input_authorized": false,
+    "p2_state_vocabulary_authorized": false,
+    "production_authorized": false,
+    "regime_input_authorized": false,
+    "stage_promotion_authorized": false,
+    "state_ledger_authorized": false,
+    "trading_authorized": false
+  },
   "breadth_context_policy": "OBSERVATION_ONLY_NOT_RANKING_INPUT",
+  "breadth_required_markets": [
+    "KOSDAQ",
+    "KOSPI"
+  ],
   "breadth_status_vocabulary": [
     "AVAILABLE",
     "BLOCKED",
     "STALE",
     "UNKNOWN"
   ],
-  "breadth_required_markets": [
-    "KOSDAQ",
-    "KOSPI"
+  "bucket_vocabulary": [
+    "TOP",
+    "MIDDLE",
+    "BOTTOM"
   ],
-  "investor_flow_context_policy": "KRX_ONLY_UNVERIFIED_AVAILABLE_AT_NOT_RANKING_INPUT",
+  "contract_version": "korea_capital_rotation/4",
   "effective_interval": "[effective_from, effective_to)",
+  "eligible_roles": [
+    "SECTOR",
+    "THEME"
+  ],
   "input_retention_policy": "UPSTREAM_DERIVED_PACKETS_ONLY_NO_SOURCE_CLOSE_ROWS",
-  "output_retention_policy": "NON_RECONSTRUCTIVE_DERIVED_OBSERVATIONS_ONLY",
+  "input_schema_version": "korea_capital_rotation_input/1",
+  "investor_flow_context_policy": "KRX_ONLY_UNVERIFIED_AVAILABLE_AT_NOT_RANKING_INPUT",
+  "measurement": "korea_theme_relative_rotation_observation",
   "output_decimal_places": 12,
-  "rounding": "ROUND_HALF_EVEN",
+  "output_retention_policy": "NON_RECONSTRUCTIVE_DERIVED_OBSERVATIONS_ONLY",
+  "output_schema_version": "korea_capital_rotation_packet/4",
+  "policy_schema_version": "korea_capital_rotation_policy/1",
+  "ranking_metric": "RELATIVE_STRENGTH_VS_OWN_BENCHMARK",
+  "ranking_order": "DESCENDING_WITHIN_BENCHMARK_SCOPE",
   "repository_default_policy": "ABSENT",
-  "authority": {
-    "external_ratified_rotation_policy_only": true,
-    "cross_benchmark_ranking_authorized": false,
-    "breadth_as_ranking_input_authorized": false,
-    "investor_flow_as_ranking_input_authorized": false,
-    "default_theme_selection_authorized": false,
-    "p2_state_vocabulary_authorized": false,
-    "state_ledger_authorized": false,
-    "regime_input_authorized": false,
-    "candidate_ranking_authorized": false,
-    "stage_promotion_authorized": false,
-    "production_authorized": false,
-    "trading_authorized": false
-  }
+  "rounding": "ROUND_HALF_EVEN",
+  "schema_version": 1,
+  "taxonomy_contract_version": "theme_taxonomy/1",
+  "tie_break": "SERIES_IDENTITY_ASC",
+  "transition_semantics": "PRIOR_BUCKET_TO_CURRENT_BUCKET_WITHIN_BENCHMARK_SCOPE",
+  "upstream_contract_version": "korea_leadership_contract/v1",
+  "upstream_transform_version": "korea_leadership/v1"
 }

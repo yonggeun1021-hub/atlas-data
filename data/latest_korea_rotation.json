@@ -1,5 +1,5 @@
 {
-  "as_of_date": "2026-08-20",
+  "as_of_date": "2026-08-14",
   "authority": {
     "candidate_ranking_authorized": false,
     "production_authorized": false,
@@ -8,55 +8,39 @@
     "trading_authorized": false
   },
   "breadth": {
-    "decision_eligible": false,
+    "decision_eligible": true,
     "markets": {
       "KOSDAQ": {
-        "as_of_date": "2026-08-20",
-        "available_at": null,
-        "lineage_sha256": "070d22d22748fc20f07bc2b97df0d624b7247e392cc115e655f7faac9d649a8f"
+        "as_of_date": "2026-08-14",
+        "capture_mode": "forward_live",
+        "captured_at": "2026-08-22T08:47:36Z",
+        "first_seen_at": "2026-08-22T08:47:36Z",
+        "lineage_sha256": "f48860635bcd52507edc2b0aeb632bfb9752648562e5a10b8b2370f09377480f",
+        "source_available_at": null
       },
       "KOSPI": {
-        "as_of_date": "2026-08-20",
-        "available_at": null,
-        "lineage_sha256": "d8d482df9fbb248aef20a87c175ef07b947f537a4552e8204b9c4a30e7f8eb18"
+        "as_of_date": "2026-08-14",
+        "capture_mode": "forward_live",
+        "captured_at": "2026-08-22T08:47:32Z",
+        "first_seen_at": "2026-08-22T08:47:32Z",
+        "lineage_sha256": "af0c1f86d0a645e9e1138b636473b103ff119f3554e4854283eb574b58804459",
+        "source_available_at": null
       }
     },
     "ranking_input_authorized": false,
-    "reason": "KOSDAQ_AVAILABLE_AT_NULL,KOSPI_AVAILABLE_AT_NULL",
-    "source_context_path": "data/observations/korea_breadth_context/2026-08-20/packet.json",
-    "source_context_sha256": "e8bcb309a62492acd8dc47ec8f24f84c8f3d9a8224dab1d88993ae91e787dc4c",
-    "status": "BLOCKED"
+    "reason": "KOSDAQ_AVAILABLE,KOSPI_AVAILABLE",
+    "source_context_path": "data/observations/korea_breadth_context/2026-08-14/packet.json",
+    "source_context_sha256": "0edab60bf24a5d376c885cd50f5c16a74a5281550f7ae64a00f97cabd96be722",
+    "status": "AVAILABLE"
   },
-  "confirmed_history": {
-    "all_markets_confirmed": true,
-    "markets": {
-      "KOSDAQ": {
-        "capture_mode": "forward_live",
-        "captured_at": "2026-08-22T07:52:08Z",
-        "confirmed_at": "2026-08-22T07:52:08+00:00",
-        "confirmed_history_eligible": true,
-        "first_seen_at": "2026-08-22T07:52:08Z",
-        "status": "CONFIRMED"
-      },
-      "KOSPI": {
-        "capture_mode": "forward_live",
-        "captured_at": "2026-08-22T07:52:04Z",
-        "confirmed_at": "2026-08-22T07:52:04+00:00",
-        "confirmed_history_eligible": true,
-        "first_seen_at": "2026-08-22T07:52:04Z",
-        "status": "CONFIRMED"
-      }
-    },
-    "worst_status": "CONFIRMED"
-  },
-  "contract_version": "korea_capital_rotation/3",
-  "generated_at": "2026-08-22T07:52:08Z",
-  "payload_sha256": "01620067e2bcec17b912976ca6b8e6c0109b7de513e176cfb27f02fd4725b955",
+  "contract_version": "korea_capital_rotation/4",
+  "generated_at": "2026-08-22T08:47:36Z",
+  "payload_sha256": "75d2388660d5ee370d0e49e5036e4d90ecdc54e12a6a7dafcf324cde39bf6a4f",
   "rotation": {
-    "packet_sha256": "ec133df432cfe4689ea5ba646f786f2530757543e7d68f5c81c350ebaccea494",
+    "packet_sha256": "28439273c8793622d3526bc0f7209301fc0567872d2ecb564b808039fbf7eaf0",
     "rotation_policy_effective": true,
     "status": "ROTATION_BUCKETS_OBSERVED"
   },
   "run_status": "OK",
-  "schema_version": "korea_rotation_briefing_pointer/2"
+  "schema_version": "korea_rotation_briefing_pointer/3"
 }
