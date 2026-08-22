@@ -897,6 +897,24 @@ APPROVED_TESTS = [
     "test/test_replay_root_cause_classifier.py",
     "test/test_replay_trigger_engine.py",
     "test/test_replay_universe_scan.py",
+    # ★ P8-12 Dynamic Clock -- reuses PR #210's replay/ trigger detection +
+    #   PIT discipline; adds the new episode/cooldown/expiry/reactivation
+    #   state machine, the Human Review Candidate output contract, and the
+    #   real BTC 2026-08-20 regression case. See docs/dynamic_clock_contract.md.
+    "test/test_dynamic_clock_state_machine.py",
+    "test/test_review_candidate_contract.py",
+    "test/test_operational_scan.py",
+    "test/test_dynamic_clock_end_to_end.py",
+    "test/test_dynamic_clock_fail_closed.py",
+    # ★ CIO review round 1 on PR #211 -- clock policy config/calendar
+    #   (item 5), AUDIT_CONFIRMED_MISS registry (item 4), real workflow
+    #   wiring (item 6).
+    "test/test_dynamic_clock_calendar.py",
+    "test/test_audit_confirmed_miss.py",
+    "test/test_dynamic_clock_workflow_wiring.py",
+    # ★ CIO review round 2 on PR #211 -- PIT lookahead violation fix
+    # (AUDIT_CONFIRMED_MISS could no longer promote operational tier).
+    "test/test_dynamic_clock_pit_tier_invariant.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
