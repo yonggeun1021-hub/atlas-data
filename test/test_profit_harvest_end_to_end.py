@@ -161,8 +161,41 @@ class ResearchOnlyScenarioNeverGeneratesActionTests(unittest.TestCase):
             self.assertFalse(block["order_authorized"])
             for comparison in block["comparisons"]:
                 self.assertEqual(comparison["approval_status"], "UNRATIFIED")
-                self.assertFalse(comparison["action_authorized"])
-                self.assertFalse(comparison["order_authorized"])
+
+
+class NoOptimalRecommendedActionableWordsAnywhereTests(unittest.TestCase):
+    """CIO methodology review round 1, defect 3's explicit required proof:
+    no analytical-grid output can ever contain the words "optimal",
+    "recommended", or "actionable" -- scanned across EVERY string in the
+    scenario/policy packet, prose included, so a future doc-string edit
+    cannot silently reintroduce a policy-verdict framing."""
+
+    def test_policy_input_packet_never_contains_optimal_recommended_or_actionable(self):
+        import re
+
+        def _all_strings(obj):
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    yield from _all_strings(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    yield from _all_strings(v)
+            elif isinstance(obj, str):
+                yield obj
+
+        report = run()
+        packet = report["policy_input_packet"]
+        forbidden = re.compile(r"\b(OPTIMAL|RECOMMENDED|ACTIONABLE)\b")
+        for value in _all_strings(packet):
+            match = forbidden.search(value.upper())
+            self.assertIsNone(match, f"forbidden word {match.group() if match else ''!r} found in {value!r}")
+
+    def test_aggregate_summary_status_is_always_the_unratified_policy_parameters_string(self):
+        from harvest_audit.scenario import AGGREGATE_STATUS
+        report = run()
+        for block in report["policy_input_packet"]["by_early_exit_horizon"].values():
+            self.assertEqual(block["aggregate_summary"]["status"], AGGREGATE_STATUS)
+            self.assertNotIn("INSUFFICIENT_SAMPLE", block["aggregate_summary"]["status"])
 
 
 class NoImportlibReloadAnywhereTests(unittest.TestCase):

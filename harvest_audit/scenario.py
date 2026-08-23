@@ -2,25 +2,33 @@
 """P7-11 Baseline Audit -- EARLY_EXIT_OPPORTUNITY_COST_DIAGNOSTIC scenario
 comparison. Research-only, per B-6: never a sell threshold, never a
 liquidation rule, never a real quantity, never a Trade Proposal, never
-order generation, never a Harvest action. Every record here is locked
-`approval_status=UNRATIFIED` / `scenario_type=ANALYTICAL_SCENARIO_ONLY` /
-`action_authorized=false` / `order_authorized=false`.
+order generation, never a Harvest action.
 
-This module produces exactly two things, kept structurally distinct from
-each other and from `episode_ledger.json`:
-  1. Per-episode scenario comparison records (EARLY-EXIT-at-horizon-N vs
-     FULL-HOLD-to-endpoint), over the gradable HARVEST_OPPORTUNITY_DIAGNOSTIC
-     population only.
-  2. An honest sample-size gate: if the gradable population for a given
-     early-exit horizon is below `MIN_SAMPLE_SIZE`, the aggregate summary
-     for that horizon is `NOT_COMPUTABLE_INSUFFICIENT_SAMPLE` -- this
-     module NEVER manufactures an "optimal" horizon out of too few
-     episodes (B-6).
+★ CIO methodology review round 1, defect 3: the original version used
+  `MIN_SAMPLE_SIZE=5` as if it were an already-ratified computability
+  criterion, attaching a `NOT_COMPUTABLE_INSUFFICIENT_SAMPLE` verdict
+  below it and an implicit "OK" verdict (with an averaged "opportunity
+  cost" figure) above it. But neither `MIN_SAMPLE_SIZE` nor the
+  1/3/5-trading-day early-exit grid is a ratified policy parameter --
+  choosing them IS itself an unratified policy decision, so no aggregate
+  comparison built on top of them can ever be presented as a computability
+  verdict or an answer.
+
+  Fixed: the 1/3/5-day grid is labeled `ANALYTICAL_GRID_UNRATIFIED`
+  everywhere. The real sample count is still printed (a plain fact), but
+  the aggregate summary's `status` is ALWAYS
+  `NOT_COMPUTABLE_POLICY_PARAMETERS_UNRATIFIED`, regardless of sample
+  size -- no averaged "opportunity cost", no "N episodes where X
+  outperformed" count, no aggregate figure of any kind is ever computed.
+  Only the RAW per-episode `comparisons` (individual, real, already-
+  happened numbers) are provided, for a future, separate, ratified
+  analysis to aggregate however that future policy design decides.
 """
 from __future__ import annotations
 
-MIN_SAMPLE_SIZE = 5
 EARLY_EXIT_HORIZONS = (1, 3, 5)
+ANALYTICAL_GRID_STATUS = "ANALYTICAL_GRID_UNRATIFIED"
+AGGREGATE_STATUS = "NOT_COMPUTABLE_POLICY_PARAMETERS_UNRATIFIED"
 
 SCENARIO_LOCK = {
     "approval_status": "UNRATIFIED",
@@ -31,9 +39,12 @@ SCENARIO_LOCK = {
         "Research-only comparison for a FUTURE, separate CIO policy design decision. "
         "This is INPUT to that decision, not a policy itself. No sell threshold, "
         "liquidation rule, quantity, Trade Proposal, order, or Harvest action is "
-        "produced or implied by this record."
+        "produced or implied by this record. The early-exit horizon grid itself is "
+        "an unratified analytical choice, not a ratified policy parameter."
     ),
 }
+
+HARVEST_LIKE_CATEGORIES = ("HARVEST_OPPORTUNITY", "HOLD_BENEFIT")
 
 
 def _early_exit_vs_full_hold(record: dict, early_exit_horizon: int) -> dict | None:
@@ -54,44 +65,47 @@ def _early_exit_vs_full_hold(record: dict, early_exit_horizon: int) -> dict | No
         "early_exit_return_pct": early_exit_return_pct,
         "full_hold_evaluation_horizon_end": gain_path["evaluation_horizon_end"],
         "full_hold_return_pct": full_hold_return_pct,
-        "early_exit_opportunity_cost_pct": full_hold_return_pct - early_exit_return_pct,
+        "early_exit_vs_full_hold_diff_pct": full_hold_return_pct - early_exit_return_pct,
         "full_hold_endpoint_coverage": gain_path["endpoint_coverage"],
     }
 
 
 def build_scenario_comparisons(episode_ledger: list[dict]) -> dict:
-    harvest_rows = [r for r in episode_ledger if r["diagnostic_category"] == "HARVEST_OPPORTUNITY_DIAGNOSTIC"]
+    harvest_like_rows = [r for r in episode_ledger if r["outcome_category"] in HARVEST_LIKE_CATEGORIES]
 
     by_horizon: dict[str, dict] = {}
     for horizon in EARLY_EXIT_HORIZONS:
         comparisons = [c for c in (
-            _early_exit_vs_full_hold(r, horizon) for r in harvest_rows
+            _early_exit_vs_full_hold(r, horizon) for r in harvest_like_rows
         ) if c is not None]
         sample_size = len(comparisons)
-        if sample_size < MIN_SAMPLE_SIZE:
-            summary = {
-                "sample_size": sample_size,
-                "min_sample_size_required": MIN_SAMPLE_SIZE,
-                "status": "NOT_COMPUTABLE_INSUFFICIENT_SAMPLE",
-            }
-        else:
-            costs = [c["early_exit_opportunity_cost_pct"] for c in comparisons]
-            summary = {
-                "sample_size": sample_size,
-                "min_sample_size_required": MIN_SAMPLE_SIZE,
-                "status": "OK",
-                "avg_early_exit_opportunity_cost_pct": sum(costs) / len(costs),
-                "episodes_where_full_hold_outperformed": sum(1 for c in costs if c > 0),
-                "episodes_where_early_exit_outperformed": sum(1 for c in costs if c < 0),
-            }
+        # ★ defect 3 fix: the real count is a plain fact; the STATUS is
+        # ALWAYS unratified-policy-parameters, never a computability
+        # verdict, regardless of sample_size. No averaged/aggregate
+        # figure of any kind is computed here.
+        aggregate_summary = {
+            "sample_size": sample_size,
+            "status": AGGREGATE_STATUS,
+            "grid_status": ANALYTICAL_GRID_STATUS,
+            "reason": (
+                "MIN_SAMPLE_SIZE and the early-exit horizon grid are themselves "
+                "unratified analytical choices, not ratified policy parameters -- no "
+                "aggregate verdict (e.g. an average opportunity cost, or a count of "
+                "episodes where one path 'outperformed') is ever produced from this "
+                "comparison, regardless of sample size. See `comparisons` below for "
+                "the real, per-episode facts."
+            ),
+        }
         by_horizon[str(horizon)] = {
             **SCENARIO_LOCK,
+            "grid_status": ANALYTICAL_GRID_STATUS,
             "early_exit_horizon_trading_days": horizon,
-            "aggregate_summary": summary,
+            "aggregate_summary": aggregate_summary,
             "comparisons": sorted(comparisons, key=lambda c: (c["subject"], c["episode_id"])),
         }
     return {
         **SCENARIO_LOCK,
         "diagnostic_category": "EARLY_EXIT_OPPORTUNITY_COST_DIAGNOSTIC",
+        "grid_status": ANALYTICAL_GRID_STATUS,
         "by_early_exit_horizon": by_horizon,
     }

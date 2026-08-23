@@ -128,31 +128,69 @@ class MfeAndTerminalReturnKeptSeparateTests(unittest.TestCase):
 
 
 class NoGivebackBeforeMfeTests(unittest.TestCase):
-    """Item 11: a LOW that occurred BEFORE the MFE date must never count
-    toward `max_giveback_after_mfe_pct`, even if it is numerically lower
-    than any post-MFE low."""
+    """Item 11 + CIO methodology review round 1, defect 2: a LOW that
+    occurred BEFORE the MFE date -- including the MFE day's OWN low, since
+    a daily bar cannot prove intraday high-vs-low ordering -- must never
+    count toward `max_giveback_after_mfe_confirmed_pct`. Only real trading
+    days STRICTLY AFTER the MFE day are ever used."""
 
     def test_a_deep_pre_mfe_dip_is_excluded_from_giveback(self):
-        # ★ Daily-bar convention (documented in gain_path.py): the MFE day's
-        # OWN low is included in the post-MFE giveback window, since a
-        # daily OHLC bar cannot prove whether the day's high or low occurred
-        # first intraday -- this is the conservative assumption, not a
-        # defect. What must NEVER leak in is a low from a PRIOR day (here,
-        # day 1's low=40, which is far deeper than anything that legitimately
-        # belongs to the post-peak window).
         series = _series_from_rows("X", {
             "2026-08-13": {"open": 100, "high": 100, "low": 100, "close": 100},
             "2026-08-14": {"open": 100, "high": 101, "low": 40, "close": 100},   # deep pre-MFE dip (day 1)
             "2026-08-17": {"open": 100, "high": 200, "low": 100, "close": 190},  # MFE day (day 2)
-            "2026-08-18": {"open": 190, "high": 195, "low": 180, "close": 185},  # mild post-MFE giveback (day 3)
+            "2026-08-18": {"open": 190, "high": 195, "low": 180, "close": 185},  # confirmed post-MFE (day 3)
         })
         result = compute_gain_path(series, "2026-08-13", "BTC")
         self.assertEqual(result["mfe_date"], "2026-08-17")
-        # Correct: min(day-2's own low=100, day-3's low=180) vs the peak high
-        # (200) -- day 1's low=40 must never appear in this computation.
-        expected_giveback = (100 - 200) / 200 * 100
-        self.assertAlmostEqual(result["max_giveback_after_mfe_pct"], expected_giveback)
-        self.assertGreater(result["max_giveback_after_mfe_pct"], -60)  # sanity: nowhere near the day-1 dip's -60%
+        # Correct: ONLY day 3's low=180 (strictly after the MFE day) vs the
+        # peak high (200) -- neither day 1's low=40 NOR the MFE day's own
+        # low=100 may ever appear in this computation.
+        expected_giveback = (180 - 200) / 200 * 100
+        self.assertAlmostEqual(result["max_giveback_after_mfe_confirmed_pct"], expected_giveback)
+        self.assertEqual(result["giveback_confirmed_status"], "OK")
+        self.assertGreater(result["max_giveback_after_mfe_confirmed_pct"], -60)  # nowhere near day-1's -60%
+
+    def test_reproduces_and_fixes_the_low_before_high_same_day_bug(self):
+        # ★ CIO's exact regression request: a synthetic case where the MFE
+        # day's own low occurred BEFORE the high intraday (unknowable from
+        # the daily bar, but constructed here so we know the "true" answer
+        # by construction) -- the OLD code (`>= mfe_date`, including the
+        # peak day's own low) would have wrongly reported a large giveback
+        # from that same-day low, when the low actually happened BEFORE the
+        # peak and there was no real post-MFE giveback at all in this
+        # example. The FIXED code must never see that same-day low.
+        series = _series_from_rows("X", {
+            "2026-08-13": {"open": 100, "high": 100, "low": 100, "close": 100},
+            # MFE day: constructed as "low occurred first (morning), high
+            # occurred later (afternoon)" -- open=100, dips to low=20 in the
+            # morning, then rallies to the day's high=200 by the close.
+            "2026-08-14": {"open": 100, "high": 200, "low": 20, "close": 195},
+            # Next day holds essentially at the peak -- genuinely almost no
+            # real post-MFE giveback.
+            "2026-08-17": {"open": 195, "high": 198, "low": 193, "close": 196},
+        })
+        result = compute_gain_path(series, "2026-08-13", "BTC")
+        self.assertEqual(result["mfe_date"], "2026-08-14")
+        # OLD (buggy) behavior would have computed pct(200, 20) = -90.0%
+        # (treating the pre-peak morning low as if it were post-MFE
+        # giveback). The FIX must never produce that number.
+        old_buggy_value = (20 - 200) / 200 * 100
+        self.assertNotAlmostEqual(result["max_giveback_after_mfe_confirmed_pct"], old_buggy_value)
+        # Correct: only 2026-08-17 (strictly after the MFE day) counts --
+        # low=193 vs peak high=200.
+        expected = (193 - 200) / 200 * 100
+        self.assertAlmostEqual(result["max_giveback_after_mfe_confirmed_pct"], expected)
+
+    def test_no_trading_day_after_mfe_is_not_computable_never_fabricated(self):
+        series = _series_from_rows("X", {
+            "2026-08-13": {"open": 100, "high": 100, "low": 100, "close": 100},
+            "2026-08-14": {"open": 100, "high": 200, "low": 90, "close": 190},  # MFE day == last day in window
+        })
+        result = compute_gain_path(series, "2026-08-13", "BTC")
+        self.assertEqual(result["mfe_date"], "2026-08-14")
+        self.assertEqual(result["giveback_confirmed_status"], "NOT_COMPUTABLE_NO_TRADING_DAY_AFTER_MFE")
+        self.assertIsNone(result["max_giveback_after_mfe_confirmed_pct"])
 
 
 class BreakevenAfterGivebackTests(unittest.TestCase):

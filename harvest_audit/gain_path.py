@@ -30,7 +30,23 @@ never a sell-policy, never a real quantity, never an action.
   produced by this module at all; see docs for the authority boundary).
 
 ★ No giveback is ever computed using any day BEFORE the MFE (max
-  favorable excursion) date -- see `max_giveback_after_mfe_pct`.
+  favorable excursion) date -- see `max_giveback_after_mfe_confirmed_pct`.
+
+★ CIO methodology review round 1, defect 2: with daily OHLC bars only,
+  there is NO way to know whether a given day's high or low occurred
+  first intraday. The original version included the MFE day's OWN low in
+  the giveback computation (`>= mfe_date`), which is an UNPROVEN
+  time-ordering claim, not a "conservative assumption" -- if the low
+  happened in the morning and the high in the afternoon, that low is
+  actually PRE-MFE, not post-MFE giveback. Fixed: `max_giveback_after_
+  mfe_confirmed_pct` only ever starts counting from the FIRST REAL
+  TRADING DAY STRICTLY AFTER the MFE day (never the MFE day itself, never
+  a same-day intraday sequence claim of any kind). If no trading day
+  exists after the MFE day within the window,
+  `giveback_confirmed_status="NOT_COMPUTABLE_NO_TRADING_DAY_AFTER_MFE"`
+  and the pct field is `None` -- never fabricated. The identical
+  same-day-sequencing concern applies symmetrically to
+  `breakeven_after_positive_mfe_status`, fixed the same way.
 """
 from __future__ import annotations
 
@@ -125,31 +141,41 @@ def compute_gain_path(series, action_eligible_at: str, market: str, *,
     first_positive = next((d for d, row in rows if row["close"] > entry_price), None)
     time_to_first_positive_return_days = (window.index(first_positive) + 1) if first_positive else None
 
-    # -- giveback after MFE: NEVER uses a date strictly BEFORE mfe_date
-    #    (test 11). The MFE day's OWN low is deliberately INCLUDED (`>=`,
-    #    not `>`) -- a daily OHLC bar cannot prove whether that day's high
-    #    or low occurred first intraday, so including the peak day's own
-    #    low is the conservative convention, not a lookahead or a defect.
-    post_mfe_rows = [(d, row) for d, row in rows if d >= mfe_date]
-    post_mfe_low = min(row["low"] for _, row in post_mfe_rows)
-    max_giveback_after_mfe_pct = _pct(mfe_price, post_mfe_low)
+    # -- giveback after MFE: item 11 + round-1 defect 2. NEVER uses the MFE
+    #    day itself (intraday high-vs-low sequencing is unprovable from a
+    #    daily bar) -- only real trading days STRICTLY AFTER mfe_date.
+    mfe_index = window.index(mfe_date)
+    confirmed_dates = window[mfe_index + 1:]
+    if not confirmed_dates:
+        giveback_confirmed_status = "NOT_COMPUTABLE_NO_TRADING_DAY_AFTER_MFE"
+        max_giveback_after_mfe_confirmed_pct = None
+    else:
+        confirmed_low = min(series.row_on(d)["low"] for d in confirmed_dates)
+        giveback_confirmed_status = "OK"
+        max_giveback_after_mfe_confirmed_pct = _pct(mfe_price, confirmed_low)
 
-    # -- breakeven-after-giveback: only meaningful once price has actually
-    #    given back BELOW breakeven after the peak.
-    giveback_below_breakeven_dates = [d for d, row in post_mfe_rows if row["close"] <= entry_price]
-    if not giveback_below_breakeven_dates:
-        breakeven_status = "NO_GIVEBACK_BELOW_BREAKEVEN"
+    # -- breakeven-after-giveback: same fix, same reasoning -- only
+    #    considers real trading days STRICTLY AFTER the MFE day.
+    if not confirmed_dates:
+        breakeven_status = "NOT_COMPUTABLE_NO_TRADING_DAY_AFTER_MFE"
         time_to_breakeven_after_positive_mfe_days = None
     else:
-        first_giveback = giveback_below_breakeven_dates[0]
-        recovery_candidates = [d for d, row in post_mfe_rows if d >= first_giveback and row["close"] >= entry_price]
-        if recovery_candidates:
-            breakeven_status = "RECOVERED"
-            recovery_date = recovery_candidates[0]
-            time_to_breakeven_after_positive_mfe_days = window.index(recovery_date) + 1
-        else:
-            breakeven_status = "NOT_RECOVERED_IN_WINDOW"
+        confirmed_rows = [(d, series.row_on(d)) for d in confirmed_dates]
+        giveback_below_breakeven_dates = [d for d, row in confirmed_rows if row["close"] <= entry_price]
+        if not giveback_below_breakeven_dates:
+            breakeven_status = "NO_GIVEBACK_BELOW_BREAKEVEN"
             time_to_breakeven_after_positive_mfe_days = None
+        else:
+            first_giveback = giveback_below_breakeven_dates[0]
+            recovery_candidates = [d for d, row in confirmed_rows
+                                    if d >= first_giveback and row["close"] >= entry_price]
+            if recovery_candidates:
+                breakeven_status = "RECOVERED"
+                recovery_date = recovery_candidates[0]
+                time_to_breakeven_after_positive_mfe_days = window.index(recovery_date) + 1
+            else:
+                breakeven_status = "NOT_RECOVERED_IN_WINDOW"
+                time_to_breakeven_after_positive_mfe_days = None
 
     # -- duration buckets.
     positive_return_duration_days = sum(1 for _, row in rows if row["close"] > entry_price)
@@ -222,7 +248,8 @@ def compute_gain_path(series, action_eligible_at: str, market: str, *,
         "time_to_first_positive_return_days": time_to_first_positive_return_days,
         "breakeven_after_positive_mfe_status": breakeven_status,
         "time_to_breakeven_after_positive_mfe_days": time_to_breakeven_after_positive_mfe_days,
-        "max_giveback_after_mfe_pct": max_giveback_after_mfe_pct,
+        "giveback_confirmed_status": giveback_confirmed_status,
+        "max_giveback_after_mfe_confirmed_pct": max_giveback_after_mfe_confirmed_pct,
         "terminal_return_pct": terminal_return_pct,
         "peak_to_terminal_giveback_pct": peak_to_terminal_giveback_pct,
         "positive_return_duration_days": positive_return_duration_days,

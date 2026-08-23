@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """P7-11 Baseline Audit -- deterministic distribution summaries.
 Pure descriptive statistics only (min/max/median/mean/count) -- never a
-recommended/optimal value, never a policy threshold."""
+recommended/optimal value, never a policy threshold.
+
+Operates over the OFFICIAL, real-trigger+gradable, outcome-independent
+population (`outcome_category`) -- never the old, outcome-selected
+Miss/Defense framing."""
 from __future__ import annotations
 
 import statistics
@@ -22,12 +26,15 @@ def _summary(vals: list[float]) -> dict:
     }
 
 
+HARVEST_LIKE_CATEGORIES = ("HARVEST_OPPORTUNITY", "HOLD_BENEFIT")
+
+
 def build_gain_path_distribution(episode_ledger: list[dict]) -> dict:
-    harvest = [r for r in episode_ledger
-               if r["diagnostic_category"] == "HARVEST_OPPORTUNITY_DIAGNOSTIC" and r["gain_path"]["status"] == "OK"]
+    harvest_like = [r for r in episode_ledger
+                     if r["outcome_category"] in HARVEST_LIKE_CATEGORIES and r["gain_path"]["status"] == "OK"]
     by_market: dict[str, dict] = {}
     for market in ("BTC", "KOREA", "CRYPTO"):
-        rows = [r for r in harvest if r["market"] == market]
+        rows = [r for r in harvest_like if r["market"] == market]
         gp = [r["gain_path"] for r in rows]
         by_market[market] = {
             "episode_count": len(rows),
@@ -41,7 +48,7 @@ def build_gain_path_distribution(episode_ledger: list[dict]) -> dict:
             "underwater_duration_days": _summary([g["underwater_duration_days"] for g in gp]),
         }
         by_market[market]["episodes"] = sorted(
-            [{"episode_id": r["episode_id"], "subject": r["subject"],
+            [{"episode_id": r["episode_id"], "subject": r["subject"], "outcome_category": r["outcome_category"],
               "mfe_pct": r["gain_path"]["mfe_pct"],
               "time_to_mfe_days": r["gain_path"]["time_to_mfe_days"],
               "terminal_return_pct": r["gain_path"]["terminal_return_pct"]}
@@ -54,15 +61,19 @@ def build_gain_path_distribution(episode_ledger: list[dict]) -> dict:
 def build_giveback_distribution(episode_ledger: list[dict]) -> dict:
     gradable = [r for r in episode_ledger if r["gain_path"]["status"] == "OK"]
     by_category: dict[str, dict] = {}
-    for category in ("HARVEST_OPPORTUNITY_DIAGNOSTIC", "DEFENSE_EPISODE"):
-        rows = [r for r in gradable if r["diagnostic_category"] == category]
+    for category in ("HARVEST_OPPORTUNITY", "HOLD_BENEFIT", "DEFENSE"):
+        rows = [r for r in gradable if r["outcome_category"] == category]
         gp = [r["gain_path"] for r in rows]
+        confirmed = [g for g in gp if g["giveback_confirmed_status"] == "OK"]
         by_category[category] = {
             "episode_count": len(rows),
-            "max_giveback_after_mfe_pct": _summary([g["max_giveback_after_mfe_pct"] for g in gp]),
+            "giveback_confirmed_count": len(confirmed),
+            "max_giveback_after_mfe_confirmed_pct": _summary(
+                [g["max_giveback_after_mfe_confirmed_pct"] for g in confirmed]),
             "peak_to_terminal_giveback_pct": _summary([g["peak_to_terminal_giveback_pct"] for g in gp]),
             "episodes_with_giveback_below_breakeven": sum(
-                1 for g in gp if g["breakeven_after_positive_mfe_status"] != "NO_GIVEBACK_BELOW_BREAKEVEN"),
+                1 for g in gp if g["breakeven_after_positive_mfe_status"] not in (
+                    "NO_GIVEBACK_BELOW_BREAKEVEN", "NOT_COMPUTABLE_NO_TRADING_DAY_AFTER_MFE")),
             "episodes_recovered_after_giveback": sum(
                 1 for g in gp if g["breakeven_after_positive_mfe_status"] == "RECOVERED"),
             "episodes_not_recovered_in_window": sum(
