@@ -68,69 +68,35 @@ module can set it to anything else (`TRADE_PROPOSAL_MUST_BE_NULL`).
 
 ## `opportunity_state` — closed vocabulary and decision table
 
-**CIO Gate Hardening (contract_version `alpha_review/2`).** A CIO review
-found the pre-hardening gate too loose: real Pilot runs produced
-`SHADOW_ENTRY_REVIEW`-eligible states even though `price_reflection.status
-==UNKNOWN` for every Pilot, and even for a subject with
-`expectations_gap.status==NEGATIVE`. `classify_opportunity_state()` is a
-small, pure, ordered if/elif chain -- each rule below, once matched, returns
-immediately (no fallthrough). `BLOCKED`, then the Expectations-Gap-negative
-gate, then the Price-Reflection-UNKNOWN gate, then the
-narrative-only-core-evidence gate, are always checked first, before any
-positive-state classification, so a broken/negative/unpriced/thin case can
-never be shadowed by a positive one. In order:
+★ SCOPE (CIO closing-fix ruling on PR #212, 2026-08-23): Reflection Evidence
+Authority is deferred to a future design done jointly with Atlas P5 Rule
+Authority (see `decision/price_reflection.py`'s own docstring for the full
+note). Because `price_reflection.py`'s `reflection_status` is now
+structurally, unconditionally `"UNKNOWN"` in every packet it can build or
+validate, only **4 of the 10** `opportunity_state` vocabulary members are
+reachable through a real, validated packet today: `BLOCKED`, `REJECTED`,
+`WAIT_FOR_THESIS_REPAIR`, `WAIT_FOR_PRICE`. `classify_opportunity_state()`
+is a small, pure, ordered if/elif chain:
 
 | # | State | Fires when |
 |---|-------|------------|
-| 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND price_reflection.status==UNKNOWN` (triple-UNKNOWN) |
+| 1 | `BLOCKED` | `len(observed_facts)==0 AND len(evidence_lineage)==0` (nothing beyond narrative-free inference), **OR** `earnings_conversion.status==UNKNOWN AND expectations_gap.status==UNKNOWN AND reflection_status==UNKNOWN` (triple-UNKNOWN) |
 | 2a | `REJECTED` | `earnings_conversion.status==CONVERSION_DISAPPOINTED` (independent of gap status) **OR** (`expectations_gap.status==NEGATIVE AND earnings_conversion.status==UNKNOWN`) |
 | 2b | `WAIT_FOR_THESIS_REPAIR` | `expectations_gap.status==NEGATIVE AND earnings_conversion.status!=UNKNOWN` (and 2a didn't already fire) -- a real earnings-conversion hypothesis still stands, just currently disagreed-with by the market proxy |
-| 3 | `WAIT_FOR_PRICE` | `price_reflection.status==UNKNOWN` (blanket rule: no positive state may ever be reached while price is UNKNOWN, however strong the thesis/gap otherwise looks) |
-| 4 | `WAIT_FOR_EVIDENCE` (narrative-only-core-evidence gate) | `len(observed_facts)>0 AND` none of them have `source_class==EXHIBIT_EXTRACTED` (only `NARRATIVE_SOURCED`/`PRICE_FEED`) |
-| 5 | `EXPECTATION_EXHAUSTED` | `price_reflection.status==FULLY_REFLECTED AND expectations_gap.status==POSITIVE` |
-| 6 | `WAIT_FOR_PULLBACK` | `price_reflection.status ∈ {FULLY_REFLECTED, OVEREXTENDED} AND expectations_gap.status!=NEGATIVE` |
-| 7 | `CONFIRMATION_REVIEW` | `earnings_conversion.status ∈ {REVENUE_CONVERSION_EXPECTED, MARGIN_CONVERSION_EXPECTED, CONVERSION_CONFIRMED} AND price_reflection.status ∉ {OVEREXTENDED, FULLY_REFLECTED}` (price is already known-non-UNKNOWN by row 3) |
-| 8 | `WAIT_FOR_EVIDENCE` (old rule) | `earnings_conversion.status ∈ {PRE_REVENUE_SIGNAL, BACKLOG_BUILDING, UNKNOWN} AND expectations_gap.status==UNKNOWN AND price_reflection.status!=UNDER_REFLECTED` |
-| 9 | `ANTICIPATORY_REVIEW` | ALL 7 gates below hold simultaneously |
-| 10 | `EARLY_DISCOVERY` | default fallback — has real evidence (not `BLOCKED`), price known, gap not negative, at least one `EXHIBIT_EXTRACTED` fact, but fits none of the above |
+| 3 | `WAIT_FOR_PRICE` | unconditional fallback once gates 1-2 have passed -- fires whenever `reflection_status != UNKNOWN` is impossible to establish from real evidence (which, in this reduced scope, is always) |
 
-Rows 2a/2b fold in the pre-hardening `OVEREXTENDED+NEGATIVE -> REJECTED`
-clause (now a strict subset of the broader NEGATIVE-gap rule) and the
-`CONVERSION_DISAPPOINTED -> REJECTED` clause, so `REJECTED` keeps exactly
-one point of truth. Row 5 is checked strictly before row 6 so
-`FULLY_REFLECTED + POSITIVE` always resolves to `EXPECTATION_EXHAUSTED`
-rather than `WAIT_FOR_PULLBACK`; `OVEREXTENDED` (any non-`NEGATIVE` gap) and
-`FULLY_REFLECTED` with a non-`POSITIVE`, non-`NEGATIVE` gap both resolve to
-`WAIT_FOR_PULLBACK`. Row 8's `WAIT_FOR_EVIDENCE` and row 9's
-`ANTICIPATORY_REVIEW` are, in practice, only reachable once rows 1-4 have
-already been cleared -- i.e. price is known and at least one
-`EXHIBIT_EXTRACTED` fact exists -- which is why real current Pilot evidence
-(no ratified P5 packet, and either `price_reflection.status==UNKNOWN` or
-narrative-only evidence for every subject) never reaches rows 5-10 today.
-
-### The 7 `ANTICIPATORY_REVIEW` gates
-
-All 7 must hold. See `anticipatory_review_gates()`:
-
-1. `forward_thesis` has ≥1 non-empty catalyst AND ≥1 `observed_facts` entry
-   AND ≥1 `evidence_lineage` entry (i.e., not `BLOCKED`).
-2. `revenue_recipient` / `atlas_linked_ticker` present (non-empty) — always
-   true for a validly-built `forward_thesis` packet; kept as a defensive
-   re-check.
-3. `earnings_conversion.status != UNKNOWN` — an actual conversion hypothesis
-   exists, even if early-stage (`PRE_REVENUE_SIGNAL`/`BACKLOG_BUILDING`).
-4. `expectations_gap.status==POSITIVE` **OR** (`expectations_gap.status!=
-   NEGATIVE AND expectations_gap.market_expectation_basis.basis_type==
-   PROXY`).
-5. `price_reflection.status ∉ {FULLY_REFLECTED, OVEREXTENDED, UNKNOWN}`.
-6. `len(catalysts)>0 AND len(invalidation_conditions)>0` (re-asserted; both
-   already guaranteed non-empty upstream).
-7. No future-dated evidence anywhere in `evidence_lineage`/`observed_facts`
-   relative to `decision_date` — re-asserted defensively; already guaranteed
-   by `forward_thesis`'s own `validate_packet()`.
-
-If any single gate fails, the packet does **not** classify as
-`ANTICIPATORY_REVIEW` and falls through to the remaining rows in order.
+`EARLY_DISCOVERY`, `ANTICIPATORY_REVIEW`, `WAIT_FOR_PULLBACK`,
+`WAIT_FOR_EVIDENCE`, `CONFIRMATION_REVIEW`, and `EXPECTATION_EXHAUSTED`
+remain legal, defined vocabulary members (kept so a future Reflection
+Evidence Authority does not need a fresh contract-version bump to
+reintroduce them) but the code paths that used to reach them have been
+removed, not merely made unreachable — `classify_opportunity_state()` no
+longer branches on `reflection_status` beyond the single non-`UNKNOWN`
+check above. `WAIT_FOR_RULE_RATIFICATION` has been retired from the
+vocabulary entirely (not kept as reserved) — it specifically named a
+ratification-authority mechanism with no genuine implementation anywhere in
+the repo, mirroring the deleted `decision/event_evidence.py` engine's own
+retired ratification registry.
 
 ## `validate_packet()` — tamper detection and its boundary
 
@@ -142,14 +108,15 @@ fields this packet actually retains (`earnings_conversion_status`, the
 embedded `expectations_gap`/`price_reflection` sub-objects,
 `catalyst_timing.catalysts` count, `invalidation_conditions` count).
 
-Gates 1/2/7 of `ANTICIPATORY_REVIEW`, and the evidence-count arm of
-`BLOCKED`, depend on `forward_thesis` fields (`observed_facts`,
-`evidence_lineage`, `revenue_recipient`, `atlas_linked_ticker`, evidence
-dates) that are **not** persisted as stand-alone fields on this packet —
-those gates were already enforced once, at `build_packet()` time, against
-the real, freshly re-validated `forward_thesis` packet. This is the same
-boundary `expectations_gap.py`/`price_reflection.py` already accept for
-their own upstream-supplied-then-not-persisted raw category inputs.
+**Closing-fix defense-in-depth (2026-08-23):** `validate_packet()`
+independently rejects any packet whose embedded
+`price_reflection.reflection_status != "UNKNOWN"`
+(`PRICE_REFLECTION_REFLECTION_STATUS_MUST_BE_UNKNOWN_IN_THIS_REDUCED_SCOPE`),
+on top of — not instead of — `price_reflection.py`'s own identical lock on
+its own `validate_packet()`. This closes the bypass surface where a forged
+or externally-injected packet could reach `alpha_review.validate_packet()`
+without ever passing back through `price_reflection.validate_packet()`
+first. It is unconditional and does not depend on `opportunity_state`.
 
 ## Authority
 

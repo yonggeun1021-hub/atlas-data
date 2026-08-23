@@ -1,11 +1,57 @@
 #!/usr/bin/env python3
 """P8-11 Anticipatory Alpha Review regression.
 
-Every opportunity_state fixture below is assembled from the REAL
-`forward_thesis.build_packet` / `expectations_gap.build_packet` /
-`price_reflection.build_packet` builders (reusing the existing test modules'
-own fixture helpers) so this regression also catches integration breakage
-against those three upstream modules, not just alpha_review.py in isolation.
+Every fixture below is assembled from the REAL `forward_thesis.build_packet`
+/ `expectations_gap.build_packet` / `price_reflection.build_packet` builders
+(reusing the existing test modules' own fixture helpers) so this regression
+also catches integration breakage against those three upstream modules, not
+just alpha_review.py in isolation.
+
+★ CIO final integration ruling on PR #212 (2026-08-23): `decision/price_
+  reflection.py`'s Event Evidence Authority engine was removed entirely --
+  `reflection_status` became the literal constant `"UNKNOWN"` in every
+  packet the real `PR.build_packet()` can ever produce.
+
+★ CIO closing-fix ruling (2026-08-23, immediately after the above):
+  `price_reflection.validate_packet()` now unconditionally REJECTS any
+  packet whose `reflection_status != "UNKNOWN"` -- CIO's own direct repro
+  was taking a real packet, editing it to `PARTIALLY_REFLECTED` +
+  `confidence="LOW"` + `data_state="VALID"`, recomputing the hash, and
+  finding `validate_packet()` still accepted it. This means the earlier
+  `_with_synthetic_reflection_status()` tamper pattern this file used to
+  reach `alpha_review.py`'s positive opportunity_states is now itself
+  REJECTED at the price_reflection layer before it can even be used as an
+  input to `build()` (which calls `PRICE_REFLECTION.validate_packet()` on
+  every `price_reflection_packet` it's given) -- so it, and every preset
+  built on it (`pr_under_reflected`/`pr_partially_reflected`/`pr_fully_
+  reflected`/`pr_overextended`), and the `ratified_thresholds()` simulation
+  that used to unlock the positive-state gate alongside it, are all RETIRED
+  entirely, not merely updated.
+
+  `decision/alpha_review.py` independently, defensively enforces the SAME
+  boundary again on its own: `classify_opportunity_state()` now returns
+  `WAIT_FOR_PRICE` unconditionally once gates 1-2 pass, regardless of what
+  `reflection_status`/`price_state`/`threshold_basis` a `pr` dict claims --
+  closing the path where a forged/hand-constructed `pr` handed DIRECTLY to
+  `classify_opportunity_state()` (bypassing `build_packet()`'s own upstream
+  `PRICE_REFLECTION.validate_packet()` call entirely) could still reach a
+  positive state. `validate_packet()` also independently rejects any
+  ALREADY-ASSEMBLED Alpha Review packet whose EMBEDDED `price_reflection.
+  reflection_status != "UNKNOWN"`, closing the analogous "tamper the
+  embedded sub-object and re-sign" bypass one level up. `WAIT_FOR_RULE_
+  RATIFICATION` is retired from the vocabulary entirely (contract bumped to
+  `alpha_review/6`) -- it named a "reflection known, policy unratified"
+  state built on a ratification-authority concept with no real
+  implementation anywhere in this repo. The other 6 reflection-status-
+  dependent positive states remain legal vocabulary members (no further
+  bump needed if reintroduced) but are now structurally unreachable through
+  either `classify_opportunity_state()` or `validate_packet()` -- their
+  classification logic was removed, not left dead, and is deferred to the
+  same future, P5-Rule-Authority-co-designed Reflection Evidence Authority
+  workstream `decision/price_reflection.py`'s own removal already deferred
+  to. Real production behavior is UNCHANGED by any of this: none of the
+  removed states were reachable through the real, unmocked pipeline even
+  before this closing fix.
 """
 from __future__ import annotations
 
@@ -47,21 +93,29 @@ PR = PR_FIXTURE.MODULE
 DECISION_DATE = "2026-08-20"
 GENERATED_AT = "2026-08-20T09:00:00Z"
 
+# A real, stable Korea subject with real, multi-week committed daily closes
+# (deliberately NOT one of the four restricted "must remain unchanged"
+# Korea Pilot tickers).
+REAL_EVIDENCE_SUBJECT = PR_FIXTURE.REAL_EVIDENCE_SUBJECT
+
 
 def forward_thesis_packet(**overrides):
+    overrides.setdefault("subject", REAL_EVIDENCE_SUBJECT)
     return FT.build_packet(FT_FIXTURE.minimal_input(**overrides), FT_FIXTURE.CONTRACT)
 
 
 def expectations_gap_packet(**category_overrides):
+    category_overrides.setdefault("subject", REAL_EVIDENCE_SUBJECT)
     value = EG_FIXTURE.base_input(
-        subject="TSM", decision_date=DECISION_DATE, generated_at=GENERATED_AT, **category_overrides
+        decision_date=DECISION_DATE, generated_at=GENERATED_AT, **category_overrides
     )
     return EG.build_packet(value, EG_FIXTURE.CONTRACT)
 
 
 def price_reflection_packet(**overrides):
     kwargs = PR_FIXTURE.base_kwargs(
-        subject="TSM", decision_date=DECISION_DATE, generated_at=GENERATED_AT, contract=PR_FIXTURE.CONTRACT,
+        subject=REAL_EVIDENCE_SUBJECT, decision_date=DECISION_DATE, generated_at=GENERATED_AT,
+        contract=PR_FIXTURE.CONTRACT,
     )
     kwargs.update(overrides)
     return PR.build_packet(**kwargs)
@@ -78,36 +132,27 @@ def build(ft_packet, eg_packet, pr_packet, **kwargs):
     )
 
 
-# ── price_reflection status presets (all decision_date=2026-08-20) ─────────
-def pr_under_reflected():
-    return price_reflection_packet(
-        price_as_of="2026-08-19T20:00:00Z",
-        recent_return_windows={"1m": "1"},
-        relative_strength={"vs_market": "1"},
-        event_reaction={"event_date": "2026-08-10", "direction": "POSITIVE", "reaction_magnitude_pct": "10"},
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
-    )
-
-
-def pr_partially_reflected():
-    return price_reflection_packet(
-        price_as_of="2026-08-19T20:00:00Z",
+# ── price_reflection presets (all decision_date=2026-08-20, all REAL,
+#    unmocked, untampered `PR.build_packet()` output) ───────────────────────
+def pr_known_price(**overrides):
+    """A real price_reflection packet with a genuine, non-UNKNOWN
+    `price_state` (real momentum inputs) -- `reflection_status` is still
+    always `"UNKNOWN"` (structural, see module docstring). This is the
+    generic "some real price data exists" fixture for tests that don't
+    care about opportunity_state classification specifics."""
+    kwargs = dict(
+        price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "3"},
         relative_strength={"vs_market": "2"},
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
+        data_source_scope="KRX_OFFICIAL",
     )
+    kwargs.update(overrides)
+    return price_reflection_packet(**kwargs)
 
 
-def pr_fully_reflected():
-    return price_reflection_packet(
-        price_as_of="2026-08-19T20:00:00Z",
-        recent_return_windows={"1m": "10"},
-        relative_strength={"vs_market": "9"},
-        data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
-    )
-
-
-def pr_overextended():
+def pr_overextended_no_reference_point():
+    """Real price_state=OVEREXTENDED -- reflection_status stays UNKNOWN
+    (structural, not merely "no reference point today")."""
     return price_reflection_packet(
         price_as_of="2026-08-19T20:00:00Z",
         recent_return_windows={"1m": "20"},
@@ -149,17 +194,6 @@ def ft_status(status):
 
 
 def ft_status_with_exhibit(status):
-    """Same as ft_status(), but with at least one EXHIBIT_EXTRACTED observed
-    fact instead of the default single NARRATIVE_SOURCED one.
-
-    Post CIO-Gate-Hardening, gate 4 (narrative-only-core-evidence) forces
-    WAIT_FOR_EVIDENCE whenever observed_facts is non-empty but none of it is
-    EXHIBIT_EXTRACTED -- BEFORE any positive-state logic ever runs. Every
-    positive-state fixture (ANTICIPATORY_REVIEW, EXPECTATION_EXHAUSTED,
-    WAIT_FOR_PULLBACK, CONFIRMATION_REVIEW, EARLY_DISCOVERY) therefore needs
-    a real EXHIBIT_EXTRACTED fact to actually reach that state, not just the
-    default plain ft_status() fixture.
-    """
     return forward_thesis_packet(
         earnings_conversion=FT_FIXTURE.earnings_conversion(status=status),
         observed_facts=[FT_FIXTURE.observed_fact(source_class="EXHIBIT_EXTRACTED")],
@@ -172,10 +206,12 @@ def ft_no_evidence():
 
 
 class OpportunityStateClassificationTests(unittest.TestCase):
-    """One test per opportunity_state, built from real upstream packets."""
+    """One test per REACHABLE opportunity_state, built from real upstream
+    packets. Only BLOCKED/REJECTED/WAIT_FOR_THESIS_REPAIR/WAIT_FOR_PRICE
+    remain reachable in this reduced scope -- see module docstring."""
 
     def test_blocked_no_real_evidence(self):
-        packet = build(ft_no_evidence(), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_no_evidence(), eg_positive_proxy(), pr_known_price())
         self.assertEqual(packet["opportunity_state"], "BLOCKED")
 
     def test_blocked_triple_unknown(self):
@@ -183,7 +219,7 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         self.assertEqual(packet["opportunity_state"], "BLOCKED")
 
     def test_rejected_conversion_disappointed(self):
-        packet = build(ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected())
+        packet = build(ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_known_price())
         self.assertEqual(packet["opportunity_state"], "REJECTED")
 
     def test_rejected_negative_gap_with_unknown_earnings_conversion(self):
@@ -191,195 +227,158 @@ class OpportunityStateClassificationTests(unittest.TestCase):
         # earnings-conversion hypothesis (UNKNOWN) has nothing left to hold
         # onto -- REJECTED, not WAIT_FOR_THESIS_REPAIR. Mirrors the real
         # 267260.KS (HD Hyundai Electric) Pilot fact pattern.
-        packet = build(ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended())
+        packet = build(ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended_no_reference_point())
         self.assertEqual(packet["opportunity_state"], "REJECTED")
 
     def test_wait_for_thesis_repair_negative_gap_with_live_earnings_conversion(self):
-        # CIO Gate Hardening gate 2b (NEW): supersedes the pre-hardening
-        # test_rejected_overextended_and_negative_gap fixture -- a NEGATIVE
-        # gap with a REAL earnings-conversion hypothesis still standing
-        # (REVENUE_CONVERSION_EXPECTED, not UNKNOWN) is now
-        # WAIT_FOR_THESIS_REPAIR, not REJECTED. OVEREXTENDED+NEGATIVE is a
-        # strict subset of this broader NEGATIVE-gap rule -- price status is
-        # irrelevant to this gate.
-        packet = build(ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended())
+        # CIO Gate Hardening gate 2b: a NEGATIVE gap with a REAL
+        # earnings-conversion hypothesis still standing may yet repair once
+        # the market re-prices -- WAIT_FOR_THESIS_REPAIR, not REJECTED.
+        # Price status is irrelevant to this gate.
+        packet = build(
+            ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended_no_reference_point(),
+        )
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_THESIS_REPAIR")
 
     def test_wait_for_price_blocks_every_positive_state_when_price_is_unknown(self):
-        # CIO Gate Hardening gate 3 (NEW, blanket rule): price UNKNOWN wins
-        # over an otherwise-strong thesis/gap. This is the exact real-world
-        # bug the CIO review found -- TSM reached CONFIRMATION_REVIEW with
-        # price_reflection.status==UNKNOWN pre-hardening.
         packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown())
         self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
 
-    def test_wait_for_evidence_narrative_only_core_evidence_gate(self):
-        # CIO Gate Hardening gate 4 (NEW): price known, gap not negative, but
-        # every observed_fact is NARRATIVE_SOURCED/PRICE_FEED only -- no
-        # EXHIBIT_EXTRACTED fact backs the thesis. Mirrors the real
-        # 298040.KS (Hyosung) Pilot fact pattern's evidence shape (though
-        # 298040.KS itself is intercepted by gate 3 first, since its
-        # price_reflection.status is also UNKNOWN).
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
-        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
-        self.assertTrue(packet["price_reflection"]["status"] != "UNKNOWN")
-        self.assertEqual(packet["expectations_gap"]["status"], "POSITIVE")
+    def test_overextended_price_with_no_reference_point_is_wait_for_price_not_a_positive_state(self):
+        # CIO review round 2 core fix, still exercised end-to-end in the
+        # reduced scope: a real rally (price_state=OVEREXTENDED) never
+        # unlocks a positive state on its own -- WAIT_FOR_PRICE.
+        pr = pr_overextended_no_reference_point()
+        self.assertEqual(pr["price_reflection"]["price_state"], "OVEREXTENDED")
+        self.assertEqual(pr["price_reflection"]["reflection_status"], "UNKNOWN")
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr)
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
 
-    def test_anticipatory_review(self):
-        packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
-        self.assertEqual(packet["opportunity_state"], "ANTICIPATORY_REVIEW")
+    def test_a_real_strong_price_signal_still_only_reaches_wait_for_price(self):
+        # Belt-and-suspenders: even a real, strong, positive price_state
+        # (not just OVEREXTENDED) combined with an otherwise-strong thesis
+        # and a positive gap never reaches anything but WAIT_FOR_PRICE now.
+        pr = pr_known_price(recent_return_windows={"1m": "10"}, relative_strength={"vs_market": "9"})
+        self.assertNotEqual(pr["price_reflection"]["price_state"], "UNKNOWN")
+        self.assertEqual(pr["price_reflection"]["reflection_status"], "UNKNOWN")
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr)
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")
 
-    def test_expectation_exhausted(self):
-        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected())
-        self.assertEqual(packet["opportunity_state"], "EXPECTATION_EXHAUSTED")
-
-    def test_wait_for_pullback(self):
-        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended())
-        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PULLBACK")
-
-    def test_confirmation_review(self):
-        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected())
-        self.assertEqual(packet["opportunity_state"], "CONFIRMATION_REVIEW")
-
-    def test_wait_for_evidence(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_partially_reflected())
-        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
-
-    def test_early_discovery(self):
-        packet = build(ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected())
-        self.assertEqual(packet["opportunity_state"], "EARLY_DISCOVERY")
-
-    def test_all_ten_opportunity_states_are_exercised(self):
-        # Belt-and-suspenders: the contract's closed vocabulary must exactly
-        # equal the 10 states asserted above (8 pre-hardening + the 2 CIO
-        # Gate Hardening additions, WAIT_FOR_PRICE / WAIT_FOR_THESIS_REPAIR).
+    def test_reachable_opportunity_states_are_exactly_this_closed_set(self):
+        # Belt-and-suspenders: the contract's closed vocabulary now has 10
+        # members (WAIT_FOR_RULE_RATIFICATION retired), but only 4 are
+        # actually reachable through classify_opportunity_state() any more.
         self.assertEqual(sorted(CONTRACT["opportunity_states"]), sorted([
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
             "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_THESIS_REPAIR",
         ]))
+        self.assertNotIn("WAIT_FOR_RULE_RATIFICATION", CONTRACT["opportunity_states"])
 
 
-class AnticipatoryReviewGateTests(unittest.TestCase):
-    """The 7 ANTICIPATORY_REVIEW gates, each individually violated.
+class ClosingFixReducedScopeTests(unittest.TestCase):
+    """CIO closing-fix ruling (2026-08-23): defense-in-depth regressions
+    proving alpha_review.py enforces the reduced-scope boundary
+    independently of price_reflection.py, and that the retired positive-
+    state machinery is genuinely gone (not merely unreachable by
+    convention)."""
 
-    Gates 2 (revenue_recipient/atlas_linked_ticker present), 6's
-    invalidation-conditions clause, and 7 (no future-dated evidence) are
-    structurally guaranteed by forward_thesis.py's OWN contract for any
-    validly-BUILT packet -- there is no way to construct a real, validated
-    forward_thesis packet that violates them. Those three tests mutate a
-    plain dict copy of an already-valid packet directly (bypassing
-    forward_thesis re-validation) purely to exercise the gate function in
-    isolation; the other four gates are violated via real, fully valid
-    upstream packets.
-    """
+    def test_anticipatory_review_gates_function_no_longer_exists(self):
+        self.assertFalse(hasattr(MODULE, "anticipatory_review_gates"))
 
-    def setUp(self):
-        # ft_status_with_exhibit (not plain ft_status) so gate 4
-        # (narrative-only-core-evidence) never pre-empts these tests -- see
-        # that fixture's docstring.
-        self.ft = ft_status_with_exhibit("PRE_REVENUE_SIGNAL")
-        self.eg = eg_positive_proxy()
-        self.pr = pr_partially_reflected()
-        self.gap = self.eg["expectations_gap"]
-        self.pr_inner = self.pr["price_reflection"]
-        self.decision_date = dt.date.fromisoformat(DECISION_DATE)
+    def test_forged_packet_fed_directly_to_classify_opportunity_state_cannot_reach_a_positive_state(self):
+        """The exact bypass surface CIO's closing-fix ruling named: a
+        forged `pr` dict claiming a confident reflection_status AND a
+        RATIFIED threshold_basis AND OVEREXTENDED-avoiding price_state --
+        everything a positive state would have required under the old
+        design -- handed DIRECTLY to classify_opportunity_state() (as this
+        module's own gate-level tests used to, bypassing build_packet()'s
+        own PRICE_REFLECTION.validate_packet() call entirely) must still
+        resolve to WAIT_FOR_PRICE, never a positive/differentiated state."""
+        ft = ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED")
+        gap = eg_positive_proxy()["expectations_gap"]
+        decision_date = dt.date.fromisoformat(DECISION_DATE)
+        for forged_reflection_status in ("UNDER_REFLECTED", "PARTIALLY_REFLECTED", "FULLY_REFLECTED"):
+            with self.subTest(reflection_status=forged_reflection_status):
+                forged_pr = {
+                    "reflection_status": forged_reflection_status,
+                    "price_state": "MODERATE",
+                    "threshold_basis": "RATIFIED",
+                }
+                state = MODULE.classify_opportunity_state(ft, gap, forged_pr, decision_date)
+                self.assertEqual(state, "WAIT_FOR_PRICE")
+                self.assertNotIn(state, (
+                    "ANTICIPATORY_REVIEW", "EXPECTATION_EXHAUSTED", "WAIT_FOR_PULLBACK",
+                    "CONFIRMATION_REVIEW", "EARLY_DISCOVERY", "WAIT_FOR_EVIDENCE",
+                ))
 
-    def test_baseline_all_seven_gates_hold_and_state_is_anticipatory_review(self):
-        gates = MODULE.anticipatory_review_gates(self.ft, self.gap, self.pr_inner, self.decision_date)
-        self.assertTrue(all(gates.values()), gates)
-        self.assertEqual(len(gates), 7)
-        state = MODULE.classify_opportunity_state(self.ft, self.gap, self.pr_inner, self.decision_date)
-        self.assertEqual(state, "ANTICIPATORY_REVIEW")
-
-    def _assert_exactly_one_gate_false(self, gates: dict, expected_false_key: str):
-        for key, value in gates.items():
-            if key == expected_false_key:
-                self.assertFalse(value, key)
-            else:
-                self.assertTrue(value, key)
-
-    def test_gate1_violated_zero_observed_facts(self):
-        ft = FT.build_packet(FT_FIXTURE.minimal_input(
-            earnings_conversion=FT_FIXTURE.earnings_conversion(status="PRE_REVENUE_SIGNAL"),
-            observed_facts=[],
-        ), FT_FIXTURE.CONTRACT)
-        gates = MODULE.anticipatory_review_gates(ft, self.gap, self.pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate1_catalyst_and_observed_evidence")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(ft, self.gap, self.pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
+    def test_forged_embedded_reflection_status_is_rejected_by_validate_packet(self):
+        """The `validate_packet()`-level analogue of the CIO's own repro
+        case: build a real, valid packet, then tamper its EMBEDDED
+        `price_reflection.reflection_status` to a forged positive value
+        (paired with a forged positive `opportunity_state`, both
+        internally "consistent" with each other and re-signed) -- this is
+        exactly the externally-injected forged packet CIO's report
+        describes, and `validate_packet()` must reject it outright."""
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_known_price())
+        self.assertEqual(packet["opportunity_state"], "WAIT_FOR_PRICE")  # sanity: real, reachable state
+        tampered = copy.deepcopy(packet)
+        tampered["price_reflection"]["reflection_status"] = "FULLY_REFLECTED"
+        tampered["price_reflection"]["confidence"] = "HIGH"
+        tampered["price_reflection"]["data_state"] = "VALID"
+        tampered["opportunity_state"] = "EXPECTATION_EXHAUSTED"
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "packet_sha256"}
         )
+        with self.assertRaisesRegex(
+            MODULE.AlphaReviewError, "PRICE_REFLECTION_REFLECTION_STATUS_MUST_BE_UNKNOWN_IN_THIS_REDUCED_SCOPE"
+        ):
+            MODULE.validate_packet(tampered, CONTRACT)
 
-    def test_gate2_violated_empty_revenue_recipient(self):
-        ft = copy.deepcopy(self.ft)
-        ft["revenue_recipient"] = ""
-        gates = MODULE.anticipatory_review_gates(ft, self.gap, self.pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate2_recipient_and_ticker_present")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(ft, self.gap, self.pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
+    def test_claiming_a_now_unreachable_positive_state_with_a_genuinely_unknown_reflection_is_also_rejected(self):
+        """Even if a forger leaves `reflection_status="UNKNOWN"` alone
+        (passing the new blanket check) but still claims a positive
+        `opportunity_state` like `ANTICIPATORY_REVIEW`, at least one
+        independent invariant catches it -- here the non-RATIFIED-
+        threshold_basis check fires first (`pr_known_price()`'s real
+        `threshold_basis` is `"PROVISIONAL"`); the reflection_status
+        invariant (`OUTPUT_UNKNOWN_REFLECTION_STATUS_UNLOCKED_OPPORTUNITY_
+        STATE`) is exercised directly on `_check_opportunity_state_
+        consistency` below, isolated from this one."""
+        packet = build(ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_known_price())
+        self.assertEqual(packet["price_reflection"]["threshold_basis"], "PROVISIONAL")  # sanity
+        tampered = copy.deepcopy(packet)
+        tampered["opportunity_state"] = "ANTICIPATORY_REVIEW"
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "packet_sha256"}
         )
+        with self.assertRaisesRegex(
+            MODULE.AlphaReviewError, "OUTPUT_UNRATIFIED_THRESHOLD_BASIS_UNLOCKED_OPPORTUNITY_STATE"
+        ):
+            MODULE.validate_packet(tampered, CONTRACT)
 
-    def test_gate3_violated_earnings_conversion_unknown(self):
-        ft = FT.build_packet(FT_FIXTURE.minimal_input(
-            earnings_conversion=FT_FIXTURE.earnings_conversion(status="UNKNOWN"),
-        ), FT_FIXTURE.CONTRACT)
-        gates = MODULE.anticipatory_review_gates(ft, self.gap, self.pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate3_conversion_hypothesis_exists")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(ft, self.gap, self.pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
+        # Isolate the reflection_status invariant directly, independent of
+        # threshold_basis: neutralize the threshold-basis check by forging
+        # threshold_basis="RATIFIED" too (still fails to legitimize
+        # anything -- reflection_status=="UNKNOWN" alone must still block
+        # any state outside the closed fail-set).
+        tampered2 = copy.deepcopy(packet)
+        tampered2["opportunity_state"] = "ANTICIPATORY_REVIEW"
+        tampered2["price_reflection"]["threshold_basis"] = "RATIFIED"
+        tampered2["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered2.items() if k != "packet_sha256"}
         )
-
-    def test_gate4_violated_negative_expectations_gap(self):
-        eg = eg_negative_proxy()
-        gap = eg["expectations_gap"]
-        gates = MODULE.anticipatory_review_gates(self.ft, gap, self.pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate4_expectations_gap_supportive")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(self.ft, gap, self.pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
-        )
-
-    def test_gate5_violated_price_fully_reflected(self):
-        pr = pr_fully_reflected()
-        pr_inner = pr["price_reflection"]
-        gates = MODULE.anticipatory_review_gates(self.ft, self.gap, pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate5_price_not_stretched_or_unknown")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(self.ft, self.gap, pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
-        )
-
-    def test_gate6_violated_empty_invalidation_conditions(self):
-        ft = copy.deepcopy(self.ft)
-        ft["invalidation_conditions"] = []
-        gates = MODULE.anticipatory_review_gates(ft, self.gap, self.pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate6_catalysts_and_invalidation_nonempty")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(ft, self.gap, self.pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
-        )
-
-    def test_gate7_violated_future_dated_observed_fact(self):
-        ft = copy.deepcopy(self.ft)
-        future_fact = dict(ft["observed_facts"][0])
-        future_fact["as_of"] = "2026-08-25"
-        ft["observed_facts"] = [future_fact]
-        gates = MODULE.anticipatory_review_gates(ft, self.gap, self.pr_inner, self.decision_date)
-        self._assert_exactly_one_gate_false(gates, "gate7_no_future_dated_evidence")
-        self.assertNotEqual(
-            MODULE.classify_opportunity_state(ft, self.gap, self.pr_inner, self.decision_date),
-            "ANTICIPATORY_REVIEW",
-        )
+        with self.assertRaisesRegex(
+            MODULE.AlphaReviewError, "OUTPUT_UNKNOWN_REFLECTION_STATUS_UNLOCKED_OPPORTUNITY_STATE"
+        ):
+            MODULE.validate_packet(tampered2, CONTRACT)
 
 
 class InputCompositionTests(unittest.TestCase):
     def test_missing_sub_packets_are_rejected(self):
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
-        pr = pr_partially_reflected()
+        pr = pr_known_price()
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "FORWARD_THESIS_PACKET_MISSING"):
             build(None, eg, pr)
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "EXPECTATIONS_GAP_PACKET_MISSING"):
@@ -395,7 +394,7 @@ class InputCompositionTests(unittest.TestCase):
         #   same message. Assert on ValueError + message, not exact type.
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
-        pr = pr_partially_reflected()
+        pr = pr_known_price()
         broken_ft = copy.deepcopy(ft)
         broken_ft["invalidation_conditions"] = []
         with self.assertRaises(ValueError) as cm:
@@ -408,7 +407,7 @@ class InputCompositionTests(unittest.TestCase):
             EG_FIXTURE.base_input(subject="AAPL", decision_date=DECISION_DATE, generated_at=GENERATED_AT),
             EG_FIXTURE.CONTRACT,
         )
-        pr = pr_partially_reflected()
+        pr = pr_known_price()
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "SUBJECT_MISMATCH_ACROSS_INPUT_PACKETS"):
             build(ft, eg, pr)
 
@@ -416,7 +415,8 @@ class InputCompositionTests(unittest.TestCase):
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
         pr = PR.build_packet(
-            subject="TSM", decision_date="2026-08-21", generated_at=GENERATED_AT, contract=PR_FIXTURE.CONTRACT,
+            subject=REAL_EVIDENCE_SUBJECT, decision_date="2026-08-21", generated_at=GENERATED_AT,
+            contract=PR_FIXTURE.CONTRACT,
         )
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "DECISION_DATE_MISMATCH_ACROSS_INPUT_PACKETS"):
             build(ft, eg, pr)
@@ -424,13 +424,13 @@ class InputCompositionTests(unittest.TestCase):
 
 class PassThroughFieldTests(unittest.TestCase):
     def test_p5_rule_status_and_portfolio_status_default_to_not_evaluated(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price())
         self.assertEqual(packet["p5_rule_status"], "NOT_EVALUATED")
         self.assertEqual(packet["portfolio_status"], "NOT_EVALUATED")
 
     def test_p5_rule_status_and_portfolio_status_are_caller_pass_through(self):
         packet = build(
-            ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected(),
+            ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price(),
             p5_rule_status="FAIL", portfolio_status="PASS",
         )
         self.assertEqual(packet["p5_rule_status"], "FAIL")
@@ -438,18 +438,18 @@ class PassThroughFieldTests(unittest.TestCase):
 
     def test_invalid_p5_rule_status_and_portfolio_status_are_rejected(self):
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "P5_RULE_STATUS_INVALID"):
-            build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected(), p5_rule_status="MOONSHOT")
+            build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price(), p5_rule_status="MOONSHOT")
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "PORTFOLIO_STATUS_INVALID"):
-            build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected(), portfolio_status="MOONSHOT")
+            build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price(), portfolio_status="MOONSHOT")
 
     def test_thesis_status_and_earnings_conversion_status_are_verbatim_and_equal(self):
-        packet = build(ft_status("BACKLOG_BUILDING"), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_status("BACKLOG_BUILDING"), eg_positive_proxy(), pr_known_price())
         self.assertEqual(packet["thesis_status"], "BACKLOG_BUILDING")
         self.assertEqual(packet["earnings_conversion_status"], "BACKLOG_BUILDING")
 
     def test_expectations_gap_and_price_reflection_embedded_verbatim(self):
         eg = eg_positive_proxy()
-        pr = pr_partially_reflected()
+        pr = pr_known_price()
         packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg, pr)
         self.assertEqual(packet["expectations_gap"], eg["expectations_gap"])
         self.assertEqual(packet["price_reflection"], pr["price_reflection"])
@@ -457,7 +457,7 @@ class PassThroughFieldTests(unittest.TestCase):
     def test_why_now_cites_specific_fields(self):
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
-        packet = build(ft, eg, pr_partially_reflected())
+        packet = build(ft, eg, pr_known_price())
         why_now = packet["why_now"]
         self.assertTrue(any(ft["catalysts"][0]["description"] in line for line in why_now))
         self.assertTrue(any(ft["forward_inferences"][0]["statement"] in line for line in why_now))
@@ -466,24 +466,24 @@ class PassThroughFieldTests(unittest.TestCase):
     def test_what_market_may_be_missing_excludes_catalysts(self):
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
-        packet = build(ft, eg, pr_partially_reflected())
+        packet = build(ft, eg, pr_known_price())
         for line in packet["what_market_may_be_missing"]:
             self.assertNotIn("forward_thesis.catalysts:", line)
 
     def test_invalidation_conditions_always_non_empty(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price())
         self.assertTrue(len(packet["invalidation_conditions"]) >= 2)
 
 
 class NextReviewDateTests(unittest.TestCase):
     def test_uses_earliest_review_date_at_or_after_decision_date(self):
         ft = forward_thesis_packet(review_dates=["2026-09-01", "2026-08-25"])
-        packet = build(ft, eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft, eg_positive_proxy(), pr_known_price())
         self.assertEqual(packet["next_review_date"], "2026-08-25")
 
     def test_falls_back_to_default_cadence_when_all_review_dates_are_stale(self):
         ft = forward_thesis_packet(review_dates=["2026-08-01"])
-        packet = build(ft, eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft, eg_positive_proxy(), pr_known_price())
         self.assertEqual(packet["next_review_date"], "2026-09-19")
         self.assertGreaterEqual(
             dt.date.fromisoformat(packet["next_review_date"]), dt.date.fromisoformat(packet["decision_date"])
@@ -507,7 +507,7 @@ class TradeProposalAndAuthorityTests(unittest.TestCase):
             "trading_authorized": False,
         }
         self.assertEqual(CONTRACT["authority"], expected)
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price())
         self.assertEqual(packet["authority"], expected)
         # Only the two *_only flags are ever true.
         for key, value in expected.items():
@@ -516,30 +516,24 @@ class TradeProposalAndAuthorityTests(unittest.TestCase):
             else:
                 self.assertFalse(value, key)
 
-    def test_trade_proposal_is_null_across_every_opportunity_state(self):
+    def test_trade_proposal_is_null_across_every_reachable_opportunity_state(self):
+        # Only 4 opportunity_states are reachable in this reduced scope --
+        # see module docstring. trade_proposal must be null for all of them.
         cases = [
-            (ft_no_evidence(), eg_positive_proxy(), pr_partially_reflected()),                                    # BLOCKED
-            (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                                    # BLOCKED
-            (ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_partially_reflected()),              # REJECTED
-            (ft_status("UNKNOWN"), eg_negative_proxy(), pr_overextended()),                                        # REJECTED
-            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended()),                    # WAIT_FOR_THESIS_REPAIR
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown()),         # WAIT_FOR_PRICE
-            (ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),                      # WAIT_FOR_EVIDENCE (narrative-only)
-            (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected()),         # ANTICIPATORY_REVIEW
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_positive_proxy(), pr_fully_reflected()),    # EXPECTATION_EXHAUSTED
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_overextended()),    # WAIT_FOR_PULLBACK
-            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_partially_reflected()), # CONFIRMATION_REVIEW
-            (ft_status_with_exhibit("PRE_REVENUE_SIGNAL"), eg_unknown(), pr_under_reflected()),                    # EARLY_DISCOVERY
+            (ft_status("UNKNOWN"), eg_unknown(), pr_unknown()),                                              # BLOCKED
+            (ft_status("CONVERSION_DISAPPOINTED"), eg_neutral_consensus(), pr_known_price()),                 # REJECTED
+            (ft_status("REVENUE_CONVERSION_EXPECTED"), eg_negative_proxy(), pr_overextended_no_reference_point()),  # WAIT_FOR_THESIS_REPAIR
+            (ft_status_with_exhibit("REVENUE_CONVERSION_EXPECTED"), eg_neutral_consensus(), pr_unknown()),    # WAIT_FOR_PRICE
         ]
         seen_states = set()
         for ft, eg, pr in cases:
             packet = build(ft, eg, pr)
             self.assertIsNone(packet["trade_proposal"])
             seen_states.add(packet["opportunity_state"])
-        self.assertEqual(seen_states, set(CONTRACT["opportunity_states"]))
+        self.assertEqual(seen_states, {"BLOCKED", "REJECTED", "WAIT_FOR_THESIS_REPAIR", "WAIT_FOR_PRICE"})
 
     def test_validate_packet_rejects_non_null_trade_proposal(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price())
         tampered = copy.deepcopy(packet)
         tampered["trade_proposal"] = {"schema_version": "trade_proposal_draft/1"}
         tampered["packet_sha256"] = MODULE.payload_sha256(
@@ -562,20 +556,23 @@ class TamperDetectionAndDeterminismTests(unittest.TestCase):
     def test_determinism_same_input_yields_byte_identical_output(self):
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
-        pr = pr_partially_reflected()
+        pr = pr_known_price()
         first = build(ft, eg, pr)
         second = build(copy.deepcopy(ft), copy.deepcopy(eg), copy.deepcopy(pr))
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
         self.assertEqual(first["packet_sha256"], second["packet_sha256"])
 
     def test_tamper_detection_rejects_mutated_packet(self):
-        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_partially_reflected())
+        packet = build(ft_status("PRE_REVENUE_SIGNAL"), eg_positive_proxy(), pr_known_price())
         tampered = copy.deepcopy(packet)
-        tampered["opportunity_state"] = "CONFIRMATION_REVIEW"
+        tampered["opportunity_state"] = "REJECTED"
         with self.assertRaisesRegex(MODULE.AlphaReviewError, "OUTPUT_SHA_MISMATCH"):
             MODULE.validate_packet(tampered, CONTRACT)
 
         # Rehashing alone can never legitimize a corrupted, inconsistent state.
+        # (BLOCKED has no independent, reconstructable invariant -- REJECTED
+        # does: this packet's real earnings_status/gap_status don't support
+        # it, so claiming it must still be caught.)
         corrupted = copy.deepcopy(packet)
         corrupted["opportunity_state"] = "REJECTED"
         corrupted["packet_sha256"] = MODULE.payload_sha256(
@@ -598,7 +595,7 @@ class TamperDetectionAndDeterminismTests(unittest.TestCase):
 
         ft = ft_status("PRE_REVENUE_SIGNAL")
         eg = eg_positive_proxy()
-        pr = pr_partially_reflected()
+        pr = pr_known_price()
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
             input_path = temp / "input.json"

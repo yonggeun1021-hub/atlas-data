@@ -107,13 +107,18 @@ def _section_6_earnings_conversion(ft: dict) -> str:
 def _section_7_price_reflection(pr_packet: dict) -> str:
     pr = pr_packet["price_reflection"]
     lines = [
-        f"- status: `{pr['status']}`",
+        f"- price_state: `{pr['price_state']}` (가격/모멘텀만 — reflection 판정 아님)",
+        f"- reflection_status: `{pr['reflection_status']}` "
+        "(reference point 없으면 항상 UNKNOWN — momentum만으로 reflection 확정 불가)",
         f"- confidence: `{pr['confidence']}`",
+        f"- data_state: `{pr['data_state']}`",
+        f"- threshold_basis: `{pr['threshold_basis']}` "
+        "(⚠ PROVISIONAL = 미비준 임계값, 최종/확정 판정 아님)",
         f"- data_source_scope: `{pr['data_source_scope']}` "
         "(⚠ IEX_ONLY_PARTIAL_US_MARKET/UNKNOWN scope is never full-market authority)",
         f"- price_as_of: {pr['price_as_of']}",
     ]
-    return "## 7. 현재 가격 반영 정도\n\n" + "\n".join(lines)
+    return "## 7. 현재 가격/반영 정도\n\n" + "\n".join(lines)
 
 
 def _section_8_next_catalyst(ft: dict, alpha: dict) -> str:

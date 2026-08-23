@@ -13,6 +13,23 @@ produced `SHADOW_ENTRY_REVIEW` even though `price_reflection.status==
 UNKNOWN` for every Pilot, and even for a subject (267260.KS / HD Hyundai
 Electric) with `expectations_gap.status==NEGATIVE`. This file's assertions
 are the concrete proof that can never happen again without a test failure.
+
+★ CIO closing-fix ruling on PR #212 (2026-08-23): this file used to also
+  carry `SyntheticGate4NarrativeOnlyEvidenceTests`, proving `decision/
+  alpha_review.py`'s narrative-only-core-evidence gate (old gate 4,
+  `WAIT_FOR_EVIDENCE`) was reachable via a synthetic, tampered
+  `reflection_status` packet. That gate's underlying positive-state
+  classification logic has been removed entirely from `classify_
+  opportunity_state()` (not merely made unreachable) -- `decision/price_
+  reflection.py`'s `validate_packet()` now unconditionally rejects any
+  packet whose `reflection_status != "UNKNOWN"`, so the tamper pattern that
+  test relied on can no longer even be used as an input to `ALPHA_REVIEW.
+  build_packet()` at all. See `test_alpha_review.py`'s own `Closing
+  FixReducedScopeTests` for the current, equivalent "this is genuinely
+  unreachable, not just untested" regressions. `RealPilotFixturePinningTests`
+  below is completely unaffected -- it never depended on gate 4 or any
+  synthetic/tampered packet, only the real `pilot_evidence_intake.py`
+  pipeline.
 """
 from __future__ import annotations
 
@@ -32,22 +49,25 @@ def load_module(name, path):
 
 
 PILOT = load_module("gate_hardening_pilot_evidence_intake", ROOT / "decision" / "pilot_evidence_intake.py")
-FORWARD_THESIS = load_module("gate_hardening_forward_thesis", ROOT / "decision" / "forward_thesis.py")
-EXPECTATIONS_GAP = load_module("gate_hardening_expectations_gap", ROOT / "decision" / "expectations_gap.py")
-PRICE_REFLECTION = load_module("gate_hardening_price_reflection", ROOT / "decision" / "price_reflection.py")
-ALPHA_REVIEW = load_module("gate_hardening_alpha_review", ROOT / "decision" / "alpha_review.py")
-
-# Reuse test_forward_thesis.py's/test_expectations_gap.py's/
-# test_price_reflection.py's own fixture helpers -- same pattern
-# test_alpha_review.py already uses -- so the gate-4 synthetic fixture below
-# is built via the REAL forward_thesis.build_packet/expectations_gap.
-# build_packet/price_reflection.build_packet functions, never a hand-rolled
-# dict standing in for a validated packet.
-FT_FIXTURE = load_module("gate_hardening_ft_fixture", ROOT / "test" / "test_forward_thesis.py")
-EG_FIXTURE = load_module("gate_hardening_eg_fixture", ROOT / "test" / "test_expectations_gap.py")
-PR_FIXTURE = load_module("gate_hardening_pr_fixture", ROOT / "test" / "test_price_reflection.py")
 
 # Expected post-CIO-Gate-Hardening results for the 4 real Pilot subjects.
+#
+# 298040.KS history: P8-10 round 1 (PR #212 initial) wired real KRX price
+# history + a real chain-linked KOSPI benchmark and this subject briefly
+# reached WAIT_FOR_EVIDENCE (price_reflection.status=PARTIALLY_REFLECTED).
+# CIO review round 2 on the same PR found that classification a real defect
+# -- momentum alone (no event/expectation reference point) was standing in
+# for a reflection judgment. decision/price_reflection.py now splits
+# price_state (pure momentum -- still real, still computed) from
+# reflection_status (structurally always "UNKNOWN" -- see that module's own
+# docstring for the CIO final integration ruling and closing-fix ruling),
+# and none of the 4 real Pilots' price_reflection inputs currently carry a
+# reference point regardless (see decision/pilot_evidence_intake.py's
+# price_reflection builders) -- so reflection_status is honestly UNKNOWN
+# for all four, and 298040.KS is back to gate 3 (WAIT_FOR_PRICE), same as
+# TSM. TSM/267260.KS/034020.KS are unaffected by any of this (267260.KS's
+# REJECTED and 034020.KS's BLOCKED are both reached via gates that run
+# strictly before the price/reflection gate, independent of it).
 EXPECTED = {
     "TSM": ("WAIT_FOR_PRICE", "WAIT"),
     "298040.KS": ("WAIT_FOR_PRICE", "WAIT"),
@@ -97,59 +117,6 @@ class RealPilotFixturePinningTests(unittest.TestCase):
         for subject in PILOT.PILOT_SUBJECTS:
             with self.subTest(subject=subject):
                 self.assertEqual(self.results[subject]["alpha_review"]["p5_rule_status"], "NOT_EVALUATED")
-
-
-class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
-    """Proves gate 4 (narrative-only-core-evidence -> WAIT_FOR_EVIDENCE) is
-    real and reachable, not dead code -- none of the 4 real Pilots exercise
-    it on its own (they're all caught by gate 2 or gate 3 first), so this
-    is a dedicated synthetic case with price KNOWN (non-UNKNOWN) and gap
-    NOT NEGATIVE, but only NARRATIVE_SOURCED observed_facts.
-    """
-
-    def test_gate4_fires_when_price_known_gap_not_negative_and_no_exhibit_extracted_fact(self):
-        decision_date = "2026-08-20"
-        generated_at = "2026-08-20T09:00:00Z"
-
-        ft_input = FT_FIXTURE.minimal_input(
-            generated_at=generated_at,
-            decision_date=decision_date,
-            earnings_conversion=FT_FIXTURE.earnings_conversion(status="PRE_REVENUE_SIGNAL"),
-            observed_facts=[FT_FIXTURE.observed_fact(source_class="NARRATIVE_SOURCED")],
-            evidence_lineage=[FT_FIXTURE.evidence_entry(source_type="NARRATIVE_SOURCED")],
-        )
-        ft_packet = FORWARD_THESIS.build_packet(ft_input, FT_FIXTURE.CONTRACT)
-        self.assertTrue(ft_packet["observed_facts"])
-        self.assertTrue(all(f["source_class"] != "EXHIBIT_EXTRACTED" for f in ft_packet["observed_facts"]))
-
-        eg_input = EG_FIXTURE.base_input(
-            subject="TSM",
-            decision_date=decision_date,
-            generated_at=generated_at,
-            guidance_changes=EG_FIXTURE.category("POSITIVE"),
-        )
-        eg_packet = EXPECTATIONS_GAP.build_packet(eg_input, EG_FIXTURE.CONTRACT)
-        self.assertNotEqual(eg_packet["expectations_gap"]["status"], "NEGATIVE")
-
-        pr_packet = PRICE_REFLECTION.build_packet(
-            subject="TSM",
-            decision_date=decision_date,
-            generated_at=generated_at,
-            price_as_of="2026-08-19T20:00:00Z",
-            recent_return_windows={"1m": "3"},
-            relative_strength={"vs_market": "2"},
-            data_source_scope="IEX_ONLY_PARTIAL_US_MARKET",
-            contract=PR_FIXTURE.CONTRACT,
-        )
-        self.assertNotEqual(pr_packet["price_reflection"]["status"], "UNKNOWN")
-
-        alpha_packet = ALPHA_REVIEW.build_packet(
-            forward_thesis_packet=ft_packet,
-            expectations_gap_packet=eg_packet,
-            price_reflection_packet=pr_packet,
-            generated_at=generated_at,
-        )
-        self.assertEqual(alpha_packet["opportunity_state"], "WAIT_FOR_EVIDENCE")
 
 
 if __name__ == "__main__":

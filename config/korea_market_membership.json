@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_market_membership/1",
+  "approval_status_values": ["RATIFIED", "UNRATIFIED"],
+  "note": "CIO review round 2 on PR #212 rejected decision/price_evidence.py's prior hardcoded KOREA_STOCK_MARKET_MEMBERSHIP dict ('a code comment is not real evidence'). This file is the replacement: an explicit, auditable canonical mapping with source/observation_date/hash/approval_status per entry. No entry below is RATIFIED yet -- this repo has no committed, hash-verified KRX Open API stock-master lookup confirming market venue per code (the KRX Open API index endpoints korea_leadership_live_fetch.py already calls return INDEX-level names/returns only, never per-stock market-membership records; config/universe.json's kr list carries only code+name). Until a real KRX Open API stock-listing/master fetch is captured, hash-verified, and CIO-ratified here, every entry stays UNRATIFIED and decision/price_evidence.py must treat it as unusable for relative_strength.vs_market computation (fails closed to None, never a guessed benchmark).",
+  "members": [
+    {
+      "code": "298040",
+      "name": "효성중공업",
+      "market_claim": "KOSPI",
+      "source": "PUBLIC_KNOWLEDGE_NOT_HASH_VERIFIED_AGAINST_KRX_OPEN_API",
+      "observation_date": "2026-08-23",
+      "source_sha256": null,
+      "approval_status": "UNRATIFIED"
+    },
+    {
+      "code": "267260",
+      "name": "HD현대일렉트릭",
+      "market_claim": "KOSPI",
+      "source": "PUBLIC_KNOWLEDGE_NOT_HASH_VERIFIED_AGAINST_KRX_OPEN_API",
+      "observation_date": "2026-08-23",
+      "source_sha256": null,
+      "approval_status": "UNRATIFIED"
+    },
+    {
+      "code": "005930",
+      "name": "삼성전자",
+      "market_claim": "KOSPI",
+      "source": "PUBLIC_KNOWLEDGE_NOT_HASH_VERIFIED_AGAINST_KRX_OPEN_API",
+      "observation_date": "2026-08-23",
+      "source_sha256": null,
+      "approval_status": "UNRATIFIED"
+    },
+    {
+      "code": "000660",
+      "name": "SK하이닉스",
+      "market_claim": "KOSPI",
+      "source": "PUBLIC_KNOWLEDGE_NOT_HASH_VERIFIED_AGAINST_KRX_OPEN_API",
+      "observation_date": "2026-08-23",
+      "source_sha256": null,
+      "approval_status": "UNRATIFIED"
+    }
+  ]
+}

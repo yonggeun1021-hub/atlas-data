@@ -34,16 +34,35 @@ replace that module.
   ⛔ promote Stage/Candidate/Ready/Buy, authorize an action, an order, or any
      production/trading activity. See the `authority` dict below.
 
-★ `opportunity_state` classification is a small, pure, deterministically
-  ordered if/elif chain (see `classify_opportunity_state()` and
-  `docs/alpha_review_contract.md` for the full decision table). `BLOCKED`,
-  then the Expectations-Gap-negative gate (`REJECTED`/
-  `WAIT_FOR_THESIS_REPAIR`), then the Price-Reflection-UNKNOWN gate
-  (`WAIT_FOR_PRICE`), then the narrative-only-core-evidence gate
-  (`WAIT_FOR_EVIDENCE`), are always checked first, before any positive-state
-  classification -- so a broken/negative/unpriced/thin case can never be
-  shadowed by a positive one (CIO Gate Hardening, contract_version
-  `alpha_review/2`).
+★ `opportunity_state` classification (`classify_opportunity_state()`, see
+  `docs/alpha_review_contract.md` for the full decision table) is a small,
+  pure, deterministically ordered if/elif chain: `BLOCKED`, then the
+  Expectations-Gap-negative gate (`REJECTED`/`WAIT_FOR_THESIS_REPAIR`), then
+  an UNCONDITIONAL `WAIT_FOR_PRICE` -- see that function's own docstring for
+  why this last gate is now unconditional rather than reflection-status-
+  dependent.
+
+★ SCOPE: Reflection Evidence Authority deferred (CIO PR #212, 2026-08-23,
+  same ruling as `decision/price_reflection.py`'s own docstring). Only 4 of
+  this module's 10 `opportunity_state` vocabulary members remain reachable
+  through a real, validated packet: `BLOCKED`/`REJECTED`/`WAIT_FOR_THESIS_
+  REPAIR`/`WAIT_FOR_PRICE`. `WAIT_FOR_RULE_RATIFICATION` is retired from the
+  vocabulary entirely (contract `alpha_review/6`); the other 6 (`EARLY_
+  DISCOVERY`/`ANTICIPATORY_REVIEW`/`WAIT_FOR_PULLBACK`/`WAIT_FOR_EVIDENCE`/
+  `CONFIRMATION_REVIEW`/`EXPECTATION_EXHAUSTED`) remain legal vocabulary
+  members (no further bump if reintroduced) but their classification logic
+  has been REMOVED from `classify_opportunity_state()`, not merely made
+  unreachable, and `validate_packet()` independently, unconditionally
+  rejects any packet whose embedded `price_reflection.reflection_status !=
+  "UNKNOWN"` regardless of what `opportunity_state` it claims -- closing the
+  path where a forged/hand-constructed packet, or a direct call to
+  `classify_opportunity_state()` bypassing `build_packet()`'s own upstream
+  validation, could still reach one of them. Real production behavior is
+  unaffected: none of the 6 were reachable through the real, unmocked
+  pipeline even before this closing fix (reflection_status has been
+  unconditionally `"UNKNOWN"` for every real subject since the scope
+  reduction). Deferred, not abandoned -- see `decision/price_reflection.py`'s
+  own docstring for the future-workstream note.
 """
 from __future__ import annotations
 
@@ -117,12 +136,28 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "alpha_review/2",
-        "output_schema_version": "alpha_review_packet/2",
+        "contract_version": "alpha_review/6",
+        "output_schema_version": "alpha_review_packet/6",
+        # ★ CIO closing-fix ruling (2026-08-23): `WAIT_FOR_RULE_RATIFICATION`
+        #   is retired. It named a "reflection is confidently known, but the
+        #   ratification policy behind it isn't approved yet" state that
+        #   depended on a ratification-authority concept this repo has never
+        #   genuinely implemented (mirroring the deleted `decision/event_
+        #   evidence.py` Reflection Evidence Authority engine's own
+        #   ratification registry). The remaining 6 reflection-status-
+        #   dependent positive states (`EARLY_DISCOVERY`/`ANTICIPATORY_
+        #   REVIEW`/`WAIT_FOR_PULLBACK`/`WAIT_FOR_EVIDENCE`/`CONFIRMATION_
+        #   REVIEW`/`EXPECTATION_EXHAUSTED`) stay in this vocabulary --
+        #   reserved, currently structurally unreachable (see `classify_
+        #   opportunity_state`/`validate_packet` below) -- for the same
+        #   future, P5-Rule-Authority-co-designed Reflection Evidence
+        #   Authority workstream `decision/price_reflection.py`'s own
+        #   `reflection_status` vocabulary defers to.
         "opportunity_states": [
             "EARLY_DISCOVERY", "ANTICIPATORY_REVIEW", "WAIT_FOR_PULLBACK",
             "WAIT_FOR_EVIDENCE", "CONFIRMATION_REVIEW", "EXPECTATION_EXHAUSTED",
-            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE", "WAIT_FOR_THESIS_REPAIR",
+            "REJECTED", "BLOCKED", "WAIT_FOR_PRICE",
+            "WAIT_FOR_THESIS_REPAIR",
         ],
         "p5_rule_statuses": ["PASS", "FAIL", "UNKNOWN", "UNDEFINED", "NOT_EVALUATED"],
         "default_p5_rule_status": "NOT_EVALUATED",
@@ -214,52 +249,6 @@ def _texts(value, code: str, required: bool = True) -> list[str]:
 CONFIRMED_EARNINGS_STATUSES = (
     "REVENUE_CONVERSION_EXPECTED", "MARGIN_CONVERSION_EXPECTED", "CONVERSION_CONFIRMED",
 )
-EARLY_EARNINGS_STATUSES = ("PRE_REVENUE_SIGNAL", "BACKLOG_BUILDING", "UNKNOWN")
-
-
-def _no_future_dated_evidence(ft: dict, decision_date: dt.date) -> bool:
-    """Defensive re-check (gate 7). Already guaranteed by forward_thesis's own
-    validate_packet() at build time -- this re-asserts it independently."""
-    for row in ft["evidence_lineage"]:
-        filing_date = row.get("filing_date")
-        if filing_date is not None and dt.date.fromisoformat(filing_date) > decision_date:
-            return False
-    for row in ft["observed_facts"]:
-        if dt.date.fromisoformat(row["as_of"]) > decision_date:
-            return False
-    return True
-
-
-def anticipatory_review_gates(ft: dict, gap: dict, pr: dict, decision_date: dt.date) -> dict:
-    """The 7 ANTICIPATORY_REVIEW gates, each independently named and testable.
-
-    `ft` is a validated forward_thesis packet, `gap` is the inner
-    `expectations_gap` sub-object of a validated expectations_gap packet, `pr`
-    is the inner `price_reflection` sub-object of a validated price_reflection
-    packet. ALL 7 must be True for ANTICIPATORY_REVIEW to fire.
-    """
-    return {
-        "gate1_catalyst_and_observed_evidence": (
-            len(ft["catalysts"]) > 0
-            and len(ft["observed_facts"]) > 0
-            and len(ft["evidence_lineage"]) > 0
-        ),
-        "gate2_recipient_and_ticker_present": (
-            bool(ft.get("revenue_recipient")) and bool(ft.get("atlas_linked_ticker"))
-        ),
-        "gate3_conversion_hypothesis_exists": ft["earnings_conversion"]["status"] != "UNKNOWN",
-        "gate4_expectations_gap_supportive": (
-            gap["status"] == "POSITIVE"
-            or (gap["status"] != "NEGATIVE" and gap["market_expectation_basis"]["basis_type"] == "PROXY")
-        ),
-        "gate5_price_not_stretched_or_unknown": (
-            pr["status"] not in ("FULLY_REFLECTED", "OVEREXTENDED", "UNKNOWN")
-        ),
-        "gate6_catalysts_and_invalidation_nonempty": (
-            len(ft["catalysts"]) > 0 and len(ft["invalidation_conditions"]) > 0
-        ),
-        "gate7_no_future_dated_evidence": _no_future_dated_evidence(ft, decision_date),
-    }
 
 
 def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.date) -> str:
@@ -274,26 +263,23 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
     2. Expectations-Gap-negative gate (REJECTED / WAIT_FOR_THESIS_REPAIR;
        CONVERSION_DISAPPOINTED folds in here too, so REJECTED has exactly
        one point of truth)
-    3. Price-Reflection-UNKNOWN gate (WAIT_FOR_PRICE) -- a blanket rule; no
-       positive state may ever be reached while price is UNKNOWN
-    4. Narrative-only-core-evidence gate (WAIT_FOR_EVIDENCE) -- some
-       evidence exists, but none of it is EXHIBIT_EXTRACTED
-    5. Positive-state logic, only reachable once price is known, the gap is
-       not negative, and at least one EXHIBIT_EXTRACTED fact backs the
-       thesis (or there are zero observed_facts at all, which BLOCKED above
-       would already have caught unless evidence_lineage alone is
-       non-empty): EXPECTATION_EXHAUSTED -> WAIT_FOR_PULLBACK ->
-       CONFIRMATION_REVIEW -> old WAIT_FOR_EVIDENCE (early-earnings +
-       gap==UNKNOWN + price!=UNDER_REFLECTED) -> ANTICIPATORY_REVIEW (all 7
-       gates) -> EARLY_DISCOVERY fallback.
+    3. Price-Reflection-not-UNKNOWN gate (WAIT_FOR_PRICE) -- unconditional
+       in this reduced scope (CIO closing-fix ruling, 2026-08-23): see the
+       long comment on the gate itself.
+
+    `decision_date` is accepted but currently unused by this function --
+    kept in the signature for call-site/output-shape stability and because
+    a future, redesigned positive-state chain (deferred workstream) will
+    very likely need it again (the old ANTICIPATORY_REVIEW gate 7 used it
+    for a future-dated-evidence check).
     """
     earnings_status = ft["earnings_conversion"]["status"]
     gap_status = gap["status"]
-    pr_status = pr["status"]
+    reflection_status = pr["reflection_status"]
 
     # 1. BLOCKED -- nothing here has a real evidentiary basis to review.
     no_real_evidence = len(ft["observed_facts"]) == 0 and len(ft["evidence_lineage"]) == 0
-    triple_unknown = earnings_status == "UNKNOWN" and gap_status == "UNKNOWN" and pr_status == "UNKNOWN"
+    triple_unknown = earnings_status == "UNKNOWN" and gap_status == "UNKNOWN" and reflection_status == "UNKNOWN"
     if no_real_evidence or triple_unknown:
         return "BLOCKED"
 
@@ -312,50 +298,49 @@ def classify_opportunity_state(ft: dict, gap: dict, pr: dict, decision_date: dt.
             return "REJECTED"
         return "WAIT_FOR_THESIS_REPAIR"
 
-    # 3. Price-Reflection-UNKNOWN gate -- blanket rule (CIO Gate Hardening):
-    #    no ANTICIPATORY_REVIEW/CONFIRMATION_REVIEW/EARLY_DISCOVERY may ever
-    #    be reached while price is UNKNOWN, no matter how strong the thesis
-    #    otherwise looks.
-    if pr_status == "UNKNOWN":
-        return "WAIT_FOR_PRICE"
-
-    # 4. Narrative-only-core-evidence gate -- some observed_facts exist, but
-    #    none of them are EXHIBIT_EXTRACTED (only NARRATIVE_SOURCED and/or
-    #    PRICE_FEED) -- too thin an evidentiary basis for a positive state.
-    if ft["observed_facts"] and not any(
-        fact["source_class"] == "EXHIBIT_EXTRACTED" for fact in ft["observed_facts"]
-    ):
-        return "WAIT_FOR_EVIDENCE"
-
-    # 5. Positive-state logic -- price is known and non-UNKNOWN, gap is not
-    #    NEGATIVE, and evidence is not narrative-only.
-
-    # EXPECTATION_EXHAUSTED -- a positive gap that price has already fully priced in.
-    # Reserved specifically for FULLY_REFLECTED + POSITIVE; OVEREXTENDED (any
-    # gap) and FULLY_REFLECTED-with-non-POSITIVE fall through to
-    # WAIT_FOR_PULLBACK below, per the module spec's tie-break rule.
-    if pr_status == "FULLY_REFLECTED" and gap_status == "POSITIVE":
-        return "EXPECTATION_EXHAUSTED"
-
-    # WAIT_FOR_PULLBACK -- good story, bad entry price/timing right now.
-    if pr_status in ("FULLY_REFLECTED", "OVEREXTENDED") and gap_status != "NEGATIVE":
-        return "WAIT_FOR_PULLBACK"
-
-    # CONFIRMATION_REVIEW -- conversion is expected/confirmed and price hasn't run.
-    if earnings_status in CONFIRMED_EARNINGS_STATUSES and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED"):
-        return "CONFIRMATION_REVIEW"
-
-    # WAIT_FOR_EVIDENCE (old rule) -- too early, and the market's own view is
-    # itself unclear.
-    if earnings_status in EARLY_EARNINGS_STATUSES and gap_status == "UNKNOWN" and pr_status != "UNDER_REFLECTED":
-        return "WAIT_FOR_EVIDENCE"
-
-    # ANTICIPATORY_REVIEW -- all 7 gates must hold simultaneously.
-    if all(anticipatory_review_gates(ft, gap, pr, decision_date).values()):
-        return "ANTICIPATORY_REVIEW"
-
-    # EARLY_DISCOVERY -- default fallback: has real evidence, too early/thin to say more.
-    return "EARLY_DISCOVERY"
+    # 3. Reflection-not-UNKNOWN gate -- UNCONDITIONAL in this reduced scope.
+    #
+    #    ★ CIO closing-fix ruling (2026-08-23, immediately after the P8-10
+    #    scope reduction): `decision/price_reflection.py`'s
+    #    `validate_packet()` now unconditionally rejects any packet whose
+    #    `reflection_status != "UNKNOWN"` -- so a `pr` sub-object that
+    #    reaches this function via the normal `build_packet()` entry point
+    #    (which independently re-validates it through `PRICE_REFLECTION.
+    #    validate_packet()` first) can only ever carry `reflection_status
+    #    =="UNKNOWN"`. But `classify_opportunity_state()` is ALSO called
+    #    directly, with a caller-constructed `pr` dict, bypassing that
+    #    upstream check entirely -- this module's OWN gate-level tests do
+    #    exactly that. Trusting `reflection_status`/`price_state`/
+    #    `threshold_basis` at face value here would leave a second,
+    #    independent path by which a forged/hand-built `pr` could still
+    #    reach a positive/differentiated `opportunity_state`, even with
+    #    `price_reflection.validate_packet()` itself fully locked down.
+    #
+    #    This function therefore enforces the SAME boundary again, on its
+    #    own, unconditionally: for ANY `reflection_status` other than the
+    #    literal `"UNKNOWN"` -- REGARDLESS of what `price_state`/
+    #    `threshold_basis` claim -- the result is `WAIT_FOR_PRICE`, full
+    #    stop. The entire former positive-state decision tree this
+    #    subsumes (the narrative-only-core-evidence gate, `EXPECTATION_
+    #    EXHAUSTED`, `WAIT_FOR_PULLBACK`, `CONFIRMATION_REVIEW`, the old
+    #    early-earnings `WAIT_FOR_EVIDENCE` rule, `ANTICIPATORY_REVIEW`'s 7
+    #    gates, and the `EARLY_DISCOVERY` fallback, plus `WAIT_FOR_RULE_
+    #    RATIFICATION`, now retired from the vocabulary entirely) depended
+    #    on a confidently-known `reflection_status` that no code anywhere
+    #    in this repository can produce any more -- that logic has been
+    #    REMOVED, not merely made unreachable, and moved to the same
+    #    future, P5-Rule-Authority-co-designed Reflection Evidence
+    #    Authority workstream `decision/price_reflection.py`'s own removal
+    #    already deferred to. Real production behavior is UNCHANGED by
+    #    this: none of the removed branches were reachable through the
+    #    real, unmocked `build_packet()` pipeline even before this fix
+    #    (reflection_status has been unconditionally `"UNKNOWN"` for every
+    #    real subject since the scope reduction) -- this closes a forged-
+    #    input/direct-call bypass surface only.
+    # (reflection_status is deliberately NOT branched on further -- gates 1-2
+    #  above have already passed, and every remaining case, "UNKNOWN" or
+    #  otherwise, returns the same safe result.)
+    return "WAIT_FOR_PRICE"
 
 
 def _check_opportunity_state_consistency(
@@ -378,7 +363,9 @@ def _check_opportunity_state_consistency(
     for their own upstream-supplied-then-not-persisted raw inputs.
     """
     gap_status = gap["status"]
-    pr_status = pr["status"]
+    reflection_status = pr["reflection_status"]
+    price_state = pr["price_state"]
+    threshold_ratified = pr["threshold_basis"] == "RATIFIED"
     if state == "REJECTED":
         # Gate 2's single point of truth: CONVERSION_DISAPPOINTED forces
         # REJECTED independent of gap status; a NEGATIVE gap with no live
@@ -390,20 +377,40 @@ def _check_opportunity_state_consistency(
     elif state == "WAIT_FOR_THESIS_REPAIR":
         ok = gap_status == "NEGATIVE" and earnings_status != "UNKNOWN"
     elif state == "WAIT_FOR_PRICE":
-        ok = pr_status == "UNKNOWN"
+        # ★ CIO closing-fix ruling (2026-08-23): `classify_opportunity_
+        #   state()` now returns WAIT_FOR_PRICE unconditionally once gates
+        #   1-2 pass (see that function's own docstring) -- WAIT_FOR_RULE_
+        #   RATIFICATION is retired, and its old "reflection known but
+        #   unratified" case now folds into this same state. `validate_
+        #   packet()`'s own unconditional `pr["reflection_status"] !=
+        #   "UNKNOWN"` rejection (checked before this function ever runs)
+        #   independently guarantees `reflection_status == "UNKNOWN"` for
+        #   any packet that reaches this point at all, so this remains a
+        #   real (if now redundant, defense-in-depth) invariant rather than
+        #   a vacuous one.
+        ok = reflection_status == "UNKNOWN"
     elif state == "EXPECTATION_EXHAUSTED":
-        ok = pr_status == "FULLY_REFLECTED" and gap_status == "POSITIVE"
+        ok = reflection_status == "FULLY_REFLECTED" and gap_status == "POSITIVE" and threshold_ratified
     elif state == "WAIT_FOR_PULLBACK":
-        ok = pr_status in ("FULLY_REFLECTED", "OVEREXTENDED") and gap_status != "NEGATIVE"
+        ok = (
+            (reflection_status == "FULLY_REFLECTED" or price_state == "OVEREXTENDED")
+            and gap_status != "NEGATIVE"
+            and threshold_ratified
+        )
     elif state == "CONFIRMATION_REVIEW":
-        # pr_status != UNKNOWN is now part of this invariant too -- gate 3
-        # (WAIT_FOR_PRICE) always intercepts an UNKNOWN price before this
-        # positive state can ever be reached (the exact bug this hardening
-        # closes: CONFIRMATION_REVIEW used to be reachable with
-        # price_reflection.status==UNKNOWN).
+        # reflection_status != UNKNOWN is now part of this invariant too --
+        # gate 3 (WAIT_FOR_PRICE) always intercepts an UNKNOWN reflection
+        # (or a non-RATIFIED threshold_basis, CIO round 3) before this
+        # positive state can ever be reached (the exact bug the original
+        # hardening closed: CONFIRMATION_REVIEW used to be reachable with
+        # price_reflection.status==UNKNOWN; CIO round 2 retargeted the same
+        # invariant onto reflection_status/price_state after the price/
+        # reflection split).
         ok = (
             earnings_status in CONFIRMED_EARNINGS_STATUSES
-            and pr_status not in ("OVEREXTENDED", "FULLY_REFLECTED", "UNKNOWN")
+            and reflection_status not in ("FULLY_REFLECTED", "UNKNOWN")
+            and price_state != "OVEREXTENDED"
+            and threshold_ratified
         )
     elif state in ("WAIT_FOR_EVIDENCE", "EARLY_DISCOVERY"):
         # Both states are reachable via more than one path now (the old
@@ -415,15 +422,23 @@ def _check_opportunity_state_consistency(
         # docstring. The one invariant that IS reconstructable and holds for
         # every path to either state: gates 1-3 must already have passed,
         # i.e. this is real evidence (not BLOCKED), the gap is not NEGATIVE,
-        # and price is not UNKNOWN.
-        ok = gap_status != "NEGATIVE" and pr_status != "UNKNOWN" and earnings_status != "CONVERSION_DISAPPOINTED"
+        # reflection is not UNKNOWN, and the threshold basis is RATIFIED
+        # (CIO round 3).
+        ok = (
+            gap_status != "NEGATIVE"
+            and reflection_status != "UNKNOWN"
+            and earnings_status != "CONVERSION_DISAPPOINTED"
+            and threshold_ratified
+        )
     elif state == "ANTICIPATORY_REVIEW":
         ok = (
             earnings_status != "UNKNOWN"
             and (gap_status == "POSITIVE" or (gap_status != "NEGATIVE" and gap["market_expectation_basis"]["basis_type"] == "PROXY"))
-            and pr_status not in ("FULLY_REFLECTED", "OVEREXTENDED", "UNKNOWN")
+            and reflection_status not in ("FULLY_REFLECTED", "UNKNOWN")
+            and price_state != "OVEREXTENDED"
             and catalysts_count > 0
             and invalidation_count > 0
+            and threshold_ratified
         )
     else:
         # BLOCKED: no independent, fully-reconstructable invariant beyond
@@ -473,7 +488,8 @@ def _entry_conditions(ft: dict, gap: dict, pr: dict, opportunity_state: str) -> 
     lines = [
         f"opportunity_state={opportunity_state}; earnings_conversion.status="
         f"{ft['earnings_conversion']['status']}, expectations_gap.status={gap['status']}, "
-        f"price_reflection.status={pr['status']}.",
+        f"price_reflection.reflection_status={pr['reflection_status']}, "
+        f"price_reflection.price_state={pr['price_state']}.",
     ]
     if opportunity_state in ("ANTICIPATORY_REVIEW", "CONFIRMATION_REVIEW", "EARLY_DISCOVERY"):
         lines.append(
@@ -493,15 +509,15 @@ def _add_conditions(ft: dict, gap: dict, pr: dict) -> list[str]:
         "Add only on a confirmed upgrade of earnings_conversion.status toward "
         "REVENUE_CONVERSION_EXPECTED/MARGIN_CONVERSION_EXPECTED/CONVERSION_CONFIRMED, "
         "sourced from a newer forward_thesis packet version.",
-        "Add only while price_reflection.status remains outside "
-        "(FULLY_REFLECTED, OVEREXTENDED).",
+        "Add only while price_reflection.reflection_status remains outside FULLY_REFLECTED "
+        "and price_reflection.price_state remains outside OVEREXTENDED.",
     ]
 
 
 def _reduce_conditions(ft: dict, gap: dict, pr: dict) -> list[str]:
     return [
         "Reduce if expectations_gap.status turns NEGATIVE.",
-        "Reduce if price_reflection.status becomes OVEREXTENDED.",
+        "Reduce if price_reflection.price_state becomes OVEREXTENDED.",
     ]
 
 
@@ -511,9 +527,10 @@ def _invalidation_conditions(ft: dict) -> list[str]:
     price_reflection-derived condition. Always non-empty as a result."""
     conditions = list(ft["invalidation_conditions"])
     conditions.append(
-        "If price_reflection.status becomes FULLY_REFLECTED or OVEREXTENDED "
-        "before the earnings-conversion thesis firms up "
-        "(see forward_thesis.earnings_conversion.status)."
+        "If price_reflection.reflection_status becomes FULLY_REFLECTED or "
+        "price_reflection.price_state becomes OVEREXTENDED before the "
+        "earnings-conversion thesis firms up (see "
+        "forward_thesis.earnings_conversion.status)."
     )
     return conditions
 
@@ -700,16 +717,64 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
 
     pr = packet.get("price_reflection")
     pr_fields = {
-        "status", "confidence", "price_as_of", "relative_strength",
-        "recent_return_windows", "event_reaction", "valuation_context",
-        "reasons", "missing_inputs", "data_source_scope",
+        "price_state", "reflection_status", "confidence", "data_state", "threshold_basis",
+        "price_as_of", "relative_strength", "recent_return_windows", "event_reaction",
+        "reflection_reference", "valuation_context", "reasons", "missing_inputs",
+        "data_source_scope",
     }
     if not isinstance(pr, dict) or set(pr) != pr_fields:
         raise AlphaReviewError("PRICE_REFLECTION_FIELDS_MISMATCH")
-    if pr.get("status") not in PR_CONTRACT["allowed_status"]:
-        raise AlphaReviewError("PRICE_REFLECTION_STATUS_INVALID")
+    if pr.get("price_state") not in PR_CONTRACT["allowed_price_state"]:
+        raise AlphaReviewError("PRICE_REFLECTION_PRICE_STATE_INVALID")
+    if pr.get("reflection_status") not in PR_CONTRACT["allowed_reflection_status"]:
+        raise AlphaReviewError("PRICE_REFLECTION_REFLECTION_STATUS_INVALID")
+    # ★ CIO closing-fix ruling (2026-08-23): the SAME unconditional lock
+    #   `price_reflection.validate_packet()` now enforces on its own output
+    #   (`decision/price_reflection.py`'s own docstring), re-asserted here
+    #   INDEPENDENTLY on the EMBEDDED `price_reflection` sub-object of an
+    #   Alpha Review packet -- this module's own `validate_packet()` never
+    #   re-calls `PRICE_REFLECTION.validate_packet()` on an already-
+    #   assembled packet's embedded `pr` (only `build_packet()` does, on
+    #   the way in), so without this check a tampered/forged Alpha Review
+    #   packet could claim an embedded `reflection_status` of e.g.
+    #   `"FULLY_REFLECTED"` paired with a forged positive `opportunity_
+    #   state`, re-signed, and this function would never independently
+    #   catch it. `UNDER_REFLECTED`/`PARTIALLY_REFLECTED`/`FULLY_REFLECTED`
+    #   remain legal `PR_CONTRACT` vocabulary members (checked just above,
+    #   no contract bump) but may never appear on any packet THIS function
+    #   accepts while the Reflection Evidence Authority they'd require
+    #   remains deferred, future work.
+    if pr.get("reflection_status") != "UNKNOWN":
+        raise AlphaReviewError("PRICE_REFLECTION_REFLECTION_STATUS_MUST_BE_UNKNOWN_IN_THIS_REDUCED_SCOPE")
     if pr.get("confidence") not in PR_CONTRACT["allowed_confidence"]:
         raise AlphaReviewError("PRICE_REFLECTION_CONFIDENCE_INVALID")
+    if pr.get("threshold_basis") not in PR_CONTRACT["allowed_threshold_basis"]:
+        raise AlphaReviewError("PRICE_REFLECTION_THRESHOLD_BASIS_INVALID")
+    # ★ CIO round 3, required item 4: re-assert the same tamper-evident
+    #   invariant classify_opportunity_state()/_check_opportunity_state_
+    #   consistency() enforce -- a non-RATIFIED threshold_basis can never
+    #   coexist with a positive/differentiated opportunity_state on any
+    #   packet this function accepts, however constructed. Now redundant
+    #   with the unconditional reflection_status check above in practice
+    #   (every positive state already required reflection_status !=
+    #   "UNKNOWN", which can no longer reach this point at all), kept as
+    #   independent defense-in-depth rather than removed.
+    if pr.get("threshold_basis") != "RATIFIED" and packet.get("opportunity_state") not in (
+        "BLOCKED", "REJECTED", "WAIT_FOR_THESIS_REPAIR", "WAIT_FOR_PRICE",
+    ):
+        raise AlphaReviewError("OUTPUT_UNRATIFIED_THRESHOLD_BASIS_UNLOCKED_OPPORTUNITY_STATE")
+    # ★ CIO round 4, required item 6 (new, independent invariant): a genuine
+    #   reflection_status==UNKNOWN (real-evidence gap) can never coexist
+    #   with any opportunity_state other than the closed fail-set below --
+    #   regardless of threshold_basis. This is deliberately independent of
+    #   the check above: a RATIFIED threshold_basis with an UNKNOWN
+    #   reflection_status was not previously re-asserted here at all (the
+    #   old check above only fired for threshold_basis != RATIFIED), which
+    #   is exactly the gap this closes.
+    if pr.get("reflection_status") == "UNKNOWN" and packet.get("opportunity_state") not in (
+        "BLOCKED", "REJECTED", "WAIT_FOR_THESIS_REPAIR", "WAIT_FOR_PRICE",
+    ):
+        raise AlphaReviewError("OUTPUT_UNKNOWN_REFLECTION_STATUS_UNLOCKED_OPPORTUNITY_STATE")
 
     catalyst_timing = packet.get("catalyst_timing")
     if not isinstance(catalyst_timing, dict) or set(catalyst_timing) != {"catalysts", "expected_start_window"}:

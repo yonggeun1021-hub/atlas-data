@@ -1,29 +1,78 @@
 #!/usr/bin/env python3
-"""P8-10 Price Reflection builder — price/volume-only, never fundamentals.
+"""P8-10 Price Reflection builder -- price/volume-only, never fundamentals.
 
-This module answers one question: *given price, volume, relative-strength,
-event-reaction and valuation-history evidence the caller already has, has the
-market's price already reflected what is known?*
+Builds a **Price Reflection** packet: a structurally separated read on (1)
+price/momentum (`price_state`) and (2) whether the market's price already
+reflects a specific, real expectation or event (`reflection_status`), based
+strictly on price, volume, relative-strength, and valuation-history evidence
+the caller supplies.
+
+`price_state` -- OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK | UNKNOWN.
+A pure, price/volume-only momentum read, real and fully computed from
+caller-supplied windows/relative-strength/valuation-context.
+
+`reflection_status` -- UNDER_REFLECTED | PARTIALLY_REFLECTED |
+FULLY_REFLECTED | UNKNOWN. Structurally, unconditionally `"UNKNOWN"` in
+every packet this module can produce or validate.
+
+★ SCOPE: Reflection Evidence Authority deferred (CIO PR #212, 2026-08-23).
+  This module, and a companion `decision/event_evidence.py` (an Event
+  Evidence Authority engine with provenance verification, direction-rule
+  implementation tables, and a ratification-authority registry), went
+  through 9 rounds of CIO review closing successive provenance/ratification
+  defects, culminating in a final integration finding at the policy layer
+  (a rule could be ratified in the future and still applied retroactively
+  to a past decision; ratification "evidence" was never validated as a
+  genuine authority record). The CIO declined further local patching and
+  instead reduced this PR to its proven MVP boundary: `decision/event_
+  evidence.py` was deleted entirely, and this module's `event_reaction`/
+  `reflection_reference` citation-input parameters -- along with every
+  internal function that only existed to verify or threshold-classify
+  them -- were removed, not merely disconnected. A closing-fix pass then
+  locked `validate_packet()` itself to unconditionally reject any packet
+  claiming `reflection_status != "UNKNOWN"` (build_packet()'s own restraint
+  alone was not sufficient -- a tampered/loaded packet could still claim
+  one), and the companion `decision/alpha_review.py` independently
+  enforces the same boundary on its own output.
+
+  `price_state` is completely unaffected by any of this and remains fully
+  real. `event_reaction`/`reflection_reference` remain present in the
+  output packet SHAPE (no contract bump) as inert, all-`"UNKNOWN"`
+  constants, purely for downstream schema compatibility.
+
+  **Deferred, not abandoned:** a future, separate, dependent PR must design
+  a Reflection Evidence Authority together with Atlas P5 Rule Authority --
+  append-only per-rule canonical records, `ratified_at`/`effective_from`,
+  exact-content provenance, explicit decision-time ordering checks, and a
+  structured authority-evidence schema -- with that design approved BEFORE
+  any implementation code is written, not merely before merge. Tracked on
+  the existing P8-10 WBS row.
+
+Staleness is still the loudest rule: if `price_as_of` is missing or older
+than the freshness ceiling relative to `decision_date`, BOTH `price_state`
+and `reflection_status` are forced to `UNKNOWN` regardless of every other
+input. This check runs first and short-circuits everything else.
+
+`classification_thresholds` (15%/8%/3%/2%-style cutoffs) have never been
+CIO-ratified — `classification_thresholds_approval_status` says so explicitly
+in the contract (`"PROVISIONAL"`) and every output packet echoes it verbatim
+as `price_reflection.threshold_basis`. A `PROVISIONAL` basis is not a defect
+in this module (it is the honest, currently-true state of these numbers) but
+IS a signal to every downstream consumer: no `PARTIALLY_REFLECTED`/
+`FULLY_REFLECTED`/`OVEREXTENDED`/`STRONG_MOMENTUM` verdict this module ever
+emits is a CIO-ratified final call — see `authority` below, which already
+sets `rule_authority_substitution_authorized: false` and every trading-path
+boolean `false`; `threshold_basis` makes that same "review signal, not a
+final determination" property visible on the verdict itself, not just in
+the authority block.
 
 It is deliberately blind to thesis quality, conviction, or any fundamental
 narrative — the public builder below (`build_packet`) accepts **only**
-price/volume/valuation-history parameters. There is no "thesis" or
-"fundamental strength" parameter anywhere in its signature: it is
-structurally impossible to feed this module optimism as an input. Good
+price/volume/valuation-history/reference-point parameters. There is no
+"thesis" or "fundamental strength" parameter anywhere in its signature: it
+is structurally impossible to feed this module optimism as an input. Good
 fundamentals alone can never produce `UNDER_REFLECTED`, because this module
 has no channel through which fundamentals could even arrive.
-
-Staleness is the loudest rule here: if `price_as_of` is missing or older than
-the freshness ceiling relative to `decision_date`, `status` is forced to
-`UNKNOWN` regardless of what every other input suggests. See
-`docs/price_reflection_contract.md` for the chosen default ceiling and the
-full classification method.
-
-`OVEREXTENDED` is a legitimate, distinct state — entry-timing risk is
-elevated, not "the company is bad" and not a Rule/Portfolio rejection. There
-is no `REJECTED` value anywhere in this module's vocabulary; Rule/Portfolio
-rejection is a different system's job. This module never emits a P5 Rule
-PASS/FAIL-shaped result.
 
 This module does not fetch evidence itself. It assembles whatever price data
 the caller already has into a closed-vocabulary, deterministic,
@@ -36,6 +85,7 @@ import copy
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 import hashlib
+import importlib.util
 import inspect
 import json
 import os
@@ -50,6 +100,27 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# ★ SCOPE REDUCTION (see module docstring): this module no longer loads
+#   `decision/expectations_gap.py`, `decision/price_evidence.py`, or
+#   `decision/event_evidence.py` -- none of them are used anywhere below any
+#   more, since the citation-verification machinery that consumed them
+#   (`_validate_event_reaction`/`_validate_reflection_reference`/
+#   `_compute_verified_return`) has been removed entirely, not merely
+#   disconnected. `decision/price_evidence.py` remains fully real and in
+#   active use elsewhere in this repo (`decision/pilot_evidence_intake.py`
+#   assembles `price_as_of`/`recent_return_windows`/`relative_strength`
+#   from it before calling this module's `build_packet` -- this module
+#   itself was never the right place for that assembly). `decision/event_
+#   evidence.py` no longer exists in this repo at all.
 
 # Parameter-name substrings this module's public builder must never contain.
 # Enforced both by construction (see build_packet's signature) and by a
@@ -81,25 +152,50 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "price_reflection/1",
-        "output_schema_version": "price_reflection_packet/1",
-        "allowed_status": [
-            "UNDER_REFLECTED", "PARTIALLY_REFLECTED", "FULLY_REFLECTED",
-            "OVEREXTENDED", "UNKNOWN",
+        "schema_version": 6,
+        "contract_version": "price_reflection/6",
+        "output_schema_version": "price_reflection_packet/6",
+        "allowed_price_state": [
+            "OVEREXTENDED", "STRONG_MOMENTUM", "MODERATE", "WEAK", "UNKNOWN",
+        ],
+        "allowed_reflection_status": [
+            "UNDER_REFLECTED", "PARTIALLY_REFLECTED", "FULLY_REFLECTED", "UNKNOWN",
+        ],
+        "allowed_data_state": [
+            "PRICE_DATA_MISSING", "PRICE_STALE",
+            "REFLECTION_UNCERTAIN_WITH_VALID_PRICE", "VALID",
         ],
         "allowed_confidence": ["LOW", "MEDIUM", "HIGH", "UNKNOWN"],
         "allowed_direction": ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"],
         "allowed_valuation_position": ["LOW", "MID", "HIGH", "UNKNOWN"],
         "allowed_data_source_scope": [
-            "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "UNKNOWN",
+            "IEX_ONLY_PARTIAL_US_MARKET", "KRX_OFFICIAL", "KRAKEN_OHLC", "UNKNOWN",
         ],
+        # ★ CIO round 5: closed vocabulary of real evidentiary categories an
+        #   Event Evidence Envelope's `source_class` used to be able to
+        #   declare. Kept unchanged in the contract dict itself purely to
+        #   avoid a contract/schema version bump (see module docstring,
+        #   scope reduction) -- no code anywhere in this module reads or
+        #   validates against it any more, since `decision/event_
+        #   evidence.py` and the `event_reaction` input it backed no longer
+        #   exist.
+        "allowed_event_source_class": [
+            "SEC_FILING_EVENT", "DART_FILING_EVENT", "OFFICIAL_RELEASE_EVENT", "GUIDANCE_CHANGE_EVENT",
+        ],
+        "allowed_threshold_basis": ["PROVISIONAL", "RATIFIED"],
         "korea_data_source_scope": "KRX_OFFICIAL",
         "default_freshness_ceiling_days": 5,
         "classification_thresholds": {
             "rally_min_1m_return_pct": "15", "near_high_max_distance_pct": "3",
             "strong_momentum_min_pct": "8", "mild_momentum_min_pct": "2",
         },
+        # ★ CIO round 2, required item 7: these specific cutoff numbers have
+        #   never been CIO-ratified (round 1's docs already said so: "the
+        #   spec did not name an exact number"). Declared PROVISIONAL here,
+        #   verifiable in this contract, and echoed on every output packet
+        #   as `price_reflection.threshold_basis` -- never silently upgraded
+        #   to RATIFIED by this module itself.
+        "classification_thresholds_approval_status": "PROVISIONAL",
         "confidence_thresholds": {
             "high_min_scored_signal_count": 4, "medium_min_scored_signal_count": 2,
         },
@@ -124,6 +220,11 @@ def _validate_contract(value: dict) -> dict:
     for key, expected_value in expected.items():
         if value.get(key) != expected_value:
             raise PriceReflectionError(f"CONTRACT_FIELD_MISMATCH:{key}")
+    if expected["classification_thresholds_approval_status"] not in expected["allowed_threshold_basis"]:
+        raise PriceReflectionError("CONTRACT_THRESHOLD_APPROVAL_STATUS_INVALID")
+    for bad in ("REJECTED",):
+        if bad in expected["allowed_price_state"] or bad in expected["allowed_reflection_status"]:
+            raise PriceReflectionError("CONTRACT_VOCABULARY_CONTAINS_REJECTED")
     return copy.deepcopy(value)
 
 
@@ -190,28 +291,6 @@ def _validate_relative_strength(value, contract: dict) -> dict:
     return {key: _pct(value.get(key), f"RELATIVE_STRENGTH_{key}_INVALID") for key in fields}
 
 
-def _validate_event_reaction(value, decision_date: dt.date, contract: dict) -> dict:
-    fields = {"event_date", "direction", "reaction_magnitude_pct"}
-    if value is None:
-        return {"event_date": None, "direction": None, "reaction_magnitude_pct": None}
-    if not isinstance(value, dict) or not set(value).issubset(fields):
-        raise PriceReflectionError("EVENT_REACTION_FIELDS_MISMATCH")
-    event_date = None
-    if value.get("event_date") is not None:
-        event_date = _date(value["event_date"], "EVENT_REACTION_EVENT_DATE_INVALID")
-        if event_date > decision_date:
-            raise PriceReflectionError("EVENT_REACTION_EVENT_DATE_IN_FUTURE")
-    direction = value.get("direction")
-    if direction is not None and direction not in contract["allowed_direction"]:
-        raise PriceReflectionError("EVENT_REACTION_DIRECTION_INVALID")
-    magnitude = _pct(value.get("reaction_magnitude_pct"), "EVENT_REACTION_MAGNITUDE_INVALID")
-    return {
-        "event_date": event_date.isoformat() if event_date else None,
-        "direction": direction,
-        "reaction_magnitude_pct": str(magnitude) if magnitude is not None else None,
-    }
-
-
 def _validate_valuation_context(value, contract: dict) -> dict:
     fields = {"metric_type", "position_in_range"}
     if value is None:
@@ -231,51 +310,26 @@ def _render_or_unknown(value: Decimal | None) -> str:
     return "UNKNOWN" if value is None else str(value)
 
 
-def _classify(
-    *,
-    price_as_of: str | None,
-    decision_date: dt.date,
-    freshness_ceiling_days: int,
-    data_source_scope: str,
-    windows: dict,
-    strength: dict,
-    event: dict,
-    valuation: dict,
-    contract: dict,
-) -> tuple[str, str, list[str]]:
-    """Pure, deterministic classification. Rule 1 (staleness) always runs first
-    and, if triggered, short-circuits every other signal unconditionally."""
+def _price_state(
+    *, m1: Decimal | None, rs_market: Decimal | None, pos_high: Decimal | None,
+    volume_change: Decimal | None, val_pos: str | None, contract: dict,
+) -> tuple[str, list[str], int]:
+    """Pure, price/volume-only momentum read. NEVER produces a reflection
+    verdict -- see module docstring for why this is now structurally
+    separate from `_reflection_status`."""
     reasons: list[str] = []
-
-    if price_as_of is None:
-        return "UNKNOWN", "UNKNOWN", ["PRICE_AS_OF_MISSING"]
-
-    price_as_of_dt = _utc(price_as_of, "PRICE_AS_OF_INVALID")
-    if price_as_of_dt.date() > decision_date:
-        raise PriceReflectionError("PRICE_AS_OF_IN_FUTURE")
-    age_days = (decision_date - price_as_of_dt.date()).days
-    if age_days > freshness_ceiling_days:
-        return "UNKNOWN", "UNKNOWN", [
-            f"PRICE_AS_OF_STALE:age_days={age_days}:ceiling_days={freshness_ceiling_days}"
-        ]
-
-    m1 = windows["1m"]
-    rs_market = strength["vs_market"]
-    pos_high = strength["position_vs_recent_high_pct"]
-    val_pos = valuation["position_in_range"] if valuation["position_in_range"] != "UNKNOWN" else None
-    event_dir = event["direction"] if event["direction"] not in (None, "UNKNOWN") else None
-
-    korea_scope = contract["korea_data_source_scope"]
-    if data_source_scope == korea_scope and (m1 is None or rs_market is None or pos_high is None):
-        return "UNKNOWN", "UNKNOWN", [
-            "KOREA_PRICE_DATA_INSUFFICIENT:requires_1m_return_and_vs_market_and_position_vs_recent_high"
-        ]
+    for label, val in (
+        ("1m_return", m1), ("vs_market", rs_market),
+        ("position_vs_recent_high_pct", pos_high), ("volume_change_pct", volume_change),
+    ):
+        if val is not None:
+            reasons.append(f"{label}:{val}")
+    if val_pos is not None:
+        reasons.append(f"valuation_position_in_range:{val_pos}")
 
     scored_signals = sum(
-        signal is not None for signal in (m1, rs_market, pos_high, val_pos, event_dir)
+        signal is not None for signal in (m1, rs_market, pos_high, volume_change, val_pos)
     )
-    if scored_signals < 2:
-        return "UNKNOWN", "UNKNOWN", [f"INSUFFICIENT_PRICE_SIGNALS:scored_count={scored_signals}"]
 
     thresholds = contract["classification_thresholds"]
     rally_threshold = Decimal(thresholds["rally_min_1m_return_pct"])
@@ -283,62 +337,127 @@ def _classify(
     strong_threshold = Decimal(thresholds["strong_momentum_min_pct"])
     mild_threshold = Decimal(thresholds["mild_momentum_min_pct"])
 
-    for label, val in (("1m_return", m1), ("vs_market", rs_market), ("position_vs_recent_high_pct", pos_high)):
-        if val is not None:
-            reasons.append(f"{label}:{val}")
-    if val_pos is not None:
-        reasons.append(f"valuation_position_in_range:{val_pos}")
-    if event_dir is not None:
-        reasons.append(f"event_reaction_direction:{event_dir}")
-
     rally = m1 is not None and m1 >= rally_threshold
     near_high = pos_high is not None and pos_high <= near_high_threshold
     expensive = val_pos == "HIGH"
-
     if rally and (near_high or expensive):
         reasons.append("RALLY_AND_STRETCHED_POSITIONING")
-        status = "OVEREXTENDED"
-    else:
-        momentum_values = [v for v in (m1, rs_market) if v is not None]
-        momentum = sum(momentum_values) / len(momentum_values) if momentum_values else None
-        if momentum is not None:
-            reasons.append(f"momentum_avg:{momentum}")
-        if event_dir in ("POSITIVE", "NEGATIVE") and momentum is not None:
-            agrees = (event_dir == "POSITIVE" and momentum > 0) or (event_dir == "NEGATIVE" and momentum < 0)
-            if not agrees or abs(momentum) < mild_threshold:
-                reasons.append("MOMENTUM_HAS_NOT_CAUGHT_UP_TO_KNOWN_EVENT_REACTION")
-                status = "UNDER_REFLECTED"
-            elif abs(momentum) >= strong_threshold:
-                reasons.append("MOMENTUM_STRONGLY_AGREES_WITH_KNOWN_EVENT_REACTION")
-                status = "FULLY_REFLECTED"
-            else:
-                reasons.append("MOMENTUM_PARTIALLY_AGREES_WITH_KNOWN_EVENT_REACTION")
-                status = "PARTIALLY_REFLECTED"
-        elif momentum is None:
-            status = "UNKNOWN"
-            reasons.append("INSUFFICIENT_PRICE_SIGNALS:no_momentum_signal")
-        elif momentum >= strong_threshold:
-            reasons.append("STRONG_MOMENTUM_NO_CONFIRMED_EVENT_SIGNAL")
-            status = "FULLY_REFLECTED"
-        else:
-            # Flat/negative momentum with no confirmed catalyst never claims
-            # UNDER_REFLECTED — there is no channel here to distinguish "price
-            # hasn't caught up yet" from "there is nothing to catch up to".
-            reasons.append("MODERATE_OR_FLAT_MOMENTUM_NO_CONFIRMED_EVENT_SIGNAL")
-            status = "PARTIALLY_REFLECTED"
+        return "OVEREXTENDED", reasons, scored_signals
 
-    if status == "UNKNOWN":
-        confidence = "UNKNOWN"
-    else:
-        conf_t = contract["confidence_thresholds"]
-        if scored_signals >= conf_t["high_min_scored_signal_count"]:
-            confidence = "HIGH"
-        elif scored_signals >= conf_t["medium_min_scored_signal_count"]:
-            confidence = "MEDIUM"
-        else:
-            confidence = "LOW"
+    momentum_values = [v for v in (m1, rs_market) if v is not None]
+    momentum = sum(momentum_values) / len(momentum_values) if momentum_values else None
+    if momentum is None or scored_signals < 2:
+        reasons.append(f"INSUFFICIENT_PRICE_SIGNALS:scored_count={scored_signals}")
+        return "UNKNOWN", reasons, scored_signals
 
-    return status, confidence, reasons
+    reasons.append(f"momentum_avg:{momentum}")
+    if momentum >= strong_threshold:
+        return "STRONG_MOMENTUM", reasons, scored_signals
+    if momentum >= mild_threshold:
+        return "MODERATE", reasons, scored_signals
+    return "WEAK", reasons, scored_signals
+
+
+# ★ SCOPE REDUCTION (see module docstring): `_reflection_status` (the
+#   function that used to compute a real, evidence-verified reference point
+#   and threshold-classify a computed return into UNDER_REFLECTED/
+#   PARTIALLY_REFLECTED/FULLY_REFLECTED) has been REMOVED, not merely
+#   disconnected. `reflection_status` is now the literal constant
+#   `"UNKNOWN"` everywhere in this module -- there is no function left
+#   anywhere in this file that could compute anything else. This is
+#   deliberately NOT a "the current evidence happens to be insufficient"
+#   state; it is a structural fact about what code exists.
+REFLECTION_STATUS_ALWAYS = "UNKNOWN"
+
+
+def _classify(
+    *,
+    price_as_of: str | None,
+    decision_date: dt.date,
+    freshness_ceiling_days: int,
+    windows: dict,
+    strength: dict,
+    valuation: dict,
+    contract: dict,
+) -> tuple[str, str, str, str, list[str]]:
+    """Pure, deterministic classification. Rule 1 (staleness) always runs
+    first and, if triggered, short-circuits everything else -- both
+    `price_state` and `reflection_status` are forced UNKNOWN.
+
+    `reflection_status` is unconditionally `REFLECTION_STATUS_ALWAYS`
+    ("UNKNOWN") -- see module docstring (scope reduction). `price_state`
+    (the pure, price/volume-only momentum read) is fully real and
+    unaffected.
+
+    Returns (price_state, reflection_status, confidence, data_state,
+    reasons)."""
+    if price_as_of is None:
+        return "UNKNOWN", REFLECTION_STATUS_ALWAYS, "UNKNOWN", "PRICE_DATA_MISSING", ["PRICE_AS_OF_MISSING"]
+
+    price_as_of_dt = _utc(price_as_of, "PRICE_AS_OF_INVALID")
+    if price_as_of_dt.date() > decision_date:
+        raise PriceReflectionError("PRICE_AS_OF_IN_FUTURE")
+    age_days = (decision_date - price_as_of_dt.date()).days
+    if age_days > freshness_ceiling_days:
+        return "UNKNOWN", REFLECTION_STATUS_ALWAYS, "UNKNOWN", "PRICE_STALE", [
+            f"PRICE_AS_OF_STALE:age_days={age_days}:ceiling_days={freshness_ceiling_days}"
+        ]
+
+    m1 = windows["1m"]
+    rs_market = strength["vs_market"]
+    pos_high = strength["position_vs_recent_high_pct"]
+    volume_change = strength["volume_change_pct"]
+    val_pos = valuation["position_in_range"] if valuation["position_in_range"] != "UNKNOWN" else None
+
+    price_state, price_reasons, _scored_signals = _price_state(
+        m1=m1, rs_market=rs_market, pos_high=pos_high,
+        volume_change=volume_change, val_pos=val_pos, contract=contract,
+    )
+
+    # reflection_status is always UNKNOWN in this reduced scope -- price_
+    # state=UNKNOWN and a non-UNKNOWN reflection_status can therefore never
+    # coexist by construction (round-3's structural invariant is now
+    # trivially true, not merely enforced case-by-case); still re-asserted
+    # unconditionally in validate_packet() below too.
+    reflection_status = REFLECTION_STATUS_ALWAYS
+    reasons = [f"price_state={price_state}"] + price_reasons + [
+        f"reflection_status={reflection_status}",
+        "NO_REFLECTION_EVIDENCE_AUTHORITY_EXISTS_IN_THIS_REDUCED_SCOPE",
+    ]
+
+    data_state = "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
+    confidence = "UNKNOWN"
+
+    return price_state, reflection_status, confidence, data_state, reasons
+
+
+# ★ SCOPE REDUCTION (see module docstring): `event_reaction`/`reflection_
+#   reference` are no longer accepted parameters -- not merely unused, they
+#   do not exist in this function's signature at all. There is no way for
+#   any caller (real or a future edit reintroducing an old call site) to
+#   pass a citation through this function; Python itself raises `TypeError`
+#   on an unexpected keyword argument. The output packet's own `event_
+#   reaction`/`reflection_reference` sub-objects are hardcoded, literal
+#   constants (`_INERT_EVENT_REACTION`/`_INERT_REFLECTION_REFERENCE` below)
+#   -- kept in the output SHAPE unchanged (no contract/schema version bump)
+#   purely so every existing downstream consumer (`decision/alpha_review.py`,
+#   `shadow/alpha_shadow_ledger.py`, `briefing/alpha_review_briefing.py`)
+#   keeps working against the exact same packet shape it always has; their
+#   values can now never be anything but "UNKNOWN".
+_INERT_EVENT_REACTION = {
+    "event_at": "UNKNOWN", "direction": "UNKNOWN", "reaction_magnitude_pct": "UNKNOWN",
+    "source_class": "UNKNOWN", "source_ref": "UNKNOWN", "source_sha256": "UNKNOWN",
+    "verified_post_event_return_pct": "UNKNOWN", "capture_kind": "UNKNOWN",
+    "first_authoritative_seen_at": "UNKNOWN", "raw_source_ref": "UNKNOWN",
+    "raw_source_sha256": "UNKNOWN", "published_at": "UNKNOWN", "locator": "UNKNOWN",
+}
+_INERT_REFLECTION_REFERENCE = {
+    "reference_event_id": "UNKNOWN", "expectation_as_of": "UNKNOWN",
+    "expectations_gap_status": "UNKNOWN", "expectations_gap_packet_sha256": "UNKNOWN",
+    "expectations_gap_reference_date": "UNKNOWN",
+    "expectations_gap_first_authoritative_seen_at": "UNKNOWN",
+    "verified_post_reference_return_pct": "UNKNOWN",
+}
 
 
 def build_packet(
@@ -350,18 +469,20 @@ def build_packet(
     freshness_ceiling_days: int | None = None,
     relative_strength: dict | None = None,
     recent_return_windows: dict | None = None,
-    event_reaction: dict | None = None,
     valuation_context: dict | None = None,
     data_source_scope: str | None = None,
     contract: dict | None = None,
 ) -> dict:
     """Build a Price Reflection packet.
 
-    Every parameter above is price, volume, relative-strength, event-reaction,
-    or valuation-history data (or plumbing: subject/dates/contract). There is
+    Every parameter above is price, volume, relative-strength, or
+    valuation-history data (or plumbing: subject/dates/contract). There is
     no thesis-quality or fundamental-strength parameter — see
     FORBIDDEN_PARAMETER_SUBSTRINGS and test_price_reflection.py for the
-    signature-inspection regression that guards this.
+    signature-inspection regression that guards this. There is also no
+    event-reaction or reflection-reference-point parameter any more (scope
+    reduction, see module docstring) — `reflection_status` is always
+    `"UNKNOWN"` in this reduced scope.
     """
     contract = _validate_contract(contract) if contract is not None else load_contract()
     subject_checked = _token(subject, "SUBJECT_INVALID")
@@ -384,32 +505,36 @@ def build_packet(
 
     windows = _validate_recent_return_windows(recent_return_windows, contract)
     strength = _validate_relative_strength(relative_strength, contract)
-    event = _validate_event_reaction(event_reaction, decision_date_checked, contract)
     valuation = _validate_valuation_context(valuation_context, contract)
 
-    status, confidence, reasons = _classify(
+    price_state, reflection_status, confidence, data_state, reasons = _classify(
         price_as_of=price_as_of,
         decision_date=decision_date_checked,
         freshness_ceiling_days=ceiling,
-        data_source_scope=scope,
         windows=windows,
         strength=strength,
-        event=event,
         valuation=valuation,
         contract=contract,
     )
 
+    # event_reaction/reflection_reference are structurally always absent in
+    # this reduced scope -- always reported as missing, matching the literal
+    # truth that no caller can ever supply them.
     missing_inputs = sorted(name for name, val in (
         ("price_as_of", price_as_of),
         ("relative_strength", relative_strength),
         ("recent_return_windows", recent_return_windows),
-        ("event_reaction", event_reaction),
+        ("event_reaction", None),
+        ("reflection_reference", None),
         ("valuation_context", valuation_context),
     ) if val is None)
 
     price_reflection = {
-        "status": status,
+        "price_state": price_state,
+        "reflection_status": reflection_status,
         "confidence": confidence,
+        "data_state": data_state,
+        "threshold_basis": contract["classification_thresholds_approval_status"],
         "price_as_of": price_as_of if price_as_of is not None else "UNKNOWN",
         "relative_strength": {
             "vs_market": _render_or_unknown(strength["vs_market"]),
@@ -422,11 +547,8 @@ def build_packet(
             "3m": _render_or_unknown(windows["3m"]),
             "6m": _render_or_unknown(windows["6m"]),
         },
-        "event_reaction": {
-            "event_date": event["event_date"] or "UNKNOWN",
-            "direction": event["direction"] or "UNKNOWN",
-            "reaction_magnitude_pct": event["reaction_magnitude_pct"] or "UNKNOWN",
-        },
+        "event_reaction": dict(_INERT_EVENT_REACTION),
+        "reflection_reference": dict(_INERT_REFLECTION_REFERENCE),
         "valuation_context": {
             "metric_type": valuation["metric_type"] or "UNKNOWN",
             "position_in_range": valuation["position_in_range"] or "UNKNOWN",
@@ -469,32 +591,66 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
 
     pr = packet.get("price_reflection")
     pr_fields = {
-        "status", "confidence", "price_as_of", "relative_strength",
-        "recent_return_windows", "event_reaction", "valuation_context",
-        "reasons", "missing_inputs", "data_source_scope",
+        "price_state", "reflection_status", "confidence", "data_state", "threshold_basis",
+        "price_as_of", "relative_strength", "recent_return_windows", "event_reaction",
+        "reflection_reference", "valuation_context", "reasons", "missing_inputs",
+        "data_source_scope",
     }
     if not isinstance(pr, dict) or set(pr) != pr_fields:
         raise PriceReflectionError("OUTPUT_PRICE_REFLECTION_FIELDS_MISMATCH")
 
-    status = pr.get("status")
+    price_state = pr.get("price_state")
+    reflection_status = pr.get("reflection_status")
     confidence = pr.get("confidence")
-    if status not in contract["allowed_status"]:
-        raise PriceReflectionError("OUTPUT_STATUS_INVALID")
+    data_state = pr.get("data_state")
+    threshold_basis = pr.get("threshold_basis")
+
+    if price_state not in contract["allowed_price_state"]:
+        raise PriceReflectionError("OUTPUT_PRICE_STATE_INVALID")
+    if reflection_status not in contract["allowed_reflection_status"]:
+        raise PriceReflectionError("OUTPUT_REFLECTION_STATUS_INVALID")
+    # ★ CIO closing-fix ruling (2026-08-23, immediately after the scope
+    #   reduction): `build_packet()` being structurally incapable of
+    #   producing anything but "UNKNOWN" is not the same as `validate_
+    #   packet()` refusing anything else. CIO's direct repro: take a real
+    #   packet, edit `reflection_status` to `"PARTIALLY_REFLECTED"` +
+    #   `confidence="LOW"` + `data_state="VALID"`, recompute the hash --
+    #   this function accepted it. `UNDER_REFLECTED`/`PARTIALLY_REFLECTED`/
+    #   `FULLY_REFLECTED` remain legal `allowed_reflection_status` vocabulary
+    #   members (no contract bump, reserved for the deferred future
+    #   Reflection Evidence Authority workstream), but no packet -- however
+    #   constructed, loaded, or re-signed -- may claim one of them THROUGH
+    #   THIS VALIDATOR while that authority does not exist. This is the
+    #   single, unconditional structural lock: it is what actually makes
+    #   "UNKNOWN" the only reachable outcome, not `build_packet()`'s own
+    #   restraint alone.
+    if reflection_status != "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_REFLECTION_STATUS_MUST_BE_UNKNOWN_IN_THIS_REDUCED_SCOPE")
     if confidence not in contract["allowed_confidence"]:
         raise PriceReflectionError("OUTPUT_CONFIDENCE_INVALID")
-    if status == "UNKNOWN" and confidence != "UNKNOWN":
-        raise PriceReflectionError("OUTPUT_UNKNOWN_STATUS_REQUIRES_UNKNOWN_CONFIDENCE")
-    if "REJECTED" in contract["allowed_status"]:  # defensive: vocabulary must never gain this value
-        raise PriceReflectionError("OUTPUT_VOCABULARY_CONTAINS_REJECTED")
+    if reflection_status == "UNKNOWN" and confidence != "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_UNKNOWN_REFLECTION_STATUS_REQUIRES_UNKNOWN_CONFIDENCE")
+    if "REJECTED" in contract["allowed_price_state"] or "REJECTED" in contract["allowed_reflection_status"]:
+        raise PriceReflectionError("OUTPUT_VOCABULARY_CONTAINS_REJECTED")  # defensive
+
+    if data_state not in contract["allowed_data_state"]:
+        raise PriceReflectionError("OUTPUT_DATA_STATE_INVALID")
+    if (reflection_status == "UNKNOWN") != (data_state != "VALID"):
+        raise PriceReflectionError("OUTPUT_DATA_STATE_REFLECTION_STATUS_MISMATCH")
+
+    # ★ CIO round 3, required item 3: structural invariant, re-asserted here
+    #   independent of _classify's own enforcement -- price_state=UNKNOWN
+    #   and a non-UNKNOWN reflection_status can never coexist in ANY packet
+    #   this function accepts, however it was constructed or tampered with.
+    if price_state == "UNKNOWN" and reflection_status != "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION")
+
+    if threshold_basis != contract["classification_thresholds_approval_status"]:
+        raise PriceReflectionError("OUTPUT_THRESHOLD_BASIS_MISMATCH")
 
     data_source_scope = pr.get("data_source_scope")
     if data_source_scope not in contract["allowed_data_source_scope"]:
         raise PriceReflectionError("OUTPUT_DATA_SOURCE_SCOPE_INVALID")
-    if data_source_scope == contract["korea_data_source_scope"] and status not in {"UNKNOWN"}:
-        rs = pr.get("relative_strength", {})
-        rw = pr.get("recent_return_windows", {})
-        if "UNKNOWN" in (rw.get("1m"), rs.get("vs_market"), rs.get("position_vs_recent_high_pct")):
-            raise PriceReflectionError("OUTPUT_KOREA_INSUFFICIENT_DATA_MUST_BE_UNKNOWN")
 
     reasons = pr.get("reasons")
     if not isinstance(reasons, list) or not reasons or any(
@@ -505,7 +661,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     missing = pr.get("missing_inputs")
     allowed_missing = {
         "price_as_of", "relative_strength", "recent_return_windows",
-        "event_reaction", "valuation_context",
+        "event_reaction", "reflection_reference", "valuation_context",
     }
     if (
         not isinstance(missing, list)
@@ -515,8 +671,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise PriceReflectionError("OUTPUT_MISSING_INPUTS_INVALID")
     if ("price_as_of" in missing) != (pr.get("price_as_of") == "UNKNOWN"):
         raise PriceReflectionError("OUTPUT_MISSING_INPUTS_PRICE_AS_OF_MISMATCH")
-    if "price_as_of" in missing and status != "UNKNOWN":
-        raise PriceReflectionError("OUTPUT_MISSING_PRICE_AS_OF_MUST_BE_UNKNOWN")
+    if "price_as_of" in missing and data_state != "PRICE_DATA_MISSING":
+        raise PriceReflectionError("OUTPUT_MISSING_PRICE_AS_OF_MUST_BE_PRICE_DATA_MISSING")
 
     rs = pr.get("relative_strength")
     if not isinstance(rs, dict) or set(rs) != {
@@ -534,19 +690,25 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         if value != "UNKNOWN":
             _pct(value, "OUTPUT_RECENT_RETURN_WINDOWS_VALUE_INVALID")
 
+    # ★ SCOPE REDUCTION (see module docstring): `event_reaction`/
+    #   `reflection_reference` can no longer legitimately carry ANY value
+    #   other than the fully-inert, all-"UNKNOWN" constant -- there is no
+    #   code path left anywhere in this module that could produce anything
+    #   else. Rather than format-validating fields that can only ever be
+    #   "UNKNOWN" (dead validation logic for a dead capability), this
+    #   asserts EXACT equality to the inert constant -- a single check that
+    #   is simultaneously stricter (rejects ANY deviation, not just
+    #   malformed ones) and simpler than the field-by-field format checks
+    #   rounds 3-9 built up. A loaded/tampered packet claiming a real
+    #   citation (e.g. `capture_kind="LIVE_OFFICIAL_CAPTURE"`) is rejected
+    #   outright, regardless of how well-formed the rest of it looks.
     er = pr.get("event_reaction")
-    if not isinstance(er, dict) or set(er) != {"event_date", "direction", "reaction_magnitude_pct"}:
-        raise PriceReflectionError("OUTPUT_EVENT_REACTION_FIELDS_MISMATCH")
-    if er["event_date"] != "UNKNOWN":
-        _date(er["event_date"], "OUTPUT_EVENT_REACTION_EVENT_DATE_INVALID")
-        if _date(er["event_date"], "OUTPUT_EVENT_REACTION_EVENT_DATE_INVALID") > _date(
-            packet["decision_date"], "OUTPUT_DECISION_DATE_INVALID"
-        ):
-            raise PriceReflectionError("OUTPUT_EVENT_REACTION_EVENT_DATE_IN_FUTURE")
-    if er["direction"] not in contract["allowed_direction"] + ["UNKNOWN"]:
-        raise PriceReflectionError("OUTPUT_EVENT_REACTION_DIRECTION_INVALID")
-    if er["reaction_magnitude_pct"] != "UNKNOWN":
-        _pct(er["reaction_magnitude_pct"], "OUTPUT_EVENT_REACTION_MAGNITUDE_INVALID")
+    if er != _INERT_EVENT_REACTION:
+        raise PriceReflectionError("OUTPUT_EVENT_REACTION_MUST_BE_INERT_IN_THIS_REDUCED_SCOPE")
+
+    rr = pr.get("reflection_reference")
+    if rr != _INERT_REFLECTION_REFERENCE:
+        raise PriceReflectionError("OUTPUT_REFLECTION_REFERENCE_MUST_BE_INERT_IN_THIS_REDUCED_SCOPE")
 
     vc = pr.get("valuation_context")
     if not isinstance(vc, dict) or set(vc) != {"metric_type", "position_in_range"}:
