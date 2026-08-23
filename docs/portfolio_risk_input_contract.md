@@ -1,6 +1,8 @@
 # Portfolio Risk Input Contract
 
-Status: `DESIGN_DRAFT` implementation, PR not merged. WBS: P5-06 / P7-08 (`🟡 개발중`, no new row). Exit gate: `PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE` (no live Alpaca Paper capture has been executed against this PR; the repo is public and real persistence requires a future private evidence store -- see "CIO review round 2" below).
+Status: merged (PR #215/#216). WBS: P5-06 / P7-08 (`🟡 개발중`, no new row).
+
+**2026-08-23 cutover -- exit gate satisfied, live capture moved to a private repo.** A successful private-side live proof happened (see `yonggeun1021-hub/atlas-private-evidence`, run `32642860831`, evidence commit `e92ba2d`). `ALPACA_API_KEY`/`ALPACA_API_SECRET` have been **removed from this repo's GitHub secrets entirely** and now live only in the private repo. `.github/workflows/portfolio-risk-input.yml` (the public verify-only workflow) has been **decommissioned** -- there is no live-capture-capable workflow left in this repo at all. `portfolio_risk/` itself is UNCHANGED and stays here: `atlas-private-evidence` pulls and executes an explicitly pinned, approved commit of this exact code (see its `config/approved_public_commit.json`) rather than forking or duplicating it. This repo's own `test/test_portfolio_risk_input.py` continues to serve as the authoritative regression for that pinned code.
 
 ## Purpose
 
@@ -124,33 +126,38 @@ fix. Structural summary:
   includes only status labels, the schema version, `source=ALPACA_PAPER`,
   the all-`False` authority block, timestamps, and an error-class code --
   never a dollar amount, quantity, or NAV figure.
-- `.github/workflows/portfolio-risk-input.yml` has **no `contents: write`
-  permission, no commit/push step, and no schedule** -- `workflow_dispatch`
-  only, and even a manual run never writes to the repository.
-- Real-account-data persistence (evidence you could look back at later)
-  requires a future, separately-designed **private** evidence store -- not
-  in scope for this PR. Every public-safe result carries
-  `real_data_persistence_status: PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE`
-  until that exists.
+- **2026-08-23 cutover**: `.github/workflows/portfolio-risk-input.yml` --
+  the public verify-only workflow described in the rest of this section --
+  has been **removed entirely** now that `yonggeun1021-hub/atlas-private-evidence`
+  (a private repo) does all real capture via a pull-based, pinned-commit
+  execution of this exact code. `ALPACA_API_KEY`/`ALPACA_API_SECRET` no
+  longer exist in this repo's secrets at all. The description below of
+  that workflow's `contents: read`/no-commit/no-schedule discipline is
+  kept for historical record (and because `portfolio_risk/` itself is
+  unchanged and still governed by it, wherever it runs).
+- Real-account-data persistence now lives in that private repo, append-only
+  and normalized-only (no raw broker response body persisted -- see its
+  own README and the ratified design doc). The `real_data_persistence_status`
+  field this repo's `capture.py` still produces
+  (`PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE`) is now historical
+  from this repo's point of view: as of the cutover, persistence is no
+  longer blocked, just relocated to the private boundary, and this repo's
+  copy of `capture.py` is never invoked live any more (it is pulled and
+  invoked from the private repo instead).
 - `portfolio_snapshot.sanitize_for_raw_evidence()` (recursively strips
   `account_number`/`id`) is kept as a tested utility for any future
   private-storage path, but is **not** what makes the current PR safe --
   the current PR is safe because it writes nothing real anywhere, full
   stop.
 
-## Evidence layout: none, by design, in this PR
+## Evidence layout: none in this repo, by design -- moved to the private repo
 
-There is currently no evidence directory for real captures. A live run
-prints only the redacted, public-safe summary described above to the job
-log; nothing is written to `evidence/` or `data/` for real account data.
-(`evidence/operational/portfolio_risk_input/` exists as a placeholder
-directory for the future private evidence store -- see
-`real_data_persistence_status` above.)
-
-`.github/workflows/portfolio-risk-input.yml` (`workflow_dispatch` only, no
-schedule) runs the offline regression (`test/test_portfolio_risk_input.py`)
-before the in-memory capture-and-verify step, and confirms with
-`git diff --exit-code` that the job never touched the checkout.
+This repo never held an evidence directory for real captures, and still
+doesn't. As of the 2026-08-23 cutover, real append-only evidence lives in
+`yonggeun1021-hub/atlas-private-evidence` (`evidence/<day>/<sha16>.json` +
+`data/latest_pointer.json`, normalized packet only, no raw broker response
+body -- see that repo's README). `evidence/operational/portfolio_risk_input/`
+in this repo remains an empty placeholder directory and is not used.
 
 ## CIO review round 1 (2026-08-23) -- 6 defects fixed
 
