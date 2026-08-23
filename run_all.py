@@ -1025,6 +1025,18 @@ APPROVED_TESTS = [
     "test/test_profit_harvest_gain_path.py",
     "test/test_profit_harvest_population.py",
     "test/test_profit_harvest_end_to_end.py",
+    # ★ Portfolio Risk Input Contract -- READ-ONLY account-facts snapshot
+    #   (Alpaca paper account/positions + manual Korea/Crypto input). NOT a
+    #   sizing/policy decision: risk_policy always UNRATIFIED, position_size
+    #   always NOT_COMPUTABLE_POLICY_UNRATIFIED. See
+    #   docs/portfolio_risk_input_contract.md and the 13 counter-example
+    #   TestCase classes in this file (future-dated snapshot, stale balance,
+    #   duplicate positions, mixed-currency-without-FX, manual-disguised-as-
+    #   verified, live-vs-paper confusion, negative/NaN NAV, NAV-vs-positions
+    #   mismatch, partial-market-missing, same-timestamp tampering,
+    #   structural order-API-impossibility, sizing-while-unratified,
+    #   authority-flip).
+    "test/test_portfolio_risk_input.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

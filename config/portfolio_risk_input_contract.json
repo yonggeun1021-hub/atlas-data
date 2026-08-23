@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "contract_version": "portfolio_risk_input/1",
+  "purpose": "READ-ONLY portfolio-facts snapshot. NOT a sizing/policy decision. risk_policy is always UNRATIFIED and position_size is always NOT_COMPUTABLE_POLICY_UNRATIFIED in every packet this contract governs.",
+  "alpaca": {
+    "api_base": "https://paper-api.alpaca.markets",
+    "account_type": "PAPER",
+    "allowed_paths": ["/v2/account", "/v2/positions"],
+    "source_scope": "ALPACA_PAPER_ACCOUNT_AND_POSITIONS_READ_ONLY"
+  },
+  "manual_markets": {
+    "allowed": ["KOREA", "CRYPTO"],
+    "verification_status": "PAPER_OR_MANUAL_UNVERIFIED",
+    "source_scope": "APPEND_ONLY_MANUAL_SNAPSHOT_NOT_BROKER_VERIFIED"
+  },
+  "authority": {
+    "review_only": true,
+    "action_authorized": false,
+    "order_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
