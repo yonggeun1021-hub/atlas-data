@@ -971,6 +971,29 @@ APPROVED_TESTS = [
     #   implementation만 있고 ratified authority가 없거나 authority만 있고
     #   matching implementation이 없으면 둘 다 실패한다. 세 테이블 모두 이
     #   저장소 실제 커밋본에서는 여전히 비어 있다.
+    #   ★★★ CIO 최종 통합 판정(PR #212, 2026-08-23) — SCOPE REDUCTION.
+    #   round 9 국지 수정 확인 직후 통합 리뷰에서 policy/ratification 레이어에
+    #   같은 종류의 PIT 결함을 재발견(ratified_at을 decision_at과 비교하지
+    #   않아 미래에 비준된 rule이 과거 판정에 소급 적용될 수 있었고,
+    #   ratification evidence가 진짜 구조화된 Rule Authority record인지
+    #   검증하지 않고 임의 파일 hash 일치만으로 통과됨). CIO는 round 10 국지
+    #   패치를 명시적으로 거부하고 대신 decision/event_evidence.py 전체(rounds
+    #   5-9에 걸쳐 구축된 provenance 검증·direction-rule 구현/ratification
+    #   테이블 전부)를 삭제했다 — 패치가 아니라 제거. decision/price_
+    #   reflection.py의 event_reaction/reflection_reference citation 입력
+    #   파라미터와 그것들을 검증·분류하던 내부 함수 전부(_validate_event_
+    #   reaction/_validate_reflection_reference/_has_reference_point/
+    #   _resolve_reflection_basis/_compute_verified_return/_reflection_
+    #   status)도 함께 제거됐다 — reflection_status는 이제 이 저장소에서
+    #   "UNKNOWN" 리터럴 상수 외에는 절대 계산될 수 없다(build_packet에
+    #   event_reaction/reflection_reference 파라미터 자체가 존재하지 않음 —
+    #   Python 자체가 TypeError를 던진다). price_state(순수 momentum 읽기)는
+    #   전혀 변경되지 않았다. 유예(포기 아님): 향후 별도 PR이 Atlas P5 Rule
+    #   Authority와 함께 Reflection Evidence Authority를 설계해야 하며(append-
+    #   only per-rule canonical record, ratified_at/effective_from,
+    #   exact-content provenance, decision-time 순서 검증, 구조화된 authority
+    #   evidence), 그 설계는 코드 작성 이전에 승인받아야 한다. 기존 P8-10 WBS
+    #   row에 기록, 신규/중복 row 생성 없음.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
     #      trading 및 live network 없음.
     "test/test_price_reflection.py",
@@ -1032,6 +1055,18 @@ APPROVED_TESTS = [
     #   분류는 여전히 real) `PR`(test_alpha_review.py가 재사용하는
     #   PR_FIXTURE.MODULE과 동일 인스턴스)에만 국한해 패치한다 — 다른 어떤
     #   caller나 real production 경로도 영향받지 않는다.
+    #   ★★★ CIO 최종 통합 판정(PR #212, 2026-08-23) — SCOPE REDUCTION.
+    #   decision/event_evidence.py 전체 삭제로 인해 real PR.build_packet()은
+    #   이제 reflection_status="UNKNOWN"만 낼 수 있다. pr_under_reflected/
+    #   pr_partially_reflected/pr_fully_reflected/pr_overextended 픽스처는
+    #   mocked_event_evidence_verification() 없이, real momentum 입력으로
+    #   real (non-UNKNOWN) price_state를 얻은 뒤 reflection_status/confidence/
+    #   data_state만 직접 override하고 payload_sha256로 재서명하는 합성
+    #   패턴(_with_synthetic_reflection_status(), test_price_reflection.py
+    #   자신의 resign() 패턴과 동일)으로 교체됐다 — alpha_review.py 자신의
+    #   classify_opportunity_state 로직(price_state/reflection_status/
+    #   threshold_basis만 읽음)에 대한 순수 isolated classifier 테스트이며,
+    #   실제 production 경로가 이런 패킷을 낼 수 있다고 주장하지 않는다.
     #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
     #      action/order/Production/trading 없음.
     "test/test_alpha_review.py",
@@ -1101,6 +1136,13 @@ APPROVED_TESTS = [
     #   호출 범위에서만 test-only로 패치해 citation 인증 단계를 우회한다 —
     #   4개 real Pilot 고정값은 이번 라운드에도 그대로(전부 reflection_status=
     #   UNKNOWN 미변경).
+    #   ★★★ CIO 최종 통합 판정(PR #212, 2026-08-23) — SCOPE REDUCTION.
+    #   decision/event_evidence.py 삭제로 gate 4 synthetic fixture도
+    #   test_alpha_review.py와 동일한 합성(real momentum → real price_state →
+    #   reflection_status/confidence/data_state 직접 override 후 재서명)
+    #   패턴으로 교체했다. RealPilotFixturePinningTests(4개 real Pilot 고정값)는
+    #   event evidence와 전혀 무관하게 항상 real pilot_evidence_intake.py
+    #   경로만 사용했으므로 완전히 그대로 유지된다.
     #   ⛔ evidence 획득/Price Reflection 자체 로직/P5 Rule Authority/Stage·
     #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
     #      false다.

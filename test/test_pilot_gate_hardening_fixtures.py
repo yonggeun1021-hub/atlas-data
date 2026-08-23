@@ -184,53 +184,39 @@ class SyntheticGate4NarrativeOnlyEvidenceTests(unittest.TestCase):
         self.assertNotEqual(eg_packet["expectations_gap"]["status"], "NEGATIVE")
 
         with ratified_thresholds() as ratified_contract:
-            # CIO round 4: a real, HASH-VERIFIED evidence citation resolving
-            # to a real, internally-computed return is required for
-            # reflection_status to leave UNKNOWN -- decision/price_
-            # reflection.py no longer accepts a caller-supplied
-            # post_event_return_pct or a fabricated "a"*64 hash at all (see
-            # that module's and test_price_reflection.py's own docstrings).
-            # Without a genuinely real citation this synthetic fixture would
-            # itself now hit gate 3 (WAIT_FOR_PRICE) and never reach gate 4,
-            # defeating the point of this test. A RATIFIED threshold_basis
-            # is also required (round 3/4, required item 4/6) for the same
-            # reason -- this module's OWN loaded PRICE_REFLECTION instance
-            # is used to build the event_reaction, matching
-            # PR_FIXTURE.verified_event_reaction()'s real committed Event
-            # Evidence Envelope fixture. CIO round 6: REGRESSION_FIXTURE is
-            # no longer a legal capture_kind and any source_ref under
-            # test/ is hard-refused by the real, unmocked citation
-            # verifier -- this module's OWN loaded EVENT_EVIDENCE instance
-            # (a FOURTH independent module load, separate from PR_FIXTURE's
-            # own) needs its own copy of the same test-only mock PR_FIXTURE
-            # defines, scoped to this one call only.
-            original_verify = PRICE_REFLECTION.EVENT_EVIDENCE.verify_event_reaction_claim
-
-            def _fake_verify(*, subject, event_at, direction, source_class, source_ref, source_sha256, decision_at):
-                return {
-                    "capture_kind": "LIVE_OFFICIAL_CAPTURE",
-                    "first_authoritative_seen_at": "2026-08-01T00:00:00Z",
-                    "raw_source_ref": source_ref, "raw_source_sha256": source_sha256,
-                    "published_at": event_at, "locator": "TEST-ONLY-MOCKED-LOCATOR-BELOW-PRODUCTION-BOUNDARY",
-                }
-
-            PRICE_REFLECTION.EVENT_EVIDENCE.verify_event_reaction_claim = _fake_verify
-            try:
-                pr_packet = PRICE_REFLECTION.build_packet(
-                    subject=PR_FIXTURE.REAL_EVIDENCE_SUBJECT,
-                    decision_date=decision_date,
-                    generated_at=generated_at,
-                    price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
-                    recent_return_windows={"1m": "3"},
-                    relative_strength={"vs_market": "2"},
-                    event_reaction=PR_FIXTURE.verified_event_reaction(
-                        PR_FIXTURE.PARTIALLY_FIXTURE, PR_FIXTURE.PARTIALLY_EVENT_AT,
-                    ),  # real +5.10%
-                    data_source_scope="KRX_OFFICIAL",
-                    contract=ratified_contract,
-                )
-            finally:
-                PRICE_REFLECTION.EVENT_EVIDENCE.verify_event_reaction_claim = original_verify
+            # ★ CIO final integration ruling on PR #212 (2026-08-23):
+            #   decision/event_evidence.py (the Event Evidence Authority
+            #   engine) has been removed entirely -- decision/price_
+            #   reflection.py's real build_packet() can now ONLY ever
+            #   produce reflection_status="UNKNOWN" (see that module's own
+            #   docstring). This synthetic fixture therefore builds a REAL
+            #   packet (for a genuine, non-UNKNOWN price_state from real
+            #   momentum inputs) and then overrides reflection_status/
+            #   confidence/data_state directly, re-signing via
+            #   PRICE_REFLECTION.payload_sha256 -- the same resign() pattern
+            #   test_price_reflection.py itself uses. This is a pure
+            #   isolated classifier fixture for gate 4 specifically (never
+            #   claims the real, unmocked production pipeline could produce
+            #   this packet today) -- see test_alpha_review.py's own
+            #   `_with_synthetic_reflection_status()` docstring for the
+            #   identical rationale.
+            pr_packet = PRICE_REFLECTION.build_packet(
+                subject=PR_FIXTURE.REAL_EVIDENCE_SUBJECT,
+                decision_date=decision_date,
+                generated_at=generated_at,
+                price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
+                recent_return_windows={"1m": "3"},
+                relative_strength={"vs_market": "2"},
+                data_source_scope="KRX_OFFICIAL",
+                contract=ratified_contract,
+            )
+            self.assertEqual(pr_packet["price_reflection"]["price_state"], "MODERATE")  # sanity: real, non-UNKNOWN
+            pr_packet["price_reflection"]["reflection_status"] = "PARTIALLY_REFLECTED"
+            pr_packet["price_reflection"]["confidence"] = "MEDIUM"
+            pr_packet["price_reflection"]["data_state"] = "VALID"
+            pr_packet["packet_sha256"] = PRICE_REFLECTION.payload_sha256(
+                {k: v for k, v in pr_packet.items() if k != "packet_sha256"}
+            )
             self.assertNotEqual(pr_packet["price_reflection"]["reflection_status"], "UNKNOWN")
 
             alpha_packet = ALPHA_REVIEW.build_packet(

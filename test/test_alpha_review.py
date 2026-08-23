@@ -6,6 +6,29 @@ Every opportunity_state fixture below is assembled from the REAL
 `price_reflection.build_packet` builders (reusing the existing test modules'
 own fixture helpers) so this regression also catches integration breakage
 against those three upstream modules, not just alpha_review.py in isolation.
+
+★ CIO final integration ruling on PR #212 (2026-08-23): `decision/price_
+  reflection.py`'s Event Evidence Authority engine has been removed
+  entirely -- `reflection_status` is now the literal constant `"UNKNOWN"`
+  in every packet the real `PR.build_packet()` can ever produce (see that
+  module's own docstring). This file's positive-`reflection_status`
+  presets (`pr_under_reflected`/`pr_partially_reflected`/`pr_fully_
+  reflected`/`pr_overextended`) can therefore no longer be built via a real
+  citation, mocked or otherwise -- there is no citation-verification
+  function left anywhere to mock. They now construct a SYNTHETIC packet
+  instead: a REAL `PR.build_packet()` call establishes a real, non-UNKNOWN
+  `price_state` from real momentum inputs, then `reflection_status`/
+  `confidence`/`data_state` are overridden directly and the packet is
+  re-signed (`payload_sha256`) -- the exact same tamper/resign pattern
+  `test_price_reflection.py` itself uses to exercise `validate_packet`'s
+  structural invariants. This is a "pure isolated classifier test" for
+  `decision/alpha_review.py`'s OWN `classify_opportunity_state` logic
+  (which only ever reads `pr["price_state"]`/`pr["reflection_status"]`/
+  `pr["threshold_basis"]` -- never HOW the packet was constructed): it
+  proves alpha_review.py's positive-state gates still work correctly
+  against a well-formed, internally-consistent packet claiming a given
+  `reflection_status`, without claiming price_reflection.py's real,
+  unmocked production pipeline could ever produce one today.
 """
 from __future__ import annotations
 
@@ -135,39 +158,50 @@ def ratified_thresholds():
 
 
 # ── price_reflection status presets (all decision_date=2026-08-20) ─────────
-# `price_reflection/6` (CIO review round 6): `REGRESSION_FIXTURE` is no
-# longer a legal `capture_kind` value AT ALL, and the real, operational
-# `PR.build_packet()` path hard-refuses any citation located under `test/`
-# -- so the committed Event Evidence Envelope fixtures used through round 5
-# can never again produce a confident reflection_status via the real,
-# unmocked chain. Per the CIO's own explicit allowance ("positive
-# classifier mechanics may be unit-tested below the production evidence
-# boundary"), every preset below that needs a confident (non-UNKNOWN)
-# reflection_status now wraps its `price_reflection_packet(...)` call in
-# `PR_FIXTURE.mocked_event_evidence_verification()` -- a test-only context
-# manager (defined in test_price_reflection.py, reused here since `PR` IS
-# `PR_FIXTURE.MODULE`, the same loaded module instance) that replaces ONLY
-# the citation-authenticity check; the REAL return computation and
-# threshold classification underneath are completely genuine, anchored to
-# the SAME real committed envelope fixtures and REAL_EVIDENCE_SUBJECT
-# (`329180.KS`) test_price_reflection.py itself verifies are correctly
-# REJECTED by the real, unmocked path (see that file's own round-6
-# regressions). These presets ALSO require `threshold_basis=="RATIFIED"`
-# to ever unlock an alpha_review positive state (required item 4) --
-# callers needing a positive state pass `contract=` from inside a
-# `with ratified_thresholds():` block.
+# `decision/price_reflection.py`'s real, unmocked `build_packet()` can now
+# ONLY ever produce `reflection_status="UNKNOWN"` -- the Event Evidence
+# Authority engine that used to verify a citation is gone entirely (see that
+# module's own docstring, CIO final integration ruling on PR #212). Every
+# preset below that needs a confident (non-UNKNOWN) `reflection_status`
+# therefore builds a REAL packet first (for a genuine, non-UNKNOWN
+# `price_state` from real momentum inputs -- `price_state=UNKNOWN`
+# structurally forces `reflection_status` back to `UNKNOWN`), then overrides
+# `reflection_status`/`confidence`/`data_state` directly and re-signs via
+# `_with_synthetic_reflection_status()` below -- the exact resign() pattern
+# `test_price_reflection.py` itself uses to exercise `validate_packet`'s
+# structural invariants. This is a PURE ISOLATED CLASSIFIER fixture for
+# `decision/alpha_review.py`'s OWN `classify_opportunity_state` logic (which
+# only ever reads `pr["price_state"]`/`pr["reflection_status"]`/
+# `pr["threshold_basis"]`, never how the packet was constructed) -- it never
+# claims price_reflection.py's real production pipeline could produce such a
+# packet today. These presets ALSO require `threshold_basis=="RATIFIED"` to
+# ever unlock an alpha_review positive state (required item 4) -- callers
+# needing a positive state pass `contract=` from inside a `with
+# ratified_thresholds():` block.
+def _with_synthetic_reflection_status(pr_packet: dict, reflection_status: str, confidence: str = "MEDIUM") -> dict:
+    assert pr_packet["price_reflection"]["price_state"] != "UNKNOWN", (
+        "fixture needs a real, non-UNKNOWN price_state -- price_state=UNKNOWN "
+        "structurally forces reflection_status back to UNKNOWN"
+    )
+    tampered = copy.deepcopy(pr_packet)
+    tampered["price_reflection"]["reflection_status"] = reflection_status
+    tampered["price_reflection"]["confidence"] = confidence
+    tampered["price_reflection"]["data_state"] = "VALID"
+    tampered["packet_sha256"] = PR.payload_sha256(
+        {k: v for k, v in tampered.items() if k != "packet_sha256"}
+    )
+    return tampered
+
+
 def pr_under_reflected(**overrides):
     kwargs = dict(
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "1"},
         relative_strength={"vs_market": "1"},
-        # real -2.07%, disagrees with claimed POSITIVE -> UNDER_REFLECTED
-        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.UNDER_FIXTURE, PR_FIXTURE.UNDER_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    with PR_FIXTURE.mocked_event_evidence_verification():
-        return price_reflection_packet(**kwargs)
+    return _with_synthetic_reflection_status(price_reflection_packet(**kwargs), "UNDER_REFLECTED")
 
 
 def pr_partially_reflected(**overrides):
@@ -175,13 +209,10 @@ def pr_partially_reflected(**overrides):
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "3"},
         relative_strength={"vs_market": "2"},
-        # real +5.10% -> PARTIALLY_REFLECTED
-        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.PARTIALLY_FIXTURE, PR_FIXTURE.PARTIALLY_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    with PR_FIXTURE.mocked_event_evidence_verification():
-        return price_reflection_packet(**kwargs)
+    return _with_synthetic_reflection_status(price_reflection_packet(**kwargs), "PARTIALLY_REFLECTED")
 
 
 def pr_fully_reflected(**overrides):
@@ -189,13 +220,10 @@ def pr_fully_reflected(**overrides):
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "10"},
         relative_strength={"vs_market": "9"},
-        # real +9.22% -> FULLY_REFLECTED
-        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.FULLY_FIXTURE, PR_FIXTURE.FULLY_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    with PR_FIXTURE.mocked_event_evidence_verification():
-        return price_reflection_packet(**kwargs)
+    return _with_synthetic_reflection_status(price_reflection_packet(**kwargs), "FULLY_REFLECTED")
 
 
 def pr_overextended(**overrides):
@@ -203,10 +231,9 @@ def pr_overextended(**overrides):
     pure momentum read, round-2 core fix) -- but alpha_review's gate 3
     (`reflection_status == "UNKNOWN"`) still blocks EVERYTHING, including a
     real OVEREXTENDED price_state, until reflection_status is independently
-    resolved. This preset therefore still carries a real, hash- and
-    content-verified event_reaction (the same real +9.22% move used by
-    pr_fully_reflected, so it resolves FULLY_REFLECTED) purely to clear
-    gate 3 -- alpha_review's own WAIT_FOR_PULLBACK gate then fires off
+    resolved. This preset synthesizes reflection_status=FULLY_REFLECTED
+    (same rationale as pr_fully_reflected) purely to clear gate 3 --
+    alpha_review's own WAIT_FOR_PULLBACK gate then fires off
     `price_state == "OVEREXTENDED"` specifically (not off
     reflection_status), which is the actual thing this fixture exists to
     exercise. Also needs a RATIFIED contract to clear the round-3/round-4
@@ -215,12 +242,12 @@ def pr_overextended(**overrides):
         price_as_of=PR_FIXTURE.REAL_EVIDENCE_PRICE_AS_OF,
         recent_return_windows={"1m": "20"},
         relative_strength={"vs_market": "18", "position_vs_recent_high_pct": "1"},
-        event_reaction=PR_FIXTURE.verified_event_reaction(PR_FIXTURE.FULLY_FIXTURE, PR_FIXTURE.FULLY_EVENT_AT),
         data_source_scope="KRX_OFFICIAL",
     )
     kwargs.update(overrides)
-    with PR_FIXTURE.mocked_event_evidence_verification():
-        return price_reflection_packet(**kwargs)
+    packet = price_reflection_packet(**kwargs)
+    assert packet["price_reflection"]["price_state"] == "OVEREXTENDED"
+    return _with_synthetic_reflection_status(packet, "FULLY_REFLECTED")
 
 
 def pr_overextended_no_reference_point():
