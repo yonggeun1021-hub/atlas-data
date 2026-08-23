@@ -1083,15 +1083,25 @@ APPROVED_TESTS = [
     #   Every layer goes through one shared gate requiring: exactly one
     #   active row, RATIFIED status, business-payload self-consistency,
     #   AND independent verification against a real external evidence file
-    #   (real bytes hashed, content cross-checked -- not a self-hash).
-    #   first_seen_at is never trusted as self-declared -- it is verified
-    #   against real git commit history or a separate append-only registry,
-    #   and real_usable_from = max(effective_from, ratified_at,
-    #   verified_first_seen_at) blocks backdating. All temporal comparisons
-    #   go through a strict parser -- same-day mixed date/timestamp
-    #   precision is NOT_COMPUTABLE_TIME_PRECISION, never guessed.
-    #   require_instrument_id never short-circuits to RESOLVED on mere
-    #   structural existence -- a PROVISIONAL instrument correctly fails.
+    #   (real bytes hashed, content cross-checked including ratified_at --
+    #   not a self-hash). first_seen_at is verified ONLY against real git
+    #   commit history -- separately for the row's own content AND for the
+    #   evidence file's own content (rev 3: closes a brand-new-evidence-
+    #   file-with-backdated-ratified_at gap). There is no append-only
+    #   registry escape hatch in this module -- it was removed entirely
+    #   (rev 3) as a backdating bypass by construction; a real hash-chain
+    #   store is explicitly deferred. Git-history lookups use each file's
+    #   real repo-root-relative path (rev 3), not its basename, so this
+    #   works for the real nested config/ files. real_usable_from =
+    #   max(effective_from, ratified_at, verified_row_first_seen_at,
+    #   verified_evidence_first_seen_at). All temporal comparisons go
+    #   through a strict parser -- same-day mixed date/timestamp precision
+    #   is NOT_COMPUTABLE_TIME_PRECISION, never guessed. Every public
+    #   resolver validates the authority DOCUMENT itself (policy_version +
+    #   required arrays) at entry regardless of file-load vs. direct
+    #   injection. resolve_instrument_by_id/require_instrument_id verify
+    #   the linked issuer through the same gate, not just the instrument
+    #   row -- an orphan/PROVISIONAL/ambiguous issuer correctly blocks.
     #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
     #   no in-code mapping table, no hardcoded per-ticker/market
     #   special-casing, P8-13 not opened.

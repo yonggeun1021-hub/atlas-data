@@ -1,37 +1,39 @@
 #!/usr/bin/env python3
 """Identity Foundation stage -- `identity/canonical_identity.py` regression.
 
-★ Rev 2 (CIO code review of HEAD c819a38, CHANGES_REQUIRED, 7 P0 defects).
-  The v1 report's claims "exact-content provenance verified" and "28
-  tests validate Foundation" are RETRACTED and marked
-  `SUPERSEDED_UNAPPROVED` -- see `docs/identity_foundation_pr_notes.md`.
-  This file replaces that suite with fixes for all 7 defects plus the
-  counter-examples the CIO explicitly required for items 2/3/5/6.
+★ Rev 3 (CIO code review of HEAD 3bd9e0e, CHANGES_REQUIRED, 5 boundaries).
+  The rev-2 report's claim "exact-content provenance verified" is
+  downgraded to `PARTIALLY_VERIFIED` (not fully retracted -- rev 2's
+  fixes for defects 1-7 of the FIRST review round stand; this round
+  closes 5 further gaps found on top of them). See
+  `docs/identity_foundation_pr_notes.md`.
 
-Covers the 18 originally-required counter-examples (updated to the rev-2
-API), PLUS new counter-examples specifically for:
-  - defect 2 (first_seen_at verification -- registry AND real git history)
-  - defect 3 (require_instrument_id no longer bypasses the gate on a
-    PROVISIONAL instrument row)
-  - defect 5 (timezone / mixed-precision / invalid-date handling)
-  - defect 6 (issuer- and instrument-layer ambiguity, not just alias/listing)
-plus a blanket AUTHORITY_ALL_FALSE assertion and a regression check that
-this module does not disturb the existing, already-working crypto identity
-logic (`replay/asset_identity.py`, `config/crypto_asset_identity_exceptions.json`,
-`config/crypto_breadth_exclusion_taxonomy.json`).
+This file replaces the registry-based fixture mechanism entirely (the
+registry itself was removed from the operational module -- see defect 2
+below) with a REAL, disposable git repo per test that needs a RATIFIED
+row to actually resolve: `GitAuthorityRepo` commits authority files at
+`config/canonical_security_identity.json` (nested, matching the real
+repo layout -- defect 3) and evidence files at
+`evidence/identity_foundation/approval_records/*.json`, at real,
+controlled commit times, so `verify_row_first_seen_at` and
+`verify_evidence_first_seen_at` have genuine git history to check.
 
-★ All fixture data in this file is SYNTHETIC test data, constructed only
-  in memory (plus real, temp-file-backed evidence/registry artifacts
-  created fresh per test), used to prove the resolution mechanism works
-  end-to-end. It asserts no real economic identity. The SHIPPED authority
-  files (`config/canonical_security_identity.json`,
-  `config/market_account_scope_map.json`) ship with zero rows -- see
-  `RealShippedAuthorityFilesAreEmptyTests`, which enforces "no real asset
-  resolves" against the real files, not synthetic fixtures.
+Covers the 18 originally-required counter-examples (updated to the rev-3
+API) plus the rev-2 additions (defects 2/3/5/6 of round 1) plus NEW
+counter-examples specifically for round 2:
+  - defect 1 (evidence-file-level backdating -- the exact CIO scenario:
+    an old row + a brand-new evidence file with a backdated ratified_at)
+  - defect 2 (the registry API is verifiably GONE, not just unused)
+  - defect 3 (git verification against a REAL nested config/ path)
+  - defect 4 (a directly-injected unsupported-version document is
+    rejected identically to a file-loaded one, at every entry point)
+  - defect 5 (resolve_instrument_by_id / require_instrument_id verify the
+    linked issuer -- orphan / PROVISIONAL / ambiguous issuer counter-examples)
 """
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import subprocess
@@ -47,7 +49,7 @@ from identity import canonical_identity as ci  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Fixture builders
+# Row fixture builders (business-field skeletons, PROVISIONAL by default)
 # ---------------------------------------------------------------------------
 
 def _auth_fields(**overrides):
@@ -104,42 +106,6 @@ def make_scope_edge(market, account_scope, **kw):
     return row
 
 
-def write_evidence_file(evidence_dir: Path, row: dict) -> tuple[str, str]:
-    """Writes a REAL evidence file (real bytes on disk) independently
-    asserting rule_id/rule_version/approval_status/approved_business_payload_sha256.
-    Returns (path_str, sha256_of_real_bytes)."""
-    content = {
-        "rule_id": row["rule_id"],
-        "rule_version": row["rule_version"],
-        "approval_status": "RATIFIED",
-        "approved_business_payload_sha256": row["business_payload_sha256"],
-    }
-    data = ci.canonical_json(content).encode("utf-8")
-    path = evidence_dir / f"{row['rule_id']}__{row['rule_version']}__{row['business_payload_sha256'][:8]}.json"
-    path.write_bytes(data)
-    return str(path), hashlib.sha256(data).hexdigest()
-
-
-def ratify(row: dict, layer: str, ratified_at: str, evidence_dir: Path, first_seen_at: str | None = None) -> dict:
-    """Produces a genuinely, correctly RATIFIED row: approval_status,
-    ratified_at, a CORRECT business_payload_sha256, and a REAL evidence
-    file on disk whose real bytes hash to approval_evidence_sha256 and
-    whose real content independently corroborates the row. Does NOT by
-    itself register first_seen_at anywhere verifiable -- callers must
-    separately call `ci.record_first_seen(...)` (registry path) or rely
-    on real git history (file path) for `verify_first_seen_at` to
-    succeed; see `RATIFY_AND_REGISTER` convenience wrapper below."""
-    row["approval_status"] = "RATIFIED"
-    row["ratified_at"] = ratified_at
-    if first_seen_at is not None:
-        row["first_seen_at"] = first_seen_at
-    row["business_payload_sha256"] = ci.payload_sha256(ci.business_payload(row, layer))
-    ref, sha = write_evidence_file(evidence_dir, row)
-    row["approval_evidence_ref"] = ref
-    row["approval_evidence_sha256"] = sha
-    return row
-
-
 def full_authority(issuers=(), instruments=(), listings=(), source_aliases=()):
     return {
         "schema_version": 1,
@@ -166,53 +132,158 @@ def _assert_authority_all_false(test, result):
         test.assertNotEqual(v, True)
 
 
-class _TempDirMixin:
+# ---------------------------------------------------------------------------
+# Plain (non-git) evidence file -- usable ONLY for scenarios that fail
+# before evidence-first-seen verification is ever reached (e.g. a
+# mismatch caught by verify_approval_evidence itself, or tamper). Any
+# scenario expected to reach RESOLVED must use GitAuthorityRepo instead.
+# ---------------------------------------------------------------------------
+
+def write_plain_evidence_file(evidence_dir: Path, row: dict, ratified_at: str) -> None:
+    content = {
+        "rule_id": row["rule_id"], "rule_version": row["rule_version"],
+        "approval_status": "RATIFIED", "ratified_at": ratified_at,
+        "approved_business_payload_sha256": row["business_payload_sha256"],
+    }
+    data = ci.canonical_json(content).encode("utf-8")
+    path = evidence_dir / f"{row['rule_id']}__{row['rule_version']}__{row['business_payload_sha256'][:10]}.json"
+    path.write_bytes(data)
+    row["ratified_at"] = ratified_at
+    row["approval_status"] = "RATIFIED"
+    row["approval_evidence_ref"] = str(path)
+    row["approval_evidence_sha256"] = hashlib.sha256(data).hexdigest()
+
+
+def stamp_business_payload(row: dict, layer: str) -> dict:
+    row["business_payload_sha256"] = ci.payload_sha256(ci.business_payload(row, layer))
+    return row
+
+
+# ---------------------------------------------------------------------------
+# Real, disposable git repo -- the ONLY source of a genuinely verifiable
+# first-seen time, for both authority rows and evidence files (defect 2:
+# no registry escape hatch exists any more).
+# ---------------------------------------------------------------------------
+
+def _git_env_date(iso_z: str) -> str:
+    """'2026-08-20T12:00:00Z' -> '2026-08-20T12:00:00+00:00' (git accepts
+    explicit-offset ISO 8601 for GIT_AUTHOR_DATE/GIT_COMMITTER_DATE)."""
+    return iso_z.replace("Z", "+00:00")
+
+
+class GitAuthorityRepo:
+    """Mirrors the real repo layout: authority files under `config/`,
+    evidence files under `evidence/identity_foundation/approval_records/`
+    (defect 3 -- exercises the real nested-path git verification, not a
+    root-level fixture)."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.root.mkdir(parents=True, exist_ok=True)
+        self._run("init", "-q")
+        self._run("config", "user.email", "test@example.com")
+        self._run("config", "user.name", "Test")
+
+    def _run(self, *args, env=None):
+        subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True, env=env)
+
+    def _commit(self, rel_path: str, data: bytes, commit_iso: str, message: str):
+        path = self.root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        self._run("add", rel_path)
+        env = dict(os.environ, GIT_AUTHOR_DATE=_git_env_date(commit_iso), GIT_COMMITTER_DATE=_git_env_date(commit_iso))
+        self._run("commit", "-q", "-m", message, env=env)
+        return path
+
+    def commit_evidence(self, row: dict, layer: str, ratified_at: str, commit_iso: str,
+                         rel_dir: str = "evidence/identity_foundation/approval_records") -> Path:
+        """Stamps `business_payload_sha256`, writes+commits a REAL
+        evidence file at a REAL commit time, and sets the row's
+        approval_status/ratified_at/approval_evidence_ref/sha256 to match."""
+        stamp_business_payload(row, layer)
+        content = {
+            "rule_id": row["rule_id"], "rule_version": row["rule_version"],
+            "approval_status": "RATIFIED", "ratified_at": ratified_at,
+            "approved_business_payload_sha256": row["business_payload_sha256"],
+        }
+        data = ci.canonical_json(content).encode("utf-8")
+        rel_path = f"{rel_dir}/{row['rule_id']}__{row['rule_version']}__{row['business_payload_sha256'][:10]}.json"
+        path = self._commit(rel_path, data, commit_iso, "add approval evidence")
+        row["approval_status"] = "RATIFIED"
+        row["ratified_at"] = ratified_at
+        row["approval_evidence_ref"] = str(path)
+        row["approval_evidence_sha256"] = hashlib.sha256(data).hexdigest()
+        return path
+
+    def commit_authority(self, doc: dict, commit_iso: str,
+                          rel_path: str = "config/canonical_security_identity.json") -> Path:
+        clean = {k: v for k, v in doc.items() if not k.startswith("_")}
+        data = json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        return self._commit(rel_path, data, commit_iso, "add authority")
+
+    def commit_scope_authority(self, doc: dict, commit_iso: str,
+                                rel_path: str = "config/market_account_scope_map.json") -> Path:
+        clean = {k: v for k, v in doc.items() if not k.startswith("_")}
+        data = json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        return self._commit(rel_path, data, commit_iso, "add scope authority")
+
+    def load_authority(self, rel_path: str = "config/canonical_security_identity.json") -> dict:
+        return ci.load_authority(self.root / rel_path)
+
+    def load_scope_authority(self, rel_path: str = "config/market_account_scope_map.json") -> dict:
+        return ci.load_scope_authority(self.root / rel_path)
+
+
+class _GitRepoMixin:
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self._tmp.name)
-        self.evidence_dir = self.tmp_path / "evidence"
+        self.repo = GitAuthorityRepo(self.tmp_path / "repo")
+        self.evidence_dir = self.tmp_path / "plain_evidence"  # for non-git plain evidence, when applicable
         self.evidence_dir.mkdir()
-        self.registry_path = self.tmp_path / "first_seen_registry.jsonl"
 
     def tearDown(self):
         self._tmp.cleanup()
 
-    def ratify_and_register(self, row, layer, ratified_at, first_seen_at=None, registered_at=None):
-        """The common happy-path fixture step: ratify with a real evidence
-        file, then register the row's exact content in the append-only
-        registry at `registered_at` (defaults to the row's own
-        first_seen_at claim, i.e. "the claim happens to be true") so that
-        `verify_first_seen_at` can succeed via the registry path."""
-        ratify(row, layer, ratified_at, self.evidence_dir, first_seen_at=first_seen_at)
-        ci.record_first_seen(row, layer, self.registry_path, at=registered_at or row["first_seen_at"])
+    def ratify(self, row, layer, ratified_at="2026-01-02T00:00:00Z", evidence_commit_iso=None):
+        """Commits a REAL evidence file for `row` at a real git time (row
+        stays a plain in-memory dict until the caller commits the whole
+        authority document separately)."""
+        self.repo.commit_evidence(row, layer, ratified_at, evidence_commit_iso or ratified_at)
         return row
 
+    def build(self, issuers=(), instruments=(), listings=(), source_aliases=(), commit_iso="2026-01-02T00:00:00Z"):
+        doc = full_authority(issuers, instruments, listings, source_aliases)
+        path = self.repo.commit_authority(doc, commit_iso)
+        return ci.load_authority(path)
+
+    def build_scope(self, edges=(), commit_iso="2026-01-02T00:00:00Z"):
+        doc = scope_authority(edges)
+        path = self.repo.commit_scope_authority(doc, commit_iso)
+        return ci.load_scope_authority(path)
+
 
 # ---------------------------------------------------------------------------
-# 18 originally-required counter-examples (rev-2 API: registry-backed)
+# 18 originally-required counter-examples (rev-3 API: git-backed)
 # ---------------------------------------------------------------------------
 
-class RequiredCounterExamplesTests(_TempDirMixin, unittest.TestCase):
+class RequiredCounterExamplesTests(_GitRepoMixin, unittest.TestCase):
 
     def test_01_common_vs_preferred_stock_confusion(self):
-        issuer = self.ratify_and_register(make_issuer("ISSUER-SAMSUNG-ELEC"), ci.LAYER_ISSUER, "2026-01-02")
-        common = self.ratify_and_register(make_instrument("INSTR-SAMSUNG-COMMON", "ISSUER-SAMSUNG-ELEC", "COMMON_STOCK"),
-                                           ci.LAYER_INSTRUMENT, "2026-01-02")
-        preferred = self.ratify_and_register(make_instrument("INSTR-SAMSUNG-PREFERRED", "ISSUER-SAMSUNG-ELEC", "PREFERRED_STOCK"),
-                                              ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing_common = self.ratify_and_register(make_listing("KRX:KRW:005930", "INSTR-SAMSUNG-COMMON", "KOREA",
-                                                                 exchange="KRX", currency="KRW", ticker="005930"),
-                                                    ci.LAYER_LISTING, "2026-01-02")
-        listing_pref = self.ratify_and_register(make_listing("KRX:KRW:005935", "INSTR-SAMSUNG-PREFERRED", "KOREA",
-                                                               exchange="KRX", currency="KRW", ticker="005935"),
-                                                  ci.LAYER_LISTING, "2026-01-02")
-        alias_common = self.ratify_and_register(make_source_alias("KIS", "005930", "KRX:KRW:005930"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        alias_pref = self.ratify_and_register(make_source_alias("KIS", "005935", "KRX:KRW:005935"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority([issuer], [common, preferred], [listing_common, listing_pref],
-                                    [alias_common, alias_pref])
+        issuer = self.ratify(make_issuer("ISSUER-SAMSUNG-ELEC"), ci.LAYER_ISSUER)
+        common = self.ratify(make_instrument("INSTR-SAMSUNG-COMMON", "ISSUER-SAMSUNG-ELEC", "COMMON_STOCK"), ci.LAYER_INSTRUMENT)
+        preferred = self.ratify(make_instrument("INSTR-SAMSUNG-PREFERRED", "ISSUER-SAMSUNG-ELEC", "PREFERRED_STOCK"), ci.LAYER_INSTRUMENT)
+        listing_common = self.ratify(make_listing("KRX:KRW:005930", "INSTR-SAMSUNG-COMMON", "KOREA",
+                                                    exchange="KRX", currency="KRW", ticker="005930"), ci.LAYER_LISTING)
+        listing_pref = self.ratify(make_listing("KRX:KRW:005935", "INSTR-SAMSUNG-PREFERRED", "KOREA",
+                                                 exchange="KRX", currency="KRW", ticker="005935"), ci.LAYER_LISTING)
+        alias_common = self.ratify(make_source_alias("KIS", "005930", "KRX:KRW:005930"), ci.LAYER_SOURCE_ALIAS)
+        alias_pref = self.ratify(make_source_alias("KIS", "005935", "KRX:KRW:005935"), ci.LAYER_SOURCE_ALIAS)
+        authority = self.build([issuer], [common, preferred], [listing_common, listing_pref], [alias_common, alias_pref])
 
-        r_common = ci.resolve_instrument_identity("KIS", "005930", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
-        r_pref = ci.resolve_instrument_identity("KIS", "005935", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
+        r_common = ci.resolve_instrument_identity("KIS", "005930", "KOREA", "2026-06-01", authority)
+        r_pref = ci.resolve_instrument_identity("KIS", "005935", "KOREA", "2026-06-01", authority)
         self.assertEqual(r_common["status"], ci.RESOLVED)
         self.assertEqual(r_pref["status"], ci.RESOLVED)
         self.assertEqual(r_common["canonical_issuer_id"], r_pref["canonical_issuer_id"])
@@ -221,23 +292,19 @@ class RequiredCounterExamplesTests(_TempDirMixin, unittest.TestCase):
         _assert_authority_all_false(self, r_pref)
 
     def test_02_adr_vs_underlying_share_confusion(self):
-        issuer = self.ratify_and_register(make_issuer("ISSUER-SAMSUNG-ELEC"), ci.LAYER_ISSUER, "2026-01-02")
-        common = self.ratify_and_register(make_instrument("INSTR-SAMSUNG-COMMON", "ISSUER-SAMSUNG-ELEC", "COMMON_STOCK"),
-                                           ci.LAYER_INSTRUMENT, "2026-01-02")
-        adr = self.ratify_and_register(make_instrument("INSTR-SAMSUNG-ADR", "ISSUER-SAMSUNG-ELEC", "ADR"),
-                                        ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing_krx = self.ratify_and_register(make_listing("KRX:KRW:005930", "INSTR-SAMSUNG-COMMON", "KOREA",
-                                                              exchange="KRX", currency="KRW", ticker="005930"),
-                                                 ci.LAYER_LISTING, "2026-01-02")
-        listing_adr = self.ratify_and_register(make_listing("OTC:USD:SSNLF", "INSTR-SAMSUNG-ADR", "US",
-                                                              exchange="OTC", currency="USD", ticker="SSNLF"),
-                                                ci.LAYER_LISTING, "2026-01-02")
-        alias_krx = self.ratify_and_register(make_source_alias("KIS", "005930", "KRX:KRW:005930"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        alias_adr = self.ratify_and_register(make_source_alias("ALPACA", "SSNLF", "OTC:USD:SSNLF"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority([issuer], [common, adr], [listing_krx, listing_adr], [alias_krx, alias_adr])
+        issuer = self.ratify(make_issuer("ISSUER-SAMSUNG-ELEC"), ci.LAYER_ISSUER)
+        common = self.ratify(make_instrument("INSTR-SAMSUNG-COMMON", "ISSUER-SAMSUNG-ELEC", "COMMON_STOCK"), ci.LAYER_INSTRUMENT)
+        adr = self.ratify(make_instrument("INSTR-SAMSUNG-ADR", "ISSUER-SAMSUNG-ELEC", "ADR"), ci.LAYER_INSTRUMENT)
+        listing_krx = self.ratify(make_listing("KRX:KRW:005930", "INSTR-SAMSUNG-COMMON", "KOREA",
+                                                exchange="KRX", currency="KRW", ticker="005930"), ci.LAYER_LISTING)
+        listing_adr = self.ratify(make_listing("OTC:USD:SSNLF", "INSTR-SAMSUNG-ADR", "US",
+                                                exchange="OTC", currency="USD", ticker="SSNLF"), ci.LAYER_LISTING)
+        alias_krx = self.ratify(make_source_alias("KIS", "005930", "KRX:KRW:005930"), ci.LAYER_SOURCE_ALIAS)
+        alias_adr = self.ratify(make_source_alias("ALPACA", "SSNLF", "OTC:USD:SSNLF"), ci.LAYER_SOURCE_ALIAS)
+        authority = self.build([issuer], [common, adr], [listing_krx, listing_adr], [alias_krx, alias_adr])
 
-        r_share = ci.resolve_instrument_identity("KIS", "005930", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
-        r_adr = ci.resolve_instrument_identity("ALPACA", "SSNLF", "US", "2026-06-01", authority, registry_path=self.registry_path)
+        r_share = ci.resolve_instrument_identity("KIS", "005930", "KOREA", "2026-06-01", authority)
+        r_adr = ci.resolve_instrument_identity("ALPACA", "SSNLF", "US", "2026-06-01", authority)
         self.assertEqual(r_share["status"], ci.RESOLVED)
         self.assertEqual(r_adr["status"], ci.RESOLVED)
         self.assertEqual(r_share["canonical_issuer_id"], r_adr["canonical_issuer_id"])
@@ -245,63 +312,51 @@ class RequiredCounterExamplesTests(_TempDirMixin, unittest.TestCase):
         self.assertNotEqual(r_share["listing_id"], r_adr["listing_id"])
 
     def test_03_same_ticker_different_market(self):
-        issuer_a = self.ratify_and_register(make_issuer("ISSUER-A"), ci.LAYER_ISSUER, "2026-01-02")
-        issuer_b = self.ratify_and_register(make_issuer("ISSUER-B"), ci.LAYER_ISSUER, "2026-01-02")
-        instr_a = self.ratify_and_register(make_instrument("INSTR-A", "ISSUER-A"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        instr_b = self.ratify_and_register(make_instrument("INSTR-B", "ISSUER-B"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing_kr = self.ratify_and_register(make_listing("KRX:KRW:TICK", "INSTR-A", "KOREA", ticker="TICK"),
-                                               ci.LAYER_LISTING, "2026-01-02")
-        listing_us = self.ratify_and_register(make_listing("NASDAQ:USD:TICK", "INSTR-B", "US", ticker="TICK"),
-                                               ci.LAYER_LISTING, "2026-01-02")
-        alias_kr = self.ratify_and_register(make_source_alias("SRC", "TICK", "KRX:KRW:TICK"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority([issuer_a, issuer_b], [instr_a, instr_b], [listing_kr, listing_us], [alias_kr])
-        r_kr = ci.resolve_instrument_identity("SRC", "TICK", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
+        issuer_a = self.ratify(make_issuer("ISSUER-A"), ci.LAYER_ISSUER)
+        issuer_b = self.ratify(make_issuer("ISSUER-B"), ci.LAYER_ISSUER)
+        instr_a = self.ratify(make_instrument("INSTR-A", "ISSUER-A"), ci.LAYER_INSTRUMENT)
+        instr_b = self.ratify(make_instrument("INSTR-B", "ISSUER-B"), ci.LAYER_INSTRUMENT)
+        listing_kr = self.ratify(make_listing("KRX:KRW:TICK", "INSTR-A", "KOREA", ticker="TICK"), ci.LAYER_LISTING)
+        listing_us = self.ratify(make_listing("NASDAQ:USD:TICK", "INSTR-B", "US", ticker="TICK"), ci.LAYER_LISTING)
+        alias_kr = self.ratify(make_source_alias("SRC", "TICK", "KRX:KRW:TICK"), ci.LAYER_SOURCE_ALIAS)
+        authority = self.build([issuer_a, issuer_b], [instr_a, instr_b], [listing_kr, listing_us], [alias_kr])
+        r_kr = ci.resolve_instrument_identity("SRC", "TICK", "KOREA", "2026-06-01", authority)
         self.assertEqual(r_kr["status"], ci.RESOLVED)
         self.assertEqual(r_kr["canonical_instrument_id"], "INSTR-A")
-        r_us = ci.resolve_instrument_identity("SRC", "TICK", "US", "2026-06-01", authority, registry_path=self.registry_path)
-        self.assertNotEqual(r_us["status"], ci.RESOLVED)
+        r_us = ci.resolve_instrument_identity("SRC", "TICK", "US", "2026-06-01", authority)
         self.assertEqual(r_us["status"], ci.NOT_COMPUTABLE_LAYER_MISMATCH)
 
     def test_04_btc_xbt_xxbt_alias_collision(self):
-        issuer = self.ratify_and_register(make_issuer("ISSUER-BTC"), ci.LAYER_ISSUER, "2026-01-02")
-        instrument = self.ratify_and_register(make_instrument("INSTR-BTC", "ISSUER-BTC", "CRYPTO_ASSET"),
-                                               ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("KRAKEN:USD:BTC", "INSTR-BTC", "CRYPTO",
-                                                          exchange="KRAKEN_SPOT", ticker="BTC"), ci.LAYER_LISTING, "2026-01-02")
-        aliases = [self.ratify_and_register(make_source_alias("KRAKEN", sym, "KRAKEN:USD:BTC"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-                   for sym in ("BTC", "XBT", "XXBT")]
-        authority = full_authority([issuer], [instrument], [listing], aliases)
-        results = [ci.resolve_instrument_identity("KRAKEN", sym, "CRYPTO", "2026-06-01", authority, registry_path=self.registry_path)
-                   for sym in ("BTC", "XBT", "XXBT")]
-        for r in results:
+        issuer = self.ratify(make_issuer("ISSUER-BTC"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-BTC", "ISSUER-BTC", "CRYPTO_ASSET"), ci.LAYER_INSTRUMENT)
+        listing = self.ratify(make_listing("KRAKEN:USD:BTC", "INSTR-BTC", "CRYPTO", exchange="KRAKEN_SPOT", ticker="BTC"), ci.LAYER_LISTING)
+        aliases = [self.ratify(make_source_alias("KRAKEN", sym, "KRAKEN:USD:BTC"), ci.LAYER_SOURCE_ALIAS) for sym in ("BTC", "XBT", "XXBT")]
+        authority = self.build([issuer], [instrument], [listing], aliases)
+        for sym in ("BTC", "XBT", "XXBT"):
+            r = ci.resolve_instrument_identity("KRAKEN", sym, "CRYPTO", "2026-06-01", authority)
             self.assertEqual(r["status"], ci.RESOLVED)
             self.assertEqual(r["canonical_instrument_id"], "INSTR-BTC")
 
     def test_05_329180_vs_329180_ks(self):
-        issuer = self.ratify_and_register(make_issuer("ISSUER-HD-HEAVY"), ci.LAYER_ISSUER, "2026-01-02")
-        instrument = self.ratify_and_register(make_instrument("INSTR-HD-HEAVY-COMMON", "ISSUER-HD-HEAVY"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("KRX:KRW:329180", "INSTR-HD-HEAVY-COMMON", "KOREA",
-                                                          exchange="KRX", currency="KRW", ticker="329180"),
-                                            ci.LAYER_LISTING, "2026-01-02")
-        alias_bare = self.ratify_and_register(make_source_alias("universe_json", "329180", "KRX:KRW:329180"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        alias_yahoo = self.ratify_and_register(make_source_alias("monitoring_identity_yahoo_style", "329180.KS", "KRX:KRW:329180"),
-                                                ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority([issuer], [instrument], [listing], [alias_bare, alias_yahoo])
-        r_bare = ci.resolve_instrument_identity("universe_json", "329180", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
-        r_yahoo = ci.resolve_instrument_identity("monitoring_identity_yahoo_style", "329180.KS", "KOREA", "2026-06-01",
-                                                  authority, registry_path=self.registry_path)
+        issuer = self.ratify(make_issuer("ISSUER-HD-HEAVY"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-HD-HEAVY-COMMON", "ISSUER-HD-HEAVY"), ci.LAYER_INSTRUMENT)
+        listing = self.ratify(make_listing("KRX:KRW:329180", "INSTR-HD-HEAVY-COMMON", "KOREA",
+                                            exchange="KRX", currency="KRW", ticker="329180"), ci.LAYER_LISTING)
+        alias_bare = self.ratify(make_source_alias("universe_json", "329180", "KRX:KRW:329180"), ci.LAYER_SOURCE_ALIAS)
+        alias_yahoo = self.ratify(make_source_alias("monitoring_identity_yahoo_style", "329180.KS", "KRX:KRW:329180"), ci.LAYER_SOURCE_ALIAS)
+        authority = self.build([issuer], [instrument], [listing], [alias_bare, alias_yahoo])
+        r_bare = ci.resolve_instrument_identity("universe_json", "329180", "KOREA", "2026-06-01", authority)
+        r_yahoo = ci.resolve_instrument_identity("monitoring_identity_yahoo_style", "329180.KS", "KOREA", "2026-06-01", authority)
         self.assertEqual(r_bare["status"], ci.RESOLVED)
         self.assertEqual(r_yahoo["status"], ci.RESOLVED)
         self.assertEqual(r_bare["canonical_instrument_id"], r_yahoo["canonical_instrument_id"])
         self.assertEqual(r_bare["listing_id"], r_yahoo["listing_id"])
 
     def test_06_overlapping_effective_intervals(self):
-        alias_a = self.ratify_and_register(make_source_alias("SRC", "DUP", "LISTING-A", effective_from="2026-01-01",
-                                                               effective_to="2026-12-31"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        alias_b = self.ratify_and_register(make_source_alias("SRC", "DUP", "LISTING-B", effective_from="2026-06-01",
-                                                               effective_to=None), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority(source_aliases=[alias_a, alias_b])
-        result = ci.resolve_instrument_identity("SRC", "DUP", "KOREA", "2026-07-01", authority, registry_path=self.registry_path)
+        alias_a = make_source_alias("SRC", "DUP", "LISTING-A", effective_from="2026-01-01", effective_to="2026-12-31")
+        alias_b = make_source_alias("SRC", "DUP", "LISTING-B", effective_from="2026-06-01", effective_to=None)
+        authority = full_authority(source_aliases=[alias_a, alias_b])  # both PROVISIONAL -- no git needed
+        result = ci.resolve_instrument_identity("SRC", "DUP", "KOREA", "2026-07-01", authority)
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
         overlaps = ci.detect_overlapping_intervals([alias_a, alias_b], ("source_name", "source_asset_id"))
         self.assertEqual(len(overlaps), 1)
@@ -327,94 +382,79 @@ class RequiredCounterExamplesTests(_TempDirMixin, unittest.TestCase):
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_UNRATIFIED_RECORD)
 
     def test_10_backdated_effective_from(self):
-        alias = self.ratify_and_register(
-            make_source_alias("SRC", "BACKDATED", "LISTING-X", effective_from="2020-01-01"),
-            ci.LAYER_SOURCE_ALIAS, ratified_at="2026-08-20", first_seen_at="2026-08-20")
-        authority = full_authority(source_aliases=[alias])
-        result = ci.resolve_instrument_identity("SRC", "BACKDATED", "KOREA", "2026-03-01", authority, registry_path=self.registry_path)
+        alias = make_source_alias("SRC", "BACKDATED", "LISTING-X", effective_from="2020-01-01")
+        self.ratify(alias, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-08-20T00:00:00Z", evidence_commit_iso="2026-08-20T00:00:00Z")
+        authority = self.build(source_aliases=[alias], commit_iso="2026-08-20T00:00:00Z")
+        result = ci.resolve_instrument_identity("SRC", "BACKDATED", "KOREA", "2026-03-01", authority)
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_PIT_VIOLATION)
 
     def test_11_ratified_at_in_the_future(self):
-        alias = self.ratify_and_register(
-            make_source_alias("SRC", "FUTURE_RATIFY", "LISTING-X", effective_from="2026-01-01"),
-            ci.LAYER_SOURCE_ALIAS, ratified_at="2099-01-01", first_seen_at="2026-01-01")
-        authority = full_authority(source_aliases=[alias])
-        result = ci.resolve_instrument_identity("SRC", "FUTURE_RATIFY", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
+        alias = make_source_alias("SRC", "FUTURE_RATIFY", "LISTING-X", effective_from="2026-01-01")
+        self.ratify(alias, ci.LAYER_SOURCE_ALIAS, ratified_at="2099-01-01T00:00:00Z", evidence_commit_iso="2026-01-02T00:00:00Z")
+        authority = self.build(source_aliases=[alias])
+        result = ci.resolve_instrument_identity("SRC", "FUTURE_RATIFY", "KOREA", "2026-06-01", authority)
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_PIT_VIOLATION)
 
     def test_12_usage_before_exact_content_first_seen_time(self):
-        """The row LIES in its self-declared first_seen_at ('2020-01-01'),
-        claiming to be much older than it really is. The independent
-        registry (real, external truth) says it was genuinely first seen
-        on 2026-08-20. verify_first_seen_at must use the REGISTRY value,
-        never the row's own claim -- this is the direct test of defect 2's
-        fix."""
-        row = make_source_alias("SRC", "LATE_SEEN", "LISTING-X", effective_from="2020-01-01")
-        ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2020-01-02", evidence_dir=self.evidence_dir,
-               first_seen_at="2020-01-01")  # self-declared claim: a lie
-        ci.record_first_seen(row, ci.LAYER_SOURCE_ALIAS, self.registry_path, at="2026-08-20")  # real truth
-        authority = full_authority(source_aliases=[row])
-        result = ci.resolve_instrument_identity("SRC", "LATE_SEEN", "KOREA", "2026-01-01", authority, registry_path=self.registry_path)
+        """The row's self-declared first_seen_at ('2020-01-01') is a lie
+        -- the REAL git history of the authority file shows it was only
+        ever committed on 2026-08-20. verify_row_first_seen_at must use
+        the real git time, never the self-declared claim."""
+        row = make_source_alias("SRC", "LATE_SEEN", "LISTING-X", effective_from="2020-01-01", first_seen_at="2020-01-01")
+        self.ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2020-01-02T00:00:00Z", evidence_commit_iso="2026-08-20T00:00:00Z")
+        authority = self.build(source_aliases=[row], commit_iso="2026-08-20T00:00:00Z")
+        result = ci.resolve_instrument_identity("SRC", "LATE_SEEN", "KOREA", "2026-01-01", authority)
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_PIT_VIOLATION)
-        self.assertEqual(result["identity_basis"]["source_alias"]["verified_first_seen_at"], "2026-08-20")
-        self.assertNotEqual(result["identity_basis"]["source_alias"]["verified_first_seen_at"],
-                             row["first_seen_at"])
+        self.assertTrue(result["identity_basis"]["source_alias"]["verified_row_first_seen_at"].startswith("2026-08-20"))
+        self.assertNotEqual(result["identity_basis"]["source_alias"]["verified_row_first_seen_at"], row["first_seen_at"])
 
     def test_13_issuer_id_used_where_instrument_id_required(self):
-        issuer = self.ratify_and_register(make_issuer("ISSUER-ONLY"), ci.LAYER_ISSUER, "2026-01-02")
-        authority = full_authority(issuers=[issuer])
-        result = ci.require_instrument_id("ISSUER-ONLY", authority, "2026-06-01", registry_path=self.registry_path)
+        issuer = self.ratify(make_issuer("ISSUER-ONLY"), ci.LAYER_ISSUER)
+        authority = self.build(issuers=[issuer])
+        result = ci.require_instrument_id("ISSUER-ONLY", authority, "2026-06-01")
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_LAYER_MISMATCH)
 
     def test_14_portfolio_exposure_joined_on_listing_id(self):
-        instrument = self.ratify_and_register(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("LISTING-X", "INSTR-X", "KOREA"), ci.LAYER_LISTING, "2026-01-02")
-        authority = full_authority(instruments=[instrument], listings=[listing])
-        result = ci.require_instrument_id("LISTING-X", authority, "2026-06-01", registry_path=self.registry_path)
+        instrument = self.ratify(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        listing = self.ratify(make_listing("LISTING-X", "INSTR-X", "KOREA"), ci.LAYER_LISTING)
+        authority = self.build(instruments=[instrument], listings=[listing])
+        result = ci.require_instrument_id("LISTING-X", authority, "2026-06-01")
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_LAYER_MISMATCH)
 
     def test_15_multiple_listings_of_same_instrument_double_counted(self):
-        issuer = self.ratify_and_register(make_issuer("ISSUER-DUAL-LISTED"), ci.LAYER_ISSUER, "2026-01-02")
-        instrument = self.ratify_and_register(make_instrument("INSTR-DUAL-LISTED", "ISSUER-DUAL-LISTED", "CRYPTO_ASSET"),
-                                               ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("KRAKEN:USD:BTC", "INSTR-DUAL-LISTED", "CRYPTO"), ci.LAYER_LISTING, "2026-01-02")
-        alias_btc = self.ratify_and_register(make_source_alias("KRAKEN", "BTC", "KRAKEN:USD:BTC"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        alias_xbt = self.ratify_and_register(make_source_alias("KRAKEN", "XBT", "KRAKEN:USD:BTC"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority([issuer], [instrument], [listing], [alias_btc, alias_xbt])
-
+        issuer = self.ratify(make_issuer("ISSUER-DUAL-LISTED"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-DUAL-LISTED", "ISSUER-DUAL-LISTED", "CRYPTO_ASSET"), ci.LAYER_INSTRUMENT)
+        listing = self.ratify(make_listing("KRAKEN:USD:BTC", "INSTR-DUAL-LISTED", "CRYPTO"), ci.LAYER_LISTING)
+        alias_btc = self.ratify(make_source_alias("KRAKEN", "BTC", "KRAKEN:USD:BTC"), ci.LAYER_SOURCE_ALIAS)
+        alias_xbt = self.ratify(make_source_alias("KRAKEN", "XBT", "KRAKEN:USD:BTC"), ci.LAYER_SOURCE_ALIAS)
+        authority = self.build([issuer], [instrument], [listing], [alias_btc, alias_xbt])
         positions = [{"source_name": "KRAKEN", "source_asset_id": "BTC", "market_value": 100.0},
                      {"source_name": "KRAKEN", "source_asset_id": "XBT", "market_value": 100.0}]
         resolved = {(p["source_name"], p["source_asset_id"]):
-                    ci.resolve_instrument_identity(p["source_name"], p["source_asset_id"], "CRYPTO",
-                                                     "2026-06-01", authority, registry_path=self.registry_path)
+                    ci.resolve_instrument_identity(p["source_name"], p["source_asset_id"], "CRYPTO", "2026-06-01", authority)
                     for p in positions}
         correct = ci.group_positions_by_instrument(positions, resolved)
         self.assertEqual(correct, {"INSTR-DUAL-LISTED": 200.0})
-
         naive = {}
         for p in positions:
             naive[p["source_asset_id"]] = naive.get(p["source_asset_id"], 0.0) + p["market_value"]
-        self.assertEqual(len(naive), 2)
         self.assertNotEqual(len(naive), len(correct))
 
     def test_16_tampered_then_resigned_record_rejected(self):
         """Business field mutated AFTER ratification, WITH
-        business_payload_sha256 correctly recomputed ('resigned') -- but
-        the real (untouched) evidence file's `approved_business_payload_sha256`
-        still points at the OLD hash. This is exactly the attack
-        `verify_business_payload` alone cannot catch (self-consistency
-        only), and is exactly what `verify_approval_evidence`'s
-        cross-check against the immutable evidence file DOES catch."""
+        business_payload_sha256 correctly recomputed ('resigned') -- the
+        real (untouched) evidence file's `approved_business_payload_sha256`
+        still points at the OLD hash. This fails before any git-history
+        lookup is ever reached, so a plain (non-git) evidence file
+        suffices here."""
         row = make_source_alias("SRC", "TAMPERED", "LISTING-ORIGINAL")
-        ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-01-02", evidence_dir=self.evidence_dir)
-        ci.record_first_seen(row, ci.LAYER_SOURCE_ALIAS, self.registry_path, at=row["first_seen_at"])
-        # tamper + "resign": change content, recompute business_payload_sha256
+        stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
+        write_plain_evidence_file(self.evidence_dir, row, ratified_at="2026-01-02T00:00:00Z")
         row["listing_id"] = "LISTING-SWAPPED"
         row["business_payload_sha256"] = ci.payload_sha256(ci.business_payload(row, ci.LAYER_SOURCE_ALIAS))
         self.assertTrue(ci.verify_business_payload(row, ci.LAYER_SOURCE_ALIAS))  # self-consistency now "passes"...
         authority = full_authority(source_aliases=[row])
-        result = ci.resolve_instrument_identity("SRC", "TAMPERED", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
-        # ...but the real evidence file rejects it.
+        result = ci.resolve_instrument_identity("SRC", "TAMPERED", "KOREA", "2026-06-01", authority)
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED)
 
     def test_17_missing_market_scope_edge(self):
@@ -424,13 +464,13 @@ class RequiredCounterExamplesTests(_TempDirMixin, unittest.TestCase):
         _assert_authority_all_false(self, result)
 
     def test_18_no_authority_field_ever_flips_true(self):
-        alias = self.ratify_and_register(make_source_alias("SRC", "OK", "LISTING-OK"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        instrument = self.ratify_and_register(make_instrument("INSTR-OK", "ISSUER-OK"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("LISTING-OK", "INSTR-OK", "KOREA"), ci.LAYER_LISTING, "2026-01-02")
-        issuer = self.ratify_and_register(make_issuer("ISSUER-OK"), ci.LAYER_ISSUER, "2026-01-02")
-        authority = full_authority([issuer], [instrument], [listing], [alias])
+        alias = self.ratify(make_source_alias("SRC", "OK", "LISTING-OK"), ci.LAYER_SOURCE_ALIAS)
+        instrument = self.ratify(make_instrument("INSTR-OK", "ISSUER-OK"), ci.LAYER_INSTRUMENT)
+        listing = self.ratify(make_listing("LISTING-OK", "INSTR-OK", "KOREA"), ci.LAYER_LISTING)
+        issuer = self.ratify(make_issuer("ISSUER-OK"), ci.LAYER_ISSUER)
+        authority = self.build([issuer], [instrument], [listing], [alias])
         results = [
-            ci.resolve_instrument_identity("SRC", "OK", "KOREA", "2026-06-01", authority, registry_path=self.registry_path),
+            ci.resolve_instrument_identity("SRC", "OK", "KOREA", "2026-06-01", authority),
             ci.resolve_instrument_identity("SRC", "MISSING", "KOREA", "2026-06-01", authority),
             ci.resolve_account_scope("KOREA", "2026-06-01", scope_authority()),
             ci.require_instrument_id("ISSUER-OK", authority, "2026-06-01"),
@@ -440,237 +480,246 @@ class RequiredCounterExamplesTests(_TempDirMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# New counter-examples required by CIO code review (defects 2, 3, 5, 6)
+# Round-2 (rev 3) counter-examples -- defects 1, 2, 3, 4, 5
 # ---------------------------------------------------------------------------
 
-class Defect2FirstSeenVerificationTests(_TempDirMixin, unittest.TestCase):
-    """first_seen_at must be independently verified -- registry path and
-    real git-history path, both exercised for real."""
+class Defect1EvidenceBackdatingTests(_GitRepoMixin, unittest.TestCase):
+    """The exact CIO scenario: an old row + a brand-new evidence file
+    with a backdated ratified_at must NOT resolve as usable back then."""
 
-    def test_registry_verification_end_to_end_success(self):
-        row = self.ratify_and_register(make_source_alias("SRC", "REG_OK", "LISTING-X"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority(source_aliases=[row])
-        result = ci.resolve_instrument_identity("SRC", "REG_OK", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
-        # fails downstream (no listing exists) but MUST get past first-seen verification --
-        # confirmed by NOT getting FIRST_SEEN_UNVERIFIED.
-        self.assertNotEqual(result["status"], ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED)
+    def test_backdated_evidence_file_blocked_by_evidence_first_seen(self):
+        row = make_source_alias("SRC", "OLD_ROW_NEW_EVIDENCE", "LISTING-X",
+                                 effective_from="2020-01-01", first_seen_at="2020-01-01")
+        stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
+        # Step 1: the row itself genuinely existed (as PROVISIONAL) back
+        # in 2020 -- a real, early git commit establishes its real
+        # first-seen time honestly.
+        self.repo.commit_authority(full_authority(source_aliases=[row]), commit_iso="2020-01-01T00:00:00Z")
+        # Step 2: TODAY (2026-08-24), someone ratifies it with a brand-new
+        # evidence file whose CONTENT claims an early, backdated
+        # ratified_at ("2020-01-05") -- but the evidence file's REAL git
+        # commit time is today.
+        self.repo.commit_evidence(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2020-01-05T00:00:00Z",
+                                   commit_iso="2026-08-24T00:00:00Z")
+        authority_path = self.repo.commit_authority(full_authority(source_aliases=[row]), commit_iso="2026-08-24T00:00:00Z")
+        authority = ci.load_authority(authority_path)
 
-    def test_no_registry_no_git_path_is_unverified(self):
-        """A RATIFIED, correctly-signed row with NO registry_path and NO
-        git-backed authority document must fail closed as
-        FIRST_SEEN_UNVERIFIED -- it must never fall back to trusting the
-        row's own self-declared first_seen_at."""
-        row = make_source_alias("SRC", "NO_VERIFY", "LISTING-X")
-        ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-01-02", evidence_dir=self.evidence_dir)
-        authority = full_authority(source_aliases=[row])  # note: no _source_path, no registry_path passed
-        result = ci.resolve_instrument_identity("SRC", "NO_VERIFY", "KOREA", "2026-06-01", authority)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED)
+        # Without the fix, effective_from/ratified_at/verified_row_first_seen_at
+        # are all ~2020, so a 2020-01-05 decision_date would have wrongly
+        # succeeded. With the fix, verified_evidence_first_seen_at (~2026-08-24,
+        # the evidence file's REAL git time) dominates the max().
+        result = ci.resolve_instrument_identity("SRC", "OLD_ROW_NEW_EVIDENCE", "KOREA", "2020-01-05", authority)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_PIT_VIOLATION)
+        basis = result["identity_basis"]["source_alias"]
+        self.assertTrue(basis["verified_evidence_first_seen_at"].startswith("2026-08-24"))
+        self.assertNotEqual(basis["verified_evidence_first_seen_at"], row["ratified_at"])
 
-    def test_real_git_history_verification(self):
-        """Real git-history verification path (not the registry): builds
-        a genuine temp git repo, commits a real authority file containing
-        the row, and confirms verify_first_seen_at returns that commit's
-        REAL committer time -- not the row's self-declared claim."""
-        repo = self.tmp_path / "gitrepo"
-        repo.mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+        # A decision_date genuinely at/after the evidence file's real
+        # first-seen time clears the alias layer's own PIT gate entirely
+        # (this fixture never defines a listing/instrument/issuer chain,
+        # so the overall result is NO_AUTHORITY_RECORD from the NEXT
+        # layer, not RESOLVED -- what matters here is that the alias
+        # layer itself is no longer blocked).
+        result_after = ci.resolve_instrument_identity("SRC", "OLD_ROW_NEW_EVIDENCE", "KOREA", "2026-09-01", authority)
+        self.assertNotIn(result_after["status"], (
+            ci.NOT_COMPUTABLE_PIT_VIOLATION, ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED,
+            ci.NOT_COMPUTABLE_EVIDENCE_FIRST_SEEN_UNVERIFIED, ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
+            ci.NOT_COMPUTABLE_TAMPERED_RECORD, ci.NOT_COMPUTABLE_UNRATIFIED_RECORD))
+        self.assertEqual(result_after["status"], ci.NOT_COMPUTABLE_NO_AUTHORITY_RECORD)  # missing listing, not a PIT issue
 
-        row = make_source_alias("SRC", "GIT_VERIFIED", "LISTING-X")
-        ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2020-01-02", evidence_dir=self.evidence_dir,
-               first_seen_at="1970-01-01")  # self-declared lie
-        doc = full_authority(source_aliases=[row])
-        auth_path = repo / "canonical_security_identity.json"
-        auth_path.write_text(json.dumps({k: v for k, v in doc.items() if k != "_source_path"}), encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, check=True)
-        commit_env = dict(os.environ, GIT_AUTHOR_DATE="2026-08-20T12:00:00", GIT_COMMITTER_DATE="2026-08-20T12:00:00")
-        subprocess.run(["git", "commit", "-q", "-m", "add row"], cwd=repo, check=True, env=commit_env)
+    def test_evidence_ratified_at_mismatch_with_row_rejected(self):
+        """The evidence file's own claimed ratified_at must equal the
+        row's -- an attacker who edits only the row's ratified_at without
+        updating the (real, hash-verified) evidence file's content is
+        caught, independent of the first-seen fix."""
+        row = make_source_alias("SRC", "MISMATCHED_RATIFIED_AT", "LISTING-X")
+        stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
+        write_plain_evidence_file(self.evidence_dir, row, ratified_at="2026-01-02T00:00:00Z")
+        row["ratified_at"] = "2026-06-01T00:00:00Z"  # diverge from what the real evidence file says
+        self.assertFalse(ci.verify_approval_evidence(row, ci.LAYER_SOURCE_ALIAS))
 
-        verified = ci.verify_first_seen_at(row, ci.LAYER_SOURCE_ALIAS, git_path=auth_path)
+    def test_evidence_file_not_git_tracked_is_unverified(self):
+        row = make_source_alias("SRC", "NO_GIT_EVIDENCE", "LISTING-X")
+        stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
+        write_plain_evidence_file(self.evidence_dir, row, ratified_at="2026-01-02T00:00:00Z")  # plain temp dir, no git
+        self.assertIsNone(ci.verify_evidence_first_seen_at(row))
+
+
+class Defect2RegistryRemovedTests(unittest.TestCase):
+    """The append-only registry is verifiably GONE from the operational
+    module -- not merely unused."""
+
+    def test_record_first_seen_function_does_not_exist(self):
+        self.assertFalse(hasattr(ci, "record_first_seen"))
+
+    def test_no_registry_path_parameter_anywhere(self):
+        for fn in (ci.resolve_instrument_identity, ci.resolve_account_scope,
+                   ci.resolve_instrument_by_id, ci.require_instrument_id):
+            params = inspect.signature(fn).parameters
+            self.assertNotIn("registry_path", params, f"{fn.__name__} still accepts registry_path")
+
+    def test_verify_row_first_seen_uses_only_git_path_no_fallback(self):
+        params = inspect.signature(ci.verify_row_first_seen_at).parameters
+        self.assertEqual(set(params), {"row", "layer", "git_path"})
+        self.assertIsNone(ci.verify_row_first_seen_at(make_source_alias("SRC", "X", "L"), ci.LAYER_SOURCE_ALIAS, None))
+
+
+class Defect3RealNestedConfigPathTests(_GitRepoMixin, unittest.TestCase):
+    """Git verification against the REAL repo-root-relative path of a
+    file nested under config/, not a root-level test fixture."""
+
+    def test_git_history_found_for_real_nested_config_path(self):
+        row = self.ratify(make_source_alias("SRC", "NESTED_PATH", "LISTING-X"), ci.LAYER_SOURCE_ALIAS)
+        path = self.repo.commit_authority(full_authority(source_aliases=[row]), commit_iso="2026-01-02T00:00:00Z")
+        self.assertEqual(path, self.repo.root / "config" / "canonical_security_identity.json")
+        verified = ci.verify_row_first_seen_at(row, ci.LAYER_SOURCE_ALIAS, path)
         self.assertIsNotNone(verified)
-        self.assertTrue(verified.startswith("2026-08-20"))
-        self.assertNotEqual(verified, row["first_seen_at"])  # proves the claim was ignored
+        self.assertTrue(verified.startswith("2026-01-02"))
 
-    def test_real_git_history_no_match_is_unverified(self):
-        """A row that was never actually committed to the file's history
-        (e.g. injected purely in-memory) must NOT be treated as verified
-        just because a git-tracked file path was supplied."""
-        repo = self.tmp_path / "gitrepo2"
-        repo.mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
-        auth_path = repo / "canonical_security_identity.json"
-        auth_path.write_text(json.dumps(full_authority()), encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "empty"], cwd=repo, check=True)
+    def test_real_repo_config_file_git_history_is_actually_walkable(self):
+        """Sanity check against THIS repo's own real, committed
+        config/canonical_security_identity.json -- proves the path-
+        resolution mechanism finds real history for the real nested path
+        (not just a temp-repo fixture)."""
+        commits = ci._git_history_commits(ci.SECURITY_IDENTITY_PATH)
+        self.assertGreater(len(commits), 0)
+        for _hash, _iso, rel_posix in commits:
+            self.assertEqual(rel_posix, "config/canonical_security_identity.json")
 
-        row = make_source_alias("SRC", "NEVER_COMMITTED", "LISTING-X")
-        ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-01-02", evidence_dir=self.evidence_dir)
-        verified = ci.verify_first_seen_at(row, ci.LAYER_SOURCE_ALIAS, git_path=auth_path)
-        self.assertIsNone(verified)
+    def test_basename_only_lookup_would_have_failed(self):
+        """Regression proof that the rev-2 bug (basename-only `git show`)
+        is real: `git show <rev>:canonical_security_identity.json` (no
+        `config/` prefix) must NOT find the real committed content,
+        confirming the nested repo-relative path is required."""
+        repo_root = ci._git_repo_root(ci.SECURITY_IDENTITY_PATH)
+        commits = ci._git_history_commits(ci.SECURITY_IDENTITY_PATH)
+        commit_hash = commits[-1][0]
+        bare_basename_result = ci._git_show_bytes(repo_root, commit_hash, "canonical_security_identity.json")
+        real_path_result = ci._git_show_bytes(repo_root, commit_hash, "config/canonical_security_identity.json")
+        self.assertIsNone(bare_basename_result)
+        self.assertIsNotNone(real_path_result)
 
 
-class Defect3RequireInstrumentIdGateTests(_TempDirMixin, unittest.TestCase):
-    """require_instrument_id must never short-circuit to RESOLVED on mere
-    structural existence -- the exact counter-example the CIO required."""
+class Defect4DocumentLevelValidationTests(unittest.TestCase):
+    """A directly-injected (never file-loaded) document with an
+    unsupported policy_version must be rejected identically to a
+    file-loaded one, at EVERY entry point."""
 
-    def test_provisional_instrument_id_never_resolves_via_require_instrument_id(self):
-        instrument = make_instrument("INSTR-PROVISIONAL-ONLY", "ISSUER-X")  # left PROVISIONAL, never ratified
-        authority = full_authority(instruments=[instrument])
-        result = ci.require_instrument_id("INSTR-PROVISIONAL-ONLY", authority, "2026-06-01")
+    def test_injected_unsupported_version_rejected_by_resolve_instrument_identity(self):
+        doc = full_authority()
+        doc["policy_version"] = "canonical_security_identity/v99_unknown"
+        with self.assertRaises(ci.IdentityError):
+            ci.resolve_instrument_identity("SRC", "X", "KOREA", "2026-06-01", doc)
+
+    def test_injected_unsupported_version_rejected_by_resolve_instrument_by_id(self):
+        doc = full_authority()
+        doc["policy_version"] = "canonical_security_identity/v99_unknown"
+        with self.assertRaises(ci.IdentityError):
+            ci.resolve_instrument_by_id("INSTR-X", "2026-06-01", doc)
+
+    def test_injected_unsupported_version_rejected_by_require_instrument_id(self):
+        doc = full_authority()
+        doc["policy_version"] = "canonical_security_identity/v99_unknown"
+        with self.assertRaises(ci.IdentityError):
+            ci.require_instrument_id("INSTR-X", doc, "2026-06-01")
+
+    def test_injected_unsupported_scope_version_rejected_by_resolve_account_scope(self):
+        doc = scope_authority()
+        doc["policy_version"] = "market_account_scope_map/v99_unknown"
+        with self.assertRaises(ci.IdentityError):
+            ci.resolve_account_scope("KOREA", "2026-06-01", doc)
+
+    def test_injected_missing_required_array_rejected(self):
+        doc = full_authority()
+        del doc["instruments"]
+        with self.assertRaises(ci.IdentityError):
+            ci.resolve_instrument_identity("SRC", "X", "KOREA", "2026-06-01", doc)
+
+    def test_document_validators_used_identically_by_load_authority(self):
+        """The same validator function governs both paths -- not two
+        independently-maintained checks that could drift apart."""
+        doc = full_authority()
+        doc["policy_version"] = "canonical_security_identity/v99_unknown"
+        with self.assertRaises(ci.IdentityError):
+            ci.validate_security_identity_document(doc)
+        path = Path(tempfile.mkstemp(suffix=".json")[1])
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        try:
+            with self.assertRaises(ci.IdentityError):
+                ci.load_authority(path)
+        finally:
+            path.unlink()
+
+
+class Defect5IssuerChainVerificationTests(_GitRepoMixin, unittest.TestCase):
+    """resolve_instrument_by_id (and require_instrument_id, which
+    delegates to it) must verify the linked issuer through the same gate,
+    not return RESOLVED on the instrument row alone."""
+
+    def test_orphan_issuer_blocks_resolution(self):
+        instrument = self.ratify(make_instrument("INSTR-ORPHAN", "ISSUER-DOES-NOT-EXIST"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instrument])  # no issuer row at all
+        result = ci.resolve_instrument_by_id("INSTR-ORPHAN", "2026-06-01", authority)
         self.assertNotEqual(result["status"], ci.RESOLVED)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_UNRATIFIED_RECORD)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_NO_AUTHORITY_RECORD)
         self.assertIsNone(result["canonical_instrument_id"])
 
-    def test_ratified_instrument_id_resolves_via_require_instrument_id(self):
-        instrument = self.ratify_and_register(make_instrument("INSTR-REAL", "ISSUER-X"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        authority = full_authority(instruments=[instrument])
-        result = ci.require_instrument_id("INSTR-REAL", authority, "2026-06-01", registry_path=self.registry_path)
+    def test_provisional_issuer_blocks_resolution(self):
+        issuer = make_issuer("ISSUER-PROVISIONAL-ONLY")  # never ratified
+        instrument = self.ratify(make_instrument("INSTR-X", "ISSUER-PROVISIONAL-ONLY"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        result = ci.resolve_instrument_by_id("INSTR-X", "2026-06-01", authority)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_UNRATIFIED_RECORD)
+
+    def test_ambiguous_issuer_blocks_resolution(self):
+        issuer_1 = self.ratify(make_issuer("ISSUER-DUP", issuer_name_reference="A"), ci.LAYER_ISSUER)
+        issuer_2 = self.ratify(make_issuer("ISSUER-DUP", issuer_name_reference="B"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-X", "ISSUER-DUP"), ci.LAYER_INSTRUMENT)
+        authority = self.build([issuer_1, issuer_2], [instrument])
+        result = ci.resolve_instrument_by_id("INSTR-X", "2026-06-01", authority)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+    def test_valid_issuer_chain_resolves(self):
+        issuer = self.ratify(make_issuer("ISSUER-OK"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-OK", "ISSUER-OK"), ci.LAYER_INSTRUMENT)
+        authority = self.build([issuer], [instrument])
+        result = ci.resolve_instrument_by_id("INSTR-OK", "2026-06-01", authority)
         self.assertEqual(result["status"], ci.RESOLVED)
-        self.assertEqual(result["canonical_instrument_id"], "INSTR-REAL")
+        self.assertEqual(result["canonical_issuer_id"], "ISSUER-OK")
 
-    def test_tampered_instrument_rejected_via_require_instrument_id(self):
-        """The same gate as resolve_instrument_identity -- provenance
-        failures propagate through require_instrument_id too, since it
-        now delegates to the real operational resolver."""
-        instrument = make_instrument("INSTR-TAMPERED", "ISSUER-X")
-        ratify(instrument, ci.LAYER_INSTRUMENT, ratified_at="2026-01-02", evidence_dir=self.evidence_dir)
-        instrument["instrument_type"] = "PREFERRED_STOCK"  # tamper without resigning
-        authority = full_authority(instruments=[instrument])
-        result = ci.require_instrument_id("INSTR-TAMPERED", authority, "2026-06-01", registry_path=self.registry_path)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_TAMPERED_RECORD)
-
-
-class Defect5TemporalPrecisionTests(unittest.TestCase):
-    """Strict parsing + chronological (not lexical) comparison; mixed
-    precision on the same calendar day is flagged, never silently ordered."""
-
-    def test_zero_padding_does_not_break_ordering(self):
-        # this is exactly the class of bug lexical string comparison
-        # produces ("2026-08-9" > "2026-08-10" as strings) -- our schema
-        # requires zero-padding, and the strict parser rejects anything else.
-        self.assertEqual(ci._compare_temporal("2026-08-09", "2026-08-10"), -1)
-        self.assertEqual(ci._compare_temporal("2026-09-01", "2026-08-20"), 1)
-
-    def test_non_zero_padded_date_rejected(self):
-        with self.assertRaises(ci.IdentityError):
-            ci._parse_temporal("2026-8-9")
-
-    def test_naive_timestamp_without_z_rejected(self):
-        with self.assertRaises(ci.IdentityError):
-            ci._parse_temporal("2026-08-20T09:00:00")  # missing explicit UTC 'Z'
-
-    def test_offset_timestamp_rejected_not_silently_converted(self):
-        with self.assertRaises(ci.IdentityError):
-            ci._parse_temporal("2026-08-20T09:00:00+09:00")  # only literal 'Z' UTC is accepted
-
-    def test_garbage_value_rejected(self):
-        with self.assertRaises(ci.IdentityError):
-            ci._parse_temporal("not-a-date")
-
-    def test_different_days_compare_correctly_regardless_of_precision(self):
-        # DATE_ONLY vs FULL_TIMESTAMP on genuinely DIFFERENT days is safe --
-        # no precision assumption is needed to know one whole day precedes another.
-        self.assertEqual(ci._compare_temporal("2026-08-19", "2026-08-20T00:00:01Z"), -1)
-        self.assertEqual(ci._compare_temporal("2026-08-21T23:59:59Z", "2026-08-20"), 1)
-
-    def test_same_day_mixed_precision_is_ambiguous(self):
-        with self.assertRaises(ci.TimePrecisionAmbiguous):
-            ci._compare_temporal("2026-08-20", "2026-08-20T14:00:00Z")
-
-    def test_same_day_both_date_only_equal_is_not_ambiguous(self):
-        self.assertEqual(ci._compare_temporal("2026-08-20", "2026-08-20"), 0)
-
-    def test_resolver_surfaces_time_precision_status_on_mixed_precision_interval(self):
-        """End-to-end: a row whose effective_from is a full timestamp and
-        whose decision_date lands on the exact same calendar day (as a
-        bare date) must resolve NOT_COMPUTABLE_TIME_PRECISION, never
-        silently assume an ordering."""
-        row = make_source_alias("SRC", "MIXED_PRECISION", "LISTING-X",
-                                 effective_from="2026-08-20T09:00:00Z")
-        with tempfile.TemporaryDirectory() as d:
-            evidence_dir = Path(d)
-            ratify(row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-08-20T09:00:00Z", evidence_dir=evidence_dir,
-                   first_seen_at="2026-08-20T09:00:00Z")
-            registry_path = Path(d) / "registry.jsonl"
-            ci.record_first_seen(row, ci.LAYER_SOURCE_ALIAS, registry_path, at="2026-08-20T09:00:00Z")
-            authority = full_authority(source_aliases=[row])
-            result = ci.resolve_instrument_identity("SRC", "MIXED_PRECISION", "KOREA", "2026-08-20",
-                                                      authority, registry_path=registry_path)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_TIME_PRECISION)
-
-
-class Defect6ExactlyOneActiveRowTests(_TempDirMixin, unittest.TestCase):
-    """Every layer -- not just alias/listing -- requires exactly one
-    active row. Two active rows with DIFFERING target fields (not just
-    identical duplicates) must also resolve AMBIGUOUS."""
-
-    def test_two_active_ratified_instrument_rows_same_id_different_issuer_is_ambiguous(self):
-        instr_1 = self.ratify_and_register(make_instrument("INSTR-CONFLICT", "ISSUER-ONE"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        instr_2 = self.ratify_and_register(make_instrument("INSTR-CONFLICT", "ISSUER-TWO"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        authority = full_authority(instruments=[instr_1, instr_2])
-        result = ci.resolve_instrument_by_id("INSTR-CONFLICT", "2026-06-01", authority, registry_path=self.registry_path)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
-
-    def test_two_active_ratified_issuer_rows_same_id_is_ambiguous(self):
-        """v1 defect: issuer-layer ambiguity inside listing resolution was
-        never checked at all -- the first RATIFIED row was silently
-        picked. Now closed via the shared pipeline."""
-        issuer_1 = self.ratify_and_register(make_issuer("ISSUER-DUP", issuer_name_reference="A"), ci.LAYER_ISSUER, "2026-01-02")
-        issuer_2 = self.ratify_and_register(make_issuer("ISSUER-DUP", issuer_name_reference="B"), ci.LAYER_ISSUER, "2026-01-02")
-        instrument = self.ratify_and_register(make_instrument("INSTR-X", "ISSUER-DUP"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("LISTING-X", "INSTR-X", "KOREA"), ci.LAYER_LISTING, "2026-01-02")
-        alias = self.ratify_and_register(make_source_alias("SRC", "X", "LISTING-X"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
-        authority = full_authority([issuer_1, issuer_2], [instrument], [listing], [alias])
-        result = ci.resolve_instrument_identity("SRC", "X", "KOREA", "2026-06-01", authority, registry_path=self.registry_path)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
-
-    def test_two_active_ratified_scope_edges_same_market_different_account_scope_is_ambiguous(self):
-        edge_1 = self.ratify_and_register(make_scope_edge("CRYPTO", "CRYPTO_MANUAL_ACCOUNT"), ci.LAYER_MARKET_ACCOUNT_SCOPE, "2026-01-02")
-        edge_2 = self.ratify_and_register(make_scope_edge("CRYPTO", "ALPACA_PAPER_ACCOUNT"), ci.LAYER_MARKET_ACCOUNT_SCOPE, "2026-01-02")
-        authority = scope_authority(edges=[edge_1, edge_2])
-        result = ci.resolve_account_scope("CRYPTO", "2026-06-01", authority, registry_path=self.registry_path)
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
-
-    def test_exactly_one_active_ratified_listing_resolves_normally(self):
-        """Sanity check that the stricter rule does not reject the normal
-        single-row case."""
-        instrument = self.ratify_and_register(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        listing = self.ratify_and_register(make_listing("LISTING-X", "INSTR-X", "KOREA"), ci.LAYER_LISTING, "2026-01-02")
-        authority = full_authority(instruments=[instrument], listings=[listing])
-        result = ci.require_instrument_id("INSTR-X", authority, "2026-06-01", registry_path=self.registry_path)
-        self.assertEqual(result["status"], ci.RESOLVED)
+    def test_require_instrument_id_end_to_end_blocked_by_orphan_issuer(self):
+        """Confirms the fix propagates through require_instrument_id too
+        (it delegates to resolve_instrument_by_id)."""
+        instrument = self.ratify(make_instrument("INSTR-ORPHAN-2", "ISSUER-MISSING"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instrument])
+        result = ci.require_instrument_id("INSTR-ORPHAN-2", authority, "2026-06-01")
+        self.assertNotEqual(result["status"], ci.RESOLVED)
 
 
 # ---------------------------------------------------------------------------
 # Structural / validation coverage
 # ---------------------------------------------------------------------------
 
-class StructuralValidationTests(_TempDirMixin, unittest.TestCase):
+class StructuralValidationTests(_GitRepoMixin, unittest.TestCase):
 
     def test_provisional_row_rejects_ratified_at(self):
         row = make_source_alias("SRC", "X", "L")
-        row["ratified_at"] = "2026-01-01"
+        row["ratified_at"] = "2026-01-01T00:00:00Z"
         with self.assertRaises(ci.IdentityError):
             ci.validate_authority_row(row, ci.LAYER_SOURCE_ALIAS)
 
     def test_ratified_row_requires_business_payload_and_evidence_fields(self):
         row = make_source_alias("SRC", "X", "L")
         row["approval_status"] = "RATIFIED"
-        row["ratified_at"] = "2026-01-01"
-        # approval_evidence_ref/sha256/business_payload_sha256 still None
+        row["ratified_at"] = "2026-01-01T00:00:00Z"
         with self.assertRaises(ci.IdentityError):
             ci.validate_authority_row(row, ci.LAYER_SOURCE_ALIAS)
 
     def test_valid_ratified_row_passes_structural_validation(self):
-        row = self.ratify_and_register(make_source_alias("SRC", "X", "L"), ci.LAYER_SOURCE_ALIAS, "2026-01-02")
+        row = self.ratify(make_source_alias("SRC", "X", "L"), ci.LAYER_SOURCE_ALIAS)
         ci.validate_authority_row(row, ci.LAYER_SOURCE_ALIAS)  # must not raise
 
     def test_resolver_hard_fails_on_malformed_injected_row(self):
-        """Defect 4: even a directly-injected dict (never touching
-        load_authority) must be validated before being considered."""
         malformed = make_instrument("INSTR-X", "ISSUER-X")
         del malformed["instrument_type"]
         authority = full_authority(instruments=[malformed])
@@ -678,7 +727,7 @@ class StructuralValidationTests(_TempDirMixin, unittest.TestCase):
             ci.resolve_instrument_by_id("INSTR-X", "2026-06-01", authority)
 
     def test_correctly_signed_row_verifies_business_payload_and_evidence(self):
-        row = self.ratify_and_register(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT, "2026-01-02")
+        row = self.ratify(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT)
         self.assertTrue(ci.verify_business_payload(row, ci.LAYER_INSTRUMENT))
         self.assertTrue(ci.verify_approval_evidence(row, ci.LAYER_INSTRUMENT))
 
@@ -688,16 +737,13 @@ class StructuralValidationTests(_TempDirMixin, unittest.TestCase):
         self.assertFalse(ci.verify_approval_evidence(row, ci.LAYER_INSTRUMENT))
 
     def test_evidence_file_missing_is_unverified_even_with_matching_hash_claim(self):
-        row = self.ratify_and_register(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT, "2026-01-02")
+        row = self.ratify(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT)
         os.remove(row["approval_evidence_ref"])
         self.assertFalse(ci.verify_approval_evidence(row, ci.LAYER_INSTRUMENT))
 
     def test_evidence_file_content_mismatch_rejected(self):
-        """The real file exists and its bytes match the claimed hash, but
-        its CONTENT doesn't corroborate this row's rule_id/rule_version --
-        i.e. the hash was computed honestly over the WRONG file."""
-        row = self.ratify_and_register(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT, "2026-01-02")
-        other = self.ratify_and_register(make_instrument("INSTR-OTHER", "ISSUER-OTHER"), ci.LAYER_INSTRUMENT, "2026-01-02")
+        row = self.ratify(make_instrument("INSTR-X", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        other = self.ratify(make_instrument("INSTR-OTHER", "ISSUER-OTHER"), ci.LAYER_INSTRUMENT)
         row["approval_evidence_ref"] = other["approval_evidence_ref"]
         row["approval_evidence_sha256"] = other["approval_evidence_sha256"]
         self.assertFalse(ci.verify_approval_evidence(row, ci.LAYER_INSTRUMENT))

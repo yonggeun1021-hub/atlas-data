@@ -5,6 +5,54 @@ Design source: "Canonical Security Identity / Market Scope Authority" v2
 implementation baseline) and the paired "Dynamic Clock Candidate Validity
 Window" v2 packet (combined CIO recommendation section).
 
+## ⛔ Rev 2 claim downgraded — PARTIALLY_VERIFIED (not fully retracted)
+
+CIO independent code review of HEAD `3bd9e0e` (rev 2) returned
+**CHANGES_REQUIRED** again, with 5 further boundaries found on top of
+round 1's fixes (round 1's fixes themselves were confirmed fine, no
+action needed there). The rev-2 claim **"exact-content provenance
+verified"** is downgraded to **`PARTIALLY_VERIFIED`** — round 1's fixes
+stand, but round 2 closes 5 more real gaps:
+
+1. **P0 — ratification time could still be backdated via the evidence
+   file.** `real_usable_from` included the row's own verified first-seen,
+   but not the EVIDENCE FILE's own first-seen — a brand-new evidence file
+   with a backdated `ratified_at` could make an old row look ratified
+   since the past. Fixed: `verify_evidence_first_seen_at` (real git
+   history of the evidence file itself, independent of the row) is now a
+   4th input to `real_usable_from`, and `verify_approval_evidence` also
+   cross-checks the evidence file's own claimed `ratified_at` against the
+   row's.
+2. **P0 — the append-only registry was a backdating bypass API by
+   construction.** `record_first_seen(..., at=<any past date>)` and the
+   editable JSONL registry file gave any caller a way to assert an
+   arbitrary first-seen time with no independent verification. Removed
+   entirely (function, parameter, and all call sites) — public authority
+   is now verified ONLY via real git history in this PR. A real hash-chain
+   / private append-only store is explicitly deferred to a future PR.
+3. **P1 — git verification used the file's basename, not its real
+   repo-relative path.** `git show {commit}:{path.name}` silently fails
+   to find content for any file nested under a directory (e.g. the real
+   `config/canonical_security_identity.json`) — it only happened to work
+   in rev-2's own test because that test placed its fixture at repo root.
+   Fixed: `_git_repo_root` + real repo-root-relative path resolution, used
+   for both `git log --follow` and `git show`. New regression test
+   (`test_basename_only_lookup_would_have_failed`) proves the old
+   basename-only approach really would have failed against this repo's
+   own real nested `config/` file.
+4. **P0 — a directly-injected document's policy version was never
+   checked.** Only `load_authority()` validated `policy_version`; a
+   dict injected straight into a resolver skipped that check entirely.
+   Fixed: `validate_security_identity_document`/
+   `validate_market_account_scope_document` are now called at the top of
+   every public resolver, file-loaded or injected alike — the exact same
+   function `load_authority`/`load_scope_authority` use.
+5. **P1 — `resolve_instrument_by_id` never verified the linked issuer.**
+   It returned `RESOLVED` on the instrument row alone, even with an
+   orphan, `PROVISIONAL`, or ambiguous issuer — inconsistent with
+   `resolve_instrument_identity`'s full-chain judgment. Fixed: the linked
+   issuer now goes through the exact same `_resolve_layer_row` gate.
+
 ## ⛔ Rev 1 claims retracted — SUPERSEDED_UNAPPROVED
 
 CIO independent code review of HEAD `c819a38` returned
