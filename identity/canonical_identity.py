@@ -6,6 +6,38 @@ designed in "Canonical Security Identity / Market Scope Authority" v2
 (Notion design packet, CIO-approved 2026-08-24 as this stage's
 implementation baseline).
 
+★ Rev 5 (CIO independent re-verification of HEAD 82dde6f confirmed rev 4's
+  fixes correctly closed; one more defect in the same family found by
+  direct reproduction -- "provenance" stays PARTIALLY_VERIFIED -- see
+  docs/identity_foundation_pr_notes.md):
+   Every check up to rev 4 only verified "does the SELECTED row's content
+   match real git history / the real evidence file". None of them checked
+   whether the WHOLE input document itself still matches its real source
+   file. CIO reproduced: two conflicting active RATIFIED rows for the
+   same instrument id resolve `AMBIGUOUS` (correct baseline); silently
+   deleting ONE of the two conflicting rows from the in-memory document
+   -- with the evidence file, its hash, git history, and the REMAINING
+   row itself all completely untouched -- makes the remaining row resolve
+   alone, because it genuinely did exist in git history on its own merits.
+   Fixed with `verify_document_matches_source`: every public resolver now
+   compares a canonical hash of its ENTIRE current input document
+   (`authority`/`scope_authority`, excluding internal `_`-prefixed keys)
+   against a freshly-computed canonical hash of the real file at
+   `_source_path`, re-read from disk on every call. `canonical_json`
+   preserves list/array order, so this also catches pure row reordering,
+   not just addition/removal/field edits. A mismatch -> immediate
+   `IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED`, checked BEFORE any row is
+   even looked at (and, in `require_instrument_id`, before
+   `identify_layer_of_id` runs). A document with no `_source_path` at all
+   (pure synthetic/injected, never file-backed) is not itself a
+   "tamper" -- it has nothing real to compare against, and falls through
+   to the existing per-row checks. Arbitrary-dict direct injection is
+   intentionally NOT retired (CIO framed that as "if feasible", not a
+   hard requirement) -- the large existing body of tests for other
+   failure modes (ambiguity, unratified, no-authority, layer-mismatch)
+   still legitimately needs it, and this whole-document re-verification
+   achieves the same security property without disrupting that.
+
 ★ Rev 4 (CIO direct-reproduction code review of HEAD d382467, one more P0
   found and fixed; "provenance verified" stays PARTIALLY_VERIFIED until
   CIO confirms this closes it -- see docs/identity_foundation_pr_notes.md):
@@ -210,6 +242,7 @@ NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED = "IDENTITY_NOT_COMPUTABLE_APPROVAL_
 NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED = "IDENTITY_NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED"
 NOT_COMPUTABLE_EVIDENCE_FIRST_SEEN_UNVERIFIED = "IDENTITY_NOT_COMPUTABLE_EVIDENCE_FIRST_SEEN_UNVERIFIED"
 NOT_COMPUTABLE_TIME_PRECISION = "IDENTITY_NOT_COMPUTABLE_TIME_PRECISION"
+NOT_COMPUTABLE_DOCUMENT_TAMPERED = "IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED"
 RESOLVED = "RESOLVED"
 
 
@@ -689,6 +722,56 @@ def load_scope_authority(path=MARKET_ACCOUNT_SCOPE_PATH) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Whole-document tamper check (rev 5 -- CIO direct-reproduction P0: a
+# per-row check alone cannot catch row insertion/deletion/reordering that
+# changes WHICH row wins an ambiguity/selection decision, even though
+# every individual row that remains is completely real and untouched).
+# ---------------------------------------------------------------------------
+
+def verify_document_matches_source(doc: dict) -> bool:
+    """Compares a canonical hash of the CURRENTLY-INPUT `doc` (excluding
+    internal `_`-prefixed keys such as `_source_path`) against a
+    freshly-computed canonical hash of the REAL file at
+    `doc["_source_path"]`, re-read from disk on EVERY call (never
+    cached). `canonical_json` sorts dict keys but preserves list/array
+    ORDER, so this also catches row reordering within an array, not just
+    field edits or additions/removals. Returns False -- never raises --
+    if `_source_path` is missing, the file cannot be read/parsed, or the
+    hashes do not match. This is deliberately independent of, and
+    stronger than, any single-row check: it detects a document that adds,
+    deletes, replaces, or reorders rows even when every ROW that remains
+    in the document is itself completely real (unmutated, genuinely
+    RATIFIED, genuinely git-verifiable) -- e.g. deleting one of two
+    conflicting AMBIGUOUS rows so the remaining real row resolves alone."""
+    source_path = doc.get("_source_path")
+    if not source_path:
+        return False
+    path = Path(source_path)
+    try:
+        real_doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    clean_input = {k: v for k, v in doc.items() if not k.startswith("_")}
+    return payload_sha256(clean_input) == payload_sha256(real_doc)
+
+
+def _document_tamper_status(authority: dict) -> str | None:
+    """Returns NOT_COMPUTABLE_DOCUMENT_TAMPERED if `authority` carries a
+    `_source_path` (i.e. it claims to be file-backed) but no longer
+    matches that real file's current content; returns None (no
+    document-level objection) if `_source_path` is absent entirely --
+    that case is unverifiable at the document level and falls through to
+    the existing per-row first-seen checks, which will themselves
+    correctly resolve to a NOT_COMPUTABLE_* status downstream since there
+    is no real git history to consult without a real source path."""
+    if authority.get("_source_path") is None:
+        return None
+    if not verify_document_matches_source(authority):
+        return NOT_COMPUTABLE_DOCUMENT_TAMPERED
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Result shape
 # ---------------------------------------------------------------------------
 
@@ -795,9 +878,15 @@ def resolve_instrument_identity(source_name: str, source_asset_id: str, market: 
                                  decision_date: str, authority: dict) -> dict:
     """`authority` is validated as a whole DOCUMENT (defect 4) before any
     row is touched, regardless of whether it came from `load_authority`
-    or was injected directly."""
+    or was injected directly. If `authority` carries a `_source_path`
+    (i.e. claims to be file-backed), its ENTIRE current content -- not
+    just whichever row ends up selected -- must still match that real
+    file's current bytes (rev 5), or resolution is refused outright."""
     _parse_temporal(decision_date)
     validate_security_identity_document(authority)
+    tamper_status = _document_tamper_status(authority)
+    if tamper_status is not None:
+        return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     git_path = authority.get("_source_path")
 
     alias_rows = [r for r in authority.get("source_aliases", [])
@@ -846,6 +935,9 @@ def resolve_instrument_identity(source_name: str, source_asset_id: str, market: 
 def resolve_account_scope(market: str, decision_date: str, scope_authority: dict) -> dict:
     _parse_temporal(decision_date)
     validate_market_account_scope_document(scope_authority)
+    tamper_status = _document_tamper_status(scope_authority)
+    if tamper_status is not None:
+        return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     git_path = scope_authority.get("_source_path")
     rows = [r for r in scope_authority.get("edges", []) if r.get("market") == market]
     status, row, basis = _resolve_layer_row(rows, decision_date, LAYER_MARKET_ACCOUNT_SCOPE, git_path)
@@ -882,6 +974,9 @@ def resolve_instrument_by_id(canonical_instrument_id: str, decision_date: str, a
     resolver's judgment."""
     _parse_temporal(decision_date)
     validate_security_identity_document(authority)
+    tamper_status = _document_tamper_status(authority)
+    if tamper_status is not None:
+        return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     git_path = authority.get("_source_path")
 
     instrument_rows = [r for r in authority.get("instruments", []) if r.get("canonical_instrument_id") == canonical_instrument_id]
@@ -904,8 +999,14 @@ def require_instrument_id(candidate_id: str, authority: dict, decision_date: str
     its join key. Wrong-layer ids fail fast with
     `IDENTITY_NOT_COMPUTABLE_LAYER_MISMATCH`; instrument-layer ids
     delegate to the real operational resolver `resolve_instrument_by_id`
-    (never a structural-existence-only shortcut)."""
+    (never a structural-existence-only shortcut). The whole-document
+    tamper check (rev 5) runs here too, BEFORE `identify_layer_of_id` --
+    a tampered document could otherwise change which layer an id
+    structurally appears to belong to."""
     validate_security_identity_document(authority)
+    tamper_status = _document_tamper_status(authority)
+    if tamper_status is not None:
+        return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     found_layer = identify_layer_of_id(candidate_id, authority)
     if found_layer == LAYER_INSTRUMENT:
         return resolve_instrument_by_id(candidate_id, decision_date, authority)

@@ -5,6 +5,47 @@ Design source: "Canonical Security Identity / Market Scope Authority" v2
 implementation baseline) and the paired "Dynamic Clock Candidate Validity
 Window" v2 packet (combined CIO recommendation section).
 
+## ⛔ Rev 4 claim stays PARTIALLY_VERIFIED — one more defect in the same family closed
+
+CIO independent re-verification of HEAD `82dde6f` (rev 4) confirmed rev
+4's fixes were correctly closed (single-field tampers on
+`effective_to`/`effective_from`/`rule_version`/`ratified_at` all blocked,
+CI green on the exact HEAD) — but found one more defect in the same
+family by direct reproduction: every check up to that point only asked
+"does the SELECTED row match real git history / the real evidence file?"
+None of them asked whether the WHOLE input DOCUMENT still matches its
+real source file. CIO reproduced:
+
+```
+Original document (2 conflicting active RATIFIED rows for same instrument ID): AMBIGUOUS
+After deleting one conflicting row:                                             RESOLVED
+```
+
+— evidence, hash, git history, and the remaining row itself all
+completely untouched; the remaining row genuinely did exist in git
+history on its own, so every existing check passed.
+
+**Fixed** with `verify_document_matches_source`: every public resolver
+now compares a canonical hash of its ENTIRE current input document
+(excluding internal `_`-prefixed keys) against a freshly-computed
+canonical hash of the real file at `_source_path`, re-read from disk on
+every call. `canonical_json` preserves list/array order, so this also
+catches pure row reordering, not just add/remove/edit. A mismatch is an
+immediate `IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED`, checked before any
+row is even looked at (and, in `require_instrument_id`, before
+`identify_layer_of_id` runs so a tampered document can't even change
+which layer an id structurally appears to belong to). A document with no
+`_source_path` (pure synthetic/injected) is not itself a "tamper" — it
+has nothing real to compare against and falls through to the existing
+per-row checks.
+
+**On retiring arbitrary-dict direct injection** (CIO: "if feasible"): not
+done. This was explicitly framed as optional, and the mandatory fallback
+(re-verify the whole document at resolver entry) achieves the same
+security property without disrupting the large existing body of tests
+for other failure modes (ambiguity, unratified, no-authority,
+layer-mismatch) that legitimately don't need real git backing.
+
 ## ⛔ Rev 3 claim stays PARTIALLY_VERIFIED — one more P0 closed
 
 CIO independent code review of HEAD `d382467` (rev 3) returned

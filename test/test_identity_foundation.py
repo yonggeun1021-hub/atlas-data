@@ -722,7 +722,13 @@ class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
             Original:  IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD
             Tampered:  must NOT be RESOLVED (TAMPERED_RECORD or a
                        provenance error only)
-        """
+
+        rev 5: the whole-document tamper check now fires FIRST (any
+        mutation to the loaded document, including a single field, no
+        longer matches the real file's current bytes) -- a strictly
+        earlier and stronger catch than the row-level full-payload check
+        alone, which remains as independent defense-in-depth for cases
+        without a real `_source_path` to compare against."""
         instrument = make_instrument("INSTR-EXPIRES", "ISSUER-X",
                                       effective_from="2020-01-01", effective_to="2021-01-01")
         self.ratify(instrument, ci.LAYER_INSTRUMENT, ratified_at="2020-01-02T00:00:00Z",
@@ -739,7 +745,8 @@ class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
         tampered = ci.resolve_instrument_by_id("INSTR-EXPIRES", "2022-01-01", authority)
         self.assertNotEqual(tampered["status"], ci.RESOLVED)
         self.assertIn(tampered["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
-                                            ci.NOT_COMPUTABLE_TAMPERED_RECORD))
+                                            ci.NOT_COMPUTABLE_TAMPERED_RECORD,
+                                            ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED))
         self.assertIsNone(tampered["canonical_instrument_id"])
         _assert_authority_all_false(self, tampered)
 
@@ -752,7 +759,8 @@ class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
         self.assertNotEqual(result["status"], ci.RESOLVED)
         self.assertIn(result["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
                                           ci.NOT_COMPUTABLE_TAMPERED_RECORD,
-                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED))
+                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED,
+                                          ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED))
 
     def test_isolated_tamper_rule_version(self):
         instrument = self.ratify(make_instrument("INSTR-TAMPER-RV", "ISSUER-X"), ci.LAYER_INSTRUMENT)
@@ -762,7 +770,8 @@ class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
         self.assertNotEqual(result["status"], ci.RESOLVED)
         self.assertIn(result["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
                                           ci.NOT_COMPUTABLE_TAMPERED_RECORD,
-                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED))
+                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED,
+                                          ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED))
 
     def test_isolated_tamper_ratified_at(self):
         instrument = self.ratify(make_instrument("INSTR-TAMPER-RA", "ISSUER-X"), ci.LAYER_INSTRUMENT)
@@ -772,7 +781,8 @@ class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
         self.assertNotEqual(result["status"], ci.RESOLVED)
         self.assertIn(result["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
                                           ci.NOT_COMPUTABLE_TAMPERED_RECORD,
-                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED))
+                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED,
+                                          ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED))
 
     def test_row_first_seen_matching_rejects_content_not_actually_committed(self):
         """Direct, low-level proof of the '_source_path borrowing' fix
@@ -803,6 +813,153 @@ class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
                                 "effective_from", "effective_to", "canonical_instrument_id",
                                 "canonical_issuer_id", "instrument_type"):
             self.assertIn(required_field, payload)
+
+
+# ---------------------------------------------------------------------------
+# Round-4 (rev 5) counter-examples -- CIO direct-reproduction P0: a
+# per-row check alone cannot catch document-level row insertion/deletion/
+# reordering, even when every remaining row is completely real and
+# untouched. The exact reproduction:
+#
+#   Original document (2 conflicting active RATIFIED rows): AMBIGUOUS
+#   After deleting one conflicting row (evidence/hash/git-history/the
+#   remaining row itself all untouched):                    must NOT be
+#                                                             RESOLVED
+# ---------------------------------------------------------------------------
+
+class Defect7DocumentLevelTamperTests(_GitRepoMixin, unittest.TestCase):
+
+    def test_untouched_loaded_document_matches_source(self):
+        instrument = self.ratify(make_instrument("INSTR-CLEAN", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instrument])
+        self.assertTrue(ci.verify_document_matches_source(authority))
+
+    def test_document_without_source_path_is_not_document_tampered(self):
+        """A purely synthetic/injected document (no _source_path at all)
+        is not itself a 'document tamper' finding -- it has no real file
+        to compare against, and falls through to the existing per-row
+        checks, which correctly resolve their own NOT_COMPUTABLE_* status."""
+        row = make_source_alias("SRC", "PENDING", "LISTING-X")
+        authority = full_authority(source_aliases=[row])
+        result = ci.resolve_instrument_identity("SRC", "PENDING", "KOREA", "2026-06-01", authority)
+        self.assertNotEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_row_deletion_instrument_array_blocked(self):
+        """CIO's exact reproduction, instrument array."""
+        instr_1 = self.ratify(make_instrument("INSTR-CONFLICT-DOC", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        instr_2 = self.ratify(make_instrument("INSTR-CONFLICT-DOC", "ISSUER-TWO"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instr_1, instr_2])
+
+        baseline = ci.resolve_instrument_by_id("INSTR-CONFLICT-DOC", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        del authority["instruments"][1]  # remaining row is completely real, untouched
+
+        tampered = ci.resolve_instrument_by_id("INSTR-CONFLICT-DOC", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+        self.assertIsNone(tampered["canonical_instrument_id"])
+        _assert_authority_all_false(self, tampered)
+
+    def test_document_tamper_row_deletion_issuer_array_blocked(self):
+        issuer_1 = self.ratify(make_issuer("ISSUER-CONFLICT-DOC", issuer_name_reference="A"), ci.LAYER_ISSUER)
+        issuer_2 = self.ratify(make_issuer("ISSUER-CONFLICT-DOC", issuer_name_reference="B"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-FOR-ISSUER-CONFLICT", "ISSUER-CONFLICT-DOC"), ci.LAYER_INSTRUMENT)
+        authority = self.build([issuer_1, issuer_2], [instrument])
+
+        baseline = ci.resolve_instrument_by_id("INSTR-FOR-ISSUER-CONFLICT", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        del authority["issuers"][1]
+
+        tampered = ci.resolve_instrument_by_id("INSTR-FOR-ISSUER-CONFLICT", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_row_deletion_listing_array_blocked(self):
+        alias = self.ratify(make_source_alias("SRC", "LISTING-CONFLICT-KEY", "LISTING-CONFLICT-DOC"), ci.LAYER_SOURCE_ALIAS)
+        listing_1 = self.ratify(make_listing("LISTING-CONFLICT-DOC", "INSTR-X", "KOREA"), ci.LAYER_LISTING)
+        listing_2 = self.ratify(make_listing("LISTING-CONFLICT-DOC", "INSTR-Y", "KOREA"), ci.LAYER_LISTING)
+        authority = self.build(listings=[listing_1, listing_2], source_aliases=[alias])
+
+        baseline = ci.resolve_instrument_identity("SRC", "LISTING-CONFLICT-KEY", "KOREA", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        del authority["listings"][1]
+
+        tampered = ci.resolve_instrument_identity("SRC", "LISTING-CONFLICT-KEY", "KOREA", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_row_deletion_source_alias_array_blocked(self):
+        alias_1 = self.ratify(make_source_alias("SRC", "ALIAS-CONFLICT-DOC", "LISTING-A"), ci.LAYER_SOURCE_ALIAS)
+        alias_2 = self.ratify(make_source_alias("SRC", "ALIAS-CONFLICT-DOC", "LISTING-B"), ci.LAYER_SOURCE_ALIAS)
+        authority = self.build(source_aliases=[alias_1, alias_2])
+
+        baseline = ci.resolve_instrument_identity("SRC", "ALIAS-CONFLICT-DOC", "KOREA", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        del authority["source_aliases"][1]
+
+        tampered = ci.resolve_instrument_identity("SRC", "ALIAS-CONFLICT-DOC", "KOREA", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_row_deletion_scope_edge_array_blocked(self):
+        edge_1 = self.ratify(make_scope_edge("CRYPTO", "CRYPTO_MANUAL_ACCOUNT"), ci.LAYER_MARKET_ACCOUNT_SCOPE)
+        edge_2 = self.ratify(make_scope_edge("CRYPTO", "ALPACA_PAPER_ACCOUNT"), ci.LAYER_MARKET_ACCOUNT_SCOPE)
+        authority = self.build_scope(edges=[edge_1, edge_2])
+
+        baseline = ci.resolve_account_scope("CRYPTO", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        del authority["edges"][1]
+
+        tampered = ci.resolve_account_scope("CRYPTO", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_row_insertion_blocked(self):
+        """Adding a row (not just deleting) must also fail-closed."""
+        issuer = self.ratify(make_issuer("ISSUER-INSERT-BASE"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-INSERT-BASE", "ISSUER-INSERT-BASE"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        baseline = ci.resolve_instrument_by_id("INSTR-INSERT-BASE", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.RESOLVED)
+
+        authority["instruments"].append(make_instrument("INSTR-INJECTED", "ISSUER-INSERT-BASE"))  # never committed
+
+        tampered = ci.resolve_instrument_by_id("INSTR-INSERT-BASE", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_row_reordering_blocked(self):
+        """Reordering rows within an array (no add/remove/field edit) must
+        also fail-closed -- canonical_json preserves list order, so a
+        pure swap changes the whole-document hash."""
+        issuer = self.ratify(make_issuer("ISSUER-ORDER-BASE"), ci.LAYER_ISSUER)
+        instr_a = self.ratify(make_instrument("INSTR-ORDER-A", "ISSUER-ORDER-BASE"), ci.LAYER_INSTRUMENT)
+        instr_b = self.ratify(make_instrument("INSTR-ORDER-B", "ISSUER-ORDER-BASE"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instr_a, instr_b])
+        baseline = ci.resolve_instrument_by_id("INSTR-ORDER-A", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.RESOLVED)
+
+        authority["instruments"].reverse()  # pure reorder, zero content change
+
+        tampered = ci.resolve_instrument_by_id("INSTR-ORDER-A", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertEqual(tampered["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_document_tamper_check_applies_at_require_instrument_id_entry_too(self):
+        """The document check runs before identify_layer_of_id inside
+        require_instrument_id, not just inside resolve_instrument_by_id."""
+        instr_1 = self.ratify(make_instrument("INSTR-REQ-CONFLICT", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        instr_2 = self.ratify(make_instrument("INSTR-REQ-CONFLICT", "ISSUER-TWO"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instr_1, instr_2])
+        del authority["instruments"][1]
+        result = ci.require_instrument_id("INSTR-REQ-CONFLICT", authority, "2026-06-01")
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
 
 
 # ---------------------------------------------------------------------------

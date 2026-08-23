@@ -1108,6 +1108,13 @@ APPROVED_TESTS = [
     #   business-identity fields -- an already-expired RATIFIED row whose
     #   in-memory effective_to alone is mutated to null (evidence file,
     #   hash, and git first-seen all untouched) is blocked, never RESOLVED.
+    #   Every public resolver also re-verifies its ENTIRE input document
+    #   (not just the selected row) against the real bytes at
+    #   `_source_path` on every call -- deleting/inserting/reordering rows
+    #   in the array (e.g. removing one of two conflicting AMBIGUOUS rows
+    #   so the remaining, completely real row resolves alone) is blocked
+    #   as IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED before any row is
+    #   even looked at.
     #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
     #   no in-code mapping table, no hardcoded per-ticker/market
     #   special-casing, P8-13 not opened.
