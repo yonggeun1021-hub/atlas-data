@@ -6,15 +6,15 @@
     "rule_evaluation_authorized": false,
     "trading_authorized": false
   },
-  "collected_for_kst_date": "2026-08-21",
+  "collected_for_kst_date": "2026-08-24",
   "contract_version": "sec_filing_content/1",
   "counts": {
     "captured": 0,
     "failed": 0,
     "not_applicable": 5,
-    "skipped": 7
+    "skipped": 6
   },
-  "observed_at_utc": "2026-08-20T22:58:37Z",
+  "observed_at_utc": "2026-08-23T21:46:21Z",
   "records": [
     {
       "action": "NO_CHANGE",
@@ -521,65 +521,10 @@
       "schema_version": "sec_filing_content/1",
       "skip_reason": "already_captured",
       "ticker": "TSM"
-    },
-    {
-      "action": "NO_CHANGE",
-      "atlas_stage": "Ready",
-      "canonical_identity": "hash+url+extracted",
-      "capture_policy": "required",
-      "content_status": "OK",
-      "discovery_status": "OK",
-      "documents": [
-        {
-          "content_bytes": 27884,
-          "content_sha256": "7796ae6130497e3005faf629a417b38632bd99b95fd5398f38ce9c3f6a4bad40",
-          "document_name": "tsm-monthend6kx20260724.htm",
-          "kind": "primary",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000459/tsm-monthend6kx20260724.htm"
-        }
-      ],
-      "evidence_status": "PENDING",
-      "extracted": [],
-      "extractor_version": "sec_filing_content/1",
-      "filing_date": "2026-07-24",
-      "filing_identity": {
-        "accession": "0001046179-26-000459",
-        "cik": "0001046179"
-      },
-      "form": "6-K",
-      "form_classification": "MATERIAL",
-      "identity_evidence": {
-        "filing_index": {
-          "content_bytes": 7052,
-          "content_sha256": "2f92e649ecb3a6320e0f70f4df6e2b783fc919524d7b8252f7bf72059cedde3c",
-          "document_name": "0001046179-26-000459-index.htm",
-          "kind": "identity",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000459/0001046179-26-000459-index.htm"
-        },
-        "full_submission": {
-          "content_bytes": 29028,
-          "content_sha256": "97faaf103bf82dccc532871f935393fbcd30c184579af7237d3cacdb9e74a866",
-          "document_name": "0001046179-26-000459.txt",
-          "kind": "identity",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000459/0001046179-26-000459.txt"
-        }
-      },
-      "interpretation_status": "UNDETERMINED",
-      "operation": "skipped",
-      "publication_status": "OK",
-      "raw_cache_policy": "permanent",
-      "reasons": [
-        "EXTRACTOR_NOT_REGISTERED"
-      ],
-      "retrieved_at_utc": "2026-08-20T21:59:19Z",
-      "rule_impact": "NONE",
-      "schema_version": "sec_filing_content/1",
-      "skip_reason": "already_captured",
-      "ticker": "TSM"
     }
   ],
   "run_status": "OK",
   "schema_version": "sec_filing_content_run/1",
   "source_file": "data/latest_sec.json",
-  "source_sha256": "2846dfd3a8c082dd3a6f04906bbe53040b101742cf269a1981f475453796efcd"
+  "source_sha256": "99fd365bf9d4ccfd7c8498dbd5ea7833e354ca62c8aeb95453a2c0cb1972288f"
 }
