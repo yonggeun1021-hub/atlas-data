@@ -1074,6 +1074,28 @@ APPROVED_TESTS = [
     #   structural order-API-impossibility, sizing-while-unratified,
     #   authority-flip).
     "test/test_portfolio_risk_input.py",
+    # ★ Identity Foundation -- identity/canonical_identity.py, the 4-layer
+    #   (issuer/instrument/listing/source_asset_id) canonical security
+    #   identity resolver + market-account-scope resolver. Ratifies NO real
+    #   identity or scope edge (config/canonical_security_identity.json and
+    #   config/market_account_scope_map.json ship with zero rows/edges --
+    #   verified directly against the real files, not synthetic fixtures).
+    #   Every layer goes through one shared gate requiring: exactly one
+    #   active row, RATIFIED status, business-payload self-consistency,
+    #   AND independent verification against a real external evidence file
+    #   (real bytes hashed, content cross-checked -- not a self-hash).
+    #   first_seen_at is never trusted as self-declared -- it is verified
+    #   against real git commit history or a separate append-only registry,
+    #   and real_usable_from = max(effective_from, ratified_at,
+    #   verified_first_seen_at) blocks backdating. All temporal comparisons
+    #   go through a strict parser -- same-day mixed date/timestamp
+    #   precision is NOT_COMPUTABLE_TIME_PRECISION, never guessed.
+    #   require_instrument_id never short-circuits to RESOLVED on mere
+    #   structural existence -- a PROVISIONAL instrument correctly fails.
+    #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
+    #   no in-code mapping table, no hardcoded per-ticker/market
+    #   special-casing, P8-13 not opened.
+    "test/test_identity_foundation.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
