@@ -1,346 +1,52 @@
 #!/usr/bin/env python3
-"""P8-10 Price Reflection builder — price/volume-only, never fundamentals.
+"""P8-10 Price Reflection builder -- price/volume-only, never fundamentals.
 
-★★★ CIO FINAL INTEGRATION RULING (PR #212) — SCOPE REDUCTION, effective now:
+Builds a **Price Reflection** packet: a structurally separated read on (1)
+price/momentum (`price_state`) and (2) whether the market's price already
+reflects a specific, real expectation or event (`reflection_status`), based
+strictly on price, volume, relative-strength, and valuation-history evidence
+the caller supplies.
 
-  Integrated review (after round 9's two local fixes were confirmed correct)
-  found a further, deeper PIT defect in the Event Evidence Authority engine
-  built across rounds 5-9: the ratification-authority lookup parsed
-  `ratified_at` but never compared it to `decision_at`, so a rule ratified
-  in the FUTURE relative to a historical decision could still be applied
-  retrospectively to that decision -- and the "evidence" backing a
-  ratification record was only ever hash-checked against an arbitrary repo
-  file, never validated as a genuine, structured Rule Authority record. This
-  is the SAME class of provenance failure rounds 5-9 kept finding and
-  fixing at the EVIDENCE layer, now recurring one layer up, at the POLICY/
-  RATIFICATION layer.
+`price_state` -- OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK | UNKNOWN.
+A pure, price/volume-only momentum read, real and fully computed from
+caller-supplied windows/relative-strength/valuation-context.
 
-  The CIO explicitly declined a round-10 local patch. Per the agreed stop
-  rule, an implementation that has needed 9 successive integrity-defect
-  rounds is over-scoped for a single PR. PR #212 has been REDUCED to the
-  proven P8-10 MVP boundary:
+`reflection_status` -- UNDER_REFLECTED | PARTIALLY_REFLECTED |
+FULLY_REFLECTED | UNKNOWN. Structurally, unconditionally `"UNKNOWN"` in
+every packet this module can produce or validate.
 
-  KEPT: real historical price-series linkage, PIT-safe price endpoints;
-  `price_state` structurally separate from `reflection_status`;
-  `PRICE_DATA_MISSING`/`PRICE_STALE`/`REFLECTION_UNCERTAIN_WITH_VALID_
-  PRICE` states; `PROVISIONAL` threshold-basis exposure; Korea
-  market-membership fail-closed behavior; honest BTC/Korea/TSM/Doosan
-  outputs; `decision/alpha_review.py`'s fail-closed `WAIT`-style behavior
-  and `authority=false` posture.
+★ SCOPE: Reflection Evidence Authority deferred (CIO PR #212, 2026-08-23).
+  This module, and a companion `decision/event_evidence.py` (an Event
+  Evidence Authority engine with provenance verification, direction-rule
+  implementation tables, and a ratification-authority registry), went
+  through 9 rounds of CIO review closing successive provenance/ratification
+  defects, culminating in a final integration finding at the policy layer
+  (a rule could be ratified in the future and still applied retroactively
+  to a past decision; ratification "evidence" was never validated as a
+  genuine authority record). The CIO declined further local patching and
+  instead reduced this PR to its proven MVP boundary: `decision/event_
+  evidence.py` was deleted entirely, and this module's `event_reaction`/
+  `reflection_reference` citation-input parameters -- along with every
+  internal function that only existed to verify or threshold-classify
+  them -- were removed, not merely disconnected. A closing-fix pass then
+  locked `validate_packet()` itself to unconditionally reject any packet
+  claiming `reflection_status != "UNKNOWN"` (build_packet()'s own restraint
+  alone was not sufficient -- a tampered/loaded packet could still claim
+  one), and the companion `decision/alpha_review.py` independently
+  enforces the same boundary on its own output.
 
-  REMOVED from this module and this PR entirely: `decision/event_
-  evidence.py` (the whole Event Evidence Authority engine -- provenance
-  verification, direction-rule implementation tables, the ratification-
-  authority registry -- all of it, not patched, DELETED), and this
-  module's OWN `event_reaction`/`reflection_reference` citation-input
-  parameters and every internal function that only existed to verify or
-  classify them (`_validate_event_reaction`, `_validate_reflection_
-  reference`, `_has_reference_point`, `_resolve_reflection_basis`,
-  `_compute_verified_return`, `_reflection_status`). There is no longer
-  ANY code path in this module -- not merely an empty table, an actual
-  ABSENT function -- that could ever compute a `reflection_status` other
-  than the hardcoded literal `"UNKNOWN"`. `price_state` (the pure,
-  price/volume-only momentum read) is completely UNCHANGED and remains
-  fully real and informative; only the reflection-VERDICT machinery is
-  gone. The historical `★ CIO review round 2` through `round 9` sections
-  immediately below are kept as an audit trail of what was built and why
-  it was ultimately removed -- none of the machinery they describe exists
-  in this file or this repo any more.
+  `price_state` is completely unaffected by any of this and remains fully
+  real. `event_reaction`/`reflection_reference` remain present in the
+  output packet SHAPE (no contract bump) as inert, all-`"UNKNOWN"`
+  constants, purely for downstream schema compatibility.
 
-  Deferred, NOT abandoned: a future, SEPARATE, dependent PR must design a
-  Reflection Evidence Authority together with Atlas P5 Rule Authority --
+  **Deferred, not abandoned:** a future, separate, dependent PR must design
+  a Reflection Evidence Authority together with Atlas P5 Rule Authority --
   append-only per-rule canonical records, `ratified_at`/`effective_from`,
   exact-content provenance, explicit decision-time ordering checks, and a
-  structured authority-evidence schema -- and get that DESIGN approved
-  BEFORE any implementation is written, not merely before merge. Tracked
-  on the existing P8-10 WBS row, not a new/duplicate one.
-
-★ CIO review round 2 (`price_reflection/2`) fixed a real defect in round 1:
-  a price rally is PRICE MOMENTUM, not evidence that the market has
-  "reflected" anything. Reflection is a claim about a specific expectation
-  or event — you cannot judge whether price has caught up to something
-  without knowing what that something is. Round 1 conflated the two into one
-  `status` field and let momentum alone (>=8% => "FULLY_REFLECTED") stand in
-  for a reflection judgment with no event/expectation reference at all. This
-  module now keeps the two claims structurally separate:
-
-  * `price_state`      — OVEREXTENDED | STRONG_MOMENTUM | MODERATE | WEAK |
-    UNKNOWN. A pure, price/volume-only read on momentum and positioning.
-    Momentum alone can never produce a reflection verdict — that's the whole
-    point of this field existing.
-  * `reflection_status` — UNDER_REFLECTED | PARTIALLY_REFLECTED |
-    FULLY_REFLECTED | UNKNOWN. Only ever leaves UNKNOWN when a real
-    REFERENCE POINT is present (see `_has_reference_point` below: an
-    `event_reaction.event_date`, a `reflection_reference.reference_event_id`,
-    a `reflection_reference.expectation_as_of`, or a real, caller-supplied
-    P8-09 Expectations Gap status via `reflection_reference.
-    expectations_gap_status`) AND a comparable direction + momentum exist.
-    Abundant, fresh, valid price data with NO reference point still forces
-    `reflection_status=UNKNOWN` / `data_state=
-    REFLECTION_UNCERTAIN_WITH_VALID_PRICE` — momentum is never a substitute
-    for a reference.
-  * `data_state`        — PRICE_DATA_MISSING | PRICE_STALE |
-    REFLECTION_UNCERTAIN_WITH_VALID_PRICE | VALID. Tracks the REFLECTION
-    judgment specifically (mirrors `reflection_status`): `VALID` iff
-    `reflection_status != "UNKNOWN"`. This is now a real, structured
-    top-level field (not string-parsed out of `reasons` — round 1's
-    `reasons[0]=="DATA_STATE:..."` encoding was an accepted stopgap to avoid
-    touching `decision/alpha_review.py`'s own strict field-set check; round 2
-    updates that module directly instead, see its own docstring).
-
-★ CIO review round 3 (`price_reflection/3`) fixed four further defects
-  round 2 left open:
-
-  1. A bare `reflection_reference.expectations_gap_status` STRING (or a bare
-     `event_reaction.direction` with no citation) is not a real reference --
-     a caller can type `"POSITIVE"` without any actual P8-09 evidence behind
-     it. `reflection_reference.expectations_gap_status` is retired; callers
-     now pass `reflection_reference.expectations_gap_packet` (the FULL,
-     already-built P8-09 packet), which this module independently
-     re-validates via `decision/expectations_gap.py`'s own `validate_packet`
-     (hash/tamper/vocab) and cross-checks `subject`/`decision_date` against
-     this packet's own -- see `_validate_reflection_reference`. Likewise
-     `event_reaction.direction` now requires `event_reaction.source_ref` +
-     `event_reaction.source_sha256` (real evidence-lineage citation) before
-     it counts as usable for a reflection verdict.
-  2. `reflection_status` used to compare a generic, "now"-anchored 1-month
-     return against an event that could be dated anywhere up to
-     `decision_date` -- almost entirely PRE-event movement, yet still fed
-     into a reflection judgment. It now requires a real,
-     event/reference-anchored `event_reaction.post_event_return_pct` /
-     `reflection_reference.post_reference_return_pct` (a return the CALLER
-     computed specifically from the reference date forward) -- never the
-     generic `recent_return_windows`/`relative_strength` figures. Without
-     one, `reflection_status` stays `UNKNOWN`.
-  3. `price_state=UNKNOWN` and a non-`UNKNOWN` `reflection_status` can now
-     never coexist -- enforced as a hard structural invariant in both
-     `_classify` (forces `reflection_status` back to `UNKNOWN` if
-     `price_state` came out `UNKNOWN`) and `validate_packet` (raises
-     `OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION` on any
-     packet, however constructed, that violates it).
-  4. `classification_thresholds_approval_status="PROVISIONAL"` now actually
-     gates `decision/alpha_review.py`'s operational output, not just this
-     module's own diagnostic `threshold_basis` field -- see that module's
-     own docstring for the `alpha_review/4` change.
-
-★ CIO review round 4 (`price_reflection/4`) found round 3's "evidence
-  verification" was still only a FORMAT check -- `source_ref`/`source_sha256`
-  were regex-validated but never cross-checked against a real committed
-  file, and `post_event_return_pct`/`post_reference_return_pct` were still
-  trusted caller-supplied numbers with no real price lookup or PIT check
-  behind them. Confirmed reproducible: `source_ref="MADE-UP"`,
-  `source_sha256="a"*64`, `post_event_return_pct="99"` (all fabricated, no
-  real evidence anywhere) produced a confident `FULLY_REFLECTED`. Closed:
-
-  1. `_verify_evidence_citation` resolves `event_reaction.source_ref` to a
-     real file under this repo and independently recomputes its sha256 --
-     `source_ref="MADE-UP"` (or any non-existent path, or a real path with a
-     wrong hash) now fails verification and the event path cannot unlock a
-     reflection verdict (soft-downgrades to `UNKNOWN`, same fail-closed
-     posture as a missing citation).
-  2. `post_event_return_pct`/`post_reference_return_pct` are RETIRED as
-     accepted input. There is no code path anywhere in this module that
-     accepts a return percentage from a caller and uses it. The return is
-     always computed internally by `_compute_verified_return`, from two
-     real, independently looked-up close prices (`decision/price_evidence.
-     py`'s `real_close_on_date`/`latest_real_close_at_or_before`, themselves
-     built on `replay/price_series.py`/`replay/evidence_index.py`, PR #210 --
-     reused, not reimplemented).
-  3. Both endpoint prices must be PIT-live-known as of `decision_date`
-     (`PriceSeries.live_known_asof`/`live_trading_dates_at_or_before`,
-     unchanged PR #210 discipline) -- an evidence row captured after
-     `decision_date` can never be used, matching PR #210's/#211's own
-     anti-lookahead gate.
-  4. The return's START price is always anchored to a real reference
-     timestamp -- `event_reaction.event_date` for the event path, or the
-     validated P8-09 packet's own `decision_date` for the expectations_gap
-     path (echoed as `reflection_reference.expectations_gap_reference_date`)
-     -- never an independently caller-chosen window. The END price is
-     always the latest real, PIT-live close at or before this packet's own
-     `decision_date`.
-  5. Any failure at any step (file doesn't exist, hash mismatch, no real
-     price evidence for the subject, price row not yet PIT-eligible, no
-     genuine forward date gap between start and end) makes the return
-     `None` -- there is no fallback to a caller-supplied number, ever;
-     `reflection_status` simply stays `UNKNOWN`.
-
-★ CIO review round 5 (`price_reflection/5`) found round 4's evidence
-  verification proved a hash-matching FILE existed, never that it was
-  actually evidence OF the claimed event/direction. Confirmed reproducible:
-  `data/2026-08-20/krx.json` (a plain KRX price snapshot, zero event
-  semantics) was cited as "evidence" of a POSITIVE event on `329180.KS` and
-  the hash-only check accepted it -- any tracked file, of any kind, could
-  authorize an arbitrary claimed direction as long as its real hash was
-  supplied. Closed via `decision/event_evidence.py` (see that module's own
-  docstring for full detail):
-
-  1. `event_reaction.source_ref` must now resolve to a real committed file
-     whose PARSED CONTENT is itself a structured, closed-vocabulary Event
-     Evidence Envelope (`event_evidence_envelope/1`) independently
-     asserting the SAME `subject`/`event_at`/`direction`/`source_class` the
-     caller claims -- a generic price/config/any-other file can never
-     satisfy this, since it has no such fields at all.
-  2. The envelope's own `captured_at` must be at-or-before the decision
-     instant being evaluated -- a file merely existing in today's checkout
-     is not proof it was available at some earlier historical
-     `decision_date`; a future-committed envelope fails closed (reusing
-     `replay.lookahead_gate.assert_no_signal_lookahead`).
-  3. `reflection_reference` no longer accepts a caller-supplied, possibly
-     freshly-fabricated-in-memory P8-09 packet dict at all --
-     `expectations_gap_packet_ref`/`expectations_gap_packet_sha256` point
-     at a REAL COMMITTED wrapper record this module reads and validates
-     from disk itself, whose own `captured_at` (independent of anything the
-     embedded packet self-reports) must also be at-or-before the decision
-     instant. A packet built fresh at runtime with a backdated
-     `decision_date` can never satisfy this, because it was never committed
-     at all, let alone before that date.
-  4. `event_reaction.event_at` is now a full UTC timestamp (not just a
-     date), so pre-market/intraday/after-hours events are at least
-     distinguishable in principle -- see `decision/event_evidence.py`'s
-     `select_pre_event_reference_date` for the daily-granularity-only
-     policy this repo's real price evidence can actually support, and why
-     a bare midnight-UTC `event_at` keeps timing `NOT_COMPUTABLE`
-     (`reflection_status` stays `UNKNOWN`) rather than claiming precision
-     this repo's data cannot back.
-  5. A SUPPLIED citation (event or reflection-reference) that turns out to
-     be unresolvable, hash-mismatched, not a valid envelope, semantically
-     mismatched, or not-yet-PIT-available now RAISES `PriceReflectionError`
-     -- it no longer silently downgrades to `UNKNOWN`. Only a citation the
-     caller never supplied at all is genuine absence (still a soft
-     `UNKNOWN`); a citation that was supplied and turns out corrupt is
-     surfaced loudly, distinguishable from genuine no-evidence.
-  6. None of this unlocks anything for any currently real subject: no
-     committed Event Evidence Envelope or P8-09 canonical record exists for
-     BTC, any Korea ticker, TSM, or 034020.KS in this repo, and
-     `decision/pilot_evidence_intake.py` never supplies `event_reaction`/
-     `reflection_reference` for any of them -- every real subject's
-     `reflection_status` remains honestly `UNKNOWN`.
-
-★ CIO review round 6 (`price_reflection/6`) found round 5's Event Evidence
-  Envelope was still not a real production/test boundary, and its
-  `captured_at` was still just a self-declared field the verifier trusted
-  outright. Confirmed: `ALLOWED_CAPTURE_KIND` included `REGRESSION_FIXTURE`,
-  so the committed `test/fixtures/event_evidence/*.json` files could drive
-  a real `build_packet()` call to a non-`UNKNOWN` verdict -- "it's not a
-  current Pilot ticker" was never a real authority boundary (`329180.KS` is
-  a real listed subject). All fixed in `decision/event_evidence.py` (see
-  that module's own docstring for full detail):
-
-  1. `ALLOWED_CAPTURE_KIND` is now `("LIVE_OFFICIAL_CAPTURE",)` only --
-     `REGRESSION_FIXTURE` is not a legal envelope value any more.
-  2. Independently, the two functions this module's real, operational
-     `build_packet()` path calls (`verify_event_reaction_claim`,
-     `verify_expectations_gap_canonical_record`) hard-refuse to resolve any
-     `source_ref`/`packet_ref` located under this repo's `test/` directory
-     at all -- a structural, path-based production/test separation with no
-     parameter anywhere that lets a caller opt out of it.
-  3. `captured_at` is no longer trusted as PIT-availability proof by
-     itself. `decision/event_evidence.py`'s git-history first-availability
-     check (hardened round 7 into `_git_exact_content_first_seen` -- see
-     that module's own docstring) queries this repo's REAL git history
-     (offline, read-only) for a cited file's earliest add-commit, and that
-     -- not the self-declared field -- is the authoritative gate: the real
-     first-availability must be at-or-before the decision instant, AND the
-     self-declared `captured_at` may never precede it. Unavailable git
-     history means
-     `NOT_COMPUTABLE` (rejected), never a fallback to the self-declared
-     value. Applied to both the Event Evidence Envelope and the P8-09
-     canonical record.
-  4. `citation` is now a CLOSED schema requiring and verifying a real
-     primary-source document: `raw_source_ref` + `raw_source_sha256` (a
-     real, independently hash-verified raw artifact), `published_at` (the
-     raw source's own real announcement timestamp, at-or-before the
-     decision instant), `locator` (where in the document the claimed
-     language appears), and `observed_fact` (the actual quoted text) --
-     which must appear VERBATIM inside the raw source file's real decoded
-     content. A bare free-text note is no longer sufficient; `direction`
-     is only ever grounded in this observed, hash-verified quotation, never
-     a bare assertion.
-  5. The output packet now persists `capture_kind`,
-     `first_authoritative_seen_at`, and the full raw-source lineage
-     (`raw_source_ref`/`raw_source_sha256`/`published_at`/`locator`)
-     alongside the verdict -- `validate_packet` re-asserts these as a
-     closed vocabulary and an all-or-nothing field group, independent of
-     how the packet was constructed, so a loaded packet cannot hide how
-     (or whether) the verdict was genuinely obtained.
-
-  Net effect: until a genuine raw primary-source document is committed for
-  a real subject, no envelope can pass ALL of real `LIVE_OFFICIAL_CAPTURE`
-  classification + real closed-schema citation to a real raw artifact +
-  real git-provable first-availability at-or-before the decision instant --
-  so `LIVE_OFFICIAL_CAPTURE` remains genuinely unproducible for every real
-  subject in this repo today, exactly as required. Positive classifier
-  arithmetic (return computation, threshold classification) is still
-  exercised directly against this module's lower-level functions in tests
-  -- "below the production evidence boundary" -- never by smuggling a test
-  fixture through the real `build_packet()` entry point.
-
-★ CIO review round 7 approved the round-6 test-only mock design outright
-  ("normal unit-test design... no change needed there") but found 4 P1
-  defects and 1 P2 remaining in the PRODUCTION provenance implementation
-  itself, entirely inside `decision/event_evidence.py` -- this module's own
-  public interface (`verify_event_reaction_claim`/`verify_expectations_
-  gap_canonical_record`'s signatures and return shapes) is UNCHANGED by
-  round 7. See `decision/event_evidence.py`'s own docstring for full
-  detail: (1) first-availability is now content-addressed (the exact
-  current bytes, not merely the path's original add-commit) so editing an
-  old file today can never inherit its old first-seen date; (2) the raw
-  primary-source document now gets its own independent git-availability
-  gate, not just the envelope wrapper; (3) a declared timestamp AFTER
-  `decision_at` is now rejected everywhere this gate runs, not just a
-  declared timestamp preceding first-availability; (4) `direction` must
-  now be grounded in the raw source's own explicit, structured
-  `observed_direction` field (never a bare co-occurring quotation); (5)
-  `locator` must now name a real, resolvable key in the raw source whose
-  value genuinely contains the quoted text; (6) the git timestamp basis is
-  now committer time, not the freely-backdatable author time.
-
-★ CIO review round 8 approved BOTH the round-6/7 test-only mock design AND
-  round 7's exact-content-addressed direction outright, but stress-testing
-  round 7's time-ordering rule against real-world evidence collection found
-  2 further P1 defects, again entirely inside `decision/event_evidence.py`
-  -- this module's own public interface is UNCHANGED by round 8. (1) round
-  7's ordering was INVERTED for a raw source's `published_at`: real
-  publication always precedes when Atlas commits a copy, so requiring
-  `git_first_seen <= published_at` rejected virtually every legitimate
-  citation. Replaced with three separately-modeled clocks (`source_
-  published_at` <= `captured_at`, then `effective_available_at =
-  max(captured_at, exact_content_first_seen_at) <= decision_at`) applied
-  identically to the envelope, the raw source citation, and the P8-09 EG
-  canonical record. (2) `observed_direction` compared one human-typed
-  assertion to another -- never independent verification. Retired; `direction`
-  must now come from one of exactly two closed, module-owned routes
-  (`direction_origin`: `OFFICIAL_STRUCTURED_FIELD` or `RATIFIED_
-  DERIVATION`), both intentionally EMPTY in this module's real, committed
-  tables today. `_verify_first_availability`'s NOT_COMPUTABLE error is also
-  now explicitly named `..._PROVENANCE_NOT_COMPUTABLE`, distinct from plain
-  missing price data.
-
-★ CIO review round 9 approved round 8's 3-clock time model, exact-content
-  provenance, and the "mocks live only in test files" principle outright,
-  but found 2 narrower authority-boundary defects, again entirely inside
-  `decision/event_evidence.py` -- this module's own public interface is
-  UNCHANGED by round 9. (1) Round 8's `mocked_ratified_direction_tables()`
-  test helper had been added to `decision/event_evidence.py` itself (a
-  production module) -- any operational caller could have imported it and
-  injected rules at runtime, defeating the empty-table lock. Removed
-  entirely from `decision/`, along with the `contextlib` import that only
-  existed for it; the equivalent helper now lives ONLY inside `test/
-  test_price_reflection.py`, patching that file's own loaded module
-  instance. (2) Round 8's comments treated "a developer added a table
-  entry" as itself the ratification act -- conflating IMPLEMENTATION (code
-  that knows how a mapping/derivation would compute a direction) with
-  AUTHORITY (a genuine Rule Authority decision that a rule is approved).
-  Split into three independent tables: `OFFICIAL_DIRECTION_FIELD_
-  IMPLEMENTATIONS`/`DERIVATION_RULE_IMPLEMENTATIONS` (pure code) and
-  `DIRECTION_RULE_AUTHORITY_REGISTRY` (closed-schema, hash-verified
-  authority records keyed by `rule_id`/`rule_version`). Operational lookup
-  now requires a matching, cross-referenced entry in BOTH an
-  implementation table AND the authority registry with `approval_
-  status=RATIFIED` -- an implementation with no ratified authority is
-  unusable, and a ratified authority record with no matching
-  implementation is equally unusable. All three tables remain intentionally
-  EMPTY in this module's real, committed source.
+  structured authority-evidence schema -- with that design approved BEFORE
+  any implementation code is written, not merely before merge. Tracked on
+  the existing P8-10 WBS row.
 
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`
@@ -903,6 +609,23 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         raise PriceReflectionError("OUTPUT_PRICE_STATE_INVALID")
     if reflection_status not in contract["allowed_reflection_status"]:
         raise PriceReflectionError("OUTPUT_REFLECTION_STATUS_INVALID")
+    # ★ CIO closing-fix ruling (2026-08-23, immediately after the scope
+    #   reduction): `build_packet()` being structurally incapable of
+    #   producing anything but "UNKNOWN" is not the same as `validate_
+    #   packet()` refusing anything else. CIO's direct repro: take a real
+    #   packet, edit `reflection_status` to `"PARTIALLY_REFLECTED"` +
+    #   `confidence="LOW"` + `data_state="VALID"`, recompute the hash --
+    #   this function accepted it. `UNDER_REFLECTED`/`PARTIALLY_REFLECTED`/
+    #   `FULLY_REFLECTED` remain legal `allowed_reflection_status` vocabulary
+    #   members (no contract bump, reserved for the deferred future
+    #   Reflection Evidence Authority workstream), but no packet -- however
+    #   constructed, loaded, or re-signed -- may claim one of them THROUGH
+    #   THIS VALIDATOR while that authority does not exist. This is the
+    #   single, unconditional structural lock: it is what actually makes
+    #   "UNKNOWN" the only reachable outcome, not `build_packet()`'s own
+    #   restraint alone.
+    if reflection_status != "UNKNOWN":
+        raise PriceReflectionError("OUTPUT_REFLECTION_STATUS_MUST_BE_UNKNOWN_IN_THIS_REDUCED_SCOPE")
     if confidence not in contract["allowed_confidence"]:
         raise PriceReflectionError("OUTPUT_CONFIDENCE_INVALID")
     if reflection_status == "UNKNOWN" and confidence != "UNKNOWN":

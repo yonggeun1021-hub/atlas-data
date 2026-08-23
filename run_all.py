@@ -797,205 +797,41 @@ APPROVED_TESTS = [
     #   LOW confidence를 강제한다. earnings_reaction event_date는 미래 금지.
     #   ⛔ Rule/Stage/Candidate·Ready·Buy 승격/action/order/Production/trading 없음.
     "test/test_expectations_gap.py",
-    # ★ P8-10 — Forward Alpha MVP Price Reflection builder (price/volume only,
-    #   contract v2). CIO review round 2 핵심 수정: momentum만으로 reflection
-    #   판정을 내리던 결함을 제거하기 위해 price_state(순수 momentum:
-    #   OVEREXTENDED/STRONG_MOMENTUM/MODERATE/WEAK/UNKNOWN)와 reflection_status
-    #   (UNDER/PARTIALLY/FULLY_REFLECTED/UNKNOWN)를 구조적으로 분리했다.
-    #   reflection_status는 실제 reference point(event_reaction.event_date /
-    #   reflection_reference.reference_event_id·expectation_as_of·
-    #   expectations_gap_status)가 있고 momentum과 비교 가능한 방향이 있을 때만
-    #   UNKNOWN을 벗어난다 — 가격이 아무리 급등해도 reference 없이는 절대
-    #   FULLY_REFLECTED가 될 수 없다. data_state(PRICE_DATA_MISSING/PRICE_STALE/
-    #   REFLECTION_UNCERTAIN_WITH_VALID_PRICE/VALID)는 이제 실제 top-level 필드
-    #   (reasons[0] 문자열 인코딩 아님 — round 1 stopgap 폐기). classification_
-    #   thresholds는 미비준(PROVISIONAL)임을 contract·매 packet의 threshold_basis
-    #   에 명시하며 alpha_review.py도 이번 라운드에 함께 갱신(contract v3)했다.
-    #   CIO round 3(contract v3): (1) bare expectations_gap_status 문자열/
-    #   무근거 event_reaction.direction으로 reference point를 열 수 없도록
-    #   reflection_reference.expectations_gap_packet(P8-09 packet 전체 재검증,
-    #   hash·subject·decision_date 교차확인) + event_reaction.source_ref/
-    #   source_sha256(실 증거 lineage) 요구. (2) reflection 판정은 이제
-    #   post_event_return_pct/post_reference_return_pct(사건 이후로 anchoring된
-    #   실 수익률)만 사용 — 일반 1m/vs_market으로 사건 이전 momentum을 reflection
-    #   판정에 쓰지 않는다. (3) price_state=UNKNOWN + reflection_status≠UNKNOWN
-    #   모순을 _classify와 validate_packet 양쪽에서 구조적으로 차단
-    #   (OUTPUT_PRICE_STATE_UNKNOWN_REFLECTION_STATUS_CONTRADICTION). (4)
-    #   threshold_basis!=RATIFIED도 alpha_review.py(contract v4)의 WAIT_FOR_PRICE
-    #   게이트를 독립적으로 발동시켜 미비준 임계값이 긍정적 opportunity_state를
-    #   절대 열 수 없게 한다.
-    #   CIO round 4(contract v4): round 3의 "증거 검증"은 형식(regex) 검증에
-    #   불과했다 — source_ref="MADE-UP"/source_sha256="a"*64/
-    #   post_event_return_pct="99"(전부 조작)가 그대로 FULLY_REFLECTED를
-    #   만들어냈다. (1) _verify_evidence_citation이 source_ref를 저장소 내 실제
-    #   커밋 파일로 resolve하고 그 파일의 실제 바이트에서 sha256을 재계산해
-    #   대조한다(경로 미존재/repo 밖 탈출/해시 불일치는 전부 fail-closed). (2)
-    #   post_event_return_pct/post_reference_return_pct는 입력으로 완전히
-    #   폐지 — 필드를 넘기면 EVENT_REACTION_FIELDS_MISMATCH로 즉시 거부된다.
-    #   (3) 수익률은 이제 항상 decision/price_evidence.py의
-    #   real_close_on_date/latest_real_close_at_or_before(PR #210
-    #   replay/price_series.py 재사용)로 내부 계산되며, 두 endpoint 모두
-    #   decision_date 기준 PIT-live 확인(live_known_asof)을 통과해야 한다. (4)
-    #   수익률의 시작점은 event_reaction.event_date 또는 검증된 P8-09
-    #   packet의 decision_date(expectations_gap_reference_date로 출력)에
-    #   고정 — caller가 임의로 고른 구간이 아니다. (5) 어느 한 단계라도
-    #   실패하면 무조건 UNKNOWN — fallback 없음. 기존 테스트의 "a"*64 가짜
-    #   해시/caller 작성 수익률 fixture는 전부 실제 커밋 파일(data/2026-08-20/
-    #   krx.json)의 실제 재계산 해시와 실제 종가로 교체했다(329180.KS —
-    #   4개 제한 Pilot 티커에는 포함되지 않음).
-    #   CIO round 5(contract v5): round 4의 해시 검증은 "해시가 일치하는 파일이
-    #   존재한다"만 증명했지 "그 파일이 실제로 그 이벤트/방향의 증거다"는
-    #   증명하지 못했다 — round 4 회귀 테스트 자체가 data/2026-08-20/krx.json
-    #   (평범한 시세 스냅샷, event 의미 전무)을 329180.KS의 POSITIVE 이벤트
-    #   "증거"로 인용했고 그대로 통과됐다. decision/event_evidence.py(신규)로
-    #   해결: (1) event_reaction.source_ref는 이제 실제 커밋 파일이면서 그
-    #   내용이 구조화된 Event Evidence Envelope(event_evidence_envelope/1)여야
-    #   하고, 그 envelope 자신의 subject/event_at/direction/source_class가
-    #   caller의 주장과 정확히 일치해야 한다 — 일반 가격/설정 파일은 애초에
-    #   그런 필드가 없어 구조적으로 통과 불가. (2) envelope 자신의 captured_at이
-    #   decision instant 이전이어야 한다(replay.lookahead_gate 재사용) — 오늘
-    #   checkout에 파일이 존재한다는 것만으로는 과거 시점에 실제로 입수
-    #   가능했다는 증거가 아니다. (3) reflection_reference.expectations_gap_
-    #   packet(caller가 즉석에서 만들 수 있는 in-memory dict)을 완전히 폐지 —
-    #   expectations_gap_packet_ref/_sha256로 실제 커밋된 wrapper record를
-    #   모듈이 직접 읽어서 검증하며, 그 record 자신의 captured_at도 decision
-    #   instant 이전이어야 한다(즉석 backdated packet은 애초에 커밋된 적이
-    #   없으므로 구조적으로 통과 불가). (4) event_reaction.event_date를
-    #   event_at(전체 UTC 타임스탬프)로 교체 — 이 저장소의 실 가격 증거는
-    #   전부 일간(daily) 단위뿐이라 미검증 session-boundary 표를 지어내는 대신,
-    #   실제 시각이 있는 event_at은 event 당일보다 하루 이전 실 거래일로
-    #   보수적으로 롤백하고, 00:00:00Z(날짜만 아는 경우의 sentinel)는 타이밍
-    #   NOT_COMPUTABLE로 UNKNOWN을 유지한다. (5) caller가 실제로 citation을
-    #   제공했는데 그것이 깨진 경우(미존재 경로/해시 불일치/envelope 아님/내용
-    #   불일치/PIT 미충족)는 이제 조용히 UNKNOWN으로 낮추지 않고
-    #   PriceReflectionError를 명시적으로 발생시킨다 — citation을 아예 안 준
-    #   경우(진짜 증거 없음)만 여전히 soft UNKNOWN이다. 기존 round-4 회귀의
-    #   "가격 파일을 event 증거로 오용" 테스트는 삭제하지 않고 정확히 그
-    #   오용이 이제 거부됨을 증명하도록 재활용했다. 신규 test/fixtures/
-    #   event_evidence/*.json(전부 subject=329180.KS, capture_kind=
-    #   REGRESSION_FIXTURE, "TEST FIXTURE ONLY" 명시)로 검증 메커니즘의
-    #   긍정/부정 경로를 전부 실증한다 — 실 Pilot/CIO 추적 종목에는 커밋된
-    #   envelope/canonical record가 전혀 없으므로 BTC/한국 4종목/TSM/
-    #   034020.KS는 이번 라운드에도 reflection_status=UNKNOWN 그대로다.
-    #   CIO round 6(contract v6): REGRESSION_FIXTURE는 이제 합법적인
-    #   capture_kind 값이 전혀 아니며(ALLOWED_CAPTURE_KIND=
-    #   ("LIVE_OFFICIAL_CAPTURE",)), 실제 운영 build_packet() 경로가 호출하는
-    #   verify_event_reaction_claim/verify_expectations_gap_canonical_record는
-    #   test/ 아래 위치한 source_ref/packet_ref를 내용과 무관하게 무조건
-    #   거부한다(경로 기반 구조적 production/test 분리 — 우회 파라미터 없음).
-    #   captured_at 자기신고 필드도 더 이상 그대로 신뢰하지 않는다 —
-    #   _git_first_commit_timestamp가 이 저장소의 실제 git 이력(offline,
-    #   read-only)에서 해당 파일을 처음 추가한 커밋 시각을 조회해
-    #   first_authoritative_seen_at으로 사용하며, 이 값이 decision_at 이전이어야
-    #   하고 자기신고 captured_at은 이 값보다 앞설 수 없다. citation도 이제
-    #   raw_source_ref/raw_source_sha256/published_at/locator/observed_fact를
-    #   요구하는 닫힌 스키마이며, observed_fact가 raw 파일 실제 내용에
-    #   verbatim으로 존재하는지까지 검증한다. 이 모든 검증을 실제로 통과하는
-    #   "위장된" LIVE_OFFICIAL_CAPTURE envelope(subject=TESTONLY-EVENT-
-    #   EVIDENCE-000, 실제 커밋된 raw source 인용)조차 test/ 아래 있다는 이유
-    #   하나만으로 여전히 거부됨을 별도 회귀로 증명한다. 양성 classifier
-    #   arithmetic(실제 수익률 계산·threshold 분류)은 이제
-    #   mocked_event_evidence_verification()/mocked_eg_canonical_
-    #   verification() 같은 test-only 컨텍스트매니저로 "production evidence
-    #   boundary 아래"에서만 검증하며, 실제 build_packet() 경로는 절대 건드리지
-    #   않는다.
-    #   CIO round 7: mock 설계 자체는 승인됐으나 production 증거 검증에 4건
-    #   P1 결함이 남아있었다. (1) 경로 단위 first-add만 확인해 오래된 경로의
-    #   내용을 오늘 수정해도 예전 first-seen 날짜를 그대로 물려받을 수 있었다 —
-    #   _git_exact_content_first_seen이 해당 경로의 전체 커밋 이력을 순회하며
-    #   현재 디스크의 바이트와 git이 실제로 기록한 내용이 정확히 일치하는
-    #   "가장 이른" 커밋을 찾도록 교체(내용 수정 시 항상 새 first-seen 발생).
-    #   (2) raw source 원문서 자체에는 git 가용성 검증이 전혀 없었다 —
-    #   _verify_raw_source_citation이 이제 raw source에도 동일한
-    #   _verify_first_availability 게이트를 적용한다(published_at을 자신의
-    #   declared_at으로). (3) captured_at/published_at이 decision_at "이후"로
-    #   선언돼도 통과했다 — _verify_first_availability가 이제
-    #   first_seen<=declared_at<=decision_at 전체 순서를 모든 경로(envelope·
-    #   raw source·EG record)에서 강제한다. (4) 인용된 문구가 raw text 어딘가에
-    #   존재하기만 하면 통과해 "revenue decline" 같은 부정적 문구를
-    #   direction=POSITIVE와 짝지어도 걸러지지 않았다 — 이 저장소에 ratified
-    #   NLP 파생 규칙이 없으므로, raw source가 이제 반드시 구조화된 JSON이며
-    #   자신의 explicit observed_direction 필드(사람이 직접 기록한 authoritative
-    #   source schema 필드)를 갖고, 이 값이 claimed direction과 정확히
-    #   일치해야 한다. (5) locator는 비어있지 않은지만 확인했다 — 이제 raw
-    #   source JSON의 실제 top-level key를 가리켜야 하고 그 값이 observed_fact를
-    #   포함해야 한다. (6) author time(%aI, 커밋 작성자가 임의로 backdate 가능)
-    #   대신 committer time(%cI)을 사용하도록 교체(남은 authority boundary도
-    #   문서화: offline·local-repository 신호일 뿐 제3자 관측 타임스탬프는
-    #   아님). 이 모든 검증을 실제로 통과하는 "위장된" envelope조차 test/ 아래
-    #   있다는 이유만으로 여전히 거부됨을 재확인했다.
-    #   CIO round 8: mock 설계·round 7의 content-addressed first-seen 방향 모두
-    #   그대로 승인됐으나, round 7의 시간순서 규칙을 실제 수집 과정과 대조하니
-    #   P1 결함 2건이 남아있었다. (1) round 7은 raw source의 published_at을
-    #   git 가용성 검증에 그대로 태웠는데, 실제 순서는 "공개 → Atlas 수집
-    #   (captured_at) → git commit"이라 published_at이 commit보다 항상 앞서는
-    #   정상적인 경우조차 거부됐다 — 이제 published_at은 git과 무관하게
-    #   captured_at 이전인지만 확인하고(published_at<=captured_at),
-    #   effective_available_at = max(captured_at, exact_content_first_seen_at)
-    #   가 decision_at 이하인지를 envelope·raw source citation·EG canonical
-    #   record 세 경로 모두에서 동일하게 확인한다(자기신고 captured_at이
-    #   앞당겨져도 effective_available_at은 git 실측값 아래로 내려가지 않음).
-    #   (2) observed_direction은 사람이 입력한 주장을 envelope의 또 다른
-    #   사람 주장과 비교하는 것에 불과했다 — 이제 citation.direction_origin이
-    #   OFFICIAL_STRUCTURED_FIELD(raw source의 official_direction_field를
-    #   이 모듈이 소유한 닫힌 테이블 RATIFIED_OFFICIAL_DIRECTION_FIELDS로
-    #   대조) 또는 RATIFIED_DERIVATION(direction_derivation의 rule_id/
-    #   rule_version을 RATIFIED_DIRECTION_RULES로 대조해 실제 숫자 입력에서
-    #   재계산) 둘 중 하나로만 direction을 인정하며, 두 테이블 모두 이 저장소
-    #   실제 커밋본에서는 비어 있다(mocked_ratified_direction_tables()로만
-    #   테스트에서 일시적으로 채워짐). _verify_first_availability의
-    #   NOT_COMPUTABLE 에러도 이제 PROVENANCE_NOT_COMPUTABLE로 명시해
-    #   가격 데이터 누락과 혼동되지 않게 했다. fetch-depth: 0은
-    #   actions-pass.yml에 이미 설정돼 있다(P10-02/03 PIT Replay round 4 후속,
-    #   replay/asset_identity.py 검증용 — 이 모듈도 같은 게이트를 탄다).
-    #   CIO round 9: 3-clock 시간모델·exact-content provenance·"mock은 test
-    #   파일에만" 원칙은 그대로 승인. 좁은 범위의 authority 경계 결함 2건.
-    #   (1) round 8의 mocked_ratified_direction_tables()가 production 모듈인
-    #   decision/event_evidence.py 안에 들어있었다 — 어떤 운영 호출자든 이를
-    #   import해 런타임에 rule을 주입할 수 있어 빈 테이블 lock을 무력화할 수
-    #   있었다. decision/ 에서 완전히 제거(그것만을 위해 있던 contextlib
-    #   import도 함께 제거)하고, 동등한 헬퍼는 test/test_price_reflection.py
-    #   안에서만 그 파일 자신이 로드한 모듈 인스턴스를 패치하도록 재구현했다.
-    #   production 모듈에 mock/override 이름이 전혀 없음을 dir() 스캔으로
-    #   구조적으로 검증하는 회귀도 추가했다. (2) round 8의 주석은 "테이블에
-    #   entry를 추가하는 것 자체가 ratification"이라고 명시해, Atlas P5 Rule
-    #   Authority 모델(구현 코드 ≠ 정책 승인)과 충돌했다 — 이제 IMPLEMENTATION
-    #   (OFFICIAL_DIRECTION_FIELD_IMPLEMENTATIONS/DERIVATION_RULE_
-    #   IMPLEMENTATIONS, 순수 코드)과 AUTHORITY(DIRECTION_RULE_AUTHORITY_
-    #   REGISTRY, rule_id/rule_version/approval_status/ratified_at/
-    #   evidence_ref/evidence_sha256를 갖춘 닫힌 스키마 authority record)를
-    #   분리했다. operational lookup은 이제 rule_id/rule_version이 두 테이블
-    #   모두에 존재하고 authority record의 approval_status가 정확히
-    #   RATIFIED일 때만 통과하며(evidence_ref/evidence_sha256는 다른 citation과
-    #   동일하게 실제 커밋 파일 대상 hash 검증까지 거쳐 tamper-evident),
-    #   implementation만 있고 ratified authority가 없거나 authority만 있고
-    #   matching implementation이 없으면 둘 다 실패한다. 세 테이블 모두 이
-    #   저장소 실제 커밋본에서는 여전히 비어 있다.
-    #   ★★★ CIO 최종 통합 판정(PR #212, 2026-08-23) — SCOPE REDUCTION.
-    #   round 9 국지 수정 확인 직후 통합 리뷰에서 policy/ratification 레이어에
-    #   같은 종류의 PIT 결함을 재발견(ratified_at을 decision_at과 비교하지
-    #   않아 미래에 비준된 rule이 과거 판정에 소급 적용될 수 있었고,
-    #   ratification evidence가 진짜 구조화된 Rule Authority record인지
-    #   검증하지 않고 임의 파일 hash 일치만으로 통과됨). CIO는 round 10 국지
-    #   패치를 명시적으로 거부하고 대신 decision/event_evidence.py 전체(rounds
-    #   5-9에 걸쳐 구축된 provenance 검증·direction-rule 구현/ratification
-    #   테이블 전부)를 삭제했다 — 패치가 아니라 제거. decision/price_
-    #   reflection.py의 event_reaction/reflection_reference citation 입력
-    #   파라미터와 그것들을 검증·분류하던 내부 함수 전부(_validate_event_
-    #   reaction/_validate_reflection_reference/_has_reference_point/
-    #   _resolve_reflection_basis/_compute_verified_return/_reflection_
-    #   status)도 함께 제거됐다 — reflection_status는 이제 이 저장소에서
-    #   "UNKNOWN" 리터럴 상수 외에는 절대 계산될 수 없다(build_packet에
-    #   event_reaction/reflection_reference 파라미터 자체가 존재하지 않음 —
-    #   Python 자체가 TypeError를 던진다). price_state(순수 momentum 읽기)는
-    #   전혀 변경되지 않았다. 유예(포기 아님): 향후 별도 PR이 Atlas P5 Rule
-    #   Authority와 함께 Reflection Evidence Authority를 설계해야 하며(append-
-    #   only per-rule canonical record, ratified_at/effective_from,
-    #   exact-content provenance, decision-time 순서 검증, 구조화된 authority
-    #   evidence), 그 설계는 코드 작성 이전에 승인받아야 한다. 기존 P8-10 WBS
-    #   row에 기록, 신규/중복 row 생성 없음.
-    #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy 승격/action/order/Production/
-    #      trading 및 live network 없음.
+    # ★ P8-10 — Price Reflection builder (price/volume only, never fundamentals).
+    #   price_state (pure momentum: OVEREXTENDED/STRONG_MOMENTUM/MODERATE/WEAK/
+    #   UNKNOWN) is real and fully computed from caller-supplied evidence.
+    #   reflection_status (UNDER/PARTIALLY/FULLY_REFLECTED/UNKNOWN) is
+    #   structurally, unconditionally "UNKNOWN" in every packet this module can
+    #   build or validate.
+    #   ★★★ CIO final integration ruling (PR #212, 2026-08-23) — SCOPE
+    #   REDUCTION. A PIT defect was found in the policy/ratification layer
+    #   (decision/event_evidence.py, built across CIO rounds 5-9): ratified_at
+    #   was never compared against decision_at, and ratification evidence was
+    #   not verified as a genuine structured Rule Authority record. The CIO
+    #   rejected further local patching and ordered decision/event_evidence.py
+    #   deleted entirely, along with price_reflection.py's event_reaction/
+    #   reflection_reference input parameters and every internal function that
+    #   validated/classified them — reflection_status can now only ever be the
+    #   literal "UNKNOWN". price_state (pure momentum) is unchanged.
+    #   ★★★ CIO closing-fix ruling (same PR, same date). Direct reproduction
+    #   showed the boundary wasn't fully closed: build_packet() being locked
+    #   to UNKNOWN did not mean validate_packet() independently rejected a
+    #   tampered/forged non-UNKNOWN packet. validate_packet() now
+    #   unconditionally rejects any packet whose reflection_status != UNKNOWN
+    #   (regression test uses the CIO's own tampered-packet repro case,
+    #   verbatim). decision/alpha_review.py independently re-enforces the same
+    #   invariant on its own inputs and its own validate_packet() (defense in
+    #   depth — see that module's own note below), and
+    #   WAIT_FOR_RULE_RATIFICATION was retired from alpha_review's vocabulary
+    #   entirely as part of the same closing pass.
+    #   Deferred, not abandoned: a future, separate PR must design a
+    #   Reflection Evidence Authority jointly with Atlas P5 Rule Authority
+    #   (append-only per-rule canonical records, ratified_at/effective_from,
+    #   exact-content provenance, decision-time ordering, structured authority
+    #   evidence) — design approved before any implementation code is
+    #   written. Tracked on the existing P8-10 WBS row, no new/duplicate row.
+    #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy promotion/action/order/
+    #      Production/trading and live network: none.
     "test/test_price_reflection.py",
     # ★ P8-10 — real historical price + Korea KOSPI/KOSDAQ composite benchmark
     #   evidence assembly (decision/price_evidence.py). KRX 시세는
@@ -1018,57 +854,36 @@ APPROVED_TESTS = [
     #   fixture + 실제 커밋된 evidence 양쪽에서 decision_date 이후 캡처된
     #   스냅샷/벤치마크 세션이 절대 새어들지 않음을 검증한다).
     "test/test_price_evidence_lookahead.py",
-    # ★ P8-11 — Anticipatory Alpha Review packet builder (Forward Alpha MVP, PR C stage 1).
-    #   이미 검증된 forward_thesis/expectations_gap/price_reflection 3종 packet을
-    #   재검증(subject·decision_date 일치 포함)해 조합하고, 8개 opportunity_state로
-    #   BLOCKED/REJECTED를 최우선 판정하는 순서 고정 if/elif 분류만 수행한다.
-    #   p5_rule_status/portfolio_status는 caller pass-through(기본 NOT_EVALUATED)이며
-    #   이 모듈이 직접 계산하지 않는다. trade_proposal은 이 MVP에서 항상 null이다.
-    #   CIO round 3(contract v4): WAIT_FOR_PRICE 게이트가 reflection_status==
-    #   UNKNOWN 뿐 아니라 threshold_basis!=RATIFIED에도 독립적으로 발동 — 미비준
-    #   임계값으로는 어떤 긍정적 opportunity_state도 열리지 않는다(price_reflection.
-    #   py의 실제 contract가 하드코딩된 리터럴이라 캐리어가 flip할 수 없으므로,
-    #   테스트는 ratified_thresholds() 컨텍스트매니저로 두 독립 모듈 인스턴스의
-    #   _expected_contract()를 함께 패치해 비준 시뮬레이션한다).
-    #   CIO round 4(contract v5, required item 6): reflection_status==UNKNOWN
-    #   (실 증거 부족)과 threshold_basis!=RATIFIED(정책 미비준)를 더는 같은
-    #   WAIT_FOR_PRICE로 뭉뚱그리지 않는다 — reflection이 실제로 판정 가능하지만
-    #   비준만 안 된 경우는 새 WAIT_FOR_RULE_RATIFICATION으로 분리되며, 두 상태를
-    #   나란히 대조하는 전용 회귀도 추가했다. price_reflection.py 픽스처(pr_under_
-    #   reflected/pr_partially_reflected/pr_fully_reflected/pr_overextended)는
-    #   전부 test_price_reflection.py의 real evidence 헬퍼(329180.KS, 실제
-    #   재계산 해시)를 재사용하도록 교체했다 — "a"*64 가짜 해시/caller 작성 수익률
-    #   fixture는 이 파일에 더 이상 없다.
-    #   CIO round 5(contract v5, price_reflection v5): 위 픽스처들은 이제
-    #   test_price_reflection.py의 신규 Event Evidence Envelope fixture
-    #   (test/fixtures/event_evidence/*.json)를 인용하는
-    #   verified_event_reaction(fixture_name, event_at)을 재사용한다 — 해시만
-    #   맞는 가격 파일이 아니라 실제 event 내용을 구조적으로 담은 envelope다.
-    #   CIO round 6(contract v6, price_reflection v6): REGRESSION_FIXTURE가
-    #   합법 capture_kind 값에서 완전히 제거되고 test/ 아래 citation이 실제
-    #   운영 경로에서 구조적으로 차단되면서, 위 픽스처들은 real build_packet()
-    #   경로를 통해서는 더 이상 확신 있는 verdict를 만들 수 없다. CIO가 명시
-    #   허용한 "production evidence boundary 아래" 원칙에 따라, pr_under_
-    #   reflected/pr_partially_reflected/pr_fully_reflected/pr_overextended
-    #   전부 PR_FIXTURE.mocked_event_evidence_verification() 컨텍스트매니저로
-    #   citation 인증 단계만 test-only로 치환하고(실제 수익률 계산·threshold
-    #   분류는 여전히 real) `PR`(test_alpha_review.py가 재사용하는
-    #   PR_FIXTURE.MODULE과 동일 인스턴스)에만 국한해 패치한다 — 다른 어떤
-    #   caller나 real production 경로도 영향받지 않는다.
-    #   ★★★ CIO 최종 통합 판정(PR #212, 2026-08-23) — SCOPE REDUCTION.
-    #   decision/event_evidence.py 전체 삭제로 인해 real PR.build_packet()은
-    #   이제 reflection_status="UNKNOWN"만 낼 수 있다. pr_under_reflected/
-    #   pr_partially_reflected/pr_fully_reflected/pr_overextended 픽스처는
-    #   mocked_event_evidence_verification() 없이, real momentum 입력으로
-    #   real (non-UNKNOWN) price_state를 얻은 뒤 reflection_status/confidence/
-    #   data_state만 직접 override하고 payload_sha256로 재서명하는 합성
-    #   패턴(_with_synthetic_reflection_status(), test_price_reflection.py
-    #   자신의 resign() 패턴과 동일)으로 교체됐다 — alpha_review.py 자신의
-    #   classify_opportunity_state 로직(price_state/reflection_status/
-    #   threshold_basis만 읽음)에 대한 순수 isolated classifier 테스트이며,
-    #   실제 production 경로가 이런 패킷을 낼 수 있다고 주장하지 않는다.
-    #   ⛔ Rule 생성/PASS-FAIL·Portfolio 판정·Stage·Candidate·Ready·Buy 승격/
-    #      action/order/Production/trading 없음.
+    # ★ P8-11 — Anticipatory Alpha Review packet builder (Forward Alpha MVP, PR
+    #   C stage 1). Re-validates and composes forward_thesis/expectations_gap/
+    #   price_reflection (subject/decision_date cross-checked) into one
+    #   ordered if/elif opportunity_state classification. p5_rule_status/
+    #   portfolio_status are caller pass-through only (default NOT_EVALUATED).
+    #   trade_proposal is always null in this MVP.
+    #   ★★★ CIO closing-fix ruling (PR #212, 2026-08-23), same SCOPE REDUCTION
+    #   as decision/price_reflection.py above. Only 4 of 10 opportunity_state
+    #   vocabulary members remain reachable through a real packet: BLOCKED,
+    #   REJECTED, WAIT_FOR_THESIS_REPAIR, WAIT_FOR_PRICE (unconditional
+    #   fallback once gates 1-2 pass). classify_opportunity_state() no longer
+    #   branches on reflection_status beyond a single non-UNKNOWN check.
+    #   WAIT_FOR_RULE_RATIFICATION (contract v5, formerly reachable when
+    #   reflection was judgeable but thresholds unratified) is retired from
+    #   the vocabulary entirely — the ratification-authority mechanism it
+    #   named never had a genuine implementation. validate_packet() now also
+    #   independently rejects any embedded price_reflection.reflection_status
+    #   != UNKNOWN, closing the bypass where a forged/injected packet could
+    #   reach alpha_review without passing back through price_reflection's
+    #   own lock. EARLY_DISCOVERY/ANTICIPATORY_REVIEW/WAIT_FOR_PULLBACK/
+    #   WAIT_FOR_EVIDENCE/CONFIRMATION_REVIEW/EXPECTATION_EXHAUSTED remain
+    #   legal-but-unreachable vocabulary (no contract bump needed if a future
+    #   Reflection Evidence Authority reintroduces them); WAIT_FOR_RULE_
+    #   RATIFICATION does not (genuine schema change, contract_version bumped
+    #   alpha_review/6). Tests use forged pr dicts fed directly to
+    #   classify_opportunity_state()/validate_packet() to prove the two
+    #   independent locks — never claiming the real pipeline can build such
+    #   packets.
+    #   ⛔ Rule generation/PASS-FAIL, Portfolio decisions, Stage/Candidate/
+    #      Ready/Buy promotion, action/order/Production/trading: none.
     "test/test_alpha_review.py",
     # ★ P10-07 — P8-11 Alpha Review append-only zero-capital Shadow ledger.
     #   investment_review_shadow_ledger(P10-06)와 동일한 hash-chain 패턴으로
@@ -1076,12 +891,13 @@ APPROVED_TESTS = [
     #   REJECT로 exhaustive 매핑해 기록한다. capital은 항상 정수 0, human_approval_
     #   required는 항상 true이며 override 가능한 parameter가 존재하지 않는다.
     #   catalyst_date/hypothetical_return 등 회고평가 필드는 이번 단계에 없다.
-    #   CIO round 4: alpha_review.py의 새 WAIT_FOR_RULE_RATIFICATION 상태는
-    #   프로덕션 파일인 이 모듈(shadow/alpha_shadow_ledger.py, 이번 PR에서 수정
-    #   금지)의 action 매핑에는 의도적으로 추가하지 않았다 — 매핑에 없는
-    #   opportunity_state는 OPPORTUNITY_STATE_UNMAPPED로 loud하게 fail-closed
-    #   된다는 것을 별도 회귀로 확인한다(향후 이 파일 수정이 허용되는 PR에서
-    #   정식으로 매핑을 추가할 별도 작업).
+    #   CIO closing-fix (PR #212, 2026-08-23): alpha_review.py의 opportunity_
+    #   state 중 WAIT_FOR_RULE_RATIFICATION은 완전히 퇴역했고(vocabulary에서
+    #   제거), 나머지 6개 상태(EARLY_DISCOVERY 등)는 legal-but-unreachable로
+    #   남아 있다. 이 프로덕션 파일(shadow/alpha_shadow_ledger.py, 이번 PR에서
+    #   수정 금지)의 action 매핑 테이블은 원래부터 10개 상태 전부를 exhaustive
+    #   하게 다뤄서 변경이 필요 없었다 — 매핑에 없는 opportunity_state는
+    #   OPPORTUNITY_STATE_UNMAPPED로 loud하게 fail-closed됨을 별도 회귀로 확인.
     #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
     "test/test_alpha_shadow_ledger.py",
     # ★ P8-11 stage 2 — real Pilot evidence intake (TSM/298040.KS/267260.KS/
@@ -1109,40 +925,22 @@ APPROVED_TESTS = [
     #   반드시 BLOCKED인지 확인한다.
     #   ⛔ Rule/Stage/action/order/Production/trading 권한 없음.
     "test/test_pilot_comparison.py",
-    # ★ P8-11 CIO Gate Hardening — real Pilot fixture-pinning (contract_version
-    #   alpha_review/4, alpha_shadow_ledger/2). run_all_pilots()의 실제 4개
-    #   subject 결과를 하드닝 이후 값으로 고정 검증한다: TSM/298040.KS는
-    #   WAIT_FOR_PRICE(reflection_status=UNKNOWN 차단 — 298040.KS도 real
-    #   reference point가 없어 round 2 당시의 WAIT_FOR_EVIDENCE에서 정직하게
-    #   되돌아왔다), 267260.KS는
+    # ★ P8-11 CIO Gate Hardening — real Pilot fixture-pinning. run_all_pilots()의
+    #   실제 4개 subject 결과를 하드닝 이후 값으로 고정 검증한다: TSM/298040.KS는
+    #   WAIT_FOR_PRICE(reflection_status=UNKNOWN 차단), 267260.KS는
     #   REJECTED(expectations_gap.status=NEGATIVE + earnings_conversion.
     #   status=UNKNOWN), 034020.KS는 그대로 BLOCKED. 4개 subject 전부
     #   shadow_proposal.action != SHADOW_ENTRY_REVIEW라는 blanket assertion과
     #   trade_proposal=None/capital=0/human_approval_required=True도 확인한다.
-    #   gate 4(narrative-only-core-evidence -> WAIT_FOR_EVIDENCE)가 실제
-    #   forward_thesis/expectations_gap/price_reflection.build_packet()로
-    #   조립된 synthetic fixture에서 도달 가능함도 별도로 증명한다. CIO round 4:
-    #   gate 4 synthetic fixture의 event_reaction도 test_price_reflection.py의
-    #   real evidence 헬퍼(329180.KS, 실제 재계산 해시)로 교체했다 — 4개 real
-    #   Pilot의 opportunity_state/action 고정값(EXPECTED 테이블)은 round 4
-    #   이후에도 변경 없이 그대로다(전부 reflection_status=UNKNOWN이라
-    #   WAIT_FOR_RULE_RATIFICATION이 아닌 기존 WAIT_FOR_PRICE/REJECTED/BLOCKED를
-    #   유지). CIO round 5: gate 4 fixture는 이제 test_price_reflection.py의
-    #   Event Evidence Envelope fixture를 인용한다 — 4개 real Pilot 고정값은
-    #   이번 라운드에도 byte-identical(전부 event_reaction/reflection_reference
-    #   미제공이라 영향 없음). CIO round 6: gate 4 fixture는 이 파일이 독립적으로
-    #   로드한 PRICE_REFLECTION 인스턴스(PR_FIXTURE.MODULE과는 별개의 네 번째
-    #   모듈 로드)의 EVENT_EVIDENCE.verify_event_reaction_claim을 이 테스트
-    #   호출 범위에서만 test-only로 패치해 citation 인증 단계를 우회한다 —
-    #   4개 real Pilot 고정값은 이번 라운드에도 그대로(전부 reflection_status=
-    #   UNKNOWN 미변경).
-    #   ★★★ CIO 최종 통합 판정(PR #212, 2026-08-23) — SCOPE REDUCTION.
-    #   decision/event_evidence.py 삭제로 gate 4 synthetic fixture도
-    #   test_alpha_review.py와 동일한 합성(real momentum → real price_state →
-    #   reflection_status/confidence/data_state 직접 override 후 재서명)
-    #   패턴으로 교체했다. RealPilotFixturePinningTests(4개 real Pilot 고정값)는
-    #   event evidence와 전혀 무관하게 항상 real pilot_evidence_intake.py
-    #   경로만 사용했으므로 완전히 그대로 유지된다.
+    #   ★★★ CIO closing-fix ruling (PR #212, 2026-08-23), same SCOPE REDUCTION
+    #   as decision/price_reflection.py above. This file used to also carry a
+    #   synthetic-tampered-packet test proving alpha_review.py's narrative-
+    #   only-core-evidence gate (WAIT_FOR_EVIDENCE) was reachable — that
+    #   underlying classification logic no longer exists (see
+    #   test_alpha_review.py's own ClosingFixReducedScopeTests for the current
+    #   equivalent), so that class was removed. RealPilotFixturePinningTests
+    #   below is completely unaffected — it never depended on any synthetic/
+    #   tampered packet, only the real pilot_evidence_intake.py pipeline.
     #   ⛔ evidence 획득/Price Reflection 자체 로직/P5 Rule Authority/Stage·
     #      Action·Order·Production·trading 권한 변경 없음 — 전부 이전과 동일하게
     #      false다.

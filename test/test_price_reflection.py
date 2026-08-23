@@ -280,6 +280,37 @@ class PriceReflectionTests(unittest.TestCase):
         ):
             MODULE.validate_packet(tampered2, CONTRACT)
 
+    def test_reduction_validate_packet_rejects_the_exact_cio_repro_case(self):
+        """CIO closing-fix ruling (2026-08-23): `build_packet()` being
+        structurally incapable of producing anything but `reflection_status
+        ="UNKNOWN"` is NOT the same as `validate_packet()` refusing anything
+        else -- the CIO's own direct repro: take a real packet, edit
+        `reflection_status` to `"PARTIALLY_REFLECTED"` + `confidence="LOW"`
+        + `data_state="VALID"`, recompute the hash. This is that EXACT case,
+        used directly (not a different synthetic one) -- `validate_packet`
+        must now reject it. `_with_synthetic_reflection_status()`-style
+        fixtures in test_alpha_review.py/test_pilot_gate_hardening_
+        fixtures.py that used to rely on this exact tamper pattern to reach
+        `alpha_review.py`'s positive states are retired for the same
+        reason -- see those files' own docstrings."""
+        packet = MODULE.build_packet(**base_kwargs(
+            price_as_of="2026-08-21T19:59:00Z",
+            recent_return_windows={"1m": "5"},
+            relative_strength={"vs_market": "3"},
+        ))
+        self.assertEqual(packet["price_reflection"]["reflection_status"], "UNKNOWN")  # sanity
+        tampered = copy.deepcopy(packet)
+        tampered["price_reflection"]["reflection_status"] = "PARTIALLY_REFLECTED"
+        tampered["price_reflection"]["confidence"] = "LOW"
+        tampered["price_reflection"]["data_state"] = "VALID"
+        tampered["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.PriceReflectionError, "OUTPUT_REFLECTION_STATUS_MUST_BE_UNKNOWN_IN_THIS_REDUCED_SCOPE"
+        ):
+            MODULE.validate_packet(tampered, CONTRACT)
+
     def test_reduction_all_real_subjects_still_unknown_via_real_price_evidence_assembly(self):
         """Required confirmation: BTC, all 4 real Pilot subjects
         (TSM/298040.KS/267260.KS/034020.KS), and the 4 restricted Korea
