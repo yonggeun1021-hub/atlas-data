@@ -495,6 +495,97 @@ class CIORound2PitReproduction04ManualInputReachedFullCanonicalComputable(unitte
         PS.validate_snapshot(packet)  # also survives independent re-derivation
 
 
+class CIORound3ValidatorPitBypassRejected(unittest.TestCase):
+    """★ CIO round 3: the BUILDER already rejected future timestamps, but
+    `validate_snapshot()` never called `_validate_snapshot_timing()` at
+    all and trusted each account fact's own embedded diagnostic fields
+    instead of recomputing them -- so a post-hoc tamper + a freshly
+    regenerated hash slipped through. Each of the 6 CIO-specified
+    counter-examples below tampers a real, validly-built packet, then
+    regenerates `packet_sha256` over the tampered packet (so the hash
+    check alone would pass) -- every one must STILL be rejected."""
+
+    def _valid_packet_and_fact(self, decision_at=T0):
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=decision_at)
+        packet = _build_packet([fact], captured_at=T0, available_at=T0, decision_at=decision_at)
+        PS.validate_snapshot(packet)  # sanity: the untampered packet is valid
+        return packet
+
+    def _rehash(self, packet):
+        packet["packet_sha256"] = PS.payload_sha256({k: v for k, v in packet.items() if k != "packet_sha256"})
+        return packet
+
+    def test_1_future_top_level_available_at_rejected(self):
+        packet = self._valid_packet_and_fact()
+        tampered = copy.deepcopy(packet)
+        tampered["available_at"] = T_LATER
+        self._rehash(tampered)
+        with self.assertRaises(PS.PortfolioSnapshotError):
+            PS.validate_snapshot(tampered)
+
+    def test_2_future_account_captured_at_rejected(self):
+        packet = self._valid_packet_and_fact()
+        tampered = copy.deepcopy(packet)
+        tampered["portfolio_facts"]["accounts"][0]["captured_at"] = T_LATER
+        self._rehash(tampered)
+        with self.assertRaises(PS.PortfolioSnapshotError):
+            PS.validate_snapshot(tampered)
+
+    def test_3_future_fx_as_of_rejected(self):
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
+        fx = PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": T0, "source": "MANUAL"}}, T0)
+        packet = _build_packet([fact], fx_rates=fx, captured_at=T0, available_at=T0, decision_at=T0)
+        PS.validate_snapshot(packet)
+        tampered = copy.deepcopy(packet)
+        tampered["portfolio_facts"]["fx_rates"]["KRW/USD"]["as_of"] = T_LATER
+        self._rehash(tampered)
+        with self.assertRaises(PS.PortfolioSnapshotError):
+            PS.validate_snapshot(tampered)
+
+    def test_4_tampered_account_staleness_status_rejected(self):
+        # Genuinely STALE (captured T0, decision far later) -- tamper the
+        # self-reported staleness_status to FRESH to hide it.
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T_MUCH_LATER)
+        self.assertEqual(fact["staleness_status"], "STALE")
+        packet = _build_packet([fact], captured_at=T0, available_at=T0, decision_at=T_MUCH_LATER)
+        tampered = copy.deepcopy(packet)
+        tampered["portfolio_facts"]["accounts"][0]["staleness_status"] = "FRESH"
+        self._rehash(tampered)
+        with self.assertRaises(PS.PortfolioSnapshotError):
+            PS.validate_snapshot(tampered)
+
+    def test_5_tampered_position_count_rejected(self):
+        packet = self._valid_packet_and_fact()
+        tampered = copy.deepcopy(packet)
+        tampered["portfolio_facts"]["accounts"][0]["position_count"] = 5
+        self._rehash(tampered)
+        with self.assertRaises(PS.PortfolioSnapshotError):
+            PS.validate_snapshot(tampered)
+
+    def test_6_tampered_nav_reconciliation_result_rejected(self):
+        packet = self._valid_packet_and_fact()
+        tampered = copy.deepcopy(packet)
+        tampered["portfolio_facts"]["accounts"][0]["nav_reconciliation_status"] = "MISMATCH_FLAGGED"
+        self._rehash(tampered)
+        with self.assertRaises(PS.PortfolioSnapshotError):
+            PS.validate_snapshot(tampered)
+
+    def test_untampered_packets_still_pass(self):
+        """Sanity: none of the new checks false-positive on real, honest
+        packets (single account, multi-currency w/ fx, stale)."""
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
+        PS.validate_snapshot(_build_packet([fact]))
+        krw_fact = PS.build_manual_account_fact(
+            market="KOREA", currency="KRW", cash=1_000_000.0,
+            positions=[{"symbol": "005930", "qty": "1", "market_value": "80000.0"}],
+            captured_at=T0, decision_at=T0,
+        )
+        fx = PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": T0, "source": "MANUAL"}}, T0)
+        PS.validate_snapshot(_build_packet([fact, krw_fact], fx_rates=fx))
+        stale_fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T_MUCH_LATER)
+        PS.validate_snapshot(_build_packet([stale_fact], decision_at=T_MUCH_LATER))
+
+
 class PublicRepoNeverReceivesRealFinancialData(unittest.TestCase):
     """★ CIO round 2 P0 (the most serious defect found): this repo
     (`yonggeun1021-hub/atlas-data`) is PUBLIC. Real NAV/cash/positions/P&L/

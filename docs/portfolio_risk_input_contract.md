@@ -187,7 +187,50 @@ Exit-gate tracking item renamed from "awaiting `workflow_dispatch`
 registration" to **`PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE`** --
 the blocker is no longer a GitHub mechanics issue, it's a real
 data-exposure boundary that must be designed (a private evidence store)
-before any live persistence happens. **No live Alpaca Paper capture or
+before any live persistence happens.
+
+## CIO review round 3 (2026-08-23) -- 2 validator-side PIT bypasses closed
+
+Round 2 locked the BUILDER's PIT checks down, but `validate_snapshot()`
+itself had two gaps of the same shape as round 2's original "hash-only"
+defect, one level deeper: it never called `_validate_snapshot_timing()`
+at all, and it trusted each account fact's own embedded
+`staleness_status`/`nav_reconciliation_status`/
+`nav_reconciliation_mismatch_pct`/`position_count` instead of recomputing
+them -- so `_compute_risk_capacity_inputs()`'s "independent" re-derivation
+just re-read the same tampered values and trivially agreed with them.
+
+Fixed via one shared, single-implementation pattern reused at both build
+time and validate time (so there is no second copy of this logic to drift
+out of sync again):
+- `_derive_account_fact_diagnostics()` -- the ONE place
+  `position_count`/`nav_reconciliation_status`/
+  `nav_reconciliation_mismatch_pct`/`staleness_status` are computed from a
+  fact's raw `equity`/`cash`/`positions`/`captured_at`. Used by
+  `build_alpaca_paper_account_fact()`, `build_manual_account_fact()`, AND
+  `validate_snapshot()` (to recompute and compare against the fact's
+  claimed values).
+- `_derive_fx_staleness()` -- same pattern for FX `staleness_status`,
+  used by `assemble_fx_rates()` and `validate_snapshot()`.
+- `validate_snapshot()` now calls `_validate_snapshot_timing()` on the
+  packet's own timestamps FIRST, before anything else, then checks every
+  account fact's `captured_at <= available_at`, then every FX rate's
+  `as_of <= decision_at` (via `_derive_fx_staleness`), then re-derives and
+  compares every fact's diagnostics, then every FX rate's `rate`/
+  `staleness_status`, then (as before) `risk_capacity_inputs`, then the
+  final hash.
+
+All 6 CIO-specified tamper-and-rehash counter-examples are locked as
+permanent regressions in `CIORound3ValidatorPitBypassRejected`: future
+top-level `available_at`, future account `captured_at`, future FX `as_of`,
+a tampered account `staleness_status`, a tampered `position_count`, and a
+tampered NAV-reconciliation result -- each tampers a validly-built packet
+AND regenerates a fresh, internally-consistent `packet_sha256`, and each
+is still rejected. The public-safe redaction/read-only workflow structure
+(`capture.py`, `.github/workflows/portfolio-risk-input.yml`) was not
+touched in this round -- confirmed correct by CIO round 3 review.
+
+**No live Alpaca Paper capture or
 scheduled workflow run has been executed at any point during this fix,**
 per explicit CIO instruction.
 

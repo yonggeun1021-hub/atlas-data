@@ -219,6 +219,36 @@ def _staleness_status(captured_at: str, decision_at: str) -> str:
     return "STALE" if age_hours > STALENESS_MAX_AGE_HOURS else "FRESH"
 
 
+def _derive_account_fact_diagnostics(equity: float, cash: float, positions: list[dict],
+                                      captured_at: str, decision_at: str) -> dict:
+    """★ CIO round 3 fix: recomputes `position_count` /
+    `nav_reconciliation_status` / `nav_reconciliation_mismatch_pct` /
+    `staleness_status` purely from a fact's own RAW fields (`equity`,
+    `cash`, `positions`, `captured_at`) against `decision_at` -- NEVER
+    trusts a fact's own self-reported values for these. This is the ONE
+    implementation used by BOTH `build_alpaca_paper_account_fact()` /
+    `build_manual_account_fact()` (to build) AND `validate_snapshot()` (to
+    independently re-derive and compare) -- there is no second
+    implementation that could drift out of sync with the first, which is
+    exactly how round 2's "validator only re-hashed" class of bug
+    happened again at the per-fact level (round 3 CIO finding:
+    `validate_snapshot()` trusted each fact's embedded `staleness_status`
+    instead of recomputing it, so a post-hoc-tampered `staleness_status`/
+    `position_count`/`nav_reconciliation_status` + a freshly regenerated
+    hash passed validation)."""
+    position_market_value_sum = sum(p["market_value"] for p in positions)
+    computed_total = cash + position_market_value_sum
+    denom = max(abs(equity), 1e-9)
+    mismatch_pct = abs(equity - computed_total) / denom * 100.0
+    nav_reconciliation_status = "OK" if mismatch_pct <= NAV_RECONCILIATION_TOLERANCE_PCT else "MISMATCH_FLAGGED"
+    return {
+        "position_count": len(positions),
+        "nav_reconciliation_status": nav_reconciliation_status,
+        "nav_reconciliation_mismatch_pct": mismatch_pct,
+        "staleness_status": _staleness_status(captured_at, decision_at),
+    }
+
+
 def _assert_authority_all_false(authority: dict) -> None:
     if authority != AUTHORITY_ALL_FALSE:
         raise PortfolioSnapshotError("AUTHORITY_BLOCK_TAMPERED_OR_NOT_ALL_FALSE")
@@ -285,12 +315,10 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
 
     positions = _dedupe_positions(raw_positions)
     normalized_positions = []
-    position_market_value_sum = 0.0
     for row in positions:
         market_value = _require_finite_number(row.get("market_value"), f"position.market_value[{row.get('symbol')}]")
         qty = _require_finite_number(row.get("qty"), f"position.qty[{row.get('symbol')}]")
         unrealized_pl = _require_finite_number(row.get("unrealized_pl", 0.0), f"position.unrealized_pl[{row.get('symbol')}]")
-        position_market_value_sum += market_value
         normalized_positions.append({
             "symbol": row["symbol"],
             "quantity": qty,
@@ -299,12 +327,7 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
             "currency": account["currency"],
         })
 
-    computed_total = cash + position_market_value_sum
-    denom = max(abs(equity), 1e-9)
-    mismatch_pct = abs(equity - computed_total) / denom * 100.0
-    nav_reconciliation_status = "OK" if mismatch_pct <= NAV_RECONCILIATION_TOLERANCE_PCT else "MISMATCH_FLAGGED"
-
-    staleness_status = _staleness_status(captured_at, decision_at)
+    diagnostics = _derive_account_fact_diagnostics(equity, cash, normalized_positions, captured_at, decision_at)
 
     return {
         "account_id_hash": _hash_identifier(str(account["account_number"])),  # ★ never the raw account number
@@ -315,11 +338,11 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
         "cash": cash,
         "buying_power": buying_power,
         "positions": normalized_positions,
-        "position_count": len(normalized_positions),
+        "position_count": diagnostics["position_count"],
         "order_eligibility_status": _order_eligibility_status(account),
-        "nav_reconciliation_status": nav_reconciliation_status,
-        "nav_reconciliation_mismatch_pct": mismatch_pct,
-        "staleness_status": staleness_status,
+        "nav_reconciliation_status": diagnostics["nav_reconciliation_status"],
+        "nav_reconciliation_mismatch_pct": diagnostics["nav_reconciliation_mismatch_pct"],
+        "staleness_status": diagnostics["staleness_status"],
         "captured_at": captured_at,
     }
 
@@ -357,8 +380,8 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
             "currency": currency,
         })
 
-    equity = cash_f + market_value_sum
-    staleness_status = _staleness_status(captured_at, decision_at)
+    equity = cash_f + market_value_sum  # ★ derived FROM cash+positions here, so this always reconciles exactly
+    diagnostics = _derive_account_fact_diagnostics(equity, cash_f, position_rows, captured_at, decision_at)
 
     return {
         "account_id_hash": _hash_identifier(f"MANUAL:{market}"),
@@ -369,13 +392,32 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
         "cash": cash_f,
         "buying_power": cash_f,  # manual entries: no margin concept, buying_power == cash
         "positions": position_rows,
-        "position_count": len(position_rows),
+        "position_count": diagnostics["position_count"],
         "order_eligibility_status": "NOT_APPLICABLE_MANUAL_SNAPSHOT",
-        "nav_reconciliation_status": "OK",  # equity is derived FROM cash+positions here, always reconciles
-        "nav_reconciliation_mismatch_pct": 0.0,
-        "staleness_status": staleness_status,
+        "nav_reconciliation_status": diagnostics["nav_reconciliation_status"],
+        "nav_reconciliation_mismatch_pct": diagnostics["nav_reconciliation_mismatch_pct"],
+        "staleness_status": diagnostics["staleness_status"],
         "captured_at": captured_at,
     }
+
+
+def _validate_fx_rate_value(rate: float, pair: str) -> float:
+    if rate <= 0:
+        raise PortfolioSnapshotError(f"NON_POSITIVE_FX_RATE:{pair}={rate}")
+    return rate
+
+
+def _derive_fx_staleness(as_of: str | None, decision_at: str, *, pair: str) -> str:
+    """★ CIO round 3 fix: the ONE implementation of FX staleness derivation,
+    used by BOTH `assemble_fx_rates()` (to build) AND `validate_snapshot()`
+    (to independently re-derive and compare against a claimed value) --
+    same reasoning as `_derive_account_fact_diagnostics()`: a stored
+    `staleness_status` must never be trusted at validate time, only
+    re-derived from `as_of`."""
+    if not as_of:
+        return "STALE"
+    _enforce_pit_timing(label=f"fx[{pair}].as_of", event_at=as_of, decision_at=decision_at)
+    return _staleness_status(as_of, decision_at)
 
 
 def assemble_fx_rates(fx_inputs: dict[str, dict] | None, decision_at: str) -> dict:
@@ -389,15 +431,9 @@ def assemble_fx_rates(fx_inputs: dict[str, dict] | None, decision_at: str) -> di
     fx_inputs = fx_inputs or {}
     out = {}
     for pair, entry in sorted(fx_inputs.items()):
-        rate = _require_finite_number(entry.get("rate"), f"fx[{pair}].rate")
-        if rate <= 0:
-            raise PortfolioSnapshotError(f"NON_POSITIVE_FX_RATE:{pair}={rate}")
+        rate = _validate_fx_rate_value(_require_finite_number(entry.get("rate"), f"fx[{pair}].rate"), pair)
         as_of = entry.get("as_of")
-        if as_of:
-            _enforce_pit_timing(label=f"fx[{pair}].as_of", event_at=as_of, decision_at=decision_at)
-            stale = _staleness_status(as_of, decision_at)
-        else:
-            stale = "STALE"
+        stale = _derive_fx_staleness(as_of, decision_at, pair=pair)
         out[pair] = {"rate": rate, "as_of": as_of, "source": entry.get("source", "UNKNOWN"), "staleness_status": stale}
     return out
 
@@ -633,22 +669,89 @@ def assemble_snapshot(*, account_facts: list[dict], fx_rates: dict,
 
 
 def validate_snapshot(packet: dict) -> dict:
-    """Independent re-validation of a round-tripped packet -- independently
-    RE-DERIVES `risk_capacity_inputs` from `portfolio_facts` via the exact
-    same function used to build it (`_compute_risk_capacity_inputs()`) and
-    compares field-by-field against the packet's claimed values. A
-    re-signed tamper (value changed AND hash regenerated to match) is
-    caught here regardless of hash correctness. The final hash check still
-    runs too (cheap, and catches tampering anywhere else in the packet,
-    e.g. `captured_at`/`available_at`/`decision_at`)."""
+    """Independent re-validation of a round-tripped packet.
+
+    ★ CIO round 3 fix: a round-2-era gap let a tampered-then-rehashed
+    packet through two ways: (1) `validate_snapshot()` never called
+    `_validate_snapshot_timing()` at all, so a tampered `available_at` (or
+    an account fact's tampered `captured_at`) past `decision_at` was never
+    caught here even though the BUILDER already rejects it; (2) this
+    function trusted each account fact's own embedded `staleness_status`
+    (and `nav_reconciliation_status`/`nav_reconciliation_mismatch_pct`/
+    `position_count`) instead of recomputing them, so
+    `_compute_risk_capacity_inputs()`'s re-derivation just re-read the same
+    (already tampered) values and trivially matched -- the same class of
+    "build-path lockdown and validate-path lockdown drifted apart" bug as
+    round 2's hash-only check, one level deeper.
+
+    Fixed by making this the FIRST thing that runs, before anything else:
+      1. `_validate_snapshot_timing()` on the packet's own
+         captured_at/available_at/decision_at.
+      2. Each account fact's `captured_at <= available_at` (an
+         already-captured fact cannot back a snapshot that became
+         "available" before it was captured).
+      3. Each FX rate's `as_of <= decision_at` (`_derive_fx_staleness()`
+         enforces this as a side effect).
+    Then, before the final hash check: every account fact's
+    `position_count`/`nav_reconciliation_status`/
+    `nav_reconciliation_mismatch_pct`/`staleness_status` is independently
+    RE-DERIVED from that fact's own raw fields via
+    `_derive_account_fact_diagnostics()` (the SAME function the builders
+    use -- there is no second implementation to drift) and compared
+    field-by-field against the fact's claimed values; every FX rate's
+    `rate` (finite, positive) and `staleness_status` is independently
+    re-verified the same way via `_derive_fx_staleness()`. Only after all
+    of that does the existing `risk_capacity_inputs` re-derivation and the
+    final hash check run. None of this is bypassable by regenerating a
+    fresh, internally-consistent hash over a tampered packet -- every
+    check here compares against independently-recomputed values, not
+    against anything the packet itself claims."""
+    captured_at = packet.get("captured_at")
+    available_at = packet.get("available_at")
+    decision_at = packet.get("decision_at")
+    _validate_snapshot_timing(captured_at, available_at, decision_at)
+
+    facts = packet.get("portfolio_facts") or {}
+    account_facts = facts.get("accounts", [])
+    fx_rates = facts.get("fx_rates", {})
+
+    for i, fact in enumerate(account_facts):
+        _enforce_pit_timing(
+            label=f"account[{i}:{fact.get('source')}].captured_at_vs_available_at",
+            event_at=fact.get("captured_at"), decision_at=available_at,
+        )
+
+    for pair, entry in sorted(fx_rates.items()):
+        # `_derive_fx_staleness` itself enforces `as_of <= decision_at`.
+        recomputed_rate = _validate_fx_rate_value(
+            _require_finite_number(entry.get("rate"), f"fx[{pair}].rate"), pair,
+        )
+        recomputed_fx_stale = _derive_fx_staleness(entry.get("as_of"), decision_at, pair=pair)
+        if recomputed_rate != entry.get("rate") or recomputed_fx_stale != entry.get("staleness_status"):
+            raise PortfolioSnapshotError(
+                f"FX_DIAGNOSTIC_TAMPER_DETECTED:{pair}:rate={entry.get('rate')}->{recomputed_rate}:"
+                f"staleness_status={entry.get('staleness_status')}->{recomputed_fx_stale}"
+            )
+
     _assert_authority_all_false(packet.get("authority"))
     if packet.get("risk_policy") != RISK_POLICY_UNRATIFIED:
         raise PortfolioSnapshotError("RISK_POLICY_TAMPERED_OR_RATIFIED")
     if packet.get("position_size") != POSITION_SIZE_UNRATIFIED:
         raise PortfolioSnapshotError("POSITION_SIZE_COMPUTED_WHILE_POLICY_UNRATIFIED")
 
-    facts = packet.get("portfolio_facts") or {}
-    recomputed_risk = _compute_risk_capacity_inputs(facts.get("accounts", []), facts.get("fx_rates", {}))
+    for i, fact in enumerate(account_facts):
+        recomputed = _derive_account_fact_diagnostics(
+            fact.get("equity"), fact.get("cash"), fact.get("positions", []),
+            fact.get("captured_at"), decision_at,
+        )
+        claimed = {k: fact.get(k) for k in recomputed}
+        if recomputed != claimed:
+            mismatched = sorted(k for k in recomputed if recomputed[k] != claimed.get(k))
+            raise PortfolioSnapshotError(
+                f"FACT_DIAGNOSTIC_TAMPER_DETECTED:account[{i}:{fact.get('source')}]:{mismatched}"
+            )
+
+    recomputed_risk = _compute_risk_capacity_inputs(account_facts, fx_rates)
     claimed_risk = packet.get("risk_capacity_inputs")
     if recomputed_risk != claimed_risk:
         claimed_risk = claimed_risk or {}
