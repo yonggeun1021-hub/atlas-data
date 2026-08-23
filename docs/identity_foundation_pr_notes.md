@@ -163,7 +163,7 @@ proven end-to-end using synthetic fixtures in the other test classes,
 which include a fully successful `RESOLVED` path once rows are (in
 memory, for the test only) genuinely `RATIFIED` with valid provenance.
 
-## Verification — real, completed authoritative run
+## Verification — real, completed authoritative run (round 1, HEAD `0df57a4`)
 
 `ATLAS_DISPOSABLE_CHECKOUT=1 python3 run_all.py --authoritative`, run in
 a genuinely fresh disposable clone of `feature/identity-foundation` at
@@ -185,6 +185,23 @@ HEAD `0df57a4` (not the working clone used to write the code):
 This is the genuine, completed result — not `unittest discover` (which is
 not this repo's canonical verification path and hung on a live-network
 test file when tried in rev 1).
+
+## Verification — real, completed authoritative run (round 2, HEAD `a52b84f`)
+
+`ATLAS_DISPOSABLE_CHECKOUT=1 python3 run_all.py --authoritative`, run in
+a SECOND genuinely fresh disposable clone of `feature/identity-foundation`
+at HEAD `a52b84f` (round-2 fixes on top of round 1's), separate from the
+working clone:
+
+- `[2/5]`/`[3/5]` 14/14 builders rebuilt byte-identical.
+- `[4/5]` **171/171 approved regression files ok**, including
+  `test/test_identity_foundation.py` (now git-repo-backed, 51 tests) and
+  every pre-existing identity-adjacent suite.
+- `[5/5]` Fault Injection suite: **50 PASS / 0 FAIL.**
+- Final line: **`✅ Actions PASS = YES`**.
+
+Full log preserved outside the repo at
+`run_all_authoritative_round2.log` (scratchpad).
 
 ## Next stage
 
