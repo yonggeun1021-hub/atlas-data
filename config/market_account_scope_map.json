@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "policy_version": "market_account_scope_map/v1",
+  "evidence_basis": "Design: 'Canonical Security Identity / Market Scope Authority' v2 (Notion design packet, CIO-approved 2026-08-24). Connects Dynamic Clock's `market` vocabulary (BTC/CRYPTO/KOREA/US) to portfolio_risk's CANONICAL_ACCOUNT_SCOPE (ALPACA_PAPER_ACCOUNT/KOREA/CRYPTO) -- a many-to-one relationship (e.g. BTC and CRYPTO both map to the CRYPTO account scope), never a bare string-equality join. Zero edges below are RATIFIED as of this PR -- this file defines the schema and proves the mechanism; it ratifies no real market/account-scope edge. Until a real edge is RATIFIED here, every real market->account_scope resolution correctly returns IDENTITY_NOT_COMPUTABLE_SCOPE_MAP_MISSING, matching the atlas-private-evidence Shadow Matrix's existing AMBIGUOUS-default fallback (CANONICAL_MARKET_SCOPE_MAP was deleted there in CIO round 4 for the same reason: no ratified authority record existed).",
+  "edges": []
+}
