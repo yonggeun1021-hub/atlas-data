@@ -303,6 +303,24 @@ prior verification clone:
 Full log preserved outside the repo at `run_all_authoritative_round3.log`
 (scratchpad).
 
+## Verification — real, completed authoritative run (round 4, HEAD `5aec4d4`)
+
+`ATLAS_DISPOSABLE_CHECKOUT=1 python3 run_all.py --authoritative`, run in
+a FOURTH genuinely fresh disposable clone of `feature/identity-foundation`
+at HEAD `5aec4d4` (round-4 whole-document tamper check on top of rounds
+1-3), separate from every prior verification clone:
+
+- `[2/5]`/`[3/5]` 14/14 builders rebuilt byte-identical.
+- `[4/5]` **171/171 approved regression files ok**, including
+  `test/test_identity_foundation.py` (67 tests, now git-subprocess-heavy
+  enough to visibly extend this stage's wall time) and every
+  pre-existing identity-adjacent suite.
+- `[5/5]` Fault Injection suite: **50 PASS / 0 FAIL.**
+- Final line: **`✅ Actions PASS = YES`**.
+
+Full log preserved outside the repo at `run_all_authoritative_round4.log`
+(scratchpad).
+
 ## Next stage
 
 Only after this PR's independent CIO review completes does the next
