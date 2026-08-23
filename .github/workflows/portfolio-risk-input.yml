@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
       - name: Offline contract regression
         run: python3 test/test_portfolio_risk_input.py
       - name: Capture + verify Alpaca paper account/position snapshot in memory (no repo write)
