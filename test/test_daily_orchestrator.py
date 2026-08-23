@@ -1727,5 +1727,39 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("cron: '5 7 * * 1-5'", krx_post_close_yml)
 
 
+class DynamicClockRenderCapTest(unittest.TestCase):
+    """P8-10 <-> P8-12 integration (2026-08-23 locked spec): the rendered
+    markdown must never re-flood the briefing even though
+    build_briefing_section()'s underlying JSON keeps every WATCH_REVIEW
+    candidate in full -- only this ONE presentation layer caps what gets
+    printed inline."""
+
+    def test_dynamic_clock_section_is_rendered_and_capped(self):
+        # Real current evidence -- CRYPTO alone has dozens of WATCH_REVIEW
+        # candidates; the rendered markdown must never enumerate all of
+        # them inline. Uses the Dynamic Clock module's own real
+        # report_asof_evidence_date as decision_date so DYNAMIC_CLOCK
+        # itself resolves READY rather than DATA_BLOCKED (its own
+        # as_of_date must not be after the packet's decision_date).
+        dc_report = MODULE.DYNAMIC_CLOCK.run()
+        decision_date = dc_report["report_asof_evidence_date"]
+        packet = MODULE.build_packet("morning", decision_date, f"{decision_date}T12:00:00Z")
+        md = MODULE.render_markdown(packet)
+        self.assertIn("Dynamic Clock", md)
+        lines = md.splitlines()
+        start = next(i for i, ln in enumerate(lines) if "Dynamic Clock" in ln)
+        end = next(
+            (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines)
+        )
+        section = lines[start:end]
+        crypto_candidate_lines = [
+            ln for ln in section if ln.strip().startswith(("- IMMEDIATE_REVIEW", "- WATCH_REVIEW"))
+        ]
+        # 15-per-tier-per-market cap -- BTC(<=15) + KOREA(<=15) +
+        # CRYPTO(<=15+15) is a safe generous ceiling regardless of exactly
+        # how many real candidates each market has today.
+        self.assertLessEqual(len(crypto_candidate_lines), 60)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,10 +24,27 @@ concurrency:
 
 jobs:
   refresh:
+    # ★ CIO integration spec item 6: `workflow_run.conclusion == 'success'`
+    #   is a necessary gate (don't run at all if the upstream collector
+    #   itself failed), but it is NEVER treated as proof that fresh
+    #   evidence actually landed -- that is verified independently below
+    #   (the "Report actual evidence dates found" step reads real
+    #   committed files, not GitHub's own run metadata), and the
+    #   idempotency check further downstream is what actually decides
+    #   whether anything changed, regardless of what this trigger claims.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # ★ fetch-depth review (integration spec item 6): this workflow does
+      #   NOT need full git history. Neither clock/*.py nor
+      #   decision/price_evidence.py / decision/price_reflection.py (the two
+      #   P8-10 modules this workflow now also exercises) ever call `git
+      #   log`/`git show` -- unlike PR #210's asset_identity.py backdating
+      #   check, which is why actions-pass.yml needs fetch-depth: 0 and this
+      #   workflow does not. Default (shallow) checkout is correct here;
+      #   the later `git fetch` + `git reset --hard` step only needs the
+      #   default branch's current tip, not its full history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -47,7 +64,8 @@ jobs:
             test.test_dynamic_clock_calendar \
             test.test_audit_confirmed_miss \
             test.test_dynamic_clock_workflow_wiring \
-            test.test_dynamic_clock_pit_tier_invariant
+            test.test_dynamic_clock_pit_tier_invariant \
+            test.test_price_reflection_link
       # ★ CIO review round 2, item 6 (workflow atomicity hardening):
       #   the checkout above happened at job START -- by the time we are
       #   ready to commit, a concurrent collector or another dynamic-clock
@@ -70,6 +88,21 @@ jobs:
         env:
           DECISION_DATE: ${{ steps.decision_date.outputs.value }}
         run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE"
+      # ★ Independent verification (item 6): read the REAL per-market
+      #   evidence_as_of dates the computation above actually used, from
+      #   the freshly-written report itself -- never inferred from
+      #   workflow_run's own success/failure metadata. Surfaced in the job
+      #   summary so a human/CIO reviewer can see real evidence dates, not
+      #   just "the trigger fired".
+      - name: Report actual evidence dates found (independent of workflow_run's own success claim)
+        run: |
+          python3 -c "
+          import json
+          d = json.load(open('evidence/operational/dynamic_clock/dynamic_clock_report.json'))
+          print('## P8-12 Dynamic Clock -- real evidence dates found this run')
+          for market, m in d['by_market'].items():
+              print(f\"- {market}: evidence_as_of={m['evidence_as_of']} decision_date={m['decision_date']}\")
+          " >> "$GITHUB_STEP_SUMMARY"
       - name: Idempotency check + commit only if the evidence actually changed
         id: commit
         run: |

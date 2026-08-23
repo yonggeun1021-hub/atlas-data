@@ -69,8 +69,14 @@ class TierComputationTests(unittest.TestCase):
     """See test_dynamic_clock_pit_tier_invariant.py for the CIO review
     round 2 PIT-safety regression (compute_tier() no longer accepts any
     post-hoc/outcome-shaped argument at all -- not even ignored)."""
-    LINKED = {"status": "LINKED_EXAMPLE"}
+    # A CONFIRMATORY linkage (counts toward lifting the cap): status
+    # "LINKED" with no threshold_basis at all, or threshold_basis
+    # "RATIFIED" -- see _is_confirmatory_linkage.
+    LINKED = {"status": "LINKED"}
     UNLINKED = {"status": NOT_LINKED}
+    # A real P8-10 link that is NOT confirmatory -- PROVISIONAL basis, the
+    # honest state of every real price_reflection link today.
+    LINKED_PROVISIONAL = {"status": "LINKED", "price_state": "OVEREXTENDED", "threshold_basis": "PROVISIONAL"}
 
     def test_pit_ineligible_is_always_observation_only(self):
         result = compute_tier(5, "FAIL", self.LINKED, self.LINKED)
@@ -82,6 +88,32 @@ class TierComputationTests(unittest.TestCase):
         self.assertEqual(result["tier"], TIER_IMMEDIATE_REVIEW)
         self.assertTrue(result["human_review_required"])
         self.assertFalse(result["capped_for_missing_linkage"])
+
+    def test_provisional_overextended_price_reflection_cannot_elevate_tier(self):
+        # Integration spec section 8, item 3: a PROVISIONAL OVEREXTENDED
+        # price_state must NEVER elevate tier, even though the link itself
+        # succeeded and confirmation_count would otherwise qualify.
+        result = compute_tier(2, "PASS", self.UNLINKED, self.LINKED_PROVISIONAL)
+        self.assertEqual(result["tier"], TIER_WATCH_REVIEW)
+        self.assertTrue(result["capped_for_missing_linkage"])
+        self.assertFalse(result["human_review_required"])
+
+    def test_provisional_strong_momentum_price_reflection_cannot_elevate_tier(self):
+        # Integration spec section 8, item 4: same invariant, different
+        # price_state value -- PROVISIONAL is what disqualifies it, not
+        # the specific momentum label.
+        strong_momentum = {"status": "LINKED", "price_state": "STRONG_MOMENTUM", "threshold_basis": "PROVISIONAL"}
+        result = compute_tier(2, "PASS", self.UNLINKED, strong_momentum)
+        self.assertEqual(result["tier"], TIER_WATCH_REVIEW)
+        self.assertTrue(result["capped_for_missing_linkage"])
+        self.assertFalse(result["human_review_required"])
+
+    def test_ratified_price_reflection_would_count_as_confirmatory(self):
+        # Forward-looking: IF threshold_basis ever becomes RATIFIED (not
+        # true today), the cap correctly lifts.
+        ratified = {"status": "LINKED", "price_state": "OVEREXTENDED", "threshold_basis": "RATIFIED"}
+        result = compute_tier(2, "PASS", self.UNLINKED, ratified)
+        self.assertEqual(result["tier"], TIER_IMMEDIATE_REVIEW)
 
     def test_two_confirmations_with_no_linkage_is_capped_to_watch(self):
         # Both linkages absent -> never IMMEDIATE_REVIEW, no exception of

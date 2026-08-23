@@ -55,16 +55,41 @@ tiered Human Review Candidate.
   "we later confirmed it went up, so it should have been flagged at the
   time" are the same category of bug).
 
-★ Deliberate non-coupling (item 4 of round 2, still deferred): `thesis_linkage`
-  and `price_reflection_status` are NOT produced by importing
-  `decision/forward_thesis.py` (P8-08) or `decision/price_reflection.py`
-  (P8-10) -- both owned by a separate PR (P8-10's methodology fixes land
-  first; see docs/dynamic_clock_contract.md). Honest placeholders
-  (`NOT_LINKED_THIS_SLICE`), never fabricated. When BOTH are absent, a
-  candidate is capped at `WATCH_REVIEW` even if its confirmation-based tier
-  would otherwise be `IMMEDIATE_REVIEW` -- with NO exception of any kind
-  now (round 1's AUDIT_CONFIRMED_MISS exception is fully removed, not
-  narrowed).
+★ P8-10 integration (CIO's locked integration spec, 2026-08-23, post PR
+  #212 merge): `price_reflection_status` is now REAL for BTC/KOREA subjects
+  -- `clock/run_dynamic_clock.py` calls `clock.price_reflection_link.
+  link_price_reflection()` (which reuses `decision/price_evidence.py` +
+  `decision/price_reflection.py` UNCHANGED, independently re-validating
+  every packet -- see that module's docstring) and passes the result into
+  `build_subject_review_candidate(price_reflection_status=...)`.
+  `thesis_linkage` remains the honest `NOT_LINKED_THIS_SLICE` placeholder
+  -- P8-08 Forward Thesis linkage is explicitly OUT OF SCOPE for this
+  integration (the locked spec connects only P8-10's `price_reflection` and
+  P8-12's Dynamic Clock, not a third contract).
+
+  **Critical invariant (integration spec item 3.4/5.3)**: a real P8-10 link
+  (`price_reflection_status.status == "LINKED"`) does NOT by itself count
+  as a "confirmatory" linkage for tier-elevation purposes -- `threshold_basis`
+  must also be `"RATIFIED"`, never `"PROVISIONAL"` (see
+  `_is_confirmatory_linkage`). `classification_thresholds_approval_status`
+  in P8-10's own contract is `"PROVISIONAL"` today (not yet CIO-ratified),
+  so a real, successfully-linked `price_state=OVEREXTENDED` (BTC) or
+  `MODERATE`/`WEAK` (Korea names) is diagnostic information only and can
+  NEVER elevate a candidate to `IMMEDIATE_REVIEW` while that remains true.
+  When BOTH thesis and a CONFIRMATORY price-reflection linkage are absent
+  (true for every candidate today), a candidate is capped at `WATCH_REVIEW`
+  even if its confirmation-based tier would otherwise be `IMMEDIATE_REVIEW`
+  -- with NO exception of any kind (round 1's AUDIT_CONFIRMED_MISS exception
+  remains fully removed, not narrowed).
+
+  **Second, independent structural lock** (defense-in-depth beyond
+  `price_reflection_link.py`'s own re-validation): `build_subject_review_
+  candidate` re-asserts that a `"LINKED"` `price_reflection_status` never
+  carries a non-`"UNKNOWN"` `reflection_status` -- see
+  `_assert_price_reflection_status_is_pit_safe`, called unconditionally
+  before `compute_tier()` runs, so a directly-injected tampered dict (never
+  routed through `price_reflection_link.verify_and_extract()` at all) is
+  ALSO rejected, not just a re-signed packet caught upstream.
 
 ★ Authority: every record (raw or consolidated) carries an explicit
   `authority` block with every Stage/Buy/Action/Order/Production/trading
@@ -217,6 +242,24 @@ def _post_hoc_audit_note(subject: str, active_episodes: list[dict]) -> dict | No
     return None
 
 
+def _is_confirmatory_linkage(linkage: dict) -> bool:
+    """A linkage channel counts toward lifting the IMMEDIATE_REVIEW cap
+    ONLY if it is actually `"LINKED"` AND -- when it carries a
+    `threshold_basis` (only `price_reflection_status` does today) -- that
+    basis is `"RATIFIED"`, never `"PROVISIONAL"`. Integration spec item
+    3.4: "A PROVISIONAL price_state alone must NEVER... elevate candidate
+    tier". `classification_thresholds_approval_status` in P8-10's own
+    contract is `"PROVISIONAL"` as of this integration, so a real,
+    successfully-linked price_state can never satisfy this today -- not a
+    gap, the honest current state."""
+    if linkage.get("status") != "LINKED":
+        return False
+    threshold_basis = linkage.get("threshold_basis")
+    if threshold_basis is not None and threshold_basis != "RATIFIED":
+        return False
+    return True
+
+
 def compute_tier(confirmation_count: int, pit_eligibility_status: str,
                   thesis_linkage: dict, price_reflection_status: dict) -> dict:
     """Pure tiering function -- no new arbitrary thresholds, only quantities
@@ -232,11 +275,13 @@ def compute_tier(confirmation_count: int, pit_eligibility_status: str,
       1. PIT/asset-identity ineligible -> always OBSERVATION_ONLY.
       2. >= INDEPENDENT_CONFIRMATION_THRESHOLD distinct confirming trigger
          types -> IMMEDIATE_REVIEW, UNLESS both thesis_linkage and
-         price_reflection_status are absent, in which case it is capped
-         down to WATCH_REVIEW. There is NO exception to this cap -- a real,
-         already-known-in-hindsight Miss (see `_post_hoc_audit_note`) does
-         NOT lift it; only real, as-of-`detected_at` thesis/price linkage
-         can (item 4, deferred until the P8-10 PR merges).
+         price_reflection_status are non-CONFIRMATORY (see
+         `_is_confirmatory_linkage` -- a real P8-10 link with a
+         PROVISIONAL threshold_basis does NOT count), in which case it is
+         capped down to WATCH_REVIEW. There is NO exception to this cap --
+         a real, already-known-in-hindsight Miss (see
+         `_post_hoc_audit_note`) does NOT lift it; only a genuinely
+         CONFIRMATORY thesis/price linkage can.
       3. Otherwise -> WATCH_REVIEW.
     """
     if pit_eligibility_status != "PASS":
@@ -247,7 +292,7 @@ def compute_tier(confirmation_count: int, pit_eligibility_status: str,
         base_tier = TIER_WATCH_REVIEW
 
     both_linkages_absent = (
-        thesis_linkage.get("status") == NOT_LINKED and price_reflection_status.get("status") == NOT_LINKED
+        not _is_confirmatory_linkage(thesis_linkage) and not _is_confirmatory_linkage(price_reflection_status)
     )
     capped = False
     tier = base_tier
@@ -260,7 +305,7 @@ def compute_tier(confirmation_count: int, pit_eligibility_status: str,
         "base_tier": base_tier,
         "capped_for_missing_linkage": capped,
         "human_review_required": tier == TIER_IMMEDIATE_REVIEW,
-        "reason": _tier_reason(tier, confirmation_count, pit_eligibility_status, capped),
+        "reason": _tier_reason(tier, confirmation_count, pit_eligibility_status, capped, price_reflection_status),
     }
 
 
@@ -273,26 +318,57 @@ _TIER_ALLOWED_PARAMETERS = frozenset({
 })
 
 
-def _tier_reason(tier: str, confirmation_count: int, pit_eligibility_status: str, capped: bool) -> str:
+def _tier_reason(tier: str, confirmation_count: int, pit_eligibility_status: str, capped: bool,
+                  price_reflection_status: dict) -> str:
     """Plain-language, template-only (never LLM-generated, never derived
-    from a forward return) explanation of WHY a candidate landed in this
-    tier -- what item 8 of CIO review round 2 asks the briefing to show
-    instead of any post-hoc figure."""
+    from a forward return or any post-hoc figure) explanation of WHY a
+    candidate landed in this tier -- what the briefing shows instead of any
+    outcome-shaped number."""
     if tier == TIER_OBSERVATION_ONLY:
         return f"pit_eligibility_status={pit_eligibility_status} (not PASS) -- identity/eligibility not confirmed"
     if tier == TIER_IMMEDIATE_REVIEW:
-        return f"confirmation_count={confirmation_count} independent trigger types AND real thesis/price linkage present"
+        return (
+            f"confirmation_count={confirmation_count} independent trigger types AND a real, "
+            "RATIFIED-basis thesis/price linkage is present"
+        )
     if capped:
+        pr_status = price_reflection_status.get("status")
+        if pr_status == "LINKED":
+            linkage_note = (
+                f"price_reflection is linked (price_state={price_reflection_status.get('price_state')}) "
+                f"but threshold_basis={price_reflection_status.get('threshold_basis')} -- PROVISIONAL "
+                "diagnostics never elevate tier; no thesis linkage exists either"
+            )
+        else:
+            linkage_note = "no thesis or price-reflection linkage exists yet"
         return (
             f"confirmation_count={confirmation_count} independent trigger types, but capped at WATCH_REVIEW: "
-            "no thesis or price-reflection linkage exists yet (P8-10 not connected)"
+            f"{linkage_note}"
         )
     return f"confirmation_count={confirmation_count} -- below the independent-confirmation threshold of {INDEPENDENT_CONFIRMATION_THRESHOLD}"
+
+
+def _assert_price_reflection_status_is_pit_safe(price_reflection_status: dict) -> None:
+    """Second, independent structural lock (defense-in-depth beyond
+    `clock.price_reflection_link.verify_and_extract()`'s own
+    re-validation): a `"LINKED"` price_reflection_status may NEVER carry a
+    non-`"UNKNOWN"` `reflection_status` -- catches a directly-injected
+    tampered dict that bypassed the link module entirely, not just a
+    re-signed packet caught upstream (integration spec item 8.2)."""
+    if not isinstance(price_reflection_status, dict):
+        raise ReviewCandidateError("PRICE_REFLECTION_STATUS_NOT_A_DICT")
+    if price_reflection_status.get("status") == "LINKED":
+        reflection_status = price_reflection_status.get("reflection_status")
+        if reflection_status != "UNKNOWN":
+            raise ReviewCandidateError(
+                f"PRICE_REFLECTION_STATUS_NON_UNKNOWN_REJECTED:{reflection_status}"
+            )
 
 
 def build_subject_review_candidate(
     subject: str, market: str, active_episodes: list[dict], *,
     pit_eligibility_status: str,
+    price_reflection_status: dict | None = None,
     reference_forward_metrics_first_detection: dict | None = None,
     reference_forward_metrics_latest_detection: dict | None = None,
 ) -> dict:
@@ -300,6 +376,13 @@ def build_subject_review_candidate(
     all its trigger types) into ONE Human Review Candidate record. This is
     what a human actually reads -- `raw_trigger_ledger` remains the full,
     unconsolidated audit trail (see module docstring).
+
+    `price_reflection_status`, when supplied, MUST already be the output of
+    `clock.price_reflection_link.to_price_reflection_status()` (or the
+    equivalent `NOT_LINKED_THIS_SLICE` placeholder shape) -- re-validated
+    unconditionally below regardless of provenance. Omit it (or pass
+    `None`) to fall back to the honest placeholder (e.g. in tests that
+    don't exercise the P8-10 link at all).
 
     `reference_forward_metrics_*` and `post_hoc_audit_note` are attached
     here for audit/diagnostic purposes only -- both are computed AFTER
@@ -321,7 +404,9 @@ def build_subject_review_candidate(
     calendar_confidence = active_episodes[0].get("next_review_at_calendar_confidence")
 
     thesis_linkage = _thesis_linkage_placeholder()
-    price_reflection_status = _price_reflection_placeholder()
+    if price_reflection_status is None:
+        price_reflection_status = _price_reflection_placeholder()
+    _assert_price_reflection_status_is_pit_safe(price_reflection_status)
 
     # ★ PIT-safe by construction: compute_tier() is called with ONLY
     # as-of-detected_at-knowable inputs. The post-hoc audit note is

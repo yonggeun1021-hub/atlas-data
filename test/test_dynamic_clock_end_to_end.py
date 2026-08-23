@@ -90,9 +90,12 @@ class BtcRegressionCaseTests(unittest.TestCase):
 
 
 class CorrectedTierCountsTests(unittest.TestCase):
-    """CIO review round 2's explicit required check: with the
-    AUDIT_CONFIRMED_MISS exception removed and no real thesis/price linkage
-    wired yet, IMMEDIATE_REVIEW must be 0 everywhere today."""
+    """CIO review round 2's explicit required check, still true after the
+    real P8-10 integration: with the AUDIT_CONFIRMED_MISS exception removed
+    and no CONFIRMATORY (RATIFIED-basis) thesis/price linkage today (P8-10's
+    real links all carry threshold_basis=PROVISIONAL, which never counts --
+    see clock/review_candidate.py's _is_confirmatory_linkage),
+    IMMEDIATE_REVIEW must be 0 everywhere."""
 
     @classmethod
     def setUpClass(cls):
@@ -103,7 +106,7 @@ class CorrectedTierCountsTests(unittest.TestCase):
             self.assertEqual(
                 len(m["immediate_review"]), 0,
                 f"{market} has {len(m['immediate_review'])} IMMEDIATE_REVIEW candidates -- expected 0 "
-                "until real P8-08/P8-10 linkage is wired in (item 4, deferred)",
+                "while price_reflection's threshold_basis stays PROVISIONAL and no thesis linkage exists",
             )
 
     def test_no_candidate_reaches_immediate_review_without_real_linkage(self):
@@ -159,6 +162,73 @@ class CandidateFloodRegressionTests(unittest.TestCase):
             )
             if both_absent:
                 self.assertNotEqual(r["tier"], "IMMEDIATE_REVIEW", r["subject"])
+
+
+class RealP810IntegrationTests(unittest.TestCase):
+    """P8-10 <-> P8-12 integration (post PR #212 merge, 2026-08-23 locked
+    spec) verified against REAL current evidence across all three markets
+    -- item 3.1's structural invariant re-checked end-to-end, and the
+    confirmatory-linkage cap re-verified against every real candidate this
+    integration actually produces (not just the CRYPTO-only slice
+    CandidateFloodRegressionTests covers, since BTC/KOREA now get real
+    LINKED-but-PROVISIONAL price_reflection_status)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run()
+
+    def test_reflection_status_is_unknown_for_every_candidate_in_every_market(self):
+        # Item 3.1 + section 9's explicit requirement: count where
+        # reflection_status != UNKNOWN MUST be 0.
+        checked = 0
+        violations = 0
+        for market_result in self.report["by_market"].values():
+            for r in market_result["review_queue"]:
+                pr = r["price_reflection_status"]
+                if pr.get("status") == "LINKED":
+                    checked += 1
+                    if pr.get("reflection_status") != "UNKNOWN":
+                        violations += 1
+        self.assertEqual(violations, 0)
+        self.assertGreater(checked, 0, "sanity: at least one real subject should have a LINKED price_reflection")
+
+    def test_no_candidate_reaches_immediate_review_without_a_confirmatory_linkage_anywhere(self):
+        from clock.review_candidate import _is_confirmatory_linkage
+
+        checked = 0
+        for market_result in self.report["by_market"].values():
+            for r in market_result["review_queue"]:
+                checked += 1
+                confirmatory = (
+                    _is_confirmatory_linkage(r["thesis_linkage"])
+                    or _is_confirmatory_linkage(r["price_reflection_status"])
+                )
+                if r["tier"] == "IMMEDIATE_REVIEW":
+                    self.assertTrue(confirmatory, r["subject"])
+                if not confirmatory:
+                    self.assertNotEqual(r["tier"], "IMMEDIATE_REVIEW", r["subject"])
+        self.assertGreater(checked, 0)
+
+    def test_btc_real_overextended_provisional_link_does_not_elevate_it(self):
+        btc = next(r for r in self.report["by_market"]["BTC"]["review_queue"] if r["subject"] == "BTC")
+        pr = btc["price_reflection_status"]
+        self.assertEqual(pr["status"], "LINKED")
+        self.assertEqual(pr["threshold_basis"], "PROVISIONAL")
+        self.assertNotEqual(btc["tier"], "IMMEDIATE_REVIEW")
+
+    def test_korea_real_linked_subjects_stay_capped(self):
+        korea = self.report["by_market"]["KOREA"]["review_queue"]
+        linked = [r for r in korea if r["price_reflection_status"].get("status") == "LINKED"]
+        self.assertGreater(len(linked), 0, "sanity: at least one real Korea subject should link")
+        for r in linked:
+            self.assertEqual(r["price_reflection_status"]["threshold_basis"], "PROVISIONAL")
+            self.assertNotEqual(r["tier"], "IMMEDIATE_REVIEW", r["subject"])
+
+    def test_crypto_altcoins_are_honestly_not_supported_not_fabricated(self):
+        crypto = self.report["by_market"]["CRYPTO"]["review_queue"]
+        self.assertGreater(len(crypto), 0)
+        for r in crypto:
+            self.assertEqual(r["price_reflection_status"]["status"], "NOT_LINKED_THIS_SLICE")
 
 
 class PitTierInvariantTests(unittest.TestCase):
@@ -332,6 +402,83 @@ class BriefingSectionShapeTests(unittest.TestCase):
         report = run()
         section = build_briefing_section(report)
         self.assertEqual(section["policy_approval_status"], "PROVISIONAL_CIO_MVP")
+
+    def test_briefing_candidates_carry_the_exact_section_7_field_allowlist(self):
+        # Integration spec section 7: subject, tier, trigger_types+
+        # confirmation_count, price_state, reflection_status, data_state,
+        # threshold_basis, a data-as-of timestamp, reason,
+        # authority=REVIEW_ONLY, money_action=NONE.
+        required = {
+            "subject", "tier", "trigger_types", "confirmation_count", "price_state",
+            "reflection_status", "data_state", "threshold_basis", "price_as_of",
+            "next_review_at", "reason", "authority", "money_action",
+        }
+        report = run()
+        section = build_briefing_section(report)
+        checked = 0
+        for m in section["markets"].values():
+            for c in m["immediate_review"] + m["watch_review"]:
+                checked += 1
+                self.assertEqual(set(c), required, c["subject"])
+        self.assertGreater(checked, 0)
+
+    def test_briefing_candidates_authority_is_always_review_only_money_action_none(self):
+        report = run()
+        section = build_briefing_section(report)
+        checked = 0
+        for m in section["markets"].values():
+            for c in m["immediate_review"] + m["watch_review"]:
+                checked += 1
+                self.assertEqual(c["authority"], "REVIEW_ONLY", c["subject"])
+                self.assertEqual(c["money_action"], "NONE", c["subject"])
+        self.assertGreater(checked, 0)
+
+    def test_briefing_candidates_reflection_status_is_always_unknown(self):
+        report = run()
+        section = build_briefing_section(report)
+        checked = 0
+        for m in section["markets"].values():
+            for c in m["immediate_review"] + m["watch_review"]:
+                checked += 1
+                self.assertEqual(c["reflection_status"], "UNKNOWN", c["subject"])
+        self.assertGreater(checked, 0)
+
+    def test_briefing_watch_review_candidates_are_shown_not_only_immediate(self):
+        # Since IMMEDIATE_REVIEW is 0 everywhere today, WATCH_REVIEW must
+        # actually be rendered -- otherwise already-moving subjects like
+        # BTC/삼성전자/SK하이닉스 fall through the briefing's cracks
+        # (section 2's explicit purpose).
+        report = run()
+        section = build_briefing_section(report)
+        total_watch = sum(len(m["watch_review"]) for m in section["markets"].values())
+        self.assertGreater(total_watch, 0)
+        btc_subjects = {c["subject"] for c in section["markets"]["BTC"]["watch_review"]}
+        self.assertIn("BTC", btc_subjects)
+
+    def test_briefing_section_never_contains_a_buy_sell_entry_order_value(self):
+        # Section 8: Buy/Entry/Order-style language must never appear.
+        # Checked as exact FIELD VALUES (not a blind prose-substring ban --
+        # this module's own defensive notes legitimately say "never a Buy
+        # signal", which must not itself be flagged).
+        forbidden_values = {"BUY", "SELL", "ENTRY", "ORDER", "PLACE_ORDER", "BUY_NOW", "ENTRY_APPROVED"}
+        report = run()
+        section = build_briefing_section(report)
+
+        def _walk(value):
+            if isinstance(value, dict):
+                for v in value.values():
+                    yield from _walk(v)
+            elif isinstance(value, list):
+                for v in value:
+                    yield from _walk(v)
+            elif isinstance(value, str):
+                yield value
+
+        checked = 0
+        for v in _walk(section):
+            checked += 1
+            self.assertNotIn(v, forbidden_values, v)
+        self.assertGreater(checked, 0)
 
     def test_korea_calendar_confidence_is_surfaced_and_unverified(self):
         report = run()

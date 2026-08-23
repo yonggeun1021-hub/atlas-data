@@ -2401,17 +2401,50 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"calendar_confidence={m.get('calendar_confidence')} "
                     f"not_computable={m.get('not_computable_trigger_types')}"
                 )
-                # NOTE: `reason` here is always template-derived from
-                # confirmation_count/PIT-eligibility/linkage-presence --
-                # never a forward-return or post-hoc audit figure (CIO
-                # review round 2, item 8).
-                for c in m.get("immediate_review", []):
-                    lines.append(
-                        f"      - IMMEDIATE_REVIEW {c.get('subject')} "
-                        f"trigger_types={c.get('trigger_types')} "
-                        f"next_review_at={c.get('next_review_at')} "
-                        f"reason={c.get('reason')}"
-                    )
+                # NOTE: every field rendered per candidate below (subject,
+                # tier, trigger_types+confirmation_count, price_state,
+                # reflection_status, data_state, threshold_basis,
+                # price_as_of, reason, authority, money_action) is the
+                # EXACT allowlist the integration spec's section 7
+                # requires -- `reason` is always template-derived, never a
+                # forward-return/MFE/post-hoc-audit figure (section 8).
+                # Both IMMEDIATE_REVIEW and WATCH_REVIEW candidates are
+                # rendered -- IMMEDIATE_REVIEW is 0 today (no RATIFIED-basis
+                # linkage exists yet), so showing WATCH_REVIEW too is what
+                # actually keeps already-moving subjects like BTC/삼성전자/
+                # SK하이닉스 visible in the briefing rather than falling
+                # through the cracks (section 2's stated purpose).
+                # Presentation-only cap (this rendering layer alone, NEVER
+                # the underlying data): WATCH_REVIEW can be dozens-large for
+                # CRYPTO -- fully enumerating it in the daily markdown would
+                # recreate the exact "flood" every prior review round
+                # pushed back on, even though it is no longer 99 raw
+                # triggers. `build_briefing_section()`'s own JSON output
+                # (evidence/operational/dynamic_clock/briefing_section.json)
+                # keeps every WATCH_REVIEW candidate in full -- nothing is
+                # dropped from the actual data, only from this one rendered
+                # view.
+                _RENDER_CAP = 15
+                for tier_key, tier_label in (("immediate_review", "IMMEDIATE_REVIEW"), ("watch_review", "WATCH_REVIEW")):
+                    candidates = m.get(tier_key, [])
+                    for c in candidates[:_RENDER_CAP]:
+                        lines.append(
+                            f"      - {tier_label} {c.get('subject')} "
+                            f"trigger_types={c.get('trigger_types')} "
+                            f"price_state={c.get('price_state')} "
+                            f"reflection_status={c.get('reflection_status')} "
+                            f"data_state={c.get('data_state')} "
+                            f"threshold_basis={c.get('threshold_basis')} "
+                            f"price_as_of={c.get('price_as_of')} "
+                            f"next_review_at={c.get('next_review_at')} "
+                            f"authority={c.get('authority')} money_action={c.get('money_action')} "
+                            f"reason={c.get('reason')}"
+                        )
+                    if len(candidates) > _RENDER_CAP:
+                        lines.append(
+                            f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
+                            "(full list: evidence/operational/dynamic_clock/briefing_section.json)"
+                        )
     except (AttributeError, TypeError, KeyError):
         # A packet shape the renderer does not recognize must never break
         # the whole briefing render -- fall back to no detail line rather

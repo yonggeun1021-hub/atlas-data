@@ -64,6 +64,7 @@ from replay.opportunity_trigger import canonical_json
 from clock import dynamic_clock as dc
 from clock import operational_scan as scan
 from clock.dynamic_clock import build_episode_history, close_stale_episodes
+from clock.price_reflection_link import link_price_reflection, to_price_reflection_status
 from clock.review_candidate import (
     TIER_IMMEDIATE_REVIEW, TIER_OBSERVATION_ONLY, TIER_WATCH_REVIEW,
     build_expired_record, build_raw_trigger_record, build_subject_review_candidate,
@@ -181,8 +182,20 @@ def _market_result(market: str, decision_date: str | None) -> dict:
                 series_map[subject], first_ev["detected_at"],
                 signal_evaluation_at=first_ev["evidence_available_at"],
             )
+        # ★ P8-10 integration (post PR #212 merge): real, independently
+        #   re-validated price_reflection link (BTC/KOREA only -- see
+        #   clock/price_reflection_link.py's docstring for CRYPTO's honest
+        #   NOT_SUPPORTED_FOR_SUBJECT boundary). decision_date here is the
+        #   SAME episode_as_of already used for PIT eligibility -- "what
+        #   does P8-10 say about this subject as of today" -- and
+        #   link_price_reflection() itself never raises (fail-closed per
+        #   candidate, item 3.8).
+        price_reflection_decision_date = episode_as_of or evidence_as_of
+        link_result = link_price_reflection(subject, market, price_reflection_decision_date)
+        price_reflection_status = to_price_reflection_status(link_result)
         review_queue.append(build_subject_review_candidate(
             subject, market, episodes, pit_eligibility_status=pit_status,
+            price_reflection_status=price_reflection_status,
             reference_forward_metrics_first_detection=ref_metrics_first,
             reference_forward_metrics_latest_detection=ref_metrics_latest,
         ))
@@ -254,14 +267,43 @@ def run(decision_date: str | None = None) -> dict:
     }
 
 
+def _briefing_candidate_summary(r: dict) -> dict:
+    """The EXACT per-subject shape the integration spec's section 7
+    requires -- subject, tier, trigger_types+confirmation_count,
+    price_state, reflection_status (always "UNKNOWN" whenever present),
+    data_state, threshold_basis, a data-as-of timestamp, a templated
+    `reason`, and authority=REVIEW_ONLY/money_action=NONE. Deliberately
+    excludes everything section 8 forbids: no forward return, no MFE/MAE,
+    no post-hoc Miss/Defense result, no invented expected-return figure, no
+    Buy/Entry/Order-style field or language."""
+    pr = r["price_reflection_status"]
+    linked = pr.get("status") == "LINKED"
+    return {
+        "subject": r["subject"],
+        "tier": r["tier"],
+        "trigger_types": r["trigger_types"],
+        "confirmation_count": r["confirmation_count"],
+        "price_state": pr.get("price_state") if linked else "UNKNOWN",
+        "reflection_status": pr.get("reflection_status") if linked else "UNKNOWN",
+        "data_state": pr.get("data_state") if linked else "NOT_LINKED",
+        "threshold_basis": pr.get("threshold_basis") if linked else "N/A",
+        "price_as_of": pr.get("price_as_of") if linked else "UNKNOWN",
+        "next_review_at": r["next_review_at"],
+        "reason": r["reason"],
+        "authority": "REVIEW_ONLY",
+        "money_action": "NONE",
+    }
+
+
 def build_briefing_section(report: dict) -> dict:
-    """The user-facing artifact item 6/8 asks for -- ONLY the consolidated,
-    tiered subject-level queue (never the raw per-trigger ledger, which
-    stays in the full committed report for audit only), with per-tier
-    counts and a plain-language, non-outcome-based `reason` per candidate.
-    NO forward-return/MFE/post-hoc-audit figure appears anywhere in this
-    section (CIO review round 2, item 8) -- those exist only in the full
-    report's `review_queue`/`raw_trigger_ledger` for audit purposes.
+    """The user-facing artifact item 6/7/8 asks for -- ONLY the
+    consolidated, tiered subject-level queue (never the raw per-trigger
+    ledger, which stays in the full committed report for audit only), with
+    per-tier counts and a plain-language, non-outcome-based `reason` per
+    candidate. NO forward-return/MFE/post-hoc-audit figure, invented
+    expected-return, or Buy/Entry/Order-style language appears anywhere in
+    this section (integration spec section 8) -- those exist only in the
+    full report's `review_queue`/`raw_trigger_ledger` for audit purposes.
     Consumed by `briefing/daily_orchestrator.py`'s `DYNAMIC_CLOCK`
     component."""
     section = {
@@ -281,18 +323,8 @@ def build_briefing_section(report: dict) -> dict:
                  "next_review_at": r["next_review_at"]}
                 for r in m["new_triggers_this_run"]
             ],
-            "immediate_review": [
-                {"subject": r["subject"], "trigger_types": r["trigger_types"],
-                 "confirmation_count": r["confirmation_count"], "urgency": r["urgency"],
-                 "next_review_at": r["next_review_at"], "expiry": r["expiry"], "reason": r["reason"]}
-                for r in m["immediate_review"]
-            ],
-            "watch_review": [
-                {"subject": r["subject"], "trigger_types": r["trigger_types"],
-                 "confirmation_count": r["confirmation_count"], "next_review_at": r["next_review_at"],
-                 "reason": r["reason"]}
-                for r in m["watch_review"]
-            ],
+            "immediate_review": [_briefing_candidate_summary(r) for r in m["immediate_review"]],
+            "watch_review": [_briefing_candidate_summary(r) for r in m["watch_review"]],
             "observation_only_count": len(m["observation_only"]),
             "expired_triggers": [
                 {"subject": r["subject"], "trigger_type": r["trigger_type"], "expiry": r["expiry"]}

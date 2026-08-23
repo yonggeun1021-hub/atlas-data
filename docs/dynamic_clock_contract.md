@@ -19,6 +19,13 @@ that same decision date. That is exactly the outcome-based reasoning
 time") this whole workstream exists to eliminate. Fixed by removing the
 exception's power over tier entirely -- see "Linkage cap (item 4)" below.
 
+**P8-10 <-> P8-12 integration (2026-08-23, locked spec, post PR #212
+merge `4802dad`)**: connects the two now-approved contracts PIT-safely --
+see "P8-10 integration" below. Not another patch round: the CIO supplied
+the full design, boundaries, expected results, and required tests up front
+in one locked spec; this section documents that implementation and its
+verification.
+
 ## WBS scope note and merge order
 
 The Notion Master WBS Tracker's canonical rows separate **P8-10 "Price
@@ -140,25 +147,62 @@ thesis/price confirmation is a watch item, not a confirmed opportunity --
 only PR #210's later audit (using real subsequent returns) could tell you
 it was a Miss.
 
-## P8-10 integration (item 4/8, deferred until PR #212 merges)
+## P8-10 integration -- real, PIT-safe, done (CIO's locked integration spec, 2026-08-23)
 
-**Confirmed merge order**: PR #212 (P8-10) gets its own methodology fixes
-first -> re-reviewed, CI green, merged -> PR #211 rebased onto the new
-`main` -> PR #211 wires in the real linkages below -> PR #211 re-reviewed
--> only then can P8-12 be marked complete in WBS. Not started in this
-revision. When PR #212 merges:
-1. Rebase/merge this branch onto the new `main`, resolve the `run_all.py`
-   `APPROVED_TESTS` list conflict (both PRs append to the same list).
-2. Replace `_thesis_linkage_placeholder()` / `_price_reflection_placeholder()`
-   in `clock/review_candidate.py` with real reads of PR #208's P8-08
-   `decision/forward_thesis.py` output (read-only) and P8-10's real
-   structured `data_state`/`price_state`/`reflection_status` output.
-3. Where no linkable thesis exists, use `THESIS_NOT_AVAILABLE` (a real,
-   evidence-checked absence) instead of the current blanket
-   `NOT_LINKED_THIS_SLICE` placeholder -- different facts, must not be
-   conflated.
-4. Once real linkage exists, some `WATCH_REVIEW`-capped candidates will
-   gain a real (not structural) basis for `IMMEDIATE_REVIEW`.
+PR #212 (P8-10) merged (`4802dad`, source `e559df3`). PR #211 rebased onto
+the new `main` (clean, zero conflicts -- PR #212's own scope confirmation
+claimed "zero overlap with PR #211's file list" and the rebase confirmed
+it) and now wires in the REAL `price_reflection` link:
+
+- **`clock/price_reflection_link.py`** -- reuses `decision/price_evidence.py`'s
+  `assemble_price_evidence()` and `decision/price_reflection.py`'s
+  `build_packet()`/`validate_packet()` UNCHANGED (dynamically loaded,
+  mirroring `decision/pilot_evidence_intake.py`'s own established call
+  pattern). `price_reflection_supported(subject, market)` reflects P8-10's
+  real, honest coverage boundary: BTC and KRX Korea codes are linked for
+  real; CRYPTO-market (non-BTC) subjects get `NOT_SUPPORTED_FOR_SUBJECT`
+  (no crypto-altcoin price-evidence source exists in this repo -- never
+  guessed via the wrong evidence path). `link_price_reflection()` never
+  raises -- a genuine failure (bad evidence, a rejected packet) is recorded
+  as `LINK_FAILED` for that ONE candidate only (integration spec item 3.8).
+- **`verify_and_extract()`** -- independently re-validates every packet via
+  `decision.price_reflection.validate_packet()` before reading a single
+  field, cross-checks `subject`/`decision_date`, and re-asserts
+  `reflection_status == "UNKNOWN"` a SECOND time on top of that validator's
+  own enforcement. Only the field allowlist (item 3) ever flows out:
+  `subject`, `decision_date`, `price_state`, `reflection_status`,
+  `data_state`, `threshold_basis`, `price_as_of`, `reasons`,
+  `contract_version`/`packet_sha256` -- never `relative_strength`/
+  `recent_return_windows`/the inert `event_reaction`/`reflection_reference`.
+- **A THIRD, independent lock** at the consuming layer:
+  `clock/review_candidate.py::_assert_price_reflection_status_is_pit_safe`
+  rejects a `"LINKED"` `price_reflection_status` with any non-`"UNKNOWN"`
+  `reflection_status`, even if it bypassed `verify_and_extract()` entirely
+  (a directly-injected tampered dict) -- item 8.2's exact scenario.
+- **`compute_tier()`'s cap logic** (`_is_confirmatory_linkage`): a real
+  `"LINKED"` price_reflection does NOT by itself lift the `IMMEDIATE_REVIEW`
+  cap -- `threshold_basis` must also be `"RATIFIED"`, never `"PROVISIONAL"`
+  (item 3.4/5.3). P8-10's own contract has
+  `classification_thresholds_approval_status: "PROVISIONAL"` today, so a
+  real, successfully-linked `price_state=OVEREXTENDED` (BTC) or
+  `MODERATE`/`WEAK` (Korea names) is diagnostic information only and can
+  NEVER elevate a candidate -- verified against REAL current evidence
+  (`RealP810IntegrationTests`), not just synthetic fixtures.
+- **Thesis linkage (P8-08) stays OUT OF SCOPE** -- the locked spec connects
+  only P8-10's `price_reflection` and P8-12's Dynamic Clock, not a third
+  contract; `thesis_linkage` remains the honest `NOT_LINKED_THIS_SLICE`
+  placeholder.
+
+**Real numbers on current evidence** (see section 9's re-derivation table
+in the PR report for the full split): BTC `price_state=OVEREXTENDED`,
+`reflection_status=UNKNOWN`, `threshold_basis=PROVISIONAL`, tier
+`WATCH_REVIEW`. Korea 005930 `MODERATE`, 000660 `WEAK`, 298040 `MODERATE`,
+all `WATCH_REVIEW`. Korea 034020 (두산에너빌리티, zero committed evidence)
+`price_state=UNKNOWN`/`data_state=PRICE_DATA_MISSING` -- honest, not
+fabricated. CRYPTO altcoins: `price_reflection_status=NOT_LINKED_THIS_SLICE`
+for all (P8-10 doesn't cover them). `IMMEDIATE_REVIEW` remains 0 in every
+market -- the correct, PIT-honest state until a RATIFIED threshold basis or
+a real thesis linkage exists.
 
 ## Authority (unchanged both rounds)
 

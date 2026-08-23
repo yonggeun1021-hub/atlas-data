@@ -995,6 +995,10 @@ APPROVED_TESTS = [
     # ★ CIO review round 2 on PR #211 -- PIT lookahead violation fix
     # (AUDIT_CONFIRMED_MISS could no longer promote operational tier).
     "test/test_dynamic_clock_pit_tier_invariant.py",
+    # ★ P8-10 <-> P8-12 real integration (post PR #212 merge, locked spec
+    #   2026-08-23): clock/price_reflection_link.py's own tamper/fail-
+    #   closed/idempotency/distinctness regression.
+    "test/test_price_reflection_link.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
