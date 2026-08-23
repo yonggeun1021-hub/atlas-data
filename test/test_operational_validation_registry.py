@@ -7,6 +7,7 @@ import contextlib
 import io
 import importlib.util
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -30,6 +31,59 @@ REGISTRY = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
 
 def triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True)) or {}
+
+
+_PY_SCRIPT_PATH_RE = re.compile(r"[\w./-]+\.py")
+
+
+def _step_bodies_text(workflow: dict) -> str:
+    """Concatenated name/run/uses/with text of every step in every job.
+
+    Built from the *parsed* workflow doc, not the raw file text, so a
+    comment that merely mentions a filename (as opposed to a step actually
+    producing/consuming it) can never satisfy a binding-contract check --
+    comments aren't part of the parsed doc at all.
+    """
+    parts = []
+    for job in (workflow.get("jobs") or {}).values():
+        for step in (job.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            parts.append(str(step.get("name", "")))
+            parts.append(str(step.get("run", "")))
+            parts.append(str(step.get("uses", "")))
+            parts.append(json.dumps(step.get("with") or {}, ensure_ascii=False))
+    return "\n".join(parts)
+
+
+def _invoked_script_sources(step_bodies: str) -> str:
+    """Concatenated source of every local .py script referenced in step
+    bodies (e.g. `python3 collectors/foo.py ...`).
+
+    A required token can legitimately live one layer deeper than the
+    workflow YAML: the step only invokes a collector script, and the
+    script's own source is what actually names the token (an output
+    filename it writes, for instance). This resolves that one hop so such
+    tokens are verified against the real execution chain instead of being
+    invisible to a workflow-text-only check.
+    """
+    sources = []
+    for match in sorted(set(_PY_SCRIPT_PATH_RE.findall(step_bodies))):
+        candidate = ROOT / match
+        if candidate.is_file():
+            sources.append(candidate.read_text(encoding="utf-8"))
+    return "\n".join(sources)
+
+
+def _token_is_realized(token: str, workflow: dict) -> bool:
+    """True if `token` is bound to something the workflow actually executes:
+    present in a step's name/run/uses/with, or in the source of a local
+    .py collector script that a step invokes. A YAML comment mentioning the
+    token does not count."""
+    step_bodies = _step_bodies_text(workflow)
+    if token in step_bodies:
+        return True
+    return token in _invoked_script_sources(step_bodies)
 
 
 class OperationalValidationRegistryTest(unittest.TestCase):
@@ -70,7 +124,13 @@ class OperationalValidationRegistryTest(unittest.TestCase):
                 self.assertEqual(actual, set(item["crons"]))
                 self.assertIn("workflow_dispatch", event)
                 for token in item["required_workflow_tokens"]:
-                    self.assertIn(token, text)
+                    self.assertTrue(
+                        _token_is_realized(token, workflow),
+                        f"{item['work_item_id']}: {token!r} is not bound to any "
+                        "step (name/run/uses/with) or invoked collector script "
+                        "source in this workflow -- a comment mentioning it "
+                        "does not satisfy the binding contract.",
+                    )
 
     def test_policy_blocked_items_do_not_claim_an_automatic_execution(self):
         blocked_states = {"POLICY_BLOCKED", "PAID_RECONFIRMATION_REQUIRED"}
