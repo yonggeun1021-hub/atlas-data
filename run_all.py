@@ -1012,6 +1012,19 @@ APPROVED_TESTS = [
     #   independently enforced per ordering rule). Each defect's own CIO
     #   reproduction is a dedicated regression here.
     "test/test_dynamic_clock_orchestrator_defects.py",
+    # ★ P7-11 Profit Harvesting Baseline Audit -- DIAGNOSTIC MEASUREMENT
+    #   ONLY, not an operational Harvest Engine, not a sell-policy
+    #   ratification. Reuses PR #210's replay/ Miss/Defense episodes
+    #   verbatim; adds a genuinely new, independently-written PIT-safe
+    #   gain-path measurement (MFE/MAE/time-to-peak/giveback/retention/
+    #   endpoint coverage) cross-validated against replay.forward_metrics.
+    #   No sell threshold, quantity, Trade Proposal, or order anywhere;
+    #   every scenario comparison locked UNRATIFIED/ANALYTICAL_SCENARIO_ONLY.
+    #   ⛔ decision/clock/shadow/briefing/ untouched -- structurally verified
+    #   never to import this package, and this package never imports them.
+    "test/test_profit_harvest_gain_path.py",
+    "test/test_profit_harvest_population.py",
+    "test/test_profit_harvest_end_to_end.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
