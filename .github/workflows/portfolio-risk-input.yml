@@ -1,0 +1,41 @@
+# Portfolio Risk Input Contract -- manual capture-and-VERIFY-ONLY.
+#
+# ★ CIO review round 2 (2026-08-23): this repo is PUBLIC. Real account data
+#   (NAV/cash/positions/P&L) must NEVER be committed here. This workflow
+#   therefore:
+#     - has NO `contents: write` permission (read-only token)
+#     - has NO commit/push step of any kind
+#     - has NO schedule -- `workflow_dispatch` only, run manually, and even
+#       then nothing it does writes to the repository
+#   `portfolio_risk/capture.py` builds and verifies a real snapshot
+#   entirely in memory and prints ONLY a redacted, non-sensitive summary
+#   (see `capture.PUBLIC_SAFE_CAPTURE_RESULT_KEYS`) to the job log.
+#   Real-account-data persistence requires a future, separately-designed
+#   PRIVATE evidence store -- not in scope here (see
+#   `capture.REAL_DATA_PERSISTENCE_STATUS`).
+name: Atlas Portfolio Risk Input Snapshot (verify-only, no repo writes)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Offline contract regression
+        run: python3 test/test_portfolio_risk_input.py
+      - name: Capture + verify Alpaca paper account/position snapshot in memory (no repo write)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: python3 -m portfolio_risk.capture
+      - name: Confirm this job never modified the checkout
+        run: git diff --exit-code

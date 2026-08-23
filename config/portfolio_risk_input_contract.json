@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "contract_version": "portfolio_risk_input/1",
+  "purpose": "READ-ONLY portfolio-facts snapshot. NOT a sizing/policy decision. risk_policy is always UNRATIFIED and position_size is always NOT_COMPUTABLE_POLICY_UNRATIFIED in every packet this contract governs.",
+  "alpaca": {
+    "api_base": "https://paper-api.alpaca.markets",
+    "account_type": "PAPER",
+    "allowed_paths": ["/v2/account", "/v2/positions"],
+    "source_scope": "ALPACA_PAPER_ACCOUNT_AND_POSITIONS_READ_ONLY"
+  },
+  "manual_markets": {
+    "allowed": ["KOREA", "CRYPTO"],
+    "verification_status": "PAPER_OR_MANUAL_UNVERIFIED",
+    "source_scope": "MANUAL_SNAPSHOT_NOT_BROKER_VERIFIED",
+    "presence_forces_risk_capacity_status": "DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT"
+  },
+  "real_data_persistence": {
+    "status": "PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE",
+    "note": "This repo is PUBLIC. No real NAV/cash/positions/P&L/account_id_hash is ever written to any file, committed or otherwise, by this contract's code path. A live capture builds and verifies a real snapshot entirely in memory and discards it; only an explicitly allowlisted, non-sensitive summary (see portfolio_risk/capture.py::PUBLIC_SAFE_CAPTURE_RESULT_KEYS) is ever returned or printed. Real persistence requires a future, separately-designed PRIVATE evidence store -- not in scope for this contract version."
+  },
+  "authority": {
+    "review_only": true,
+    "action_authorized": false,
+    "order_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
