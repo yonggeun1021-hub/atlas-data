@@ -668,23 +668,20 @@ class PublicRepoNeverReceivesRealFinancialData(unittest.TestCase):
         self.assertEqual(result["source"], "ALPACA_PAPER")
         self.assertEqual(result["real_data_persistence_status"], "PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE")
 
-    def test_workflow_has_no_write_permission_no_commit_step_no_schedule(self):
-        """Parses the actual YAML structure (not a raw-text scan, which
-        would false-positive on this file's own descriptive comments) and
-        checks the real `permissions`/`on`/step `run:` values."""
-        import yaml
-        doc = yaml.safe_load((ROOT / ".github" / "workflows" / "portfolio-risk-input.yml").read_text())
-        self.assertEqual(doc["permissions"]["contents"], "read")
-        on_key = doc.get("on", doc.get(True))  # PyYAML may parse bare `on:` as boolean True (YAML 1.1)
-        self.assertIsInstance(on_key, dict)
-        self.assertIn("workflow_dispatch", on_key)
-        self.assertNotIn("schedule", on_key)
-        for job in doc["jobs"].values():
-            for step in job["steps"]:
-                run_cmd = step.get("run", "") or ""
-                self.assertNotIn("git push", run_cmd)
-                self.assertNotIn("git commit", run_cmd)
-                self.assertNotIn("git add", run_cmd)
+    def test_public_repo_has_no_live_capture_workflow_at_all(self):
+        """★ 2026-08-23 cutover: `.github/workflows/portfolio-risk-input.yml`
+        was decommissioned entirely (not merely shrunk to read-only) once
+        the private, pull-based `atlas-private-evidence` repo took over
+        all real Alpaca capture. `ALPACA_API_KEY`/`ALPACA_API_SECRET` were
+        removed from this repo's GitHub secrets; nothing in this repo
+        should reference them, and no workflow file here should exist
+        that ever attempted a live Alpaca capture -- a stronger guarantee
+        than "read-only": there is no such workflow at all."""
+        self.assertFalse((ROOT / ".github" / "workflows" / "portfolio-risk-input.yml").exists())
+        for workflow_path in (ROOT / ".github" / "workflows").glob("*.yml"):
+            text = workflow_path.read_text()
+            self.assertNotIn("secrets.ALPACA_API_KEY", text, workflow_path.name)
+            self.assertNotIn("secrets.ALPACA_API_SECRET", text, workflow_path.name)
 
 
 if __name__ == "__main__":

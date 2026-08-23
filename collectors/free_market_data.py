@@ -148,10 +148,25 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args()
     fred_key = os.getenv("FRED_API_KEY", "").strip()
-    alpaca_key = os.getenv("ALPACA_API_KEY", "").strip()
-    alpaca_secret = os.getenv("ALPACA_API_SECRET", "").strip()
-    if not all((fred_key, alpaca_key, alpaca_secret)):
+    if not fred_key:
         raise SystemExit("FREE_MARKET_DATA_CREDENTIALS_MISSING")
+    # ★ 2026-08-23 cutover: the account/trading Alpaca credential
+    # (`ALPACA_API_KEY`/`ALPACA_API_SECRET`) now lives ONLY in the private
+    # `atlas-private-evidence` repo (see portfolio_risk/). This collector
+    # is a DIFFERENT, market-data-only consumer and must never fall back
+    # to reusing that name or that credential -- it requires its own,
+    # dedicated, disposable market-data-only credential under a
+    # DIFFERENT env var name. There is no code path here that even reads
+    # `ALPACA_API_KEY`/`ALPACA_API_SECRET` any more.
+    alpaca_key = os.getenv("ALPACA_MARKET_DATA_API_KEY", "").strip()
+    alpaca_secret = os.getenv("ALPACA_MARKET_DATA_API_SECRET", "").strip()
+    if not all((alpaca_key, alpaca_secret)):
+        # ★ Fail-closed, explicit, non-silent: this is not "missing config"
+        # in the generic sense -- it specifically means the dedicated
+        # market-data-only credential has not been provisioned yet. Never
+        # skip the Alpaca leg silently, never fabricate a placeholder
+        # price, never treat this as PASS.
+        raise SystemExit("BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
     observed_at = dt.datetime.now(UTC).replace(microsecond=0)
     contract = load_contract(args.root / "config" / "free_market_data_contract.json")
     fred_raw, fred = fetch_fred(fred_key, observed_at)

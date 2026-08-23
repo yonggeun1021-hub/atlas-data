@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import datetime as dt
 import importlib.util
+import inspect
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("free_market_data", ROOT / "collectors" / "free_market_data.py")
@@ -41,6 +44,35 @@ class FreeMarketDataTests(unittest.TestCase):
             M.fetch_fred("x", now, getter=lambda *_: b'{"observations":[]}')
         with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_NO_SYMBOLS_RETURNED"):
             M.fetch_alpaca("k", "s", ["MSFT"], getter=lambda *_: b'{"bars":{}}')
+
+
+class DedicatedMarketDataCredentialTests(unittest.TestCase):
+    """★ 2026-08-23 cutover: ALPACA_API_KEY/ALPACA_API_SECRET (the account/
+    trading credential) now live ONLY in the private atlas-private-evidence
+    repo. This collector is a separate, market-data-only consumer and must
+    require its OWN dedicated credential (ALPACA_MARKET_DATA_API_KEY/
+    ALPACA_MARKET_DATA_API_SECRET) -- never fall back to the old shared
+    name, never silently skip, never fabricate a placeholder price."""
+
+    def test_missing_dedicated_credential_blocks_with_explicit_status(self):
+        with mock.patch.dict(os.environ, {"FRED_API_KEY": "x"}, clear=True), \
+             mock.patch("sys.argv", ["free_market_data.py"]):
+            with self.assertRaisesRegex(SystemExit, "BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL"):
+                M.main()
+
+    def test_old_shared_alpaca_credential_name_is_never_accepted_as_a_fallback(self):
+        env = {"FRED_API_KEY": "x", "ALPACA_API_KEY": "old-shared-key", "ALPACA_API_SECRET": "old-shared-secret"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch("sys.argv", ["free_market_data.py"]):
+            with self.assertRaisesRegex(SystemExit, "BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL"):
+                M.main()
+
+    def test_source_never_reads_the_old_shared_env_var_names(self):
+        source = inspect.getsource(M)
+        self.assertNotIn('os.getenv("ALPACA_API_KEY"', source)
+        self.assertNotIn('os.getenv("ALPACA_API_SECRET"', source)
+        self.assertIn('os.getenv("ALPACA_MARKET_DATA_API_KEY"', source)
+        self.assertIn('os.getenv("ALPACA_MARKET_DATA_API_SECRET"', source)
 
 
 if __name__ == "__main__": unittest.main()

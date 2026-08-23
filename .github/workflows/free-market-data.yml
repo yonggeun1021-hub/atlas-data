@@ -23,11 +23,21 @@ jobs:
           python-version: '3.11'
       - name: Offline contract regression
         run: python3 test/test_free_market_data.py
+      # ★ 2026-08-23 cutover: ALPACA_API_KEY/ALPACA_API_SECRET (account/
+      #   trading credential) were removed from this repo's secrets and
+      #   now live ONLY in the private atlas-private-evidence repo. This
+      #   step intentionally does NOT reference those names -- it requires
+      #   a SEPARATE, dedicated, disposable market-data-only credential
+      #   (ALPACA_MARKET_DATA_API_KEY/ALPACA_MARKET_DATA_API_SECRET,
+      #   labeled ATLAS_MARKET_DATA_ONLY on Alpaca's side), not yet
+      #   provisioned. Until it is, this step fails closed with
+      #   BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL -- expected, not a
+      #   bug -- rather than silently skipping or reusing the private key.
       - name: Capture FRED VIX and Alpaca IEX evidence
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
         run: python3 collectors/free_market_data.py
       - name: Commit immutable evidence and latest pointer
         run: |
