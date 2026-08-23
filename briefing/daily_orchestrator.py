@@ -129,6 +129,13 @@ try:
     )
 except Exception:  # noqa: BLE001
     PILOT_ALPHA_REVIEW = None
+# P8-12 -- Dynamic Clock (Opportunity Trigger + tiered Review Queue).
+# Loaded defensively for the same reason as PILOT_ALPHA_REVIEW above: a
+# load failure here must never take down the whole orchestrator.
+try:
+    DYNAMIC_CLOCK = _load("atlas_daily_dynamic_clock", "clock/run_dynamic_clock.py")
+except Exception:  # noqa: BLE001
+    DYNAMIC_CLOCK = None
 BTC_TREND = _load("atlas_daily_btc_trend", ".github/scripts/btc_trend.py")
 BTC_RISK = _load("atlas_daily_btc_risk", ".github/scripts/btc_risk.py")
 STABLECOIN = _load("atlas_daily_stablecoin", ".github/scripts/stablecoin_net_issuance.py")
@@ -1600,6 +1607,94 @@ def build_forward_alpha_review_status(decision_date: str, slot: str, generated_a
     )
 
 
+def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str) -> dict:
+    """P8-12 -- Opportunity Trigger + Dynamic Review Clock briefing section.
+
+    Calls `clock/run_dynamic_clock.py:run()` + `build_briefing_section()`
+    directly (not by reading a pre-generated file off disk) so this always
+    reflects whatever evidence is currently committed -- the same
+    "recompute from real evidence, not a cached read" posture as
+    `build_forward_alpha_review_status()` above. `run()` makes zero
+    provider/network calls of its own (see
+    `docs/dynamic_clock_contract.md`); it only reads the market evidence
+    other collectors already committed.
+
+    Purely informational: new/immediate-review/watch-review/expired
+    triggers and NOT_COMPUTABLE trigger types, per market. No Rule PASS/
+    FAIL, no Stage/Candidate/Ready/Buy promotion, no trade_proposal --
+    every record's own `authority` block is already hard-`False`/`None`
+    (see `clock/review_candidate.py`); this function only summarizes that
+    output, never grants anything beyond it.
+
+    Fail-closed like every other builder in this file: any load/exception
+    here returns a DEGRADED/UNAVAILABLE row rather than taking down the
+    rest of the daily briefing packet.
+    """
+    if DYNAMIC_CLOCK is None:
+        return component_row("DYNAMIC_CLOCK", "UNAVAILABLE", "DYNAMIC_CLOCK_MODULE_LOAD_FAILED")
+    try:
+        # ★ CIO review round 2, item 5: pass the briefing's own real
+        #   decision_date through so episode staleness is evaluated as of
+        #   TODAY, not silently capped at whatever the last evidence
+        #   capture date happens to be (this is an external date the
+        #   caller already computed via a real `date` command -- see
+        #   .github/workflows/daily-briefing.yml -- never datetime.now()
+        #   inside this module or clock/run_dynamic_clock.py).
+        report = DYNAMIC_CLOCK.run(decision_date=decision_date)
+        section = DYNAMIC_CLOCK.build_briefing_section(report)
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("DYNAMIC_CLOCK", exc)
+
+    packet = {
+        "schema_version": "dynamic_clock_briefing_status/1",
+        "contract_version": "daily_dynamic_clock/1",
+        "decision_date": decision_date,
+        "slot": slot,
+        "generated_at": generated_at,
+        "report_asof_evidence_date": report["report_asof_evidence_date"],
+        # ★ CIO review round 2, item 7: surfaced explicitly so this
+        #   component's own READY status is never mistaken for "the
+        #   cadence/tiering policy itself is finally ratified".
+        "policy_approval_status": report["policy_approval_status"],
+        "policy_version": report["policy_version"],
+        "markets": section["markets"],
+        "note": (
+            "Trigger firing is a re-review REQUEST only, never a Buy signal or Action/Order/"
+            "trading authority. Only IMMEDIATE_REVIEW-tier subject candidates carry "
+            "human_review_required=True; WATCH_REVIEW/OBSERVATION_ONLY are preserved for audit, "
+            "not deleted. See evidence/operational/dynamic_clock/dynamic_clock_report.json for the "
+            "full raw_trigger_ledger."
+        ),
+        "authority": {
+            "briefing_status_only": True,
+            "trigger_detection_assembly_only": True,
+            "stage_promotion_authorized": False,
+            "candidate_ready_buy_promotion_authorized": False,
+            "rule_pass_fail_authorized": False,
+            "portfolio_decision_authorized": False,
+            "trade_proposal_authorized": False,
+            "capital_authorized": False,
+            "action_authorized": False,
+            "order_authorized": False,
+            "production_authorized": False,
+            "trading_authorized": False,
+        },
+    }
+    packet["packet_sha256"] = payload_sha256(packet)
+    return component_row(
+        "DYNAMIC_CLOCK",
+        "READY",
+        None,
+        as_of_date=report["report_asof_evidence_date"],
+        generated_at=generated_at,
+        source_packet_sha256=packet["packet_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=packet["contract_version"],
+        packet=packet,
+    )
+
+
 def build_regime_invariant_pair(market: str, regime_output: dict) -> tuple[dict, dict]:
     try:
         cash_packet = CASH_EXPOSURE.build_packet(regime_output)
@@ -1941,6 +2036,11 @@ def build_packet(
     rows["FORWARD_ALPHA_REVIEW"] = _boundary(
         build_forward_alpha_review_status(decision_date, slot, generated_at)
     )
+    # P8-12 -- additive, informational-only. Does not feed UNIFIED_DECISION
+    # or any action/order/Production/trading path.
+    rows["DYNAMIC_CLOCK"] = _boundary(
+        build_dynamic_clock_status(decision_date, slot, generated_at)
+    )
 
     if set(rows) != set(contract["component_order"]):
         fail(
@@ -2091,6 +2191,7 @@ _SECTION_GROUPS = [
     ("Decision & action boundary", ["ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY"]),
     ("Shadow learning record", ["INVESTMENT_REVIEW_SHADOW"]),
     ("Forward Alpha Review (Pilot)", ["FORWARD_ALPHA_REVIEW"]),
+    ("Dynamic Clock (Opportunity Trigger / Review Queue)", ["DYNAMIC_CLOCK"]),
 ]
 
 _STATUS_MARK = {
@@ -2286,6 +2387,64 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"shadow_action={row.get('shadow_action')} "
                     f"comparison_label={row.get('comparison_label')}"
                 )
+        elif cid == "DYNAMIC_CLOCK":
+            lines.append(f"    - policy_approval_status={packet.get('policy_approval_status')}")
+            markets = packet.get("markets", {})
+            for market, m in sorted(markets.items()):
+                tier_counts = m.get("tier_counts", {})
+                lines.append(
+                    f"    - {market}: raw_triggers(audit only)={m.get('raw_trigger_count_audit_only')} "
+                    f"immediate_review={tier_counts.get('IMMEDIATE_REVIEW')} "
+                    f"watch_review={tier_counts.get('WATCH_REVIEW')} "
+                    f"observation_only={tier_counts.get('OBSERVATION_ONLY')} "
+                    f"expired={len(m.get('expired_triggers', []))} "
+                    f"calendar_confidence={m.get('calendar_confidence')} "
+                    f"not_computable={m.get('not_computable_trigger_types')}"
+                )
+                # NOTE: every field rendered per candidate below (subject,
+                # tier, trigger_types+confirmation_count, price_state,
+                # reflection_status, data_state, threshold_basis,
+                # price_as_of, reason, authority, money_action) is the
+                # EXACT allowlist the integration spec's section 7
+                # requires -- `reason` is always template-derived, never a
+                # forward-return/MFE/post-hoc-audit figure (section 8).
+                # Both IMMEDIATE_REVIEW and WATCH_REVIEW candidates are
+                # rendered -- IMMEDIATE_REVIEW is 0 today (no RATIFIED-basis
+                # linkage exists yet), so showing WATCH_REVIEW too is what
+                # actually keeps already-moving subjects like BTC/삼성전자/
+                # SK하이닉스 visible in the briefing rather than falling
+                # through the cracks (section 2's stated purpose).
+                # Presentation-only cap (this rendering layer alone, NEVER
+                # the underlying data): WATCH_REVIEW can be dozens-large for
+                # CRYPTO -- fully enumerating it in the daily markdown would
+                # recreate the exact "flood" every prior review round
+                # pushed back on, even though it is no longer 99 raw
+                # triggers. `build_briefing_section()`'s own JSON output
+                # (evidence/operational/dynamic_clock/briefing_section.json)
+                # keeps every WATCH_REVIEW candidate in full -- nothing is
+                # dropped from the actual data, only from this one rendered
+                # view.
+                _RENDER_CAP = 15
+                for tier_key, tier_label in (("immediate_review", "IMMEDIATE_REVIEW"), ("watch_review", "WATCH_REVIEW")):
+                    candidates = m.get(tier_key, [])
+                    for c in candidates[:_RENDER_CAP]:
+                        lines.append(
+                            f"      - {tier_label} {c.get('subject')} "
+                            f"trigger_types={c.get('trigger_types')} "
+                            f"price_state={c.get('price_state')} "
+                            f"reflection_status={c.get('reflection_status')} "
+                            f"data_state={c.get('data_state')} "
+                            f"threshold_basis={c.get('threshold_basis')} "
+                            f"price_as_of={c.get('price_as_of')} "
+                            f"next_review_at={c.get('next_review_at')} "
+                            f"authority={c.get('authority')} money_action={c.get('money_action')} "
+                            f"reason={c.get('reason')}"
+                        )
+                    if len(candidates) > _RENDER_CAP:
+                        lines.append(
+                            f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
+                            "(full list: evidence/operational/dynamic_clock/briefing_section.json)"
+                        )
     except (AttributeError, TypeError, KeyError):
         # A packet shape the renderer does not recognize must never break
         # the whole briefing render -- fall back to no detail line rather
@@ -2437,6 +2596,12 @@ _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
     # decision/pilot_evidence_intake.py's own fixed PILOT_DECISION_DATE/
     # PILOT_GENERATED_AT and does not change per daily-briefing invocation.
     "FORWARD_ALPHA_REVIEW",
+    # DYNAMIC_CLOCK's packet embeds the live decision_date/slot/generated_at
+    # directly too (see build_dynamic_clock_status()), for the same reason
+    # -- the actual Dynamic Clock content it summarizes is pinned to real
+    # committed evidence capture dates (report_asof_evidence_date per
+    # market), not to this daily-briefing invocation's own generated_at.
+    "DYNAMIC_CLOCK",
 })
 
 
