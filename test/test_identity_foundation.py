@@ -139,17 +139,23 @@ def _assert_authority_all_false(test, result):
 # scenario expected to reach RESOLVED must use GitAuthorityRepo instead.
 # ---------------------------------------------------------------------------
 
-def write_plain_evidence_file(evidence_dir: Path, row: dict, ratified_at: str) -> None:
+def write_plain_evidence_file(evidence_dir: Path, row: dict, layer: str, ratified_at: str) -> None:
+    """rev 4: approval fields (approval_status/ratified_at) are set on
+    `row` BEFORE the full-determining-payload hash is computed, so the
+    evidence file's `approved_full_payload_sha256` reflects the row's
+    complete, final RATIFIED state -- including effective_from/
+    effective_to, not just business identity fields."""
+    row["approval_status"] = "RATIFIED"
+    row["ratified_at"] = ratified_at
+    full_hash = ci.payload_sha256(ci.full_determining_payload(row, layer))
     content = {
         "rule_id": row["rule_id"], "rule_version": row["rule_version"],
         "approval_status": "RATIFIED", "ratified_at": ratified_at,
-        "approved_business_payload_sha256": row["business_payload_sha256"],
+        "approved_full_payload_sha256": full_hash,
     }
     data = ci.canonical_json(content).encode("utf-8")
     path = evidence_dir / f"{row['rule_id']}__{row['rule_version']}__{row['business_payload_sha256'][:10]}.json"
     path.write_bytes(data)
-    row["ratified_at"] = ratified_at
-    row["approval_status"] = "RATIFIED"
     row["approval_evidence_ref"] = str(path)
     row["approval_evidence_sha256"] = hashlib.sha256(data).hexdigest()
 
@@ -198,20 +204,23 @@ class GitAuthorityRepo:
 
     def commit_evidence(self, row: dict, layer: str, ratified_at: str, commit_iso: str,
                          rel_dir: str = "evidence/identity_foundation/approval_records") -> Path:
-        """Stamps `business_payload_sha256`, writes+commits a REAL
-        evidence file at a REAL commit time, and sets the row's
-        approval_status/ratified_at/approval_evidence_ref/sha256 to match."""
+        """Stamps `business_payload_sha256`, sets approval_status/
+        ratified_at on `row` FIRST (rev 4 -- so `approved_full_payload_sha256`
+        below reflects the row's complete final RATIFIED state, including
+        effective_from/effective_to, not just business identity fields),
+        THEN writes+commits a REAL evidence file at a REAL commit time."""
         stamp_business_payload(row, layer)
+        row["approval_status"] = "RATIFIED"
+        row["ratified_at"] = ratified_at
+        full_hash = ci.payload_sha256(ci.full_determining_payload(row, layer))
         content = {
             "rule_id": row["rule_id"], "rule_version": row["rule_version"],
             "approval_status": "RATIFIED", "ratified_at": ratified_at,
-            "approved_business_payload_sha256": row["business_payload_sha256"],
+            "approved_full_payload_sha256": full_hash,
         }
         data = ci.canonical_json(content).encode("utf-8")
         rel_path = f"{rel_dir}/{row['rule_id']}__{row['rule_version']}__{row['business_payload_sha256'][:10]}.json"
         path = self._commit(rel_path, data, commit_iso, "add approval evidence")
-        row["approval_status"] = "RATIFIED"
-        row["ratified_at"] = ratified_at
         row["approval_evidence_ref"] = str(path)
         row["approval_evidence_sha256"] = hashlib.sha256(data).hexdigest()
         return path
@@ -443,13 +452,13 @@ class RequiredCounterExamplesTests(_GitRepoMixin, unittest.TestCase):
     def test_16_tampered_then_resigned_record_rejected(self):
         """Business field mutated AFTER ratification, WITH
         business_payload_sha256 correctly recomputed ('resigned') -- the
-        real (untouched) evidence file's `approved_business_payload_sha256`
+        real (untouched) evidence file's `approved_full_payload_sha256`
         still points at the OLD hash. This fails before any git-history
         lookup is ever reached, so a plain (non-git) evidence file
         suffices here."""
         row = make_source_alias("SRC", "TAMPERED", "LISTING-ORIGINAL")
         stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
-        write_plain_evidence_file(self.evidence_dir, row, ratified_at="2026-01-02T00:00:00Z")
+        write_plain_evidence_file(self.evidence_dir, row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-01-02T00:00:00Z")
         row["listing_id"] = "LISTING-SWAPPED"
         row["business_payload_sha256"] = ci.payload_sha256(ci.business_payload(row, ci.LAYER_SOURCE_ALIAS))
         self.assertTrue(ci.verify_business_payload(row, ci.LAYER_SOURCE_ALIAS))  # self-consistency now "passes"...
@@ -534,14 +543,14 @@ class Defect1EvidenceBackdatingTests(_GitRepoMixin, unittest.TestCase):
         caught, independent of the first-seen fix."""
         row = make_source_alias("SRC", "MISMATCHED_RATIFIED_AT", "LISTING-X")
         stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
-        write_plain_evidence_file(self.evidence_dir, row, ratified_at="2026-01-02T00:00:00Z")
+        write_plain_evidence_file(self.evidence_dir, row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-01-02T00:00:00Z")
         row["ratified_at"] = "2026-06-01T00:00:00Z"  # diverge from what the real evidence file says
         self.assertFalse(ci.verify_approval_evidence(row, ci.LAYER_SOURCE_ALIAS))
 
     def test_evidence_file_not_git_tracked_is_unverified(self):
         row = make_source_alias("SRC", "NO_GIT_EVIDENCE", "LISTING-X")
         stamp_business_payload(row, ci.LAYER_SOURCE_ALIAS)
-        write_plain_evidence_file(self.evidence_dir, row, ratified_at="2026-01-02T00:00:00Z")  # plain temp dir, no git
+        write_plain_evidence_file(self.evidence_dir, row, ci.LAYER_SOURCE_ALIAS, ratified_at="2026-01-02T00:00:00Z")  # plain temp dir, no git
         self.assertIsNone(ci.verify_evidence_first_seen_at(row))
 
 
@@ -694,6 +703,106 @@ class Defect5IssuerChainVerificationTests(_GitRepoMixin, unittest.TestCase):
         authority = self.build(instruments=[instrument])
         result = ci.require_instrument_id("INSTR-ORPHAN-2", authority, "2026-06-01")
         self.assertNotEqual(result["status"], ci.RESOLVED)
+
+
+# ---------------------------------------------------------------------------
+# Round-3 (rev 4) counter-examples -- CIO direct-reproduction P0: the
+# approval-evidence (and git-history) binding must cover the FULL
+# determining payload, not just business-identity fields.
+# ---------------------------------------------------------------------------
+
+class Defect6FullPayloadBindingTests(_GitRepoMixin, unittest.TestCase):
+
+    def test_expired_effective_to_nulled_without_resigning_blocked(self):
+        """The exact CIO direct-reproduction counter-example: take an
+        already-expired RATIFIED instrument row and mutate ONLY its
+        in-memory effective_to to null -- evidence file, its hash, and
+        its git first-seen all untouched. Must NOT resolve.
+
+            Original:  IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD
+            Tampered:  must NOT be RESOLVED (TAMPERED_RECORD or a
+                       provenance error only)
+        """
+        instrument = make_instrument("INSTR-EXPIRES", "ISSUER-X",
+                                      effective_from="2020-01-01", effective_to="2021-01-01")
+        self.ratify(instrument, ci.LAYER_INSTRUMENT, ratified_at="2020-01-02T00:00:00Z",
+                    evidence_commit_iso="2020-01-02T00:00:00Z")
+        authority = self.build(instruments=[instrument], commit_iso="2020-01-02T00:00:00Z")
+
+        original = ci.resolve_instrument_by_id("INSTR-EXPIRES", "2022-01-01", authority)
+        self.assertEqual(original["status"], ci.NOT_COMPUTABLE_NO_AUTHORITY_RECORD)
+
+        loaded_row = authority["instruments"][0]
+        self.assertEqual(loaded_row["canonical_instrument_id"], "INSTR-EXPIRES")
+        loaded_row["effective_to"] = None  # tamper ONLY this -- no re-signing, no new commit
+
+        tampered = ci.resolve_instrument_by_id("INSTR-EXPIRES", "2022-01-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertIn(tampered["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
+                                            ci.NOT_COMPUTABLE_TAMPERED_RECORD))
+        self.assertIsNone(tampered["canonical_instrument_id"])
+        _assert_authority_all_false(self, tampered)
+
+    def test_isolated_tamper_effective_from(self):
+        instrument = make_instrument("INSTR-TAMPER-EF", "ISSUER-X", effective_from="2020-01-01")
+        self.ratify(instrument, ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instrument])
+        authority["instruments"][0]["effective_from"] = "2019-01-01"  # earlier than what was ever approved
+        result = ci.resolve_instrument_by_id("INSTR-TAMPER-EF", "2026-06-01", authority)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertIn(result["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
+                                          ci.NOT_COMPUTABLE_TAMPERED_RECORD,
+                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED))
+
+    def test_isolated_tamper_rule_version(self):
+        instrument = self.ratify(make_instrument("INSTR-TAMPER-RV", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instrument])
+        authority["instruments"][0]["rule_version"] = "2"  # bumped without a real re-ratification
+        result = ci.resolve_instrument_by_id("INSTR-TAMPER-RV", "2026-06-01", authority)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertIn(result["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
+                                          ci.NOT_COMPUTABLE_TAMPERED_RECORD,
+                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED))
+
+    def test_isolated_tamper_ratified_at(self):
+        instrument = self.ratify(make_instrument("INSTR-TAMPER-RA", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instrument])
+        authority["instruments"][0]["ratified_at"] = "2020-06-01T00:00:00Z"  # different from what was actually approved
+        result = ci.resolve_instrument_by_id("INSTR-TAMPER-RA", "2026-06-01", authority)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertIn(result["status"], (ci.NOT_COMPUTABLE_APPROVAL_EVIDENCE_UNVERIFIED,
+                                          ci.NOT_COMPUTABLE_TAMPERED_RECORD,
+                                          ci.NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED))
+
+    def test_row_first_seen_matching_rejects_content_not_actually_committed(self):
+        """Direct, low-level proof of the '_source_path borrowing' fix
+        (item 3): verify_row_first_seen_at itself -- independent of
+        verify_approval_evidence -- refuses to match a row whose current
+        full content was never actually committed. This closes the
+        bypass even in a hypothetical where the evidence-file check were
+        somehow defeated."""
+        instrument = self.ratify(make_instrument("INSTR-GIT-MATCH", "ISSUER-X", effective_to="2030-01-01"), ci.LAYER_INSTRUMENT)
+        path = self.repo.commit_authority(full_authority(instruments=[instrument]), commit_iso="2026-01-02T00:00:00Z")
+        loaded = ci.load_authority(path)
+        loaded_row = loaded["instruments"][0]
+
+        verified_before = ci.verify_row_first_seen_at(loaded_row, ci.LAYER_INSTRUMENT, path)
+        self.assertIsNotNone(verified_before)
+
+        loaded_row["effective_to"] = None  # mutate only in memory, never re-committed
+        verified_after = ci.verify_row_first_seen_at(loaded_row, ci.LAYER_INSTRUMENT, path)
+        self.assertIsNone(verified_after)
+
+    def test_full_determining_payload_includes_all_required_fields(self):
+        """Structural proof that the payload CIO required is exactly
+        what's hashed -- business fields plus rule_id/rule_version/
+        approval_status/ratified_at/effective_from/effective_to."""
+        row = self.ratify(make_instrument("INSTR-FIELDS", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        payload = ci.full_determining_payload(row, ci.LAYER_INSTRUMENT)
+        for required_field in ("rule_id", "rule_version", "approval_status", "ratified_at",
+                                "effective_from", "effective_to", "canonical_instrument_id",
+                                "canonical_issuer_id", "instrument_type"):
+            self.assertIn(required_field, payload)
 
 
 # ---------------------------------------------------------------------------

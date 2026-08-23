@@ -6,6 +6,38 @@ designed in "Canonical Security Identity / Market Scope Authority" v2
 (Notion design packet, CIO-approved 2026-08-24 as this stage's
 implementation baseline).
 
+★ Rev 4 (CIO direct-reproduction code review of HEAD d382467, one more P0
+  found and fixed; "provenance verified" stays PARTIALLY_VERIFIED until
+  CIO confirms this closes it -- see docs/identity_foundation_pr_notes.md):
+   The approval-evidence binding only covered `business_payload` (the
+   per-layer identity fields) -- NOT `effective_from`/`effective_to`,
+   `rule_id`, `rule_version`, `approval_status`, or `ratified_at`, even
+   though those fields directly control the eligibility determination.
+   CIO reproduced directly: take an already-expired RATIFIED row and
+   mutate ONLY its in-memory `effective_to` to `null` -- evidence file,
+   its hash, and its git first-seen all untouched -- and it resolves
+   again. Fixed by introducing `full_determining_payload` (business
+   fields + rule_id/rule_version/approval_status/ratified_at/
+   effective_from/effective_to) as the thing that gets bound, in TWO
+   independent places:
+     (a) the evidence file's `approved_full_payload_sha256` (replacing
+         the narrower `approved_business_payload_sha256`) -- so
+         `verify_approval_evidence` now fails the instant ANY of these
+         fields no longer matches what the real, git-verified evidence
+         file says was approved;
+     (b) git-history row-matching (`_row_matcher`, used by
+         `verify_row_first_seen_at`) now matches on the SAME full
+         determining payload, not just `business_payload_sha256` --
+         closing the adjacent "borrow an old row's real `_source_path`
+         while mutating only its metadata" bypass for directly-injected
+         documents: the mutated content no longer matches ANYTHING that
+         was ever actually committed, so first-seen verification fails
+         independently of the evidence-file check.
+   `business_payload_sha256`/`verify_business_payload` are UNCHANGED and
+   still exist as the narrower, honestly-labeled self-consistency-only
+   check they always were -- `full_determining_payload` is a strict
+   superset used for the two real security checks above.
+
 ★ Rev 3 (CIO code review of HEAD 3bd9e0e, CHANGES_REQUIRED, 5 boundaries
   fixed in this pass; the rev-2 "provenance verified" claim is downgraded
   to PARTIALLY_VERIFIED -- see docs/identity_foundation_pr_notes.md):
@@ -134,6 +166,21 @@ LAYER_BUSINESS_FIELDS = {
     LAYER_MARKET_ACCOUNT_SCOPE: ("market", "account_scope"),
 }
 
+# rev 4: the FULL set of fields that actually control the eligibility
+# determination -- business identity fields PLUS every authority field
+# that participates in the RATIFIED/PIT gate. This is what gets bound to
+# the real evidence file and to real git history (see
+# `full_determining_payload`, `verify_approval_evidence`, `_row_matcher`)
+# -- `LAYER_BUSINESS_FIELDS` alone is NOT enough, since effective_from/
+# effective_to/rule_id/rule_version/approval_status/ratified_at are not
+# "business identity" but DO change the determination.
+_DETERMINING_AUTHORITY_FIELDS = ("rule_id", "rule_version", "approval_status", "ratified_at",
+                                  "effective_from", "effective_to")
+LAYER_DETERMINING_FIELDS = {
+    layer: fields + _DETERMINING_AUTHORITY_FIELDS
+    for layer, fields in LAYER_BUSINESS_FIELDS.items()
+}
+
 INSTRUMENT_TYPES = frozenset({
     "COMMON_STOCK", "PREFERRED_STOCK", "ADR", "CRYPTO_ASSET", "OTHER_UNCLASSIFIED",
 })
@@ -257,9 +304,24 @@ def business_payload(row: dict, layer: str) -> dict:
     return {k: row.get(k) for k in fields}
 
 
+def full_determining_payload(row: dict, layer: str) -> dict:
+    """rev 4: business fields PLUS every authority field that actually
+    controls the eligibility determination (rule_id/rule_version/
+    approval_status/ratified_at/effective_from/effective_to). This is
+    the payload bound to real evidence (`verify_approval_evidence`) and
+    to real git history (`_row_matcher`) -- NOT `business_payload`, which
+    remains deliberately narrower (self-consistency of identity fields
+    only, see `verify_business_payload`)."""
+    fields = LAYER_DETERMINING_FIELDS[layer]
+    return {k: row.get(k) for k in fields}
+
+
 def verify_business_payload(row: dict, layer: str) -> bool:
     """Self-consistency check ONLY -- see module docstring for rev-2's
-    explicit split between this and `verify_approval_evidence`."""
+    explicit split between this and `verify_approval_evidence`. Does NOT
+    cover effective_from/effective_to/rule_id/rule_version/
+    approval_status/ratified_at -- see `full_determining_payload` /
+    `verify_approval_evidence` for the check that does."""
     expected = row.get("business_payload_sha256")
     if not expected:
         return False
@@ -272,11 +334,14 @@ def verify_approval_evidence(row: dict, layer: str, root: Path = ROOT) -> bool:
     that file's REAL BYTES; and the file's own parsed content must
     independently assert the SAME `rule_id`/`rule_version`, an
     `approval_status` of `RATIFIED`, the SAME `ratified_at` the row
-    claims (rev-3 addition -- closes the "backdated ratified_at on a
-    brand-new evidence file" attack together with
-    `verify_evidence_first_seen_at`), and the SAME
-    `approved_business_payload_sha256` that was true of the row at the
-    moment it was ratified. Any failure returns False; never raises."""
+    claims, AND (rev 4 -- closes the CIO's direct-reproduction P0: an
+    already-expired RATIFIED row whose in-memory `effective_to` alone is
+    mutated to `null`, with the evidence file/hash/git-first-seen all
+    untouched, must NOT resolve again) the SAME
+    `approved_full_payload_sha256` -- the hash of `full_determining_payload`,
+    which includes `effective_from`/`effective_to` and every other field
+    that controls the determination, not just the narrower business
+    identity fields. Any failure returns False; never raises."""
     ref = row.get("approval_evidence_ref")
     claimed_hash = row.get("approval_evidence_sha256")
     if not ref or not claimed_hash:
@@ -296,11 +361,16 @@ def verify_approval_evidence(row: dict, layer: str, root: Path = ROOT) -> bool:
         return False
     if not isinstance(content, dict):
         return False
-    return (content.get("rule_id") == row.get("rule_id")
+    if not (content.get("rule_id") == row.get("rule_id")
             and content.get("rule_version") == row.get("rule_version")
             and content.get("approval_status") == "RATIFIED"
-            and content.get("ratified_at") == row.get("ratified_at")
-            and content.get("approved_business_payload_sha256") == row.get("business_payload_sha256"))
+            and content.get("ratified_at") == row.get("ratified_at")):
+        return False
+    try:
+        expected_full_hash = payload_sha256(full_determining_payload(row, layer))
+    except Exception:
+        return False
+    return content.get("approved_full_payload_sha256") == expected_full_hash
 
 
 # ---------------------------------------------------------------------------
@@ -531,14 +601,30 @@ def _git_first_commit_time_for_exact_bytes(path: Path, expected_sha256: str) -> 
 
 
 def _row_matcher(layer: str, row: dict):
+    """rev 4: matches on the FULL determining payload (business fields +
+    rule_id/rule_version/approval_status/ratified_at/effective_from/
+    effective_to), not just `business_payload_sha256` -- closes the
+    "borrow an old row's real `_source_path` while mutating only its
+    metadata (e.g. effective_to)" bypass. A row whose current content was
+    never actually committed with THIS EXACT full content (including its
+    current effective_from/effective_to/ratified_at/etc.) will not match
+    any historical revision, independent of whether the evidence-file
+    check also happens to catch the same tamper."""
     array_key = _LAYER_ARRAY_KEY[layer]
-    target_hash = row.get("business_payload_sha256")
+    try:
+        target_hash = payload_sha256(full_determining_payload(row, layer))
+    except Exception:
+        target_hash = None
 
     def matches(doc) -> bool:
-        if not isinstance(doc, dict):
+        if not isinstance(doc, dict) or target_hash is None:
             return False
         for candidate in doc.get(array_key, []):
-            if candidate.get("business_payload_sha256") == target_hash:
+            try:
+                candidate_hash = payload_sha256(full_determining_payload(candidate, layer))
+            except Exception:
+                continue
+            if candidate_hash == target_hash:
                 return True
         return False
     return matches

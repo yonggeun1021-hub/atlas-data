@@ -1102,6 +1102,12 @@ APPROVED_TESTS = [
     #   injection. resolve_instrument_by_id/require_instrument_id verify
     #   the linked issuer through the same gate, not just the instrument
     #   row -- an orphan/PROVISIONAL/ambiguous issuer correctly blocks.
+    #   The approval-evidence AND git-history bindings cover the FULL
+    #   determining payload (business fields + rule_id/rule_version/
+    #   approval_status/ratified_at/effective_from/effective_to), not just
+    #   business-identity fields -- an already-expired RATIFIED row whose
+    #   in-memory effective_to alone is mutated to null (evidence file,
+    #   hash, and git first-seen all untouched) is blocked, never RESOLVED.
     #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
     #   no in-code mapping table, no hardcoded per-ticker/market
     #   special-casing, P8-13 not opened.

@@ -5,6 +5,48 @@ Design source: "Canonical Security Identity / Market Scope Authority" v2
 implementation baseline) and the paired "Dynamic Clock Candidate Validity
 Window" v2 packet (combined CIO recommendation section).
 
+## ⛔ Rev 3 claim stays PARTIALLY_VERIFIED — one more P0 closed
+
+CIO independent code review of HEAD `d382467` (rev 3) returned
+**CHANGES_REQUIRED** again, this time via a DIRECT REPRODUCTION, not just
+a code-reading finding: the approval-evidence binding only covered
+`business_payload` (per-layer identity fields) — NOT `effective_from`/
+`effective_to`/`rule_id`/`rule_version`/`approval_status`/`ratified_at`,
+even though those fields directly control the eligibility determination.
+CIO reproduced it directly:
+
+```
+Original:  IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD
+Tampered:  RESOLVED
+```
+
+— take an already-expired `RATIFIED` row and mutate ONLY its in-memory
+`effective_to` to `null`, with the evidence file, its hash, and its git
+first-seen all completely untouched, and it resolves again.
+
+**Fixed** by introducing `full_determining_payload` (business fields +
+`rule_id`/`rule_version`/`approval_status`/`ratified_at`/`effective_from`/
+`effective_to`) as the payload bound in TWO independent places:
+
+1. The evidence file's `approved_full_payload_sha256` (replacing the
+   narrower `approved_business_payload_sha256`) — `verify_approval_evidence`
+   now fails the instant ANY determining field no longer matches what the
+   real, git-verified evidence file says was approved.
+2. Git-history row-matching (`_row_matcher`, used by
+   `verify_row_first_seen_at`) now matches on the SAME full determining
+   payload, not just `business_payload_sha256` — closing the adjacent
+   "borrow an old row's real `_source_path` while mutating only its
+   metadata" bypass: the mutated content no longer matches ANYTHING that
+   was ever actually committed, independent of the evidence-file check.
+
+`business_payload_sha256`/`verify_business_payload` are unchanged and
+remain the narrower, honestly-labeled self-consistency-only check they
+always were.
+
+**The "exact-content provenance" claim stays `PARTIALLY_VERIFIED`** —
+this closes one more real gap CIO found; it is not treated as the final
+word until CIO's review of this round confirms it.
+
 ## ⛔ Rev 2 claim downgraded — PARTIALLY_VERIFIED (not fully retracted)
 
 CIO independent code review of HEAD `3bd9e0e` (rev 2) returned
