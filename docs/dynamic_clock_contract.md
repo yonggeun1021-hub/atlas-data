@@ -333,6 +333,74 @@ All 4 defects' regressions live together in
 `run_all.py`'s `APPROVED_TESTS` and the workflow's offline regression
 step).
 
+## CIO integration review round 2 (2 closing items, 2026-08-23, HEAD `d26b4e3`)
+
+Independent verification confirmed 3 of the 4 defects above correctly
+fixed (decision_date fail-closed/historical-replay, newness diffing, PIT
+timing fields all reproduced correctly against real evidence). Two narrow
+closing items remained on defect 3 and the new test file itself:
+
+**Closing item 1 -- defect 3's round-1 fix was cosmetic field-stripping,
+not physical separation.** `run_dynamic_clock.py` still had
+`from replay.forward_metrics import compute_forward_metrics` and
+`from clock.audit_diagnostics import build_audit_diagnostic_record` as
+TOP-LEVEL imports, and `_market_result()` computed BOTH for every subject
+unconditionally, only stripping the resulting keys from the returned dict
+at the very end. So `run()` still READ the post-hoc/forward-return
+machinery and would still fail if either broke, even though the output
+never showed it. Fixed for real: both imports removed from module top
+level entirely; `_market_result()` (what `run()`/`_assemble()` are built
+from) contains no call to either function anywhere. A new, genuinely
+separate `_market_diagnostics()` function -- called ONLY from
+`run_with_diagnostics()` -- lazily imports and computes them via its own
+independent re-scan, sharing no state with `_market_result()`. Regression
+(`test_dynamic_clock_orchestrator_defects.py::
+Defect3AuditArtifactNeverReadByOperationalPathTests`):
+- `test_compute_forward_metrics_and_confirmed_miss_for_are_called_zero_times_during_run`
+  -- mock call-count assertion (`call_count == 0`) for both functions
+  across a real `run()` execution, in both OPERATIONAL and
+  HISTORICAL_REPLAY modes.
+- `test_the_same_two_functions_ARE_called_during_run_with_diagnostics` --
+  companion sanity check proving the mocks are wired to something real
+  (a call-count-zero test that patched the wrong target would trivially
+  "pass" for the wrong reason).
+- `test_operational_run_is_unaffected_if_audit_diagnostics_computation_raises`
+  -- patches `build_audit_diagnostic_record` to raise; `run()` still
+  succeeds and produces the byte-identical result, while
+  `run_with_diagnostics()` (which DOES call the audit path) genuinely
+  propagates the failure, proving the mock would have been hit had `run()`
+  called it.
+- `test_run_dynamic_clock_module_source_has_no_top_level_audit_import` --
+  structural source scan for the two forbidden top-level imports.
+
+**Closing item 2 -- the test suite depended on run order.** Running
+`test_dynamic_clock_pit_tier_invariant.py` before
+`test_review_candidate_contract.py` (and some other orderings) in the same
+`python -m unittest` process produced ERRORs. Root cause:
+`test_module_level_guard_runs_at_import_time` did
+`importlib.reload(clock.review_candidate)`, which rebinds
+`ReviewCandidateError` (and every function in that module) to NEW
+class/function objects -- any other test in the same process that had
+already statically imported the OLD class before that reload then failed
+`assertRaises(ReviewCandidateError, ...)` against the new one, silently.
+The round-1 fix only patched the SYMPTOM (the new defect-test file's own
+imports); the actual cause -- the `reload()` call -- was still there and
+still poisoned other tests. Fixed for real:
+`importlib.reload()` is banned from the shared test process entirely.
+`test_module_level_guard_runs_at_import_time` now calls
+`clock.review_candidate._assert_tier_signature_is_pit_safe()` directly
+(idempotent -- proven not to raise on a second call after it already
+passed once at import), and a new companion
+`test_fresh_subprocess_import_does_not_raise` proves the module-level
+guard genuinely fires on a real, first-time import by importing
+`clock.review_candidate` in an actual separate subprocess -- a strictly
+more faithful proof than `reload()` ever was. Verified: both
+`test_dynamic_clock_pit_tier_invariant` -> `test_review_candidate_contract`
+and the reverse ordering pass; the full 12-file dynamic-clock suite (260
+tests) passes in both forward and reverse full-suite order, and passes
+run file-by-file as 12 separate processes (matching `run_all.py`'s own
+per-file subprocess convention).
+
 ## Authority (unchanged both rounds)
 
 A Trigger firing is a re-review REQUEST only. Every record's `authority`

@@ -150,10 +150,17 @@ class Defect2NewnessIsCommittedStateDiffTests(unittest.TestCase):
 
 
 class Defect3AuditArtifactNeverReadByOperationalPathTests(unittest.TestCase):
-    """CIO requirement: not being a tier INPUT isn't enough -- the
-    operational candidate output must be byte-identical regardless of
-    whether the underlying `clock/audit_confirmed_miss.py` evidence file
-    exists on disk at all, proving the operational path never reads it."""
+    """CIO requirement (round 1 + round 2): not being a tier INPUT isn't
+    enough, and stripping the FIELD from the output isn't enough either --
+    the operational `run()` code path must never CALL/COMPUTE the
+    post-hoc/forward-return machinery at all, not merely omit it from the
+    result. Round 2 fixed this for real: `_market_result()` (what `run()`
+    is built from) contains no import of or call to
+    `replay.forward_metrics.compute_forward_metrics` or
+    `clock.audit_diagnostics.build_audit_diagnostic_record`/
+    `clock.audit_confirmed_miss.confirmed_miss_for` anywhere -- only the
+    separate `_market_diagnostics()`, called exclusively from
+    `run_with_diagnostics()`, does."""
 
     def test_run_output_is_byte_identical_whether_or_not_the_miss_evidence_file_exists(self):
         from clock import audit_confirmed_miss as acm
@@ -162,6 +169,68 @@ class Defect3AuditArtifactNeverReadByOperationalPathTests(unittest.TestCase):
         with mock.patch.object(acm, "MISS_EPISODES_PATH", Path("/nonexistent/does_not_exist.json")):
             missing_file_report = json.dumps(rdc.run(), default=str, sort_keys=True)
         self.assertEqual(real_report, missing_file_report)
+
+    def test_operational_run_is_unaffected_if_audit_diagnostics_computation_raises(self):
+        # ★ round 2: proves genuine (not cosmetic) separation -- if the
+        # audit-diagnostics machinery is completely broken, run() must
+        # still succeed and produce the EXACT SAME result, because it never
+        # calls into that machinery at all.
+        import clock.audit_diagnostics as ad
+
+        baseline = json.dumps(rdc.run(), default=str, sort_keys=True)
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("audit diagnostics machinery is completely broken")
+
+        with mock.patch.object(ad, "build_audit_diagnostic_record", side_effect=_boom):
+            # run() must not raise and must not be affected in any way.
+            still_fine = json.dumps(rdc.run(), default=str, sort_keys=True)
+        self.assertEqual(baseline, still_fine)
+
+        # Meanwhile run_with_diagnostics() (which DOES call the audit path)
+        # genuinely propagates the failure -- proving the mock actually
+        # would have been hit had run() called it.
+        with mock.patch.object(ad, "build_audit_diagnostic_record", side_effect=_boom):
+            with self.assertRaises(RuntimeError):
+                rdc.run_with_diagnostics()
+
+    def test_compute_forward_metrics_and_confirmed_miss_for_are_called_zero_times_during_run(self):
+        # ★ round 2's explicit required proof: mock call-count assertion,
+        # not just "the output doesn't show it".
+        import replay.forward_metrics as fm
+        import clock.audit_diagnostics as ad
+
+        cfm_mock = mock.MagicMock(wraps=fm.compute_forward_metrics)
+        cmf_mock = mock.MagicMock(wraps=ad.confirmed_miss_for)
+        with mock.patch.object(fm, "compute_forward_metrics", cfm_mock), \
+             mock.patch.object(ad, "confirmed_miss_for", cmf_mock):
+            rdc.run()
+            rdc.run(decision_date="2026-08-20", mode=rdc.MODE_HISTORICAL_REPLAY)
+        self.assertEqual(cfm_mock.call_count, 0)
+        self.assertEqual(cmf_mock.call_count, 0)
+
+    def test_the_same_two_functions_ARE_called_during_run_with_diagnostics(self):
+        # Sanity companion to the zero-calls test above: proves the mocks
+        # are wired to something real (a call-count-zero test that patches
+        # the wrong target would trivially "pass" for the wrong reason).
+        import replay.forward_metrics as fm
+        import clock.audit_diagnostics as ad
+
+        cfm_mock = mock.MagicMock(wraps=fm.compute_forward_metrics)
+        cmf_mock = mock.MagicMock(wraps=ad.confirmed_miss_for)
+        with mock.patch.object(fm, "compute_forward_metrics", cfm_mock), \
+             mock.patch.object(ad, "confirmed_miss_for", cmf_mock):
+            rdc.run_with_diagnostics()
+        self.assertGreater(cfm_mock.call_count, 0)
+        self.assertGreater(cmf_mock.call_count, 0)
+
+    def test_run_dynamic_clock_module_source_has_no_top_level_audit_import(self):
+        source = (ROOT / "clock" / "run_dynamic_clock.py").read_text(encoding="utf-8")
+        top_level_lines = [ln for ln in source.splitlines()
+                            if not ln.startswith((" ", "\t")) and ln.strip().startswith(("import ", "from "))]
+        for forbidden in ("compute_forward_metrics", "audit_diagnostics", "audit_confirmed_miss"):
+            offending = [ln for ln in top_level_lines if forbidden in ln]
+            self.assertEqual(offending, [], f"top-level import of {forbidden!r} found: {offending}")
 
     def test_review_candidate_module_has_no_audit_confirmed_miss_or_audit_diagnostics_attribute_reference(self):
         import clock.review_candidate as rc

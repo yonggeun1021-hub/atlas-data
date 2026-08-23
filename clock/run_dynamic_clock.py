@@ -57,6 +57,28 @@ Human Review Candidate) into one deterministic report, split by market
   `dynamic_clock_report.json` are built from) never contains it. See
   `run_with_diagnostics()` for the one function that computes both.
 
+  ★ CIO integration review round 2, defect 1 (the round-1 fix was only
+  FIELD-STRIPPING, not physical separation): `_market_result()` used to
+  compute `reference_forward_metrics_*`/`build_audit_diagnostic_record()`
+  for EVERY subject unconditionally and only strip the key at the very
+  end -- so `run()` still READ `replay.forward_metrics`/
+  `clock.audit_diagnostics`/`clock.audit_confirmed_miss` and would still
+  fail if any of them broke, even though the output never showed it. Fixed
+  for real this round: `compute_forward_metrics`/
+  `build_audit_diagnostic_record` are no longer imported at module top
+  level at all. `_market_result()` (and therefore `run()`/`_assemble()`)
+  contains NO call to either, anywhere. The only place that ever imports or
+  calls them is the new `_market_diagnostics()`, lazily, and ONLY
+  `run_with_diagnostics()` calls `_market_diagnostics()` -- via its own
+  fully independent re-scan, not shared state with `_market_result()`. If
+  `_market_diagnostics()` raised for any reason, `run()`'s result would be
+  completely unaffected (`test_dynamic_clock_orchestrator_defects.py::
+  Defect3AuditArtifactNeverReadByOperationalPathTests::
+  test_operational_run_is_unaffected_if_audit_diagnostics_computation_raises`),
+  and neither `compute_forward_metrics` nor `confirmed_miss_for` is called
+  even once during a `run()` execution (mock call-count proof in the same
+  test class).
+
 ★ CIO integration review round 1, defect 4 (missing PIT timing fields):
   `build_subject_review_candidate()` now requires `decision_at` and emits
   the full `evidence_as_of`/`trigger_observed_at`/`decision_at`/
@@ -82,13 +104,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from replay import asset_identity as ai
-from replay.forward_metrics import compute_forward_metrics
 from replay.opportunity_trigger import canonical_json
 
 from clock import dynamic_clock as dc
 from clock import operational_scan as scan
-from clock.audit_diagnostics import build_audit_diagnostic_record
 from clock.dynamic_clock import build_episode_history, close_stale_episodes
+# ★ CIO integration review round 2, defect 1: `replay.forward_metrics.
+#   compute_forward_metrics` and `clock.audit_diagnostics.
+#   build_audit_diagnostic_record` are DELIBERATELY NOT imported at module
+#   top level -- the operational `run()`/`_market_result()` path must never
+#   read either, even transitively via an import. Only `_market_diagnostics()`
+#   (called exclusively from `run_with_diagnostics()`) lazily imports them.
 from clock.price_reflection_link import link_price_reflection, to_price_reflection_status
 from clock.review_candidate import (
     TIER_IMMEDIATE_REVIEW, TIER_OBSERVATION_ONLY, TIER_WATCH_REVIEW,
@@ -163,6 +189,13 @@ def _load_previous_committed_episode_ids(market: str) -> set[str] | None:
 
 
 def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
+    """The OPERATIONAL result for one market. ★ CIO integration review
+    round 2, defect 1: this function performs NO audit/forward-return
+    computation of any kind, and imports neither
+    `replay.forward_metrics.compute_forward_metrics` nor
+    `clock.audit_diagnostics.build_audit_diagnostic_record` -- not even
+    transitively. See `_market_diagnostics()` for the genuinely separate
+    function that does."""
     _check_decision_date_not_behind_evidence(market, decision_date, mode)
     scanner = scan.MARKET_SCANNERS[market]
     # ★ defect 1: decision_date is passed straight into the scanner, which
@@ -176,7 +209,6 @@ def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
     # already guarantees evidence_as_of <= decision_date when one was
     # given), so no max()/correction is needed here at all.
     decision_at = decision_date if decision_date is not None else evidence_as_of
-    series_map = scan_result.get("series", {})
     kr_universe_codes = scan_result.get("kr_universe_codes")
 
     previous_episode_ids = _load_previous_committed_episode_ids(market)
@@ -209,7 +241,6 @@ def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
                     expired_records.append(build_expired_record(ep))
 
     review_queue: list[dict] = []
-    audit_diagnostics: list[dict] = []
     for subject, episodes in sorted(active_episodes_by_subject.items()):
         # PIT eligibility is checked as of the real operational "now"
         # (decision_at) -- this reveals nothing about the future (a
@@ -232,35 +263,10 @@ def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
             price_reflection_status=price_reflection_status,
         ))
 
-        # ★ defect 3: audit diagnostics (post-hoc Miss note + forward-return
-        #   metrics) are built HERE, entirely separately from the
-        #   operational candidate above -- never merged into it.
-        ref_metrics_latest = None
-        ref_metrics_first = None
-        if subject in PRIORITY_SUBJECTS and subject in series_map:
-            latest_ep = max(episodes, key=lambda e: e["last_detected_at"])
-            latest_ev = latest_ep["evidence_trail"][-1]
-            first_ep = min(episodes, key=lambda e: e["opened_at"])
-            first_ev = first_ep["evidence_trail"][0]
-            ref_metrics_latest = compute_forward_metrics(
-                series_map[subject], latest_ev["detected_at"],
-                signal_evaluation_at=latest_ev["evidence_available_at"],
-            )
-            ref_metrics_first = compute_forward_metrics(
-                series_map[subject], first_ev["detected_at"],
-                signal_evaluation_at=first_ev["evidence_available_at"],
-            )
-        audit_diagnostics.append(build_audit_diagnostic_record(
-            subject, market, episodes,
-            reference_forward_metrics_first_detection=ref_metrics_first,
-            reference_forward_metrics_latest_detection=ref_metrics_latest,
-        ))
-
     raw_trigger_ledger.sort(key=lambda r: (r["subject"], r["trigger_type"], r["candidate_id"]))
     expired_records.sort(key=lambda r: (r["subject"], r["trigger_type"], r["candidate_id"]))
     new_triggers_this_run.sort(key=lambda r: (r["subject"], r["trigger_type"], r["candidate_id"]))
     review_queue.sort(key=lambda r: (r["subject"], r["candidate_id"]))
-    audit_diagnostics.sort(key=lambda r: r["subject"])
 
     # ★ defect 2: subject-level consolidation of "new" -- the raw 95 stays
     #   in new_triggers_this_run (audit only); this is what the briefing
@@ -294,11 +300,70 @@ def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
             "WATCH_REVIEW": len(watch_review),
             "OBSERVATION_ONLY": len(observation_only),
         },
-        # ★ defect 3: kept out of the operational report proper -- stripped
-        #   by run() before it is returned; only run_with_diagnostics()
-        #   surfaces this key.
-        "audit_diagnostics": audit_diagnostics,
     }
+
+
+def _market_diagnostics(market: str, decision_date: str | None, mode: str) -> list[dict]:
+    """★ CIO integration review round 2, defect 1: a GENUINELY separate
+    computation path from `_market_result()` -- lazily imports
+    `replay.forward_metrics.compute_forward_metrics` and
+    `clock.audit_diagnostics.build_audit_diagnostic_record` (the only
+    importer of `clock.audit_confirmed_miss` anywhere in this package)
+    ONLY inside this function's own body, and independently re-scans and
+    re-builds episode history rather than sharing any state with
+    `_market_result()`. Called ONLY from `run_with_diagnostics()` -- never
+    from `run()`/`_assemble()`. If this function raises for any reason (a
+    broken audit file, a forward-metrics bug), `run()`'s own result is
+    completely unaffected -- see
+    `test_dynamic_clock_orchestrator_defects.py::
+    Defect3AuditArtifactNeverReadByOperationalPathTests`."""
+    from clock.audit_diagnostics import build_audit_diagnostic_record
+    from replay.forward_metrics import compute_forward_metrics
+
+    _check_decision_date_not_behind_evidence(market, decision_date, mode)
+    scanner = scan.MARKET_SCANNERS[market]
+    scan_result = scanner(decision_date)
+    evidence_dates = scan_result["evidence_dates"]
+    evidence_as_of = max(evidence_dates) if evidence_dates else None
+    decision_at = decision_date if decision_date is not None else evidence_as_of
+    series_map = scan_result.get("series", {})
+
+    active_episodes_by_subject: dict[str, list[dict]] = {}
+    for subject, by_type in sorted(scan_result["subjects"].items()):
+        for trigger_type, events in sorted(by_type.items()):
+            if not events:
+                continue
+            episodes = build_episode_history(subject, market, trigger_type, events)
+            if decision_at is not None:
+                episodes = close_stale_episodes(episodes, decision_at)
+            for ep in episodes:
+                if ep["status"] == "ACTIVE":
+                    active_episodes_by_subject.setdefault(subject, []).append(ep)
+
+    diagnostics: list[dict] = []
+    for subject, episodes in sorted(active_episodes_by_subject.items()):
+        ref_metrics_latest = None
+        ref_metrics_first = None
+        if subject in PRIORITY_SUBJECTS and subject in series_map:
+            latest_ep = max(episodes, key=lambda e: e["last_detected_at"])
+            latest_ev = latest_ep["evidence_trail"][-1]
+            first_ep = min(episodes, key=lambda e: e["opened_at"])
+            first_ev = first_ep["evidence_trail"][0]
+            ref_metrics_latest = compute_forward_metrics(
+                series_map[subject], latest_ev["detected_at"],
+                signal_evaluation_at=latest_ev["evidence_available_at"],
+            )
+            ref_metrics_first = compute_forward_metrics(
+                series_map[subject], first_ev["detected_at"],
+                signal_evaluation_at=first_ev["evidence_available_at"],
+            )
+        diagnostics.append(build_audit_diagnostic_record(
+            subject, market, episodes,
+            reference_forward_metrics_first_detection=ref_metrics_first,
+            reference_forward_metrics_latest_detection=ref_metrics_latest,
+        ))
+    diagnostics.sort(key=lambda r: r["subject"])
+    return diagnostics
 
 
 def _assemble(decision_date: str | None, mode: str) -> dict:
@@ -329,39 +394,40 @@ def _assemble(decision_date: str | None, mode: str) -> dict:
 
 def run(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> dict:
     """The OPERATIONAL report: what `build_briefing_section()` and
-    `dynamic_clock_report.json` are built from. `audit_diagnostics` is
-    stripped from each market's dict here -- physically absent from this
-    return value, not merely unused (defect 3). Use
-    `run_with_diagnostics()` to get both.
+    `dynamic_clock_report.json` are built from. ★ CIO integration review
+    round 2, defect 1: this call path performs NO audit/forward-return
+    computation at all -- `_market_result()` never imports or calls
+    `compute_forward_metrics`/`build_audit_diagnostic_record`, so there is
+    nothing to strip any more (round 1's fix only stripped the FIELD after
+    computing it anyway; round 2 removes the computation itself). Use
+    `run_with_diagnostics()` to also get the diagnostics artifact.
 
     `decision_date`, when supplied, is the real operational "today" this
     run is FOR. Never sourced from `datetime.now()` inside this function --
     the caller (a workflow's own shell `date` command, or
     `briefing/daily_orchestrator.py`'s own decision_date parameter) is
     responsible for supplying it."""
-    report = _assemble(decision_date, mode)
-    for market_result in report["by_market"].values():
-        market_result.pop("audit_diagnostics", None)
-    return report
+    return _assemble(decision_date, mode)
 
 
 def run_with_diagnostics(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> tuple[dict, dict]:
-    """Returns `(operational_report, audit_diagnostics_report)` -- the only
-    function in this module that computes both from a single scan (avoids
-    re-scanning). `write_report()` uses this to persist the two as
-    genuinely separate committed files."""
-    full = _assemble(decision_date, mode)
-    operational_by_market: dict[str, dict] = {}
-    diagnostics_by_market: dict[str, list[dict]] = {}
-    for market, market_result in full["by_market"].items():
-        diagnostics_by_market[market] = market_result.get("audit_diagnostics", [])
-        operational_by_market[market] = {k: v for k, v in market_result.items() if k != "audit_diagnostics"}
-    operational_report = {**full, "by_market": operational_by_market}
+    """Returns `(operational_report, audit_diagnostics_report)`. ★ CIO
+    integration review round 2, defect 1: the two are now computed via
+    GENUINELY SEPARATE scans/code paths (`run()` -> `_market_result()` vs.
+    `_market_diagnostics()`), not split out of one shared computation --
+    this is the only function that calls `_market_diagnostics()` at all.
+    `write_report()` uses this to persist the two as genuinely separate
+    committed files."""
+    operational_report = run(decision_date, mode)
+    diagnostics_by_market = {
+        market: _market_diagnostics(market, decision_date, mode)
+        for market in ("BTC", "KOREA", "CRYPTO")
+    }
     diagnostics_report = {
         "wbs_item": "P8-12 audit diagnostics (post-hoc, NEVER read by the operational path)",
-        "decision_date": full["decision_date"],
-        "mode": full["mode"],
-        "report_asof_evidence_date": full["report_asof_evidence_date"],
+        "decision_date": operational_report["decision_date"],
+        "mode": operational_report["mode"],
+        "report_asof_evidence_date": operational_report["report_asof_evidence_date"],
         "by_market": diagnostics_by_market,
     }
     return operational_report, diagnostics_report

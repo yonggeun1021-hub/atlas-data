@@ -47,13 +47,34 @@ class TierSignatureIsPITSafeTests(unittest.TestCase):
                 self.assertNotIn(forbidden, lowered, f"parameter {p!r} looks outcome/post-hoc-shaped")
 
     def test_module_level_guard_runs_at_import_time(self):
-        # _assert_tier_signature_is_pit_safe() is called unconditionally at
-        # module import in review_candidate.py -- re-importing the already-
-        # loaded module must not raise (it already passed once at import).
-        import importlib
+        # ★ CIO integration review round 2, defect 2: this test used to
+        # `importlib.reload(clock.review_candidate)`, which REBINDS
+        # `ReviewCandidateError`/every function in that module to NEW class/
+        # function objects -- any OTHER test in the same process that had
+        # already done `from clock.review_candidate import ReviewCandidateError`
+        # (or similar) before this test ran would then fail `assertRaises`
+        # against the now-stale old class, poisoning run order. `reload()`
+        # is banned from this shared test process entirely; instead, call
+        # the guard function directly (it is idempotent -- calling it again
+        # after it already passed once at import must still not raise) AND
+        # prove the module-level call genuinely happens at import time via a
+        # real, separate subprocess (see
+        # `test_fresh_subprocess_import_does_not_raise` below), which is a
+        # strictly more faithful proof than reload ever was.
+        from clock.review_candidate import _assert_tier_signature_is_pit_safe
+        _assert_tier_signature_is_pit_safe()  # must not raise
 
-        import clock.review_candidate as rc
-        importlib.reload(rc)  # re-executes the module body, including the guard call
+    def test_fresh_subprocess_import_does_not_raise(self):
+        # The module-level guard call (`_assert_tier_signature_is_pit_safe()`
+        # at the bottom of clock/review_candidate.py) genuinely fires on a
+        # real, first-time import in a completely fresh interpreter -- not
+        # merely "doesn't raise when called a second time in-process".
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-c", "import clock.review_candidate"],
+            cwd=ROOT, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_calling_compute_tier_with_a_forward_return_kwarg_raises_typeerror(self):
         # Not silently ignored -- Python itself refuses an unknown kwarg,
