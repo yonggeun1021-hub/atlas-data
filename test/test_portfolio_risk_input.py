@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Portfolio Risk Input Contract -- regression + the 13 required
-counter-example scenarios, PLUS the 6 CIO review-round-1 P0/P1 fixes
-(account-number sanitization, real append-only storage, multi-currency
-FX-safe totals, stale/mismatch forcing the whole risk block
-NOT_COMPUTABLE, a non-caller-suppliable Account Scope Registry, and
-semantic -- not just hash -- re-derivation in the validator).
+counter-example scenarios, PLUS:
+  - Round 1's 6 CIO-review fixes (account-number sanitization utility,
+    multi-currency FX-safe totals, stale/mismatch forcing the whole risk
+    block NOT_COMPUTABLE, a non-caller-suppliable Account Scope Registry,
+    semantic re-derivation in the validator).
+  - Round 2's fixes: this repo is PUBLIC, so `capture.py` NEVER writes any
+    file (real or redacted) to disk at all -- it builds/verifies a real
+    packet purely in memory and returns/prints only an explicitly
+    allowlisted, non-sensitive summary. Round 2 also fixed and permanently
+    regression-locked 4 real PIT defects (see the
+    `CIORound2PitReproduction0*` classes below, named after the CIO's own
+    reproduction scenarios).
 """
 from __future__ import annotations
 
 import copy
 import datetime as dt
-import gzip
 import importlib.util
 import inspect
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,8 +41,11 @@ PS = _load("portfolio_risk.portfolio_snapshot", "portfolio_risk/portfolio_snapsh
 T0 = "2026-08-23T14:00:00Z"
 T_LATER = "2026-08-23T15:00:00Z"
 T_MUCH_LATER = "2026-08-25T15:00:00Z"  # > STALENESS_MAX_AGE_HOURS after T0
+T_EARLIER = "2026-08-01T00:00:00Z"
 
 REAL_ACCOUNT_NUMBER = "PA000TEST0001"
+REAL_EQUITY = "10000.00"
+REAL_CASH = "5000.00"
 
 
 def _account(**overrides):
@@ -45,8 +53,8 @@ def _account(**overrides):
         "id": "11111111-2222-3333-4444-555555555555",
         "account_number": REAL_ACCOUNT_NUMBER,
         "currency": "USD",
-        "equity": "10000.00",
-        "cash": "5000.00",
+        "equity": REAL_EQUITY,
+        "cash": REAL_CASH,
         "buying_power": "10000.00",
         "status": "ACTIVE",
         "trading_blocked": False,
@@ -86,7 +94,7 @@ class ContractShapeTests(unittest.TestCase):
         packet = _build_packet([fact])
         PS.validate_snapshot(packet)
         risk = packet["risk_capacity_inputs"]
-        self.assertEqual(risk["status"], "COMPUTABLE")
+        self.assertEqual(risk["status"], "COMPUTABLE")  # single, fully broker-verified account
         self.assertEqual(risk["account_scope_label"], "US_PAPER_ACCOUNT_SCOPE_ONLY")
         self.assertEqual(risk["connected_scope_nav"], 10000.0)
         self.assertEqual(risk["full_portfolio_nav_status"], "NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE")
@@ -103,9 +111,8 @@ class CounterExample01FutureDatedSnapshot(unittest.TestCase):
 
 
 class CounterExample02StaleBalance(unittest.TestCase):
-    """Stale account balance used as current -- rejected. Fix 4: this now
-    forces the WHOLE risk_capacity_inputs block to NOT_COMPUTABLE, not
-    just a flag next to numbers that keep getting computed."""
+    """Stale account balance used as current -- rejected: forces the WHOLE
+    risk_capacity_inputs block to NOT_COMPUTABLE, not just a flag."""
     def test_old_capture_vs_new_decision_forces_whole_block_not_computable(self):
         fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T_MUCH_LATER)
         self.assertEqual(fact["staleness_status"], "STALE")
@@ -113,7 +120,6 @@ class CounterExample02StaleBalance(unittest.TestCase):
         risk = packet["risk_capacity_inputs"]
         self.assertEqual(risk["status"], "NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT")
         self.assertTrue(risk["data_completeness"]["any_stale"])
-        # ★ Fix 4: not just flagged -- every number in the block is None.
         for field in ("connected_scope_nav", "full_portfolio_nav", "total_cash_base_currency",
                       "gross_exposure_base_currency", "net_exposure_base_currency", "existing_position_count"):
             self.assertIsNone(risk[field], field)
@@ -136,11 +142,12 @@ class CounterExample03DuplicatePositions(unittest.TestCase):
 
 
 class CounterExample04MixedCurrencyNoFx(unittest.TestCase):
-    """Mixed-currency amounts summed without an FX rate -- rejected.
-    Fix 3: cash/exposure totals are NEVER summed raw across currency --
-    only the explicit `*_base_currency` fields are cross-currency totals,
-    and those follow the exact same missing/stale-FX NOT_COMPUTABLE rule
-    as NAV."""
+    """Mixed-currency amounts summed without an FX rate -- rejected. Only
+    the explicit `*_base_currency` fields are ever cross-currency totals,
+    following the exact same missing/stale-FX rule as NAV. NOTE: the KRW
+    account here is a manual fact, so `status` is
+    `DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT` (not `COMPUTABLE`) once
+    both facts are fresh/reconciled -- see CIO round 2 PIT fix 4."""
     def _two_currency_facts(self):
         usd_fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
         krw_fact = PS.build_manual_account_fact(
@@ -154,15 +161,13 @@ class CounterExample04MixedCurrencyNoFx(unittest.TestCase):
         usd_fact, krw_fact = self._two_currency_facts()
         packet = _build_packet([usd_fact, krw_fact])
         risk = packet["risk_capacity_inputs"]
-        self.assertEqual(risk["status"], "COMPUTABLE")  # data itself isn't stale/mismatched
+        self.assertEqual(risk["status"], "DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT")  # manual fact present
         self.assertEqual(risk["connected_scope_nav_status"], "NOT_COMPUTABLE_MISSING_FX_RATE")
         self.assertIsNone(risk["connected_scope_nav"])
         self.assertEqual(risk["total_cash_base_currency_status"], "NOT_COMPUTABLE_MISSING_FX_RATE")
         self.assertIsNone(risk["total_cash_base_currency"])
         self.assertEqual(risk["gross_exposure_base_currency_status"], "NOT_COMPUTABLE_MISSING_FX_RATE")
         self.assertIsNone(risk["gross_exposure_base_currency"])
-        # Raw per-currency breakdowns are still reported -- never blended,
-        # never silently dropped just because the base-currency total failed.
         by_currency = {row["currency"]: row["market_value"] for row in risk["exposure_by_currency"]}
         self.assertEqual(by_currency["USD"], 5000.0)
         self.assertEqual(by_currency["KRW"], 80000.0)
@@ -174,30 +179,27 @@ class CounterExample04MixedCurrencyNoFx(unittest.TestCase):
         usd_fact, krw_fact = self._two_currency_facts()
         stale_fx = PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": T0, "source": "MANUAL"}}, T_MUCH_LATER)
         packet = _build_packet([usd_fact, krw_fact], fx_rates=stale_fx, decision_at=T_MUCH_LATER)
-        # Both facts are FRESH relative to T0's staleness window from T0 itself,
-        # but decision_at is far in the future -> facts read STALE -> whole
-        # block collapses (Fix 4), which subsumes the FX staleness case too.
+        # Both facts read STALE relative to the far-future decision_at ->
+        # the stale/mismatch gate (priority 1) fires regardless of the
+        # unverified-source downgrade (priority 2).
         self.assertEqual(packet["risk_capacity_inputs"]["status"], "NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT")
 
     def test_stale_fx_rate_alone_blocks_totals_when_accounts_are_fresh(self):
         usd_fact, krw_fact = self._two_currency_facts()
-        # Accounts stay fresh (captured_at == decision_at == T0); only the FX
-        # rate itself is stale relative to decision_at.
-        stale_fx = PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": "2026-08-01T00:00:00Z"}}, T0)
+        stale_fx = PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": T_EARLIER}}, T0)
         packet = _build_packet([usd_fact, krw_fact], fx_rates=stale_fx)
-        risk = packet["risk_capacity_inputs"]
-        # any_stale picks up the stale fx pair -> whole block NOT_COMPUTABLE (Fix 4).
-        self.assertEqual(risk["status"], "NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT")
+        self.assertEqual(packet["risk_capacity_inputs"]["status"], "NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT")
 
-    def test_fresh_fx_rate_allows_base_currency_totals(self):
+    def test_fresh_fx_rate_allows_base_currency_totals_but_only_as_diagnostic(self):
         usd_fact, krw_fact = self._two_currency_facts()
         fresh_fx = PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": T0, "source": "MANUAL"}}, T0)
         packet = _build_packet([usd_fact, krw_fact], fx_rates=fresh_fx)
         risk = packet["risk_capacity_inputs"]
-        self.assertEqual(risk["status"], "COMPUTABLE")
-        self.assertEqual(risk["connected_scope_nav_status"], "OK")
+        self.assertEqual(risk["status"], "DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT")
+        self.assertEqual(risk["connected_scope_nav_status"], "DIAGNOSTIC_UNVERIFIED")  # downgraded from OK
         self.assertAlmostEqual(risk["connected_scope_nav"], 10000.0 + 1_080_000.0 * 0.00072)
         self.assertAlmostEqual(risk["total_cash_base_currency"], 5000.0 + 1_000_000.0 * 0.00072)
+        self.assertEqual(risk["full_portfolio_nav_status"], "NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE")
 
 
 class CounterExample05ManualDisguisedAsVerified(unittest.TestCase):
@@ -249,9 +251,8 @@ class CounterExample07NegativeOrNanNav(unittest.TestCase):
 
 
 class CounterExample08NavPositionMismatch(unittest.TestCase):
-    """Account-level NAV disagreeing with the sum of positions -- flagged.
-    Fix 4: this now also forces the whole risk_capacity_inputs block to
-    NOT_COMPUTABLE at the snapshot level, not merely a per-account flag."""
+    """Account-level NAV disagreeing with the sum of positions -- rejected:
+    forces the whole risk_capacity_inputs block to NOT_COMPUTABLE."""
     def test_gross_mismatch_is_flagged_and_forces_block_not_computable(self):
         fact = PS.build_alpaca_paper_account_fact(
             _account(equity="10000.00", cash="1.00"), _positions(market_value="1.00"),
@@ -266,10 +267,9 @@ class CounterExample08NavPositionMismatch(unittest.TestCase):
 
 
 class CounterExample09PartialMarketMissing(unittest.TestCase):
-    """Total NAV confirmed while some market's data is missing -- rejected
-    (must be NOT_COMPUTABLE instead). Fix 5/6: account scope is now a fixed
-    registry (`CANONICAL_ACCOUNT_SCOPE`), never a caller-suppliable
-    parameter -- there is nothing to shrink to make this pass."""
+    """Total NAV confirmed while some market's data is missing -- rejected.
+    Account scope is a fixed registry (`CANONICAL_ACCOUNT_SCOPE`), never a
+    caller-suppliable parameter."""
     def test_alpaca_only_never_presented_as_full_portfolio(self):
         fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
         packet = _build_packet([fact])
@@ -278,22 +278,9 @@ class CounterExample09PartialMarketMissing(unittest.TestCase):
         self.assertEqual(risk["full_portfolio_nav_status"], "NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE")
         self.assertIsNone(risk["full_portfolio_nav"])
         self.assertEqual(risk["data_completeness"]["missing_sources"], ["CRYPTO", "KOREA"])
-        # connected_scope_nav is fine to compute (it covers exactly what IS
-        # connected) but is never called a "total portfolio" figure.
         self.assertEqual(risk["connected_scope_nav"], 10000.0)
 
-    def test_full_canonical_scope_present_allows_full_portfolio_nav(self):
-        usd_fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
-        krw_fact = PS.build_manual_account_fact(market="KOREA", currency="USD", cash=100.0, positions=[], captured_at=T0, decision_at=T0)
-        crypto_fact = PS.build_manual_account_fact(market="CRYPTO", currency="USD", cash=200.0, positions=[], captured_at=T0, decision_at=T0)
-        packet = _build_packet([usd_fact, krw_fact, crypto_fact])
-        risk = packet["risk_capacity_inputs"]
-        self.assertEqual(risk["account_scope_label"], "FULL_CANONICAL_ACCOUNT_SCOPE")
-        self.assertEqual(risk["full_portfolio_nav_status"], "OK")
-        self.assertAlmostEqual(risk["full_portfolio_nav"], 10000.0 + 100.0 + 200.0)
-
     def test_assemble_snapshot_has_no_expected_sources_parameter_to_shrink(self):
-        # Structural: nothing a caller can pass to shrink account scope.
         params = inspect.signature(PS.assemble_snapshot).parameters
         self.assertNotIn("expected_sources", params)
 
@@ -304,25 +291,23 @@ class CounterExample10SameTimestampTampering(unittest.TestCase):
         fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
         packet = _build_packet([fact])
         tampered = copy.deepcopy(packet)
-        tampered["risk_capacity_inputs"]["connected_scope_nav"] = 999999.0  # same captured_at, content silently changed
+        tampered["risk_capacity_inputs"]["connected_scope_nav"] = 999999.0
         with self.assertRaises(PS.PortfolioSnapshotError):
             PS.validate_snapshot(tampered)
 
 
 class CounterExampleReSignedSemanticTamperRejected(unittest.TestCase):
-    """★ CIO fix 7/8 (P0): a re-signed tamper -- claimed value changed AND
-    the hash regenerated to match the tampered packet -- must STILL be
-    rejected, because validate_snapshot() independently RE-DERIVES
-    risk_capacity_inputs from portfolio_facts (which was left untouched)
-    and compares field-by-field, rather than only checking hash
-    self-consistency."""
+    """A re-signed tamper -- claimed value changed AND the hash regenerated
+    to match -- must STILL be rejected, because validate_snapshot()
+    independently RE-DERIVES risk_capacity_inputs from portfolio_facts
+    (left untouched) and compares field-by-field, rather than only
+    checking hash self-consistency."""
     def test_tampered_nav_with_freshly_regenerated_hash_still_rejected(self):
         fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
         packet = _build_packet([fact])
         tampered = copy.deepcopy(packet)
         tampered["risk_capacity_inputs"]["connected_scope_nav"] = 999999.0
-        tampered["risk_capacity_inputs"]["full_portfolio_nav"] = None  # keep internally hash-consistent shape
-        # Attacker regenerates a VALID hash over the tampered packet.
+        tampered["risk_capacity_inputs"]["full_portfolio_nav"] = None
         tampered["packet_sha256"] = PS.payload_sha256({k: v for k, v in tampered.items() if k != "packet_sha256"})
         with self.assertRaisesRegex(PS.PortfolioSnapshotError, "SEMANTIC_TAMPER_DETECTED"):
             PS.validate_snapshot(tampered)
@@ -360,7 +345,7 @@ class CounterExample11NoOrderApiCallPossible(unittest.TestCase):
 
     def test_get_helper_never_passes_data_or_method(self):
         source = inspect.getsource(AC._get)
-        code_only = source.split('"""', 2)[-1]  # strip the docstring, which mentions `data=` in prose
+        code_only = source.split('"""', 2)[-1]
         self.assertNotIn("data=", code_only)
         self.assertNotIn("method=", code_only)
 
@@ -425,15 +410,11 @@ class NoPlaintextSecretsTests(unittest.TestCase):
         self.assertNotIn(REAL_ACCOUNT_NUMBER, json.dumps(packet))
 
 
-class CounterExampleAccountNumberNeverInRawEvidence(unittest.TestCase):
-    """★ CIO fix 1/2 (P0, the most serious defect found): the previous
-    version of this module stored the FULL, un-sanitized raw Alpaca
-    response as committed evidence -- gzip is not encryption, and the old
-    tests only checked the normalized `manifest.json`, never the raw gzip
-    itself, so the leak went undetected. This class decompresses the
-    ACTUAL stored gzip bytes -- exactly as `capture.py` would write them --
-    and scans the decompressed plaintext for the real account number and
-    the Alpaca internal account `id`."""
+class CounterExampleSanitizeUtility(unittest.TestCase):
+    """`sanitize_for_raw_evidence()` -- kept as a tested, still-useful
+    utility (defense in depth for any future private-storage path), even
+    though round 2 established it alone is not sufficient for public-repo
+    safety (see `PublicRepoNeverReceivesRealFinancialData` below)."""
     def test_sanitize_strips_forbidden_keys_recursively(self):
         raw_account = _account()
         self.assertIn("account_number", raw_account)
@@ -449,93 +430,170 @@ class CounterExampleAccountNumberNeverInRawEvidence(unittest.TestCase):
         self.assertNotIn(REAL_ACCOUNT_NUMBER, json.dumps(sanitized))
         self.assertEqual(sanitized["outer"]["list"][0], {"keep": "yes"})
 
-    def test_decompressed_stored_raw_gzip_never_contains_the_real_account_number(self):
-        """The actual end-to-end proof: build the bytes exactly as
-        `capture.py::run()` does, decompress them, and scan the plaintext."""
-        capture = _load("portfolio_risk.capture", "portfolio_risk/capture.py")
-        raw_account = _account(account_number=REAL_ACCOUNT_NUMBER)
-        sanitized = PS.sanitize_for_raw_evidence(raw_account)
-        stored_bytes = gzip.compress(capture._canonical_bytes(sanitized), mtime=0)
-        decompressed_text = gzip.decompress(stored_bytes).decode("utf-8")
-        self.assertNotIn(REAL_ACCOUNT_NUMBER, decompressed_text)
-        self.assertNotIn(raw_account["id"], decompressed_text)
-        # sanity: the field really was present in the raw input we started from
-        self.assertIn(REAL_ACCOUNT_NUMBER, json.dumps(raw_account))
+
+# ═══════════════════════════════════════════════════════════════════════
+# CIO round 2 (2026-08-23): repo is PUBLIC -- permanently locked regressions
+# ═══════════════════════════════════════════════════════════════════════
+
+class CIORound2PitReproduction01FutureSnapshotPassedAsFresh(unittest.TestCase):
+    """CIO reproduction 1: "A future-dated account snapshot passes as
+    FRESH against a past decision_at." Locked as a permanent regression --
+    now REJECTED outright at fact-build time, never silently marked FRESH."""
+    def test_alpaca_fact_future_captured_at_rejected(self):
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "FUTURE_DATED_VALUE_REJECTED"):
+            PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T_LATER, decision_at=T0)
+
+    def test_manual_fact_future_captured_at_rejected(self):
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "FUTURE_DATED_VALUE_REJECTED"):
+            PS.build_manual_account_fact(market="CRYPTO", currency="USD", cash=100.0, positions=[],
+                                          captured_at=T_LATER, decision_at=T0)
 
 
-class EvidencePublishTests(unittest.TestCase):
+class CIORound2PitReproduction02AvailableAfterDecisionPassedValidation(unittest.TestCase):
+    """CIO reproduction 2: "available_at > decision_at still passes
+    validation." Locked as a permanent regression -- now REJECTED."""
+    def test_available_after_decision_rejected(self):
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "AVAILABLE_AFTER_DECISION_REJECTED"):
+            PS._validate_snapshot_timing(captured_at=T0, available_at=T_LATER, decision_at=T0)
+
+    def test_assemble_snapshot_rejects_available_after_decision_end_to_end(self):
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "AVAILABLE_AFTER_DECISION_REJECTED"):
+            PS.assemble_snapshot(account_facts=[fact], fx_rates={}, captured_at=T0, available_at=T_LATER, decision_at=T0)
+
+
+class CIORound2PitReproduction03FutureFxPassedAsFresh(unittest.TestCase):
+    """CIO reproduction 3: "A future-dated FX rate also passes as FRESH."
+    Locked as a permanent regression -- now REJECTED."""
+    def test_future_dated_fx_as_of_rejected(self):
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "FUTURE_DATED_VALUE_REJECTED"):
+            PS.assemble_fx_rates({"KRW/USD": {"rate": 0.00072, "as_of": T_LATER}}, decision_at=T0)
+
+
+class CIORound2PitReproduction04ManualInputReachedFullCanonicalComputable(unittest.TestCase):
+    """CIO reproduction 4: "Feeding manual Korea/Crypto input (unverified)
+    still produces FULL_CANONICAL_ACCOUNT_SCOPE, full_portfolio_nav_status
+    =OK, and top-level COMPUTABLE." Locked as a permanent regression --
+    unverified manual data is never treated as equivalent to
+    broker-verified data for completeness purposes."""
+    def test_full_canonical_scope_with_manual_sources_never_reaches_computable_or_ok(self):
+        usd_fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
+        krw_fact = PS.build_manual_account_fact(market="KOREA", currency="USD", cash=100.0, positions=[], captured_at=T0, decision_at=T0)
+        crypto_fact = PS.build_manual_account_fact(market="CRYPTO", currency="USD", cash=200.0, positions=[], captured_at=T0, decision_at=T0)
+        packet = _build_packet([usd_fact, krw_fact, crypto_fact])
+        risk = packet["risk_capacity_inputs"]
+        # Scope IS fully connected...
+        self.assertEqual(risk["account_scope_label"], "FULL_CANONICAL_ACCOUNT_SCOPE")
+        self.assertEqual(risk["data_completeness"]["missing_sources"], [])
+        # ...but that must NEVER translate into a verified-looking total.
+        self.assertNotEqual(risk["status"], "COMPUTABLE")
+        self.assertEqual(risk["status"], "DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT")
+        self.assertIsNone(risk["full_portfolio_nav"])
+        self.assertEqual(risk["full_portfolio_nav_status"], "NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE")
+        self.assertNotEqual(risk["connected_scope_nav_status"], "OK")
+        self.assertEqual(risk["connected_scope_nav_status"], "DIAGNOSTIC_UNVERIFIED")
+        PS.validate_snapshot(packet)  # also survives independent re-derivation
+
+
+class PublicRepoNeverReceivesRealFinancialData(unittest.TestCase):
+    """★ CIO round 2 P0 (the most serious defect found): this repo
+    (`yonggeun1021-hub/atlas-data`) is PUBLIC. Real NAV/cash/positions/P&L/
+    account_id_hash must never reach ANY path that writes to it -- proven
+    here at the code level, not just "we removed the commit step"."""
+
     def _capture_module(self):
         return _load("portfolio_risk.capture", "portfolio_risk/capture.py")
 
-    def _patch_fetchers(self, capture, account_raw, positions_raw):
-        capture.alpaca_client.fetch_account = lambda key, secret: account_raw
-        capture.alpaca_client.fetch_positions = lambda key, secret: positions_raw
+    def test_capture_module_contains_no_filesystem_write_capability_at_all(self):
+        """The strongest structural proof: this module cannot write a file
+        even if something in it tried to -- none of the primitives that
+        could open/replace/compress a file for writing appear anywhere in
+        its ACTUAL CODE (docstrings are stripped first, since this file's
+        own documentation discusses these forbidden primitives by name)."""
+        import re
+        source = inspect.getsource(self._capture_module())
+        code_only = re.sub(r'"""(?:.|\n)*?"""', "", source)  # strip module/function docstrings
+        for forbidden in ("open(", "os.replace", "gzip", "tempfile", ".write_text(", ".write_bytes(", "NamedTemporaryFile"):
+            self.assertNotIn(forbidden, code_only, f"capture.py must never gain filesystem-write capability ({forbidden!r} found)")
 
-    def test_capture_module_writes_append_only_evidence_without_raw_account_number(self):
+    def test_redact_for_public_repo_keys_are_a_subset_of_the_public_safe_allowlist(self):
         capture = self._capture_module()
-        self._patch_fetchers(capture, _account(), _positions())
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
+        packet = _build_packet([fact])
+        redacted = capture._redact_for_public_repo(packet)
+        self.assertLessEqual(set(redacted.keys()), capture.PUBLIC_SAFE_CAPTURE_RESULT_KEYS)
+
+    def test_redact_for_public_repo_never_contains_any_real_numeric_or_identifying_value(self):
+        capture = self._capture_module()
+        fact = PS.build_alpaca_paper_account_fact(_account(), _positions(), captured_at=T0, decision_at=T0)
+        packet = _build_packet([fact])
+        redacted_text = json.dumps(capture._redact_for_public_repo(packet))
+        for forbidden_value in (REAL_ACCOUNT_NUMBER, REAL_EQUITY, REAL_CASH, "5000.0", "10000.0",
+                                 fact["account_id_hash"], "AAPL", "100.0"):
+            self.assertNotIn(forbidden_value, redacted_text, forbidden_value)
+        # And no forbidden KEY names either, recursively.
+        redacted_obj = json.loads(redacted_text)
+        self._assert_no_forbidden_keys(redacted_obj)
+
+    def _assert_no_forbidden_keys(self, value):
+        forbidden_key_fragments = ("equity", "cash", "nav", "market_value", "unrealized_pl",
+                                    "buying_power", "account_id_hash", "position", "exposure", "quantity", "qty")
+        if isinstance(value, dict):
+            for k, v in value.items():
+                lowered = k.lower()
+                for fragment in forbidden_key_fragments:
+                    self.assertNotIn(fragment, lowered, f"forbidden key fragment {fragment!r} found in key {k!r}")
+                self._assert_no_forbidden_keys(v)
+        elif isinstance(value, list):
+            for item in value:
+                self._assert_no_forbidden_keys(item)
+
+    def test_failure_path_also_never_leaks_a_real_value(self):
+        """Even an exception message could embed a real number (e.g.
+        `NEGATIVE_NAV_OR_CASH_REJECTED:equity=-10.0`) -- the failure-path
+        redaction uses only the exception CLASS name, never `str(exc)`."""
+        capture = self._capture_module()
+        try:
+            PS.build_alpaca_paper_account_fact(_account(equity="-10.00"), _positions(), captured_at=T0, decision_at=T0)
+            self.fail("expected PortfolioSnapshotError")
+        except PS.PortfolioSnapshotError as exc:
+            redacted = capture._redacted_failure_result(type(exc).__name__)
+        self.assertLessEqual(set(redacted.keys()), capture.PUBLIC_SAFE_CAPTURE_RESULT_KEYS)
+        self.assertNotIn("-10", json.dumps(redacted))
+        self.assertEqual(redacted["capture_status"], "FAILURE")
+        self.assertEqual(redacted["error_code"], "PortfolioSnapshotError")
+
+    def test_run_returns_only_the_redacted_result_end_to_end_with_mocked_network(self):
+        capture = self._capture_module()
+        capture.alpaca_client.fetch_account = lambda key, secret: _account()
+        capture.alpaca_client.fetch_positions = lambda key, secret: _positions()
         now = dt.datetime(2026, 8, 23, 14, 0, 0, tzinfo=dt.timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            packet = capture.run(root, "k", "s", now)
-            self.assertTrue((root / "data" / "latest_portfolio_risk_input.json").exists())
-            raw_dir = root / "evidence" / "operational" / "portfolio_risk_input" / "raw" / "2026-08-23"
-            self.assertTrue(raw_dir.exists())
-            gz_files = sorted(raw_dir.glob("alpaca_account-*.json.gz"))
-            self.assertEqual(len(gz_files), 1)
-            decompressed = gzip.decompress(gz_files[0].read_bytes()).decode("utf-8")
-            self.assertNotIn(REAL_ACCOUNT_NUMBER, decompressed)  # ★ the exact CIO-flagged leak, now proven absent
-            manifest_files = list(raw_dir.glob("manifest-*.json"))
-            self.assertEqual(len(manifest_files), 1)
-            self.assertNotIn(REAL_ACCOUNT_NUMBER, manifest_files[0].read_text())
-            on_disk = json.loads(manifest_files[0].read_text())
-            self.assertEqual(on_disk["packet_sha256"], packet["packet_sha256"])
+        result = capture.run("k", "s", now)
+        self.assertLessEqual(set(result.keys()), capture.PUBLIC_SAFE_CAPTURE_RESULT_KEYS)
+        result_text = json.dumps(result)
+        for forbidden_value in (REAL_ACCOUNT_NUMBER, REAL_EQUITY, REAL_CASH):
+            self.assertNotIn(forbidden_value, result_text)
+        self.assertEqual(result["capture_status"], "SUCCESS")
+        self.assertEqual(result["source"], "ALPACA_PAPER")
+        self.assertEqual(result["real_data_persistence_status"], "PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE")
 
-    def test_rerun_with_identical_snapshot_is_a_byte_identical_noop(self):
-        """★ CIO fix 3: re-running with an identical snapshot must not
-        duplicate or overwrite evidence -- it's a no-op at the same
-        content-addressed path."""
-        capture = self._capture_module()
-        self._patch_fetchers(capture, _account(), _positions())
-        now = dt.datetime(2026, 8, 23, 14, 0, 0, tzinfo=dt.timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            capture.run(root, "k", "s", now)
-            raw_dir = root / "evidence" / "operational" / "portfolio_risk_input" / "raw" / "2026-08-23"
-            before = {p.name: p.read_bytes() for p in raw_dir.iterdir()}
-            capture.run(root, "k", "s", now)  # identical inputs, identical timestamp
-            after = {p.name: p.read_bytes() for p in raw_dir.iterdir()}
-            self.assertEqual(before, after)  # same files, same bytes -- no duplication, no overwrite
-
-    def test_two_genuinely_different_snapshots_same_day_both_preserved(self):
-        """★ CIO fix 3 / required test item 10: two DIFFERENT snapshots
-        captured on the same day must both survive as distinct evidence
-        files, not overwrite each other."""
-        capture = self._capture_module()
-        now = dt.datetime(2026, 8, 23, 14, 0, 0, tzinfo=dt.timezone.utc)
-        later = dt.datetime(2026, 8, 23, 16, 0, 0, tzinfo=dt.timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self._patch_fetchers(capture, _account(equity="10000.00", cash="5000.00"), _positions())
-            first_packet = capture.run(root, "k", "s", now)
-            self._patch_fetchers(capture, _account(equity="12000.00", cash="7000.00"), _positions())
-            second_packet = capture.run(root, "k", "s", later)
-            raw_dir = root / "evidence" / "operational" / "portfolio_risk_input" / "raw" / "2026-08-23"
-            manifest_files = sorted(raw_dir.glob("manifest-*.json"))
-            self.assertEqual(len(manifest_files), 2)  # both preserved, neither overwritten
-            self.assertNotEqual(first_packet["packet_sha256"], second_packet["packet_sha256"])
-            account_gz_files = sorted(raw_dir.glob("alpaca_account-*.json.gz"))
-            self.assertEqual(len(account_gz_files), 2)
-            for f in account_gz_files:
-                self.assertNotIn(REAL_ACCOUNT_NUMBER, gzip.decompress(f.read_bytes()).decode("utf-8"))
-
-    def test_collision_with_genuinely_different_content_at_same_path_hard_fails(self):
-        capture = self._capture_module()
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "collide.json"
-            capture._write_append_only_or_noop(path, b"first-content")
-            with self.assertRaisesRegex(capture.PortfolioRiskCaptureError, "APPEND_ONLY_EVIDENCE_COLLISION"):
-                capture._write_append_only_or_noop(path, b"different-content")
+    def test_workflow_has_no_write_permission_no_commit_step_no_schedule(self):
+        """Parses the actual YAML structure (not a raw-text scan, which
+        would false-positive on this file's own descriptive comments) and
+        checks the real `permissions`/`on`/step `run:` values."""
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github" / "workflows" / "portfolio-risk-input.yml").read_text())
+        self.assertEqual(doc["permissions"]["contents"], "read")
+        on_key = doc.get("on", doc.get(True))  # PyYAML may parse bare `on:` as boolean True (YAML 1.1)
+        self.assertIsInstance(on_key, dict)
+        self.assertIn("workflow_dispatch", on_key)
+        self.assertNotIn("schedule", on_key)
+        for job in doc["jobs"].values():
+            for step in job["steps"]:
+                run_cmd = step.get("run", "") or ""
+                self.assertNotIn("git push", run_cmd)
+                self.assertNotIn("git commit", run_cmd)
+                self.assertNotIn("git add", run_cmd)
 
 
 if __name__ == "__main__":

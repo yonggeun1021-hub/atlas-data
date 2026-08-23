@@ -23,31 +23,50 @@
 ★ Authority: every packet carries a hard-`False` authority block. No code
   path in this module ever sets any of these True.
 
-★ CIO review round 1 (2026-08-23) fixed 6 P0/P1 defects found in the first
-  version of this module -- each is called out at its fix site below:
-    1/2. `sanitize_for_raw_evidence()` -- a real broker account number must
-         NEVER reach committed evidence bytes, sanitized or not. Gzip is
-         not encryption.
-    3.   `_compute_risk_capacity_inputs()` -- cash/exposure totals across
-         currencies are NEVER summed raw. Only `*_base_currency` fields
-         (explicit FX-converted) are cross-currency totals; `cash_by_currency`
-         / `exposure_by_currency` stay per-currency, never blended.
-    4.   `_compute_risk_capacity_inputs()` -- ANY stale account or
-         NAV-reconciliation mismatch forces `status:
-         NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT` for the WHOLE
-         `risk_capacity_inputs` block, not just a flag next to numbers that
-         still get computed.
-    5/6. `CANONICAL_ACCOUNT_SCOPE` -- account scope is NEVER caller-supplied
-         (nothing to shrink arbitrarily). `full_portfolio_nav` is only ever
-         non-null when every canonical market is present; a partial scope
-         (e.g. Alpaca-only) gets its own explicit `account_scope_label`
-         (`US_PAPER_ACCOUNT_SCOPE_ONLY`) and is never presented as the full
-         portfolio total.
-    7/8. `validate_snapshot()` independently RE-DERIVES `risk_capacity_inputs`
-         from `portfolio_facts` via `_compute_risk_capacity_inputs()` and
-         compares field-by-field against the packet's claimed values --
-         this catches a "value changed + hash regenerated to match" tamper,
-         which a hash-only check cannot.
+★ IMPORTANT -- this module builds a real packet containing real financial
+  figures IN MEMORY. It is `capture.py`'s job (not this module's) to never
+  let that real packet reach a public-repo write path -- see
+  `capture._redact_for_public_repo()`. This module never writes to disk
+  itself; it is a pure in-memory builder/validator.
+
+★ CIO review history (2026-08-23):
+
+  Round 1 fixed 6 P0/P1 defects (raw account-number leak into evidence,
+  non-append-only storage, blended multi-currency math, stale/mismatch not
+  gating the whole risk block, caller-shrinkable account scope, hash-only
+  tamper validation). See git history for the round-1 fix commit.
+
+  Round 2 found a much bigger defect: this repo (`yonggeun1021-hub/atlas-data`)
+  is PUBLIC. Round 1's fix (sanitizing the account number out of raw
+  evidence) does not address that real NAV/cash/positions/P&L figures
+  would still be committed publicly -- that is fixed entirely in
+  `capture.py` (never write the real packet anywhere, only a redacted,
+  explicitly-allowlisted public-safe summary). Round 2 ALSO found and
+  fixed 4 real PIT defects in *this* module, all at the fix sites below:
+    1. `_enforce_pit_timing()` -- a future-dated account `captured_at` was
+       silently passing as `FRESH` (a negative staleness age is not `>
+       STALENESS_MAX_AGE_HOURS`). Now explicitly REJECTED before staleness
+       is ever computed, in both `build_alpaca_paper_account_fact()` and
+       `build_manual_account_fact()`.
+    2. `_validate_snapshot_timing()` -- `available_at > decision_at` had no
+       check at all. Now explicitly REJECTED.
+    3. `assemble_fx_rates()` -- a future-dated FX `as_of` had the same
+       silent-FRESH bug as (1). Now explicitly REJECTED via the same
+       `_enforce_pit_timing()`.
+    4. `_compute_risk_capacity_inputs()` -- any manual/unverified account
+       fact anywhere in the input was allowed to reach `status:
+       COMPUTABLE` / `full_portfolio_nav_status: OK` exactly like a fully
+       broker-verified snapshot. Now: any unverified source present forces
+       `status: DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT` (never
+       `COMPUTABLE`), `full_portfolio_nav` stays `null` with
+       `full_portfolio_nav_status: NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE`
+       unconditionally, and every other computed figure's own status is
+       downgraded from `OK` to `DIAGNOSTIC_UNVERIFIED`.
+  Confirmed correct from round 1, unchanged: the order-API structural
+  block (`alpaca_client.py`), the hard-coded paper host, multi-currency
+  arithmetic separation (`_aggregate_base_currency`), the direction of the
+  stale/mismatch block (still highest-priority gate), and the validator's
+  independent re-derivation of downstream values.
 """
 from __future__ import annotations
 
@@ -59,13 +78,15 @@ import math
 SCHEMA_VERSION = "portfolio_risk_input/1"
 BASE_CURRENCY = "USD"
 
-# ★ Fix 5/6: the set of markets that make up "the portfolio" is a fixed
-#   registry, NEVER a caller-suppliable parameter -- there is nothing here
-#   a caller could shrink to make an incomplete scope read as complete.
+# ★ Fix 5/6 (round 1): the set of markets that make up "the portfolio" is a
+#   fixed registry, NEVER a caller-suppliable parameter -- there is nothing
+#   here a caller could shrink to make an incomplete scope read as complete.
 CANONICAL_ACCOUNT_SCOPE = frozenset({"ALPACA_PAPER_ACCOUNT", "KOREA", "CRYPTO"})
 
-# ★ Fix 1/2: recursively stripped from ANY raw broker payload before it is
-#   ever written to committed evidence bytes, sanitized or not.
+# ★ Fix 1/2 (round 1): recursively stripped from ANY raw broker payload
+#   before it is ever written anywhere -- kept as defense-in-depth even
+#   though round 2 additionally forbids writing ANY real-figure payload to
+#   the public repo at all (see capture.py).
 FORBIDDEN_RAW_EVIDENCE_KEYS = frozenset({"account_number", "id"})
 
 AUTHORITY_ALL_FALSE = {
@@ -114,21 +135,22 @@ def _hash_identifier(raw: str) -> str:
     """Never store a raw broker account identifier in committed evidence --
     only its sha256. This is what makes cross-run consistency checks
     possible (same hash = same account) without ever writing the real
-    account number in plaintext anywhere."""
+    account number in plaintext anywhere. NOTE: since round 2, even this
+    hash never reaches a public-repo write path -- see
+    `capture._redact_for_public_repo()`, which does not include
+    `account_id_hash` at all."""
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def sanitize_for_raw_evidence(value, forbidden_keys: frozenset = FORBIDDEN_RAW_EVIDENCE_KEYS):
-    """★ Fix 1/2 (CIO P0): recursively strip every key in `forbidden_keys`
-    from a raw broker response BEFORE it is ever written to committed
-    evidence bytes -- gzip is not encryption, and the earlier version of
-    this module stored the untouched raw Alpaca response (including the
-    real `account_number`) straight into a committed `.json.gz`. This
-    function is applied unconditionally in `capture.py` to every raw
-    payload before compression; the caller never sees an un-sanitized raw
-    write path. See
-    `test/test_portfolio_risk_input.py::CounterExampleAccountNumberNeverInRawEvidence`
-    for the decompress-and-scan proof."""
+    """Recursively strip every key in `forbidden_keys` from a raw broker
+    response. Kept as a still-useful, still-tested utility (defense in
+    depth for any future private-storage evidence path), but round 2
+    established this alone is NOT sufficient to make a payload public-repo
+    safe -- real NAV/cash/position/P&L figures are still real financial
+    data even with the account number removed. `capture.py`'s live-capture
+    path does not write any raw payload (sanitized or not) to disk at all;
+    see `capture._redact_for_public_repo()`."""
     if isinstance(value, dict):
         return {k: sanitize_for_raw_evidence(v, forbidden_keys) for k, v in value.items() if k not in forbidden_keys}
     if isinstance(value, list):
@@ -145,9 +167,14 @@ def _parse_utc(value: str) -> dt.datetime:
 
 
 def _validate_snapshot_timing(captured_at: str, available_at: str, decision_at: str) -> None:
-    """Future-dated snapshot vs a past decision -- rejected. `available_at
-    >= captured_at` and `captured_at <= decision_at` are hard invariants --
-    never merely asserted at one call site."""
+    """Future-dated snapshot vs a past decision -- rejected. Enforces the
+    full ordering `captured_at <= available_at <= decision_at` -- never
+    merely asserted at one call site.
+
+    ★ CIO round 2 PIT fix 2: the previous version never checked
+    `available_at > decision_at` at all -- a snapshot claiming to have
+    become "available" AFTER the decision it's being used for passed
+    validation silently. Now explicitly REJECTED."""
     captured = _parse_utc(captured_at)
     available = _parse_utc(available_at)
     decision = _parse_utc(decision_at)
@@ -159,9 +186,33 @@ def _validate_snapshot_timing(captured_at: str, available_at: str, decision_at: 
         raise PortfolioSnapshotError(
             f"FUTURE_DATED_SNAPSHOT_REJECTED:captured_at({captured_at})>decision_at({decision_at})"
         )
+    if available > decision:
+        raise PortfolioSnapshotError(
+            f"AVAILABLE_AFTER_DECISION_REJECTED:available_at({available_at})>decision_at({decision_at})"
+        )
+
+
+def _enforce_pit_timing(*, label: str, event_at: str, decision_at: str) -> None:
+    """★ CIO round 2 PIT fix 1/3: an `event_at` (an account fact's own
+    `captured_at`, or an FX rate's `as_of`) that is AFTER `decision_at` is
+    a genuine PIT violation and must be REJECTED outright -- NOT silently
+    marked `FRESH` by an accidentally-negative staleness age (the previous
+    `_staleness_status()` computed `age_hours = (decision -
+    event).total_seconds() / 3600`, and a future `event_at` makes that
+    negative, which is not `> STALENESS_MAX_AGE_HOURS` and so read as
+    fresh). Call this BEFORE `_staleness_status()` everywhere an
+    externally-supplied timestamp is compared against `decision_at`."""
+    event = _parse_utc(event_at)
+    decision = _parse_utc(decision_at)
+    if event > decision:
+        raise PortfolioSnapshotError(
+            f"FUTURE_DATED_VALUE_REJECTED:{label}={event_at}>decision_at={decision_at}"
+        )
 
 
 def _staleness_status(captured_at: str, decision_at: str) -> str:
+    """Only ever called AFTER `_enforce_pit_timing()` has already confirmed
+    `captured_at <= decision_at` -- so `age_hours` here is always >= 0."""
     captured = _parse_utc(captured_at)
     decision = _parse_utc(decision_at)
     age_hours = (decision - captured).total_seconds() / 3600.0
@@ -224,6 +275,8 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
     if missing:
         raise PortfolioSnapshotError(f"ALPACA_ACCOUNT_FIELDS_MISSING:{missing}")
 
+    _enforce_pit_timing(label="alpaca_account.captured_at", event_at=captured_at, decision_at=decision_at)
+
     equity = _require_finite_number(account["equity"], "equity")
     cash = _require_finite_number(account["cash"], "cash")
     buying_power = _require_finite_number(account["buying_power"], "buying_power")
@@ -278,11 +331,15 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
     API (Korea, Crypto today). `verification_status` is ALWAYS forced to
     `PAPER_OR_MANUAL_UNVERIFIED` -- if a caller explicitly tries to claim
     `BROKER_VERIFIED` for a manual entry, that is a disguise attempt and is
-    REJECTED outright (never silently downgraded)."""
+    REJECTED outright (never silently downgraded). See
+    `_compute_risk_capacity_inputs()` for how the presence of ANY manual
+    fact downgrades the whole snapshot's computed figures to
+    `DIAGNOSTIC_UNVERIFIED` (CIO round 2 PIT fix 4)."""
     if claimed_verification_status is not None and claimed_verification_status != "PAPER_OR_MANUAL_UNVERIFIED":
         raise PortfolioSnapshotError(
             f"MANUAL_INPUT_DISGUISED_AS_VERIFIED:claimed={claimed_verification_status!r}"
         )
+    _enforce_pit_timing(label=f"manual_account[{market}].captured_at", event_at=captured_at, decision_at=decision_at)
     cash_f = _require_finite_number(cash, "manual.cash")
     if cash_f < 0:
         raise PortfolioSnapshotError(f"NEGATIVE_NAV_OR_CASH_REJECTED:manual.cash={cash_f}")
@@ -324,7 +381,11 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
 def assemble_fx_rates(fx_inputs: dict[str, dict] | None, decision_at: str) -> dict:
     """Keeps FX provenance separate per pair -- never blended into a single
     number. Each entry: {"rate": float, "as_of": iso8601, "source": str}.
-    A stale or missing rate is reported per-pair, never silently dropped."""
+    A stale or missing rate is reported per-pair, never silently dropped.
+
+    ★ CIO round 2 PIT fix 3: a future-dated `as_of` (after `decision_at`)
+    is now explicitly REJECTED via `_enforce_pit_timing()`, closing the
+    same silent-FRESH bug fixed for account facts (fix 1)."""
     fx_inputs = fx_inputs or {}
     out = {}
     for pair, entry in sorted(fx_inputs.items()):
@@ -332,7 +393,11 @@ def assemble_fx_rates(fx_inputs: dict[str, dict] | None, decision_at: str) -> di
         if rate <= 0:
             raise PortfolioSnapshotError(f"NON_POSITIVE_FX_RATE:{pair}={rate}")
         as_of = entry.get("as_of")
-        stale = _staleness_status(as_of, decision_at) if as_of else "STALE"
+        if as_of:
+            _enforce_pit_timing(label=f"fx[{pair}].as_of", event_at=as_of, decision_at=decision_at)
+            stale = _staleness_status(as_of, decision_at)
+        else:
+            stale = "STALE"
         out[pair] = {"rate": rate, "as_of": as_of, "source": entry.get("source", "UNKNOWN"), "staleness_status": stale}
     return out
 
@@ -342,9 +407,9 @@ def _market_label(source: str) -> str:
 
 
 def _convert_amount_to_base(amount: float, currency: str, fx_rates: dict, base_currency: str = BASE_CURRENCY):
-    """★ Fix 3: the ONE place amounts are ever converted across currency.
-    Returns (converted_amount_or_None, status, fx_pair_or_None). Never
-    silently blends -- a missing or stale rate always yields `None` plus an
+    """The ONE place amounts are ever converted across currency. Returns
+    (converted_amount_or_None, status, fx_pair_or_None). Never silently
+    blends -- a missing or stale rate always yields `None` plus an
     explicit NOT_COMPUTABLE status, never a partial/estimated total."""
     if currency == base_currency:
         return amount, "OK", None
@@ -399,8 +464,10 @@ def _account_scope_label(present_set: set[str]) -> str:
 
 
 def _not_computable_risk_capacity_block(status: str, completeness: dict, account_scope_label: str) -> dict:
-    """★ Fix 4: the WHOLE risk_capacity_inputs block goes NOT_COMPUTABLE --
-    every number is None, not just flagged while still being computed."""
+    """The WHOLE risk_capacity_inputs block goes NOT_COMPUTABLE -- every
+    number is None, not just flagged while still being computed. Used for
+    the stale/mismatch gate (highest priority -- checked before the
+    unverified-source downgrade)."""
     return {
         "status": status,
         "account_scope_label": account_scope_label,
@@ -420,8 +487,20 @@ def _compute_risk_capacity_inputs(account_facts: list[dict], fx_rates: dict) -> 
     """The single source of truth for every risk-capacity number. Called
     from BOTH `assemble_snapshot()` (to build) and `validate_snapshot()`
     (to independently re-derive from `portfolio_facts` and compare against
-    the packet's claimed values -- Fix 7/8). Never takes an `expected_sources`
-    parameter (Fix 5/6): account scope is always `CANONICAL_ACCOUNT_SCOPE`."""
+    the packet's claimed values). Never takes an `expected_sources`
+    parameter: account scope is always `CANONICAL_ACCOUNT_SCOPE`.
+
+    Priority order for `status` (highest first):
+      1. Any stale account or NAV-reconciliation mismatch ->
+         `NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT` (whole block nulled).
+      2. Any manual/unverified account fact present (CIO round 2 PIT fix 4)
+         -> `DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT` (figures ARE
+         still computed, but every status downgrades from `OK` to
+         `DIAGNOSTIC_UNVERIFIED`, and `full_portfolio_nav` is *always*
+         `null` / `NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE`, even with a
+         full canonical scope connected).
+      3. Otherwise -> `COMPUTABLE`.
+    """
     present_sources = sorted({_market_label(f["source"]) for f in account_facts})
     present_set = set(present_sources)
     missing_canonical = sorted(CANONICAL_ACCOUNT_SCOPE - present_set)
@@ -440,26 +519,16 @@ def _compute_risk_capacity_inputs(account_facts: list[dict], fx_rates: dict) -> 
     }
 
     if any_stale or any_mismatch:
-        # ★ Fix 4: not just a flag next to numbers that keep getting
-        # computed -- the entire block collapses to NOT_COMPUTABLE.
         return _not_computable_risk_capacity_block(
             "NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT", completeness, account_scope_label,
         )
 
+    # -- Shared computation (identical regardless of verification status) --
     existing_position_count = sum(f["position_count"] for f in account_facts)
 
     connected_scope_nav, connected_scope_nav_status, _ = _aggregate_base_currency(
         [(f["equity"], f["currency"]) for f in account_facts], fx_rates,
     )
-
-    # ★ Fix 5/6: full_portfolio_nav is non-null ONLY when every canonical
-    # market is connected -- a partial scope is never presented as the
-    # full-portfolio total, regardless of what the caller happens to pass in
-    # (there is nothing caller-suppliable here at all).
-    if missing_canonical:
-        full_portfolio_nav, full_portfolio_nav_status = None, "NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE"
-    else:
-        full_portfolio_nav, full_portfolio_nav_status = connected_scope_nav, connected_scope_nav_status
 
     cash_by_currency_map: dict[str, float] = {}
     for f in account_facts:
@@ -477,6 +546,43 @@ def _compute_risk_capacity_inputs(account_facts: list[dict], fx_rates: dict) -> 
     net_exposure_base_currency, net_status, _ = _aggregate_base_currency(
         [(p["market_value"], p["currency"]) for f in account_facts for p in f["positions"]], fx_rates,
     )
+
+    has_unverified_source = any(f["verification_status"] != "BROKER_VERIFIED" for f in account_facts)
+
+    if has_unverified_source:
+        # ★ CIO round 2 PIT fix 4: unverified manual data is NEVER treated
+        # as equivalent to broker-verified data for completeness purposes.
+        # full_portfolio_nav is unconditionally null/NOT_COMPUTABLE here --
+        # even if every canonical market happens to be present.
+        def _diag(status: str) -> str:
+            return "DIAGNOSTIC_UNVERIFIED" if status == "OK" else status
+
+        return {
+            "status": "DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT",
+            "account_scope_label": account_scope_label,
+            "data_completeness": completeness,
+            "existing_position_count": existing_position_count,
+            "connected_scope_nav": connected_scope_nav,
+            "connected_scope_nav_status": _diag(connected_scope_nav_status),
+            "full_portfolio_nav": None,
+            "full_portfolio_nav_status": "NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE",
+            "cash_by_currency": cash_by_currency,
+            "total_cash_base_currency": total_cash_base_currency,
+            "total_cash_base_currency_status": _diag(total_cash_base_currency_status),
+            "exposure_by_ticker": exposure_raw["by_ticker"],
+            "exposure_by_market": exposure_raw["by_market"],
+            "exposure_by_currency": exposure_raw["by_currency"],
+            "gross_exposure_base_currency": gross_exposure_base_currency,
+            "gross_exposure_base_currency_status": _diag(gross_status),
+            "net_exposure_base_currency": net_exposure_base_currency,
+            "net_exposure_base_currency_status": _diag(net_status),
+        }
+
+    # -- Fully broker-verified path --
+    if missing_canonical:
+        full_portfolio_nav, full_portfolio_nav_status = None, "NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE"
+    else:
+        full_portfolio_nav, full_portfolio_nav_status = connected_scope_nav, connected_scope_nav_status
 
     return {
         "status": "COMPUTABLE",
@@ -502,8 +608,8 @@ def assemble_snapshot(*, account_facts: list[dict], fx_rates: dict,
                        captured_at: str, available_at: str, decision_at: str) -> dict:
     """Top-level orchestrator. `account_facts` are pre-built via
     `build_alpaca_paper_account_fact`/`build_manual_account_fact` -- this
-    function never talks to a network itself. No `expected_sources`
-    parameter (Fix 5/6) -- account scope always comes from
+    function never talks to a network itself, and never writes anything to
+    disk. No `expected_sources` parameter: account scope always comes from
     `CANONICAL_ACCOUNT_SCOPE`, never from the caller."""
     _validate_snapshot_timing(captured_at, available_at, decision_at)
     risk_capacity_inputs = _compute_risk_capacity_inputs(account_facts, fx_rates)
@@ -527,20 +633,14 @@ def assemble_snapshot(*, account_facts: list[dict], fx_rates: dict,
 
 
 def validate_snapshot(packet: dict) -> dict:
-    """Independent re-validation of a round-tripped packet.
-
-    ★ Fix 7/8 (CIO P0): the previous version of this function ONLY
-    recomputed and compared `packet_sha256` -- so a caller could change
-    `total_nav`/cash/exposure/completeness, regenerate a fresh hash over
-    the tampered packet, and validation would pass. This version
-    independently RE-DERIVES `risk_capacity_inputs` from
-    `portfolio_facts` via `_compute_risk_capacity_inputs()` (the exact
-    same function `assemble_snapshot()` used to build it) and compares
-    field-by-field against the packet's claimed `risk_capacity_inputs`.
-    A semantic tamper is caught here regardless of whether the hash was
-    also regenerated to match. The final hash check still runs too (cheap,
-    and catches tampering anywhere else in the packet, e.g.
-    `captured_at`/`available_at`/`decision_at`)."""
+    """Independent re-validation of a round-tripped packet -- independently
+    RE-DERIVES `risk_capacity_inputs` from `portfolio_facts` via the exact
+    same function used to build it (`_compute_risk_capacity_inputs()`) and
+    compares field-by-field against the packet's claimed values. A
+    re-signed tamper (value changed AND hash regenerated to match) is
+    caught here regardless of hash correctness. The final hash check still
+    runs too (cheap, and catches tampering anywhere else in the packet,
+    e.g. `captured_at`/`available_at`/`decision_at`)."""
     _assert_authority_all_false(packet.get("authority"))
     if packet.get("risk_policy") != RISK_POLICY_UNRATIFIED:
         raise PortfolioSnapshotError("RISK_POLICY_TAMPERED_OR_RATIFIED")

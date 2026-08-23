@@ -1,6 +1,6 @@
 # Portfolio Risk Input Contract
 
-Status: `DESIGN_DRAFT` implementation, PR not merged. WBS: P5-06 / P7-08 (`🟡 개발중`, no new row).
+Status: `DESIGN_DRAFT` implementation, PR not merged. WBS: P5-06 / P7-08 (`🟡 개발중`, no new row). Exit gate: `PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE` (no live Alpaca Paper capture has been executed against this PR; the repo is public and real persistence requires a future private evidence store -- see "CIO review round 2" below).
 
 ## Purpose
 
@@ -100,46 +100,57 @@ the block (`connected_scope_nav`, `full_portfolio_nav`,
 breakdown lists) is `null`/empty -- not merely flagged while a number keeps
 getting computed anyway.
 
-## Security: no plaintext secrets or account numbers
+## Security: this repo is PUBLIC -- no real financial data reaches it, ever
+
+`yonggeun1021-hub/atlas-data` is a **public** repository. Round 2 of CIO
+review found that round 1's fix (stripping the account number out of raw
+evidence) was not sufficient: real NAV, cash, buying power, positions/
+quantities/market values, unrealized P&L, and even a stable
+`account_id_hash` are ALL real financial data that must never be committed
+publicly, regardless of how well any one identifying field is scrubbed.
+This is a data-classification/storage-location problem, not a
+field-scrubbing problem -- see "CIO review round 2" below for the full
+fix. Structural summary:
 
 - API keys/secrets are read from environment variables only, never
   hard-coded, and never appear as literal values anywhere in source.
-- A real Alpaca account number is **never** written to any committed
-  evidence file -- neither the normalized manifest nor the raw payload.
-  `build_alpaca_paper_account_fact` replaces it with
-  `account_id_hash = sha256(account_number)` for the normalized fact.
-  Separately, `capture.py` runs `portfolio_snapshot.sanitize_for_raw_evidence()`
-  on the raw Alpaca `/v2/account`/`/v2/positions` response bodies --
-  recursively stripping `account_number`/`id` from any nesting depth --
-  **before** they are ever gzip-compressed or written to disk. (An earlier
-  version of this module stored the untouched raw response verbatim; gzip
-  is not encryption. See "CIO review round 1" below.)
+- `portfolio_risk/capture.py` contains **zero filesystem-write code** --
+  no `open(..., "wb")`, `os.replace`, `gzip`, `tempfile`, or `Path.write*`
+  call exists anywhere in the file. A real snapshot is fetched, built, and
+  `validate_snapshot()`-verified entirely **in memory**, then discarded.
+  The only thing `capture.run()` ever returns (and `main()` ever prints)
+  is the output of `_redact_for_public_repo()` -- an explicit,
+  allowlist-only constructor (`PUBLIC_SAFE_CAPTURE_RESULT_KEYS`) that
+  includes only status labels, the schema version, `source=ALPACA_PAPER`,
+  the all-`False` authority block, timestamps, and an error-class code --
+  never a dollar amount, quantity, or NAV figure.
+- `.github/workflows/portfolio-risk-input.yml` has **no `contents: write`
+  permission, no commit/push step, and no schedule** -- `workflow_dispatch`
+  only, and even a manual run never writes to the repository.
+- Real-account-data persistence (evidence you could look back at later)
+  requires a future, separately-designed **private** evidence store -- not
+  in scope for this PR. Every public-safe result carries
+  `real_data_persistence_status: PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE`
+  until that exists.
+- `portfolio_snapshot.sanitize_for_raw_evidence()` (recursively strips
+  `account_number`/`id`) is kept as a tested utility for any future
+  private-storage path, but is **not** what makes the current PR safe --
+  the current PR is safe because it writes nothing real anywhere, full
+  stop.
 
-## Evidence layout
+## Evidence layout: none, by design, in this PR
 
-Content-addressed, genuinely append-only (mirrors the immutable-evidence
-half of `collectors/free_market_data.py`, but with per-run collision
-safety `free_market_data.py` doesn't need):
+There is currently no evidence directory for real captures. A live run
+prints only the redacted, public-safe summary described above to the job
+log; nothing is written to `evidence/` or `data/` for real account data.
+(`evidence/operational/portfolio_risk_input/` exists as a placeholder
+directory for the future private evidence store -- see
+`real_data_persistence_status` above.)
 
-```
-evidence/operational/portfolio_risk_input/raw/<day>/alpaca_account-<sha16>.json.gz     (immutable, sanitized)
-evidence/operational/portfolio_risk_input/raw/<day>/alpaca_positions-<sha16>.json.gz   (immutable, sanitized)
-evidence/operational/portfolio_risk_input/raw/<day>/manifest-<sha16>.json              (immutable, = packet_sha256[:16])
-data/latest_portfolio_risk_input.json                                                  (mutable pointer)
-```
-
-Every filename embeds the sha256 of its own bytes. Re-running with an
-identical snapshot reproduces the identical filename and is a
-byte-identical no-op (`capture._write_append_only_or_noop`); a genuinely
-different snapshot gets a genuinely different filename, so both survive; a
-path colliding with *different* content (should be structurally
-impossible given content-addressing) is a hard failure, never a silent
-overwrite.
-
-Captured by `.github/workflows/portfolio-risk-input.yml`
-(`workflow_dispatch` + weekday cron), which runs the offline regression
-(`test/test_portfolio_risk_input.py`) before the real capture step, exactly
-like the free-market-data workflow.
+`.github/workflows/portfolio-risk-input.yml` (`workflow_dispatch` only, no
+schedule) runs the offline regression (`test/test_portfolio_risk_input.py`)
+before the in-memory capture-and-verify step, and confirms with
+`git diff --exit-code` that the job never touched the checkout.
 
 ## CIO review round 1 (2026-08-23) -- 6 defects fixed
 
@@ -157,6 +168,29 @@ and 2 P1 defects, all fixed in the same PR (see
 | P1-6 | An Alpaca-only NAV could read as a complete total | `account_scope_label` (`US_PAPER_ACCOUNT_SCOPE_ONLY` etc.) + separate `full_portfolio_nav`/`full_portfolio_nav_status` (`NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE` unless full canonical scope connected) | `CounterExample09PartialMarketMissing::test_alpaca_only_never_presented_as_full_portfolio` |
 | P0-7/8 | `validate_snapshot()` only re-hashed -- a re-signed tamper (value changed + hash regenerated) passed | Independently RE-DERIVES `risk_capacity_inputs` from `portfolio_facts` via the same `_compute_risk_capacity_inputs()` used to build it, and compares field-by-field | `CounterExampleReSignedSemanticTamperRejected` (3 tests) |
 
+## CIO review round 2 (2026-08-23) -- public-repo data exposure + 4 PIT defects
+
+Round 1's fix closed the account-number leak but not the underlying
+problem: this repo is public, and round 1 still committed real NAV/cash/
+positions/P&L (sanitized-but-real) evidence. Round 2 also directly
+reproduced 4 real PIT timing defects on round 1's code. All fixed together:
+
+| # | Defect | Fix | Regression |
+|---|---|---|---|
+| P0 (repo exposure) | Real Alpaca account data (NAV/cash/positions/P&L/`account_id_hash`) committed to a **public** repo -- sanitizing the account number alone doesn't fix this | `capture.py` never writes any file; a real snapshot is built/verified in memory then discarded; only `_redact_for_public_repo()`'s explicit allowlist is ever returned/printed; workflow loses `contents: write`, its commit/push step, and its schedule | `PublicRepoNeverReceivesRealFinancialData` (6 tests: no filesystem-write capability in source, redacted keys subset of the allowlist, no real value/key leaks, failure path doesn't leak via exception text, end-to-end `run()` proof, workflow YAML has no write permission/commit step/schedule) |
+| PIT-1 | A future-dated account `captured_at` silently passed as `FRESH` against a past `decision_at` (negative staleness age isn't `> 24h`) | `_enforce_pit_timing()` explicitly rejects any `captured_at > decision_at` BEFORE staleness is ever computed, in both `build_alpaca_paper_account_fact()` and `build_manual_account_fact()` | `CIORound2PitReproduction01FutureSnapshotPassedAsFresh` (2 tests) |
+| PIT-2 | `available_at > decision_at` had no check at all | `_validate_snapshot_timing()` now explicitly rejects it (`AVAILABLE_AFTER_DECISION_REJECTED`) | `CIORound2PitReproduction02AvailableAfterDecisionPassedValidation` (2 tests) |
+| PIT-3 | A future-dated FX `as_of` had the same silent-FRESH bug as PIT-1 | `assemble_fx_rates()` calls the same `_enforce_pit_timing()` per pair | `CIORound2PitReproduction03FutureFxPassedAsFresh` |
+| PIT-4 | Manual/unverified account data reached `status: COMPUTABLE` and `full_portfolio_nav_status: OK` exactly like fully broker-verified data, even with `FULL_CANONICAL_ACCOUNT_SCOPE` | Any unverified source anywhere forces `status: DIAGNOSTIC_UNVERIFIED_ACCOUNT_SOURCE_PRESENT` (never `COMPUTABLE`); `full_portfolio_nav` stays `null`/`NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE` unconditionally; every other computed status downgrades from `OK` to `DIAGNOSTIC_UNVERIFIED` | `CIORound2PitReproduction04ManualInputReachedFullCanonicalComputable` |
+
+Exit-gate tracking item renamed from "awaiting `workflow_dispatch`
+registration" to **`PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE`** --
+the blocker is no longer a GitHub mechanics issue, it's a real
+data-exposure boundary that must be designed (a private evidence store)
+before any live persistence happens. **No live Alpaca Paper capture or
+scheduled workflow run has been executed at any point during this fix,**
+per explicit CIO instruction.
+
 ## Counter-example scenarios (all independently tested)
 
 See `test/test_portfolio_risk_input.py` -- one dedicated `TestCase` class
@@ -170,7 +204,7 @@ per scenario:
 6. Alpaca live vs. paper account confusion -- structurally impossible (hard-coded paper host, no parameter, no live-host string anywhere in the module).
 7. Negative or NaN NAV -- rejected (`NEGATIVE_NAV_OR_CASH_REJECTED` / `NON_FINITE_VALUE`).
 8. Account-level NAV disagreeing with the sum of positions -- rejected (forces the whole `risk_capacity_inputs` block to `NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT`, not just flagged).
-9. Total NAV confirmed while some market's data is missing -- rejected (`full_portfolio_nav_status: NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE`; a partial scope is only ever `connected_scope_nav`, explicitly labeled, never presented as the full portfolio).
+9. Total NAV confirmed while some market's data is missing -- rejected (`full_portfolio_nav_status: NOT_COMPUTABLE_MISSING_ACCOUNT_SCOPE`; a partial scope is only ever `connected_scope_nav`, explicitly labeled, never presented as the full portfolio). Even when scope IS fully connected, any unverified/manual source present still forces `full_portfolio_nav_status: NOT_COMPUTABLE_UNVERIFIED_ACCOUNT_SOURCE` (round 2 PIT-4).
 10. Same-timestamp data tampering -- detected, including a **re-signed** tamper (value changed + hash regenerated to match) via independent semantic re-derivation, not just a hash check (`SEMANTIC_TAMPER_DETECTED`, falling back to `PACKET_HASH_MISMATCH` for anything the semantic check doesn't cover).
 11. Any order-API call attempted from the read-only path -- structurally impossible, proven by a test.
 12. Sizing/quantity/weight computed while policy is unratified -- rejected (`POSITION_SIZE_COMPUTED_WHILE_POLICY_UNRATIFIED`, and `position_size` is a fixed module-level constant, never a function).

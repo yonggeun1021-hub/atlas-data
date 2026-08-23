@@ -1,19 +1,28 @@
-name: Atlas Portfolio Risk Input Snapshot
+# Portfolio Risk Input Contract -- manual capture-and-VERIFY-ONLY.
+#
+# ★ CIO review round 2 (2026-08-23): this repo is PUBLIC. Real account data
+#   (NAV/cash/positions/P&L) must NEVER be committed here. This workflow
+#   therefore:
+#     - has NO `contents: write` permission (read-only token)
+#     - has NO commit/push step of any kind
+#     - has NO schedule -- `workflow_dispatch` only, run manually, and even
+#       then nothing it does writes to the repository
+#   `portfolio_risk/capture.py` builds and verifies a real snapshot
+#   entirely in memory and prints ONLY a redacted, non-sensitive summary
+#   (see `capture.PUBLIC_SAFE_CAPTURE_RESULT_KEYS`) to the job log.
+#   Real-account-data persistence requires a future, separately-designed
+#   PRIVATE evidence store -- not in scope here (see
+#   `capture.REAL_DATA_PERSISTENCE_STATUS`).
+name: Atlas Portfolio Risk Input Snapshot (verify-only, no repo writes)
 
 on:
-  schedule:
-    - cron: '40 21 * * 0-4'
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: atlas-portfolio-risk-input
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  capture:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,16 +32,10 @@ jobs:
           python-version: '3.11'
       - name: Offline contract regression
         run: python3 test/test_portfolio_risk_input.py
-      - name: Capture Alpaca paper account/position snapshot (READ-ONLY -- see portfolio_risk/alpaca_client.py)
+      - name: Capture + verify Alpaca paper account/position snapshot in memory (no repo write)
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
         run: python3 -m portfolio_risk.capture
-      - name: Commit append-only evidence and latest pointer
-        run: |
-          git config user.name "atlas-bot"
-          git config user.email "atlas-bot@users.noreply.github.com"
-          git add evidence/operational/portfolio_risk_input data/latest_portfolio_risk_input.json
-          if git diff --staged --quiet; then exit 0; fi
-          git commit -m "data: portfolio risk input snapshot $(date -u +%Y-%m-%d)"
-          git push
+      - name: Confirm this job never modified the checkout
+        run: git diff --exit-code
