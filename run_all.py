@@ -999,6 +999,19 @@ APPROVED_TESTS = [
     #   2026-08-23): clock/price_reflection_link.py's own tamper/fail-
     #   closed/idempotency/distinctness regression.
     "test/test_price_reflection_link.py",
+    # ★ CIO integration review round 1 on PR #211 (4 defects reproduced
+    #   independently despite CI/tests passing): decision_date-precedes-
+    #   evidence lookahead via the old max() correction (defect 1, now
+    #   scanner-level PIT filtering + OPERATIONAL/HISTORICAL_REPLAY fail-
+    #   closed), stale-raw-trigger "new" flooding via date-equality (defect
+    #   2, now committed-state episode-id diffing), post-hoc/forward-return
+    #   data physically present in the operational review_queue object
+    #   (defect 3, now physically separated into clock/audit_diagnostics.py,
+    #   never imported by clock/review_candidate.py or the briefing path),
+    #   and the missing PIT timing field/ordering contract (defect 4, now
+    #   independently enforced per ordering rule). Each defect's own CIO
+    #   reproduction is a dedicated regression here.
+    "test/test_dynamic_clock_orchestrator_defects.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

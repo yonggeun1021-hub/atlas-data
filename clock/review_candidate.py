@@ -91,6 +91,31 @@ tiered Human Review Candidate.
   routed through `price_reflection_link.verify_and_extract()` at all) is
   ALSO rejected, not just a re-signed packet caught upstream.
 
+★ CIO integration review round 1, defect 3 (post-hoc data physically
+  present in the operational object): the original version embedded
+  `post_hoc_audit_note` and `reference_forward_metrics_*` directly on the
+  `build_subject_review_candidate()` record -- not being a `compute_tier()`
+  INPUT wasn't enough, since any other downstream consumer of that same
+  object could still read them. This module now has NO import of
+  `clock.audit_confirmed_miss` at all (moved to `clock/audit_diagnostics.py`,
+  called only from `clock/run_dynamic_clock.py` to build a PHYSICALLY
+  SEPARATE `audit_diagnostics` artifact) and `build_subject_review_
+  candidate()` no longer accepts or emits any post-hoc/forward-return field
+  whatsoever -- see `test_operational_path_never_imports_audit_module` and
+  `test_operational_candidate_output_independent_of_audit_artifact` in
+  `test/test_price_reflection_link.py`.
+
+★ CIO integration review round 1, defect 4 (missing PIT timing contract):
+  every candidate now separately carries `evidence_as_of`,
+  `trigger_observed_at`, `decision_at`, `price_as_of`, `candidate_created_at`,
+  `candidate_updated_at`, and `time_precision` (`"DATE_ONLY"` -- this repo's
+  evidence is date-granularity, never a fabricated intraday timestamp
+  except `price_as_of`, which P8-10 already supplies as a real UTC
+  timestamp). `_validate_candidate_timing` enforces `evidence_as_of <=
+  trigger_observed_at <= decision_at`, `price_as_of <= decision_at`, and
+  `candidate_created_at <= candidate_updated_at <= decision_at`
+  unconditionally before a candidate is ever returned.
+
 ★ Authority: every record (raw or consolidated) carries an explicit
   `authority` block with every Stage/Buy/Action/Order/Production/trading
   field hard-`False`/`None`. `validate_review_candidate` asserts this
@@ -102,8 +127,6 @@ import copy
 import inspect
 
 from replay.opportunity_trigger import canonical_json, payload_sha256
-
-from clock.audit_confirmed_miss import confirmed_miss_for
 
 NOT_LINKED = "NOT_LINKED_THIS_SLICE"
 
@@ -153,16 +176,19 @@ def _price_reflection_placeholder() -> dict:
     )
 
 
-def build_raw_trigger_record(episode: dict, *, reference_forward_metrics: dict | None = None,
-                              reference_forward_metrics_first_detection: dict | None = None) -> dict:
+def build_raw_trigger_record(episode: dict) -> dict:
     """One record per ACTIVE (subject, trigger_type) episode -- the full,
-    unfiltered audit trail. NOT a review candidate by itself (no
-    `human_review_required` field); see `build_subject_review_candidate`
-    for the consolidated, tiered view a human actually reads.
+    unfiltered audit trail (structural trigger/episode data only). NOT a
+    review candidate by itself (no `human_review_required` field); see
+    `build_subject_review_candidate` for the consolidated, tiered view a
+    human actually reads.
 
-    `reference_forward_metrics_*` are post-hoc diagnostic fields ONLY (see
-    module docstring) -- kept here for audit/regression purposes, never
-    read by `compute_tier()`."""
+    ★ CIO integration review round 1, defect 3: this record carries NO
+    post-hoc/forward-return field of any kind -- `clock/audit_diagnostics.py`
+    (via `clock/run_dynamic_clock.py::run_with_diagnostics()`) is now the
+    SINGLE, physically separate location for
+    `reference_forward_metrics_*`/`post_hoc_audit_note`, never duplicated
+    here."""
     if episode.get("status") != "ACTIVE":
         raise ReviewCandidateError(f"EPISODE_NOT_ACTIVE:{episode.get('status')}")
 
@@ -191,8 +217,6 @@ def build_raw_trigger_record(episode: dict, *, reference_forward_metrics: dict |
         "opened_at": episode["opened_at"],
         "evidence_trail_length": len(episode["evidence_trail"]),
         "authority": _authority_block(),
-        "reference_forward_metrics_first_detection": reference_forward_metrics_first_detection,
-        "reference_forward_metrics_latest_detection": reference_forward_metrics,
     }
     record["record_hash"] = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})
     return record
@@ -218,28 +242,6 @@ def build_expired_record(episode: dict) -> dict:
         "status": "EXPIRED",
         "authority": _authority_block(),
     }
-
-
-def _post_hoc_audit_note(subject: str, active_episodes: list[dict]) -> dict | None:
-    """PR #210's real, committed Miss-episode registry, read for
-    REGRESSION-EXPLANATION/EVALUATION PURPOSES ONLY. `authoritative_for_tier`
-    is always `False` and is not a suggestion -- `compute_tier()` cannot
-    even accept this value (see its signature)."""
-    for ep in active_episodes:
-        for ev in ep["evidence_trail"]:
-            match = confirmed_miss_for(subject, ev["detected_at"])
-            if match is not None:
-                return {
-                    "authoritative_for_tier": False,
-                    "purpose": "post_hoc_regression_explanation_only",
-                    "matched_trigger_type": ep["trigger_type"],
-                    "matched_detected_at": ev["detected_at"],
-                    "pr210_episode_id": match.get("episode_id"),
-                    "pr210_root_cause": match.get("root_cause"),
-                    "pr210_representative_forward_return_pct": match.get("representative_forward_return_pct"),
-                    "pr210_episode_window": [match.get("episode_start_date"), match.get("episode_end_date")],
-                }
-    return None
 
 
 def _is_confirmatory_linkage(linkage: dict) -> bool:
@@ -365,17 +367,52 @@ def _assert_price_reflection_status_is_pit_safe(price_reflection_status: dict) -
             )
 
 
+def _validate_candidate_timing(evidence_as_of: str, trigger_observed_at: str, decision_at: str,
+                                price_as_of: str | None, candidate_created_at: str,
+                                candidate_updated_at: str) -> None:
+    """Defect 4: fails closed on any violation of the locked spec's PIT
+    timing contract. Compares date-only strings lexicographically (all of
+    this repo's evidence is date-granularity); `price_as_of`, when present,
+    is a full UTC timestamp -- only its date portion is compared against
+    `decision_at`, which is date-only."""
+    if evidence_as_of > trigger_observed_at:
+        raise ReviewCandidateError(
+            f"TIMING_INVARIANT_VIOLATED:evidence_as_of({evidence_as_of})>trigger_observed_at({trigger_observed_at})"
+        )
+    if trigger_observed_at > decision_at:
+        raise ReviewCandidateError(
+            f"TIMING_INVARIANT_VIOLATED:trigger_observed_at({trigger_observed_at})>decision_at({decision_at})"
+        )
+    if price_as_of not in (None, "UNKNOWN"):
+        price_date = price_as_of[:10]
+        if price_date > decision_at:
+            raise ReviewCandidateError(
+                f"TIMING_INVARIANT_VIOLATED:price_as_of({price_as_of})>decision_at({decision_at})"
+            )
+    if candidate_created_at > candidate_updated_at:
+        raise ReviewCandidateError(
+            f"TIMING_INVARIANT_VIOLATED:candidate_created_at({candidate_created_at})"
+            f">candidate_updated_at({candidate_updated_at})"
+        )
+    if candidate_updated_at > decision_at:
+        raise ReviewCandidateError(
+            f"TIMING_INVARIANT_VIOLATED:candidate_updated_at({candidate_updated_at})>decision_at({decision_at})"
+        )
+
+
 def build_subject_review_candidate(
     subject: str, market: str, active_episodes: list[dict], *,
     pit_eligibility_status: str,
+    decision_at: str,
     price_reflection_status: dict | None = None,
-    reference_forward_metrics_first_detection: dict | None = None,
-    reference_forward_metrics_latest_detection: dict | None = None,
 ) -> dict:
     """Consolidates every currently-ACTIVE episode for one subject (across
     all its trigger types) into ONE Human Review Candidate record. This is
     what a human actually reads -- `raw_trigger_ledger` remains the full,
     unconsolidated audit trail (see module docstring).
+
+    `decision_at` is the market's operational "as of" date for this run
+    (required -- defect 4's timing contract has no meaning without it).
 
     `price_reflection_status`, when supplied, MUST already be the output of
     `clock.price_reflection_link.to_price_reflection_status()` (or the
@@ -384,9 +421,10 @@ def build_subject_review_candidate(
     `None`) to fall back to the honest placeholder (e.g. in tests that
     don't exercise the P8-10 link at all).
 
-    `reference_forward_metrics_*` and `post_hoc_audit_note` are attached
-    here for audit/diagnostic purposes only -- both are computed AFTER
-    `tier` (see `compute_tier()` call below, which never receives them)."""
+    ★ Defect 3: this record carries NO post-hoc/forward-return field of any
+    kind -- not `post_hoc_audit_note`, not `reference_forward_metrics_*`.
+    Those live only in the physically separate `clock/audit_diagnostics.py`
+    artifact `clock/run_dynamic_clock.py` builds independently."""
     if not active_episodes:
         raise ReviewCandidateError("NO_ACTIVE_EPISODES_FOR_SUBJECT")
     if any(ep.get("status") != "ACTIVE" for ep in active_episodes):
@@ -396,8 +434,10 @@ def build_subject_review_candidate(
 
     trigger_types = sorted({ep["trigger_type"] for ep in active_episodes})
     confirmation_count = len(trigger_types)
-    detected_at = max(ep["last_detected_at"] for ep in active_episodes)
-    first_detected_at = min(ep["opened_at"] for ep in active_episodes)
+    latest_ep = max(active_episodes, key=lambda e: e["last_detected_at"])
+    earliest_ep = min(active_episodes, key=lambda e: e["opened_at"])
+    detected_at = latest_ep["last_detected_at"]
+    first_detected_at = earliest_ep["opened_at"]
     max_strength = max(ep["evidence_trail"][-1]["strength"] for ep in active_episodes)
     next_review_at = min(ep["next_review_at"] for ep in active_episodes)
     expiry = max(ep["expiry"] for ep in active_episodes)
@@ -409,10 +449,27 @@ def build_subject_review_candidate(
     _assert_price_reflection_status_is_pit_safe(price_reflection_status)
 
     # ★ PIT-safe by construction: compute_tier() is called with ONLY
-    # as-of-detected_at-knowable inputs. The post-hoc audit note is
-    # computed SEPARATELY, below, and never passed in.
+    # as-of-detected_at-knowable inputs. No post-hoc value is computed
+    # anywhere in this function at all any more (defect 3).
     tiering = compute_tier(confirmation_count, pit_eligibility_status, thesis_linkage, price_reflection_status)
-    post_hoc_note = _post_hoc_audit_note(subject, active_episodes)
+
+    # ★ Defect 4: full PIT timing contract. evidence_as_of/trigger_observed_at
+    # are taken from the SAME episode (latest_ep) that defines detected_at,
+    # so evidence_as_of <= trigger_observed_at holds by the same construction
+    # clock/dynamic_clock.py already enforces per-event (see
+    # ClockEvent/_validate_ascending).
+    evidence_as_of = latest_ep["evidence_trail"][-1]["evidence_available_at"]
+    trigger_observed_at = detected_at
+    price_as_of = (
+        price_reflection_status.get("price_as_of")
+        if price_reflection_status.get("status") == "LINKED" else "UNKNOWN"
+    )
+    candidate_created_at = first_detected_at
+    candidate_updated_at = detected_at
+    _validate_candidate_timing(
+        evidence_as_of, trigger_observed_at, decision_at, price_as_of,
+        candidate_created_at, candidate_updated_at,
+    )
 
     record = {
         "candidate_id": payload_sha256({"subject": subject, "market": market,
@@ -438,14 +495,14 @@ def build_subject_review_candidate(
         "reason": tiering["reason"],
         "human_review_required": tiering["human_review_required"],
         "authority": _authority_block(),
-        "post_hoc_audit_note": post_hoc_note,
-        "reference_forward_metrics_first_detection": reference_forward_metrics_first_detection,
-        "reference_forward_metrics_latest_detection": reference_forward_metrics_latest_detection,
-        "reference_forward_metrics_note": (
-            "post-hoc diagnostic only, reused verbatim from replay.forward_metrics.compute_forward_metrics "
-            "(PR #210's anti-backdated-entry invariant) -- NEVER an input to `tier` or an entry authorization; "
-            "see compute_tier()'s signature, which cannot accept it"
-        ),
+        # ★ Defect 4 timing contract fields.
+        "evidence_as_of": evidence_as_of,
+        "trigger_observed_at": trigger_observed_at,
+        "decision_at": decision_at,
+        "price_as_of": price_as_of,
+        "candidate_created_at": candidate_created_at,
+        "candidate_updated_at": candidate_updated_at,
+        "time_precision": "DATE_ONLY",
     }
     record["record_hash"] = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})
     return record

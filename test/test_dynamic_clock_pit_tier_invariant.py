@@ -109,39 +109,52 @@ class TierValueTamperInvariantTests(unittest.TestCase):
 
 
 class PostHocNoteDoesNotFeedTierTests(unittest.TestCase):
-    """The audit tag is preserved for regression-explanation purposes only
-    (item 1's explicit carve-out) -- proven by building full subject
-    candidates with/without a real PR #210 match and confirming tier is
-    unaffected either way."""
+    """CIO integration review round 1, defect 3: post-hoc data is no longer
+    merely "not an input to tier" -- it is PHYSICALLY ABSENT from
+    `build_subject_review_candidate()`'s output and code path entirely (see
+    `clock/audit_diagnostics.py`). This proves the two are genuinely
+    independent: a real PR #210 Miss-episode match (or its absence) has
+    zero relationship to the candidate the operational path produces,
+    because `build_subject_review_candidate()` cannot see it at all."""
 
-    def test_build_subject_review_candidate_tier_unaffected_by_post_hoc_note_presence(self):
+    def test_build_subject_review_candidate_never_carries_a_post_hoc_field(self):
         from clock.dynamic_clock import ClockEvent, build_episode_history
         from clock.review_candidate import build_subject_review_candidate
 
-        # BTC 2026-08-20 -- a real PR #210 AUDIT_CONFIRMED_MISS date.
-        ev_real_miss_date = ClockEvent(detected_at="2026-08-20", evidence_available_at="2026-08-19",
-                                        evidence_hash="a" * 64, source="test", strength=1.0)
-        episodes_a = [ep for ep in build_episode_history("BTC", "BTC", "PRICE_CONFIRMATION", [ev_real_miss_date])
-                      if ep["status"] == "ACTIVE"]
-        candidate_with_real_miss_date = build_subject_review_candidate(
-            "BTC", "BTC", episodes_a, pit_eligibility_status="PASS",
+        # BTC 2026-08-20 -- a real PR #210 AUDIT_CONFIRMED_MISS date (see
+        # test/test_audit_confirmed_miss.py). Even so, the operational
+        # candidate built from it carries no trace of that fact.
+        ev = ClockEvent(detected_at="2026-08-20", evidence_available_at="2026-08-19",
+                         evidence_hash="a" * 64, source="test", strength=1.0)
+        episodes = [ep for ep in build_episode_history("BTC", "BTC", "PRICE_CONFIRMATION", [ev])
+                    if ep["status"] == "ACTIVE"]
+        candidate = build_subject_review_candidate(
+            "BTC", "BTC", episodes, pit_eligibility_status="PASS", decision_at="2026-08-20",
         )
+        self.assertNotIn("post_hoc_audit_note", candidate)
 
-        # A date with no PR #210 match at all.
-        ev_no_miss_date = ClockEvent(detected_at="2026-07-25", evidence_available_at="2026-07-25",
-                                      evidence_hash="b" * 64, source="test", strength=1.0)
-        episodes_b = [ep for ep in build_episode_history("BTC", "BTC", "PRICE_CONFIRMATION", [ev_no_miss_date])
-                      if ep["status"] == "ACTIVE"]
-        candidate_without_miss_date = build_subject_review_candidate(
-            "BTC", "BTC", episodes_b, pit_eligibility_status="PASS",
-        )
+    def test_review_candidate_module_source_never_imports_audit_confirmed_miss(self):
+        source = (ROOT / "clock" / "review_candidate.py").read_text(encoding="utf-8")
+        import_lines = [ln.strip() for ln in source.splitlines()
+                         if ln.strip().startswith(("import ", "from "))]
+        for forbidden in ("import clock.audit_confirmed_miss", "from clock.audit_confirmed_miss",
+                           "import clock.audit_diagnostics", "from clock.audit_diagnostics"):
+            self.assertFalse(any(ln.startswith(forbidden) for ln in import_lines), forbidden)
 
-        self.assertIsNotNone(candidate_with_real_miss_date["post_hoc_audit_note"])
-        self.assertIsNone(candidate_without_miss_date["post_hoc_audit_note"])
-        # The presence/absence of the post-hoc note must not change tier.
-        self.assertEqual(candidate_with_real_miss_date["tier"], candidate_without_miss_date["tier"])
-        self.assertEqual(candidate_with_real_miss_date["human_review_required"],
-                          candidate_without_miss_date["human_review_required"])
+    def test_audit_diagnostics_module_is_the_only_place_that_computes_the_post_hoc_note(self):
+        # The SAME real PR #210 match, built via the genuinely separate
+        # module -- proves the note is still real/computable, just no
+        # longer reachable from build_subject_review_candidate at all.
+        from clock.audit_diagnostics import build_audit_diagnostic_record
+        from clock.dynamic_clock import ClockEvent, build_episode_history
+
+        ev = ClockEvent(detected_at="2026-08-20", evidence_available_at="2026-08-19",
+                         evidence_hash="a" * 64, source="test", strength=1.0)
+        episodes = [ep for ep in build_episode_history("BTC", "BTC", "PRICE_CONFIRMATION", [ev])
+                    if ep["status"] == "ACTIVE"]
+        diag = build_audit_diagnostic_record("BTC", "BTC", episodes)
+        self.assertIsNotNone(diag["post_hoc_audit_note"])
+        self.assertFalse(diag["post_hoc_audit_note"]["authoritative_for_tier"])
 
 
 if __name__ == "__main__":

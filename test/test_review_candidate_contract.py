@@ -60,7 +60,7 @@ class RawRecordFieldTests(unittest.TestCase):
 
 class SubjectCandidateFieldTests(unittest.TestCase):
     def test_subject_candidate_has_required_fields(self):
-        candidate = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS")
+        candidate = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS", decision_at="2026-08-20")
         missing = SUBJECT_REQUIRED_FIELDS - set(candidate)
         self.assertEqual(missing, set())
 
@@ -147,7 +147,7 @@ class SubjectCandidateConsolidationTests(unittest.TestCase):
         ep1 = _episode(trigger_type="PRICE_CONFIRMATION", subject="005930", market="KOREA")
         ep2 = _episode(trigger_type="FLOW_REVERSAL", subject="005930", market="KOREA", evidence_hash="b" * 64)
         candidate = build_subject_review_candidate(
-            "005930", "KOREA", [ep1, ep2], pit_eligibility_status="PASS",
+            "005930", "KOREA", [ep1, ep2], pit_eligibility_status="PASS", decision_at="2026-08-20",
         )
         self.assertEqual(candidate["confirmation_count"], 2)
         self.assertEqual(candidate["trigger_types"], ["FLOW_REVERSAL", "PRICE_CONFIRMATION"])
@@ -157,17 +157,17 @@ class SubjectCandidateConsolidationTests(unittest.TestCase):
         ep1 = _episode(subject="005930", market="KOREA")
         ep2 = _episode(subject="000660", market="KOREA", evidence_hash="c" * 64)
         with self.assertRaisesRegex(ReviewCandidateError, "EPISODE_SUBJECT_MARKET_MISMATCH"):
-            build_subject_review_candidate("005930", "KOREA", [ep1, ep2], pit_eligibility_status="PASS")
+            build_subject_review_candidate("005930", "KOREA", [ep1, ep2], pit_eligibility_status="PASS", decision_at="2026-08-20")
 
     def test_rejects_expired_episode_in_the_group(self):
         ep1 = _episode()
         ep2 = _episode(status="EXPIRED", evidence_hash="d" * 64)
         with self.assertRaisesRegex(ReviewCandidateError, "ALL_EPISODES_MUST_BE_ACTIVE"):
-            build_subject_review_candidate("BTC", "BTC", [ep1, ep2], pit_eligibility_status="PASS")
+            build_subject_review_candidate("BTC", "BTC", [ep1, ep2], pit_eligibility_status="PASS", decision_at="2026-08-20")
 
     def test_empty_episode_list_rejected(self):
         with self.assertRaisesRegex(ReviewCandidateError, "NO_ACTIVE_EPISODES_FOR_SUBJECT"):
-            build_subject_review_candidate("BTC", "BTC", [], pit_eligibility_status="PASS")
+            build_subject_review_candidate("BTC", "BTC", [], pit_eligibility_status="PASS", decision_at="2026-08-20")
 
 
 class NonCouplingTests(unittest.TestCase):
@@ -193,13 +193,13 @@ class AuthorityHardFalseTests(unittest.TestCase):
         self.assertEqual(record["authority"], AUTHORITY_ALL_FALSE)
 
     def test_subject_candidate_authority_block_is_all_false(self):
-        candidate = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS")
+        candidate = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS", decision_at="2026-08-20")
         self.assertEqual(candidate["authority"], AUTHORITY_ALL_FALSE)
 
 
 class ValidationRoundTripTests(unittest.TestCase):
     def _candidate(self):
-        return build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS")
+        return build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS", decision_at="2026-08-20")
 
     def test_valid_candidate_round_trips(self):
         candidate = self._candidate()
@@ -226,8 +226,8 @@ class ValidationRoundTripTests(unittest.TestCase):
 
 class DeterminismTests(unittest.TestCase):
     def test_candidate_hash_is_deterministic(self):
-        c1 = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS")
-        c2 = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS")
+        c1 = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS", decision_at="2026-08-20")
+        c2 = build_subject_review_candidate("BTC", "BTC", [_episode()], pit_eligibility_status="PASS", decision_at="2026-08-20")
         self.assertEqual(c1["record_hash"], c2["record_hash"])
         self.assertEqual(c1["candidate_id"], c2["candidate_id"])
 

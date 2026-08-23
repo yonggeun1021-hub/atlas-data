@@ -30,8 +30,21 @@
 
 Every trigger-detection date scanned is real committed evidence's own
 capture_date range -- `replay.evidence_index.REPO_HISTORY_STARTS_AT` through
-the latest capture_date this repo actually has for that market. No
-`datetime.now()` anywhere in this module.
+the latest capture_date this repo actually has for that market (or through
+`decision_date` when one is supplied -- see below). No `datetime.now()`
+anywhere in this module.
+
+★ CIO integration review round 1, defect 1 (PIT lookahead via post-hoc
+  `max()` correction): every `scan_*` function now accepts an optional
+  `decision_date`. When given, snapshots dated AFTER `decision_date` are
+  filtered out BEFORE any series is built or any trigger is detected --
+  filtering happens at THIS scanning boundary, not by patching results
+  afterward. This is what makes real historical replay
+  (`clock/run_dynamic_clock.py`'s `mode="HISTORICAL_REPLAY"`) genuinely
+  safe: a request for `decision_date=2026-08-20` can structurally never see
+  a 2026-08-21 or 2026-08-22 snapshot, because that snapshot is removed
+  from the candidate list before `build_btc_series`/`build_krx_series`/
+  `crypto_breadth_series` ever touches it.
 """
 from __future__ import annotations
 
@@ -132,10 +145,39 @@ def _events_by_type(raw_events: dict[str, list]) -> dict[str, list[ClockEvent]]:
     return {t: [_to_clock_event(e) for e in events] for t, events in raw_events.items()}
 
 
-def scan_btc() -> dict:
+def _filter_snapshots(snapshots: list, decision_date: str | None) -> list:
+    """Scanner-level PIT filter (defect 1): drops any snapshot captured
+    AFTER `decision_date`, BEFORE it is ever handed to a series builder or
+    trigger detector. A no-op when `decision_date` is None (the bare
+    artifact-reproduction / "use whatever is latest" mode)."""
+    if decision_date is None:
+        return snapshots
+    return [s for s in snapshots if s.capture_date <= decision_date]
+
+
+def all_evidence_dates(market: str) -> list[str]:
+    """Cheap peek at every REAL committed capture_date for `market`,
+    completely unfiltered -- no series building, no trigger detection.
+    Used by `clock/run_dynamic_clock.py`'s OPERATIONAL-mode fail-closed
+    check (`DECISION_DATE_PRECEDES_EVIDENCE_AS_OF`) to learn what evidence
+    genuinely exists before deciding whether a caller-supplied
+    `decision_date` is anomalously behind it -- kept separate from the
+    (expensive) full scan so that check never needs the expensive path."""
+    if market == "BTC":
+        return [s.capture_date for s in ei.find_btc_snapshots()]
+    if market == "KOREA":
+        return [s.capture_date for s in ei.find_krx_snapshots()]
+    if market == "CRYPTO":
+        return [s.capture_date for s in ei.find_breadth_snapshots()]
+    raise ValueError(f"UNKNOWN_MARKET:{market}")
+
+
+def scan_btc(decision_date: str | None = None) -> dict:
     """Returns {"BTC": {trigger_type: [ClockEvent, ...]}} for every
-    COMPUTABLE trigger type, using only real committed BTC evidence."""
-    snapshots = ei.find_btc_snapshots()
+    COMPUTABLE trigger type, using only real committed BTC evidence dated
+    at or before `decision_date` (all evidence, when `decision_date` is
+    None)."""
+    snapshots = _filter_snapshots(ei.find_btc_snapshots(), decision_date)
     if not snapshots:
         return {"subjects": {}, "population_label": "DEDICATED_COLLECTOR", "evidence_dates": []}
     series = build_btc_series(snapshots)
@@ -156,10 +198,12 @@ def scan_btc() -> dict:
     }
 
 
-def scan_korea() -> dict:
+def scan_korea(decision_date: str | None = None) -> dict:
     """Korea market scan over the CURRENT watchlist -- see module docstring
-    for why this is a valid operational (not historical-PIT) population."""
-    krx_snapshots = ei.find_krx_snapshots()
+    for why this is a valid operational (not historical-PIT) population.
+    Evidence dated after `decision_date` is filtered out before any series
+    is built (defect 1)."""
+    krx_snapshots = _filter_snapshots(ei.find_krx_snapshots(), decision_date)
     if not krx_snapshots:
         return {"subjects": {}, "population_label": "CURRENT_WATCHLIST_OPERATIONAL_COHORT", "evidence_dates": []}
     universe_codes = {row["code"] for row in ei.load_universe().get("kr", [])}
@@ -195,13 +239,14 @@ def scan_korea() -> dict:
     }
 
 
-def scan_crypto() -> dict:
+def scan_crypto(decision_date: str | None = None) -> dict:
     """Crypto market scan over the RATIFIED PIT-eligible taxonomy only --
     real evidence: this is an empty population for essentially the whole
     window before 2026-08-19 (see `replay.asset_identity` docstring), which
     this scan reproduces honestly rather than substituting the full
-    source catalog."""
-    breadth_snapshots = ei.find_breadth_snapshots()
+    source catalog. Evidence dated after `decision_date` is filtered out
+    before any series is built (defect 1)."""
+    breadth_snapshots = _filter_snapshots(ei.find_breadth_snapshots(), decision_date)
     if not breadth_snapshots:
         return {"subjects": {}, "population_label": "PIT_RATIFIED_ELIGIBLE_UNIVERSE", "evidence_dates": []}
     latest_date = breadth_snapshots[-1].capture_date

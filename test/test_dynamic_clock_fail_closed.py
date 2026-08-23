@@ -81,7 +81,7 @@ class MalformedEpisodeTests(unittest.TestCase):
 
     def test_build_subject_review_candidate_on_empty_list_raises(self):
         with self.assertRaisesRegex(ReviewCandidateError, "NO_ACTIVE_EPISODES_FOR_SUBJECT"):
-            build_subject_review_candidate("BTC", "BTC", [], pit_eligibility_status="PASS")
+            build_subject_review_candidate("BTC", "BTC", [], pit_eligibility_status="PASS", decision_at="2026-08-20")
 
 
 class OutOfOrderAmbiguityTests(unittest.TestCase):
@@ -127,10 +127,7 @@ class PitIneligibilityDoesNotCrashTieringTests(unittest.TestCase):
 
 
 class DecisionDateValidationTests(unittest.TestCase):
-    """CIO review round 2, item 5: `decision_date` fails closed only on a
-    malformed date string. A decision_date earlier than a market's
-    evidence_as_of is NOT an error -- `_effective_as_of` takes max(), so it
-    simply has no effect (see that function's own tests below)."""
+    """`decision_date` fails closed only on a malformed date string."""
 
     def test_malformed_decision_date_raises(self):
         from clock.run_dynamic_clock import DynamicClockOrchestratorError, _validate_decision_date
@@ -147,29 +144,31 @@ class DecisionDateValidationTests(unittest.TestCase):
         _validate_decision_date("2026-08-25")  # must not raise
 
 
-class EffectiveAsOfTests(unittest.TestCase):
-    """`_effective_as_of` is the actual round-2/item-5 staleness fix: the
-    max of decision_date and evidence_as_of, never earlier than either."""
+class DecisionDatePrecedesEvidenceFailClosedTests(unittest.TestCase):
+    """CIO integration review round 1, defect 1: the old `_effective_as_of`
+    silently used `max(decision_date, evidence_as_of)`, overwriting an
+    explicit, earlier `decision_date` with LATER evidence -- a real PIT
+    lookahead violation the CIO directly reproduced. That function and its
+    test class are DELETED, not patched. OPERATIONAL mode now fails closed
+    instead."""
 
-    def test_decision_date_later_than_evidence_wins(self):
-        from clock.run_dynamic_clock import _effective_as_of
-        self.assertEqual(_effective_as_of("2026-08-25", "2026-08-22"), "2026-08-25")
+    def test_decision_date_behind_real_evidence_raises_in_operational_mode(self):
+        from clock.run_dynamic_clock import DynamicClockOrchestratorError, run
 
-    def test_evidence_later_than_decision_date_wins(self):
-        from clock.run_dynamic_clock import _effective_as_of
-        self.assertEqual(_effective_as_of("2020-01-01", "2026-08-22"), "2026-08-22")
+        with self.assertRaisesRegex(DynamicClockOrchestratorError, "DECISION_DATE_PRECEDES_EVIDENCE_AS_OF"):
+            run(decision_date="2020-01-01")  # far behind BTC/KOREA/CRYPTO's real committed evidence
 
-    def test_none_decision_date_falls_back_to_evidence(self):
-        from clock.run_dynamic_clock import _effective_as_of
-        self.assertEqual(_effective_as_of(None, "2026-08-22"), "2026-08-22")
+    def test_same_decision_date_does_not_raise_in_historical_replay_mode(self):
+        from clock.run_dynamic_clock import run
 
-    def test_none_evidence_falls_back_to_decision_date(self):
-        from clock.run_dynamic_clock import _effective_as_of
-        self.assertEqual(_effective_as_of("2026-08-25", None), "2026-08-25")
+        report = run(decision_date="2020-01-01", mode="HISTORICAL_REPLAY")  # must not raise
+        self.assertEqual(report["mode"], "HISTORICAL_REPLAY")
 
-    def test_both_none_is_none(self):
-        from clock.run_dynamic_clock import _effective_as_of
-        self.assertIsNone(_effective_as_of(None, None))
+    def test_invalid_mode_raises(self):
+        from clock.run_dynamic_clock import DynamicClockOrchestratorError, run
+
+        with self.assertRaisesRegex(DynamicClockOrchestratorError, "INVALID_MODE"):
+            run(decision_date="2026-08-22", mode="NOT_A_REAL_MODE")
 
 
 if __name__ == "__main__":

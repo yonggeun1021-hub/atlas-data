@@ -55,9 +55,14 @@ class BtcRegressionCaseTests(unittest.TestCase):
 
     def test_the_2026_08_20_episode_reference_metrics_match_pr210s_audited_figure(self):
         # Still computed and preserved for post-hoc/audit purposes -- just
-        # never fed into tier (see PitTierInvariantTests below).
-        target = next(r for r in self._btc_raw_price_confirmation() if r["opened_at"] == "2026-08-20")
-        fm = target["reference_forward_metrics_first_detection"]
+        # never fed into tier, and physically separate from the raw ledger
+        # too now (defect 3): only in clock/audit_diagnostics.py's own
+        # artifact.
+        from clock.run_dynamic_clock import run_with_diagnostics
+
+        _, diagnostics = run_with_diagnostics()
+        btc_diag = next(d for d in diagnostics["by_market"]["BTC"] if d["subject"] == "BTC")
+        fm = btc_diag["reference_forward_metrics_first_detection"]
         self.assertEqual(fm["status"], "OK")
         self.assertEqual(fm["decision_date"], "2026-08-20")
         self.assertEqual(fm["signal_evaluation_at"], "2026-08-19")
@@ -75,12 +80,24 @@ class BtcRegressionCaseTests(unittest.TestCase):
         self.assertEqual(candidate["tier"], "WATCH_REVIEW")
         self.assertFalse(candidate["human_review_required"])
 
-    def test_btc_still_carries_a_post_hoc_audit_note_for_regression_explanation(self):
-        # The real PR #210 finding is still visible -- just clearly
-        # labeled as non-authoritative for tier.
+    def test_btc_review_queue_candidate_carries_no_post_hoc_field_at_all(self):
+        # CIO integration review round 1, defect 3: post-hoc data must be
+        # PHYSICALLY ABSENT from the operational candidate, not merely
+        # unused.
         candidate = self._btc_subject_candidate()
-        self.assertIsNotNone(candidate["post_hoc_audit_note"])
-        self.assertFalse(candidate["post_hoc_audit_note"]["authoritative_for_tier"])
+        self.assertNotIn("post_hoc_audit_note", candidate)
+        self.assertNotIn("reference_forward_metrics_first_detection", candidate)
+        self.assertNotIn("reference_forward_metrics_latest_detection", candidate)
+
+    def test_btc_post_hoc_finding_still_visible_in_the_separate_audit_diagnostics_artifact(self):
+        # The real PR #210 finding is still visible -- just physically
+        # separate from the operational candidate (defect 3).
+        from clock.run_dynamic_clock import run_with_diagnostics
+
+        _, diagnostics = run_with_diagnostics()
+        btc_diag = next(d for d in diagnostics["by_market"]["BTC"] if d["subject"] == "BTC")
+        self.assertIsNotNone(btc_diag["post_hoc_audit_note"])
+        self.assertFalse(btc_diag["post_hoc_audit_note"]["authoritative_for_tier"])
 
     def test_the_candidate_carries_no_authority(self):
         candidate = self._btc_subject_candidate()
@@ -241,7 +258,20 @@ class PitTierInvariantTests(unittest.TestCase):
     def setUpClass(cls):
         cls.report = run()
 
-    def test_tier_is_independent_of_reference_forward_metrics_value(self):
+    def test_build_subject_review_candidate_signature_has_no_forward_metrics_parameter(self):
+        # CIO integration review round 1, defect 3: the strongest possible
+        # version of "tier is independent of forward-return values" -- the
+        # operational candidate BUILDER cannot even accept one any more.
+        import inspect
+
+        from clock.review_candidate import build_subject_review_candidate
+
+        params = set(inspect.signature(build_subject_review_candidate).parameters)
+        for forbidden in ("reference_forward_metrics_first_detection",
+                           "reference_forward_metrics_latest_detection", "post_hoc_audit_note"):
+            self.assertNotIn(forbidden, params)
+
+    def test_passing_a_forward_metrics_kwarg_raises_typeerror(self):
         from clock.dynamic_clock import ClockEvent, build_episode_history
         from clock.review_candidate import build_subject_review_candidate
 
@@ -249,22 +279,11 @@ class PitTierInvariantTests(unittest.TestCase):
                          evidence_hash="a" * 64, source="test", strength=1.0)
         episodes = [ep for ep in build_episode_history("BTC", "BTC", "PRICE_CONFIRMATION", [ev])
                     if ep["status"] == "ACTIVE"]
-
-        # Rebuild the SAME episode with wildly different (fabricated)
-        # forward-metrics values attached and confirm tier/
-        # human_review_required are byte-identical either way.
-        baseline = build_subject_review_candidate(
-            "BTC", "BTC", episodes, pit_eligibility_status="PASS",
-            reference_forward_metrics_first_detection=None,
-        )
-        tampered = build_subject_review_candidate(
-            "BTC", "BTC", episodes, pit_eligibility_status="PASS",
-            reference_forward_metrics_first_detection={
-                "status": "OK", "horizons": {"1": {"forward_return_pct": 999999.0}},
-            },
-        )
-        self.assertEqual(baseline["tier"], tampered["tier"])
-        self.assertEqual(baseline["human_review_required"], tampered["human_review_required"])
+        with self.assertRaises(TypeError):
+            build_subject_review_candidate(  # type: ignore[call-arg]
+                "BTC", "BTC", episodes, pit_eligibility_status="PASS", decision_at="2026-08-20",
+                reference_forward_metrics_first_detection={"status": "OK"},
+            )
 
 
 class DeterminismTests(unittest.TestCase):
@@ -345,15 +364,32 @@ class LookaheadSweepTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_reference_forward_metrics_never_price_an_entry_at_or_before_its_decision_date(self):
+        # These fields live ONLY in the physically separate audit_diagnostics
+        # artifact now (defect 3 removed them from both review_queue and
+        # raw_trigger_ledger).
+        from clock.run_dynamic_clock import run_with_diagnostics
+
+        _, diagnostics = run_with_diagnostics()
         checked = 0
-        for market_result in self.report["by_market"].values():
-            for record in market_result["review_queue"]:
+        for market_diag in diagnostics["by_market"].values():
+            for record in market_diag:
                 for key in ("reference_forward_metrics_first_detection", "reference_forward_metrics_latest_detection"):
                     fm = record.get(key)
                     if fm and fm.get("status") == "OK":
                         checked += 1
                         self.assertGreater(fm["hypothetical_entry_at"], fm["decision_date"], record)
         self.assertGreater(checked, 0, "sanity: at least one reference metric should be OK-graded")
+
+    def test_review_queue_candidates_never_carry_reference_forward_metrics(self):
+        # Defect 3: physically absent from the operational candidate.
+        checked = 0
+        for market_result in self.report["by_market"].values():
+            for record in market_result["review_queue"]:
+                checked += 1
+                self.assertNotIn("reference_forward_metrics_first_detection", record)
+                self.assertNotIn("reference_forward_metrics_latest_detection", record)
+                self.assertNotIn("post_hoc_audit_note", record)
+        self.assertGreater(checked, 0)
 
 
 class BriefingSectionShapeTests(unittest.TestCase):

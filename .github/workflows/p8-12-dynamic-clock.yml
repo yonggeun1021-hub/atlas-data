@@ -65,7 +65,8 @@ jobs:
             test.test_audit_confirmed_miss \
             test.test_dynamic_clock_workflow_wiring \
             test.test_dynamic_clock_pit_tier_invariant \
-            test.test_price_reflection_link
+            test.test_price_reflection_link \
+            test.test_dynamic_clock_orchestrator_defects
       # ★ CIO review round 2, item 6 (workflow atomicity hardening):
       #   the checkout above happened at job START -- by the time we are
       #   ready to commit, a concurrent collector or another dynamic-clock

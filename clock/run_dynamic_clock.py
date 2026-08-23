@@ -11,41 +11,65 @@ per-trigger audit records + the CONSOLIDATED, TIERED, PIT-safe per-subject
 Human Review Candidate) into one deterministic report, split by market
 (BTC/KOREA/CRYPTO -- never blended).
 
-★ Two distinct dates, kept separate (CIO review round 2, item 5):
-    - `evidence_as_of` (per market) -- the latest real evidence capture_date
-      this repo actually has. Used to bound trigger DETECTION (never look
-      past it -- that would be a signal-side lookahead) and to report "what
-      data did we see".
-    - `decision_date` (optional argument to `run()`/`main()`) -- the real
-      calendar date this operational run/briefing is FOR, supplied
-      externally (e.g. by `briefing/daily_orchestrator.py`'s own
-      decision_date, itself derived from a real `TZ=Asia/Seoul date`
-      command in the workflow, never `datetime.now()` inside this module).
-      Used ONLY to decide whether an episode has gone STALE (past its
-      `expiry`) even when no new evidence has arrived at all -- round 1's
-      version incorrectly gated staleness purely off `evidence_as_of`, so
-      an episode could stay "ACTIVE" indefinitely just because no new
-      collector run happened, which understates staleness. When
-      `decision_date` is omitted (e.g. the bare `python3
-      clock/run_dynamic_clock.py` artifact-reproduction CLI), this module
-      falls back to `evidence_as_of` -- byte-identical, reproducible
-      output, unaffected by wall-clock time, exactly as before.
-    Each market's effective staleness date is `max(decision_date,
-    evidence_as_of)` when both are known -- never earlier than the
-    evidence itself (a caller-supplied `decision_date` behind a market's
-    real evidence must not make an episode look artificially fresher than
-    the evidence already implies), and never earlier than the real
-    operational "today" when that is later than the evidence (the actual
-    round-2 fix). `decision_date` still fails closed on a malformed date
-    string.
+★ CIO integration review round 1, defect 1 (past decision_date silently
+  using future evidence): the old `_effective_as_of()` took
+  `max(decision_date, evidence_as_of)`, which silently overwrote an
+  explicit, earlier `decision_date` with LATER evidence -- a real PIT
+  lookahead violation the CIO directly reproduced. Fixed structurally, not
+  patched: `clock/operational_scan.py`'s scanners now filter snapshots to
+  `capture_date <= decision_date` BEFORE building any series (see that
+  module). This orchestrator adds two further pieces:
+    - `mode="OPERATIONAL"` (default): if a caller-supplied `decision_date`
+      turns out to be BEHIND some market's real, unfiltered latest
+      evidence, that is anomalous for live/operational use (a real
+      operational `decision_date` should always be "today", always >= all
+      evidence) -- fails closed with `DECISION_DATE_PRECEDES_EVIDENCE_AS_OF`
+      rather than silently reconstructing a partial/wrong-looking view.
+    - `mode="HISTORICAL_REPLAY"`: the same scanner-level filtering applies
+      (evidence after `decision_date` is structurally invisible), but the
+      "precedes" check above is skipped -- this is the genuine, intentional
+      historical-replay use case the filtering was built to support.
+  `decision_date` omitted entirely (the bare CLI artifact-reproduction
+  mode) is unaffected: falls back to each market's own real latest
+  evidence, byte-identical and reproducible, exactly as before.
+
+★ CIO integration review round 1, defect 2 ("new" triggers leaking stale
+  raw triggers as new on every re-run): "new" is no longer `opened_at ==
+  evidence_as_of` (a date-equality check that stays true forever once
+  fresh evidence stops arriving). `_load_previous_committed_episode_ids()`
+  reads the market's own PREVIOUSLY COMMITTED `dynamic_clock_report.json`
+  (if any) and an episode is "new" only if its `episode_id` was NOT already
+  present there. No prior committed state at all (first bootstrap run) is
+  explicitly `newness_status="NEWNESS_NOT_COMPUTABLE"` -- never defaulted
+  to "everything is new". The raw per-trigger `new_triggers_this_run` list
+  stays audit-only; the briefing's `new_triggers` is subject-level
+  consolidated (`new_subjects_this_run`), matching every other briefing
+  list.
+
+★ CIO integration review round 1, defect 3 (post-hoc data physically
+  present in the operational object): `build_subject_review_candidate()`
+  (the `review_queue` entry) no longer carries `post_hoc_audit_note` or any
+  `reference_forward_metrics_*` field at all. Those are built by the
+  physically SEPARATE `clock/audit_diagnostics.py` into their own
+  `audit_diagnostics` collection, written to its own committed file
+  (`evidence/operational/dynamic_clock/audit_diagnostics.json`) --
+  `run()`'s returned report (what `build_briefing_section()` and
+  `dynamic_clock_report.json` are built from) never contains it. See
+  `run_with_diagnostics()` for the one function that computes both.
+
+★ CIO integration review round 1, defect 4 (missing PIT timing fields):
+  `build_subject_review_candidate()` now requires `decision_at` and emits
+  the full `evidence_as_of`/`trigger_observed_at`/`decision_at`/
+  `price_as_of`/`candidate_created_at`/`candidate_updated_at`/
+  `time_precision` set, independently validated (see
+  `clock/review_candidate.py::_validate_candidate_timing`).
 
 ★ Authority: this module never sets Stage/Buy/Action/Order/Production/
   trading. Every record's `authority` block is hard-`False`/`None` (see
   `review_candidate.py`). A Trigger firing here is a re-review REQUEST
   only, and only `IMMEDIATE_REVIEW`-tier subject candidates ever carry
   `human_review_required=True` -- and `IMMEDIATE_REVIEW` itself can NEVER
-  be reached today (no real thesis/price linkage exists yet -- see
-  `review_candidate.py`'s module docstring on the round-2 PIT fix).
+  be reached today (no RATIFIED-basis thesis/price linkage exists yet).
 """
 from __future__ import annotations
 
@@ -63,6 +87,7 @@ from replay.opportunity_trigger import canonical_json
 
 from clock import dynamic_clock as dc
 from clock import operational_scan as scan
+from clock.audit_diagnostics import build_audit_diagnostic_record
 from clock.dynamic_clock import build_episode_history, close_stale_episodes
 from clock.price_reflection_link import link_price_reflection, to_price_reflection_status
 from clock.review_candidate import (
@@ -72,10 +97,16 @@ from clock.review_candidate import (
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "evidence" / "operational" / "dynamic_clock"
+REPORT_PATH = OUT_DIR / "dynamic_clock_report.json"
+AUDIT_DIAGNOSTICS_PATH = OUT_DIR / "audit_diagnostics.json"
 
 PRIORITY_SUBJECTS = ("BTC", "005930", "000660")  # same regression priority set as PR #210
 
 DATE_FMT = "%Y-%m-%d"
+
+MODE_OPERATIONAL = "OPERATIONAL"
+MODE_HISTORICAL_REPLAY = "HISTORICAL_REPLAY"
+VALID_MODES = (MODE_OPERATIONAL, MODE_HISTORICAL_REPLAY)
 
 
 class DynamicClockOrchestratorError(ValueError):
@@ -83,11 +114,7 @@ class DynamicClockOrchestratorError(ValueError):
 
 
 def _validate_decision_date(decision_date: str | None) -> None:
-    """Fails closed only on a malformed date string. A `decision_date`
-    earlier than some market's `evidence_as_of` is NOT an error (see
-    module docstring) -- `_effective_as_of` below takes the max of the
-    two, so it simply has no effect for that market rather than needing to
-    be rejected here."""
+    """Fails closed only on a malformed date string."""
     if decision_date is None:
         return
     try:
@@ -96,34 +123,68 @@ def _validate_decision_date(decision_date: str | None) -> None:
         raise DynamicClockOrchestratorError(f"DECISION_DATE_INVALID:{decision_date!r}") from exc
 
 
-def _effective_as_of(decision_date: str | None, evidence_as_of: str | None) -> str | None:
-    if decision_date is None:
-        return evidence_as_of
-    if evidence_as_of is None:
-        return decision_date
-    return max(decision_date, evidence_as_of)
+def _check_decision_date_not_behind_evidence(market: str, decision_date: str | None, mode: str) -> None:
+    """Defect 1's fail-closed half: in OPERATIONAL mode, a `decision_date`
+    behind the market's REAL, UNFILTERED latest evidence is anomalous (a
+    genuine operational decision_date -- "today" -- should never be behind
+    evidence that is already committed). `HISTORICAL_REPLAY` mode skips
+    this deliberately -- that is its whole purpose."""
+    if decision_date is None or mode == MODE_HISTORICAL_REPLAY:
+        return
+    raw_dates = scan.all_evidence_dates(market)
+    raw_latest = max(raw_dates) if raw_dates else None
+    if raw_latest is not None and raw_latest > decision_date:
+        raise DynamicClockOrchestratorError(
+            f"DECISION_DATE_PRECEDES_EVIDENCE_AS_OF:{market}:decision_date={decision_date} "
+            f"< raw_latest_evidence={raw_latest} (pass mode=\"{MODE_HISTORICAL_REPLAY}\" for genuine "
+            "historical replay)"
+        )
 
 
 def _pit_eligibility_status(subject: str, decision_date: str, kr_universe_codes) -> str:
     return ai.asset_identity_status(subject, decision_date, kr_universe_codes)
 
 
-def _market_result(market: str, decision_date: str | None) -> dict:
+def _load_previous_committed_episode_ids(market: str) -> set[str] | None:
+    """Defect 2: the market's set of `episode_id`s (== raw records'
+    `candidate_id`) that were ACTIVE in the PREVIOUSLY COMMITTED
+    `dynamic_clock_report.json`, or `None` if no prior committed state
+    exists at all, or it is unreadable/schema-incompatible (fails closed to
+    "not computable", never crashes and never defaults to "everything is
+    new")."""
+    if not REPORT_PATH.is_file():
+        return None
+    try:
+        doc = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+        market_result = doc["by_market"][market]
+        return {r["candidate_id"] for r in market_result["raw_trigger_ledger"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
+    _check_decision_date_not_behind_evidence(market, decision_date, mode)
     scanner = scan.MARKET_SCANNERS[market]
-    scan_result = scanner()
+    # ★ defect 1: decision_date is passed straight into the scanner, which
+    #   filters evidence at its own boundary -- never patched after the
+    #   fact here.
+    scan_result = scanner(decision_date)
     evidence_dates = scan_result["evidence_dates"]
     evidence_as_of = max(evidence_dates) if evidence_dates else None
-    # ★ round 2, item 5: staleness is evaluated as of the real operational
-    #   decision_date when one is supplied, never capped at evidence_as_of
-    #   -- but also never earlier than evidence_as_of itself (see
-    #   _effective_as_of's docstring / module docstring).
-    episode_as_of = _effective_as_of(decision_date, evidence_as_of)
+    # decision_at: the operational "as of" date this market's candidates
+    # are evaluated FOR. Structurally >= evidence_as_of now (the scanner
+    # already guarantees evidence_as_of <= decision_date when one was
+    # given), so no max()/correction is needed here at all.
+    decision_at = decision_date if decision_date is not None else evidence_as_of
     series_map = scan_result.get("series", {})
     kr_universe_codes = scan_result.get("kr_universe_codes")
 
+    previous_episode_ids = _load_previous_committed_episode_ids(market)
+    newness_status = "COMPUTABLE" if previous_episode_ids is not None else "NEWNESS_NOT_COMPUTABLE"
+
     raw_trigger_ledger: list[dict] = []
     expired_records: list[dict] = []
-    new_triggers_this_run: list[dict] = []
+    new_triggers_this_run: list[dict] = []  # raw, audit-only -- never rendered directly in the briefing
     active_episodes_by_subject: dict[str, list[dict]] = {}
 
     for subject, by_type in sorted(scan_result["subjects"].items()):
@@ -131,42 +192,49 @@ def _market_result(market: str, decision_date: str | None) -> dict:
             if not events:
                 continue
             episodes = build_episode_history(subject, market, trigger_type, events)
-            if episode_as_of is not None:
-                episodes = close_stale_episodes(episodes, episode_as_of)
+            if decision_at is not None:
+                episodes = close_stale_episodes(episodes, decision_at)
             for ep in episodes:
                 if ep["status"] == "ACTIVE":
-                    ref_metrics_latest = None
-                    ref_metrics_first = None
-                    if subject in PRIORITY_SUBJECTS and subject in series_map:
-                        latest = ep["evidence_trail"][-1]
-                        first = ep["evidence_trail"][0]
-                        ref_metrics_latest = compute_forward_metrics(
-                            series_map[subject], latest["detected_at"],
-                            signal_evaluation_at=latest["evidence_available_at"],
-                        )
-                        ref_metrics_first = compute_forward_metrics(
-                            series_map[subject], first["detected_at"],
-                            signal_evaluation_at=first["evidence_available_at"],
-                        )
-                    record = build_raw_trigger_record(
-                        ep, reference_forward_metrics=ref_metrics_latest,
-                        reference_forward_metrics_first_detection=ref_metrics_first,
-                    )
+                    record = build_raw_trigger_record(ep)
                     raw_trigger_ledger.append(record)
                     active_episodes_by_subject.setdefault(subject, []).append(ep)
-                    if ep["opened_at"] == evidence_as_of:
+                    # ★ defect 2: "new" means "not in the previously
+                    #   committed state" -- never a date-equality check,
+                    #   and never defaulted to True when there is no prior
+                    #   state to compare against.
+                    if previous_episode_ids is not None and record["candidate_id"] not in previous_episode_ids:
                         new_triggers_this_run.append(record)
                 elif ep["status"] == "EXPIRED":
                     expired_records.append(build_expired_record(ep))
 
     review_queue: list[dict] = []
+    audit_diagnostics: list[dict] = []
     for subject, episodes in sorted(active_episodes_by_subject.items()):
         # PIT eligibility is checked as of the real operational "now"
-        # (episode_as_of) -- this reveals nothing about the future (a
+        # (decision_at) -- this reveals nothing about the future (a
         # ratified taxonomy's effective_from is already a known, committed
         # fact as of any date <= today), unlike using a forward-looking
         # price outcome would.
-        pit_status = _pit_eligibility_status(subject, episode_as_of or evidence_as_of, kr_universe_codes)
+        pit_status = _pit_eligibility_status(subject, decision_at or evidence_as_of, kr_universe_codes)
+
+        # ★ P8-10 integration: real, independently re-validated
+        #   price_reflection link (BTC/KOREA only -- see
+        #   clock/price_reflection_link.py's docstring for CRYPTO's honest
+        #   NOT_SUPPORTED_FOR_SUBJECT boundary). link_price_reflection()
+        #   itself never raises (fail-closed per candidate).
+        link_result = link_price_reflection(subject, market, decision_at)
+        price_reflection_status = to_price_reflection_status(link_result)
+
+        review_queue.append(build_subject_review_candidate(
+            subject, market, episodes, pit_eligibility_status=pit_status,
+            decision_at=decision_at,
+            price_reflection_status=price_reflection_status,
+        ))
+
+        # ★ defect 3: audit diagnostics (post-hoc Miss note + forward-return
+        #   metrics) are built HERE, entirely separately from the
+        #   operational candidate above -- never merged into it.
         ref_metrics_latest = None
         ref_metrics_first = None
         if subject in PRIORITY_SUBJECTS and subject in series_map:
@@ -182,20 +250,8 @@ def _market_result(market: str, decision_date: str | None) -> dict:
                 series_map[subject], first_ev["detected_at"],
                 signal_evaluation_at=first_ev["evidence_available_at"],
             )
-        # ★ P8-10 integration (post PR #212 merge): real, independently
-        #   re-validated price_reflection link (BTC/KOREA only -- see
-        #   clock/price_reflection_link.py's docstring for CRYPTO's honest
-        #   NOT_SUPPORTED_FOR_SUBJECT boundary). decision_date here is the
-        #   SAME episode_as_of already used for PIT eligibility -- "what
-        #   does P8-10 say about this subject as of today" -- and
-        #   link_price_reflection() itself never raises (fail-closed per
-        #   candidate, item 3.8).
-        price_reflection_decision_date = episode_as_of or evidence_as_of
-        link_result = link_price_reflection(subject, market, price_reflection_decision_date)
-        price_reflection_status = to_price_reflection_status(link_result)
-        review_queue.append(build_subject_review_candidate(
-            subject, market, episodes, pit_eligibility_status=pit_status,
-            price_reflection_status=price_reflection_status,
+        audit_diagnostics.append(build_audit_diagnostic_record(
+            subject, market, episodes,
             reference_forward_metrics_first_detection=ref_metrics_first,
             reference_forward_metrics_latest_detection=ref_metrics_latest,
         ))
@@ -204,6 +260,12 @@ def _market_result(market: str, decision_date: str | None) -> dict:
     expired_records.sort(key=lambda r: (r["subject"], r["trigger_type"], r["candidate_id"]))
     new_triggers_this_run.sort(key=lambda r: (r["subject"], r["trigger_type"], r["candidate_id"]))
     review_queue.sort(key=lambda r: (r["subject"], r["candidate_id"]))
+    audit_diagnostics.sort(key=lambda r: r["subject"])
+
+    # ★ defect 2: subject-level consolidation of "new" -- the raw 95 stays
+    #   in new_triggers_this_run (audit only); this is what the briefing
+    #   is allowed to read from.
+    new_subjects_this_run = sorted({r["subject"] for r in new_triggers_this_run})
 
     immediate_review = [r for r in review_queue if r["tier"] == TIER_IMMEDIATE_REVIEW]
     watch_review = [r for r in review_queue if r["tier"] == TIER_WATCH_REVIEW]
@@ -212,14 +274,16 @@ def _market_result(market: str, decision_date: str | None) -> dict:
     return {
         "market": market,
         "evidence_as_of": evidence_as_of,
-        "decision_date": episode_as_of,
+        "decision_date": decision_at,
         "population_label": scan_result["population_label"],
         "not_computable_trigger_types": scan.not_computable_report(market),
         "subject_count": len(scan_result["subjects"]),
         "raw_trigger_count": len(raw_trigger_ledger),
         "raw_trigger_ledger": raw_trigger_ledger,
         "expired_triggers": expired_records,
+        "newness_status": newness_status,
         "new_triggers_this_run": new_triggers_this_run,
+        "new_subjects_this_run": new_subjects_this_run,
         "review_queue": review_queue,
         "review_queue_subject_count": len(review_queue),
         "immediate_review": immediate_review,
@@ -230,41 +294,77 @@ def _market_result(market: str, decision_date: str | None) -> dict:
             "WATCH_REVIEW": len(watch_review),
             "OBSERVATION_ONLY": len(observation_only),
         },
+        # ★ defect 3: kept out of the operational report proper -- stripped
+        #   by run() before it is returned; only run_with_diagnostics()
+        #   surfaces this key.
+        "audit_diagnostics": audit_diagnostics,
     }
 
 
-def run(decision_date: str | None = None) -> dict:
-    """`decision_date`, when supplied, is the real operational "today" this
-    run is FOR (see module docstring). Never sourced from `datetime.now()`
-    inside this function -- the caller (a workflow's own shell `date`
-    command, or `briefing/daily_orchestrator.py`'s own decision_date
-    parameter) is responsible for supplying it."""
+def _assemble(decision_date: str | None, mode: str) -> dict:
+    if mode not in VALID_MODES:
+        raise DynamicClockOrchestratorError(f"INVALID_MODE:{mode!r} (must be one of {VALID_MODES})")
     policy = dc.load_policy()
-    # Format-only validation -- does not need each market's evidence_as_of
-    # (a decision_date behind some market's evidence is not an error, see
-    # _effective_as_of), so no need to pre-scan every market twice.
     _validate_decision_date(decision_date)
 
-    by_market = {market: _market_result(market, decision_date) for market in ("BTC", "KOREA", "CRYPTO")}
+    by_market = {market: _market_result(market, decision_date, mode) for market in ("BTC", "KOREA", "CRYPTO")}
     all_evidence_dates = [m["evidence_as_of"] for m in by_market.values() if m["evidence_as_of"]]
     return {
         "wbs_item": "P8-12 Opportunity Trigger + Dynamic Review Clock",
         "report_asof_evidence_date": max(all_evidence_dates) if all_evidence_dates else None,
         "decision_date": decision_date,
+        "mode": mode,
         "repo_history_starts_at": scan.ei.REPO_HISTORY_STARTS_AT,
-        # ★ round 2, item 7: policy status surfaced at the top level, so a
-        #   component's own READY status is never mistaken for "the
-        #   cadence/tiering policy itself is finally ratified".
         "policy_approval_status": policy["approval_status"],
         "policy_version": policy["policy_version"],
         "authority_note": (
             "A Trigger firing here is a re-review REQUEST only -- it is never a Buy signal and "
             "never confers Action/Order/trading authority. Only IMMEDIATE_REVIEW-tier subject "
             "candidates carry human_review_required=True; see each record's own `authority` block. "
-            "IMMEDIATE_REVIEW cannot be reached today: no real thesis/price linkage exists yet."
+            "IMMEDIATE_REVIEW cannot be reached today: no RATIFIED-basis thesis/price linkage exists yet."
         ),
         "by_market": by_market,
     }
+
+
+def run(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> dict:
+    """The OPERATIONAL report: what `build_briefing_section()` and
+    `dynamic_clock_report.json` are built from. `audit_diagnostics` is
+    stripped from each market's dict here -- physically absent from this
+    return value, not merely unused (defect 3). Use
+    `run_with_diagnostics()` to get both.
+
+    `decision_date`, when supplied, is the real operational "today" this
+    run is FOR. Never sourced from `datetime.now()` inside this function --
+    the caller (a workflow's own shell `date` command, or
+    `briefing/daily_orchestrator.py`'s own decision_date parameter) is
+    responsible for supplying it."""
+    report = _assemble(decision_date, mode)
+    for market_result in report["by_market"].values():
+        market_result.pop("audit_diagnostics", None)
+    return report
+
+
+def run_with_diagnostics(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> tuple[dict, dict]:
+    """Returns `(operational_report, audit_diagnostics_report)` -- the only
+    function in this module that computes both from a single scan (avoids
+    re-scanning). `write_report()` uses this to persist the two as
+    genuinely separate committed files."""
+    full = _assemble(decision_date, mode)
+    operational_by_market: dict[str, dict] = {}
+    diagnostics_by_market: dict[str, list[dict]] = {}
+    for market, market_result in full["by_market"].items():
+        diagnostics_by_market[market] = market_result.get("audit_diagnostics", [])
+        operational_by_market[market] = {k: v for k, v in market_result.items() if k != "audit_diagnostics"}
+    operational_report = {**full, "by_market": operational_by_market}
+    diagnostics_report = {
+        "wbs_item": "P8-12 audit diagnostics (post-hoc, NEVER read by the operational path)",
+        "decision_date": full["decision_date"],
+        "mode": full["mode"],
+        "report_asof_evidence_date": full["report_asof_evidence_date"],
+        "by_market": diagnostics_by_market,
+    }
+    return operational_report, diagnostics_report
 
 
 def _briefing_candidate_summary(r: dict) -> dict:
@@ -302,26 +402,29 @@ def build_briefing_section(report: dict) -> dict:
     per-tier counts and a plain-language, non-outcome-based `reason` per
     candidate. NO forward-return/MFE/post-hoc-audit figure, invented
     expected-return, or Buy/Entry/Order-style language appears anywhere in
-    this section (integration spec section 8) -- those exist only in the
-    full report's `review_queue`/`raw_trigger_ledger` for audit purposes.
-    Consumed by `briefing/daily_orchestrator.py`'s `DYNAMIC_CLOCK`
-    component."""
+    this section -- those don't even exist in `report` any more (defect 3).
+    `new_triggers` is subject-level consolidated (defect 2), looked up from
+    `review_queue` by `new_subjects_this_run` -- the raw
+    `new_triggers_this_run` list is never read here."""
     section = {
         "policy_approval_status": report["policy_approval_status"],
         "policy_version": report["policy_version"],
         "decision_date": report["decision_date"],
+        "mode": report["mode"],
         "markets": {},
     }
     for market, m in report["by_market"].items():
+        candidates_by_subject = {r["subject"]: r for r in m["review_queue"]}
+        new_subjects = m.get("new_subjects_this_run", [])
         section["markets"][market] = {
             "evidence_as_of": m["evidence_as_of"],
             "decision_date": m["decision_date"],
             "raw_trigger_count_audit_only": m["raw_trigger_count"],
             "tier_counts": m["tier_counts"],
+            "newness_status": m["newness_status"],
             "new_triggers": [
-                {"subject": r["subject"], "trigger_type": r["trigger_type"], "urgency": r["urgency"],
-                 "next_review_at": r["next_review_at"]}
-                for r in m["new_triggers_this_run"]
+                _briefing_candidate_summary(candidates_by_subject[s])
+                for s in new_subjects if s in candidates_by_subject
             ],
             "immediate_review": [_briefing_candidate_summary(r) for r in m["immediate_review"]],
             "watch_review": [_briefing_candidate_summary(r) for r in m["watch_review"]],
@@ -332,21 +435,22 @@ def build_briefing_section(report: dict) -> dict:
             ],
             "not_computable_trigger_types": [t["trigger_type"] for t in m["not_computable_trigger_types"]],
         }
-        if market == "KOREA":
-            # ★ round 2, item 7: the KOREA holiday-calendar-unverified flag
-            #   must be visible in the briefing itself, not only buried
-            #   inside each candidate record.
-            section["markets"][market]["calendar_confidence"] = dc.calendar_confidence_for("KOREA")
-        else:
-            section["markets"][market]["calendar_confidence"] = dc.calendar_confidence_for(market)
+        section["markets"][market]["calendar_confidence"] = dc.calendar_confidence_for(market)
     return section
 
 
-def write_report(report: dict) -> None:
+def write_report(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> dict:
+    """Computes and persists BOTH committed artifacts -- the operational
+    report/briefing section, and the physically separate audit_diagnostics
+    file -- from a single scan. Returns the operational report (for
+    `__main__`'s own printing)."""
+    operational_report, diagnostics_report = run_with_diagnostics(decision_date, mode)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    (OUT_DIR / "dynamic_clock_report.json").write_text(canonical_json(report) + "\n", encoding="utf-8")
+    REPORT_PATH.write_text(canonical_json(operational_report) + "\n", encoding="utf-8")
     (OUT_DIR / "briefing_section.json").write_text(
-        canonical_json(build_briefing_section(report)) + "\n", encoding="utf-8")
+        canonical_json(build_briefing_section(operational_report)) + "\n", encoding="utf-8")
+    AUDIT_DIAGNOSTICS_PATH.write_text(canonical_json(diagnostics_report) + "\n", encoding="utf-8")
+    return operational_report
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -359,11 +463,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "falls back to each market's own evidence_as_of -- byte-identical, reproducible output."
         ),
     )
+    parser.add_argument(
+        "--mode", default=MODE_OPERATIONAL, choices=VALID_MODES,
+        help=(
+            "OPERATIONAL (default): fails closed if --decision-date is behind real evidence. "
+            "HISTORICAL_REPLAY: genuine past reconstruction -- evidence after --decision-date is "
+            "still structurally invisible, but the fail-closed anomaly check is skipped."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = _parse_args(sys.argv[1:])
-    report = run(decision_date=args.decision_date)
-    write_report(report)
+    report = write_report(decision_date=args.decision_date, mode=args.mode)
     print(json.dumps(build_briefing_section(report), ensure_ascii=False, indent=2, default=str))

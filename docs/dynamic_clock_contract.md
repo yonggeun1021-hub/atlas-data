@@ -26,6 +26,16 @@ the full design, boundaries, expected results, and required tests up front
 in one locked spec; this section documents that implementation and its
 verification.
 
+**CIO integration review round 1 (2026-08-23, PR #211 HEAD `d7353ae`)**:
+despite CI/tests passing, the CIO independently reproduced 4 real
+operational defects the locked spec's own tests did not catch -- see
+"CIO integration review round 1" below for the full fix-by-fix
+documentation. This SUPERSEDES the round-2 `_effective_as_of()`/`max()`
+mechanism described below (item 5) and the "`post_hoc_audit_note` attached
+to the candidate" description in "Linkage cap" below -- both sections are
+left in place for history but are no longer how the code behaves; see the
+new section for what replaced them.
+
 ## WBS scope note and merge order
 
 The Notion Master WBS Tracker's canonical rows separate **P8-10 "Price
@@ -74,18 +84,25 @@ exists); BTC/CRYPTO use plain calendar-day arithmetic
 purely off `evidence_as_of` (the latest evidence capture_date) -- an
 episode could stay "ACTIVE" indefinitely just because no new collector run
 happened, even if real calendar time had long since passed its `expiry`.
-`clock/run_dynamic_clock.py::run(decision_date=...)` now accepts the real
+`clock/run_dynamic_clock.py::run(decision_date=...)` accepts the real
 operational "today" (supplied externally -- e.g.
 `briefing/daily_orchestrator.py`'s own `decision_date`, itself from a real
 `TZ=Asia/Seoul date` shell command, never `datetime.now()` inside this
-module) and evaluates staleness against
-`_effective_as_of(decision_date, evidence_as_of) = max(...)` -- never
-earlier than the evidence itself (protects against a bad decision_date
-input making something look falsely fresh), but no longer capped at
-evidence when real time has moved further. Omitting `decision_date`
-(the bare `python3 clock/run_dynamic_clock.py` CLI) falls back to
-`evidence_as_of` alone -- byte-identical, reproducible artifact mode,
-unaffected by wall-clock time.
+module) and evaluates staleness against it.
+
+★ **superseded by integration review round 1's defect 1** (see the
+dedicated section below): the mechanism above originally used
+`_effective_as_of(decision_date, evidence_as_of) = max(...)`, which the CIO
+found silently overwrote an EARLIER explicit `decision_date` with LATER
+evidence -- a real lookahead violation. `_effective_as_of()` and its test
+class are deleted entirely; `decision_at` is now taken directly from
+`decision_date` (no `max()` correction of any kind), and the scanner itself
+(`clock/operational_scan.py`) filters evidence to `capture_date <=
+decision_date` at the source, so `evidence_as_of <= decision_date` holds
+structurally rather than needing a later correction. Omitting
+`decision_date` entirely (the bare `python3 clock/run_dynamic_clock.py`
+CLI) still falls back to each market's own real latest evidence --
+byte-identical, reproducible artifact mode, unaffected by wall-clock time.
 
 ## Output contract -- raw ledger + consolidated, tiered candidates (item 3)
 
@@ -137,15 +154,17 @@ the decision date) -- a lookahead violation now removed entirely, not
 merely narrowed.
 
 PR #210's Miss-episode registry (`clock.audit_confirmed_miss`) is still
-read and attached to each candidate as `post_hoc_audit_note`
-(`authoritative_for_tier: False`, `purpose:
-"post_hoc_regression_explanation_only"`) -- for regression-explanation
-purposes only, never as tier input. BTC's 2026-08-20 candidate carries this
-note (a real PR #210 Miss) while sitting at `WATCH_REVIEW`, exactly the
-honest answer: as of 2026-08-20 itself, a single tactical trigger with no
-thesis/price confirmation is a watch item, not a confirmed opportunity --
-only PR #210's later audit (using real subsequent returns) could tell you
-it was a Miss.
+read, for regression-explanation purposes only, never as tier input --
+★ **superseded by integration review round 1's defect 3 (see below):** it
+is no longer attached to the operational candidate object at all. It is
+built into the physically separate `clock/audit_diagnostics.py` artifact
+instead, so the operational `review_queue` record carries no trace of it.
+BTC's 2026-08-20 diagnostic record still carries this note (a real PR #210
+Miss) even though its operational candidate sits at `WATCH_REVIEW`, exactly
+the honest answer: as of 2026-08-20 itself, a single tactical trigger with
+no thesis/price confirmation is a watch item, not a confirmed opportunity
+-- only PR #210's later audit (using real subsequent returns) could tell
+you it was a Miss.
 
 ## P8-10 integration -- real, PIT-safe, done (CIO's locked integration spec, 2026-08-23)
 
@@ -203,6 +222,116 @@ fabricated. CRYPTO altcoins: `price_reflection_status=NOT_LINKED_THIS_SLICE`
 for all (P8-10 doesn't cover them). `IMMEDIATE_REVIEW` remains 0 in every
 market -- the correct, PIT-honest state until a RATIFIED threshold basis or
 a real thesis linkage exists.
+
+## CIO integration review round 1 (4 defects, 2026-08-23)
+
+CI/tests passing on PR #211 HEAD `d7353ae` did not catch 4 real operational
+defects the CIO independently reproduced against real evidence. Fixed
+together, in one pass (not sequential micro-patches, per explicit
+instruction):
+
+**Defect 1 (P0) -- past `decision_date` silently used future evidence.**
+The old `_effective_as_of(decision_date, evidence_as_of) = max(...)`
+(item 5 above) silently overwrote an EARLIER explicit `decision_date` with
+LATER evidence -- a real PIT lookahead violation (requesting
+`decision_date=2026-08-20` showed evidence/decision_date fields from
+2026-08-21/2026-08-22 in the output). Removed entirely, not patched.
+Fixed at the source: `clock/operational_scan.py`'s `scan_btc`/`scan_korea`/
+`scan_crypto` now accept `decision_date` and filter snapshots to
+`capture_date <= decision_date` (`_filter_snapshots`) BEFORE any series is
+built or trigger is detected -- the scanning boundary itself, not a
+post-hoc correction. `clock/run_dynamic_clock.py` adds
+`mode="OPERATIONAL"` (default: fails closed with
+`DECISION_DATE_PRECEDES_EVIDENCE_AS_OF` if the real, unfiltered latest
+evidence is AHEAD of a caller-supplied `decision_date` -- anomalous for
+live use) vs `mode="HISTORICAL_REPLAY"` (the genuine past-reconstruction
+case; the same scanner-level filtering still applies, only the fail-closed
+anomaly check is skipped). Regression:
+`test/test_dynamic_clock_orchestrator_defects.py::
+Defect1NoFutureEvidenceAnywhereTests` recursively sweeps the ENTIRE report
+and briefing section for any date after the requested cutoff (excluding
+`expiry`/`next_review_at`, which are deliberately forward-looking
+SCHEDULE outputs of the cooldown policy, not evidence used to reach a
+decision); `test/test_dynamic_clock_fail_closed.py::
+DecisionDatePrecedesEvidenceFailClosedTests` covers the fail-closed/
+historical-replay/invalid-mode paths. `EffectiveAsOfTests` (the test that
+asserted the OLD `max()` behavior as correct) is deleted, per explicit
+instruction, not left as a stale pass.
+
+**Defect 2 (P0) -- "new" triggers leaking stale raw triggers forever.**
+`new_triggers_this_run` used to mean `opened_at == evidence_as_of` -- a
+date-equality check that stays true on EVERY re-run for as long as no
+fresher evidence arrives (a re-run the next day still showed CRYPTO's 95
+prior triggers as "new"). Fixed:
+`_load_previous_committed_episode_ids(market)` reads the market's own
+PREVIOUSLY COMMITTED `dynamic_clock_report.json` (if one exists) and an
+episode is "new" only if its `episode_id` was NOT already present there.
+No prior committed state (genuine bootstrap) is explicitly
+`newness_status="NEWNESS_NOT_COMPUTABLE"` -- never defaulted to "everything
+is new". The raw, per-trigger `new_triggers_this_run` list stays
+audit-only in the full report; the briefing's `new_triggers` is always
+subject-level consolidated from `new_subjects_this_run` via `review_queue`
+(`_briefing_candidate_summary`), never the raw list. Regression:
+`Defect2NewnessIsCommittedStateDiffTests::
+test_second_run_against_identical_committed_state_shows_zero_new_triggers`
+writes a first run's report to an isolated temp `REPORT_PATH`, re-runs
+against the SAME evidence, and asserts `new_triggers_this_run == []` and
+`new_subjects_this_run == []` for every market on the second run; a
+companion test confirms the bootstrap (no prior state) case is
+`NEWNESS_NOT_COMPUTABLE`, not silently "new".
+
+**Defect 3 (P1) -- post-hoc data physically present in the operational
+object.** `post_hoc_audit_note`/`reference_forward_metrics_first_detection`/
+`reference_forward_metrics_latest_detection` used to be fields ON the
+`review_queue` Candidate itself (`authoritative_for_tier: False` was true,
+but the fields were still physically readable by any downstream consumer of
+that object). Not being a tier INPUT was not enough. Fixed: `build_
+subject_review_candidate()`/`build_raw_trigger_record()` no longer accept
+or emit any of these fields at all -- removed from their signatures
+entirely (`TypeError` on a forbidden kwarg, not a silently-ignored one).
+The new, physically SEPARATE `clock/audit_diagnostics.py` module (the ONLY
+importer of `clock/audit_confirmed_miss.py` anywhere in this package) builds
+`build_audit_diagnostic_record()` independently, written to its own
+committed file `evidence/operational/dynamic_clock/audit_diagnostics.json`.
+`clock/run_dynamic_clock.py::run()` (what `build_briefing_section()` and
+`dynamic_clock_report.json` are built from) strips this key before
+returning; only `run_with_diagnostics()` surfaces both.
+`briefing/daily_orchestrator.py` calls `DYNAMIC_CLOCK.run()`, never
+`run_with_diagnostics()`. Regression:
+`Defect3AuditArtifactNeverReadByOperationalPathTests::
+test_run_output_is_byte_identical_whether_or_not_the_miss_evidence_file_exists`
+monkeypatches `clock.audit_confirmed_miss.MISS_EPISODES_PATH` to a
+nonexistent file and proves `run()`'s output is byte-identical either way
+(not merely "the value isn't used" -- the file is never even read on the
+operational path); companion tests assert `clock/review_candidate.py`'s own
+namespace never references `audit_confirmed_miss`/`audit_diagnostics` and
+`briefing/daily_orchestrator.py`'s source never imports either module.
+
+**Defect 4 (P1) -- required PIT timing fields never implemented.** The
+locked P8-10 integration spec required a full timing contract; candidates
+only carried `detected_at`/`first_detected_at`/`next_review_at`. Fixed:
+`build_subject_review_candidate()` now requires `decision_at` and emits
+`evidence_as_of`, `trigger_observed_at`, `decision_at`, `price_as_of`,
+`candidate_created_at`, `candidate_updated_at`, and
+`time_precision="DATE_ONLY"` (this repo's evidence is date-granularity;
+`price_as_of`, when P8-10 supplies a real UTC timestamp, is compared at
+date resolution only). `clock/review_candidate.py::
+_validate_candidate_timing()` enforces, independently for each rule:
+`evidence_as_of <= trigger_observed_at <= decision_at`,
+`price_as_of <= decision_at` (skipped when `price_as_of` is `None`/
+`"UNKNOWN"`), and `candidate_created_at <= candidate_updated_at <=
+decision_at`, raising `TIMING_INVARIANT_VIOLATED:<field>(...)><field>(...)`
+on any violation. Regression:
+`Defect4TimingOrderingIndependentRejectionTests` has one dedicated test per
+ordering rule (5 rules), each violating exactly ONE constraint with all
+others left valid, plus an end-to-end test proving `build_subject_review_
+candidate()` itself (not just the bare validator) rejects a `decision_at`
+behind `trigger_observed_at`.
+
+All 4 defects' regressions live together in
+`test/test_dynamic_clock_orchestrator_defects.py` (registered in
+`run_all.py`'s `APPROVED_TESTS` and the workflow's offline regression
+step).
 
 ## Authority (unchanged both rounds)
 
@@ -270,8 +399,10 @@ already merged).
 ## Verification (item 9)
 
 - BTC 2026-08-20 remains present in `review_queue` after triage, now
-  correctly at `WATCH_REVIEW` with a `post_hoc_audit_note` (not
-  `IMMEDIATE_REVIEW`) -- `BtcRegressionCaseTests`.
+  correctly at `WATCH_REVIEW`, with NO `post_hoc_audit_note` field on the
+  candidate itself (integration round 1, defect 3) -- the note is still
+  independently verifiable in the separate `audit_diagnostics` artifact --
+  `BtcRegressionCaseTests`.
 - `CorrectedTierCountsTests` asserts `IMMEDIATE_REVIEW == 0` in every
   market on real current evidence -- the direct, checked consequence of
   removing the round-1 exception.
@@ -279,18 +410,25 @@ already merged).
   regression: `compute_tier()`'s signature structurally cannot accept a
   post-hoc argument (enumerated allowlist + forbidden-substring scan +
   `TypeError` on an unexpected kwarg), and tampering with a built
-  candidate's forward-return value never changes `tier`.
+  candidate's forward-return value never changes `tier`; plus integration
+  round 1's structural proof that the candidate carries no post-hoc field
+  and that `clock/review_candidate.py` never imports the audit modules.
 - Flood-prevention (round 1, still enforced): raw trigger count stays
   high/complete AND `IMMEDIATE_REVIEW` count stays small, asserted
   together.
 - P5-not-PASS invariant: structural, see Authority above.
 - All prior lookahead/duplicate/expiry/reactivation/determinism tests
-  remain green, plus round-2 additions: `EffectiveAsOfTests`/
-  `DecisionDateValidationTests` (item 5),
-  `AtomicityHardeningTests`/`RealDecisionDateTests` (item 6),
-  `test_dynamic_clock_pit_tier_invariant.py` (item 2).
+  remain green, plus round-2 additions: `DecisionDateValidationTests`
+  (item 5), `AtomicityHardeningTests`/`RealDecisionDateTests` (item 6),
+  `test_dynamic_clock_pit_tier_invariant.py` (item 2), plus integration
+  review round 1's 4-defect regressions in
+  `test_dynamic_clock_orchestrator_defects.py` and
+  `DecisionDatePrecedesEvidenceFailClosedTests` (`EffectiveAsOfTests`,
+  which asserted the now-removed `max()` behavior as correct, is deleted).
 
 Committed, reproducible artifacts: `evidence/operational/dynamic_clock/
-dynamic_clock_report.json` + `.../briefing_section.json`, regenerated
-byte-identically by `python3 clock/run_dynamic_clock.py` and refreshed
-operationally by the workflow above.
+dynamic_clock_report.json` + `.../briefing_section.json` +
+`.../audit_diagnostics.json` (physically separate, integration round 1
+defect 3), all regenerated byte-identically (given unchanged evidence) by
+`python3 clock/run_dynamic_clock.py` and refreshed operationally by the
+workflow above.
