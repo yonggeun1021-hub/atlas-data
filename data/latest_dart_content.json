@@ -7,15 +7,15 @@
     "rule_evaluation_authorized": false,
     "trading_authorized": false
   },
-  "collected_for_kst_date": "2026-08-24",
+  "collected_for_kst_date": "2026-08-25",
   "contract_version": "dart_filing_content/1",
   "counts": {
     "captured": 0,
-    "failed": 0,
+    "failed": 1,
     "not_applicable": 1,
     "skipped": 0
   },
-  "observed_at_utc": "2026-08-23T22:01:34Z",
+  "observed_at_utc": "2026-08-24T21:58:32Z",
   "records": [
     {
       "action": "NO_CHANGE",
@@ -45,10 +45,41 @@
       "source_archive": null,
       "ticker": "034020",
       "title": "단일판매ㆍ공급계약체결              "
+    },
+    {
+      "action": "NO_CHANGE",
+      "atlas_stage": "Discovery",
+      "capture_policy": "best_effort",
+      "content_status": "PENDING",
+      "discovery_status": "OK",
+      "documents": [],
+      "evidence_status": "PENDING",
+      "extracted": [],
+      "extractor_version": "dart_filing_content/1-no-items-ratified",
+      "filing_classification": "MATERIAL_RELEVANT_TITLE",
+      "filing_date": "20260824",
+      "filing_identity": {
+        "rcept_no": "20260824800122",
+        "stock_code": "329180"
+      },
+      "interpretation_status": "UNDETERMINED",
+      "name": "HD현대중공업",
+      "operation": "failed",
+      "publication_status": "FAILED",
+      "raw_cache_policy": "delete_after_90_days_allowed",
+      "reasons": [
+        "DartContentError:MANIFEST_TITLE_INVALID"
+      ],
+      "retrieved_at_utc": "2026-08-24T21:58:32Z",
+      "rule_impact": "NONE",
+      "schema_version": "dart_filing_content/1",
+      "source_archive": null,
+      "ticker": "329180",
+      "title": "단일판매ㆍ공급계약체결              "
     }
   ],
-  "run_status": "OK",
+  "run_status": "DEGRADED",
   "schema_version": "dart_filing_content_run/1",
   "source_file": "data/latest_dart.json",
-  "source_sha256": "8ec7bfc10f5fd88632942111e9bc93691450277c1af6f518c66806847fab7617"
+  "source_sha256": "e9d655350eaa6935925fdd573d7cfce6023776a000763d1f76d8f9444277cb85"
 }
