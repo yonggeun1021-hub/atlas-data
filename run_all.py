@@ -1121,7 +1121,15 @@ APPROVED_TESTS = [
     #   commit used as if current) is
     #   IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED. An
     #   explicit, externally-pinned `trusted_commit` may be passed by a
-    #   caller to legitimately trust a specific non-HEAD commit instead.
+    #   caller to legitimately trust a specific non-HEAD commit instead --
+    #   but only a full immutable object id (exactly 40/64 lowercase hex
+    #   chars, independently confirmed via `git rev-parse --verify
+    #   <it>^{commit}` resolving to that exact same string): a branch,
+    #   tag, `HEAD`, `HEAD~1`, or an abbreviated SHA is rejected outright.
+    #   Under a pin, disk must match that commit's real git blob EXACT
+    #   BYTE-FOR-BYTE (not a canonical-JSON-hash comparison) -- a
+    #   whitespace/indentation-only disk edit is still rejected even
+    #   though it would canonically hash the same.
     #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
     #   no in-code mapping table, no hardcoded per-ticker/market
     #   special-casing, P8-13 not opened.

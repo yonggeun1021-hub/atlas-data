@@ -5,6 +5,43 @@ Design source: "Canonical Security Identity / Market Scope Authority" v2
 implementation baseline) and the paired "Dynamic Clock Candidate Validity
 Window" v2 packet (combined CIO recommendation section).
 
+## ⛔ Rev 6 claim stays PARTIALLY_VERIFIED — 2 narrow explicit-pin-path contract mismatches closed
+
+CIO independent re-verification of HEAD `e595ac7` (rev 6) confirmed the
+core fix — default-HEAD-mode memory+disk co-tamper and dirty-working-tree
+blocking — was correctly closed. Two narrower contract mismatches
+remained, both scoped to the EXPLICIT-PIN path only:
+
+1. **"Byte-for-byte" was documented but not what the code did.** The
+   disk<->trusted-commit comparison parsed JSON and compared canonical
+   hashes. Since the explicit-pin path skips the default mode's dirty
+   check, a whitespace/indentation-only edit to the disk file (canonically
+   identical, but a real, uncommitted change to the actual bytes) still
+   passed:
+   ```
+   disk bytes == pinned git blob: False
+   verify_document_matches_source: True
+   resolver: RESOLVED
+   ```
+   **Fixed**: that specific comparison is now a raw `disk_bytes ==
+   git_bytes` equality check, never JSON-parsed or hashed. The
+   memory<->disk comparison is unchanged and remains canonical/structural
+   (CIO confirmed that part is fine as-is — memory is never raw bytes to
+   begin with).
+2. **`trusted_commit` accepted mutable rev-expressions.** `HEAD`, a
+   branch name, a tag, `HEAD~1`, an abbreviated SHA — all resolved and
+   were accepted, which didn't match the "pinned commit" contract's
+   actual intent (a pin should be immutable). **Fixed**: a new
+   `_is_pinned_immutable_commit` gate rejects anything that isn't exactly
+   40 (SHA-1) or 64 (SHA-256) lowercase hex characters, AND requires
+   `git rev-parse --verify <trusted_commit>^{commit}` to resolve to that
+   EXACT SAME string, unchanged — every mutable ref instead resolves to a
+   different string (the real SHA it currently points at) and is
+   rejected as `IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED`.
+
+Rev 6's 75 tests and the default-HEAD-mode co-tamper blocking are fully
+intact — this was a narrow closing pass on the explicit-pin path only.
+
 ## ⛔ Rev 5 claim stays PARTIALLY_VERIFIED — the predicted disk+memory co-tamper bypass closed
 
 CIO independent re-verification of HEAD `104d567` (rev 5) returned CI

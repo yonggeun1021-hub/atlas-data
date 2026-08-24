@@ -6,6 +6,34 @@ designed in "Canonical Security Identity / Market Scope Authority" v2
 (Notion design packet, CIO-approved 2026-08-24 as this stage's
 implementation baseline).
 
+★ Rev 7 (CIO independent re-verification of HEAD e595ac7: rev 6's core
+  default-HEAD-mode co-tamper blocking confirmed correctly closed; 2
+  narrower contract mismatches found in the EXPLICIT-PIN path only --
+  "provenance" stays PARTIALLY_VERIFIED -- see
+  docs/identity_foundation_pr_notes.md):
+   1. The disk<->trusted-commit comparison was documented as "byte-for-
+      byte" but actually parsed JSON and compared canonical hashes --
+      since the explicit-pin path skips the default mode's dirty check, a
+      whitespace/indentation-only edit to the disk file (canonically
+      identical, but a real, uncommitted change to the actual bytes)
+      still passed. Fixed: that comparison is now a raw
+      `disk_bytes == git_bytes` equality check, never JSON-parsed or
+      hashed. The memory<->disk comparison is UNCHANGED and remains
+      canonical/structural (CIO confirmed that part is fine as-is).
+   2. `trusted_commit` accepted any git rev-expression -- `HEAD`, a
+      branch name, a tag, `HEAD~1`, an abbreviated SHA -- not just an
+      immutable full object id, which didn't match the "pinned commit"
+      contract's actual intent. Fixed: `_is_pinned_immutable_commit`
+      rejects anything that isn't exactly 40 (SHA-1) or 64 (SHA-256)
+      lowercase hex characters, AND requires
+      `git rev-parse --verify <trusted_commit>^{commit}` to resolve to
+      that EXACT SAME string, unchanged -- every mutable ref instead
+      resolves to a DIFFERENT string (the real SHA it currently points
+      at) and is rejected as `IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED`.
+   Rev 6's 75 tests and the default-HEAD-mode co-tamper blocking are
+   fully intact -- this was a narrow closing pass on the explicit-pin
+   path only.
+
 ★ Rev 6 (CIO independent re-verification of HEAD 104d567; CI green on that
   exact HEAD, but the predicted disk+memory co-tamper bypass reproduced
   directly -- "provenance" stays PARTIALLY_VERIFIED -- see
@@ -779,26 +807,39 @@ def verify_document_matches_source(doc: dict, trusted_commit: str | None = None)
     Two distinct modes:
       - DEFAULT (`trusted_commit` omitted): resolves to the repo's actual
         current HEAD via a real `git rev-parse HEAD` call made at
-        verification time, AND additionally requires `git status
-        --porcelain` for this exact file to be completely clean --
-        catching both a direct disk edit and an uncommitted
-        `git checkout <old-sha> -- <path>` revert. This is deliberately
-        the strictest mode and is what every caller gets unless it
-        explicitly opts out.
+        verification time (`git rev-parse HEAD` always yields a full,
+        immutable object id -- never itself a mutable ref), AND
+        additionally requires `git status --porcelain` for this exact
+        file to be completely clean -- catching both a direct disk edit
+        and an uncommitted `git checkout <old-sha> -- <path>` revert.
+        This is deliberately the strictest mode and is what every caller
+        gets unless it explicitly opts out.
       - EXPLICIT PIN (`trusted_commit` given): the HEAD-relative dirty
         check is skipped -- disk legitimately differing from the CURRENT
         branch HEAD is expected and fine when the caller has explicitly
-        chosen to trust a different, specific commit. The disk content
-        must still match that pinned commit's real git blob byte-for-byte;
-        nothing about "uncommitted" content that happens to coincide with
-        real historical bytes is treated as a weaker guarantee than a
-        clean git-status would have given -- byte-identity with a real
-        commit IS the ground truth, regardless of git's index bookkeeping.
+        chosen to trust a different, specific commit. `trusted_commit`
+        MUST be a full immutable object id (rev 7 -- CIO defect 2): it is
+        rejected outright, before ever being used, unless it is exactly
+        40 lowercase hex characters AND `git rev-parse --verify
+        <trusted_commit>^{commit}` resolves to that EXACT SAME string,
+        unchanged -- a branch name, tag, `HEAD`, `HEAD~1`, or an
+        abbreviated SHA all resolve to a DIFFERENT string (the real full
+        SHA they currently point at) and are rejected. Once accepted,
+        disk content must match that pinned commit's real git blob
+        EXACTLY BYTE-FOR-BYTE (rev 7 -- CIO defect 1: this is a raw
+        `disk_bytes == git_bytes` comparison, NOT a canonical-JSON-hash
+        comparison -- a whitespace/indentation-only edit that would
+        canonically hash the same is still a real, uncommitted change to
+        the actual file and must be rejected). The memory<->disk check
+        above is unaffected and remains the canonical/structural
+        comparison (harmless there, since memory is never raw bytes to
+        begin with).
 
     Returns (is_valid, failure_reason). `failure_reason` is one of
     'MEMORY_DISK_MISMATCH' | 'NOT_A_GIT_REPO' | 'WORKING_TREE_DIRTY' |
-    'TRUSTED_COMMIT_UNREADABLE' | 'DISK_COMMIT_MISMATCH' | None (only
-    when `is_valid` is True). Never raises."""
+    'TRUSTED_COMMIT_NOT_IMMUTABLE' | 'TRUSTED_COMMIT_UNREADABLE' |
+    'DISK_COMMIT_MISMATCH' | None (only when `is_valid` is True). Never
+    raises."""
     source_path = doc.get("_source_path")
     if not source_path:
         return False, "NOT_A_GIT_REPO"
@@ -822,8 +863,7 @@ def verify_document_matches_source(doc: dict, trusted_commit: str | None = None)
         return False, "NOT_A_GIT_REPO"
 
     using_default_head = trusted_commit is None
-    commit = trusted_commit
-    if commit is None:
+    if using_default_head:
         try:
             commit = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=repo_root,
@@ -831,8 +871,6 @@ def verify_document_matches_source(doc: dict, trusted_commit: str | None = None)
             ).stdout.strip()
         except Exception:
             return False, "TRUSTED_COMMIT_UNREADABLE"
-
-    if using_default_head:
         try:
             status_out = subprocess.run(
                 ["git", "status", "--porcelain", "--", rel_posix],
@@ -847,18 +885,47 @@ def verify_document_matches_source(doc: dict, trusted_commit: str | None = None)
             # memory was mirrored to match. Skipped entirely when a
             # caller explicitly pins a different commit (see docstring).
             return False, "WORKING_TREE_DIRTY"
+    else:
+        if not _is_pinned_immutable_commit(repo_root, trusted_commit):
+            return False, "TRUSTED_COMMIT_NOT_IMMUTABLE"
+        commit = trusted_commit
 
     git_bytes = _git_show_bytes(repo_root, commit, rel_posix)
     if git_bytes is None:
         return False, "TRUSTED_COMMIT_UNREADABLE"
-    try:
-        git_doc = json.loads(git_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return False, "TRUSTED_COMMIT_UNREADABLE"
 
-    if payload_sha256(disk_doc) != payload_sha256(git_doc):
+    if disk_bytes != git_bytes:
+        # rev 7: EXACT byte comparison -- not a canonical-JSON-hash
+        # comparison. A whitespace/indentation-only edit is still a real,
+        # uncommitted change to the actual file, even though it would
+        # canonically hash the same.
         return False, "DISK_COMMIT_MISMATCH"
     return True, None
+
+
+_FULL_IMMUTABLE_SHA_RE = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
+
+
+def _is_pinned_immutable_commit(repo_root: Path, candidate: str) -> bool:
+    """rev 7 (CIO defect 2): `trusted_commit` must be a full immutable
+    object id, never a mutable rev-expression (branch, tag, `HEAD`,
+    `HEAD~1`, an abbreviated SHA, ...). Checked two ways: (a) syntactic
+    shape -- exactly 40 (SHA-1) or 64 (SHA-256) lowercase hex characters,
+    and (b) `git rev-parse --verify <candidate>^{commit}` must resolve to
+    EXACTLY `candidate` itself, unchanged -- any mutable ref instead
+    resolves to a DIFFERENT string (the real SHA it currently points at),
+    which this catches even if (a) alone were somehow satisfied by
+    coincidence. Never raises; returns False on any failure."""
+    if not isinstance(candidate, str) or not _FULL_IMMUTABLE_SHA_RE.match(candidate):
+        return False
+    try:
+        resolved = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}"],
+            cwd=repo_root, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except Exception:
+        return False
+    return resolved == candidate
 
 
 _DOCUMENT_FAILURE_STATUS = {
@@ -866,6 +933,7 @@ _DOCUMENT_FAILURE_STATUS = {
     "DISK_COMMIT_MISMATCH": NOT_COMPUTABLE_DOCUMENT_TAMPERED,
     "NOT_A_GIT_REPO": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
     "WORKING_TREE_DIRTY": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
+    "TRUSTED_COMMIT_NOT_IMMUTABLE": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
     "TRUSTED_COMMIT_UNREADABLE": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
 }
 

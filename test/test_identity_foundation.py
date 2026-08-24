@@ -1168,6 +1168,116 @@ class Defect8DiskGitProvenanceTests(_GitRepoMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Round-6 (rev 7) counter-examples -- CIO independent re-verification of
+# HEAD e595ac7: the default-HEAD-mode co-tamper block was confirmed
+# correct; 2 narrower contract mismatches remained in the EXPLICIT-PIN
+# path only.
+#
+#   1. disk<->trusted-commit was a canonical-JSON-hash comparison, not
+#      byte-for-byte -- a whitespace-only disk edit still passed.
+#   2. trusted_commit accepted mutable rev-expressions (HEAD, a branch,
+#      a tag, HEAD~1, an abbreviated SHA), not just an immutable full SHA.
+# ---------------------------------------------------------------------------
+
+class Defect9PinPathByteAndImmutabilityTests(_GitRepoMixin, unittest.TestCase):
+
+    def test_whitespace_only_disk_edit_rejected_under_explicit_pin(self):
+        """CIO's exact reproduction: a file that's byte-different
+        (whitespace-only) from the pinned blob but semantically/
+        canonically equivalent must be rejected."""
+        issuer = self.ratify(make_issuer("ISSUER-WS"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-WS", "ISSUER-WS"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        pinned_commit = self.repo.head_commit()
+
+        path = self.repo.root / "config" / "canonical_security_identity.json"
+        original_bytes = path.read_bytes()
+        doc = json.loads(original_bytes)
+        # canonically-identical re-serialization with different whitespace/indent
+        whitespace_bytes = json.dumps(doc, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
+        self.assertNotEqual(original_bytes, whitespace_bytes)  # genuinely byte-different
+        self.assertEqual(ci.payload_sha256(json.loads(original_bytes)),
+                          ci.payload_sha256(json.loads(whitespace_bytes)))  # canonically identical
+
+        self.repo.write_dirty("config/canonical_security_identity.json", whitespace_bytes)
+        reloaded = ci.load_authority(path)  # memory now mirrors the (whitespace-tampered) disk exactly
+
+        ok, reason = ci.verify_document_matches_source(reloaded, trusted_commit=pinned_commit)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "DISK_COMMIT_MISMATCH")
+
+        result = ci.resolve_instrument_by_id("INSTR-WS", "2026-06-01", reloaded, trusted_commit=pinned_commit)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_trusted_commit_head_literal_rejected(self):
+        issuer = self.ratify(make_issuer("ISSUER-HEADLIT"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-HEADLIT", "ISSUER-HEADLIT"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        result = ci.resolve_instrument_by_id("INSTR-HEADLIT", "2026-06-01", authority, trusted_commit="HEAD")
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED)
+
+    def test_trusted_commit_branch_name_rejected(self):
+        issuer = self.ratify(make_issuer("ISSUER-BRANCH"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-BRANCH", "ISSUER-BRANCH"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo.root,
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        result = ci.resolve_instrument_by_id("INSTR-BRANCH", "2026-06-01", authority, trusted_commit=branch)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED)
+
+    def test_trusted_commit_tag_rejected(self):
+        issuer = self.ratify(make_issuer("ISSUER-TAG"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-TAG", "ISSUER-TAG"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        subprocess.run(["git", "tag", "v1-test"], cwd=self.repo.root, capture_output=True, text=True, check=True)
+        result = ci.resolve_instrument_by_id("INSTR-TAG", "2026-06-01", authority, trusted_commit="v1-test")
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED)
+
+    def test_trusted_commit_relative_ref_rejected(self):
+        issuer = self.ratify(make_issuer("ISSUER-REL"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-REL", "ISSUER-REL"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        result = ci.resolve_instrument_by_id("INSTR-REL", "2026-06-01", authority, trusted_commit="HEAD~1")
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED)
+
+    def test_trusted_commit_abbreviated_sha_rejected(self):
+        issuer = self.ratify(make_issuer("ISSUER-ABBR"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-ABBR", "ISSUER-ABBR"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        abbreviated = self.repo.head_commit()[:8]
+        result = ci.resolve_instrument_by_id("INSTR-ABBR", "2026-06-01", authority, trusted_commit=abbreviated)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED)
+
+    def test_trusted_commit_exact_full_sha_positive_control(self):
+        """An exact full SHA with an exact matching blob still passes."""
+        issuer = self.ratify(make_issuer("ISSUER-EXACTSHA"), ci.LAYER_ISSUER)
+        instrument = self.ratify(make_instrument("INSTR-EXACTSHA", "ISSUER-EXACTSHA"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instrument])
+        full_sha = self.repo.head_commit()
+        self.assertRegex(full_sha, r"^[0-9a-f]{40}$")
+        result = ci.resolve_instrument_by_id("INSTR-EXACTSHA", "2026-06-01", authority, trusted_commit=full_sha)
+        self.assertEqual(result["status"], ci.RESOLVED)
+
+    def test_is_pinned_immutable_commit_direct(self):
+        """Direct, low-level proof of the immutability gate."""
+        issuer = self.ratify(make_issuer("ISSUER-DIRECT"), ci.LAYER_ISSUER)
+        self.build(issuers=[issuer])
+        repo_root = self.repo.root
+        full_sha = self.repo.head_commit()
+        self.assertTrue(ci._is_pinned_immutable_commit(repo_root, full_sha))
+        self.assertFalse(ci._is_pinned_immutable_commit(repo_root, "HEAD"))
+        self.assertFalse(ci._is_pinned_immutable_commit(repo_root, "HEAD~1"))
+        self.assertFalse(ci._is_pinned_immutable_commit(repo_root, full_sha[:10]))
+        self.assertFalse(ci._is_pinned_immutable_commit(repo_root, "not-a-real-ref"))
+
+
+# ---------------------------------------------------------------------------
 # Structural / validation coverage
 # ---------------------------------------------------------------------------
 
