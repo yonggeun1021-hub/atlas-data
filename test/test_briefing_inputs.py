@@ -449,6 +449,97 @@ class BriefingInputsTest(unittest.TestCase):
             before,
         )
 
+    # ── P0-05A: Read Model Generation Contract ──────────────────────────
+
+    def test_generation_id_is_shared_across_step0_compact_and_health(self):
+        status = json.loads((self.out / "step0_status.json").read_text())
+        health = json.loads(self.health.read_text())
+        generation_id = status["generation"]["generation_id"]
+
+        self.assertTrue(generation_id)
+        self.assertEqual(health["generation"]["generation_id"], generation_id)
+
+        for name in ("krx", "dart", "sec"):
+            for path in (self.out / name).glob("*.json"):
+                compact = json.loads(path.read_text())
+                self.assertEqual(
+                    compact["generation"]["generation_id"],
+                    generation_id,
+                    f"{path} generation_id diverged from step0",
+                )
+
+    def test_generation_id_is_deterministic_for_identical_inputs(self):
+        first = json.loads(
+            (self.out / "step0_status.json").read_text()
+        )["generation"]["generation_id"]
+
+        # Rebuild from the exact same committed raw inputs -- required for
+        # this repo's byte-identical authoritative-regression replay.
+        self.module.build_and_publish(self.today)
+
+        second = json.loads(
+            (self.out / "step0_status.json").read_text()
+        )["generation"]["generation_id"]
+
+        self.assertEqual(first, second)
+
+    def test_generation_id_changes_when_a_required_source_changes(self):
+        # Isolated module/tempdir (not the class-shared fixture) because
+        # this test mutates a raw source file -- reusing self.data would
+        # leak that mutation into every other test in this class.
+        spec = importlib.util.spec_from_file_location(
+            "build_briefing_inputs_p0_05a",
+            BUILDER,
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as td:
+            data = Path(td) / "data"
+            data.mkdir()
+            for name in ("krx", "dart", "sec"):
+                shutil.copy2(
+                    DATA / f"latest_{name}.json",
+                    data / f"latest_{name}.json",
+                )
+            module.DATA = data
+            module.OUT = data / "briefing"
+            module.HEALTH = data / "briefing_status.json"
+
+            today = json.loads(
+                (data / "latest_krx.json").read_text()
+            )["collected_for_kst_date"]
+
+            before = module.build_and_publish(today)["generation"][
+                "generation_id"
+            ]
+
+            krx = json.loads((data / "latest_krx.json").read_text())
+            krx["stocks"]["005930"]["name"] = "changed-for-p0-05a-test"
+            (data / "latest_krx.json").write_text(
+                json.dumps(krx), encoding="utf-8"
+            )
+
+            after = module.build_and_publish(today)["generation"][
+                "generation_id"
+            ]
+
+        self.assertNotEqual(before, after)
+
+    def test_generation_basis_is_source_derived_not_wallclock(self):
+        status = json.loads((self.out / "step0_status.json").read_text())
+        expected_basis = max(
+            json.loads((self.data / f"latest_{name}.json").read_text())[
+                "collected_at_utc"
+            ]
+            for name in ("krx", "dart", "sec")
+        )
+
+        self.assertEqual(
+            status["generation"]["generation_basis_at_utc"],
+            expected_basis,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

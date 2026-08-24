@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -12,6 +13,22 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 OUT = DATA / "briefing"
 HEALTH = DATA / "briefing_status.json"
+
+
+def _load_sibling(name, filename):
+    # Path-relative load (not a plain `import`) so this resolves the same
+    # way whether this script is run directly (`python3 .../build_briefing_
+    # inputs.py`) or loaded by path via importlib.util.spec_from_file_
+    # location, as the test suite does.
+    spec = importlib.util.spec_from_file_location(
+        name, Path(__file__).resolve().parent / filename
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+GEN = _load_sibling("briefing_generation_for_build", "briefing_generation.py")
 
 
 def load_json(path):
@@ -171,7 +188,7 @@ def krx_investor_data_completeness(stock):
     }
 
 
-def build_krx_views(obj, sha, out_root):
+def build_krx_views(obj, sha, out_root, generation):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
         raise RuntimeError("krx:stocks_missing")
@@ -188,7 +205,8 @@ def build_krx_views(obj, sha, out_root):
         day, row = latest_confirmed_daily(stock)
 
         payload = {
-            "schema_version": 2,
+            "schema_version": GEN.COMPACT_SCHEMA_VERSIONS["krx"],
+            "generation": generation,
             "market": "KRX",
             "symbol": code,
             "name": stock.get("name"),
@@ -320,7 +338,7 @@ def compact_dart_stock(stock, symbol=None, content=None, content_source=None):
     return out
 
 
-def build_dart_views(obj, sha, out_root, content=None, content_sha=None):
+def build_dart_views(obj, sha, out_root, generation, content=None, content_sha=None):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
         raise RuntimeError("dart:stocks_missing")
@@ -343,7 +361,8 @@ def build_dart_views(obj, sha, out_root, content=None, content_sha=None):
         if not isinstance(stock, dict):
             continue
         payload = {
-            "schema_version": 2,
+            "schema_version": GEN.COMPACT_SCHEMA_VERSIONS["dart"],
+            "generation": generation,
             "market": "DART",
             "symbol": symbol,
             "stock": compact_dart_stock(
@@ -396,7 +415,7 @@ def compact_sec_stock(stock, symbol=None, content=None, content_source=None):
     return out
 
 
-def build_sec_views(obj, sha, out_root, content=None, content_sha=None):
+def build_sec_views(obj, sha, out_root, generation, content=None, content_sha=None):
     stocks = obj.get("stocks")
     if not isinstance(stocks, dict):
         raise RuntimeError("sec:stocks_missing")
@@ -421,7 +440,8 @@ def build_sec_views(obj, sha, out_root, content=None, content_sha=None):
             continue
 
         payload = {
-            "schema_version": 2,
+            "schema_version": GEN.COMPACT_SCHEMA_VERSIONS["sec"],
+            "generation": generation,
             "market": "SEC",
             "symbol": symbol,
             "stock": compact_sec_stock(
@@ -470,9 +490,11 @@ def atomic_publish(staging, target):
             shutil.rmtree(backup)
 
 
-def write_health(expected_date, data_ready, read_model_ready, error=None):
+def write_health(
+    expected_date, data_ready, read_model_ready, error=None, generation=None
+):
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "expected_kst_date": expected_date,
         "data_ready": data_ready,
         "read_model_ready": read_model_ready,
@@ -484,6 +506,14 @@ def write_health(expected_date, data_ready, read_model_ready, error=None):
             else "data_not_ready"
         ),
         "error": error,
+        # P0-05A -- the build step's own canary copy of the generation it
+        # just published to step0_status.json/compact views. check_briefing_
+        # readiness.py re-validates this against its own independent
+        # recomputation before overwriting this file with the final health.
+        # None (not omitted) when the build failed before a generation
+        # could be computed -- read_model_ready is already False in that
+        # case, so this is diagnostic only, never treated as a match.
+        "generation": generation,
     }
     write_json(HEALTH, payload)
 
@@ -638,10 +668,23 @@ def build_and_publish(expected_date, fail_before_publish=False):
         else "fail"
     )
 
+    optional_evidence = {
+        "dart_content": dart_content_status,
+        "sec_content": sec_content_status,
+    }
+
+    # P0-05A -- binds step0_status.json, every compact view, and
+    # briefing_status.json to one shared generation_id. See
+    # briefing_generation.py for why this is not a git commit SHA.
+    generation = GEN.generation_block(
+        expected_date, hashes, optional_evidence, sources
+    )
+
     status = {
-        "schema_version": 1,
+        "schema_version": 2,
         "purpose": "Atlas briefing Step 0 compact readiness SSOT",
         "expected_kst_date": expected_date,
+        "generation": generation,
         "overall": overall,
         "collectors": {},
         "totals": {
@@ -689,10 +732,7 @@ def build_and_publish(expected_date, fail_before_publish=False):
                 else []
             ),
         },
-        "optional_evidence": {
-            "dart_content": dart_content_status,
-            "sec_content": sec_content_status,
-        },
+        "optional_evidence": optional_evidence,
     }
 
     for name in ("krx", "dart", "sec"):
@@ -709,11 +749,12 @@ def build_and_publish(expected_date, fail_before_publish=False):
 
     try:
         write_json(staging / "step0_status.json", status)
-        build_krx_views(sources["krx"], hashes["krx"], staging)
+        build_krx_views(sources["krx"], hashes["krx"], staging, generation)
         build_dart_views(
             sources["dart"],
             hashes["dart"],
             staging,
+            generation,
             content=dart_content,
             content_sha=dart_content_sha,
         )
@@ -721,6 +762,7 @@ def build_and_publish(expected_date, fail_before_publish=False):
             sources["sec"],
             hashes["sec"],
             staging,
+            generation,
             content=sec_content,
             content_sha=sec_content_sha,
         )
@@ -740,6 +782,7 @@ def build_and_publish(expected_date, fail_before_publish=False):
         data_ready=data_ready,
         read_model_ready=True,
         error=None,
+        generation=generation,
     )
 
     return status
