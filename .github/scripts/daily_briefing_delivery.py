@@ -146,16 +146,47 @@ def consume(repo_root: Path, expected_slot: str, expected_date: str) -> dict:
         row = by_id.get(component_id)
         if not isinstance(row, dict):
             _fail("DELIVERY_COMPONENT_MISSING", component_id)
-        components.append({
+        packet_body = row.get("packet") or {}
+        authority = packet_body.get("authority") or row.get("authority") or {}
+        if not isinstance(authority, dict) or any(
+            value is True for key, value in authority.items()
+            if key != "briefing_status_only"
+        ):
+            _fail("DELIVERY_COMPONENT_AUTHORITY_ESCALATION", component_id)
+        bounded = {
             "component_id": component_id,
             "status": row.get("status"),
             "reason": row.get("reason"),
-            "review_outcome": (row.get("packet") or {}).get("review_outcome"),
-            "trade_proposal": (row.get("packet") or {}).get("trade_proposal"),
-            "money_action": (row.get("packet") or {}).get("money_action"),
-            "capital": (row.get("packet") or {}).get("capital"),
-            "ledger_record_created": (row.get("packet") or {}).get("ledger_record_created"),
-        })
+            "review_outcome": packet_body.get("review_outcome"),
+            "trade_proposal": packet_body.get("trade_proposal"),
+            "money_action": packet_body.get("money_action"),
+            "capital": packet_body.get("capital"),
+            "ledger_record_created": packet_body.get("ledger_record_created"),
+            "action": packet_body.get("action"),
+            "order": packet_body.get("order"),
+            "stage_change": packet_body.get("stage_change"),
+        }
+        if component_id == "INVESTMENT_DECISION_REVIEW":
+            if bounded["review_outcome"] == "BLOCKED" and (
+                bounded["trade_proposal"] is not None
+                or bounded["money_action"] != "NONE"
+            ):
+                _fail("DELIVERY_BLOCKED_REVIEW_ACTION_LEAK")
+            bounded["capital"] = 0
+        else:
+            capital = bounded["capital"]
+            if not isinstance(capital, dict):
+                _fail("DELIVERY_SHADOW_CAPITAL_INVALID")
+            bounded["capital"] = capital.get("amount")
+            if bounded["review_outcome"] == "BLOCKED" and (
+                bounded["ledger_record_created"] is not False
+                or bounded["capital"] != 0
+                or bounded["action"] is not None
+                or bounded["order"] is not None
+                or bounded["stage_change"] is not None
+            ):
+                _fail("DELIVERY_BLOCKED_SHADOW_LEAK")
+        components.append(bounded)
     return {
         "schema_version": SCHEMA_VERSION,
         "slot": expected_slot,
