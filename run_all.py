@@ -1109,12 +1109,19 @@ APPROVED_TESTS = [
     #   in-memory effective_to alone is mutated to null (evidence file,
     #   hash, and git first-seen all untouched) is blocked, never RESOLVED.
     #   Every public resolver also re-verifies its ENTIRE input document
-    #   (not just the selected row) against the real bytes at
-    #   `_source_path` on every call -- deleting/inserting/reordering rows
-    #   in the array (e.g. removing one of two conflicting AMBIGUOUS rows
-    #   so the remaining, completely real row resolves alone) is blocked
-    #   as IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED before any row is
-    #   even looked at.
+    #   (not just the selected row) against BOTH the real disk bytes at
+    #   `_source_path` AND the real git blob at a trusted commit (default:
+    #   current HEAD, resolved live -- never read from the input document
+    #   itself) -- deleting/inserting/reordering rows in the array (e.g.
+    #   removing one of two conflicting AMBIGUOUS rows so the remaining,
+    #   completely real row resolves alone) is blocked as
+    #   IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED before any row is even
+    #   looked at, and a merely-dirty/uncommitted disk file (including a
+    #   memory+disk co-tamper, or an uncommitted revert to an old real
+    #   commit used as if current) is
+    #   IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED. An
+    #   explicit, externally-pinned `trusted_commit` may be passed by a
+    #   caller to legitimately trust a specific non-HEAD commit instead.
     #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
     #   no in-code mapping table, no hardcoded per-ticker/market
     #   special-casing, P8-13 not opened.

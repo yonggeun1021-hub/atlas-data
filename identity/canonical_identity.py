@@ -6,6 +6,35 @@ designed in "Canonical Security Identity / Market Scope Authority" v2
 (Notion design packet, CIO-approved 2026-08-24 as this stage's
 implementation baseline).
 
+★ Rev 6 (CIO independent re-verification of HEAD 104d567; CI green on that
+  exact HEAD, but the predicted disk+memory co-tamper bypass reproduced
+  directly -- "provenance" stays PARTIALLY_VERIFIED -- see
+  docs/identity_foundation_pr_notes.md):
+   Rev 5's `verify_document_matches_source` only checked memory == disk.
+   It never checked whether the DISK FILE ITSELF was the real
+   git-canonical content. CIO reproduced: delete the conflicting row in
+   BOTH memory and disk (never committed) -- the old check passes because
+   both sides agree with each other, even though neither agrees with git.
+   Fixed: `verify_document_matches_source` is now a THREE-way check --
+   memory == disk == the real git blob at a trusted commit (default: the
+   repo's actual current HEAD, resolved via a real `git rev-parse HEAD`
+   call at verification time; NEVER read from the input document itself,
+   which would let a caller self-declare which commit to trust). It also
+   requires `git status --porcelain` for that exact file to be completely
+   clean -- catching both a direct disk edit AND an uncommitted
+   `git checkout <old-sha> -- <path>` revert, which is exactly how the
+   "revert to an old real single-row commit and use it as current" bypass
+   would otherwise slip through undetected while still nominally citing a
+   real historical commit. Two distinct failure classes:
+   `IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED` (memory/disk mismatch, or
+   disk genuinely differs from the trusted commit) and
+   `IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED` (not a real
+   git repo, working tree dirty, or the trusted commit can't be read) --
+   both are `RESOLVED`-forbidding either way. Callers may pass an
+   explicit, externally-pinned `trusted_commit` (new optional parameter
+   on every public resolver) instead of trusting current HEAD, but never
+   by reading it out of the document under verification.
+
 ★ Rev 5 (CIO independent re-verification of HEAD 82dde6f confirmed rev 4's
   fixes correctly closed; one more defect in the same family found by
   direct reproduction -- "provenance" stays PARTIALLY_VERIFIED -- see
@@ -243,6 +272,7 @@ NOT_COMPUTABLE_FIRST_SEEN_UNVERIFIED = "IDENTITY_NOT_COMPUTABLE_FIRST_SEEN_UNVER
 NOT_COMPUTABLE_EVIDENCE_FIRST_SEEN_UNVERIFIED = "IDENTITY_NOT_COMPUTABLE_EVIDENCE_FIRST_SEEN_UNVERIFIED"
 NOT_COMPUTABLE_TIME_PRECISION = "IDENTITY_NOT_COMPUTABLE_TIME_PRECISION"
 NOT_COMPUTABLE_DOCUMENT_TAMPERED = "IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED"
+NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED = "IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED"
 RESOLVED = "RESOLVED"
 
 
@@ -728,47 +758,133 @@ def load_scope_authority(path=MARKET_ACCOUNT_SCOPE_PATH) -> dict:
 # every individual row that remains is completely real and untouched).
 # ---------------------------------------------------------------------------
 
-def verify_document_matches_source(doc: dict) -> bool:
-    """Compares a canonical hash of the CURRENTLY-INPUT `doc` (excluding
-    internal `_`-prefixed keys such as `_source_path`) against a
-    freshly-computed canonical hash of the REAL file at
-    `doc["_source_path"]`, re-read from disk on EVERY call (never
-    cached). `canonical_json` sorts dict keys but preserves list/array
-    ORDER, so this also catches row reordering within an array, not just
-    field edits or additions/removals. Returns False -- never raises --
-    if `_source_path` is missing, the file cannot be read/parsed, or the
-    hashes do not match. This is deliberately independent of, and
-    stronger than, any single-row check: it detects a document that adds,
-    deletes, replaces, or reorders rows even when every ROW that remains
-    in the document is itself completely real (unmutated, genuinely
-    RATIFIED, genuinely git-verifiable) -- e.g. deleting one of two
-    conflicting AMBIGUOUS rows so the remaining real row resolves alone."""
+def verify_document_matches_source(doc: dict, trusted_commit: str | None = None) -> tuple[bool, str | None]:
+    """rev 6: a THREE-way check, not just memory-vs-disk. CIO's direct
+    reproduction of the rev-5 fix's remaining gap: memory==disk alone is
+    not enough -- an attacker who edits the disk file directly (or
+    reverts it via `git checkout <old-sha> -- <path>` without committing)
+    and mirrors the same edit into the in-memory `doc` passes a
+    memory-vs-disk-only check, because BOTH sides were tampered together.
+    The disk file itself must ALSO be verified against a real git commit
+    -- specifically that (a) the file is genuinely git-tracked, (b) the
+    working tree for this exact file is clean (no uncommitted changes at
+    all -- catches both direct edits and uncommitted reverts), and (c)
+    disk content byte-for-byte equals `git show <trusted_commit>:<path>`.
+
+    `trusted_commit` is NEVER read from `doc` itself -- a caller could
+    otherwise self-declare "trust commit X" inside the very document
+    being verified, defeating the whole point. It must be passed in
+    explicitly by the CALLER (an externally-pinned/trusted commit SHA).
+
+    Two distinct modes:
+      - DEFAULT (`trusted_commit` omitted): resolves to the repo's actual
+        current HEAD via a real `git rev-parse HEAD` call made at
+        verification time, AND additionally requires `git status
+        --porcelain` for this exact file to be completely clean --
+        catching both a direct disk edit and an uncommitted
+        `git checkout <old-sha> -- <path>` revert. This is deliberately
+        the strictest mode and is what every caller gets unless it
+        explicitly opts out.
+      - EXPLICIT PIN (`trusted_commit` given): the HEAD-relative dirty
+        check is skipped -- disk legitimately differing from the CURRENT
+        branch HEAD is expected and fine when the caller has explicitly
+        chosen to trust a different, specific commit. The disk content
+        must still match that pinned commit's real git blob byte-for-byte;
+        nothing about "uncommitted" content that happens to coincide with
+        real historical bytes is treated as a weaker guarantee than a
+        clean git-status would have given -- byte-identity with a real
+        commit IS the ground truth, regardless of git's index bookkeeping.
+
+    Returns (is_valid, failure_reason). `failure_reason` is one of
+    'MEMORY_DISK_MISMATCH' | 'NOT_A_GIT_REPO' | 'WORKING_TREE_DIRTY' |
+    'TRUSTED_COMMIT_UNREADABLE' | 'DISK_COMMIT_MISMATCH' | None (only
+    when `is_valid` is True). Never raises."""
     source_path = doc.get("_source_path")
     if not source_path:
-        return False
+        return False, "NOT_A_GIT_REPO"
     path = Path(source_path)
     try:
-        real_doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
+        disk_bytes = path.read_bytes()
+        disk_doc = json.loads(disk_bytes.decode("utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return False, "NOT_A_GIT_REPO"
+
     clean_input = {k: v for k, v in doc.items() if not k.startswith("_")}
-    return payload_sha256(clean_input) == payload_sha256(real_doc)
+    if payload_sha256(clean_input) != payload_sha256(disk_doc):
+        return False, "MEMORY_DISK_MISMATCH"
+
+    repo_root = _git_repo_root(path)
+    if repo_root is None:
+        return False, "NOT_A_GIT_REPO"
+    try:
+        rel_posix = path.resolve().relative_to(repo_root).as_posix()
+    except ValueError:
+        return False, "NOT_A_GIT_REPO"
+
+    using_default_head = trusted_commit is None
+    commit = trusted_commit
+    if commit is None:
+        try:
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo_root,
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+        except Exception:
+            return False, "TRUSTED_COMMIT_UNREADABLE"
+
+    if using_default_head:
+        try:
+            status_out = subprocess.run(
+                ["git", "status", "--porcelain", "--", rel_posix],
+                cwd=repo_root, capture_output=True, text=True, check=True,
+            ).stdout
+        except Exception:
+            return False, "NOT_A_GIT_REPO"
+        if status_out.strip():
+            # uncommitted change to this exact file, relative to the
+            # DEFAULT trust source (current HEAD) -- direct disk edit or
+            # an uncommitted revert both land here, regardless of whether
+            # memory was mirrored to match. Skipped entirely when a
+            # caller explicitly pins a different commit (see docstring).
+            return False, "WORKING_TREE_DIRTY"
+
+    git_bytes = _git_show_bytes(repo_root, commit, rel_posix)
+    if git_bytes is None:
+        return False, "TRUSTED_COMMIT_UNREADABLE"
+    try:
+        git_doc = json.loads(git_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False, "TRUSTED_COMMIT_UNREADABLE"
+
+    if payload_sha256(disk_doc) != payload_sha256(git_doc):
+        return False, "DISK_COMMIT_MISMATCH"
+    return True, None
 
 
-def _document_tamper_status(authority: dict) -> str | None:
-    """Returns NOT_COMPUTABLE_DOCUMENT_TAMPERED if `authority` carries a
-    `_source_path` (i.e. it claims to be file-backed) but no longer
-    matches that real file's current content; returns None (no
-    document-level objection) if `_source_path` is absent entirely --
-    that case is unverifiable at the document level and falls through to
-    the existing per-row first-seen checks, which will themselves
-    correctly resolve to a NOT_COMPUTABLE_* status downstream since there
-    is no real git history to consult without a real source path."""
+_DOCUMENT_FAILURE_STATUS = {
+    "MEMORY_DISK_MISMATCH": NOT_COMPUTABLE_DOCUMENT_TAMPERED,
+    "DISK_COMMIT_MISMATCH": NOT_COMPUTABLE_DOCUMENT_TAMPERED,
+    "NOT_A_GIT_REPO": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
+    "WORKING_TREE_DIRTY": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
+    "TRUSTED_COMMIT_UNREADABLE": NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED,
+}
+
+
+def _document_tamper_status(authority: dict, trusted_commit: str | None = None) -> str | None:
+    """Returns a NOT_COMPUTABLE_* status if `authority` carries a
+    `_source_path` (i.e. it claims to be file-backed) but the three-way
+    memory/disk/git-commit check fails; returns None (no document-level
+    objection) if `_source_path` is absent entirely -- that case is
+    unverifiable at the document level and falls through to the existing
+    per-row first-seen checks, which will themselves correctly resolve to
+    a NOT_COMPUTABLE_* status downstream since there is no real git
+    history to consult without a real source path."""
     if authority.get("_source_path") is None:
         return None
-    if not verify_document_matches_source(authority):
-        return NOT_COMPUTABLE_DOCUMENT_TAMPERED
-    return None
+    ok, reason = verify_document_matches_source(authority, trusted_commit=trusted_commit)
+    if ok:
+        return None
+    return _DOCUMENT_FAILURE_STATUS.get(reason, NOT_COMPUTABLE_DOCUMENT_TAMPERED)
 
 
 # ---------------------------------------------------------------------------
@@ -875,16 +991,19 @@ def _resolve_layer_row(candidate_rows: list[dict], decision_date: str, layer: st
 # ---------------------------------------------------------------------------
 
 def resolve_instrument_identity(source_name: str, source_asset_id: str, market: str,
-                                 decision_date: str, authority: dict) -> dict:
+                                 decision_date: str, authority: dict, trusted_commit: str | None = None) -> dict:
     """`authority` is validated as a whole DOCUMENT (defect 4) before any
     row is touched, regardless of whether it came from `load_authority`
     or was injected directly. If `authority` carries a `_source_path`
     (i.e. claims to be file-backed), its ENTIRE current content -- not
-    just whichever row ends up selected -- must still match that real
-    file's current bytes (rev 5), or resolution is refused outright."""
+    just whichever row ends up selected -- must still match a real,
+    committed, non-dirty git blob (rev 6), or resolution is refused
+    outright. `trusted_commit` (rev 6), when given, pins verification to
+    that externally-trusted commit instead of the repo's current HEAD --
+    it is a caller-supplied parameter, never read from `authority` itself."""
     _parse_temporal(decision_date)
     validate_security_identity_document(authority)
-    tamper_status = _document_tamper_status(authority)
+    tamper_status = _document_tamper_status(authority, trusted_commit=trusted_commit)
     if tamper_status is not None:
         return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     git_path = authority.get("_source_path")
@@ -932,10 +1051,10 @@ def resolve_instrument_identity(source_name: str, source_asset_id: str, market: 
 # Market <-> account_scope resolver
 # ---------------------------------------------------------------------------
 
-def resolve_account_scope(market: str, decision_date: str, scope_authority: dict) -> dict:
+def resolve_account_scope(market: str, decision_date: str, scope_authority: dict, trusted_commit: str | None = None) -> dict:
     _parse_temporal(decision_date)
     validate_market_account_scope_document(scope_authority)
-    tamper_status = _document_tamper_status(scope_authority)
+    tamper_status = _document_tamper_status(scope_authority, trusted_commit=trusted_commit)
     if tamper_status is not None:
         return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     git_path = scope_authority.get("_source_path")
@@ -965,7 +1084,8 @@ def identify_layer_of_id(candidate_id: str, authority: dict) -> str | None:
     return None
 
 
-def resolve_instrument_by_id(canonical_instrument_id: str, decision_date: str, authority: dict) -> dict:
+def resolve_instrument_by_id(canonical_instrument_id: str, decision_date: str, authority: dict,
+                              trusted_commit: str | None = None) -> dict:
     """The REAL operational resolver for a caller that already has a
     `canonical_instrument_id`. Rev 3: also verifies the LINKED ISSUER
     through the exact same gate `resolve_instrument_identity` uses --
@@ -974,7 +1094,7 @@ def resolve_instrument_by_id(canonical_instrument_id: str, decision_date: str, a
     resolver's judgment."""
     _parse_temporal(decision_date)
     validate_security_identity_document(authority)
-    tamper_status = _document_tamper_status(authority)
+    tamper_status = _document_tamper_status(authority, trusted_commit=trusted_commit)
     if tamper_status is not None:
         return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     git_path = authority.get("_source_path")
@@ -994,22 +1114,23 @@ def resolve_instrument_by_id(canonical_instrument_id: str, decision_date: str, a
                     canonical_issuer_id=instrument_row["canonical_issuer_id"])
 
 
-def require_instrument_id(candidate_id: str, authority: dict, decision_date: str) -> dict:
+def require_instrument_id(candidate_id: str, authority: dict, decision_date: str,
+                           trusted_commit: str | None = None) -> dict:
     """Guard for any consumer that must use a `canonical_instrument_id` as
     its join key. Wrong-layer ids fail fast with
     `IDENTITY_NOT_COMPUTABLE_LAYER_MISMATCH`; instrument-layer ids
     delegate to the real operational resolver `resolve_instrument_by_id`
     (never a structural-existence-only shortcut). The whole-document
-    tamper check (rev 5) runs here too, BEFORE `identify_layer_of_id` --
+    tamper check (rev 5/6) runs here too, BEFORE `identify_layer_of_id` --
     a tampered document could otherwise change which layer an id
     structurally appears to belong to."""
     validate_security_identity_document(authority)
-    tamper_status = _document_tamper_status(authority)
+    tamper_status = _document_tamper_status(authority, trusted_commit=trusted_commit)
     if tamper_status is not None:
         return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
     found_layer = identify_layer_of_id(candidate_id, authority)
     if found_layer == LAYER_INSTRUMENT:
-        return resolve_instrument_by_id(candidate_id, decision_date, authority)
+        return resolve_instrument_by_id(candidate_id, decision_date, authority, trusted_commit=trusted_commit)
     if found_layer == LAYER_ISSUER:
         row = next(r for r in authority.get("issuers", []) if r.get("canonical_issuer_id") == candidate_id)
         return _result(NOT_COMPUTABLE_LAYER_MISMATCH, decision_date, identity_basis=_basis_from_row(row))

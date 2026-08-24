@@ -243,6 +243,29 @@ class GitAuthorityRepo:
     def load_scope_authority(self, rel_path: str = "config/market_account_scope_map.json") -> dict:
         return ci.load_scope_authority(self.root / rel_path)
 
+    def write_dirty(self, rel_path: str, data: bytes) -> Path:
+        """Writes real bytes to disk WITHOUT staging or committing --
+        leaves the working tree genuinely dirty (`git status --porcelain`
+        shows the file as modified). Used to reproduce disk-only or
+        disk+memory co-tamper scenarios (rev 6)."""
+        path = self.root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def head_commit(self) -> str:
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                               capture_output=True, text=True, check=True).stdout.strip()
+
+    def checkout_path_from_commit(self, commit: str, rel_path: str) -> None:
+        """`git checkout <commit> -- <rel_path>` -- reverts ONLY that file's
+        working-tree content to a real, older commit's real content,
+        WITHOUT creating a new commit (HEAD is untouched). Used to
+        reproduce the 'revert to an old real single-row commit and use it
+        as if it were current' bypass (rev 6)."""
+        subprocess.run(["git", "checkout", commit, "--", rel_path], cwd=self.root,
+                        capture_output=True, text=True, check=True)
+
 
 class _GitRepoMixin:
     def setUp(self):
@@ -960,6 +983,188 @@ class Defect7DocumentLevelTamperTests(_GitRepoMixin, unittest.TestCase):
         result = ci.require_instrument_id("INSTR-REQ-CONFLICT", authority, "2026-06-01")
         self.assertNotEqual(result["status"], ci.RESOLVED)
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+
+# ---------------------------------------------------------------------------
+# Round-5 (rev 6) counter-examples -- CIO direct-reproduction P0: rev 5's
+# memory-vs-disk-only check misses a co-tamper where BOTH sides are edited
+# together (never committed). The exact reproduction:
+#
+#   Original:                     IDENTITY_NOT_COMPUTABLE_AMBIGUOUS
+#   Row deleted in memory+disk:   RESOLVED   (the rev-5 bug)
+#
+# with the real git commit, approval evidence, the remaining row, and git
+# history all completely untouched -- only the working tree made dirty.
+# ---------------------------------------------------------------------------
+
+class Defect8DiskGitProvenanceTests(_GitRepoMixin, unittest.TestCase):
+
+    def test_document_tamper_row_deleted_in_memory_and_disk_blocked(self):
+        """CIO's exact round-6 reproduction."""
+        instr_1 = self.ratify(make_instrument("INSTR-DISK-CONFLICT", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        instr_2 = self.ratify(make_instrument("INSTR-DISK-CONFLICT", "ISSUER-TWO"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instr_1, instr_2])
+        head_before = self.repo.head_commit()
+
+        baseline = ci.resolve_instrument_by_id("INSTR-DISK-CONFLICT", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        # Tamper BOTH sides together: delete the conflicting row from the
+        # in-memory doc AND overwrite the real disk file to match --
+        # WITHOUT git add/commit. This is exactly what rev 5's
+        # memory-vs-disk-only check could not catch (both sides agree).
+        del authority["instruments"][1]
+        clean = {k: v for k, v in authority.items() if not k.startswith("_")}
+        self.repo.write_dirty("config/canonical_security_identity.json",
+                               json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+        self.assertEqual(self.repo.head_commit(), head_before)  # the real git commit itself is untouched
+
+        tampered = ci.resolve_instrument_by_id("INSTR-DISK-CONFLICT", "2026-06-01", authority)
+        self.assertNotEqual(tampered["status"], ci.RESOLVED)
+        self.assertIn(tampered["status"], (ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED,
+                                            ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED))
+        self.assertIsNone(tampered["canonical_instrument_id"])
+        _assert_authority_all_false(self, tampered)
+
+    def test_document_tamper_row_deleted_in_memory_and_disk_reloaded_from_disk_still_blocked(self):
+        """Same reproduction, but this time re-LOAD the (dirty) disk file
+        fresh via ci.load_authority -- proving the block does not depend
+        on any particular way memory came to mirror disk."""
+        instr_1 = self.ratify(make_instrument("INSTR-DISK-CONFLICT-2", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        instr_2 = self.ratify(make_instrument("INSTR-DISK-CONFLICT-2", "ISSUER-TWO"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instr_1, instr_2])
+        path = self.repo.root / "config" / "canonical_security_identity.json"
+
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        del doc["instruments"][1]
+        self.repo.write_dirty("config/canonical_security_identity.json",
+                               json.dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+        reloaded = ci.load_authority(path)  # fresh load -- memory now mirrors the dirty disk exactly
+        result = ci.resolve_instrument_by_id("INSTR-DISK-CONFLICT-2", "2026-06-01", reloaded)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertIn(result["status"], (ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED,
+                                          ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED))
+
+    def test_old_commit_revert_without_committing_blocked(self):
+        """'Revert the file to an old real single-row commit and use it as
+        if it were current': `git checkout <old-sha> -- <path>` reverts
+        the working tree to a real, older commit's real content, WITHOUT
+        creating a new commit. Even though the reverted bytes really did
+        exist in real git history, using them as if they were CURRENT
+        (without an explicit trusted_commit pin) must be blocked."""
+        instr_1 = self.ratify(make_instrument("INSTR-REVERT-A", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        self.build(instruments=[instr_1], commit_iso="2026-01-02T00:00:00Z")
+        old_commit = self.repo.head_commit()
+
+        instr_2 = self.ratify(make_instrument("INSTR-REVERT-A", "ISSUER-TWO"), ci.LAYER_INSTRUMENT)
+        authority_v2 = self.build(instruments=[instr_1, instr_2], commit_iso="2026-01-03T00:00:00Z")
+
+        baseline = ci.resolve_instrument_by_id("INSTR-REVERT-A", "2026-06-01", authority_v2)
+        self.assertEqual(baseline["status"], ci.NOT_COMPUTABLE_AMBIGUOUS)
+
+        self.repo.checkout_path_from_commit(old_commit, "config/canonical_security_identity.json")
+        reloaded = ci.load_authority(self.repo.root / "config" / "canonical_security_identity.json")
+
+        result = ci.resolve_instrument_by_id("INSTR-REVERT-A", "2026-06-01", reloaded)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertIn(result["status"], (ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED,
+                                          ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED))
+
+    def test_explicit_trusted_commit_pin_allows_legitimate_older_commit(self):
+        """The flip side: a caller who EXPLICITLY pins the old commit
+        (rather than defaulting to current HEAD) is legitimately allowed
+        -- disk genuinely matches that specific, real, named commit
+        byte-for-byte, which is exactly what an externally-trusted pin is
+        for. This is the sanctioned way to use "a different commit", per
+        the requirement that it must be passed in explicitly and never
+        self-declared inside the input document."""
+        issuer = self.ratify(make_issuer("ISSUER-ONE"), ci.LAYER_ISSUER)
+        instr_1 = self.ratify(make_instrument("INSTR-PIN-A", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        self.build(issuers=[issuer], instruments=[instr_1], commit_iso="2026-01-02T00:00:00Z")
+        old_commit = self.repo.head_commit()
+
+        instr_2 = self.ratify(make_instrument("INSTR-PIN-B", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        self.build(issuers=[issuer], instruments=[instr_1, instr_2], commit_iso="2026-01-03T00:00:00Z")
+
+        self.repo.checkout_path_from_commit(old_commit, "config/canonical_security_identity.json")
+        reloaded = ci.load_authority(self.repo.root / "config" / "canonical_security_identity.json")
+
+        # without a pin -- blocked (dirty relative to current HEAD)
+        unpinned = ci.resolve_instrument_by_id("INSTR-PIN-A", "2026-06-01", reloaded)
+        self.assertNotEqual(unpinned["status"], ci.RESOLVED)
+
+        # with an explicit pin to the commit disk actually reflects -- allowed
+        pinned = ci.resolve_instrument_by_id("INSTR-PIN-A", "2026-06-01", reloaded, trusted_commit=old_commit)
+        self.assertEqual(pinned["status"], ci.RESOLVED)
+
+    def test_explicit_trusted_commit_pin_still_rejects_disk_mismatch(self):
+        """Pinning a commit is not a blanket bypass -- disk must still
+        genuinely match THAT commit's real bytes. Pinning a commit whose
+        real content does not match the current (dirty) disk state is
+        still blocked."""
+        instr_1 = self.ratify(make_instrument("INSTR-PIN-MISMATCH", "ISSUER-ONE"), ci.LAYER_INSTRUMENT)
+        authority = self.build(instruments=[instr_1], commit_iso="2026-01-02T00:00:00Z")
+        real_commit = self.repo.head_commit()
+
+        del authority["instruments"][0]
+        authority["instruments"].append(make_instrument("INSTR-FABRICATED", "ISSUER-X"))
+        clean = {k: v for k, v in authority.items() if not k.startswith("_")}
+        self.repo.write_dirty("config/canonical_security_identity.json",
+                               json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+        result = ci.resolve_instrument_by_id("INSTR-PIN-MISMATCH", "2026-06-01", authority, trusted_commit=real_commit)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED)
+
+    def test_direct_disk_edit_single_row_no_ambiguity_still_blocked(self):
+        """Simpler variant without an ambiguity baseline: a single-row
+        document, directly edited on disk (business field tamper via disk,
+        mirrored to memory) -- no new commit. Must not resolve."""
+        issuer = self.ratify(make_issuer("ISSUER-X"), ci.LAYER_ISSUER)
+        instr = self.ratify(make_instrument("INSTR-DIRECT-EDIT", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instr])
+
+        baseline = ci.resolve_instrument_by_id("INSTR-DIRECT-EDIT", "2026-06-01", authority)
+        self.assertEqual(baseline["status"], ci.RESOLVED)
+
+        authority["instruments"][0]["instrument_type"] = "PREFERRED_STOCK"  # tamper
+        clean = {k: v for k, v in authority.items() if not k.startswith("_")}
+        self.repo.write_dirty("config/canonical_security_identity.json",
+                               json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+        result = ci.resolve_instrument_by_id("INSTR-DIRECT-EDIT", "2026-06-01", authority)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertIn(result["status"], (ci.NOT_COMPUTABLE_DOCUMENT_TAMPERED,
+                                          ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED))
+
+    def test_document_not_inside_any_git_repo_is_provenance_unverified(self):
+        """A `_source_path` pointing at a real file that simply isn't
+        tracked by any git repository at all -- structurally can't be
+        trusted, correctly distinct from an active tamper finding."""
+        plain_dir = self.tmp_path / "no_git_here"
+        plain_dir.mkdir()
+        instr = self.ratify(make_instrument("INSTR-NO-GIT", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        doc = full_authority(instruments=[instr])
+        path = plain_dir / "canonical_security_identity.json"
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        loaded = ci.load_authority(path)
+        result = ci.resolve_instrument_by_id("INSTR-NO-GIT", "2026-06-01", loaded)
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED)
+
+    def test_untampered_document_still_resolves_with_disk_git_check(self):
+        """Sanity/positive control: a genuinely untouched, freshly-loaded
+        document passes the full three-way check and resolves normally."""
+        issuer = self.ratify(make_issuer("ISSUER-X"), ci.LAYER_ISSUER)
+        instr = self.ratify(make_instrument("INSTR-CLEAN-V6", "ISSUER-X"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instr])
+        ok, reason = ci.verify_document_matches_source(authority)
+        self.assertTrue(ok)
+        self.assertIsNone(reason)
+        result = ci.resolve_instrument_by_id("INSTR-CLEAN-V6", "2026-06-01", authority)
+        self.assertEqual(result["status"], ci.RESOLVED)
 
 
 # ---------------------------------------------------------------------------

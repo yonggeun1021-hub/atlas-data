@@ -5,6 +5,54 @@ Design source: "Canonical Security Identity / Market Scope Authority" v2
 implementation baseline) and the paired "Dynamic Clock Candidate Validity
 Window" v2 packet (combined CIO recommendation section).
 
+## ⛔ Rev 5 claim stays PARTIALLY_VERIFIED — the predicted disk+memory co-tamper bypass closed
+
+CIO independent re-verification of HEAD `104d567` (rev 5) returned CI
+green on that exact HEAD but **`CHANGES_REQUIRED` anyway** — a design
+gap, not a test-run problem. Rev 5's `verify_document_matches_source`
+only checked `input memory document == current disk file` — it never
+checked whether the disk file itself was the real git-canonical version.
+CIO reproduced:
+
+```
+Original:                     IDENTITY_NOT_COMPUTABLE_AMBIGUOUS
+Row deleted in memory+disk:   RESOLVED
+```
+
+— git commit, approval evidence, the remaining row, and git history all
+untouched; only the working tree was made dirty (memory mirrored to
+match the tampered disk file, so the old memory-vs-disk-only check
+passed).
+
+**Fixed**: `verify_document_matches_source` is now a THREE-way check —
+memory == disk == the real git blob at a trusted commit. Two modes:
+
+- **Default** (no `trusted_commit` given): resolves to the repo's actual
+  current HEAD via a real `git rev-parse HEAD` call at verification time,
+  AND additionally requires `git status --porcelain` for that exact file
+  to be completely clean. This catches a direct disk edit AND an
+  uncommitted `git checkout <old-sha> -- <path>` revert — the "revert to
+  an old real single-row commit and use it as current" bypass — since
+  both leave the working tree dirty relative to HEAD.
+- **Explicit pin** (`trusted_commit` given): the HEAD-relative dirty
+  check is skipped (disk legitimately differing from current branch HEAD
+  is expected when a caller has deliberately chosen to trust a different,
+  specific, named commit); disk must still match that pinned commit's
+  real git blob byte-for-byte. `trusted_commit` is a caller-supplied
+  parameter on every public resolver — never read from the document under
+  verification, which would let a caller self-declare which commit to
+  trust.
+
+Two failure classes: `IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED`
+(memory/disk mismatch, or disk genuinely differs from the trusted
+commit's real content) and `IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED`
+(not a real git repo, working tree dirty relative to the default trust
+source, or the trusted commit's blob can't be read) — both forbid
+`RESOLVED` either way. Applied via the same shared function
+(`verify_document_matches_source`/`_document_tamper_status`) across every
+record type (instrument/issuer/listing/source_alias/scope-edge) and
+every public entry point, not duplicated per type.
+
 ## ⛔ Rev 4 claim stays PARTIALLY_VERIFIED — one more defect in the same family closed
 
 CIO independent re-verification of HEAD `82dde6f` (rev 4) confirmed rev
