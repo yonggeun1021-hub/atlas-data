@@ -423,6 +423,24 @@ at HEAD `8b69132` (round-5 disk+memory co-tamper fix on top of rounds
 Full log preserved outside the repo at `run_all_authoritative_round5.log`
 (scratchpad).
 
+## Verification — real, completed authoritative run (round 6, HEAD `bcce03e`)
+
+`ATLAS_DISPOSABLE_CHECKOUT=1 python3 run_all.py --authoritative`, run in
+a SIXTH genuinely fresh disposable clone of `feature/identity-foundation`
+at HEAD `bcce03e` (round-6 explicit-pin-path byte-comparison + immutable
+-commit fix on top of rounds 1-5), separate from every prior verification
+clone:
+
+- `[2/5]`/`[3/5]` 14/14 builders rebuilt byte-identical.
+- `[4/5]` **171/171 approved regression files ok**, including
+  `test/test_identity_foundation.py` (83 tests) and every pre-existing
+  identity-adjacent suite.
+- `[5/5]` Fault Injection suite: **50 PASS / 0 FAIL.**
+- Final line: **`✅ Actions PASS = YES`**.
+
+Full log preserved outside the repo at `run_all_authoritative_round6.log`
+(scratchpad).
+
 ## Next stage
 
 Only after this PR's independent CIO review completes does the next
