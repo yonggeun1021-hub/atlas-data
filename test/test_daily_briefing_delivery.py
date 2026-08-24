@@ -49,8 +49,12 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
                     "status": "DATA_BLOCKED",
                     "reason": "DECISION_REVIEW_BLOCKED",
                     "packet": {
+                        "review_outcome": "BLOCKED",
                         "ledger_record_created": False,
-                        "capital": 0,
+                        "capital": {"authorized": False, "amount": 0},
+                        "action": None,
+                        "order": None,
+                        "stage_change": None,
                     },
                 },
             ],
@@ -144,6 +148,28 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
         locator["authority"]["buy"] = True
         dump(locator_path, locator)
         with self.assertRaisesRegex(delivery.DeliveryError, "AUTHORITY_ESCALATION"):
+            delivery.consume(self.root, self.slot, self.date)
+
+    def test_blocked_review_with_trade_proposal_is_rejected(self):
+        path = self.date_root / "rev-001/packet.json"
+        packet = json.loads(path.read_text())
+        packet["components"][0]["packet"]["trade_proposal"] = {"side": "BUY"}
+        dump(path, packet)
+        delivery.write_locator(
+            self.root, delivery.build_locator(self.root, self.slot, self.date)
+        )
+        with self.assertRaisesRegex(delivery.DeliveryError, "BLOCKED_REVIEW_ACTION_LEAK"):
+            delivery.consume(self.root, self.slot, self.date)
+
+    def test_blocked_shadow_with_created_record_is_rejected(self):
+        path = self.date_root / "rev-001/packet.json"
+        packet = json.loads(path.read_text())
+        packet["components"][1]["packet"]["ledger_record_created"] = True
+        dump(path, packet)
+        delivery.write_locator(
+            self.root, delivery.build_locator(self.root, self.slot, self.date)
+        )
+        with self.assertRaisesRegex(delivery.DeliveryError, "BLOCKED_SHADOW_LEAK"):
             delivery.consume(self.root, self.slot, self.date)
 
     def test_locator_write_is_idempotent(self):
