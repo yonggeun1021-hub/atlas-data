@@ -9,6 +9,7 @@ first authority for today's readiness decision.
 import argparse
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 SOURCE_NAMES = ("krx", "dart", "sec")
+
+
+def _load_sibling(name, filename):
+    # Path-relative load so this resolves the same way whether this script
+    # is run directly or loaded by path via importlib, as the test suite
+    # does (see build_briefing_inputs.py's identical helper).
+    spec = importlib.util.spec_from_file_location(
+        name, Path(__file__).resolve().parent / filename
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+GEN = _load_sibling("briefing_generation_for_readiness", "briefing_generation.py")
 
 EXIT_CODES = {
     "data_ready_read_model_ready": 0,
@@ -62,7 +78,7 @@ def require_summary(name, obj):
 
 def result_payload(expected_date):
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "expected_kst_date": expected_date,
         "classification": None,
         "data_ready": False,
@@ -75,6 +91,11 @@ def result_payload(expected_date):
             "health_path": "data/briefing_status.json",
             "compact_views": {},
         },
+        # P0-05A -- filled in by validate_read_model() with this gate's own
+        # independent recomputation (never copied verbatim from step0), so
+        # persist_health() always writes the authoritative generation, not
+        # whatever step0 merely claims.
+        "generation": None,
         "reasons": [],
     }
 
@@ -107,7 +128,7 @@ def persist_health(payload, data_root=DATA):
         else "unknown_manual_inspection_required"
     )
     artifact = {
-        "schema_version": 1,
+        "schema_version": 2,
         "expected_kst_date": payload["expected_kst_date"],
         "data_ready": payload["data_ready"],
         "read_model_ready": payload["read_model_ready"],
@@ -125,6 +146,7 @@ def persist_health(payload, data_root=DATA):
         "reasons": payload["reasons"],
         "sources": payload["sources"],
         "read_model": payload["read_model"],
+        "generation": payload["generation"],
     }
     data_root.mkdir(parents=True, exist_ok=True)
     temporary.write_text(
@@ -136,7 +158,9 @@ def persist_health(payload, data_root=DATA):
     return path
 
 
-def validate_compact_views(data_root, name, source, source_sha, reasons):
+def validate_compact_views(
+    data_root, name, source, source_sha, expected_generation_id, reasons
+):
     expected = {
         str(symbol)
         for symbol, stock in source.get("stocks", {}).items()
@@ -170,7 +194,7 @@ def validate_compact_views(data_root, name, source, source_sha, reasons):
             reasons.append(f"{name}:{symbol}:symbol_mismatch")
             continue
 
-        expected_schema = 2
+        expected_schema = GEN.COMPACT_SCHEMA_VERSIONS[name]
         if compact.get("schema_version") != expected_schema:
             reasons.append(f"{name}:{symbol}:schema_version_mismatch")
             continue
@@ -184,6 +208,23 @@ def validate_compact_views(data_root, name, source, source_sha, reasons):
             != source.get("collected_for_kst_date")
         ):
             reasons.append(f"{name}:{symbol}:source_date_mismatch")
+            continue
+
+        # P0-05A -- generation binding. A compact view can pass every check
+        # above (right symbol, right schema, right source hash/date) and
+        # still have been served from a different published generation than
+        # step0/health if a retrieval-layer cache mixed generations; the
+        # generation_id is the one field that catches that deterministically.
+        compact_generation = compact.get("generation")
+        if (
+            not isinstance(compact_generation, dict)
+            or not compact_generation.get("generation_id")
+        ):
+            reasons.append(f"{name}:{symbol}:generation_id_missing")
+            continue
+
+        if compact_generation.get("generation_id") != expected_generation_id:
+            reasons.append(f"{name}:{symbol}:generation_id_mismatch")
             continue
 
         valid += 1
@@ -202,8 +243,29 @@ def validate_read_model(data_root, expected_date, sources, hashes):
         reasons.append(str(exc))
         step0 = None
 
+    # P0-05A -- independently recompute the generation manifest from this
+    # gate's own re-read of the raw collector files (`hashes`, already
+    # loaded above from data/latest_*.json, never from step0's claims)
+    # plus expected_date. optional_evidence is the one input taken from
+    # step0's own declaration (dart_content/sec_content classification is
+    # supplementary, non-gating evidence) -- everything else here is fully
+    # independent, so this is never just an echo of what step0 already
+    # says about itself.
+    optional_evidence = (
+        step0.get("optional_evidence") if isinstance(step0, dict) else None
+    ) or {}
+    recomputed_manifest = GEN.build_manifest(
+        expected_date, hashes, optional_evidence
+    )
+    recomputed_generation_id = GEN.generation_id_for(recomputed_manifest)
+    recomputed_generation = {
+        "generation_id": recomputed_generation_id,
+        "generation_contract_version": GEN.GENERATION_CONTRACT_VERSION,
+        "generation_basis_at_utc": GEN.basis_at_utc(sources),
+    }
+
     if step0 is not None:
-        if step0.get("schema_version") != 1:
+        if step0.get("schema_version") != 2:
             reasons.append("read_model:schema_version_mismatch")
         if step0.get("expected_kst_date") != expected_date:
             reasons.append("read_model:expected_kst_date_mismatch")
@@ -255,6 +317,15 @@ def validate_read_model(data_root, expected_date, sources, hashes):
         if step0.get("overall") != "pass":
             reasons.append("read_model:overall_not_pass")
 
+        step0_generation = step0.get("generation")
+        if (
+            not isinstance(step0_generation, dict)
+            or not step0_generation.get("generation_id")
+        ):
+            reasons.append("read_model:generation_id_missing")
+        elif step0_generation.get("generation_id") != recomputed_generation_id:
+            reasons.append("read_model:generation_id_mismatch")
+
     try:
         health, _ = load_json(health_path)
     except ContractError as exc:
@@ -262,7 +333,7 @@ def validate_read_model(data_root, expected_date, sources, hashes):
         health = None
 
     if health is not None:
-        if health.get("schema_version") != 1:
+        if health.get("schema_version") != 2:
             reasons.append("health:schema_version_mismatch")
         if health.get("expected_kst_date") != expected_date:
             reasons.append("health:expected_kst_date_mismatch")
@@ -274,6 +345,20 @@ def validate_read_model(data_root, expected_date, sources, hashes):
             reasons.append("health:status_not_ready")
         if health.get("error") is not None:
             reasons.append("health:error_not_null")
+
+        # P0-05A -- this is the build step's own canary copy of the
+        # generation it published (see build_briefing_inputs.py's
+        # write_health()), re-checked against this gate's independent
+        # recomputation before it gets overwritten below with the final,
+        # authoritative generation.
+        health_generation = health.get("generation")
+        if (
+            not isinstance(health_generation, dict)
+            or not health_generation.get("generation_id")
+        ):
+            reasons.append("health:generation_id_missing")
+        elif health_generation.get("generation_id") != recomputed_generation_id:
+            reasons.append("health:generation_id_mismatch")
 
     compact = {}
     for name in ("krx", "dart", "sec"):
@@ -287,10 +372,11 @@ def validate_read_model(data_root, expected_date, sources, hashes):
             name,
             sources[name],
             hashes[name],
+            recomputed_generation_id,
             reasons,
         )
 
-    return reasons, compact
+    return reasons, compact, recomputed_generation
 
 
 def evaluate(expected_date, data_root=DATA):
@@ -355,13 +441,14 @@ def evaluate(expected_date, data_root=DATA):
             data_reasons,
         )
 
-    read_model_reasons, compact = validate_read_model(
+    read_model_reasons, compact, generation = validate_read_model(
         data_root,
         expected_date,
         sources,
         hashes,
     )
     payload["read_model"]["compact_views"] = compact
+    payload["generation"] = generation
 
     if read_model_reasons:
         return finish(

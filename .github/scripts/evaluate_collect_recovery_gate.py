@@ -160,6 +160,12 @@ def _validate_readiness(value: dict, expected_date: str) -> dict:
         "schema_version", "expected_kst_date", "classification", "data_ready",
         "read_model_ready", "manual_inspection_required", "recovery_action",
         "sources", "read_model", "reasons",
+        # P0-05A -- Read Model Generation Contract. None on the early-
+        # return classifications (unknown_manual_inspection_required,
+        # data_not_ready) that never reach generation validation; a dict
+        # (generation_id/generation_contract_version/generation_basis_at_
+        # utc) once read-model validation has actually run.
+        "generation",
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise RecoveryGateError("READINESS_FIELDS_MISMATCH")
@@ -171,7 +177,7 @@ def _validate_readiness(value: dict, expected_date: str) -> dict:
         "unknown_manual_inspection_required": (False, False, True, "manual_inspection"),
     }
     if (
-        value.get("schema_version") != 1
+        value.get("schema_version") != 2
         or value.get("expected_kst_date") != expected_date
         or classification not in expected
         or tuple(value.get(key) for key in ("data_ready", "read_model_ready", "manual_inspection_required", "recovery_action")) != expected[classification]
@@ -180,6 +186,7 @@ def _validate_readiness(value: dict, expected_date: str) -> dict:
         or not isinstance(value.get("reasons"), list)
         or value["reasons"] != sorted(set(value["reasons"]))
         or any(not isinstance(reason, str) or not reason for reason in value["reasons"])
+        or not (value.get("generation") is None or isinstance(value.get("generation"), dict))
     ):
         raise RecoveryGateError("READINESS_CONTENT_INVALID")
     return copy.deepcopy(value)
