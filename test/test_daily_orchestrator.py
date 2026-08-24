@@ -79,6 +79,89 @@ def _us_breadth_ready_decision_date_and_generated_at():
     return latest_snapshot_date, generated_at
 
 
+def _step0_ready_decision_date_and_generated_at():
+    """(decision_date, generated_at) that resolve STEP0_READ_MODEL_HEALTH's
+    (and KRX_PREOPEN_COMPACT's, and -- since they read the exact same
+    mutable pointer family -- DART_FILING_CONTENT's/SEC_FILING_CONTENT's)
+    real current rolling-pointer state to READY right now, computed from
+    disk rather than hardcoded.
+
+    Independent from _us_breadth_ready_decision_date_and_generated_at()
+    above -- shares no literal, module-level state, or logic with it -- and
+    for a completely different reason. US_BREADTH_MEMBERSHIP reads a
+    genuinely immutable, append-only, per-date evidence archive; its
+    problem is a steady-state one-day capture-to-commit delay. STEP0_READ_
+    MODEL_HEALTH/KRX_PREOPEN_COMPACT instead read data/latest_krx.json,
+    data/latest_dart.json, and data/latest_sec.json -- a single MUTABLE
+    "latest" pointer that the real scheduled collector overwrites every
+    day, with no per-date archive behind it at all. There is no historical
+    literal decision_date/generated_at pair that could stay resolvable for
+    this sensor the way DECISION_DATE does for the archived sensors: once
+    the real collector advances the pointer past whatever date is hard-
+    coded here, _enforce_temporal_boundary's SOURCE_GENERATED_AT_AFTER_
+    PACKET_GENERATED_AT check trips (the pointer's real collected_at_utc is
+    now after the frozen packet's own generated_at) and collapses this
+    sensor to a generic DATA_BLOCKED no matter how healthy the real data
+    actually is. So, like the US_BREADTH helper, this one re-derives its
+    answer from live disk state on every call -- but from the *pointer's
+    own* real collected_for_kst_date/collected_at_utc, not from an
+    append-only archive's latest directory.
+
+    decision_date is read directly off data/latest_krx.json's own real
+    collected_for_kst_date -- it must be an EXACT match, since
+    BRIEFING_READINESS.evaluate(expected_date, ...) fails closed on any
+    expected_kst_date mismatch across data/briefing_status.json, data/
+    briefing/step0_status.json, and all three latest_{krx,dart,sec}.json
+    files.
+
+    generated_at is derived from the same real, qualified (parseable,
+    timezone-aware, exactly-UTC) krx/dart/sec collected_at_utc triple that
+    _classify_step0()/build_krx_preopen_compact() themselves qualify, via
+    MODULE._read_source_collected_at_utc() and MODULE._qualify_collected_
+    at_utc() -- both pure, already-correct functions, reused here rather
+    than reimplemented. Rather than mirroring US_BREADTH_MEMBERSHIP's "end
+    of the UTC calendar day the raw timestamp falls on" bound (which would
+    not reliably land on decision_date's own KST day here -- krx/dart/sec
+    are routinely collected in the evening UTC hours of the day BEFORE
+    decision_date's own KST calendar date, per collected_for_kst_date),
+    this instead takes the end of decision_date's own KST calendar day,
+    converted to UTC: always safely after the real qualified
+    collected_at_utc (which, by construction of collected_for_kst_date,
+    already falls within decision_date's KST day), and never later than
+    decision_date's own last KST instant, so _enforce_temporal_boundary's
+    SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT check never trips and
+    BRIEFING_READINESS.evaluate's expected_kst_date match keeps resolving
+    READY no matter how many more days pass before this suite runs again.
+    """
+    raw_collected_at_utc = {
+        name: MODULE._read_source_collected_at_utc(
+            MODULE.BRIEFING_READINESS.DATA, name
+        )
+        for name in ("krx", "dart", "sec")
+    }
+    qualification = MODULE._qualify_collected_at_utc(raw_collected_at_utc)
+    if not qualification["ok"]:
+        raise AssertionError(
+            "real data/latest_{krx,dart,sec}.json pointer does not "
+            f"currently qualify: {qualification['reason']}"
+        )
+    krx_payload = json.loads(
+        (MODULE.BRIEFING_READINESS.DATA / "latest_krx.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    decision_date = krx_payload["collected_for_kst_date"]
+    end_of_decision_date_kst = MODULE.dt.datetime.fromisoformat(
+        f"{decision_date}T23:59:59"
+    ).replace(tzinfo=MODULE.KST)
+    generated_at = (
+        end_of_decision_date_kst.astimezone(MODULE.UTC)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    return decision_date, generated_at
+
+
 def _walk_authorized_keys(value, path=""):
     """Yield (path, value) for every key ending in _authorized anywhere."""
     if isinstance(value, dict):
@@ -112,7 +195,24 @@ class DailyOrchestratorTest(unittest.TestCase):
             self.assertEqual(degraded_ids, ["DYNAMIC_CLOCK"], degraded_ids)
         else:
             self.assertEqual(counts["DEGRADED"], 0)
-        self.assertEqual(counts["UNKNOWN"], 0)
+        # KRX_PREOPEN_COMPACT is the one component allowed to be UNKNOWN
+        # here. It is derived purely from STEP0_READ_MODEL_HEALTH's own
+        # packet (build_krx_preopen_compact short-circuits to UNKNOWN/
+        # STEP0_READ_MODEL_HEALTH_UNAVAILABLE when that packet is None), and
+        # STEP0_READ_MODEL_HEALTH/KRX_PREOPEN_COMPACT are both checked
+        # against a separate, dynamically-resolved decision_date/
+        # generated_at pair below (see
+        # _step0_ready_decision_date_and_generated_at), not against
+        # DECISION_DATE/MORNING_GENERATED_AT -- so this legitimately
+        # surfaces here as UNKNOWN, not a fabricated/silent status, exactly
+        # like DYNAMIC_CLOCK's DEGRADED above for the same underlying
+        # reason (the frozen DECISION_DATE literal is now behind the real
+        # rolling pointer).
+        if counts["UNKNOWN"] == 1:
+            unknown_ids = [row["component_id"] for row in packet["components"] if row["status"] == "UNKNOWN"]
+            self.assertEqual(unknown_ids, ["KRX_PREOPEN_COMPACT"], unknown_ids)
+        else:
+            self.assertEqual(counts["UNKNOWN"], 0)
         self.assertGreater(counts["READY"], 0)
         by_id = {row["component_id"]: row for row in packet["components"]}
         self.assertEqual(
@@ -123,16 +223,41 @@ class DailyOrchestratorTest(unittest.TestCase):
             "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY",
         )
         # A handful of components this repo genuinely has live evidence for.
-        # US_BREADTH_MEMBERSHIP is checked separately below, not here -- see
-        # _us_breadth_ready_decision_date_and_generated_at() for why it
-        # cannot share DECISION_DATE/MORNING_GENERATED_AT with these.
+        # STEP0_READ_MODEL_HEALTH/KRX_PREOPEN_COMPACT and
+        # US_BREADTH_MEMBERSHIP are checked separately below, not here -- see
+        # _step0_ready_decision_date_and_generated_at() and
+        # _us_breadth_ready_decision_date_and_generated_at() for why neither
+        # can share DECISION_DATE/MORNING_GENERATED_AT with these (two
+        # independent reasons, one per helper).
         for component_id in (
-            "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
             "BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE",
         ):
             self.assertEqual(
                 by_id[component_id]["status"], "READY", component_id
             )
+        # STEP0_READ_MODEL_HEALTH/KRX_PREOPEN_COMPACT read a MUTABLE single
+        # "latest" rolling pointer (data/latest_{krx,dart,sec}.json) that
+        # the real scheduled collector overwrites every day, with no
+        # per-date archive behind it -- unlike BTC_TREND/BTC_RISK/
+        # STABLECOIN_NET_ISSUANCE above, there is no historical
+        # decision_date this repo could pin a literal to and expect it to
+        # remain resolvable forever (see
+        # _step0_ready_decision_date_and_generated_at() for the full
+        # reasoning, and for why this is independent of the
+        # US_BREADTH_MEMBERSHIP helper below).
+        step0_date, step0_generated_at = (
+            _step0_ready_decision_date_and_generated_at()
+        )
+        step0_packet = MODULE.build_packet(
+            "morning", step0_date, step0_generated_at
+        )
+        step0_by_id = {
+            row["component_id"]: row for row in step0_packet["components"]
+        }
+        self.assertEqual(step0_by_id["STEP0_READ_MODEL_HEALTH"]["status"], "READY")
+        self.assertTrue(step0_by_id["STEP0_READ_MODEL_HEALTH"]["validated"])
+        self.assertEqual(step0_by_id["KRX_PREOPEN_COMPACT"]["status"], "READY")
+        self.assertTrue(step0_by_id["KRX_PREOPEN_COMPACT"]["validated"])
         # US_BREADTH_MEMBERSHIP's real evidence genuinely has no
         # generated_at on DECISION_DATE's own calendar day that could ever
         # be after it (see helper docstring), so its READY happy path is
@@ -362,11 +487,43 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
         self.assertIn("frozen_sources", packet)
         self.assertEqual(set(packet["frozen_sources"]), MODULE.FROZEN_SOURCE_COMPONENTS)
+        # STEP0_READ_MODEL_HEALTH / KRX_PREOPEN_COMPACT / DART_FILING_
+        # CONTENT / SEC_FILING_CONTENT all read the SAME family of mutable
+        # single "latest" rolling pointers (data/latest_krx.json, data/
+        # latest_dart.json, data/latest_sec.json, data/latest_dart_content.
+        # json, data/latest_sec_content.json), whose real current dates have
+        # since advanced past DECISION_DATE (2026-08-21) -- real time has
+        # simply moved on since that literal was pinned, exactly the same
+        # underlying condition as FREE_MARKET_DATA/US_BREADTH_MEMBERSHIP
+        # below, just tripping different specific temporal-boundary checks
+        # (SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT for STEP0/KRX_
+        # PREOPEN_COMPACT, AS_OF_DATE_AFTER_DECISION_DATE for DART/SEC
+        # content, since their own real collected_for_kst_date is now after
+        # DECISION_DATE). Their genuine independent re-derivability is
+        # proven below against a separate, dynamically-resolved decision_
+        # date/generated_at pair instead (see
+        # _step0_ready_decision_date_and_generated_at) -- not by relaxing
+        # this main DECISION_DATE-pinned assertion loop.
+        step0_date, step0_generated_at = (
+            _step0_ready_decision_date_and_generated_at()
+        )
+        step0_packet = MODULE.build_packet(
+            "evening", step0_date, step0_generated_at
+        )
+        step0_by_id = {
+            row["component_id"]: row for row in step0_packet["components"]
+        }
         # All of them now honestly claim genuine re-derivability, like
         # every other component (KRX_PREOPEN_COMPACT rides on STEP0's own
         # freeze).
         by_id = {row["component_id"]: row for row in packet["components"]}
         for component_id in MODULE.FROZEN_SOURCE_COMPONENTS | {"KRX_PREOPEN_COMPACT"}:
+            if component_id in (
+                "STEP0_READ_MODEL_HEALTH", "KRX_PREOPEN_COMPACT",
+                "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
+            ):
+                self.assertTrue(step0_by_id[component_id]["validated"], component_id)
+                continue
             if component_id == "FREE_MARKET_DATA":
                 # The committed live capture was collected on the following
                 # UTC day, so this historical packet correctly blocks it at
@@ -817,12 +974,34 @@ class DailyOrchestratorTest(unittest.TestCase):
         # validation time: validate_packet() must never touch the live,
         # currently-real data/ pointer for these rows at all, only each
         # packet's own frozen_sources.
+        #
+        # Uses the dynamic STEP0-ready decision_date/generated_at pair (see
+        # _step0_ready_decision_date_and_generated_at), not DECISION_DATE/
+        # MORNING_GENERATED_AT: this test's whole point is that a genuine
+        # STEP0 status CHANGE between two builds (the injected rolling-
+        # pointer drift below) triggers a new revision. With the frozen
+        # DECISION_DATE literal, BOTH the "first" and "second" real
+        # STEP0_READ_MODEL_HEALTH evaluations are already collapsed
+        # identically to DATA_BLOCKED by _enforce_temporal_boundary before
+        # the drift can ever have any effect -- first is already blocked, so
+        # "first vs. drifted-second" is DATA_BLOCKED-vs-DATA_BLOCKED, not a
+        # real change, and no second revision is ever published. The
+        # dynamic pair makes "first" genuinely READY (unblocked) so the
+        # drifted "second" genuinely differs from it. The same generated_at
+        # is reused for both builds -- publish()'s no-op-republish check
+        # (_component_semantic_fingerprint) compares status/reason/values,
+        # not generated_at, so the drift itself (not a generated_at bump) is
+        # the real, sufficient, and only differentiator between first and
+        # second here.
+        step0_date, step0_generated_at = (
+            _step0_ready_decision_date_and_generated_at()
+        )
         with tempfile.TemporaryDirectory() as tmp:
             evidence_root = Path(tmp) / "daily_briefing"
             original_evaluate = MODULE.BRIEFING_READINESS.evaluate
 
             first = MODULE.publish(
-                "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+                "morning", step0_date, step0_generated_at, evidence_root
             )
             first_persisted = json.loads((first["path"] / "packet.json").read_text())
 
@@ -837,7 +1016,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             MODULE.BRIEFING_READINESS.evaluate = _drifted_pointer
             try:
                 second = MODULE.publish(
-                    "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+                    "morning", step0_date, step0_generated_at, evidence_root
                 )
             finally:
                 MODULE.BRIEFING_READINESS.evaluate = original_evaluate
@@ -868,12 +1047,31 @@ class DailyOrchestratorTest(unittest.TestCase):
         # unchanged, would wrongly look like a no-op. Prove it is not: only
         # the nested source_sha256 changes, status/reason/value are
         # identical, and a new revision must still be published.
+        #
+        # Uses the dynamic STEP0-ready decision_date/generated_at pair (see
+        # _step0_ready_decision_date_and_generated_at), not DECISION_DATE/
+        # MORNING_GENERATED_AT: with the frozen DECISION_DATE literal,
+        # STEP0_READ_MODEL_HEALTH is already collapsed to a generic
+        # SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT DATA_BLOCKED by
+        # _enforce_temporal_boundary before the mutated source_sha256 below
+        # can ever reach the persisted packet (the boundary clears
+        # packet["packet"], so frozen_sources still holds the raw fetched
+        # snapshot but the row itself never reflects it either way) -- both
+        # "first" and "second" end up with the exact same boundary-derived
+        # fingerprint regardless of the injected sha mutation, so no second
+        # revision is published and the assertions below about the real
+        # mutated hash never hold. The dynamic pair makes STEP0_READ_MODEL_
+        # HEALTH genuinely READY so the nested source_sha256 mutation is a
+        # real, detectable semantic difference.
+        step0_date, step0_generated_at = (
+            _step0_ready_decision_date_and_generated_at()
+        )
         with tempfile.TemporaryDirectory() as tmp:
             evidence_root = Path(tmp) / "daily_briefing"
             original_evaluate = MODULE.BRIEFING_READINESS.evaluate
 
             first = MODULE.publish(
-                "morning", DECISION_DATE, MORNING_GENERATED_AT, evidence_root
+                "morning", step0_date, step0_generated_at, evidence_root
             )
             first_persisted = json.loads((first["path"] / "packet.json").read_text())
             first_krx_sha = first_persisted["frozen_sources"][
@@ -889,7 +1087,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             MODULE.BRIEFING_READINESS.evaluate = _same_status_different_source_sha
             try:
                 second = MODULE.publish(
-                    "morning", DECISION_DATE, "2026-08-21T13:00:00Z", evidence_root
+                    "morning", step0_date, step0_generated_at, evidence_root
                 )
             finally:
                 MODULE.BRIEFING_READINESS.evaluate = original_evaluate
@@ -982,8 +1180,31 @@ class DailyOrchestratorTest(unittest.TestCase):
 
     def test_generated_date_mismatch_isolates_unified_decision_not_whole_run(self):
         # decision_date deliberately does not match generated_at's own date.
+        # Built as "the day before the dynamic STEP0-ready decision_date"
+        # with the dynamic STEP0-ready generated_at (see
+        # _step0_ready_decision_date_and_generated_at), rather than the
+        # fixed "2026-08-20"/MORNING_GENERATED_AT literals: with those
+        # literals, STEP0_READ_MODEL_HEALTH's real qualified generated_at
+        # (the mutable data/latest_{krx,dart,sec}.json pointer's real,
+        # current collected_at_utc) is now well after MORNING_GENERATED_AT,
+        # so _enforce_temporal_boundary collapses it to a generic
+        # SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT DATA_BLOCKED with no
+        # packet -- which in turn makes KRX_PREOPEN_COMPACT UNKNOWN
+        # (STEP0_READ_MODEL_HEALTH_UNAVAILABLE), not the data-driven
+        # DATA_BLOCKED this test intends to isolate. Anchoring generated_at
+        # to the real qualified value (via the dynamic pair) while still
+        # deliberately dating decision_date one day earlier reproduces the
+        # same "generated_at's own date does not match decision_date"
+        # mismatch the test needs, without also tripping that unrelated
+        # boundary check.
+        step0_date, step0_generated_at = (
+            _step0_ready_decision_date_and_generated_at()
+        )
+        mismatched_decision_date = (
+            MODULE.dt.date.fromisoformat(step0_date) - MODULE.dt.timedelta(days=1)
+        ).isoformat()
         packet = MODULE.build_packet(
-            "morning", "2026-08-20", MORNING_GENERATED_AT
+            "morning", mismatched_decision_date, step0_generated_at
         )
         by_id = {row["component_id"]: row for row in packet["components"]}
         self.assertEqual(by_id["UNIFIED_DECISION"]["status"], "DEGRADED")
@@ -1007,9 +1228,9 @@ class DailyOrchestratorTest(unittest.TestCase):
             by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]["status"], "DEGRADED"
         )
         # UNIFIED_DECISION + ACTION_RISK_PORTFOLIO_SUMMARY, always. Plus
-        # DYNAMIC_CLOCK whenever this decision_date (2026-08-20, older than
-        # DECISION_DATE) is behind P8-12's real advancing evidence -- see
-        # the identical DYNAMIC_CLOCK note in
+        # DYNAMIC_CLOCK whenever this decision_date (one day before the
+        # dynamic STEP0-ready date) is behind P8-12's real advancing
+        # evidence -- see the identical DYNAMIC_CLOCK note in
         # test_morning_build_against_real_evidence_has_no_degraded_components.
         expected_degraded = {"UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY"}
         if by_id["DYNAMIC_CLOCK"]["status"] == "DEGRADED":
@@ -1033,28 +1254,53 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("simulated sensor failure", row["reason"])
 
         # And the full pipeline still assembles every other component even
-        # while BTC_TREND is broken. Built with the US_BREADTH-ready
-        # decision_date/generated_at (see
-        # _us_breadth_ready_decision_date_and_generated_at) rather than
-        # DECISION_DATE/MORNING_GENERATED_AT, so US_BREADTH_MEMBERSHIP's
-        # own isolation can be asserted honestly alongside STEP0's --
-        # BTC_TREND is exact-date archived like STEP0's own inputs, so its
-        # DEGRADED-from-failure status is unaffected by which of the two
-        # equally-real generated_at values is used here.
+        # while BTC_TREND is broken. This needs TWO separate packet builds,
+        # not one: BTC_TREND's fault only actually reaches
+        # BTC_TREND.build_transform (and so surfaces as DEGRADED rather than
+        # a directory-absent DATA_BLOCKED) at a decision_date its own
+        # per-date archive genuinely has a directory for, which the
+        # US_BREADTH-ready pair's date satisfies (like DECISION_DATE would)
+        # -- but STEP0_READ_MODEL_HEALTH's own healthy baseline can only be
+        # proven READY at the STEP0-ready dynamic pair (see
+        # _step0_ready_decision_date_and_generated_at), since STEP0 reads an
+        # entirely independent mutable rolling pointer that is NOT READY at
+        # the US_BREADTH pair's (necessarily different, see that helper's
+        # own docstring) date. One packet build cannot satisfy both real
+        # constraints at once, so BTC_TREND's DEGRADED-from-failure
+        # isolation is proven against the US_BREADTH-ready pair, and
+        # STEP0_READ_MODEL_HEALTH's healthy-despite-a-different-component's-
+        # fault isolation is proven separately against the STEP0-ready
+        # pair, with the same fault still injected in both builds.
         us_breadth_date, us_breadth_generated_at = (
             _us_breadth_ready_decision_date_and_generated_at()
         )
         MODULE.BTC_TREND.build_transform = _boom
         try:
-            packet = MODULE.build_packet(
+            us_breadth_packet = MODULE.build_packet(
                 "morning", us_breadth_date, us_breadth_generated_at
             )
         finally:
             MODULE.BTC_TREND.build_transform = original
-        by_id = {row["component_id"]: row for row in packet["components"]}
-        self.assertEqual(by_id["BTC_TREND"]["status"], "DEGRADED")
-        self.assertEqual(by_id["STEP0_READ_MODEL_HEALTH"]["status"], "READY")
-        self.assertEqual(by_id["US_BREADTH_MEMBERSHIP"]["status"], "READY")
+        us_breadth_by_id = {
+            row["component_id"]: row for row in us_breadth_packet["components"]
+        }
+        self.assertEqual(us_breadth_by_id["BTC_TREND"]["status"], "DEGRADED")
+        self.assertEqual(us_breadth_by_id["US_BREADTH_MEMBERSHIP"]["status"], "READY")
+
+        step0_date, step0_generated_at = (
+            _step0_ready_decision_date_and_generated_at()
+        )
+        MODULE.BTC_TREND.build_transform = _boom
+        try:
+            step0_packet = MODULE.build_packet(
+                "morning", step0_date, step0_generated_at
+            )
+        finally:
+            MODULE.BTC_TREND.build_transform = original
+        step0_by_id = {
+            row["component_id"]: row for row in step0_packet["components"]
+        }
+        self.assertEqual(step0_by_id["STEP0_READ_MODEL_HEALTH"]["status"], "READY")
 
     def test_no_action_order_production_or_trading_authority_is_ever_true(self):
         for slot, generated_at in (

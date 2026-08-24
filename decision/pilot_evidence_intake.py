@@ -69,6 +69,46 @@ PILOT_GENERATED_AT = "2026-08-22T01:00:00Z"
 
 PILOT_SUBJECTS = ("TSM", "298040.KS", "267260.KS", "034020.KS")
 
+# ─── Pinned KRX snapshot for 298040.KS / 267260.KS (frozen as of e60d6f0) ──
+# `data/briefing/krx/298040.json` and `data/briefing/krx/267260.json` are
+# both updated by a real scheduled cron job (`atlas-bot`, `5 21 * * 0-4`)
+# and grow a new `latest_confirmed_day` every trading day, forever. Two
+# forward-thesis observed_facts below used to read `latest_confirmed_day` /
+# `latest_confirmed_row` / `confirmed_metrics` LIVE off disk at call time --
+# which silently made this module's fixed `PILOT_DECISION_DATE` ceiling go
+# stale and trip `forward_thesis.py`'s deliberately-designed PIT guard
+# (`OBSERVED_FACT_AS_OF_AFTER_DECISION_DATE`) the moment the cron advanced
+# either file's `latest_confirmed_day` past `PILOT_DECISION_DATE`. This
+# Pilot bundle is a frozen, point-in-time evidentiary snapshot (see this
+# module's "Decision date choice" docstring above) -- every OTHER
+# observed_fact in this file already uses a hardcoded literal date/value
+# instead of a live read; these entries are now pinned the same way, to the
+# real values `data/briefing/krx/<code>.json` actually held at commit
+# `e60d6f0` (the commit that pinned `PILOT_DECISION_DATE`/
+# `PILOT_GENERATED_AT` themselves) -- verified with
+# `git show e60d6f0:data/briefing/krx/<code>.json`. Both were dated
+# 2026-08-20, matching this module's own docstring narrative ("KRX
+# `latest_confirmed_day` 2026-08-20") and `<= PILOT_DECISION_DATE`
+# (2026-08-22) as required. `source_sha256` here is the shared daily
+# `data/latest_krx.json` collection hash (identical across tickers on the
+# same collection day), also pinned to its e60d6f0 value for the same
+# reason.
+_PINNED_KRX_298040 = {
+    "latest_confirmed_day": "2026-08-20",
+    "close": 2857000,
+    "sma20": 2693250.0,
+    "sma20_through": "2026-08-20",
+    "source_sha256": "c1a7c352c92ec8151e6de51468c62a8ad8c4efa7fe1401f2abfd5a4a4771d352",
+}
+_PINNED_KRX_267260 = {
+    "latest_confirmed_day": "2026-08-20",
+    "close": 746000,
+    "sma20": 743700.0,
+    "sma20_through": "2026-08-20",
+    "net_institutional": -18748255000,
+    "source_sha256": "c1a7c352c92ec8151e6de51468c62a8ad8c4efa7fe1401f2abfd5a4a4771d352",
+}
+
 
 def _load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -408,9 +448,8 @@ def build_tsm_price_reflection_input(decision_date: str, generated_at: str) -> d
 # ═════════════════════════════ 298040.KS (Hyosung) ═════════════════════
 def build_hyosung_forward_thesis_input(decision_date: str, generated_at: str) -> dict:
     contract = FORWARD_THESIS.load_contract()
-    krx = _read_json("data/briefing/krx/298040.json")
+    krx = _PINNED_KRX_298040
     dart = _read_json("data/briefing/dart/298040.json")
-    row = krx["latest_confirmed_row"]
 
     evidence_lineage = [
         {
@@ -424,7 +463,7 @@ def build_hyosung_forward_thesis_input(decision_date: str, generated_at: str) ->
             "source_type": "PRICE_FEED",
             "accession": None, "filing_date": None,
             "exhibit_type": None, "exhibit_document": None,
-            "source_sha256": krx["source"]["source_sha256"],
+            "source_sha256": krx["source_sha256"],
         },
         {
             "source_ref": "HYOSUNG_DART_SNAPSHOT",
@@ -459,8 +498,8 @@ def build_hyosung_forward_thesis_input(decision_date: str, generated_at: str) ->
         {
             "statement": (
                 f"KRX official close for 298040 on {krx['latest_confirmed_day']} (confirmed) "
-                f"was ₩{row['close']:,}, SMA20 ₩{krx['confirmed_metrics']['sma20']:,.0f} "
-                f"through {krx['confirmed_metrics']['sma20_through']}."
+                f"was ₩{krx['close']:,}, SMA20 ₩{krx['sma20']:,.0f} "
+                f"through {krx['sma20_through']}."
             ),
             "source_ref": "HYOSUNG_KRX_SNAPSHOT",
             "source_class": "PRICE_FEED",
@@ -654,10 +693,9 @@ def build_hyosung_price_reflection_input(decision_date: str, generated_at: str) 
 # ═════════════════════════════ 267260.KS (HD Hyundai Electric) ═════════
 def build_hd_hyundai_electric_forward_thesis_input(decision_date: str, generated_at: str) -> dict:
     contract = FORWARD_THESIS.load_contract()
-    krx = _read_json("data/briefing/krx/267260.json")
+    krx = _PINNED_KRX_267260
     dart = _read_json("data/briefing/dart/267260.json")
-    row = krx["latest_confirmed_row"]
-    net_institutional = row["net_value"]["기관합계"]
+    net_institutional = krx["net_institutional"]
 
     evidence_lineage = [
         {
@@ -671,7 +709,7 @@ def build_hd_hyundai_electric_forward_thesis_input(decision_date: str, generated
             "source_type": "PRICE_FEED",
             "accession": None, "filing_date": None,
             "exhibit_type": None, "exhibit_document": None,
-            "source_sha256": krx["source"]["source_sha256"],
+            "source_sha256": krx["source_sha256"],
         },
         {
             "source_ref": "HD_DART_SNAPSHOT",
@@ -686,8 +724,8 @@ def build_hd_hyundai_electric_forward_thesis_input(decision_date: str, generated
         {
             "statement": (
                 f"KRX official close for 267260 on {krx['latest_confirmed_day']} (confirmed) "
-                f"was ₩{row['close']:,}, SMA20 ₩{krx['confirmed_metrics']['sma20']:,.0f} "
-                f"through {krx['confirmed_metrics']['sma20_through']}."
+                f"was ₩{krx['close']:,}, SMA20 ₩{krx['sma20']:,.0f} "
+                f"through {krx['sma20_through']}."
             ),
             "source_ref": "HD_KRX_SNAPSHOT",
             "source_class": "PRICE_FEED",

@@ -9,6 +9,7 @@ PIT-eligible population, and the per-market breakdown.
 """
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -156,22 +157,55 @@ class EndToEndNotGradableEnforcementTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_entries_with_no_forward_trading_date_are_not_gradable_not_silently_graded(self):
-        # Near the end of the audit window there is often no committed
-        # trading date after decision_date -- those entries MUST be
-        # NOT_GRADABLE, never silently priced from an earlier date.
-        found_not_gradable = 0
+        # Class 1 (structural invariant): whenever a LIVE entry IS flagged
+        # NOT_GRADABLE, it must never carry a silently-priced entry point.
+        # This must hold no matter how many (even zero) such entries exist
+        # in today's live, ever-growing corpus -- see
+        # `ApprovedHistoricalWindowEndNotGradableTests` below for the
+        # baseline-stabilization-fixed "the window's final days really did
+        # hit NOT_GRADABLE" check, which is a fact about the PR #210-
+        # approved 2026-08-22 evidence snapshot, not a property that should
+        # hold for whatever evidence exists whenever CI happens to run
+        # (as more real trading days get committed after the window end,
+        # this count drifts towards zero).
         for entry in self.report["signal_replay_ledger"]:
             fm = entry["forward_metrics"]
             if fm.get("status") == "NOT_GRADABLE":
-                found_not_gradable += 1
                 self.assertIsNone(fm["hypothetical_entry_at"])
                 self.assertIsNone(fm["entry_price"])
-        self.assertGreater(found_not_gradable, 0, "sanity: the window's final days should hit this")
 
     def test_ungradable_ledger_entries_are_excluded_from_miss_and_defense_episodes(self):
         ungradable_keys = {(u["subject"], u["decision_date"]) for u in self.report["ungradable_ledger"]}
         miss_keys = {(ep["subject"], ep["episode_start_date"]) for ep in self.report["opportunity_miss_episodes"]}
         self.assertEqual(ungradable_keys & miss_keys, set())
+
+
+class ApprovedHistoricalWindowEndNotGradableTests(unittest.TestCase):
+    """★ Baseline-stabilization fix (Class 2): pins to the frozen,
+    already-committed, PR #210-approved (`e6b9c64`)
+    `evidence/audit/pit_replay/ungradable_ledger.json` -- the real fact
+    that the audit window's final days (2026-08-20..2026-08-22) really did
+    produce real NOT_GRADABLE entries at that evidence date. This is a
+    fact about the 2026-08-22/2026-08-23 evidence state, NOT a property
+    that should hold for whatever evidence exists whenever CI happens to
+    run -- since PR #210/#214 merged, the checkout has accumulated more
+    real committed evidence, which retroactively makes those same window-
+    final-day entries gradable again (see
+    `EndToEndNotGradableEnforcementTests.
+    test_entries_with_no_forward_trading_date_are_not_gradable_not_silently_graded`
+    for the still-live structural invariant this pairs with)."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(ROOT / "evidence" / "audit" / "pit_replay" / "ungradable_ledger.json", encoding="utf-8") as fh:
+            cls.ungradable_ledger = json.load(fh)
+
+    def test_the_frozen_approved_snapshot_has_real_not_gradable_entries_at_the_window_end(self):
+        self.assertEqual(len(self.ungradable_ledger), 108)
+        final_day_entries = [e for e in self.ungradable_ledger if e["decision_date"] >= "2026-08-20"]
+        self.assertEqual(len(final_day_entries), len(self.ungradable_ledger))
+        for entry in self.ungradable_ledger:
+            self.assertIsNotNone(entry["not_gradable_reason"])
 
 
 class EndToEndDataFailureSeparationTests(unittest.TestCase):

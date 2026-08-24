@@ -38,6 +38,10 @@
 """
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 from replay import coverage_gap as cg
 from replay import defense_ledger as dl
 from replay import opportunity_miss_ledger as oml
@@ -364,3 +368,78 @@ def build_pr210_auxiliary_cohort(ctx: dict, signal_ledger: list[dict],
 
 def priority_subject_rows(episode_ledger: list[dict]) -> list[dict]:
     return [r for r in episode_ledger if r["subject"] in PRIORITY_SUBJECTS]
+
+
+# ---------------------------------------------------------------------------
+# Baseline-stabilization fix: pin against the PR #210 (`e6b9c64`) / PR #214
+# (`77cde4c`)-approved, ALREADY-COMMITTED, frozen historical cohort, instead
+# of recomputing a fresh population from the live, ever-growing evidence
+# corpus (`build_signal_ledger_and_episodes()` above, which scans real
+# committed `data/`/`evidence/` directories and therefore silently drifts as
+# more real collector days get committed after the audit window's end).
+# Used ONLY by tests asserting an EXACT historical count/conclusion tied to
+# that approved cohort -- never by any live computation path above.
+# ---------------------------------------------------------------------------
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_frozen_evidence_json(relative_path: str):
+    """Loads an already-committed, frozen `evidence/audit/...` JSON
+    artifact (verified via `git log` to be untouched since its approving
+    commit) -- for pinning a test to the historical, approved conclusion
+    it already contains. Never used by any live computation path."""
+    with open(_REPO_ROOT / relative_path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def load_frozen_approved_baseline_counts() -> dict[str, int]:
+    """The PR #210/#214-approved historical cohort counts (316 total rows
+    -> 211 forward-metric-gradable -> 21 real-trigger+gradable -> 8
+    auxiliary-cohort rows), sourced entirely from already-committed frozen
+    artifacts:
+
+    - `total_rows`: `evidence/audit/pit_replay/coverage_gap.json`'s own
+      `total_entries` field (frozen since PR #210's `e6b9c64`).
+    - `gradable_rows`: no raw 316-row signal-ledger snapshot (one row per
+      subject/decision_date, carrying each row's own
+      `forward_metrics.status`) was ever committed as JSON -- only its
+      DERIVED trigger-population/episode products were (`reconciliation.
+      json`, `episode_ledger.json`, ...). This figure is therefore parsed
+      from the single documented, independently-reproduced count in
+      `docs/profit_harvest_baseline_audit.md` (frozen since PR #214's
+      `77cde4c`), and cross-checked against `total_rows` above for
+      consistency.
+    - `triggered_and_gradable_rows`: the row count of the frozen, already-
+      approved `evidence/audit/profit_harvest_baseline/reconciliation.
+      json` -- each of its rows IS one triggered+gradable entry.
+    - `auxiliary_cohort_rows`: the row count of the frozen, already-
+      approved `evidence/audit/profit_harvest_baseline/
+      pr210_auxiliary_cohort.json`.
+    """
+    coverage_gap = load_frozen_evidence_json("evidence/audit/pit_replay/coverage_gap.json")
+    reconciliation = load_frozen_evidence_json("evidence/audit/profit_harvest_baseline/reconciliation.json")
+    auxiliary_cohort = load_frozen_evidence_json("evidence/audit/profit_harvest_baseline/pr210_auxiliary_cohort.json")
+
+    doc_text = (_REPO_ROOT / "docs" / "profit_harvest_baseline_audit.md").read_text(encoding="utf-8")
+    collapsed = re.sub(r"\s+", " ", doc_text)
+    match = re.search(r"(\d+) total rows.*?(\d+) forward-metric-gradable", collapsed)
+    if not match:
+        raise AssertionError(
+            "could not locate the frozen 'N total rows -> N forward-metric-gradable' "
+            "figure in docs/profit_harvest_baseline_audit.md -- has this frozen doc "
+            "been edited since PR #214's 77cde4c?"
+        )
+    doc_total_rows, gradable_rows = int(match.group(1)), int(match.group(2))
+    if doc_total_rows != coverage_gap["total_entries"]:
+        raise AssertionError(
+            f"frozen total-row count disagrees between coverage_gap.json "
+            f"({coverage_gap['total_entries']}) and docs/profit_harvest_baseline_audit.md "
+            f"({doc_total_rows}) -- one of the frozen artifacts is no longer consistent"
+        )
+
+    return {
+        "total_rows": coverage_gap["total_entries"],
+        "gradable_rows": gradable_rows,
+        "triggered_and_gradable_rows": len(reconciliation),
+        "auxiliary_cohort_rows": len(auxiliary_cohort),
+    }
