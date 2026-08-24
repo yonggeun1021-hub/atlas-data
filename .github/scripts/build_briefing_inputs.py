@@ -677,7 +677,10 @@ def build_and_publish(expected_date, fail_before_publish=False):
     # briefing_status.json to one shared generation_id. See
     # briefing_generation.py for why this is not a git commit SHA.
     generation = GEN.generation_block(
-        expected_date, hashes, optional_evidence, sources
+        expected_date,
+        hashes,
+        GEN.optional_source_facts(DATA, expected_date),
+        sources,
     )
 
     status = {
