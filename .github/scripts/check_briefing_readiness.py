@@ -283,6 +283,11 @@ def validate_read_model(data_root, expected_date, sources, hashes):
                 "data/latest_dart_content.json",
                 "data/latest_sec_content.json",
             ],
+            "daily_briefing_sources": {
+                "locator_path": "data/briefing/daily_briefing_sources.json",
+                "consumer": ".github/scripts/daily_briefing_delivery.py",
+                "selection_policy": "EXACT_POINTER_ONLY_NO_FALLBACK",
+            },
         }
         actual_inventory = step0.get("read_model_inventory")
         if (

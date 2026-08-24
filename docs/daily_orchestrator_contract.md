@@ -414,8 +414,21 @@ python3 briefing/daily_orchestrator.py validate \
 cat evidence/daily_briefing/{slot}/{decision_date}/rev-NNN/briefing.md
 ```
 
-using the revision `index.json` names as `latest_revision` to find the
-current `rev-NNN` for a given `(slot, decision_date)`.
+The operational read model does not perform that selection itself. H-24
+publishes `data/briefing/daily_briefing_sources.json`, which binds one exact
+slot/date/revision to the index, packet, and rendered briefing hashes. The
+read-only consumer is:
+
+```bash
+python3 .github/scripts/daily_briefing_delivery.py consume \
+  --slot morning --decision-date YYYY-MM-DD
+```
+
+It rejects a wrong slot/date, an index that no longer names the revision,
+any path or hash drift, a missing Decision Review/Shadow component, and any
+authority flag set to true. It never lists a directory, falls back to a
+prior day, or guesses another slot. A BLOCKED Decision Review and a Shadow
+row with no ledger record are delivered results, not delivery failures.
 
 ## Scheduling
 

@@ -1559,6 +1559,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         command = publish["run"]
         self.assertIn("briefing/daily_orchestrator.py publish", command)
         self.assertIn("briefing/daily_orchestrator.py validate", command)
+        self.assertIn("daily_briefing_delivery.py publish-locator", command)
+        self.assertIn("daily_briefing_delivery.py consume", command)
         # publish() itself decides whether a new revision is needed (same-
         # day recovery); the workflow must always call it rather than
         # skipping on bare directory presence, and must gate the commit on
@@ -1572,11 +1574,18 @@ class DailyOrchestratorTest(unittest.TestCase):
         commit = next(
             step for step in steps if step.get("name") == "Commit immutable daily briefing bundle"
         )
-        self.assertEqual(commit.get("if"), "steps.briefing.outputs.result == 'published'")
+        self.assertEqual(
+            commit.get("if"),
+            "steps.briefing.outputs.result == 'published' || "
+            "steps.briefing.outputs.locator_changed == 'true'",
+        )
         # The whole decision_date directory must be staged, not just the
         # new rev-NNN/ subdirectory, so the sibling index.json (rewritten
         # on every new revision) is committed alongside it.
         self.assertIn('git add "$(dirname "$CAPTURE_PATH")"', commit["run"])
+        self.assertIn(
+            "git add data/briefing/daily_briefing_sources.json", commit["run"]
+        )
 
     def test_workflow_derives_slot_from_exact_cron_not_wall_clock_hour(self):
         # A large scheduler delay must not misclassify morning as evening
