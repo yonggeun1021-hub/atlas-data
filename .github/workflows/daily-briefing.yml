@@ -90,6 +90,20 @@ jobs:
           echo "capture_path=$CAPTURE_PATH" >> "$GITHUB_OUTPUT"
 
           python3 briefing/daily_orchestrator.py validate "$CAPTURE_PATH/packet.json"
+          LOCATOR_OUTPUT=$(python3 .github/scripts/daily_briefing_delivery.py publish-locator \
+            --slot "$SLOT" \
+            --decision-date "$DECISION_DATE")
+          echo "$LOCATOR_OUTPUT"
+          LOCATOR_CHANGED=$(echo "$LOCATOR_OUTPUT" | sed -n 's/^locator_changed=//p')
+          echo "locator_changed=$LOCATOR_CHANGED" >> "$GITHUB_OUTPUT"
+
+          # Consume exactly what the locator names. This is the H-24
+          # producer -> locator -> consumer delivery proof; no directory
+          # scan, prior-date fallback, or alternate-slot guess is allowed.
+          python3 .github/scripts/daily_briefing_delivery.py consume \
+            --slot "$SLOT" \
+            --decision-date "$DECISION_DATE" \
+            > /tmp/investment-review-delivery.md
 
           if [ "$CREATED" = "true" ]; then
             echo "result=published" >> "$GITHUB_OUTPUT"
@@ -112,9 +126,11 @@ jobs:
             echo "## Atlas Daily Briefing — $SLOT $DECISION_DATE"
             echo
             cat "$CAPTURE_PATH/briefing.md"
+            echo
+            cat /tmp/investment-review-delivery.md
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Commit immutable daily briefing bundle
-        if: steps.briefing.outputs.result == 'published'
+        if: steps.briefing.outputs.result == 'published' || steps.briefing.outputs.locator_changed == 'true'
         env:
           CAPTURE_PATH: ${{ steps.briefing.outputs.capture_path }}
           SLOT: ${{ steps.briefing.outputs.slot }}
@@ -127,6 +143,7 @@ jobs:
           # the latest revision) lives beside it as a sibling and is
           # rewritten on every new revision.
           git add "$(dirname "$CAPTURE_PATH")"
+          git add data/briefing/daily_briefing_sources.json
           git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
           git pull --rebase origin "$DEFAULT_BRANCH"
           git push origin "HEAD:$DEFAULT_BRANCH"

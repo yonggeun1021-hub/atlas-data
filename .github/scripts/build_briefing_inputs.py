@@ -726,6 +726,11 @@ def build_and_publish(expected_date, fail_before_publish=False):
                 "data/latest_dart_content.json",
                 "data/latest_sec_content.json",
             ],
+            "daily_briefing_sources": {
+                "locator_path": "data/briefing/daily_briefing_sources.json",
+                "consumer": ".github/scripts/daily_briefing_delivery.py",
+                "selection_policy": "EXACT_POINTER_ONLY_NO_FALLBACK",
+            },
             "operations_telemetry_sources": (
                 [
                     "data/operations/collect_runs/"

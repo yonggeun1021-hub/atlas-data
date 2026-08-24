@@ -482,6 +482,10 @@ APPROVED_TESTS = [
     # ★ P0-05B — resolve main once, then retrieve the complete read model
     #   from one immutable GitHub commit with exact blob/date/generation checks.
     "test/test_read_model_authority_retrieval.py",
+    # ★ H-24 — exact producer locator -> deterministic read-only consumer.
+    #   No directory scan/prior-date/alternate-slot fallback; slot/date/revision,
+    #   index/packet/rendered hashes and authority=false are independently checked.
+    "test/test_daily_briefing_delivery.py",
     # ★ P0-03 06:55 readiness gate — cached overall보다 current raw 날짜를 먼저 본다.
     #   raw가 오늘자면 stale/missing read model을 collection failure로 확대하지 않고
     #   read-model-only repair로 분리한다. truncated raw는 manual inspection으로 닫는다.
