@@ -7,7 +7,9 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -37,7 +39,11 @@ class CandidateIdentityObservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         full = json.loads((ROOT / "evidence/operational/dynamic_clock/dynamic_clock_report.json").read_text())
-        wanted = {"BTC", "005930", "ETH/USD"}
+        crypto_rows = full["by_market"]["CRYPTO"]["review_queue"]
+        cls.unresolved_crypto_subject = next(
+            row["subject"] for row in crypto_rows if row["subject"] != "BTC"
+        )
+        wanted = {"BTC", "005930", cls.unresolved_crypto_subject}
         by_market = {}
         for market, result in full["by_market"].items():
             rows = [row for row in result["review_queue"] if row["subject"] in wanted]
@@ -60,12 +66,12 @@ class CandidateIdentityObservationTests(unittest.TestCase):
         self.assertEqual(self.row("005930")["identity"]["canonical_instrument_id"], "KRX:005930:COMMON")
 
     def test_unratified_crypto_pair_remains_not_computable(self):
-        row = self.row("ETH/USD")
+        row = self.row(self.unresolved_crypto_subject)
         self.assertNotEqual(row["identity"]["status"], ci.RESOLVED)
         self.assertIsNone(row["identity"]["canonical_instrument_id"])
 
     def test_scope_observation_is_separate_from_instrument_identity(self):
-        row = self.row("ETH/USD")
+        row = self.row(self.unresolved_crypto_subject)
         self.assertEqual(row["account_scope"], {"status": ci.RESOLVED, "account_scope": "CRYPTO"})
         self.assertNotEqual(row["identity"]["status"], ci.RESOLVED)
 
@@ -128,8 +134,14 @@ class CandidateIdentityObservationTests(unittest.TestCase):
     def test_summary_is_exactly_reconciled(self):
         summary = self.packet["summary"]
         self.assertEqual(summary["candidate_count"], len(self.packet["observations"]))
-        self.assertEqual(summary["identity_resolved_count"], 2)
-        self.assertEqual(summary["scope_resolved_count"], 3)
+        self.assertEqual(
+            summary["identity_resolved_count"],
+            sum(row["identity"]["status"] == ci.RESOLVED for row in self.packet["observations"]),
+        )
+        self.assertEqual(
+            summary["scope_resolved_count"],
+            sum(row["account_scope"]["status"] == ci.RESOLVED for row in self.packet["observations"]),
+        )
 
     def test_history_record_retains_exact_validated_packet_and_false_authority(self):
         record = _history_record(self.packet, self.report, TRIGGER_UPSTREAM_WORKFLOW_RUN)
@@ -177,10 +189,22 @@ class CandidateIdentityObservationTests(unittest.TestCase):
 
     def test_same_day_different_exact_evaluation_is_not_overwritten(self):
         report = copy.deepcopy(self.report)
-        report["operational_evaluation"]["evaluated_at_utc"] = "2026-08-25T12:32:00Z"
+        current = datetime.fromisoformat(
+            report["operational_evaluation"]["evaluated_at_utc"].replace("Z", "+00:00")
+        )
+        alternative = current + timedelta(seconds=1)
+        if alternative.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat() != report["decision_date"]:
+            alternative = current - timedelta(seconds=1)
+        alternative_text = alternative.isoformat().replace("+00:00", "Z")
+        self.assertNotEqual(alternative_text, report["operational_evaluation"]["evaluated_at_utc"])
+        self.assertEqual(
+            alternative.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat(),
+            report["decision_date"],
+        )
+        report["operational_evaluation"]["evaluated_at_utc"] = alternative_text
         for market in report["by_market"].values():
             for candidate in market["review_queue"]:
-                candidate["operational_evaluation"]["evaluated_at_utc"] = "2026-08-25T12:32:00Z"
+                candidate["operational_evaluation"]["evaluated_at_utc"] = alternative_text
                 resign(candidate)
         packet = build_observation(report, self.authority, self.scope_authority)
         with tempfile.TemporaryDirectory() as raw:

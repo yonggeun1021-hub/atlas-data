@@ -1181,6 +1181,11 @@ APPROVED_TESTS = [
     # provider lineage -> RATIFIED canonical instrument/account scope only.
     # Candidate validity, entry, sizing and every money authority stay locked.
     "test/test_candidate_identity_observation.py",
+    # P5-06/P7-08 unresolved identity evidence inventory: exact validated
+    # provider pairs are compared with the already-ratified taxonomy only as
+    # diagnostic adjacency.  It creates zero authority rows and cannot open
+    # candidate validity, entry eligibility, sizing, or a money action.
+    "test/test_candidate_identity_gap_inventory.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
