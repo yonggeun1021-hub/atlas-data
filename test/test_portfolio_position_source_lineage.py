@@ -81,6 +81,7 @@ class AlpacaProviderLineageTests(unittest.TestCase):
         position = packet["portfolio_facts"]["accounts"][0]["positions"][0]
         self.assertEqual(position["symbol"], "AAPL")
         self.assertEqual(position["source_identity_lineage"], {
+            "contract_version": "portfolio_position_source_lineage/1",
             "status": "AVAILABLE",
             "source_pairs": [{
                 "source_name": "alpaca_paper_positions",
@@ -128,6 +129,7 @@ class ManualLineageFailClosedTests(unittest.TestCase):
     def test_manual_position_without_pair_stays_not_computable(self):
         fact = self._fact([{"symbol": "BTC", "qty": 1, "market_value": 10}])
         self.assertEqual(fact["positions"][0]["source_identity_lineage"], {
+            "contract_version": "portfolio_position_source_lineage/1",
             "status": "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING",
             "source_pairs": [],
         })
@@ -186,6 +188,7 @@ class RehashedTamperTests(unittest.TestCase):
         account = tampered["portfolio_facts"]["accounts"][0]
         account["source"] = "MANUAL_SNAPSHOT:US"
         account["positions"][0]["source_identity_lineage"] = {
+            "contract_version": "portfolio_position_source_lineage/1",
             "status": "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING",
             "source_pairs": [],
         }
@@ -223,10 +226,13 @@ class AuthorityAndAggregationBoundaryTests(unittest.TestCase):
         self.assertEqual(packet["risk_policy"], PS.RISK_POLICY_UNRATIFIED)
         self.assertEqual(packet["position_size"], PS.POSITION_SIZE_UNRATIFIED)
 
-    def test_contract_v2_describes_transport_not_resolution(self):
-        contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract.json").read_text())
-        self.assertEqual(contract["contract_version"], "portfolio_risk_input/2")
-        lineage = contract["position_source_identity_lineage"]
+    def test_additive_contract_describes_transport_not_resolution(self):
+        base_contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract.json").read_text())
+        self.assertEqual(base_contract["contract_version"], "portfolio_risk_input/1")
+        lineage = json.loads(
+            (ROOT / "config" / "portfolio_position_source_lineage_contract.json").read_text()
+        )
+        self.assertEqual(lineage["contract_version"], "portfolio_position_source_lineage/1")
         self.assertEqual(lineage["alpaca"]["source_asset_id_basis"], "EXACT_PROVIDER_ASSET_ID_FROM_GET_V2_POSITIONS")
         self.assertIn("does not mean canonical instrument identity is resolved", lineage["alpaca"]["note"])
 

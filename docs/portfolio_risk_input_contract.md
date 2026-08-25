@@ -31,7 +31,7 @@ separate keys -- never merged:
 - **Alpaca Paper account** (`portfolio_risk/alpaca_client.py`): `GET /v2/account`,
   `GET /v2/positions` against `https://paper-api.alpaca.markets`
 
-### Position provider identity lineage (`portfolio_risk_input/2`)
+### Position provider identity lineage (additive `portfolio_position_source_lineage/1`)
 
 Every Alpaca position now transports the exact provider pair
 `(source_name="alpaca_paper_positions", source_asset_id=<the response's
@@ -45,6 +45,12 @@ Manual Korea/Crypto positions remain
 `NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING`. A caller may supply one
 complete provider pair for audit, but it remains unverified; partial pairs are
 rejected and manual input can never claim `AVAILABLE`.
+
+This extension deliberately leaves the already-ratified
+`config/portfolio_risk_input_contract.json` bytes and
+`portfolio_risk_input/1` schema identity unchanged. Its own contract is
+`config/portfolio_position_source_lineage_contract.json`, and each lineage
+object carries that separate contract version.
 
 The existing `exposure_by_ticker` output remains a raw diagnostic view and is
 now explicitly labeled by

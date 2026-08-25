@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "contract_version": "portfolio_position_source_lineage/1",
+  "purpose": "Additive provider-identity transport extension for portfolio_risk_input/1. It does not resolve canonical instruments, deduplicate aliases, establish investability, size positions, or authorize actions/orders/trading.",
+  "alpaca": {
+    "source_name": "alpaca_paper_positions",
+    "source_asset_id_basis": "EXACT_PROVIDER_ASSET_ID_FROM_GET_V2_POSITIONS",
+    "status": "AVAILABLE",
+    "note": "AVAILABLE means only that the exact provider pair is present; it does not mean canonical instrument identity is resolved or investable."
+  },
+  "manual": {
+    "status": "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING",
+    "note": "An optional complete provider pair may be retained for audit, but manual input can never claim AVAILABLE and no ticker-to-provider inference is permitted."
+  },
+  "exposure_identity_basis": "RAW_PROVIDER_SYMBOL_DIAGNOSTIC_NOT_CANONICAL_INSTRUMENT",
+  "authority": {
+    "review_only": true,
+    "action_authorized": false,
+    "order_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

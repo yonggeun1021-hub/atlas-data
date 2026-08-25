@@ -84,7 +84,7 @@ def _build_packet(account_facts, fx_rates=None, captured_at=T0, available_at=T0,
 class ContractShapeTests(unittest.TestCase):
     def test_contract_authority_all_false(self):
         contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract.json").read_text())
-        self.assertEqual(contract["contract_version"], "portfolio_risk_input/2")
+        self.assertEqual(contract["contract_version"], "portfolio_risk_input/1")
         self.assertFalse(contract["authority"]["order_authorized"])
         self.assertFalse(contract["authority"]["trading_authorized"])
         self.assertFalse(contract["authority"]["action_authorized"])

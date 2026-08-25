@@ -75,7 +75,8 @@ import hashlib
 import json
 import math
 
-SCHEMA_VERSION = "portfolio_risk_input/2"
+SCHEMA_VERSION = "portfolio_risk_input/1"
+POSITION_SOURCE_IDENTITY_CONTRACT_VERSION = "portfolio_position_source_lineage/1"
 POSITION_SOURCE_NAME_ALPACA = "alpaca_paper_positions"
 SOURCE_IDENTITY_AVAILABLE = "AVAILABLE"
 SOURCE_IDENTITY_MISSING = "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING"
@@ -312,6 +313,7 @@ def _alpaca_position_source_identity(row: dict) -> dict:
     if "asset_id" not in row:
         raise PortfolioSnapshotError("ALPACA_POSITION_ASSET_ID_MISSING")
     return {
+        "contract_version": POSITION_SOURCE_IDENTITY_CONTRACT_VERSION,
         "status": SOURCE_IDENTITY_AVAILABLE,
         "source_pairs": [_source_pair(POSITION_SOURCE_NAME_ALPACA, row["asset_id"])],
     }
@@ -329,7 +331,11 @@ def _manual_position_source_identity(row: dict) -> dict:
     if (source_name is None) != (source_asset_id is None):
         raise PortfolioSnapshotError("MANUAL_POSITION_SOURCE_IDENTITY_PARTIAL")
     pairs = [] if source_name is None else [_source_pair(source_name, source_asset_id)]
-    return {"status": SOURCE_IDENTITY_MISSING, "source_pairs": pairs}
+    return {
+        "contract_version": POSITION_SOURCE_IDENTITY_CONTRACT_VERSION,
+        "status": SOURCE_IDENTITY_MISSING,
+        "source_pairs": pairs,
+    }
 
 
 def _validate_position_source_identity(account_fact: dict) -> None:
@@ -358,8 +364,10 @@ def _validate_position_source_identity(account_fact: dict) -> None:
         if forbidden:
             raise PortfolioSnapshotError(f"POSITION_CANONICAL_IDENTITY_CLAIM_FORBIDDEN:{forbidden}")
         lineage = position.get("source_identity_lineage")
-        if not isinstance(lineage, dict) or set(lineage) != {"status", "source_pairs"}:
+        if not isinstance(lineage, dict) or set(lineage) != {"contract_version", "status", "source_pairs"}:
             raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_LINEAGE_SCHEMA_INVALID")
+        if lineage.get("contract_version") != POSITION_SOURCE_IDENTITY_CONTRACT_VERSION:
+            raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_CONTRACT_VERSION_INVALID")
         pairs = lineage.get("source_pairs")
         if not isinstance(pairs, list):
             raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_PAIRS_NOT_A_LIST")
