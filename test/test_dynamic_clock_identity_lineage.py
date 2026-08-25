@@ -32,6 +32,13 @@ from clock.run_dynamic_clock import MODE_OPERATIONAL, run  # noqa: E402
 from replay.opportunity_trigger import payload_sha256  # noqa: E402
 
 
+REAL_DECISION_DATE = max(
+    value
+    for market in scan.MARKET_SCANNERS
+    for value in scan.all_evidence_dates(market)
+)
+
+
 def event(*, source_name="kraken_spot_ohlc", source_asset_id="BTC/USD",
           source="evidence/crypto/btc/raw/day/file.gz", detected_at="2026-08-20",
           evidence_hash="a" * 64):
@@ -168,7 +175,7 @@ class SourceIdentityLineageContractTests(unittest.TestCase):
 
 class RealScannerAdapterFactsTests(unittest.TestCase):
     def test_btc_adapter_emits_ratified_provider_pair(self):
-        result = scan.scan_btc("2026-08-25")
+        result = scan.scan_btc(REAL_DECISION_DATE)
         events = [e for buckets in result["subjects"].values() for values in buckets.values() for e in values]
         self.assertTrue(events)
         self.assertEqual({(e.source_name, e.source_asset_id) for e in events}, {
@@ -176,7 +183,7 @@ class RealScannerAdapterFactsTests(unittest.TestCase):
         })
 
     def test_korea_adapter_uses_exact_code_as_source_asset_id(self):
-        result = scan.scan_korea("2026-08-25")
+        result = scan.scan_korea(REAL_DECISION_DATE)
         for subject, buckets in result["subjects"].items():
             for values in buckets.values():
                 for ev in values:
@@ -184,7 +191,7 @@ class RealScannerAdapterFactsTests(unittest.TestCase):
                     self.assertEqual(ev.source_asset_id, subject)
 
     def test_crypto_adapter_uses_exact_pair_id(self):
-        result = scan.scan_crypto("2026-08-25")
+        result = scan.scan_crypto(REAL_DECISION_DATE)
         for subject, buckets in result["subjects"].items():
             for values in buckets.values():
                 for ev in values:
@@ -192,10 +199,14 @@ class RealScannerAdapterFactsTests(unittest.TestCase):
                     self.assertEqual(ev.source_asset_id, subject)
 
     def test_real_report_candidate_lineage_equals_its_raw_episode_union(self):
-        report = run("2026-08-25", MODE_OPERATIONAL)
+        report = run(REAL_DECISION_DATE, MODE_OPERATIONAL)
+        observed_count = sum(
+            len(value["review_queue"]) for value in report["by_market"].values()
+        )
+        self.assertGreater(observed_count, 0)
         self.assertEqual(
-            sum(len(value["review_queue"]) for value in report["by_market"].values()),
-            66,
+            observed_count,
+            sum(value["review_queue_subject_count"] for value in report["by_market"].values()),
         )
         for market_result in report["by_market"].values():
             raw_by_episode = {

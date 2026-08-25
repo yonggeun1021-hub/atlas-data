@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from clock import run_dynamic_clock as rdc
+from clock import operational_scan as operational_scan
 from clock.candidate_lifecycle_observation import (
     BASELINE_PREEXISTING,
     CHAIN_MANUAL,
@@ -59,6 +60,14 @@ LOCKS = {
 SOURCE_LOCKS = {
     key: value for key, value in LOCKS.items() if key != "candidate_validity"
 }
+
+REAL_DECISION_DATE = max(
+    value
+    for market in operational_scan.MARKET_SCANNERS
+    for value in operational_scan.all_evidence_dates(market)
+)
+REAL_EVALUATED_AT = f"{REAL_DECISION_DATE}T14:59:00Z"
+REAL_EVALUATED_AT_LATER = f"{REAL_DECISION_DATE}T14:59:01Z"
 
 
 def candidate(subject: str, market: str, *, trigger: str = "PRICE_CONFIRMATION",
@@ -290,7 +299,7 @@ class PersistedRoundTripTests(unittest.TestCase):
             source_root = root / "candidate_validity_source_reports"
             lifecycle_root = root / "candidate_lifecycle_observations"
 
-            report1 = rdc.run("2026-08-25", evaluation_at_utc="2026-08-25T10:00:00Z")
+            report1 = rdc.run(REAL_DECISION_DATE, evaluation_at_utc=REAL_EVALUATED_AT)
             validity1 = write_validity_observation(
                 report1, output_root=validity_root, source_output_root=source_root,
                 trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
@@ -306,7 +315,7 @@ class PersistedRoundTripTests(unittest.TestCase):
                 for row in first["state_records"] if row["state"] == "ACTIVE"
             ))
 
-            report2 = rdc.run("2026-08-25", evaluation_at_utc="2026-08-25T10:01:00Z")
+            report2 = rdc.run(REAL_DECISION_DATE, evaluation_at_utc=REAL_EVALUATED_AT_LATER)
             validity2 = write_validity_observation(
                 report2, output_root=validity_root, source_output_root=source_root,
                 trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
@@ -329,7 +338,7 @@ class PersistedRoundTripTests(unittest.TestCase):
             validity_root = root / "candidate_validity_observations"
             source_root = root / "candidate_validity_source_reports"
             lifecycle_root = root / "candidate_lifecycle_observations"
-            report = rdc.run("2026-08-25", evaluation_at_utc="2026-08-25T10:00:00Z")
+            report = rdc.run(REAL_DECISION_DATE, evaluation_at_utc=REAL_EVALUATED_AT)
             validity = write_validity_observation(
                 report, output_root=validity_root, source_output_root=source_root,
                 trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
@@ -349,7 +358,7 @@ class PersistedRoundTripTests(unittest.TestCase):
             root = Path(tmp) / "dynamic_clock"
             validity_root = root / "candidate_validity_observations"
             source_root = root / "candidate_validity_source_reports"
-            report = rdc.run("2026-08-25", evaluation_at_utc="2026-08-25T10:00:00Z")
+            report = rdc.run(REAL_DECISION_DATE, evaluation_at_utc=REAL_EVALUATED_AT)
             validity = write_validity_observation(
                 report, output_root=validity_root, source_output_root=source_root,
                 trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
@@ -385,9 +394,9 @@ class WiringTests(unittest.TestCase):
             }
             with mock.patch.multiple(rdc, **patches):
                 rdc.write_report(
-                    "2026-08-25",
+                    REAL_DECISION_DATE,
                     observation_trigger_kind=TRIGGER_MANUAL_WORKFLOW_DISPATCH,
-                    evaluation_at_utc="2026-08-25T10:00:00Z",
+                    evaluation_at_utc=REAL_EVALUATED_AT,
                 )
             paths = list((root / "candidate_lifecycle_observations").glob("*/lifecycle-*.json"))
             self.assertEqual(len(paths), 1)
@@ -409,7 +418,7 @@ class WiringTests(unittest.TestCase):
             }
             with mock.patch.multiple(rdc, **patches):
                 rdc.write_report(
-                    "2026-08-25",
+                    REAL_DECISION_DATE,
                     observation_trigger_kind=TRIGGER_LOCAL_REPRODUCTION,
                     evaluation_at_utc=None,
                 )

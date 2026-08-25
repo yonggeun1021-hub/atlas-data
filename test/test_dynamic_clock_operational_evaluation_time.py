@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import datetime as dt
 import json
 import os
 import subprocess
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from clock import run_dynamic_clock as rdc
+from clock import operational_scan as operational_scan
 from clock.candidate_validity_observation import (
     CandidateValidityObservationError,
     CONTRACT_VERSION,
@@ -42,7 +44,28 @@ from clock.review_candidate import (
 from replay.opportunity_trigger import payload_sha256
 
 
-EXACT_EVALUATED_AT = "2026-08-25T10:30:00Z"
+def _latest_retained_evidence_date() -> str:
+    """Choose the fixture's operational date from retained evidence, not today.
+
+    These are repository regression tests.  A wall clock would make them
+    nondeterministic, while a frozen literal becomes invalid as soon as the
+    next real collector commits a newer snapshot.  The latest retained date is
+    the only stable input that satisfies both constraints.
+    """
+    dates = {
+        value
+        for market in operational_scan.MARKET_SCANNERS
+        for value in operational_scan.all_evidence_dates(market)
+    }
+    if not dates:
+        raise AssertionError("DYNAMIC_CLOCK_RETAINED_EVIDENCE_MISSING")
+    return max(dates)
+
+
+DECISION_DATE = _latest_retained_evidence_date()
+# 14:59 UTC is 23:59 KST on the same calendar date.  It is later than every
+# valid capture belonging to DECISION_DATE without consulting wall time.
+EXACT_EVALUATED_AT = f"{DECISION_DATE}T14:59:00Z"
 LEGACY_REPORT_PATH = (
     ROOT
     / "evidence"
@@ -79,7 +102,7 @@ class OperationalEvaluationReportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.report = rdc.run(
-            "2026-08-25", evaluation_at_utc=EXACT_EVALUATED_AT
+            DECISION_DATE, evaluation_at_utc=EXACT_EVALUATED_AT
         )
 
     def test_exact_caller_timestamp_is_bound_at_report_market_and_candidate(self):
@@ -103,6 +126,15 @@ class OperationalEvaluationReportTests(unittest.TestCase):
                 self.assertRegex(candidate["trigger_observed_at"], r"^\d{4}-\d{2}-\d{2}$")
                 self.assertEqual(candidate["authority"], AUTHORITY_ALL_FALSE)
         self.assertGreater(seen, 0)
+
+    def test_operational_fixture_tracks_latest_retained_evidence_not_a_frozen_date(self):
+        all_dates = {
+            value
+            for market in operational_scan.MARKET_SCANNERS
+            for value in operational_scan.all_evidence_dates(market)
+        }
+        self.assertEqual(DECISION_DATE, max(all_dates))
+        self.assertEqual(EXACT_EVALUATED_AT, f"{DECISION_DATE}T14:59:00Z")
 
     def test_v3_shadow_observation_records_evaluation_but_keeps_every_lock(self):
         observation = build_observation(self.report)
@@ -128,7 +160,8 @@ class OperationalEvaluationReportTests(unittest.TestCase):
 
     def test_repeated_evaluation_of_unchanged_evidence_cannot_inflate_sample_basis(self):
         later_report = rdc.run(
-            "2026-08-25", evaluation_at_utc="2026-08-25T10:31:00Z"
+            DECISION_DATE,
+            evaluation_at_utc=f"{DECISION_DATE}T14:59:01Z",
         )
         first = build_observation(self.report)
         later = build_observation(later_report)
@@ -224,14 +257,15 @@ class EvaluationTimestampFailClosedTests(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 with self.assertRaises(rdc.DynamicClockOrchestratorError):
-                    rdc.run("2026-08-25", evaluation_at_utc=value)
+                    rdc.run(DECISION_DATE, evaluation_at_utc=value)
 
     def test_kst_decision_date_must_come_from_same_instant(self):
         with self.assertRaisesRegex(
             rdc.DynamicClockOrchestratorError,
             "KST_DATE_MISMATCH",
         ):
-            rdc.run("2026-08-24", evaluation_at_utc=EXACT_EVALUATED_AT)
+            previous = (dt.date.fromisoformat(DECISION_DATE) - dt.timedelta(days=1)).isoformat()
+            rdc.run(previous, evaluation_at_utc=EXACT_EVALUATED_AT)
 
     def test_same_day_capture_after_evaluation_is_rejected(self):
         with self.assertRaisesRegex(
@@ -308,7 +342,7 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
         )
         report = rdc.run(
-            "2026-08-25", evaluation_at_utc=EXACT_EVALUATED_AT
+            DECISION_DATE, evaluation_at_utc=EXACT_EVALUATED_AT
         )
         with tempfile.TemporaryDirectory() as raw_temp:
             temp = Path(raw_temp)
