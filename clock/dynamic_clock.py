@@ -176,6 +176,23 @@ class ClockEvent:
     evidence_hash: str
     source: str
     strength: float
+    # Exact collector timestamp when the cited committed snapshot provides
+    # one.  This is lineage/diagnostic precision only: `detected_at` remains
+    # date-granularity, so the event as a whole must not be treated as an
+    # intraday-timestamped investment signal.
+    evidence_captured_at: str | None = None
+    evidence_capture_time_precision: str = "NOT_AVAILABLE"
+
+
+def _parse_timestamp(value: str, *, field: str) -> dt.datetime:
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = dt.datetime.fromisoformat(candidate)
+    except (TypeError, ValueError) as exc:
+        raise DynamicClockError(f"{field}_INVALID:{value!r}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise DynamicClockError(f"{field}_TIMEZONE_REQUIRED:{value!r}")
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def _validate_ascending(events: list[ClockEvent]) -> None:
@@ -192,6 +209,24 @@ def _validate_ascending(events: list[ClockEvent]) -> None:
             raise DynamicClockError(
                 f"EVIDENCE_AVAILABLE_AT_AFTER_DETECTED_AT:{ev.evidence_available_at} > {ev.detected_at}"
             )
+        if ev.evidence_captured_at is None:
+            if ev.evidence_capture_time_precision != "NOT_AVAILABLE":
+                raise DynamicClockError("EVIDENCE_CAPTURE_PRECISION_WITHOUT_TIMESTAMP")
+        else:
+            if ev.evidence_capture_time_precision != "TIMESTAMP":
+                raise DynamicClockError("EVIDENCE_CAPTURE_TIMESTAMP_PRECISION_MISMATCH")
+            captured = _parse_timestamp(
+                ev.evidence_captured_at, field="EVIDENCE_CAPTURED_AT"
+            )
+            # `detected_at` is still DATE_ONLY.  We can reject a capture on a
+            # strictly later UTC calendar date, but a same-date ordering is
+            # deliberately NOT asserted: that would manufacture an intraday
+            # order from date-only trigger evidence.
+            if captured.date() > d:
+                raise DynamicClockError(
+                    "EVIDENCE_CAPTURED_AT_AFTER_DATE_ONLY_DETECTED_AT:"
+                    f"{ev.evidence_captured_at} > {ev.detected_at}"
+                )
         if prev is not None and d < prev:
             raise DynamicClockError(
                 f"EVENTS_NOT_CHRONOLOGICAL:{ev.detected_at} before {prev.strftime(DATE_FMT)}"

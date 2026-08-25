@@ -328,6 +328,30 @@ others left valid, plus an end-to-end test proving `build_subject_review_
 candidate()` itself (not just the bare validator) rejects a `decision_at`
 behind `trigger_observed_at`.
 
+### Collector timestamp lineage (P8-12 precision foundation)
+
+The operational price inputs already commit exact, timezone-aware collector
+timestamps: BTC and Crypto Breadth use manifest `fetched_at_utc`; KRX uses
+`collected_at_utc`. These values are now retained as
+`evidence_captured_at` with
+`evidence_capture_time_precision="TIMESTAMP"` through the evidence index,
+`ClockEvent`, episode trail, raw ledger, and subject candidate. They are
+never derived from a path, the decision date, or wall-clock time.
+
+This does **not** make the candidate timestamp-precise. Trigger detection,
+decision, creation, and update remain real `DATE_ONLY` observations. Thus
+top-level `time_precision` remains `DATE_ONLY`, while `timing_precision`
+reports each field independently. A same-day exact capture cannot establish
+whether it preceded a date-only decision and therefore cannot open a
+validity window, Risk Capacity, P8-13, Stage, Buy, Action, Order, Production,
+or trading authority.
+
+The validator independently reconstructs the precision map and rejects a
+re-signed packet that promotes aggregate precision, alters a field's
+precision, supplies a future capture date, or supplies a timezone-naive
+timestamp. Candidate validity policy remains `UNRATIFIED`; this slice only
+preserves real arrival-time evidence needed for later shadow observation.
+
 All 4 defects' regressions live together in
 `test/test_dynamic_clock_orchestrator_defects.py` (registered in
 `run_all.py`'s `APPROVED_TESTS` and the workflow's offline regression

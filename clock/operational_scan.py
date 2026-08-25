@@ -127,22 +127,41 @@ def _date_range(start: str, end: str) -> list[str]:
     return out
 
 
-def _to_clock_event(trig) -> ClockEvent:
+def _capture_metadata(snapshot) -> dict:
+    captured_at = getattr(snapshot, "captured_at", None)
+    precision = getattr(snapshot, "capture_time_precision", None)
+    if not captured_at or precision != "TIMESTAMP":
+        raise ValueError("SNAPSHOT_CAPTURE_TIMESTAMP_NOT_AVAILABLE")
+    return {"evidence_captured_at": captured_at, "evidence_capture_time_precision": precision}
+
+
+def _to_clock_event(trig, capture_metadata_by_source: dict[str, dict]) -> ClockEvent:
     """Maps a `replay.opportunity_trigger.OpportunityTriggerEvent` onto the
     Dynamic Clock's `ClockEvent` shape (see `dynamic_clock.py` docstring for
     the `detected_at` vs `evidence_available_at` distinction)."""
     evidence_available_at = trig.confirmed_at or trig.first_seen_at
+    capture_metadata = capture_metadata_by_source.get(trig.source)
+    if capture_metadata is None:
+        # Never fabricate a timestamp from the source path, decision date,
+        # or wall clock.  The scanner that supplied the evidence citation
+        # must also supply that exact snapshot's collector timestamp.
+        raise ValueError(f"EVIDENCE_CAPTURE_TIMESTAMP_LINEAGE_MISSING:{trig.source}")
     return ClockEvent(
         detected_at=trig.decision_date,
         evidence_available_at=evidence_available_at,
         evidence_hash=trig.evidence_sha256,
         source=trig.source,
         strength=trig.strength,
+        evidence_captured_at=capture_metadata["evidence_captured_at"],
+        evidence_capture_time_precision=capture_metadata["evidence_capture_time_precision"],
     )
 
 
-def _events_by_type(raw_events: dict[str, list]) -> dict[str, list[ClockEvent]]:
-    return {t: [_to_clock_event(e) for e in events] for t, events in raw_events.items()}
+def _events_by_type(raw_events: dict[str, list], capture_metadata_by_source: dict[str, dict]) -> dict[str, list[ClockEvent]]:
+    return {
+        t: [_to_clock_event(e, capture_metadata_by_source) for e in events]
+        for t, events in raw_events.items()
+    }
 
 
 def _filter_snapshots(snapshots: list, decision_date: str | None) -> list:
@@ -183,15 +202,17 @@ def scan_btc(decision_date: str | None = None) -> dict:
     series = build_btc_series(snapshots)
     dates = _date_range(ei.REPO_HISTORY_STARTS_AT, snapshots[-1].capture_date)
     raw: dict[str, list] = {"PRICE_CONFIRMATION": [], "INVALIDATION_TRIGGER": []}
+    capture_metadata_by_source: dict[str, dict] = {}
     for d in dates:
         snap = ei.snapshot_at_or_before(snapshots, d)
         if snap is None:
             continue
         source, sha = snap.citation(), snap.sha256
+        capture_metadata_by_source[source] = _capture_metadata(snap)
         raw["PRICE_CONFIRMATION"] += te.price_confirmation(series, d, source, sha)
         raw["INVALIDATION_TRIGGER"] += te.invalidation_trigger(series, d, source, sha)
     return {
-        "subjects": {"BTC": _events_by_type(raw)},
+        "subjects": {"BTC": _events_by_type(raw, capture_metadata_by_source)},
         "series": {"BTC": series},
         "population_label": "DEDICATED_COLLECTOR",
         "evidence_dates": [s.capture_date for s in snapshots],
@@ -218,17 +239,19 @@ def scan_korea(decision_date: str | None = None) -> dict:
             "PRICE_CONFIRMATION": [], "INVALIDATION_TRIGGER": [],
             "FLOW_REVERSAL": [], "RELATIVE_STRENGTH_REVERSAL": [],
         }
+        capture_metadata_by_source: dict[str, dict] = {}
         peers = kr_series
         for d in dates:
             snap = ei.snapshot_at_or_before(krx_snapshots, d)
             if snap is None:
                 continue
             source, sha = snap.citation(code), snap.sha256
+            capture_metadata_by_source[source] = _capture_metadata(snap)
             raw["PRICE_CONFIRMATION"] += te.price_confirmation(series, d, source, sha)
             raw["INVALIDATION_TRIGGER"] += te.invalidation_trigger(series, d, source, sha)
             raw["FLOW_REVERSAL"] += te.flow_reversal(series, d, source, sha)
             raw["RELATIVE_STRENGTH_REVERSAL"] += te.relative_strength_reversal(series, peers, d, source, sha)
-        subjects[code] = _events_by_type(raw)
+        subjects[code] = _events_by_type(raw, capture_metadata_by_source)
 
     return {
         "subjects": subjects,
@@ -256,6 +279,7 @@ def scan_crypto(decision_date: str | None = None) -> dict:
     dates = _date_range(ei.REPO_HISTORY_STARTS_AT, latest_date)
 
     subjects: dict[str, dict[str, list[ClockEvent]]] = {}
+    capture_metadata_by_source: dict[str, dict] = {}
     for date in dates:
         eligible_today = ai.crypto_pit_eligible_pair_ids(date, known_pair_ids)
         snap = ei.snapshot_at_or_before(breadth_snapshots, date)
@@ -265,6 +289,7 @@ def scan_crypto(decision_date: str | None = None) -> dict:
         for pid in sorted(eligible_today):
             series = breadth_series[pid]
             source = snap.citation(pid)
+            capture_metadata_by_source[source] = _capture_metadata(snap)
             bucket = subjects.setdefault(pid, {
                 "PRICE_CONFIRMATION": [], "INVALIDATION_TRIGGER": [], "RELATIVE_STRENGTH_REVERSAL": [],
             })
@@ -275,7 +300,10 @@ def scan_crypto(decision_date: str | None = None) -> dict:
             )
 
     return {
-        "subjects": {pid: _events_by_type(raw) for pid, raw in subjects.items()},
+        "subjects": {
+            pid: _events_by_type(raw, capture_metadata_by_source)
+            for pid, raw in subjects.items()
+        },
         "series": breadth_series,
         "population_label": "PIT_RATIFIED_ELIGIBLE_UNIVERSE",
         "evidence_dates": [s.capture_date for s in breadth_snapshots],
