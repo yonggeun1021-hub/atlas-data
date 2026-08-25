@@ -94,6 +94,15 @@ class RealCollectorNamesTests(unittest.TestCase):
 
 
 class NoNewProviderCallsTests(unittest.TestCase):
+    def test_identity_provenance_requires_full_git_history(self):
+        import yaml
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        checkout = next(
+            step for step in workflow["jobs"]["refresh"]["steps"]
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        )
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
+
     def test_workflow_never_calls_a_provider_or_collector_script_directly(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         for forbidden in ("curl ", "requests.", "collectors/", "krx_r2_openapi", "kraken"):
