@@ -103,6 +103,17 @@ jobs:
             evidence/crypto/breadth/raw \
             --end-date "$AS_OF_DATE" \
             --out "$RUNNER_TEMP/crypto-leadership-live-replay.json"
+      # P2-04 reuses the same committed/as-captured CR-06 archive and the
+      # canonical CR-07 builder.  It prepares only the adjacent Leadership
+      # source pair consumed by rotation/crypto_rotation.py.  The repository
+      # has no default rotation policy, so this step never ranks buckets or
+      # creates a P2 state; insufficient history is an expected BLOCKED result.
+      - name: Populate P2-04 Crypto Rotation source pair
+        id: p2_04_source_pair
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        run: python3 .github/scripts/crypto_rotation_source_pair_populate.py
       # P3-04 reuses universe/crypto_global_universe.py's own build_packet()
       # unchanged -- no new endpoint, no new cron. A taxonomy/full-coverage
       # gap is a known, expected, deterministic BLOCKED outcome, not a
@@ -131,6 +142,11 @@ jobs:
           ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           ATLAS_BREADTH_VALIDATION_OUTCOME: ${{ steps.breadth_validation.outcome }}
           ATLAS_LEADERSHIP_VALIDATION_OUTCOME: ${{ steps.leadership_validation.outcome }}
+          ATLAS_P2_04_STEP_OUTCOME: ${{ steps.p2_04_source_pair.outcome }}
+          ATLAS_P2_04_RESULT: ${{ steps.p2_04_source_pair.outputs.outcome }}
+          ATLAS_P2_04_REASON: ${{ steps.p2_04_source_pair.outputs.reason }}
+          ATLAS_P2_04_PATH: ${{ steps.p2_04_source_pair.outputs.path }}
+          ATLAS_P2_04_SHA256: ${{ steps.p2_04_source_pair.outputs.payload_sha256 }}
           ATLAS_P3_04_STEP_OUTCOME: ${{ steps.p3_04_population.outcome }}
           ATLAS_P3_04_RESULT: ${{ steps.p3_04_population.outputs.outcome }}
           ATLAS_P3_04_REASON: ${{ steps.p3_04_population.outputs.reason }}
@@ -158,6 +174,29 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "crypto breadth capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
+      # Like P3-04, the derived P2-04 source pair is committed only after raw
+      # evidence is safely pushed.  A blocked/failed pair can never roll back
+      # or prevent raw capture publication.
+      - name: Commit P2-04 Crypto Rotation source pair
+        if: always()
+        env:
+          PAIR_DATE: ${{ steps.p2_04_source_pair.outputs.as_of_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$PAIR_DATE" ] && [ -d "data/observations/crypto_rotation_source_pair/$PAIR_DATE" ]; then
+            git add "data/observations/crypto_rotation_source_pair/$PAIR_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "crypto rotation source pair ${PAIR_DATE:-unknown} [${TRIGGER}]"
             git pull --rebase origin "$DEFAULT_BRANCH"
             git push origin "HEAD:$DEFAULT_BRANCH"
           fi

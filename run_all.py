@@ -193,6 +193,12 @@ APPROVED_TESTS = [
     #   asset rank/P2-05 state/Regime/Stage/Production/trading 권한은 닫는다.
     #   ⛔ live network/tracked factor 없음 — upstream temp packets only.
     "test/test_crypto_rotation.py",
+    # ★ P2-04 scheduled source-pair population. Existing CR-06 raw archive와
+    #   canonical CR-07 builder로 adjacent pilot_7d observations를 만들고
+    #   crypto_rotation_input/1을 content-addressed append-only로 보존한다.
+    #   repository default rotation policy는 계속 ABSENT이며 ranking/P2 state/
+    #   Stage/Action/Order/Production/trading 권한을 열지 않는다.
+    "test/test_crypto_rotation_source_pair_populate.py",
     # ★ P2-05 — external RATIFIED state-policy append-only rotation ledger.
     #   P2-02~04 structural bucket transition을 exact packet/policy SHA로 묶고
     #   세 market production validator를 먼저 호출해 self-rehash 의미 변조를 막는다.

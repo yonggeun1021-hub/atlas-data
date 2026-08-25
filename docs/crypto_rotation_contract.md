@@ -3,6 +3,30 @@
 Status: BTC/ETH/ALT bucket capability; sector/chain rotation, state ledger,
 briefing integration, and live operating evidence remain open.
 
+## Scheduled source-pair population
+
+`.github/scripts/crypto_rotation_source_pair_populate.py` reuses the existing
+P1-CR-07 Leadership builder against the committed P1-CR-06 archive and prepares
+two adjacent, fully observed `pilot_7d` packets as one exact
+`crypto_rotation_input/1`.  The result is published content-addressed and
+append-only below
+`data/observations/crypto_rotation_source_pair/{as_of_date}/` by the existing
+Crypto Breadth workflow; it adds no provider call or cron.
+
+This population is intentionally one layer below the rotation transform.  The
+repository default rotation policy remains `ABSENT`, the transform is not
+invoked, and every ranking/state/action authority remains false.  Until two
+adjacent seven-day Leadership windows exist, the step returns an expected
+`blocked` telemetry result and writes no packet.  Once a pair exists it is
+only a reproducible input for a separately supplied, externally ratified
+policy -- never evidence that such a policy has been approved.
+
+The integration also pins the shared persisted decimal boundary: P1-CR-07
+stores cumulative return and relative strength at 12 decimal places, so
+P2-04 re-derives their relationship at that same precision.  Exact unrounded
+division of already-rounded fields is not a valid producer/consumer check;
+changing one retained decimal unit still fails closed.
+
 The transform compares two hash-lineaged `crypto_leadership_contract/v2`
 packets using one externally selected, fully observed `pilot_7d` or
 `primary_30d` window. It preserves the existing current-candle exclusion,

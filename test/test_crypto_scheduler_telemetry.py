@@ -44,6 +44,11 @@ def environment(**overrides):
         "ATLAS_CAPTURE_RESULT": "captured",
         "ATLAS_BREADTH_VALIDATION_OUTCOME": "success",
         "ATLAS_LEADERSHIP_VALIDATION_OUTCOME": "success",
+        "ATLAS_P2_04_STEP_OUTCOME": "success",
+        "ATLAS_P2_04_RESULT": "populated",
+        "ATLAS_P2_04_REASON": "ROTATION_POLICY_ABSENT_SOURCE_PAIR_ONLY",
+        "ATLAS_P2_04_PATH": "data/observations/crypto_rotation_source_pair/2026-08-21/pair-aaaaaaaaaaaaaaaa.json",
+        "ATLAS_P2_04_SHA256": "b" * 64,
         "ATLAS_P3_04_STEP_OUTCOME": "success",
         "ATLAS_P3_04_RESULT": "populated",
         "ATLAS_P3_04_REASON": "",
@@ -163,6 +168,30 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
 
         self.assertEqual(not_run["p3_04_population"]["result"], "not_run")
 
+    def test_p2_04_source_pair_outcome_is_separate_and_policy_boundary_is_explicit(self):
+        populated = REC.build_record(environment())
+        blocked = REC.build_record(environment(
+            ATLAS_P2_04_RESULT="blocked",
+            ATLAS_P2_04_REASON="CURRENT_INSUFFICIENT_CONTIGUOUS_HISTORY",
+            ATLAS_P2_04_PATH="",
+            ATLAS_P2_04_SHA256="",
+        ))
+        self.assertEqual(
+            populated["p2_04_source_pair_population"]["result"], "populated"
+        )
+        self.assertEqual(
+            populated["p2_04_source_pair_population"]["reason"],
+            "ROTATION_POLICY_ABSENT_SOURCE_PAIR_ONLY",
+        )
+        self.assertEqual(
+            populated["p2_04_source_pair_population"]["payload_sha256"],
+            "b" * 64,
+        )
+        self.assertEqual(
+            blocked["p2_04_source_pair_population"]["result"], "blocked"
+        )
+        self.assertIsNone(blocked["p2_04_source_pair_population"]["output_path"])
+
     def test_authority_is_operations_only(self):
         record = REC.build_record(environment())
 
@@ -207,6 +236,7 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
         capture = self.require_step("Capture complete append-only Kraken USD universe")
         breadth = self.require_step("P1-CR-06 immutable snapshot validation")
         leadership = self.require_step("P1-CR-07 transient live replay")
+        source_pair = self.require_step("Populate P2-04 Crypto Rotation source pair")
         population = self.require_step("Populate P3-04 Crypto source-coverage packet")
         telemetry = self.require_step("Record Crypto Breadth scheduler telemetry")
         checkout_index = next(
@@ -221,9 +251,11 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
         self.assertEqual(capture.get("id"), "capture")
         self.assertEqual(breadth.get("id"), "breadth_validation")
         self.assertEqual(leadership.get("id"), "leadership_validation")
+        self.assertEqual(source_pair.get("id"), "p2_04_source_pair")
         self.assertEqual(population.get("id"), "p3_04_population")
         self.assertEqual(telemetry.get("if"), "always()")
         self.assertGreater(STEPS.index(population), STEPS.index(leadership))
+        self.assertGreater(STEPS.index(source_pair), STEPS.index(leadership))
         self.assertGreater(STEPS.index(telemetry), STEPS.index(population))
         self.assertIn("record_crypto_breadth_run.py", telemetry.get("run", ""))
         self.assertEqual(
@@ -238,6 +270,11 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
                 "ATLAS_CAPTURE_RESULT",
                 "ATLAS_BREADTH_VALIDATION_OUTCOME",
                 "ATLAS_LEADERSHIP_VALIDATION_OUTCOME",
+                "ATLAS_P2_04_STEP_OUTCOME",
+                "ATLAS_P2_04_RESULT",
+                "ATLAS_P2_04_REASON",
+                "ATLAS_P2_04_PATH",
+                "ATLAS_P2_04_SHA256",
                 "ATLAS_P3_04_STEP_OUTCOME",
                 "ATLAS_P3_04_RESULT",
                 "ATLAS_P3_04_REASON",

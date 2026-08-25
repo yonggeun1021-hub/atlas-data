@@ -298,9 +298,20 @@ def _validate_upstream(value: dict, label: str, window_id: str, contract: dict) 
         raise CryptoRotationError(f"UPSTREAM_BTC_REFERENCE_INVALID:{label}")
     btc_return = buckets["BTC"]["cumulative_gross_return"]
     for bucket_id, item in buckets.items():
-        if item["relative_strength_vs_btc"] != (
-            item["cumulative_gross_return"] / btc_return - Decimal(1)
-        ):
+        # P1-CR-07 persists both cumulative return and relative strength at
+        # the Leadership contract's fixed 12-decimal precision.  Re-dividing
+        # those already-rounded cumulative returns can create additional
+        # Decimal digits, so exact unrounded equality rejects genuine
+        # producer output.  Re-derive at the shared persisted precision and
+        # compare that canonical value instead; a one-unit change at the
+        # retained precision still fails closed.
+        derived_relative = Decimal(
+            _render(
+                item["cumulative_gross_return"] / btc_return - Decimal(1),
+                contract["output_decimal_places"],
+            )
+        )
+        if item["relative_strength_vs_btc"] != derived_relative:
             raise CryptoRotationError(
                 f"UPSTREAM_BUCKET_RS_INCONSISTENT:{label}:{bucket_id}"
             )
