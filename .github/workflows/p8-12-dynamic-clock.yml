@@ -71,7 +71,8 @@ jobs:
             test/test_dynamic_clock_workflow_wiring.py \
             test/test_dynamic_clock_pit_tier_invariant.py \
             test/test_price_reflection_link.py \
-            test/test_dynamic_clock_orchestrator_defects.py
+            test/test_dynamic_clock_orchestrator_defects.py \
+            test/test_dynamic_clock_identity_lineage.py
           do
             python3 "$test_file"
           done
