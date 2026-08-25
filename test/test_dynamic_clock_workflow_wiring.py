@@ -55,6 +55,7 @@ class OfflineRegressionInvocationTests(unittest.TestCase):
         "test/test_price_reflection_link.py",
         "test/test_dynamic_clock_orchestrator_defects.py",
         "test/test_dynamic_clock_identity_lineage.py",
+        "test/test_candidate_identity_observation.py",
     )
 
     def test_offline_regression_uses_file_paths_not_test_package_imports(self):
@@ -93,6 +94,15 @@ class RealCollectorNamesTests(unittest.TestCase):
 
 
 class NoNewProviderCallsTests(unittest.TestCase):
+    def test_identity_provenance_requires_full_git_history(self):
+        import yaml
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        checkout = next(
+            step for step in workflow["jobs"]["refresh"]["steps"]
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        )
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
+
     def test_workflow_never_calls_a_provider_or_collector_script_directly(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         for forbidden in ("curl ", "requests.", "collectors/", "krx_r2_openapi", "kraken"):
@@ -101,6 +111,7 @@ class NoNewProviderCallsTests(unittest.TestCase):
     def test_workflow_only_runs_the_pure_computation_script(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         self.assertIn("clock/run_dynamic_clock.py", text)
+        self.assertIn("identity/candidate_identity_observation.py", text)
 
     def test_run_dynamic_clock_module_itself_makes_no_network_calls(self):
         # Static check mirroring the module's own docstring claim: no
@@ -109,6 +120,11 @@ class NoNewProviderCallsTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             for forbidden in ("import requests", "import urllib.request", "import http.client"):
                 self.assertNotIn(forbidden, source, path)
+
+    def test_candidate_identity_observation_makes_no_network_calls(self):
+        source = (ROOT / "identity" / "candidate_identity_observation.py").read_text(encoding="utf-8")
+        for forbidden in ("import requests", "import urllib.request", "import http.client", "curl "):
+            self.assertNotIn(forbidden, source)
 
 
 class IdempotencyTests(unittest.TestCase):
@@ -133,6 +149,14 @@ class AtomicityHardeningTests(unittest.TestCase):
         compute_idx = text.index("clock/run_dynamic_clock.py --decision-date")
         self.assertLess(resync_idx, compute_idx,
                          "the re-sync (git fetch + reset --hard) must happen BEFORE computing, not after")
+
+    def test_identity_observation_is_built_after_clock_and_before_commit(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        clock_idx = text.index("clock/run_dynamic_clock.py --decision-date")
+        identity_idx = text.index("identity/candidate_identity_observation.py", clock_idx)
+        commit_idx = text.index("git add evidence/operational/dynamic_clock")
+        self.assertLess(clock_idx, identity_idx)
+        self.assertLess(identity_idx, commit_idx)
 
     def test_workflow_never_uses_pull_rebase_before_push(self):
         # The exact anti-pattern CIO review round 2 rejected: rebasing onto
