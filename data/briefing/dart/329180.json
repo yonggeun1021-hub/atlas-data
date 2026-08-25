@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-08-24T21:58:18+00:00",
+    "generation_basis_at_utc": "2026-08-25T21:57:34+00:00",
     "generation_contract_version": 1,
-    "generation_id": "677ca4d0068649d69aca45e26ac14240aed5bb8136c758cf540db64ce9565abf"
+    "generation_id": "a2187e62ad9c04bbd5d2be15dc8731f0d92a17c0267347ac7658768fb13dd5fa"
   },
   "market": "DART",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-24T21:58:11+00:00",
-    "collected_for_kst_date": "2026-08-25",
+    "collected_at_utc": "2026-08-25T21:57:27+00:00",
+    "collected_for_kst_date": "2026-08-26",
     "source_file": "data/latest_dart.json",
-    "source_sha256": "e9d655350eaa6935925fdd573d7cfce6023776a000763d1f76d8f9444277cb85"
+    "source_sha256": "cf9e84c349fb5f0d38a6bed7d04d36e76547896eae55016e42455a706a774b4f"
   },
   "stock": {
     "atlas_stage": "Discovery",
@@ -21,35 +21,51 @@
     "name": "HD현대중공업",
     "relevant": [
       {
-        "body_capture_status": "PENDING",
-        "body_captured": false,
+        "body_capture_status": "OK",
+        "body_captured": true,
         "content": {
           "action": "NO_CHANGE",
           "capture_policy": "best_effort",
-          "content_status": "PENDING",
+          "content_status": "OK",
           "discovery_status": "OK",
-          "documents": [],
+          "documents": [
+            {
+              "cache_name": "member-001-b12cc237e9d0dddb.gz",
+              "content_bytes": 7968,
+              "content_sha256": "b12cc237e9d0dddb709d3ae30f8b6b4d54d63ac75d20efd7df20c96029fbfc66",
+              "member_name": "20260824800122.xml",
+              "normalized_text_chars": 1489,
+              "normalized_text_sha256": "671453343b8b197996c17e177a8fa223ff2fcd4611a1d6060c275029e5735c0a",
+              "offset_basis": "normalized_visible_text",
+              "text_status": "OK"
+            }
+          ],
           "evidence_status": "PENDING",
           "extracted": [],
           "extractor_version": "dart_filing_content/1-no-items-ratified",
           "filing_classification": "MATERIAL_RELEVANT_TITLE",
           "interpretation_status": "UNDETERMINED",
-          "operation": "failed",
-          "publication_status": "FAILED",
+          "operation": "captured",
+          "publication_status": "OK",
           "raw_cache_policy": "delete_after_90_days_allowed",
           "reasons": [
-            "DartContentError:MANIFEST_TITLE_INVALID"
+            "ITEM_EXTRACTION_POLICY_UNRATIFIED"
           ],
-          "retrieved_at_utc": "2026-08-24T22:55:41Z",
+          "retrieved_at_utc": "2026-08-25T21:57:46Z",
           "rule_impact": "NONE",
           "source": {
-            "collected_for_kst_date": "2026-08-25",
-            "observed_at_utc": "2026-08-24T22:55:41Z",
-            "run_status": "DEGRADED",
+            "collected_for_kst_date": "2026-08-26",
+            "observed_at_utc": "2026-08-25T21:57:46Z",
+            "run_status": "OK",
             "source_file": "data/latest_dart_content.json",
-            "source_sha256": "30117c681ada999701656359137183b3d488b8a06fe3e7c0127c6c9f7c534507"
+            "source_sha256": "771ad8bc5cf407159eff7ccb4ff1b295da954dcffed9aaa4a3420580b40579cc"
           },
-          "source_archive": null
+          "source_archive": {
+            "content_bytes": 1784,
+            "content_sha256": "ced60979d27b6971dbc2bb20dfd1ecbfec6ff9a98cfd8469e0d0bab949f35225",
+            "rcept_no": "20260824800122",
+            "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260824800122"
+          }
         },
         "date": "20260824",
         "rcept_no": "20260824800122",
