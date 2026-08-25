@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -148,8 +149,11 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
     def setUp(self):
         self.fixture = ConsumerFixture()
         self.contract = CONSUMER._load_contract(self.fixture.root / PUBLISHER.CONTRACT_PATH)
+        self.packet_validation = mock.patch.object(CONSUMER, "_validate_daily_packet")
+        self.packet_validator = self.packet_validation.start()
 
     def tearDown(self):
+        self.packet_validation.stop()
         self.fixture.close()
 
     def consume(self):
@@ -168,6 +172,7 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
             value for key, value in envelope["authority"].items()
             if key != "retrieval_pointer_only"
         ))
+        self.assertEqual(self.packet_validator.call_count, 1)
 
     def test_first_revision_missing_is_fail_closed(self):
         self.fixture.responses.pop(self.fixture.envelope["bootstrap_url"])
@@ -212,6 +217,30 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
         self.fixture.responses[locator_record["immutable_url"]] = (200, raw)
         self.fixture._install_envelope(1, self.fixture.envelope)
         with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, "LOCATOR_ENVELOPE_MISMATCH"):
+            self.consume()
+
+    def test_resigned_index_cannot_redirect_latest_revision(self):
+        envelope = self.fixture.envelope
+        locator = envelope["delivery_locator"]
+        index_record = next(
+            row for row in envelope["delivery_artifacts"]
+            if row["path"] == locator["index_path"]
+        )
+        index = json.loads(self.fixture.responses[index_record["immutable_url"]][1])
+        index["revisions"][-1]["path"] = "rev-999"
+        raw = (json.dumps(index, sort_keys=True) + "\n").encode()
+        digest = hashlib.sha256(raw).hexdigest()
+        locator["index_sha256"] = digest
+        index_record["content_sha256"] = digest
+        index_record["git_blob_sha1"] = CONSUMER._git_blob_sha1(raw)
+        self.fixture.responses[index_record["immutable_url"]] = (200, raw)
+        locator_record = envelope["delivery_artifacts"][0]
+        locator_raw = (json.dumps(locator, sort_keys=True) + "\n").encode()
+        locator_record["content_sha256"] = hashlib.sha256(locator_raw).hexdigest()
+        locator_record["git_blob_sha1"] = CONSUMER._git_blob_sha1(locator_raw)
+        self.fixture.responses[locator_record["immutable_url"]] = (200, locator_raw)
+        self.fixture._install_envelope(1, envelope)
+        with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, "INDEX_OR_REVISION"):
             self.consume()
 
     def test_compact_from_wrong_generation_is_rejected(self):

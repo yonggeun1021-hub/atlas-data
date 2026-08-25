@@ -231,6 +231,33 @@ def _delivery_records(
     }:
         fail("DELIVERY_LOCATOR_AUTHORITY_ESCALATION")
     base = f"evidence/daily_briefing/{slot}/{expected_kst_date}/"
+    expected_index_path = f"evidence/daily_briefing/{slot}/{expected_kst_date}/index.json"
+    if locator.get("index_path") != expected_index_path:
+        fail("DELIVERY_INDEX_PATH_IDENTITY_MISMATCH")
+    index_raw = git_blob(repo_root, source_commit, expected_index_path)
+    index = _json_object(index_raw, "DELIVERY_INDEX_JSON_INVALID")
+    revisions = index.get("revisions")
+    latest = index.get("latest_revision")
+    if (
+        index.get("schema_version") != 1
+        or index.get("slot") != slot
+        or index.get("decision_date") != expected_kst_date
+        or not isinstance(revisions, list)
+        or not revisions
+        or latest != len(revisions)
+        or locator.get("revision") != latest
+    ):
+        fail("DELIVERY_INDEX_IDENTITY_MISMATCH")
+    latest_entry = revisions[-1]
+    revision_name = f"rev-{latest:03d}"
+    if (
+        latest_entry.get("revision") != latest
+        or latest_entry.get("path") != revision_name
+        or latest_entry.get("packet_sha256") != locator.get("packet_sha256")
+        or locator.get("packet_path") != f"evidence/daily_briefing/{slot}/{expected_kst_date}/{revision_name}/packet.json"
+        or locator.get("briefing_path") != f"evidence/daily_briefing/{slot}/{expected_kst_date}/{revision_name}/briefing.md"
+    ):
+        fail("DELIVERY_LATEST_REVISION_IDENTITY_MISMATCH")
     records = [_artifact_record(adapter, source_commit, locator_path, locator_raw)]
     for path_field, hash_field in (
         ("index_path", "index_sha256"),

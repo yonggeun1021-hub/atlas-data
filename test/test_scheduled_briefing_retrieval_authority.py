@@ -162,6 +162,21 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(M.ScheduledAuthorityError, "GIT_READ_FAILED"):
             self.build(commit=self.repo.pre_delivery_commit)
 
+    def test_h24_locator_cannot_redirect_latest_revision_with_matching_files(self):
+        locator_path = self.repo.root / "data/briefing/daily_briefing_sources.json"
+        locator = json.loads(locator_path.read_text())
+        locator["packet_path"] = locator["packet_path"].replace("rev-001", "rev-999")
+        locator["briefing_path"] = locator["briefing_path"].replace("rev-001", "rev-999")
+        for field in ("packet_path", "briefing_path"):
+            source = self.repo.root / locator[field].replace("rev-999", "rev-001")
+            target = self.repo.root / locator[field]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+        write_json(locator_path, locator)
+        commit = self.repo.commit_all("redirected-h24")
+        with self.assertRaisesRegex(M.ScheduledAuthorityError, "LATEST_REVISION_IDENTITY"):
+            self.build(commit=commit)
+
     def test_all_investment_and_trading_authorities_remain_false(self):
         authority = self.build()["authority"]
         self.assertTrue(authority["retrieval_pointer_only"])

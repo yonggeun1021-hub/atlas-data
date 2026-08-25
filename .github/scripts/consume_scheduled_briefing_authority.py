@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import tempfile
+import sys
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -313,6 +314,13 @@ def _git_blob_sha1(raw: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
 
 
+def _validate_daily_packet(packet: dict) -> None:
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from briefing.daily_orchestrator import validate_packet
+    validate_packet(packet)
+
+
 def _fetch_record(record: dict, get, nonce_factory) -> bytes:
     status, raw = get(_with_nonce(record["immutable_url"], nonce_factory()))
     if status != 200:
@@ -343,6 +351,26 @@ def consume(
     locator_raw = raw_by_path[contract["delivery_locator_path"]]
     if _json_object(locator_raw, "DELIVERY_LOCATOR_JSON_INVALID") != envelope["delivery_locator"]:
         fail("DELIVERY_LOCATOR_ENVELOPE_MISMATCH")
+    locator = envelope["delivery_locator"]
+    index = _json_object(raw_by_path[locator["index_path"]], "DELIVERY_INDEX_JSON_INVALID")
+    revisions = index.get("revisions")
+    latest = index.get("latest_revision")
+    revision_name = f"rev-{latest:03d}" if isinstance(latest, int) and not isinstance(latest, bool) else ""
+    if (
+        index.get("schema_version") != 1
+        or index.get("slot") != slot
+        or index.get("decision_date") != expected_date
+        or not isinstance(revisions, list)
+        or not revisions
+        or latest != len(revisions)
+        or locator.get("revision") != latest
+        or revisions[-1].get("revision") != latest
+        or revisions[-1].get("path") != revision_name
+        or revisions[-1].get("packet_sha256") != locator.get("packet_sha256")
+        or locator.get("packet_path") != f"evidence/daily_briefing/{slot}/{expected_date}/{revision_name}/packet.json"
+        or locator.get("briefing_path") != f"evidence/daily_briefing/{slot}/{expected_date}/{revision_name}/briefing.md"
+    ):
+        fail("DELIVERY_INDEX_OR_REVISION_IDENTITY_MISMATCH")
 
     step_path, health_path = [row["path"] for row in envelope["required_artifacts"]]
     step = _json_object(raw_by_path[step_path], "STEP0_JSON_INVALID")
@@ -352,11 +380,12 @@ def consume(
             fail("IMMUTABLE_ARTIFACT_STALE_DATE", name)
         if (value.get("generation") or {}).get("generation_id") != envelope["generation_id"]:
             fail("IMMUTABLE_ARTIFACT_GENERATION_MISMATCH", name)
-    packet = _json_object(raw_by_path[envelope["delivery_locator"]["packet_path"]], "DELIVERY_PACKET_JSON_INVALID")
+    packet = _json_object(raw_by_path[locator["packet_path"]], "DELIVERY_PACKET_JSON_INVALID")
+    _validate_daily_packet(packet)
     if (
         packet.get("slot") != slot
         or packet.get("decision_date") != expected_date
-        or packet.get("packet_sha256") != envelope["delivery_locator"]["packet_sha256"]
+        or packet.get("packet_sha256") != locator["packet_sha256"]
     ):
         fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
 
