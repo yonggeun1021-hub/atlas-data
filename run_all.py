@@ -225,8 +225,11 @@ APPROVED_TESTS = [
     #   as_of/available_at/source SHA를 보존한다. Persisted packet validator가
     #   self-rehashed case/classification/evidence/summary drift를 차단한다.
     #   중요도·해석·Stage 승격은 금지하고 coverage 미비를 그대로 표면화한다.
-    #   ⛔ live network/workflow/tracked case 없음 — synthetic D1 + temp output only.
+    #   P3-08 population은 이미 커밋된 D1+filing-content bytes만 재사용하며
+    #   content-addressed append-only packet과 daily briefing 실제 소비를 검증한다.
+    #   live network나 importance/promotion 정책은 추가하지 않는다.
     "test/test_event_discovery_case.py",
+    "test/test_event_discovery_population.py",
     # ★ P3-09 — policy-gated market-specific supply/demand raw-feature radar.
     #   exact 3-point evidence의 prior/latest/acceleration change만 계산하고,
     #   persisted validator가 arithmetic/lineage/policy/case의 self-rehashed drift를
