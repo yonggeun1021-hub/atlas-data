@@ -72,6 +72,8 @@ jobs:
             test/test_dynamic_clock_pit_tier_invariant.py \
             test/test_price_reflection_link.py \
             test/test_dynamic_clock_orchestrator_defects.py \
+            test/test_dynamic_clock_time_precision.py \
+            test/test_candidate_validity_shadow_observation.py \
             test/test_dynamic_clock_identity_lineage.py
           do
             python3 "$test_file"
@@ -97,7 +99,8 @@ jobs:
       - name: Recompute Dynamic Clock from currently-committed evidence
         env:
           DECISION_DATE: ${{ steps.decision_date.outputs.value }}
-        run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE"
+          OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
+        run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE" --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
       # ★ Independent verification (item 6): read the REAL per-market
       #   evidence_as_of dates the computation above actually used, from
       #   the freshly-written report itself -- never inferred from
