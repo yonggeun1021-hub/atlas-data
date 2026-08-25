@@ -27,16 +27,21 @@ class FreeMarketDataTests(unittest.TestCase):
         now = dt.datetime(2026, 8, 22, 1, 2, 3, tzinfo=dt.timezone.utc)
         fred_raw = json.dumps({"observations":[{"date":"2026-08-21","value":"15.5","realtime_start":"2026-08-22","realtime_end":"2026-08-22"}]}).encode()
         alpaca_raw = json.dumps({"bars":{"MSFT":{"c":500.1,"v":1200,"t":"2026-08-21T19:59:00Z"}}}).encode()
+        daily_raw = json.dumps({"bars":[{"o":498.0,"h":502.0,"l":497.0,"c":500.1,"v":1200,"t":"2026-08-21T00:00:00Z"}]}).encode()
         fred_got, fred = M.fetch_fred("x", now, getter=lambda *_: fred_raw)
         alpaca_got, bars = M.fetch_alpaca("k", "s", ["MSFT"], getter=lambda *_: alpaca_raw)
-        packet = M.build_capture(now, fred_got, fred, alpaca_got, bars, M.load_contract())
+        daily_got, daily_bars = M.fetch_alpaca_daily_bars("k", "s", ["MSFT"], now, getter=lambda *_: daily_raw)
+        packet = M.build_capture(now, fred_got, fred, alpaca_got, bars, daily_got, daily_bars, M.load_contract())
         self.assertEqual(packet["fred"]["raw_sha256"], M.sha256_bytes(fred_raw))
         self.assertEqual(packet["alpaca"]["source_scope"], "IEX_ONLY_PARTIAL_US_MARKET")
         self.assertFalse(packet["authority"]["entry_authorized"])
+        self.assertEqual(packet["alpaca"]["daily_timeframe"], "1Day")
+        self.assertEqual(packet["alpaca"]["daily_bars"][0]["symbol"], "MSFT")
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp); M.publish(root, now, fred_raw, alpaca_raw, packet)
+            root=Path(tmp); M.publish(root, now, fred_raw, alpaca_raw, daily_got, packet)
             self.assertTrue((root/"data/latest_free_market_data.json").exists())
             self.assertTrue((root/"evidence/free_market_data/raw/2026-08-22/manifest.json").exists())
+            self.assertTrue((root/"evidence/free_market_data/raw/2026-08-22/alpaca_iex_daily_bars.json.gz").exists())
 
     def test_missing_or_malformed_provider_data_fails_closed(self):
         now = dt.datetime(2026, 8, 22, tzinfo=dt.timezone.utc)
