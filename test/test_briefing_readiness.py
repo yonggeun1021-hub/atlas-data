@@ -372,6 +372,25 @@ class BriefingReadinessTest(unittest.TestCase):
         self.assertIn("read_model:krx:source_sha_mismatch", result["reasons"])
         self.assertIn("read_model:generation_id_mismatch", result["reasons"])
 
+    def test_optional_source_byte_change_breaks_generation_binding(self):
+        optional_path = self.data / "latest_sec_content.json"
+        # The read model was built with this optional source absent. Adding
+        # a same-date source afterward must change the independently derived
+        # generation facts even if Step-0 continues to claim the old state.
+        optional_path.write_text(json.dumps({
+            "collected_for_kst_date": self.today,
+            "run_status": "OK",
+            "p0_05_generation_probe": "added-without-rebuild",
+        }), encoding="utf-8")
+
+        result = self.evaluate()
+
+        self.assertEqual(
+            result["classification"], "data_ready_read_model_degraded"
+        )
+        self.assertIn("read_model:generation_id_mismatch", result["reasons"])
+        self.assertIn("health:generation_id_mismatch", result["reasons"])
+
     def test_self_consistent_old_generation_is_stale_not_ready(self):
         # Generation consistency != freshness. Every file on disk agrees
         # with every other file -- but they all agree on YESTERDAY's

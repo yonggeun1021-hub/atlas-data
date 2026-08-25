@@ -43,12 +43,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 GENERATION_CONTRACT_VERSION = 1
 BUILDER_CONTRACT_VERSION = 1
 COMPACT_SCHEMA_VERSIONS = {"krx": 2, "dart": 2, "sec": 2}
 REQUIRED_SOURCES = ("krx", "dart", "sec")
 OPTIONAL_SOURCES = ("dart_content", "sec_content")
+OPTIONAL_SOURCE_PATHS = {
+    "dart_content": "latest_dart_content.json",
+    "sec_content": "latest_sec_content.json",
+}
 
 
 def canonical_json(value) -> str:
@@ -92,6 +97,41 @@ def build_manifest(expected_date, source_hashes, optional_evidence):
 
 def generation_id_for(manifest) -> str:
     return sha256_hex(canonical_json(manifest))
+
+
+def optional_source_facts(data_root, expected_date):
+    """Independently derive optional-input generation facts from bytes.
+
+    The domain-specific compact builder may classify malformed business
+    content more finely. Generation identity only needs a deterministic
+    byte/date/run-status fact and must never copy Step-0's own declaration.
+    """
+    result = {}
+    for name in OPTIONAL_SOURCES:
+        path = Path(data_root) / OPTIONAL_SOURCE_PATHS[name]
+        if not path.exists():
+            result[name] = {"status": "missing", "source_sha256": None}
+            continue
+        try:
+            raw = path.read_bytes()
+            value = json.loads(raw)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            result[name] = {"status": "invalid", "source_sha256": None}
+            continue
+        digest = hashlib.sha256(raw).hexdigest()
+        if not isinstance(value, dict):
+            result[name] = {"status": "invalid", "source_sha256": digest}
+            continue
+        if value.get("collected_for_kst_date") != expected_date:
+            status = "stale"
+        elif value.get("run_status") == "OK":
+            status = "available"
+        elif value.get("run_status") == "DEGRADED":
+            status = "degraded"
+        else:
+            status = "failed"
+        result[name] = {"status": status, "source_sha256": digest}
+    return result
 
 
 def basis_at_utc(source_objs):

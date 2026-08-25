@@ -246,14 +246,10 @@ def validate_read_model(data_root, expected_date, sources, hashes):
     # P0-05A -- independently recompute the generation manifest from this
     # gate's own re-read of the raw collector files (`hashes`, already
     # loaded above from data/latest_*.json, never from step0's claims)
-    # plus expected_date. optional_evidence is the one input taken from
-    # step0's own declaration (dart_content/sec_content classification is
-    # supplementary, non-gating evidence) -- everything else here is fully
-    # independent, so this is never just an echo of what step0 already
-    # says about itself.
-    optional_evidence = (
-        step0.get("optional_evidence") if isinstance(step0, dict) else None
-    ) or {}
+    # plus expected_date. Optional evidence facts are also re-derived from
+    # their actual bytes; Step-0's own declaration is never an input to its
+    # generation-id verification.
+    optional_evidence = GEN.optional_source_facts(data_root, expected_date)
     recomputed_manifest = GEN.build_manifest(
         expected_date, hashes, optional_evidence
     )
