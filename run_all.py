@@ -77,6 +77,11 @@ APPROVED_TESTS = [
     #   고정해 mutable tag와 Node 20 deprecation을 제거한다. workflow 권한·
     #   trigger·run 내용은 불변이다.
     "test/test_github_actions_runtime.py",
+    # ★ Session continuity contract — every new agent/session must re-read
+    #   live Notion, both repository heads/open PRs, scheduled obligations,
+    #   authority boundaries, and the three-layer trading-service sequence.
+    #   This prevents chat memory from becoming a shadow source of truth.
+    "test/test_session_bootstrap_contract.py",
     # ★ 운영 검증 전수 inventory — 진행중/외부대기/보류 WBS 22건을
     #   server-side schedule / upstream schedule / human gate / policy blocker로
     #   분류한다. 자동 실행 가능한 코드가 예약 없이 남거나, 미비준 정책을
