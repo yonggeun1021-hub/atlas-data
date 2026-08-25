@@ -1817,28 +1817,29 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertNotIn("skipped_existing", command)
         self.assertIn("no_new_revision", command)
         self.assertIn('CREATED=$(echo "$OUTPUT" | sed -n \'s/^created=//p\')', command)
-        self.assertIn('if [ "$CREATED" = "true" ]; then', command)
+        self.assertIn('for ATTEMPT in 1 2; do', command)
+        self.assertIn('git reset --hard "origin/$DEFAULT_BRANCH"', command)
+        self.assertIn('if [ "$CREATED" != "true" ]', command)
         self.assertIn("GITHUB_STEP_SUMMARY", command)
         self.assertLess(steps.index(regression), steps.index(publish))
-        commit = next(
-            step for step in steps if step.get("name") == "Commit immutable daily briefing bundle"
-        )
-        self.assertEqual(
-            commit.get("if"),
-            "steps.briefing.outputs.result == 'published' || "
-            "steps.briefing.outputs.locator_changed == 'true' || "
-            "steps.briefing.outputs.authority_changed == 'true'",
+        # Commit lives in the publish step so a rejected push can discard
+        # the entire attempt and regenerate the immutable pointer from a
+        # fresh main, never rebasing a pointer built from stale bytes.
+        self.assertNotIn(
+            "Commit immutable daily briefing bundle",
+            [step.get("name") for step in steps],
         )
         # The whole decision_date directory must be staged, not just the
         # new rev-NNN/ subdirectory, so the sibling index.json (rewritten
         # on every new revision) is committed alongside it.
-        self.assertIn('git add "$(dirname "$CAPTURE_PATH")"', commit["run"])
+        self.assertIn('git add "$(dirname "$CAPTURE_PATH")"', command)
         self.assertIn(
-            "git add data/briefing/daily_briefing_sources.json", commit["run"]
+            "git add data/briefing/daily_briefing_sources.json", command
         )
-        self.assertIn('git add "$AUTHORITY_PATH"', commit["run"])
-        self.assertNotIn("git pull --rebase", commit["run"])
-        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH" || {', commit["run"])
+        self.assertIn('git add "$AUTHORITY_PATH"', command)
+        self.assertNotIn("git pull --rebase", command)
+        self.assertIn('if git push origin "HEAD:$DEFAULT_BRANCH"; then', command)
+        self.assertIn("main advanced twice; no pointer was published", command)
 
         resync = next(
             step for step in steps

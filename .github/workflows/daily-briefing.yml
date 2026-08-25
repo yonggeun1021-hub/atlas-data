@@ -52,6 +52,7 @@ jobs:
         env:
           DISPATCH_SLOT: ${{ inputs.slot }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           SLOT="$DISPATCH_SLOT"
@@ -74,71 +75,98 @@ jobs:
             *) echo "STOP: unsupported slot" >&2; exit 2 ;;
           esac
           DECISION_DATE=$(TZ=Asia/Seoul date +%F)
-          GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          SOURCE_COMMIT=$(git rev-parse HEAD)
+          # Another collector may advance main while this bundle is being
+          # generated.  A pointer must never be rebased: discard the whole
+          # attempt and rebuild it once from the new immutable source instead.
+          for ATTEMPT in 1 2; do
+            if [ "$ATTEMPT" -gt 1 ]; then
+              git fetch origin "$DEFAULT_BRANCH"
+              git reset --hard "origin/$DEFAULT_BRANCH"
+            fi
+            GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            SOURCE_COMMIT=$(git rev-parse HEAD)
+
+            # Always call publish -- it is the one that decides, from real
+            # evidence, whether anything changed since the last revision for
+            # this (slot, decision_date). A prior run may have published a
+            # revision with several components DATA_BLOCKED because their
+            # capture had not landed yet; this call re-aggregates from
+            # whatever now exists and adds a new revision only if that
+            # materially changed something (same-day recovery), otherwise it
+            # is a safe no-op.
+            OUTPUT=$(python3 briefing/daily_orchestrator.py publish \
+              --slot "$SLOT" \
+              --decision-date "$DECISION_DATE" \
+              --generated-at "$GENERATED_AT")
+            echo "$OUTPUT"
+            CAPTURE_PATH=$(echo "$OUTPUT" | sed -n 's/^path=//p')
+            CREATED=$(echo "$OUTPUT" | sed -n 's/^created=//p')
+
+            python3 briefing/daily_orchestrator.py validate "$CAPTURE_PATH/packet.json"
+            LOCATOR_OUTPUT=$(python3 .github/scripts/daily_briefing_delivery.py publish-locator \
+              --slot "$SLOT" \
+              --decision-date "$DECISION_DATE")
+            echo "$LOCATOR_OUTPUT"
+            LOCATOR_CHANGED=$(echo "$LOCATOR_OUTPUT" | sed -n 's/^locator_changed=//p')
+
+            # Consume exactly what the locator names. This is the H-24
+            # producer -> locator -> consumer delivery proof; no directory
+            # scan, prior-date fallback, or alternate-slot guess is allowed.
+            python3 .github/scripts/daily_briefing_delivery.py consume \
+              --slot "$SLOT" \
+              --decision-date "$DECISION_DATE" \
+              > /tmp/investment-review-delivery.md
+
+            # P0-06: publish only the missing immutable-commit pointer for
+            # the scheduled human consumer. Every artifact URL is pinned to
+            # the source commit of this specific attempt.
+            AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
+              --slot "$SLOT" \
+              --expected-kst-date "$DECISION_DATE" \
+              --source-commit "$SOURCE_COMMIT")
+            echo "$AUTHORITY_OUTPUT"
+            AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
+            AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
+            python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
+              --slot "$SLOT" \
+              --expected-kst-date "$DECISION_DATE" \
+              --source-commit "$SOURCE_COMMIT" \
+              --authority-path "$AUTHORITY_PATH"
+
+            if [ "$CREATED" != "true" ] && [ "$LOCATOR_CHANGED" != "true" ] && [ "$AUTHORITY_CHANGED" != "true" ]; then
+              RESULT=no_new_revision
+              break
+            fi
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$(dirname "$CAPTURE_PATH")"
+            git add data/briefing/daily_briefing_sources.json
+            git add "$AUTHORITY_PATH"
+            git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              test -z "$(git status --porcelain)" || {
+                echo "STOP: uncommitted output remained after daily briefing commit" >&2
+                exit 1
+              }
+              RESULT=published
+              break
+            fi
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "STOP: main advanced twice; no pointer was published" >&2
+              exit 1
+            fi
+            echo "main advanced while the pointer was bound; rebuilding once from latest main" >&2
+          done
+
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
           echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
           echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
-
-          # Always call publish -- it is the one that decides, from real
-          # evidence, whether anything changed since the last revision for
-          # this (slot, decision_date). A prior run may have published a
-          # revision with several components DATA_BLOCKED because their
-          # capture had not landed yet; this call re-aggregates from
-          # whatever now exists and adds a new revision only if that
-          # materially changed something (same-day recovery), otherwise it
-          # is a safe no-op.
-          OUTPUT=$(python3 briefing/daily_orchestrator.py publish \
-            --slot "$SLOT" \
-            --decision-date "$DECISION_DATE" \
-            --generated-at "$GENERATED_AT")
-          echo "$OUTPUT"
-          CAPTURE_PATH=$(echo "$OUTPUT" | sed -n 's/^path=//p')
-          CREATED=$(echo "$OUTPUT" | sed -n 's/^created=//p')
           echo "capture_path=$CAPTURE_PATH" >> "$GITHUB_OUTPUT"
-
-          python3 briefing/daily_orchestrator.py validate "$CAPTURE_PATH/packet.json"
-          LOCATOR_OUTPUT=$(python3 .github/scripts/daily_briefing_delivery.py publish-locator \
-            --slot "$SLOT" \
-            --decision-date "$DECISION_DATE")
-          echo "$LOCATOR_OUTPUT"
-          LOCATOR_CHANGED=$(echo "$LOCATOR_OUTPUT" | sed -n 's/^locator_changed=//p')
           echo "locator_changed=$LOCATOR_CHANGED" >> "$GITHUB_OUTPUT"
-
-          # Consume exactly what the locator names. This is the H-24
-          # producer -> locator -> consumer delivery proof; no directory
-          # scan, prior-date fallback, or alternate-slot guess is allowed.
-          python3 .github/scripts/daily_briefing_delivery.py consume \
-            --slot "$SLOT" \
-            --decision-date "$DECISION_DATE" \
-            > /tmp/investment-review-delivery.md
-
-          # P0-06: publish only the missing immutable-commit pointer for the
-          # scheduled human consumer.  The main URL is permitted for this
-          # unique date/slot/revision bootstrap only; every artifact URL in
-          # the envelope is pinned to SOURCE_COMMIT.  Same-day recovery adds
-          # a new append-only revision and never overwrites an older pointer.
-          AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
-            --slot "$SLOT" \
-            --expected-kst-date "$DECISION_DATE" \
-            --source-commit "$SOURCE_COMMIT")
-          echo "$AUTHORITY_OUTPUT"
-          AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
-          AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
-          python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
-            --slot "$SLOT" \
-            --expected-kst-date "$DECISION_DATE" \
-            --source-commit "$SOURCE_COMMIT" \
-            --authority-path "$AUTHORITY_PATH"
           echo "authority_path=$AUTHORITY_PATH" >> "$GITHUB_OUTPUT"
           echo "authority_changed=$AUTHORITY_CHANGED" >> "$GITHUB_OUTPUT"
-
-          if [ "$CREATED" = "true" ]; then
-            echo "result=published" >> "$GITHUB_OUTPUT"
-          else
-            echo "이미 최신 상태와 동일한 $SLOT/$DECISION_DATE revision이 있어 재발행하지 않습니다: $CAPTURE_PATH" >&2
-            echo "result=no_new_revision" >> "$GITHUB_OUTPUT"
-          fi
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
 
           # Storage (this workflow committing evidence/daily_briefing/...)
           # is not the same thing as delivery to a person. Publishing the
@@ -157,29 +185,3 @@ jobs:
             echo
             cat /tmp/investment-review-delivery.md
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Commit immutable daily briefing bundle
-        if: steps.briefing.outputs.result == 'published' || steps.briefing.outputs.locator_changed == 'true' || steps.briefing.outputs.authority_changed == 'true'
-        env:
-          CAPTURE_PATH: ${{ steps.briefing.outputs.capture_path }}
-          AUTHORITY_PATH: ${{ steps.briefing.outputs.authority_path }}
-          SLOT: ${{ steps.briefing.outputs.slot }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Stage the whole decision_date directory, not just the new
-          # rev-NNN/ subdirectory: index.json (the deterministic pointer to
-          # the latest revision) lives beside it as a sibling and is
-          # rewritten on every new revision.
-          git add "$(dirname "$CAPTURE_PATH")"
-          git add data/briefing/daily_briefing_sources.json
-          git add "$AUTHORITY_PATH"
-          git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
-          git push origin "HEAD:$DEFAULT_BRANCH" || {
-            echo "STOP: main advanced after retrieval authority was bound; refusing to rebase or force-push a stale pointer" >&2
-            exit 1
-          }
-          test -z "$(git status --porcelain)" || {
-            echo "STOP: uncommitted output remained after daily briefing commit" >&2
-            exit 1
-          }
