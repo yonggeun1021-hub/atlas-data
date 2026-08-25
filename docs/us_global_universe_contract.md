@@ -1,9 +1,9 @@
 # US Forward Source-Coverage Universe Contract (P3-02)
 
 Status: exact-byte Nasdaq Trader directory to P3-01 Global Asset Master adapter
-implemented. Listing, delisting, security-type, liquidity, tradability,
-investability, source hierarchy, historical reconstruction, and live Master
-population remain unratified, unavailable, or unimplemented.
+and scheduled source-coverage population implemented. Listing, delisting,
+security-type, liquidity, tradability, investability, source hierarchy, and
+historical reconstruction remain unratified or unavailable.
 
 ## Purpose and approved input
 
@@ -78,6 +78,24 @@ reconstruction, Stage promotion, Production, trading, and paid-data acquisition
 authorities are all false. Every P3-01 output record remains
 `universe_approved = false` and `investable_eligible = false`.
 
+## Scheduled population state
+
+`.github/scripts/us_forward_universe_populate.py` revalidates an already
+committed P1-US-04 archive and publishes a content-addressed, append-only
+population record. Population record v2 separates two scopes that the original
+v1 record conflated:
+
+- the nested `us_global_universe_packet/1` keeps the adapter's static capability
+  boundary, including `SCHEDULED_MASTER_POPULATION_NOT_IMPLEMENTED`; and
+- the outer `population_execution` is authoritative for the actual population
+  run, marks that one static boundary resolved, and exposes the remaining
+  effective unresolved boundaries.
+
+Existing v1 population artifacts are immutable. A same-date retry rebuilds and
+verifies them under v1 without rewriting or silently migrating them. Only new
+dates use v2. Neither version authorizes investability, Stage, Production, or
+trading.
+
 ## Offline command
 
 ```bash
@@ -85,6 +103,7 @@ python3 universe/us_global_universe.py /tmp/us-global-universe-input.json \
   --out /tmp/us-global-universe.json
 ```
 
-The output is written atomically only to the requested path. No workflow,
-tracked Master, provider request, default eligibility policy, or trading path is
-added by this capability.
+The adapter output is written atomically only to the requested path. The
+population workflow adds no provider request, default eligibility policy, or
+trading path; it only reuses the existing P1-US-04 schedule and committed raw
+archive.
