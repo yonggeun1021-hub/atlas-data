@@ -495,9 +495,85 @@ def _parse_timestamp(value: str, *, field: str) -> dt.datetime:
     return parsed.astimezone(dt.timezone.utc)
 
 
+def _operational_evaluation_context(
+    decision_at: str | None,
+    operational_evaluated_at: str | None,
+) -> dict:
+    """Build one truthful run-time evaluation context.
+
+    This timestamp means only "the operational process evaluated this
+    candidate at this instant".  It is never substituted for the historical
+    date-only trigger/decision fields and therefore cannot upgrade aggregate
+    candidate precision or freshness authority.
+    """
+    if operational_evaluated_at is None:
+        return {
+            "status": "NOT_AVAILABLE_ARTIFACT_REPRODUCTION",
+            "evaluated_at_utc": None,
+            "time_precision": "NOT_AVAILABLE",
+        }
+    if decision_at is None:
+        raise ReviewCandidateError("OPERATIONAL_EVALUATION_REQUIRES_DECISION_AT")
+    evaluated = _parse_timestamp(
+        operational_evaluated_at, field="OPERATIONAL_EVALUATED_AT"
+    )
+    canonical = evaluated.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if canonical != operational_evaluated_at:
+        raise ReviewCandidateError("OPERATIONAL_EVALUATED_AT_MUST_BE_CANONICAL_UTC_SECONDS")
+    try:
+        decision_date = dt.date.fromisoformat(decision_at)
+    except (TypeError, ValueError) as exc:
+        raise ReviewCandidateError(f"DECISION_AT_DATE_INVALID:{decision_at!r}") from exc
+    # The workflow's operational decision_date is explicitly KST.  Derive
+    # it from the same supplied instant (Korea has no DST) rather than
+    # comparing unrelated wall-clock calls.
+    evaluated_kst_date = (evaluated + dt.timedelta(hours=9)).date()
+    if evaluated_kst_date != decision_date:
+        raise ReviewCandidateError(
+            "OPERATIONAL_EVALUATED_AT_KST_DATE_MISMATCH:"
+            f"evaluated_kst_date={evaluated_kst_date}:decision_at={decision_at}"
+        )
+    return {
+        "status": "EXACT_CALLER_SUPPLIED_OPERATIONAL_RUN_TIMESTAMP",
+        "evaluated_at_utc": canonical,
+        "time_precision": "TIMESTAMP",
+    }
+
+
+def _validate_operational_evaluation_context(
+    context: object,
+    *,
+    decision_at: str | None,
+    first_evidence_captured_at: str | None,
+    evidence_captured_at: str | None,
+    price_as_of: str | None,
+) -> None:
+    if not isinstance(context, dict) or set(context) != {
+        "status", "evaluated_at_utc", "time_precision"
+    }:
+        raise ReviewCandidateError("OPERATIONAL_EVALUATION_CONTEXT_SCHEMA_INVALID")
+    expected = _operational_evaluation_context(
+        decision_at, context.get("evaluated_at_utc")
+    )
+    if context != expected:
+        raise ReviewCandidateError("OPERATIONAL_EVALUATION_CONTEXT_MISMATCH")
+    evaluated_at = context["evaluated_at_utc"]
+    if evaluated_at is None:
+        return
+    evaluated = _parse_timestamp(evaluated_at, field="OPERATIONAL_EVALUATED_AT")
+    for field, value in (
+        ("FIRST_EVIDENCE_CAPTURED_AT", first_evidence_captured_at),
+        ("EVIDENCE_CAPTURED_AT", evidence_captured_at),
+        ("PRICE_AS_OF", price_as_of if price_as_of not in (None, "UNKNOWN") else None),
+    ):
+        if value is not None and _parse_timestamp(value, field=field) > evaluated:
+            raise ReviewCandidateError(f"{field}_AFTER_OPERATIONAL_EVALUATED_AT")
+
+
 def _timing_precision_contract(*, first_evidence_captured_at: str | None,
                                evidence_captured_at: str | None,
-                               price_as_of: str | None) -> dict:
+                               price_as_of: str | None,
+                               operational_evaluated_at: str | None = None) -> dict:
     return {
         "evidence_as_of": "DATE_ONLY",
         "first_evidence_captured_at": "TIMESTAMP" if first_evidence_captured_at else "NOT_AVAILABLE",
@@ -507,15 +583,27 @@ def _timing_precision_contract(*, first_evidence_captured_at: str | None,
         "price_as_of": "TIMESTAMP" if price_as_of not in (None, "UNKNOWN") else "NOT_AVAILABLE",
         "candidate_created_at": "DATE_ONLY",
         "candidate_updated_at": "DATE_ONLY",
+        "operational_evaluated_at": (
+            "TIMESTAMP" if operational_evaluated_at else "NOT_AVAILABLE"
+        ),
     }
 
 
 def _validate_timing_precision_contract(record: dict) -> None:
+    legacy_without_operational_evaluation = "operational_evaluation" not in record
     expected = _timing_precision_contract(
         first_evidence_captured_at=record.get("first_evidence_captured_at"),
         evidence_captured_at=record.get("evidence_captured_at"),
         price_as_of=record.get("price_as_of"),
+        operational_evaluated_at=(record.get("operational_evaluation") or {}).get(
+            "evaluated_at_utc"
+        ),
     )
+    if legacy_without_operational_evaluation:
+        # Historical candidate-validity v2 source reports predate the
+        # operational-evaluation contract.  Preserve their independent
+        # revalidation without backfilling a timestamp that did not exist.
+        expected.pop("operational_evaluated_at")
     if record.get("timing_precision") != expected:
         raise ReviewCandidateError("TIMING_PRECISION_CONTRACT_MISMATCH")
     expected_capture_precision = "TIMESTAMP" if record.get("evidence_captured_at") else "NOT_AVAILABLE"
@@ -551,6 +639,14 @@ def _validate_timing_precision_contract(record: dict) -> None:
         priced = _parse_timestamp(price_as_of, field="PRICE_AS_OF")
         if priced.date() > decision_date:
             raise ReviewCandidateError("PRICE_AS_OF_AFTER_DATE_ONLY_DECISION_AT")
+    if not legacy_without_operational_evaluation:
+        _validate_operational_evaluation_context(
+            record.get("operational_evaluation"),
+            decision_at=decision_at,
+            first_evidence_captured_at=first_captured_at,
+            evidence_captured_at=captured_at,
+            price_as_of=price_as_of,
+        )
 
 
 def build_subject_review_candidate(
@@ -558,6 +654,7 @@ def build_subject_review_candidate(
     pit_eligibility_status: str,
     decision_at: str,
     price_reflection_status: dict | None = None,
+    operational_evaluated_at: str | None = None,
 ) -> dict:
     """Consolidates every currently-ACTIVE episode for one subject (across
     all its trigger types) into ONE Human Review Candidate record. This is
@@ -633,7 +730,18 @@ def build_subject_review_candidate(
     )
     timing_precision = _timing_precision_contract(
         first_evidence_captured_at=first_evidence_captured_at,
-        evidence_captured_at=evidence_captured_at, price_as_of=price_as_of
+        evidence_captured_at=evidence_captured_at, price_as_of=price_as_of,
+        operational_evaluated_at=operational_evaluated_at,
+    )
+    operational_evaluation = _operational_evaluation_context(
+        decision_at, operational_evaluated_at
+    )
+    _validate_operational_evaluation_context(
+        operational_evaluation,
+        decision_at=decision_at,
+        first_evidence_captured_at=first_evidence_captured_at,
+        evidence_captured_at=evidence_captured_at,
+        price_as_of=price_as_of,
     )
 
     record = {
@@ -672,6 +780,7 @@ def build_subject_review_candidate(
         "candidate_updated_at": candidate_updated_at,
         "time_precision": "DATE_ONLY",
         "timing_precision": timing_precision,
+        "operational_evaluation": operational_evaluation,
         "source_identity_lineage": _source_identity_lineage(active_episodes),
     }
     record["record_hash"] = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})

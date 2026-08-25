@@ -352,6 +352,23 @@ precision, supplies a future capture date, or supplies a timezone-naive
 timestamp. Candidate validity policy remains `UNRATIFIED`; this slice only
 preserves real arrival-time evidence needed for later shadow observation.
 
+### Exact operational evaluation timestamp (current-run fact only)
+
+The operational workflow supplies `--evaluation-at-utc` using the same epoch
+from which it derives the KST `decision_date`. The resulting
+`operational_evaluation.evaluated_at_utc` is carried at report, market, and
+candidate levels and independently revalidated. It is a truthful timestamp of
+the current computation, not a reconstruction of when an older date-only
+trigger first fired.
+
+The contract therefore keeps `trigger_observed_at`, `decision_at`, creation,
+and update fields at `DATE_ONLY`; exact operational evaluation never changes a
+tier, authority, or top-level precision. Historical replay rejects the field,
+artifact reproduction emits an explicit `NOT_AVAILABLE` context, and an
+evidence or price timestamp after the supplied evaluation instant fails
+closed. This starts collecting exact forward operational evaluation samples
+without backdating legacy candidates or opening candidate validity.
+
 All 4 defects' regressions live together in
 `test/test_dynamic_clock_orchestrator_defects.py` (registered in
 `run_all.py`'s `APPROVED_TESTS` and the workflow's offline regression

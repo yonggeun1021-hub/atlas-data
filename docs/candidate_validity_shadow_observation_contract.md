@@ -6,7 +6,7 @@ This artifact accumulates real Dynamic Clock candidate timing samples before
 any candidate-validity window is ratified. It is an observation mechanism,
 not an investment rule.
 
-- Contract: `candidate_validity_shadow_observation/2`
+- Current contract: `candidate_validity_shadow_observation/3`
 - Mode: `PROVISIONAL_SHADOW_OBSERVATION_ONLY`
 - Validity policy: `UNRATIFIED_NO_CANDIDATE_VALIDITY_WINDOW_AUTHORITY`
 - Candidate outcome: always
@@ -35,6 +35,35 @@ observer exposes both:
 
 These are diagnostic facts, not freshness approval.
 
+### Exact operational evaluation time in `/3`
+
+The main operational workflow derives one UTC-second timestamp and its KST
+`decision_date` from the same epoch. The exact instant is supplied to the
+Python process as `--evaluation-at-utc`; the Python modules never read a wall
+clock. It is retained at report, market, candidate, and shadow-observation
+levels as `operational_evaluation`.
+
+This timestamp means only that the current process evaluated the candidate at
+that instant. It is not the historical time at which a date-only trigger first
+became observable. Accordingly, `trigger_observed_at`, `decision_at`,
+`candidate_created_at`, and `candidate_updated_at` remain `DATE_ONLY`, the
+aggregate remains `time_precision=DATE_ONLY`, and freshness remains
+`NOT_COMPUTABLE_CANDIDATE_FRESHNESS_UNRATIFIED`.
+
+The validator rejects timezone-naive/noncanonical values, a timestamp whose
+KST date differs from `decision_at`, and any evidence/price timestamp later
+than the operational evaluation instant. Historical replay may not accept a
+current operational evaluation timestamp.
+
+Each `/3` observation also records
+`source_dynamic_clock.evaluation_invariant_report_sha256`. It binds the full
+source semantics after removing only the current-run evaluation context and
+the hashes/precision member derived from it. Natural-sample accounting must
+deduplicate on this value rather than `report_sha256`: two evaluations of
+unchanged evidence remain separate operational records but only one evidence
+basis. This prevents workflow retries or repeated manual dispatches from
+inflating the validity-window sample population.
+
 ## Review schedule versus candidate validity
 
 The existing Dynamic Clock expiry is a provisional engineering re-review
@@ -56,7 +85,7 @@ still only `PROVISIONAL_SHADOW_SAMPLE_ONLY`; it does not self-ratify a rule.
 
 ## Persistence
 
-The v2 contract persists two append-only, content-addressed files:
+The `/2` and `/3` contracts persist two append-only, content-addressed files:
 
 `evidence/operational/dynamic_clock/candidate_validity_observations/<decision-date>/observation-<observation-sha256>.json`
 
@@ -90,6 +119,11 @@ append-only historical records. They are not rewritten or deleted, but they
 do not claim the self-contained source-retention guarantee introduced in
 `/2`. The first `/2` operational run starts the independently rebuildable
 series.
+
+Existing `/2` sources remain independently revalidatable without invented
+timestamps. A retained source that predates the new report field continues to
+rebuild as `/2`; a new source that explicitly carries the evaluation context
+rebuilds as `/3`. No historical source is upgraded or backfilled.
 
 ## Exit boundary
 

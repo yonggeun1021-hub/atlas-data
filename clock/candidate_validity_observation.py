@@ -10,11 +10,16 @@ The observation is deliberately derived only from an already-built Dynamic
 Clock report.  It makes no provider call, reads no future price outcome, and
 uses no wall clock.  The report's own decision date is the observation date.
 Each persisted observation and its exact source report are content-addressed,
-so repeated identical runs are byte-identical no-ops and distinct same-day
-runs cannot overwrite one another.  Retaining the canonical source bytes is
-part of the contract: the rolling ``dynamic_clock_report.json`` may be
-replaced by a later run, but an older observation must remain independently
-rebuildable without searching git history.
+so an identical complete run is a byte-identical no-op and distinct same-day
+evaluations cannot overwrite one another.  Because an exact operational
+evaluation timestamp intentionally makes each real evaluation distinct, the
+v3 observation also carries an evaluation-invariant source hash.  Sample
+counting must use that invariant hash, not the exact report hash, so repeatedly
+evaluating unchanged evidence cannot inflate the evidence population.
+Retaining the canonical source bytes is part of the contract: the rolling
+``dynamic_clock_report.json`` may be replaced by a later run, but an older
+observation must remain independently rebuildable without searching git
+history.
 """
 from __future__ import annotations
 
@@ -26,15 +31,22 @@ from pathlib import Path
 from replay.opportunity_trigger import canonical_json, payload_sha256
 
 from clock import dynamic_clock as dc
-from clock.review_candidate import AUTHORITY_ALL_FALSE, validate_review_candidate
+from clock.review_candidate import (
+    AUTHORITY_ALL_FALSE,
+    _operational_evaluation_context,
+    validate_review_candidate,
+)
 
 
-CONTRACT_VERSION = "candidate_validity_shadow_observation/2"
+CONTRACT_VERSION = "candidate_validity_shadow_observation/3"
+LEGACY_CONTRACT_VERSION = "candidate_validity_shadow_observation/2"
 OBSERVATION_MODE = "PROVISIONAL_SHADOW_OBSERVATION_ONLY"
 VALIDITY_POLICY_STATUS = "UNRATIFIED_NO_CANDIDATE_VALIDITY_WINDOW_AUTHORITY"
 FRESHNESS_STATUS = "NOT_COMPUTABLE_CANDIDATE_FRESHNESS_UNRATIFIED"
 PIT_DATE_ORDER_VALID = "PIT_DATE_ORDER_VALID"
 TIME_PRECISION_NOT_COMPUTABLE = "NOT_COMPUTABLE_TIME_PRECISION"
+EVALUATION_TIMESTAMP_EXACT_CURRENT_RUN_ONLY = "EXACT_CURRENT_RUN_EVALUATION_ONLY"
+EVALUATION_TIMESTAMP_NOT_AVAILABLE = "NOT_AVAILABLE_ARTIFACT_REPRODUCTION"
 SCHEDULE_WITHIN = "WITHIN_PROVISIONAL_DYNAMIC_CLOCK_REVIEW_SCHEDULE"
 SCHEDULE_OUTSIDE = "OUTSIDE_PROVISIONAL_DYNAMIC_CLOCK_REVIEW_SCHEDULE"
 
@@ -96,6 +108,35 @@ def _canonical_payload_bytes(document: dict) -> bytes:
     return (canonical_json(document) + "\n").encode("utf-8")
 
 
+def _evaluation_invariant_report_sha256(report: dict) -> str:
+    """Hash the source semantics without the current-run evaluation instant.
+
+    Exact source retention intentionally distinguishes two real evaluations.
+    Evidence-population accounting must not.  Candidate record hashes and the
+    new timing-precision member are evaluation-derived, so normalize those as
+    well before hashing.  No historical trigger/decision/evidence field is
+    removed.
+    """
+    invariant = copy.deepcopy(report)
+    invariant.pop("operational_evaluation", None)
+    for market in invariant.get("by_market", {}).values():
+        market.pop("operational_evaluation", None)
+        for candidate in market.get("review_queue", []):
+            candidate.pop("operational_evaluation", None)
+            timing_precision = candidate.get("timing_precision")
+            if isinstance(timing_precision, dict):
+                timing_precision.pop("operational_evaluated_at", None)
+            if "record_hash" in candidate:
+                candidate["record_hash"] = payload_sha256(
+                    {
+                        key: value
+                        for key, value in candidate.items()
+                        if key != "record_hash"
+                    }
+                )
+    return payload_sha256(invariant)
+
+
 def _validate_source_report(report: dict) -> None:
     if not isinstance(report, dict):
         raise CandidateValidityObservationError("SOURCE_REPORT_MUST_BE_OBJECT")
@@ -105,6 +146,22 @@ def _validate_source_report(report: dict) -> None:
         raise CandidateValidityObservationError("SOURCE_MARKET_SET_MISMATCH")
 
     report_date = _date(report.get("decision_date"), field="REPORT_DECISION_DATE")
+    report_evaluation = report.get("operational_evaluation")
+    if report_evaluation is not None:
+        if not isinstance(report_evaluation, dict):
+            raise CandidateValidityObservationError(
+                "SOURCE_OPERATIONAL_EVALUATION_SCHEMA_INVALID"
+            )
+        try:
+            expected_evaluation = _operational_evaluation_context(
+                report["decision_date"], report_evaluation.get("evaluated_at_utc")
+            )
+        except ValueError as exc:
+            raise CandidateValidityObservationError(str(exc)) from exc
+        if report_evaluation != expected_evaluation:
+            raise CandidateValidityObservationError(
+                "SOURCE_OPERATIONAL_EVALUATION_MISMATCH"
+            )
     seen_ids: set[str] = set()
     for market in EXPECTED_MARKETS:
         market_report = report["by_market"][market]
@@ -112,6 +169,12 @@ def _validate_source_report(report: dict) -> None:
             raise CandidateValidityObservationError("SOURCE_MARKET_LABEL_MISMATCH")
         if _date(market_report.get("decision_date"), field="MARKET_DECISION_DATE") != report_date:
             raise CandidateValidityObservationError("SOURCE_MARKET_DECISION_DATE_MISMATCH")
+        if report_evaluation is not None and market_report.get(
+            "operational_evaluation"
+        ) != report_evaluation:
+            raise CandidateValidityObservationError(
+                "SOURCE_MARKET_OPERATIONAL_EVALUATION_MISMATCH"
+            )
         queue = market_report.get("review_queue")
         if not isinstance(queue, list):
             raise CandidateValidityObservationError("SOURCE_REVIEW_QUEUE_MUST_BE_LIST")
@@ -131,6 +194,12 @@ def _validate_source_report(report: dict) -> None:
                 raise CandidateValidityObservationError("SOURCE_CANDIDATE_MARKET_MISMATCH")
             if _date(candidate.get("decision_at"), field="CANDIDATE_DECISION_AT") != report_date:
                 raise CandidateValidityObservationError("SOURCE_CANDIDATE_DECISION_DATE_MISMATCH")
+            if report_evaluation is not None and candidate.get(
+                "operational_evaluation"
+            ) != report_evaluation:
+                raise CandidateValidityObservationError(
+                    "SOURCE_CANDIDATE_OPERATIONAL_EVALUATION_MISMATCH"
+                )
             tier = candidate.get("tier")
             if tier not in tier_counts:
                 raise CandidateValidityObservationError("SOURCE_CANDIDATE_TIER_UNKNOWN")
@@ -139,7 +208,12 @@ def _validate_source_report(report: dict) -> None:
             raise CandidateValidityObservationError("SOURCE_TIER_COUNTS_MISMATCH")
 
 
-def _candidate_observation(candidate: dict, observation_date: dt.date) -> dict:
+def _candidate_observation(
+    candidate: dict,
+    observation_date: dt.date,
+    *,
+    include_operational_evaluation: bool,
+) -> dict:
     evidence_as_of = _date(candidate["evidence_as_of"], field="EVIDENCE_AS_OF")
     trigger_observed_at = _date(candidate["trigger_observed_at"], field="TRIGGER_OBSERVED_AT")
     created_at = _date(candidate["candidate_created_at"], field="CANDIDATE_CREATED_AT")
@@ -190,6 +264,14 @@ def _candidate_observation(candidate: dict, observation_date: dt.date) -> dict:
         "p8_13_entry_proposal_status": "LOCKED_NOT_STARTED",
         "authority": _authority(),
     }
+    if include_operational_evaluation:
+        evaluation = copy.deepcopy(candidate["operational_evaluation"])
+        result["operational_evaluation"] = evaluation
+        result["operational_evaluation_timestamp_status"] = (
+            EVALUATION_TIMESTAMP_EXACT_CURRENT_RUN_ONLY
+            if evaluation["evaluated_at_utc"] is not None
+            else EVALUATION_TIMESTAMP_NOT_AVAILABLE
+        )
     result["record_hash"] = payload_sha256(result)
     return result
 
@@ -240,12 +322,17 @@ def build_observation(
         raise CandidateValidityObservationError("SOURCE_POLICY_TRIGGER_TYPES_MISSING")
 
     observation_date = _date(report["decision_date"], field="OBSERVATION_DATE")
+    include_operational_evaluation = "operational_evaluation" in report
     source_report_sha256 = payload_sha256(report)
     by_market: dict[str, dict] = {}
     total_candidates = 0
     for market in EXPECTED_MARKETS:
         candidates = [
-            _candidate_observation(candidate, observation_date)
+            _candidate_observation(
+                candidate,
+                observation_date,
+                include_operational_evaluation=include_operational_evaluation,
+            )
             for candidate in sorted(
                 report["by_market"][market]["review_queue"],
                 key=lambda item: (item["subject"], item["candidate_id"]),
@@ -262,7 +349,10 @@ def build_observation(
         }
 
     observation = {
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": (
+            CONTRACT_VERSION if include_operational_evaluation
+            else LEGACY_CONTRACT_VERSION
+        ),
         "wbs_item": "P8-12 Candidate Validity Shadow Observation",
         "observation_mode": OBSERVATION_MODE,
         "validity_policy_status": VALIDITY_POLICY_STATUS,
@@ -302,6 +392,13 @@ def build_observation(
         },
         "authority": _authority(),
     }
+    if include_operational_evaluation:
+        observation["operational_evaluation"] = copy.deepcopy(
+            report["operational_evaluation"]
+        )
+        observation["source_dynamic_clock"][
+            "evaluation_invariant_report_sha256"
+        ] = _evaluation_invariant_report_sha256(report)
     observation["observation_sha256"] = payload_sha256(observation)
     return observation
 

@@ -73,6 +73,7 @@ jobs:
             test/test_price_reflection_link.py \
             test/test_dynamic_clock_orchestrator_defects.py \
             test/test_dynamic_clock_time_precision.py \
+            test/test_dynamic_clock_operational_evaluation_time.py \
             test/test_candidate_validity_shadow_observation.py \
             test/test_dynamic_clock_identity_lineage.py
           do
@@ -92,15 +93,18 @@ jobs:
         run: |
           git fetch origin "${{ github.event.repository.default_branch }}"
           git reset --hard "origin/${{ github.event.repository.default_branch }}"
-      - name: Determine the real operational decision_date
+      - name: Determine one exact operational evaluation instant and its KST decision_date
         id: decision_date
         run: |
-          echo "value=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
+          EPOCH_SECONDS=$(date +%s)
+          echo "value=$(TZ=Asia/Seoul date -d "@$EPOCH_SECONDS" +%F)" >> "$GITHUB_OUTPUT"
+          echo "evaluation_at_utc=$(date -u -d "@$EPOCH_SECONDS" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - name: Recompute Dynamic Clock from currently-committed evidence
         env:
           DECISION_DATE: ${{ steps.decision_date.outputs.value }}
+          EVALUATION_AT_UTC: ${{ steps.decision_date.outputs.evaluation_at_utc }}
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
-        run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE" --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
+        run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE" --evaluation-at-utc "$EVALUATION_AT_UTC" --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
       # ★ Independent verification (item 6): read the REAL per-market
       #   evidence_as_of dates the computation above actually used, from
       #   the freshly-written report itself -- never inferred from
@@ -113,6 +117,7 @@ jobs:
           import json
           d = json.load(open('evidence/operational/dynamic_clock/dynamic_clock_report.json'))
           print('## P8-12 Dynamic Clock -- real evidence dates found this run')
+          print(f"- operational_evaluated_at={d['operational_evaluation']['evaluated_at_utc']}")
           for market, m in d['by_market'].items():
               print(f\"- {market}: evidence_as_of={m['evidence_as_of']} decision_date={m['decision_date']}\")
           " >> "$GITHUB_STEP_SUMMARY"
