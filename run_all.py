@@ -1079,6 +1079,12 @@ APPROVED_TESTS = [
     #   structural order-API-impossibility, sizing-while-unratified,
     #   authority-flip).
     "test/test_portfolio_risk_input.py",
+    # ★ Portfolio position provider-identity lineage transport.  Alpaca's
+    #   exact /v2/positions asset_id is retained with its provider name;
+    #   manual source pairs remain unverified/fail-closed.  This does not
+    #   resolve canonical instruments or repair raw-symbol aggregation and
+    #   cannot open sizing/action/order/trading authority.
+    "test/test_portfolio_position_source_lineage.py",
     # ★ Identity Foundation -- identity/canonical_identity.py, the 4-layer
     #   (issuer/instrument/listing/source_asset_id) canonical security
     #   identity resolver + market-account-scope resolver. Ratifies NO real
