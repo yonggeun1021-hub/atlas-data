@@ -182,6 +182,12 @@ class ClockEvent:
     # intraday-timestamped investment signal.
     evidence_captured_at: str | None = None
     evidence_capture_time_precision: str = "NOT_AVAILABLE"
+    # Structured provider identity supplied by the source adapter.  These
+    # fields are lineage only: this state machine never resolves them into a
+    # canonical instrument and never infers them from `market`, `subject`, or
+    # the human-readable citation path.
+    source_name: str | None = None
+    source_asset_id: str | None = None
 
 
 def _parse_timestamp(value: str, *, field: str) -> dt.datetime:
@@ -227,6 +233,13 @@ def _validate_ascending(events: list[ClockEvent]) -> None:
                     "EVIDENCE_CAPTURED_AT_AFTER_DATE_ONLY_DETECTED_AT:"
                     f"{ev.evidence_captured_at} > {ev.detected_at}"
                 )
+        if (ev.source_name is None) != (ev.source_asset_id is None):
+            raise DynamicClockError("SOURCE_IDENTITY_LINEAGE_PARTIAL")
+        if ev.source_name is not None:
+            if not isinstance(ev.source_name, str) or not ev.source_name.strip():
+                raise DynamicClockError("SOURCE_NAME_INVALID")
+            if not isinstance(ev.source_asset_id, str) or not ev.source_asset_id.strip():
+                raise DynamicClockError("SOURCE_ASSET_ID_INVALID")
         if prev is not None and d < prev:
             raise DynamicClockError(
                 f"EVENTS_NOT_CHRONOLOGICAL:{ev.detected_at} before {prev.strftime(DATE_FMT)}"

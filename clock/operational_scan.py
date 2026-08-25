@@ -127,12 +127,23 @@ def _date_range(start: str, end: str) -> list[str]:
     return out
 
 
-def _capture_metadata(snapshot) -> dict:
+SOURCE_KRAKEN_SPOT_OHLC = "kraken_spot_ohlc"
+SOURCE_KRX_OPEN_API_STOCK_DAILY = "krx_open_api_stock_daily"
+
+
+def _capture_metadata(snapshot, *, source_name: str, source_asset_id: str) -> dict:
     captured_at = getattr(snapshot, "captured_at", None)
     precision = getattr(snapshot, "capture_time_precision", None)
     if not captured_at or precision != "TIMESTAMP":
         raise ValueError("SNAPSHOT_CAPTURE_TIMESTAMP_NOT_AVAILABLE")
-    return {"evidence_captured_at": captured_at, "evidence_capture_time_precision": precision}
+    if not source_name or not source_asset_id:
+        raise ValueError("SOURCE_IDENTITY_LINEAGE_MISSING")
+    return {
+        "evidence_captured_at": captured_at,
+        "evidence_capture_time_precision": precision,
+        "source_name": source_name,
+        "source_asset_id": source_asset_id,
+    }
 
 
 def _to_clock_event(trig, capture_metadata_by_source: dict[str, dict]) -> ClockEvent:
@@ -154,6 +165,8 @@ def _to_clock_event(trig, capture_metadata_by_source: dict[str, dict]) -> ClockE
         strength=trig.strength,
         evidence_captured_at=capture_metadata["evidence_captured_at"],
         evidence_capture_time_precision=capture_metadata["evidence_capture_time_precision"],
+        source_name=capture_metadata["source_name"],
+        source_asset_id=capture_metadata["source_asset_id"],
     )
 
 
@@ -208,7 +221,9 @@ def scan_btc(decision_date: str | None = None) -> dict:
         if snap is None:
             continue
         source, sha = snap.citation(), snap.sha256
-        capture_metadata_by_source[source] = _capture_metadata(snap)
+        capture_metadata_by_source[source] = _capture_metadata(
+            snap, source_name=SOURCE_KRAKEN_SPOT_OHLC, source_asset_id="BTC/USD"
+        )
         raw["PRICE_CONFIRMATION"] += te.price_confirmation(series, d, source, sha)
         raw["INVALIDATION_TRIGGER"] += te.invalidation_trigger(series, d, source, sha)
     return {
@@ -246,7 +261,9 @@ def scan_korea(decision_date: str | None = None) -> dict:
             if snap is None:
                 continue
             source, sha = snap.citation(code), snap.sha256
-            capture_metadata_by_source[source] = _capture_metadata(snap)
+            capture_metadata_by_source[source] = _capture_metadata(
+                snap, source_name=SOURCE_KRX_OPEN_API_STOCK_DAILY, source_asset_id=code
+            )
             raw["PRICE_CONFIRMATION"] += te.price_confirmation(series, d, source, sha)
             raw["INVALIDATION_TRIGGER"] += te.invalidation_trigger(series, d, source, sha)
             raw["FLOW_REVERSAL"] += te.flow_reversal(series, d, source, sha)
@@ -289,7 +306,9 @@ def scan_crypto(decision_date: str | None = None) -> dict:
         for pid in sorted(eligible_today):
             series = breadth_series[pid]
             source = snap.citation(pid)
-            capture_metadata_by_source[source] = _capture_metadata(snap)
+            capture_metadata_by_source[source] = _capture_metadata(
+                snap, source_name=SOURCE_KRAKEN_SPOT_OHLC, source_asset_id=pid
+            )
             bucket = subjects.setdefault(pid, {
                 "PRICE_CONFIRMATION": [], "INVALIDATION_TRIGGER": [], "RELATIVE_STRENGTH_REVERSAL": [],
             })

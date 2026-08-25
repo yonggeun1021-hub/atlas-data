@@ -54,6 +54,7 @@ class OfflineRegressionInvocationTests(unittest.TestCase):
         "test/test_dynamic_clock_pit_tier_invariant.py",
         "test/test_price_reflection_link.py",
         "test/test_dynamic_clock_orchestrator_defects.py",
+        "test/test_dynamic_clock_identity_lineage.py",
     )
 
     def test_offline_regression_uses_file_paths_not_test_package_imports(self):
