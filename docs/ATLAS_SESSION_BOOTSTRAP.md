@@ -14,16 +14,23 @@ Read these live sources at the beginning of every implementation or CIO review s
 | Master WBS Tracker | Live Notion WBS database; locate rows by WBS ID | Scope, dependency, Exit Gate, status, evidence |
 | CIO Cockpit | Notion page `3ba9f2d7-3c84-81d6-953e-c414dafdbff4` | Current operational summary and handoff |
 | Master Map | Notion page `3bf9f2d7-3c84-81b8-aa50-f9aa2384655d` | Program-level sequence and dependencies |
-| Repository truth | Current `main` HEAD and all open PRs | What is actually merged, pending, or conflicting |
+| Public repository truth | `atlas-data` current `main`, worktrees, and open PRs | Public code, contracts, redacted evidence, and conflicts |
+| Private repository truth | `atlas-private-evidence` current `main`, worktrees, and open PRs | Private account evidence and pinned public-code consumption |
+| Scheduled obligations | GitHub workflows and Codex automations | Future Exit Gates that must be audited and written back to WBS |
 
 Canonical WBS rows central to the trading path include:
 
 - P5-06 — Probe Entry Rule / Position Sizing: `3c49f2d7-3c84-81a8-8894-f691568187e2`
 - P7-02 — portfolio allocation/control: `3bf9f2d7-3c84-819c-9565-f97cf0a2997b`
+- P7-08 — Alpha Queue / Position Thesis Monitor: `3c49f2d7-3c84-81f0-ba20-ff5eef12b2ec`
 - P7-10 — Capital Reallocation: `3c49f2d7-3c84-81d9-ac68-fd0830b45356`
 - P7-11 — Profit Harvesting / Rapid Gain Realization Engine: `3c49f2d7-3c84-8138-8644-eee246dd713f`
+- P8-10 — Price Reflection: `3c49f2d7-3c84-810f-a840-e3b827acdf98`
+- P8-11 — Anticipatory Alpha Review: `3c49f2d7-3c84-81f2-bfb1-ca9f42958730`
+- P8-12 — Opportunity Trigger / Dynamic Clock: `3c49f2d7-3c84-814f-8ac5-d24a65a38810`
 - P8-13 — Entry Proposal: `3c49f2d7-3c84-8106-83ee-d0f390af6860`
 - P9-03 — post-trade learning: `3bf9f2d7-3c84-8104-9d23-c5deaa948e9e`
+- P10-07 — Alpha Shadow Evaluation: `3c49f2d7-3c84-817c-b29c-fe722341ba4d`
 
 Search the live Tracker for all other rows. Do not infer their current state from this file.
 
@@ -48,7 +55,8 @@ A briefing that only lists candidates or blocks weak evidence is incomplete. A t
 5. Compare live state with the previous handoff; explicitly discard stale claims.
 6. Identify the next executable WBS dependency, not merely the most convenient code task.
 7. Confirm whether the task changes evidence, recommendation, shadow, paper, or real-order authority.
-8. Only then design, delegate, code, or review.
+8. Inspect active schedules/automations and name the owner that will turn their next result into canonical WBS evidence.
+9. Only then design, delegate, code, or review.
 
 ## Implementation and review rules
 
@@ -59,13 +67,16 @@ A briefing that only lists candidates or blocks weak evidence is incomplete. A t
 - Backtests and PIT replay must expose `NOT_COMPUTABLE` instead of manufacturing a population, entry time, or return.
 - Realized or hypothetical gains do not themselves prove that an expectation was unreflected.
 - A PR may implement a mechanism without completing the WBS Exit Gate; report both separately.
+- Provider identity, candidate validity, position exposure, risk capacity, and order authority are separate contracts. A resolved identity must not silently unlock any downstream gate.
+- Public code may validate private facts in memory, but private account values and credentials must never be committed to or logged by the public repository.
+- One implementation has one accountable PM owner. Parallel work requires disjoint files, explicit dependency order, and a single integration owner; otherwise it is duplicate work and must stop.
 
 ## Fixed delivery order
 
 Unless the live Doctrine and WBS explicitly supersede it:
 
 1. P8-10 Price Reflection and P8-12 Opportunity Trigger / Dynamic Clock
-2. P5-06 Probe Entry Rule and portfolio position sizing
+2. P5-06 Probe Entry Rule and P7-08 portfolio position/thesis state
 3. P8-13 executable Entry Proposal
 4. P7-11 Profit Harvesting / Rapid Gain Realization
 5. P7-10 Capital Reallocation
@@ -85,6 +96,8 @@ Every meaningful session must leave a durable handoff in the canonical system co
 - observed data limitations and `NOT_COMPUTABLE` boundaries;
 - unresolved policy decisions;
 - the next executable task and its dependency;
+- scheduled workflow and automation obligations, including who will audit and synchronize the result;
+- public/private data-boundary confirmation;
 - explicit confirmation of unchanged Stage, Buy, Action, Order, Production, and trading authority.
 
 Update status only in the order `Tracker -> Cockpit -> Master Map`. Chat summaries and local memories are convenience copies, never the sole source of continuity.
