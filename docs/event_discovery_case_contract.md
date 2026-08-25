@@ -84,5 +84,37 @@ exclusion, summary, `binding_set_id`, `inputs`를 packet 내부 source만으로
 뒤늦게 추가된 event, source binding 교체, `packet_sha256`/`inputs` self-rehash
 변조는 필드 단위 검증을 모두 통과하더라도 이 최종 대조에서 fail-closed된다.
 
-CLI는 JSONL record와 binding JSON을 읽어 지정된 `--out`에만 원자적으로 쓴다.
-tracked Discovery Case 발행이나 workflow 연결은 아직 하지 않는다.
+기본 CLI는 JSONL record와 binding JSON을 읽어 지정된 `--out`에만 원자적으로 쓴다.
+
+## 운영 population — committed evidence only
+
+`discovery/event_population.py`는 provider를 다시 호출하지 않고 다음의 이미 커밋된
+입력만 재사용한다.
+
+1. `data/event_records.jsonl`의 SEC D1 전체 모집단
+2. `data/sec_content/<ticker>/<accession>/_manifest.json`
+3. manifest가 지목한 primary document의 retained `.gz` bytes
+
+binding은 accession·filing date·primary source URL이 D1 record와 정확히 같고,
+gzip 해제 후 실제 byte length와 SHA-256이 manifest와 일치하며,
+`retrieved_at_utc <= decision_at`일 때만 생성된다. manifest가 없는 것은 정상적인
+`EVIDENCE_UNRESOLVED`이며, manifest 또는 retained bytes가 서로 모순되면 전체
+population을 fail-closed한다. filing date를 `available_at`의 date-only 하한으로
+사용하며 중요도·방향·후보승격 의미를 부여하지 않는다.
+
+운영 산출물은 아래 content-addressed 경로에 append-only로 보존한다.
+
+```text
+data/observations/event_discovery_cases/<KST decision date>/
+  packet-<packet_sha256 first 16>.json
+```
+
+같은 packet은 byte-identical no-op이고, 같은 content-addressed 경로의 다른 byte는
+오염으로 거부된다. `Atlas Daily Collect`는 SEC content capture 뒤 이 population을
+실행한다. Daily Orchestrator의 `ROTATION_DISCOVERY`는 더 이상 synthetic empty
+records를 넣지 않고 같은 population builder를 호출한다. 그러나 briefing의
+`new_candidates`와 `existing_candidate_changes`는 계속 비어 있고, importance,
+interpretation, Stage, Rule, action, order, Production, trading 권한은 전부 닫혀 있다.
+
+DART item extraction, news, policy, Crypto source와 importance ranking은 이 slice의
+범위가 아니며 기존 `UNRATIFIED`/`NOT_IMPLEMENTED` 상태를 유지한다.

@@ -101,6 +101,9 @@ REGIME = _load("atlas_daily_regime", "regime/output_contract.py")
 HEADER = _load("atlas_daily_header", "briefing/three_market_regime_header.py")
 LEDGER = _load("atlas_daily_ledger", "rotation/rotation_state_ledger.py")
 DISCOVERY = _load("atlas_daily_discovery", "discovery/event_case.py")
+EVENT_POPULATION = _load(
+    "atlas_daily_event_population", "discovery/event_population.py"
+)
 ROTATION_DISCOVERY = _load("atlas_daily_rotation_discovery", "briefing/rotation_discovery.py")
 BINDING = _load("atlas_daily_binding", "bridge/rule_evidence_binding.py")
 EVALUATOR = _load("atlas_daily_evaluator", "rules/deterministic_rule_evaluator.py")
@@ -1247,30 +1250,39 @@ def build_three_market_header(regime_outputs: dict[str, dict], slot: str, genera
 
 
 # ---------------------------------------------------------------------------
-# Rotation / Discovery (honest empty state: no ratified rotation/discovery
-# policy exists, so the ledger and discovery packet are built empty rather
-# than fabricated).
+# Rotation / Discovery.  Rotation remains honestly empty because no ratified
+# cross-market rotation policy exists.  Discovery, however, consumes the real
+# committed SEC D1 population and only the filing-content bindings whose
+# retained bytes independently pass P3-08 verification.  Recording an event
+# case is not ranking, promotion, Rule, action, or trading authority.
 # ---------------------------------------------------------------------------
 
 
 def build_rotation_discovery(slot: str, generated_at: str) -> dict:
     ledger = LEDGER.empty_ledger()
-    empty_bindings = {
-        "schema_version": DISCOVERY.BINDING_SCHEMA_VERSION,
-        "binding_set_id": "DAILY_ORCHESTRATOR_NO_LIVE_BINDINGS",
-        "bindings": [],
-    }
     try:
+        population = EVENT_POPULATION.build_population_inputs(
+            repo_root=ROOT, decision_at=generated_at
+        )
         packet = ROTATION_DISCOVERY.build_briefing(
-            ledger, [], empty_bindings, slot, generated_at
+            ledger,
+            population["records"],
+            population["evidence_bindings"],
+            slot,
+            generated_at,
         )
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ROTATION_DISCOVERY", exc)
+    case_count = packet["discovery"]["case_count"]
     return component_row(
         "ROTATION_DISCOVERY",
         "PENDING",
-        "NO_RATIFIED_ROTATION_OR_DISCOVERY_POLICY",
-        as_of_date=generated_at[:10],
+        (
+            "EVENT_CASES_RECORDED_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
+            if case_count
+            else "NO_CASE_ELIGIBLE_SEC_EVENT_AT_DECISION_TIME"
+        ),
+        as_of_date=population["source_as_of_date"] or generated_at[:10],
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
         validated=True,

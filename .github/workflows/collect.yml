@@ -177,6 +177,21 @@ jobs:
             --expected-kst-date "$TODAY" \
             --observed-at-utc "$OBSERVED_AT"
 
+      # P3-08 — existing SEC D1 records become operational Discovery Cases.
+      # No provider call or new importance policy is introduced here.  The
+      # adapter links evidence only when the already-retained filing-content
+      # gzip bytes match the exact manifest accession/URL/hash; every other
+      # case remains honestly EVIDENCE_UNRESOLVED.  Output is content-addressed
+      # and append-only, while all promotion/Rule/action/trading authority
+      # remains false in the reused event_case contract.
+      - name: Populate SEC Event Discovery Cases (P3-08)
+        if: always()
+        run: |
+          DECISION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/event_population.py \
+            --decision-at "$DECISION_AT" \
+            --out-root data/observations/event_discovery_cases
+
       # P0-03 — 브리핑 전용 경량 read model.
       # 대형 latest_*.json 을 브리핑 클라이언트가 직접 읽지 않도록
       # Step 0 상태 + 종목별 compact view 를 수집 결과에서 생성한다.
