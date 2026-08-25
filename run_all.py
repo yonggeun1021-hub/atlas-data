@@ -1059,6 +1059,7 @@ APPROVED_TESTS = [
     # -> candidate lineage. Trigger/decision fields remain DATE_ONLY, so
     # this cannot unlock Risk Capacity, P8-13, or trading authority.
     "test/test_dynamic_clock_time_precision.py",
+    "test/test_dynamic_clock_operational_evaluation_time.py",
     # ★ P8-12 Candidate Validity Shadow Observation -- append-only,
     #   content-addressed accumulation of real candidate timing samples.
     #   Date-order and timestamp precision are reported separately; every

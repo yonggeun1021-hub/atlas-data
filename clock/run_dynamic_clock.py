@@ -124,6 +124,7 @@ from clock.price_reflection_link import link_price_reflection, to_price_reflecti
 from clock.review_candidate import (
     TIER_IMMEDIATE_REVIEW, TIER_OBSERVATION_ONLY, TIER_WATCH_REVIEW,
     build_expired_record, build_raw_trigger_record, build_subject_review_candidate,
+    _operational_evaluation_context,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +155,21 @@ def _validate_decision_date(decision_date: str | None) -> None:
         dt.datetime.strptime(decision_date, DATE_FMT)
     except (ValueError, TypeError) as exc:
         raise DynamicClockOrchestratorError(f"DECISION_DATE_INVALID:{decision_date!r}") from exc
+
+
+def _report_evaluation_context(
+    decision_date: str | None,
+    mode: str,
+    evaluation_at_utc: str | None,
+) -> dict:
+    if evaluation_at_utc is not None and mode != MODE_OPERATIONAL:
+        raise DynamicClockOrchestratorError(
+            "OPERATIONAL_EVALUATION_TIMESTAMP_FORBIDDEN_IN_HISTORICAL_REPLAY"
+        )
+    try:
+        return _operational_evaluation_context(decision_date, evaluation_at_utc)
+    except ValueError as exc:
+        raise DynamicClockOrchestratorError(str(exc)) from exc
 
 
 def _check_decision_date_not_behind_evidence(market: str, decision_date: str | None, mode: str) -> None:
@@ -195,7 +211,12 @@ def _load_previous_committed_episode_ids(market: str) -> set[str] | None:
         return None
 
 
-def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
+def _market_result(
+    market: str,
+    decision_date: str | None,
+    mode: str,
+    evaluation_at_utc: str | None = None,
+) -> dict:
     """The OPERATIONAL result for one market. ★ CIO integration review
     round 2, defect 1: this function performs NO audit/forward-return
     computation of any kind, and imports neither
@@ -268,6 +289,7 @@ def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
             subject, market, episodes, pit_eligibility_status=pit_status,
             decision_at=decision_at,
             price_reflection_status=price_reflection_status,
+            operational_evaluated_at=evaluation_at_utc,
         ))
 
     raw_trigger_ledger.sort(key=lambda r: (r["subject"], r["trigger_type"], r["candidate_id"]))
@@ -288,6 +310,9 @@ def _market_result(market: str, decision_date: str | None, mode: str) -> dict:
         "market": market,
         "evidence_as_of": evidence_as_of,
         "decision_date": decision_at,
+        "operational_evaluation": _operational_evaluation_context(
+            decision_at, evaluation_at_utc
+        ),
         "population_label": scan_result["population_label"],
         "not_computable_trigger_types": scan.not_computable_report(market),
         "subject_count": len(scan_result["subjects"]),
@@ -379,19 +404,32 @@ def _market_diagnostics(market: str, decision_date: str | None, mode: str) -> li
     return diagnostics
 
 
-def _assemble(decision_date: str | None, mode: str) -> dict:
+def _assemble(
+    decision_date: str | None,
+    mode: str,
+    evaluation_at_utc: str | None = None,
+) -> dict:
     if mode not in VALID_MODES:
         raise DynamicClockOrchestratorError(f"INVALID_MODE:{mode!r} (must be one of {VALID_MODES})")
     policy = dc.load_policy()
     _validate_decision_date(decision_date)
+    evaluation_context = _report_evaluation_context(
+        decision_date, mode, evaluation_at_utc
+    )
 
-    by_market = {market: _market_result(market, decision_date, mode) for market in ("BTC", "KOREA", "CRYPTO")}
+    by_market = {
+        market: _market_result(
+            market, decision_date, mode, evaluation_at_utc=evaluation_at_utc
+        )
+        for market in ("BTC", "KOREA", "CRYPTO")
+    }
     all_evidence_dates = [m["evidence_as_of"] for m in by_market.values() if m["evidence_as_of"]]
     return {
         "wbs_item": "P8-12 Opportunity Trigger + Dynamic Review Clock",
         "report_asof_evidence_date": max(all_evidence_dates) if all_evidence_dates else None,
         "decision_date": decision_date,
         "mode": mode,
+        "operational_evaluation": evaluation_context,
         "repo_history_starts_at": scan.ei.REPO_HISTORY_STARTS_AT,
         "policy_approval_status": policy["approval_status"],
         "policy_version": policy["policy_version"],
@@ -405,7 +443,12 @@ def _assemble(decision_date: str | None, mode: str) -> dict:
     }
 
 
-def run(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> dict:
+def run(
+    decision_date: str | None = None,
+    mode: str = MODE_OPERATIONAL,
+    *,
+    evaluation_at_utc: str | None = None,
+) -> dict:
     """The OPERATIONAL report: what `build_briefing_section()` and
     `dynamic_clock_report.json` are built from. ★ CIO integration review
     round 2, defect 1: this call path performs NO audit/forward-return
@@ -420,10 +463,15 @@ def run(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> dict:
     the caller (a workflow's own shell `date` command, or
     `briefing/daily_orchestrator.py`'s own decision_date parameter) is
     responsible for supplying it."""
-    return _assemble(decision_date, mode)
+    return _assemble(decision_date, mode, evaluation_at_utc)
 
 
-def run_with_diagnostics(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> tuple[dict, dict]:
+def run_with_diagnostics(
+    decision_date: str | None = None,
+    mode: str = MODE_OPERATIONAL,
+    *,
+    evaluation_at_utc: str | None = None,
+) -> tuple[dict, dict]:
     """Returns `(operational_report, audit_diagnostics_report)`. ★ CIO
     integration review round 2, defect 1: the two are now computed via
     GENUINELY SEPARATE scans/code paths (`run()` -> `_market_result()` vs.
@@ -431,7 +479,9 @@ def run_with_diagnostics(decision_date: str | None = None, mode: str = MODE_OPER
     this is the only function that calls `_market_diagnostics()` at all.
     `write_report()` uses this to persist the two as genuinely separate
     committed files."""
-    operational_report = run(decision_date, mode)
+    operational_report = run(
+        decision_date, mode, evaluation_at_utc=evaluation_at_utc
+    )
     diagnostics_by_market = {
         market: _market_diagnostics(market, decision_date, mode)
         for market in ("BTC", "KOREA", "CRYPTO")
@@ -441,6 +491,7 @@ def run_with_diagnostics(decision_date: str | None = None, mode: str = MODE_OPER
         "decision_date": operational_report["decision_date"],
         "mode": operational_report["mode"],
         "report_asof_evidence_date": operational_report["report_asof_evidence_date"],
+        "operational_evaluation": operational_report["operational_evaluation"],
         "by_market": diagnostics_by_market,
     }
     return operational_report, diagnostics_report
@@ -490,6 +541,7 @@ def build_briefing_section(report: dict) -> dict:
         "policy_version": report["policy_version"],
         "decision_date": report["decision_date"],
         "mode": report["mode"],
+        "operational_evaluation": report["operational_evaluation"],
         "markets": {},
     }
     for market, m in report["by_market"].items():
@@ -523,18 +575,21 @@ def write_report(
     mode: str = MODE_OPERATIONAL,
     *,
     observation_trigger_kind: str = TRIGGER_LOCAL_REPRODUCTION,
+    evaluation_at_utc: str | None = None,
 ) -> dict:
     """Computes and persists BOTH committed artifacts -- the operational
     report/briefing section, and the physically separate audit_diagnostics
     file -- from a single scan. Returns the operational report (for
     `__main__`'s own printing)."""
-    operational_report, diagnostics_report = run_with_diagnostics(decision_date, mode)
+    operational_report, diagnostics_report = run_with_diagnostics(
+        decision_date, mode, evaluation_at_utc=evaluation_at_utc
+    )
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(canonical_json(operational_report) + "\n", encoding="utf-8")
     (OUT_DIR / "briefing_section.json").write_text(
         canonical_json(build_briefing_section(operational_report)) + "\n", encoding="utf-8")
     AUDIT_DIAGNOSTICS_PATH.write_text(canonical_json(diagnostics_report) + "\n", encoding="utf-8")
-    # P8-12 validity-window v2: collect a separate append-only SHADOW
+    # P8-12 validity-window v3: collect a separate append-only SHADOW
     # observation of real candidate timing.  This cannot open Risk
     # Capacity or P8-13; candidate_validity_observation.py hard-locks every
     # candidate to NOT_COMPUTABLE while the validity policy is unratified.
@@ -566,6 +621,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--evaluation-at-utc",
+        default=None,
+        help=(
+            "Exact canonical UTC-second timestamp supplied by the operational caller for this "
+            "evaluation (YYYY-MM-DDTHH:MM:SSZ). It records only when this run evaluated the "
+            "candidate; it never replaces date-only trigger/decision history. Forbidden in "
+            "HISTORICAL_REPLAY and omitted for deterministic artifact reproduction."
+        ),
+    )
+    parser.add_argument(
         "--observation-trigger-kind",
         default=TRIGGER_LOCAL_REPRODUCTION,
         choices=VALID_TRIGGER_KINDS,
@@ -584,5 +649,6 @@ if __name__ == "__main__":
         decision_date=args.decision_date,
         mode=args.mode,
         observation_trigger_kind=args.observation_trigger_kind,
+        evaluation_at_utc=args.evaluation_at_utc,
     )
     print(json.dumps(build_briefing_section(report), ensure_ascii=False, indent=2, default=str))

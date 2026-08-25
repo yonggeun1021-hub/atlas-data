@@ -159,7 +159,12 @@ class RealDecisionDateTests(unittest.TestCase):
 
     def test_workflow_computes_decision_date_via_real_date_command(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
-        self.assertIn("TZ=Asia/Seoul date +%F", text)
+        self.assertIn("EPOCH_SECONDS=$(date +%s)", text)
+        self.assertIn('TZ=Asia/Seoul date -d "@$EPOCH_SECONDS" +%F', text)
+        self.assertIn(
+            'date -u -d "@$EPOCH_SECONDS" +%Y-%m-%dT%H:%M:%SZ', text
+        )
+        self.assertIn("--evaluation-at-utc", text)
 
     def test_workflow_passes_decision_date_to_the_script(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
