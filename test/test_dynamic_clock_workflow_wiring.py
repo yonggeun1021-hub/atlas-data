@@ -36,6 +36,39 @@ class WorkflowFileExistsTests(unittest.TestCase):
         self.assertIn("jobs", doc)
 
 
+class OfflineRegressionInvocationTests(unittest.TestCase):
+    """The real runner does not treat this repository's ``test/``
+    directory as an importable package.  Execute files directly and keep
+    them isolated, just like ``run_all.py``, so a host-provided ``test``
+    namespace cannot shadow the repository directory."""
+
+    EXPECTED_FILES = (
+        "test/test_dynamic_clock_state_machine.py",
+        "test/test_review_candidate_contract.py",
+        "test/test_operational_scan.py",
+        "test/test_dynamic_clock_end_to_end.py",
+        "test/test_dynamic_clock_fail_closed.py",
+        "test/test_dynamic_clock_calendar.py",
+        "test/test_audit_confirmed_miss.py",
+        "test/test_dynamic_clock_workflow_wiring.py",
+        "test/test_dynamic_clock_pit_tier_invariant.py",
+        "test/test_price_reflection_link.py",
+        "test/test_dynamic_clock_orchestrator_defects.py",
+    )
+
+    def test_offline_regression_uses_file_paths_not_test_package_imports(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("test.test_dynamic_clock", text)
+        self.assertNotIn("python3 -m unittest", text)
+        self.assertIn('python3 "$test_file"', text)
+
+    def test_every_workflow_regression_file_exists(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        for relative_path in self.EXPECTED_FILES:
+            self.assertIn(relative_path, text)
+            self.assertTrue((ROOT / relative_path).is_file(), relative_path)
+
+
 class RealCollectorNamesTests(unittest.TestCase):
     """The workflow_run trigger must name workflows that ACTUALLY EXIST in
     this repo with that exact `name:` value -- not a guessed/aspirational
