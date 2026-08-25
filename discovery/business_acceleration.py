@@ -709,7 +709,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "IMPORTANCE_THRESHOLD_UNRATIFIED",
         "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
         "CANDIDATE_RANKING_UNRATIFIED",
-        "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+        "LIVE_RADAR_POPULATION_PARTIAL_TSM_SEC_ONLY",
     ]
     if (
         type(packet.get("series_count")) is not int
@@ -772,7 +772,7 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
             "IMPORTANCE_THRESHOLD_UNRATIFIED",
             "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
             "CANDIDATE_RANKING_UNRATIFIED",
-            "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+            "LIVE_RADAR_POPULATION_PARTIAL_TSM_SEC_ONLY",
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)

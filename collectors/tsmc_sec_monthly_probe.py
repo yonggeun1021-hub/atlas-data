@@ -223,6 +223,55 @@ def _parse_identified_report(
     }
 
 
+def parse_retained_monthly_report(manifest: dict, raw: bytes) -> dict:
+    """Re-derive one already-retained P4-02 TSMC monthly-revenue report.
+
+    Network discovery and retained-evidence consumption deliberately share the
+    exact same table/title parser.  The caller must first pass the manifest and
+    all retained bytes through ``sec_filing_content.validate_manifest``; this
+    function then independently binds the selected primary byte stream to that
+    manifest before exposing the published observations.
+    """
+    if not isinstance(manifest, dict) or not isinstance(raw, bytes) or not raw:
+        raise SecProbeError("RETAINED_REPORT_INPUT_INVALID")
+    identity = manifest.get("filing_identity")
+    documents = manifest.get("documents")
+    if (
+        manifest.get("ticker") != "TSM"
+        or manifest.get("form") != "6-K"
+        or manifest.get("content_status") != "OK"
+        or not isinstance(identity, dict)
+        or identity.get("cik") != C4.CIK
+        or not isinstance(documents, list)
+    ):
+        raise SecProbeError("RETAINED_REPORT_MANIFEST_IDENTITY_INVALID")
+    primary = [
+        row
+        for row in documents
+        if isinstance(row, dict) and row.get("kind") == "primary"
+    ]
+    if len(primary) != 1:
+        raise SecProbeError("RETAINED_REPORT_PRIMARY_CARDINALITY_INVALID")
+    primary = primary[0]
+    if (
+        len(raw) != primary.get("content_bytes")
+        or hashlib.sha256(raw).hexdigest() != primary.get("content_sha256")
+    ):
+        raise SecProbeError("RETAINED_REPORT_PRIMARY_BYTES_MISMATCH")
+    candidate = {
+        "filing_date": manifest.get("filing_date"),
+        "acceptance": None,
+        "accession": identity.get("accession"),
+        "primary_doc": primary.get("document_name"),
+    }
+    source_url = primary.get("source_uri")
+    text = C4.strip_html(raw.decode("utf-8", errors="replace"))
+    parsed = _parse_identified_report(candidate, source_url, raw, text)
+    if parsed.get("published_at") != manifest.get("filing_date"):
+        raise SecProbeError("RETAINED_REPORT_PUBLICATION_MANIFEST_MISMATCH")
+    return parsed
+
+
 def run_probe(
     *,
     retrieved_at_utc: str | None = None,

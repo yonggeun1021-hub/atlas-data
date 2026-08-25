@@ -192,6 +192,18 @@ jobs:
             --decision-at "$DECISION_AT" \
             --out-root data/observations/event_discovery_cases
 
+      # P3-05 — provider-free Business Acceleration population from the
+      # already-retained P4-02 TSM SEC monthly-report manifests/raw bytes.
+      # Three consecutive decision-time-eligible reports are required; no
+      # fixture, threshold, ranking, Stage, Rule, action or trading fallback.
+      - name: Populate Business Acceleration Radar (P3-05)
+        if: always()
+        run: |
+          DECISION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/business_acceleration_population.py \
+            --decision-at "$DECISION_AT" \
+            --out-root data/observations/business_acceleration
+
       # P0-03 — 브리핑 전용 경량 read model.
       # 대형 latest_*.json 을 브리핑 클라이언트가 직접 읽지 않도록
       # Step 0 상태 + 종목별 compact view 를 수집 결과에서 생성한다.

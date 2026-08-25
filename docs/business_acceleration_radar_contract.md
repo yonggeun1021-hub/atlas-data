@@ -1,8 +1,9 @@
 # Business Acceleration Radar Contract (P3-05)
 
-Status: comparable published-growth pattern and radar-case capability
-implemented. Cross-company coverage, source hierarchy, importance thresholds,
-candidate ranking, and live population remain unratified or unimplemented.
+Status: comparable published-growth pattern and a narrow provider-free live
+population slice are implemented. Cross-company coverage, source hierarchy,
+importance thresholds, and candidate ranking remain unratified or
+unimplemented.
 
 ## Purpose
 
@@ -87,6 +88,37 @@ evidence envelope 전체가 아니라, 표준 재구축에 필요한 최소 필�
 아니라 실제 sourced evidence에서 나왔음을 packet 내부만으로 재증명한다. case로
 승격된 series의 `confirmed_evidence`는 동일한 snapshot의 사본이다.
 
+## Retained-evidence population slice
+
+`discovery/business_acceleration_population.py`는 P4-02가 이미 보존한 TSM
+SEC 6-K manifest와 gzip 원문만 읽는다. 신규 provider 호출이나 fixture를 쓰지
+않고 다음 정본 구현을 그대로 재사용한다.
+
+- `collectors/sec_filing_content.py::validate_manifest()` — manifest와 보존
+  원문 바이트/길이/SHA-256 검증;
+- `collectors/tsmc_sec_monthly_probe.py::parse_retained_monthly_report()` —
+  기존 SEC live probe와 같은 제목·표·단위 parser; 및
+- `discovery/business_acceleration.py::build_packet()` — 3기간 pattern/case
+  산술과 권한 경계.
+
+의사결정 시각까지 실제로 수집된 연속 3개월 자료가 없으면
+`NOT_COMPUTABLE_INSUFFICIENT_CONSECUTIVE_EVIDENCE`로 닫힌다. 존재하면 월별
+YoY와 누적 YTD YoY 두 series를 만들되, 현재 범위는
+`TSM_SEC_MONTHLY_REVENUE_ONLY`다. 누적 YTD series는 서로 겹치는 누적기간임을
+숨기지 않으며, 생성되는 case는 오직 공개 숫자 움직임의 감사기록이다.
+
+2026-08-25 최초 population에 사용된 실 SEC 보고서는 2026-05/06/07월이다.
+월별 YoY `30.1→67.9→44.7`은 `LATEST_STEP_NOT_UP`, 누적 YTD YoY
+`30.0→35.6→37.0`은 `TWO_STEP_ACCELERATION_OBSERVED`다. 후자는 중요도,
+지속성, 밸류에이션, 후보자격 또는 매수신호를 뜻하지 않는다.
+
+Population validator는 저장 packet hash만 확인하지 않고 같은 의사결정시각의
+보존 원문에서 packet 전체를 다시 만든다. 출력은 KST 의사결정일 아래
+`packet-<content-sha>.json`로 append-only 게시되며 동일 내용은 no-op, 같은
+content-addressed 경로의 다른 바이트는 실패한다. Daily Collect는 기존 SEC
+content capture 뒤 이 provider-free population을 실행하고 브리핑에는
+series/pattern/case 수와 `candidate_eligible=false` 경계만 보여준다.
+
 ## Offline command
 
 ```bash
@@ -94,6 +126,7 @@ python3 discovery/business_acceleration.py /tmp/business-acceleration-input.json
   --out /tmp/business-acceleration.json
 ```
 
-The module has no network client and writes only the requested atomic output.
-It does not publish a tracked radar, modify existing Discovery cases, or wire a
-workflow.
+Core engine은 network client가 없고 요청된 atomic output만 쓴다. Population
+adapter 역시 network client가 없지만 Daily Collect에 배선되어 보존된 SEC
+원문에서 append-only observation을 만든다. 두 모듈 모두 기존 Discovery
+case를 수정하거나 후보·Stage·Action·Order·Trading 권한을 열지 않는다.

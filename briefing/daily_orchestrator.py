@@ -104,6 +104,10 @@ DISCOVERY = _load("atlas_daily_discovery", "discovery/event_case.py")
 EVENT_POPULATION = _load(
     "atlas_daily_event_population", "discovery/event_population.py"
 )
+BUSINESS_ACCELERATION_POPULATION = _load(
+    "atlas_daily_business_acceleration_population",
+    "discovery/business_acceleration_population.py",
+)
 ROTATION_DISCOVERY = _load("atlas_daily_rotation_discovery", "briefing/rotation_discovery.py")
 BINDING = _load("atlas_daily_binding", "bridge/rule_evidence_binding.py")
 EVALUATOR = _load("atlas_daily_evaluator", "rules/deterministic_rule_evaluator.py")
@@ -1292,6 +1296,39 @@ def build_rotation_discovery(slot: str, generated_at: str) -> dict:
     )
 
 
+def build_business_acceleration_status(generated_at: str) -> dict:
+    """Expose policy-neutral real acceleration cases as an additive component."""
+    try:
+        packet = BUSINESS_ACCELERATION_POPULATION.build_population(
+            repo_root=ROOT, decision_at=generated_at
+        )
+        BUSINESS_ACCELERATION_POPULATION.validate_population(packet, repo_root=ROOT)
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("BUSINESS_ACCELERATION", exc)
+    populated = packet["status"] == BUSINESS_ACCELERATION_POPULATION.STATUS_POPULATED
+    reports = packet["source_reports"]
+    return component_row(
+        "BUSINESS_ACCELERATION",
+        "PENDING" if populated else "DATA_BLOCKED",
+        (
+            "RADAR_CASE_RECORDED_IMPORTANCE_AND_RANKING_UNRATIFIED"
+            if packet["summary"]["case_count"]
+            else (
+                "RADAR_SERIES_POPULATED_NO_TWO_STEP_CASE"
+                if populated
+                else packet["status"]
+            )
+        ),
+        as_of_date=(reports[-1]["published_at"] if reports else generated_at[:10]),
+        generated_at=generated_at,
+        source_packet_sha256=packet["population_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=BUSINESS_ACCELERATION_POPULATION.SCHEMA_VERSION,
+        packet=packet,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Rule evaluation (real deterministic run today: 0/25 Rules are consumable,
 # so every Rule is honestly UNKNOWN/UNDEFINED -- never PASS/FAIL).
@@ -1993,6 +2030,9 @@ def build_packet(
         regime_outputs, slot, generated_at
     ))
     rows["ROTATION_DISCOVERY"] = _boundary(build_rotation_discovery(slot, generated_at))
+    rows["BUSINESS_ACCELERATION"] = _boundary(
+        build_business_acceleration_status(generated_at)
+    )
     korea_rotation_snapshot = frozen_sources.get("KOREA_ROTATION")
     if korea_rotation_snapshot is None:
         korea_rotation_snapshot = _fetch_korea_rotation_snapshot()
@@ -2189,7 +2229,7 @@ _SECTION_GROUPS = [
     ]),
     ("3-Market Regime", ["THREE_MARKET_REGIME_HEADER"]),
     ("Rotation / Theme", ["ROTATION_DISCOVERY", "KOREA_ROTATION"]),
-    ("New Discovery / candidate change", ["ROTATION_DISCOVERY"]),
+    ("New Discovery / candidate change", ["ROTATION_DISCOVERY", "BUSINESS_ACCELERATION"]),
     ("Rule status", ["RULE_EVALUATION"]),
     ("Portfolio / Risk", [
         "PORTFOLIO_BUCKET", "PORTFOLIO_CURRENCY", "CASH_EXPOSURE_US",
@@ -2332,6 +2372,19 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"new_candidates={summary.get('new_candidate_count')} "
                 f"existing_candidate_changes={summary.get('existing_candidate_change_count')}"
             )
+        elif cid == "BUSINESS_ACCELERATION":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - scope={packet.get('scope')} reports={summary.get('eligible_report_count')} "
+                f"series={summary.get('series_count')} cases={summary.get('case_count')}"
+            )
+            radar = packet.get("radar_packet") or {}
+            for result in radar.get("series_results", []):
+                lines.append(
+                    f"    - {result.get('subject')} {result.get('series_id')}: "
+                    f"pattern={result.get('pattern')} values_pct={result.get('values_pct')} "
+                    f"candidate_eligible={result.get('candidate_eligible')}"
+                )
         elif cid == "RULE_EVALUATION":
             summary = packet.get("summary", {})
             lines.append(
@@ -2596,6 +2649,7 @@ def _component_semantic_fingerprint(packet: dict) -> dict[str, str]:
 # in _component_semantic_fingerprint() above.
 _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
     "KRX_POST_CLOSE", "THREE_MARKET_REGIME_HEADER", "ROTATION_DISCOVERY",
+    "BUSINESS_ACCELERATION",
     "ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY",
     "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
     "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
@@ -2617,7 +2671,9 @@ _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
 })
 
 
-_FINGERPRINT_NOISE_KEYS = frozenset({"as_of_utc", "packet_id", "source_as_of"})
+_FINGERPRINT_NOISE_KEYS = frozenset({
+    "as_of_utc", "decision_at", "packet_id", "source_as_of"
+})
 
 
 def _is_fingerprint_noise_key(key: str) -> bool:
