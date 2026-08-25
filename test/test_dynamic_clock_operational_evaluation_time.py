@@ -10,9 +10,14 @@ from __future__ import annotations
 import ast
 import copy
 import json
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -241,6 +246,44 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
         self.assertIn('date -u -d "@$EPOCH_SECONDS"', source)
         self.assertIn("--evaluation-at-utc", source)
         self.assertIn("$EVALUATION_AT_UTC", source)
+
+    def test_workflow_summary_step_executes_with_nested_report_fields(self):
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        step = next(
+            item
+            for item in workflow["jobs"]["refresh"]["steps"]
+            if str(item.get("name", "")).startswith(
+                "Report actual evidence dates found"
+            )
+        )
+        report = rdc.run(
+            "2026-08-25", evaluation_at_utc=EXACT_EVALUATED_AT
+        )
+        with tempfile.TemporaryDirectory() as raw_temp:
+            temp = Path(raw_temp)
+            report_path = (
+                temp
+                / "evidence"
+                / "operational"
+                / "dynamic_clock"
+                / "dynamic_clock_report.json"
+            )
+            report_path.parent.mkdir(parents=True)
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            summary = temp / "step-summary.md"
+            env = dict(os.environ, GITHUB_STEP_SUMMARY=str(summary))
+            completed = subprocess.run(
+                ["bash", "-e", "-c", step["run"]],
+                cwd=temp,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            rendered = summary.read_text(encoding="utf-8")
+            self.assertIn(f"operational_evaluated_at={EXACT_EVALUATED_AT}", rendered)
+            for market in ("BTC", "KOREA", "CRYPTO"):
+                self.assertIn(f"- {market}: evidence_as_of=", rendered)
 
     def test_python_operational_modules_never_read_wall_clock(self):
         for path in (

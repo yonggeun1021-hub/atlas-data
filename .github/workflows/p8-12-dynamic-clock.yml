@@ -113,14 +113,14 @@ jobs:
       #   just "the trigger fired".
       - name: Report actual evidence dates found (independent of workflow_run's own success claim)
         run: |
-          python3 -c "
+          python3 <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           d = json.load(open('evidence/operational/dynamic_clock/dynamic_clock_report.json'))
           print('## P8-12 Dynamic Clock -- real evidence dates found this run')
           print(f"- operational_evaluated_at={d['operational_evaluation']['evaluated_at_utc']}")
           for market, m in d['by_market'].items():
-              print(f\"- {market}: evidence_as_of={m['evidence_as_of']} decision_date={m['decision_date']}\")
-          " >> "$GITHUB_STEP_SUMMARY"
+              print(f"- {market}: evidence_as_of={m['evidence_as_of']} decision_date={m['decision_date']}")
+          PY
       - name: Idempotency check + commit only if the evidence actually changed
         id: commit
         run: |
