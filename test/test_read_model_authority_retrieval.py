@@ -57,7 +57,8 @@ class ReadModelAuthorityRetrievalTests(unittest.TestCase):
                 "generation": generation,
             }),
             "data/briefing/krx/005930.json": json_bytes({
-                "schema_version": 2, "collected_for_kst_date": DATE,
+                "schema_version": 2,
+                "source": {"collected_for_kst_date": DATE},
                 "generation": generation,
             }),
         }
@@ -118,7 +119,25 @@ class ReadModelAuthorityRetrievalTests(unittest.TestCase):
     def test_stale_compact_is_rejected(self):
         files = dict(self.files)
         value = json.loads(files["data/briefing/krx/005930.json"])
-        value["collected_for_kst_date"] = "2026-08-24"
+        value["source"]["collected_for_kst_date"] = "2026-08-24"
+        files["data/briefing/krx/005930.json"] = json_bytes(value)
+        with self.assertRaisesRegex(M.RetrievalError, "ARTIFACT_STALE_DATE"):
+            self.retrieve(files=files)
+
+    def test_top_level_date_cannot_mask_stale_compact_source_date(self):
+        files = dict(self.files)
+        value = json.loads(files["data/briefing/krx/005930.json"])
+        value["collected_for_kst_date"] = DATE
+        value["source"]["collected_for_kst_date"] = "2026-08-24"
+        files["data/briefing/krx/005930.json"] = json_bytes(value)
+        with self.assertRaisesRegex(M.RetrievalError, "ARTIFACT_STALE_DATE"):
+            self.retrieve(files=files)
+
+    def test_compact_without_authoritative_source_date_is_rejected(self):
+        files = dict(self.files)
+        value = json.loads(files["data/briefing/krx/005930.json"])
+        value.pop("source")
+        value["collected_for_kst_date"] = DATE
         files["data/briefing/krx/005930.json"] = json_bytes(value)
         with self.assertRaisesRegex(M.RetrievalError, "ARTIFACT_STALE_DATE"):
             self.retrieve(files=files)
