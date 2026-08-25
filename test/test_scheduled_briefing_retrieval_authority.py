@@ -2,6 +2,7 @@
 """P0-06 scheduled-consumer bootstrap authority regression."""
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -18,6 +19,7 @@ SPEC.loader.exec_module(M)
 
 DATE = "2026-08-25"
 GENERATION = "2" * 64
+PACKET_SHA = "7" * 64
 
 
 def write_json(path: Path, value) -> None:
@@ -40,7 +42,9 @@ class AuthorityRepo:
             (ROOT / "config/read_model_authority_contract.json").read_bytes()
         )
         self.write_generation(GENERATION)
-        self.commit = self.commit_all("baseline")
+        self.pre_delivery_commit = self.commit_all("read-model-before-h24")
+        self.write_delivery()
+        self.commit = self.commit_all("consumer-ready-h24")
 
     def write_generation(self, generation: str, date: str = DATE) -> None:
         meta = {"generation_id": generation, "generation_contract_version": 1}
@@ -53,6 +57,54 @@ class AuthorityRepo:
             "schema_version": 2,
             "expected_kst_date": date,
             "generation": meta,
+        })
+
+    def write_delivery(self, slot: str = "morning") -> None:
+        base = self.root / f"evidence/daily_briefing/{slot}/{DATE}"
+        index_path = base / "index.json"
+        packet_path = base / "rev-001/packet.json"
+        briefing_path = base / "rev-001/briefing.md"
+        packet = {
+            "slot": slot,
+            "decision_date": DATE,
+            "packet_sha256": PACKET_SHA,
+            "components": [],
+        }
+        write_json(index_path, {
+            "schema_version": 1,
+            "slot": slot,
+            "decision_date": DATE,
+            "latest_revision": 1,
+            "revisions": [{
+                "revision": 1,
+                "path": "rev-001",
+                "packet_sha256": PACKET_SHA,
+            }],
+        })
+        write_json(packet_path, packet)
+        briefing_path.parent.mkdir(parents=True, exist_ok=True)
+        briefing_path.write_text("# briefing\n", encoding="utf-8")
+        relative = lambda path: path.relative_to(self.root).as_posix()
+        digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+        write_json(self.root / "data/briefing/daily_briefing_sources.json", {
+            "schema_version": "daily_briefing_delivery/1",
+            "slot": slot,
+            "decision_date": DATE,
+            "revision": 1,
+            "index_path": relative(index_path),
+            "index_sha256": digest(index_path),
+            "packet_path": relative(packet_path),
+            "packet_file_sha256": digest(packet_path),
+            "packet_sha256": PACKET_SHA,
+            "briefing_path": relative(briefing_path),
+            "briefing_sha256": digest(briefing_path),
+            "delivery_scope": [
+                "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"
+            ],
+            "authority": {
+                "stage": False, "buy": False, "action": False,
+                "order": False, "production": False, "trading": False,
+            },
         })
 
     def commit_all(self, message: str) -> str:
@@ -101,6 +153,14 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         self.assertFalse(envelope["consumer_rules"]["floating_artifact_fallback_allowed"])
         self.assertFalse(envelope["consumer_rules"]["prior_date_fallback_allowed"])
         self.assertTrue(envelope["consumer_rules"]["bootstrap_query_nonce_required"])
+        self.assertEqual(envelope["delivery_locator"]["decision_date"], DATE)
+        self.assertEqual(len(envelope["delivery_artifacts"]), 4)
+        for record in envelope["delivery_artifacts"]:
+            self.assertIn(f"/{self.repo.commit}/", record["immutable_url"])
+
+    def test_prepublication_commit_without_h24_locator_cannot_be_advertised(self):
+        with self.assertRaisesRegex(M.ScheduledAuthorityError, "GIT_READ_FAILED"):
+            self.build(commit=self.repo.pre_delivery_commit)
 
     def test_all_investment_and_trading_authorities_remain_false(self):
         authority = self.build()["authority"]
@@ -259,10 +319,12 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
 
     def test_morning_and_evening_have_distinct_append_only_paths(self):
         morning = self.build("morning")
-        evening = self.build("evening")
+        self.repo.write_delivery("evening")
+        evening_commit = self.repo.commit_all("evening-delivery")
+        evening = self.build("evening", commit=evening_commit)
         self.assertNotEqual(morning["bootstrap_path"], evening["bootstrap_path"])
         self.assertNotEqual(morning["bootstrap_url"], evening["bootstrap_url"])
-        self.assertEqual(morning["source_commit"], evening["source_commit"])
+        self.assertNotEqual(morning["source_commit"], evening["source_commit"])
 
     def test_artifact_hashes_recompute_from_git_blob_not_worktree(self):
         envelope = self.build()

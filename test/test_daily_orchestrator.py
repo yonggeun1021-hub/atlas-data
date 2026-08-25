@@ -1809,7 +1809,13 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("daily_briefing_delivery.py consume", command)
         self.assertIn("publish_scheduled_briefing_authority.py publish", command)
         self.assertIn("publish_scheduled_briefing_authority.py validate", command)
-        self.assertIn('SOURCE_COMMIT=$(git rev-parse HEAD)', command)
+        self.assertNotIn('SOURCE_COMMIT=$(git rev-parse HEAD)', command)
+        self.assertIn('CONSUMER_READY_COMMIT=$(git rev-parse HEAD)', command)
+        self.assertIn('--source-commit "$CONSUMER_READY_COMMIT"', command)
+        self.assertLess(
+            command.index('git add data/briefing/daily_briefing_sources.json'),
+            command.index('--source-commit "$CONSUMER_READY_COMMIT"'),
+        )
         # publish() itself decides whether a new revision is needed (same-
         # day recovery); the workflow must always call it rather than
         # skipping on bare directory presence, and must gate the commit on
@@ -1839,7 +1845,10 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn('git add "$AUTHORITY_PATH"', command)
         self.assertNotIn("git pull --rebase", command)
         self.assertIn('if git push origin "HEAD:$DEFAULT_BRANCH"; then', command)
-        self.assertIn("main advanced twice; no pointer was published", command)
+        self.assertIn("main advanced twice; no briefing locator was published", command)
+        self.assertIn("main advanced twice; no authority bootstrap was published", command)
+        self.assertIn("main advanced twice while confirming unchanged delivery", command)
+        self.assertIn('if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then', command)
 
         resync = next(
             step for step in steps
