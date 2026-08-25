@@ -55,18 +55,26 @@ jobs:
         run: python3 -m pip install -r requirements-ci.txt
       - name: Offline Dynamic Clock regression
         run: |
-          python3 -m unittest \
-            test.test_dynamic_clock_state_machine \
-            test.test_review_candidate_contract \
-            test.test_operational_scan \
-            test.test_dynamic_clock_end_to_end \
-            test.test_dynamic_clock_fail_closed \
-            test.test_dynamic_clock_calendar \
-            test.test_audit_confirmed_miss \
-            test.test_dynamic_clock_workflow_wiring \
-            test.test_dynamic_clock_pit_tier_invariant \
-            test.test_price_reflection_link \
-            test.test_dynamic_clock_orchestrator_defects
+          # Run each file in its own Python process, matching run_all.py's
+          # isolation contract.  `test/` is intentionally not a Python
+          # package; importing `test.test_*` is environment-dependent and
+          # collided with the runner's own `test` namespace on the first
+          # real workflow_run (32786985913).
+          for test_file in \
+            test/test_dynamic_clock_state_machine.py \
+            test/test_review_candidate_contract.py \
+            test/test_operational_scan.py \
+            test/test_dynamic_clock_end_to_end.py \
+            test/test_dynamic_clock_fail_closed.py \
+            test/test_dynamic_clock_calendar.py \
+            test/test_audit_confirmed_miss.py \
+            test/test_dynamic_clock_workflow_wiring.py \
+            test/test_dynamic_clock_pit_tier_invariant.py \
+            test/test_price_reflection_link.py \
+            test/test_dynamic_clock_orchestrator_defects.py
+          do
+            python3 "$test_file"
+          done
       # ★ CIO review round 2, item 6 (workflow atomicity hardening):
       #   the checkout above happened at job START -- by the time we are
       #   ready to commit, a concurrent collector or another dynamic-clock
