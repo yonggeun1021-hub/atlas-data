@@ -1074,6 +1074,66 @@ APPROVED_TESTS = [
     #   structural order-API-impossibility, sizing-while-unratified,
     #   authority-flip).
     "test/test_portfolio_risk_input.py",
+    # ★ Identity Foundation -- identity/canonical_identity.py, the 4-layer
+    #   (issuer/instrument/listing/source_asset_id) canonical security
+    #   identity resolver + market-account-scope resolver. Ratifies NO real
+    #   identity or scope edge (config/canonical_security_identity.json and
+    #   config/market_account_scope_map.json ship with zero rows/edges --
+    #   verified directly against the real files, not synthetic fixtures).
+    #   Every layer goes through one shared gate requiring: exactly one
+    #   active row, RATIFIED status, business-payload self-consistency,
+    #   AND independent verification against a real external evidence file
+    #   (real bytes hashed, content cross-checked including ratified_at --
+    #   not a self-hash). first_seen_at is verified ONLY against real git
+    #   commit history -- separately for the row's own content AND for the
+    #   evidence file's own content (rev 3: closes a brand-new-evidence-
+    #   file-with-backdated-ratified_at gap). There is no append-only
+    #   registry escape hatch in this module -- it was removed entirely
+    #   (rev 3) as a backdating bypass by construction; a real hash-chain
+    #   store is explicitly deferred. Git-history lookups use each file's
+    #   real repo-root-relative path (rev 3), not its basename, so this
+    #   works for the real nested config/ files. real_usable_from =
+    #   max(effective_from, ratified_at, verified_row_first_seen_at,
+    #   verified_evidence_first_seen_at). All temporal comparisons go
+    #   through a strict parser -- same-day mixed date/timestamp precision
+    #   is NOT_COMPUTABLE_TIME_PRECISION, never guessed. Every public
+    #   resolver validates the authority DOCUMENT itself (policy_version +
+    #   required arrays) at entry regardless of file-load vs. direct
+    #   injection. resolve_instrument_by_id/require_instrument_id verify
+    #   the linked issuer through the same gate, not just the instrument
+    #   row -- an orphan/PROVISIONAL/ambiguous issuer correctly blocks.
+    #   The approval-evidence AND git-history bindings cover the FULL
+    #   determining payload (business fields + rule_id/rule_version/
+    #   approval_status/ratified_at/effective_from/effective_to), not just
+    #   business-identity fields -- an already-expired RATIFIED row whose
+    #   in-memory effective_to alone is mutated to null (evidence file,
+    #   hash, and git first-seen all untouched) is blocked, never RESOLVED.
+    #   Every public resolver also re-verifies its ENTIRE input document
+    #   (not just the selected row) against BOTH the real disk bytes at
+    #   `_source_path` AND the real git blob at a trusted commit (default:
+    #   current HEAD, resolved live -- never read from the input document
+    #   itself) -- deleting/inserting/reordering rows in the array (e.g.
+    #   removing one of two conflicting AMBIGUOUS rows so the remaining,
+    #   completely real row resolves alone) is blocked as
+    #   IDENTITY_NOT_COMPUTABLE_DOCUMENT_TAMPERED before any row is even
+    #   looked at, and a merely-dirty/uncommitted disk file (including a
+    #   memory+disk co-tamper, or an uncommitted revert to an old real
+    #   commit used as if current) is
+    #   IDENTITY_NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED. An
+    #   explicit, externally-pinned `trusted_commit` may be passed by a
+    #   caller to legitimately trust a specific non-HEAD commit instead --
+    #   but only a full immutable object id (exactly 40/64 lowercase hex
+    #   chars, independently confirmed via `git rev-parse --verify
+    #   <it>^{commit}` resolving to that exact same string): a branch,
+    #   tag, `HEAD`, `HEAD~1`, or an abbreviated SHA is rejected outright.
+    #   Under a pin, disk must match that commit's real git blob EXACT
+    #   BYTE-FOR-BYTE (not a canonical-JSON-hash comparison) -- a
+    #   whitespace/indentation-only disk edit is still rejected even
+    #   though it would canonically hash the same.
+    #   ⛔ not wired into Shadow Matrix, no Dynamic Clock timestamp change,
+    #   no in-code mapping table, no hardcoded per-ticker/market
+    #   special-casing, P8-13 not opened.
+    "test/test_identity_foundation.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
