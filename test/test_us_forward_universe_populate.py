@@ -92,6 +92,22 @@ class UsForwardUniversePopulateTests(unittest.TestCase):
             )
             packet = record["packet"]
             self.assertEqual(packet["status"], "FORWARD_SOURCE_COVERAGE_UNIVERSE_VALIDATED")
+            self.assertIn(
+                POPULATE.SCHEDULED_POPULATION_BOUNDARY,
+                packet["unresolved_boundaries"],
+            )
+            execution = record["population_execution"]
+            self.assertEqual(
+                execution["status"], "SCHEDULED_SOURCE_COVERAGE_POPULATED"
+            )
+            self.assertEqual(
+                execution["resolved_packet_boundaries"],
+                [POPULATE.SCHEDULED_POPULATION_BOUNDARY],
+            )
+            self.assertNotIn(
+                POPULATE.SCHEDULED_POPULATION_BOUNDARY,
+                execution["effective_unresolved_boundaries"],
+            )
             self.assertEqual(
                 packet["source_counts"], {"nasdaq_listed": 1000, "other_listed": 1000}
             )
@@ -124,6 +140,57 @@ class UsForwardUniversePopulateTests(unittest.TestCase):
             self.assertEqual(second["outcome"], "verified_existing")
             self.assertEqual(second["payload_sha256"], first["payload_sha256"])
             self.assertEqual(Path(second["path"]).stat().st_mtime_ns, mtime_before)
+
+    def test_legacy_v1_packet_is_verified_without_rewrite(self):
+        with tempfile.TemporaryDirectory() as raw, tempfile.TemporaryDirectory() as data:
+            raw_root, data_root = Path(raw), Path(data)
+            write_snapshot(raw_root, "2026-09-01", None)
+            legacy = POPULATE.rebuild(
+                "2026-09-01",
+                raw_root=raw_root,
+                breadth_contract=BREADTH_CONTRACT,
+                universe_contract=UNIVERSE_CONTRACT,
+                record_schema_version=POPULATE.LEGACY_RECORD_SCHEMA_VERSION,
+            )
+            target = POPULATE.output_path("2026-09-01", data_root)
+            US_BREADTH.write_json_append_only(legacy, target)
+            before = target.read_bytes()
+
+            result = POPULATE.populate(
+                "2026-09-01",
+                raw_root=raw_root,
+                data_root=data_root,
+                breadth_contract=BREADTH_CONTRACT,
+                universe_contract=UNIVERSE_CONTRACT,
+            )
+
+            self.assertEqual(result["outcome"], "verified_existing")
+            self.assertEqual(target.read_bytes(), before)
+            self.assertEqual(
+                json.loads(before)["schema_version"],
+                POPULATE.LEGACY_RECORD_SCHEMA_VERSION,
+            )
+
+    def test_existing_packet_with_unknown_schema_fails_closed(self):
+        with tempfile.TemporaryDirectory() as raw, tempfile.TemporaryDirectory() as data:
+            raw_root, data_root = Path(raw), Path(data)
+            write_snapshot(raw_root, "2026-09-01", None)
+            target = POPULATE.output_path("2026-09-01", data_root)
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                json.dumps({"schema_version": "us_forward_universe_population/999"}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                POPULATE.PopulationError, "EXISTING_PACKET_SCHEMA_UNSUPPORTED"
+            ):
+                POPULATE.populate(
+                    "2026-09-01",
+                    raw_root=raw_root,
+                    data_root=data_root,
+                    breadth_contract=BREADTH_CONTRACT,
+                    universe_contract=UNIVERSE_CONTRACT,
+                )
 
     def test_skipped_existing_raw_missing_packet_repairs_without_network(self):
         with tempfile.TemporaryDirectory() as raw, tempfile.TemporaryDirectory() as data:
@@ -253,6 +320,19 @@ class UsForwardUniversePopulateTests(unittest.TestCase):
                 self.assertIn(result["outcome"], {"populated", "verified_existing"})
                 record = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
                 self.assertEqual(record["packet"]["as_of_date"], source_date)
+
+    def test_committed_first_scheduled_population_v1_verifies_without_rewrite(self):
+        source_date = "2026-08-24"
+        target = POPULATE.output_path(source_date)
+        self.assertTrue(target.exists())
+        before = target.read_bytes()
+        result = POPULATE.populate(source_date)
+        self.assertEqual(result["outcome"], "verified_existing")
+        self.assertEqual(target.read_bytes(), before)
+        self.assertEqual(
+            json.loads(before)["schema_version"],
+            POPULATE.LEGACY_RECORD_SCHEMA_VERSION,
+        )
 
     def test_workflow_reuses_existing_cron_and_wires_population_after_raw_commit(self):
         text = WORKFLOW.read_text(encoding="utf-8")

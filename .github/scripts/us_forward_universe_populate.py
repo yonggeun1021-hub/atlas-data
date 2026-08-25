@@ -36,7 +36,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RAW_ROOT = ROOT / "evidence" / "us_breadth" / "raw"
 DATA_ROOT = ROOT / "data" / "observations" / "us_global_universe"
-RECORD_SCHEMA_VERSION = "us_forward_universe_population/1"
+LEGACY_RECORD_SCHEMA_VERSION = "us_forward_universe_population/1"
+RECORD_SCHEMA_VERSION = "us_forward_universe_population/2"
+SUPPORTED_RECORD_SCHEMA_VERSIONS = {
+    LEGACY_RECORD_SCHEMA_VERSION,
+    RECORD_SCHEMA_VERSION,
+}
+SCHEDULED_POPULATION_BOUNDARY = "SCHEDULED_MASTER_POPULATION_NOT_IMPLEMENTED"
 
 
 def _load_module(name: str, relative_path: str):
@@ -129,12 +135,17 @@ def rebuild(
     raw_root: Path = RAW_ROOT,
     breadth_contract: dict | None = None,
     universe_contract: dict | None = None,
+    record_schema_version: str = RECORD_SCHEMA_VERSION,
 ) -> dict:
     """Independently rebuild the population record for source_date purely
     from the committed raw bundle archive. Fails closed (propagating
     US_BREADTH.ContractError or UGU.UsUniverseError) on a missing,
     partial, or tampered raw bundle anywhere in the archive up to and
     including source_date."""
+    if record_schema_version not in SUPPORTED_RECORD_SCHEMA_VERSIONS:
+        raise PopulationError(
+            f"RECORD_SCHEMA_VERSION_UNSUPPORTED:{record_schema_version}"
+        )
     breadth_contract = (
         US_BREADTH.load_contract() if breadth_contract is None else breadth_contract
     )
@@ -161,7 +172,7 @@ def rebuild(
     universe_packet = UGU.build_packet(universe_input, universe_contract)
 
     record = {
-        "schema_version": RECORD_SCHEMA_VERSION,
+        "schema_version": record_schema_version,
         "source_date": source_date,
         "generated_at": core["fetched_at_utc"],
         "raw_bundle": {
@@ -186,6 +197,22 @@ def rebuild(
         },
         "packet": universe_packet,
     }
+    if record_schema_version == RECORD_SCHEMA_VERSION:
+        if SCHEDULED_POPULATION_BOUNDARY not in universe_packet["unresolved_boundaries"]:
+            raise PopulationError("EXPECTED_STATIC_POPULATION_BOUNDARY_MISSING")
+        record["population_execution"] = {
+            "status": "SCHEDULED_SOURCE_COVERAGE_POPULATED",
+            "state_authority": "POPULATION_WRAPPER_RUNTIME_RESULT",
+            "packet_boundary_scope": (
+                "ADAPTER_STATIC_CAPABILITY_NOT_RUNTIME_POPULATION_RESULT"
+            ),
+            "resolved_packet_boundaries": [SCHEDULED_POPULATION_BOUNDARY],
+            "effective_unresolved_boundaries": [
+                boundary
+                for boundary in universe_packet["unresolved_boundaries"]
+                if boundary != SCHEDULED_POPULATION_BOUNDARY
+            ],
+        }
     record["payload_sha256"] = payload_sha256(record)
     return record
 
@@ -207,13 +234,27 @@ def populate(
     bundle, or on an existing packet that no longer matches a fresh
     rebuild from that immutable raw bundle (self-rehash tamper or drift).
     """
-    record = rebuild(source_date, raw_root, breadth_contract, universe_contract)
     target = output_path(source_date, data_root)
     if target.exists():
         try:
             existing = json.loads(target.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise PopulationError(f"EXISTING_PACKET_UNREADABLE:{source_date}:{exc}") from exc
+        existing_schema = existing.get("schema_version")
+        if existing_schema not in SUPPORTED_RECORD_SCHEMA_VERSIONS:
+            raise PopulationError(
+                f"EXISTING_PACKET_SCHEMA_UNSUPPORTED:{source_date}:{existing_schema}"
+            )
+        # Append-only history is immutable. Rebuild an existing v1 artifact
+        # under its original schema instead of silently migrating or
+        # rewriting it; only newly populated dates use v2.
+        record = rebuild(
+            source_date,
+            raw_root,
+            breadth_contract,
+            universe_contract,
+            record_schema_version=existing_schema,
+        )
         if existing != record:
             raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{source_date}")
         return {
@@ -221,6 +262,7 @@ def populate(
             "path": str(target),
             "payload_sha256": record["payload_sha256"],
         }
+    record = rebuild(source_date, raw_root, breadth_contract, universe_contract)
     US_BREADTH.write_json_append_only(record, target)
     return {
         "outcome": "populated",
