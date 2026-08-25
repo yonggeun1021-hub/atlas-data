@@ -205,8 +205,11 @@ APPROVED_TESTS = [
     #   성장률 상승만 투명하게 기록한다. Persisted validator가 decimal 산술,
     #   pattern, case evidence, summary의 self-rehashed drift를 차단한다. 결측은
     #   UNKNOWN이며 ranking/Stage/Production/trading 권한은 열지 않는다.
-    #   ⛔ live network/workflow/tracked radar 없음 — synthetic envelopes + temp output only.
+    #   P4-02에 보존된 TSM SEC 월별 매출 원문 3개를 provider 재호출 없이
+    #   재검증·파싱해 content-addressed append-only population packet을 만든다.
+    #   현재 운영 slice는 TSM 한 종목뿐이며 importance/ranking은 계속 미비준이다.
     "test/test_business_acceleration.py",
+    "test/test_business_acceleration_population.py",
     # ★ P3-06 — external RATIFIED consensus-source contract + exact-vintage revision radar.
     #   동일 estimate target의 두 vintage를 latest-prior로 재현해 UP/DOWN/UNCHANGED/
     #   UNKNOWN을 구분한다. 비영(非零) confirmed change만 evidence case로 기록한다.
