@@ -62,6 +62,18 @@ class _VisibleText(HTMLParser):
         self.parts.append(data)
 
 
+def normalized_filing_title(value):
+    """Remove provider padding without changing internal filing-title text.
+
+    OpenDART currently right-pads some list-response titles with spaces.  The
+    persisted manifest contract is intentionally canonical and rejects leading
+    or trailing whitespace, so the acquisition boundary must normalize that
+    transport artifact before building a manifest.  Non-string/blank values
+    remain invalid and are rejected by the existing validator.
+    """
+    return value.strip() if isinstance(value, str) else value
+
+
 def _read_json(path: Path) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -101,7 +113,7 @@ def _base_status(content: str, evidence: str) -> dict:
 
 def filing_plan(filing: dict, stage: str | None, contract: dict) -> dict:
     """Return a content plan without inferring filing importance or Stage."""
-    title = filing.get("title")
+    title = normalized_filing_title(filing.get("title"))
     keywords = contract["filing_policy"]["material_title_keywords"]
     relevant = isinstance(title, str) and any(word in title for word in keywords)
     plan = {
@@ -354,7 +366,9 @@ def capture_filing(
     existing_manifest: dict | None = None,
     force_refresh: bool = False,
 ) -> tuple[dict, bytes | None, dict[str, bytes]]:
-    plan = filing_plan(filing, stage, contract)
+    normalized_filing = copy.deepcopy(filing)
+    normalized_filing["title"] = normalized_filing_title(filing.get("title"))
+    plan = filing_plan(normalized_filing, stage, contract)
     rcept_no = filing.get("rcept_no", "")
     identity = {"stock_code": ticker, "rcept_no": rcept_no}
     result = {
@@ -363,7 +377,7 @@ def capture_filing(
         "name": filing.get("corp_name"),
         "atlas_stage": stage,
         "filing_date": filing.get("date"),
-        "title": filing.get("title"),
+        "title": normalized_filing.get("title"),
         "filing_identity": identity,
         "extractor_version": contract["extractor_version"],
         **plan,
@@ -376,7 +390,7 @@ def capture_filing(
         return result, None, {}
 
     try:
-        rcept_no = validate_filing_identity(filing)
+        rcept_no = validate_filing_identity(normalized_filing)
         identity["rcept_no"] = rcept_no
         if existing_manifest and not force_refresh:
             if (
@@ -837,6 +851,7 @@ def run_capture(
             if not isinstance(source_filing, dict):
                 raise DartContentError(f"SOURCE_FILING_INVALID:{ticker}")
             filing = {**source_filing, "corp_name": stock.get("name")}
+            filing["title"] = normalized_filing_title(filing.get("title"))
             rcept_no = filing.get("rcept_no", "")
             identity_key = (ticker, rcept_no)
             if identity_key in seen_receipts:

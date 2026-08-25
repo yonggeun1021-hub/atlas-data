@@ -167,6 +167,27 @@ class DartFilingContentTest(unittest.TestCase):
         )
         self.assertIsNone(binary["documents"][0]["normalized_text_sha256"])
 
+    def test_live_opendart_right_padded_title_is_normalized_before_manifest(self):
+        raw_title = "단일판매ㆍ공급계약체결              "
+        source = filing(title=raw_title)
+        result, raw_zip, members, fetcher = self.capture(source)
+
+        self.assertEqual(fetcher.calls, [source["rcept_no"]])
+        self.assertEqual(source["title"], raw_title)
+        self.assertEqual(result["title"], "단일판매ㆍ공급계약체결")
+        self.assertEqual(result["content_status"], "OK")
+        self.assertEqual(
+            MODULE.validate_manifest(result, raw_zip, members, self.contract),
+            result,
+        )
+
+        tampered = copy.deepcopy(result)
+        tampered["title"] += " "
+        with self.assertRaisesRegex(
+            MODULE.DartContentError, "MANIFEST_TITLE_INVALID"
+        ):
+            MODULE.validate_manifest(tampered, raw_zip, members, self.contract)
+
     def test_persisted_manifest_validator_rederives_archive_member_index(self):
         result, raw_zip, members, _ = self.capture()
         checked = MODULE.validate_manifest(
@@ -402,6 +423,41 @@ class DartFilingContentTest(unittest.TestCase):
             )
             self.assertTrue((data / "latest_dart_content.json").is_file())
             self.assertFalse((ROOT / "data" / "dart_content").exists())
+
+            padded_source = root / "latest_dart_padded.json"
+            padded_source.write_text(
+                json.dumps(
+                    {
+                        "collected_for_kst_date": "2026-08-20",
+                        "stocks": {
+                            "005930": {
+                                "name": "삼성전자",
+                                "status": "ok",
+                                "atlas_stage": "Candidate",
+                                "relevant": [
+                                    filing(title="단일판매ㆍ공급계약체결              ")
+                                ],
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            padded_data = root / "padded-data"
+            padded = MODULE.run_capture(
+                source_path=padded_source,
+                data_root=padded_data,
+                expected_kst_date="2026-08-20",
+                retrieved_at_utc="2026-08-20T00:00:00Z",
+                fetcher=Fetcher(archive_bytes()),
+                contract=self.contract,
+            )
+            self.assertEqual(padded["counts"]["captured"], 1)
+            self.assertEqual(padded["counts"]["failed"], 0)
+            self.assertEqual(
+                padded["records"][0]["title"], "단일판매ㆍ공급계약체결"
+            )
 
             second_fetcher = Fetcher(AssertionError("no provider call"))
             second = MODULE.run_capture(
