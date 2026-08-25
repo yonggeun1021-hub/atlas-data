@@ -59,6 +59,11 @@
       "data/briefing/dart/{SYMBOL}.json",
       "data/briefing/sec/{SYMBOL}.json"
     ],
+    "daily_briefing_sources": {
+      "consumer": ".github/scripts/daily_briefing_delivery.py",
+      "locator_path": "data/briefing/daily_briefing_sources.json",
+      "selection_policy": "EXACT_POINTER_ONLY_NO_FALLBACK"
+    },
     "date_basis": "KST",
     "health_path": "data/briefing_status.json",
     "operations_telemetry_sources": [
