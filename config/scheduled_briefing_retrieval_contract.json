@@ -1,0 +1,27 @@
+{
+  "schema_version": "scheduled_briefing_retrieval_authority/1",
+  "repository": "yonggeun1021-hub/atlas-data",
+  "branch": "main",
+  "source_contract_path": "config/read_model_authority_contract.json",
+  "allowed_slots": [
+    "morning",
+    "evening"
+  ],
+  "bootstrap_path_template": "evidence/scheduled_briefing_retrieval/{expected_kst_date}/{slot}/rev-{revision}.json",
+  "bootstrap_url_template": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/main/evidence/scheduled_briefing_retrieval/{expected_kst_date}/{slot}/rev-{revision}.json",
+  "immutable_raw_url_template": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/{source_commit}/{path}",
+  "bootstrap_policy": "UNIQUE_DATE_SLOT_APPEND_ONLY_SEQUENTIAL_REVISIONS",
+  "max_revisions_per_slot": 99,
+  "stale_policy": "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+  "unavailable_status": "RETRIEVAL_AUTHORITY_UNAVAILABLE",
+  "authority": {
+    "retrieval_pointer_only": true,
+    "collector_authority": false,
+    "stage_authority": false,
+    "buy_authority": false,
+    "action_authority": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}

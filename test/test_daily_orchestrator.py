@@ -1807,6 +1807,9 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("briefing/daily_orchestrator.py validate", command)
         self.assertIn("daily_briefing_delivery.py publish-locator", command)
         self.assertIn("daily_briefing_delivery.py consume", command)
+        self.assertIn("publish_scheduled_briefing_authority.py publish", command)
+        self.assertIn("publish_scheduled_briefing_authority.py validate", command)
+        self.assertIn('SOURCE_COMMIT=$(git rev-parse HEAD)', command)
         # publish() itself decides whether a new revision is needed (same-
         # day recovery); the workflow must always call it rather than
         # skipping on bare directory presence, and must gate the commit on
@@ -1823,7 +1826,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(
             commit.get("if"),
             "steps.briefing.outputs.result == 'published' || "
-            "steps.briefing.outputs.locator_changed == 'true'",
+            "steps.briefing.outputs.locator_changed == 'true' || "
+            "steps.briefing.outputs.authority_changed == 'true'",
         )
         # The whole decision_date directory must be staged, not just the
         # new rev-NNN/ subdirectory, so the sibling index.json (rewritten
@@ -1832,6 +1836,17 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn(
             "git add data/briefing/daily_briefing_sources.json", commit["run"]
         )
+        self.assertIn('git add "$AUTHORITY_PATH"', commit["run"])
+        self.assertNotIn("git pull --rebase", commit["run"])
+        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH" || {', commit["run"])
+
+        resync = next(
+            step for step in steps
+            if step.get("name") == "Re-sync to the latest main before binding retrieval authority"
+        )
+        self.assertIn('git reset --hard "origin/$DEFAULT_BRANCH"', resync["run"])
+        self.assertLess(steps.index(resync), steps.index(regression))
+        self.assertLess(steps.index(resync), steps.index(publish))
 
     def test_workflow_derives_slot_from_exact_cron_not_wall_clock_hour(self):
         # A large scheduler delay must not misclassify morning as evening
