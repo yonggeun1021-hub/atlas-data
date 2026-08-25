@@ -239,6 +239,10 @@ APPROVED_TESTS = [
     #   live network나 importance/promotion 정책은 추가하지 않는다.
     "test/test_event_discovery_case.py",
     "test/test_event_discovery_population.py",
+    # ★ P9-02 source adapter — the exact published P3-08 packet becomes a
+    #   normalized observation batch.  Current SEC event time is DATE_ONLY, so
+    #   every observation is BLOCKED; no importance/policy/notification/action.
+    "test/test_important_event_observation_population.py",
     # ★ P3-09 — policy-gated market-specific supply/demand raw-feature radar.
     #   exact 3-point evidence의 prior/latest/acceleration change만 계산하고,
     #   persisted validator가 arithmetic/lineage/policy/case의 self-rehashed drift를
@@ -762,7 +766,10 @@ APPROVED_TESTS = [
     #   confirmed IMPORTANT를 승격하고 available_at→detected_at 지연을 측정한다.
     #   exact event/policy source를 내장·재검증하고 routine/unmatched/blocked는
     #   분리하며 repository default policy는 없다.
-    #   ⛔ live adapter/notification/action/order/Production/trading 및 network 없음.
+    #   P3-08 SEC live adapter는 provider-free로 연결됐지만 DATE_ONLY 사건은
+    #   전부 명시적으로 BLOCKED된다. DART/news/crypto·importance policy·intraday
+    #   polling·notification은 여전히 미배선이다.
+    #   ⛔ notification/action/order/Production/trading 및 신규 network 없음.
     "test/test_important_event_detector.py",
     # ★ P9-05 — external RATIFIED intraday risk escalation thresholds.
     #   drawdown/down-gap/spread/relative-volume을 exact observation에서 계산하지만

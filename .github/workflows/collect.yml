@@ -192,6 +192,20 @@ jobs:
             --decision-at "$DECISION_AT" \
             --out-root data/observations/event_discovery_cases
 
+      # P9-02 — normalize the exact published P3-08 packet into the detector's
+      # observation-batch contract without inventing importance or a filing
+      # timestamp.  Current SEC cases are date-only, so every row remains
+      # explicitly BLOCKED and cannot be escalated even if a policy is later
+      # supplied.  No provider call, notification, action, or trading authority.
+      - name: Populate Important Event Observations (P9-02)
+        if: always()
+        run: |
+          OBSERVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 execution/important_event_observation_population.py \
+            --observed-at "$OBSERVED_AT" \
+            --event-root data/observations/event_discovery_cases \
+            --out-root data/observations/important_event_observations
+
       # P3-05 — provider-free Business Acceleration population from the
       # already-retained P4-02 TSM SEC monthly-report manifests/raw bytes.
       # Three consecutive decision-time-eligible reports are required; no

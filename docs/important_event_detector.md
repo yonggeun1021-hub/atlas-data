@@ -17,6 +17,19 @@ ratified rule. It does not infer event types, invent an importance policy, send
 a notification, promote a candidate, create an action/order, or authorize
 Production/trading.
 
-The repository has no default importance policy and no live normalized
-SEC/DART/news adapter wiring. The CLI is offline and writes only outside the
-repository; those operational integrations remain separate Exit Gate work.
+The repository has no default importance policy.  The provider-free
+`execution/important_event_observation_population.py` adapter revalidates the
+exact published P3-08 SEC packet and emits a content-addressed append-only
+normalized observation packet on the existing Daily Collect path.  Current
+P3-08 evidence retains the official filing date and Atlas retrieval timestamp,
+but not an authoritative filing-time timestamp.  Consequently every adapted
+row is explicitly `BLOCKED` with `EVENT_TIME_PRECISION_DATE_ONLY`; this wiring
+cannot create an escalation even if a policy is supplied later.
+The required `event_at` field carries only a date-floor placeholder and is
+separately marked `EVENT_AT_DATE_FLOOR_PLACEHOLDER`; it must not be interpreted
+as an asserted filing timestamp.
+
+DART/news/crypto adapters, intraday polling, a RATIFIED importance policy, and
+notification delivery remain separate Exit Gate work.  The detector CLI stays
+offline and never authorizes candidate promotion, action/order, Production, or
+trading.
