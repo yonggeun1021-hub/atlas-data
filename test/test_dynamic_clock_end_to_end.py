@@ -12,7 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from clock.run_dynamic_clock import build_briefing_section, run  # noqa: E402
+from clock.run_dynamic_clock import (  # noqa: E402
+    MODE_HISTORICAL_REPLAY,
+    build_briefing_section,
+    run,
+)
 
 
 class BtcRegressionCaseTests(unittest.TestCase):
@@ -34,7 +38,18 @@ class BtcRegressionCaseTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.report = run()
+        # This class proves the immutable 2026-08-20 regression case.  Using
+        # bare ``run()`` made the proof depend on whichever later BTC capture
+        # happened to be newest: once 2026-08-25 arrived the historical
+        # episode correctly expired and these assertions became meaningless.
+        # Reconstruct the operational side at the actual decision date.
+        cls.report = run("2026-08-20", MODE_HISTORICAL_REPLAY)
+
+    @staticmethod
+    def _historical_diagnostics():
+        from clock.run_dynamic_clock import run_with_diagnostics
+
+        return run_with_diagnostics("2026-08-20", MODE_HISTORICAL_REPLAY)[1]
 
     def _btc_raw_price_confirmation(self):
         btc = self.report["by_market"]["BTC"]
@@ -58,9 +73,7 @@ class BtcRegressionCaseTests(unittest.TestCase):
         # never fed into tier, and physically separate from the raw ledger
         # too now (defect 3): only in clock/audit_diagnostics.py's own
         # artifact.
-        from clock.run_dynamic_clock import run_with_diagnostics
-
-        _, diagnostics = run_with_diagnostics()
+        diagnostics = self._historical_diagnostics()
         btc_diag = next(d for d in diagnostics["by_market"]["BTC"] if d["subject"] == "BTC")
         fm = btc_diag["reference_forward_metrics_first_detection"]
         self.assertEqual(fm["status"], "OK")
@@ -92,9 +105,7 @@ class BtcRegressionCaseTests(unittest.TestCase):
     def test_btc_post_hoc_finding_still_visible_in_the_separate_audit_diagnostics_artifact(self):
         # The real PR #210 finding is still visible -- just physically
         # separate from the operational candidate (defect 3).
-        from clock.run_dynamic_clock import run_with_diagnostics
-
-        _, diagnostics = run_with_diagnostics()
+        diagnostics = self._historical_diagnostics()
         btc_diag = next(d for d in diagnostics["by_market"]["BTC"] if d["subject"] == "BTC")
         self.assertIsNotNone(btc_diag["post_hoc_audit_note"])
         self.assertFalse(btc_diag["post_hoc_audit_note"]["authoritative_for_tier"])

@@ -326,7 +326,13 @@ def _market_diagnostics(market: str, decision_date: str | None, mode: str) -> li
     evidence_dates = scan_result["evidence_dates"]
     evidence_as_of = max(evidence_dates) if evidence_dates else None
     decision_at = decision_date if decision_date is not None else evidence_as_of
-    series_map = scan_result.get("series", {})
+    # Audit diagnostics are intentionally post-hoc.  Episode membership is
+    # reconstructed strictly at ``decision_date`` above, but forward-return
+    # grading needs later bars that were not (and must not have been) visible
+    # to the operational decision.  Read those bars from a separate unfiltered
+    # scan used only inside this audit-only function.  They never flow back to
+    # ``run()``/tiering/briefing.
+    series_map = scanner(None).get("series", {})
 
     active_episodes_by_subject: dict[str, list[dict]] = {}
     for subject, by_type in sorted(scan_result["subjects"].items()):
