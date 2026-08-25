@@ -15,6 +15,7 @@ pointer is pinned to one exact commit and one generation.
 from __future__ import annotations
 
 import argparse
+from datetime import date as calendar_date
 import hashlib
 import json
 import os
@@ -132,11 +133,18 @@ def _validate_adapter_contract(contract: dict) -> dict:
         "{source_commit}/{path}"
     ):
         fail("ADAPTER_IMMUTABLE_URL_MISMATCH")
-    authority = contract.get("authority")
-    if not isinstance(authority, dict) or authority.get("retrieval_pointer_only") is not True:
+    expected_authority = {
+        "retrieval_pointer_only": True,
+        "collector_authority": False,
+        "stage_authority": False,
+        "buy_authority": False,
+        "action_authority": False,
+        "order_authority": False,
+        "production_authority": False,
+        "trading_authority": False,
+    }
+    if contract.get("authority") != expected_authority:
         fail("ADAPTER_AUTHORITY_BOUNDARY_INVALID")
-    if any(v is True for k, v in authority.items() if k != "retrieval_pointer_only"):
-        fail("ADAPTER_AUTHORITY_ESCALATION")
     return contract
 
 
@@ -190,6 +198,10 @@ def build_envelope(
     if slot not in ("morning", "evening"):
         fail("SLOT_UNSUPPORTED", slot)
     if not ISO_DATE.fullmatch(expected_kst_date):
+        fail("EXPECTED_KST_DATE_INVALID")
+    try:
+        calendar_date.fromisoformat(expected_kst_date)
+    except ValueError:
         fail("EXPECTED_KST_DATE_INVALID")
     adapter, source = load_contract_at_commit(repo_root, source_commit)
     if slot not in adapter["allowed_slots"]:

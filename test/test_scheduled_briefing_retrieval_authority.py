@@ -204,6 +204,7 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         for slot, date, code in (
             ("night", DATE, "SLOT_UNSUPPORTED"),
             ("morning", "../../etc/passwd", "EXPECTED_KST_DATE_INVALID"),
+            ("morning", "2026-99-99", "EXPECTED_KST_DATE_INVALID"),
         ):
             with self.subTest(slot=slot, date=date):
                 with self.assertRaisesRegex(M.ScheduledAuthorityError, code):
@@ -215,8 +216,28 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         contract["authority"]["trading_authority"] = True
         write_json(contract_path, contract)
         commit = self.repo.commit_all("authority-escalation")
-        with self.assertRaisesRegex(M.ScheduledAuthorityError, "ADAPTER_AUTHORITY_ESCALATION"):
+        with self.assertRaisesRegex(M.ScheduledAuthorityError, "ADAPTER_AUTHORITY_BOUNDARY_INVALID"):
             self.build(commit=commit)
+
+    def test_authority_contract_cannot_omit_or_rename_a_boundary(self):
+        for mutation in ("omit", "rename"):
+            repo = AuthorityRepo()
+            try:
+                path = repo.root / M.CONTRACT_PATH
+                contract = json.loads(path.read_text())
+                if mutation == "omit":
+                    contract["authority"].pop("trading_authority")
+                else:
+                    contract["authority"]["buy"] = "AUTHORIZED"
+                write_json(path, contract)
+                commit = repo.commit_all("authority-shape")
+                with self.assertRaisesRegex(
+                    M.ScheduledAuthorityError,
+                    "ADAPTER_AUTHORITY_BOUNDARY_INVALID",
+                ):
+                    M.build_envelope(repo.root, commit, "morning", DATE)
+            finally:
+                repo.close()
 
     def test_adapter_contract_cannot_redirect_bootstrap_or_artifacts(self):
         for key, value, code in (
