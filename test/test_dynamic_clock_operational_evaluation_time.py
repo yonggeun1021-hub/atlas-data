@@ -321,6 +321,16 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             report_path.parent.mkdir(parents=True)
             report_path.write_text(json.dumps(report), encoding="utf-8")
+            (report_path.parent / "candidate_identity_observation.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "candidate_count": 66,
+                        "identity_resolved_count": 3,
+                        "scope_resolved_count": 66,
+                    }
+                }),
+                encoding="utf-8",
+            )
             summary = temp / "step-summary.md"
             env = dict(os.environ, GITHUB_STEP_SUMMARY=str(summary))
             completed = subprocess.run(
@@ -335,6 +345,7 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             self.assertIn(f"operational_evaluated_at={EXACT_EVALUATED_AT}", rendered)
             for market in ("BTC", "KOREA", "CRYPTO"):
                 self.assertIn(f"- {market}: evidence_as_of=", rendered)
+            self.assertIn("candidate_identity: resolved=3/66", rendered)
 
     def test_python_operational_modules_never_read_wall_clock(self):
         for path in (

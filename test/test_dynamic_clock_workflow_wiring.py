@@ -55,6 +55,7 @@ class OfflineRegressionInvocationTests(unittest.TestCase):
         "test/test_price_reflection_link.py",
         "test/test_dynamic_clock_orchestrator_defects.py",
         "test/test_dynamic_clock_identity_lineage.py",
+        "test/test_candidate_identity_observation.py",
     )
 
     def test_offline_regression_uses_file_paths_not_test_package_imports(self):
@@ -101,6 +102,7 @@ class NoNewProviderCallsTests(unittest.TestCase):
     def test_workflow_only_runs_the_pure_computation_script(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         self.assertIn("clock/run_dynamic_clock.py", text)
+        self.assertIn("identity/candidate_identity_observation.py", text)
 
     def test_run_dynamic_clock_module_itself_makes_no_network_calls(self):
         # Static check mirroring the module's own docstring claim: no

@@ -1177,6 +1177,10 @@ APPROVED_TESTS = [
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
     "test/test_dynamic_clock_identity_lineage.py",
+    # P5-06/P7-08 read-only candidate identity observation: validated
+    # provider lineage -> RATIFIED canonical instrument/account scope only.
+    # Candidate validity, entry, sizing and every money authority stay locked.
+    "test/test_candidate_identity_observation.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

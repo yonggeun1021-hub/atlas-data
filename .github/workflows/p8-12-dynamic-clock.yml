@@ -76,7 +76,8 @@ jobs:
             test/test_dynamic_clock_operational_evaluation_time.py \
             test/test_candidate_validity_shadow_observation.py \
             test/test_candidate_lifecycle_observation.py \
-            test/test_dynamic_clock_identity_lineage.py
+            test/test_dynamic_clock_identity_lineage.py \
+            test/test_candidate_identity_observation.py
           do
             python3 "$test_file"
           done
@@ -106,6 +107,8 @@ jobs:
           EVALUATION_AT_UTC: ${{ steps.decision_date.outputs.evaluation_at_utc }}
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE" --evaluation-at-utc "$EVALUATION_AT_UTC" --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
+      - name: Resolve candidate identity as a read-only mechanical observation
+        run: python3 identity/candidate_identity_observation.py
       # ★ Independent verification (item 6): read the REAL per-market
       #   evidence_as_of dates the computation above actually used, from
       #   the freshly-written report itself -- never inferred from
@@ -121,6 +124,9 @@ jobs:
           print(f"- operational_evaluated_at={d['operational_evaluation']['evaluated_at_utc']}")
           for market, m in d['by_market'].items():
               print(f"- {market}: evidence_as_of={m['evidence_as_of']} decision_date={m['decision_date']}")
+          identity = json.load(open('evidence/operational/dynamic_clock/candidate_identity_observation.json'))
+          s = identity['summary']
+          print(f"- candidate_identity: resolved={s['identity_resolved_count']}/{s['candidate_count']} scope_resolved={s['scope_resolved_count']}/{s['candidate_count']} (mechanical observation only)")
           PY
       - name: Idempotency check + commit only if the evidence actually changed
         id: commit
