@@ -281,6 +281,13 @@ APPROVED_TESTS = [
     #   Atlas 관측시각을 source available_at으로 승격하지 않는다.
     #   ⛔ live network/key 없음 — fake opener + temp evidence + workflow 계약만 검증.
     "test/test_kofia_first_seen.py",
+    # ★ P1-KR-03 provider-free release-timing observation.
+    #   committed first-seen raw history를 기존 replay validator로 전량 재검증하고
+    #   exact row hash의 마지막 부재 probe→최초 present probe 관측창만 계산한다.
+    #   available_at/unit/release policy는 계속 UNRATIFIED/NOT ELIGIBLE이며 raw
+    #   evidence commit과 별도 commit이라 derived 실패가 source capture를 버리지 않는다.
+    #   ⛔ 신규 provider/cron/Regime/Production/trading 권한 없음.
+    "test/test_kofia_release_timing.py",
     # ★ P1-US-04 — free forward-only US directory membership capture.
     #   provider-free skip 전 exact raw/manifest/diff bundle을 재검증한다.
     #   Nasdaq Trader current-day files를 append-only로 누적하고 캡처 간

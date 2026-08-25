@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "contract_version": "kofia_release_timing_observation/1",
+  "source_capture_contract_version": "kofia-first-seen-capture/v2",
+  "source_contract_version": "kofia_liquidity_source/v3",
+  "source_evidence_root": "evidence/kofia/first_seen",
+  "observation_semantics": "atlas_probe_window_only_not_source_release_time",
+  "window_lower_bound_semantics": "latest_verified_probe_without_exact_row_hash_strictly_before_first_seen",
+  "window_upper_bound_semantics": "earliest_verified_atlas_capture_of_exact_row_hash",
+  "available_at": null,
+  "release_timing_policy_status": "UNRATIFIED",
+  "historical_range_status": "unverified",
+  "api_field_unit_status": "conflicting_primary_evidence",
+  "decision_eligible": false,
+  "regime_score_authorized": false,
+  "production_wiring_authorized": false,
+  "trading_action_authorized": false
+}
