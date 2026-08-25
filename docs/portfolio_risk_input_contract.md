@@ -30,6 +30,34 @@ separate keys -- never merged:
 
 - **Alpaca Paper account** (`portfolio_risk/alpaca_client.py`): `GET /v2/account`,
   `GET /v2/positions` against `https://paper-api.alpaca.markets`
+
+### Position provider identity lineage (additive `portfolio_position_source_lineage/1`)
+
+Every Alpaca position now transports the exact provider pair
+`(source_name="alpaca_paper_positions", source_asset_id=<the response's
+asset_id>)`. The stable provider `asset_id` is read directly at the adapter
+boundary; it is never reconstructed from the display symbol. `AVAILABLE`
+therefore means only that this exact provider pair is present. It does **not**
+mean that a canonical instrument has been resolved, that two aliases have
+been deduplicated, or that the position is investable.
+
+Manual Korea/Crypto positions remain
+`NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING`. A caller may supply one
+complete provider pair for audit, but it remains unverified; partial pairs are
+rejected and manual input can never claim `AVAILABLE`.
+
+This extension deliberately leaves the already-ratified
+`config/portfolio_risk_input_contract.json` bytes and
+`portfolio_risk_input/1` schema identity unchanged. Its own contract is
+`config/portfolio_position_source_lineage_contract.json`, and each lineage
+object carries that separate contract version.
+
+The existing `exposure_by_ticker` output remains a raw diagnostic view and is
+now explicitly labeled by
+`exposure_identity_basis=RAW_PROVIDER_SYMBOL_DIAGNOSTIC_NOT_CANONICAL_INSTRUMENT`.
+It must not be used as canonical exposure. In particular, XBT/XXBT or other
+provider aliases are not silently stripped or merged here; that requires a
+separately ratified canonical-instrument authority record.
   (the trading/account host -- distinct from `https://data.alpaca.markets`,
   the market-data host already used by `collectors/free_market_data.py`).
   Credential pattern reused verbatim: `ALPACA_API_KEY`/`ALPACA_API_SECRET`

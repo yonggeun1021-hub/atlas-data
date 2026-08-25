@@ -76,6 +76,14 @@ import json
 import math
 
 SCHEMA_VERSION = "portfolio_risk_input/1"
+POSITION_SOURCE_IDENTITY_CONTRACT_VERSION = "portfolio_position_source_lineage/1"
+POSITION_SOURCE_NAME_ALPACA = "alpaca_paper_positions"
+SOURCE_IDENTITY_AVAILABLE = "AVAILABLE"
+SOURCE_IDENTITY_MISSING = "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING"
+RAW_EXPOSURE_IDENTITY_BASIS = "RAW_PROVIDER_SYMBOL_DIAGNOSTIC_NOT_CANONICAL_INSTRUMENT"
+FORBIDDEN_POSITION_IDENTITY_CLAIMS = frozenset({
+    "canonical_issuer_id", "canonical_instrument_id", "listing_id", "identity_status",
+})
 BASE_CURRENCY = "USD"
 
 # ★ Fix 5/6 (round 1): the set of markets that make up "the portfolio" is a
@@ -281,6 +289,109 @@ def _dedupe_positions(raw_positions: list[dict]) -> list[dict]:
     return [seen[s] for s in sorted(seen)]
 
 
+def _source_pair(source_name: str, source_asset_id: str) -> dict:
+    """Build one exact provider identity pair without ticker normalization.
+
+    ``source_asset_id`` must be the identifier directly supplied by the
+    provider adapter.  Callers may not substitute a display ticker or infer a
+    canonical instrument here.
+    """
+    if not isinstance(source_name, str) or not source_name.strip():
+        raise PortfolioSnapshotError("POSITION_SOURCE_NAME_INVALID")
+    if not isinstance(source_asset_id, str) or not source_asset_id.strip():
+        raise PortfolioSnapshotError("POSITION_SOURCE_ASSET_ID_INVALID")
+    return {"source_name": source_name, "source_asset_id": source_asset_id}
+
+
+def _alpaca_position_source_identity(row: dict) -> dict:
+    """Transport Alpaca's own stable ``asset_id`` from `/v2/positions`.
+
+    The display ``symbol`` is deliberately not used as ``source_asset_id``.
+    This is an adapter-boundary extraction, not an identity mapping or an
+    investability assertion.
+    """
+    if "asset_id" not in row:
+        raise PortfolioSnapshotError("ALPACA_POSITION_ASSET_ID_MISSING")
+    return {
+        "contract_version": POSITION_SOURCE_IDENTITY_CONTRACT_VERSION,
+        "status": SOURCE_IDENTITY_AVAILABLE,
+        "source_pairs": [_source_pair(POSITION_SOURCE_NAME_ALPACA, row["asset_id"])],
+    }
+
+
+def _manual_position_source_identity(row: dict) -> dict:
+    """Preserve optional manual provider identifiers but never verify them.
+
+    A partial pair is rejected.  A complete pair is retained for audit, while
+    the status remains NOT_COMPUTABLE because a manual account fact is not a
+    broker-verified source.
+    """
+    source_name = row.get("source_name")
+    source_asset_id = row.get("source_asset_id")
+    if (source_name is None) != (source_asset_id is None):
+        raise PortfolioSnapshotError("MANUAL_POSITION_SOURCE_IDENTITY_PARTIAL")
+    pairs = [] if source_name is None else [_source_pair(source_name, source_asset_id)]
+    return {
+        "contract_version": POSITION_SOURCE_IDENTITY_CONTRACT_VERSION,
+        "status": SOURCE_IDENTITY_MISSING,
+        "source_pairs": pairs,
+    }
+
+
+def _validate_position_source_identity(account_fact: dict) -> None:
+    """Fail closed on lineage tampering independently of packet hashing.
+
+    For Alpaca facts the provider name is fixed by the read-only endpoint and
+    each normalized position must contain exactly one non-empty asset ID.
+    Manual facts may retain a complete pair for audit, but can never claim
+    AVAILABLE.  This verifies the transport contract only; authenticity after
+    capture is provided by the private append-only record, not by this
+    self-contained packet.
+    """
+    source = account_fact.get("source")
+    verification_status = account_fact.get("verification_status")
+    if source == "ALPACA_PAPER_ACCOUNT":
+        if verification_status != "BROKER_VERIFIED":
+            raise PortfolioSnapshotError("ALPACA_ACCOUNT_VERIFICATION_STATUS_INVALID")
+    elif isinstance(source, str) and source.startswith("MANUAL_SNAPSHOT:"):
+        if verification_status != "PAPER_OR_MANUAL_UNVERIFIED":
+            raise PortfolioSnapshotError("MANUAL_ACCOUNT_VERIFICATION_STATUS_INVALID")
+    else:
+        raise PortfolioSnapshotError(f"POSITION_SOURCE_IDENTITY_UNSUPPORTED_ACCOUNT_SOURCE:{source}")
+
+    for position in account_fact.get("positions", []):
+        forbidden = sorted(FORBIDDEN_POSITION_IDENTITY_CLAIMS & set(position))
+        if forbidden:
+            raise PortfolioSnapshotError(f"POSITION_CANONICAL_IDENTITY_CLAIM_FORBIDDEN:{forbidden}")
+        lineage = position.get("source_identity_lineage")
+        if not isinstance(lineage, dict) or set(lineage) != {"contract_version", "status", "source_pairs"}:
+            raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_LINEAGE_SCHEMA_INVALID")
+        if lineage.get("contract_version") != POSITION_SOURCE_IDENTITY_CONTRACT_VERSION:
+            raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_CONTRACT_VERSION_INVALID")
+        pairs = lineage.get("source_pairs")
+        if not isinstance(pairs, list):
+            raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_PAIRS_NOT_A_LIST")
+        normalized_pairs = []
+        for pair in pairs:
+            if not isinstance(pair, dict) or set(pair) != {"source_name", "source_asset_id"}:
+                raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_PAIR_SCHEMA_INVALID")
+            normalized = _source_pair(pair["source_name"], pair["source_asset_id"])
+            normalized_pairs.append((normalized["source_name"], normalized["source_asset_id"]))
+        if normalized_pairs != sorted(set(normalized_pairs)):
+            raise PortfolioSnapshotError("POSITION_SOURCE_IDENTITY_PAIRS_NOT_CANONICAL")
+
+        if source == "ALPACA_PAPER_ACCOUNT":
+            if lineage.get("status") != SOURCE_IDENTITY_AVAILABLE:
+                raise PortfolioSnapshotError("ALPACA_POSITION_SOURCE_IDENTITY_NOT_AVAILABLE")
+            if len(normalized_pairs) != 1 or normalized_pairs[0][0] != POSITION_SOURCE_NAME_ALPACA:
+                raise PortfolioSnapshotError("ALPACA_POSITION_SOURCE_IDENTITY_INVALID")
+        elif isinstance(source, str) and source.startswith("MANUAL_SNAPSHOT:"):
+            if lineage.get("status") != SOURCE_IDENTITY_MISSING:
+                raise PortfolioSnapshotError("MANUAL_POSITION_SOURCE_IDENTITY_CANNOT_BE_AVAILABLE")
+            if len(normalized_pairs) > 1:
+                raise PortfolioSnapshotError("MANUAL_POSITION_SOURCE_IDENTITY_MULTIPLE_PAIRS")
+
+
 def _order_eligibility_status(account: dict) -> str:
     blocked_flags = [
         flag for flag in ("trading_blocked", "account_blocked", "trade_suspended_by_user")
@@ -325,6 +436,7 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
             "market_value": market_value,
             "unrealized_pl": unrealized_pl,
             "currency": account["currency"],
+            "source_identity_lineage": _alpaca_position_source_identity(row),
         })
 
     diagnostics = _derive_account_fact_diagnostics(equity, cash, normalized_positions, captured_at, decision_at)
@@ -378,6 +490,7 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
             "symbol": row["symbol"], "quantity": qty, "market_value": market_value,
             "unrealized_pl": _require_finite_number(row.get("unrealized_pl", 0.0), "manual.unrealized_pl"),
             "currency": currency,
+            "source_identity_lineage": _manual_position_source_identity(row),
         })
 
     equity = cash_f + market_value_sum  # ★ derived FROM cash+positions here, so this always reconciles exactly
@@ -513,6 +626,7 @@ def _not_computable_risk_capacity_block(status: str, completeness: dict, account
         "full_portfolio_nav": None, "full_portfolio_nav_status": status,
         "cash_by_currency": [],
         "total_cash_base_currency": None, "total_cash_base_currency_status": status,
+        "exposure_identity_basis": RAW_EXPOSURE_IDENTITY_BASIS,
         "exposure_by_ticker": [], "exposure_by_market": [], "exposure_by_currency": [],
         "gross_exposure_base_currency": None, "gross_exposure_base_currency_status": status,
         "net_exposure_base_currency": None, "net_exposure_base_currency_status": status,
@@ -605,6 +719,7 @@ def _compute_risk_capacity_inputs(account_facts: list[dict], fx_rates: dict) -> 
             "cash_by_currency": cash_by_currency,
             "total_cash_base_currency": total_cash_base_currency,
             "total_cash_base_currency_status": _diag(total_cash_base_currency_status),
+            "exposure_identity_basis": RAW_EXPOSURE_IDENTITY_BASIS,
             "exposure_by_ticker": exposure_raw["by_ticker"],
             "exposure_by_market": exposure_raw["by_market"],
             "exposure_by_currency": exposure_raw["by_currency"],
@@ -630,6 +745,7 @@ def _compute_risk_capacity_inputs(account_facts: list[dict], fx_rates: dict) -> 
         "cash_by_currency": cash_by_currency,
         "total_cash_base_currency": total_cash_base_currency,
         "total_cash_base_currency_status": total_cash_base_currency_status,
+        "exposure_identity_basis": RAW_EXPOSURE_IDENTITY_BASIS,
         "exposure_by_ticker": exposure_raw["by_ticker"],
         "exposure_by_market": exposure_raw["by_market"],
         "exposure_by_currency": exposure_raw["by_currency"],
@@ -648,6 +764,8 @@ def assemble_snapshot(*, account_facts: list[dict], fx_rates: dict,
     disk. No `expected_sources` parameter: account scope always comes from
     `CANONICAL_ACCOUNT_SCOPE`, never from the caller."""
     _validate_snapshot_timing(captured_at, available_at, decision_at)
+    for fact in account_facts:
+        _validate_position_source_identity(fact)
     risk_capacity_inputs = _compute_risk_capacity_inputs(account_facts, fx_rates)
 
     packet = {
@@ -740,6 +858,7 @@ def validate_snapshot(packet: dict) -> dict:
         raise PortfolioSnapshotError("POSITION_SIZE_COMPUTED_WHILE_POLICY_UNRATIFIED")
 
     for i, fact in enumerate(account_facts):
+        _validate_position_source_identity(fact)
         recomputed = _derive_account_fact_diagnostics(
             fact.get("equity"), fact.get("cash"), fact.get("positions", []),
             fact.get("captured_at"), decision_at,

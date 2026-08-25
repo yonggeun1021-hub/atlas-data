@@ -66,7 +66,10 @@ def _account(**overrides):
 
 
 def _positions(**overrides):
-    row = {"symbol": "AAPL", "qty": "10", "market_value": "5000.00", "unrealized_pl": "100.00"}
+    row = {
+        "asset_id": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
+        "symbol": "AAPL", "qty": "10", "market_value": "5000.00", "unrealized_pl": "100.00",
+    }
     row.update(overrides)
     return [row]
 
