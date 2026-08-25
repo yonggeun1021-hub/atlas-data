@@ -41,9 +41,17 @@ https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/<source_commit>/<p
 ```
 
 The producer derives hashes and generation metadata from `git show` at that
-exact commit, not from potentially dirty working-tree bytes.  A concurrent
-advance of `main` rejects the evidence push; the workflow never rebases or
-force-pushes a pointer computed from an older checkout.
+exact commit, not from potentially dirty working-tree bytes. Publication is
+deliberately two-phase: phase A commits and pushes the daily briefing plus the
+H-24 locator, producing consumer-ready commit `S`; phase B publishes the
+append-only bootstrap whose `source_commit` is `S`. This avoids the impossible
+self-reference that would result from trying to put a pointer to a commit
+inside that same commit. A concurrent advance causes a bounded fetch-first
+retry; no rebase or force-push is used.
+
+The envelope binds not only Step0 and health, but also the H-24 locator and the
+exact index, packet, and rendered briefing bytes named by that locator. Their
+paths and SHA-256 values are independently checked at `S`.
 
 ## Scheduled consumer contract — both AM and PM
 
@@ -65,6 +73,21 @@ KST evening briefing; only `slot` differs.
    same generation ID across every consumed artifact.
 5. If any step fails, report `RETRIEVAL_AUTHORITY_UNAVAILABLE` and do not make
    a new investment judgment from stale or floating data.
+
+The repository provides the executable consumer contract:
+
+```bash
+python3 .github/scripts/consume_scheduled_briefing_authority.py \
+  --expected-kst-date YYYY-MM-DD \
+  --slot morning \
+  --output-dir /tmp/atlas-verified-briefing
+```
+
+It discovers sequential revisions using a fresh request nonce, accepts only an
+explicit 404 as the end of the sequence, validates the closed envelope schema,
+and persists verified immutable bytes atomically. A missing first revision,
+revision gap, non-404 transport error, mixed generation, stale compact, H-24
+hash mismatch, or floating artifact URL all fail closed.
 
 The prompt must not use `refs/heads/main`, `raw/.../main/...`, a prior date, or
 an alternate endpoint for Step0/health/compact artifacts.  The bootstrap URL

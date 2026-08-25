@@ -71,6 +71,8 @@ def verify_immutable_commit(repo_root: Path, source_commit: str) -> None:
 
 
 def _safe_repo_path(path: str) -> str:
+    if not isinstance(path, str):
+        fail("SOURCE_PATH_UNSAFE")
     parsed = PurePosixPath(path)
     if not path or parsed.is_absolute() or ".." in parsed.parts:
         fail("SOURCE_PATH_UNSAFE", path)
@@ -96,18 +98,20 @@ def _json_object(raw: bytes, code: str) -> dict:
 def _validate_adapter_contract(contract: dict) -> dict:
     expected = {
         "schema_version", "repository", "branch", "source_contract_path",
-        "allowed_slots", "bootstrap_path_template", "bootstrap_url_template",
+        "allowed_slots", "delivery_locator_path", "bootstrap_path_template", "bootstrap_url_template",
         "immutable_raw_url_template", "bootstrap_policy", "stale_policy",
         "max_revisions_per_slot", "unavailable_status", "authority",
     }
     if set(contract) != expected:
         fail("ADAPTER_CONTRACT_FIELDS_MISMATCH")
-    if contract["schema_version"] != "scheduled_briefing_retrieval_authority/1":
+    if contract["schema_version"] != "scheduled_briefing_retrieval_authority/2":
         fail("ADAPTER_CONTRACT_VERSION_UNSUPPORTED")
     if contract["repository"] != "yonggeun1021-hub/atlas-data" or contract["branch"] != "main":
         fail("ADAPTER_REPOSITORY_IDENTITY_MISMATCH")
     if contract["source_contract_path"] != "config/read_model_authority_contract.json":
         fail("ADAPTER_SOURCE_CONTRACT_PATH_MISMATCH")
+    if contract["delivery_locator_path"] != "data/briefing/daily_briefing_sources.json":
+        fail("ADAPTER_DELIVERY_LOCATOR_PATH_MISMATCH")
     if contract["allowed_slots"] != ["morning", "evening"]:
         fail("ADAPTER_SLOT_CONTRACT_MISMATCH")
     if contract["bootstrap_policy"] != "UNIQUE_DATE_SLOT_APPEND_ONLY_SEQUENTIAL_REVISIONS":
@@ -187,6 +191,99 @@ def _artifact_record(adapter: dict, source_commit: str, path: str, raw: bytes) -
     }
 
 
+def _delivery_records(
+    repo_root: Path,
+    adapter: dict,
+    source_commit: str,
+    slot: str,
+    expected_kst_date: str,
+) -> tuple[dict, list[dict]]:
+    """Bind the H-24 locator and every byte-addressed delivery artifact.
+
+    The locator must already exist in ``source_commit``.  This is why the
+    workflow publishes the briefing/locator commit first and the bootstrap in
+    a second commit.  Recording a pre-publication checkout SHA would create a
+    syntactically valid pointer that cannot deliver H-24 from that commit.
+    """
+    locator_path = adapter["delivery_locator_path"]
+    locator_raw = git_blob(repo_root, source_commit, locator_path)
+    locator = _json_object(locator_raw, "DELIVERY_LOCATOR_JSON_INVALID")
+    required = {
+        "schema_version", "slot", "decision_date", "revision", "index_path",
+        "index_sha256", "packet_path", "packet_file_sha256", "packet_sha256",
+        "briefing_path", "briefing_sha256", "delivery_scope", "authority",
+    }
+    if set(locator) != required or locator.get("schema_version") != "daily_briefing_delivery/1":
+        fail("DELIVERY_LOCATOR_SCHEMA_INVALID")
+    if locator.get("slot") != slot or locator.get("decision_date") != expected_kst_date:
+        fail("DELIVERY_LOCATOR_IDENTITY_MISMATCH")
+    if locator.get("delivery_scope") != [
+        "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"
+    ]:
+        fail("DELIVERY_LOCATOR_SCOPE_MISMATCH")
+    if not isinstance(locator.get("packet_sha256"), str) or not re.fullmatch(
+        r"[0-9a-f]{64}", locator["packet_sha256"]
+    ):
+        fail("DELIVERY_PACKET_SHA_INVALID")
+    if locator.get("authority") != {
+        "stage": False, "buy": False, "action": False, "order": False,
+        "production": False, "trading": False,
+    }:
+        fail("DELIVERY_LOCATOR_AUTHORITY_ESCALATION")
+    base = f"evidence/daily_briefing/{slot}/{expected_kst_date}/"
+    expected_index_path = f"evidence/daily_briefing/{slot}/{expected_kst_date}/index.json"
+    if locator.get("index_path") != expected_index_path:
+        fail("DELIVERY_INDEX_PATH_IDENTITY_MISMATCH")
+    index_raw = git_blob(repo_root, source_commit, expected_index_path)
+    index = _json_object(index_raw, "DELIVERY_INDEX_JSON_INVALID")
+    revisions = index.get("revisions")
+    latest = index.get("latest_revision")
+    if (
+        index.get("schema_version") != 1
+        or index.get("slot") != slot
+        or index.get("decision_date") != expected_kst_date
+        or not isinstance(revisions, list)
+        or not revisions
+        or latest != len(revisions)
+        or locator.get("revision") != latest
+    ):
+        fail("DELIVERY_INDEX_IDENTITY_MISMATCH")
+    latest_entry = revisions[-1]
+    revision_name = f"rev-{latest:03d}"
+    if (
+        latest_entry.get("revision") != latest
+        or latest_entry.get("path") != revision_name
+        or latest_entry.get("packet_sha256") != locator.get("packet_sha256")
+        or locator.get("packet_path") != f"evidence/daily_briefing/{slot}/{expected_kst_date}/{revision_name}/packet.json"
+        or locator.get("briefing_path") != f"evidence/daily_briefing/{slot}/{expected_kst_date}/{revision_name}/briefing.md"
+    ):
+        fail("DELIVERY_LATEST_REVISION_IDENTITY_MISMATCH")
+    records = [_artifact_record(adapter, source_commit, locator_path, locator_raw)]
+    for path_field, hash_field in (
+        ("index_path", "index_sha256"),
+        ("packet_path", "packet_file_sha256"),
+        ("briefing_path", "briefing_sha256"),
+    ):
+        path = _safe_repo_path(locator.get(path_field))
+        if not path.startswith(base):
+            fail("DELIVERY_ARTIFACT_PATH_IDENTITY_MISMATCH", path)
+        raw = git_blob(repo_root, source_commit, path)
+        if hashlib.sha256(raw).hexdigest() != locator.get(hash_field):
+            fail("DELIVERY_ARTIFACT_HASH_MISMATCH", path)
+        records.append(_artifact_record(adapter, source_commit, path, raw))
+    packet = _json_object(
+        git_blob(repo_root, source_commit, locator["packet_path"]),
+        "DELIVERY_PACKET_JSON_INVALID",
+    )
+    if (
+        packet.get("slot") != slot
+        or packet.get("decision_date") != expected_kst_date
+        or packet.get("packet_sha256") != locator.get("packet_sha256")
+    ):
+        fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
+    return locator, records
+
+
 def build_envelope(
     repo_root: Path,
     source_commit: str,
@@ -247,6 +344,9 @@ def build_envelope(
         )
         for market, template in sorted(source["compact_path_templates"].items())
     }
+    delivery_locator, delivery_records = _delivery_records(
+        repo_root, adapter, source_commit, slot, expected_kst_date
+    )
     return {
         "schema_version": adapter["schema_version"],
         "slot": slot,
@@ -259,6 +359,8 @@ def build_envelope(
         "bootstrap_policy": adapter["bootstrap_policy"],
         "stale_detection": "PASS",
         "required_artifacts": records,
+        "delivery_locator": delivery_locator,
+        "delivery_artifacts": delivery_records,
         "compact_immutable_url_templates": compact_urls,
         "consumer_rules": {
             "bootstrap_missing_or_invalid": adapter["unavailable_status"],
@@ -280,7 +382,7 @@ def validate_envelope(repo_root: Path, envelope: dict) -> None:
         "schema_version", "slot", "expected_kst_date", "revision", "source_commit",
         "generation_id", "bootstrap_path", "bootstrap_url", "bootstrap_policy",
         "stale_detection", "required_artifacts", "compact_immutable_url_templates",
-        "consumer_rules", "authority",
+        "delivery_locator", "delivery_artifacts", "consumer_rules", "authority",
     }
     if set(envelope) != required:
         fail("ENVELOPE_FIELDS_MISMATCH")

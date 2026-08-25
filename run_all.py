@@ -514,6 +514,10 @@ APPROVED_TESTS = [
     #   Date/slot/revision paths are append-only; actual artifacts remain pinned
     #   to one exact commit/generation and unavailable/stale reads fail closed.
     "test/test_scheduled_briefing_retrieval_authority.py",
+    # ★ P0-06 consumer adoption — discover the append-only bootstrap with a
+    #   per-request nonce, then fetch Step0/health/compact and H-24 delivery
+    #   bytes only from its immutable consumer-ready source commit.
+    "test/test_scheduled_briefing_authority_consumer.py",
     # ★ H-24 — exact producer locator -> deterministic read-only consumer.
     #   No directory scan/prior-date/alternate-slot fallback; slot/date/revision,
     #   index/packet/rendered hashes and authority=false are independently checked.

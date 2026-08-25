@@ -75,17 +75,20 @@ jobs:
             *) echo "STOP: unsupported slot" >&2; exit 2 ;;
           esac
           DECISION_DATE=$(TZ=Asia/Seoul date +%F)
-          # Another collector may advance main while this bundle is being
-          # generated.  A pointer must never be rebased: discard the whole
-          # attempt and rebuild it once from the new immutable source instead.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          DELIVERY_CHANGED=false
+
+          # Phase A commits the briefing bundle and H-24 locator first.  The
+          # P0-06 source_commit must name a commit that already contains those
+          # consumer-ready bytes; binding the pre-publication checkout would
+          # make the locator impossible to retrieve from the advertised SHA.
           for ATTEMPT in 1 2; do
             if [ "$ATTEMPT" -gt 1 ]; then
               git fetch origin "$DEFAULT_BRANCH"
               git reset --hard "origin/$DEFAULT_BRANCH"
             fi
             GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            SOURCE_COMMIT=$(git rev-parse HEAD)
-
             # Always call publish -- it is the one that decides, from real
             # evidence, whether anything changed since the last revision for
             # this (slot, decision_date). A prior run may have published a
@@ -117,51 +120,92 @@ jobs:
               --decision-date "$DECISION_DATE" \
               > /tmp/investment-review-delivery.md
 
-            # P0-06: publish only the missing immutable-commit pointer for
-            # the scheduled human consumer. Every artifact URL is pinned to
-            # the source commit of this specific attempt.
-            AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
-              --slot "$SLOT" \
-              --expected-kst-date "$DECISION_DATE" \
-              --source-commit "$SOURCE_COMMIT")
-            echo "$AUTHORITY_OUTPUT"
-            AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
-            AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
-            python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
-              --slot "$SLOT" \
-              --expected-kst-date "$DECISION_DATE" \
-              --source-commit "$SOURCE_COMMIT" \
-              --authority-path "$AUTHORITY_PATH"
-
-            if [ "$CREATED" != "true" ] && [ "$LOCATOR_CHANGED" != "true" ] && [ "$AUTHORITY_CHANGED" != "true" ]; then
-              RESULT=no_new_revision
+            if [ "$CREATED" != "true" ] && [ "$LOCATOR_CHANGED" != "true" ]; then
+              LOCAL_COMMIT=$(git rev-parse HEAD)
+              git fetch origin "$DEFAULT_BRANCH"
+              REMOTE_COMMIT=$(git rev-parse "origin/$DEFAULT_BRANCH")
+              if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
+                if [ "$ATTEMPT" -eq 2 ]; then
+                  echo "STOP: main advanced twice while confirming unchanged delivery" >&2
+                  exit 1
+                fi
+                echo "main advanced while delivery appeared unchanged; rebuilding once" >&2
+                continue
+              fi
+              CONSUMER_READY_COMMIT="$LOCAL_COMMIT"
               break
             fi
 
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add "$(dirname "$CAPTURE_PATH")"
             git add data/briefing/daily_briefing_sources.json
-            git add "$AUTHORITY_PATH"
             git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
             if git push origin "HEAD:$DEFAULT_BRANCH"; then
               test -z "$(git status --porcelain)" || {
                 echo "STOP: uncommitted output remained after daily briefing commit" >&2
                 exit 1
               }
-              RESULT=published
+              CONSUMER_READY_COMMIT=$(git rev-parse HEAD)
+              DELIVERY_CHANGED=true
               break
             fi
             if [ "$ATTEMPT" -eq 2 ]; then
-              echo "STOP: main advanced twice; no pointer was published" >&2
+              echo "STOP: main advanced twice; no briefing locator was published" >&2
               exit 1
             fi
-            echo "main advanced while the pointer was bound; rebuilding once from latest main" >&2
+            echo "main advanced while the briefing locator was built; rebuilding once" >&2
           done
+
+          # Phase B publishes the append-only bootstrap in a separate commit.
+          # A concurrent unrelated main advance is safe: the bootstrap remains
+          # bound to the immutable Phase-A commit and is rebuilt on top of the
+          # latest main without changing that binding.
+          AUTHORITY_CHANGED=false
+          AUTHORITY_PATH=""
+          for ATTEMPT in 1 2; do
+            if [ "$ATTEMPT" -gt 1 ]; then
+              git fetch origin "$DEFAULT_BRANCH"
+              git reset --hard "origin/$DEFAULT_BRANCH"
+            fi
+            AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
+              --slot "$SLOT" \
+              --expected-kst-date "$DECISION_DATE" \
+              --source-commit "$CONSUMER_READY_COMMIT")
+            echo "$AUTHORITY_OUTPUT"
+            AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
+            AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
+            python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
+              --slot "$SLOT" \
+              --expected-kst-date "$DECISION_DATE" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --authority-path "$AUTHORITY_PATH"
+            if [ "$AUTHORITY_CHANGED" != "true" ]; then
+              break
+            fi
+            git add "$AUTHORITY_PATH"
+            git commit -m "scheduled briefing authority $SLOT $DECISION_DATE"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              test -z "$(git status --porcelain)" || {
+                echo "STOP: uncommitted output remained after authority commit" >&2
+                exit 1
+              }
+              break
+            fi
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "STOP: main advanced twice; no authority bootstrap was published" >&2
+              exit 1
+            fi
+            echo "main advanced while publishing authority; retrying from latest main" >&2
+          done
+
+          if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ]; then
+            RESULT=published
+          else
+            RESULT=no_new_revision
+          fi
 
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
           echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
-          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$CONSUMER_READY_COMMIT" >> "$GITHUB_OUTPUT"
           echo "capture_path=$CAPTURE_PATH" >> "$GITHUB_OUTPUT"
           echo "locator_changed=$LOCATOR_CHANGED" >> "$GITHUB_OUTPUT"
           echo "authority_path=$AUTHORITY_PATH" >> "$GITHUB_OUTPUT"
