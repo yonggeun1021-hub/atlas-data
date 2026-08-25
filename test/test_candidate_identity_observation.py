@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,8 +16,13 @@ from identity import canonical_identity as ci  # noqa: E402
 from identity.candidate_identity_observation import (  # noqa: E402
     AUTHORITY_ALL_FALSE,
     CandidateIdentityObservationError,
+    TRIGGER_MANUAL_WORKFLOW_DISPATCH,
+    TRIGGER_UPSTREAM_WORKFLOW_RUN,
+    _history_record,
     build_observation,
+    validate_history_record,
     validate_observation,
+    write_history_record,
 )
 from replay.opportunity_trigger import payload_sha256  # noqa: E402
 
@@ -37,7 +43,11 @@ class CandidateIdentityObservationTests(unittest.TestCase):
             rows = [row for row in result["review_queue"] if row["subject"] in wanted]
             if rows:
                 by_market[market] = {"review_queue": rows}
-        cls.report = {"decision_date": full["decision_date"], "by_market": by_market}
+        cls.report = {
+            "decision_date": full["decision_date"],
+            "operational_evaluation": full["operational_evaluation"],
+            "by_market": by_market,
+        }
         cls.authority = ci.load_authority()
         cls.scope_authority = ci.load_scope_authority()
         cls.packet = build_observation(cls.report, cls.authority, cls.scope_authority)
@@ -120,6 +130,103 @@ class CandidateIdentityObservationTests(unittest.TestCase):
         self.assertEqual(summary["candidate_count"], len(self.packet["observations"]))
         self.assertEqual(summary["identity_resolved_count"], 2)
         self.assertEqual(summary["scope_resolved_count"], 3)
+
+    def test_history_record_retains_exact_validated_packet_and_false_authority(self):
+        record = _history_record(self.packet, self.report, TRIGGER_UPSTREAM_WORKFLOW_RUN)
+        self.assertEqual(record["candidate_identity_observation"], self.packet)
+        self.assertEqual(record["source_observation_packet_sha256"], self.packet["packet_sha256"])
+        self.assertEqual(record["observation_trigger_kind"], TRIGGER_UPSTREAM_WORKFLOW_RUN)
+        self.assertEqual(record["boundary"]["candidate_validity"], "NOT_EVALUATED_BY_THIS_CONTRACT")
+        self.assertEqual(record["boundary"]["money_action"], "NONE")
+        self.assertTrue(all(value is False for value in record["authority"].values()))
+        self.assertEqual(
+            validate_history_record(record, self.report, self.authority, self.scope_authority),
+            record,
+        )
+
+    def test_history_is_content_addressed_and_identical_run_is_noop(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first = write_history_record(
+                self.packet, self.report, self.authority, self.scope_authority,
+                history_root=root, trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
+            )
+            before = first.read_bytes()
+            second = write_history_record(
+                self.packet, self.report, self.authority, self.scope_authority,
+                history_root=root, trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
+            )
+            self.assertEqual(first, second)
+            self.assertEqual(first.read_bytes(), before)
+            self.assertEqual(len(list(root.rglob("observation-*.json"))), 1)
+
+    def test_manual_and_natural_runs_are_physically_separated(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            natural = write_history_record(
+                self.packet, self.report, self.authority, self.scope_authority,
+                history_root=root, trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
+            )
+            manual = write_history_record(
+                self.packet, self.report, self.authority, self.scope_authority,
+                history_root=root, trigger_kind=TRIGGER_MANUAL_WORKFLOW_DISPATCH,
+            )
+            self.assertNotEqual(natural, manual)
+            self.assertIn("upstream_workflow_run", natural.as_posix())
+            self.assertIn("manual_workflow_dispatch", manual.as_posix())
+
+    def test_same_day_different_exact_evaluation_is_not_overwritten(self):
+        report = copy.deepcopy(self.report)
+        report["operational_evaluation"]["evaluated_at_utc"] = "2026-08-25T12:32:00Z"
+        for market in report["by_market"].values():
+            for candidate in market["review_queue"]:
+                candidate["operational_evaluation"]["evaluated_at_utc"] = "2026-08-25T12:32:00Z"
+                resign(candidate)
+        packet = build_observation(report, self.authority, self.scope_authority)
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first = write_history_record(
+                self.packet, self.report, self.authority, self.scope_authority,
+                history_root=root, trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
+            )
+            second = write_history_record(
+                packet, report, self.authority, self.scope_authority,
+                history_root=root, trigger_kind=TRIGGER_UPSTREAM_WORKFLOW_RUN,
+            )
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.exists())
+            self.assertTrue(second.exists())
+
+    def test_history_rejects_report_candidate_operational_time_drift(self):
+        report = copy.deepcopy(self.report)
+        report["operational_evaluation"]["evaluated_at_utc"] = "2026-08-25T17:00:00Z"
+        with self.assertRaisesRegex(CandidateIdentityObservationError, "OPERATIONAL_TIME_MISMATCH"):
+            _history_record(self.packet, report, TRIGGER_UPSTREAM_WORKFLOW_RUN)
+
+    def test_history_rejects_resigned_authority_or_identity_tamper(self):
+        record = _history_record(self.packet, self.report, TRIGGER_UPSTREAM_WORKFLOW_RUN)
+        record["authority"]["trading_authority"] = True
+        record["record_sha256"] = payload_sha256({
+            key: value for key, value in record.items() if key != "record_sha256"
+        })
+        with self.assertRaisesRegex(CandidateIdentityObservationError, "HISTORY_MISMATCH"):
+            validate_history_record(record, self.report, self.authority, self.scope_authority)
+
+    def test_history_rejects_unknown_trigger_kind(self):
+        with self.assertRaisesRegex(CandidateIdentityObservationError, "TRIGGER_KIND_INVALID"):
+            _history_record(self.packet, self.report, "SCHEDULED_SUCCESS")
+
+    def test_workflow_labels_and_commits_append_only_identity_history(self):
+        workflow = (ROOT / ".github/workflows/p8-12-dynamic-clock.yml").read_text()
+        self.assertIn(
+            'candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"',
+            workflow,
+        )
+        self.assertIn("git add evidence/operational/dynamic_clock", workflow)
+        self.assertLess(
+            workflow.index("python3 clock/run_dynamic_clock.py"),
+            workflow.index("python3 identity/candidate_identity_observation.py"),
+        )
 
 
 if __name__ == "__main__":

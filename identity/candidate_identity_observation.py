@@ -14,6 +14,7 @@ may display.
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -29,7 +30,17 @@ from identity import canonical_identity as ci
 
 DEFAULT_REPORT = ROOT / "evidence/operational/dynamic_clock/dynamic_clock_report.json"
 DEFAULT_OUTPUT = ROOT / "evidence/operational/dynamic_clock/candidate_identity_observation.json"
+DEFAULT_HISTORY_ROOT = ROOT / "evidence/operational/dynamic_clock/candidate_identity_observations"
 SCHEMA_VERSION = "candidate_identity_observation/1"
+HISTORY_SCHEMA_VERSION = "candidate_identity_observation_history/1"
+TRIGGER_UPSTREAM_WORKFLOW_RUN = "UPSTREAM_WORKFLOW_RUN"
+TRIGGER_MANUAL_WORKFLOW_DISPATCH = "MANUAL_WORKFLOW_DISPATCH"
+TRIGGER_LOCAL_REPRODUCTION = "LOCAL_REPRODUCTION"
+VALID_TRIGGER_KINDS = (
+    TRIGGER_UPSTREAM_WORKFLOW_RUN,
+    TRIGGER_MANUAL_WORKFLOW_DISPATCH,
+    TRIGGER_LOCAL_REPRODUCTION,
+)
 
 AUTHORITY_ALL_FALSE = {
     "stage_promotion_authority": False,
@@ -199,10 +210,107 @@ def validate_observation(packet: dict, report: dict, authority: dict, scope_auth
     return packet
 
 
+def _history_record(packet: dict, report: dict, trigger_kind: str) -> dict:
+    """Bind one exact identity observation to one exact operational run.
+
+    The rolling packet remains the convenient latest view.  This wrapper is
+    the append-only audit surface: it retains the complete validated packet,
+    labels natural versus manual/local runs, and never derives candidate
+    validity or a money action.
+    """
+    if trigger_kind not in VALID_TRIGGER_KINDS:
+        raise CandidateIdentityObservationError("OBSERVATION_TRIGGER_KIND_INVALID")
+    context = report.get("operational_evaluation")
+    if not isinstance(context, dict):
+        raise CandidateIdentityObservationError("REPORT_OPERATIONAL_EVALUATION_MISSING")
+    if context.get("status") != "EXACT_CALLER_SUPPLIED_OPERATIONAL_RUN_TIMESTAMP":
+        raise CandidateIdentityObservationError("REPORT_OPERATIONAL_EVALUATION_NOT_EXACT")
+    if context.get("time_precision") != "TIMESTAMP":
+        raise CandidateIdentityObservationError("REPORT_OPERATIONAL_EVALUATION_NOT_TIMESTAMP")
+    evaluated_at = context.get("evaluated_at_utc")
+    candidate_times = {row["operational_evaluated_at"] for row in packet["observations"]}
+    if candidate_times != {evaluated_at}:
+        raise CandidateIdentityObservationError("OBSERVATION_OPERATIONAL_TIME_MISMATCH")
+
+    record = {
+        "schema_version": HISTORY_SCHEMA_VERSION,
+        "decision_date": packet["decision_date"],
+        "observation_trigger_kind": trigger_kind,
+        "operational_evaluated_at_utc": evaluated_at,
+        "source_observation_path": (
+            "evidence/operational/dynamic_clock/candidate_identity_observation.json"
+        ),
+        "source_observation_packet_sha256": packet["packet_sha256"],
+        "source_dynamic_clock_report_canonical_sha256": (
+            packet["source_dynamic_clock_report_canonical_sha256"]
+        ),
+        "candidate_identity_observation": copy.deepcopy(packet),
+        "boundary": {
+            "candidate_validity": "NOT_EVALUATED_BY_THIS_CONTRACT",
+            "entry_eligibility": "NOT_EVALUATED_BY_THIS_CONTRACT",
+            "money_action": "NONE",
+        },
+        "authority": dict(AUTHORITY_ALL_FALSE),
+    }
+    record["record_sha256"] = _sha256(record)
+    return record
+
+
+def validate_history_record(
+    record: dict,
+    report: dict,
+    authority: dict,
+    scope_authority: dict,
+) -> dict:
+    packet = record.get("candidate_identity_observation")
+    if not isinstance(packet, dict):
+        raise CandidateIdentityObservationError("HISTORY_SOURCE_OBSERVATION_MISSING")
+    validate_observation(packet, report, authority, scope_authority)
+    expected = _history_record(packet, report, record.get("observation_trigger_kind"))
+    if record != expected:
+        raise CandidateIdentityObservationError("CANDIDATE_IDENTITY_HISTORY_MISMATCH")
+    if any(value is not False for value in record["authority"].values()):
+        raise CandidateIdentityObservationError("CANDIDATE_IDENTITY_HISTORY_AUTHORITY_MUST_BE_FALSE")
+    return record
+
+
+def write_history_record(
+    packet: dict,
+    report: dict,
+    authority: dict,
+    scope_authority: dict,
+    *,
+    history_root: Path,
+    trigger_kind: str,
+) -> Path:
+    validate_observation(packet, report, authority, scope_authority)
+    record = _history_record(packet, report, trigger_kind)
+    validate_history_record(record, report, authority, scope_authority)
+    output = (
+        history_root
+        / record["decision_date"]
+        / trigger_kind.lower()
+        / f"observation-{record['record_sha256']}.json"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if output.exists() and output.read_text() != encoded:
+        raise CandidateIdentityObservationError("CONTENT_ADDRESSED_HISTORY_COLLISION")
+    if not output.exists():
+        output.write_text(encoded)
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--history-root", type=Path, default=DEFAULT_HISTORY_ROOT)
+    parser.add_argument(
+        "--observation-trigger-kind",
+        choices=VALID_TRIGGER_KINDS,
+        default=TRIGGER_LOCAL_REPRODUCTION,
+    )
     args = parser.parse_args()
     report = json.loads(args.report.read_text())
     authority = ci.load_authority()
@@ -213,7 +321,17 @@ def main() -> int:
     encoded = json.dumps(packet, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if not args.output.exists() or args.output.read_text() != encoded:
         args.output.write_text(encoded)
-    print(json.dumps(packet["summary"], sort_keys=True))
+    history_path = write_history_record(
+        packet,
+        report,
+        authority,
+        scope_authority,
+        history_root=args.history_root,
+        trigger_kind=args.observation_trigger_kind,
+    )
+    summary = dict(packet["summary"])
+    summary["history_path"] = history_path.relative_to(ROOT).as_posix()
+    print(json.dumps(summary, sort_keys=True))
     return 0
 
 

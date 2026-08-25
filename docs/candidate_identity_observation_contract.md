@@ -18,6 +18,18 @@ mechanical identity facts and explicit non-computable statuses.
 The source-report lineage hash is explicitly a canonical-JSON hash; authority
 document hashes are byte hashes of the exact committed files.
 
+## Append-only operational history
+
+Each operational invocation also retains the complete independently validated
+packet at
+`candidate_identity_observations/<decision-date>/<trigger-kind>/observation-<record-sha256>.json`.
+The path separates natural upstream workflow runs from manual dispatches and
+local reproduction. Identical input is a byte-identical no-op; two distinct
+same-day evaluation instants create two records and cannot overwrite one
+another. This history measures identity coverage over time. It does not turn
+repeated evaluations into independent policy evidence and does not decide a
+candidate-validity window.
+
 ## Hard boundary
 
 - A resolved identity is not investability or entry eligibility.

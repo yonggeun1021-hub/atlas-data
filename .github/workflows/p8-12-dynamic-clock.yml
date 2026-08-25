@@ -105,7 +105,9 @@ jobs:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 clock/run_dynamic_clock.py --decision-date "$DECISION_DATE" --evaluation-at-utc "$EVALUATION_AT_UTC" --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
       - name: Resolve candidate identity as a read-only mechanical observation
-        run: python3 identity/candidate_identity_observation.py
+        env:
+          OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
+        run: python3 identity/candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
       # ★ Independent verification (item 6): read the REAL per-market
       #   evidence_as_of dates the computation above actually used, from
       #   the freshly-written report itself -- never inferred from
@@ -124,6 +126,7 @@ jobs:
           identity = json.load(open('evidence/operational/dynamic_clock/candidate_identity_observation.json'))
           s = identity['summary']
           print(f"- candidate_identity: resolved={s['identity_resolved_count']}/{s['candidate_count']} scope_resolved={s['scope_resolved_count']}/{s['candidate_count']} (mechanical observation only)")
+          print('- candidate_identity_history: append-only exact-run record written (validity and money authority remain locked)')
           PY
       - name: Idempotency check + commit only if the evidence actually changed
         id: commit
