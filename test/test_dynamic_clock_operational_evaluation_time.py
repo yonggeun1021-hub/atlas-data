@@ -355,12 +355,26 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             report_path.parent.mkdir(parents=True)
             report_path.write_text(json.dumps(report), encoding="utf-8")
+            candidate_count = sum(
+                len(market_result["review_queue"])
+                for market_result in report["by_market"].values()
+            )
+            resolved_count = min(3, candidate_count)
             (report_path.parent / "candidate_identity_observation.json").write_text(
                 json.dumps({
                     "summary": {
-                        "candidate_count": 66,
-                        "identity_resolved_count": 3,
-                        "scope_resolved_count": 66,
+                        "candidate_count": candidate_count,
+                        "identity_resolved_count": resolved_count,
+                        "scope_resolved_count": candidate_count,
+                    }
+                }),
+                encoding="utf-8",
+            )
+            (report_path.parent / "candidate_identity_gap_inventory.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "candidate_count": candidate_count,
+                        "identity_gap_count": candidate_count - resolved_count,
                     }
                 }),
                 encoding="utf-8",
@@ -379,7 +393,14 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             self.assertIn(f"operational_evaluated_at={EXACT_EVALUATED_AT}", rendered)
             for market in ("BTC", "KOREA", "CRYPTO"):
                 self.assertIn(f"- {market}: evidence_as_of=", rendered)
-            self.assertIn("candidate_identity: resolved=3/66", rendered)
+            self.assertIn(
+                f"candidate_identity: resolved={resolved_count}/{candidate_count}",
+                rendered,
+            )
+            self.assertIn(
+                f"identity_authority_gap: unresolved={candidate_count - resolved_count}/{candidate_count}",
+                rendered,
+            )
 
     def test_python_operational_modules_never_read_wall_clock(self):
         for path in (

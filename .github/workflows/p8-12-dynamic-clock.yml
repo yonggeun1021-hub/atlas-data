@@ -74,7 +74,8 @@ jobs:
             test/test_candidate_validity_shadow_observation.py \
             test/test_candidate_lifecycle_observation.py \
             test/test_dynamic_clock_identity_lineage.py \
-            test/test_candidate_identity_observation.py
+            test/test_candidate_identity_observation.py \
+            test/test_candidate_identity_gap_inventory.py
           do
             python3 "$test_file"
           done
@@ -108,6 +109,8 @@ jobs:
         env:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 identity/candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
+      - name: Inventory unresolved identity evidence without creating authority
+        run: python3 identity/candidate_identity_gap_inventory.py
       # ★ Independent verification (item 6): read the REAL per-market
       #   evidence_as_of dates the computation above actually used, from
       #   the freshly-written report itself -- never inferred from
@@ -127,6 +130,9 @@ jobs:
           s = identity['summary']
           print(f"- candidate_identity: resolved={s['identity_resolved_count']}/{s['candidate_count']} scope_resolved={s['scope_resolved_count']}/{s['candidate_count']} (mechanical observation only)")
           print('- candidate_identity_history: append-only exact-run record written (validity and money authority remain locked)')
+          gaps = json.load(open('evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json'))
+          gs = gaps['summary']
+          print(f"- identity_authority_gap: unresolved={gs['identity_gap_count']}/{gs['candidate_count']} authority_rows_created=0 (taxonomy adjacency is diagnostic only)")
           PY
       - name: Idempotency check + commit only if the evidence actually changed
         id: commit
