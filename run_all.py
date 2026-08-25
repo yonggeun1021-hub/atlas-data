@@ -1059,6 +1059,13 @@ APPROVED_TESTS = [
     # -> candidate lineage. Trigger/decision fields remain DATE_ONLY, so
     # this cannot unlock Risk Capacity, P8-13, or trading authority.
     "test/test_dynamic_clock_time_precision.py",
+    # ★ P8-12 Candidate Validity Shadow Observation -- append-only,
+    #   content-addressed accumulation of real candidate timing samples.
+    #   Date-order and timestamp precision are reported separately; every
+    #   candidate remains NOT_COMPUTABLE_CANDIDATE_FRESHNESS_UNRATIFIED.
+    #   No validity window, Risk Capacity, P8-13, sizing, or trading
+    #   authority is opened.
+    "test/test_candidate_validity_shadow_observation.py",
     # ★ P7-11 Profit Harvesting Baseline Audit -- DIAGNOSTIC MEASUREMENT
     #   ONLY, not an operational Harvest Engine, not a sell-policy
     #   ratification. Reuses PR #210's replay/ Miss/Defense episodes

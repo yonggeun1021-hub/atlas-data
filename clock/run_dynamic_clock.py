@@ -108,6 +108,11 @@ from replay.opportunity_trigger import canonical_json
 
 from clock import dynamic_clock as dc
 from clock import operational_scan as scan
+from clock.candidate_validity_observation import (
+    TRIGGER_LOCAL_REPRODUCTION,
+    VALID_TRIGGER_KINDS,
+    write_observation as write_validity_observation,
+)
 from clock.dynamic_clock import build_episode_history, close_stale_episodes
 # ★ CIO integration review round 2, defect 1: `replay.forward_metrics.
 #   compute_forward_metrics` and `clock.audit_diagnostics.
@@ -125,6 +130,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "evidence" / "operational" / "dynamic_clock"
 REPORT_PATH = OUT_DIR / "dynamic_clock_report.json"
 AUDIT_DIAGNOSTICS_PATH = OUT_DIR / "audit_diagnostics.json"
+VALIDITY_OBSERVATIONS_DIR = OUT_DIR / "candidate_validity_observations"
 
 PRIORITY_SUBJECTS = ("BTC", "005930", "000660")  # same regression priority set as PR #210
 
@@ -511,7 +517,12 @@ def build_briefing_section(report: dict) -> dict:
     return section
 
 
-def write_report(decision_date: str | None = None, mode: str = MODE_OPERATIONAL) -> dict:
+def write_report(
+    decision_date: str | None = None,
+    mode: str = MODE_OPERATIONAL,
+    *,
+    observation_trigger_kind: str = TRIGGER_LOCAL_REPRODUCTION,
+) -> dict:
     """Computes and persists BOTH committed artifacts -- the operational
     report/briefing section, and the physically separate audit_diagnostics
     file -- from a single scan. Returns the operational report (for
@@ -522,6 +533,15 @@ def write_report(decision_date: str | None = None, mode: str = MODE_OPERATIONAL)
     (OUT_DIR / "briefing_section.json").write_text(
         canonical_json(build_briefing_section(operational_report)) + "\n", encoding="utf-8")
     AUDIT_DIAGNOSTICS_PATH.write_text(canonical_json(diagnostics_report) + "\n", encoding="utf-8")
+    # P8-12 validity-window v2: collect a separate append-only SHADOW
+    # observation of real candidate timing.  This cannot open Risk
+    # Capacity or P8-13; candidate_validity_observation.py hard-locks every
+    # candidate to NOT_COMPUTABLE while the validity policy is unratified.
+    write_validity_observation(
+        operational_report,
+        output_root=VALIDITY_OBSERVATIONS_DIR,
+        trigger_kind=observation_trigger_kind,
+    )
     return operational_report
 
 
@@ -543,10 +563,24 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "still structurally invisible, but the fail-closed anomaly check is skipped."
         ),
     )
+    parser.add_argument(
+        "--observation-trigger-kind",
+        default=TRIGGER_LOCAL_REPRODUCTION,
+        choices=VALID_TRIGGER_KINDS,
+        help=(
+            "Provenance of this run for the append-only Candidate Validity Shadow observation. "
+            "This labels natural workflow_run samples separately from manual dispatches and "
+            "local reproductions; it never changes candidate tier or authority."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = _parse_args(sys.argv[1:])
-    report = write_report(decision_date=args.decision_date, mode=args.mode)
+    report = write_report(
+        decision_date=args.decision_date,
+        mode=args.mode,
+        observation_trigger_kind=args.observation_trigger_kind,
+    )
     print(json.dumps(build_briefing_section(report), ensure_ascii=False, indent=2, default=str))
