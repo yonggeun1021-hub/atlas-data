@@ -46,6 +46,25 @@ class SessionBootstrapContractTests(unittest.TestCase):
         ):
             self.assertIn(phrase, self.bootstrap)
 
+    def test_conditional_portal_parallel_gate_is_durable(self):
+        for text in (self.agents, self.bootstrap):
+            for phrase in (
+                "P5-06",
+                "P7-08",
+                "P8-13",
+                "Portal A",
+                "integration closure has begun",
+                "same accountable PM",
+                "read-only",
+                "trading authority",
+            ):
+                self.assertIn(phrase, text)
+
+        self.assertIn("3c59f2d7-3c84-8134-96ba-ed9b95421e39", self.bootstrap)
+        self.assertIn("3c79f2d7-3c84-8118-8edb-e75cd8a9e0da", self.bootstrap)
+        self.assertIn("A renamed row, status-only edit, isolated stub", self.bootstrap)
+        self.assertIn("Frontend broker credentials", self.bootstrap)
+
     def test_start_and_handoff_contracts_include_future_operational_ownership(self):
         for phrase in (
             "scheduled workflows and Codex automations",
