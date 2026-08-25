@@ -64,7 +64,7 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
             for row in self.authority[key]:
                 ci.validate_authority_row(row, layer)
                 self.assertEqual(row["approval_status"], "RATIFIED")
-                self.assertEqual(row["effective_from"], "2026-08-25")
+                self.assertEqual(row["effective_from"], "2026-08-25T06:19:27Z")
                 self.assertIsNone(row["effective_to"])
         for row in self.scope_authority["edges"]:
             ci.validate_authority_row(row, ci.LAYER_MARKET_ACCOUNT_SCOPE)
