@@ -40,6 +40,8 @@ The canonical delivery sequence is:
 
 Do not silently reorder this sequence. A justified change must first be recorded in the CIO Doctrine and canonical WBS dependencies.
 
+The Portal product lane is a conditional parallel priority, not a later decoration and not an immediate unbounded UI project. When live WBS and `main` evidence show that P5-06, P7-08, and P8-13 integration closure has begun through actual code, contracts, or integration verification, the same accountable PM must open Portal A in parallel. Before that trigger, keep only the Portal roadmap, contract boundary, WBS dependency, and acceptance criteria ready. Portal A is limited to the Portal Contract, read-only UI/UX, mock or Shadow adapters, charts, and public/private security boundaries. It does not unlock account writes, broker credentials, orders, or trading authority.
+
 ## Non-negotiable controls
 
 - Point-in-time integrity: never use future outcomes to create, promote, or grade an earlier operational signal.

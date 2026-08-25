@@ -14,6 +14,7 @@ Read these live sources at the beginning of every implementation or CIO review s
 | Master WBS Tracker | Live Notion WBS database; locate rows by WBS ID | Scope, dependency, Exit Gate, status, evidence |
 | CIO Cockpit | Notion page `3ba9f2d7-3c84-81d6-953e-c414dafdbff4` | Current operational summary and handoff |
 | Master Map | Notion page `3bf9f2d7-3c84-81b8-aa50-f9aa2384655d` | Program-level sequence and dependencies |
+| Portal product roadmap | Notion page `3c59f2d7-3c84-8134-96ba-ed9b95421e39` | Portal Contract, screens, security boundaries, and phased product direction |
 | Public repository truth | `atlas-data` current `main`, worktrees, and open PRs | Public code, contracts, redacted evidence, and conflicts |
 | Private repository truth | `atlas-private-evidence` current `main`, worktrees, and open PRs | Private account evidence and pinned public-code consumption |
 | Scheduled obligations | GitHub workflows and Codex automations | Future Exit Gates that must be audited and written back to WBS |
@@ -31,6 +32,7 @@ Canonical WBS rows central to the trading path include:
 - P8-13 — Entry Proposal: `3c49f2d7-3c84-8106-83ee-d0f390af6860`
 - P9-03 — post-trade learning: `3bf9f2d7-3c84-8104-9d23-c5deaa948e9e`
 - P10-07 — Alpha Shadow Evaluation: `3c49f2d7-3c84-817c-b29c-fe722341ba4d`
+- P-PORTAL-01 — Atlas Investment Operating Console Foundation: `3c79f2d7-3c84-8118-8edb-e75cd8a9e0da`
 
 Search the live Tracker for all other rows. Do not infer their current state from this file.
 
@@ -84,6 +86,24 @@ Unless the live Doctrine and WBS explicitly supersede it:
 7. P11 human-approved paper and limited real-capital operation
 
 Parallel work is allowed only when file ownership, contract dependencies, and merge order are explicit. Parallelism must not invert the dependency order.
+
+## Conditional Portal parallel gate
+
+Portal A begins in parallel when live WBS and `main` evidence show that **P5-06, P7-08, and P8-13 integration closure has begun** through actual code, contracts, or integration verification. A renamed row, status-only edit, isolated stub, or unrelated merge is not enough.
+
+Before the trigger:
+
+- keep the Portal roadmap, Portal Contract boundary, canonical P-PORTAL-01 dependency, and acceptance criteria current;
+- do not start a disconnected UI product that invents states or policy ahead of the Decision Core.
+
+At the trigger:
+
+- the same accountable PM opens Portal A alongside the Decision Core work;
+- Portal A covers the stable Portal Contract, desktop/mobile information architecture, read-only mock or Shadow screens, charts, status explanations, authentication design, and public/private boundary tests;
+- the Portal consumes Atlas statuses and lineage without changing their meaning;
+- actual account writes, Frontend broker credentials, Entry/Stop/Size invention, order submission, and trading authority remain outside this lane and fail closed.
+
+The trigger and every later Portal phase transition must be recorded first in P-PORTAL-01, then synchronized to Cockpit and Master Map.
 
 ## Required handoff record
 
