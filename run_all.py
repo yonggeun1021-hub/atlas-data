@@ -1086,6 +1086,7 @@ APPROVED_TESTS = [
     "test/test_profit_harvest_gain_path.py",
     "test/test_profit_harvest_population.py",
     "test/test_profit_harvest_end_to_end.py",
+    "test/test_profit_harvest_policy_boundary.py",
     # ★ Portfolio Risk Input Contract -- READ-ONLY account-facts snapshot
     #   (Alpaca paper account/positions + manual Korea/Crypto input). NOT a
     #   sizing/policy decision: risk_policy always UNRATIFIED, position_size

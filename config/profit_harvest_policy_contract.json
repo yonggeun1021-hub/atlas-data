@@ -1,0 +1,66 @@
+{
+  "schema_version": "profit_harvest_policy_contract/1",
+  "document_status": "DESIGN_DRAFT",
+  "approval_status": "PROPOSED_UNRATIFIED",
+  "population_authority": {
+    "official_kpi_eligible_markets": [
+      "BTC"
+    ],
+    "diagnostic_only_markets": [
+      "KOREA"
+    ],
+    "not_computable_markets": [
+      "CRYPTO"
+    ],
+    "outcome_labels_are_operational_inputs": false
+  },
+  "policy_axes": {
+    "trigger_eligibility": {
+      "status": "NOT_COMPUTABLE_AUTHORITY_UNRATIFIED",
+      "required_authorities": [
+        "HARVEST_TRIGGER_AUTHORITY",
+        "THESIS_STATE_AUTHORITY",
+        "GIVEBACK_AUTHORITY"
+      ]
+    },
+    "action_family": {
+      "status": "LOCKED_AUTHORITY_UNRATIFIED",
+      "diagnostic_vocabulary": [
+        "HOLD",
+        "HARVEST_PARTIAL",
+        "RECOVER_RISK",
+        "TRAIL",
+        "REDUCE",
+        "EXIT"
+      ]
+    },
+    "quantity_authority": {
+      "status": "NOT_COMPUTABLE_AUTHORITY_UNRATIFIED",
+      "partial_exit_quantity": null,
+      "remaining_core_quantity": null,
+      "risk_recovery_quantity": null
+    },
+    "reallocation_handoff": {
+      "status": "LOCKED_AUTHORITY_UNRATIFIED",
+      "expected_proceeds_are_available_cash": false,
+      "settled_cash_required": true
+    }
+  },
+  "design_options": {
+    "H1_THESIS_PRESERVING": "PROPOSED_UNRATIFIED",
+    "H2_BALANCED_HARVEST_REVIEW": "PROVISIONAL_DESIGN_PREFERENCE_ONLY",
+    "H3_RISK_RECOVERY_PRIORITY": "PROPOSED_UNRATIFIED"
+  },
+  "authority": {
+    "review_only": true,
+    "harvest_review_authorized": false,
+    "reduce_authorized": false,
+    "exit_authorized": false,
+    "quantity_authorized": false,
+    "reallocation_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
