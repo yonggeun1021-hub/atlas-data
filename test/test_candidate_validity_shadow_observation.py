@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from replay.opportunity_trigger import payload_sha256
+from replay.opportunity_trigger import canonical_json, payload_sha256
 
 from clock.candidate_validity_observation import (
     FRESHNESS_STATUS,
@@ -24,6 +24,7 @@ from clock.candidate_validity_observation import (
     TRIGGER_UPSTREAM_WORKFLOW_RUN,
     CandidateValidityObservationError,
     build_observation,
+    load_and_validate_observation,
     validate_observation,
     write_observation,
 )
@@ -60,6 +61,15 @@ def _walk_keys(value):
     elif isinstance(value, list):
         for child in value:
             yield from _walk_keys(child)
+
+
+def _persist_roots(temp_dir: str) -> tuple[Path, Path]:
+    dynamic_root = Path(temp_dir)
+    return dynamic_root, dynamic_root / "candidate_validity_observations"
+
+
+def _write_canonical(path: Path, document: dict) -> None:
+    path.write_text(canonical_json(document) + "\n", encoding="utf-8")
 
 
 class RealReportShadowObservationTests(unittest.TestCase):
@@ -197,7 +207,7 @@ class PersistedArtifactTests(unittest.TestCase):
 
     def test_identical_run_is_byte_identical_noop(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            _dynamic_root, root = _persist_roots(td)
             first = write_observation(self.report, output_root=root)
             before = first.read_bytes()
             second = write_observation(copy.deepcopy(self.report), output_root=root)
@@ -207,7 +217,7 @@ class PersistedArtifactTests(unittest.TestCase):
 
     def test_two_different_same_day_reports_are_both_preserved(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            dynamic_root, root = _persist_roots(td)
             first = write_observation(self.report, output_root=root)
             changed = copy.deepcopy(self.report)
             changed["non_semantic_source_revision_marker"] = "second-run"
@@ -215,10 +225,14 @@ class PersistedArtifactTests(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual(first.parent, second.parent)
             self.assertEqual(len(list(root.rglob("observation-*.json"))), 2)
+            self.assertEqual(
+                len(list((dynamic_root / "candidate_validity_source_reports").glob("report-*.json"))),
+                2,
+            )
 
     def test_same_report_manual_and_natural_runs_are_distinct_append_only_samples(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            dynamic_root, root = _persist_roots(td)
             manual = write_observation(
                 self.report,
                 output_root=root,
@@ -240,10 +254,14 @@ class PersistedArtifactTests(unittest.TestCase):
                 natural_doc["source_run"]["sample_qualification"],
                 "NATURAL_OPERATIONAL_SAMPLE",
             )
+            self.assertEqual(
+                len(list((dynamic_root / "candidate_validity_source_reports").glob("report-*.json"))),
+                1,
+            )
 
     def test_existing_content_addressed_file_tamper_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            _dynamic_root, root = _persist_roots(td)
             path = write_observation(self.report, output_root=root)
             path.write_text("{}\n", encoding="utf-8")
             with self.assertRaisesRegex(
@@ -251,6 +269,130 @@ class PersistedArtifactTests(unittest.TestCase):
                 "APPEND_ONLY_EXISTING_OBSERVATION_TAMPERED",
             ):
                 write_observation(self.report, output_root=root)
+
+    def test_existing_content_addressed_source_tamper_is_rejected_on_rewrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            observation_path = write_observation(self.report, output_root=root)
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            source_path = dynamic_root / observation["source_dynamic_clock"]["retained_report"]["path"]
+            source_path.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                CandidateValidityObservationError,
+                "APPEND_ONLY_EXISTING_SOURCE_REPORT_TAMPERED",
+            ):
+                write_observation(self.report, output_root=root)
+
+    def test_source_cannot_be_silently_written_outside_contract_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            _dynamic_root, root = _persist_roots(td)
+            with self.assertRaisesRegex(
+                CandidateValidityObservationError,
+                "SOURCE_OUTPUT_ROOT_MISROUTED",
+            ):
+                write_observation(
+                    self.report,
+                    output_root=root,
+                    source_output_root=Path(td) / "elsewhere",
+                )
+
+    def test_retained_source_is_exact_content_addressed_canonical_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            observation_path = write_observation(self.report, output_root=root)
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            source_sha = payload_sha256(self.report)
+            retained = observation["source_dynamic_clock"]["retained_report"]
+            self.assertEqual(
+                retained["path"],
+                f"candidate_validity_source_reports/report-{source_sha}.json",
+            )
+            source_path = dynamic_root / retained["path"]
+            self.assertEqual(
+                source_path.read_bytes(),
+                (canonical_json(self.report) + "\n").encode("utf-8"),
+            )
+            self.assertEqual(
+                load_and_validate_observation(observation_path, dynamic_root),
+                observation,
+            )
+
+    def test_old_observation_survives_rolling_report_overwrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            old_path = write_observation(self.report, output_root=root)
+            old_observation = json.loads(old_path.read_text(encoding="utf-8"))
+
+            changed = copy.deepcopy(self.report)
+            changed["non_semantic_source_revision_marker"] = "later-run"
+            write_observation(changed, output_root=root)
+            # Simulate the real rolling source file being replaced by the
+            # later run.  Validation must not read this rolling path.
+            _write_canonical(dynamic_root / "dynamic_clock_report.json", changed)
+
+            self.assertEqual(
+                load_and_validate_observation(old_path, dynamic_root),
+                old_observation,
+            )
+
+    def test_missing_retained_source_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            observation_path = write_observation(self.report, output_root=root)
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            (dynamic_root / observation["source_dynamic_clock"]["retained_report"]["path"]).unlink()
+            with self.assertRaisesRegex(
+                CandidateValidityObservationError,
+                "RETAINED_SOURCE_REPORT_MISSING",
+            ):
+                load_and_validate_observation(observation_path, dynamic_root)
+
+    def test_whitespace_only_source_tamper_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            observation_path = write_observation(self.report, output_root=root)
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            source_path = dynamic_root / observation["source_dynamic_clock"]["retained_report"]["path"]
+            source_path.write_text(json.dumps(self.report, indent=2) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                CandidateValidityObservationError,
+                "RETAINED_SOURCE_BYTES_NOT_CANONICAL",
+            ):
+                load_and_validate_observation(observation_path, dynamic_root)
+
+    def test_semantic_source_tamper_is_rejected_even_when_json_is_canonical(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            observation_path = write_observation(self.report, output_root=root)
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            source_path = dynamic_root / observation["source_dynamic_clock"]["retained_report"]["path"]
+            changed = copy.deepcopy(self.report)
+            changed["tampered"] = True
+            _write_canonical(source_path, changed)
+            with self.assertRaisesRegex(
+                CandidateValidityObservationError,
+                "RETAINED_SOURCE_HASH_MISMATCH",
+            ):
+                load_and_validate_observation(observation_path, dynamic_root)
+
+    def test_retained_source_path_traversal_or_wrong_hash_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            dynamic_root, root = _persist_roots(td)
+            observation_path = write_observation(self.report, output_root=root)
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            observation["source_dynamic_clock"]["retained_report"]["path"] = "../dynamic_clock_report.json"
+            observation["observation_sha256"] = payload_sha256({
+                key: value for key, value in observation.items() if key != "observation_sha256"
+            })
+            forged = observation_path.with_name(
+                f"observation-{observation['observation_sha256']}.json"
+            )
+            _write_canonical(forged, observation)
+            with self.assertRaisesRegex(
+                CandidateValidityObservationError,
+                "SOURCE_RETENTION_METADATA_INVALID",
+            ):
+                load_and_validate_observation(forged, dynamic_root)
 
     def test_resigned_observation_tamper_is_rejected_by_rebuild(self):
         observation = build_observation(self.report)
@@ -273,6 +415,7 @@ class WiringContractTests(unittest.TestCase):
     def test_runtime_writer_is_wired_and_workflow_commits_under_dynamic_clock_only(self):
         source = (ROOT / "clock" / "run_dynamic_clock.py").read_text(encoding="utf-8")
         self.assertIn("write_validity_observation(", source)
+        self.assertIn("source_output_root=VALIDITY_SOURCE_REPORTS_DIR", source)
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         self.assertIn("git add evidence/operational/dynamic_clock", workflow)
         self.assertIn("UPSTREAM_WORKFLOW_RUN", workflow)

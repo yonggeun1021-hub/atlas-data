@@ -6,7 +6,7 @@ This artifact accumulates real Dynamic Clock candidate timing samples before
 any candidate-validity window is ratified. It is an observation mechanism,
 not an investment rule.
 
-- Contract: `candidate_validity_shadow_observation/1`
+- Contract: `candidate_validity_shadow_observation/2`
 - Mode: `PROVISIONAL_SHADOW_OBSERVATION_ONLY`
 - Validity policy: `UNRATIFIED_NO_CANDIDATE_VALIDITY_WINDOW_AUTHORITY`
 - Candidate outcome: always
@@ -56,12 +56,19 @@ still only `PROVISIONAL_SHADOW_SAMPLE_ONLY`; it does not self-ratify a rule.
 
 ## Persistence
 
-Files are append-only and content-addressed:
+The v2 contract persists two append-only, content-addressed files:
 
 `evidence/operational/dynamic_clock/candidate_validity_observations/<decision-date>/observation-<observation-sha256>.json`
 
+`evidence/operational/dynamic_clock/candidate_validity_source_reports/report-<source-report-sha256>.json`
+
 - An identical run is a byte-identical no-op.
 - A distinct same-day Dynamic Clock report creates a distinct file.
+- The retained source report is exact canonical UTF-8 JSON with one trailing
+  LF. Its filename, bytes, embedded hash, and the observation's source
+  retention metadata must all agree.
+- A manual and a natural run over the same report create different
+  observations but share exactly one retained source report.
 - A natural upstream `workflow_run`, a manual `workflow_dispatch`, and a
   local reproduction are labeled separately. The same report reached by two
   different trigger kinds is preserved as two different observations, so a
@@ -70,9 +77,19 @@ Files are append-only and content-addressed:
 - No wall clock, provider request, future-return, MFE/MAE, account value,
   position size, or order field is read or emitted.
 
-`validate_observation()` rebuilds the entire observation from the source
-Dynamic Clock report. Re-signing a modified observation therefore cannot
-turn a fail-closed status into an approved one.
+`load_and_validate_observation()` resolves the retained source path from the
+observation, verifies exact canonical bytes and the content-addressed
+filename, and rebuilds the entire observation. It deliberately does not read
+the rolling `dynamic_clock_report.json`, which a later run overwrites.
+Re-signing a modified observation, deleting the retained source, changing
+only JSON whitespace, or replacing the source with different canonical JSON
+therefore cannot turn a fail-closed status into an approved one.
+
+The `/1` artifacts already committed before this contract revision remain
+append-only historical records. They are not rewritten or deleted, but they
+do not claim the self-contained source-retention guarantee introduced in
+`/2`. The first `/2` operational run starts the independently rebuildable
+series.
 
 ## Exit boundary
 
