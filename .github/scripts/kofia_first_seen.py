@@ -547,6 +547,7 @@ def read_prior_first_seen(
     evidence_root: Path,
     capture_contract: dict,
     source_contract: dict,
+    max_captured_at: str | None = None,
 ) -> dict[tuple[str, str, str], str]:
     """Replay every committed first-seen bundle, oldest capture first, from
     its raw gzip evidence. A prior bundle that was partially deleted, whose
@@ -558,6 +559,9 @@ def read_prior_first_seen(
     if not root.exists():
         return {}
     operations = operation_map(source_contract)
+    max_capture = (
+        parse_captured_at(max_captured_at) if max_captured_at is not None else None
+    )
 
     ordered: list[tuple[str, Path]] = []
     for bundle in root.glob("*/*"):
@@ -573,7 +577,9 @@ def read_prior_first_seen(
         if captured_at_raw != captured_at_raw.strip() + "\n":
             fail("PRIOR_EVIDENCE_NONCANONICAL", f"{bundle}/_captured_at.txt")
         captured_at = captured_at_raw.strip()
-        parse_captured_at(captured_at)
+        captured_time = parse_captured_at(captured_at)
+        if max_capture is not None and captured_time > max_capture:
+            continue
         ordered.append((captured_at, bundle))
     ordered.sort(key=lambda item: (item[0], item[1].parent.name, item[1].name))
 

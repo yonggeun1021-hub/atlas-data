@@ -99,3 +99,39 @@ jobs:
           git commit -m "kofia $MODE capture ${CAPTURE_PATH##*/}"
           git pull --rebase origin "$DEFAULT_BRANCH"
           git push origin "HEAD:$DEFAULT_BRANCH"
+      - name: Build provider-free release timing observation
+        id: release_timing
+        env:
+          CAPTURE_PATH: ${{ steps.capture.outputs.capture_path }}
+          MODE: ${{ steps.capture.outputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" != "first_seen" ]; then
+            echo "report_path=" >> "$GITHUB_OUTPUT"
+            echo "KOFIA release timing: full_coverage mode has no first-seen report"
+            exit 0
+          fi
+          KST_DATE=$(basename "$(dirname "$CAPTURE_PATH")")
+          RUN_KEY=$(basename "$CAPTURE_PATH")
+          REPORT_PATH="data/observations/kofia_release_timing/$KST_DATE/$RUN_KEY/packet.json"
+          echo "report_path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
+          test ! -e "$REPORT_PATH" || {
+            echo "Append-only release timing target already exists: $REPORT_PATH" >&2
+            exit 1
+          }
+          python3 .github/scripts/kofia_release_timing.py build \
+            --evidence-root evidence/kofia/first_seen \
+            --out "$REPORT_PATH"
+          python3 .github/scripts/kofia_release_timing.py validate "$REPORT_PATH" \
+            --evidence-root evidence/kofia/first_seen
+      - name: Commit release timing observation separately
+        if: steps.release_timing.outputs.report_path != ''
+        env:
+          REPORT_PATH: ${{ steps.release_timing.outputs.report_path }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git add "$REPORT_PATH"
+          git commit -m "kofia release timing ${REPORT_PATH%/packet.json}"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"
