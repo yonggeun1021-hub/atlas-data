@@ -39,6 +39,12 @@ jobs:
           python-version: '3.11'
       - name: Install CI contract dependencies
         run: python3 -m pip install -r requirements-ci.txt
+      - name: Re-sync to the latest main before binding retrieval authority
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch origin "$DEFAULT_BRANCH"
+          git reset --hard "origin/$DEFAULT_BRANCH"
       - name: Offline daily orchestrator regression
         run: python3 test/test_daily_orchestrator.py
       - name: Publish provider-free daily briefing packet
@@ -69,8 +75,10 @@ jobs:
           esac
           DECISION_DATE=$(TZ=Asia/Seoul date +%F)
           GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SOURCE_COMMIT=$(git rev-parse HEAD)
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
           echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
 
           # Always call publish -- it is the one that decides, from real
           # evidence, whether anything changed since the last revision for
@@ -105,6 +113,26 @@ jobs:
             --decision-date "$DECISION_DATE" \
             > /tmp/investment-review-delivery.md
 
+          # P0-06: publish only the missing immutable-commit pointer for the
+          # scheduled human consumer.  The main URL is permitted for this
+          # unique date/slot/revision bootstrap only; every artifact URL in
+          # the envelope is pinned to SOURCE_COMMIT.  Same-day recovery adds
+          # a new append-only revision and never overwrites an older pointer.
+          AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
+            --slot "$SLOT" \
+            --expected-kst-date "$DECISION_DATE" \
+            --source-commit "$SOURCE_COMMIT")
+          echo "$AUTHORITY_OUTPUT"
+          AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
+          AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
+          python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
+            --slot "$SLOT" \
+            --expected-kst-date "$DECISION_DATE" \
+            --source-commit "$SOURCE_COMMIT" \
+            --authority-path "$AUTHORITY_PATH"
+          echo "authority_path=$AUTHORITY_PATH" >> "$GITHUB_OUTPUT"
+          echo "authority_changed=$AUTHORITY_CHANGED" >> "$GITHUB_OUTPUT"
+
           if [ "$CREATED" = "true" ]; then
             echo "result=published" >> "$GITHUB_OUTPUT"
           else
@@ -130,9 +158,10 @@ jobs:
             cat /tmp/investment-review-delivery.md
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Commit immutable daily briefing bundle
-        if: steps.briefing.outputs.result == 'published' || steps.briefing.outputs.locator_changed == 'true'
+        if: steps.briefing.outputs.result == 'published' || steps.briefing.outputs.locator_changed == 'true' || steps.briefing.outputs.authority_changed == 'true'
         env:
           CAPTURE_PATH: ${{ steps.briefing.outputs.capture_path }}
+          AUTHORITY_PATH: ${{ steps.briefing.outputs.authority_path }}
           SLOT: ${{ steps.briefing.outputs.slot }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -144,6 +173,13 @@ jobs:
           # rewritten on every new revision.
           git add "$(dirname "$CAPTURE_PATH")"
           git add data/briefing/daily_briefing_sources.json
+          git add "$AUTHORITY_PATH"
           git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH" || {
+            echo "STOP: main advanced after retrieval authority was bound; refusing to rebase or force-push a stale pointer" >&2
+            exit 1
+          }
+          test -z "$(git status --porcelain)" || {
+            echo "STOP: uncommitted output remained after daily briefing commit" >&2
+            exit 1
+          }

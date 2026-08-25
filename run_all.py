@@ -482,6 +482,10 @@ APPROVED_TESTS = [
     # ★ P0-05B — resolve main once, then retrieve the complete read model
     #   from one immutable GitHub commit with exact blob/date/generation checks.
     "test/test_read_model_authority_retrieval.py",
+    # ★ P0-06 — scheduled briefing consumer commit-pointer bootstrap.
+    #   Date/slot/revision paths are append-only; actual artifacts remain pinned
+    #   to one exact commit/generation and unavailable/stale reads fail closed.
+    "test/test_scheduled_briefing_retrieval_authority.py",
     # ★ H-24 — exact producer locator -> deterministic read-only consumer.
     #   No directory scan/prior-date/alternate-slot fallback; slot/date/revision,
     #   index/packet/rendered hashes and authority=false are independently checked.
