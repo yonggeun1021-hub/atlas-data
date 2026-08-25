@@ -218,6 +218,13 @@ def build_record(environ: dict[str, str]) -> dict:
         "p1_cr_07_validation": validation_observation(
             environ.get("ATLAS_LEADERSHIP_VALIDATION_OUTCOME", "")
         ),
+        "p2_04_source_pair_population": population_observation(
+            environ.get("ATLAS_P2_04_STEP_OUTCOME", ""),
+            environ.get("ATLAS_P2_04_RESULT", ""),
+            environ.get("ATLAS_P2_04_REASON", ""),
+            environ.get("ATLAS_P2_04_PATH", ""),
+            environ.get("ATLAS_P2_04_SHA256", ""),
+        ),
         "p3_04_population": population_observation(
             environ.get("ATLAS_P3_04_STEP_OUTCOME", ""),
             environ.get("ATLAS_P3_04_RESULT", ""),
@@ -274,6 +281,7 @@ def run(argv=None, environ=None) -> int:
         f" capture={record['capture']['result']}"
         f" cr06={record['p1_cr_06_validation']['result']}"
         f" cr07={record['p1_cr_07_validation']['result']}"
+        f" p2_04={record['p2_04_source_pair_population']['result']}"
         f" p3_04={record['p3_04_population']['result']}"
         f" path={target}"
     )
