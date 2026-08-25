@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.scope.crypto",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-25T06:19:27Z",
+  "layer": "MARKET_ACCOUNT_SCOPE",
+  "approved_full_payload_sha256": "8cb6124a01d33ade95d87405025f97c1cb606fe070e525ce26a86989e3a5330c",
+  "source_evidence": [
+    {
+      "path": "config/dynamic_clock_policy.json",
+      "sha256": "c765c55344ba6be863fd795dba29ed43d52d636b512907fcc53e4511cc96b2af"
+    },
+    {
+      "path": "config/portfolio_risk_input_contract.json",
+      "sha256": "c3e0e86695f559f0e4e716649b40e2c69a115fa1ce566c387574e43502d68d0f"
+    }
+  ],
+  "assertion": {
+    "market_vocabulary": "CRYPTO",
+    "portfolio_account_scope": "CRYPTO",
+    "purpose": "candidate-to-account exposure identity only"
+  },
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}

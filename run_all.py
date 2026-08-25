@@ -1139,6 +1139,10 @@ APPROVED_TESTS = [
     #   no in-code mapping table, no hardcoded per-ticker/market
     #   special-casing, P8-13 not opened.
     "test/test_identity_foundation.py",
+    # P5-06/P7-08 mechanical identity pilot: exact committed provider
+    # contracts/observations -> 3 instruments + 3 explicit scope edges.
+    # Identity only; no investability, entry, sizing, or trading authority.
+    "test/test_identity_authority_pilot.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

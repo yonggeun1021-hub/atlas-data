@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.instrument.btc",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-25T06:19:27Z",
+  "layer": "INSTRUMENT",
+  "approved_full_payload_sha256": "6122ac3b811ed34a9cab05ef522eb590503db15fc1c1c9c736fc44cd3d20fbc5",
+  "source_evidence": [
+    {
+      "path": "config/btc_price_contract.json",
+      "sha256": "f550f8250a447193997f9c7d5cf1c10e4b90b51b79d0c95989c1be6ecd0755b0"
+    },
+    {
+      "path": "config/crypto_asset_identity_exceptions.json",
+      "sha256": "5d6d0574d3f002c80c9c918300f559a98add6a92aa8692fc877a2b494340338c"
+    },
+    {
+      "path": "config/crypto_breadth_exclusion_taxonomy.json",
+      "sha256": "0011a30adb2e7757152ea8e1bf28769484e8390565d712e1ac73481cbd19d109"
+    }
+  ],
+  "assertion": {
+    "source_identity": "Kraken assetVersion=1 response BTC/USD with documented XBT/XXBT legacy aliases",
+    "canonical_instrument_join_key": "CRYPTO:BTC"
+  },
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}
