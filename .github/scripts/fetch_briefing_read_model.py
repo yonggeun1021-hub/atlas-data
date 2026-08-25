@@ -175,6 +175,24 @@ def _parse_object(raw: bytes, path: str) -> dict:
     return value
 
 
+def _artifact_kst_date(path: str, value: dict, required_artifacts: list[str]) -> str | None:
+    """Return the authoritative date for the artifact's committed schema.
+
+    The two status artifacts own ``expected_kst_date`` at the top level.
+    Compact views instead bind their collection date inside the ``source``
+    envelope.  Do not accept a convenient top-level lookalike for a compact:
+    that would let an injected field mask a stale authoritative source date.
+    """
+    if path in required_artifacts:
+        observed = value.get("expected_kst_date")
+        return observed if isinstance(observed, str) else None
+    source = value.get("source")
+    if not isinstance(source, dict):
+        return None
+    observed = source.get("collected_for_kst_date")
+    return observed if isinstance(observed, str) else None
+
+
 def retrieve(
     expected_kst_date: str,
     symbols: dict[str, list[str]] | None = None,
@@ -207,9 +225,7 @@ def retrieve(
     step0 = parsed[step_path]
     health = parsed[health_path]
     for path, value in parsed.items():
-        observed_date = value.get("expected_kst_date")
-        if observed_date is None:
-            observed_date = value.get("collected_for_kst_date")
+        observed_date = _artifact_kst_date(path, value, contract["required_artifacts"])
         if observed_date != expected_kst_date:
             fail("ARTIFACT_STALE_DATE", path)
     step_generation = step0.get("generation")
