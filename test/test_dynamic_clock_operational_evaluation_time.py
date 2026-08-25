@@ -24,10 +24,13 @@ sys.path.insert(0, str(ROOT))
 
 from clock import run_dynamic_clock as rdc
 from clock.candidate_validity_observation import (
+    CandidateValidityObservationError,
     CONTRACT_VERSION,
     FRESHNESS_STATUS,
     LEGACY_CONTRACT_VERSION,
+    _evaluation_invariant_report_sha256,
     build_observation,
+    load_and_validate_observation,
 )
 from clock.dynamic_clock import ClockEvent, build_episode_history
 from clock.review_candidate import (
@@ -41,7 +44,12 @@ from replay.opportunity_trigger import payload_sha256
 
 EXACT_EVALUATED_AT = "2026-08-25T10:30:00Z"
 LEGACY_REPORT_PATH = (
-    ROOT / "evidence" / "operational" / "dynamic_clock" / "dynamic_clock_report.json"
+    ROOT
+    / "evidence"
+    / "operational"
+    / "dynamic_clock"
+    / "candidate_validity_source_reports"
+    / "report-cc80fa7a91805c362399301a63ad0d8f427a58d8d968b9c3dd962aa4faf32c61.json"
 )
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "p8-12-dynamic-clock.yml"
 
@@ -133,6 +141,49 @@ class OperationalEvaluationReportTests(unittest.TestCase):
             later["source_dynamic_clock"]["evaluation_invariant_report_sha256"],
         )
         self.assertNotEqual(first["observation_sha256"], later["observation_sha256"])
+
+    def test_invariant_hash_is_identical_before_and_after_json_round_trip(self):
+        round_tripped = json.loads(
+            json.dumps(
+                self.report,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        self.assertEqual(self.report, round_tripped)
+        self.assertEqual(
+            _evaluation_invariant_report_sha256(self.report),
+            _evaluation_invariant_report_sha256(round_tripped),
+        )
+        self.assertEqual(
+            build_observation(self.report)["source_dynamic_clock"][
+                "evaluation_invariant_report_sha256"
+            ],
+            build_observation(round_tripped)["source_dynamic_clock"][
+                "evaluation_invariant_report_sha256"
+            ],
+        )
+
+    def test_committed_v3_drift_artifact_is_rejected_and_cannot_count_as_sample(self):
+        invalid_path = (
+            ROOT
+            / "evidence"
+            / "operational"
+            / "dynamic_clock"
+            / "candidate_validity_observations"
+            / "2026-08-25"
+            / "observation-8238d3ab0530c23718eb556fc2b472b2cac1203adcd2da7d1465e07d099d8974.json"
+        )
+        self.assertTrue(invalid_path.is_file())
+        with self.assertRaisesRegex(
+            CandidateValidityObservationError,
+            "OBSERVATION_SEMANTIC_TAMPER_OR_DRIFT",
+        ):
+            load_and_validate_observation(
+                invalid_path,
+                trigger_kind="MANUAL_WORKFLOW_DISPATCH",
+            )
 
     def test_artifact_reproduction_has_explicitly_unavailable_timestamp(self):
         report = rdc.run()
