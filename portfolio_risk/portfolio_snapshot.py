@@ -359,6 +359,7 @@ def _validate_position_source_identity(account_fact: dict) -> None:
     else:
         raise PortfolioSnapshotError(f"POSITION_SOURCE_IDENTITY_UNSUPPORTED_ACCOUNT_SOURCE:{source}")
 
+    seen_source_pairs: set[tuple[str, str]] = set()
     for position in account_fact.get("positions", []):
         forbidden = sorted(FORBIDDEN_POSITION_IDENTITY_CLAIMS & set(position))
         if forbidden:
@@ -390,6 +391,45 @@ def _validate_position_source_identity(account_fact: dict) -> None:
                 raise PortfolioSnapshotError("MANUAL_POSITION_SOURCE_IDENTITY_CANNOT_BE_AVAILABLE")
             if len(normalized_pairs) > 1:
                 raise PortfolioSnapshotError("MANUAL_POSITION_SOURCE_IDENTITY_MULTIPLE_PAIRS")
+
+        # One account snapshot must never contain the same exact provider
+        # asset twice under two different display symbols.
+        # This is not canonical alias resolution: we merge nothing and make
+        # no investability claim.  We simply reject a provider-identity
+        # collision before raw-symbol exposure can be double-counted.
+        for pair in normalized_pairs:
+            if pair in seen_source_pairs:
+                raise PortfolioSnapshotError(
+                    "DUPLICATE_POSITION_SOURCE_IDENTITY_WITHIN_ACCOUNT:"
+                    f"{pair[0]}:{pair[1]}"
+                )
+            seen_source_pairs.add(pair)
+
+
+def _validate_account_fact_uniqueness(account_facts: list[dict]) -> None:
+    """Reject the same account snapshot appearing twice in one packet.
+
+    Two distinct accounts may legitimately hold the same instrument and are
+    kept separate.  Repeating one ``account_id_hash`` is never a second
+    holding, however; accepting it would double NAV, cash and exposure.
+    """
+    seen: dict[str, int] = {}
+    for index, fact in enumerate(account_facts):
+        account_id_hash = fact.get("account_id_hash")
+        if (
+            not isinstance(account_id_hash, str)
+            or len(account_id_hash) != 64
+            or any(ch not in "0123456789abcdef" for ch in account_id_hash)
+        ):
+            raise PortfolioSnapshotError(
+                f"ACCOUNT_ID_HASH_INVALID:account[{index}]"
+            )
+        if account_id_hash in seen:
+            raise PortfolioSnapshotError(
+                "DUPLICATE_ACCOUNT_FACT:"
+                f"account[{seen[account_id_hash]}] == account[{index}]"
+            )
+        seen[account_id_hash] = index
 
 
 def _order_eligibility_status(account: dict) -> str:
@@ -441,7 +481,7 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
 
     diagnostics = _derive_account_fact_diagnostics(equity, cash, normalized_positions, captured_at, decision_at)
 
-    return {
+    fact = {
         "account_id_hash": _hash_identifier(str(account["account_number"])),  # ★ never the raw account number
         "source": "ALPACA_PAPER_ACCOUNT",
         "verification_status": "BROKER_VERIFIED",
@@ -457,6 +497,8 @@ def build_alpaca_paper_account_fact(account: dict, raw_positions: list[dict], *,
         "staleness_status": diagnostics["staleness_status"],
         "captured_at": captured_at,
     }
+    _validate_position_source_identity(fact)
+    return fact
 
 
 def build_manual_account_fact(*, market: str, currency: str, cash: float,
@@ -496,7 +538,7 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
     equity = cash_f + market_value_sum  # ★ derived FROM cash+positions here, so this always reconciles exactly
     diagnostics = _derive_account_fact_diagnostics(equity, cash_f, position_rows, captured_at, decision_at)
 
-    return {
+    fact = {
         "account_id_hash": _hash_identifier(f"MANUAL:{market}"),
         "source": f"MANUAL_SNAPSHOT:{market}",
         "verification_status": "PAPER_OR_MANUAL_UNVERIFIED",
@@ -512,6 +554,8 @@ def build_manual_account_fact(*, market: str, currency: str, cash: float,
         "staleness_status": diagnostics["staleness_status"],
         "captured_at": captured_at,
     }
+    _validate_position_source_identity(fact)
+    return fact
 
 
 def _validate_fx_rate_value(rate: float, pair: str) -> float:
@@ -764,6 +808,7 @@ def assemble_snapshot(*, account_facts: list[dict], fx_rates: dict,
     disk. No `expected_sources` parameter: account scope always comes from
     `CANONICAL_ACCOUNT_SCOPE`, never from the caller."""
     _validate_snapshot_timing(captured_at, available_at, decision_at)
+    _validate_account_fact_uniqueness(account_facts)
     for fact in account_facts:
         _validate_position_source_identity(fact)
     risk_capacity_inputs = _compute_risk_capacity_inputs(account_facts, fx_rates)
@@ -832,6 +877,8 @@ def validate_snapshot(packet: dict) -> dict:
     facts = packet.get("portfolio_facts") or {}
     account_facts = facts.get("accounts", [])
     fx_rates = facts.get("fx_rates", {})
+
+    _validate_account_fact_uniqueness(account_facts)
 
     for i, fact in enumerate(account_facts):
         _enforce_pit_timing(

@@ -12,6 +12,16 @@
     "status": "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING",
     "note": "An optional complete provider pair may be retained for audit, but manual input can never claim AVAILABLE and no ticker-to-provider inference is permitted."
   },
+  "duplicate_exposure_guards": {
+    "account_fact_identity_key": "account_id_hash",
+    "within_account_position_identity_key": [
+      "source_name",
+      "source_asset_id"
+    ],
+    "duplicate_behavior": "FAIL_CLOSED_NO_ALIAS_MERGE",
+    "distinct_account_behavior": "KEEP_SEPARATE_AND_AGGREGATE",
+    "note": "These guards reject only exact account or provider-identity collisions that would double-count exposure. They do not infer aliases or establish canonical instrument identity."
+  },
   "exposure_identity_basis": "RAW_PROVIDER_SYMBOL_DIAGNOSTIC_NOT_CANONICAL_INSTRUMENT",
   "authority": {
     "review_only": true,
