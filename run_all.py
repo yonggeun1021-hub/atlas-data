@@ -1143,6 +1143,10 @@ APPROVED_TESTS = [
     # contracts/observations -> 3 instruments + 3 explicit scope edges.
     # Identity only; no investability, entry, sizing, or trading authority.
     "test/test_identity_authority_pilot.py",
+    # P8-12 source lineage bridge: provider adapters preserve structured
+    # source_name/source_asset_id through ClockEvent -> candidate without
+    # resolving identity or changing tier/authority.
+    "test/test_dynamic_clock_identity_lineage.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

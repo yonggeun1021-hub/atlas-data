@@ -179,6 +179,65 @@ def _price_reflection_placeholder() -> dict:
     )
 
 
+SOURCE_IDENTITY_AVAILABLE = "AVAILABLE"
+SOURCE_IDENTITY_MISSING = "NOT_COMPUTABLE_SOURCE_IDENTITY_LINEAGE_MISSING"
+
+
+def _source_identity_lineage(active_episodes: list[dict]) -> dict:
+    """Preserve provider identity exactly as supplied by source adapters.
+
+    No market/ticker/path parsing is allowed here.  A partial or legacy
+    episode remains explicitly NOT_COMPUTABLE while any complete pairs are
+    retained for audit; downstream consumers must require status=AVAILABLE.
+    """
+    pairs: set[tuple[str, str]] = set()
+    missing = False
+    for episode in active_episodes:
+        for evidence in episode.get("evidence_trail", []):
+            source_name = evidence.get("source_name")
+            source_asset_id = evidence.get("source_asset_id")
+            if source_name is None and source_asset_id is None:
+                missing = True
+                continue
+            if not isinstance(source_name, str) or not source_name.strip():
+                raise ReviewCandidateError("SOURCE_NAME_INVALID")
+            if not isinstance(source_asset_id, str) or not source_asset_id.strip():
+                raise ReviewCandidateError("SOURCE_ASSET_ID_INVALID")
+            pairs.add((source_name, source_asset_id))
+    return {
+        "status": SOURCE_IDENTITY_MISSING if missing or not pairs else SOURCE_IDENTITY_AVAILABLE,
+        "source_pairs": [
+            {"source_name": source_name, "source_asset_id": source_asset_id}
+            for source_name, source_asset_id in sorted(pairs)
+        ],
+    }
+
+
+def _validate_source_identity_lineage(lineage: dict) -> None:
+    if not isinstance(lineage, dict):
+        raise ReviewCandidateError("SOURCE_IDENTITY_LINEAGE_NOT_A_DICT")
+    if lineage.get("status") not in (SOURCE_IDENTITY_AVAILABLE, SOURCE_IDENTITY_MISSING):
+        raise ReviewCandidateError("SOURCE_IDENTITY_LINEAGE_STATUS_INVALID")
+    pairs = lineage.get("source_pairs")
+    if not isinstance(pairs, list):
+        raise ReviewCandidateError("SOURCE_IDENTITY_LINEAGE_PAIRS_NOT_A_LIST")
+    normalized = []
+    for pair in pairs:
+        if not isinstance(pair, dict) or set(pair) != {"source_name", "source_asset_id"}:
+            raise ReviewCandidateError("SOURCE_IDENTITY_LINEAGE_PAIR_SCHEMA_INVALID")
+        source_name = pair["source_name"]
+        source_asset_id = pair["source_asset_id"]
+        if not isinstance(source_name, str) or not source_name.strip():
+            raise ReviewCandidateError("SOURCE_NAME_INVALID")
+        if not isinstance(source_asset_id, str) or not source_asset_id.strip():
+            raise ReviewCandidateError("SOURCE_ASSET_ID_INVALID")
+        normalized.append((source_name, source_asset_id))
+    if normalized != sorted(set(normalized)):
+        raise ReviewCandidateError("SOURCE_IDENTITY_LINEAGE_PAIRS_NOT_CANONICAL")
+    if lineage["status"] == SOURCE_IDENTITY_AVAILABLE and not normalized:
+        raise ReviewCandidateError("SOURCE_IDENTITY_AVAILABLE_WITHOUT_PAIRS")
+
+
 def build_raw_trigger_record(episode: dict) -> dict:
     """One record per ACTIVE (subject, trigger_type) episode -- the full,
     unfiltered audit trail (structural trigger/episode data only). NOT a
@@ -194,6 +253,10 @@ def build_raw_trigger_record(episode: dict) -> dict:
     here."""
     if episode.get("status") != "ACTIVE":
         raise ReviewCandidateError(f"EPISODE_NOT_ACTIVE:{episode.get('status')}")
+
+    # Defense in depth for callers that inject an episode dict directly
+    # instead of obtaining it from `dynamic_clock.build_episode_history`.
+    _source_identity_lineage([episode])
 
     latest_evidence = episode["evidence_trail"][-1]
     first_evidence = episode["evidence_trail"][0]
@@ -213,6 +276,9 @@ def build_raw_trigger_record(episode: dict) -> dict:
         "first_evidence_captured_at": first_evidence.get("evidence_captured_at"),
         "first_detected_at": first_evidence["detected_at"],
         "source": latest_evidence["source"],
+        "source_name": latest_evidence.get("source_name"),
+        "source_asset_id": latest_evidence.get("source_asset_id"),
+        "source_identity_lineage": _source_identity_lineage([episode]),
         "evidence_hash": latest_evidence["evidence_hash"],
         "strength": latest_evidence["strength"],
         "urgency": episode["urgency"],
@@ -235,6 +301,7 @@ def build_expired_record(episode: dict) -> dict:
     the briefing's 'expired triggers' section reads (see item 6)."""
     if episode.get("status") != "EXPIRED":
         raise ReviewCandidateError(f"EPISODE_NOT_EXPIRED:{episode.get('status')}")
+    _source_identity_lineage([episode])
     latest_evidence = episode["evidence_trail"][-1]
     first_evidence = episode["evidence_trail"][0]
     return {
@@ -248,6 +315,9 @@ def build_expired_record(episode: dict) -> dict:
         "expiry": episode["expiry"],
         "renewal_count": episode["renewal_count"],
         "evidence_hash": latest_evidence["evidence_hash"],
+        "source_name": latest_evidence.get("source_name"),
+        "source_asset_id": latest_evidence.get("source_asset_id"),
+        "source_identity_lineage": _source_identity_lineage([episode]),
         "evidence_captured_at": latest_evidence.get("evidence_captured_at"),
         "evidence_capture_time_precision": latest_evidence.get(
             "evidence_capture_time_precision", "NOT_AVAILABLE"
@@ -602,6 +672,7 @@ def build_subject_review_candidate(
         "candidate_updated_at": candidate_updated_at,
         "time_precision": "DATE_ONLY",
         "timing_precision": timing_precision,
+        "source_identity_lineage": _source_identity_lineage(active_episodes),
     }
     record["record_hash"] = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})
     return record
@@ -625,6 +696,7 @@ def validate_review_candidate(record: dict) -> dict:
         record.get("candidate_created_at"), record.get("candidate_updated_at"),
     )
     _validate_timing_precision_contract(record)
+    _validate_source_identity_lineage(record.get("source_identity_lineage"))
     expected_hash = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})
     if record.get("record_hash") != expected_hash:
         raise ReviewCandidateError("RECORD_HASH_MISMATCH")
