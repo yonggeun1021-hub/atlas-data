@@ -589,7 +589,7 @@ def write_report(
     (OUT_DIR / "briefing_section.json").write_text(
         canonical_json(build_briefing_section(operational_report)) + "\n", encoding="utf-8")
     AUDIT_DIAGNOSTICS_PATH.write_text(canonical_json(diagnostics_report) + "\n", encoding="utf-8")
-    # P8-12 validity-window v3: collect a separate append-only SHADOW
+    # P8-12 validity-window v4: collect a separate append-only SHADOW
     # observation of real candidate timing.  This cannot open Risk
     # Capacity or P8-13; candidate_validity_observation.py hard-locks every
     # candidate to NOT_COMPUTABLE while the validity policy is unratified.

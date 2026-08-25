@@ -6,7 +6,7 @@ This artifact accumulates real Dynamic Clock candidate timing samples before
 any candidate-validity window is ratified. It is an observation mechanism,
 not an investment rule.
 
-- Current contract: `candidate_validity_shadow_observation/3`
+- Current contract: `candidate_validity_shadow_observation/4`
 - Mode: `PROVISIONAL_SHADOW_OBSERVATION_ONLY`
 - Validity policy: `UNRATIFIED_NO_CANDIDATE_VALIDITY_WINDOW_AUTHORITY`
 - Candidate outcome: always
@@ -35,7 +35,7 @@ observer exposes both:
 
 These are diagnostic facts, not freshness approval.
 
-### Exact operational evaluation time in `/3`
+### Exact operational evaluation time in `/4`
 
 The main operational workflow derives one UTC-second timestamp and its KST
 `decision_date` from the same epoch. The exact instant is supplied to the
@@ -55,7 +55,7 @@ KST date differs from `decision_at`, and any evidence/price timestamp later
 than the operational evaluation instant. Historical replay may not accept a
 current operational evaluation timestamp.
 
-Each `/3` observation also records
+Each `/4` observation also records
 `source_dynamic_clock.evaluation_invariant_report_sha256`. It binds the full
 source semantics after removing only the current-run evaluation context and
 the hashes/precision member derived from it. Natural-sample accounting must
@@ -63,6 +63,15 @@ deduplicate on this value rather than `report_sha256`: two evaluations of
 unchanged evidence remain separate operational records but only one evidence
 basis. This prevents workflow retries or repeated manual dispatches from
 inflating the validity-window sample population.
+
+`/4` recursively removes the evaluation context from every occurrence in the
+report before hashing. This is required because the in-memory report may share
+one candidate object across multiple collections while a retained JSON source
+contains independent copies. The invariant hash must therefore be identical
+before and after canonical JSON round-trip. The first `/3` manual run (GitHub
+run 32841777516) exposed this defect and its committed observation is
+deliberately rejected by semantic revalidation; it is not a validity sample
+and is never rewritten or counted.
 
 ## Review schedule versus candidate validity
 
@@ -85,7 +94,7 @@ still only `PROVISIONAL_SHADOW_SAMPLE_ONLY`; it does not self-ratify a rule.
 
 ## Persistence
 
-The `/2` and `/3` contracts persist two append-only, content-addressed files:
+The `/2` and `/4` contracts persist two append-only, content-addressed files:
 
 `evidence/operational/dynamic_clock/candidate_validity_observations/<decision-date>/observation-<observation-sha256>.json`
 
@@ -123,7 +132,9 @@ series.
 Existing `/2` sources remain independently revalidatable without invented
 timestamps. A retained source that predates the new report field continues to
 rebuild as `/2`; a new source that explicitly carries the evaluation context
-rebuilds as `/3`. No historical source is upgraded or backfilled.
+rebuilds as `/4`. No historical source is upgraded or backfilled. The single
+committed `/3` artifact remains append-only evidence of a rejected validation
+attempt, not a sample.
 
 ## Exit boundary
 

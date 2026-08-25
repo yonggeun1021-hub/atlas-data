@@ -38,7 +38,7 @@ from clock.review_candidate import (
 )
 
 
-CONTRACT_VERSION = "candidate_validity_shadow_observation/3"
+CONTRACT_VERSION = "candidate_validity_shadow_observation/4"
 LEGACY_CONTRACT_VERSION = "candidate_validity_shadow_observation/2"
 OBSERVATION_MODE = "PROVISIONAL_SHADOW_OBSERVATION_ONLY"
 VALIDITY_POLICY_STATUS = "UNRATIFIED_NO_CANDIDATE_VALIDITY_WINDOW_AUTHORITY"
@@ -117,24 +117,29 @@ def _evaluation_invariant_report_sha256(report: dict) -> str:
     well before hashing.  No historical trigger/decision/evidence field is
     removed.
     """
-    invariant = copy.deepcopy(report)
-    invariant.pop("operational_evaluation", None)
-    for market in invariant.get("by_market", {}).values():
-        market.pop("operational_evaluation", None)
-        for candidate in market.get("review_queue", []):
-            candidate.pop("operational_evaluation", None)
-            timing_precision = candidate.get("timing_precision")
-            if isinstance(timing_precision, dict):
-                timing_precision.pop("operational_evaluated_at", None)
-            if "record_hash" in candidate:
-                candidate["record_hash"] = payload_sha256(
-                    {
-                        key: value
-                        for key, value in candidate.items()
-                        if key != "record_hash"
-                    }
-                )
-    return payload_sha256(invariant)
+    def normalize(value: object) -> object:
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+
+        has_evaluation = "operational_evaluation" in value
+        normalized = {}
+        for key, child in value.items():
+            if key == "operational_evaluation":
+                continue
+            # A candidate record hash is derived from the exact evaluation
+            # context. Exclude it only on objects that actually carried
+            # that context; unrelated record hashes remain in the basis.
+            if key == "record_hash" and has_evaluation:
+                continue
+            normalized_child = normalize(child)
+            if key == "timing_precision" and isinstance(normalized_child, dict):
+                normalized_child.pop("operational_evaluated_at", None)
+            normalized[key] = normalized_child
+        return normalized
+
+    return payload_sha256(normalize(report))
 
 
 def _validate_source_report(report: dict) -> None:
