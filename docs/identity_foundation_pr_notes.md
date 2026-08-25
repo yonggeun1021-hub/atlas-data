@@ -269,7 +269,9 @@ full per-defect breakdown). Summary of what changed:
 
 ## Scope of this PR
 
-Builds the identity-resolution **mechanism** only:
+Builds the identity-resolution **mechanism**. A later, separately reviewed
+pilot adds only the mechanical records listed in
+`docs/identity_authority_pilot.md`:
 
 - `identity/canonical_identity.py` — 4-layer (issuer / instrument /
   listing / source_asset_id) resolver, the PIT anti-backdating gate
@@ -278,16 +280,17 @@ Builds the identity-resolution **mechanism** only:
   self-consistency — see retraction section above), strict temporal
   parsing, exactly-one-active-row ambiguity detection at every layer, and
   layer-confusion detection.
-- `config/canonical_security_identity.json` — authority record schema.
-  **Zero rows.** No real identity is asserted or ratified by this PR.
-- `config/market_account_scope_map.json` — authority record schema.
-  **Zero edges.** No real market↔account-scope edge is asserted or
-  ratified by this PR.
+- `config/canonical_security_identity.json` — authority record schema and the
+  three approved pilot identity chains (BTC, Samsung Electronics common,
+  SK hynix common).
+- `config/market_account_scope_map.json` — authority record schema and the
+  three approved pilot edges (`BTC→CRYPTO`, `CRYPTO→CRYPTO`,
+  `KOREA→KOREA`).
 - `test/test_identity_foundation.py` — the 18 originally-required
   counter-examples (rev-2 API) plus new counter-examples specifically for
-  defects 2/3/5/6, structural-validation coverage, and a direct test that
-  the real shipped authority files (not synthetic fixtures) resolve every
-  real query to `IDENTITY_NOT_COMPUTABLE_*`. Registered in
+  defects 2/3/5/6, structural-validation coverage, and direct tests that
+  the real shipped authority files contain only the approved pilot while
+  unlisted identities remain `IDENTITY_NOT_COMPUTABLE_*`. Registered in
   `run_all.py::APPROVED_TESTS`.
 
 This PR does **not**:
@@ -296,7 +299,7 @@ This PR does **not**:
 - open P8-13 Entry Proposal
 - contain any in-code mapping table or hardcoded per-ticker/market
   special-casing
-- claim any row `RATIFIED`
+- infer or upgrade any row to `RATIFIED` in resolver code
 - patch `portfolio_risk/portfolio_snapshot.py`'s raw-symbol double-count
   defect
 
@@ -320,16 +323,13 @@ only to demonstrate, in `test_identity_foundation.py`, why
 instrument-level grouping is the correct eventual fix — it is not called
 from any real portfolio code path by this PR.
 
-## Expected real-world outcome of this PR
+## Expected real-world outcome
 
-Since no real row is `RATIFIED` in either shipped authority file, every
-real resolution attempt against them correctly returns
-`IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD` (see
-`RealShippedAuthorityFilesAreEmptyTests` in the test file). **This is the
-correct outcome for this stage, not a shortfall** — the mechanism is
-proven end-to-end using synthetic fixtures in the other test classes,
-which include a fully successful `RESOLVED` path once rows are (in
-memory, for the test only) genuinely `RATIFIED` with valid provenance.
+Only the separately reviewed pilot identities and scope edges can resolve,
+and only after their verified Git first-seen boundary. Every unlisted real
+query remains `IDENTITY_NOT_COMPUTABLE_*`. Resolution grants mechanical
+identity only: every investment, entry, sizing, order, production, and
+trading authority remains false.
 
 ## Verification — real, completed authoritative run (round 1, HEAD `0df57a4`)
 

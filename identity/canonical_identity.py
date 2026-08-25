@@ -178,12 +178,10 @@ implementation baseline).
 
 ★ This module NEVER itself claims any row is RATIFIED. Ratification is an
   authority-record fact -- it is read, validated, and echoed, never
-  inferred, upgraded, or fabricated here. Zero real RATIFIED rows exist in
-  this repo as of this PR (`config/canonical_security_identity.json` and
-  `config/market_account_scope_map.json` ship with empty record arrays).
-  Every real resolution attempt against those files therefore correctly
-  returns `IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD` -- that is the
-  CORRECT outcome for this stage, not a shortfall.
+  inferred, upgraded, or fabricated here. The shipped records contain only
+  the narrow mechanical pilot documented in
+  `docs/identity_authority_pilot.md`; all unlisted identities and scope edges
+  remain fail-closed.
 
 ★ Forbidden by design (see docs/identity_foundation_pr_notes.md):
    - no in-code mapping table

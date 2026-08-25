@@ -1341,21 +1341,33 @@ class StructuralValidationTests(_GitRepoMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# The real shipped authority files must carry zero RATIFIED rows.
+# The real shipped authority files must stay within the approved pilot.
 # ---------------------------------------------------------------------------
 
-class RealShippedAuthorityFilesAreEmptyTests(unittest.TestCase):
+class RealShippedAuthorityFilesHaveNarrowPilotTests(unittest.TestCase):
 
-    def test_real_canonical_security_identity_file_has_zero_rows(self):
+    def test_real_canonical_security_identity_file_has_only_three_pilot_chains(self):
         doc = ci.load_authority()
+        self.assertEqual(len(doc["issuers"]), 3)
+        self.assertEqual(len(doc["instruments"]), 3)
+        self.assertEqual(len(doc["listings"]), 3)
+        self.assertEqual(len(doc["source_aliases"]), 3)
+        self.assertEqual(
+            {row["canonical_instrument_id"] for row in doc["instruments"]},
+            {"CRYPTO:BTC", "KRX:005930:COMMON", "KRX:000660:COMMON"},
+        )
         for layer_key in ("issuers", "instruments", "listings", "source_aliases"):
-            self.assertEqual(doc[layer_key], [], f"{layer_key} must be empty in this PR")
+            self.assertTrue(all(row["approval_status"] == "RATIFIED" for row in doc[layer_key]))
 
-    def test_real_market_account_scope_map_file_has_zero_edges(self):
+    def test_real_market_account_scope_map_has_only_three_pilot_edges(self):
         doc = ci.load_scope_authority()
-        self.assertEqual(doc["edges"], [])
+        self.assertEqual(
+            {(row["market"], row["account_scope"]) for row in doc["edges"]},
+            {("BTC", "CRYPTO"), ("CRYPTO", "CRYPTO"), ("KOREA", "KOREA")},
+        )
+        self.assertTrue(all(row["approval_status"] == "RATIFIED" for row in doc["edges"]))
 
-    def test_real_files_resolve_every_real_query_to_not_computable(self):
+    def test_unlisted_real_queries_remain_not_computable(self):
         authority = ci.load_authority()
         for source_name, source_asset_id, market in (
             ("KRAKEN", "BTC", "CRYPTO"), ("KRAKEN", "XBT", "CRYPTO"),
@@ -1367,10 +1379,9 @@ class RealShippedAuthorityFilesAreEmptyTests(unittest.TestCase):
             _assert_authority_all_false(self, result)
 
         scope_doc = ci.load_scope_authority()
-        for market in ("BTC", "CRYPTO", "KOREA", "US"):
-            result = ci.resolve_account_scope(market, "2026-08-24", scope_doc)
-            self.assertEqual(result["status"], ci.NOT_COMPUTABLE_SCOPE_MAP_MISSING)
-            _assert_authority_all_false(self, result)
+        result = ci.resolve_account_scope("US", "2026-08-26", scope_doc)
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_SCOPE_MAP_MISSING)
+        _assert_authority_all_false(self, result)
 
 
 if __name__ == "__main__":
