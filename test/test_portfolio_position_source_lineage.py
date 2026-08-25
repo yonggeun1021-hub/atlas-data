@@ -235,6 +235,97 @@ class AuthorityAndAggregationBoundaryTests(unittest.TestCase):
         self.assertEqual(lineage["contract_version"], "portfolio_position_source_lineage/1")
         self.assertEqual(lineage["alpaca"]["source_asset_id_basis"], "EXACT_PROVIDER_ASSET_ID_FROM_GET_V2_POSITIONS")
         self.assertIn("does not mean canonical instrument identity is resolved", lineage["alpaca"]["note"])
+        guards = lineage["duplicate_exposure_guards"]
+        self.assertEqual(guards["account_fact_identity_key"], "account_id_hash")
+        self.assertEqual(
+            guards["within_account_position_identity_key"],
+            ["source_name", "source_asset_id"],
+        )
+        self.assertEqual(guards["duplicate_behavior"], "FAIL_CLOSED_NO_ALIAS_MERGE")
+
+
+class DuplicateExposureFailClosedTests(unittest.TestCase):
+    def _fact(self, account_number: str):
+        account = _account()
+        account["account_number"] = account_number
+        return PS.build_alpaca_paper_account_fact(
+            account, [_position()], captured_at=T0, decision_at=T0,
+        )
+
+    def test_same_account_fact_twice_is_rejected_before_nav_can_double(self):
+        fact = self._fact("PA-DUPLICATE")
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "DUPLICATE_ACCOUNT_FACT"):
+            PS.assemble_snapshot(
+                account_facts=[fact, copy.deepcopy(fact)], fx_rates={},
+                captured_at=T0, available_at=T0, decision_at=T0,
+            )
+
+    def test_duplicate_account_in_resigned_packet_is_independently_rejected(self):
+        tampered = copy.deepcopy(_packet())
+        tampered["portfolio_facts"]["accounts"].append(
+            copy.deepcopy(tampered["portfolio_facts"]["accounts"][0])
+        )
+        with self.assertRaisesRegex(PS.PortfolioSnapshotError, "DUPLICATE_ACCOUNT_FACT"):
+            PS.validate_snapshot(_resign(tampered))
+
+    def test_same_provider_asset_under_two_symbols_is_rejected(self):
+        first = _position(symbol="BTC", market_value="2500.00")
+        second = _position(symbol="XBT", market_value="2500.00")
+        with self.assertRaisesRegex(
+            PS.PortfolioSnapshotError,
+            "DUPLICATE_POSITION_SOURCE_IDENTITY_WITHIN_ACCOUNT",
+        ):
+            PS.build_alpaca_paper_account_fact(
+                _account(), [first, second], captured_at=T0, decision_at=T0,
+            )
+
+    def test_same_manual_provider_pair_under_two_symbols_is_rejected(self):
+        positions = [
+            {
+                "symbol": "BTC", "qty": 1, "market_value": 100,
+                "source_name": "manual_exchange_export", "source_asset_id": "asset-1",
+            },
+            {
+                "symbol": "XBT", "qty": 1, "market_value": 100,
+                "source_name": "manual_exchange_export", "source_asset_id": "asset-1",
+            },
+        ]
+        with self.assertRaisesRegex(
+            PS.PortfolioSnapshotError,
+            "DUPLICATE_POSITION_SOURCE_IDENTITY_WITHIN_ACCOUNT",
+        ):
+            PS.build_manual_account_fact(
+                market="CRYPTO", currency="USD", cash=100, positions=positions,
+                captured_at=T0, decision_at=T0,
+            )
+
+    def test_duplicate_provider_identity_in_resigned_packet_is_rejected(self):
+        tampered = copy.deepcopy(_packet())
+        account = tampered["portfolio_facts"]["accounts"][0]
+        alias = copy.deepcopy(account["positions"][0])
+        alias["symbol"] = "APPLE"
+        account["positions"].append(alias)
+        with self.assertRaisesRegex(
+            PS.PortfolioSnapshotError,
+            "DUPLICATE_POSITION_SOURCE_IDENTITY_WITHIN_ACCOUNT",
+        ):
+            PS.validate_snapshot(_resign(tampered))
+
+    def test_two_distinct_accounts_may_hold_same_provider_asset(self):
+        first = self._fact("PA-ACCOUNT-1")
+        second = self._fact("PA-ACCOUNT-2")
+        packet = PS.assemble_snapshot(
+            account_facts=[first, second], fx_rates={},
+            captured_at=T0, available_at=T0, decision_at=T0,
+        )
+        PS.validate_snapshot(packet)
+        risk = packet["risk_capacity_inputs"]
+        self.assertEqual(risk["existing_position_count"], 2)
+        self.assertEqual(risk["connected_scope_nav"], 20000.0)
+        self.assertEqual(
+            risk["exposure_by_ticker"],
+            [{"symbol": "AAPL", "market_value": 10000.0}],
+        )
 
 
 if __name__ == "__main__":

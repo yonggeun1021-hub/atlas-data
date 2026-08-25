@@ -30,6 +30,10 @@ separate keys -- never merged:
 
 - **Alpaca Paper account** (`portfolio_risk/alpaca_client.py`): `GET /v2/account`,
   `GET /v2/positions` against `https://paper-api.alpaca.markets`
+  (the trading/account host -- distinct from `https://data.alpaca.markets`,
+  the market-data host already used by `collectors/free_market_data.py`).
+  Credential pattern reused verbatim: `ALPACA_API_KEY`/`ALPACA_API_SECRET`
+  via `os.getenv(...)`, same header pair. No new secrets mechanism.
 
 ### Position provider identity lineage (additive `portfolio_position_source_lineage/1`)
 
@@ -58,10 +62,23 @@ now explicitly labeled by
 It must not be used as canonical exposure. In particular, XBT/XXBT or other
 provider aliases are not silently stripped or merged here; that requires a
 separately ratified canonical-instrument authority record.
-  (the trading/account host -- distinct from `https://data.alpaca.markets`,
-  the market-data host already used by `collectors/free_market_data.py`).
-  Credential pattern reused verbatim: `ALPACA_API_KEY`/`ALPACA_API_SECRET`
-  via `os.getenv(...)`, same header pair. No new secrets mechanism.
+
+Two additive fail-closed guards prevent proven duplicates from inflating the
+diagnostic totals while that authority remains unratified:
+
+- One snapshot may contain each `account_id_hash` only once. Repeating the
+  same account fact is rejected before NAV, cash, or exposure is aggregated.
+- Within one account, each exact `(source_name, source_asset_id)` pair may
+  occur only once. The same provider asset under two display symbols is
+  rejected rather than merged or double-counted.
+
+These checks are independently repeated by `validate_snapshot()`, so changing
+the packet and generating a new packet hash does not bypass them. Two distinct
+accounts may still hold the same provider asset and are aggregated normally.
+This is deliberately narrower than canonical identity resolution: a missing
+provider pair, two unrelated provider IDs, or a ticker alias cannot be merged
+by these guards. Authenticity of `account_id_hash` after capture remains the
+responsibility of the private append-only evidence record.
 - **Manual/fixture snapshots** (`portfolio_risk/portfolio_snapshot.build_manual_account_fact`):
   for accounts not connected this way today (Korea, Crypto). Always
   force-labeled `verification_status: PAPER_OR_MANUAL_UNVERIFIED` -- a
@@ -276,7 +293,12 @@ per scenario:
 
 1. Future-dated snapshot vs. a past decision -- rejected (`FUTURE_DATED_SNAPSHOT_REJECTED`).
 2. Stale account balance used as current -- rejected (forces the whole `risk_capacity_inputs` block to `NOT_COMPUTABLE_STALE_OR_MISMATCHED_ACCOUNT`, not just flagged).
-3. Duplicate positions -- deduplicated (identical) / rejected (conflicting, `DUPLICATE_POSITION_CONFLICTING_DATA`).
+3. Duplicate positions -- identical raw rows sharing a display symbol are
+   deduplicated and conflicting rows are rejected
+   (`DUPLICATE_POSITION_CONFLICTING_DATA`). In addition, an exact provider
+   identity repeated under different symbols is rejected
+   (`DUPLICATE_POSITION_SOURCE_IDENTITY_WITHIN_ACCOUNT`), and a repeated
+   account fact is rejected (`DUPLICATE_ACCOUNT_FACT`) before aggregation.
 4. Mixed-currency amounts summed without an FX rate -- rejected (`NOT_COMPUTABLE_MISSING_FX_RATE` / `NOT_COMPUTABLE_STALE_FX_RATE` on every `*_base_currency` field; raw per-currency breakdowns never blended).
 5. Manual input disguised as broker-verified -- rejected (`MANUAL_INPUT_DISGUISED_AS_VERIFIED`).
 6. Alpaca live vs. paper account confusion -- structurally impossible (hard-coded paper host, no parameter, no live-host string anywhere in the module).
