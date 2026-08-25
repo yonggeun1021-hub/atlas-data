@@ -9,9 +9,12 @@ today, so every candidate remains fail-closed as
 The observation is deliberately derived only from an already-built Dynamic
 Clock report.  It makes no provider call, reads no future price outcome, and
 uses no wall clock.  The report's own decision date is the observation date.
-Each persisted file is content-addressed by the complete source-report hash,
+Each persisted observation and its exact source report are content-addressed,
 so repeated identical runs are byte-identical no-ops and distinct same-day
-runs cannot overwrite one another.
+runs cannot overwrite one another.  Retaining the canonical source bytes is
+part of the contract: the rolling ``dynamic_clock_report.json`` may be
+replaced by a later run, but an older observation must remain independently
+rebuildable without searching git history.
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ from clock import dynamic_clock as dc
 from clock.review_candidate import AUTHORITY_ALL_FALSE, validate_review_candidate
 
 
-CONTRACT_VERSION = "candidate_validity_shadow_observation/1"
+CONTRACT_VERSION = "candidate_validity_shadow_observation/2"
 OBSERVATION_MODE = "PROVISIONAL_SHADOW_OBSERVATION_ONLY"
 VALIDITY_POLICY_STATUS = "UNRATIFIED_NO_CANDIDATE_VALIDITY_WINDOW_AUTHORITY"
 FRESHNESS_STATUS = "NOT_COMPUTABLE_CANDIDATE_FRESHNESS_UNRATIFIED"
@@ -45,6 +48,8 @@ VALID_TRIGGER_KINDS = (
     TRIGGER_MANUAL_WORKFLOW_DISPATCH,
     TRIGGER_LOCAL_REPRODUCTION,
 )
+SOURCE_REPORT_DIRECTORY = "candidate_validity_source_reports"
+SOURCE_REPORT_FORMAT = "CANONICAL_JSON_UTF8_LF"
 
 # The v2 CIO design review found no retained live sample for these trigger
 # families.  Seeing one later is useful new evidence, but does not silently
@@ -75,6 +80,20 @@ def _date(value: object, *, field: str) -> dt.date:
 
 def _authority() -> dict:
     return copy.deepcopy(AUTHORITY_ALL_FALSE)
+
+
+def _source_report_relative_path(source_report_sha256: str) -> str:
+    if (
+        not isinstance(source_report_sha256, str)
+        or len(source_report_sha256) != 64
+        or any(ch not in "0123456789abcdef" for ch in source_report_sha256)
+    ):
+        raise CandidateValidityObservationError("SOURCE_REPORT_SHA256_INVALID")
+    return f"{SOURCE_REPORT_DIRECTORY}/report-{source_report_sha256}.json"
+
+
+def _canonical_payload_bytes(document: dict) -> bytes:
+    return (canonical_json(document) + "\n").encode("utf-8")
 
 
 def _validate_source_report(report: dict) -> None:
@@ -258,6 +277,11 @@ def build_observation(
         },
         "source_dynamic_clock": {
             "report_sha256": source_report_sha256,
+            "retained_report": {
+                "path": _source_report_relative_path(source_report_sha256),
+                "format": SOURCE_REPORT_FORMAT,
+                "append_only": True,
+            },
             "policy_version": report["policy_version"],
             "policy_approval_status": report["policy_approval_status"],
             "mode": report["mode"],
@@ -300,33 +324,108 @@ def write_observation(
     report: dict,
     *,
     output_root: Path,
+    source_output_root: Path | None = None,
     policy: dict | None = None,
     trigger_kind: str = TRIGGER_LOCAL_REPRODUCTION,
 ) -> Path:
-    """Persist one append-only, content-addressed observation file."""
+    """Persist an exact source snapshot and its derived observation.
+
+    The source snapshot is written first.  This prevents an observation from
+    being committed without the immutable input required to rebuild it.
+    """
     observation = build_observation(report, policy, trigger_kind=trigger_kind)
+    source_sha = observation["source_dynamic_clock"]["report_sha256"]
+    expected_source_relative = _source_report_relative_path(source_sha)
+    retained = observation["source_dynamic_clock"]["retained_report"]
+    if retained != {
+        "path": expected_source_relative,
+        "format": SOURCE_REPORT_FORMAT,
+        "append_only": True,
+    }:
+        raise CandidateValidityObservationError("SOURCE_RETENTION_METADATA_INVALID")
+
+    if source_output_root is None:
+        source_output_root = output_root.parent / SOURCE_REPORT_DIRECTORY
+    expected_source_root = output_root.parent / SOURCE_REPORT_DIRECTORY
+    if source_output_root.resolve() != expected_source_root.resolve():
+        raise CandidateValidityObservationError("SOURCE_OUTPUT_ROOT_MISROUTED")
+    source_target = source_output_root / f"report-{source_sha}.json"
+    source_payload = _canonical_payload_bytes(report)
+    source_output_root.mkdir(parents=True, exist_ok=True)
+    if source_target.exists():
+        if source_target.read_bytes() != source_payload:
+            raise CandidateValidityObservationError(
+                "APPEND_ONLY_EXISTING_SOURCE_REPORT_TAMPERED"
+            )
+    else:
+        source_target.write_bytes(source_payload)
+
     observation_sha = observation["observation_sha256"]
     target_dir = output_root / observation["observation_date"]
     target = target_dir / f"observation-{observation_sha}.json"
-    payload = canonical_json(observation) + "\n"
+    payload = _canonical_payload_bytes(observation)
     target_dir.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        if target.read_text(encoding="utf-8") != payload:
+        if target.read_bytes() != payload:
             raise CandidateValidityObservationError("APPEND_ONLY_EXISTING_OBSERVATION_TAMPERED")
         return target
-    target.write_text(payload, encoding="utf-8")
+    target.write_bytes(payload)
     return target
 
 
 def load_and_validate_observation(
     observation_path: Path,
-    source_report_path: Path,
+    dynamic_clock_root: Path | None = None,
     policy: dict | None = None,
     *,
     trigger_kind: str = TRIGGER_LOCAL_REPRODUCTION,
 ) -> dict:
-    observation = json.loads(observation_path.read_text(encoding="utf-8"))
-    source_report = json.loads(source_report_path.read_text(encoding="utf-8"))
+    """Validate a persisted observation using only its retained source.
+
+    The rolling ``dynamic_clock_report.json`` is deliberately not accepted.
+    Exact canonical bytes, content-addressed filename, metadata path and both
+    hashes must all agree before the semantic rebuild is attempted.
+    """
+    observation_bytes = observation_path.read_bytes()
+    observation = json.loads(observation_bytes.decode("utf-8"))
+    if observation_bytes != _canonical_payload_bytes(observation):
+        raise CandidateValidityObservationError("OBSERVATION_BYTES_NOT_CANONICAL")
+    observation_sha = observation.get("observation_sha256")
+    expected_observation_name = f"observation-{observation_sha}.json"
+    if observation_path.name != expected_observation_name:
+        raise CandidateValidityObservationError("OBSERVATION_FILENAME_HASH_MISMATCH")
+    if observation_path.parent.name != observation.get("observation_date"):
+        raise CandidateValidityObservationError("OBSERVATION_DATE_DIRECTORY_MISMATCH")
+
+    source_meta = observation.get("source_dynamic_clock")
+    if not isinstance(source_meta, dict):
+        raise CandidateValidityObservationError("SOURCE_RETENTION_METADATA_INVALID")
+    source_sha = source_meta.get("report_sha256")
+    expected_relative = _source_report_relative_path(source_sha)
+    retained = source_meta.get("retained_report")
+    if retained != {
+        "path": expected_relative,
+        "format": SOURCE_REPORT_FORMAT,
+        "append_only": True,
+    }:
+        raise CandidateValidityObservationError("SOURCE_RETENTION_METADATA_INVALID")
+
+    if dynamic_clock_root is None:
+        try:
+            dynamic_clock_root = observation_path.parents[2]
+        except IndexError as exc:
+            raise CandidateValidityObservationError(
+                "DYNAMIC_CLOCK_ROOT_NOT_RESOLVABLE"
+            ) from exc
+    source_report_path = dynamic_clock_root / expected_relative
+    if not source_report_path.is_file():
+        raise CandidateValidityObservationError("RETAINED_SOURCE_REPORT_MISSING")
+    source_bytes = source_report_path.read_bytes()
+    source_report = json.loads(source_bytes.decode("utf-8"))
+    if source_bytes != _canonical_payload_bytes(source_report):
+        raise CandidateValidityObservationError("RETAINED_SOURCE_BYTES_NOT_CANONICAL")
+    if payload_sha256(source_report) != source_sha:
+        raise CandidateValidityObservationError("RETAINED_SOURCE_HASH_MISMATCH")
     return validate_observation(
         observation,
         source_report,

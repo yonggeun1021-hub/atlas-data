@@ -131,6 +131,7 @@ OUT_DIR = ROOT / "evidence" / "operational" / "dynamic_clock"
 REPORT_PATH = OUT_DIR / "dynamic_clock_report.json"
 AUDIT_DIAGNOSTICS_PATH = OUT_DIR / "audit_diagnostics.json"
 VALIDITY_OBSERVATIONS_DIR = OUT_DIR / "candidate_validity_observations"
+VALIDITY_SOURCE_REPORTS_DIR = OUT_DIR / "candidate_validity_source_reports"
 
 PRIORITY_SUBJECTS = ("BTC", "005930", "000660")  # same regression priority set as PR #210
 
@@ -540,6 +541,7 @@ def write_report(
     write_validity_observation(
         operational_report,
         output_root=VALIDITY_OBSERVATIONS_DIR,
+        source_output_root=VALIDITY_SOURCE_REPORTS_DIR,
         trigger_kind=observation_trigger_kind,
     )
     return operational_report
