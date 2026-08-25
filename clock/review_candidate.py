@@ -108,10 +108,12 @@ tiered Human Review Candidate.
 ★ CIO integration review round 1, defect 4 (missing PIT timing contract):
   every candidate now separately carries `evidence_as_of`,
   `trigger_observed_at`, `decision_at`, `price_as_of`, `candidate_created_at`,
-  `candidate_updated_at`, and `time_precision` (`"DATE_ONLY"` -- this repo's
-  evidence is date-granularity, never a fabricated intraday timestamp
-  except `price_as_of`, which P8-10 already supplies as a real UTC
-  timestamp). `_validate_candidate_timing` enforces `evidence_as_of <=
+  `candidate_updated_at`, aggregate `time_precision="DATE_ONLY"`, and a
+  per-field `timing_precision` map. Exact collector timestamps are retained
+  separately as `evidence_captured_at`, but trigger/decision/created/updated
+  remain real date-granularity observations (never fabricated intraday
+  timestamps; `price_as_of` may be independently timestamped).
+  `_validate_candidate_timing` enforces `evidence_as_of <=
   trigger_observed_at <= decision_at`, `price_as_of <= decision_at`, and
   `candidate_created_at <= candidate_updated_at <= decision_at`
   unconditionally before a candidate is ever returned.
@@ -124,6 +126,7 @@ tiered Human Review Candidate.
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import inspect
 
 from replay.opportunity_trigger import canonical_json, payload_sha256
@@ -203,6 +206,11 @@ def build_raw_trigger_record(episode: dict) -> dict:
         "trigger_type": episode["trigger_type"],
         "detected_at": latest_evidence["detected_at"],
         "evidence_available_at": latest_evidence["evidence_available_at"],
+        "evidence_captured_at": latest_evidence.get("evidence_captured_at"),
+        "evidence_capture_time_precision": latest_evidence.get(
+            "evidence_capture_time_precision", "NOT_AVAILABLE"
+        ),
+        "first_evidence_captured_at": first_evidence.get("evidence_captured_at"),
         "first_detected_at": first_evidence["detected_at"],
         "source": latest_evidence["source"],
         "evidence_hash": latest_evidence["evidence_hash"],
@@ -228,6 +236,7 @@ def build_expired_record(episode: dict) -> dict:
     if episode.get("status") != "EXPIRED":
         raise ReviewCandidateError(f"EPISODE_NOT_EXPIRED:{episode.get('status')}")
     latest_evidence = episode["evidence_trail"][-1]
+    first_evidence = episode["evidence_trail"][0]
     return {
         "candidate_id": episode["episode_id"],
         "series_id": episode["series_id"],
@@ -239,6 +248,11 @@ def build_expired_record(episode: dict) -> dict:
         "expiry": episode["expiry"],
         "renewal_count": episode["renewal_count"],
         "evidence_hash": latest_evidence["evidence_hash"],
+        "evidence_captured_at": latest_evidence.get("evidence_captured_at"),
+        "evidence_capture_time_precision": latest_evidence.get(
+            "evidence_capture_time_precision", "NOT_AVAILABLE"
+        ),
+        "first_evidence_captured_at": first_evidence.get("evidence_captured_at"),
         "status": "EXPIRED",
         "authority": _authority_block(),
     }
@@ -400,6 +414,75 @@ def _validate_candidate_timing(evidence_as_of: str, trigger_observed_at: str, de
         )
 
 
+def _parse_timestamp(value: str, *, field: str) -> dt.datetime:
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = dt.datetime.fromisoformat(candidate)
+    except (TypeError, ValueError) as exc:
+        raise ReviewCandidateError(f"{field}_INVALID:{value!r}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ReviewCandidateError(f"{field}_TIMEZONE_REQUIRED:{value!r}")
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _timing_precision_contract(*, first_evidence_captured_at: str | None,
+                               evidence_captured_at: str | None,
+                               price_as_of: str | None) -> dict:
+    return {
+        "evidence_as_of": "DATE_ONLY",
+        "first_evidence_captured_at": "TIMESTAMP" if first_evidence_captured_at else "NOT_AVAILABLE",
+        "evidence_captured_at": "TIMESTAMP" if evidence_captured_at else "NOT_AVAILABLE",
+        "trigger_observed_at": "DATE_ONLY",
+        "decision_at": "DATE_ONLY",
+        "price_as_of": "TIMESTAMP" if price_as_of not in (None, "UNKNOWN") else "NOT_AVAILABLE",
+        "candidate_created_at": "DATE_ONLY",
+        "candidate_updated_at": "DATE_ONLY",
+    }
+
+
+def _validate_timing_precision_contract(record: dict) -> None:
+    expected = _timing_precision_contract(
+        first_evidence_captured_at=record.get("first_evidence_captured_at"),
+        evidence_captured_at=record.get("evidence_captured_at"),
+        price_as_of=record.get("price_as_of"),
+    )
+    if record.get("timing_precision") != expected:
+        raise ReviewCandidateError("TIMING_PRECISION_CONTRACT_MISMATCH")
+    expected_capture_precision = "TIMESTAMP" if record.get("evidence_captured_at") else "NOT_AVAILABLE"
+    if record.get("evidence_capture_time_precision") != expected_capture_precision:
+        raise ReviewCandidateError("EVIDENCE_CAPTURE_TIME_PRECISION_MISMATCH")
+    # Aggregate precision stays DATE_ONLY until every decision-critical
+    # field is backed by a timestamp.  An exact collector timestamp alone
+    # must never unlock candidate freshness or entry eligibility.
+    if record.get("time_precision") != "DATE_ONLY":
+        raise ReviewCandidateError("AGGREGATE_TIME_PRECISION_MUST_REMAIN_DATE_ONLY")
+
+    decision_at = record.get("decision_at")
+    try:
+        decision_date = dt.date.fromisoformat(decision_at)
+    except (TypeError, ValueError) as exc:
+        raise ReviewCandidateError(f"DECISION_AT_DATE_INVALID:{decision_at!r}") from exc
+
+    captured_at = record.get("evidence_captured_at")
+    first_captured_at = record.get("first_evidence_captured_at")
+    first_captured = None
+    if first_captured_at:
+        first_captured = _parse_timestamp(first_captured_at, field="FIRST_EVIDENCE_CAPTURED_AT")
+        if first_captured.date() > decision_date:
+            raise ReviewCandidateError("FIRST_EVIDENCE_CAPTURED_AT_AFTER_DATE_ONLY_DECISION_AT")
+    if captured_at:
+        captured = _parse_timestamp(captured_at, field="EVIDENCE_CAPTURED_AT")
+        if captured.date() > decision_date:
+            raise ReviewCandidateError("EVIDENCE_CAPTURED_AT_AFTER_DATE_ONLY_DECISION_AT")
+        if first_captured is not None and first_captured > captured:
+            raise ReviewCandidateError("FIRST_EVIDENCE_CAPTURED_AT_AFTER_LATEST_EVIDENCE_CAPTURED_AT")
+    price_as_of = record.get("price_as_of")
+    if price_as_of not in (None, "UNKNOWN"):
+        priced = _parse_timestamp(price_as_of, field="PRICE_AS_OF")
+        if priced.date() > decision_date:
+            raise ReviewCandidateError("PRICE_AS_OF_AFTER_DATE_ONLY_DECISION_AT")
+
+
 def build_subject_review_candidate(
     subject: str, market: str, active_episodes: list[dict], *,
     pit_eligibility_status: str,
@@ -459,6 +542,14 @@ def build_subject_review_candidate(
     # clock/dynamic_clock.py already enforces per-event (see
     # ClockEvent/_validate_ascending).
     evidence_as_of = latest_ep["evidence_trail"][-1]["evidence_available_at"]
+    evidence_captured_at = latest_ep["evidence_trail"][-1].get("evidence_captured_at")
+    first_evidence_captured_at = earliest_ep["evidence_trail"][0].get("evidence_captured_at")
+    evidence_capture_time_precision = latest_ep["evidence_trail"][-1].get(
+        "evidence_capture_time_precision", "NOT_AVAILABLE"
+    )
+    expected_capture_precision = "TIMESTAMP" if evidence_captured_at else "NOT_AVAILABLE"
+    if evidence_capture_time_precision != expected_capture_precision:
+        raise ReviewCandidateError("EVIDENCE_CAPTURE_TIME_PRECISION_MISMATCH")
     trigger_observed_at = detected_at
     price_as_of = (
         price_reflection_status.get("price_as_of")
@@ -469,6 +560,10 @@ def build_subject_review_candidate(
     _validate_candidate_timing(
         evidence_as_of, trigger_observed_at, decision_at, price_as_of,
         candidate_created_at, candidate_updated_at,
+    )
+    timing_precision = _timing_precision_contract(
+        first_evidence_captured_at=first_evidence_captured_at,
+        evidence_captured_at=evidence_captured_at, price_as_of=price_as_of
     )
 
     record = {
@@ -497,12 +592,16 @@ def build_subject_review_candidate(
         "authority": _authority_block(),
         # ★ Defect 4 timing contract fields.
         "evidence_as_of": evidence_as_of,
+        "first_evidence_captured_at": first_evidence_captured_at,
+        "evidence_captured_at": evidence_captured_at,
+        "evidence_capture_time_precision": evidence_capture_time_precision,
         "trigger_observed_at": trigger_observed_at,
         "decision_at": decision_at,
         "price_as_of": price_as_of,
         "candidate_created_at": candidate_created_at,
         "candidate_updated_at": candidate_updated_at,
         "time_precision": "DATE_ONLY",
+        "timing_precision": timing_precision,
     }
     record["record_hash"] = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})
     return record
@@ -520,6 +619,12 @@ def validate_review_candidate(record: dict) -> dict:
     expected_human_review = record.get("tier") == TIER_IMMEDIATE_REVIEW
     if record.get("human_review_required") != expected_human_review:
         raise ReviewCandidateError("HUMAN_REVIEW_REQUIRED_TIER_MISMATCH")
+    _validate_candidate_timing(
+        record.get("evidence_as_of"), record.get("trigger_observed_at"),
+        record.get("decision_at"), record.get("price_as_of"),
+        record.get("candidate_created_at"), record.get("candidate_updated_at"),
+    )
+    _validate_timing_precision_contract(record)
     expected_hash = payload_sha256({k: v for k, v in record.items() if k != "record_hash"})
     if record.get("record_hash") != expected_hash:
         raise ReviewCandidateError("RECORD_HASH_MISMATCH")

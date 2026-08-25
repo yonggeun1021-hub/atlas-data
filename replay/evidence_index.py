@@ -43,6 +43,28 @@ EVIDENCE_DIR = ROOT / "evidence"
 REPO_HISTORY_STARTS_AT = "2026-08-13"
 
 
+def _validated_utc_timestamp(value: object, *, field: str) -> str:
+    """Return a normalized, timezone-aware ISO-8601 timestamp.
+
+    Dynamic Clock historically retained only each snapshot's calendar date,
+    even though all three operational collectors already commit an exact
+    capture timestamp.  Preserve that real timestamp without inventing one
+    for any source that lacks it.  A malformed or timezone-naive timestamp is
+    a corrupt evidence contract and therefore fails closed here, at the index
+    boundary.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field}_MISSING_OR_NOT_A_STRING")
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = dt.datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise ValueError(f"{field}_INVALID:{value!r}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field}_TIMEZONE_REQUIRED:{value!r}")
+    return parsed.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -65,7 +87,11 @@ class KrxSnapshot:
         self.path = path
         raw = _load_json(path)
         self.capture_date = raw["collected_for_kst_date"]
-        self.collected_at_utc = raw["collected_at_utc"]
+        self.collected_at_utc = _validated_utc_timestamp(
+            raw.get("collected_at_utc"), field="KRX_COLLECTED_AT_UTC"
+        )
+        self.captured_at = self.collected_at_utc
+        self.capture_time_precision = "TIMESTAMP"
         self.stocks = raw["stocks"]
         self.sha256 = sha256_file(path)
 
@@ -80,6 +106,10 @@ class BtcSnapshot:
         self.dir = day_dir
         manifest = _load_json(day_dir / "_manifest.json")
         self.capture_date = manifest["snapshot_date"]
+        self.captured_at = _validated_utc_timestamp(
+            manifest.get("fetched_at_utc"), field="BTC_FETCHED_AT_UTC"
+        )
+        self.capture_time_precision = "TIMESTAMP"
         self.latest_finalized_day = manifest["raw"]["latest_finalized_day"]
         self.current_excluded_day = manifest["raw"]["current_excluded_day"]
         ohlc_path = day_dir / "kraken_ohlc_xbtusd.json.gz"
@@ -122,6 +152,10 @@ class BreadthSnapshot:
         self.dir = day_dir
         manifest = _load_json(day_dir / "_manifest.json")
         self.capture_date = manifest["fetched_at_utc"][:10]
+        self.captured_at = _validated_utc_timestamp(
+            manifest.get("fetched_at_utc"), field="BREADTH_FETCHED_AT_UTC"
+        )
+        self.capture_time_precision = "TIMESTAMP"
         self._ohlc_meta = {e["pair_id"]: e for e in manifest["raw"]["ohlc"]}
         self._ndjson_path = day_dir / "kraken_ohlc_responses.ndjson.gz"
         self.sha256 = sha256_file(self._ndjson_path)
