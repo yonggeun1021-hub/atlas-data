@@ -121,6 +121,11 @@ class NoNewProviderCallsTests(unittest.TestCase):
             for forbidden in ("import requests", "import urllib.request", "import http.client"):
                 self.assertNotIn(forbidden, source, path)
 
+    def test_candidate_identity_observation_makes_no_network_calls(self):
+        source = (ROOT / "identity" / "candidate_identity_observation.py").read_text(encoding="utf-8")
+        for forbidden in ("import requests", "import urllib.request", "import http.client", "curl "):
+            self.assertNotIn(forbidden, source)
+
 
 class IdempotencyTests(unittest.TestCase):
     def test_workflow_has_an_idempotency_check_before_committing(self):
@@ -144,6 +149,14 @@ class AtomicityHardeningTests(unittest.TestCase):
         compute_idx = text.index("clock/run_dynamic_clock.py --decision-date")
         self.assertLess(resync_idx, compute_idx,
                          "the re-sync (git fetch + reset --hard) must happen BEFORE computing, not after")
+
+    def test_identity_observation_is_built_after_clock_and_before_commit(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        clock_idx = text.index("clock/run_dynamic_clock.py --decision-date")
+        identity_idx = text.index("identity/candidate_identity_observation.py", clock_idx)
+        commit_idx = text.index("git add evidence/operational/dynamic_clock")
+        self.assertLess(clock_idx, identity_idx)
+        self.assertLess(identity_idx, commit_idx)
 
     def test_workflow_never_uses_pull_rebase_before_push(self):
         # The exact anti-pattern CIO review round 2 rejected: rebasing onto
