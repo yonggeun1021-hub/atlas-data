@@ -388,6 +388,11 @@ class DartFilingContentTest(unittest.TestCase):
             self.assertFalse(list(directory.parent.glob(f".{directory.name}.tmp.*")))
 
     def test_run_is_date_guarded_temp_isolated_and_publishes_failure_truth(self):
+        repo_cache = ROOT / "data" / "dart_content"
+        before_repo_cache = {
+            path.relative_to(repo_cache).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in repo_cache.rglob("*") if path.is_file()
+        } if repo_cache.exists() else {}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "latest_dart.json"
@@ -422,7 +427,11 @@ class DartFilingContentTest(unittest.TestCase):
                 {"captured": 1, "skipped": 0, "failed": 0, "not_applicable": 0},
             )
             self.assertTrue((data / "latest_dart_content.json").is_file())
-            self.assertFalse((ROOT / "data" / "dart_content").exists())
+            after_repo_cache = {
+                path.relative_to(repo_cache).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in repo_cache.rglob("*") if path.is_file()
+            } if repo_cache.exists() else {}
+            self.assertEqual(after_repo_cache, before_repo_cache)
 
             padded_source = root / "latest_dart_padded.json"
             padded_source.write_text(
