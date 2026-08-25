@@ -1067,6 +1067,12 @@ APPROVED_TESTS = [
     #   No validity window, Risk Capacity, P8-13, sizing, or trading
     #   authority is opened.
     "test/test_candidate_validity_shadow_observation.py",
+    # ★ P8-12 forward-only lifecycle timestamp observation. The first
+    #   natural sample establishes a no-backfill baseline; only subjects
+    #   first observed, changed, absent, or reappearing after that baseline
+    #   receive exact Atlas observation timestamps. This never claims a
+    #   historical source-event time or unlocks validity/Risk/P8-13.
+    "test/test_candidate_lifecycle_observation.py",
     # ★ P7-11 Profit Harvesting Baseline Audit -- DIAGNOSTIC MEASUREMENT
     #   ONLY, not an operational Harvest Engine, not a sell-policy
     #   ratification. Reuses PR #210's replay/ Miss/Defense episodes

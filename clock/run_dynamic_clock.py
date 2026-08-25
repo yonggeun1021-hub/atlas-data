@@ -113,6 +113,9 @@ from clock.candidate_validity_observation import (
     VALID_TRIGGER_KINDS,
     write_observation as write_validity_observation,
 )
+from clock.candidate_lifecycle_observation import (
+    write_lifecycle_observation,
+)
 from clock.dynamic_clock import build_episode_history, close_stale_episodes
 # ★ CIO integration review round 2, defect 1: `replay.forward_metrics.
 #   compute_forward_metrics` and `clock.audit_diagnostics.
@@ -133,6 +136,7 @@ REPORT_PATH = OUT_DIR / "dynamic_clock_report.json"
 AUDIT_DIAGNOSTICS_PATH = OUT_DIR / "audit_diagnostics.json"
 VALIDITY_OBSERVATIONS_DIR = OUT_DIR / "candidate_validity_observations"
 VALIDITY_SOURCE_REPORTS_DIR = OUT_DIR / "candidate_validity_source_reports"
+LIFECYCLE_OBSERVATIONS_DIR = OUT_DIR / "candidate_lifecycle_observations"
 
 PRIORITY_SUBJECTS = ("BTC", "005930", "000660")  # same regression priority set as PR #210
 
@@ -593,12 +597,22 @@ def write_report(
     # observation of real candidate timing.  This cannot open Risk
     # Capacity or P8-13; candidate_validity_observation.py hard-locks every
     # candidate to NOT_COMPUTABLE while the validity policy is unratified.
-    write_validity_observation(
+    validity_path = write_validity_observation(
         operational_report,
         output_root=VALIDITY_OBSERVATIONS_DIR,
         source_output_root=VALIDITY_SOURCE_REPORTS_DIR,
         trigger_kind=observation_trigger_kind,
     )
+    # Exact lifecycle observations are forward-only. Artifact reproduction
+    # has no exact evaluation instant and therefore cannot create a lifecycle
+    # timestamp or alter the natural chain.
+    if evaluation_at_utc is not None:
+        write_lifecycle_observation(
+            validity_path,
+            dynamic_clock_root=OUT_DIR,
+            output_root=LIFECYCLE_OBSERVATIONS_DIR,
+            trigger_kind=observation_trigger_kind,
+        )
     return operational_report
 
 
