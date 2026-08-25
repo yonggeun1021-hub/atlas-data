@@ -1,0 +1,48 @@
+{
+  "capture_mode": "direct_fetch_append_only",
+  "endpoints": [
+    {
+      "byte_length": 1249157,
+      "collector_version": "stablecoin-capture/v2",
+      "endpoint": "https://stablecoins.llama.fi/stablecoincharts/all",
+      "fetched_at_utc": "2026-08-25T08:23:53Z",
+      "name": "stablecoincharts_all",
+      "raw_file": "stablecoincharts_all.json.gz",
+      "response_sha256": "f94d1b2ff3f566bfee1879b218e3ee27025193dd324c4b54383a024904c6ac5f",
+      "semantics": "historical_series"
+    },
+    {
+      "byte_length": 60501,
+      "collector_version": "stablecoin-capture/v2",
+      "endpoint": "https://stablecoins.llama.fi/stablecoincharts/Terra",
+      "fetched_at_utc": "2026-08-25T08:23:53Z",
+      "name": "stablecoincharts_Terra",
+      "raw_file": "stablecoincharts_Terra.json.gz",
+      "response_sha256": "1337307a07183d71f451bd2f8d912b35485179aa41be5d15bff1366b0801d5ab",
+      "semantics": "historical_series"
+    },
+    {
+      "byte_length": 19279,
+      "collector_version": "stablecoin-capture/v2",
+      "endpoint": "https://stablecoins.llama.fi/stablecoinchains",
+      "fetched_at_utc": "2026-08-25T08:23:53Z",
+      "name": "stablecoinchains",
+      "raw_file": "stablecoinchains.json.gz",
+      "response_sha256": "d541df602a21916ea2a4f6b844c485369fa2c9a4fbf90589666fe05e5915fb34",
+      "semantics": "live_snapshot"
+    },
+    {
+      "byte_length": 546607,
+      "collector_version": "stablecoin-capture/v2",
+      "endpoint": "https://stablecoins.llama.fi/stablecoins?includePrices=true",
+      "fetched_at_utc": "2026-08-25T08:23:53Z",
+      "name": "stablecoins_withprices",
+      "raw_file": "stablecoins_withprices.json.gz",
+      "response_sha256": "2a6edfb9e844488df443662c685ab533dd0baacf763aec9826592dc365ab6457",
+      "semantics": "live_snapshot"
+    }
+  ],
+  "pit_coverage_start": "2026-08-17",
+  "schema_version": 1,
+  "snapshot_date": "2026-08-25"
+}
