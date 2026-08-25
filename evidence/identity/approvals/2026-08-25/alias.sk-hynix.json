@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.alias.sk-hynix",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-25",
+  "layer": "SOURCE_ALIAS",
+  "approved_full_payload_sha256": "48dfe8c53611942f24f909f4434f89b6f6c0f164df787fd056fac0df71069e75",
+  "source_evidence": [
+    {
+      "path": "config/krx_global_universe_contract.json",
+      "sha256": "b3e8f5f24686a237b6fe99917a1a044ad360ae1245f86e7ff669abd99c151fd5"
+    },
+    {
+      "path": "config/universe.json",
+      "sha256": "b8b052bfbfe414f406ed25df45e191146fbd73dda52742f1dbce390126b2c8cc"
+    },
+    {
+      "path": "config/corp_map.json",
+      "sha256": "714e0eeb9e796122df268066e46574cd3f1e455b0b251b75dc8ae5dc899ea52a"
+    },
+    {
+      "path": "data/2026-08-24/krx.json",
+      "sha256": "e3b2a32d28b169df6ffd901de3472ba068f220c22b528ddc07950afc371ac315"
+    },
+    {
+      "path": "data/2026-08-24/dart.json",
+      "sha256": "8ec7bfc10f5fd88632942111e9bc93691450277c1af6f518c66806847fab7617"
+    }
+  ],
+  "assertion": {
+    "source_identity": "KRX ISU_CD 000660 and DART corp_code 00164779 identify SK hynix common stock",
+    "canonical_instrument_join_key": "KRX:000660:COMMON"
+  },
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}

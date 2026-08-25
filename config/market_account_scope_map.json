@@ -1,6 +1,49 @@
 {
   "schema_version": 1,
   "policy_version": "market_account_scope_map/v1",
-  "evidence_basis": "Design: 'Canonical Security Identity / Market Scope Authority' v2 (Notion design packet, CIO-approved 2026-08-24). Connects Dynamic Clock's `market` vocabulary (BTC/CRYPTO/KOREA/US) to portfolio_risk's CANONICAL_ACCOUNT_SCOPE (ALPACA_PAPER_ACCOUNT/KOREA/CRYPTO) -- a many-to-one relationship (e.g. BTC and CRYPTO both map to the CRYPTO account scope), never a bare string-equality join. Zero edges below are RATIFIED as of this PR -- this file defines the schema and proves the mechanism; it ratifies no real market/account-scope edge. Until a real edge is RATIFIED here, every real market->account_scope resolution correctly returns IDENTITY_NOT_COMPUTABLE_SCOPE_MAP_MISSING, matching the atlas-private-evidence Shadow Matrix's existing AMBIGUOUS-default fallback (CANONICAL_MARKET_SCOPE_MAP was deleted there in CIO round 4 for the same reason: no ratified authority record existed).",
-  "edges": []
+  "evidence_basis": "PM/CIO mechanical scope pilot ratified 2026-08-25. Maps Dynamic Clock BTC/CRYPTO/KOREA market vocabularies to already-declared portfolio account scopes for exposure reconciliation only. No investment or trading authority.",
+  "edges": [
+    {
+      "rule_id": "atlas.identity.scope.btc",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-25",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-25/scope.btc.json",
+      "approval_evidence_sha256": "233bea098b21fce9a339e4f382c8a080ba02f60a017d074b8e8a7c63a0540b71",
+      "business_payload_sha256": "70e81e13aa419b086ea2a0f53b8e4aa8326e390b0d0fab26140eb8113d96fb95",
+      "first_seen_at": "2026-08-25",
+      "effective_from": "2026-08-25",
+      "effective_to": null,
+      "market": "BTC",
+      "account_scope": "CRYPTO"
+    },
+    {
+      "rule_id": "atlas.identity.scope.crypto",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-25",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-25/scope.crypto.json",
+      "approval_evidence_sha256": "5c0628fad4178292c8f8f54fa8672652729194df562f2211afec6ce3196d60f3",
+      "business_payload_sha256": "0955b7ef98f36686cfd894af77db6019d27c1c79d17e058f14c4230b6301e331",
+      "first_seen_at": "2026-08-25",
+      "effective_from": "2026-08-25",
+      "effective_to": null,
+      "market": "CRYPTO",
+      "account_scope": "CRYPTO"
+    },
+    {
+      "rule_id": "atlas.identity.scope.korea",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-25",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-25/scope.korea.json",
+      "approval_evidence_sha256": "c9f21e89b5d6287e62cfc92cb5e3b0f5645e6e8ad144ad9ca375d9820b50025a",
+      "business_payload_sha256": "a0676276e5e8bf740d05cf1ab4ba8ee63f7a55d1ea5b300cddc5359331177053",
+      "first_seen_at": "2026-08-25",
+      "effective_from": "2026-08-25",
+      "effective_to": null,
+      "market": "KOREA",
+      "account_scope": "KOREA"
+    }
+  ]
 }
