@@ -1343,7 +1343,9 @@ def build_three_market_header(regime_outputs: dict[str, dict], slot: str, genera
 # ---------------------------------------------------------------------------
 
 
-def build_rotation_discovery(slot: str, generated_at: str) -> dict:
+def build_rotation_discovery(
+    slot: str, generated_at: str, dynamic_report: dict | None = None
+) -> dict:
     ledger = LEDGER.empty_ledger()
     try:
         population = EVENT_POPULATION.build_population_inputs(
@@ -1355,17 +1357,23 @@ def build_rotation_discovery(slot: str, generated_at: str) -> dict:
             population["evidence_bindings"],
             slot,
             generated_at,
+            dynamic_report=dynamic_report,
         )
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ROTATION_DISCOVERY", exc)
     case_count = packet["discovery"]["case_count"]
+    signal_count = packet["signal_observations"]["observation_count"]
     return component_row(
         "ROTATION_DISCOVERY",
         "PENDING",
         (
-            "EVENT_CASES_RECORDED_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
-            if case_count
-            else "NO_CASE_ELIGIBLE_SEC_EVENT_AT_DECISION_TIME"
+            "SIGNAL_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
+            if signal_count
+            else (
+                "EVENT_CASES_RECORDED_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
+                if case_count
+                else "NO_CASE_OR_SIGNAL_OBSERVATION_AVAILABLE"
+            )
         ),
         as_of_date=population["source_as_of_date"] or generated_at[:10],
         generated_at=generated_at,
@@ -2389,11 +2397,25 @@ def build_packet(
         )
     rows["CRYPTO_BREADTH"] = _boundary(_classify_crypto_breadth(crypto_breadth_snapshot))
 
+    # Dynamic Clock is computed once and shared by P8-05 presentation,
+    # P8-03 signal boundary, and the Dynamic Clock component.  This prevents
+    # three independently timed runs from presenting different candidate
+    # populations in one briefing generation.
+    dynamic_report = None
+    dynamic_report_error = None
+    if DYNAMIC_CLOCK is not None:
+        try:
+            dynamic_report = DYNAMIC_CLOCK.run(decision_date=decision_date)
+        except Exception as exc:  # noqa: BLE001
+            dynamic_report_error = exc
+
     regime_outputs = build_regime_outputs(generated_at)
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
         regime_outputs, slot, generated_at
     ))
-    rows["ROTATION_DISCOVERY"] = _boundary(build_rotation_discovery(slot, generated_at))
+    rows["ROTATION_DISCOVERY"] = _boundary(
+        build_rotation_discovery(slot, generated_at, dynamic_report)
+    )
     rows["BUSINESS_ACCELERATION"] = _boundary(
         build_business_acceleration_status(generated_at)
     )
@@ -2410,13 +2432,6 @@ def build_packet(
     rows["PORTFOLIO_CURRENCY"] = _blocked(
         "PORTFOLIO_CURRENCY", "UNAVAILABLE", "NO_LIVE_ASSET_MASTER_OR_POSITION_SNAPSHOT"
     )
-    dynamic_report = None
-    dynamic_report_error = None
-    if DYNAMIC_CLOCK is not None:
-        try:
-            dynamic_report = DYNAMIC_CLOCK.run(decision_date=decision_date)
-        except Exception as exc:  # noqa: BLE001
-            dynamic_report_error = exc
     rows["ACTION_BOUNDARY"] = _boundary(
         build_action_boundary(generated_at, dynamic_report)
     )
@@ -2759,8 +2774,17 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"    - rotation_changes={summary.get('rotation_change_count')} "
                 f"discovery_cases={summary.get('discovery_case_count')} "
                 f"new_candidates={summary.get('new_candidate_count')} "
-                f"existing_candidate_changes={summary.get('existing_candidate_change_count')}"
+                f"existing_candidate_changes={summary.get('existing_candidate_change_count')} "
+                f"signal_observations={summary.get('signal_observation_count')} "
+                f"ready={summary.get('ready_count')} entry={summary.get('entry_trigger_count')}"
             )
+            signal = packet.get("signal_observations", {})
+            if signal:
+                lines.append(
+                    f"    - signal_markets={signal.get('market_counts')} "
+                    f"tier_diagnostic_only={signal.get('tier_counts_diagnostic_only')} "
+                    "promotion=NOT_AUTHORIZED"
+                )
         elif cid == "BUSINESS_ACCELERATION":
             summary = packet.get("summary", {})
             lines.append(

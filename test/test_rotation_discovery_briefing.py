@@ -8,9 +8,14 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from clock import run_dynamic_clock
 SOURCE = ROOT / "briefing" / "rotation_discovery.py"
 
 
@@ -51,6 +56,14 @@ def bindings():
 
 
 class RotationDiscoveryBriefingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        latest = run_dynamic_clock.run()
+        cls.dynamic_report = run_dynamic_clock.run(
+            decision_date=latest["report_asof_evidence_date"]
+        )
+        cls.dynamic_generated_at = f"{cls.dynamic_report['decision_date']}T23:59:59Z"
+
     def test_contract_is_read_model_only_and_closes_promotion_action_authority(self):
         self.assertTrue(CONTRACT["authority"]["briefing_read_model_only"])
         for key, value in CONTRACT["authority"].items():
@@ -104,6 +117,47 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         self.assertEqual(case["promotion_status"], "PROMOTION_NOT_AUTHORIZED")
         self.assertIsNone(case["stage_transition"])
         self.assertIsNone(case["investment_action"])
+
+    def test_real_dynamic_signals_are_visible_without_candidate_promotion(self):
+        result = MODULE.build_briefing(
+            empty_ledger(), records(), bindings(),
+            "evening", self.dynamic_generated_at, CONTRACT,
+            dynamic_report=self.dynamic_report,
+        )
+        signal = result["signal_observations"]
+        expected = sum(
+            len(market["review_queue"])
+            for market in self.dynamic_report["by_market"].values()
+        )
+        self.assertGreater(expected, 0)
+        self.assertEqual(signal["observation_count"], expected)
+        self.assertEqual(result["summary"]["signal_observation_count"], expected)
+        self.assertEqual(result["summary"]["new_candidate_count"], 0)
+        self.assertEqual(result["summary"]["ready_count"], 0)
+        self.assertEqual(result["summary"]["entry_trigger_count"], 0)
+        self.assertEqual(result["discovery"]["new_candidates"], [])
+        self.assertTrue(all(
+            row["ready_status"] == "NOT_EVALUATED"
+            and row["promotion_status"] == "PROMOTION_NOT_AUTHORIZED"
+            and row["action"] is None
+            for row in signal["observations"]
+        ))
+
+    def test_signal_observation_tamper_and_resign_fails_closed(self):
+        result = MODULE.build_briefing(
+            empty_ledger(), records(), bindings(),
+            "evening", self.dynamic_generated_at, CONTRACT,
+            dynamic_report=self.dynamic_report,
+        )
+        result["signal_observations"]["observations"][0]["ready_status"] = "READY"
+        result["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in result.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.RotationDiscoveryBriefingError,
+            "BRIEFING_SIGNAL_ROW_VALUE_INVALID",
+        ):
+            MODULE.validate_briefing(result, CONTRACT)
 
     def test_tampered_rotation_ledger_and_invalid_discovery_fail_closed(self):
         ledger = observed_ledger()

@@ -199,6 +199,10 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
             item for item in packet["components"]
             if item["component_id"] == "ACTION_BOUNDARY"
         )
+        rotation = next(
+            item for item in packet["components"]
+            if item["component_id"] == "ROTATION_DISCOVERY"
+        )
         expected = sum(
             len(market["review_queue"])
             for market in self.report["by_market"].values()
@@ -209,6 +213,12 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
         self.assertEqual(row["packet"]["summary"]["ready_count"], 0)
         self.assertEqual(row["packet"]["summary"]["entry_trigger_count"], 0)
         self.assertEqual(row["packet"]["summary"]["order_intent_count"], 0)
+        self.assertEqual(
+            rotation["packet"]["summary"]["signal_observation_count"], expected
+        )
+        self.assertEqual(rotation["packet"]["summary"]["ready_count"], 0)
+        self.assertEqual(rotation["packet"]["summary"]["entry_trigger_count"], 0)
+        self.assertEqual(rotation["packet"]["discovery"]["new_candidates"], [])
 
 
 if __name__ == "__main__":

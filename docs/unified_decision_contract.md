@@ -16,7 +16,9 @@ validator: Regime, Rotation/Discovery, Rule, Portfolio Bucket, Portfolio
 Currency, and Action Boundary. Exact identity, slot, time, and packet-hash
 checks remain in front of those semantic checks. A component therefore cannot
 change a derived row or summary and regain acceptance merely by recomputing its
-own hash. Component and unified packet schemas are unchanged.
+own hash. Rotation/Discovery packet version 2 adds validated Dynamic Clock
+signal observations while preserving zero candidate-promotion authority; the
+generic Unified Decision output shape remains unchanged.
 
 The contract implements assembly and lineage only. It does not authorize Regime
 interpretation, candidate promotion, Rule PASS/FAIL, portfolio sizing, action or
