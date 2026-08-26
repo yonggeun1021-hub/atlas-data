@@ -34,7 +34,12 @@ CONSUMER = load(
 
 DATE = "2026-08-26"
 GENERATION = "6" * 64
-PACKET_SHA = "7" * 64
+
+
+def payload_sha256(value):
+    return hashlib.sha256(json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
 
 
 def dump(path: Path, value) -> None:
@@ -80,14 +85,50 @@ class ConsumerFixture:
         index = base / "index.json"
         packet = base / "rev-001/packet.json"
         briefing = base / "rev-001/briefing.md"
+        packet_value = {
+            "schema_version": 1,
+            "contract_version": "daily_orchestrator/2",
+            "output_schema_version": "daily_briefing_packet/1",
+            "slot": "morning",
+            "decision_date": DATE,
+            "generated_at": "2026-08-25T23:05:00Z",
+            "capture_mode": "provider_free_aggregation_of_persisted_evidence_only",
+            "component_status_counts": {
+                "READY": 1, "PENDING": 0, "DATA_BLOCKED": 0,
+                "POLICY_BLOCKED": 0, "DEGRADED": 0, "UNAVAILABLE": 0,
+                "UNKNOWN": 0,
+            },
+            "components": [{
+                "component_id": "TEST_COMPONENT", "status": "READY",
+                "decision_eligible": False, "action_eligible": False,
+                "order_eligible": False,
+            }],
+            "authority": {
+                "aggregation_only": True,
+                "component_build_authorized": True,
+                "source_interpretation_authorized": False,
+                "regime_score_authorized": False,
+                "rotation_ranking_authorized": False,
+                "discovery_promotion_authorized": False,
+                "rule_pass_fail_authorized": False,
+                "portfolio_sizing_authorized": False,
+                "action_generation_authorized": False,
+                "order_generation_authorized": False,
+                "production_authorized": False,
+                "trading_authorized": False,
+            },
+            "frozen_sources": {},
+            "unresolved_boundaries": ["TEST_ONLY"],
+        }
+        packet_value["packet_sha256"] = payload_sha256(packet_value)
+        dump(packet, packet_value)
         dump(index, {
             "schema_version": 1, "slot": "morning", "decision_date": DATE,
             "latest_revision": 1,
-            "revisions": [{"revision": 1, "path": "rev-001", "packet_sha256": PACKET_SHA}],
-        })
-        dump(packet, {
-            "slot": "morning", "decision_date": DATE,
-            "packet_sha256": PACKET_SHA, "components": [],
+            "revisions": [{
+                "revision": 1, "path": "rev-001",
+                "packet_sha256": packet_value["packet_sha256"],
+            }],
         })
         briefing.parent.mkdir(parents=True, exist_ok=True)
         briefing.write_text("# verified briefing\n", encoding="utf-8")
@@ -98,7 +139,7 @@ class ConsumerFixture:
             "slot": "morning", "decision_date": DATE, "revision": 1,
             "index_path": rel(index), "index_sha256": sha(index),
             "packet_path": rel(packet), "packet_file_sha256": sha(packet),
-            "packet_sha256": PACKET_SHA,
+            "packet_sha256": packet_value["packet_sha256"],
             "briefing_path": rel(briefing), "briefing_sha256": sha(briefing),
             "delivery_scope": ["INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"],
             "authority": {
@@ -149,11 +190,7 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
     def setUp(self):
         self.fixture = ConsumerFixture()
         self.contract = CONSUMER._load_contract(self.fixture.root / PUBLISHER.CONTRACT_PATH)
-        self.packet_validation = mock.patch.object(CONSUMER, "_validate_daily_packet")
-        self.packet_validator = self.packet_validation.start()
-
     def tearDown(self):
-        self.packet_validation.stop()
         self.fixture.close()
 
     def consume(self):
@@ -172,7 +209,42 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
             value for key, value in envelope["authority"].items()
             if key != "retrieval_pointer_only"
         ))
-        self.assertEqual(self.packet_validator.call_count, 1)
+
+    def test_consumer_validation_does_not_rebuild_against_newer_local_state(self):
+        with mock.patch.object(
+            CONSUMER, "_validate_pinned_delivery_packet",
+            wraps=CONSUMER._validate_pinned_delivery_packet,
+        ) as validator:
+            self.consume()
+        self.assertEqual(validator.call_count, 1)
+
+    def test_resigned_packet_authority_escalation_is_rejected(self):
+        packet = json.loads((
+            self.fixture.root
+            / f"evidence/daily_briefing/morning/{DATE}/rev-001/packet.json"
+        ).read_text())
+        packet["authority"]["trading_authorized"] = True
+        packet["packet_sha256"] = payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            CONSUMER.ScheduledConsumerError, "DELIVERY_PACKET_AUTHORITY_INVALID"
+        ):
+            CONSUMER._validate_pinned_delivery_packet(packet, DATE, "morning")
+
+    def test_resigned_component_eligibility_escalation_is_rejected(self):
+        packet = json.loads((
+            self.fixture.root
+            / f"evidence/daily_briefing/morning/{DATE}/rev-001/packet.json"
+        ).read_text())
+        packet["components"][0]["action_eligible"] = True
+        packet["packet_sha256"] = payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            CONSUMER.ScheduledConsumerError, "COMPONENT_AUTHORITY_INVALID"
+        ):
+            CONSUMER._validate_pinned_delivery_packet(packet, DATE, "morning")
 
     def test_first_revision_missing_is_fail_closed(self):
         self.fixture.responses.pop(self.fixture.envelope["bootstrap_url"])

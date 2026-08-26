@@ -74,6 +74,16 @@ KST evening briefing; only `slot` differs.
 5. If any step fails, report `RETRIEVAL_AUTHORITY_UNAVAILABLE` and do not make
    a new investment judgment from stale or floating data.
 
+The external consumer validates the fetched packet against the immutable
+envelope hashes, its own canonical self-hash, date/slot identity, status-count
+consistency, and the fixed false authority boundary.  It deliberately does
+not call the producer's full `daily_orchestrator.validate_packet()` against the
+consumer's local checkout: that validator re-derives non-frozen components
+from local evidence and is only valid in the exact producer generation.  The
+producer performs that full semantic rebuild before publication; the consumer
+then proves that it received those exact commit-pinned bytes without granting
+any new authority.
+
 The repository provides the executable consumer contract:
 
 ```bash
