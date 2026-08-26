@@ -20,7 +20,6 @@ def load(name, path):
 
 MODULE = load("investment_decision_review", ROOT / "decision" / "investment_decision_review.py")
 RULE_FIXTURE = load("investment_rule_fixture", ROOT / "test" / "test_deterministic_rule_evaluator.py")
-RATIFIED_FIXTURE = load("investment_ratified_fixture", ROOT / "test" / "test_ratified_rule_decision.py")
 CONTRACT = MODULE.load_contract()
 
 
@@ -91,40 +90,36 @@ class InvestmentDecisionReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.InvestmentDecisionReviewError, "EVIDENCE_SET_SHA_MISMATCH"):
             MODULE.build_packet(value, rules, "2026-08-24T00:01:00Z")
 
-    def test_all_ratified_pass_creates_zero_capital_review_only_draft(self):
-        rules = RATIFIED_FIXTURE.packet()
-        value = thesis(rules)
-        packet = MODULE.build_packet(value, rules, "2026-08-24T00:01:00Z")
-        self.assertEqual(packet["buy_review"]["outcome"], "PASS")
-        self.assertEqual(packet["buy_review"]["blockers"], [])
-        proposal = packet["trade_proposal"]
-        self.assertEqual(proposal["mode"], "REVIEW_ONLY_ZERO_CAPITAL")
-        self.assertIsNone(proposal["position_size"])
-        self.assertIsNone(proposal["risk_budget"])
-        self.assertTrue(proposal["approval_required"])
-        self.assertFalse(proposal["broker_submission"])
-        self.assertFalse(proposal["capital_authorized"])
-        self.assertIsNone(proposal["order_intent"])
+    def test_legacy_ratified_packet_without_exact_provenance_is_retired(self):
+        forged = {"schema_version": "ratified_rule_decision_packet/1"}
+        with self.assertRaisesRegex(
+            MODULE.InvestmentDecisionReviewError,
+            "RATIFIED_RULE_PACKET_V1_RETIRED_NO_PROVENANCE",
+        ):
+            MODULE.build_packet(thesis(), forged, "2026-08-24T00:01:00Z")
 
-    def test_any_ratified_fail_rejects_without_proposal(self):
-        rows = RATIFIED_FIXTURE.results()
-        rows[0]["result"] = "FAIL"
-        rules = RATIFIED_FIXTURE.packet(rows)
-        packet = MODULE.build_packet(thesis(rules), rules, "2026-08-24T00:01:00Z")
-        self.assertEqual(packet["buy_review"]["outcome"], "REJECTED")
-        self.assertEqual(packet["buy_review"]["blockers"], [])
-        self.assertIsNone(packet["trade_proposal"])
+    def test_frozen_rule_packet_is_revalidated_not_just_hash_referenced(self):
+        packet = MODULE.build_packet(thesis(), rule_packet(), "2026-08-24T00:01:00Z")
+        packet["frozen_rule_packet"]["rules"][0]["result"] = "PASS"
+        packet["frozen_rule_packet"]["packet_sha256"] = RULE_FIXTURE.MODULE.payload_sha256({
+            key: value for key, value in packet["frozen_rule_packet"].items()
+            if key != "packet_sha256"
+        })
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(MODULE.InvestmentDecisionReviewError, "FROZEN_RULE_PACKET_INVALID"):
+            MODULE.validate_packet(packet)
 
-    def test_self_rehashed_pass_with_failed_rule_is_rejected(self):
-        rules = RATIFIED_FIXTURE.packet()
-        packet = MODULE.build_packet(thesis(rules), rules, "2026-08-24T00:01:00Z")
-        packet["buy_review"]["required_rule_results"][0]["result"] = "FAIL"
+    def test_output_results_cannot_diverge_from_frozen_rule_packet_after_rehash(self):
+        packet = MODULE.build_packet(thesis(), rule_packet(), "2026-08-24T00:01:00Z")
+        packet["buy_review"]["required_rule_results"][0]["result"] = "PASS"
         packet["packet_sha256"] = MODULE.payload_sha256({
             key: value for key, value in packet.items() if key != "packet_sha256"
         })
         with self.assertRaisesRegex(
             MODULE.InvestmentDecisionReviewError,
-            "OUTPUT_OUTCOME_DERIVATION_INVALID",
+            "OUTPUT_RULE_RESULTS_NOT_DERIVED_FROM_FROZEN_PACKET",
         ):
             MODULE.validate_packet(packet)
 

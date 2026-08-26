@@ -10,6 +10,11 @@ Evidence-set SHA consumed by P5. The module validates the production P5 packet
 and consumes only configured Rule IDs. It does not evaluate a Rule or apply a
 threshold.
 
+Version 2 embeds that exact P5 packet as `frozen_rule_packet`. Both build and
+validation re-run the upstream production validator and derive every displayed
+Rule result from the frozen packet. A lineage SHA by itself can no longer stand
+in for upstream evidence, and a self-rehashed review cannot invent PASS.
+
 Current deterministic P5 explicitly reports `PASS_FAIL_NOT_AUTHORIZED` and
 closes downstream action authority. Therefore current routine inputs produce:
 
@@ -19,7 +24,7 @@ Trade Proposal: null
 ```
 
 This is intentional. `UNKNOWN` or `UNDEFINED` cannot be offset by a score or by
-other PASS rows. The separate P5-02 `ratified_rule_decision/1` validator is the
+other PASS rows. The separate P5-02 `ratified_rule_decision/2` validator is the
 only PASS/FAIL ingress. A complete externally ratified slice with every Rule
 PASS creates a zero-capital, review-only Trade Proposal draft. Any FAIL produces
 REJECTED and no proposal. The draft always requires human approval, has null

@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
-  "contract_version": "ratified_rule_decision/1",
-  "output_schema_version": "ratified_rule_decision_packet/1",
+  "schema_version": 2,
+  "contract_version": "ratified_rule_decision/2",
+  "output_schema_version": "ratified_rule_decision_packet/2",
+  "authority_evidence_schema_version": "ratified_rule_authority_evidence/1",
   "slice_id": "TSM_DECISION_SLICE_V1",
   "subject": "TSM",
   "required_rule_ids": [
@@ -14,8 +15,10 @@
     "RULE-0009"
   ],
   "result_statuses": ["PASS", "FAIL"],
+  "provenance_mode": "EXACT_BYTES_CLEAN_GIT_FULL_HISTORY",
   "authority": {
     "external_ratified_result_validation_only": true,
+    "approval_evidence_exact_provenance_required": true,
     "threshold_invention_authorized": false,
     "rule_re_evaluation_authorized": false,
     "stage_change_authorized": false,
