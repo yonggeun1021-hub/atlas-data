@@ -1,69 +1,89 @@
-# P1-COM-05 Regime Policy Candidate — Shadow Diagnostic v1
+# P1-COM-05 Regime Policy Candidate Evidence Inventory v1
 
-## Why this slice exists
+## Investment purpose
 
-`regime_output/v1` proves that the five Regime axes exist, are point-in-time
-bounded, and are tied to exact evidence. It intentionally contains no axis
-direction, normalized score, threshold, or classification authority. The
-existing `regime_decision_authority/v1` therefore correctly returns either
-`BLOCKED_COVERAGE` or `BLOCKED_POLICY_UNRATIFIED`.
+The Regime decision must help Atlas decide whether risk can be taken in US,
+Korea, and Crypto before flow, theme, or asset selection is interpreted. That
+requires an aggregation policy, but a convenient threshold is not evidence.
 
-This slice adds a **draft comparison surface**, not a runtime Regime engine. It
-allows replay inputs to attach an evidence-bound orientation and change state to
-each defined axis and evaluates one explainable consensus candidate. The output
-is suitable only for `POLICY_REPLAY` and `CIO_COMPARISON`.
+This slice replaces the earlier draft consensus classifier with a fail-closed
+inventory. It asks one narrower question: **does every output-affecting policy
+parameter have exact, point-in-time eligible evidence?** It does not classify a
+market and it does not choose a policy.
 
-## Design options considered
+## Current input and PIT boundary
 
-1. **Weighted composite score** — rejected for the first candidate. It creates
-   false precision before the three markets have comparable, replay-tested
-   normalization and weights.
-2. **Explainable axis consensus with a Risk/Vol stress override** — selected as
-   the first draft. Every classification has a short rule trace and no hidden
-   coefficient.
-3. **Statistical or machine-learning classifier** — deferred until a larger
-   point-in-time panel and explicit out-of-sample evaluation exist.
+The builder consumes a `regime_policy_candidate_manifest/v1` plus immutable
+`regime_policy_parameter_evidence/v1` JSON documents. Every evidence reference
+is a repository-relative path, byte SHA-256, and evidence ID. Evidence must be
+available no later than the candidate's `decision_at`; an expired document is
+`STALE_EVIDENCE`, and a future document is `FUTURE_EVIDENCE`.
 
-## Input boundary
+Required policy components are:
 
-The evaluator requires one validated, five-of-five `regime_output/v1` source and
-one assessment for each axis:
+- market-specific normalization
+- minimum coverage
+- Regime classification
+- direction
+- confidence
+- stress override
+- invalidation
+- hysteresis
+- replay acceptance
 
-- `orientation`: `SUPPORTIVE | NEUTRAL | ADVERSE | STRESS`
-- `change`: `IMPROVING | STABLE | DETERIORATING`
-- `normalization_version`
-- the exact factor evidence SHA-256 already present in the source output
-- explicit warning codes
+Missing or unspecified values remain blocked. They are never converted to zero,
+neutral, false, or a default threshold.
 
-`STRESS` is allowed only for `RISK_VOL`. A missing axis, an evidence hash
-mismatch, an unknown normalization version, duplicate warning, float, future or
-otherwise invalid source packet fails closed.
+## Evidence meaning
 
-This module does **not** decide how a raw sensor becomes SUPPORTIVE or ADVERSE.
-Each market-specific normalization transform remains a separate policy and
-replay obligation.
+The supported evidence kinds are:
 
-## Draft classification candidate
+- `EMPIRICAL_DISTRIBUTION`
+- `HISTORICAL_EPISODE`
+- `CIO_DOCTRINE`
+- `EXTERNAL_RESEARCH`
+- `UNSUPPORTED`
 
-- `STRESS`: `RISK_VOL=STRESS` and at least one other axis is `ADVERSE`.
-- `RISK_OFF`: at least three axes are `ADVERSE` or `STRESS`.
-- `RISK_ON`: at least three axes are `SUPPORTIVE` and no axis is `ADVERSE` or
-  `STRESS`.
-- otherwise `NEUTRAL`.
+An evidence kind is not automatically sufficient. Doctrine or external
+research supports a parameter only when the source record contains an explicit,
+equal parameter value. A qualitative principle never justifies a numeric,
+boolean, text, or structured value. An empirical or historical statistic cannot
+support a numeric/boolean policy value when it is derived from a single
+observation or a single observation date.
 
-Direction is `IMPROVING` or `DETERIORATING` only when at least three axes agree
-and none points the opposite way; otherwise it is `STABLE`.
+The builder independently reloads the exact bytes and re-derives the inventory.
+Path traversal, SHA drift, evidence-ID substitution, schema changes, or result
+tampering fail closed.
 
-Confidence is a **diagnostic band**, not a probability. Four-of-five consensus
-is `HIGH`, three-of-five is `MEDIUM`, and anything weaker is `LOW`.
+## State semantics
+
+- `CANDIDATE_BLOCKED`: one or more required components lacks a supported value.
+- `CANDIDATE_READY`: every required component has at least one eligible evidence
+  claim for the exact proposed value.
+
+`CANDIDATE_READY` means only that the candidate can be supplied to a separate
+replay comparison. It does **not** mean selected, recommended, ratified, correct,
+or Production eligible. Replay population remains `NOT_COMPUTABLE` in this
+inventory because the population and outcome comparison belong to P1-COM-04 and
+P1-COM-03.
+
+## Counterexamples defined before the happy path
+
+The contract rejects or blocks:
+
+- a `3-of-5`, weight, threshold, or confidence value with no evidence;
+- a numeric value justified by doctrine that contains only a qualitative
+  principle;
+- a minimum, maximum, median, or other statistic from one observation;
+- evidence first available after `decision_at`;
+- stale evidence whose `valid_through` has passed;
+- a missing file, mismatched claim, or `UNSUPPORTED` evidence;
+- a re-signed manifest, evidence file, inventory, or authority mutation.
 
 ## Authority boundary
 
-The policy ID is `EXPLAINABLE_CONSENSUS_V1_DRAFT` and the status is always
-`DRAFT_NOT_RATIFIED`.
-
-The candidate cannot feed `regime_output/v1`, `regime_decision_authority/v1`, a
-strategy, Stage, Buy, Action, Order, Production, or trading. Hysteresis is not
-implemented in this slice. The next gate is point-in-time replay across US,
-Korea, and Crypto, comparison against alternative candidates, and explicit CIO
-ratification or rejection.
+Only candidate evidence inventory is authorized. Candidate selection, policy
+recommendation, policy ratification, runtime classification, hysteresis,
+strategy, Stage, Buy, Action, Proposal, Order, Production, and trading authority
+remain false. No workflow, cron, briefing, Portal, private-account, broker, or
+order path is changed by this slice.

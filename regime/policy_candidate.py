@@ -1,41 +1,115 @@
 #!/usr/bin/env python3
-"""Evaluate an explainable P1-COM-05 Regime policy candidate in Shadow only.
+"""Build a fail-closed evidence inventory for P1-COM-05 policy candidates.
 
-This module does not change ``regime_output/v1`` and cannot feed the runtime
-Regime decision.  It binds five externally produced, evidence-linked axis
-assessments to one validated pre-score Regime envelope and evaluates a pinned,
-draft consensus policy for replay and CIO comparison.
-
-The result is always ``DRAFT_NOT_RATIFIED``.  Stage, Buy, Action, Order,
-Production, and trading authority remain false.
+This module deliberately does not classify a market.  It verifies whether every
+output-affecting parameter in a draft Regime policy has an exact, point-in-time
+eligible evidence record.  An evidence-complete candidate may enter replay, but
+it cannot select, recommend, ratify, or run a policy.
 """
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sys
 from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from regime import output_contract as OUTPUT  # noqa: E402
-
-
 CONTRACT_PATH = ROOT / "config" / "regime_policy_candidate_contract.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-VERSION = re.compile(r"^[a-z][a-z0-9_/-]*/v[1-9][0-9]*$")
+IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9_:-]*$")
 WARNING = re.compile(r"^[A-Z][A-Z0-9_]*$")
+DECIMAL = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
+
+
+PINNED_CONTRACT = {
+    "schema_version": 1,
+    "contract_version": "regime_policy_candidate_evidence/v1",
+    "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
+    "candidate_manifest_version": "regime_policy_candidate_manifest/v1",
+    "evidence_document_version": "regime_policy_parameter_evidence/v1",
+    "policy_status": "DRAFT_NOT_RATIFIED",
+    "candidate_statuses": ["CANDIDATE_BLOCKED", "CANDIDATE_READY"],
+    "parameter_statuses": ["BLOCKED", "SUPPORTED"],
+    "required_components": [
+        "MARKET_NORMALIZATION",
+        "MINIMUM_COVERAGE",
+        "REGIME_CLASSIFICATION",
+        "DIRECTION",
+        "CONFIDENCE",
+        "STRESS_OVERRIDE",
+        "INVALIDATION",
+        "HYSTERESIS",
+        "REPLAY_ACCEPTANCE",
+    ],
+    "value_types": [
+        "UNSPECIFIED",
+        "NUMBER",
+        "BOOLEAN",
+        "TEXT",
+        "STRUCTURED",
+    ],
+    "evidence_kinds": [
+        "EMPIRICAL_DISTRIBUTION",
+        "HISTORICAL_EPISODE",
+        "CIO_DOCTRINE",
+        "EXTERNAL_RESEARCH",
+        "UNSUPPORTED",
+    ],
+    "claim_types": [
+        "EXPLICIT_PARAMETER_VALUE",
+        "EMPIRICAL_STATISTIC",
+        "HISTORICAL_EPISODE_RULE",
+        "QUALITATIVE_PRINCIPLE",
+        "UNSUPPORTED",
+    ],
+    "blocked_reason_codes": [
+        "VALUE_UNSPECIFIED",
+        "EVIDENCE_MISSING",
+        "UNSUPPORTED_EVIDENCE",
+        "FUTURE_EVIDENCE",
+        "STALE_EVIDENCE",
+        "PARAMETER_CLAIM_MISSING",
+        "VALUE_MISMATCH",
+        "QUALITATIVE_ONLY",
+        "EVIDENCE_KIND_CLAIM_MISMATCH",
+        "SINGLE_OBSERVATION_STATISTIC",
+    ],
+    "evidence_policy": {
+        "numeric_or_boolean_requires_explicit_equal_value": True,
+        "qualitative_principle_never_supports_parameter_value": True,
+        "single_observation_statistic_never_supports_policy_value": True,
+        "evidence_must_be_available_by_decision_at": True,
+        "expired_evidence_is_stale": True,
+        "every_required_component_must_be_supported_for_ready": True,
+        "candidate_ready_does_not_select_recommend_or_ratify": True,
+    },
+    "authority": {
+        "candidate_evidence_inventory_authorized": True,
+        "candidate_selection_authorized": False,
+        "policy_recommendation_authorized": False,
+        "policy_ratification_authorized": False,
+        "runtime_classification_authorized": False,
+        "hysteresis_authorized": False,
+        "strategy_eligibility_authorized": False,
+        "stage_authorized": False,
+        "buy_authorized": False,
+        "action_authorized": False,
+        "proposal_authorized": False,
+        "order_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
+    },
+}
 
 
 class PolicyCandidateError(RuntimeError):
-    """Fail-closed draft policy-candidate contract violation."""
+    """Fail-closed policy-candidate evidence error."""
 
 
 def fail(code: str, detail: str) -> None:
@@ -87,97 +161,8 @@ def payload_sha256(value: object) -> str:
 
 
 def validate_contract(contract: object) -> dict:
-    if not isinstance(contract, dict):
-        fail("CONTRACT_INVALID", "object required")
-    pinned = {
-        "schema_version": 1,
-        "contract_version": "regime_policy_candidate/v1",
-        "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
-        "source_contract_version": "regime_output/v1",
-        "source_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
-        "policy_id": "EXPLAINABLE_CONSENSUS_V1_DRAFT",
-        "policy_status": "DRAFT_NOT_RATIFIED",
-        "required_axes": [
-            "TREND",
-            "BREADTH",
-            "RISK_VOL",
-            "LIQUIDITY",
-            "LEADERSHIP",
-        ],
-        "orientation_vocabulary": [
-            "SUPPORTIVE",
-            "NEUTRAL",
-            "ADVERSE",
-            "STRESS",
-        ],
-        "change_vocabulary": [
-            "IMPROVING",
-            "STABLE",
-            "DETERIORATING",
-        ],
-        "candidate_regime_vocabulary": [
-            "RISK_ON",
-            "NEUTRAL",
-            "RISK_OFF",
-            "STRESS",
-        ],
-        "candidate_direction_vocabulary": [
-            "IMPROVING",
-            "STABLE",
-            "DETERIORATING",
-        ],
-        "confidence_band_vocabulary": ["LOW", "MEDIUM", "HIGH"],
-        "classification_policy": {
-            "stress_rule": "risk_vol_stress_and_at_least_one_other_adverse",
-            "risk_off_rule": "at_least_three_adverse_or_stress_axes",
-            "risk_on_rule": (
-                "at_least_three_supportive_and_zero_adverse_or_stress_axes"
-            ),
-            "fallback_rule": "neutral",
-        },
-        "direction_policy": {
-            "improving_rule": (
-                "at_least_three_improving_and_zero_deteriorating_axes"
-            ),
-            "deteriorating_rule": (
-                "at_least_three_deteriorating_and_zero_improving_axes"
-            ),
-            "fallback_rule": "stable",
-        },
-        "confidence_policy": {
-            "high_consensus_count": 4,
-            "medium_consensus_count": 3,
-            "neutral_high_rule": "at_least_four_neutral_axes",
-            "neutral_medium_rule": "at_least_three_neutral_axes",
-            "fallback_band": "LOW",
-        },
-        "stress_axis_policy": "STRESS_ORIENTATION_ALLOWED_ONLY_FOR_RISK_VOL",
-        "source_binding_policy": (
-            "axis_assessment_must_bind_exact_factor_evidence_sha256"
-        ),
-        "minimum_coverage_policy": "ALL_REQUIRED_AXES_DEFINED_5_OF_5",
-        "numeric_policy": "NO_FLOATS",
-        "ratification_policy": (
-            "candidate_output_cannot_self_ratify_or_feed_runtime_decision"
-        ),
-        "authority": {
-            "diagnostic_candidate_evaluation_authorized": True,
-            "policy_ratification_authorized": False,
-            "runtime_classification_authorized": False,
-            "hysteresis_authorized": False,
-            "strategy_eligibility_authorized": False,
-            "stage_authorized": False,
-            "buy_authorized": False,
-            "action_authorized": False,
-            "order_authorized": False,
-            "production_authorized": False,
-            "trading_authorized": False,
-        },
-    }
-    if set(contract) != set(pinned) or any(
-        contract.get(key) != value for key, value in pinned.items()
-    ):
-        fail("CONTRACT_INVALID", "schema or pinned draft semantics")
+    if canonical_bytes(contract) != canonical_bytes(PINNED_CONTRACT):
+        fail("CONTRACT_INVALID", "schema or pinned fail-closed semantics")
     return contract
 
 
@@ -185,303 +170,509 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return validate_contract(load_json(path, "CONTRACT_INVALID"))
 
 
-def warning_list(value: object, label: str) -> list[str]:
+def parse_timestamp(value: object, label: str) -> datetime:
+    if not isinstance(value, str):
+        fail("TIMESTAMP_INVALID", label)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        fail("TIMESTAMP_INVALID", f"{label}: {exc}")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        fail("TIMESTAMP_INVALID", f"{label}: timezone required")
+    return parsed
+
+
+def validate_identifier(value: object, label: str) -> str:
+    if not isinstance(value, str) or IDENTIFIER.fullmatch(value) is None:
+        fail("IDENTIFIER_INVALID", label)
+    return value
+
+
+def validate_warning_list(value: object, label: str) -> list[str]:
     if not isinstance(value, list):
-        fail("WARNINGS_INVALID", label)
+        fail("CAVEATS_INVALID", label)
     if any(
         not isinstance(item, str) or WARNING.fullmatch(item) is None
         for item in value
     ):
-        fail("WARNINGS_INVALID", label)
+        fail("CAVEATS_INVALID", label)
     if len(value) != len(set(value)):
-        fail("WARNINGS_INVALID", f"{label}: duplicate")
+        fail("CAVEATS_INVALID", f"{label}: duplicate")
     return sorted(value)
 
 
-def validate_source(source: object, contract: dict) -> dict:
-    ensure_no_float(source, "regime_output")
+def validate_parameter_value(value_type: str, value: object, label: str) -> None:
+    if value_type == "UNSPECIFIED":
+        if value is not None:
+            fail("PARAMETER_VALUE_INVALID", f"{label}: unspecified must be null")
+    elif value_type == "NUMBER":
+        is_integer = isinstance(value, int) and not isinstance(value, bool)
+        is_decimal = isinstance(value, str) and DECIMAL.fullmatch(value) is not None
+        if not (is_integer or is_decimal):
+            fail("PARAMETER_VALUE_INVALID", f"{label}: canonical number required")
+    elif value_type == "BOOLEAN":
+        if not isinstance(value, bool):
+            fail("PARAMETER_VALUE_INVALID", f"{label}: boolean required")
+    elif value_type == "TEXT":
+        if not isinstance(value, str) or not value:
+            fail("PARAMETER_VALUE_INVALID", f"{label}: non-empty text required")
+    elif value_type == "STRUCTURED":
+        if not isinstance(value, (dict, list)) or not value:
+            fail("PARAMETER_VALUE_INVALID", f"{label}: non-empty object/list required")
+    else:
+        fail("PARAMETER_VALUE_INVALID", f"{label}: {value_type}")
+
+
+def validate_evidence_ref(value: object, label: str) -> dict:
+    expected = {"path", "sha256", "evidence_id"}
+    if not isinstance(value, dict) or set(value) != expected:
+        fail("EVIDENCE_REF_INVALID", f"{label}: schema")
+    path = value["path"]
+    if not isinstance(path, str) or not path or "\\" in path:
+        fail("EVIDENCE_REF_INVALID", f"{label}: path")
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts or pure.suffix != ".json":
+        fail("EVIDENCE_REF_INVALID", f"{label}: unsafe path")
+    if not isinstance(value["sha256"], str) or SHA256.fullmatch(value["sha256"]) is None:
+        fail("EVIDENCE_REF_INVALID", f"{label}: sha256")
+    validate_identifier(value["evidence_id"], f"{label}.evidence_id")
+    return value
+
+
+def validate_manifest(manifest: object, contract: dict) -> dict:
+    ensure_no_float(manifest, "candidate_manifest")
+    expected = {
+        "schema_version",
+        "contract_version",
+        "candidate_id",
+        "market",
+        "decision_at",
+        "policy_status",
+        "parameters",
+    }
+    if not isinstance(manifest, dict) or set(manifest) != expected:
+        fail("CANDIDATE_MANIFEST_INVALID", "schema")
+    if manifest["schema_version"] != 1:
+        fail("CANDIDATE_MANIFEST_INVALID", "schema_version")
+    if manifest["contract_version"] != contract["candidate_manifest_version"]:
+        fail("CANDIDATE_MANIFEST_INVALID", "contract_version")
+    validate_identifier(manifest["candidate_id"], "candidate_id")
+    if manifest["market"] not in {"COMMON", "US", "KOREA", "CRYPTO"}:
+        fail("CANDIDATE_MANIFEST_INVALID", "market")
+    parse_timestamp(manifest["decision_at"], "decision_at")
+    if manifest["policy_status"] != contract["policy_status"]:
+        fail("CANDIDATE_MANIFEST_INVALID", "policy_status")
+    if not isinstance(manifest["parameters"], list):
+        fail("CANDIDATE_MANIFEST_INVALID", "parameters")
+
+    parameters = {}
+    parameter_ids = set()
+    parameter_schema = {
+        "component",
+        "parameter_id",
+        "value_type",
+        "proposed_value",
+        "evidence_refs",
+    }
+    for index, parameter in enumerate(manifest["parameters"]):
+        label = f"parameters[{index}]"
+        if not isinstance(parameter, dict) or set(parameter) != parameter_schema:
+            fail("PARAMETER_INVALID", f"{label}: schema")
+        component = parameter["component"]
+        if component not in contract["required_components"]:
+            fail("PARAMETER_INVALID", f"{label}: component")
+        if component in parameters:
+            fail("PARAMETER_INVALID", f"{label}: duplicate component")
+        parameter_id = validate_identifier(parameter["parameter_id"], f"{label}.id")
+        if parameter_id in parameter_ids:
+            fail("PARAMETER_INVALID", f"{label}: duplicate parameter_id")
+        value_type = parameter["value_type"]
+        if value_type not in contract["value_types"]:
+            fail("PARAMETER_INVALID", f"{label}: value_type")
+        validate_parameter_value(value_type, parameter["proposed_value"], label)
+        refs = parameter["evidence_refs"]
+        if not isinstance(refs, list):
+            fail("PARAMETER_INVALID", f"{label}: evidence_refs")
+        validated_refs = [
+            validate_evidence_ref(item, f"{label}.evidence_refs[{ref_index}]")
+            for ref_index, item in enumerate(refs)
+        ]
+        ref_keys = [(item["path"], item["evidence_id"]) for item in validated_refs]
+        if len(ref_keys) != len(set(ref_keys)):
+            fail("PARAMETER_INVALID", f"{label}: duplicate evidence ref")
+        parameters[component] = parameter
+        parameter_ids.add(parameter_id)
+    if set(parameters) != set(contract["required_components"]):
+        fail("PARAMETER_SET_INVALID", str(sorted(parameters)))
+    return manifest
+
+
+def validate_claim(claim: object, contract: dict, label: str) -> dict:
+    expected = {
+        "parameter_id",
+        "claim_type",
+        "supported_value",
+        "observation_count",
+        "distinct_observation_dates",
+        "derivation",
+    }
+    if not isinstance(claim, dict) or set(claim) != expected:
+        fail("EVIDENCE_DOCUMENT_INVALID", f"{label}: claim schema")
+    validate_identifier(claim["parameter_id"], f"{label}.parameter_id")
+    if claim["claim_type"] not in contract["claim_types"]:
+        fail("EVIDENCE_DOCUMENT_INVALID", f"{label}: claim_type")
+    for field in ("observation_count", "distinct_observation_dates"):
+        count = claim[field]
+        if count is not None and (
+            not isinstance(count, int) or isinstance(count, bool) or count < 0
+        ):
+            fail("EVIDENCE_DOCUMENT_INVALID", f"{label}: {field}")
+    validate_identifier(claim["derivation"], f"{label}.derivation")
+    return claim
+
+
+def validate_evidence_document(document: object, contract: dict) -> dict:
+    ensure_no_float(document, "evidence_document")
+    expected = {
+        "schema_version",
+        "contract_version",
+        "evidence_id",
+        "evidence_kind",
+        "published_at",
+        "available_at",
+        "valid_through",
+        "source_locator",
+        "parameter_claims",
+        "caveats",
+    }
+    if not isinstance(document, dict) or set(document) != expected:
+        fail("EVIDENCE_DOCUMENT_INVALID", "schema")
+    if document["schema_version"] != 1:
+        fail("EVIDENCE_DOCUMENT_INVALID", "schema_version")
+    if document["contract_version"] != contract["evidence_document_version"]:
+        fail("EVIDENCE_DOCUMENT_INVALID", "contract_version")
+    validate_identifier(document["evidence_id"], "evidence_id")
+    if document["evidence_kind"] not in contract["evidence_kinds"]:
+        fail("EVIDENCE_DOCUMENT_INVALID", "evidence_kind")
+    published = parse_timestamp(document["published_at"], "published_at")
+    available = parse_timestamp(document["available_at"], "available_at")
+    if available < published:
+        fail("EVIDENCE_DOCUMENT_INVALID", "available_at precedes published_at")
+    valid_through = document["valid_through"]
+    if valid_through is not None:
+        valid = parse_timestamp(valid_through, "valid_through")
+        if valid < available:
+            fail("EVIDENCE_DOCUMENT_INVALID", "valid_through precedes available_at")
+    if not isinstance(document["source_locator"], str) or not document["source_locator"]:
+        fail("EVIDENCE_DOCUMENT_INVALID", "source_locator")
+    claims = document["parameter_claims"]
+    if not isinstance(claims, list):
+        fail("EVIDENCE_DOCUMENT_INVALID", "parameter_claims")
+    validated_claims = [
+        validate_claim(claim, contract, f"parameter_claims[{index}]")
+        for index, claim in enumerate(claims)
+    ]
+    claim_ids = [claim["parameter_id"] for claim in validated_claims]
+    if len(claim_ids) != len(set(claim_ids)):
+        fail("EVIDENCE_DOCUMENT_INVALID", "duplicate parameter claim")
+    validate_warning_list(document["caveats"], "caveats")
+    return document
+
+
+def resolve_evidence_ref(
+    reference: dict,
+    evidence_root: Path,
+    contract: dict,
+) -> Optional[dict]:
+    root = Path(evidence_root).resolve()
+    path = (root / reference["path"]).resolve()
     try:
-        validated = OUTPUT.validate_output(source)
-    except OUTPUT.OutputContractError as exc:
-        fail("REGIME_OUTPUT_INVALID", str(exc))
-    if validated["contract_version"] != contract["source_contract_version"]:
-        fail("SOURCE_CONTRACT_INVALID", str(validated["contract_version"]))
-    if validated["contract_mode"] != contract["source_contract_mode"]:
-        fail("SOURCE_MODE_INVALID", str(validated["contract_mode"]))
-    if validated["coverage"]["required_axes"] != contract["required_axes"]:
-        fail("SOURCE_AXES_INVALID", "required axes")
-    if validated["coverage"]["defined_axes"] != contract["required_axes"]:
-        fail("SOURCE_COVERAGE_INCOMPLETE", validated["coverage"]["ratio"])
-    if validated["coverage"]["missing_axes"]:
-        fail("SOURCE_COVERAGE_INCOMPLETE", "missing axes")
-    for axis in contract["required_axes"]:
-        factor = validated["factor_results"][axis]
-        if factor["status"] != "DEFINED" or factor["evidence"] is None:
-            fail("SOURCE_FACTOR_UNDEFINED", axis)
+        path.relative_to(root)
+    except ValueError:
+        fail("EVIDENCE_REF_INVALID", f"outside evidence root: {reference['path']}")
+    if not path.is_file():
+        return None
+    try:
+        raw = path.read_bytes()
+        document = json.loads(raw.decode("utf-8"), parse_constant=reject_json_constant)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        fail("EVIDENCE_DOCUMENT_INVALID", f"{reference['path']}: {exc}")
+    actual_sha = hashlib.sha256(raw).hexdigest()
+    if actual_sha != reference["sha256"]:
+        fail("EVIDENCE_SHA_MISMATCH", reference["path"])
+    validated = validate_evidence_document(document, contract)
+    if validated["evidence_id"] != reference["evidence_id"]:
+        fail("EVIDENCE_ID_MISMATCH", reference["path"])
     return validated
 
 
-def validate_axis_assessment(
-    axis: str,
-    value: object,
-    source_factor: dict,
+def claim_support_reason(parameter: dict, document: dict, claim: dict) -> Optional[str]:
+    kind = document["evidence_kind"]
+    claim_type = claim["claim_type"]
+    if kind == "UNSUPPORTED" or claim_type == "UNSUPPORTED":
+        return "UNSUPPORTED_EVIDENCE"
+    if claim_type == "QUALITATIVE_PRINCIPLE":
+        return "QUALITATIVE_ONLY"
+    if canonical_bytes(claim["supported_value"]) != canonical_bytes(
+        parameter["proposed_value"]
+    ):
+        return "VALUE_MISMATCH"
+    required_claim = {
+        "EMPIRICAL_DISTRIBUTION": "EMPIRICAL_STATISTIC",
+        "HISTORICAL_EPISODE": "HISTORICAL_EPISODE_RULE",
+        "CIO_DOCTRINE": "EXPLICIT_PARAMETER_VALUE",
+        "EXTERNAL_RESEARCH": "EXPLICIT_PARAMETER_VALUE",
+    }.get(kind)
+    if claim_type != required_claim:
+        return "EVIDENCE_KIND_CLAIM_MISMATCH"
+    if (
+        parameter["value_type"] in {"NUMBER", "BOOLEAN"}
+        and kind in {"EMPIRICAL_DISTRIBUTION", "HISTORICAL_EPISODE"}
+        and (
+            claim["observation_count"] is None
+            or claim["observation_count"] <= 1
+            or claim["distinct_observation_dates"] is None
+            or claim["distinct_observation_dates"] <= 1
+        )
+    ):
+        return "SINGLE_OBSERVATION_STATISTIC"
+    return None
+
+
+def evaluate_parameter(
+    parameter: dict,
+    decision_at: datetime,
+    evidence_root: Path,
     contract: dict,
 ) -> dict:
-    expected = {
-        "axis",
-        "orientation",
-        "change",
-        "normalization_version",
-        "source_evidence_sha256",
-        "warnings",
-    }
-    if not isinstance(value, dict) or set(value) != expected:
-        fail("ASSESSMENT_INVALID", f"{axis}: schema")
-    if value["axis"] != axis:
-        fail("ASSESSMENT_INVALID", f"{axis}: identity")
-    orientation = value["orientation"]
-    if orientation not in contract["orientation_vocabulary"]:
-        fail("ORIENTATION_INVALID", f"{axis}: {orientation}")
-    if orientation == "STRESS" and axis != "RISK_VOL":
-        fail("STRESS_AXIS_INVALID", axis)
-    change = value["change"]
-    if change not in contract["change_vocabulary"]:
-        fail("CHANGE_INVALID", f"{axis}: {change}")
-    version = value["normalization_version"]
-    if not isinstance(version, str) or VERSION.fullmatch(version) is None:
-        fail("NORMALIZATION_VERSION_INVALID", f"{axis}: {version}")
-    source_sha = value["source_evidence_sha256"]
-    if not isinstance(source_sha, str) or SHA256.fullmatch(source_sha) is None:
-        fail("SOURCE_EVIDENCE_SHA_INVALID", axis)
-    expected_sha = source_factor["evidence"]["sha256"]
-    if source_sha != expected_sha:
-        fail("SOURCE_EVIDENCE_BINDING_MISMATCH", axis)
+    reasons = []
+    supporting = []
+    if parameter["proposed_value"] is None:
+        reasons.append("VALUE_UNSPECIFIED")
+    if not parameter["evidence_refs"]:
+        reasons.append("EVIDENCE_MISSING")
+
+    for reference in parameter["evidence_refs"]:
+        document = resolve_evidence_ref(reference, evidence_root, contract)
+        if document is None:
+            reasons.append("EVIDENCE_MISSING")
+            continue
+        available_at = parse_timestamp(document["available_at"], "available_at")
+        if available_at > decision_at:
+            reasons.append("FUTURE_EVIDENCE")
+            continue
+        if document["valid_through"] is not None and parse_timestamp(
+            document["valid_through"], "valid_through"
+        ) < decision_at:
+            reasons.append("STALE_EVIDENCE")
+            continue
+        matching = [
+            claim
+            for claim in document["parameter_claims"]
+            if claim["parameter_id"] == parameter["parameter_id"]
+        ]
+        if not matching:
+            reasons.append("PARAMETER_CLAIM_MISSING")
+            continue
+        claim = matching[0]
+        reason = claim_support_reason(parameter, document, claim)
+        if reason is not None:
+            reasons.append(reason)
+            continue
+        supporting.append(
+            {
+                "evidence_id": document["evidence_id"],
+                "evidence_kind": document["evidence_kind"],
+                "path": reference["path"],
+                "sha256": reference["sha256"],
+                "available_at": document["available_at"],
+                "claim_type": claim["claim_type"],
+                "derivation": claim["derivation"],
+                "caveats": sorted(document["caveats"]),
+            }
+        )
+
+    unique_reasons = sorted(set(reasons))
+    is_supported = parameter["proposed_value"] is not None and bool(supporting)
     return {
-        "axis": axis,
-        "orientation": orientation,
-        "change": change,
-        "normalization_version": version,
-        "source_evidence_sha256": source_sha,
-        "warnings": warning_list(value["warnings"], f"{axis}.warnings"),
+        "component": parameter["component"],
+        "parameter_id": parameter["parameter_id"],
+        "value_type": parameter["value_type"],
+        "proposed_value": parameter["proposed_value"],
+        "status": "SUPPORTED" if is_supported else "BLOCKED",
+        "blocking_reasons": [] if is_supported else unique_reasons,
+        "non_supporting_evidence_reasons": unique_reasons if is_supported else [],
+        "supporting_evidence": sorted(
+            supporting,
+            key=lambda item: (item["evidence_id"], item["path"]),
+        ),
     }
 
 
-def normalize_assessments(
-    assessments: object,
-    source: dict,
+def expected_inventory(
+    manifest: dict,
+    evidence_root: Path,
     contract: dict,
 ) -> dict:
-    ensure_no_float(assessments, "axis_assessments")
-    axes = contract["required_axes"]
-    if not isinstance(assessments, dict) or set(assessments) != set(axes):
-        keys = sorted(assessments) if isinstance(assessments, dict) else assessments
-        fail("ASSESSMENT_SET_INVALID", str(keys))
-    return {
-        axis: validate_axis_assessment(
-            axis,
-            assessments[axis],
-            source["factor_results"][axis],
+    decision_at = parse_timestamp(manifest["decision_at"], "decision_at")
+    by_component = {
+        parameter["component"]: parameter for parameter in manifest["parameters"]
+    }
+    parameters = [
+        evaluate_parameter(
+            by_component[component],
+            decision_at,
+            evidence_root,
             contract,
         )
-        for axis in axes
-    }
-
-
-def count_values(assessments: dict, field: str, vocabulary: list[str]) -> dict:
-    return {
-        value: sum(
-            assessment[field] == value for assessment in assessments.values()
+        for component in contract["required_components"]
+    ]
+    blocked_components = [
+        item["component"] for item in parameters if item["status"] == "BLOCKED"
+    ]
+    status = "CANDIDATE_BLOCKED" if blocked_components else "CANDIDATE_READY"
+    normalized_manifest = dict(manifest)
+    normalized_manifest["parameters"] = []
+    for component in contract["required_components"]:
+        parameter = dict(by_component[component])
+        parameter["evidence_refs"] = sorted(
+            parameter["evidence_refs"],
+            key=lambda item: (item["evidence_id"], item["path"]),
         )
-        for value in vocabulary
-    }
-
-
-def classify_candidate(assessments: dict, contract: dict) -> dict:
-    orientation = count_values(
-        assessments,
-        "orientation",
-        contract["orientation_vocabulary"],
-    )
-    change = count_values(
-        assessments,
-        "change",
-        contract["change_vocabulary"],
-    )
-    adverse_like = orientation["ADVERSE"] + orientation["STRESS"]
-    other_adverse = sum(
-        assessments[axis]["orientation"] in {"ADVERSE", "STRESS"}
-        for axis in contract["required_axes"]
-        if axis != "RISK_VOL"
-    )
-
-    if (
-        assessments["RISK_VOL"]["orientation"] == "STRESS"
-        and other_adverse >= 1
-    ):
-        regime = "STRESS"
-        classification_reason = "STRESS_OVERRIDE_RISK_VOL_PLUS_CONFIRMATION"
-    elif adverse_like >= 3:
-        regime = "RISK_OFF"
-        classification_reason = "ADVERSE_CONSENSUS_AT_LEAST_3_OF_5"
-    elif orientation["SUPPORTIVE"] >= 3 and adverse_like == 0:
-        regime = "RISK_ON"
-        classification_reason = "SUPPORTIVE_CONSENSUS_AT_LEAST_3_OF_5_NO_ADVERSE"
-    else:
-        regime = "NEUTRAL"
-        classification_reason = "MIXED_OR_INSUFFICIENT_CONSENSUS"
-
-    if change["IMPROVING"] >= 3 and change["DETERIORATING"] == 0:
-        direction = "IMPROVING"
-        direction_reason = "IMPROVING_CONSENSUS_AT_LEAST_3_OF_5"
-    elif change["DETERIORATING"] >= 3 and change["IMPROVING"] == 0:
-        direction = "DETERIORATING"
-        direction_reason = "DETERIORATING_CONSENSUS_AT_LEAST_3_OF_5"
-    else:
-        direction = "STABLE"
-        direction_reason = "MIXED_OR_INSUFFICIENT_CHANGE_CONSENSUS"
-
-    if regime == "RISK_ON":
-        consensus_count = orientation["SUPPORTIVE"]
-    elif regime in {"RISK_OFF", "STRESS"}:
-        consensus_count = adverse_like
-    else:
-        consensus_count = orientation["NEUTRAL"]
-    if consensus_count >= contract["confidence_policy"]["high_consensus_count"]:
-        confidence = "HIGH"
-        confidence_reason = "CONSENSUS_AT_LEAST_4_OF_5"
-    elif consensus_count >= contract["confidence_policy"]["medium_consensus_count"]:
-        confidence = "MEDIUM"
-        confidence_reason = "CONSENSUS_AT_LEAST_3_OF_5"
-    else:
-        confidence = contract["confidence_policy"]["fallback_band"]
-        confidence_reason = "CONSENSUS_BELOW_3_OF_5"
-
-    return {
-        "orientation_counts": orientation,
-        "adverse_or_stress_count": adverse_like,
-        "other_axis_adverse_or_stress_count": other_adverse,
-        "change_counts": change,
-        "candidate": {
-            "regime": regime,
-            "direction": direction,
-            "confidence_band": confidence,
-            "classification_reason": classification_reason,
-            "direction_reason": direction_reason,
-            "confidence_reason": confidence_reason,
-        },
-    }
-
-
-def expected_candidate(
-    source: dict,
-    assessments: dict,
-    contract: dict,
-) -> dict:
-    classified = classify_candidate(assessments, contract)
+        normalized_manifest["parameters"].append(parameter)
     return {
         "schema_version": 1,
         "contract_version": contract["contract_version"],
         "contract_mode": contract["contract_mode"],
-        "policy_id": contract["policy_id"],
+        "candidate_id": manifest["candidate_id"],
+        "candidate_status": status,
         "policy_status": contract["policy_status"],
-        "market": source["market"],
+        "market": manifest["market"],
+        "decision_at": manifest["decision_at"],
         "source_refs": {
-            "regime_output_contract_version": source["contract_version"],
-            "regime_output_generated_at": source["generated_at"],
-            "regime_output_sha256": payload_sha256(source),
+            "candidate_manifest_contract_version": manifest["contract_version"],
+            "candidate_manifest_sha256": payload_sha256(normalized_manifest),
         },
-        "axis_assessments": assessments,
-        "summary": {
-            "orientation_counts": classified["orientation_counts"],
-            "adverse_or_stress_count": classified["adverse_or_stress_count"],
-            "other_axis_adverse_or_stress_count": classified[
-                "other_axis_adverse_or_stress_count"
-            ],
-            "change_counts": classified["change_counts"],
+        "parameters": parameters,
+        "blocked_components": blocked_components,
+        "replay": {
+            "candidate_input_eligible": status == "CANDIDATE_READY",
+            "population_status": "NOT_COMPUTABLE",
+            "winner_selected": False,
         },
-        "candidate": classified["candidate"],
         "ratification": {
-            "status": "NOT_RATIFIED",
+            "selected": False,
+            "recommended": False,
+            "ratified": False,
             "runtime_eligible": False,
-            "replay_required": True,
-            "hysteresis_required": True,
-            "allowed_downstream": ["POLICY_REPLAY", "CIO_COMPARISON"],
-            "prohibited_downstream": [
-                "RUNTIME_REGIME",
-                "STRATEGY_ELIGIBILITY",
-                "STAGE",
-                "BUY",
-                "ACTION",
-                "ORDER",
-                "PRODUCTION",
-                "TRADING",
-            ],
         },
         "authority": dict(contract["authority"]),
     }
 
 
-def evaluate_policy_candidate(
-    regime_output: object,
-    axis_assessments: object,
+def build_candidate_inventory(
+    candidate_manifest: object,
+    evidence_root: Path = ROOT,
     contract: Optional[dict] = None,
 ) -> dict:
     contract = validate_contract(load_contract() if contract is None else contract)
-    source = validate_source(regime_output, contract)
-    assessments = normalize_assessments(axis_assessments, source, contract)
-    candidate = expected_candidate(source, assessments, contract)
-    return validate_candidate(candidate, source, assessments, contract)
+    manifest = validate_manifest(candidate_manifest, contract)
+    inventory = expected_inventory(manifest, evidence_root, contract)
+    return validate_candidate_inventory(inventory, manifest, evidence_root, contract)
 
 
-def validate_candidate(
-    candidate: object,
-    regime_output: object,
-    axis_assessments: object,
+def validate_candidate_inventory(
+    inventory: object,
+    candidate_manifest: object,
+    evidence_root: Path = ROOT,
     contract: Optional[dict] = None,
 ) -> dict:
     contract = validate_contract(load_contract() if contract is None else contract)
-    source = validate_source(regime_output, contract)
-    assessments = normalize_assessments(axis_assessments, source, contract)
-    expected = expected_candidate(source, assessments, contract)
-    if not isinstance(candidate, dict):
-        fail("CANDIDATE_INVALID", "object required")
-    if canonical_bytes(candidate) != canonical_bytes(expected):
-        fail("CANDIDATE_DERIVATION_MISMATCH", "candidate != source-derived result")
-    return candidate
+    manifest = validate_manifest(candidate_manifest, contract)
+    expected = expected_inventory(manifest, evidence_root, contract)
+    if not isinstance(inventory, dict):
+        fail("CANDIDATE_INVENTORY_INVALID", "object required")
+    if canonical_bytes(inventory) != canonical_bytes(expected):
+        fail("CANDIDATE_INVENTORY_DERIVATION_MISMATCH", "inventory != evidence")
+    return inventory
+
+
+def build_baseline_manifest(market: str, decision_at: str) -> dict:
+    contract = load_contract()
+    manifest = {
+        "schema_version": 1,
+        "contract_version": contract["candidate_manifest_version"],
+        "candidate_id": "UNSPECIFIED_POLICY_CANDIDATE",
+        "market": market,
+        "decision_at": decision_at,
+        "policy_status": contract["policy_status"],
+        "parameters": [
+            {
+                "component": component,
+                "parameter_id": component,
+                "value_type": "UNSPECIFIED",
+                "proposed_value": None,
+                "evidence_refs": [],
+            }
+            for component in contract["required_components"]
+        ],
+    }
+    return validate_manifest(manifest, contract)
+
+
+def write_json(value: object, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
 
-    evaluate = sub.add_parser("evaluate")
-    evaluate.add_argument("regime_output", type=Path)
-    evaluate.add_argument("axis_assessments", type=Path)
-    evaluate.add_argument("--out", type=Path)
+    inventory = sub.add_parser("inventory")
+    inventory.add_argument("candidate_manifest", type=Path)
+    inventory.add_argument("--evidence-root", type=Path, default=ROOT)
+    inventory.add_argument("--out", type=Path)
 
     validate = sub.add_parser("validate")
-    validate.add_argument("candidate", type=Path)
-    validate.add_argument("--regime-output", type=Path, required=True)
-    validate.add_argument("--axis-assessments", type=Path, required=True)
+    validate.add_argument("inventory", type=Path)
+    validate.add_argument("--candidate-manifest", type=Path, required=True)
+    validate.add_argument("--evidence-root", type=Path, default=ROOT)
+
+    baseline = sub.add_parser("baseline")
+    baseline.add_argument("--market", required=True)
+    baseline.add_argument("--decision-at", required=True)
+    baseline.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
 
     try:
-        source = load_json(args.regime_output, "REGIME_OUTPUT_INVALID")
-        assessments = load_json(args.axis_assessments, "ASSESSMENTS_INVALID")
-        if args.command == "validate":
-            result = validate_candidate(
-                load_json(args.candidate, "CANDIDATE_INVALID"),
-                source,
-                assessments,
+        if args.command == "baseline":
+            result = build_candidate_inventory(
+                build_baseline_manifest(args.market, args.decision_at),
+                ROOT,
             )
         else:
-            result = evaluate_policy_candidate(source, assessments)
-        if args.command == "evaluate" and args.out is not None:
-            print(OUTPUT.write_output(result, args.out))
+            manifest = load_json(
+                args.candidate_manifest,
+                "CANDIDATE_MANIFEST_INVALID",
+            )
+            if args.command == "validate":
+                result = validate_candidate_inventory(
+                    load_json(args.inventory, "CANDIDATE_INVENTORY_INVALID"),
+                    manifest,
+                    args.evidence_root,
+                )
+            else:
+                result = build_candidate_inventory(manifest, args.evidence_root)
+        if getattr(args, "out", None) is not None:
+            write_json(result, args.out)
         else:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=False))
         return 0
-    except (PolicyCandidateError, OUTPUT.OutputContractError) as exc:
+    except PolicyCandidateError as exc:
         print(f"FATAL: {exc}", file=sys.stderr)
         return 1
 

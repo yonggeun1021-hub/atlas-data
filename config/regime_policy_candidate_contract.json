@@ -1,70 +1,75 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_policy_candidate/v1",
+  "contract_version": "regime_policy_candidate_evidence/v1",
   "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
-  "source_contract_version": "regime_output/v1",
-  "source_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
-  "policy_id": "EXPLAINABLE_CONSENSUS_V1_DRAFT",
+  "candidate_manifest_version": "regime_policy_candidate_manifest/v1",
+  "evidence_document_version": "regime_policy_parameter_evidence/v1",
   "policy_status": "DRAFT_NOT_RATIFIED",
-  "required_axes": [
-    "TREND",
-    "BREADTH",
-    "RISK_VOL",
-    "LIQUIDITY",
-    "LEADERSHIP"
+  "candidate_statuses": [
+    "CANDIDATE_BLOCKED",
+    "CANDIDATE_READY"
   ],
-  "orientation_vocabulary": [
-    "SUPPORTIVE",
-    "NEUTRAL",
-    "ADVERSE",
-    "STRESS"
+  "parameter_statuses": [
+    "BLOCKED",
+    "SUPPORTED"
   ],
-  "change_vocabulary": [
-    "IMPROVING",
-    "STABLE",
-    "DETERIORATING"
+  "required_components": [
+    "MARKET_NORMALIZATION",
+    "MINIMUM_COVERAGE",
+    "REGIME_CLASSIFICATION",
+    "DIRECTION",
+    "CONFIDENCE",
+    "STRESS_OVERRIDE",
+    "INVALIDATION",
+    "HYSTERESIS",
+    "REPLAY_ACCEPTANCE"
   ],
-  "candidate_regime_vocabulary": [
-    "RISK_ON",
-    "NEUTRAL",
-    "RISK_OFF",
-    "STRESS"
+  "value_types": [
+    "UNSPECIFIED",
+    "NUMBER",
+    "BOOLEAN",
+    "TEXT",
+    "STRUCTURED"
   ],
-  "candidate_direction_vocabulary": [
-    "IMPROVING",
-    "STABLE",
-    "DETERIORATING"
+  "evidence_kinds": [
+    "EMPIRICAL_DISTRIBUTION",
+    "HISTORICAL_EPISODE",
+    "CIO_DOCTRINE",
+    "EXTERNAL_RESEARCH",
+    "UNSUPPORTED"
   ],
-  "confidence_band_vocabulary": [
-    "LOW",
-    "MEDIUM",
-    "HIGH"
+  "claim_types": [
+    "EXPLICIT_PARAMETER_VALUE",
+    "EMPIRICAL_STATISTIC",
+    "HISTORICAL_EPISODE_RULE",
+    "QUALITATIVE_PRINCIPLE",
+    "UNSUPPORTED"
   ],
-  "classification_policy": {
-    "stress_rule": "risk_vol_stress_and_at_least_one_other_adverse",
-    "risk_off_rule": "at_least_three_adverse_or_stress_axes",
-    "risk_on_rule": "at_least_three_supportive_and_zero_adverse_or_stress_axes",
-    "fallback_rule": "neutral"
+  "blocked_reason_codes": [
+    "VALUE_UNSPECIFIED",
+    "EVIDENCE_MISSING",
+    "UNSUPPORTED_EVIDENCE",
+    "FUTURE_EVIDENCE",
+    "STALE_EVIDENCE",
+    "PARAMETER_CLAIM_MISSING",
+    "VALUE_MISMATCH",
+    "QUALITATIVE_ONLY",
+    "EVIDENCE_KIND_CLAIM_MISMATCH",
+    "SINGLE_OBSERVATION_STATISTIC"
+  ],
+  "evidence_policy": {
+    "numeric_or_boolean_requires_explicit_equal_value": true,
+    "qualitative_principle_never_supports_parameter_value": true,
+    "single_observation_statistic_never_supports_policy_value": true,
+    "evidence_must_be_available_by_decision_at": true,
+    "expired_evidence_is_stale": true,
+    "every_required_component_must_be_supported_for_ready": true,
+    "candidate_ready_does_not_select_recommend_or_ratify": true
   },
-  "direction_policy": {
-    "improving_rule": "at_least_three_improving_and_zero_deteriorating_axes",
-    "deteriorating_rule": "at_least_three_deteriorating_and_zero_improving_axes",
-    "fallback_rule": "stable"
-  },
-  "confidence_policy": {
-    "high_consensus_count": 4,
-    "medium_consensus_count": 3,
-    "neutral_high_rule": "at_least_four_neutral_axes",
-    "neutral_medium_rule": "at_least_three_neutral_axes",
-    "fallback_band": "LOW"
-  },
-  "stress_axis_policy": "STRESS_ORIENTATION_ALLOWED_ONLY_FOR_RISK_VOL",
-  "source_binding_policy": "axis_assessment_must_bind_exact_factor_evidence_sha256",
-  "minimum_coverage_policy": "ALL_REQUIRED_AXES_DEFINED_5_OF_5",
-  "numeric_policy": "NO_FLOATS",
-  "ratification_policy": "candidate_output_cannot_self_ratify_or_feed_runtime_decision",
   "authority": {
-    "diagnostic_candidate_evaluation_authorized": true,
+    "candidate_evidence_inventory_authorized": true,
+    "candidate_selection_authorized": false,
+    "policy_recommendation_authorized": false,
     "policy_ratification_authorized": false,
     "runtime_classification_authorized": false,
     "hysteresis_authorized": false,
@@ -72,6 +77,7 @@
     "stage_authorized": false,
     "buy_authorized": false,
     "action_authorized": false,
+    "proposal_authorized": false,
     "order_authorized": false,
     "production_authorized": false,
     "trading_authorized": false
