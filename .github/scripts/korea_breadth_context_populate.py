@@ -28,8 +28,13 @@ genuine next-trading-day capture from a convenient later catch-up, so
 this is a declared fact, not derived.
 
 Idempotent: byte-compares against any already-committed packet for the
-same date and fails closed on drift (EXISTING_PACKET_DRIFT_OR_TAMPER),
-exactly like the P3-02/P3-04 population scripts.
+same date and fails closed on source drift (EXISTING_PACKET_DRIFT_OR_TAMPER),
+exactly like the P3-02/P3-04 population scripts.  A later workflow dispatch
+may carry a different workflow_run_id while reusing the exact same two source
+packets.  In that case the first committed packet remains immutable: the
+function rebuilds the packet using the *committed* run id and current source
+packets, verifies exact equality, and reports verified_existing without a
+rewrite.  The current run id is never backfilled into old evidence.
 """
 from __future__ import annotations
 
@@ -139,6 +144,47 @@ def output_path_for(as_of_date: str) -> Path:
     return ROOT / "data" / "observations" / "korea_breadth_context" / as_of_date / "packet.json"
 
 
+def verify_existing_context(as_of_date: str, *, capture_mode: str = "forward_live") -> dict:
+    """Validate the immutable committed context before a workflow reuses it.
+
+    Existence alone is never enough to suppress a provider call: the packet
+    must retain the exact schema, date, market set, lineage fields, capture
+    mode, source identity, and self-hash expected by this producer.
+    """
+    path = output_path_for(as_of_date)
+    if not path.is_file():
+        raise ContextPopulateError(f"EXISTING_PACKET_MISSING:{as_of_date}")
+    try:
+        packet = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContextPopulateError(f"EXISTING_PACKET_READ_FAILED:{exc}") from exc
+    if not isinstance(packet, dict):
+        raise ContextPopulateError("EXISTING_PACKET_SCHEMA_INVALID")
+    if packet.get("schema_version") != SCHEMA_VERSION:
+        raise ContextPopulateError("EXISTING_PACKET_SCHEMA_VERSION_INVALID")
+    if packet.get("as_of_date") != as_of_date:
+        raise ContextPopulateError("EXISTING_PACKET_DATE_MISMATCH")
+    if packet.get("capture_mode") != capture_mode:
+        raise ContextPopulateError("EXISTING_PACKET_CAPTURE_MODE_MISMATCH")
+    if set(packet.get("markets", {})) != set(REQUIRED_MARKETS):
+        raise ContextPopulateError("EXISTING_PACKET_MARKETS_INCOMPLETE")
+    for market in REQUIRED_MARKETS:
+        row = packet["markets"].get(market)
+        if not isinstance(row, dict) or set(row) != {
+            "lineage_sha256", *MARKET_LINEAGE_FIELDS[1:]
+        } or row.get("as_of_date") != as_of_date:
+            raise ContextPopulateError(f"EXISTING_PACKET_MARKET_LINEAGE_INVALID:{market}")
+    source = packet.get("source")
+    if not isinstance(source, dict) or source.get("producer") != (
+        "korea_breadth_derived_outputs.py"
+    ) or source.get("scope") != "recent":
+        raise ContextPopulateError("EXISTING_PACKET_SOURCE_INVALID")
+    unsigned = {key: value for key, value in packet.items() if key != "payload_sha256"}
+    if packet.get("payload_sha256") != payload_sha256(unsigned):
+        raise ContextPopulateError("EXISTING_PACKET_HASH_MISMATCH")
+    return packet
+
+
 def write_json_atomic(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
@@ -172,8 +218,32 @@ def populate(
             existing = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ContextPopulateError(f"EXISTING_PACKET_READ_FAILED:{exc}") from exc
+        if not isinstance(existing, dict):
+            raise ContextPopulateError("EXISTING_PACKET_SCHEMA_INVALID")
         if existing == summary:
-            return {"outcome": "verified_existing", "path": str(path), "payload_sha256": summary["payload_sha256"]}
+            return {
+                "outcome": "verified_existing", "path": str(path),
+                "payload_sha256": existing["payload_sha256"],
+                "committed_workflow_run_id": existing.get("source", {}).get("workflow_run_id"),
+                "current_workflow_run_id": workflow_run_id,
+            }
+        # The workflow run id identifies the first producer, not the
+        # economic/source contents.  Rebuild from today's exact source
+        # packets while retaining that immutable first-producer id.  Exact
+        # equality proves that run-id drift is the *only* difference.
+        committed_run_id = existing.get("source", {}).get("workflow_run_id")
+        expected_existing = build_context_summary(
+            market_packets,
+            workflow_run_id=committed_run_id,
+            capture_mode=capture_mode,
+        )
+        if existing == expected_existing:
+            return {
+                "outcome": "verified_existing", "path": str(path),
+                "payload_sha256": existing["payload_sha256"],
+                "committed_workflow_run_id": committed_run_id,
+                "current_workflow_run_id": workflow_run_id,
+            }
         raise ContextPopulateError("EXISTING_PACKET_DRIFT_OR_TAMPER")
     write_json_atomic(path, summary)
     return {"outcome": "populated", "path": str(path), "payload_sha256": summary["payload_sha256"]}
@@ -181,16 +251,31 @@ def populate(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--derived-dir", required=True, type=Path)
+    parser.add_argument("--derived-dir", type=Path)
     parser.add_argument("--workflow-run-id", default=None)
-    parser.add_argument("--capture-mode", required=True, choices=CAPTURE_MODES)
+    parser.add_argument("--capture-mode", choices=CAPTURE_MODES)
+    parser.add_argument("--verify-existing-date")
     args = parser.parse_args()
     try:
-        result = populate(
-            args.derived_dir,
-            workflow_run_id=args.workflow_run_id,
-            capture_mode=args.capture_mode,
-        )
+        if args.verify_existing_date:
+            if args.derived_dir is not None or args.workflow_run_id is not None:
+                raise ContextPopulateError("VERIFY_EXISTING_ARGUMENTS_CONFLICT")
+            packet = verify_existing_context(
+                args.verify_existing_date,
+                capture_mode=args.capture_mode or "forward_live",
+            )
+            result = {
+                "outcome": "verified_existing", "path": str(output_path_for(args.verify_existing_date)),
+                "payload_sha256": packet["payload_sha256"],
+            }
+        else:
+            if args.derived_dir is None or args.capture_mode is None:
+                raise ContextPopulateError("POPULATE_ARGUMENTS_INCOMPLETE")
+            result = populate(
+                args.derived_dir,
+                workflow_run_id=args.workflow_run_id,
+                capture_mode=args.capture_mode,
+            )
     except ContextPopulateError as exc:
         print(f"korea breadth context population failed reason={exc}")
         return 1

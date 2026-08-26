@@ -360,6 +360,56 @@ class PopulateTest(unittest.TestCase):
                     original_root, original_context_root, original_path_fn
                 )
 
+    def test_verify_existing_observation_reuses_valid_packet_without_provider(self):
+        opener = self._fake_two_market_two_date_opener()
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = write_policy(Path(tmp), test_policy_dict())
+            original_context_root, original_path_fn, original_now = (
+                MODULE.CONTEXT_ROOT, MODULE.output_path_for, MODULE._now_utc_iso
+            )
+            MODULE.CONTEXT_ROOT = Path(tmp) / "context"
+            MODULE.output_path_for = lambda d: MODULE.CONTEXT_ROOT / d / "packet.json"
+            MODULE._now_utc_iso = lambda: "2026-08-20T09:00:00Z"
+            try:
+                MODULE.populate(
+                    "KEY", "20260818", "20260820", opener=opener, policy_path=policy_path
+                )
+                existing = MODULE.verify_existing_observation("20260818", "20260820")
+                self.assertEqual(existing["observation_date"], "2026-08-20")
+            finally:
+                MODULE._now_utc_iso = original_now
+                MODULE.CONTEXT_ROOT, MODULE.output_path_for = original_context_root, original_path_fn
+
+    def test_verify_existing_observation_rejects_tamper_and_date_mismatch(self):
+        opener = self._fake_two_market_two_date_opener()
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = write_policy(Path(tmp), test_policy_dict())
+            original_context_root, original_path_fn, original_now = (
+                MODULE.CONTEXT_ROOT, MODULE.output_path_for, MODULE._now_utc_iso
+            )
+            MODULE.CONTEXT_ROOT = Path(tmp) / "context"
+            MODULE.output_path_for = lambda d: MODULE.CONTEXT_ROOT / d / "packet.json"
+            MODULE._now_utc_iso = lambda: "2026-08-20T09:00:00Z"
+            try:
+                MODULE.populate(
+                    "KEY", "20260818", "20260820", opener=opener, policy_path=policy_path
+                )
+                with self.assertRaisesRegex(
+                    MODULE.LeadershipLiveFetchError, "PRIOR_DATE_MISMATCH"
+                ):
+                    MODULE.verify_existing_observation("20260819", "20260820")
+                path = MODULE.output_path_for("2026-08-20")
+                packet = json.loads(path.read_text(encoding="utf-8"))
+                packet["reason"] = "tampered"
+                path.write_text(json.dumps(packet), encoding="utf-8")
+                with self.assertRaisesRegex(
+                    MODULE.LeadershipLiveFetchError, "HASH_MISMATCH"
+                ):
+                    MODULE.verify_existing_observation("20260818", "20260820")
+            finally:
+                MODULE._now_utc_iso = original_now
+                MODULE.CONTEXT_ROOT, MODULE.output_path_for = original_context_root, original_path_fn
+
 
 if __name__ == "__main__":
     unittest.main()

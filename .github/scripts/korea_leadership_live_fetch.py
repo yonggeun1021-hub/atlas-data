@@ -266,6 +266,58 @@ def output_path_for(as_of_date: str) -> Path:
     return CONTEXT_ROOT / as_of_date / "packet.json"
 
 
+def verify_existing_observation(prior_date: str, current_date: str) -> dict:
+    """Revalidate a committed same-date observation without any provider call.
+
+    A workflow rerun must reuse the first committed evidence bytes.  This
+    verifier independently checks the binding fields and both retained payload
+    hashes before the workflow is allowed to skip KRX.
+    """
+    expected_prior = _iso_date(prior_date)
+    expected_current = _iso_date(current_date)
+    path = output_path_for(expected_current)
+    if not path.is_file():
+        raise LeadershipLiveFetchError("EXISTING_PACKET_NOT_FOUND")
+    try:
+        packet = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LeadershipLiveFetchError("EXISTING_PACKET_INVALID_JSON") from exc
+    if not isinstance(packet, dict):
+        raise LeadershipLiveFetchError("EXISTING_PACKET_NOT_OBJECT")
+    if packet.get("schema_version") != SCHEMA_VERSION:
+        raise LeadershipLiveFetchError("EXISTING_PACKET_SCHEMA_MISMATCH")
+    if packet.get("observation_date") != expected_current:
+        raise LeadershipLiveFetchError("EXISTING_PACKET_OBSERVATION_DATE_MISMATCH")
+    if packet.get("prior_date") != expected_prior:
+        raise LeadershipLiveFetchError("EXISTING_PACKET_PRIOR_DATE_MISMATCH")
+    markets = packet.get("markets")
+    if not isinstance(markets, dict) or set(markets) != {m.upper() for m in REQUIRED_MARKETS}:
+        raise LeadershipLiveFetchError("EXISTING_PACKET_MARKETS_MISMATCH")
+    claimed = packet.get("payload_sha256")
+    unsigned = dict(packet)
+    unsigned.pop("payload_sha256", None)
+    if not isinstance(claimed, str) or claimed != payload_sha256(unsigned):
+        raise LeadershipLiveFetchError("EXISTING_PACKET_HASH_MISMATCH")
+    leadership_packet = packet.get("leadership_packet")
+    leadership_claimed = packet.get("leadership_packet_sha256")
+    if leadership_packet is None:
+        if leadership_claimed is not None:
+            raise LeadershipLiveFetchError("EXISTING_LEADERSHIP_PACKET_HASH_MISMATCH")
+    else:
+        if not isinstance(leadership_packet, dict):
+            raise LeadershipLiveFetchError("EXISTING_LEADERSHIP_PACKET_NOT_OBJECT")
+        inner_claimed = leadership_packet.get("payload_sha256")
+        inner_unsigned = dict(leadership_packet)
+        inner_unsigned.pop("payload_sha256", None)
+        if (
+            not isinstance(inner_claimed, str)
+            or inner_claimed != LEADERSHIP.canonical_payload_sha256(inner_unsigned)
+            or leadership_claimed != inner_claimed
+        ):
+            raise LeadershipLiveFetchError("EXISTING_LEADERSHIP_PACKET_HASH_MISMATCH")
+    return packet
+
+
 def run(
     auth_key: str, prior_date: str, current_date: str, *, opener=urlopen, policy_path=None
 ) -> dict:
@@ -353,7 +405,23 @@ def main() -> int:
     parser.add_argument("--prior-date", required=True, help="YYYYMMDD")
     parser.add_argument("--current-date", required=True, help="YYYYMMDD")
     parser.add_argument("--auth-env", default="KRX_API_KEY")
+    parser.add_argument(
+        "--verify-existing-only",
+        action="store_true",
+        help="validate and reuse a committed same-date packet without KRX access",
+    )
     args = parser.parse_args()
+    if args.verify_existing_only:
+        try:
+            packet = verify_existing_observation(args.prior_date, args.current_date)
+        except LeadershipLiveFetchError as exc:
+            print(f"korea leadership existing evidence verification failed reason={exc}")
+            return 1
+        print(
+            "korea leadership existing evidence verified "
+            f"path={output_path_for(packet['observation_date'])}"
+        )
+        return 0
     key = os.getenv(args.auth_env, "")
     if not key:
         print("STOP: KRX_API_KEY secret missing")
