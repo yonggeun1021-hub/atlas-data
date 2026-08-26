@@ -1340,7 +1340,9 @@ class DailyOrchestratorTest(unittest.TestCase):
         ]
         positions = [rendered.index(title) for title in flow_titles]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("P2_COM_01_CROSS_ASSET_FLOW_NOT_AVAILABLE", rendered)
+        self.assertIn("CROSS_MARKET_COMPARISON_POLICY_UNRATIFIED", rendered)
+        self.assertIn("evidence_class_counts", rendered)
+        self.assertIn("flow_direction: UNKNOWN", rendered)
         self.assertIn("SECTION_EVIDENCE_GRADE_NOT_STANDARDIZED", rendered)
         self.assertIn("UPSTREAM_INVALIDATION_NOT_STANDARDIZED", rendered)
         for required in (

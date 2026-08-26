@@ -2915,6 +2915,21 @@ def render_markdown(packet: dict) -> str:
                     for source in section["source_components"]
                 )
             )
+        if section["section_id"] == "CROSS_MARKET_FLOW":
+            evidence = section["cross_asset_flow_evidence"]
+            lines.append(
+                f"- evidence_class_counts: {evidence['evidence_class_counts']}"
+            )
+            lines.append(
+                f"- evidence_status_counts: {evidence['evidence_status_counts']}"
+            )
+            lines.append(
+                "- comparison_observation_dates: "
+                + str(evidence["comparison_observation_dates"])
+            )
+            lines.append(
+                "- flow_direction: UNKNOWN (no cross-market comparison authority)"
+            )
         lines.append("")
 
     lines.append("# Supporting Evidence and System Health")

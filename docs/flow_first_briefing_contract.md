@@ -11,8 +11,12 @@ evidence grade, UNKNOWN reason, and invalidation status. Because Atlas does not
 yet have one ratified section-level evidence-grade or invalidation contract,
 those fields remain explicitly `UNKNOWN` rather than being inferred.
 
-P2-COM-01 Cross-Asset Flow is not yet available. The Cross-Market Flow section
-therefore remains visible as `UNKNOWN / P2_COM_01_CROSS_ASSET_FLOW_NOT_AVAILABLE`.
+P2-COM-01 Cross-Asset Flow is now connected to the completed Daily Orchestrator
+packet. The section exposes exact DIRECT_FLOW / MARKET_IMPLIED_FLOW /
+MACRO_CONTEXT counts, observation dates, and source lineage. It remains
+`UNKNOWN` because lag, normalization, cross-market comparison, direction, and
+invalidation policies are unratified. A connected evidence contract is not a
+flow-direction authority.
 Stablecoin, KRX investor-flow, prices, or macro context are not silently
 relabeled as direct cross-market capital flow.
 

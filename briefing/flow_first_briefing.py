@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 
@@ -22,6 +23,20 @@ CONTRACT_PATH = ROOT / "config/flow_first_briefing_contract.json"
 class FlowFirstBriefingError(ValueError):
     """Fail-closed Flow-First presentation contract violation."""
 
+
+def _load_module(name: str, relative_path: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
+    if spec is None or spec.loader is None:
+        raise FlowFirstBriefingError(f"MODULE_LOAD_FAILED:{relative_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CROSS_ASSET_FLOW = _load_module(
+    "atlas_flow_first_cross_asset_flow",
+    "rotation/cross_asset_flow_evidence.py",
+)
 
 def canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -46,6 +61,8 @@ def _validate_contract(contract: dict) -> dict:
         "output_schema_version",
         "source_contract_version",
         "source_output_schema_version",
+        "cross_asset_flow_contract_version",
+        "cross_asset_flow_output_schema_version",
         "section_order",
         "sections",
         "status_values",
@@ -77,6 +94,84 @@ def _validate_contract(contract: dict) -> dict:
         if set(spec) != expected_spec or not isinstance(spec.get("title"), str):
             raise FlowFirstBriefingError(f"CONTRACT_SECTION_SPEC_INVALID:{section_id}")
     return contract
+
+
+def _build_cross_market_flow_section(
+    daily_packet: dict,
+    spec: dict,
+    contract: dict,
+) -> dict:
+    evidence = CROSS_ASSET_FLOW.build_packet(daily_packet)
+    CROSS_ASSET_FLOW.validate_packet(evidence, daily_packet)
+    if evidence.get("contract_version") != contract["cross_asset_flow_contract_version"]:
+        raise FlowFirstBriefingError("CROSS_ASSET_FLOW_CONTRACT_MISMATCH")
+    if evidence.get("output_schema_version") != contract["cross_asset_flow_output_schema_version"]:
+        raise FlowFirstBriefingError("CROSS_ASSET_FLOW_SCHEMA_MISMATCH")
+    assessment = evidence["cross_market_assessment"]
+    if (
+        assessment.get("status") != "UNKNOWN"
+        or assessment.get("flow_direction") is not None
+        or assessment.get("from_market") is not None
+        or assessment.get("to_market") is not None
+    ):
+        raise FlowFirstBriefingError("CROSS_MARKET_FLOW_AUTHORITY_EXPANDED")
+    source_components: dict[str, dict] = {}
+    status_counts: dict[str, int] = {}
+    source_reasons = []
+    for row in evidence["evidence_rows"]:
+        status_counts[row["status"]] = status_counts.get(row["status"], 0) + 1
+        source = row.get("source")
+        if isinstance(source, dict):
+            component_id = source["component_id"]
+            source_components[component_id] = {
+                "component_id": component_id,
+                "status": row["status"],
+                "reason": row["invalidation"]["reason"],
+                "as_of_date": (
+                    str(row["observation_at"])[:10]
+                    if row["observation_at"] is not None
+                    else None
+                ),
+                "available_at": row["available_at"],
+                "source_packet_path": source["source_packet_path"],
+                "source_packet_sha256": source["source_packet_sha256"],
+                "validated": source["upstream_validated"],
+            }
+        if row["status"] != "AVAILABLE":
+            source_reasons.append({
+                "evidence_id": row["evidence_id"],
+                "reason": row["invalidation"]["reason"],
+            })
+    dates = assessment["comparison_observation_dates"]
+    as_of_date = dates[0] if len(dates) == 1 else None
+    return {
+        "section_id": "CROSS_MARKET_FLOW",
+        "title": spec["title"],
+        "status": "UNKNOWN",
+        "as_of_date": as_of_date,
+        "evidence_grade": "UNKNOWN",
+        "evidence_grade_reason": "CROSS_MARKET_EVIDENCE_GRADE_AGGREGATION_UNRATIFIED",
+        "unknown_reason": assessment["reason"],
+        "invalidation": {
+            "status": "UNKNOWN",
+            "reason": "CROSS_MARKET_INVALIDATION_POLICY_UNRATIFIED",
+        },
+        "source_components": [source_components[key] for key in sorted(source_components)],
+        "source_reasons": source_reasons,
+        "cross_asset_flow_evidence": {
+            "contract_version": evidence["contract_version"],
+            "packet_sha256": evidence["packet_sha256"],
+            "evidence_class_counts": copy.deepcopy(evidence["evidence_class_counts"]),
+            "evidence_status_counts": status_counts,
+            "comparison_observation_dates": copy.deepcopy(dates),
+            "flow_direction": None,
+            "from_market": None,
+            "to_market": None,
+        },
+        "decision_eligible": False,
+        "action_eligible": False,
+        "order_eligible": False,
+    }
 
 
 def _verify_daily_packet(packet: dict, contract: dict) -> None:
@@ -220,10 +315,20 @@ def build_packet(daily_packet: dict, contract: dict | None = None) -> dict:
     contract = load_contract() if contract is None else _validate_contract(contract)
     _verify_daily_packet(daily_packet, contract)
     by_id = {row["component_id"]: row for row in daily_packet["components"]}
-    sections = [
-        _build_section(section_id, contract["sections"][section_id], by_id)
-        for section_id in contract["section_order"]
-    ]
+    sections = []
+    for section_id in contract["section_order"]:
+        if section_id == "CROSS_MARKET_FLOW":
+            sections.append(_build_cross_market_flow_section(
+                daily_packet,
+                contract["sections"][section_id],
+                contract,
+            ))
+        else:
+            sections.append(_build_section(
+                section_id,
+                contract["sections"][section_id],
+                by_id,
+            ))
     packet = {
         "schema_version": 1,
         "contract_version": contract["contract_version"],

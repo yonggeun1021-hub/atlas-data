@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "contract_version": "cross_asset_flow_evidence/1",
+  "source_contract_version": "daily_orchestrator/3",
+  "source_output_schema_version": "daily_briefing_packet/1",
+  "output_schema_version": "cross_asset_flow_evidence_packet/1",
+  "evidence_classes": [
+    "DIRECT_FLOW",
+    "MARKET_IMPLIED_FLOW",
+    "MACRO_CONTEXT",
+    "UNKNOWN"
+  ],
+  "evidence_grades": [
+    "PIPELINE_VALIDATED",
+    "OBSERVED_UNCONFIRMED",
+    "UNKNOWN"
+  ],
+  "evidence_status_values": [
+    "AVAILABLE",
+    "OBSERVED_UNCONFIRMED",
+    "UNKNOWN"
+  ],
+  "freshness_values": [
+    "NOT_COMPUTABLE_WINDOW_UNRATIFIED",
+    "UNKNOWN"
+  ],
+  "invalidation_values": [
+    "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+    "SOURCE_COMPONENT_NOT_READY",
+    "SOURCE_EVIDENCE_INVALID",
+    "UNKNOWN"
+  ],
+  "source_bindings": {
+    "STABLECOIN_NET_ISSUANCE": {
+      "evidence_class": "DIRECT_FLOW",
+      "market": "CRYPTO",
+      "subject": "USD_PEG_STABLECOIN_SUPPLY"
+    },
+    "KRX_POST_CLOSE": {
+      "evidence_class": "DIRECT_FLOW",
+      "market": "KOREA",
+      "subject": "KRX_WATCHLIST_INVESTOR_NET_DEMAND"
+    },
+    "FREE_MARKET_DATA": {
+      "evidence_class": "MACRO_CONTEXT",
+      "market": "US",
+      "subject": "VIXCLS"
+    }
+  },
+  "explicit_unknowns": [
+    {
+      "evidence_class": "MARKET_IMPLIED_FLOW",
+      "market": "COMMON",
+      "subject": "CROSS_MARKET_RELATIVE_FLOW",
+      "reason": "COMPARABLE_MULTI_DATE_MARKET_SERIES_NOT_AVAILABLE"
+    }
+  ],
+  "policy_status": {
+    "freshness_windows": "UNRATIFIED",
+    "lag_contract": "UNRATIFIED",
+    "normalization": "UNRATIFIED",
+    "cross_market_comparison": "UNRATIFIED",
+    "direction_interpretation": "UNRATIFIED",
+    "evidence_weighting": "UNRATIFIED"
+  },
+  "authority": {
+    "raw_evidence_presentation_only": true,
+    "source_interpretation_authorized": false,
+    "normalization_authorized": false,
+    "cross_date_comparison_authorized": false,
+    "cross_market_flow_claim_authorized": false,
+    "market_ranking_authorized": false,
+    "candidate_promotion_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
