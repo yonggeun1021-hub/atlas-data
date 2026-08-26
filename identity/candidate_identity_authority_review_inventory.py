@@ -33,6 +33,7 @@ SCHEMA_VERSION = "candidate_identity_authority_review_inventory/1"
 COHERENT = "MECHANICALLY_COHERENT_FOR_CIO_REVIEW"
 CONFLICT = "MECHANICAL_CROSS_ROW_CONFLICT_REQUIRES_REVIEW"
 EVIDENCE_INCOMPLETE = "EVIDENCE_INCOMPLETE_NOT_REVIEWABLE"
+SOURCE_BINDING_STALE = "NOT_COMPUTABLE_SOURCE_BINDING_STALE"
 DEFAULT_PROPOSAL = ROOT / "evidence/identity/proposals/candidate_identity_authority_proposal.json"
 DEFAULT_OUTPUT = ROOT / "evidence/identity/proposals/candidate_identity_authority_review_inventory.json"
 
@@ -96,13 +97,20 @@ def _validate_source_proposal(
     gaps_path: Path,
     taxonomy_path: Path,
     raw_root: Path,
-) -> None:
+) -> bool:
     try:
         stored = json.loads(proposal_path.read_text())
         if stored != proposal_packet:
             raise CandidateIdentityAuthorityReviewInventoryError("SOURCE_PROPOSAL_BYTES_MISMATCH")
+        unsigned = dict(stored)
+        declared_sha = unsigned.pop("packet_sha256", None)
+        if not isinstance(declared_sha, str) or declared_sha != _sha(unsigned):
+            raise CandidateIdentityAuthorityReviewInventoryError("SOURCE_PROPOSAL_HASH_MISMATCH")
         gaps = json.loads(gaps_path.read_text())
+        if stored.get("source_gap_inventory_packet_sha256") != gaps.get("packet_sha256"):
+            return False
         validate_proposal_packet(stored, gaps, taxonomy_path, raw_root)
+        return True
     except CandidateIdentityAuthorityReviewInventoryError:
         raise
     except Exception as exc:
@@ -119,7 +127,7 @@ def build_inventory(
     taxonomy_path: Path = DEFAULT_TAXONOMY,
     raw_root: Path = ROOT / "evidence/crypto/breadth/raw",
 ) -> dict:
-    _validate_source_proposal(
+    source_binding_current = _validate_source_proposal(
         proposal_packet,
         proposal_path=proposal_path,
         gaps_path=gaps_path,
@@ -135,6 +143,38 @@ def build_inventory(
     proposals = proposal_packet.get("proposals")
     if not isinstance(proposals, list):
         raise CandidateIdentityAuthorityReviewInventoryError("PROPOSAL_ROWS_INVALID")
+
+    if not source_binding_current:
+        inventory = {
+            "schema_version": SCHEMA_VERSION,
+            "decision_date": proposal_packet["decision_date"],
+            "source_binding_status": SOURCE_BINDING_STALE,
+            "source_proposal": {
+                "path": str(proposal_path.relative_to(ROOT)),
+                "bytes_sha256": _file_sha(proposal_path),
+                "packet_sha256": proposal_packet["packet_sha256"],
+                "bound_gap_inventory_packet_sha256": proposal_packet["source_gap_inventory_packet_sha256"],
+                "current_gap_inventory_packet_sha256": json.loads(gaps_path.read_text())["packet_sha256"],
+            },
+            "summary": {
+                "population_count": 0,
+                "source_proposal_population_count": len(proposals),
+                "review_status_counts": {SOURCE_BINDING_STALE: 1},
+                "conflict_candidate_count": 0,
+                "canonical_authority_rows_created": 0,
+            },
+            "rows": [],
+            "policy_boundary": {
+                "mechanical_coherence_is_identity_approval": False,
+                "canonical_config_modified": False,
+                "candidate_validity_evaluated": False,
+                "entry_eligibility_evaluated": False,
+                "money_action": "NONE",
+            },
+            "authority": dict(AUTHORITY_ALL_FALSE),
+        }
+        inventory["packet_sha256"] = _sha(inventory)
+        return inventory
 
     conflict_map = _conflicts(proposals)
     rows = []
@@ -167,6 +207,7 @@ def build_inventory(
     inventory = {
         "schema_version": SCHEMA_VERSION,
         "decision_date": proposal_packet["decision_date"],
+        "source_binding_status": "CURRENT_EXACT_BINDING",
         "source_proposal": {
             "path": str(proposal_path.relative_to(ROOT)),
             "bytes_sha256": _file_sha(proposal_path),

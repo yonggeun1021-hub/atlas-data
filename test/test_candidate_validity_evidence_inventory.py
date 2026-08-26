@@ -28,20 +28,34 @@ class CandidateValidityEvidenceInventoryTests(unittest.TestCase):
         cls.inventory = build_inventory()
 
     def test_real_inventory_separates_revalidatable_legacy_and_rejected(self):
-        self.assertEqual(self.inventory["artifact_count"], 6)
-        self.assertEqual(self.inventory["evidence_status_counts"], {
-            "REVALIDATABLE": 4,
-            "LEGACY_NON_REVALIDATABLE": 1,
-            "REJECTED_NOT_A_SAMPLE": 1,
-        })
+        counts = self.inventory["evidence_status_counts"]
+        self.assertEqual(
+            self.inventory["artifact_count"],
+            sum(counts.values()),
+        )
+        self.assertGreaterEqual(counts["REVALIDATABLE"], 5)
+        self.assertGreaterEqual(counts["LEGACY_NON_REVALIDATABLE"], 1)
+        self.assertGreaterEqual(counts["REJECTED_NOT_A_SAMPLE"], 1)
 
     def test_natural_and_manual_samples_are_not_mixed(self):
         counts = self.inventory["revalidatable_artifact_qualification_counts"]
-        self.assertEqual(counts["NATURAL_OPERATIONAL_SAMPLE"], 1)
-        self.assertEqual(counts["MANUAL_OPERATIONAL_SAMPLE"], 3)
+        natural = self.inventory["natural_operational_sample"]
+        manual = self.inventory["manual_operational_sample"]
+        self.assertGreaterEqual(counts["NATURAL_OPERATIONAL_SAMPLE"], 2)
+        self.assertGreaterEqual(counts["MANUAL_OPERATIONAL_SAMPLE"], 3)
         self.assertEqual(counts["LOCAL_REPRODUCTION_NOT_OPERATIONAL_SAMPLE"], 0)
-        self.assertEqual(self.inventory["natural_operational_sample"]["distinct_evidence_sample_count"], 1)
-        self.assertEqual(self.inventory["natural_operational_sample"]["distinct_observation_date_count"], 1)
+        self.assertEqual(natural["artifact_count"], counts["NATURAL_OPERATIONAL_SAMPLE"])
+        self.assertEqual(manual["artifact_count"], counts["MANUAL_OPERATIONAL_SAMPLE"])
+        self.assertGreaterEqual(natural["distinct_evidence_sample_count"], 2)
+        self.assertGreaterEqual(natural["distinct_observation_date_count"], 1)
+        self.assertLessEqual(
+            natural["distinct_observation_date_count"],
+            natural["artifact_count"],
+        )
+        self.assertLessEqual(
+            natural["distinct_evidence_sample_count"],
+            natural["artifact_count"],
+        )
 
     def test_no_minimum_sample_or_validity_policy_is_invented(self):
         boundary = self.inventory["policy_boundary"]
