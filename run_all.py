@@ -395,6 +395,12 @@ APPROVED_TESTS = [
     #   classification 정책이 별도 비준되기 전에는 시장 판정을 차단한다.
     #   ⛔ score/threshold/Production/trading 없음 — temp audit only.
     "test/test_regime_minimum_coverage.py",
+    # ★ P1-COM-05 — Regime Decision Authority fail-closed boundary.
+    #   regime_output/v1과 재산출된 5/5 coverage gate를 exact hash로 묶고,
+    #   normalization/freshness/weight/threshold/override/hysteresis 정책이
+    #   비준되지 않은 현재는 BLOCKED_COVERAGE 또는 BLOCKED_POLICY_UNRATIFIED만
+    #   허용한다. ⛔ Regime 분류/score/전략/Production/trading 없음.
+    "test/test_regime_decision_authority.py",
     # ★ P1-COM-01 — Regime 공통 pre-score UNKNOWN output contract.
     #   5축 evidence/coverage/timestamp를 같은 schema로 고정하고 데이터 부족을
     #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
