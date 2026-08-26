@@ -81,9 +81,9 @@ def _validate_contract(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) != expected_keys:
         raise InvestmentDecisionReviewError("CONTRACT_FIELDS_MISMATCH")
     if (
-        value["schema_version"] != 1
-        or value["contract_version"] != "investment_decision_review/1"
-        or value["output_schema_version"] != "investment_decision_review_packet/1"
+        value["schema_version"] != 2
+        or value["contract_version"] != "investment_decision_review/2"
+        or value["output_schema_version"] != "investment_decision_review_packet/2"
         or value["supported_subjects"] != ["TSM"]
         or value["required_rule_ids"] != {
             "TSM": [
@@ -187,7 +187,9 @@ def build_packet(thesis: dict, rule_packet: dict, generated_at: str,
     checked_thesis = validate_thesis(thesis, contract)
     if not isinstance(generated_at, str) or UTC_RE.fullmatch(generated_at) is None:
         raise InvestmentDecisionReviewError("GENERATED_AT_INVALID")
-    ratified = rule_packet.get("schema_version") == "ratified_rule_decision_packet/1"
+    if rule_packet.get("schema_version") == "ratified_rule_decision_packet/1":
+        raise InvestmentDecisionReviewError("RATIFIED_RULE_PACKET_V1_RETIRED_NO_PROVENANCE")
+    ratified = rule_packet.get("schema_version") == "ratified_rule_decision_packet/2"
     checked_rules = (
         RATIFIED_RULE.validate_packet(rule_packet)
         if ratified else RULE.validate_packet(rule_packet)
@@ -198,6 +200,8 @@ def build_packet(thesis: dict, rule_packet: dict, generated_at: str,
     )
     if rule_evidence_sha != checked_thesis["evidence_set_sha256"]:
         raise InvestmentDecisionReviewError("EVIDENCE_SET_SHA_MISMATCH")
+    if ratified and checked_rules["authority_evidence"]["usable_from"] > generated_at:
+        raise InvestmentDecisionReviewError("RATIFIED_RULE_AUTHORITY_NOT_YET_USABLE")
 
     blockers = []
     if checked_thesis["earnings_conversion"]["status"] in {"UNKNOWN", "PARTIAL"}:
@@ -271,6 +275,7 @@ def build_packet(thesis: dict, rule_packet: dict, generated_at: str,
             "blockers": blockers,
         },
         "trade_proposal": proposal,
+        "frozen_rule_packet": checked_rules,
         "lineage": {
             "thesis_sha256": payload_sha256(checked_thesis),
             "evidence_set_sha256": checked_thesis["evidence_set_sha256"],
@@ -287,7 +292,7 @@ def validate_packet(value: dict, contract: dict | None = None) -> dict:
     contract = load_contract() if contract is None else _validate_contract(contract)
     fields = {
         "schema_version", "contract_version", "generated_at", "subject", "thesis",
-        "buy_review", "trade_proposal", "lineage", "authority", "packet_sha256",
+        "buy_review", "trade_proposal", "frozen_rule_packet", "lineage", "authority", "packet_sha256",
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise InvestmentDecisionReviewError("OUTPUT_FIELDS_MISMATCH")
@@ -305,6 +310,8 @@ def validate_packet(value: dict, contract: dict | None = None) -> dict:
         or not isinstance(review.get("required_rule_results"), list)
     ):
         raise InvestmentDecisionReviewError("OUTPUT_BOUNDARY_INVALID")
+    if not isinstance(value.get("generated_at"), str) or UTC_RE.fullmatch(value["generated_at"]) is None:
+        raise InvestmentDecisionReviewError("OUTPUT_GENERATED_AT_INVALID")
     proposal = value.get("trade_proposal")
     if review["outcome"] == "PASS":
         if (
@@ -334,6 +341,27 @@ def validate_packet(value: dict, contract: dict | None = None) -> dict:
     checked_thesis = validate_thesis(value.get("thesis"), contract)
     if value.get("subject") != checked_thesis["subject"]:
         raise InvestmentDecisionReviewError("OUTPUT_SUBJECT_MISMATCH")
+    frozen = value.get("frozen_rule_packet")
+    frozen_schema = frozen.get("schema_version") if isinstance(frozen, dict) else None
+    if frozen_schema == "ratified_rule_decision_packet/1":
+        raise InvestmentDecisionReviewError("RATIFIED_RULE_PACKET_V1_RETIRED_NO_PROVENANCE")
+    try:
+        checked_rules = (
+            RATIFIED_RULE.validate_packet(frozen)
+            if frozen_schema == "ratified_rule_decision_packet/2"
+            else RULE.validate_packet(frozen)
+        )
+    except Exception as exc:
+        raise InvestmentDecisionReviewError(f"FROZEN_RULE_PACKET_INVALID:{exc}") from exc
+    if frozen_schema == "ratified_rule_decision_packet/2" and checked_rules["authority_evidence"]["usable_from"] > value["generated_at"]:
+        raise InvestmentDecisionReviewError("RATIFIED_RULE_AUTHORITY_NOT_YET_USABLE")
+    rule_evidence_sha = (
+        checked_rules["evidence_set_sha256"]
+        if frozen_schema == "ratified_rule_decision_packet/2"
+        else checked_rules["lineage"]["evidence_set_sha256"]
+    )
+    if rule_evidence_sha != checked_thesis["evidence_set_sha256"]:
+        raise InvestmentDecisionReviewError("FROZEN_RULE_EVIDENCE_SET_SHA_MISMATCH")
     required_results = review["required_rule_results"]
     if (
         [row.get("rule_id") for row in required_results]
@@ -349,6 +377,19 @@ def validate_packet(value: dict, contract: dict | None = None) -> dict:
             or not row["reasons"]
         ):
             raise InvestmentDecisionReviewError("OUTPUT_RULE_RESULT_INVALID")
+    source_rows = {
+        row["rule_id"]: row
+        for row in (checked_rules["results"] if frozen_schema == "ratified_rule_decision_packet/2" else checked_rules["rules"])
+    }
+    expected_results = [{
+        "rule_id": rule_id,
+        "result": source_rows[rule_id]["result"],
+        "reasons": ([source_rows[rule_id]["reason"]]
+                    if frozen_schema == "ratified_rule_decision_packet/2"
+                    else copy.deepcopy(source_rows[rule_id]["reasons"])),
+    } for rule_id in contract["required_rule_ids"][checked_thesis["subject"]]]
+    if required_results != expected_results:
+        raise InvestmentDecisionReviewError("OUTPUT_RULE_RESULTS_NOT_DERIVED_FROM_FROZEN_PACKET")
     results = [row["result"] for row in required_results]
     if (
         (review["outcome"] == "PASS" and any(result != "PASS" for result in results))
@@ -372,13 +413,17 @@ def validate_packet(value: dict, contract: dict | None = None) -> dict:
     for key in ("thesis_sha256", "evidence_set_sha256", "rule_packet_sha256"):
         _sha(lineage[key], f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
     if lineage["rule_packet_schema_version"] not in {
-        "deterministic_rule_evaluation_packet/1", "ratified_rule_decision_packet/1"
+        "deterministic_rule_evaluation_packet/1", "ratified_rule_decision_packet/2"
     }:
         raise InvestmentDecisionReviewError("OUTPUT_RULE_PACKET_SCHEMA_INVALID")
     if lineage["thesis_sha256"] != payload_sha256(value["thesis"]):
         raise InvestmentDecisionReviewError("OUTPUT_THESIS_SHA_MISMATCH")
     if lineage["evidence_set_sha256"] != checked_thesis["evidence_set_sha256"]:
         raise InvestmentDecisionReviewError("OUTPUT_EVIDENCE_SHA_MISMATCH")
+    if lineage["rule_packet_sha256"] != checked_rules["packet_sha256"]:
+        raise InvestmentDecisionReviewError("OUTPUT_RULE_PACKET_SHA_MISMATCH")
+    if lineage["rule_packet_schema_version"] != checked_rules["schema_version"]:
+        raise InvestmentDecisionReviewError("OUTPUT_RULE_PACKET_SCHEMA_MISMATCH")
     digest = _sha(value.get("packet_sha256"), "OUTPUT_PACKET_SHA_INVALID")
     payload = copy.deepcopy(value)
     payload.pop("packet_sha256")

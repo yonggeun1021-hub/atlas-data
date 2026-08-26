@@ -21,17 +21,17 @@ P8_FIXTURE = load("investment_review_p8_fixture", ROOT / "test" / "test_investme
 
 
 def review():
-    rules = P8_FIXTURE.RATIFIED_FIXTURE.packet()
+    rules = P8_FIXTURE.rule_packet()
     return P8_FIXTURE.MODULE.build_packet(
         P8_FIXTURE.thesis(rules), rules, "2026-08-24T00:01:00Z"
     )
 
 
 class InvestmentReviewShadowLedgerTests(unittest.TestCase):
-    def test_pass_review_is_recorded_without_capital_action_order_or_stage(self):
+    def test_blocked_review_is_recorded_without_capital_action_order_or_stage(self):
         record = MODULE.build_record(review(), "2026-08-24T00:02:00Z", 1)
-        self.assertEqual(record["review_outcome"], "PASS")
-        self.assertTrue(record["proposal_observed"])
+        self.assertEqual(record["review_outcome"], "BLOCKED")
+        self.assertFalse(record["proposal_observed"])
         self.assertEqual(record["capital"], {"authorized": False, "amount": 0})
         self.assertIsNone(record["action"])
         self.assertIsNone(record["order"])
