@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "contract_version": "supply_demand_radar/1",
+  "contract_version": "supply_demand_radar/2",
   "input_schema_version": "supply_demand_radar_input/1",
-  "output_schema_version": "supply_demand_radar_packet/2",
+  "output_schema_version": "supply_demand_radar_packet/3",
   "candidate_policy_schema_version": "supply_demand_candidate_policy/1",
   "allowed_markets": [
     "CRYPTO",
@@ -59,7 +59,7 @@
   "candidate_logic": "direction_adjusted_latest_change_gte_minimum_AND_direction_adjusted_acceleration_change_gte_minimum",
   "output_decimal_places": 12,
   "source_coverage": {
-    "CRYPTO": "PARTIAL_EXISTING_NET_ISSUANCE_TRANSFORM",
+    "CRYPTO": "OPERATIONAL_PIT_POPULATION_WIRED",
     "KOREA": "PARTIAL_KRX_ONLY_RELEASE_TIME_UNVERIFIED",
     "US": "PARTIAL_SEC_SOURCE_NO_SELECTED_METRIC_SERIES"
   },

@@ -1,6 +1,7 @@
 # P3-09 Supply-Demand / Scarcity radar contract
 
-Status: policy-gated offline capability; live population and candidate policy are not implemented.
+Status: policy-gated capability; Crypto PIT population is scheduled, while the
+candidate policy and Korea/US population are not implemented.
 
 ## Boundary
 
@@ -14,7 +15,11 @@ decide whether a larger or smaller value means improvement.
 The current registered source fragments are intentionally different by market:
 
 - Crypto: DefiLlama stablecoin aggregate native supply; the existing
-  `stablecoin_net_issuance/v1` transform is partial upstream evidence.
+  `stablecoin_net_issuance/v1` transform validates one append-only PIT vintage.
+  `.github/scripts/stablecoin_supply_demand_population.py` selects the three
+  exact calendar dates ending on that UTC snapshot date and publishes one
+  immutable policy-neutral packet under
+  `evidence/supply_demand/crypto/YYYY-MM-DD/rev-001.json`.
 - Korea: KRX Information Data System per-security investor net value/volume via
   pykrx, KRX-only. NXT is excluded and primary-source release time remains
   unverified, so an `available_at` claim cannot be inferred from collection time.
@@ -42,7 +47,7 @@ trading authority.
 
 ## Persisted packet validation
 
-`supply_demand_radar_packet/2`는 정규화한 `source_policy` 전체를 보존한다.
+`supply_demand_radar_packet/3`는 정규화한 `source_policy` 전체를 보존한다.
 `validate_packet()`은 ingestion과 동일한 정책 validator를 소비 시점에 다시
 실행하고, 정책 SHA·유효기간·exact series rule·방향·threshold로 policy status와
 case 생성을 재계산한다.
@@ -60,7 +65,13 @@ standalone validator는 policy hash의 원문 진위를 증명하지 않는다. 
 
 ## Operation
 
-The helper has no network or workflow wiring and only writes to the explicit
-`--out` path. A failed run leaves an existing output unchanged. Live radar
-population, US metric selection, Korea release-time evidence, cross-market
+The generic helper has no network and only writes to an explicit temporary
+`--out` path. The Crypto population adapter is wired immediately after the
+existing stablecoin capture. It reuses only validated committed-or-new capture
+bytes, records the exact response hash and Atlas fetch time, and never infers a
+provider publication timestamp. An existing `rev-001.json` must be byte
+identical; it is never overwritten. Missing exact calendar dates remain
+`UNKNOWN_EVIDENCE`.
+
+Korea/US population, improvement direction and minimum change, cross-market
 comparability, source hierarchy, and candidate ranking remain open WBS gates.

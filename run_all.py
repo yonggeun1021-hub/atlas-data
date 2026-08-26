@@ -255,6 +255,11 @@ APPROVED_TESTS = [
     #   있을 때만 case를 만든다. cross-market score·ranking·Stage·trading 없음.
     #   ⛔ live network/workflow/tracked radar 없음 — synthetic series + temp output only.
     "test/test_supply_demand.py",
+    # ★ P3-09 operational Crypto population — the scheduled append-only
+    #   DefiLlama PIT capture is transformed into one immutable three-point
+    #   aggregate native USD-pegged supply packet.  Exact missing dates remain
+    #   UNKNOWN; no direction, threshold, case, rank, Stage, or trading action.
+    "test/test_stablecoin_supply_demand_population.py",
     # ★ P3-10 — immutable Discovery Case ref에 valuation/risk raw context를 부착한다.
     #   exact 2-point value/change와 composite source lineage만 기본 제공하고,
     #   persisted validator가 grouping/change/lineage/label의 self-rehashed drift를

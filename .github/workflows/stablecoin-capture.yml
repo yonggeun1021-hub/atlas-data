@@ -131,6 +131,19 @@ jobs:
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: python3 .github/scripts/record_stablecoin_run.py
 
+      - name: Populate P3-09 Crypto supply-demand raw features
+        if: ${{ steps.capture.outcome == 'success' }}
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SNAPSHOT_DATE" ]; then
+            echo "P3-09 STOP: snapshot date absent" >&2
+            exit 1
+          fi
+          python3 .github/scripts/stablecoin_supply_demand_population.py \
+            --snapshot-dir "evidence/stablecoin/raw/$SNAPSHOT_DATE"
+
       - name: Commit
         if: always()
         env:
@@ -144,6 +157,9 @@ jobs:
           git add data/operations/stablecoin_capture_runs || true
           if [ "$CAPTURE_RESULT" = "captured" ]; then
             git add "evidence/stablecoin/raw/$SNAPSHOT_DATE"
+          fi
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "evidence/supply_demand/crypto/$SNAPSHOT_DATE" ]; then
+            git add "evidence/supply_demand/crypto/$SNAPSHOT_DATE"
           fi
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"

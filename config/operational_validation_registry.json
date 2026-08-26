@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "reviewed_as_of": "2026-08-20",
+  "reviewed_as_of": "2026-08-26",
   "execution_platform": "github_actions",
   "local_machine_required": false,
-  "active_wbs_snapshot_count": 22,
+  "active_wbs_snapshot_count": 23,
   "automation_states": [
     "SCHEDULED_INLINE",
     "SCHEDULED_UPSTREAM",
@@ -148,6 +148,21 @@
       "crons": [],
       "automatic_execution_authorized": false,
       "blocking_basis": "minimum sensor coverage and historical/live replay evidence are absent"
+    },
+    {
+      "work_item_id": "P3-09",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/stablecoin-capture.yml",
+      "crons": [
+        "20 6 * * *",
+        "20 7 * * *",
+        "20 8 * * *"
+      ],
+      "required_workflow_tokens": [
+        "Populate P3-09 Crypto supply-demand raw features",
+        "stablecoin_supply_demand_population.py"
+      ],
+      "remaining_gate": "first committed operational Crypto packet; Korea/US series and availability boundaries; direction/minimum-change policy; cross-market comparability and ranking remain unresolved"
     },
     {
       "work_item_id": "P4-02",
