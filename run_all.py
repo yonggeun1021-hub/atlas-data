@@ -108,6 +108,13 @@ APPROVED_TESTS = [
     #   remain explicitly unauthorized.
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
+    # ★ P3-01 committed three-market population readiness.
+    #   latest US source-coverage packet is independently rebuilt from the
+    #   immutable raw archive; Crypto's real coverage blocker and Korea's
+    #   missing exact committed population are preserved as explicit blockers.
+    #   No unratified freshness/investability/Stage/action/order authority is
+    #   inferred. Rehashed readiness tampering is rejected by full re-derivation.
+    "test/test_global_asset_master_population_readiness.py",
     # ★ P3-02 — forward-only Nasdaq directory → Global Asset Master adapter.
     #   두 공식 source exact bytes/SHA/footer date를 검증해 모든 row를 하루짜리
     #   source-coverage membership으로 재현한다. test/ETF/financial/exchange 속성은
