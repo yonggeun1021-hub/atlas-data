@@ -126,7 +126,7 @@ def build_inventory(
         taxonomy_path=taxonomy_path,
         raw_root=raw_root,
     )
-    if proposal_packet.get("schema_version") != "candidate_identity_authority_proposal/1":
+    if proposal_packet.get("schema_version") != "candidate_identity_authority_proposal/2":
         raise CandidateIdentityAuthorityReviewInventoryError("PROPOSAL_SCHEMA_INVALID")
     if proposal_packet.get("summary", {}).get("canonical_authority_rows_created") != 0:
         raise CandidateIdentityAuthorityReviewInventoryError("PROPOSAL_AUTHORITY_ALREADY_CREATED")

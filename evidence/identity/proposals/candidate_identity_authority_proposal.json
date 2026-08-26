@@ -8,7 +8,7 @@
     "trading_authority": false
   },
   "decision_date": "2026-08-26",
-  "packet_sha256": "332885c6d45e6169945979ae192e372a2b121fd3e530056b5aa88e453d63ac27",
+  "packet_sha256": "195a29529950e92b395166aa74b14c2cfae8039de40294f07e2cb8ca35c2dca1",
   "policy_boundary": {
     "candidate_validity_evaluated": false,
     "canonical_config_modified": false,
@@ -2421,18 +2421,79 @@
         "trading_authority": false
       },
       "candidate_id": "d1afe48b9f84a30fb77eb587ac006d17cba59adbb2ae6917ae42427de2d87bff",
+      "instrument_classification_basis": "OFFICIAL_LISTED_SYMBOL_PRESENT_SHARE_CLASS_NOT_RECORDED",
       "market": "KOREA",
-      "proposed_rows": null,
-      "reason_codes": [
-        "RATIFIED_TAXONOMY_MATCH_MISSING",
-        "KRAKEN_PAIR_NOT_IN_EXACT_CAPTURE"
-      ],
-      "review_status": "EVIDENCE_INCOMPLETE_NOT_PROPOSED",
+      "proposal_naming_basis": "MECHANICAL_CONVENTION_PROPOSED_UNRATIFIED",
+      "proposal_status": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+      "proposed_rows": {
+        "instrument": {
+          "canonical_instrument_id": "KRX:034020:OTHER_UNCLASSIFIED",
+          "canonical_issuer_id": "DART:00159616",
+          "instrument_type": "OTHER_UNCLASSIFIED"
+        },
+        "issuer": {
+          "canonical_issuer_id": "DART:00159616",
+          "issuer_name_reference": "두산에너빌리티"
+        },
+        "listing": {
+          "canonical_instrument_id": "KRX:034020:OTHER_UNCLASSIFIED",
+          "currency": "KRW",
+          "exchange": "XKRX",
+          "listing_id": "XKRX:034020",
+          "market": "KOREA",
+          "ticker": "034020"
+        },
+        "source_alias": {
+          "listing_id": "XKRX:034020",
+          "source_asset_id": "034020",
+          "source_name": "krx_open_api_stock_daily"
+        }
+      },
+      "reason_codes": [],
+      "review_status": "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW",
+      "source_evidence": {
+        "corp_code": "00159616",
+        "dart": {
+          "bytes_sha256": "cf9e84c349fb5f0d38a6bed7d04d36e76547896eae55016e42455a706a774b4f",
+          "collected_at_utc": "2026-08-25T21:57:27+00:00",
+          "path": "data/2026-08-26/dart.json",
+          "source": "OpenDART (금융감독원)"
+        },
+        "instrument_type_evidence_status": "NOT_RECORDED_OTHER_UNCLASSIFIED",
+        "krx": {
+          "bytes_sha256": "f681980170e604a7cca3c40461ce51d192edb036b9648a95c128ac04697ac43b",
+          "collected_at_utc": "2026-08-25T21:57:10+00:00",
+          "path": "data/2026-08-26/krx.json",
+          "source": "KRX 정보데이터시스템 (pykrx)"
+        },
+        "name": "두산에너빌리티",
+        "symbol": "034020"
+      },
       "subject": "034020"
     }
   ],
-  "schema_version": "candidate_identity_authority_proposal/1",
+  "schema_version": "candidate_identity_authority_proposal/2",
   "source_gap_inventory_packet_sha256": "bd88dfaff68f399535733a7801d92dfca7c4d889196e7c641f40bc7b9be49552",
+  "source_korea_identity_evidence": {
+    "d1afe48b9f84a30fb77eb587ac006d17cba59adbb2ae6917ae42427de2d87bff": {
+      "corp_code": "00159616",
+      "dart": {
+        "bytes_sha256": "cf9e84c349fb5f0d38a6bed7d04d36e76547896eae55016e42455a706a774b4f",
+        "collected_at_utc": "2026-08-25T21:57:27+00:00",
+        "path": "data/2026-08-26/dart.json",
+        "source": "OpenDART (금융감독원)"
+      },
+      "instrument_type_evidence_status": "NOT_RECORDED_OTHER_UNCLASSIFIED",
+      "krx": {
+        "bytes_sha256": "f681980170e604a7cca3c40461ce51d192edb036b9648a95c128ac04697ac43b",
+        "collected_at_utc": "2026-08-25T21:57:10+00:00",
+        "path": "data/2026-08-26/krx.json",
+        "source": "KRX 정보데이터시스템 (pykrx)"
+      },
+      "name": "두산에너빌리티",
+      "symbol": "034020"
+    }
+  },
   "source_kraken_capture": {
     "asset_pairs_path": "evidence/crypto/breadth/raw/2026-08-25/kraken_asset_pairs.json.gz",
     "asset_pairs_response_sha256": "4d19c20bde5b0c7ba2437269d129dbe2d40bba1ba57d5287e52fafb1d5baa8b0",
@@ -2452,8 +2513,7 @@
     "gap_count": 58,
     "proposal_count": 58,
     "review_status_counts": {
-      "EVIDENCE_INCOMPLETE_NOT_PROPOSED": 1,
-      "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW": 57
+      "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW": 58
     }
   }
 }
