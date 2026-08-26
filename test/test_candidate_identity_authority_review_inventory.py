@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -29,22 +30,48 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
         cls.proposal = json.loads(cls.path.read_text())
         cls.inventory = build_inventory(cls.proposal, proposal_path=cls.path)
 
-    def test_stale_real_proposal_is_fail_closed_without_reusing_rows(self):
+    def _build_synthetic_stale_inventory(self):
+        proposal = copy.deepcopy(self.proposal)
+        proposal["source_gap_inventory_packet_sha256"] = "0" * 64
+        unsigned = dict(proposal)
+        unsigned.pop("packet_sha256")
+        from identity.candidate_identity_authority_review_inventory import _sha
+        proposal["packet_sha256"] = _sha(unsigned)
+        with tempfile.TemporaryDirectory(dir=ROOT) as td:
+            path = Path(td) / "proposal.json"
+            path.write_text(json.dumps(proposal, sort_keys=True))
+            return build_inventory(proposal, proposal_path=path), proposal
+
+    def test_real_proposal_is_current_and_coherent_without_creating_authority(self):
         self.assertEqual(self.inventory["summary"], {
+            "population_count": 66,
+            "review_status_counts": {COHERENT: 66},
+            "conflict_candidate_count": 0,
+            "canonical_authority_rows_created": 0,
+        })
+        self.assertEqual(self.inventory["source_binding_status"], "CURRENT_EXACT_BINDING")
+        self.assertEqual(len(self.inventory["rows"]), 66)
+        self.assertEqual(self.inventory["authority"], AUTHORITY_ALL_FALSE)
+        self.assertFalse(self.inventory["policy_boundary"]["mechanical_coherence_is_identity_approval"])
+
+    def test_synthetic_stale_proposal_is_fail_closed_without_reusing_rows(self):
+        inventory, proposal = self._build_synthetic_stale_inventory()
+        self.assertEqual(inventory["summary"], {
             "population_count": 0,
-            "source_proposal_population_count": 58,
+            "source_proposal_population_count": len(proposal["proposals"]),
             "review_status_counts": {SOURCE_BINDING_STALE: 1},
             "conflict_candidate_count": 0,
             "canonical_authority_rows_created": 0,
         })
-        self.assertEqual(self.inventory["source_binding_status"], SOURCE_BINDING_STALE)
-        self.assertEqual(self.inventory["rows"], [])
-        self.assertEqual(self.inventory["authority"], AUTHORITY_ALL_FALSE)
-        self.assertFalse(self.inventory["policy_boundary"]["mechanical_coherence_is_identity_approval"])
+        self.assertEqual(inventory["source_binding_status"], SOURCE_BINDING_STALE)
+        self.assertEqual(inventory["rows"], [])
+        self.assertEqual(inventory["authority"], AUTHORITY_ALL_FALSE)
+        self.assertFalse(inventory["policy_boundary"]["mechanical_coherence_is_identity_approval"])
 
-    def test_stale_binding_preserves_both_exact_hashes(self):
-        source = self.inventory["source_proposal"]
-        self.assertEqual(source["bound_gap_inventory_packet_sha256"], self.proposal["source_gap_inventory_packet_sha256"])
+    def test_synthetic_stale_binding_preserves_both_exact_hashes(self):
+        inventory, proposal = self._build_synthetic_stale_inventory()
+        source = inventory["source_proposal"]
+        self.assertEqual(source["bound_gap_inventory_packet_sha256"], proposal["source_gap_inventory_packet_sha256"])
         self.assertNotEqual(source["bound_gap_inventory_packet_sha256"], source["current_gap_inventory_packet_sha256"])
 
     def test_contradictory_listing_payload_flags_both_candidates_and_chooses_no_winner(self):

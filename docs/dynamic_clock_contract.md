@@ -370,6 +370,21 @@ evidence or price timestamp after the supplied evaluation instant fails
 closed. This starts collecting exact forward operational evaluation samples
 without backdating legacy candidates or opening candidate validity.
 
+### Current-run identity review material
+
+After each operational run, the workflow rebuilds the candidate identity
+observation and unresolved-gap inventory, then immediately rebuilds the
+mechanical identity proposal and its cross-row conflict audit from that same
+gap packet. This prevents an older proposal population from being displayed
+as if it were bound to the latest candidates.
+
+Both downstream packets remain review material only. They write solely below
+`evidence/identity/proposals`, report
+`canonical_authority_rows_created=0`, and never modify
+`config/canonical_security_identity.json` or
+`config/market_account_scope_map.json`. Mechanical completeness or coherence
+does not evaluate candidate validity, risk capacity, P8-13, or a money action.
+
 All 4 defects' regressions live together in
 `test/test_dynamic_clock_orchestrator_defects.py` (registered in
 `run_all.py`'s `APPROVED_TESTS` and the workflow's offline regression

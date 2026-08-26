@@ -56,6 +56,9 @@ class OfflineRegressionInvocationTests(unittest.TestCase):
         "test/test_dynamic_clock_orchestrator_defects.py",
         "test/test_dynamic_clock_identity_lineage.py",
         "test/test_candidate_identity_observation.py",
+        "test/test_candidate_identity_gap_inventory.py",
+        "test/test_candidate_identity_authority_proposal.py",
+        "test/test_candidate_identity_authority_review_inventory.py",
     )
 
     def test_offline_regression_uses_file_paths_not_test_package_imports(self):
@@ -112,6 +115,8 @@ class NoNewProviderCallsTests(unittest.TestCase):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         self.assertIn("clock/run_dynamic_clock.py", text)
         self.assertIn("identity/candidate_identity_observation.py", text)
+        self.assertIn("identity/candidate_identity_authority_proposal.py", text)
+        self.assertIn("identity/candidate_identity_authority_review_inventory.py", text)
 
     def test_run_dynamic_clock_module_itself_makes_no_network_calls(self):
         # Static check mirroring the module's own docstring claim: no
@@ -135,6 +140,7 @@ class IdempotencyTests(unittest.TestCase):
     def test_workflow_only_touches_its_own_output_directory(self):
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         self.assertIn("evidence/operational/dynamic_clock", text)
+        self.assertIn("evidence/identity/proposals", text)
         self.assertIn("Committed-output-only guard", text)
 
 
@@ -157,6 +163,22 @@ class AtomicityHardeningTests(unittest.TestCase):
         commit_idx = text.index("git add evidence/operational/dynamic_clock")
         self.assertLess(clock_idx, identity_idx)
         self.assertLess(identity_idx, commit_idx)
+
+    def test_current_identity_gap_is_bound_to_proposal_and_cross_row_review_before_commit(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        gap_idx = text.index("python3 identity/candidate_identity_gap_inventory.py")
+        proposal_idx = text.index("python3 identity/candidate_identity_authority_proposal.py", gap_idx)
+        review_idx = text.index("python3 identity/candidate_identity_authority_review_inventory.py", proposal_idx)
+        commit_idx = text.index("git add evidence/operational/dynamic_clock")
+        self.assertLess(gap_idx, proposal_idx)
+        self.assertLess(proposal_idx, review_idx)
+        self.assertLess(review_idx, commit_idx)
+
+    def test_identity_review_refresh_never_writes_canonical_authority_files(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("git add config/canonical_security_identity.json", text)
+        self.assertNotIn("git add config/market_account_scope_map.json", text)
+        self.assertIn("authority_rows_created=0", text)
 
     def test_workflow_never_uses_pull_rebase_before_push(self):
         # The exact anti-pattern CIO review round 2 rejected: rebasing onto
