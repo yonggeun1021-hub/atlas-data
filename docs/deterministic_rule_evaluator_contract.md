@@ -9,7 +9,7 @@ freshness, fallback, period, unit, and threshold decisions. Therefore this
 capability does not invent an evaluation DSL, threshold, source selection, or
 default spec.
 
-It validates one exact `rule_evidence_binding/1` packet against the current Rule
+It validates one exact `rule_evidence_binding/2` packet against the current Rule
 registry SHA and deterministically applies this precedence:
 
 1. A canonical `definition_status=UNDEFINED` is `UNDEFINED`.

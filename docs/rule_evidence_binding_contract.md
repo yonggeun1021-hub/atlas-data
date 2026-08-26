@@ -17,11 +17,15 @@
 - `validate_packet()`은 저장된 packet의 Rule 정적 identity, reference 상태 파생,
   lineage 형식, `ALL_REQUIRED` 결합, binding-set hash, summary, authority, packet hash를
   다시 계산한다. 바깥 hash만 다시 만든 의미 변조는 유효해지지 않는다.
+- `rule_evidence_binding_packet/2`는 입력 `evidence_envelope/1` 전체를 정렬된
+  `frozen_evidence_envelopes`로 내장한다. validator는 evidence-set hash와 각 reference를
+  이 동결 원문에서 다시 파생하므로 envelope 삭제·교체·reference 분리를 거부한다.
+  binding에서 참조하지 않는 envelope를 packet에 숨겨 운반하는 것도 거부한다.
 
-packet에는 원본 evidence envelope 본문 전체가 들어 있지 않으므로
-`evidence_set_sha256`과 각 `envelope_sha256`의 외부 진위는 standalone validator가
-재구성할 수 없다. 그 진위는 envelope 보존·인증 경계의 책임이며, P5-03 validator는
-packet 내부 의미와 명시 binding의 일관성을 증명한다.
+동결 원문 내장과 재파생은 **packet 내부 완전성**만 보장한다. source URL이나
+`source_sha256`이 실제 외부 원문을 가리키는지, 해당 source가 사업적으로 승인된
+authority인지까지 증명하지 않는다. 그 외부 진위와 source qualification/freshness
+비준은 P4-06/P5-02 경계의 책임이며, 비준 전 Rule 평가 권한은 계속 없다.
 
 ## 하지 않는 것
 

@@ -53,8 +53,8 @@ def _expected_contract() -> dict:
         "schema_version": 1,
         "contract_version": "deterministic_rule_evaluator/1",
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
-        "upstream_binding_contract_version": "rule_evidence_binding/1",
-        "upstream_binding_schema_version": "rule_evidence_binding_packet/1",
+        "upstream_binding_contract_version": "rule_evidence_binding/2",
+        "upstream_binding_schema_version": "rule_evidence_binding_packet/2",
         "canonical_rule_registry": "config/rules.json",
         "canonical_rule_count": 25,
         "result_statuses": list(RESULT_STATUSES),
@@ -140,7 +140,7 @@ def _validate_binding_packet(value: dict, rules: dict, contract: dict) -> dict:
     fields = {
         "schema_version", "contract_version", "binding_set_id",
         "source_hierarchy_status", "automatic_binding_authorized", "authority",
-        "inputs", "summary", "rules", "packet_sha256",
+        "inputs", "frozen_evidence_envelopes", "summary", "rules", "packet_sha256",
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise DeterministicRuleEvaluatorError("BINDING_PACKET_FIELDS_MISMATCH")
