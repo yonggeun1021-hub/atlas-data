@@ -1179,7 +1179,10 @@ class DailyOrchestratorTest(unittest.TestCase):
         )
 
     def test_generated_date_mismatch_isolates_unified_decision_not_whole_run(self):
-        # decision_date deliberately does not match generated_at's own date.
+        # decision_date deliberately does not match generated_at's KST
+        # operating date. A UTC previous-calendar-date morning timestamp is
+        # valid when it resolves to this decision_date in Asia/Seoul; this
+        # case is one full operating day earlier and must still fail closed.
         # Built as "the day before the dynamic STEP0-ready decision_date"
         # with the dynamic STEP0-ready generated_at (see
         # _step0_ready_decision_date_and_generated_at), rather than the
@@ -1194,7 +1197,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         # DATA_BLOCKED this test intends to isolate. Anchoring generated_at
         # to the real qualified value (via the dynamic pair) while still
         # deliberately dating decision_date one day earlier reproduces the
-        # same "generated_at's own date does not match decision_date"
+        # same "generated_at's KST operating date does not match decision_date"
         # mismatch the test needs, without also tripping that unrelated
         # boundary check.
         step0_date, step0_generated_at = (

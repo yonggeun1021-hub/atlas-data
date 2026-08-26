@@ -21,6 +21,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REASON_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+KST = dt.timezone(dt.timedelta(hours=9), name="Asia/Seoul")
 
 
 def _load_validator(name: str, relative_path: str):
@@ -168,6 +169,21 @@ def _utc(value, code: str) -> str:
     if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
         raise UnifiedDecisionContractError(code)
     return value
+
+
+def _kst_operating_date(value: str) -> str:
+    """Return the Asia/Seoul operating date for a validated UTC instant.
+
+    ``generated_at`` is retained as UTC while ``decision_date`` is the KST
+    operating date used by the scheduled briefing workflow.  The weekday
+    morning run occurs after midnight in Seoul but on the previous UTC
+    calendar date, so comparing the two strings' first ten characters would
+    incorrectly reject every normal morning packet.
+    """
+    parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+    return parsed.astimezone(KST).date().isoformat()
 
 
 def _sha(value, code: str) -> str:
@@ -342,7 +358,7 @@ def build_packet(
     contract = _validate_contract(contract) if contract is not None else load_contract()
     decision_date = _date(decision_date, "DECISION_DATE_INVALID")
     generated_at = _utc(generated_at, "GENERATED_AT_INVALID")
-    if generated_at[:10] != decision_date:
+    if _kst_operating_date(generated_at) != decision_date:
         raise UnifiedDecisionContractError("GENERATED_DATE_MISMATCH")
     if slot not in contract["slots"]:
         raise UnifiedDecisionContractError(f"SLOT_INVALID:{slot}")
@@ -409,7 +425,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         or packet.get("contract_version") != contract["contract_version"]
         or slot not in contract["slots"]
         or packet.get("decision_id") != f"atlas-{decision_date}-{slot}"
-        or generated_at[:10] != decision_date
+        or _kst_operating_date(generated_at) != decision_date
         or packet.get("status") != "DAILY_DECISION_ASSEMBLED_NO_ACTION_AUTHORITY"
         or packet.get("authority") != contract["authority"]
     ):

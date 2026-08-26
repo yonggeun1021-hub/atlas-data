@@ -91,6 +91,46 @@ def envelope(source=None, unavailable=None):
 
 
 class UnifiedDecisionContractTests(unittest.TestCase):
+    def test_morning_utc_previous_date_matches_kst_operating_date(self):
+        unavailable_components = {
+            name: None for name in CONTRACT["component_order"]
+        }
+        unavailable_reasons = {
+            name: ["SOURCE_PACKET_NOT_PROVIDED"]
+            for name in CONTRACT["component_order"]
+        }
+        packet = MODULE.build_packet(
+            unavailable_components,
+            unavailable_reasons,
+            "2026-08-21",
+            "morning",
+            "2026-08-20T22:10:00Z",
+            CONTRACT,
+        )
+        self.assertEqual(packet["decision_date"], "2026-08-21")
+        self.assertEqual(packet["generated_at"], "2026-08-20T22:10:00Z")
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+
+    def test_generated_at_from_a_different_kst_operating_date_fails_closed(self):
+        unavailable_components = {
+            name: None for name in CONTRACT["component_order"]
+        }
+        unavailable_reasons = {
+            name: ["SOURCE_PACKET_NOT_PROVIDED"]
+            for name in CONTRACT["component_order"]
+        }
+        with self.assertRaisesRegex(
+            MODULE.UnifiedDecisionContractError, "GENERATED_DATE_MISMATCH"
+        ):
+            MODULE.build_packet(
+                unavailable_components,
+                unavailable_reasons,
+                "2026-08-21",
+                "morning",
+                "2026-08-20T14:59:59Z",
+                CONTRACT,
+            )
+
     def test_contract_pins_full_pipeline_and_closes_action_authority(self):
         self.assertEqual(
             CONTRACT["pipeline_order"],
