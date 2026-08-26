@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-08-25T21:57:34+00:00",
+    "generation_basis_at_utc": "2026-08-26T23:39:14+00:00",
     "generation_contract_version": 1,
-    "generation_id": "056035e5eb9921a9bd6c0f8f0144dc383f3dfcf64008182137890c57ee158148"
+    "generation_id": "1ce7e9c12b1307ac8f14851929d9390946c95d4c1a2b6b38e9c06a24a8e53d56"
   },
   "market": "SEC",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-25T21:57:34+00:00",
-    "collected_for_kst_date": "2026-08-26",
+    "collected_at_utc": "2026-08-26T23:39:14+00:00",
+    "collected_for_kst_date": "2026-08-27",
     "source_file": "data/latest_sec.json",
-    "source_sha256": "99c71192803a2c39e5ef609a38a64a141a92368e2ab5956f6bcc3dff50b5d0b0"
+    "source_sha256": "3ebd8ccf75f2195c40b9582467a742e8c2f85f3f3c5eb8c36aada6d882744027"
   },
   "stock": {
     "atlas_stage": null,
@@ -20,6 +20,73 @@
     "entity_name": "MICRON TECHNOLOGY INC",
     "filer_profile": "domestic",
     "filings_recent": [
+      {
+        "accession": "0001104659-26-101067",
+        "body_capture_status": "NOT_APPLICABLE",
+        "body_captured": false,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "index_only",
+          "content_status": "NOT_APPLICABLE",
+          "discovery_status": "OK",
+          "documents": [],
+          "evidence_status": "NOT_APPLICABLE",
+          "extracted": [],
+          "extractor_version": "sec_filing_content/1",
+          "interpretation_status": "UNDETERMINED",
+          "publication_status": "NOT_APPLICABLE",
+          "reasons": [
+            "STAGE_NOT_ASSIGNED_FOR_AUTO_CONSUMPTION"
+          ],
+          "rule_impact": "NONE",
+          "source": {
+            "collected_for_kst_date": "2026-08-27",
+            "observed_at_utc": "2026-08-26T23:39:28Z",
+            "run_status": "OK",
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": "80247b8719af25cfbfb690cf0e894ad286d81d0a4eb57bf9a33b71653128ae08"
+          }
+        },
+        "date": "2026-08-26",
+        "form": "8-K",
+        "form_class": "domestic",
+        "form_family": "current_report",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/723125/000110465926101067/0001104659-26-101067-index.htm",
+        "item_codes": [
+          "5.02",
+          "9.01"
+        ],
+        "item_status": "classified",
+        "items_detail": [
+          {
+            "code": "5.02",
+            "known": true,
+            "title": "Departure/Election of Directors or Certain Officers"
+          },
+          {
+            "code": "9.01",
+            "known": true,
+            "title": "Financial Statements and Exhibits"
+          }
+        ],
+        "items_raw": "5.02,9.01",
+        "url": "https://www.sec.gov/Archives/edgar/data/723125/000110465926101067/tm2624017d1_8k.htm"
+      },
+      {
+        "accession": "0001242654-26-000015",
+        "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
+        "body_captured": false,
+        "date": "2026-08-25",
+        "form": "4",
+        "form_class": "other",
+        "form_family": "ownership",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/723125/000124265426000015/0001242654-26-000015-index.htm",
+        "item_codes": [],
+        "item_status": "not_itemized",
+        "items_detail": [],
+        "items_raw": "",
+        "url": "https://www.sec.gov/Archives/edgar/data/723125/000124265426000015/xslF345X06/primarydocument.xml"
+      },
       {
         "accession": "0001969223-26-000947",
         "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
@@ -94,25 +161,11 @@
         "items_detail": [],
         "items_raw": "",
         "url": "https://www.sec.gov/Archives/edgar/data/723125/000124265426000013/xslF345X06/primarydocument.xml"
-      },
-      {
-        "accession": "0001652149-26-000005",
-        "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
-        "body_captured": false,
-        "date": "2026-07-27",
-        "form": "4",
-        "form_class": "other",
-        "form_family": "ownership",
-        "index_url": "https://www.sec.gov/Archives/edgar/data/723125/000165214926000005/0001652149-26-000005-index.htm",
-        "item_codes": [],
-        "item_status": "not_itemized",
-        "items_detail": [],
-        "items_raw": "",
-        "url": "https://www.sec.gov/Archives/edgar/data/723125/000165214926000005/xslF345X06/primarydocument.xml"
       }
     ],
     "fiscal_year_end": "0903",
     "form_family_counts": {
+      "current_report": 1,
       "other": 2,
       "ownership": 4
     },
