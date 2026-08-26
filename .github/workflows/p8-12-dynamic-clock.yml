@@ -72,6 +72,7 @@ jobs:
             test/test_dynamic_clock_time_precision.py \
             test/test_dynamic_clock_operational_evaluation_time.py \
             test/test_candidate_validity_shadow_observation.py \
+            test/test_candidate_validity_evidence_inventory.py \
             test/test_candidate_lifecycle_observation.py \
             test/test_dynamic_clock_identity_lineage.py \
             test/test_candidate_identity_observation.py \
@@ -111,6 +112,8 @@ jobs:
         run: python3 identity/candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
       - name: Inventory unresolved identity evidence without creating authority
         run: python3 identity/candidate_identity_gap_inventory.py
+      - name: Inventory independently revalidatable candidate-validity evidence
+        run: python3 clock/candidate_validity_evidence_inventory.py
       # ★ Independent verification (item 6): read the REAL per-market
       #   evidence_as_of dates the computation above actually used, from
       #   the freshly-written report itself -- never inferred from
@@ -133,6 +136,10 @@ jobs:
           gaps = json.load(open('evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json'))
           gs = gaps['summary']
           print(f"- identity_authority_gap: unresolved={gs['identity_gap_count']}/{gs['candidate_count']} authority_rows_created=0 (taxonomy adjacency is diagnostic only)")
+          validity = json.load(open('evidence/operational/dynamic_clock/candidate_validity_evidence_inventory.json'))
+          ns = validity['natural_operational_sample']
+          ms = validity['manual_operational_sample']
+          print(f"- candidate_validity_evidence: natural_distinct={ns['distinct_evidence_sample_count']} manual_distinct={ms['distinct_evidence_sample_count']} revalidatable_artifacts={validity['evidence_status_counts']['REVALIDATABLE']} (no minimum sample authority; P8-13 locked)")
           PY
       - name: Idempotency check + commit only if the evidence actually changed
         id: commit

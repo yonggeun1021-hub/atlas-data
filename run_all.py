@@ -1071,6 +1071,10 @@ APPROVED_TESTS = [
     #   No validity window, Risk Capacity, P8-13, sizing, or trading
     #   authority is opened.
     "test/test_candidate_validity_shadow_observation.py",
+    # P8-12 retained evidence population: independently revalidates every
+    # source-backed sample, separates natural/manual/legacy/rejected artifacts,
+    # and never invents a minimum sample threshold or validity window.
+    "test/test_candidate_validity_evidence_inventory.py",
     # ★ P8-12 forward-only lifecycle timestamp observation. The first
     #   natural sample establishes a no-backfill baseline; only subjects
     #   first observed, changed, absent, or reappearing after that baseline

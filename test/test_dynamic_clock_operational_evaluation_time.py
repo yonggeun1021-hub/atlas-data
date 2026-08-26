@@ -379,6 +379,18 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "candidate_validity_evidence_inventory.json").write_text(
+                json.dumps({
+                    "evidence_status_counts": {"REVALIDATABLE": 4},
+                    "natural_operational_sample": {
+                        "distinct_evidence_sample_count": 1,
+                    },
+                    "manual_operational_sample": {
+                        "distinct_evidence_sample_count": 3,
+                    },
+                }),
+                encoding="utf-8",
+            )
             summary = temp / "step-summary.md"
             env = dict(os.environ, GITHUB_STEP_SUMMARY=str(summary))
             completed = subprocess.run(
@@ -399,6 +411,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 f"identity_authority_gap: unresolved={candidate_count - resolved_count}/{candidate_count}",
+                rendered,
+            )
+            self.assertIn(
+                "candidate_validity_evidence: natural_distinct=1 manual_distinct=3 revalidatable_artifacts=4",
                 rendered,
             )
 
