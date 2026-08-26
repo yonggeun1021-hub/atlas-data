@@ -286,8 +286,8 @@ class DataCoverageMatrixTest(unittest.TestCase):
         )
         self.assertNotIn("import requests", script)
         self.assertNotIn("import urllib", script)
-        self.assertIn('"git", "log", "--reverse"', script)
-        self.assertIn('"git", "status", "--porcelain"', script)
+        self.assertIn('"--reverse", "--format=%H"', script)
+        self.assertIn('"status", "--porcelain"', script)
         self.assertNotIn("data_coverage_matrix.py", workflows)
         self.assertFalse((ROOT / "evidence" / "data_coverage_matrix.json").exists())
 
