@@ -43,14 +43,12 @@ Three real, reused data sources (no new external API calls):
     *outcome*), so this chain-linked series is the only real, non-fabricated
     market-index proxy this repo's own evidence can support.
 
-  * US single-name price -- `evidence/free_market_data/raw/<date>/
-    manifest.json` (P1 Alpaca IEX connector). Each day is a single most-
-    recent-bar snapshot, not a historical series; as of this module's build
-    only one day (2026-08-22) is committed, so return-window/relative-
-    strength fields are honestly left `None` for these subjects rather than
-    computed from one point. Every additional day the existing daily cron
-    commits automatically widens this without any code change here (see
-    `_us_return_window_label`).
+  * US single-name price -- legacy `evidence/free_market_data/raw/<date>/
+    manifest.json` plus v3 `evidence/free_market_data/derived/<date>/
+    manifest.json` (P1 Alpaca IEX connector). Each manifest contributes one
+    current-bar snapshot, not the separate chart-only historical OHLCV
+    window. Return windows therefore widen only through independently
+    committed daily captures; chart history never gains decision authority.
 
 PIT discipline: every assembled figure's evidence dates are checked with
 `replay.lookahead_gate.assert_no_signal_lookahead` before being returned --
@@ -63,6 +61,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import sys
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -74,7 +73,9 @@ from replay import lookahead_gate as lg  # noqa: E402
 
 KOREA_LEADERSHIP_CONTEXT_DIR = ROOT / "data" / "observations" / "korea_leadership_context"
 FREE_MARKET_DATA_RAW_DIR = ROOT / "evidence" / "free_market_data" / "raw"
+FREE_MARKET_DATA_DERIVED_DIR = ROOT / "evidence" / "free_market_data" / "derived"
 KOREA_MARKET_MEMBERSHIP_PATH = ROOT / "config" / "korea_market_membership.json"
+KST = ZoneInfo("Asia/Seoul")
 
 
 def load_ratified_korea_market_membership(path: Path = KOREA_MARKET_MEMBERSHIP_PATH) -> dict:
@@ -402,28 +403,73 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
     }
 
 
-def _us_price_points(symbol: str, base_dir: Path = FREE_MARKET_DATA_RAW_DIR) -> list[dict]:
+def _us_price_points(
+    symbol: str,
+    base_dir: Path = FREE_MARKET_DATA_RAW_DIR,
+    derived_dir: Path = FREE_MARKET_DATA_DERIVED_DIR,
+) -> list[dict]:
     """Real Alpaca IEX single-bar snapshots for `symbol`, one point per
-    committed day. Each is a live most-recent-bar capture, not a historical
-    OHLCV series -- see `evidence/free_market_data/raw/<date>/manifest.json`."""
-    out = []
-    if not base_dir.is_dir():
-        return out
-    for day_dir in sorted(base_dir.glob("20*-*-*")):
-        manifest_path = day_dir / "manifest.json"
-        if not manifest_path.is_file():
+    committed day. v1/v2 stored the manifest below ``raw``; v3 stores the
+    sanitized manifest below ``derived`` and reserves ``raw`` for compressed
+    provider responses. Chart-only ``daily_bars`` are deliberately ignored."""
+    out: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    manifest_paths = []
+    for root in (base_dir, derived_dir):
+        if root.is_dir():
+            manifest_paths.extend(root.glob("20*-*-*/manifest.json"))
+    required_false = (
+        "us_breadth_authorized", "market_wide_price_authorized",
+        "entry_authorized", "action_authorized",
+        "order_authorized", "broker_submission_authorized", "production_authorized",
+        "trading_authorized",
+    )
+    for manifest_path in sorted(manifest_paths):
+        try:
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
             continue
-        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
         alpaca = raw.get("alpaca", {})
+        authority = raw.get("authority", {})
         observed_at_utc = raw.get("observed_at_utc")
+        schema_version = raw.get("schema_version")
+        if (
+            schema_version not in {
+                "free_market_data_capture/1", "free_market_data_capture/2",
+                "free_market_data_capture/3",
+            }
+            or alpaca.get("feed") != "iex"
+            or alpaca.get("source_scope") != "IEX_ONLY_PARTIAL_US_MARKET"
+            or authority.get("evidence_capture_only") is not True
+            or any(authority.get(key) is not False for key in required_false)
+            or (schema_version == "free_market_data_capture/3" and alpaca.get("status") != "READY")
+        ):
+            continue
         bar = next((b for b in alpaca.get("bars", []) if b.get("symbol") == symbol), None)
         if bar is None or not isinstance(observed_at_utc, str):
             continue
+        try:
+            provider_timestamp = bar["provider_timestamp"]
+            close = Decimal(str(bar["close"]))
+            normalized = (
+                observed_at_utc[:-1] + "+00:00"
+                if observed_at_utc.endswith("Z") else observed_at_utc
+            )
+            captured_at = dt.datetime.fromisoformat(normalized)
+            if captured_at.tzinfo is None:
+                raise ValueError("observed_at_utc naive")
+            capture_date = captured_at.astimezone(KST).date().isoformat()
+        except (KeyError, TypeError, ValueError):
+            continue
+        identity = (provider_timestamp, str(close), alpaca["source_scope"])
+        if identity in seen:
+            continue
+        seen.add(identity)
         out.append({
-            "capture_date": observed_at_utc[:10],
-            "provider_timestamp": bar["provider_timestamp"],
-            "close": Decimal(str(bar["close"])),
-            "source_scope": alpaca.get("source_scope", "UNKNOWN"),
+            "capture_date": capture_date,
+            "provider_timestamp": provider_timestamp,
+            "close": close,
+            "source_scope": alpaca["source_scope"],
         })
     return out
 
@@ -440,11 +486,9 @@ def _us_return_window_label(days: int) -> str | None:
 
 def assemble_us_equity_evidence(symbol: str, decision_date: str) -> dict:
     """Real Alpaca IEX evidence -> `build_packet()` kwargs for a US subject.
-    As of this module's build only a single day is committed for any
-    symbol, so `recent_return_windows`/`relative_strength` are honestly left
-    `None` (never fabricated from one point) -- this widens automatically as
-    the existing free-market-data cron commits more days, no code change
-    required here."""
+    Return windows are computed only when independent committed capture
+    points span a contract-approved calendar band. The v3 chart-only daily
+    bars are never treated as decision evidence."""
     points = [p for p in _us_price_points(symbol) if p["capture_date"] <= decision_date]
     lg.assert_no_signal_lookahead(
         decision_date, [p["capture_date"] for p in points], label=f"us_equity:{symbol}",

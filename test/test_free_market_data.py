@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("free_market_data", ROOT / "collectors" / "free_market_data.py")
@@ -15,6 +16,24 @@ M = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(M)
 
 
 class FreeMarketDataTests(unittest.TestCase):
+    def test_http_error_is_redacted_and_normalized(self):
+        error = urllib.error.HTTPError(
+            "https://example.invalid/data?api_key=do-not-leak", 401,
+            "Unauthorized", hdrs=None, fp=None,
+        )
+        with mock.patch.object(M.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaisesRegex(M.FreeMarketDataError, "^HTTP_ERROR:401$") as raised:
+                M._get("https://example.invalid/data?api_key=do-not-leak", {"X-Key": "secret"})
+        self.assertNotIn("do-not-leak", str(raised.exception))
+        self.assertNotIn("secret", str(raised.exception))
+
+    def test_url_error_is_redacted_and_normalized(self):
+        error = urllib.error.URLError("host contained do-not-leak")
+        with mock.patch.object(M.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaisesRegex(M.FreeMarketDataError, "^NETWORK_ERROR:URL_ERROR$") as raised:
+                M._get("https://example.invalid/do-not-leak")
+        self.assertNotIn("do-not-leak", str(raised.exception))
+
     def test_contract_is_iex_shadow_only(self):
         c = M.load_contract()
         self.assertEqual(c["alpaca"]["feed"], "iex")
@@ -114,6 +133,26 @@ class DedicatedMarketDataCredentialTests(unittest.TestCase):
         self.assertNotIn('os.getenv("ALPACA_API_SECRET"', source)
         self.assertIn('os.getenv("ALPACA_MARKET_DATA_API_KEY"', source)
         self.assertIn('os.getenv("ALPACA_MARKET_DATA_API_SECRET"', source)
+
+    def test_alpaca_http_failure_preserves_fred_partial_publication(self):
+        fred_raw = b'{"observations":[{"date":"2026-08-25","value":"15.5"}]}'
+        fred = {"series_id":"VIXCLS", "observation_date":"2026-08-25", "value":"15.5"}
+        contract = M.load_contract()
+        env = {
+            "FRED_API_KEY": "fred", "ALPACA_MARKET_DATA_API_KEY": "market",
+            "ALPACA_MARKET_DATA_API_SECRET": "secret",
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch("sys.argv", ["free_market_data.py", "--root", tmp]), \
+             mock.patch.object(M, "load_contract", return_value=contract), \
+             mock.patch.object(M, "fetch_fred", return_value=(fred_raw, fred)), \
+             mock.patch.object(M, "fetch_alpaca", side_effect=M.FreeMarketDataError("HTTP_ERROR:401")):
+            self.assertEqual(M.main(), 0)
+            packet = json.loads((Path(tmp)/"data/latest_free_market_data.json").read_text())
+        self.assertEqual(packet["fred"]["status"], "READY")
+        self.assertEqual(packet["alpaca"]["status"], "ALPACA_CAPTURE_FAILED:HTTP_ERROR:401")
+        self.assertEqual(packet["alpaca"]["bars"], [])
 
 
 if __name__ == "__main__": unittest.main()

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -61,10 +62,21 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
 
 def _get(url: str, headers: dict[str, str] | None = None) -> bytes:
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        if response.status != 200:
-            raise FreeMarketDataError(f"HTTP_STATUS:{response.status}")
-        return response.read()
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status != 200:
+                raise FreeMarketDataError(f"HTTP_STATUS:{response.status}")
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        # Never allow urllib's exception text to escape: it contains the
+        # requested URL, and FRED credentials live in that URL's query.
+        raise FreeMarketDataError(f"HTTP_ERROR:{exc.code}") from None
+    except urllib.error.URLError:
+        raise FreeMarketDataError("NETWORK_ERROR:URL_ERROR") from None
+    except TimeoutError:
+        raise FreeMarketDataError("NETWORK_ERROR:TIMEOUT") from None
+    except OSError as exc:
+        raise FreeMarketDataError(f"NETWORK_ERROR:{type(exc).__name__}") from None
 
 
 def fetch_fred(api_key: str, observed_at: dt.datetime, getter=_get) -> tuple[bytes, dict]:

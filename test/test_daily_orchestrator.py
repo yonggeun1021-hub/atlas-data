@@ -2065,6 +2065,43 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(row["status"], "DEGRADED")
         self.assertEqual(row["reason"], "FRED_DERIVED_CONTRACT_INVALID")
 
+    def test_free_market_v3_requires_same_kst_capture_date(self):
+        current = json.loads((ROOT / "data" / "latest_free_market_data.json").read_text())
+        current["observed_at_utc"] = "2026-08-26T11:32:34Z"
+        fresh = MODULE.build_free_market_data(
+            {"kind": "ready", "value": current}, decision_date="2026-08-26"
+        )
+        stale = MODULE.build_free_market_data(
+            {"kind": "ready", "value": current}, decision_date="2026-08-27"
+        )
+        future = MODULE.build_free_market_data(
+            {"kind": "ready", "value": current}, decision_date="2026-08-25"
+        )
+        self.assertEqual(fresh["status"], "READY")
+        self.assertEqual(stale["status"], "DATA_BLOCKED")
+        self.assertEqual(stale["reason"], "CAPTURE_STALE_FOR_DECISION_DATE")
+        self.assertEqual(future["status"], "DATA_BLOCKED")
+        self.assertEqual(future["reason"], "CAPTURE_FUTURE_FOR_DECISION_DATE")
+
+    def test_free_market_v3_invalid_capture_time_is_degraded(self):
+        current = json.loads((ROOT / "data" / "latest_free_market_data.json").read_text())
+        current["observed_at_utc"] = "not-a-timestamp"
+        row = MODULE.build_free_market_data(
+            {"kind": "ready", "value": current}, decision_date="2026-08-26"
+        )
+        self.assertEqual(row["status"], "DEGRADED")
+        self.assertEqual(row["reason"], "CAPTURE_TIME_INVALID")
+
+    def test_free_market_legacy_packet_rebuild_keeps_pre_v3_semantics(self):
+        legacy = json.loads(
+            (ROOT / "evidence/free_market_data/raw/2026-08-22/manifest.json").read_text()
+        )
+        row = MODULE.build_free_market_data(
+            {"kind": "ready", "value": legacy}, decision_date="2026-08-26"
+        )
+        self.assertEqual(row["status"], "READY")
+        self.assertIsNone(row["reason"])
+
     def test_workflow_does_not_duplicate_or_alter_existing_collector_schedules(self):
         # The daily briefing workflow must never re-fetch anything the
         # collectors already fetched -- it is a separate, later, read-only
