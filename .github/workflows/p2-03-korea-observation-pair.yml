@@ -18,6 +18,10 @@ name: P2-03 Korea Observation Pair (Breadth -> Leadership, dependency-ordered)
 # attach a `needs:` step to; see docs/korea_capital_rotation_contract.md
 # for the honest schedule-gap this leaves open (no automatic daily
 # trigger exists for either Leadership or Breadth yet).
+# A same-date redispatch first validates each already-committed packet and
+# reuses its exact bytes.  It never re-requests the provider merely to prove
+# idempotency; a missing Leadership packet still fetches Leadership after a
+# verified existing Breadth packet, preserving the established recovery path.
 on:
   workflow_dispatch:
     inputs:
@@ -40,8 +44,25 @@ permissions:
 jobs:
   korea-breadth-live-proof:
     runs-on: ubuntu-latest
+    outputs:
+      context_exists: ${{ steps.existing_context.outputs.exists }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Reuse an exact committed Breadth context instead of re-fetching the same date
+        id: existing_context
+        env:
+          RECENT_DATE: ${{ inputs.breadth_recent_date }}
+        run: |
+          ISO_DATE="${RECENT_DATE:0:4}-${RECENT_DATE:4:2}-${RECENT_DATE:6:2}"
+          CONTEXT_PATH="data/observations/korea_breadth_context/$ISO_DATE/packet.json"
+          if test -f "$CONTEXT_PATH"; then
+            python3 .github/scripts/korea_breadth_context_populate.py \
+              --verify-existing-date "$ISO_DATE" \
+              --capture-mode forward_live
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'
@@ -52,6 +73,7 @@ jobs:
           python3 test/test_korea_breadth.py
           python3 test/test_korea_breadth_derived_outputs.py
       - name: P1-KR-05 historical and recent direct proof
+        if: steps.existing_context.outputs.exists != 'true'
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           RECENT_PREVIOUS: ${{ inputs.breadth_recent_previous }}
@@ -68,7 +90,7 @@ jobs:
             --recent-date "$RECENT_DATE" \
             --out-dir "$RUNNER_TEMP/p1-kr05-derived"
       - name: Upload P1-KR-05 derived output artifacts
-        if: always()
+        if: steps.existing_context.outputs.exists != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
@@ -88,17 +110,20 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download P1-KR-05 derived output artifact
+        if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/p1-kr05-derived
       - name: Populate committed Korea Breadth context lineage
+        if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         run: |
           python3 .github/scripts/korea_breadth_context_populate.py \
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
             --workflow-run-id "${{ github.run_id }}" \
             --capture-mode forward_live
       - name: Commit Korea Breadth context lineage
+        if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
@@ -140,7 +165,25 @@ jobs:
         run: python3 -m pip install -r requirements-ci.txt
       - name: Korea Leadership live-fetch offline contract regression
         run: python3 test/test_korea_leadership_live_fetch.py
+      - name: Reuse an exact committed Leadership observation instead of re-fetching the same date
+        id: existing_leadership
+        env:
+          PRIOR_DATE: ${{ inputs.leadership_prior_date }}
+          CURRENT_DATE: ${{ inputs.leadership_current_date }}
+        run: |
+          ISO_DATE="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
+          CONTEXT_PATH="data/observations/korea_leadership_context/$ISO_DATE/packet.json"
+          if test -f "$CONTEXT_PATH"; then
+            python3 .github/scripts/korea_leadership_live_fetch.py \
+              --prior-date "$PRIOR_DATE" \
+              --current-date "$CURRENT_DATE" \
+              --verify-existing-only
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Korea Leadership real KRX index fetch attempt
+        if: steps.existing_leadership.outputs.exists != 'true'
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           PRIOR_DATE: ${{ inputs.leadership_prior_date }}
@@ -151,6 +194,7 @@ jobs:
             --prior-date "$PRIOR_DATE" \
             --current-date "$CURRENT_DATE"
       - name: Commit Korea Leadership live-fetch attempt evidence
+        if: steps.existing_leadership.outputs.exists != 'true'
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"

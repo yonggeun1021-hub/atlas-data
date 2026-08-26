@@ -123,6 +123,67 @@ class KoreaBreadthContextPopulateTest(unittest.TestCase):
             self.assertEqual(second["outcome"], "verified_existing")
             self.assertEqual(first["payload_sha256"], second["payload_sha256"])
 
+    def test_same_source_different_workflow_run_verifies_existing_without_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            derived_dir = Path(tmp) / "derived"
+            derived_dir.mkdir()
+            (derived_dir / "korea-breadth-recent-kospi.json").write_text(
+                json.dumps(market_packet("KOSPI", "20260821", "c" * 64))
+            )
+            (derived_dir / "korea-breadth-recent-kosdaq.json").write_text(
+                json.dumps(market_packet("KOSDAQ", "20260821", "d" * 64))
+            )
+            MODULE.ROOT = Path(tmp) / "repo"
+            MODULE.output_path_for = lambda as_of: MODULE.ROOT / "data" / "observations" / "korea_breadth_context" / as_of / "packet.json"
+            first = MODULE.populate(derived_dir, workflow_run_id="run-1", capture_mode="forward_live")
+            path = Path(first["path"])
+            original_bytes = path.read_bytes()
+
+            second = MODULE.populate(derived_dir, workflow_run_id="run-2", capture_mode="forward_live")
+
+            self.assertEqual(second["outcome"], "verified_existing")
+            self.assertEqual(second["payload_sha256"], first["payload_sha256"])
+            self.assertEqual(second["committed_workflow_run_id"], "run-1")
+            self.assertEqual(second["current_workflow_run_id"], "run-2")
+            self.assertEqual(path.read_bytes(), original_bytes)
+            self.assertEqual(json.loads(path.read_text())["source"]["workflow_run_id"], "run-1")
+
+    def test_different_run_id_does_not_mask_capture_mode_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            derived_dir = Path(tmp) / "derived"
+            derived_dir.mkdir()
+            (derived_dir / "korea-breadth-recent-kospi.json").write_text(
+                json.dumps(market_packet("KOSPI", "20260821", "c" * 64))
+            )
+            (derived_dir / "korea-breadth-recent-kosdaq.json").write_text(
+                json.dumps(market_packet("KOSDAQ", "20260821", "d" * 64))
+            )
+            MODULE.ROOT = Path(tmp) / "repo"
+            MODULE.output_path_for = lambda as_of: MODULE.ROOT / "data" / "observations" / "korea_breadth_context" / as_of / "packet.json"
+            MODULE.populate(derived_dir, workflow_run_id="run-1", capture_mode="forward_live")
+            with self.assertRaisesRegex(MODULE.ContextPopulateError, "EXISTING_PACKET_DRIFT_OR_TAMPER"):
+                MODULE.populate(derived_dir, workflow_run_id="run-2", capture_mode="historical_backfill")
+
+    def test_verify_existing_context_rejects_tamper_before_workflow_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            derived_dir = Path(tmp) / "derived"
+            derived_dir.mkdir()
+            (derived_dir / "korea-breadth-recent-kospi.json").write_text(
+                json.dumps(market_packet("KOSPI", "20260821", "c" * 64))
+            )
+            (derived_dir / "korea-breadth-recent-kosdaq.json").write_text(
+                json.dumps(market_packet("KOSDAQ", "20260821", "d" * 64))
+            )
+            MODULE.ROOT = Path(tmp) / "repo"
+            MODULE.output_path_for = lambda as_of: MODULE.ROOT / "data" / "observations" / "korea_breadth_context" / as_of / "packet.json"
+            result = MODULE.populate(derived_dir, workflow_run_id="run-1", capture_mode="forward_live")
+            self.assertEqual(MODULE.verify_existing_context("2026-08-21")["payload_sha256"], result["payload_sha256"])
+            packet = json.loads(Path(result["path"]).read_text())
+            packet["markets"]["KOSPI"]["lineage_sha256"] = "0" * 64
+            Path(result["path"]).write_text(json.dumps(packet))
+            with self.assertRaisesRegex(MODULE.ContextPopulateError, "EXISTING_PACKET_HASH_MISMATCH"):
+                MODULE.verify_existing_context("2026-08-21")
+
     def test_populate_fails_closed_on_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
             derived_dir = Path(tmp) / "derived"

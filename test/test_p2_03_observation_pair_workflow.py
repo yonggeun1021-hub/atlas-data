@@ -66,6 +66,39 @@ class ObservationPairWorkflowTest(unittest.TestCase):
         self.assertNotIn("import requests", self.text)
         self.assertIn("--capture-mode forward_live", self.text)
 
+    def test_same_date_committed_context_is_verified_then_skips_provider_refetch(self):
+        jobs = self.workflow["jobs"]
+        proof = jobs["korea-breadth-live-proof"]
+        self.assertEqual(
+            proof["outputs"]["context_exists"],
+            "${{ steps.existing_context.outputs.exists }}",
+        )
+        check = next(step for step in proof["steps"] if step.get("id") == "existing_context")
+        self.assertIn("--verify-existing-date", check["run"])
+        self.assertIn("data/observations/korea_breadth_context", check["run"])
+        provider = next(step for step in proof["steps"] if step.get("name") == "P1-KR-05 historical and recent direct proof")
+        self.assertEqual(provider["if"], "steps.existing_context.outputs.exists != 'true'")
+        context_job = jobs["korea-breadth-context-commit"]
+        for name in (
+            "Download P1-KR-05 derived output artifact",
+            "Populate committed Korea Breadth context lineage",
+            "Commit Korea Breadth context lineage",
+        ):
+            step = next(item for item in context_job["steps"] if item.get("name") == name)
+            self.assertEqual(step["if"], "needs.korea-breadth-live-proof.outputs.context_exists != 'true'")
+
+    def test_same_date_leadership_is_independently_verified_and_skips_only_its_provider(self):
+        job = self.workflow["jobs"]["korea-leadership-live-fetch"]
+        check = next(step for step in job["steps"] if step.get("id") == "existing_leadership")
+        self.assertIn("--verify-existing-only", check["run"])
+        self.assertIn("data/observations/korea_leadership_context", check["run"])
+        for name in (
+            "Korea Leadership real KRX index fetch attempt",
+            "Commit Korea Leadership live-fetch attempt evidence",
+        ):
+            step = next(item for item in job["steps"] if item.get("name") == name)
+            self.assertEqual(step["if"], "steps.existing_leadership.outputs.exists != 'true'")
+
     def test_permissions_are_least_privilege_per_job(self):
         jobs = self.workflow["jobs"]
         # Read-only live-proof job writes nothing.
