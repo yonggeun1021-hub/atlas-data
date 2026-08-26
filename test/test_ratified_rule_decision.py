@@ -140,5 +140,11 @@ class RatifiedRuleDecisionTests(unittest.TestCase):
             with self.assertRaises(MODULE.RatifiedRuleDecisionError):
                 MODULE.validate_packet({}, RULES, CONTRACT, Path(folder))
 
+    def test_default_operational_path_requires_canonical_rules_clean_at_head(self):
+        source = (ROOT / "rules" / "ratified_rule_decision.py").read_text(encoding="utf-8")
+        self.assertIn("_verify_canonical_rules_at_head()", source)
+        self.assertIn("RULE_SSOT_DIRTY", source)
+        self.assertIn("RULE_SSOT_HEAD_MISMATCH", source)
+
 
 if __name__ == "__main__": unittest.main()

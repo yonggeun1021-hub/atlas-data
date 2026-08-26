@@ -125,6 +125,14 @@ def _git(root: Path, *args: str, binary=False):
     return done.stdout if binary else done.stdout.decode()
 
 
+def _verify_canonical_rules_at_head() -> None:
+    relative = RULES_PATH.resolve().relative_to(ROOT.resolve()).as_posix()
+    if _git(ROOT, "status", "--porcelain", "--", relative).strip():
+        raise RatifiedRuleDecisionError("RULE_SSOT_DIRTY")
+    if RULES_PATH.read_bytes() != _git(ROOT, "show", f"HEAD:{relative}", binary=True):
+        raise RatifiedRuleDecisionError("RULE_SSOT_HEAD_MISMATCH")
+
+
 def _authority_path(ref: str, root: Path) -> tuple[Path, str]:
     _ref(ref, "AUTHORITY_EVIDENCE_REF_INVALID")
     relative = Path(ref)
@@ -228,7 +236,13 @@ def _validate_results(results, rules, contract) -> dict:
 
 def validate_packet(value: dict, rules=None, contract=None, repository_root: Path = ROOT) -> dict:
     contract = load_contract() if contract is None else _validate_contract(contract)
-    rules = load_rules() if rules is None else copy.deepcopy(rules)
+    if rules is None:
+        if Path(repository_root).resolve() != ROOT.resolve():
+            raise RatifiedRuleDecisionError("RULE_REPOSITORY_OVERRIDE_FORBIDDEN")
+        _verify_canonical_rules_at_head()
+        rules = load_rules()
+    else:
+        rules = copy.deepcopy(rules)
     fields = {"schema_version", "contract_version", "slice_id", "subject", "evaluated_at",
               "evaluated_by", "authority_ref", "evidence_set_sha256", "rule_registry_sha256",
               "results", "summary", "authority_evidence", "authority", "packet_sha256"}

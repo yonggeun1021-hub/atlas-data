@@ -16,6 +16,9 @@ set SHA, evaluator, evaluation time, and authority identity. The usable time is
 the later of ratification and exact-content first-seen time; backdated approval,
 dirty files, fixture paths, missing history, and a result mutation followed by
 self-rehash all fail closed.
+The default operational path also requires canonical `config/rules.json` bytes
+to be clean and identical to `HEAD`; callers cannot select another repository
+while asking the validator to use the canonical Rule registry.
 
 No ratified production packet is committed by this capability. Tests construct
 an isolated git repository and never expose that fixture to the operational
