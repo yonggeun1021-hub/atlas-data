@@ -783,6 +783,12 @@ APPROVED_TESTS = [
     #   evidence-grade, invalidation, Entry/Exit/Size authority explicitly
     #   UNKNOWN/POLICY_BLOCKED. It never infers flow, ranks, sizes, or trades.
     "test/test_flow_first_briefing.py",
+    # ★ P2-COM-01 — policy-neutral Cross-Asset Flow evidence vocabulary.
+    #   Stablecoin/KRX participant flow/VIX read models are classified as raw
+    #   DIRECT_FLOW or MACRO_CONTEXT evidence; MARKET_IMPLIED_FLOW stays UNKNOWN.
+    #   Different dates are never compared and no freshness/lag/normalization/
+    #   direction/ranking/action/order/Production/trading authority is created.
+    "test/test_cross_asset_flow_evidence.py",
     # ★ P8 Atlas Daily Briefing Integration v1 — provider-free daily orchestrator.
     #   기존 persisted evidence/packet만 소비해 Regime→Rotation/Discovery→Rule→
     #   Portfolio/Risk→Unified Decision→Action/Risk 요약을 하나의 daily briefing

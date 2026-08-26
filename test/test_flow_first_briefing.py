@@ -18,13 +18,15 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
-def row(component_id, status="READY", *, as_of="2026-08-26", reason=None):
-    return {
+def row(component_id, status="READY", *, as_of="2026-08-26", reason=None, packet=None,
+        generated_at="2026-08-26T10:00:00Z"):
+    value = {
         "component_id": component_id,
         "status": status,
         "reason": reason,
         "as_of_date": as_of,
         "available_at": "2026-08-26T10:00:00Z",
+        "generated_at": generated_at,
         "source_packet_path": f"evidence/{component_id}.json",
         "source_packet_sha256": "a" * 64,
         "validated": status == "READY",
@@ -32,6 +34,9 @@ def row(component_id, status="READY", *, as_of="2026-08-26", reason=None):
         "action_eligible": False,
         "order_eligible": False,
     }
+    if packet is not None:
+        value["packet"] = packet
+    return value
 
 
 def daily_packet():
@@ -50,6 +55,27 @@ def daily_packet():
             row("SHADOW_ENTRY_REVIEW"),
             row("POSITION_SIZING", "POLICY_BLOCKED", reason="POSITION_SIZING_POLICY_UNRATIFIED"),
             row("PLANNED_LOSS_BUDGET", "POLICY_BLOCKED", reason="LOSS_BUDGET_UNRATIFIED"),
+            row("STABLECOIN_NET_ISSUANCE", packet={
+                "observation_date": "2026-08-26",
+                "daily_status": "AVAILABLE",
+                "weekly_status": "AVAILABLE",
+                "daily_net_issuance_native_usd_peg": "100.00",
+                "weekly_net_issuance_native_usd_peg": "700.00",
+            }),
+            row("KRX_POST_CLOSE", packet={
+                "symbols": [{
+                    "symbol": "005930",
+                    "observed_row": {
+                        "trading_day": "2026-08-26",
+                        "observed_at_kst": "2026-08-26T18:10:00+09:00",
+                        "net_value": {"foreign": 10, "institution": -5},
+                        "net_volume": {"foreign": 2, "institution": -1},
+                    },
+                }],
+            }),
+            row("FREE_MARKET_DATA", as_of="2026-08-24", packet={
+                "vixcls": {"date": "2026-08-24", "value": "15.85"},
+            }),
         ],
         "authority": {
             "action_generation_authorized": False,
@@ -86,8 +112,18 @@ class FlowFirstBriefingTests(unittest.TestCase):
         packet = MODULE.build_packet(daily_packet())
         section = packet["sections"][1]
         self.assertEqual(section["status"], "UNKNOWN")
-        self.assertEqual(section["unknown_reason"], "P2_COM_01_CROSS_ASSET_FLOW_NOT_AVAILABLE")
-        self.assertEqual(section["source_components"], [])
+        self.assertEqual(section["unknown_reason"], "SOURCE_AS_OF_MISMATCH_NO_LAG_AUTHORITY")
+        self.assertEqual(section["cross_asset_flow_evidence"]["evidence_class_counts"], {
+            "DIRECT_FLOW": 2,
+            "MARKET_IMPLIED_FLOW": 1,
+            "MACRO_CONTEXT": 1,
+            "UNKNOWN": 0,
+        })
+        self.assertIsNone(section["cross_asset_flow_evidence"]["flow_direction"])
+        self.assertEqual(
+            {row["component_id"] for row in section["source_components"]},
+            {"STABLECOIN_NET_ISSUANCE", "KRX_POST_CLOSE", "FREE_MARKET_DATA"},
+        )
 
     def test_policy_blocked_entry_section_cannot_look_ready(self):
         packet = MODULE.build_packet(daily_packet())

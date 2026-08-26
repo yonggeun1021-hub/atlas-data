@@ -1,9 +1,11 @@
 {
   "schema_version": 1,
-  "contract_version": "flow_first_briefing/1",
-  "output_schema_version": "flow_first_briefing_packet/1",
+  "contract_version": "flow_first_briefing/2",
+  "output_schema_version": "flow_first_briefing_packet/2",
   "source_contract_version": "daily_orchestrator/3",
   "source_output_schema_version": "daily_briefing_packet/1",
+  "cross_asset_flow_contract_version": "cross_asset_flow_evidence/1",
+  "cross_asset_flow_output_schema_version": "cross_asset_flow_evidence_packet/1",
   "section_order": [
     "REGIME",
     "CROSS_MARKET_FLOW",
@@ -20,7 +22,7 @@
     "CROSS_MARKET_FLOW": {
       "title": "Cross-Market Flow",
       "source_components": [],
-      "unavailable_reason": "P2_COM_01_CROSS_ASSET_FLOW_NOT_AVAILABLE"
+      "unavailable_reason": "CROSS_MARKET_FLOW_INFERENCE_POLICY_UNRATIFIED"
     },
     "THEME_ROTATION": {
       "title": "Theme Rotation",
