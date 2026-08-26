@@ -31,6 +31,12 @@ unavailability reasons for the same keys, `decision_date`, `slot`, and
 `generated_at`. Available components use an empty reason list. Unavailable
 components use `null` plus a sorted, unique reason list.
 
+`decision_date` is the Asia/Seoul operating date. `generated_at` remains a
+strict UTC `Z` timestamp and must resolve to that same date after conversion to
+Asia/Seoul. This deliberately accepts the scheduled morning run, whose UTC
+calendar date is the prior day, while rejecting an instant from a genuinely
+different Korean operating date.
+
 ```bash
 python decision/unified_decision_contract.py /tmp/input.json \
   --out /tmp/unified-decision.json
