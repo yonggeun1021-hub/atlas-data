@@ -14,6 +14,7 @@ from identity.candidate_identity_authority_review_inventory import (
     COHERENT,
     CONFLICT,
     EVIDENCE_INCOMPLETE,
+    SOURCE_BINDING_STALE,
     CandidateIdentityAuthorityReviewInventoryError,
     _conflicts,
     build_inventory,
@@ -28,15 +29,23 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
         cls.proposal = json.loads(cls.path.read_text())
         cls.inventory = build_inventory(cls.proposal, proposal_path=cls.path)
 
-    def test_real_population_is_reconciled_without_creating_authority(self):
+    def test_stale_real_proposal_is_fail_closed_without_reusing_rows(self):
         self.assertEqual(self.inventory["summary"], {
-            "population_count": 58,
-            "review_status_counts": {COHERENT: 58},
+            "population_count": 0,
+            "source_proposal_population_count": 58,
+            "review_status_counts": {SOURCE_BINDING_STALE: 1},
             "conflict_candidate_count": 0,
             "canonical_authority_rows_created": 0,
         })
+        self.assertEqual(self.inventory["source_binding_status"], SOURCE_BINDING_STALE)
+        self.assertEqual(self.inventory["rows"], [])
         self.assertEqual(self.inventory["authority"], AUTHORITY_ALL_FALSE)
         self.assertFalse(self.inventory["policy_boundary"]["mechanical_coherence_is_identity_approval"])
+
+    def test_stale_binding_preserves_both_exact_hashes(self):
+        source = self.inventory["source_proposal"]
+        self.assertEqual(source["bound_gap_inventory_packet_sha256"], self.proposal["source_gap_inventory_packet_sha256"])
+        self.assertNotEqual(source["bound_gap_inventory_packet_sha256"], source["current_gap_inventory_packet_sha256"])
 
     def test_contradictory_listing_payload_flags_both_candidates_and_chooses_no_winner(self):
         rows = [copy.deepcopy(row) for row in self.proposal["proposals"] if row.get("proposed_rows")][:2]
@@ -63,7 +72,7 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
 
     def test_resigned_authority_or_status_escalation_is_rejected(self):
         tampered = copy.deepcopy(self.inventory)
-        tampered["rows"][0]["authority"]["buy_authority"] = True
+        tampered["authority"]["buy_authority"] = True
         unsigned = dict(tampered)
         unsigned.pop("packet_sha256")
         from identity.candidate_identity_authority_review_inventory import _sha
@@ -81,6 +90,16 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
         self.assertEqual(self.inventory["source_proposal"]["path"], "evidence/identity/proposals/candidate_identity_authority_proposal.json")
         self.assertEqual(len(self.inventory["source_proposal"]["bytes_sha256"]), 64)
         self.assertEqual(self.inventory["source_proposal"]["packet_sha256"], self.proposal["packet_sha256"])
+
+    def test_re_signed_stale_proposal_is_rejected_before_binding_classification(self):
+        proposal = copy.deepcopy(self.proposal)
+        proposal["authority"]["buy_authority"] = True
+        unsigned = dict(proposal)
+        unsigned.pop("packet_sha256")
+        from identity.candidate_identity_authority_review_inventory import _sha
+        proposal["packet_sha256"] = _sha(unsigned)
+        with self.assertRaisesRegex(CandidateIdentityAuthorityReviewInventoryError, "SOURCE_PROPOSAL_BYTES_MISMATCH"):
+            build_inventory(proposal, proposal_path=self.path)
 
     def test_output_is_deterministic_and_registered(self):
         self.assertEqual(self.inventory, build_inventory(copy.deepcopy(self.proposal), proposal_path=self.path))
