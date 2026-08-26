@@ -218,7 +218,8 @@ def _delivery_records(
     if locator.get("slot") != slot or locator.get("decision_date") != expected_kst_date:
         fail("DELIVERY_LOCATOR_IDENTITY_MISMATCH")
     if locator.get("delivery_scope") != [
-        "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"
+        "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
+        "SHADOW_ENTRY_REVIEW",
     ]:
         fail("DELIVERY_LOCATOR_SCOPE_MISMATCH")
     if not isinstance(locator.get("packet_sha256"), str) or not re.fullmatch(

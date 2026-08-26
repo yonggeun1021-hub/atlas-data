@@ -27,6 +27,7 @@ SCHEMA_VERSION = "daily_briefing_delivery/1"
 DELIVERED_COMPONENTS = (
     "INVESTMENT_DECISION_REVIEW",
     "INVESTMENT_REVIEW_SHADOW",
+    "SHADOW_ENTRY_REVIEW",
 )
 
 
@@ -53,6 +54,19 @@ def _sha256(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError as exc:
         _fail("DELIVERY_FILE_UNREADABLE", f"{path}: {type(exc).__name__}")
+
+
+def _contains_post_hoc_key(value) -> bool:
+    forbidden = ("forward_return", "mfe", "mae", "post_hoc", "audit_confirmed_miss")
+    if isinstance(value, dict):
+        return any(
+            any(token in str(key).lower() for token in forbidden)
+            or _contains_post_hoc_key(nested)
+            for key, nested in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_post_hoc_key(item) for item in value)
+    return False
 
 
 def build_locator(repo_root: Path, slot: str, decision_date: str) -> dict:
@@ -173,7 +187,7 @@ def consume(repo_root: Path, expected_slot: str, expected_date: str) -> dict:
             ):
                 _fail("DELIVERY_BLOCKED_REVIEW_ACTION_LEAK")
             bounded["capital"] = 0
-        else:
+        elif component_id == "INVESTMENT_REVIEW_SHADOW":
             capital = bounded["capital"]
             if not isinstance(capital, dict):
                 _fail("DELIVERY_SHADOW_CAPITAL_INVALID")
@@ -186,6 +200,61 @@ def consume(repo_root: Path, expected_slot: str, expected_date: str) -> dict:
                 or bounded["stage_change"] is not None
             ):
                 _fail("DELIVERY_BLOCKED_SHADOW_LEAK")
+        else:
+            bounded = {
+                "component_id": component_id,
+                "status": row.get("status"),
+                "reason": row.get("reason"),
+                "sample_status": packet_body.get("sample_status"),
+                "summary": packet_body.get("summary"),
+                "policy_status": packet_body.get("policy_status"),
+                "review_items": packet_body.get("review_items", []),
+                "why_not_executable": packet_body.get("why_not_executable", []),
+                "trade_proposal": (packet_body.get("authority") or {}).get("trade_proposal"),
+                "capital": (packet_body.get("authority") or {}).get("capital"),
+            }
+            if row.get("status") == "READY":
+                if packet_body.get("schema_version") != "shadow_entry_review_briefing_status/1":
+                    _fail("DELIVERY_SHADOW_REVIEW_SCHEMA_INVALID")
+                packet_authority = packet_body.get("authority")
+                if (
+                    not isinstance(packet_authority, dict)
+                    or packet_authority.get("capital") != 0
+                    or packet_authority.get("trade_proposal") is not None
+                    or any(
+                        packet_authority.get(key) is not False
+                        for key in (
+                            "stage_promotion_authority", "buy_authority", "action_authority",
+                            "order_authority", "production_authority", "trading_authority",
+                        )
+                    )
+                ):
+                    _fail("DELIVERY_SHADOW_REVIEW_AUTHORITY_INVALID")
+                summary = bounded["summary"]
+                items = bounded["review_items"]
+                if (
+                    not isinstance(summary, dict)
+                    or not isinstance(items, list)
+                    or len(items) != summary.get("zero_capital_review_item_count")
+                ):
+                    _fail("DELIVERY_SHADOW_REVIEW_COUNT_INVALID")
+                for item in items:
+                    money = item.get("money_boundary") if isinstance(item, dict) else None
+                    if (
+                        not isinstance(money, dict)
+                        or money.get("capital") != 0
+                        or money.get("trade_proposal") is not None
+                        or any(
+                            money.get(key) is not False
+                            for key in (
+                                "stage_promotion_authority", "buy_authority", "action_authority",
+                                "order_authority", "production_authority", "trading_authority",
+                            )
+                        )
+                    ):
+                        _fail("DELIVERY_SHADOW_REVIEW_ITEM_AUTHORITY_INVALID")
+                if _contains_post_hoc_key(bounded):
+                    _fail("DELIVERY_SHADOW_REVIEW_POST_HOC_FIELD_FORBIDDEN")
         components.append(bounded)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -205,16 +274,32 @@ def render_delivery(delivery: dict) -> str:
     for row in delivery["components"]:
         lines.append(f"### {row['component_id']}: {row['status']}")
         lines.append(f"- reason: {row['reason']}")
-        if row["review_outcome"] is not None:
+        if row.get("review_outcome") is not None:
             lines.append(f"- review_outcome: {row['review_outcome']}")
-        if row["trade_proposal"] is not None:
+        if row.get("trade_proposal") is not None:
             lines.append(f"- trade_proposal: {row['trade_proposal']}")
-        if row["money_action"] is not None:
+        if row.get("money_action") is not None:
             lines.append(f"- money_action: {row['money_action']}")
-        if row["capital"] is not None:
+        if row.get("capital") is not None:
             lines.append(f"- capital: {row['capital']}")
-        if row["ledger_record_created"] is not None:
+        if row.get("ledger_record_created") is not None:
             lines.append(f"- ledger_record_created: {str(row['ledger_record_created']).lower()}")
+        if row["component_id"] == "SHADOW_ENTRY_REVIEW":
+            summary = row.get("summary") or {}
+            lines.append(f"- sample_status: {row.get('sample_status')}")
+            lines.append(
+                f"- zero_capital_review_items: {summary.get('zero_capital_review_item_count')}"
+            )
+            for item in row.get("review_items", []):
+                lines.append(
+                    f"- {item.get('subject')} ({item.get('market')}): "
+                    f"{item.get('review_state')} / {item.get('participation_state')} / "
+                    f"{item.get('review_due_status')} / reason={item.get('review_reason')} / "
+                    "capital=0 / trade_proposal=null"
+                )
+            lines.append(
+                "- why_not_executable: " + ",".join(row.get("why_not_executable", []))
+            )
         lines.append("")
     lines.append("Trading authority: false")
     return "\n".join(lines) + "\n"

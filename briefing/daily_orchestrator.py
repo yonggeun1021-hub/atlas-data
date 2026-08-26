@@ -25,6 +25,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -143,6 +144,16 @@ try:
     DYNAMIC_CLOCK = _load("atlas_daily_dynamic_clock", "clock/run_dynamic_clock.py")
 except Exception:  # noqa: BLE001
     DYNAMIC_CLOCK = None
+# P5-06 -> P7-08 -> P8-13 review-only bridge. This is deliberately loaded
+# independently from DYNAMIC_CLOCK: the bridge validates the exact committed
+# Dynamic Clock/identity/contract generation and exposes only the resulting
+# zero-capital human-review surface.
+try:
+    SHADOW_ENTRY_REVIEW = _load(
+        "atlas_daily_shadow_entry_review", "decision/shadow_entry_review.py"
+    )
+except Exception:  # noqa: BLE001
+    SHADOW_ENTRY_REVIEW = None
 BTC_TREND = _load("atlas_daily_btc_trend", ".github/scripts/btc_trend.py")
 BTC_RISK = _load("atlas_daily_btc_risk", ".github/scripts/btc_risk.py")
 STABLECOIN = _load("atlas_daily_stablecoin", ".github/scripts/stablecoin_net_issuance.py")
@@ -1807,6 +1818,257 @@ def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str)
     )
 
 
+_SHADOW_REVIEW_PACKET_PATH = Path(
+    "evidence/operational/dynamic_clock/shadow_entry_review.json"
+)
+_SHADOW_REVIEW_REPORT_PATH = Path(
+    "evidence/operational/dynamic_clock/dynamic_clock_report.json"
+)
+_SHADOW_REVIEW_IDENTITY_PATH = Path(
+    "evidence/operational/dynamic_clock/candidate_identity_observation.json"
+)
+_SHADOW_REVIEW_CONTRACT_PATH = Path("config/shadow_entry_review_contract.json")
+_SHADOW_REVIEW_FORBIDDEN_POST_HOC_KEYS = frozenset({
+    "forward_return", "mfe", "mae", "post_hoc", "audit",
+})
+_SHADOW_REVIEW_VALIDATION_CACHE: dict[str, dict] = {}
+
+
+def _contains_shadow_review_post_hoc_key(value) -> bool:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            lowered = str(key).lower()
+            if any(token in lowered for token in _SHADOW_REVIEW_FORBIDDEN_POST_HOC_KEYS):
+                return True
+            if _contains_shadow_review_post_hoc_key(nested):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_shadow_review_post_hoc_key(item) for item in value)
+    return False
+
+
+def _shadow_review_source_cache_key() -> str:
+    """Fingerprint every byte that can affect bridge validation.
+
+    Full bridge validation intentionally walks git provenance for every
+    identity row and is expensive. A daily packet build may be repeated many
+    times in one process (semantic rebuild tests and append-only publication).
+    Caching is safe only when the four direct inputs, both identity authority
+    documents, every approval-evidence byte referenced by those documents,
+    the exact git HEAD, and the validator callable itself are unchanged.
+    """
+    paths = [
+        ROOT / _SHADOW_REVIEW_PACKET_PATH,
+        ROOT / _SHADOW_REVIEW_REPORT_PATH,
+        ROOT / _SHADOW_REVIEW_IDENTITY_PATH,
+        ROOT / _SHADOW_REVIEW_CONTRACT_PATH,
+        ROOT / "config/canonical_security_identity.json",
+        ROOT / "config/market_account_scope_map.json",
+    ]
+    for authority_path in paths[-2:]:
+        authority = _read_json(authority_path)
+        for value in authority.values():
+            if not isinstance(value, list):
+                continue
+            for row in value:
+                if not isinstance(row, dict):
+                    continue
+                evidence_ref = row.get("approval_evidence_ref")
+                if isinstance(evidence_ref, str):
+                    paths.append(ROOT / evidence_ref)
+    digest = hashlib.sha256()
+    for path in sorted(set(paths), key=lambda value: value.as_posix()):
+        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    digest.update(head.encode("ascii"))
+    digest.update(str(id(SHADOW_ENTRY_REVIEW.validate_packet)).encode("ascii"))
+    return digest.hexdigest()
+
+
+def _validated_shadow_review_source() -> dict:
+    cache_key = _shadow_review_source_cache_key()
+    cached = _SHADOW_REVIEW_VALIDATION_CACHE.get(cache_key)
+    if cached is not None:
+        return copy.deepcopy(cached)
+    shadow_packet = _read_json(ROOT / _SHADOW_REVIEW_PACKET_PATH)
+    report = _read_json(ROOT / _SHADOW_REVIEW_REPORT_PATH)
+    identity_packet = _read_json(ROOT / _SHADOW_REVIEW_IDENTITY_PATH)
+    review_contract = _read_json(ROOT / _SHADOW_REVIEW_CONTRACT_PATH)
+    trigger_kind = shadow_packet.get("source", {}).get("trigger_kind")
+    validated = SHADOW_ENTRY_REVIEW.validate_packet(
+        shadow_packet,
+        report,
+        identity_packet,
+        review_contract,
+        trigger_kind=trigger_kind,
+    )
+    result = {"packet": validated, "trigger_kind": trigger_kind}
+    _SHADOW_REVIEW_VALIDATION_CACHE[cache_key] = copy.deepcopy(result)
+    return result
+
+
+def _review_due_status(next_review_at: str, decision_date: str) -> str:
+    try:
+        review_day = dt.date.fromisoformat(next_review_at)
+        decision_day = dt.date.fromisoformat(decision_date)
+    except (TypeError, ValueError):
+        fail("SHADOW_ENTRY_REVIEW_TIME_INVALID", str(next_review_at))
+    if review_day < decision_day:
+        return "REVIEW_OVERDUE"
+    if review_day == decision_day:
+        return "REVIEW_DUE_TODAY"
+    return "REVIEW_UPCOMING"
+
+
+def build_shadow_entry_review_status(
+    decision_date: str, slot: str, generated_at: str
+) -> dict:
+    """Validated, bounded, zero-capital human-review briefing surface.
+
+    This component never turns an unratified policy into an entry proposal.
+    It reads the four committed bridge inputs, makes the production bridge
+    independently rebuild the complete packet, then retains only the
+    explicitly reviewable rows. The non-reviewable population remains
+    visible as a count, not a briefing flood. No forward outcome, MFE/MAE or
+    post-hoc audit field is admitted.
+    """
+    component_id = "SHADOW_ENTRY_REVIEW"
+    if SHADOW_ENTRY_REVIEW is None:
+        return component_row(
+            component_id, "UNAVAILABLE", "SHADOW_ENTRY_REVIEW_MODULE_LOAD_FAILED"
+        )
+    try:
+        validation = _validated_shadow_review_source()
+        validated = validation["packet"]
+        trigger_kind = validation["trigger_kind"]
+        if _contains_shadow_review_post_hoc_key(validated):
+            fail("SHADOW_ENTRY_REVIEW_POST_HOC_FIELD_FORBIDDEN", component_id)
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception(component_id, exc)
+
+    source_decision_date = validated["decision_date"]
+    source_generated_at = validated["operational_evaluation"]["evaluated_at_utc"]
+    if source_decision_date != decision_date:
+        return component_row(
+            component_id,
+            "DATA_BLOCKED",
+            "SHADOW_ENTRY_REVIEW_DECISION_DATE_MISMATCH",
+            as_of_date=source_decision_date,
+            generated_at=source_generated_at,
+            available_at=source_generated_at,
+            source_packet_path=_SHADOW_REVIEW_PACKET_PATH.as_posix(),
+            source_packet_sha256=validated["packet_sha256"],
+            validated=True,
+            authority=validated["authority"],
+            contract_version=validated["schema_version"],
+        )
+
+    review_items = []
+    for row in validated["review_items"]:
+        if row["p8_13_review_surface"] != "ZERO_CAPITAL_HUMAN_REVIEW_ITEM":
+            continue
+        money_boundary = copy.deepcopy(row["money_boundary"])
+        if money_boundary.get("capital") != 0 or money_boundary.get("trade_proposal") is not None:
+            fail("SHADOW_ENTRY_REVIEW_MONEY_BOUNDARY_INVALID", row["subject"])
+        if any(
+            money_boundary.get(key) is not False
+            for key in (
+                "stage_promotion_authority", "buy_authority", "action_authority",
+                "order_authority", "production_authority", "trading_authority",
+            )
+        ):
+            fail("SHADOW_ENTRY_REVIEW_AUTHORITY_ESCALATION", row["subject"])
+        review_items.append({
+            "subject": row["subject"],
+            "market": row["market"],
+            "canonical_instrument_id": row["canonical_instrument_id"],
+            "identity_status": row["identity_status"],
+            "trigger_types": copy.deepcopy(row["trigger_types"]),
+            "confirmation_count": row["confirmation_count"],
+            "decision_at": row["decision_at"],
+            "next_review_at": row["next_review_at"],
+            "review_due_status": _review_due_status(
+                row["next_review_at"], decision_date
+            ),
+            "price_state": row["price_state"],
+            "reflection_status": row["reflection_status"],
+            "review_state": row["review_state"],
+            "participation_state": row["participation_state"],
+            "review_reason": row["review_reason"],
+            "p8_13_review_surface": row["p8_13_review_surface"],
+            "money_boundary": money_boundary,
+        })
+
+    expected_count = validated["summary"]["zero_capital_review_item_count"]
+    if len(review_items) != expected_count:
+        fail(
+            "SHADOW_ENTRY_REVIEW_BOUNDED_COUNT_MISMATCH",
+            f"{len(review_items)}!={expected_count}",
+        )
+    sample_status = {
+        "UPSTREAM_WORKFLOW_RUN": "NATURAL_OPERATIONAL_SAMPLE",
+        "MANUAL_WORKFLOW_DISPATCH": "MANUAL_DIAGNOSTIC_SAMPLE",
+        "LOCAL_REPRODUCTION": "LOCAL_REPRODUCTION_ONLY",
+    }.get(trigger_kind)
+    if sample_status is None:
+        fail("SHADOW_ENTRY_REVIEW_TRIGGER_KIND_INVALID", str(trigger_kind))
+
+    packet = {
+        "schema_version": "shadow_entry_review_briefing_status/1",
+        "contract_version": "daily_shadow_entry_review/1",
+        "decision_date": decision_date,
+        "slot": slot,
+        "generated_at": generated_at,
+        "source_operational_evaluated_at": source_generated_at,
+        "sample_status": sample_status,
+        "source": {
+            "shadow_entry_review_path": _SHADOW_REVIEW_PACKET_PATH.as_posix(),
+            "shadow_entry_review_packet_sha256": validated["packet_sha256"],
+            "dynamic_clock_report_path": _SHADOW_REVIEW_REPORT_PATH.as_posix(),
+            "dynamic_clock_report_sha256": validated["source"]["dynamic_clock_report_sha256"],
+            "candidate_identity_path": _SHADOW_REVIEW_IDENTITY_PATH.as_posix(),
+            "candidate_identity_packet_sha256": validated["source"]["candidate_identity_packet_sha256"],
+            "contract_path": _SHADOW_REVIEW_CONTRACT_PATH.as_posix(),
+            "contract_sha256": validated["source"]["contract_sha256"],
+            "trigger_kind": trigger_kind,
+        },
+        "policy_status": copy.deepcopy(validated["policy_status"]),
+        "summary": copy.deepcopy(validated["summary"]),
+        "review_items": review_items,
+        "why_not_executable": [
+            "CANDIDATE_VALIDITY_POLICY_UNRATIFIED",
+            "ENTRY_POLICY_UNRATIFIED",
+            "POSITION_MANAGEMENT_POLICY_UNRATIFIED",
+            "POSITION_SIZE_POLICY_UNRATIFIED",
+        ],
+        "authority": copy.deepcopy(validated["authority"]),
+    }
+    packet["packet_sha256"] = payload_sha256(packet)
+    return component_row(
+        component_id,
+        "READY",
+        None,
+        as_of_date=source_decision_date,
+        generated_at=source_generated_at,
+        available_at=source_generated_at,
+        source_packet_path=_SHADOW_REVIEW_PACKET_PATH.as_posix(),
+        source_packet_sha256=validated["packet_sha256"],
+        validated=True,
+        authority=validated["authority"],
+        contract_version=packet["contract_version"],
+        packet=packet,
+    )
+
+
 def build_regime_invariant_pair(market: str, regime_output: dict) -> tuple[dict, dict]:
     try:
         cash_packet = CASH_EXPOSURE.build_packet(regime_output)
@@ -2158,6 +2420,12 @@ def build_packet(
     rows["DYNAMIC_CLOCK"] = _boundary(
         build_dynamic_clock_status(decision_date, slot, generated_at)
     )
+    # P5-06 -> P7-08 -> P8-13 review-only bridge. Additive and strictly
+    # downstream of Dynamic Clock; never consumed by UNIFIED_DECISION or an
+    # action/order/capital path.
+    rows["SHADOW_ENTRY_REVIEW"] = _boundary(
+        build_shadow_entry_review_status(decision_date, slot, generated_at)
+    )
 
     if set(rows) != set(contract["component_order"]):
         fail(
@@ -2309,6 +2577,7 @@ _SECTION_GROUPS = [
     ("Shadow learning record", ["INVESTMENT_REVIEW_SHADOW"]),
     ("Forward Alpha Review (Pilot)", ["FORWARD_ALPHA_REVIEW"]),
     ("Dynamic Clock (Opportunity Trigger / Review Queue)", ["DYNAMIC_CLOCK"]),
+    ("Zero-capital human review (P5-06 / P7-08 / P8-13)", ["SHADOW_ENTRY_REVIEW"]),
 ]
 
 _STATUS_MARK = {
@@ -2578,6 +2847,28 @@ def _format_component_detail(row: dict) -> list[str]:
                             f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
                             "(full list: evidence/operational/dynamic_clock/briefing_section.json)"
                         )
+        elif cid == "SHADOW_ENTRY_REVIEW":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - sample_status={packet.get('sample_status')} "
+                f"candidates={summary.get('candidate_count')} "
+                f"zero_capital_review_items={summary.get('zero_capital_review_item_count')} "
+                f"probe_reviews={summary.get('probe_review_count')}"
+            )
+            for item in packet.get("review_items", []):
+                lines.append(
+                    f"    - {item.get('subject')} ({item.get('market')}): "
+                    f"review_state={item.get('review_state')} "
+                    f"participation={item.get('participation_state')} "
+                    f"price_state={item.get('price_state')} "
+                    f"review_due={item.get('review_due_status')} "
+                    f"next_review_at={item.get('next_review_at')} "
+                    f"reason={item.get('review_reason')} capital=0 trade_proposal=null"
+                )
+            lines.append(
+                "    - why_not_executable="
+                + ",".join(packet.get("why_not_executable", []))
+            )
     except (AttributeError, TypeError, KeyError):
         # A packet shape the renderer does not recognize must never break
         # the whole briefing render -- fall back to no detail line rather
