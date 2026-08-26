@@ -11,10 +11,13 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 CONTRACT_PATH = ROOT / "config" / "rotation_discovery_briefing_contract.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -34,6 +37,10 @@ ROTATION = _load_module(
 )
 DISCOVERY = _load_module(
     "atlas_event_discovery_case", ROOT / "discovery" / "event_case.py"
+)
+DYNAMIC_SIGNAL = _load_module(
+    "atlas_rotation_discovery_dynamic_signal",
+    ROOT / "decision" / "dynamic_clock_signal_observation.py",
 )
 
 
@@ -59,10 +66,11 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "rotation_discovery_briefing/1",
-        "output_schema_version": "rotation_discovery_briefing_packet/1",
+        "contract_version": "rotation_discovery_briefing/2",
+        "output_schema_version": "rotation_discovery_briefing_packet/2",
         "rotation_source_contract": "rotation_state_ledger/1",
         "discovery_source_contract": "event_discovery_case/2",
+        "signal_observation_source_contract": "dynamic_clock_signal_observation/1",
         "market_order": ["US", "KOREA", "CRYPTO"],
         "rotation_states": ["EMERGING", "STRONG", "WEAKENING"],
         "evidence_statuses": [
@@ -229,6 +237,65 @@ def _discovery_section(
     }
 
 
+def _signal_observation_section(dynamic_report: dict | None, generated_at: str, contract: dict) -> dict:
+    """Expose real Dynamic Clock subjects without calling them candidates.
+
+    These are signal observations only.  They cannot populate the existing
+    ``new_candidates`` or ``existing_candidate_changes`` fields because
+    doing so would silently grant the importance/promotion authority that
+    P8-05 deliberately does not own.
+    """
+    if dynamic_report is None:
+        return {
+            "status": "NOT_AVAILABLE",
+            "observation_count": 0,
+            "market_counts": {market: 0 for market in ("BTC", "CRYPTO", "KOREA")},
+            "tier_counts_diagnostic_only": {
+                tier: 0 for tier in ("IMMEDIATE_REVIEW", "WATCH_REVIEW", "OBSERVATION_ONLY")
+            },
+            "observations": [],
+            "source_packet_sha256": None,
+        }
+    try:
+        source = DYNAMIC_SIGNAL.build_packet(dynamic_report, generated_at)
+    except DYNAMIC_SIGNAL.DynamicClockSignalObservationError as exc:
+        raise RotationDiscoveryBriefingError(
+            f"DYNAMIC_SIGNAL_INPUT_INVALID:{exc}"
+        ) from exc
+    if source["contract_version"] != contract["signal_observation_source_contract"]:
+        raise RotationDiscoveryBriefingError("DYNAMIC_SIGNAL_CONTRACT_INVALID")
+    rows = []
+    market_counts = {market: 0 for market in ("BTC", "CRYPTO", "KOREA")}
+    tier_counts = {
+        tier: 0 for tier in ("IMMEDIATE_REVIEW", "WATCH_REVIEW", "OBSERVATION_ONLY")
+    }
+    for row in source["subjects"]:
+        tier = row["source_tier_observed_not_used_for_authority"]
+        if tier not in tier_counts:
+            raise RotationDiscoveryBriefingError("DYNAMIC_SIGNAL_TIER_INVALID")
+        market_counts[row["source_market"]] += 1
+        tier_counts[tier] += 1
+        rows.append({
+            "boundary_subject_id": row["boundary_subject_id"],
+            "source_market": row["source_market"],
+            "source_subject": row["source_subject"],
+            "trigger_types": copy.deepcopy(row["source_trigger_types"]),
+            "tier_diagnostic_only": tier,
+            "signal_id": row["signal_id"],
+            "candidate_record_sha256": row["source_candidate_record_hash"],
+            "market_projection_status": row["market_projection_status"],
+            "ready_status": "NOT_EVALUATED",
+            "promotion_status": "PROMOTION_NOT_AUTHORIZED",
+            "action": None,
+        })
+    return {
+        "status": "SIGNAL_OBSERVATIONS_PRESENT_NO_PROMOTION_AUTHORITY",
+        "observation_count": len(rows),
+        "market_counts": market_counts,
+        "tier_counts_diagnostic_only": tier_counts,
+        "observations": rows,
+        "source_packet_sha256": source["packet_sha256"],
+    }
 def build_briefing(
     rotation_ledger: dict,
     discovery_records: list[dict],
@@ -236,6 +303,7 @@ def build_briefing(
     slot: str,
     generated_at: str,
     contract: dict | None = None,
+    dynamic_report: dict | None = None,
 ) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if slot not in contract["slots"]:
@@ -245,6 +313,9 @@ def build_briefing(
     discovery = _discovery_section(
         discovery_records, evidence_bindings, generated, contract
     )
+    signal_observations = _signal_observation_section(
+        dynamic_report, generated_at, contract
+    )
     packet = {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
@@ -253,11 +324,15 @@ def build_briefing(
         "status": contract["status"],
         "rotation": rotation,
         "discovery": discovery,
+        "signal_observations": signal_observations,
         "summary": {
             "rotation_change_count": rotation["latest_change_count"],
             "discovery_case_count": discovery["case_count"],
             "new_candidate_count": 0,
             "existing_candidate_change_count": 0,
+            "signal_observation_count": signal_observations["observation_count"],
+            "ready_count": 0,
+            "entry_trigger_count": 0,
             "ranked_candidate": None,
             "action": None,
         },
@@ -279,7 +354,7 @@ def validate_briefing(packet: dict, contract: dict | None = None) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "slot", "generated_at", "status",
-        "rotation", "discovery", "summary", "authority", "unresolved_boundaries",
+        "rotation", "discovery", "signal_observations", "summary", "authority", "unresolved_boundaries",
         "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
@@ -295,7 +370,12 @@ def validate_briefing(packet: dict, contract: dict | None = None) -> dict:
     generated = _utc(packet.get("generated_at"), "BRIEFING_GENERATED_AT_INVALID")
     rotation = packet.get("rotation")
     discovery = packet.get("discovery")
-    if not isinstance(rotation, dict) or not isinstance(discovery, dict):
+    signal_observations = packet.get("signal_observations")
+    if (
+        not isinstance(rotation, dict)
+        or not isinstance(discovery, dict)
+        or not isinstance(signal_observations, dict)
+    ):
         raise RotationDiscoveryBriefingError("BRIEFING_SECTIONS_INVALID")
     rotation_fields = {
         "ledger_status", "ledger_revision", "latest_change_count", "state_counts",
@@ -412,11 +492,80 @@ def validate_briefing(packet: dict, contract: dict | None = None) -> dict:
         or discovery.get("source_coverage") != DISCOVERY.load_contract()["source_coverage"]
     ):
         raise RotationDiscoveryBriefingError("BRIEFING_DISCOVERY_SUMMARY_INVALID")
+    signal_fields = {
+        "status", "observation_count", "market_counts",
+        "tier_counts_diagnostic_only", "observations", "source_packet_sha256",
+    }
+    if set(signal_observations) != signal_fields:
+        raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_SECTION_FIELDS_INVALID")
+    observations = signal_observations.get("observations")
+    if not isinstance(observations, list):
+        raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_ROWS_INVALID")
+    observation_fields = {
+        "boundary_subject_id", "source_market", "source_subject", "trigger_types",
+        "tier_diagnostic_only", "signal_id", "candidate_record_sha256",
+        "market_projection_status", "ready_status", "promotion_status", "action",
+    }
+    source_markets = ("BTC", "CRYPTO", "KOREA")
+    tiers = ("IMMEDIATE_REVIEW", "WATCH_REVIEW", "OBSERVATION_ONLY")
+    derived_market_counts = {market: 0 for market in source_markets}
+    derived_tier_counts = {tier: 0 for tier in tiers}
+    observation_keys = []
+    for row in observations:
+        if not isinstance(row, dict) or set(row) != observation_fields:
+            raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_ROW_FIELDS_INVALID")
+        market = row.get("source_market")
+        tier = row.get("tier_diagnostic_only")
+        trigger_types = row.get("trigger_types")
+        if (
+            market not in source_markets
+            or tier not in tiers
+            or not isinstance(row.get("source_subject"), str)
+            or not row["source_subject"]
+            or not isinstance(trigger_types, list)
+            or not trigger_types
+            or trigger_types != sorted(set(trigger_types))
+            or row.get("ready_status") != "NOT_EVALUATED"
+            or row.get("promotion_status") != "PROMOTION_NOT_AUTHORIZED"
+            or row.get("action") is not None
+        ):
+            raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_ROW_VALUE_INVALID")
+        for field in ("candidate_record_sha256",):
+            if not isinstance(row.get(field), str) or SHA256_RE.fullmatch(row[field]) is None:
+                raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_ROW_SHA_INVALID")
+        for field in ("boundary_subject_id", "signal_id", "market_projection_status"):
+            if not isinstance(row.get(field), str) or not row[field]:
+                raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_ROW_VALUE_INVALID")
+        derived_market_counts[market] += 1
+        derived_tier_counts[tier] += 1
+        observation_keys.append((market, row["source_subject"]))
+    if observation_keys != sorted(set(observation_keys)):
+        raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_ROW_ORDER_INVALID")
+    expected_signal_status = (
+        "SIGNAL_OBSERVATIONS_PRESENT_NO_PROMOTION_AUTHORITY"
+        if observations else "NOT_AVAILABLE"
+    )
+    if (
+        signal_observations.get("status") != expected_signal_status
+        or signal_observations.get("observation_count") != len(observations)
+        or signal_observations.get("market_counts") != derived_market_counts
+        or signal_observations.get("tier_counts_diagnostic_only") != derived_tier_counts
+    ):
+        raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_SUMMARY_INVALID")
+    signal_source_sha = signal_observations.get("source_packet_sha256")
+    if observations:
+        if not isinstance(signal_source_sha, str) or SHA256_RE.fullmatch(signal_source_sha) is None:
+            raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_SOURCE_SHA_INVALID")
+    elif signal_source_sha is not None:
+        raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_SOURCE_SHA_INVALID")
     expected_summary = {
         "rotation_change_count": len(rotation["latest_changes"]),
         "discovery_case_count": len(discovery["cases"]),
         "new_candidate_count": 0,
         "existing_candidate_change_count": 0,
+        "signal_observation_count": len(observations),
+        "ready_count": 0,
+        "entry_trigger_count": 0,
         "ranked_candidate": None,
         "action": None,
     }
