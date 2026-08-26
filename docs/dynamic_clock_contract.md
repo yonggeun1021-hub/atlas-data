@@ -216,7 +216,8 @@ it) and now wires in the REAL `price_reflection` link:
 in the PR report for the full split): BTC `price_state=OVEREXTENDED`,
 `reflection_status=UNKNOWN`, `threshold_basis=PROVISIONAL`, tier
 `WATCH_REVIEW`. Korea 005930 `MODERATE`, 000660 `WEAK`, 298040 `MODERATE`,
-all `WATCH_REVIEW`. Korea 034020 (두산에너빌리티, zero committed evidence)
+all `WATCH_REVIEW`. Korea 034020 (두산에너빌리티, no evidence PIT-available
+at that report's decision date)
 `price_state=UNKNOWN`/`data_state=PRICE_DATA_MISSING` -- honest, not
 fabricated. CRYPTO altcoins: `price_reflection_status=NOT_LINKED_THIS_SLICE`
 for all (P8-10 doesn't cover them). `IMMEDIATE_REVIEW` remains 0 in every

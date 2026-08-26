@@ -63,6 +63,15 @@ class PilotEvidenceIntakeTests(unittest.TestCase):
         self.assertEqual(packet["evidence_lineage"], [])
         self.assertEqual(packet["atlas_linked_ticker"], "034020.KS")
 
+    def test_doosan_blocker_is_pit_accurate_not_repository_global(self):
+        ft_input = MODULE.build_doosan_enerbility_forward_thesis_input(
+            MODULE.PILOT_DECISION_DATE, MODULE.PILOT_GENERATED_AT
+        )
+        text = " ".join(ft_input["unknowns"] + ft_input["earnings_conversion"]["blockers"])
+        self.assertIn("frozen decision date", text)
+        self.assertIn("Later captures must not be backfilled", text)
+        self.assertNotIn("anywhere in this repository", text)
+
     def test_tsm_unextracted_accessions_never_back_an_exhibit_extracted_fact(self):
         """Regression guarding the raw-vs-extracted confusion: none of the
         four PENDING/EXTRACTOR_NOT_REGISTERED TSM accessions may ever appear

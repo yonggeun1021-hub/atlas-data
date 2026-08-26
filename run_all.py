@@ -886,8 +886,9 @@ APPROVED_TESTS = [
     #   data/observations/korea_leadership_context/<date>/packet.json의 실제
     #   KOSPI_BENCHMARK/KOSDAQ_BENCHMARK day-over-day cumulative_gross_return을
     #   체인링크해 조합한다 (repo에 raw 지수 시계열이 커밋된 적이 없어 이것이
-    #   유일한 real, non-fabricated 벤치마크). 034020처럼 evidence가 전무한
-    #   subject는 모든 필드가 정직하게 None. 새 external API 호출 없음.
+    #   유일한 real, non-fabricated 벤치마크). 요청 decision_date 이전에
+    #   PIT-available evidence가 없는 subject는 모든 필드가 정직하게 None이며,
+    #   이후 capture를 소급 사용하지 않는다. 새 external API 호출 없음.
     #   CIO round 2: 코드-주석 형태였던 KOREA_STOCK_MARKET_MEMBERSHIP 하드코딩을
     #   폐기하고 config/korea_market_membership.json(source/observation_date/
     #   source_sha256/approval_status 명시)으로 교체 — 전 항목 UNRATIFIED이므로
@@ -952,8 +953,9 @@ APPROVED_TESTS = [
     #   evidence_status=OK·real extracted quote가 있는 000536만 EXHIBIT_EXTRACTED
     #   observed_fact를 뒷받침하고, 나머지 4개(EXTRACTOR_NOT_REGISTERED)는
     #   evidence_lineage로만 인용한다. Hyosung 수주잔고/가이던스는 전부
-    #   NARRATIVE_SOURCED. 034020.KS는 observed_facts/evidence_lineage가 항상
-    #   빈 배열이며 실제 run_all_pilots() 결과 opportunity_state=BLOCKED다.
+    #   NARRATIVE_SOURCED. frozen 2026-08-22 Pilot에서 034020.KS는 당시
+    #   PIT-available evidence가 없어 observed_facts/evidence_lineage가 빈
+    #   배열이며 실제 run_all_pilots() 결과 opportunity_state=BLOCKED다.
     #   packet_sha256는 재실행해도 byte-identical하다.
     #   ⛔ tracked output 없음 — temp packet only, live network 없음.
     "test/test_pilot_evidence_intake.py",
