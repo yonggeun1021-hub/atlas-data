@@ -8,7 +8,7 @@
     "trading_authority": false
   },
   "decision_date": "2026-08-26",
-  "packet_sha256": "7e31b9c226076b6e945750f61bdc12ddc808b4f6fc0d1db5e741d3487da37244",
+  "packet_sha256": "332885c6d45e6169945979ae192e372a2b121fd3e530056b5aa88e453d63ac27",
   "policy_boundary": {
     "candidate_validity_evaluated": false,
     "canonical_config_modified": false,
@@ -532,12 +532,36 @@
       },
       "candidate_id": "284e51fcf01768daf97d40b77bb90c548bde860ddcc1b9b1edfd9aff7f0c2434",
       "market": "CRYPTO",
-      "proposed_rows": null,
-      "reason_codes": [
-        "KRAKEN_PAIR_IDENTITY_FIELDS_MISMATCH"
-      ],
-      "review_status": "EVIDENCE_INCOMPLETE_NOT_PROPOSED",
-      "subject": "DOGE/USD"
+      "proposal_naming_basis": "MECHANICAL_CONVENTION_PROPOSED_UNRATIFIED",
+      "proposal_status": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+      "proposed_rows": {
+        "instrument": {
+          "canonical_instrument_id": "CRYPTO:DOGE",
+          "canonical_issuer_id": "CRYPTO:DOGE",
+          "instrument_type": "CRYPTO_ASSET"
+        },
+        "issuer": {
+          "canonical_issuer_id": "CRYPTO:DOGE",
+          "issuer_name_reference": "DOGE"
+        },
+        "listing": {
+          "canonical_instrument_id": "CRYPTO:DOGE",
+          "currency": "USD",
+          "exchange": "KRAKEN",
+          "listing_id": "KRAKEN:DOGE-USD:SPOT",
+          "market": "CRYPTO",
+          "ticker": "DOGE/USD"
+        },
+        "source_alias": {
+          "listing_id": "KRAKEN:DOGE-USD:SPOT",
+          "source_asset_id": "DOGE/USD",
+          "source_name": "kraken_spot_ohlc"
+        }
+      },
+      "reason_codes": [],
+      "review_status": "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW",
+      "subject": "DOGE/USD",
+      "taxonomy_effective_from": "2026-08-22"
     },
     {
       "authority": {
@@ -2428,8 +2452,8 @@
     "gap_count": 58,
     "proposal_count": 58,
     "review_status_counts": {
-      "EVIDENCE_INCOMPLETE_NOT_PROPOSED": 2,
-      "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW": 56
+      "EVIDENCE_INCOMPLETE_NOT_PROPOSED": 1,
+      "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW": 57
     }
   }
 }

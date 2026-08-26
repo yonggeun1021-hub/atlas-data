@@ -27,10 +27,10 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     def test_real_gap_population_reconciles(self):
         self.assertEqual(self.packet["summary"]["gap_count"], 58)
         self.assertEqual(self.packet["summary"]["proposal_count"], 58)
-        self.assertEqual(self.packet["summary"]["review_status_counts"], {COMPLETE: 56, INCOMPLETE: 2})
+        self.assertEqual(self.packet["summary"]["review_status_counts"], {COMPLETE: 57, INCOMPLETE: 1})
         doge = next(x for x in self.packet["proposals"] if x["subject"] == "DOGE/USD")
-        self.assertEqual(doge["review_status"], INCOMPLETE)
-        self.assertIn("KRAKEN_PAIR_IDENTITY_FIELDS_MISMATCH", doge["reason_codes"])
+        self.assertEqual(doge["review_status"], COMPLETE)
+        self.assertEqual(doge["proposed_rows"]["source_alias"]["source_asset_id"], "DOGE/USD")
 
     def test_mechanical_proposals_remain_unratified_and_create_no_authority(self):
         self.assertEqual(self.packet["summary"]["canonical_authority_rows_created"], 0)
@@ -45,6 +45,31 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
         gap["provider_pair_diagnostics"][0]["diagnostic_status"] = "TAXONOMY_RECORD_NOT_FOUND"
         row = _proposal(gap, {})
         self.assertEqual(row["review_status"], INCOMPLETE)
+
+    def test_provider_display_alias_may_differ_when_exact_key_and_structured_identity_match(self):
+        gap = {
+            "candidate_id": "doge",
+            "market": "CRYPTO",
+            "subject": "DOGE/USD",
+            "provider_pair_diagnostics": [{
+                "source_asset_id": "DOGE/USD",
+                "taxonomy_canonical_asset_id": "DOGE",
+                "diagnostic_status": "MECHANICAL_TAXONOMY_SYMBOL_MATCH_DIAGNOSTIC",
+                "source_name": "kraken_asset_pairs",
+                "taxonomy_effective_from": "2026-08-22",
+            }],
+        }
+        pairs = {
+            "DOGE/USD": {
+                "wsname": "XDG/USD",
+                "base": "DOGE",
+                "quote": "USD",
+                "status": "online",
+            }
+        }
+        self.assertEqual(_proposal(gap, pairs)["review_status"], COMPLETE)
+        pairs["DOGE/USD"]["base"] = "NOT_DOGE"
+        self.assertEqual(_proposal(gap, pairs)["review_status"], INCOMPLETE)
 
     def test_resigned_source_gap_tamper_is_independently_rejected(self):
         gaps = copy.deepcopy(self.gaps)
