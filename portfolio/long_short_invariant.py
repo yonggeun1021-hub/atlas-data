@@ -9,10 +9,15 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from rules import deterministic_rule_evaluator as RULE_EVALUATOR  # noqa: E402
 CONTRACT_PATH = ROOT / "config" / "long_short_invariant_contract.json"
 RULES_PATH = ROOT / "config" / "rules.json"
 OUTPUT_SCHEMA_VERSION = "long_short_invariant_packet/1"
@@ -45,8 +50,8 @@ def _expected_contract() -> dict:
         "schema_version": 1,
         "contract_version": "long_short_invariant/1",
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
-        "upstream_contract_version": "deterministic_rule_evaluator/1",
-        "upstream_schema_version": "deterministic_rule_evaluation_packet/1",
+        "upstream_contract_version": "deterministic_rule_evaluator/2",
+        "upstream_schema_version": "deterministic_rule_evaluation_packet/2",
         "upstream_status": "BOUNDARY_CLASSIFIED_PASS_FAIL_NOT_AUTHORIZED",
         "canonical_rule_count": 25,
         "accepted_long_results": list(LONG_RESULTS),
@@ -133,8 +138,8 @@ def assert_short_result_not_derived(long_result: str, proposed_short_result) -> 
 def _validate_upstream_packet(value: dict, contract: dict) -> dict:
     packet_fields = {
         "schema_version", "contract_version", "status", "binding_set_id",
-        "summary", "rules", "lineage", "authority", "unresolved_boundaries",
-        "packet_sha256",
+        "frozen_binding_packet", "summary", "rules", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(value, dict) or set(value) != packet_fields:
         raise LongShortInvariantError("UPSTREAM_PACKET_FIELDS_MISMATCH")
@@ -209,6 +214,12 @@ def _validate_upstream_packet(value: dict, contract: dict) -> dict:
     }
     if value.get("summary") != expected_summary:
         raise LongShortInvariantError("UPSTREAM_SUMMARY_MISMATCH")
+    try:
+        RULE_EVALUATOR.validate_packet(value)
+    except RULE_EVALUATOR.DeterministicRuleEvaluatorError as exc:
+        raise LongShortInvariantError(
+            f"UPSTREAM_SEMANTIC_INVALID:{exc}"
+        ) from exc
     return {
         "packet_sha256": digest,
         "binding_set_id": value["binding_set_id"],

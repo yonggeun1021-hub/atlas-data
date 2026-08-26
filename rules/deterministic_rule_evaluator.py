@@ -22,7 +22,7 @@ from bridge import rule_evidence_binding as RULE_EVIDENCE_BINDING  # noqa: E402
 
 CONTRACT_PATH = ROOT / "config" / "deterministic_rule_evaluator_contract.json"
 RULES_PATH = ROOT / "config" / "rules.json"
-OUTPUT_SCHEMA_VERSION = "deterministic_rule_evaluation_packet/1"
+OUTPUT_SCHEMA_VERSION = "deterministic_rule_evaluation_packet/2"
 RULE_ID_RE = re.compile(r"^RULE-\d{4}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 LINK_STATUSES = ("LINK_AVAILABLE", "LINK_BLOCKED", "LINK_UNRESOLVED")
@@ -51,7 +51,7 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "deterministic_rule_evaluator/1",
+        "contract_version": "deterministic_rule_evaluator/2",
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "upstream_binding_contract_version": "rule_evidence_binding/2",
         "upstream_binding_schema_version": "rule_evidence_binding_packet/2",
@@ -301,6 +301,7 @@ def build_packet(
         "contract_version": contract["contract_version"],
         "status": "BOUNDARY_CLASSIFIED_PASS_FAIL_NOT_AUTHORIZED",
         "binding_set_id": checked["binding_set_id"],
+        "frozen_binding_packet": copy.deepcopy(binding_packet),
         "summary": {"total_rules": len(output), **counts},
         "rules": output,
         "lineage": {
@@ -336,8 +337,8 @@ def validate_packet(
         ) from exc
     fields = {
         "schema_version", "contract_version", "status", "binding_set_id",
-        "summary", "rules", "lineage", "authority", "unresolved_boundaries",
-        "packet_sha256",
+        "frozen_binding_packet", "summary", "rules", "lineage", "authority",
+        "unresolved_boundaries", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise DeterministicRuleEvaluatorError("OUTPUT_FIELDS_MISMATCH")
@@ -348,6 +349,17 @@ def validate_packet(
         or packet.get("authority") != contract["authority"]
     ):
         raise DeterministicRuleEvaluatorError("OUTPUT_IDENTITY_INVALID")
+    try:
+        checked_binding = _validate_binding_packet(
+            packet.get("frozen_binding_packet"), rules, contract
+        )
+    except DeterministicRuleEvaluatorError as exc:
+        raise DeterministicRuleEvaluatorError(
+            f"OUTPUT_FROZEN_BINDING_INVALID:{exc}"
+        ) from exc
+    if packet.get("binding_set_id") != checked_binding["binding_set_id"]:
+        raise DeterministicRuleEvaluatorError("OUTPUT_BINDING_SET_ID_MISMATCH")
+    binding_rows = {row["rule_id"]: row for row in checked_binding["rules"]}
     rows = packet.get("rules")
     if not isinstance(rows, list) or len(rows) != contract["canonical_rule_count"]:
         raise DeterministicRuleEvaluatorError("OUTPUT_RULE_COUNT_INVALID")
@@ -367,7 +379,8 @@ def validate_packet(
             raise DeterministicRuleEvaluatorError("OUTPUT_RULE_FIELDS_MISMATCH")
         rule_id = row.get("rule_id")
         rule = registry.get(rule_id)
-        if rule is None:
+        binding_row = binding_rows.get(rule_id)
+        if rule is None or binding_row is None:
             raise DeterministicRuleEvaluatorError(f"OUTPUT_RULE_UNKNOWN:{rule_id}")
         static = {
             "subject": rule["subject"],
@@ -385,16 +398,20 @@ def validate_packet(
                 f"OUTPUT_RULE_REGISTRY_MISMATCH:{rule_id}"
             )
         if (
-            row.get("link_status") not in LINK_STATUSES
-            or not isinstance(row.get("link_reasons"), list)
+            row.get("link_status") != binding_row["link_status"]
+            or row.get("link_reasons") != binding_row["link_reasons"]
+            or row.get("evidence_reference_set_sha256")
+            != payload_sha256(binding_row["evidence_references"])
             or row.get("evaluation_spec_sha256") is not None
         ):
-            raise DeterministicRuleEvaluatorError(f"OUTPUT_RULE_VALUE_INVALID:{rule_id}")
+            raise DeterministicRuleEvaluatorError(
+                f"OUTPUT_RULE_NOT_DERIVED_FROM_FROZEN_BINDING:{rule_id}"
+            )
         _sha(
             row.get("evidence_reference_set_sha256"),
             f"OUTPUT_EVIDENCE_SET_SHA_INVALID:{rule_id}",
         )
-        expected_result, expected_reasons = _classify(rule, row)
+        expected_result, expected_reasons = _classify(rule, binding_row)
         if row.get("result") != expected_result or row.get("reasons") != expected_reasons:
             raise DeterministicRuleEvaluatorError(
                 f"OUTPUT_RULE_DERIVATION_MISMATCH:{rule_id}"
@@ -416,6 +433,15 @@ def validate_packet(
         raise DeterministicRuleEvaluatorError("OUTPUT_RULE_REGISTRY_SHA_MISMATCH")
     for key in lineage_fields - {"rule_registry_sha256"}:
         _sha(lineage.get(key), f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
+    if lineage != {
+        "rule_registry_sha256": payload_sha256(rules),
+        "binding_packet_sha256": checked_binding["packet_sha256"],
+        "binding_set_sha256": checked_binding["inputs"]["binding_set_sha256"],
+        "evidence_set_sha256": checked_binding["inputs"]["evidence_set_sha256"],
+    }:
+        raise DeterministicRuleEvaluatorError(
+            "OUTPUT_LINEAGE_NOT_DERIVED_FROM_FROZEN_BINDING"
+        )
     if packet.get("unresolved_boundaries") != [
         "P5_02_RULE_SOURCE_FRESHNESS_THRESHOLD_POLICY_BLOCKED",
         "RULE_REGISTRY_CONSUMABLE_BY_EVALUATOR_FALSE",

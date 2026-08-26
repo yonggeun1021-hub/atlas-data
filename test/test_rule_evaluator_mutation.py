@@ -71,7 +71,7 @@ class RuleEvaluatorMutationTests(unittest.TestCase):
         )
         self.assertEqual(matrix["targets"], [
             "rule_evidence_binding/2",
-            "deterministic_rule_evaluator/1",
+            "deterministic_rule_evaluator/2",
         ])
         self.assertTrue(matrix["pass_fail_must_remain_zero"])
         self.assertEqual(len(matrix["scenarios"]), 13)
