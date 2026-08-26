@@ -860,6 +860,7 @@ APPROVED_TESTS = [
     #   SHA·생성시각·변경 이유·evidence·chain을 검증한다. 해석/action은 null이다.
     #   ⛔ live Decision/Shadow wiring/Production/trading 없음.
     "test/test_decision_change_lineage.py",
+    "test/test_decision_change_lineage_operational.py",
     # ★ WS2 — rule0022-observation workflow 계약. 실제/연습 source 명시 선택 ·
     #   모순 입력 fail-closed · parameter application guard 를 **워크플로 정의
     #   자체**에 대해 검증한다.

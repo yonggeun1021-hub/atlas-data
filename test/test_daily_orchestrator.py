@@ -1825,6 +1825,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("daily_briefing_delivery.py consume", command)
         self.assertIn("publish_scheduled_briefing_authority.py publish", command)
         self.assertIn("publish_scheduled_briefing_authority.py validate", command)
+        self.assertIn("decision/decision_change_lineage_operational.py", command)
         self.assertNotIn('SOURCE_COMMIT=$(git rev-parse HEAD)', command)
         self.assertIn('CONSUMER_READY_COMMIT=$(git rev-parse HEAD)', command)
         self.assertIn('--source-commit "$CONSUMER_READY_COMMIT"', command)
@@ -1859,6 +1860,8 @@ class DailyOrchestratorTest(unittest.TestCase):
             "git add data/briefing/daily_briefing_sources.json", command
         )
         self.assertIn('git add "$AUTHORITY_PATH"', command)
+        self.assertIn('git add "$LINEAGE_PATH"', command)
+        self.assertIn("record_created=//p", command)
         self.assertNotIn("git pull --rebase", command)
         self.assertIn('if git push origin "HEAD:$DEFAULT_BRANCH"; then', command)
         self.assertIn("main advanced twice; no briefing locator was published", command)
