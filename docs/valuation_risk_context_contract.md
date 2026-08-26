@@ -1,6 +1,7 @@
 # P3-10 Valuation / Risk deterioration context contract
 
-Status: offline attachment capability; live context population and interpretation policy are not implemented.
+Status: Crypto BTC PIT risk-source population is scheduled; candidate binding,
+valuation population, and interpretation policy remain gated.
 
 ## Candidate boundary
 
@@ -41,7 +42,7 @@ Rule evaluation, portfolio action, Production, or trading authority.
 
 ## Persisted packet validation
 
-`valuation_risk_context_packet/2`는 정규화한 `source_policy` 전체를 보존한다.
+`valuation_risk_context_packet/3`는 정규화한 `source_policy` 전체를 보존한다.
 `validate_packet()`은 ingestion과 동일한 정책 validator를 소비 시점에 다시
 실행하고, 정책 SHA·유효기간·exact context rule·방향·minimum으로 interpretation
 label과 proof를 재계산한다.
@@ -59,7 +60,21 @@ interpretation label·proof, candidate/dimension/packet summary와 모든 권한
 
 ## Operation
 
-The helper makes no network request and writes only to an explicit path outside
-the repository. A failed run preserves an existing output. Workflow wiring,
-tracked context artifacts, live population, and briefing integration remain
-separate WBS gates.
+The generic helper makes no network request and writes only to an explicit path
+outside the repository. A failed run preserves an existing output.
+
+`.github/scripts/p3_10_crypto_risk_population.py` reuses the scheduled immutable
+Kraken snapshot, the existing `btc_risk/v1` transform, and the ratified BTC
+canonical identity. It publishes the latest two finalized observations for
+current drawdown magnitude, maximum drawdown magnitude, and annualized realized
+volatility under
+`evidence/valuation_risk_sources/crypto/YYYY-MM-DD/rev-001.json`. Existing
+revisions must be byte-identical and are never overwritten.
+
+The tracked packet is deliberately detached from candidates. If no existing BTC
+case uses an allowed Discovery Case schema, the packet remains
+`BLOCKED_NO_ALLOWED_CASE`. `build_candidate_packet()` only binds the same raw
+observations after a caller supplies such an immutable case reference. It does
+not create a case or interpretation policy. Crypto valuation, US/Korea live
+population, deterioration policy, and briefing integration remain separate WBS
+gates.

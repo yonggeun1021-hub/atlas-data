@@ -99,7 +99,7 @@ class OperationalValidationRegistryTest(unittest.TestCase):
                 "P1-US-06", "P1-US-07", "P1-KR-03", "P1-KR-04",
                 "P1-KR-06", "P1-KR-07", "P1-CR-04", "P1-CR-05",
                 "P1-CR-06", "P1-CR-07", "P1-COM-03", "P1-COM-04",
-                "P3-09", "P4-02", "P4-03", "P4-04", "P4-06", "P5-02",
+                "P3-09", "P3-10", "P4-02", "P4-03", "P4-04", "P4-06", "P5-02",
             },
         )
         allowed = set(REGISTRY["automation_states"])

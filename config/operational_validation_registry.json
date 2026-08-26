@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "reviewed_as_of": "2026-08-26",
+  "reviewed_as_of": "2026-08-27",
   "execution_platform": "github_actions",
   "local_machine_required": false,
-  "active_wbs_snapshot_count": 23,
+  "active_wbs_snapshot_count": 24,
   "automation_states": [
     "SCHEDULED_INLINE",
     "SCHEDULED_UPSTREAM",
@@ -163,6 +163,17 @@
         "stablecoin_supply_demand_population.py"
       ],
       "remaining_gate": "first committed operational Crypto packet; Korea/US series and availability boundaries; direction/minimum-change policy; cross-market comparability and ranking remain unresolved"
+    },
+    {
+      "work_item_id": "P3-10",
+      "automation_state": "SCHEDULED_INLINE",
+      "workflow": ".github/workflows/btc-price-capture.yml",
+      "crons": ["20 0 * * *"],
+      "required_workflow_tokens": [
+        "Populate P3-10 Crypto risk source context",
+        "p3_10_crypto_risk_population.py"
+      ],
+      "remaining_gate": "first committed operational Crypto source packet; an actual allowed BTC Discovery Case; deterioration metric/direction/minimum policy; Crypto valuation and US/Korea live population"
     },
     {
       "work_item_id": "P4-02",

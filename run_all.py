@@ -267,6 +267,11 @@ APPROVED_TESTS = [
     #   결측은 UNKNOWN/ABSENT, Crypto valuation은 UNDEFINED이며 candidate/Stage/Rule/
     #   Portfolio/Production/trading 권한은 모두 닫는다. temp output only.
     "test/test_valuation_risk_context.py",
+    # ★ P3-10 operational Crypto risk-source population — the scheduled
+    #   immutable Kraken BTC snapshot is replayed into three detached exact
+    #   two-point risk contexts.  A real allowed Discovery Case is mandatory
+    #   before binding; no candidate, interpretation, Stage, Rule, or trading.
+    "test/test_p3_10_crypto_risk_population.py",
     # ★ P3-11 — Theme taxonomy 밖 explicit nomination을 evidence-linked case로 기록한다.
     #   nomination text는 unconfirmed, linked evidence 0건이면 pending이며 case가 아니다.
     #   persisted validator가 source/count/pending/case projection의 self-rehashed drift를

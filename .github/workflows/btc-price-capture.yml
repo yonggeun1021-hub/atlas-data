@@ -90,6 +90,19 @@ jobs:
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: python3 .github/scripts/record_btc_run.py
 
+      - name: Populate P3-10 Crypto risk source context
+        if: ${{ steps.validation.outcome == 'success' }}
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SNAPSHOT_DATE" ]; then
+            echo "P3-10 STOP: snapshot date absent" >&2
+            exit 1
+          fi
+          python3 .github/scripts/p3_10_crypto_risk_population.py \
+            --snapshot-dir "evidence/crypto/btc/raw/$SNAPSHOT_DATE"
+
       - name: Commit BTC price evidence
         if: always()
         env:
@@ -104,6 +117,9 @@ jobs:
           git add data/operations/btc_capture_runs || true
           if [ "$CAPTURE_RESULT" = "captured" ] && [ "$VALIDATION_OUTCOME" = "success" ]; then
             git add "evidence/crypto/btc/raw/$SNAPSHOT_DATE"
+          fi
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "evidence/valuation_risk_sources/crypto/$SNAPSHOT_DATE" ]; then
+            git add "evidence/valuation_risk_sources/crypto/$SNAPSHOT_DATE"
           fi
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
