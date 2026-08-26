@@ -1186,6 +1186,11 @@ APPROVED_TESTS = [
     # diagnostic adjacency.  It creates zero authority rows and cannot open
     # candidate validity, entry eligibility, sizing, or a money action.
     "test/test_candidate_identity_gap_inventory.py",
+    # P5-06/P7-08 non-authoritative identity proposal packet: an independently
+    # rebuilt gap inventory plus exact RATIFIED taxonomy and Kraken catalog may
+    # produce CIO-review rows only. It writes no canonical authority and opens
+    # no candidate validity, entry eligibility, sizing, or money authority.
+    "test/test_candidate_identity_authority_proposal.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
