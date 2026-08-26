@@ -277,6 +277,7 @@ class SupplyDemandTests(unittest.TestCase):
         packet = SD.build_packet(payload(rows))
         self.assertEqual([item["market"] for item in packet["series_results"]], ["CRYPTO", "KOREA", "US"])
         self.assertEqual(packet["source_coverage"]["KOREA"], "PARTIAL_KRX_ONLY_RELEASE_TIME_UNVERIFIED")
+        self.assertEqual(packet["source_coverage"]["CRYPTO"], "OPERATIONAL_PIT_POPULATION_WIRED")
         self.assertIn("US_METRIC_SERIES_NOT_SELECTED", packet["unresolved_boundaries"])
 
     def test_source_identity_host_hash_and_temporal_order_fail_closed(self):

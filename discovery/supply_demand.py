@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "supply_demand_radar_contract.json"
 INPUT_SCHEMA_VERSION = "supply_demand_radar_input/1"
-OUTPUT_SCHEMA_VERSION = "supply_demand_radar_packet/2"
+OUTPUT_SCHEMA_VERSION = "supply_demand_radar_packet/3"
 POLICY_SCHEMA_VERSION = "supply_demand_candidate_policy/1"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -54,7 +54,7 @@ def _read_json(path: Path):
 def _validate_contract(value: dict) -> dict:
     expected = {
         "schema_version": 1,
-        "contract_version": "supply_demand_radar/1",
+        "contract_version": "supply_demand_radar/2",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "candidate_policy_schema_version": POLICY_SCHEMA_VERSION,
@@ -87,7 +87,7 @@ def _validate_contract(value: dict) -> dict:
         ),
         "output_decimal_places": 12,
         "source_coverage": {
-            "CRYPTO": "PARTIAL_EXISTING_NET_ISSUANCE_TRANSFORM",
+            "CRYPTO": "OPERATIONAL_PIT_POPULATION_WIRED",
             "KOREA": "PARTIAL_KRX_ONLY_RELEASE_TIME_UNVERIFIED",
             "US": "PARTIAL_SEC_SOURCE_NO_SELECTED_METRIC_SERIES",
         },
@@ -865,7 +865,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "CANDIDATE_RANKING_UNRATIFIED",
         "KOREA_SOURCE_RELEASE_TIME_UNVERIFIED",
         "US_METRIC_SERIES_NOT_SELECTED",
-        "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+        "LIVE_RADAR_POPULATION_PARTIAL_CRYPTO_ONLY",
     ]
     if (
         type(packet.get("series_count")) is not int
@@ -929,7 +929,7 @@ def build_packet(value: dict, candidate_policy: dict | None = None, contract: di
             "MINIMUM_CHANGE_UNRATIFIED", "CROSS_MARKET_COMPARABILITY_UNRATIFIED",
             "SOURCE_HIERARCHY_UNRATIFIED", "CANDIDATE_RANKING_UNRATIFIED",
             "KOREA_SOURCE_RELEASE_TIME_UNVERIFIED", "US_METRIC_SERIES_NOT_SELECTED",
-            "LIVE_RADAR_POPULATION_NOT_IMPLEMENTED",
+            "LIVE_RADAR_POPULATION_PARTIAL_CRYPTO_ONLY",
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
