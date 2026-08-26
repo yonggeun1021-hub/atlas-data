@@ -77,6 +77,17 @@ AUTHORITY_ZERO_CAPITAL = {
     "production_authority": False,
     "trading_authority": False,
 }
+SUPPORTED_TRIGGER_TYPES = (
+    "INVALIDATION_TRIGGER",
+    "PRICE_CONFIRMATION",
+    "RELATIVE_STRENGTH_REVERSAL",
+)
+UNSUPPORTED_WITHOUT_LIVE_SAMPLE = (
+    "CATALYST_APPROACH",
+    "EXPECTATION_DISLOCATION",
+    "FLOW_REVERSAL",
+    "FUNDAMENTAL_REVISION",
+)
 
 
 class ShadowEntryReviewError(ValueError):
@@ -122,8 +133,10 @@ def _validate_contract(contract: dict) -> None:
         raise ShadowEntryReviewError("CONTRACT_VERSION_UNSUPPORTED")
     if contract["approval_status"] != "PROVISIONAL_CIO_ZERO_CAPITAL_REVIEW_ONLY":
         raise ShadowEntryReviewError("CONTRACT_MUST_REMAIN_REVIEW_ONLY")
-    if contract["supported_trigger_types"] != sorted(contract["supported_trigger_types"]):
-        raise ShadowEntryReviewError("SUPPORTED_TRIGGER_TYPES_NOT_CANONICAL")
+    if contract["supported_trigger_types"] != list(SUPPORTED_TRIGGER_TYPES):
+        raise ShadowEntryReviewError("SUPPORTED_TRIGGER_TYPES_CONTRACT_CHANGED")
+    if contract["unsupported_without_live_sample"] != list(UNSUPPORTED_WITHOUT_LIVE_SAMPLE):
+        raise ShadowEntryReviewError("UNSUPPORTED_TRIGGER_TYPES_CONTRACT_CHANGED")
     if set(contract["review_states"]) != {
         REVIEW_MOMENTUM, REVIEW_REVERSAL, REVIEW_PULLBACK, REVIEW_WATCH, REVIEW_BLOCKED,
     }:

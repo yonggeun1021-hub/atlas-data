@@ -97,6 +97,14 @@ class ShadowEntryReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(review.ShadowEntryReviewError, "MONEY_BOUNDARY_TAMPERED"):
             review.build_packet(self.report, self.identity, contract)
 
+    def test_contract_cannot_silently_move_unvalidated_trigger_into_supported_set(self):
+        contract = copy.deepcopy(self.contract)
+        contract["supported_trigger_types"].append("FUNDAMENTAL_REVISION")
+        contract["supported_trigger_types"].sort()
+        contract["unsupported_without_live_sample"].remove("FUNDAMENTAL_REVISION")
+        with self.assertRaisesRegex(review.ShadowEntryReviewError, "TRIGGER_TYPES_CONTRACT_CHANGED"):
+            review.build_packet(self.report, self.identity, contract)
+
     def test_unsupported_trigger_family_cannot_open_review(self):
         candidate = copy.deepcopy(next(
             c for market in self.report["by_market"].values()
