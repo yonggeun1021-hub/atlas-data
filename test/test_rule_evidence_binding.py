@@ -318,7 +318,7 @@ class RuleEvidenceBindingTests(unittest.TestCase):
         row = next(item for item in changed["rules"] if item["rule_id"] == "RULE-0021")
         row["evidence_references"][0]["economic_period_end"] = "2026-03-31"
         row["evidence_references"][0]["lineage"]["evidence_as_of"] = "2026-03-31"
-        cases.append((changed, "PACKET_BINDING_SET_SHA_MISMATCH"))
+        cases.append((changed, "PACKET_FROZEN_ENVELOPE_MISSING"))
 
         changed = copy.deepcopy(packet)
         changed["authority"]["rule_evaluation_authorized"] = True
@@ -330,6 +330,95 @@ class RuleEvidenceBindingTests(unittest.TestCase):
                     MODULE.validate_packet(
                         rehash_packet(changed), self.rules, self.contract
                     )
+
+    def test_frozen_envelope_is_embedded_and_independently_rederived(self):
+        envelope = available_envelope()
+        packet = MODULE.build_packet(
+            envelopes=[envelope], bindings=binding_doc(binding()),
+            rules=self.rules, contract=self.contract,
+        )
+        self.assertEqual(packet["schema_version"], "rule_evidence_binding_packet/2")
+        self.assertEqual(packet["frozen_evidence_envelopes"], [envelope])
+
+        changed = copy.deepcopy(packet)
+        changed["frozen_evidence_envelopes"][0]["source_identity"][
+            "source_sha256"
+        ] = "b" * 64
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError,
+            "PACKET_EVIDENCE_SET_SHA_MISMATCH",
+        ):
+            MODULE.validate_packet(rehash_packet(changed), self.rules, self.contract)
+
+        changed = copy.deepcopy(packet)
+        changed["frozen_evidence_envelopes"][0]["observation"]["raw_value"] = "999%"
+        changed["inputs"]["evidence_set_sha256"] = MODULE.payload_sha256(
+            changed["frozen_evidence_envelopes"]
+        )
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError,
+            "PACKET_FROZEN_ENVELOPE_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(rehash_packet(changed), self.rules, self.contract)
+
+    def test_frozen_envelope_deletion_and_reordering_fail_closed(self):
+        other = available_envelope(
+            measurement_identity="Azure second explicit evidence",
+            economic_period_end="2026-03-31",
+            source_identity={
+                **available_envelope()["source_identity"], "source_sha256": "b" * 64
+            },
+        )
+        row = binding()
+        row["evidence_keys"].append({
+            "subject": "MSFT",
+            "measurement_identity": "Azure second explicit evidence",
+            "economic_period_end": "2026-03-31",
+        })
+        packet = MODULE.build_packet(
+            envelopes=[available_envelope(), other],
+            bindings=binding_doc(row), rules=self.rules, contract=self.contract,
+        )
+        changed = copy.deepcopy(packet)
+        changed["frozen_evidence_envelopes"].reverse()
+        changed["inputs"]["evidence_set_sha256"] = MODULE.payload_sha256(
+            changed["frozen_evidence_envelopes"]
+        )
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError, "PACKET_FROZEN_ENVELOPE_ORDER_INVALID"
+        ):
+            MODULE.validate_packet(rehash_packet(changed), self.rules, self.contract)
+
+        changed = copy.deepcopy(packet)
+        changed["frozen_evidence_envelopes"] = []
+        changed["inputs"]["evidence_set_sha256"] = MODULE.payload_sha256([])
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError, "PACKET_FROZEN_ENVELOPE_MISSING"
+        ):
+            MODULE.validate_packet(rehash_packet(changed), self.rules, self.contract)
+
+    def test_unreferenced_envelope_cannot_be_hidden_in_packet(self):
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError, "UNREFERENCED_ENVELOPE"
+        ):
+            MODULE.build_packet(
+                envelopes=[available_envelope()], bindings=binding_doc(),
+                rules=self.rules, contract=self.contract,
+            )
+
+        packet = MODULE.build_packet(
+            envelopes=[], bindings=binding_doc(), rules=self.rules, contract=self.contract
+        )
+        changed = copy.deepcopy(packet)
+        changed["frozen_evidence_envelopes"] = [available_envelope()]
+        changed["inputs"]["evidence_set_sha256"] = MODULE.payload_sha256(
+            changed["frozen_evidence_envelopes"]
+        )
+        with self.assertRaisesRegex(
+            MODULE.RuleEvidenceBindingError,
+            "PACKET_UNREFERENCED_FROZEN_ENVELOPE",
+        ):
+            MODULE.validate_packet(rehash_packet(changed), self.rules, self.contract)
 
     def test_build_rejects_available_evidence_with_undeclared_reason(self):
         envelope = available_envelope(reasons=["UNDECLARED_AVAILABLE_REASON"])

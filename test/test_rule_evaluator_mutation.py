@@ -70,7 +70,7 @@ class RuleEvaluatorMutationTests(unittest.TestCase):
             matrix["contract_version"], "rule_evaluator_mutation_matrix/1"
         )
         self.assertEqual(matrix["targets"], [
-            "rule_evidence_binding/1",
+            "rule_evidence_binding/2",
             "deterministic_rule_evaluator/1",
         ])
         self.assertTrue(matrix["pass_fail_must_remain_zero"])

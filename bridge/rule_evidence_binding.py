@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "rule_evidence_binding_contract.json"
 RULES_PATH = ROOT / "config" / "rules.json"
 
-PACKET_SCHEMA_VERSION = "rule_evidence_binding_packet/1"
+PACKET_SCHEMA_VERSION = "rule_evidence_binding_packet/2"
 BINDING_SCHEMA_VERSION = "rule_evidence_bindings/1"
 ENVELOPE_SCHEMA_VERSION = "evidence_envelope/1"
 
@@ -83,7 +83,7 @@ def _validate_contract(value: dict) -> dict:
     }
     if not isinstance(value, dict) or value.get("schema_version") != 1:
         raise RuleEvidenceBindingError("CONTRACT_SCHEMA_MISMATCH")
-    if value.get("contract_version") != "rule_evidence_binding/1":
+    if value.get("contract_version") != "rule_evidence_binding/2":
         raise RuleEvidenceBindingError("CONTRACT_VERSION_MISMATCH")
     if value.get("canonical_rule_registry") != "config/rules.json":
         raise RuleEvidenceBindingError("CANONICAL_RULE_REGISTRY_MISMATCH")
@@ -447,7 +447,7 @@ def validate_packet(
     fields = {
         "schema_version", "contract_version", "binding_set_id",
         "source_hierarchy_status", "automatic_binding_authorized", "authority",
-        "inputs", "summary", "rules", "packet_sha256",
+        "inputs", "frozen_evidence_envelopes", "summary", "rules", "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise RuleEvidenceBindingError("PACKET_FIELDS_MISMATCH")
@@ -487,6 +487,13 @@ def validate_packet(
     ):
         raise RuleEvidenceBindingError("PACKET_INPUT_SHA_INVALID")
 
+    frozen_envelopes = packet.get("frozen_evidence_envelopes")
+    envelope_index = _index_envelopes(frozen_envelopes)
+    if [_key(item) for item in frozen_envelopes] != sorted(envelope_index):
+        raise RuleEvidenceBindingError("PACKET_FROZEN_ENVELOPE_ORDER_INVALID")
+    if inputs["evidence_set_sha256"] != payload_sha256(frozen_envelopes):
+        raise RuleEvidenceBindingError("PACKET_EVIDENCE_SET_SHA_MISMATCH")
+
     rows = packet.get("rules")
     registry = {rule["rule_id"]: rule for rule in rules["rules"]}
     if not isinstance(rows, list) or len(rows) != len(registry):
@@ -499,6 +506,7 @@ def validate_packet(
     counts = {status: 0 for status in LINK_STATUSES}
     normalized_bindings = []
     checked_ids = []
+    referenced_frozen_keys = set()
     for row in rows:
         if not isinstance(row, dict) or set(row) != row_fields:
             raise RuleEvidenceBindingError("PACKET_RULE_FIELDS_MISMATCH")
@@ -527,6 +535,21 @@ def validate_packet(
             )
             for ref in refs
         ]
+        for ref in refs:
+            key = _key(ref)
+            frozen = envelope_index.get(key)
+            if frozen is None:
+                if ref["lineage"] is not None:
+                    raise RuleEvidenceBindingError("PACKET_FROZEN_ENVELOPE_MISSING")
+                continue
+            referenced_frozen_keys.add(key)
+            expected_ref = _reference_record(
+                key, frozen, contract["required_lineage_fields"]
+            )
+            if ref != expected_ref:
+                raise RuleEvidenceBindingError(
+                    "PACKET_FROZEN_ENVELOPE_DERIVATION_MISMATCH"
+                )
         ref_keys = [item[0] for item in checked_refs]
         if ref_keys != sorted(set(ref_keys)):
             raise RuleEvidenceBindingError("PACKET_REFERENCE_ORDER_INVALID")
@@ -571,6 +594,8 @@ def validate_packet(
         checked_ids.append(rule_id)
     if checked_ids != sorted(registry):
         raise RuleEvidenceBindingError("PACKET_RULE_ORDER_INVALID")
+    if referenced_frozen_keys != set(envelope_index):
+        raise RuleEvidenceBindingError("PACKET_UNREFERENCED_FROZEN_ENVELOPE")
     expected_binding_doc = {
         "schema_version": BINDING_SCHEMA_VERSION,
         "binding_set_id": binding_set_id,
@@ -595,6 +620,11 @@ def build_packet(
     rules_by_id = {rule["rule_id"]: rule for rule in rules["rules"]}
     envelope_index = _index_envelopes(envelopes)
     binding_index = _validate_bindings(bindings, rules_by_id)
+    referenced_keys = {
+        key for keys in binding_index.values() for key in keys if key in envelope_index
+    }
+    if referenced_keys != set(envelope_index):
+        raise RuleEvidenceBindingError("UNREFERENCED_ENVELOPE")
 
     records = []
     counts = {status: 0 for status in LINK_STATUSES}
@@ -667,6 +697,7 @@ def build_packet(
             "binding_set_sha256": payload_sha256(normalized_bindings),
             "evidence_set_sha256": payload_sha256(sorted_envelopes),
         },
+        "frozen_evidence_envelopes": sorted_envelopes,
         "summary": {"total_rules": len(records), **counts},
         "rules": records,
     }
