@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "contract_version": "flow_first_briefing/1",
+  "output_schema_version": "flow_first_briefing_packet/1",
+  "source_contract_version": "daily_orchestrator/3",
+  "source_output_schema_version": "daily_briefing_packet/1",
+  "section_order": [
+    "REGIME",
+    "CROSS_MARKET_FLOW",
+    "THEME_ROTATION",
+    "CAPITAL_ACTION",
+    "ASSETS",
+    "ENTRY_EXIT_SIZE"
+  ],
+  "sections": {
+    "REGIME": {
+      "title": "Regime",
+      "source_components": ["THREE_MARKET_REGIME_HEADER"]
+    },
+    "CROSS_MARKET_FLOW": {
+      "title": "Cross-Market Flow",
+      "source_components": [],
+      "unavailable_reason": "P2_COM_01_CROSS_ASSET_FLOW_NOT_AVAILABLE"
+    },
+    "THEME_ROTATION": {
+      "title": "Theme Rotation",
+      "source_components": ["ROTATION_DISCOVERY", "KOREA_ROTATION"]
+    },
+    "CAPITAL_ACTION": {
+      "title": "Capital Action",
+      "source_components": ["ACTION_RISK_PORTFOLIO_SUMMARY"]
+    },
+    "ASSETS": {
+      "title": "Assets",
+      "source_components": ["SHADOW_ENTRY_REVIEW"]
+    },
+    "ENTRY_EXIT_SIZE": {
+      "title": "Entry / Exit / Size",
+      "source_components": ["SHADOW_ENTRY_REVIEW", "POSITION_SIZING", "PLANNED_LOSS_BUDGET"]
+    }
+  },
+  "status_values": [
+    "READY",
+    "PENDING",
+    "UNKNOWN",
+    "DEGRADED",
+    "POLICY_BLOCKED",
+    "DATA_BLOCKED",
+    "UNAVAILABLE"
+  ],
+  "evidence_grade_values": ["UNKNOWN"],
+  "authority": {
+    "presentation_order_authorized": true,
+    "source_interpretation_authorized": false,
+    "cross_market_flow_inference_authorized": false,
+    "regime_score_authorized": false,
+    "rotation_ranking_authorized": false,
+    "candidate_promotion_authorized": false,
+    "capital_action_authorized": false,
+    "position_sizing_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

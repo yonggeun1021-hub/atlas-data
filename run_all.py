@@ -778,6 +778,11 @@ APPROVED_TESTS = [
     #   ⛔ Stage/Rule PASS-FAIL/ticker 매핑/action/order/Production/trading 권한
     #   없음 — live network/tracked output 없음, temp packet only.
     "test/test_forward_thesis.py",
+    # ★ P8-14 — policy-neutral Flow-First presentation contract. Fixes the
+    #   investor-facing order while leaving absent Cross-Market Flow,
+    #   evidence-grade, invalidation, Entry/Exit/Size authority explicitly
+    #   UNKNOWN/POLICY_BLOCKED. It never infers flow, ranks, sizes, or trades.
+    "test/test_flow_first_briefing.py",
     # ★ P8 Atlas Daily Briefing Integration v1 — provider-free daily orchestrator.
     #   기존 persisted evidence/packet만 소비해 Regime→Rotation/Discovery→Rule→
     #   Portfolio/Risk→Unified Decision→Action/Risk 요약을 하나의 daily briefing

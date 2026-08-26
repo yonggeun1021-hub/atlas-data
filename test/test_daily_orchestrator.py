@@ -1333,6 +1333,16 @@ class DailyOrchestratorTest(unittest.TestCase):
     def test_render_markdown_covers_required_sections_and_hides_nothing(self):
         packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
         rendered = MODULE.render_markdown(packet)
+        flow_titles = [
+            "## 1. Regime", "## 2. Cross-Market Flow",
+            "## 3. Theme Rotation", "## 4. Capital Action",
+            "## 5. Assets", "## 6. Entry / Exit / Size",
+        ]
+        positions = [rendered.index(title) for title in flow_titles]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("P2_COM_01_CROSS_ASSET_FLOW_NOT_AVAILABLE", rendered)
+        self.assertIn("SECTION_EVIDENCE_GRADE_NOT_STANDARDIZED", rendered)
+        self.assertIn("UPSTREAM_INVALIDATION_NOT_STANDARDIZED", rendered)
         for required in (
             "Data / Read-model health", "3-Market Regime", "Rotation / Theme",
             "Rule status", "Portfolio / Risk", "Decision Review",
@@ -2236,14 +2246,20 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
 
     def test_markdown_says_why_now_and_why_not_without_buy_language(self):
         row = self._row()
-        packet = {
-            "decision_date": "2026-08-26",
-            "slot": "evening",
-            "generated_at": "2026-08-26T23:45:00+09:00",
-            "component_status_counts": {"READY": 1},
-            "components": [row],
-            "unresolved_boundaries": [],
+        packet = MODULE.build_packet(
+            "evening", "2026-08-26", "2026-08-26T14:45:00Z"
+        )
+        packet["components"] = [
+            row if item["component_id"] == "SHADOW_ENTRY_REVIEW" else item
+            for item in packet["components"]
+        ]
+        packet["component_status_counts"] = {
+            status: sum(item["status"] == status for item in packet["components"])
+            for status in MODULE.STATUS_VALUES
         }
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
         rendered = MODULE.render_markdown(packet)
         self.assertIn("Zero-capital human review", rendered)
         self.assertIn("005930 (KOREA): review_state=REVERSAL_PROBE_REVIEW", rendered)
