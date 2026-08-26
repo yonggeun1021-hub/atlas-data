@@ -111,11 +111,11 @@
     },
     {
       "work_item_id": "P1-KR-06",
-      "automation_state": "POLICY_BLOCKED",
-      "workflow": null,
-      "crons": [],
-      "automatic_execution_authorized": false,
-      "blocking_basis": "official KRX index publication timing and available_at are UNRATIFIED"
+      "automation_state": "SCHEDULED_UPSTREAM",
+      "workflow": ".github/workflows/collect.yml",
+      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "required_workflow_tokens": ["Capture next-session KOSPI availability (P1-KR-06)", "korea_risk_availability.py"],
+      "remaining_gate": "first natural next-session receipt, then separately ratified volatility/drawdown parameters and transform/replay"
     },
     {
       "work_item_id": "P1-KR-07",
