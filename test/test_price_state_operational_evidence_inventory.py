@@ -23,19 +23,26 @@ class PriceStateOperationalEvidenceInventoryTests(unittest.TestCase):
     def setUpClass(cls):
         cls.inventory = build_inventory()
 
-    def test_real_retained_population_has_one_natural_sample(self):
-        self.assertEqual(self.inventory["natural_distinct_sample_count"], 1)
-        self.assertEqual(self.inventory["manual_distinct_sample_count"], 3)
-        self.assertEqual(self.inventory["distinct_sample_count"], 4)
+    def test_real_retained_population_tracks_growing_natural_samples(self):
+        natural = self.inventory["natural_distinct_sample_count"]
+        manual = self.inventory["manual_distinct_sample_count"]
+        self.assertGreaterEqual(natural, 2)
+        self.assertGreaterEqual(manual, 3)
+        self.assertEqual(self.inventory["distinct_sample_count"], natural + manual)
 
     def test_natural_sample_proves_real_price_state_linkage(self):
         self.assertTrue(self.inventory["natural_price_state_linked_candidate_observed"])
-        natural = next(row for row in self.inventory["samples"] if row["sample_qualification"] == "NATURAL_OPERATIONAL_SAMPLE")
-        self.assertGreater(natural["price_state_linked_candidate_count"], 0)
-        self.assertEqual(natural["by_market"]["BTC"]["linkage_status_counts"], {"LINKED": 1})
-        self.assertEqual(natural["by_market"]["BTC"]["price_state_counts"], {"OVEREXTENDED": 1})
-        self.assertGreater(natural["by_market"]["KOREA"]["linkage_status_counts"].get("LINKED", 0), 0)
-        self.assertGreater(natural["by_market"]["CRYPTO"]["linkage_status_counts"].get("NOT_LINKED_THIS_SLICE", 0), 0)
+        natural_samples = [
+            row for row in self.inventory["samples"]
+            if row["sample_qualification"] == "NATURAL_OPERATIONAL_SAMPLE"
+        ]
+        self.assertTrue(natural_samples)
+        for natural in natural_samples:
+            self.assertGreater(natural["price_state_linked_candidate_count"], 0)
+            self.assertEqual(natural["by_market"]["BTC"]["linkage_status_counts"], {"LINKED": 1})
+            self.assertEqual(natural["by_market"]["BTC"]["price_state_counts"], {"OVEREXTENDED": 1})
+            self.assertGreater(natural["by_market"]["KOREA"]["linkage_status_counts"].get("LINKED", 0), 0)
+            self.assertGreater(natural["by_market"]["CRYPTO"]["linkage_status_counts"].get("NOT_LINKED_THIS_SLICE", 0), 0)
 
     def test_reflection_remains_unknown_in_every_candidate(self):
         for sample in self.inventory["samples"]:
