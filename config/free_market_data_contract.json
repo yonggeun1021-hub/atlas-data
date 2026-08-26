@@ -4,12 +4,16 @@
   "fred": {
     "series": ["VIXCLS"],
     "source_scope": "FRED_OFFICIAL_SERIES_API",
-    "output_type": 1
+    "output_type": 1,
+    "raw_retention": "TRANSIENT_NOT_PERSISTED",
+    "partial_publish_authorized": true
   },
   "alpaca": {
     "symbols": ["MSFT", "NVDA", "TSM"],
     "feed": "iex",
-    "source_scope": "IEX_ONLY_PARTIAL_US_MARKET"
+    "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+    "credential_scope": "DEDICATED_MARKET_DATA_ONLY",
+    "missing_credential_policy": "EXPLICIT_COMPONENT_BLOCK_WITH_FRED_DERIVED_PUBLISH"
   },
   "authority": {
     "evidence_capture_only": true,

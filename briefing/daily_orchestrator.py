@@ -1028,25 +1028,59 @@ def _classify_free_market_data(snapshot: dict) -> dict:
         return component_row("FREE_MARKET_DATA", "DEGRADED", snapshot["value"])
     payload = snapshot["value"]
     authority = payload.get("authority")
-    bars = payload.get("alpaca", {}).get("bars")
+    alpaca = payload.get("alpaca", {})
+    bars = alpaca.get("bars")
     fred = payload.get("fred", {})
     required_false = (
         "market_wide_price_authorized", "entry_authorized", "action_authorized",
         "order_authorized", "broker_submission_authorized", "production_authorized",
         "trading_authorized",
     )
+    schema_version = payload.get("schema_version")
     if (
-        payload.get("schema_version") != "free_market_data_capture/1"
+        schema_version not in {
+            "free_market_data_capture/1",
+            "free_market_data_capture/2",
+            "free_market_data_capture/3",
+        }
         or not isinstance(authority, dict)
         or authority.get("evidence_capture_only") is not True
         or any(authority.get(key) is not False for key in required_false)
-        or payload.get("alpaca", {}).get("feed") != "iex"
-        or not isinstance(bars, list) or not bars
+        or alpaca.get("feed") != "iex"
+        or not isinstance(bars, list)
         or fred.get("series_id") != "VIXCLS"
     ):
         return component_row("FREE_MARKET_DATA", "DEGRADED", "CAPTURE_CONTRACT_INVALID")
+    alpaca_status = alpaca.get("status", "READY")
+    if schema_version == "free_market_data_capture/3":
+        if (
+            fred.get("status") != "READY"
+            or fred.get("raw_retention") != "TRANSIENT_NOT_PERSISTED"
+            or not isinstance(fred.get("response_sha256"), str)
+            or len(fred["response_sha256"]) != 64
+        ):
+            return component_row("FREE_MARKET_DATA", "DEGRADED", "FRED_DERIVED_CONTRACT_INVALID")
+        if alpaca_status == "READY":
+            if not bars or not alpaca.get("daily_bars"):
+                return component_row("FREE_MARKET_DATA", "DEGRADED", "ALPACA_READY_EVIDENCE_INCOMPLETE")
+        elif not (
+            isinstance(alpaca_status, str)
+            and (
+                alpaca_status.startswith("BLOCKED_BY_")
+                or alpaca_status.startswith("ALPACA_CAPTURE_FAILED:")
+            )
+            and not bars
+            and not alpaca.get("daily_bars")
+            and alpaca.get("raw_sha256") is None
+            and alpaca.get("daily_raw_sha256") is None
+        ):
+            return component_row("FREE_MARKET_DATA", "DEGRADED", "ALPACA_COMPONENT_CONTRACT_INVALID")
+    elif not bars:
+        return component_row("FREE_MARKET_DATA", "DEGRADED", "LEGACY_ALPACA_BARS_MISSING")
+    component_status = "READY" if alpaca_status == "READY" else "DEGRADED"
+    component_reason = None if component_status == "READY" else alpaca_status
     return component_row(
-        "FREE_MARKET_DATA", "READY", None,
+        "FREE_MARKET_DATA", component_status, component_reason,
         as_of_date=fred.get("observation_date"),
         generated_at=payload.get("observed_at_utc"),
         available_at=payload.get("observed_at_utc"),
@@ -1058,7 +1092,8 @@ def _classify_free_market_data(snapshot: dict) -> dict:
         packet={
             "vixcls": {"date": fred.get("observation_date"), "value": fred.get("value")},
             "alpaca_iex_bars": bars,
-            "source_scope": payload.get("alpaca", {}).get("source_scope"),
+            "alpaca_status": alpaca_status,
+            "source_scope": alpaca.get("source_scope"),
             "scope_warning": "IEX_PARTIAL_EVIDENCE_ONLY_NOT_MARKET_WIDE_OR_TRADE_AUTHORITY",
         },
     )
@@ -2310,7 +2345,10 @@ def _format_component_detail(row: dict) -> list[str]:
             )
             lines.append(
                 "    - Alpaca IEX partial: "
-                + ", ".join(f"{bar.get('symbol')}={bar.get('close')}" for bar in bars)
+                + (
+                    ", ".join(f"{bar.get('symbol')}={bar.get('close')}" for bar in bars)
+                    if bars else f"{packet.get('alpaca_status')}"
+                )
             )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
