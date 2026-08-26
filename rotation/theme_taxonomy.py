@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "theme_taxonomy_contract.json"
 INPUT_SCHEMA_VERSION = "theme_taxonomy_input/1"
-OUTPUT_SCHEMA_VERSION = "theme_taxonomy_packet/1"
+OUTPUT_SCHEMA_VERSION = "theme_taxonomy_packet/2"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -53,7 +53,7 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "theme_taxonomy/1",
+        "contract_version": "theme_taxonomy/2",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "allowed_markets": ["KOREA", "US"],
@@ -74,6 +74,7 @@ def _expected_contract() -> dict:
         "membership_adapter_status": "DETACHED_REQUIRES_SEPARATE_MASTER_INGESTION",
         "policy_status": {
             "repository_default_taxonomy": "ABSENT",
+            "approval_authority_registry": "ABSENT",
             "theme_selection": "EXTERNAL_RATIFICATION_REQUIRED",
             "membership_selection": "EXPLICIT_EVIDENCE_LINKED_ONLY",
             "value_chain_role_vocabulary": "EXTERNAL_TAXONOMY_DEFINED",
@@ -81,7 +82,8 @@ def _expected_contract() -> dict:
             "rotation_scoring": "UNRATIFIED",
         },
         "authority": {
-            "ratified_graph_validation_only": True,
+            "external_ratification_claim_validation_only": True,
+            "theme_membership_activation_authorized": False,
             "theme_inference_authorized": False,
             "membership_inference_authorized": False,
             "membership_weight_authorized": False,
@@ -424,43 +426,33 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
     # *document* once named both markets somewhere across its full history.
     # Individual edges/memberships carry their own valid_from/valid_to, which
     # can lapse or not yet have started independently of the approval's own
-    # effective window. A graph is only truly EFFECTIVE_RATIFIED_GRAPH -- and
-    # only then may it authorize the Global Asset Master membership adapter,
-    # the thing that actually "connects US/KR names into a common Theme
-    # graph" -- when the markets required for ratification are still active
-    # as of as_of_date, with at least one active edge to place them in.
-    # Otherwise this is temporal inactivity, not a document defect, so it
-    # deactivates exactly like a not-yet-effective approval window does
-    # rather than raising.
-    graph_currently_effective = (
+    # effective window. The active two-market slice and at least one active
+    # edge establish only a structurally eligible *claim*. They cannot make
+    # the graph authoritative because no independent approval authority
+    # registry is connected in this reduced scope.
+    structurally_eligible_claim = (
         effective_ratified
         and bool(active_edges)
         and active_covered_markets == contract["required_markets_for_ratified_graph"]
     )
+    # The input document can only *claim* that an external decision ratified
+    # this graph.  A shaped SHA-256 string, ratifier name, and timestamp do not
+    # prove that a canonical Rule Authority record exists or that it approved
+    # these exact bytes.  Until that separate authority registry is designed,
+    # ratified, and independently verified, this validator is deliberately
+    # structural-only: even a fully coherent claim cannot open the adapter.
+    graph_currently_effective = False
     adapter = []
-    if graph_currently_effective:
-        adapter = [
-            {
-                "adapter_status": contract["membership_adapter_status"],
-                "asset_id": item["asset_id"], "market": item["market"],
-                "membership_type": "THEME", "membership_id": item["theme_id"],
-                "value_chain_role_id": item["role_id"],
-                "valid_from": item["valid_from"], "valid_to": item["valid_to"],
-                "taxonomy_decision": {
-                    "decision_id": approval["decision_id"],
-                    "decision_sha256": approval["decision_sha256"],
-                    "ratified_by": approval["ratified_by"],
-                    "ratified_at_utc": approval["ratified_at_utc"],
-                },
-                "evidence": copy.deepcopy(item["evidence"]),
-            }
-            for item in active_memberships
-        ]
     packet = {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "contract_version": contract["contract_version"], "taxonomy_id": taxonomy_id,
         "as_of_date": as_of_date,
-        "graph_status": "EFFECTIVE_RATIFIED_GRAPH" if graph_currently_effective else "DRAFT_OR_NOT_EFFECTIVE_GRAPH",
+        "graph_status": (
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED"
+            if structurally_eligible_claim
+            else "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+        ),
+        "structurally_eligible_ratification_claim": structurally_eligible_claim,
         "approval": approval,
         "node_count": len(nodes_out), "edge_count": len(edges_out),
         "membership_count": len(memberships_out),
@@ -474,8 +466,10 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         "policy_status": copy.deepcopy(contract["policy_status"]),
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "REPOSITORY_DEFAULT_TAXONOMY_ABSENT", "SOURCE_HIERARCHY_UNRATIFIED",
+            "REPOSITORY_DEFAULT_TAXONOMY_ABSENT", "APPROVAL_AUTHORITY_REGISTRY_ABSENT",
+            "SOURCE_HIERARCHY_UNRATIFIED",
             "ROTATION_SCORING_UNRATIFIED", "TRACKED_TAXONOMY_NOT_IMPLEMENTED",
+            "DOWNSTREAM_ROTATION_TAXONOMY_CONTRACT_V1_NOT_AUTHORITY_COMPATIBLE",
             "GLOBAL_ASSET_MASTER_INGESTION_NOT_IMPLEMENTED", "PRODUCTION_NOT_AUTHORIZED",
         ],
     }
