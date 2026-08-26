@@ -32,9 +32,10 @@ jobs:
       #   step intentionally does NOT reference those names -- it requires
       #   a SEPARATE, dedicated, disposable market-data-only credential
       #   (ALPACA_MARKET_DATA_API_KEY/ALPACA_MARKET_DATA_API_SECRET,
-      #   labeled ATLAS_MARKET_DATA_ONLY on Alpaca's side), not yet
-      #   provisioned. Until it is, only the Alpaca component is explicitly
-      #   BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL.
+      #   labeled ATLAS_MARKET_DATA_ONLY on Alpaca's side), provisioned on
+      #   2026-08-26. If either secret is missing or invalid later, only the
+      #   Alpaca component is explicitly BLOCKED/PARTIAL; valid FRED derived
+      #   evidence remains independently publishable.
       - name: Capture FRED VIX and Alpaca IEX evidence
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}

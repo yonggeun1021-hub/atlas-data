@@ -1021,7 +1021,7 @@ def _fetch_free_market_data_snapshot() -> dict:
         return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
 
 
-def _classify_free_market_data(snapshot: dict) -> dict:
+def _classify_free_market_data(snapshot: dict, decision_date: str | None = None) -> dict:
     if snapshot["kind"] == "missing":
         return _blocked("FREE_MARKET_DATA", "UNAVAILABLE", "LATEST_POINTER_MISSING")
     if snapshot["kind"] == "error":
@@ -1051,6 +1051,31 @@ def _classify_free_market_data(snapshot: dict) -> dict:
         or fred.get("series_id") != "VIXCLS"
     ):
         return component_row("FREE_MARKET_DATA", "DEGRADED", "CAPTURE_CONTRACT_INVALID")
+    # v3 is the first capture contract published after this freshness gate
+    # existed. Enforcing it only for v3 preserves byte-identical rebuilds of
+    # already-published v1/v2 briefing packets while preventing a newly
+    # generated briefing from presenting a prior KST day's pointer as READY.
+    if schema_version == "free_market_data_capture/3" and decision_date is not None:
+        try:
+            expected_date = dt.date.fromisoformat(decision_date)
+            observed_at = payload.get("observed_at_utc")
+            if not isinstance(observed_at, str):
+                raise ValueError("observed_at_utc missing")
+            normalized = observed_at[:-1] + "+00:00" if observed_at.endswith("Z") else observed_at
+            parsed = dt.datetime.fromisoformat(normalized)
+            if parsed.tzinfo is None:
+                raise ValueError("observed_at_utc naive")
+            capture_date = parsed.astimezone(KST).date()
+        except (TypeError, ValueError):
+            return component_row("FREE_MARKET_DATA", "DEGRADED", "CAPTURE_TIME_INVALID")
+        if capture_date < expected_date:
+            return component_row(
+                "FREE_MARKET_DATA", "DATA_BLOCKED", "CAPTURE_STALE_FOR_DECISION_DATE"
+            )
+        if capture_date > expected_date:
+            return component_row(
+                "FREE_MARKET_DATA", "DATA_BLOCKED", "CAPTURE_FUTURE_FOR_DECISION_DATE"
+            )
     alpaca_status = alpaca.get("status", "READY")
     if schema_version == "free_market_data_capture/3":
         if (
@@ -1099,9 +1124,12 @@ def _classify_free_market_data(snapshot: dict) -> dict:
     )
 
 
-def build_free_market_data(snapshot: dict | None = None) -> dict:
+def build_free_market_data(
+    snapshot: dict | None = None, decision_date: str | None = None,
+) -> dict:
     return _classify_free_market_data(
-        _fetch_free_market_data_snapshot() if snapshot is None else snapshot
+        _fetch_free_market_data_snapshot() if snapshot is None else snapshot,
+        decision_date,
     )
 
 
@@ -2030,7 +2058,9 @@ def build_packet(
     free_market_snapshot = frozen_sources.get("FREE_MARKET_DATA")
     if free_market_snapshot is None:
         free_market_snapshot = _fetch_free_market_data_snapshot()
-    rows["FREE_MARKET_DATA"] = _boundary(_classify_free_market_data(free_market_snapshot))
+    rows["FREE_MARKET_DATA"] = _boundary(
+        _classify_free_market_data(free_market_snapshot, decision_date)
+    )
 
     btc_snapshot = frozen_sources.get("BTC_TREND")
     if btc_snapshot is None:
