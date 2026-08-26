@@ -323,6 +323,12 @@ APPROVED_TESTS = [
     #   기본 source timing policy와 stress/Regime/Production 권한은 닫아 둔다.
     #   ⛔ live KRX 호출/tracked factor 없음 — temp policies/stdin fixtures only.
     "test/test_korea_risk.py",
+    # P1-KR-06 — CIO approved 2026-08-26 next-session observed availability.
+    # Never infer KRX publication time. Persist only the first successful Atlas
+    # observation time for an exact post-session KOSPI response. Index levels,
+    # raw rows, risk features, Regime, Production, and trading authority remain
+    # blocked. Offline fixtures and workflow-contract checks only.
+    "test/test_korea_risk_availability.py",
     # ★ P1-KR-05 — KRX official stock PIT universe + raw breadth pilot.
     #   exact-date KOSPI/KOSDAQ response rows로 source-coverage universe와
     #   advance/decline/unchanged를 재현하되 raw persistence·classification·

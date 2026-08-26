@@ -76,6 +76,21 @@ jobs:
           PYTHONPATH: collectors
         run: python collectors/krx.py
 
+      # P1-KR-06 — the source response does not expose an official publication
+      # timestamp.  After the regular collector has established a prior
+      # confirmed KRX session, capture the first exact KOSPI Open API response
+      # Atlas actually observes.  This step persists timing/hash evidence only:
+      # no index level, risk feature, Regime score, or trading authority.
+      - name: Capture next-session KOSPI availability (P1-KR-06)
+        id: korea_risk_availability
+        if: always()
+        continue-on-error: true
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_risk_availability.py
+
       - name: Collect DART
         if: always() && steps.guard.outputs.skip != 'yes'
         env:
