@@ -1,0 +1,38 @@
+{
+  "schema_version": "shadow_entry_review_contract/1",
+  "approval_status": "PROVISIONAL_CIO_ZERO_CAPITAL_REVIEW_ONLY",
+  "purpose": "Surface PIT-safe candidates for human review without opening candidate-validity, position-size, capital, order, or trading authority.",
+  "supported_trigger_types": [
+    "INVALIDATION_TRIGGER",
+    "PRICE_CONFIRMATION",
+    "RELATIVE_STRENGTH_REVERSAL"
+  ],
+  "unsupported_without_live_sample": [
+    "CATALYST_APPROACH",
+    "EXPECTATION_DISLOCATION",
+    "FLOW_REVERSAL",
+    "FUNDAMENTAL_REVISION"
+  ],
+  "review_states": [
+    "MOMENTUM_PROBE_REVIEW",
+    "REVERSAL_PROBE_REVIEW",
+    "WAIT_FOR_PULLBACK_REVIEW",
+    "WATCH_REVIEW",
+    "NOT_REVIEWABLE"
+  ],
+  "boundary": {
+    "candidate_validity_policy": "UNRATIFIED",
+    "entry_policy": "UNRATIFIED",
+    "position_management_policy": "UNRATIFIED",
+    "position_size_policy": "UNRATIFIED",
+    "human_review_surface": true,
+    "capital": 0,
+    "trade_proposal": null,
+    "stage_promotion_authority": false,
+    "buy_authority": false,
+    "action_authority": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}

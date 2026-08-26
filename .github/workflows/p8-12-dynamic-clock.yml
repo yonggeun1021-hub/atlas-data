@@ -78,6 +78,7 @@ jobs:
             test/test_candidate_lifecycle_evidence_inventory.py \
             test/test_dynamic_clock_identity_lineage.py \
             test/test_candidate_identity_observation.py \
+            test/test_shadow_entry_review.py \
             test/test_candidate_identity_gap_inventory.py \
             test/test_candidate_identity_authority_proposal.py \
             test/test_candidate_identity_authority_review_inventory.py
@@ -114,6 +115,10 @@ jobs:
         env:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 identity/candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
+      - name: Build the zero-capital P5-P7-P8 human-review surface
+        env:
+          OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
+        run: python3 decision/shadow_entry_review.py --trigger-kind "$OBSERVATION_TRIGGER_KIND"
       - name: Inventory unresolved identity evidence without creating authority
         run: python3 identity/candidate_identity_gap_inventory.py
       - name: Refresh the mechanically complete identity review proposal without creating authority
@@ -145,6 +150,9 @@ jobs:
           s = identity['summary']
           print(f"- candidate_identity: resolved={s['identity_resolved_count']}/{s['candidate_count']} scope_resolved={s['scope_resolved_count']}/{s['candidate_count']} (mechanical observation only)")
           print('- candidate_identity_history: append-only exact-run record written (validity and money authority remain locked)')
+          shadow = json.load(open('evidence/operational/dynamic_clock/shadow_entry_review.json'))
+          ss = shadow['summary']
+          print(f"- shadow_entry_review: probe_review={ss['probe_review_count']} zero_capital_review_items={ss['zero_capital_review_item_count']} total={ss['candidate_count']} (trade_proposal=null, capital=0, all money authority false)")
           gaps = json.load(open('evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json'))
           gs = gaps['summary']
           print(f"- identity_authority_gap: unresolved={gs['identity_gap_count']}/{gs['candidate_count']} authority_rows_created=0 (taxonomy adjacency is diagnostic only)")
