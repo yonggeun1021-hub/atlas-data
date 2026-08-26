@@ -77,7 +77,9 @@ jobs:
             test/test_candidate_lifecycle_observation.py \
             test/test_dynamic_clock_identity_lineage.py \
             test/test_candidate_identity_observation.py \
-            test/test_candidate_identity_gap_inventory.py
+            test/test_candidate_identity_gap_inventory.py \
+            test/test_candidate_identity_authority_proposal.py \
+            test/test_candidate_identity_authority_review_inventory.py
           do
             python3 "$test_file"
           done
@@ -113,6 +115,10 @@ jobs:
         run: python3 identity/candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
       - name: Inventory unresolved identity evidence without creating authority
         run: python3 identity/candidate_identity_gap_inventory.py
+      - name: Refresh the mechanically complete identity review proposal without creating authority
+        run: python3 identity/candidate_identity_authority_proposal.py
+      - name: Cross-row audit the current identity proposal without creating authority
+        run: python3 identity/candidate_identity_authority_review_inventory.py
       - name: Inventory independently revalidatable candidate-validity evidence
         run: python3 clock/candidate_validity_evidence_inventory.py
       - name: Inventory operational Price State linkage without Reflection authority
@@ -139,6 +145,12 @@ jobs:
           gaps = json.load(open('evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json'))
           gs = gaps['summary']
           print(f"- identity_authority_gap: unresolved={gs['identity_gap_count']}/{gs['candidate_count']} authority_rows_created=0 (taxonomy adjacency is diagnostic only)")
+          proposal = json.load(open('evidence/identity/proposals/candidate_identity_authority_proposal.json'))
+          ps = proposal['summary']
+          print(f"- identity_review_proposal: proposal={ps['proposal_count']}/{ps['gap_count']} authority_rows_created=0 (mechanical review material only)")
+          review = json.load(open('evidence/identity/proposals/candidate_identity_authority_review_inventory.json'))
+          rs = review['summary']
+          print(f"- identity_cross_row_review: coherent={rs['review_status_counts'].get('MECHANICALLY_COHERENT_FOR_CIO_REVIEW', 0)} conflict={rs['conflict_candidate_count']} authority_rows_created=0")
           validity = json.load(open('evidence/operational/dynamic_clock/candidate_validity_evidence_inventory.json'))
           ns = validity['natural_operational_sample']
           ms = validity['manual_operational_sample']
@@ -151,7 +163,7 @@ jobs:
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
-          git add evidence/operational/dynamic_clock
+          git add evidence/operational/dynamic_clock evidence/identity/proposals
           if git diff --cached --quiet; then
             echo "no change -- Dynamic Clock output identical to the last committed run, nothing to commit"
             echo "committed=false" >> "$GITHUB_OUTPUT"
@@ -174,4 +186,4 @@ jobs:
           git push origin "HEAD:${{ github.event.repository.default_branch }}" \
             || { echo "STOP: push rejected -- main advanced since the re-sync step (real race). Not force-pushing a possibly-stale result; the workflow that just landed on main will itself trigger a fresh recompute." >&2; exit 1; }
       - name: Committed-output-only guard (no other tracked file may change)
-        run: git diff --exit-code -- . ':!evidence/operational/dynamic_clock'
+        run: git diff --exit-code -- . ':!evidence/operational/dynamic_clock' ':!evidence/identity/proposals'

@@ -379,6 +379,32 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            proposal_dir = temp / "evidence" / "identity" / "proposals"
+            proposal_dir.mkdir(parents=True)
+            proposal_count = candidate_count - resolved_count
+            (proposal_dir / "candidate_identity_authority_proposal.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "gap_count": proposal_count,
+                        "proposal_count": proposal_count,
+                        "canonical_authority_rows_created": 0,
+                    }
+                }),
+                encoding="utf-8",
+            )
+            (proposal_dir / "candidate_identity_authority_review_inventory.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "population_count": proposal_count,
+                        "conflict_candidate_count": 0,
+                        "canonical_authority_rows_created": 0,
+                        "review_status_counts": {
+                            "MECHANICALLY_COHERENT_FOR_CIO_REVIEW": proposal_count,
+                        },
+                    }
+                }),
+                encoding="utf-8",
+            )
             (report_path.parent / "candidate_validity_evidence_inventory.json").write_text(
                 json.dumps({
                     "evidence_status_counts": {"REVALIDATABLE": 4},
@@ -418,6 +444,14 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 f"identity_authority_gap: unresolved={candidate_count - resolved_count}/{candidate_count}",
+                rendered,
+            )
+            self.assertIn(
+                f"identity_review_proposal: proposal={proposal_count}/{proposal_count}",
+                rendered,
+            )
+            self.assertIn(
+                f"identity_cross_row_review: coherent={proposal_count} conflict=0",
                 rendered,
             )
             self.assertIn(
