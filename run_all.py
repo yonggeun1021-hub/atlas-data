@@ -1199,6 +1199,9 @@ APPROVED_TESTS = [
     # produce CIO-review rows only. It writes no canonical authority and opens
     # no candidate validity, entry eligibility, sizing, or money authority.
     "test/test_candidate_identity_authority_proposal.py",
+    # ★ P5-06/P7-08 — cross-row audit of unratified identity proposals.
+    #   Coherence is review material only and never creates authority.
+    "test/test_candidate_identity_authority_review_inventory.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
