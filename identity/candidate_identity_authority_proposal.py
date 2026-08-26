@@ -115,7 +115,17 @@ def _proposal(gap: dict, pairs: dict) -> dict:
         reasons.append("RATIFIED_TAXONOMY_MATCH_MISSING")
     if not isinstance(pair, dict):
         reasons.append("KRAKEN_PAIR_NOT_IN_EXACT_CAPTURE")
-    elif not (pair.get("wsname") == source_id and pair.get("base") == asset and pair.get("quote") == "USD" and pair.get("status") == "online"):
+    # ``source_id`` is the exact key in Kraken's AssetPairs response.  It is
+    # the provider identity we bind.  ``wsname`` is a display alias and may
+    # legitimately differ (for example key DOGE/USD has wsname XDG/USD while
+    # the structured base is DOGE).  Requiring display-alias equality wrongly
+    # discarded an otherwise exact provider record.  The exact dictionary-key
+    # lookup above plus structured base/quote/status are the binding fields.
+    elif not (
+        pair.get("base") == asset
+        and pair.get("quote") == "USD"
+        and pair.get("status") == "online"
+    ):
         reasons.append("KRAKEN_PAIR_IDENTITY_FIELDS_MISMATCH")
     if reasons:
         return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": reasons, "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
