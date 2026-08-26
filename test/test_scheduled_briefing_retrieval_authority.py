@@ -111,7 +111,8 @@ class AuthorityRepo:
             "briefing_path": relative(briefing_path),
             "briefing_sha256": digest(briefing_path),
             "delivery_scope": [
-                "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"
+                "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
+                "SHADOW_ENTRY_REVIEW",
             ],
             "authority": {
                 "stage": False, "buy": False, "action": False,

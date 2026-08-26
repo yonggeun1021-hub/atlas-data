@@ -87,7 +87,7 @@ class ConsumerFixture:
         briefing = base / "rev-001/briefing.md"
         packet_value = {
             "schema_version": 1,
-            "contract_version": "daily_orchestrator/2",
+            "contract_version": "daily_orchestrator/3",
             "output_schema_version": "daily_briefing_packet/1",
             "slot": "morning",
             "decision_date": DATE,
@@ -141,7 +141,10 @@ class ConsumerFixture:
             "packet_path": rel(packet), "packet_file_sha256": sha(packet),
             "packet_sha256": packet_value["packet_sha256"],
             "briefing_path": rel(briefing), "briefing_sha256": sha(briefing),
-            "delivery_scope": ["INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"],
+            "delivery_scope": [
+                "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
+                "SHADOW_ENTRY_REVIEW",
+            ],
             "authority": {
                 "stage": False, "buy": False, "action": False,
                 "order": False, "production": False, "trading": False,

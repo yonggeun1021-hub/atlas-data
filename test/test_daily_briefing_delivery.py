@@ -57,6 +57,55 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
                         "stage_change": None,
                     },
                 },
+                {
+                    "component_id": "SHADOW_ENTRY_REVIEW",
+                    "status": "READY",
+                    "reason": None,
+                    "packet": {
+                        "schema_version": "shadow_entry_review_briefing_status/1",
+                        "sample_status": "NATURAL_OPERATIONAL_SAMPLE",
+                        "summary": {
+                            "candidate_count": 69,
+                            "zero_capital_review_item_count": 1,
+                            "probe_review_count": 1,
+                        },
+                        "policy_status": {
+                            "candidate_validity": "UNRATIFIED",
+                            "entry": "UNRATIFIED",
+                            "position_management": "UNRATIFIED",
+                            "position_size": "UNRATIFIED",
+                        },
+                        "review_items": [{
+                            "subject": "005930",
+                            "market": "KOREA",
+                            "review_state": "REVERSAL_PROBE_REVIEW",
+                            "participation_state": "PROBE_REVIEW",
+                            "review_due_status": "REVIEW_OVERDUE",
+                            "review_reason": "WEAK_PRICE_STATE_WITH_TWO_INDEPENDENT_TRIGGER_TYPES",
+                            "money_boundary": {
+                                "capital": 0,
+                                "trade_proposal": None,
+                                "stage_promotion_authority": False,
+                                "buy_authority": False,
+                                "action_authority": False,
+                                "order_authority": False,
+                                "production_authority": False,
+                                "trading_authority": False,
+                            },
+                        }],
+                        "why_not_executable": ["ENTRY_POLICY_UNRATIFIED"],
+                        "authority": {
+                            "capital": 0,
+                            "trade_proposal": None,
+                            "stage_promotion_authority": False,
+                            "buy_authority": False,
+                            "action_authority": False,
+                            "order_authority": False,
+                            "production_authority": False,
+                            "trading_authority": False,
+                        },
+                    },
+                },
             ],
         }
         dump(self.date_root / "rev-001/packet.json", packet)
@@ -83,12 +132,16 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
 
     def test_exact_locator_delivers_blocked_review_and_no_shadow_record(self):
         result = delivery.consume(self.root, self.slot, self.date)
-        review, shadow = result["components"]
+        review, shadow, zero_capital_review = result["components"]
         self.assertEqual(review["review_outcome"], "BLOCKED")
         self.assertIsNone(review["trade_proposal"])
         self.assertEqual(review["money_action"], "NONE")
         self.assertEqual(review["capital"], 0)
         self.assertFalse(shadow["ledger_record_created"])
+        self.assertEqual(zero_capital_review["sample_status"], "NATURAL_OPERATIONAL_SAMPLE")
+        self.assertEqual(zero_capital_review["capital"], 0)
+        self.assertIsNone(zero_capital_review["trade_proposal"])
+        self.assertEqual(zero_capital_review["review_items"][0]["subject"], "005930")
         self.assertFalse(any(result["authority"].values()))
 
     def test_wrong_date_never_falls_back(self):
@@ -172,6 +225,34 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(delivery.DeliveryError, "BLOCKED_SHADOW_LEAK"):
             delivery.consume(self.root, self.slot, self.date)
 
+    def test_zero_capital_review_authority_escalation_is_rejected(self):
+        path = self.date_root / "rev-001/packet.json"
+        packet = json.loads(path.read_text())
+        packet["components"][2]["packet"]["review_items"][0]["money_boundary"][
+            "buy_authority"
+        ] = True
+        dump(path, packet)
+        delivery.write_locator(
+            self.root, delivery.build_locator(self.root, self.slot, self.date)
+        )
+        with self.assertRaisesRegex(
+            delivery.DeliveryError, "SHADOW_REVIEW_ITEM_AUTHORITY_INVALID"
+        ):
+            delivery.consume(self.root, self.slot, self.date)
+
+    def test_zero_capital_review_post_hoc_field_is_rejected(self):
+        path = self.date_root / "rev-001/packet.json"
+        packet = json.loads(path.read_text())
+        packet["components"][2]["packet"]["review_items"][0]["forward_return"] = 9.9
+        dump(path, packet)
+        delivery.write_locator(
+            self.root, delivery.build_locator(self.root, self.slot, self.date)
+        )
+        with self.assertRaisesRegex(
+            delivery.DeliveryError, "SHADOW_REVIEW_POST_HOC_FIELD_FORBIDDEN"
+        ):
+            delivery.consume(self.root, self.slot, self.date)
+
     def test_locator_write_is_idempotent(self):
         locator = delivery.build_locator(self.root, self.slot, self.date)
         self.assertFalse(delivery.write_locator(self.root, locator))
@@ -179,6 +260,9 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
     def test_render_is_bounded_and_contains_no_full_packet_dump(self):
         text = delivery.render_delivery(delivery.consume(self.root, self.slot, self.date))
         self.assertIn("INVESTMENT_DECISION_REVIEW: DATA_BLOCKED", text)
+        self.assertIn("SHADOW_ENTRY_REVIEW: READY", text)
+        self.assertIn("005930 (KOREA): REVERSAL_PROBE_REVIEW", text)
+        self.assertIn("capital=0 / trade_proposal=null", text)
         self.assertIn("Trading authority: false", text)
         self.assertNotIn("packet_sha256", text)
         self.assertNotIn("components\":", text)

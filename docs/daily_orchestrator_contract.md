@@ -14,6 +14,29 @@ and evening run instead of silently omitting the layer. It does not synthesize
 a Thesis, ratify PASS/FAIL, create a Shadow eligibility, or grant capital/order
 authority.
 
+## Zero-capital review surface (P5-06 / P7-08 / P8-13 bridge)
+
+`daily_orchestrator/3` adds `SHADOW_ENTRY_REVIEW`. It does not replace the
+blocked executable Decision Review. It independently validates the exact
+committed Dynamic Clock report, candidate-identity observation, review
+contract and `shadow_entry_review.json`, then exposes only rows already marked
+`ZERO_CAPITAL_HUMAN_REVIEW_ITEM`. The rest of the population remains visible
+as counts so the briefing cannot flood with dozens of non-reviewable names.
+
+The retained row fields answer two different questions without mixing them:
+
+- **why review now**: review state, participation state, trigger types, price
+  state, next-review date and deterministic review reason;
+- **why no trade yet**: candidate-validity, entry, position-management and
+  position-size policies remain `UNRATIFIED`.
+
+Every component and row keeps `trade_proposal=null`, `capital=0`, null
+quantity/entry-zone/invalidation/max-loss, and Stage/Buy/Action/Order/
+Production/trading authority false. Forward returns, MFE/MAE and post-hoc
+audit labels are forbidden from both the daily packet and the H-24 delivery
+projection. `UPSTREAM_WORKFLOW_RUN` is labelled a natural operational sample;
+manual/local runs remain diagnostic and cannot be presented as natural.
+
 Status: provider-free daily orchestrator implemented and scheduled; most
 downstream components remain PENDING/POLICY_BLOCKED/DATA_BLOCKED/UNAVAILABLE
 because their own upstream policies are unratified or their own upstream
@@ -31,7 +54,7 @@ and `decision/` to assemble one combined daily briefing packet twice a day
 builders' logic; it is purely the wiring between them and this repository's
 persisted evidence.
 
-Every one of the 32 tracked components is reported with:
+Every one of the 41 tracked components is reported with:
 
 - `component_id`, `contract_version`, `status` (one of `READY`, `PENDING`,
   `UNKNOWN`, `DEGRADED`, `POLICY_BLOCKED`, `DATA_BLOCKED`, `UNAVAILABLE`),

@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -2155,6 +2156,104 @@ class DynamicClockRenderCapTest(unittest.TestCase):
         # CRYPTO(<=15+15) is a safe generous ceiling regardless of exactly
         # how many real candidates each market has today.
         self.assertLessEqual(len(crypto_candidate_lines), 60)
+
+
+class ShadowEntryReviewBriefingTests(unittest.TestCase):
+    def setUp(self):
+        MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
+
+    def tearDown(self):
+        MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
+
+    def _row(self, decision_date="2026-08-26"):
+        return MODULE.build_shadow_entry_review_status(
+            decision_date, "evening", "2026-08-26T23:45:00+09:00"
+        )
+
+    def test_natural_sample_exposes_only_three_zero_capital_review_items(self):
+        row = self._row()
+        self.assertEqual(row["status"], "READY")
+        packet = row["packet"]
+        self.assertEqual(packet["sample_status"], "NATURAL_OPERATIONAL_SAMPLE")
+        self.assertEqual(packet["summary"]["candidate_count"], 69)
+        self.assertEqual(packet["summary"]["zero_capital_review_item_count"], 3)
+        self.assertEqual(
+            {item["subject"] for item in packet["review_items"]},
+            {"000660", "005930", "BTC"},
+        )
+        states = {item["subject"]: item["review_state"] for item in packet["review_items"]}
+        self.assertEqual(states["005930"], "REVERSAL_PROBE_REVIEW")
+        self.assertEqual(states["BTC"], "WAIT_FOR_PULLBACK_REVIEW")
+        self.assertEqual(states["000660"], "WATCH_REVIEW")
+
+    def test_every_retained_item_and_component_keep_money_authority_at_zero(self):
+        packet = self._row()["packet"]
+        self.assertEqual(packet["authority"]["capital"], 0)
+        self.assertIsNone(packet["authority"]["trade_proposal"])
+        for key in (
+            "stage_promotion_authority", "buy_authority", "action_authority",
+            "order_authority", "production_authority", "trading_authority",
+        ):
+            self.assertFalse(packet["authority"][key])
+        for item in packet["review_items"]:
+            money = item["money_boundary"]
+            self.assertEqual(money["capital"], 0)
+            self.assertIsNone(money["trade_proposal"])
+            self.assertIsNone(money["quantity"])
+            self.assertIsNone(money["entry_zone"])
+            self.assertIsNone(money["invalidation"])
+        self.assertFalse(MODULE._contains_shadow_review_post_hoc_key(packet))
+
+    def test_other_decision_date_is_fail_closed_not_reused_as_current(self):
+        row = self._row("2026-08-25")
+        self.assertEqual(row["status"], "DATA_BLOCKED")
+        self.assertEqual(row["reason"], "SHADOW_ENTRY_REVIEW_DECISION_DATE_MISMATCH")
+        self.assertIsNone(row["packet"])
+        self.assertFalse(row["decision_eligible"])
+
+    def test_resigned_review_state_tamper_is_rejected_by_production_validator(self):
+        original_read = MODULE._read_json
+        shadow_path = MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH
+        tampered = copy.deepcopy(original_read(shadow_path))
+        target = next(item for item in tampered["review_items"] if item["subject"] == "005930")
+        target["review_state"] = "MOMENTUM_PROBE_REVIEW"
+        target["row_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
+            {key: value for key, value in target.items() if key != "row_sha256"}
+        )
+        tampered["packet_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
+            {key: value for key, value in tampered.items() if key != "packet_sha256"}
+        )
+
+        def read_with_tamper(path):
+            if Path(path) == shadow_path:
+                return copy.deepcopy(tampered)
+            return original_read(path)
+
+        with mock.patch.object(MODULE, "_read_json", side_effect=read_with_tamper):
+            row = self._row()
+        self.assertEqual(row["status"], "DEGRADED")
+        self.assertIn("SHADOW_ENTRY_REVIEW_SEMANTIC_TAMPER_OR_DRIFT", row["reason"])
+
+    def test_markdown_says_why_now_and_why_not_without_buy_language(self):
+        row = self._row()
+        packet = {
+            "decision_date": "2026-08-26",
+            "slot": "evening",
+            "generated_at": "2026-08-26T23:45:00+09:00",
+            "component_status_counts": {"READY": 1},
+            "components": [row],
+            "unresolved_boundaries": [],
+        }
+        rendered = MODULE.render_markdown(packet)
+        self.assertIn("Zero-capital human review", rendered)
+        self.assertIn("005930 (KOREA): review_state=REVERSAL_PROBE_REVIEW", rendered)
+        self.assertIn("BTC (BTC): review_state=WAIT_FOR_PULLBACK_REVIEW", rendered)
+        self.assertIn("000660 (KOREA): review_state=WATCH_REVIEW", rendered)
+        self.assertIn("capital=0 trade_proposal=null", rendered)
+        self.assertIn("ENTRY_POLICY_UNRATIFIED", rendered)
+        self.assertNotIn("forward_return", rendered.lower())
+        self.assertNotIn("mfe", rendered.lower())
+        self.assertNotIn("mae", rendered.lower())
 
 
 if __name__ == "__main__":

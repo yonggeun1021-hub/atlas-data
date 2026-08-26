@@ -236,7 +236,8 @@ def validate_envelope(
         "production": False, "trading": False,
     }
     if locator.get("delivery_scope") != [
-        "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW"
+        "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
+        "SHADOW_ENTRY_REVIEW",
     ] or locator.get("authority") != expected_delivery_authority:
         fail("DELIVERY_LOCATOR_AUTHORITY_OR_SCOPE_INVALID")
     if not isinstance(locator.get("revision"), int) or isinstance(locator.get("revision"), bool) or locator["revision"] < 1:
@@ -345,7 +346,7 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         fail("DELIVERY_PACKET_FIELDS_MISMATCH")
     if (
         packet.get("schema_version") != 1
-        or packet.get("contract_version") != "daily_orchestrator/2"
+        or packet.get("contract_version") != "daily_orchestrator/3"
         or packet.get("output_schema_version") != "daily_briefing_packet/1"
         or packet.get("capture_mode")
         != "provider_free_aggregation_of_persisted_evidence_only"
