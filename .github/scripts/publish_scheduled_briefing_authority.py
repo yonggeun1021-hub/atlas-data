@@ -416,6 +416,14 @@ def validate_expected_identity(
         fail("ENVELOPE_PATH_IDENTITY_MISMATCH")
 
 
+def _artifact_fingerprints(records: list[dict]) -> list[tuple[str, str, str]]:
+    """Return commit-independent identities for an artifact record list."""
+    return [
+        (row["path"], row["git_blob_sha1"], row["content_sha256"])
+        for row in records
+    ]
+
+
 def publish(repo_root: Path, source_commit: str, slot: str, expected_kst_date: str) -> tuple[Path, bool]:
     adapter, _ = load_contract_at_commit(repo_root, source_commit)
     base = repo_root / "evidence/scheduled_briefing_retrieval" / expected_kst_date / slot
@@ -437,17 +445,23 @@ def publish(repo_root: Path, source_commit: str, slot: str, expected_kst_date: s
             repo_root, source_commit, slot, expected_kst_date, latest["revision"]
         )
         if latest["generation_id"] == candidate["generation_id"]:
-            old_fingerprints = [
-                (row["path"], row["git_blob_sha1"], row["content_sha256"])
-                for row in latest["required_artifacts"]
-            ]
-            new_fingerprints = [
-                (row["path"], row["git_blob_sha1"], row["content_sha256"])
-                for row in candidate["required_artifacts"]
-            ]
+            old_fingerprints = _artifact_fingerprints(latest["required_artifacts"])
+            new_fingerprints = _artifact_fingerprints(candidate["required_artifacts"])
             if old_fingerprints != new_fingerprints:
                 fail("SOURCE_GENERATION_REUSED_WITH_DIFFERENT_BYTES")
-            return existing_paths[-1], False
+            # The read-model generation may legitimately remain unchanged
+            # while the same-day briefing publisher appends a new delivery
+            # revision (for example after one component recovers).  A
+            # retrieval bootstrap must then advance too; otherwise it keeps
+            # advertising the prior locator and the workflow's exact source
+            # identity validation fails after the new delivery commit lands.
+            delivery_unchanged = (
+                latest["delivery_locator"] == candidate["delivery_locator"]
+                and _artifact_fingerprints(latest["delivery_artifacts"])
+                == _artifact_fingerprints(candidate["delivery_artifacts"])
+            )
+            if delivery_unchanged:
+                return existing_paths[-1], False
     revision = len(existing_paths) + 1
     if revision > adapter["max_revisions_per_slot"]:
         fail("BOOTSTRAP_REVISION_LIMIT_EXCEEDED")

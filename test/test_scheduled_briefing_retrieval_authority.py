@@ -59,43 +59,55 @@ class AuthorityRepo:
             "generation": meta,
         })
 
-    def write_delivery(self, slot: str = "morning") -> None:
+    def write_delivery(
+        self,
+        slot: str = "morning",
+        revision: int = 1,
+        packet_sha: str = PACKET_SHA,
+    ) -> None:
         base = self.root / f"evidence/daily_briefing/{slot}/{DATE}"
         index_path = base / "index.json"
-        packet_path = base / "rev-001/packet.json"
-        briefing_path = base / "rev-001/briefing.md"
+        revision_name = f"rev-{revision:03d}"
+        packet_path = base / f"{revision_name}/packet.json"
+        briefing_path = base / f"{revision_name}/briefing.md"
         packet = {
             "slot": slot,
             "decision_date": DATE,
-            "packet_sha256": PACKET_SHA,
+            "packet_sha256": packet_sha,
             "components": [],
         }
+        prior_revisions = []
+        if index_path.exists():
+            prior_revisions = json.loads(index_path.read_text())["revisions"]
+        if revision != len(prior_revisions) + 1:
+            raise AssertionError("delivery revisions must be appended sequentially")
+        revisions = prior_revisions + [{
+            "revision": revision,
+            "path": revision_name,
+            "packet_sha256": packet_sha,
+        }]
         write_json(index_path, {
             "schema_version": 1,
             "slot": slot,
             "decision_date": DATE,
-            "latest_revision": 1,
-            "revisions": [{
-                "revision": 1,
-                "path": "rev-001",
-                "packet_sha256": PACKET_SHA,
-            }],
+            "latest_revision": revision,
+            "revisions": revisions,
         })
         write_json(packet_path, packet)
         briefing_path.parent.mkdir(parents=True, exist_ok=True)
-        briefing_path.write_text("# briefing\n", encoding="utf-8")
+        briefing_path.write_text(f"# briefing revision {revision}\n", encoding="utf-8")
         relative = lambda path: path.relative_to(self.root).as_posix()
         digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
         write_json(self.root / "data/briefing/daily_briefing_sources.json", {
             "schema_version": "daily_briefing_delivery/1",
             "slot": slot,
             "decision_date": DATE,
-            "revision": 1,
+            "revision": revision,
             "index_path": relative(index_path),
             "index_sha256": digest(index_path),
             "packet_path": relative(packet_path),
             "packet_file_sha256": digest(packet_path),
-            "packet_sha256": PACKET_SHA,
+            "packet_sha256": packet_sha,
             "briefing_path": relative(briefing_path),
             "briefing_sha256": digest(briefing_path),
             "delivery_scope": [
@@ -230,6 +242,25 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), first_bytes)
         self.assertEqual(json.loads(second.read_text())["revision"], 2)
         self.assertEqual(json.loads(second.read_text())["source_commit"], new_commit)
+
+    def test_same_generation_new_delivery_appends_authority_revision(self):
+        first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)
+        first_bytes = first.read_bytes()
+        self.repo.write_delivery(revision=2, packet_sha="8" * 64)
+        new_commit = self.repo.commit_all("same-generation-new-delivery")
+
+        second, changed = M.publish(
+            self.repo.root, new_commit, "morning", DATE
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(second.name, "rev-002.json")
+        self.assertEqual(first.read_bytes(), first_bytes)
+        second_value = json.loads(second.read_text())
+        self.assertEqual(second_value["revision"], 2)
+        self.assertEqual(second_value["source_commit"], new_commit)
+        self.assertEqual(second_value["delivery_locator"]["revision"], 2)
+        M.validate_envelope(self.repo.root, second_value)
 
     def test_revision_gap_is_fail_closed(self):
         first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)
