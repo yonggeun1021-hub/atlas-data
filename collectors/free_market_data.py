@@ -37,6 +37,12 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         raise FreeMarketDataError("CONTRACT_VERSION_INVALID")
     if value.get("alpaca", {}).get("feed") != "iex":
         raise FreeMarketDataError("ALPACA_FEED_MUST_BE_IEX")
+    if value.get("fred", {}).get("raw_retention") != "TRANSIENT_NOT_PERSISTED":
+        raise FreeMarketDataError("FRED_RAW_RETENTION_INVALID")
+    if value.get("fred", {}).get("partial_publish_authorized") is not True:
+        raise FreeMarketDataError("FRED_PARTIAL_PUBLISH_NOT_AUTHORIZED")
+    if value.get("alpaca", {}).get("credential_scope") != "DEDICATED_MARKET_DATA_ONLY":
+        raise FreeMarketDataError("ALPACA_CREDENTIAL_SCOPE_INVALID")
     authority = value.get("authority")
     if authority != {
         "evidence_capture_only": True,
@@ -161,17 +167,47 @@ def _atomic_write(path: Path, data: bytes) -> None:
     os.replace(temp, path)
 
 
-def build_capture(observed_at: dt.datetime, fred_raw: bytes, fred: dict, alpaca_raw: bytes, bars: list[dict], daily_raw: bytes, daily_bars: list[dict], contract: dict) -> dict:
+def build_capture(
+    observed_at: dt.datetime,
+    fred_raw: bytes,
+    fred: dict,
+    contract: dict,
+    *,
+    alpaca_status: str,
+    alpaca_raw: bytes | None = None,
+    bars: list[dict] | None = None,
+    daily_raw: bytes | None = None,
+    daily_bars: list[dict] | None = None,
+) -> dict:
     observed = observed_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    bars = bars or []
+    daily_bars = daily_bars or []
+    if alpaca_status == "READY":
+        if alpaca_raw is None or daily_raw is None or not bars or not daily_bars:
+            raise FreeMarketDataError("ALPACA_READY_EVIDENCE_INCOMPLETE")
+    elif alpaca_raw is not None or daily_raw is not None or bars or daily_bars:
+        raise FreeMarketDataError("ALPACA_BLOCKED_MUST_NOT_CARRY_EVIDENCE")
     packet = {
-        "schema_version": "free_market_data_capture/2",
+        "schema_version": "free_market_data_capture/3",
         "contract_version": contract["contract_version"],
         "observed_at_utc": observed,
-        "fred": {**fred, "source_scope": contract["fred"]["source_scope"], "raw_sha256": sha256_bytes(fred_raw)},
+        "fred": {
+            **fred,
+            "status": "READY",
+            "source_scope": contract["fred"]["source_scope"],
+            "response_sha256": sha256_bytes(fred_raw),
+            "raw_retention": contract["fred"]["raw_retention"],
+        },
         "alpaca": {
-            "feed": "iex", "source_scope": contract["alpaca"]["source_scope"], "bars": bars,
-            "raw_sha256": sha256_bytes(alpaca_raw), "daily_bars": daily_bars,
-            "daily_raw_sha256": sha256_bytes(daily_raw), "daily_timeframe": "1Day", "daily_adjustment": "raw",
+            "status": alpaca_status,
+            "feed": "iex",
+            "source_scope": contract["alpaca"]["source_scope"],
+            "bars": bars,
+            "raw_sha256": sha256_bytes(alpaca_raw) if alpaca_raw is not None else None,
+            "daily_bars": daily_bars,
+            "daily_raw_sha256": sha256_bytes(daily_raw) if daily_raw is not None else None,
+            "daily_timeframe": "1Day",
+            "daily_adjustment": "raw",
         },
         "authority": contract["authority"],
     }
@@ -179,13 +215,25 @@ def build_capture(observed_at: dt.datetime, fred_raw: bytes, fred: dict, alpaca_
     return packet
 
 
-def publish(root: Path, observed_at: dt.datetime, fred_raw: bytes, alpaca_raw: bytes, daily_raw: bytes, packet: dict) -> None:
+def publish(
+    root: Path,
+    observed_at: dt.datetime,
+    packet: dict,
+    *,
+    alpaca_raw: bytes | None = None,
+    daily_raw: bytes | None = None,
+) -> None:
     day = observed_at.astimezone(UTC).date().isoformat()
-    raw_dir = root / "evidence" / "free_market_data" / "raw" / day
-    _atomic_write(raw_dir / "fred_vixcls.json.gz", gzip.compress(fred_raw, mtime=0))
-    _atomic_write(raw_dir / "alpaca_iex_latest_bars.json.gz", gzip.compress(alpaca_raw, mtime=0))
-    _atomic_write(raw_dir / "alpaca_iex_daily_bars.json.gz", gzip.compress(daily_raw, mtime=0))
-    _atomic_write(raw_dir / "manifest.json", json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n")
+    derived_dir = root / "evidence" / "free_market_data" / "derived" / day
+    # FRED response bytes are intentionally transient. Only derived value,
+    # vintage metadata and the response digest are retained.
+    _atomic_write(derived_dir / "manifest.json", json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n")
+    if packet["alpaca"]["status"] == "READY":
+        if alpaca_raw is None or daily_raw is None:
+            raise FreeMarketDataError("ALPACA_READY_RAW_MISSING")
+        raw_dir = root / "evidence" / "free_market_data" / "raw" / day
+        _atomic_write(raw_dir / "alpaca_iex_latest_bars.json.gz", gzip.compress(alpaca_raw, mtime=0))
+        _atomic_write(raw_dir / "alpaca_iex_daily_bars.json.gz", gzip.compress(daily_raw, mtime=0))
     _atomic_write(root / "data" / "latest_free_market_data.json", json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n")
 
 
@@ -206,21 +254,59 @@ def main() -> int:
     # `ALPACA_API_KEY`/`ALPACA_API_SECRET` any more.
     alpaca_key = os.getenv("ALPACA_MARKET_DATA_API_KEY", "").strip()
     alpaca_secret = os.getenv("ALPACA_MARKET_DATA_API_SECRET", "").strip()
-    if not all((alpaca_key, alpaca_secret)):
-        # ★ Fail-closed, explicit, non-silent: this is not "missing config"
-        # in the generic sense -- it specifically means the dedicated
-        # market-data-only credential has not been provisioned yet. Never
-        # skip the Alpaca leg silently, never fabricate a placeholder
-        # price, never treat this as PASS.
-        raise SystemExit("BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
     observed_at = dt.datetime.now(UTC).replace(microsecond=0)
     contract = load_contract(args.root / "config" / "free_market_data_contract.json")
     fred_raw, fred = fetch_fred(fred_key, observed_at)
-    alpaca_raw, bars = fetch_alpaca(alpaca_key, alpaca_secret, contract["alpaca"]["symbols"])
-    daily_raw, daily_bars = fetch_alpaca_daily_bars(alpaca_key, alpaca_secret, contract["alpaca"]["symbols"], observed_at)
-    packet = build_capture(observed_at, fred_raw, fred, alpaca_raw, bars, daily_raw, daily_bars, contract)
-    publish(args.root, observed_at, fred_raw, alpaca_raw, daily_raw, packet)
-    print(json.dumps({"status": "PASS", "packet_sha256": packet["packet_sha256"]}, sort_keys=True))
+    alpaca_raw = daily_raw = None
+    bars: list[dict] = []
+    daily_bars: list[dict] = []
+    if bool(alpaca_key) != bool(alpaca_secret):
+        alpaca_status = "BLOCKED_BY_INCOMPLETE_DEDICATED_MARKET_DATA_CREDENTIAL"
+    elif not alpaca_key:
+        alpaca_status = "BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL"
+    else:
+        try:
+            alpaca_raw, bars = fetch_alpaca(
+                alpaca_key, alpaca_secret, contract["alpaca"]["symbols"]
+            )
+            daily_raw, daily_bars = fetch_alpaca_daily_bars(
+                alpaca_key,
+                alpaca_secret,
+                contract["alpaca"]["symbols"],
+                observed_at,
+            )
+            alpaca_status = "READY"
+        except FreeMarketDataError as exc:
+            # One provider failure must not erase an independent valid FRED
+            # observation. The failed component carries no rows or raw bytes.
+            alpaca_raw = daily_raw = None
+            bars = []
+            daily_bars = []
+            alpaca_status = f"ALPACA_CAPTURE_FAILED:{exc}"
+    packet = build_capture(
+        observed_at,
+        fred_raw,
+        fred,
+        contract,
+        alpaca_status=alpaca_status,
+        alpaca_raw=alpaca_raw,
+        bars=bars,
+        daily_raw=daily_raw,
+        daily_bars=daily_bars,
+    )
+    publish(
+        args.root,
+        observed_at,
+        packet,
+        alpaca_raw=alpaca_raw,
+        daily_raw=daily_raw,
+    )
+    status = "PASS" if alpaca_status == "READY" else "PARTIAL"
+    print(json.dumps({
+        "status": status,
+        "alpaca_status": alpaca_status,
+        "packet_sha256": packet["packet_sha256"],
+    }, sort_keys=True))
     return 0
 
 

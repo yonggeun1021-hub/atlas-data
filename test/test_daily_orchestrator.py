@@ -2011,6 +2011,57 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(row["status"], "DEGRADED")
         self.assertEqual(row["reason"], "run_status=FAILED")
 
+    def test_free_market_v3_keeps_fred_visible_when_alpaca_is_blocked(self):
+        authority = {
+            "evidence_capture_only": True,
+            "us_breadth_authorized": False,
+            "market_wide_price_authorized": False,
+            "entry_authorized": False,
+            "action_authorized": False,
+            "order_authorized": False,
+            "broker_submission_authorized": False,
+            "production_authorized": False,
+            "trading_authorized": False,
+        }
+        payload = {
+            "schema_version": "free_market_data_capture/3",
+            "contract_version": "free_market_data/1",
+            "observed_at_utc": "2026-08-26T00:35:00Z",
+            "packet_sha256": "a" * 64,
+            "fred": {
+                "status": "READY", "series_id": "VIXCLS",
+                "observation_date": "2026-08-25", "value": "15.5",
+                "response_sha256": "b" * 64,
+                "raw_retention": "TRANSIENT_NOT_PERSISTED",
+            },
+            "alpaca": {
+                "status": "BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL",
+                "feed": "iex", "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+                "bars": [], "daily_bars": [], "raw_sha256": None,
+                "daily_raw_sha256": None,
+            },
+            "authority": authority,
+        }
+        row = MODULE.build_free_market_data({"kind": "ready", "value": payload})
+        self.assertEqual(row["status"], "DEGRADED")
+        self.assertEqual(row["reason"], "BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
+        self.assertTrue(row["validated"])
+        self.assertEqual(row["packet"]["vixcls"], {"date": "2026-08-25", "value": "15.5"})
+        self.assertEqual(row["packet"]["alpaca_iex_bars"], [])
+        self.assertFalse(row["authority"]["trading_authorized"])
+
+    def test_free_market_v3_rejects_fred_raw_retention_drift(self):
+        current = json.loads((ROOT / "data" / "latest_free_market_data.json").read_text())
+        current["schema_version"] = "free_market_data_capture/3"
+        current["fred"]["status"] = "READY"
+        current["fred"]["response_sha256"] = "b" * 64
+        current["fred"]["raw_retention"] = "PERSISTED"
+        current["alpaca"]["status"] = "READY"
+        current["alpaca"]["daily_bars"] = [{"symbol": "MSFT"}]
+        row = MODULE.build_free_market_data({"kind": "ready", "value": current})
+        self.assertEqual(row["status"], "DEGRADED")
+        self.assertEqual(row["reason"], "FRED_DERIVED_CONTRACT_INVALID")
+
     def test_workflow_does_not_duplicate_or_alter_existing_collector_schedules(self):
         # The daily briefing workflow must never re-fetch anything the
         # collectors already fetched -- it is a separate, later, read-only
