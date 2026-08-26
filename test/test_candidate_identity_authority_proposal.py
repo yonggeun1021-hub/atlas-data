@@ -123,6 +123,14 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
             with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_KRX_EVIDENCE_INVALID"):
                 build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
 
+    def test_korea_subject_must_equal_the_exact_provider_symbol(self):
+        gap = copy.deepcopy(next(x for x in self.gaps["identity_gaps"] if x["market"] == "KOREA"))
+        evidence = next(iter(self.packet["source_korea_identity_evidence"].values()))
+        gap["subject"] = "NOT-034020"
+        row = _proposal(gap, {}, evidence)
+        self.assertEqual(row["review_status"], INCOMPLETE)
+        self.assertEqual(row["reason_codes"], ["KOREA_SUBJECT_SOURCE_ID_MISMATCH"])
+
     def test_no_canonical_authority_configuration_is_modified_or_embedded(self):
         self.assertFalse(self.packet["policy_boundary"]["canonical_config_modified"])
         proposal_text = json.dumps(self.packet["proposals"])

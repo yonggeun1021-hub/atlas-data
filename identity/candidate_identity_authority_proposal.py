@@ -143,14 +143,14 @@ def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
         dt.timezone.utc
     )
     for doc, source, code in (
-        (krx, "KRX", "KOREA_KRX_EVIDENCE_INVALID"),
-        (dart, "OpenDART", "KOREA_DART_EVIDENCE_INVALID"),
+        (krx, "KRX 정보데이터시스템 (pykrx)", "KOREA_KRX_EVIDENCE_INVALID"),
+        (dart, "OpenDART (금융감독원)", "KOREA_DART_EVIDENCE_INVALID"),
     ):
         if doc.get("collected_for_kst_date") != decision.isoformat():
             raise CandidateIdentityAuthorityProposalError(code)
         if _parse_collected_at(doc.get("collected_at_utc"), code=code) > decision_end:
             raise CandidateIdentityAuthorityProposalError(code)
-        if source not in str(doc.get("source", "")):
+        if doc.get("source") != source or doc.get("source_tier") != "Official":
             raise CandidateIdentityAuthorityProposalError(code)
 
     krx_row = krx.get("stocks", {}).get(symbol)
@@ -196,6 +196,8 @@ def _proposal(gap: dict, pairs: dict, korea_evidence: dict | None = None) -> dic
             return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": ["KOREA_CROSS_SOURCE_EVIDENCE_MISSING"], "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
         if diagnostic.get("source_name") != "krx_open_api_stock_daily":
             return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": ["KOREA_PROVIDER_SOURCE_UNSUPPORTED"], "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
+        if gap.get("subject") != source_id:
+            return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": ["KOREA_SUBJECT_SOURCE_ID_MISMATCH"], "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
         corp_code = korea_evidence["corp_code"]
         issuer = f"DART:{corp_code}"
         instrument = f"KRX:{source_id}:OTHER_UNCLASSIFIED"
