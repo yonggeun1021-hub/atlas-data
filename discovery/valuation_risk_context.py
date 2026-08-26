@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "valuation_risk_context_contract.json"
 INPUT_SCHEMA_VERSION = "valuation_risk_context_input/1"
-OUTPUT_SCHEMA_VERSION = "valuation_risk_context_packet/2"
+OUTPUT_SCHEMA_VERSION = "valuation_risk_context_packet/3"
 POLICY_SCHEMA_VERSION = "valuation_risk_interpretation_policy/1"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -80,7 +80,7 @@ def _expected_contract() -> dict:
     }
     return {
         "schema_version": 1,
-        "contract_version": "valuation_risk_context/1",
+        "contract_version": "valuation_risk_context/2",
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "interpretation_policy_schema_version": POLICY_SCHEMA_VERSION,
@@ -106,7 +106,7 @@ def _expected_contract() -> dict:
         },
         "output_decimal_places": 12,
         "source_coverage": {
-            "CRYPTO": {"RISK": "PARTIAL_EXISTING_BTC_RISK_FEATURES", "VALUATION": "UNDEFINED_NO_RATIFIED_METRIC"},
+            "CRYPTO": {"RISK": "OPERATIONAL_PIT_SOURCE_POPULATION_WIRED", "VALUATION": "UNDEFINED_NO_RATIFIED_METRIC"},
             "KOREA": {"RISK": "PARTIAL_INPUT_POLICY_AND_RELEASE_TIMING_UNRATIFIED", "VALUATION": "PARTIAL_DART_AND_KRX_SOURCE_FRAGMENTS"},
             "US": {"RISK": "PARTIAL_INPUT_POLICY_UNRATIFIED", "VALUATION": "PARTIAL_SEC_AND_TRANSIENT_PRICE_SOURCE_FRAGMENTS"},
         },
@@ -865,7 +865,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "CRYPTO_VALUATION_UNDEFINED",
         "US_RISK_INPUT_POLICY_UNRATIFIED",
         "KOREA_RISK_INPUT_AND_RELEASE_TIMING_UNRATIFIED",
-        "LIVE_CONTEXT_POPULATION_NOT_IMPLEMENTED",
+        "LIVE_CONTEXT_POPULATION_PARTIAL_CRYPTO_RISK_SOURCE_ONLY",
     ]
     if (
         type(packet.get("candidate_count")) is not int
@@ -951,7 +951,7 @@ def build_packet(value: dict, interpretation_policy: dict | None = None, contrac
             "MINIMUM_CHANGE_UNRATIFIED", "METRIC_SELECTION_UNRATIFIED",
             "SOURCE_HIERARCHY_UNRATIFIED", "CRYPTO_VALUATION_UNDEFINED",
             "US_RISK_INPUT_POLICY_UNRATIFIED", "KOREA_RISK_INPUT_AND_RELEASE_TIMING_UNRATIFIED",
-            "LIVE_CONTEXT_POPULATION_NOT_IMPLEMENTED",
+            "LIVE_CONTEXT_POPULATION_PARTIAL_CRYPTO_RISK_SOURCE_ONLY",
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
