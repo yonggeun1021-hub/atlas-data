@@ -1197,6 +1197,11 @@ APPROVED_TESTS = [
     # provider lineage -> RATIFIED canonical instrument/account scope only.
     # Candidate validity, entry, sizing and every money authority stay locked.
     "test/test_candidate_identity_observation.py",
+    # P5-06 -> P7-08 -> P8-13 zero-capital review bridge: validates the
+    # exact Dynamic Clock + canonical identity packets and surfaces a human
+    # review disposition without opening validity, sizing, capital or trade
+    # authority.  Re-signed output tamper is rejected by semantic rebuild.
+    "test/test_shadow_entry_review.py",
     # P5-06/P7-08 unresolved identity evidence inventory: exact validated
     # provider pairs are compared with the already-ratified taxonomy only as
     # diagnostic adjacency.  It creates zero authority rows and cannot open

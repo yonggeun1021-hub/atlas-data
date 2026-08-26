@@ -370,6 +370,16 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "shadow_entry_review.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "candidate_count": candidate_count,
+                        "probe_review_count": 1,
+                        "zero_capital_review_item_count": resolved_count,
+                    }
+                }),
+                encoding="utf-8",
+            )
             (report_path.parent / "candidate_identity_gap_inventory.json").write_text(
                 json.dumps({
                     "summary": {
@@ -450,6 +460,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 self.assertIn(f"- {market}: evidence_as_of=", rendered)
             self.assertIn(
                 f"candidate_identity: resolved={resolved_count}/{candidate_count}",
+                rendered,
+            )
+            self.assertIn(
+                f"shadow_entry_review: probe_review=1 zero_capital_review_items={resolved_count} total={candidate_count}",
                 rendered,
             )
             self.assertIn(
