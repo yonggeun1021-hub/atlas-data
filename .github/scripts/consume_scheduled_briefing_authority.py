@@ -18,7 +18,6 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import tempfile
-import sys
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -314,11 +313,99 @@ def _git_blob_sha1(raw: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
 
 
-def _validate_daily_packet(packet: dict) -> None:
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
-    from briefing.daily_orchestrator import validate_packet
-    validate_packet(packet)
+DAILY_PACKET_STATUSES = {
+    "READY", "PENDING", "DATA_BLOCKED", "POLICY_BLOCKED", "DEGRADED",
+    "UNAVAILABLE", "UNKNOWN",
+}
+
+
+def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str) -> None:
+    """Validate the immutable delivery packet without consulting local state.
+
+    ``daily_orchestrator.validate_packet`` is intentionally a producer-side
+    rebuild: it re-derives non-frozen components from the checkout on disk.
+    Calling it in an external consumer therefore compares a packet from the
+    envelope's historical ``source_commit`` with whichever newer checkout the
+    consumer happens to run, and can reject valid immutable deliveries.
+
+    The consumer's trust boundary is different.  ``_fetch_record`` already
+    binds the packet bytes to both hashes recorded by the append-only envelope
+    and to a full immutable commit URL.  Here we independently verify the
+    packet's self-hash, identity, fixed authority boundary, and internal status
+    counts.  Full semantic rebuild remains a producer gate before publication;
+    it must never be silently re-run against a different local generation.
+    """
+    required = {
+        "schema_version", "contract_version", "output_schema_version", "slot",
+        "decision_date", "generated_at", "capture_mode",
+        "component_status_counts", "components", "authority", "frozen_sources",
+        "unresolved_boundaries", "packet_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != required:
+        fail("DELIVERY_PACKET_FIELDS_MISMATCH")
+    if (
+        packet.get("schema_version") != 1
+        or packet.get("contract_version") != "daily_orchestrator/2"
+        or packet.get("output_schema_version") != "daily_briefing_packet/1"
+        or packet.get("capture_mode")
+        != "provider_free_aggregation_of_persisted_evidence_only"
+    ):
+        fail("DELIVERY_PACKET_SCHEMA_UNSUPPORTED")
+    if packet.get("slot") != slot or packet.get("decision_date") != expected_date:
+        fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
+    digest = packet.get("packet_sha256")
+    unsigned = dict(packet)
+    unsigned.pop("packet_sha256", None)
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        fail("DELIVERY_PACKET_SHA_INVALID")
+    if hashlib.sha256(canonical_json(unsigned).encode("utf-8")).hexdigest() != digest:
+        fail("DELIVERY_PACKET_SELF_HASH_MISMATCH")
+
+    expected_authority = {
+        "aggregation_only": True,
+        "component_build_authorized": True,
+        "source_interpretation_authorized": False,
+        "regime_score_authorized": False,
+        "rotation_ranking_authorized": False,
+        "discovery_promotion_authorized": False,
+        "rule_pass_fail_authorized": False,
+        "portfolio_sizing_authorized": False,
+        "action_generation_authorized": False,
+        "order_generation_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
+    }
+    if packet.get("authority") != expected_authority:
+        fail("DELIVERY_PACKET_AUTHORITY_INVALID")
+    components = packet.get("components")
+    counts = packet.get("component_status_counts")
+    if (
+        not isinstance(components, list)
+        or not components
+        or not isinstance(counts, dict)
+        or set(counts) != DAILY_PACKET_STATUSES
+    ):
+        fail("DELIVERY_PACKET_COMPONENT_SET_INVALID")
+    observed = {status: 0 for status in DAILY_PACKET_STATUSES}
+    component_ids = set()
+    for row in components:
+        if not isinstance(row, dict) or row.get("status") not in DAILY_PACKET_STATUSES:
+            fail("DELIVERY_PACKET_COMPONENT_INVALID")
+        component_id = row.get("component_id")
+        if not isinstance(component_id, str) or not component_id or component_id in component_ids:
+            fail("DELIVERY_PACKET_COMPONENT_ID_INVALID")
+        component_ids.add(component_id)
+        if any(row.get(key) is not False for key in (
+            "decision_eligible", "action_eligible", "order_eligible"
+        )):
+            fail("DELIVERY_PACKET_COMPONENT_AUTHORITY_INVALID", component_id)
+        observed[row["status"]] += 1
+    if counts != observed:
+        fail("DELIVERY_PACKET_STATUS_COUNTS_MISMATCH")
+    if not isinstance(packet.get("frozen_sources"), dict) or not isinstance(
+        packet.get("unresolved_boundaries"), list
+    ):
+        fail("DELIVERY_PACKET_BOUNDARY_FIELDS_INVALID")
 
 
 def _fetch_record(record: dict, get, nonce_factory) -> bytes:
@@ -381,7 +468,7 @@ def consume(
         if (value.get("generation") or {}).get("generation_id") != envelope["generation_id"]:
             fail("IMMUTABLE_ARTIFACT_GENERATION_MISMATCH", name)
     packet = _json_object(raw_by_path[locator["packet_path"]], "DELIVERY_PACKET_JSON_INVALID")
-    _validate_daily_packet(packet)
+    _validate_pinned_delivery_packet(packet, expected_date, slot)
     if (
         packet.get("slot") != slot
         or packet.get("decision_date") != expected_date
