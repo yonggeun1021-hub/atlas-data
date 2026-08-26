@@ -206,8 +206,8 @@ class StaleVsMissingAreDistinctTests(unittest.TestCase):
     PRICE_DATA_MISSING, never collapsed into one generic "no data" state."""
 
     def test_missing_evidence_subject_produces_price_data_missing(self):
-        # 034020 (두산에너빌리티) has zero committed KRX evidence anywhere
-        # in this repo (confirmed directly in PR #212's own report).
+        # 034020 (두산에너빌리티) has no KRX evidence available at or before
+        # this frozen decision date. Later captures must not be backfilled.
         result = link_price_reflection("034020", "KOREA", "2026-08-21")
         self.assertEqual(result["status"], "LINKED")
         self.assertEqual(result["price_state"], "UNKNOWN")

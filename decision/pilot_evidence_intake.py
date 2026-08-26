@@ -29,12 +29,12 @@ narrative-sourced number to exhibit-extracted status.
   this repo -- there is no DART-exhibit-extracted backing for these figures,
   and this module never claims otherwise.
 
-★ Doosan Enerbility (034020.KS) has ZERO evidence in this repository. Its
-  identity (`034020.KS`) is carried as a reference only, sourced to an
-  external CIO/Notion Cockpit note, not to `config/universe.json` (which does
-  not include this company). `observed_facts` and `evidence_lineage` are
-  hard-coded empty lists for this subject; nothing here can accidentally
-  populate them.
+★ Doosan Enerbility (034020.KS) had no decision-eligible company evidence
+  available at this frozen Pilot's 2026-08-22 PIT boundary. Later KRX and
+  OpenDART captures now exist in the repository, but must never be backfilled
+  into this historical decision. Its identity is therefore still carried as
+  a reference only in this packet, and `observed_facts` / `evidence_lineage`
+  remain hard-coded empty lists.
 
 Decision date choice: `2026-08-22`. The freshest *confirmed* evidence across
 all four subjects is dated 2026-08-21 (KRX `latest_confirmed_day` 2026-08-20,
@@ -888,7 +888,7 @@ def build_doosan_enerbility_forward_thesis_input(decision_date: str, generated_a
         "thesis_version": 1,
         "spend_owner": None,
         "capital_commitment": {
-            "description": "No capital commitment evidence available for this subject in this repository.",
+            "description": "No capital commitment evidence was PIT-available for this subject at this frozen decision date.",
             "amount_range_or_unknown": "UNKNOWN",
             "currency_or_unknown": "UNKNOWN",
             "source_ref": None,
@@ -924,11 +924,9 @@ def build_doosan_enerbility_forward_thesis_input(decision_date: str, generated_a
                 "canonical-master-confirmed until synced."
             ),
             (
-                "Zero DART filings, zero KRX price observations, and zero backlog/CapEx "
-                "evidence exist for 034020 anywhere in this repository "
-                "(grep -r \"034020\" returns exactly one hit: config/corp_map.json's "
-                "generic ticker->DART-corp-ID lookup table, which is infrastructure, not "
-                "company-specific evidence)."
+                "No DART filing, KRX price observation, or backlog/CapEx evidence for "
+                "034020 was available at or before this frozen decision date. Later "
+                "captures must not be backfilled into this historical Pilot packet."
             ),
         ],
         "earnings_conversion": {
@@ -940,15 +938,14 @@ def build_doosan_enerbility_forward_thesis_input(decision_date: str, generated_a
             "margin_direction": "UNKNOWN",
             "confidence": "UNKNOWN",
             "blockers": [
-                "Zero DART/price/backlog evidence exists for 034020 in this repository.",
+                "No DART/price/backlog evidence was PIT-available for 034020 at this frozen decision date.",
             ],
         },
         "catalysts": [],
         "invalidation_conditions": [
             (
-                "This subject has zero DART/price/backlog evidence in the Atlas "
-                "repository as of this decision_date; no thesis can be evaluated until "
-                "real evidence acquisition occurs for 034020."
+                "This subject has no DART/price/backlog evidence available at or before "
+                "this decision_date; later evidence cannot retroactively open this thesis."
             ),
         ],
         "review_dates": [],
@@ -967,10 +964,10 @@ def build_doosan_enerbility_expectations_gap_input(decision_date: str, generated
 
 
 def build_doosan_enerbility_price_reflection_input(decision_date: str, generated_at: str) -> dict:
-    # decision/price_evidence.py confirms this honestly: zero KRX snapshots
-    # carry code 034020 anywhere, so every field below comes back None --
-    # this is the same PRICE_DATA_MISSING outcome as before, now produced by
-    # the shared real evidence-assembly layer instead of a hand-written stub.
+    # decision/price_evidence.py confirms this honestly: no KRX snapshot
+    # available at or before the frozen decision date carries usable 034020
+    # evidence, so every field below comes back None. Later captures are
+    # intentionally excluded by the PIT date ceiling.
     evidence = PRICE_EVIDENCE.assemble_price_evidence("034020.KS", decision_date)
     return {
         "subject": "034020.KS",

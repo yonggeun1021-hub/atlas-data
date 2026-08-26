@@ -227,9 +227,9 @@ collectors rather than inventing new external calls:
 - **KRX daily closes** — `replay/price_series.py` + `replay/evidence_index.py`
   (built for PR #210's PIT replay audit, reused unchanged), merging every
   committed `data/<date>/krx.json` snapshot's embedded multi-week `daily`
-  window. Covers `298040`/`267260`/`005930`/`000660`; `034020` has zero KRX
-  evidence anywhere in this repo (confirmed, not assumed) and honestly
-  returns `PRICE_DATA_MISSING`.
+  window. At the frozen Pilot boundary, `034020` has no PIT-available KRX
+  evidence and honestly returns `PRICE_DATA_MISSING`; later captures now in
+  the repository are never backfilled into that historical decision.
 - **Korea KOSPI/KOSDAQ composite benchmark** — chain-linked from the real,
   committed `data/observations/korea_leadership_context/<date>/packet.json`
   `KOSPI_BENCHMARK`/`KOSDAQ_BENCHMARK` day-over-day `cumulative_gross_return`

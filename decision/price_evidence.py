@@ -569,9 +569,10 @@ def assemble_price_evidence(subject: str, decision_date: str) -> dict:
     """Dispatch by subject shape. Returns kwargs merge-ready for
     `decision.price_reflection.build_packet(subject=..., decision_date=...,
     generated_at=..., **assemble_price_evidence(subject, decision_date))`.
-    A subject with zero committed evidence anywhere (e.g. 034020.KS) simply
-    gets every field `None` -- `build_packet` then correctly reports
-    `PRICE_DATA_MISSING`, never a fabricated status."""
+    A subject with no committed evidence available at or before the requested
+    decision date simply gets every field `None` -- `build_packet` then
+    correctly reports `PRICE_DATA_MISSING`, never a fabricated status and
+    never a backfill from a later capture."""
     code = _krx_code_from_subject(subject)
     if code is not None:
         return assemble_krx_stock_evidence(code, decision_date)

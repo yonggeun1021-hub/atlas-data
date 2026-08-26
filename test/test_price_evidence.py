@@ -128,7 +128,7 @@ class KrxStockEvidenceTests(unittest.TestCase):
         self.assertIsNotNone(ev["recent_return_windows"]["1m"])
         self.assertIsNotNone(ev["relative_strength"]["position_vs_recent_high_pct"])
 
-    def test_doosan_034020_has_zero_evidence_and_returns_all_none(self):
+    def test_doosan_034020_has_no_pit_evidence_at_frozen_date_and_returns_all_none(self):
         ev = pe.assemble_krx_stock_evidence("034020", DECISION_DATE)
         self.assertEqual(ev, {
             "price_as_of": None,
@@ -136,6 +136,12 @@ class KrxStockEvidenceTests(unittest.TestCase):
             "recent_return_windows": None,
             "relative_strength": None,
         })
+
+    def test_later_doosan_capture_is_not_backfilled_into_frozen_date(self):
+        frozen = pe.assemble_krx_stock_evidence("034020", DECISION_DATE)
+        later = pe.assemble_krx_stock_evidence("034020", "2026-08-24")
+        self.assertIsNone(frozen["price_as_of"])
+        self.assertIsNotNone(later["price_as_of"])
 
     def test_no_code_currently_gets_a_ratified_vs_market_benchmark(self):
         # CIO review round 2 on PR #212: the old hardcoded
