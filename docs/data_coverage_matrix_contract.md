@@ -1,4 +1,4 @@
-# Data Coverage Matrix Contract (P4-01)
+# Data Coverage Matrix Contract (P4-01 inventory + P4-06 provenance boundary)
 
 ## What the matrix proves
 
@@ -14,8 +14,9 @@ cell and not an implicit success.
 
 `inventory_complete=true` means all 51 expected consumers were found exactly
 once. It does not mean their data is operationally complete. The latter is
-true only when every source is qualified, freshness and fallback are defined,
-and cost is either free or free-tier.
+only a declared audit classification when every source is marked qualified,
+freshness and fallback are marked defined, and cost is free or free-tier. It
+is not runtime evidence eligibility or policy authority.
 
 ## Input authority and drift detection
 
@@ -29,8 +30,32 @@ The builder reads:
 
 It rejects missing or duplicate consumers, unknown source references, missing
 source-evidence files, an incomplete mapping for a `SOURCE_RESOLVED` Rule, and
-contract vocabulary drift. The output records canonical SHA-256 values for all
-four inputs and can be revalidated against them.
+contract vocabulary drift. The default contract, registry, Regime contract,
+and Rule contract must be clean and byte-identical to the current `HEAD` blob.
+The output records canonical SHA-256 values for all four inputs and can be
+revalidated against them.
+
+## P4-06 source-evidence provenance boundary
+
+Every source catalog row binds its evidence reference to:
+
+- a normalized repository-relative path with no absolute/path-traversal form;
+- the exact current file bytes (`evidence_sha256`);
+- the earliest commit in full git history containing those exact bytes; and
+- that commit's committer timestamp.
+
+The builder independently recomputes all four facts. Dirty evidence files,
+shallow/unavailable history, hash drift, and first-seen backdating fail closed.
+This proves the catalog is referring to an exact, historically observable
+repository artifact; existence of an arbitrary file is no longer sufficient.
+
+It deliberately does **not** prove that the referenced artifact is the correct
+business source for the consumer, nor that a free-text freshness/fallback
+claim is ratified. A reviewed catalog update can rebind a source row to another
+tracked artifact, so `dimension_claim_scope` remains
+`DECLARED_AUDIT_CLASSIFICATION_ONLY` and `runtime_evidence_eligibility` remains
+`NOT_AUTHORIZED_BY_THIS_AUDIT`. Independent source-qualification, freshness,
+fallback, evaluator, Production, and trading authorities all remain false.
 
 Rule source status is never guessed. A Rule with `data_status=AVAILABLE` but no
 `source_qualification` remains `UNRECORDED`; availability is not silently

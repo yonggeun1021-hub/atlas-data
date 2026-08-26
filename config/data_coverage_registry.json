@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "registry_version": "data_coverage_registry/2026-08-20",
+  "schema_version": 2,
+  "registry_version": "data_coverage_registry/2026-08-26-provenance-v2",
   "inventory_basis": {
     "regime": "config/regime_output_contract.json",
     "discovery": "Atlas Master WBS P3 Discovery snapshot 2026-08-20",
@@ -11,79 +11,118 @@
       "source_id": "dart_open_api",
       "name": "DART Open API",
       "cost_status": "FREE",
-      "evidence_ref": "collectors/dart.py"
+      "evidence_ref": "collectors/dart.py",
+      "evidence_sha256": "f63c699d6b1c35bd7149aec5eba9c236e2132b2551b4aeaa05f4a2f1639e0de4",
+      "evidence_first_seen_commit": "28bcf8693656350e8616a78fbbbd8a9a679e914b",
+      "evidence_first_seen_at": "2026-08-15T12:17:06+09:00"
     },
     {
       "source_id": "defillama_stablecoins_api",
       "name": "DefiLlama Stablecoins API",
       "cost_status": "FREE",
-      "evidence_ref": "config/stablecoin_endpoint_contract.json"
+      "evidence_ref": "config/stablecoin_endpoint_contract.json",
+      "evidence_sha256": "c708bcef7172b3d8420c24b9a8a98f119f35b39df90a42f538ffda7f012ac1c8",
+      "evidence_first_seen_commit": "3d77abf81ef8e4f760dea8cdf963be61fac0d430",
+      "evidence_first_seen_at": "2026-08-19T10:12:58+09:00"
     },
     {
       "source_id": "fred_s2",
       "name": "FRED WRESBAL/TOTBKCR",
       "cost_status": "FREE",
-      "evidence_ref": "atlas_fred_s2_noraw.py"
+      "evidence_ref": "atlas_fred_s2_noraw.py",
+      "evidence_sha256": "40d6bc1a5d4e0b9d16add7c86a4819291e8468bbc8f294c33f08b9369caf7957",
+      "evidence_first_seen_commit": "ef925bfe6bde82bda3e3a57e7ab331f7ea26f960",
+      "evidence_first_seen_at": "2026-08-17T19:20:12+09:00"
     },
     {
       "source_id": "kofia_open_api",
       "name": "KOFIA Statistics Open API",
       "cost_status": "FREE",
-      "evidence_ref": "config/kofia_liquidity_contract.json"
+      "evidence_ref": "config/kofia_liquidity_contract.json",
+      "evidence_sha256": "8e4bc76fd41ad5aa34a2fa894dda0718c49c7637a317a923d29f6cd66b4e79b1",
+      "evidence_first_seen_commit": "362548f89642b548f73db0b1bfd45636b0a000c9",
+      "evidence_first_seen_at": "2026-08-19T22:45:31+09:00"
     },
     {
       "source_id": "kraken_public_api",
       "name": "Kraken Public Market Data API",
       "cost_status": "FREE",
-      "evidence_ref": "config/crypto_breadth_contract.json"
+      "evidence_ref": "config/crypto_breadth_contract.json",
+      "evidence_sha256": "320ad04d9a59d81e5867d50e3cd86e81719931b376b2f46ad22bb7d168c9e89f",
+      "evidence_first_seen_commit": "3df6ecb9e5e7daec74fa9ab0478bf1d7f0ed57de",
+      "evidence_first_seen_at": "2026-08-20T09:52:28+09:00"
     },
     {
       "source_id": "krx_information_data_system_pykrx",
       "name": "KRX Information Data System via pykrx",
       "cost_status": "FREE",
-      "evidence_ref": "config/korea_investor_flow_contract.json"
+      "evidence_ref": "config/korea_investor_flow_contract.json",
+      "evidence_sha256": "d8c792e24a8ef342bb9bfbdb8b556b8bfc707ea653d2db3596db1337055acafa",
+      "evidence_first_seen_commit": "0202651d4a94210c73f4439620369b239b6491fc",
+      "evidence_first_seen_at": "2026-08-19T15:27:01+09:00"
     },
     {
       "source_id": "krx_open_api_index_daily",
       "name": "KRX Open API Index Daily",
       "cost_status": "FREE",
-      "evidence_ref": "atlas_krx_r2_openapi_probe.py"
+      "evidence_ref": "atlas_krx_r2_openapi_probe.py",
+      "evidence_sha256": "9e6ddf1a80a30ab546d03fd62276b1661f043448314aff566ccf0420c128bc96",
+      "evidence_first_seen_commit": "1ff9d1895df8248d8707a51ef0b3a99144f3055b",
+      "evidence_first_seen_at": "2026-08-19T20:13:55+09:00"
     },
     {
       "source_id": "krx_open_api_stock_daily",
       "name": "KRX Open API Stock Daily",
       "cost_status": "FREE",
-      "evidence_ref": "config/korea_breadth_contract.json"
+      "evidence_ref": "config/korea_breadth_contract.json",
+      "evidence_sha256": "6a8b1536c1faa3c395d361cd6ccb05794ea2eda25862b7a245ab1aa846d0ebbd",
+      "evidence_first_seen_commit": "bf2291ae5c6a4eab34e1e4e3049a7f58d2d2e039",
+      "evidence_first_seen_at": "2026-08-19T20:41:55+09:00"
     },
     {
       "source_id": "microsoft_sec_issuer_disclosure",
       "name": "Microsoft SEC and issuer disclosure",
       "cost_status": "FREE",
-      "evidence_ref": "collectors/msft_sec_results_acquisition.py"
+      "evidence_ref": "collectors/msft_sec_results_acquisition.py",
+      "evidence_sha256": "af6f908f6629f05db5add212856bb4e8372be7b347d74a7e4206ebbb7d6c06d5",
+      "evidence_first_seen_commit": "4215fc54b9212aa40035e7db37f617f9a76b1ad2",
+      "evidence_first_seen_at": "2026-08-16T09:54:18Z"
     },
     {
       "source_id": "nasdaq_trader_symbol_directory",
       "name": "Nasdaq Trader Symbol Directory",
       "cost_status": "FREE",
-      "evidence_ref": "config/us_breadth_forward_contract.json"
+      "evidence_ref": "config/us_breadth_forward_contract.json",
+      "evidence_sha256": "3edf5f2fc0342bd82a69e159f50876bdca8d19396b4ae3fc0b8731259584761b",
+      "evidence_first_seen_commit": "c9971da1f0e0df1e18b748eb568eddb292b28551",
+      "evidence_first_seen_at": "2026-08-19T21:47:53+09:00"
     },
     {
       "source_id": "sec_edgar",
       "name": "SEC EDGAR",
       "cost_status": "FREE",
-      "evidence_ref": "collectors/sec.py"
+      "evidence_ref": "collectors/sec.py",
+      "evidence_sha256": "c64845812c981370a2e0d861e0d3c77ca4cf232dee27e12876b6e55dcf6d448a",
+      "evidence_first_seen_commit": "28bcf8693656350e8616a78fbbbd8a9a679e914b",
+      "evidence_first_seen_at": "2026-08-15T12:17:06+09:00"
     },
     {
       "source_id": "tiingo_us_daily_price",
       "name": "Tiingo US Daily Price transient contract",
       "cost_status": "FREE_TIER",
-      "evidence_ref": "atlas_tiingo_r1_transient.py"
+      "evidence_ref": "atlas_tiingo_r1_transient.py",
+      "evidence_sha256": "b1eb4d6b1692db2d23b851b19fd66759fc326f22d305aca3347a22a07dafff8f",
+      "evidence_first_seen_commit": "93032e12c424d08b396f16819665cb56088c79e8",
+      "evidence_first_seen_at": "2026-08-17T22:49:36+09:00"
     },
     {
       "source_id": "tsmc_investor_relations",
       "name": "TSMC Investor Relations",
       "cost_status": "FREE",
-      "evidence_ref": "collectors/tsmc_monthly.py"
+      "evidence_ref": "collectors/tsmc_monthly.py",
+      "evidence_sha256": "fc656718f03004279fbd9d6aefcb944a2964c365f171bd4fdcaa98fec47461cf",
+      "evidence_first_seen_commit": "c8120b600672734c3f5e0171ecc00da3da3d095d",
+      "evidence_first_seen_at": "2026-08-20T09:10:30+09:00"
     }
   ],
   "regime_consumers": [

@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -30,6 +31,8 @@ CONSUMER_ID = re.compile(
     r"^(?:REGIME:(?:US|KR|CRYPTO):[A-Z_]+|DISCOVERY:P3-[0-9]{2}|RULE-[0-9]{4})$"
 )
 SOURCE_ID = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+FULL_GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class DataCoverageError(RuntimeError):
@@ -90,8 +93,8 @@ def canonical_sha256(value: object) -> str:
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     contract = load_json(path, "CONTRACT_INVALID")
     pinned = {
-        "schema_version": 1,
-        "contract_version": "data_coverage_matrix/v1",
+        "schema_version": 2,
+        "contract_version": "data_coverage_matrix/v2",
         "expected_consumer_counts": {
             "REGIME": 15,
             "DISCOVERY": 11,
@@ -132,6 +135,10 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
             "USER_REAPPROVAL_REQUIRED_BEFORE_SELECTION_OR_PURCHASE"
         ),
         "authority_mode": "AUDIT_ONLY_NO_RUNTIME_AUTHORITY",
+        "dimension_claim_scope": "DECLARED_AUDIT_CLASSIFICATION_ONLY",
+        "source_evidence_provenance_mode": (
+            "EXACT_CONTENT_FIRST_SEEN_FULL_GIT_HISTORY"
+        ),
     }
     if set(contract) != set(pinned) or any(
         contract.get(key) != value for key, value in pinned.items()
@@ -177,13 +184,115 @@ def validate_source_refs(
     return source_ids
 
 
+def _git(*args: str, binary: bool = False) -> bytes | str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        fail("SOURCE_EVIDENCE_PROVENANCE_UNVERIFIED", "git history unavailable")
+    return completed.stdout if binary else completed.stdout.decode("utf-8")
+
+
+def verify_default_document_at_head(path: Path, code: str) -> None:
+    relative = path.resolve().relative_to(ROOT.resolve()).as_posix()
+    if _git("status", "--porcelain", "--", relative).strip():
+        fail(code, f"{relative}: dirty")
+    blob = _git("show", f"HEAD:{relative}", binary=True)
+    if blob != path.read_bytes():
+        fail(code, f"{relative}: HEAD blob mismatch")
+
+
+def _repo_relative_evidence_path(value: object, source_id: str) -> tuple[Path, str]:
+    if not isinstance(value, str) or not value:
+        fail("REGISTRY_INVALID", f"source {source_id} evidence_ref")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        fail("SOURCE_EVIDENCE_PATH_INVALID", source_id)
+    resolved = (ROOT / relative).resolve()
+    try:
+        normalized = resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        fail("SOURCE_EVIDENCE_PATH_INVALID", source_id)
+    if normalized != relative.as_posix() or not resolved.is_file():
+        fail("SOURCE_EVIDENCE_MISSING", str(value))
+    return resolved, normalized
+
+
+def _exact_content_first_seen(path: str, current: bytes) -> tuple[str, str]:
+    commits = [
+        item
+        for item in _git("log", "--reverse", "--format=%H", "--", path).splitlines()
+        if item
+    ]
+    if not commits:
+        fail("SOURCE_EVIDENCE_PROVENANCE_UNVERIFIED", f"{path}: no history")
+    for commit in commits:
+        try:
+            blob = subprocess.run(
+                ["git", "show", f"{commit}:{path}"],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        if blob == current:
+            timestamp = _git("show", "-s", "--format=%cI", commit).strip()
+            return commit, timestamp
+    fail("SOURCE_EVIDENCE_PROVENANCE_UNVERIFIED", f"{path}: exact blob absent")
+
+
+def validate_source_evidence(item: dict, source_id: str) -> dict:
+    evidence, relative = _repo_relative_evidence_path(
+        item["evidence_ref"], source_id
+    )
+    if _git("status", "--porcelain", "--", relative).strip():
+        fail("SOURCE_EVIDENCE_DIRTY", relative)
+    current = evidence.read_bytes()
+    digest = hashlib.sha256(current).hexdigest()
+    if SHA256.fullmatch(item["evidence_sha256"] or "") is None:
+        fail("REGISTRY_INVALID", f"source {source_id} evidence_sha256")
+    if digest != item["evidence_sha256"]:
+        fail("SOURCE_EVIDENCE_HASH_MISMATCH", relative)
+    declared_commit = item["evidence_first_seen_commit"]
+    declared_at = item["evidence_first_seen_at"]
+    if FULL_GIT_SHA.fullmatch(declared_commit or "") is None:
+        fail("REGISTRY_INVALID", f"source {source_id} first_seen_commit")
+    if not isinstance(declared_at, str) or not declared_at:
+        fail("REGISTRY_INVALID", f"source {source_id} first_seen_at")
+    actual_commit, actual_at = _exact_content_first_seen(relative, current)
+    if (declared_commit, declared_at) != (actual_commit, actual_at):
+        fail("SOURCE_EVIDENCE_FIRST_SEEN_MISMATCH", relative)
+    return {
+        "evidence_ref": relative,
+        "evidence_sha256": digest,
+        "evidence_first_seen_commit": actual_commit,
+        "evidence_first_seen_at": actual_at,
+        "provenance_status": "EXACT_CONTENT_FIRST_SEEN_VERIFIED",
+    }
+
+
 def validate_sources(registry: dict, contract: dict) -> dict:
     items = registry.get("sources")
     if not isinstance(items, list) or not items:
         fail("REGISTRY_INVALID", "sources")
     ids = []
     sources = {}
-    required = {"source_id", "name", "cost_status", "evidence_ref"}
+    required = {
+        "source_id",
+        "name",
+        "cost_status",
+        "evidence_ref",
+        "evidence_sha256",
+        "evidence_first_seen_commit",
+        "evidence_first_seen_at",
+    }
     for index, item in enumerate(items):
         if not isinstance(item, dict) or set(item) != required:
             fail("REGISTRY_INVALID", f"source {index} schema")
@@ -192,14 +301,15 @@ def validate_sources(registry: dict, contract: dict) -> dict:
             fail("REGISTRY_INVALID", f"source {index} id")
         if item["cost_status"] not in contract["cost_statuses"]:
             fail("REGISTRY_INVALID", f"source {source_id} cost")
-        for key in ("name", "evidence_ref"):
+        for key in ("name",):
             if not isinstance(item[key], str) or not item[key]:
                 fail("REGISTRY_INVALID", f"source {source_id} {key}")
-        evidence = ROOT / item["evidence_ref"]
-        if not evidence.is_file():
-            fail("SOURCE_EVIDENCE_MISSING", item["evidence_ref"])
+        verified_item = dict(item)
+        verified_item["verified_evidence_provenance"] = validate_source_evidence(
+            item, source_id
+        )
         ids.append(source_id)
-        sources[source_id] = item
+        sources[source_id] = verified_item
     if ids != sorted(set(ids)):
         fail("REGISTRY_INVALID", "source order or duplicate")
     return sources
@@ -570,6 +680,15 @@ def build_matrix(
     regime_path: Path = REGIME_PATH,
     rules_path: Path = RULES_PATH,
 ) -> dict:
+    defaults = (
+        (Path(contract_path), CONTRACT_PATH, "CONTRACT_PROVENANCE_UNVERIFIED"),
+        (Path(registry_path), REGISTRY_PATH, "REGISTRY_PROVENANCE_UNVERIFIED"),
+        (Path(regime_path), REGIME_PATH, "REGIME_PROVENANCE_UNVERIFIED"),
+        (Path(rules_path), RULES_PATH, "RULE_PROVENANCE_UNVERIFIED"),
+    )
+    for supplied, canonical, code in defaults:
+        if supplied.resolve() == canonical.resolve():
+            verify_default_document_at_head(canonical, code)
     contract = load_contract(contract_path)
     registry = load_json(registry_path, "REGISTRY_INVALID")
     regime_contract = load_json(regime_path, "REGIME_CONTRACT_INVALID")
@@ -588,7 +707,7 @@ def build_matrix(
         "rule_mapping",
     }:
         fail("REGISTRY_INVALID", "top-level schema")
-    if registry["schema_version"] != 1:
+    if registry["schema_version"] != 2:
         fail("REGISTRY_INVALID", "schema_version")
     if not isinstance(registry["registry_version"], str):
         fail("REGISTRY_INVALID", "registry_version")
@@ -641,10 +760,14 @@ def build_matrix(
         if entry["cost"]["status"] == "PAID_REAPPROVAL_REQUIRED"
     ]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "contract_version": contract["contract_version"],
         "registry_version": registry["registry_version"],
         "authority_mode": contract["authority_mode"],
+        "dimension_claim_scope": contract["dimension_claim_scope"],
+        "source_evidence_provenance_mode": contract[
+            "source_evidence_provenance_mode"
+        ],
         "inventory_basis": registry["inventory_basis"],
         "input_sha256": {
             "contract": canonical_sha256(contract),
@@ -654,15 +777,19 @@ def build_matrix(
         },
         "inventory_complete": True,
         "operationally_complete": not gaps,
+        "runtime_evidence_eligibility": "NOT_AUTHORIZED_BY_THIS_AUDIT",
         "consumer_counts": observed_counts,
         "dimension_status_counts": status_counts(entries, contract),
         "gap_count": len(gaps),
         "gaps": gaps,
-        "source_catalog": registry["sources"],
+        "source_catalog": [sources[source_id] for source_id in sorted(sources)],
         "entries": entries,
         "paid_source_policy": contract["paid_source_policy"],
         "paid_source_reapproval_required_for": paid,
         "source_selection_authorized": False,
+        "source_qualification_authorized": False,
+        "freshness_runtime_use_authorized": False,
+        "fallback_runtime_use_authorized": False,
         "freshness_policy_ratification_authorized": False,
         "fallback_policy_ratification_authorized": False,
         "evaluator_wiring_authorized": False,

@@ -63,6 +63,16 @@ class DataCoverageMatrixTest(unittest.TestCase):
 
         self.assertTrue(matrix["inventory_complete"])
         self.assertFalse(matrix["operationally_complete"])
+        self.assertEqual(matrix["schema_version"], 2)
+        self.assertEqual(matrix["contract_version"], "data_coverage_matrix/v2")
+        self.assertEqual(
+            matrix["dimension_claim_scope"],
+            "DECLARED_AUDIT_CLASSIFICATION_ONLY",
+        )
+        self.assertEqual(
+            matrix["runtime_evidence_eligibility"],
+            "NOT_AUTHORIZED_BY_THIS_AUDIT",
+        )
         self.assertEqual(
             matrix["consumer_counts"],
             {"REGIME": 15, "DISCOVERY": 11, "RULE": 25, "TOTAL": 51},
@@ -77,6 +87,9 @@ class DataCoverageMatrixTest(unittest.TestCase):
         )
         self.assertEqual(matrix["paid_source_reapproval_required_for"], [])
         self.assertFalse(matrix["source_selection_authorized"])
+        self.assertFalse(matrix["source_qualification_authorized"])
+        self.assertFalse(matrix["freshness_runtime_use_authorized"])
+        self.assertFalse(matrix["fallback_runtime_use_authorized"])
         self.assertFalse(matrix["freshness_policy_ratification_authorized"])
         self.assertFalse(matrix["fallback_policy_ratification_authorized"])
         self.assertFalse(matrix["evaluator_wiring_authorized"])
@@ -148,6 +161,71 @@ class DataCoverageMatrixTest(unittest.TestCase):
             ):
                 self.build_with(tmp, registry=missing_evidence)
 
+    def test_source_evidence_is_exact_content_and_git_first_seen_bound(self):
+        matrix = MODULE.build_matrix()
+        catalog = {item["source_id"]: item for item in matrix["source_catalog"]}
+        for source in catalog.values():
+            provenance = source["verified_evidence_provenance"]
+            self.assertEqual(
+                provenance["provenance_status"],
+                "EXACT_CONTENT_FIRST_SEEN_VERIFIED",
+            )
+            self.assertEqual(provenance["evidence_sha256"], source["evidence_sha256"])
+            self.assertEqual(
+                provenance["evidence_first_seen_commit"],
+                source["evidence_first_seen_commit"],
+            )
+            self.assertEqual(
+                provenance["evidence_first_seen_at"],
+                source["evidence_first_seen_at"],
+            )
+
+        for field, value, error in (
+            ("evidence_sha256", "0" * 64, "SOURCE_EVIDENCE_HASH_MISMATCH"),
+            (
+                "evidence_first_seen_commit",
+                "0" * 40,
+                "SOURCE_EVIDENCE_FIRST_SEEN_MISMATCH",
+            ),
+            (
+                "evidence_first_seen_at",
+                "2000-01-01T00:00:00Z",
+                "SOURCE_EVIDENCE_FIRST_SEEN_MISMATCH",
+            ),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                tampered = copy.deepcopy(self.registry)
+                tampered["sources"][0][field] = value
+                with self.assertRaisesRegex(MODULE.DataCoverageError, error):
+                    self.build_with(tmp, registry=tampered)
+
+    def test_source_evidence_path_escape_and_rebinding_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            escaped = copy.deepcopy(self.registry)
+            escaped["sources"][0]["evidence_ref"] = "../../etc/passwd"
+            with self.assertRaisesRegex(
+                MODULE.DataCoverageError, "SOURCE_EVIDENCE_PATH_INVALID"
+            ):
+                self.build_with(tmp, registry=escaped)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rebound = copy.deepcopy(self.registry)
+            source = rebound["sources"][0]
+            other = rebound["sources"][1]
+            for field in (
+                "evidence_ref",
+                "evidence_sha256",
+                "evidence_first_seen_commit",
+                "evidence_first_seen_at",
+            ):
+                source[field] = other[field]
+            matrix = self.build_with(tmp, registry=rebound)
+            self.assertEqual(
+                matrix["runtime_evidence_eligibility"],
+                "NOT_AUTHORIZED_BY_THIS_AUDIT",
+            )
+            self.assertFalse(matrix["source_qualification_authorized"])
+
     def test_paid_cost_remains_reapproval_only_and_never_selects_source(self):
         paid = copy.deepcopy(self.registry)
         source = next(
@@ -208,7 +286,8 @@ class DataCoverageMatrixTest(unittest.TestCase):
         )
         self.assertNotIn("import requests", script)
         self.assertNotIn("import urllib", script)
-        self.assertNotIn("subprocess", script)
+        self.assertIn('"--reverse", "--format=%H"', script)
+        self.assertIn('"status", "--porcelain"', script)
         self.assertNotIn("data_coverage_matrix.py", workflows)
         self.assertFalse((ROOT / "evidence" / "data_coverage_matrix.json").exists())
 
