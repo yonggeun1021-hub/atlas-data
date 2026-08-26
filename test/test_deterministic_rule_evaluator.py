@@ -83,6 +83,17 @@ def write_json(path, value):
 
 
 class DeterministicRuleEvaluatorTests(unittest.TestCase):
+    def test_contract_v2_freezes_the_validated_binding_packet(self):
+        self.assertEqual(CONTRACT["contract_version"], "deterministic_rule_evaluator/2")
+        self.assertEqual(
+            CONTRACT["output_schema_version"],
+            "deterministic_rule_evaluation_packet/2",
+        )
+        binding = available_binding_packet()
+        result = MODULE.build_packet(binding, RULES, CONTRACT)
+        self.assertEqual(result["frozen_binding_packet"], binding)
+        self.assertIsNot(result["frozen_binding_packet"], binding)
+
     def test_contract_exposes_four_statuses_but_forbids_pass_fail_authority(self):
         self.assertEqual(
             CONTRACT["result_statuses"],
@@ -239,6 +250,40 @@ class DeterministicRuleEvaluatorTests(unittest.TestCase):
         with self.assertRaisesRegex(
             MODULE.DeterministicRuleEvaluatorError,
             "OUTPUT_SUMMARY_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, RULES, CONTRACT)
+
+    def test_self_rehashed_frozen_envelope_tamper_fails_closed(self):
+        packet = MODULE.build_packet(available_binding_packet(), RULES, CONTRACT)
+        frozen = packet["frozen_binding_packet"]
+        frozen["frozen_evidence_envelopes"][0]["subject"] = "TAMPERED"
+        frozen["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in frozen.items() if key != "packet_sha256"
+        })
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.DeterministicRuleEvaluatorError,
+            "OUTPUT_FROZEN_BINDING_INVALID",
+        ):
+            MODULE.validate_packet(packet, RULES, CONTRACT)
+
+    def test_valid_frozen_binding_substitution_cannot_preserve_old_derived_rows(self):
+        packet = MODULE.build_packet(available_binding_packet(), RULES, CONTRACT)
+        replacement = empty_binding_packet()
+        packet["frozen_binding_packet"] = replacement
+        packet["lineage"].update({
+            "binding_packet_sha256": replacement["packet_sha256"],
+            "binding_set_sha256": replacement["inputs"]["binding_set_sha256"],
+            "evidence_set_sha256": replacement["inputs"]["evidence_set_sha256"],
+        })
+        packet["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.DeterministicRuleEvaluatorError,
+            "OUTPUT_RULE_NOT_DERIVED_FROM_FROZEN_BINDING",
         ):
             MODULE.validate_packet(packet, RULES, CONTRACT)
 

@@ -5,7 +5,7 @@ independent positive short thesis. It does not select a short candidate, approve
 a hedge instrument, allocate a bear-risk budget, create an order, or change
 Production/trading state.
 
-The repository's current `deterministic_rule_evaluator/1` cannot emit `PASS` or
+The repository's current `deterministic_rule_evaluator/2` cannot emit `PASS` or
 `FAIL`; its authorized output remains `UNKNOWN` / `UNDEFINED`. The integration
 path therefore validates that exact packet and emits `short_result=null` plus
 `short_evaluation_status=NOT_EVALUATED` for every Rule. Any upstream `PASS` or

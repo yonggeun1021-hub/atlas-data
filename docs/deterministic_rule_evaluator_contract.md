@@ -19,12 +19,16 @@ registry SHA and deterministically applies this precedence:
    spec and evaluator authority are absent.
 
 `LINK_AVAILABLE` is never promoted to `PASS`, and a blocked Rule is never
-converted to `FAIL`. Output retains the exact Rule condition hash, upstream
-link status/reasons, Rule SSOT states, evidence-reference hash, and packet
-lineage. The CLI is offline and writes only outside the repository.
+converted to `FAIL`. Output contract `/2` retains the exact Rule condition
+hash, upstream link status/reasons, Rule SSOT states, evidence-reference hash,
+packet lineage, and the complete validated `frozen_binding_packet`. The CLI is
+offline and writes only outside the repository.
 
-`validate_packet()` rechecks the complete emitted Rule row set against the
-canonical registry, recomputes every boundary classification and the summary,
-and verifies lineage and packet hashes. Recomputing `packet_sha256` therefore
-cannot legitimize a changed result or summary. This adds output integrity, not
-an evaluation spec or PASS/FAIL authority.
+`validate_packet()` first sends the frozen packet through the production
+P5-03 validator. It then re-derives each emitted link state,
+evidence-reference-set hash, boundary classification, summary, and lineage
+from that frozen packet and the canonical Rule registry. Recomputing either
+packet hash cannot legitimize a substituted envelope, binding packet, result,
+summary, or lineage. This proves packet-internal derivation only; external
+source authenticity, qualification, and freshness remain upstream authority
+responsibilities. It does not add an evaluation spec or PASS/FAIL authority.

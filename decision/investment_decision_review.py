@@ -413,7 +413,7 @@ def validate_packet(value: dict, contract: dict | None = None) -> dict:
     for key in ("thesis_sha256", "evidence_set_sha256", "rule_packet_sha256"):
         _sha(lineage[key], f"OUTPUT_LINEAGE_SHA_INVALID:{key}")
     if lineage["rule_packet_schema_version"] not in {
-        "deterministic_rule_evaluation_packet/1", "ratified_rule_decision_packet/2"
+        "deterministic_rule_evaluation_packet/2", "ratified_rule_decision_packet/2"
     }:
         raise InvestmentDecisionReviewError("OUTPUT_RULE_PACKET_SCHEMA_INVALID")
     if lineage["thesis_sha256"] != payload_sha256(value["thesis"]):
