@@ -3,9 +3,9 @@
 
 The scheduled Kraken BTC capture already provides immutable PIT bytes and the
 P1-CR-05 risk transform.  This adapter publishes the latest two finalized risk
-feature observations as a detached source packet.  It does not fabricate a
-Discovery Case.  Once an actual allowed BTC case exists, ``build_candidate_packet``
-can bind the same observations through the existing P3-10 validator.
+feature observations as a detached source packet.  It does not fabricate or
+attach a Discovery Case.  Candidate binding belongs to a later consumer that
+can validate an actual committed Discovery Case, not to this source adapter.
 """
 
 from __future__ import annotations
@@ -250,7 +250,7 @@ def _assemble_source_packet(snapshot_dir: Path) -> dict:
     return packet
 
 
-def validate_source_packet(packet: dict, snapshot_dir: Path | None = None) -> dict:
+def validate_source_packet(packet: dict, snapshot_dir: Path) -> dict:
     fields = {
         "schema_version", "population_version", "as_of_utc", "source_vintage",
         "market", "asset_id", "identity_ref", "source_transform",
@@ -362,37 +362,15 @@ def validate_source_packet(packet: dict, snapshot_dir: Path | None = None) -> di
     }
     if binding != expected_binding:
         fail("SOURCE_PACKET_CANDIDATE_FABRICATION", binding)
-    if snapshot_dir is not None:
-        expected = _assemble_source_packet(Path(snapshot_dir))
-        if canonical_json(packet) != canonical_json(expected):
-            fail("SOURCE_PACKET_RAW_REPLAY_MISMATCH", snapshot_dir)
+    expected = _assemble_source_packet(Path(snapshot_dir))
+    if canonical_json(packet) != canonical_json(expected):
+        fail("SOURCE_PACKET_RAW_REPLAY_MISMATCH", snapshot_dir)
     return copy.deepcopy(packet)
 
 
 def build_source_packet(snapshot_dir: Path) -> dict:
     packet = _assemble_source_packet(Path(snapshot_dir))
     return validate_source_packet(packet, snapshot_dir)
-
-
-def build_candidate_packet(snapshot_dir: Path, candidate_ref: dict) -> dict:
-    source_packet = build_source_packet(snapshot_dir)
-    if not isinstance(candidate_ref, dict):
-        fail("CANDIDATE_REF_INVALID", type(candidate_ref))
-    if candidate_ref.get("market") != "CRYPTO" or candidate_ref.get("asset_id") != ASSET_ID:
-        fail("CANDIDATE_SOURCE_IDENTITY_MISMATCH", candidate_ref)
-    case_id = candidate_ref.get("case_id")
-    contexts = []
-    for detached in source_packet["risk_context_observations"]:
-        attached = copy.deepcopy(detached)
-        attached["case_id"] = case_id
-        contexts.append(attached)
-    value = {
-        "schema_version": valuation_risk.INPUT_SCHEMA_VERSION,
-        "as_of_utc": source_packet["as_of_utc"],
-        "candidates": [copy.deepcopy(candidate_ref)],
-        "context_observations": contexts,
-    }
-    return valuation_risk.build_packet(value)
 
 
 def packet_bytes(packet: dict) -> bytes:

@@ -22,19 +22,6 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-def candidate_ref(**updates):
-    value = {
-        "case_id": "BTC-DISCOVERY-20260825",
-        "case_schema_version": "discovery_case/1",
-        "market": "CRYPTO",
-        "asset_id": "CRYPTO:BTC",
-        "observation_date": "2026-08-25",
-        "case_payload_sha256": "a" * 64,
-    }
-    value.update(updates)
-    return value
-
-
 class P310CryptoRiskPopulationTest(unittest.TestCase):
     def test_actual_pit_snapshot_publishes_three_detached_two_point_contexts(self):
         packet = MODULE.build_source_packet(SNAPSHOT)
@@ -78,34 +65,19 @@ class P310CryptoRiskPopulationTest(unittest.TestCase):
             MODULE.hashlib.sha256(MODULE.IDENTITY_PATH.read_bytes()).hexdigest(),
         )
 
-    def test_allowed_case_can_bind_without_interpretation_or_valuation(self):
-        packet = MODULE.build_candidate_packet(SNAPSHOT, candidate_ref())
-        candidate = packet["candidate_contexts"][0]
-        contexts = candidate["risk"]["contexts"]
-
-        self.assertEqual(packet["schema_version"], "valuation_risk_context_packet/3")
-        self.assertEqual(packet["contract_version"], "valuation_risk_context/2")
-        self.assertEqual(candidate["valuation"]["status"], "EVIDENCE_ABSENT")
-        self.assertEqual(candidate["risk"]["status"], "OBSERVED_RAW_CONTEXT")
-        self.assertFalse(candidate["context_complete"])
-        self.assertEqual([item["change"] for item in contexts], [
-            "0.005783494436", "-0.006228301384", "-0.002933717161",
-        ])
-        self.assertTrue(all(item["deterioration_policy_match"] is None for item in contexts))
-        self.assertTrue(all(item["interpretation_status"] == "ABSENT_OR_UNRATIFIED_POLICY" for item in contexts))
-        self.assertIsNone(packet["source_policy"])
-
-    def test_missing_or_wrong_candidate_identity_fails_closed(self):
-        with self.assertRaisesRegex(MODULE.PopulationError, "CANDIDATE_SOURCE_IDENTITY_MISMATCH"):
-            MODULE.build_candidate_packet(SNAPSHOT, candidate_ref(asset_id="CRYPTO:ETH"))
-        with self.assertRaisesRegex(
-            MODULE.valuation_risk.ValuationRiskContextError,
-            "CASE_SCHEMA_VERSION_INVALID",
-        ):
-            MODULE.build_candidate_packet(
-                SNAPSHOT,
-                candidate_ref(case_schema_version="candidate_identity_proposal/1"),
-            )
+    def test_candidate_binding_is_not_exposed_by_the_source_adapter(self):
+        packet = MODULE.build_source_packet(SNAPSHOT)
+        self.assertFalse(hasattr(MODULE, "build_candidate_packet"))
+        self.assertEqual(
+            packet["candidate_binding"],
+            {
+                "status": "BLOCKED_NO_ALLOWED_CASE",
+                "allowed_case_schema_versions": list(
+                    MODULE.valuation_risk.load_contract()["allowed_case_schema_versions"]
+                ),
+                "candidate_ref": None,
+            },
+        )
 
     def test_raw_replay_validation_rejects_self_rehashed_value_drift(self):
         packet = MODULE.build_source_packet(SNAPSHOT)
