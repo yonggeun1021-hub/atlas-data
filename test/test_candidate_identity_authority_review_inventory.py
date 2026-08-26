@@ -31,7 +31,7 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
     def test_real_population_is_reconciled_without_creating_authority(self):
         self.assertEqual(self.inventory["summary"], {
             "population_count": 58,
-            "review_status_counts": {COHERENT: 57, EVIDENCE_INCOMPLETE: 1},
+            "review_status_counts": {COHERENT: 58},
             "conflict_candidate_count": 0,
             "canonical_authority_rows_created": 0,
         })

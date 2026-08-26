@@ -35,7 +35,7 @@ from identity.candidate_identity_observation import (
 from identity import canonical_identity as ci
 
 
-SCHEMA_VERSION = "candidate_identity_authority_proposal/1"
+SCHEMA_VERSION = "candidate_identity_authority_proposal/2"
 PROPOSAL_STATUS = "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY"
 COMPLETE = "MECHANICALLY_COMPLETE_FOR_CIO_IDENTITY_REVIEW"
 INCOMPLETE = "EVIDENCE_INCOMPLETE_NOT_PROPOSED"
@@ -102,12 +102,111 @@ def _load_kraken_capture(root: Path, decision_date: str) -> tuple[dict, dict]:
     return doc["result"], lineage
 
 
-def _proposal(gap: dict, pairs: dict) -> dict:
+def _parse_collected_at(value: object, *, code: str) -> dt.datetime:
+    if not isinstance(value, str):
+        raise CandidateIdentityAuthorityProposalError(code)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise CandidateIdentityAuthorityProposalError(code) from exc
+    if parsed.tzinfo is None:
+        raise CandidateIdentityAuthorityProposalError(code)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
+    """Load two independent official collector records for a Korea symbol.
+
+    KRX proves the exact listed symbol/name pair.  OpenDART independently
+    proves the stock-code/name/corp-code pair.  Neither source proves the
+    share class, so the proposal deliberately remains OTHER_UNCLASSIFIED.
+    """
+    try:
+        decision = dt.date.fromisoformat(decision_date)
+    except ValueError as exc:
+        raise CandidateIdentityAuthorityProposalError("DECISION_DATE_INVALID") from exc
+    if not (isinstance(symbol, str) and len(symbol) == 6 and symbol.isdigit()):
+        raise CandidateIdentityAuthorityProposalError("KOREA_SYMBOL_INVALID")
+    day_root = root / decision.isoformat()
+    krx_path = day_root / "krx.json"
+    dart_path = day_root / "dart.json"
+    try:
+        krx = json.loads(krx_path.read_text(encoding="utf-8"))
+        dart = json.loads(dart_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CandidateIdentityAuthorityProposalError(
+            "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"
+        ) from exc
+
+    kst = dt.timezone(dt.timedelta(hours=9))
+    decision_end = dt.datetime.combine(decision, dt.time.max, tzinfo=kst).astimezone(
+        dt.timezone.utc
+    )
+    for doc, source, code in (
+        (krx, "KRX", "KOREA_KRX_EVIDENCE_INVALID"),
+        (dart, "OpenDART", "KOREA_DART_EVIDENCE_INVALID"),
+    ):
+        if doc.get("collected_for_kst_date") != decision.isoformat():
+            raise CandidateIdentityAuthorityProposalError(code)
+        if _parse_collected_at(doc.get("collected_at_utc"), code=code) > decision_end:
+            raise CandidateIdentityAuthorityProposalError(code)
+        if source not in str(doc.get("source", "")):
+            raise CandidateIdentityAuthorityProposalError(code)
+
+    krx_row = krx.get("stocks", {}).get(symbol)
+    dart_row = dart.get("stocks", {}).get(symbol)
+    if not isinstance(krx_row, dict) or krx_row.get("status") != "ok":
+        raise CandidateIdentityAuthorityProposalError("KOREA_KRX_SYMBOL_RECORD_INVALID")
+    if not isinstance(dart_row, dict) or dart_row.get("status") != "ok":
+        raise CandidateIdentityAuthorityProposalError("KOREA_DART_SYMBOL_RECORD_INVALID")
+    name = krx_row.get("name")
+    corp_code = dart_row.get("corp_code")
+    if not isinstance(name, str) or not name.strip() or dart_row.get("name") != name:
+        raise CandidateIdentityAuthorityProposalError("KOREA_CROSS_SOURCE_NAME_MISMATCH")
+    if not (isinstance(corp_code, str) and len(corp_code) == 8 and corp_code.isdigit()):
+        raise CandidateIdentityAuthorityProposalError("KOREA_DART_CORP_CODE_INVALID")
+    return {
+        "symbol": symbol,
+        "name": name,
+        "corp_code": corp_code,
+        "krx": {
+            "path": str(krx_path.relative_to(ROOT)),
+            "bytes_sha256": _file_sha(krx_path),
+            "collected_at_utc": krx["collected_at_utc"],
+            "source": krx["source"],
+        },
+        "dart": {
+            "path": str(dart_path.relative_to(ROOT)),
+            "bytes_sha256": _file_sha(dart_path),
+            "collected_at_utc": dart["collected_at_utc"],
+            "source": dart["source"],
+        },
+        "instrument_type_evidence_status": "NOT_RECORDED_OTHER_UNCLASSIFIED",
+    }
+
+
+def _proposal(gap: dict, pairs: dict, korea_evidence: dict | None = None) -> dict:
     diagnostics = gap["provider_pair_diagnostics"]
     if len(diagnostics) != 1:
         return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": ["SOURCE_PAIR_CARDINALITY_UNSUPPORTED"], "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
     diagnostic = diagnostics[0]
     source_id = diagnostic.get("source_asset_id")
+    if gap.get("market") == "KOREA":
+        if not isinstance(korea_evidence, dict) or korea_evidence.get("symbol") != source_id:
+            return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": ["KOREA_CROSS_SOURCE_EVIDENCE_MISSING"], "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
+        if diagnostic.get("source_name") != "krx_open_api_stock_daily":
+            return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": INCOMPLETE, "reason_codes": ["KOREA_PROVIDER_SOURCE_UNSUPPORTED"], "proposed_rows": None, "authority": dict(AUTHORITY_ALL_FALSE)}
+        corp_code = korea_evidence["corp_code"]
+        issuer = f"DART:{corp_code}"
+        instrument = f"KRX:{source_id}:OTHER_UNCLASSIFIED"
+        listing = f"XKRX:{source_id}"
+        proposed = {
+            "issuer": {"canonical_issuer_id": issuer, "issuer_name_reference": korea_evidence["name"]},
+            "instrument": {"canonical_instrument_id": instrument, "canonical_issuer_id": issuer, "instrument_type": "OTHER_UNCLASSIFIED"},
+            "listing": {"listing_id": listing, "canonical_instrument_id": instrument, "market": "KOREA", "exchange": "XKRX", "currency": "KRW", "ticker": source_id},
+            "source_alias": {"source_name": diagnostic["source_name"], "source_asset_id": source_id, "listing_id": listing},
+        }
+        return {"candidate_id": gap["candidate_id"], "market": gap["market"], "subject": gap["subject"], "review_status": COMPLETE, "reason_codes": [], "proposal_status": PROPOSAL_STATUS, "proposal_naming_basis": "MECHANICAL_CONVENTION_PROPOSED_UNRATIFIED", "instrument_classification_basis": "OFFICIAL_LISTED_SYMBOL_PRESENT_SHARE_CLASS_NOT_RECORDED", "source_evidence": korea_evidence, "proposed_rows": proposed, "authority": dict(AUTHORITY_ALL_FALSE)}
     asset = diagnostic.get("taxonomy_canonical_asset_id")
     pair = pairs.get(source_id) if isinstance(source_id, str) else None
     reasons = []
@@ -189,6 +288,7 @@ def build_packet(
     report_path: Path = DEFAULT_REPORT,
     authority_path: Path = ci.SECURITY_IDENTITY_PATH,
     scope_authority_path: Path = ci.MARKET_ACCOUNT_SCOPE_PATH,
+    market_data_root: Path = ROOT / "data",
 ) -> dict:
     if gaps.get("schema_version") != "candidate_identity_gap_inventory/1":
         raise CandidateIdentityAuthorityProposalError("GAP_INVENTORY_SCHEMA_INVALID")
@@ -203,7 +303,21 @@ def build_packet(
         scope_authority_path=scope_authority_path,
     )
     pairs, capture = _load_kraken_capture(raw_root, gaps["decision_date"])
-    proposals = sorted((_proposal(gap, pairs) for gap in gaps["identity_gaps"]), key=lambda x: (x["market"], x["subject"], x["candidate_id"]))
+    korea_evidence: dict[str, dict] = {}
+    for gap in gaps["identity_gaps"]:
+        if gap.get("market") == "KOREA":
+            diagnostic = gap.get("provider_pair_diagnostics", [{}])[0]
+            symbol = diagnostic.get("source_asset_id")
+            korea_evidence[gap["candidate_id"]] = _load_korea_evidence(
+                market_data_root, gaps["decision_date"], symbol
+            )
+    proposals = sorted(
+        (
+            _proposal(gap, pairs, korea_evidence.get(gap["candidate_id"]))
+            for gap in gaps["identity_gaps"]
+        ),
+        key=lambda x: (x["market"], x["subject"], x["candidate_id"]),
+    )
     counts = {}
     for row in proposals:
         counts[row["review_status"]] = counts.get(row["review_status"], 0) + 1
@@ -213,6 +327,7 @@ def build_packet(
         "source_gap_inventory_packet_sha256": gaps["packet_sha256"],
         "source_taxonomy": {"path": str(taxonomy_path.relative_to(ROOT)), "bytes_sha256": _file_sha(taxonomy_path), "policy_version": taxonomy["policy_version"], "approval_status": taxonomy["approval_status"]},
         "source_kraken_capture": capture,
+        "source_korea_identity_evidence": dict(sorted(korea_evidence.items())),
         "summary": {"gap_count": len(gaps["identity_gaps"]), "proposal_count": len(proposals), "review_status_counts": dict(sorted(counts.items())), "canonical_authority_rows_created": 0},
         "proposals": proposals,
         "policy_boundary": {"proposal_is_identity_authority": False, "canonical_config_modified": False, "candidate_validity_evaluated": False, "entry_eligibility_evaluated": False, "money_action": "NONE"},

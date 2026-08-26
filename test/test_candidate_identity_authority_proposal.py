@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -27,7 +28,7 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     def test_real_gap_population_reconciles(self):
         self.assertEqual(self.packet["summary"]["gap_count"], 58)
         self.assertEqual(self.packet["summary"]["proposal_count"], 58)
-        self.assertEqual(self.packet["summary"]["review_status_counts"], {COMPLETE: 57, INCOMPLETE: 1})
+        self.assertEqual(self.packet["summary"]["review_status_counts"], {COMPLETE: 58})
         doge = next(x for x in self.packet["proposals"] if x["subject"] == "DOGE/USD")
         self.assertEqual(doge["review_status"], COMPLETE)
         self.assertEqual(doge["proposed_rows"]["source_alias"]["source_asset_id"], "DOGE/USD")
@@ -86,11 +87,41 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
         ):
             build_packet(gaps, self.taxonomy, self.raw)
 
-    def test_korea_direct_review_does_not_get_a_crypto_proposal(self):
+    def test_korea_direct_review_uses_two_official_sources_and_stays_unclassified(self):
         row = next(x for x in self.packet["proposals"] if x["market"] == "KOREA")
         self.assertEqual(row["subject"], "034020")
-        self.assertEqual(row["review_status"], INCOMPLETE)
-        self.assertIsNone(row["proposed_rows"])
+        self.assertEqual(row["review_status"], COMPLETE)
+        self.assertEqual(row["proposed_rows"]["issuer"]["canonical_issuer_id"], "DART:00159616")
+        self.assertEqual(row["proposed_rows"]["instrument"]["instrument_type"], "OTHER_UNCLASSIFIED")
+        self.assertEqual(row["proposed_rows"]["listing"]["listing_id"], "XKRX:034020")
+        self.assertEqual(row["source_evidence"]["krx"]["source"], "KRX 정보데이터시스템 (pykrx)")
+        self.assertEqual(row["source_evidence"]["dart"]["source"], "OpenDART (금융감독원)")
+
+    def test_korea_cross_source_name_mismatch_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            day = root / self.gaps["decision_date"]
+            day.mkdir()
+            for name in ("krx.json", "dart.json"):
+                shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
+            dart = json.loads((day / "dart.json").read_text())
+            dart["stocks"]["034020"]["name"] = "다른회사"
+            (day / "dart.json").write_text(json.dumps(dart, ensure_ascii=False))
+            with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_CROSS_SOURCE_NAME_MISMATCH"):
+                build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
+
+    def test_korea_future_collector_timestamp_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            day = root / self.gaps["decision_date"]
+            day.mkdir()
+            for name in ("krx.json", "dart.json"):
+                shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
+            krx = json.loads((day / "krx.json").read_text())
+            krx["collected_at_utc"] = "2026-08-27T00:00:00Z"
+            (day / "krx.json").write_text(json.dumps(krx, ensure_ascii=False))
+            with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_KRX_EVIDENCE_INVALID"):
+                build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
 
     def test_no_canonical_authority_configuration_is_modified_or_embedded(self):
         self.assertFalse(self.packet["policy_boundary"]["canonical_config_modified"])
