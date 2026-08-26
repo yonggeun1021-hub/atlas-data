@@ -113,6 +113,10 @@ ROTATION_DISCOVERY = _load("atlas_daily_rotation_discovery", "briefing/rotation_
 BINDING = _load("atlas_daily_binding", "bridge/rule_evidence_binding.py")
 EVALUATOR = _load("atlas_daily_evaluator", "rules/deterministic_rule_evaluator.py")
 ACTION_BOUNDARY = _load("atlas_daily_action_boundary", "decision/ready_signal_order_boundary.py")
+DYNAMIC_CLOCK_SIGNAL = _load(
+    "atlas_daily_dynamic_clock_signal_observation",
+    "decision/dynamic_clock_signal_observation.py",
+)
 UNIFIED = _load("atlas_daily_unified", "decision/unified_decision_contract.py")
 INVESTMENT_REVIEW = _load(
     "atlas_daily_investment_review", "decision/investment_decision_review.py"
@@ -1443,25 +1447,45 @@ def build_rule_evaluation() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_action_boundary(generated_at: str) -> dict:
+def build_action_boundary(generated_at: str, dynamic_report: dict | None = None) -> dict:
     contract = ACTION_BOUNDARY.load_contract()
-    value = {
-        "schema_version": contract["input_schema_version"],
-        "contract_version": contract["contract_version"],
-        "packet_id": f"daily-orchestrator-{generated_at}",
-        "as_of_utc": generated_at,
-        "subjects": [],
-        "authority": copy.deepcopy(contract["input_authority"]),
-    }
-    value["packet_sha256"] = payload_sha256(value)
     try:
+        if dynamic_report is None:
+            value = {
+                "schema_version": contract["input_schema_version"],
+                "contract_version": contract["contract_version"],
+                "packet_id": f"daily-orchestrator-{generated_at}",
+                "as_of_utc": generated_at,
+                "subjects": [],
+                "authority": copy.deepcopy(contract["input_authority"]),
+            }
+            value["packet_sha256"] = payload_sha256(value)
+        else:
+            signal_observation, value = DYNAMIC_CLOCK_SIGNAL.build_boundary_input(
+                dynamic_report,
+                generated_at,
+                boundary_contract=contract,
+            )
+            # The downstream input hash binds every subject and each signal
+            # source ref, which itself embeds this adapter packet's source
+            # report hash.  No extra unvalidated component field is needed.
+            if signal_observation["subject_count"] != len(value["subjects"]):
+                fail(
+                    "DYNAMIC_CLOCK_SIGNAL_SUBJECT_COUNT_MISMATCH",
+                    f"adapter={signal_observation['subject_count']}:boundary={len(value['subjects'])}",
+                )
         packet = ACTION_BOUNDARY.build_packet(value, contract)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ACTION_BOUNDARY", exc)
+    subject_count = packet["summary"]["subject_count"]
     return component_row(
         "ACTION_BOUNDARY",
-        "PENDING",
-        "NO_READY_CANDIDATES_FROM_DISCOVERY_OR_RULE_YET",
+        "READY" if subject_count else "PENDING",
+        (
+            "DYNAMIC_CLOCK_SIGNAL_OBSERVATIONS_BOUND_READY_NOT_EVALUATED_NO_ACTION_AUTHORITY"
+            if subject_count
+            else "NO_DYNAMIC_CLOCK_SIGNAL_OBSERVATIONS_AVAILABLE"
+        ),
         as_of_date=generated_at[:10],
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
@@ -1733,7 +1757,14 @@ def build_forward_alpha_review_status(decision_date: str, slot: str, generated_a
     )
 
 
-def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str) -> dict:
+def build_dynamic_clock_status(
+    decision_date: str,
+    slot: str,
+    generated_at: str,
+    *,
+    report: dict | None = None,
+    source_error: Exception | None = None,
+) -> dict:
     """P8-12 -- Opportunity Trigger + Dynamic Review Clock briefing section.
 
     Calls `clock/run_dynamic_clock.py:run()` + `build_briefing_section()`
@@ -1758,6 +1789,8 @@ def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str)
     """
     if DYNAMIC_CLOCK is None:
         return component_row("DYNAMIC_CLOCK", "UNAVAILABLE", "DYNAMIC_CLOCK_MODULE_LOAD_FAILED")
+    if source_error is not None:
+        return _degraded_from_exception("DYNAMIC_CLOCK", source_error)
     try:
         # ★ CIO review round 2, item 5: pass the briefing's own real
         #   decision_date through so episode staleness is evaluated as of
@@ -1766,7 +1799,8 @@ def build_dynamic_clock_status(decision_date: str, slot: str, generated_at: str)
         #   caller already computed via a real `date` command -- see
         #   .github/workflows/daily-briefing.yml -- never datetime.now()
         #   inside this module or clock/run_dynamic_clock.py).
-        report = DYNAMIC_CLOCK.run(decision_date=decision_date)
+        if report is None:
+            report = DYNAMIC_CLOCK.run(decision_date=decision_date)
         section = DYNAMIC_CLOCK.build_briefing_section(report)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("DYNAMIC_CLOCK", exc)
@@ -2376,7 +2410,16 @@ def build_packet(
     rows["PORTFOLIO_CURRENCY"] = _blocked(
         "PORTFOLIO_CURRENCY", "UNAVAILABLE", "NO_LIVE_ASSET_MASTER_OR_POSITION_SNAPSHOT"
     )
-    rows["ACTION_BOUNDARY"] = _boundary(build_action_boundary(generated_at))
+    dynamic_report = None
+    dynamic_report_error = None
+    if DYNAMIC_CLOCK is not None:
+        try:
+            dynamic_report = DYNAMIC_CLOCK.run(decision_date=decision_date)
+        except Exception as exc:  # noqa: BLE001
+            dynamic_report_error = exc
+    rows["ACTION_BOUNDARY"] = _boundary(
+        build_action_boundary(generated_at, dynamic_report)
+    )
     # UNIFIED_DECISION reads REGIME/ROTATION_DISCOVERY/RULE/PORTFOLIO_*/
     # ACTION_BOUNDARY -- every one of those rows above has already passed
     # through _boundary() by this point, so any future-dated/not-yet-
@@ -2421,7 +2464,13 @@ def build_packet(
     # P8-12 -- additive, informational-only. Does not feed UNIFIED_DECISION
     # or any action/order/Production/trading path.
     rows["DYNAMIC_CLOCK"] = _boundary(
-        build_dynamic_clock_status(decision_date, slot, generated_at)
+        build_dynamic_clock_status(
+            decision_date,
+            slot,
+            generated_at,
+            report=dynamic_report,
+            source_error=dynamic_report_error,
+        )
     )
     # P5-06 -> P7-08 -> P8-13 review-only bridge. Additive and strictly
     # downstream of Dynamic Clock; never consumed by UNIFIED_DECISION or an

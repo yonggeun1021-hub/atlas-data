@@ -736,6 +736,7 @@ APPROVED_TESTS = [
     #   output 전체를 입력 lineage에서 재파생하며 P8-02가 production validator로 호출한다.
     #   ⛔ entry/order/sizing/Production/trading 권한 없음.
     "test/test_ready_signal_order_boundary.py",
+    "test/test_dynamic_clock_signal_observation.py",
     # ★ P8-04 — US/KR/Crypto Regime briefing header read model.
     #   세 source의 state/direction/confidence/time/coverage를 검증 후 그대로
     #   배열하되 market ranking/favorable selection/action은 항상 null이다.

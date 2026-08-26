@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "contract_version": "dynamic_clock_signal_observation/1",
+  "source_markets": [
+    "BTC",
+    "CRYPTO",
+    "KOREA"
+  ],
+  "boundary_markets": [
+    "CRYPTO",
+    "KOREA"
+  ],
+  "market_vocabulary_projection": {
+    "BTC": {
+      "boundary_market": "CRYPTO",
+      "status": "PRESENTATION_VOCABULARY_ONLY_NOT_SECURITY_IDENTITY"
+    },
+    "CRYPTO": {
+      "boundary_market": "CRYPTO",
+      "status": "EXACT_VOCABULARY_MATCH"
+    },
+    "KOREA": {
+      "boundary_market": "KOREA",
+      "status": "EXACT_VOCABULARY_MATCH"
+    }
+  },
+  "ready_status": "NOT_EVALUATED",
+  "signal_status": "PRESENT",
+  "authority": {
+    "dynamic_review_trigger_observation_only": true,
+    "security_identity_resolution_authorized": false,
+    "ready_promotion_authorized": false,
+    "entry_trigger_authorized": false,
+    "position_sizing_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
