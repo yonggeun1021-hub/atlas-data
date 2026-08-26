@@ -419,6 +419,21 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "capital_reallocation_readiness.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "portfolio_scope_ready_count": 0,
+                        "incumbent_position_ready_count": 0,
+                        "challenger_entry_ready_count": 0,
+                        "settled_proceeds_ready_count": 0,
+                        "risk_budget_ready_count": 0,
+                        "allocation_ranking_ready_count": 0,
+                        "reallocation_proposal_count": 0,
+                        "order_intent_count": 0,
+                    }
+                }),
+                encoding="utf-8",
+            )
             (report_path.parent / "candidate_identity_gap_inventory.json").write_text(
                 json.dumps({
                     "summary": {
@@ -515,6 +530,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 "profit_harvest_readiness: baseline_episodes=11 live_position_eligible=0 review_items=0 proposals=0 orders=0",
+                rendered,
+            )
+            self.assertIn(
+                "capital_reallocation_readiness: scope=0 incumbent=0 challenger=0 proceeds=0 risk_budget=0 ranking=0 proposals=0 orders=0",
                 rendered,
             )
             self.assertIn(

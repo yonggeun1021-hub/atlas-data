@@ -82,6 +82,7 @@ jobs:
             test/test_entry_policy_readiness.py \
             test/test_entry_proposal_boundary.py \
             test/test_profit_harvest_operational_readiness.py \
+            test/test_capital_reallocation_readiness.py \
             test/test_candidate_identity_gap_inventory.py \
             test/test_candidate_identity_authority_proposal.py \
             test/test_candidate_identity_authority_review_inventory.py
@@ -134,6 +135,10 @@ jobs:
         env:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 portfolio/profit_harvest_readiness.py --trigger-kind "$OBSERVATION_TRIGGER_KIND"
+      - name: Build the fail-closed P7-10 Capital Reallocation readiness
+        env:
+          OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
+        run: python3 portfolio/capital_reallocation_readiness.py --trigger-kind "$OBSERVATION_TRIGGER_KIND"
       - name: Inventory unresolved identity evidence without creating authority
         run: python3 identity/candidate_identity_gap_inventory.py
       - name: Refresh the mechanically complete identity review proposal without creating authority
@@ -177,6 +182,9 @@ jobs:
           harvest = json.load(open('evidence/operational/dynamic_clock/profit_harvest_readiness.json'))
           hs = harvest['summary']
           print(f"- profit_harvest_readiness: baseline_episodes={hs['baseline_episode_count']} live_position_eligible={hs['live_position_eligible_count']} review_items={hs['harvest_review_item_count']} proposals={hs['harvest_proposal_count']} orders={hs['order_intent_count']} (P7-11 policy and quantity authority unratified)")
+          reallocation = json.load(open('evidence/operational/dynamic_clock/capital_reallocation_readiness.json'))
+          crs = reallocation['summary']
+          print(f"- capital_reallocation_readiness: scope={crs['portfolio_scope_ready_count']} incumbent={crs['incumbent_position_ready_count']} challenger={crs['challenger_entry_ready_count']} proceeds={crs['settled_proceeds_ready_count']} risk_budget={crs['risk_budget_ready_count']} ranking={crs['allocation_ranking_ready_count']} proposals={crs['reallocation_proposal_count']} orders={crs['order_intent_count']} (P7-10 fail-closed)")
           gaps = json.load(open('evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json'))
           gs = gaps['summary']
           print(f"- identity_authority_gap: unresolved={gs['identity_gap_count']}/{gs['candidate_count']} authority_rows_created=0 (taxonomy adjacency is diagnostic only)")
