@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_decision_authority/v1",
+  "contract_mode": "UNRATIFIED_CLASSIFICATION_GATE",
+  "source_contract_versions": {
+    "regime_output": "regime_output/v1",
+    "minimum_coverage": "regime_minimum_coverage/v1"
+  },
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "coverage_policy_name": "ALL_REQUIRED_AXES_5_OF_5",
+  "repository_policy_registry_status": "ABSENT",
+  "required_policy_components": [
+    "FACTOR_NORMALIZATION",
+    "FRESHNESS",
+    "AGGREGATION_WEIGHTS",
+    "CLASSIFICATION_THRESHOLDS",
+    "DIRECTION",
+    "CONFIDENCE",
+    "STRESS_OVERRIDE",
+    "INVALIDATION",
+    "HYSTERESIS"
+  ],
+  "policy_component_status": {
+    "FACTOR_NORMALIZATION": "UNRATIFIED",
+    "FRESHNESS": "UNRATIFIED",
+    "AGGREGATION_WEIGHTS": "ABSENT",
+    "CLASSIFICATION_THRESHOLDS": "ABSENT",
+    "DIRECTION": "UNRATIFIED",
+    "CONFIDENCE": "UNRATIFIED",
+    "STRESS_OVERRIDE": "UNRATIFIED",
+    "INVALIDATION": "UNRATIFIED",
+    "HYSTERESIS": "UNRATIFIED"
+  },
+  "policy_reason_codes": {
+    "FACTOR_NORMALIZATION": "FACTOR_NORMALIZATION_POLICY_UNRATIFIED",
+    "FRESHNESS": "FRESHNESS_POLICY_UNRATIFIED",
+    "AGGREGATION_WEIGHTS": "AGGREGATION_WEIGHTS_ABSENT",
+    "CLASSIFICATION_THRESHOLDS": "CLASSIFICATION_THRESHOLDS_ABSENT",
+    "DIRECTION": "DIRECTION_POLICY_UNRATIFIED",
+    "CONFIDENCE": "CONFIDENCE_POLICY_UNRATIFIED",
+    "STRESS_OVERRIDE": "STRESS_OVERRIDE_POLICY_UNRATIFIED",
+    "INVALIDATION": "INVALIDATION_POLICY_UNRATIFIED",
+    "HYSTERESIS": "HYSTERESIS_POLICY_UNRATIFIED"
+  },
+  "allowed_decision_statuses": [
+    "BLOCKED_COVERAGE",
+    "BLOCKED_POLICY_UNRATIFIED"
+  ],
+  "fail_closed_regime": "UNKNOWN",
+  "fail_closed_direction": "UNKNOWN",
+  "confidence_policy": "null_until_policy_and_replay_ratified",
+  "neutral_unknown_invariant": "NEUTRAL_IS_OBSERVED_STATE_UNKNOWN_IS_INSUFFICIENT_OR_UNAUTHORIZED_EVIDENCE",
+  "authority": {
+    "decision_boundary_validation_authorized": true,
+    "policy_ratification_authorized": false,
+    "factor_normalization_authorized": false,
+    "classification_authorized": false,
+    "direction_authorized": false,
+    "confidence_authorized": false,
+    "stress_override_authorized": false,
+    "hysteresis_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
