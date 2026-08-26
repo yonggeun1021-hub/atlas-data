@@ -124,6 +124,9 @@ CASH_EXPOSURE = _load("atlas_daily_cash_exposure", "portfolio/cash_exposure_acti
 INVERSE = _load("atlas_daily_inverse", "portfolio/regime_inverse_invariant.py")
 LONG_SHORT = _load("atlas_daily_long_short", "portfolio/long_short_invariant.py")
 ACTION_SUMMARY = _load("atlas_daily_action_summary", "briefing/action_risk_portfolio_summary.py")
+FLOW_FIRST_BRIEFING = _load(
+    "atlas_daily_flow_first_briefing", "briefing/flow_first_briefing.py"
+)
 KRX_POST_CLOSE = _load("atlas_daily_krx_post_close", "briefing/krx_post_close.py")
 BRIEFING_READINESS = _load("atlas_daily_readiness", ".github/scripts/check_briefing_readiness.py")
 # P8-11 stage 2 -- Forward Alpha Review Pilot summary. Loaded defensively: a
@@ -2879,6 +2882,7 @@ def _format_component_detail(row: dict) -> list[str]:
 
 def render_markdown(packet: dict) -> str:
     by_id = {row["component_id"]: row for row in packet["components"]}
+    flow_first = FLOW_FIRST_BRIEFING.build_packet(packet)
     lines = [
         f"# Atlas Daily Briefing — {packet['decision_date']} ({packet['slot']})",
         "",
@@ -2889,6 +2893,32 @@ def render_markdown(packet: dict) -> str:
         "briefing. All such fields remain false/null.",
         "",
     ]
+    for index, section in enumerate(flow_first["sections"], start=1):
+        lines.append(f"## {index}. {section['title']}")
+        lines.append(f"- status: {section['status']}")
+        lines.append(f"- as_of: {section['as_of_date'] or 'UNKNOWN'}")
+        lines.append(
+            f"- evidence_grade: {section['evidence_grade']} "
+            f"({section['evidence_grade_reason']})"
+        )
+        if section["unknown_reason"]:
+            lines.append(f"- unknown_reason: {section['unknown_reason']}")
+        lines.append(
+            f"- invalidation: {section['invalidation']['status']} "
+            f"({section['invalidation']['reason']})"
+        )
+        if section["source_components"]:
+            lines.append(
+                "- sources: "
+                + ", ".join(
+                    f"{source['component_id']}={source['status']}"
+                    for source in section["source_components"]
+                )
+            )
+        lines.append("")
+
+    lines.append("# Supporting Evidence and System Health")
+    lines.append("")
     seen = set()
     for title, ids in _SECTION_GROUPS:
         rows = [by_id[cid] for cid in ids if cid in by_id and cid not in seen]
