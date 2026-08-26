@@ -391,6 +391,13 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "price_state_operational_evidence_inventory.json").write_text(
+                json.dumps({
+                    "natural_distinct_sample_count": 1,
+                    "natural_price_state_linked_candidate_observed": True,
+                }),
+                encoding="utf-8",
+            )
             summary = temp / "step-summary.md"
             env = dict(os.environ, GITHUB_STEP_SUMMARY=str(summary))
             completed = subprocess.run(
@@ -415,6 +422,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 "candidate_validity_evidence: natural_distinct=1 manual_distinct=3 revalidatable_artifacts=4",
+                rendered,
+            )
+            self.assertIn(
+                "price_state_operational_evidence: natural_distinct=1 live_link_observed=True",
                 rendered,
             )
 

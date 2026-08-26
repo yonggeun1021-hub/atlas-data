@@ -1075,6 +1075,10 @@ APPROVED_TESTS = [
     # source-backed sample, separates natural/manual/legacy/rejected artifacts,
     # and never invents a minimum sample threshold or validity window.
     "test/test_candidate_validity_evidence_inventory.py",
+    # P8-10 operational proof: exact retained Dynamic Clock reports show
+    # real Price State linkage while Reflection Status remains UNKNOWN and
+    # every downstream action stays locked.
+    "test/test_price_state_operational_evidence_inventory.py",
     # ★ P8-12 forward-only lifecycle timestamp observation. The first
     #   natural sample establishes a no-backfill baseline; only subjects
     #   first observed, changed, absent, or reappearing after that baseline
