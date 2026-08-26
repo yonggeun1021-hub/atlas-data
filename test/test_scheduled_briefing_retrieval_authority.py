@@ -262,6 +262,30 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         self.assertEqual(second_value["delivery_locator"]["revision"], 2)
         M.validate_envelope(self.repo.root, second_value)
 
+        same_path, changed = M.publish(
+            self.repo.root, new_commit, "morning", DATE
+        )
+        self.assertFalse(changed)
+        self.assertEqual(same_path, second)
+
+    def test_same_delivery_revision_cannot_be_rewritten_as_new_authority(self):
+        M.publish(self.repo.root, self.repo.commit, "morning", DATE)
+        locator_path = self.repo.root / "data/briefing/daily_briefing_sources.json"
+        locator = json.loads(locator_path.read_text())
+        briefing_path = self.repo.root / locator["briefing_path"]
+        briefing_path.write_text("# rewritten in place\n", encoding="utf-8")
+        locator["briefing_sha256"] = hashlib.sha256(
+            briefing_path.read_bytes()
+        ).hexdigest()
+        write_json(locator_path, locator)
+        rewritten_commit = self.repo.commit_all("rewrite-same-delivery-revision")
+
+        with self.assertRaisesRegex(
+            M.ScheduledAuthorityError,
+            "DELIVERY_REVISION_NOT_FORWARD_APPEND_ONLY",
+        ):
+            M.publish(self.repo.root, rewritten_commit, "morning", DATE)
+
     def test_revision_gap_is_fail_closed(self):
         first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)
         first.rename(first.with_name("rev-002.json"))

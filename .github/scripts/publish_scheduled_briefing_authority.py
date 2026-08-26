@@ -462,6 +462,16 @@ def publish(repo_root: Path, source_commit: str, slot: str, expected_kst_date: s
             )
             if delivery_unchanged:
                 return existing_paths[-1], False
+            prior_delivery_revision = latest["delivery_locator"].get("revision")
+            candidate_delivery_revision = candidate["delivery_locator"].get("revision")
+            if (
+                not isinstance(prior_delivery_revision, int)
+                or isinstance(prior_delivery_revision, bool)
+                or not isinstance(candidate_delivery_revision, int)
+                or isinstance(candidate_delivery_revision, bool)
+                or candidate_delivery_revision <= prior_delivery_revision
+            ):
+                fail("DELIVERY_REVISION_NOT_FORWARD_APPEND_ONLY")
     revision = len(existing_paths) + 1
     if revision > adapter["max_revisions_per_slot"]:
         fail("BOOTSTRAP_REVISION_LIMIT_EXCEEDED")
