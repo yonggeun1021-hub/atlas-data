@@ -1,0 +1,56 @@
+{
+  "schema_version": "entry_policy_readiness_contract/1",
+  "document_status": "DESIGN_DRAFT",
+  "approval_status": "PROPOSED_UNRATIFIED",
+  "purpose": "Bind the current zero-capital review surface to explicit P5-06/P7-08/P8-13 policy locks without inventing entry, management, sizing, or money parameters.",
+  "policy_axes": {
+    "candidate_validity": {
+      "status": "NOT_COMPUTABLE_AUTHORITY_UNRATIFIED",
+      "required_authorities": [
+        "DYNAMIC_CLOCK_CANDIDATE_VALIDITY_WINDOW_AUTHORITY",
+        "CANONICAL_SECURITY_IDENTITY_AUTHORITY"
+      ]
+    },
+    "entry_eligibility": {
+      "status": "LOCKED_AUTHORITY_UNRATIFIED",
+      "allowed_surface": "ZERO_CAPITAL_HUMAN_REVIEW_ONLY"
+    },
+    "position_management": {
+      "status": "LOCKED_AUTHORITY_UNRATIFIED",
+      "authorized_actions": []
+    },
+    "position_size": {
+      "status": "NOT_COMPUTABLE_AUTHORITY_UNRATIFIED",
+      "risk_budget_pct": null,
+      "stop_distance_pct": null,
+      "max_loss": null,
+      "quantity": null
+    }
+  },
+  "diagnostic_participation": {
+    "allowed_states": [
+      "RADAR",
+      "PROBE_REVIEW"
+    ],
+    "executable_states": []
+  },
+  "downstream_boundary": {
+    "p8_13_entry_proposal": "LOCKED_NOT_STARTED",
+    "trade_proposal": null,
+    "capital": 0,
+    "action": "NONE"
+  },
+  "authority": {
+    "review_only": true,
+    "candidate_validity_authorized": false,
+    "entry_authorized": false,
+    "position_management_authorized": false,
+    "position_size_authorized": false,
+    "stage_promotion_authority": false,
+    "buy_authority": false,
+    "action_authority": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}

@@ -380,6 +380,19 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "entry_policy_readiness.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "candidate_count": candidate_count,
+                        "diagnostic_reviewable_count": resolved_count,
+                        "probe_review_diagnostic_count": 1,
+                        "execution_eligible_count": 0,
+                        "entry_proposal_count": 0,
+                        "order_intent_count": 0,
+                    }
+                }),
+                encoding="utf-8",
+            )
             (report_path.parent / "candidate_identity_gap_inventory.json").write_text(
                 json.dumps({
                     "summary": {
@@ -464,6 +477,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 f"shadow_entry_review: probe_review=1 zero_capital_review_items={resolved_count} total={candidate_count}",
+                rendered,
+            )
+            self.assertIn(
+                f"entry_policy_readiness: diagnostic_reviewable={resolved_count}/{candidate_count} executable=0 entry_proposals=0 orders=0",
                 rendered,
             )
             self.assertIn(

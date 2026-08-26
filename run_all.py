@@ -1236,6 +1236,11 @@ APPROVED_TESTS = [
     # review disposition without opening validity, sizing, capital or trade
     # authority.  Re-signed output tamper is rejected by semantic rebuild.
     "test/test_shadow_entry_review.py",
+    # P5-06/P7-08 -> P8-13 policy-readiness boundary: preserves every
+    # zero-capital review observation while independently fixing executable
+    # candidates, entry proposals and orders at zero. No policy numbers are
+    # admitted; re-signed upstream/output tamper is rebuilt and rejected.
+    "test/test_entry_policy_readiness.py",
     # P5-06/P7-08 unresolved identity evidence inventory: exact validated
     # provider pairs are compared with the already-ratified taxonomy only as
     # diagnostic adjacency.  It creates zero authority rows and cannot open
