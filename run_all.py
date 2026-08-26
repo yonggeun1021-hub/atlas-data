@@ -1241,6 +1241,11 @@ APPROVED_TESTS = [
     # candidates, entry proposals and orders at zero. No policy numbers are
     # admitted; re-signed upstream/output tamper is rebuilt and rejected.
     "test/test_entry_policy_readiness.py",
+    # P8-13 fail-closed human-review proposal boundary: carries forward only
+    # diagnostic review material while entry zone, invalidation, risk, size,
+    # quantity, proposal, order, capital and all execution authorities remain
+    # structurally locked. Semantic rebuild rejects re-signed tamper.
+    "test/test_entry_proposal_boundary.py",
     # P5-06/P7-08 unresolved identity evidence inventory: exact validated
     # provider pairs are compared with the already-ratified taxonomy only as
     # diagnostic adjacency.  It creates zero authority rows and cannot open

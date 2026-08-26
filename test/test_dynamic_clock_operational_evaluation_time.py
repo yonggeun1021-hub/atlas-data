@@ -393,6 +393,19 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "entry_proposal_boundary.json").write_text(
+                json.dumps({
+                    "summary": {
+                        "observed_candidate_count": candidate_count,
+                        "human_review_material_count": resolved_count,
+                        "observation_only_count": candidate_count - resolved_count,
+                        "actionable_proposal_count": 0,
+                        "entry_proposal_count": 0,
+                        "order_intent_count": 0,
+                    }
+                }),
+                encoding="utf-8",
+            )
             (report_path.parent / "candidate_identity_gap_inventory.json").write_text(
                 json.dumps({
                     "summary": {
@@ -481,6 +494,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 f"entry_policy_readiness: diagnostic_reviewable={resolved_count}/{candidate_count} executable=0 entry_proposals=0 orders=0",
+                rendered,
+            )
+            self.assertIn(
+                f"entry_proposal_boundary: review_material={resolved_count}/{candidate_count} actionable=0 entry_proposals=0 orders=0",
                 rendered,
             )
             self.assertIn(
