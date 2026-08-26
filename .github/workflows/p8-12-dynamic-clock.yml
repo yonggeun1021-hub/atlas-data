@@ -80,6 +80,7 @@ jobs:
             test/test_candidate_identity_observation.py \
             test/test_shadow_entry_review.py \
             test/test_entry_policy_readiness.py \
+            test/test_entry_proposal_boundary.py \
             test/test_candidate_identity_gap_inventory.py \
             test/test_candidate_identity_authority_proposal.py \
             test/test_candidate_identity_authority_review_inventory.py
@@ -124,6 +125,10 @@ jobs:
         env:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 decision/entry_policy_readiness.py --trigger-kind "$OBSERVATION_TRIGGER_KIND"
+      - name: Build the fail-closed P8-13 human-review proposal boundary
+        env:
+          OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
+        run: python3 decision/entry_proposal_boundary.py --trigger-kind "$OBSERVATION_TRIGGER_KIND"
       - name: Inventory unresolved identity evidence without creating authority
         run: python3 identity/candidate_identity_gap_inventory.py
       - name: Refresh the mechanically complete identity review proposal without creating authority
@@ -161,6 +166,9 @@ jobs:
           readiness = json.load(open('evidence/operational/dynamic_clock/entry_policy_readiness.json'))
           prs = readiness['summary']
           print(f"- entry_policy_readiness: diagnostic_reviewable={prs['diagnostic_reviewable_count']}/{prs['candidate_count']} executable={prs['execution_eligible_count']} entry_proposals={prs['entry_proposal_count']} orders={prs['order_intent_count']} (P5/P7 policy authority unratified; P8-13 locked)")
+          proposal_boundary = json.load(open('evidence/operational/dynamic_clock/entry_proposal_boundary.json'))
+          pbs = proposal_boundary['summary']
+          print(f"- entry_proposal_boundary: review_material={pbs['human_review_material_count']}/{pbs['observed_candidate_count']} actionable={pbs['actionable_proposal_count']} entry_proposals={pbs['entry_proposal_count']} orders={pbs['order_intent_count']} (P8-13 implemented fail-closed; policy authority unratified)")
           gaps = json.load(open('evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json'))
           gs = gaps['summary']
           print(f"- identity_authority_gap: unresolved={gs['identity_gap_count']}/{gs['candidate_count']} authority_rows_created=0 (taxonomy adjacency is diagnostic only)")
