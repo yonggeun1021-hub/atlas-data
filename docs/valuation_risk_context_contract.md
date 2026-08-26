@@ -73,8 +73,9 @@ revisions must be byte-identical and are never overwritten.
 
 The tracked packet is deliberately detached from candidates. If no existing BTC
 case uses an allowed Discovery Case schema, the packet remains
-`BLOCKED_NO_ALLOWED_CASE`. `build_candidate_packet()` only binds the same raw
-observations after a caller supplies such an immutable case reference. It does
-not create a case or interpretation policy. Crypto valuation, US/Korea live
-population, deterioration policy, and briefing integration remain separate WBS
-gates.
+`BLOCKED_NO_ALLOWED_CASE`. The source adapter exposes no candidate-binding
+function: a later consumer must authenticate an actual committed Discovery Case
+before binding these observations through the generic P3-10 contract. The
+adapter does not create a case or interpretation policy. Crypto valuation,
+US/Korea live population, deterioration policy, and briefing integration remain
+separate WBS gates.
