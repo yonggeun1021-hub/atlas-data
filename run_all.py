@@ -1246,6 +1246,11 @@ APPROVED_TESTS = [
     # quantity, proposal, order, capital and all execution authorities remain
     # structurally locked. Semantic rebuild rejects re-signed tamper.
     "test/test_entry_proposal_boundary.py",
+    # P7-11 operational readiness bridge: revalidates exact P8-13 and the
+    # committed 11-episode baseline, but keeps live position eligibility,
+    # harvest review, quantity, reallocation, proposal and order at zero/null
+    # while all policy and money authority remains unratified.
+    "test/test_profit_harvest_operational_readiness.py",
     # P5-06/P7-08 unresolved identity evidence inventory: exact validated
     # provider pairs are compared with the already-ratified taxonomy only as
     # diagnostic adjacency.  It creates zero authority rows and cannot open
