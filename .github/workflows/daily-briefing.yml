@@ -46,7 +46,9 @@ jobs:
           git fetch origin "$DEFAULT_BRANCH"
           git reset --hard "origin/$DEFAULT_BRANCH"
       - name: Offline daily orchestrator regression
-        run: python3 test/test_daily_orchestrator.py
+        run: |
+          python3 test/test_daily_orchestrator.py
+          python3 test/test_decision_change_lineage_operational.py
       - name: Publish provider-free daily briefing packet
         id: briefing
         env:
@@ -161,11 +163,21 @@ jobs:
           # latest main without changing that binding.
           AUTHORITY_CHANGED=false
           AUTHORITY_PATH=""
+          LINEAGE_CHANGED=false
+          LINEAGE_PATH=""
           for ATTEMPT in 1 2; do
             if [ "$ATTEMPT" -gt 1 ]; then
               git fetch origin "$DEFAULT_BRANCH"
               git reset --hard "origin/$DEFAULT_BRANCH"
             fi
+            LINEAGE_RECORDED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            LINEAGE_OUTPUT=$(python3 decision/decision_change_lineage_operational.py \
+              "$CAPTURE_PATH/packet.json" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --recorded-at "$LINEAGE_RECORDED_AT")
+            echo "$LINEAGE_OUTPUT"
+            LINEAGE_PATH=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_path=//p')
+            LINEAGE_CHANGED=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_created=//p')
             AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
               --slot "$SLOT" \
               --expected-kst-date "$DECISION_DATE" \
@@ -178,11 +190,16 @@ jobs:
               --expected-kst-date "$DECISION_DATE" \
               --source-commit "$CONSUMER_READY_COMMIT" \
               --authority-path "$AUTHORITY_PATH"
-            if [ "$AUTHORITY_CHANGED" != "true" ]; then
+            if [ "$AUTHORITY_CHANGED" != "true" ] && [ "$LINEAGE_CHANGED" != "true" ]; then
               break
             fi
-            git add "$AUTHORITY_PATH"
-            git commit -m "scheduled briefing authority $SLOT $DECISION_DATE"
+            if [ "$AUTHORITY_CHANGED" = "true" ]; then
+              git add "$AUTHORITY_PATH"
+            fi
+            if [ "$LINEAGE_CHANGED" = "true" ]; then
+              git add "$LINEAGE_PATH"
+            fi
+            git commit -m "scheduled briefing authority and decision lineage $SLOT $DECISION_DATE"
             if git push origin "HEAD:$DEFAULT_BRANCH"; then
               test -z "$(git status --porcelain)" || {
                 echo "STOP: uncommitted output remained after authority commit" >&2
@@ -197,7 +214,7 @@ jobs:
             echo "main advanced while publishing authority; retrying from latest main" >&2
           done
 
-          if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ]; then
+          if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ] || [ "$LINEAGE_CHANGED" = "true" ]; then
             RESULT=published
           else
             RESULT=no_new_revision
@@ -210,6 +227,8 @@ jobs:
           echo "locator_changed=$LOCATOR_CHANGED" >> "$GITHUB_OUTPUT"
           echo "authority_path=$AUTHORITY_PATH" >> "$GITHUB_OUTPUT"
           echo "authority_changed=$AUTHORITY_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "lineage_path=$LINEAGE_PATH" >> "$GITHUB_OUTPUT"
+          echo "lineage_changed=$LINEAGE_CHANGED" >> "$GITHUB_OUTPUT"
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
 
           # Storage (this workflow committing evidence/daily_briefing/...)
