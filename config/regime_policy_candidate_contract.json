@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_policy_candidate/v1",
+  "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
+  "source_contract_version": "regime_output/v1",
+  "source_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
+  "policy_id": "EXPLAINABLE_CONSENSUS_V1_DRAFT",
+  "policy_status": "DRAFT_NOT_RATIFIED",
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "orientation_vocabulary": [
+    "SUPPORTIVE",
+    "NEUTRAL",
+    "ADVERSE",
+    "STRESS"
+  ],
+  "change_vocabulary": [
+    "IMPROVING",
+    "STABLE",
+    "DETERIORATING"
+  ],
+  "candidate_regime_vocabulary": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS"
+  ],
+  "candidate_direction_vocabulary": [
+    "IMPROVING",
+    "STABLE",
+    "DETERIORATING"
+  ],
+  "confidence_band_vocabulary": [
+    "LOW",
+    "MEDIUM",
+    "HIGH"
+  ],
+  "classification_policy": {
+    "stress_rule": "risk_vol_stress_and_at_least_one_other_adverse",
+    "risk_off_rule": "at_least_three_adverse_or_stress_axes",
+    "risk_on_rule": "at_least_three_supportive_and_zero_adverse_or_stress_axes",
+    "fallback_rule": "neutral"
+  },
+  "direction_policy": {
+    "improving_rule": "at_least_three_improving_and_zero_deteriorating_axes",
+    "deteriorating_rule": "at_least_three_deteriorating_and_zero_improving_axes",
+    "fallback_rule": "stable"
+  },
+  "confidence_policy": {
+    "high_consensus_count": 4,
+    "medium_consensus_count": 3,
+    "neutral_high_rule": "at_least_four_neutral_axes",
+    "neutral_medium_rule": "at_least_three_neutral_axes",
+    "fallback_band": "LOW"
+  },
+  "stress_axis_policy": "STRESS_ORIENTATION_ALLOWED_ONLY_FOR_RISK_VOL",
+  "source_binding_policy": "axis_assessment_must_bind_exact_factor_evidence_sha256",
+  "minimum_coverage_policy": "ALL_REQUIRED_AXES_DEFINED_5_OF_5",
+  "numeric_policy": "NO_FLOATS",
+  "ratification_policy": "candidate_output_cannot_self_ratify_or_feed_runtime_decision",
+  "authority": {
+    "diagnostic_candidate_evaluation_authorized": true,
+    "policy_ratification_authorized": false,
+    "runtime_classification_authorized": false,
+    "hysteresis_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
