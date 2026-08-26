@@ -1087,6 +1087,12 @@ APPROVED_TESTS = [
     #   receive exact Atlas observation timestamps. This never claims a
     #   historical source-event time or unlocks validity/Risk/P8-13.
     "test/test_candidate_lifecycle_observation.py",
+    # ★ P8-12 empirical lifecycle evidence inventory. Recursively rebuilds
+    #   the natural forward chain, separates distinct evidence from repeated
+    #   evaluations, and reports endpoint transition counts by market and
+    #   trigger family. Observation gaps are never treated as continuous
+    #   lifetimes or validity-window authority; P5/P7/P8-13 remain locked.
+    "test/test_candidate_lifecycle_evidence_inventory.py",
     # ★ P7-11 Profit Harvesting Baseline Audit -- DIAGNOSTIC MEASUREMENT
     #   ONLY, not an operational Harvest Engine, not a sell-policy
     #   ratification. Reuses PR #210's replay/ Miss/Defense episodes

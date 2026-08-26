@@ -417,6 +417,16 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            (report_path.parent / "candidate_lifecycle_evidence_inventory.json").write_text(
+                json.dumps({
+                    "natural_forward_chain": {
+                        "artifact_count": 2,
+                        "distinct_evidence_transition_count": 1,
+                        "observation_span_seconds": 300,
+                    },
+                }),
+                encoding="utf-8",
+            )
             (report_path.parent / "price_state_operational_evidence_inventory.json").write_text(
                 json.dumps({
                     "natural_distinct_sample_count": 1,
@@ -456,6 +466,10 @@ class BackwardCompatibilityAndWiringTests(unittest.TestCase):
             )
             self.assertIn(
                 "candidate_validity_evidence: natural_distinct=1 manual_distinct=3 revalidatable_artifacts=4",
+                rendered,
+            )
+            self.assertIn(
+                "candidate_lifecycle_evidence: natural_artifacts=2 distinct_transitions=1 observation_span_seconds=300",
                 rendered,
             )
             self.assertIn(

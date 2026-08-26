@@ -75,6 +75,7 @@ jobs:
             test/test_candidate_validity_evidence_inventory.py \
             test/test_price_state_operational_evidence_inventory.py \
             test/test_candidate_lifecycle_observation.py \
+            test/test_candidate_lifecycle_evidence_inventory.py \
             test/test_dynamic_clock_identity_lineage.py \
             test/test_candidate_identity_observation.py \
             test/test_candidate_identity_gap_inventory.py \
@@ -121,6 +122,8 @@ jobs:
         run: python3 identity/candidate_identity_authority_review_inventory.py
       - name: Inventory independently revalidatable candidate-validity evidence
         run: python3 clock/candidate_validity_evidence_inventory.py
+      - name: Inventory empirical forward candidate-lifecycle transitions
+        run: python3 clock/candidate_lifecycle_evidence_inventory.py
       - name: Inventory operational Price State linkage without Reflection authority
         run: python3 decision/price_state_operational_evidence_inventory.py
       # ★ Independent verification (item 6): read the REAL per-market
@@ -155,6 +158,9 @@ jobs:
           ns = validity['natural_operational_sample']
           ms = validity['manual_operational_sample']
           print(f"- candidate_validity_evidence: natural_distinct={ns['distinct_evidence_sample_count']} manual_distinct={ms['distinct_evidence_sample_count']} revalidatable_artifacts={validity['evidence_status_counts']['REVALIDATABLE']} (no minimum sample authority; P8-13 locked)")
+          lifecycle = json.load(open('evidence/operational/dynamic_clock/candidate_lifecycle_evidence_inventory.json'))
+          chain = lifecycle['natural_forward_chain']
+          print(f"- candidate_lifecycle_evidence: natural_artifacts={chain['artifact_count']} distinct_transitions={chain['distinct_evidence_transition_count']} observation_span_seconds={chain['observation_span_seconds']} (endpoint observations only; no validity window authority)")
           price = json.load(open('evidence/operational/dynamic_clock/price_state_operational_evidence_inventory.json'))
           print(f"- price_state_operational_evidence: natural_distinct={price['natural_distinct_sample_count']} live_link_observed={price['natural_price_state_linked_candidate_observed']} (Reflection Status UNKNOWN; P8-13 locked)")
           PY
