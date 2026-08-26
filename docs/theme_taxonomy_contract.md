@@ -21,35 +21,37 @@ names an externally defined role and carries at least one market-appropriate,
 source-linked evidence item. There are no weights, ranks, inferred memberships,
 or fallback sources. Overlapping duplicate membership intervals fail closed.
 
-## Ratification gate
+## External ratification claim boundary
 
 An `UNRATIFIED` graph can be structurally inspected but activates zero Theme
-memberships. A `RATIFIED` graph must have decision identity/hash, ratifier/time,
-at least one edge and membership, and both US and Korea coverage *somewhere
-across its full history* -- this is a one-time completeness check on the
-document itself. Evidence must have existed no later than the ratification
-time.
+memberships. An externally supplied `RATIFIED` **claim** must have decision
+identity/hash, ratifier/time, at least one edge and membership, and both US and
+Korea coverage somewhere across its full history. Evidence must have existed
+no later than the claimed ratification time.
 
-That structural check is not enough on its own: every edge and membership
-carries its own `valid_from`/`valid_to`, independent of the approval's
-effective window, so a market's coverage can lapse (or not yet have started)
-on any given `as_of_date` even though the ratified document once named both
-markets. `build_packet` therefore also requires, before it will call the
-graph `EFFECTIVE_RATIFIED_GRAPH`, that the *active* slice as of `as_of_date`
-still covers both required markets and still has at least one active edge.
-If it does not, the graph deactivates exactly like a not-yet-effective
-approval window does -- `graph_status = DRAFT_OR_NOT_EFFECTIVE_GRAPH`,
-`theme_membership_authorized = false`, empty adapter -- rather than raising,
-since a lapsed interval is expected temporal behavior, not a document defect.
-The packet reports both facts separately: `covered_markets` (historical
-union, unaffected) and `active_covered_markets`/`active_edge_count` (the
-as-of-date slice that actually gates the adapter).
+Those fields remain caller-supplied claims, not independent proof that a
+canonical CIO/Rule Authority record approved these exact bytes. A syntactically
+valid SHA-256, ratifier name, timestamp, or re-signed payload therefore cannot
+open membership authority. The repository currently has no P2-01 approval
+authority registry. `theme_taxonomy/2` reports a coherent active claim as
+`STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED`, while
+`theme_membership_authorized` stays false and the adapter stays empty.
 
-Only a graph that is *currently* effective by that combined test emits the
-detached Global Asset Master Theme membership adapter -- the mechanism that
-actually connects US and Korea names into one Theme graph on a given date.
-The adapter remains `DETACHED_REQUIRES_SEPARATE_MASTER_INGESTION`; it does
-not modify the tracked Master or authorize Production.
+Every edge and membership still carries its own `valid_from`/`valid_to`. The
+active slice must cover both required markets and include an active edge before
+the claim is even structurally eligible. Otherwise the graph reports
+`DRAFT_OR_NOT_EFFECTIVE_GRAPH`. The packet separates historical-union
+`covered_markets` from `active_covered_markets` and `active_edge_count`.
+
+A later contract may add adapter activation only after a separate authority
+registry binds the complete determining payload, approval evidence, effective
+interval, and PIT availability. That authority design is not implemented or
+presumed here.
+
+The existing US/Korea rotation contracts still declare `theme_taxonomy/1`.
+They are intentionally not relabeled as `/2`: their current binding shape does
+not consume or independently verify the new authority boundary. Integration
+therefore remains blocked rather than implying compatibility by version alone.
 
 ## Authority and operation
 

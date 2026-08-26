@@ -130,32 +130,41 @@ def fixture(status: str = "RATIFIED") -> dict:
 
 
 class ThemeTaxonomyTests(unittest.TestCase):
-    def test_effective_ratified_cross_market_graph_emits_detached_adapter(self):
+    def test_external_ratification_claim_is_inspectable_but_cannot_activate_adapter(self):
         packet = TT.build_packet(fixture())
-        self.assertEqual(packet["graph_status"], "EFFECTIVE_RATIFIED_GRAPH")
-        self.assertTrue(packet["theme_membership_authorized"])
+        self.assertEqual(
+            packet["graph_status"],
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED",
+        )
+        self.assertTrue(packet["structurally_eligible_ratification_claim"])
+        self.assertFalse(packet["theme_membership_authorized"])
         self.assertEqual(packet["covered_markets"], ["KOREA", "US"])
         self.assertEqual(packet["active_covered_markets"], ["KOREA", "US"])
         self.assertEqual(packet["active_edge_count"], 2)
         self.assertEqual(packet["node_count"], 3)
         self.assertEqual(packet["edge_count"], 2)
         self.assertEqual(packet["membership_count"], 2)
-        self.assertEqual(
-            [item["asset_id"] for item in packet["global_asset_master_membership_adapter"]],
-            ["KR:XKRX:005930", "US:XNAS:TEST"],
+        self.assertEqual(packet["global_asset_master_membership_adapter"], [])
+
+    def test_self_declared_ratification_and_rehashed_input_never_open_authority(self):
+        value = fixture()
+        value["approval"]["decision_id"] = "DECISION.ATTACKER.SELF_DECLARED"
+        value["approval"]["decision_sha256"] = TT.payload_sha256(value)
+        value["approval"]["ratified_by"] = "Self-declared caller"
+        packet = TT.build_packet(value)
+        self.assertTrue(packet["structurally_eligible_ratification_claim"])
+        self.assertFalse(packet["theme_membership_authorized"])
+        self.assertEqual(packet["global_asset_master_membership_adapter"], [])
+        self.assertIn(
+            "APPROVAL_AUTHORITY_REGISTRY_ABSENT",
+            packet["unresolved_boundaries"],
         )
-        for item in packet["global_asset_master_membership_adapter"]:
-            self.assertEqual(
-                item["adapter_status"],
-                "DETACHED_REQUIRES_SEPARATE_MASTER_INGESTION",
-            )
-            self.assertEqual(item["membership_type"], "THEME")
-            self.assertEqual(item["taxonomy_decision"]["decision_id"], "DECISION.P2.01")
 
     def test_unratified_graph_is_inspectable_but_never_authorized(self):
         packet = TT.build_packet(fixture("UNRATIFIED"))
         self.assertEqual(packet["graph_status"], "DRAFT_OR_NOT_EFFECTIVE_GRAPH")
         self.assertFalse(packet["theme_membership_authorized"])
+        self.assertFalse(packet["structurally_eligible_ratification_claim"])
         self.assertEqual(packet["global_asset_master_membership_adapter"], [])
         self.assertEqual(packet["membership_count"], 2)
         value = fixture("UNRATIFIED")
@@ -187,7 +196,7 @@ class ThemeTaxonomyTests(unittest.TestCase):
         # membership's own valid_from/valid_to can lapse independently of the
         # approval's effective window -- here the Korea membership expired
         # five days before as_of_date. The graph must not report itself
-        # EFFECTIVE_RATIFIED_GRAPH / theme_membership_authorized with an
+        # structurally eligible active two-market claim with an
         # adapter that, on this observation date, connects only one market.
         value = fixture()
         value["memberships"][1]["valid_from"] = "2026-08-01"
@@ -322,14 +331,19 @@ class ThemeTaxonomyTests(unittest.TestCase):
 
     def test_authority_and_policy_boundaries_remain_closed(self):
         packet = TT.build_packet(fixture())
-        self.assertTrue(packet["authority"]["ratified_graph_validation_only"])
+        self.assertTrue(packet["authority"]["external_ratification_claim_validation_only"])
         for field, value in packet["authority"].items():
-            if field != "ratified_graph_validation_only":
+            if field != "external_ratification_claim_validation_only":
                 self.assertFalse(value, field)
         self.assertEqual(packet["policy_status"]["repository_default_taxonomy"], "ABSENT")
+        self.assertEqual(packet["policy_status"]["approval_authority_registry"], "ABSENT")
         self.assertEqual(packet["policy_status"]["source_hierarchy"], "UNRATIFIED")
         self.assertEqual(packet["policy_status"]["rotation_scoring"], "UNRATIFIED")
         self.assertIn("GLOBAL_ASSET_MASTER_INGESTION_NOT_IMPLEMENTED", packet["unresolved_boundaries"])
+        self.assertIn(
+            "DOWNSTREAM_ROTATION_TAXONOMY_CONTRACT_V1_NOT_AUTHORITY_COMPATIBLE",
+            packet["unresolved_boundaries"],
+        )
 
     def test_contract_and_input_are_exact_and_no_default_taxonomy_exists(self):
         contract = TT.load_contract()

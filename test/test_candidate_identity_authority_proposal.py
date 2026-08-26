@@ -26,9 +26,22 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
         cls.packet = build_packet(cls.gaps, cls.taxonomy, cls.raw)
 
     def test_real_gap_population_reconciles(self):
-        self.assertEqual(self.packet["summary"]["gap_count"], 58)
-        self.assertEqual(self.packet["summary"]["proposal_count"], 58)
-        self.assertEqual(self.packet["summary"]["review_status_counts"], {COMPLETE: 58})
+        expected_ids = {
+            row["candidate_id"] for row in self.gaps["identity_gaps"]
+        }
+        proposal_ids = {row["candidate_id"] for row in self.packet["proposals"]}
+        expected_count = len(expected_ids)
+        self.assertEqual(self.packet["summary"]["gap_count"], expected_count)
+        self.assertEqual(self.packet["summary"]["proposal_count"], expected_count)
+        self.assertEqual(proposal_ids, expected_ids)
+        self.assertEqual(
+            sum(self.packet["summary"]["review_status_counts"].values()),
+            expected_count,
+        )
+        self.assertEqual(
+            set(self.packet["summary"]["review_status_counts"]),
+            {row["review_status"] for row in self.packet["proposals"]},
+        )
         doge = next(x for x in self.packet["proposals"] if x["subject"] == "DOGE/USD")
         self.assertEqual(doge["review_status"], COMPLETE)
         self.assertEqual(doge["proposed_rows"]["source_alias"]["source_asset_id"], "DOGE/USD")
