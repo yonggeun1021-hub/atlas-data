@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_policy_candidate_population/v3",
+  "contract_version": "regime_policy_candidate_population/v4",
   "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
   "candidate_contract": {
     "path": "config/regime_policy_candidate_contract.json",
@@ -66,8 +66,114 @@
     "published_at": "2026-08-27T01:56:01+09:00",
     "available_at": "2026-08-27T02:07:53+09:00"
   },
+  "unratified_policy_boundaries": [
+    {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1",
+      "repository_policy_registry_status": "ABSENT",
+      "source_policy_component": "DIRECTION",
+      "candidate_component": "DIRECTION",
+      "component_status": "UNRATIFIED",
+      "reason_code": "DIRECTION_POLICY_UNRATIFIED",
+      "authority_checks": {
+        "policy_ratification_authorized": false,
+        "direction_authorized": false
+      },
+      "evidence_id": "P1_COM_05_DIRECTION_UNRATIFIED_BOUNDARY",
+      "artifact_key": "direction_evidence",
+      "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+      "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+      "pull_request": 334,
+      "published_at": "2026-08-27T01:56:01+09:00",
+      "available_at": "2026-08-27T02:07:53+09:00"
+    },
+    {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1",
+      "repository_policy_registry_status": "ABSENT",
+      "source_policy_component": "CONFIDENCE",
+      "candidate_component": "CONFIDENCE",
+      "component_status": "UNRATIFIED",
+      "reason_code": "CONFIDENCE_POLICY_UNRATIFIED",
+      "authority_checks": {
+        "policy_ratification_authorized": false,
+        "confidence_authorized": false
+      },
+      "evidence_id": "P1_COM_05_CONFIDENCE_UNRATIFIED_BOUNDARY",
+      "artifact_key": "confidence_evidence",
+      "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+      "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+      "pull_request": 334,
+      "published_at": "2026-08-27T01:56:01+09:00",
+      "available_at": "2026-08-27T02:07:53+09:00"
+    },
+    {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1",
+      "repository_policy_registry_status": "ABSENT",
+      "source_policy_component": "STRESS_OVERRIDE",
+      "candidate_component": "STRESS_OVERRIDE",
+      "component_status": "UNRATIFIED",
+      "reason_code": "STRESS_OVERRIDE_POLICY_UNRATIFIED",
+      "authority_checks": {
+        "policy_ratification_authorized": false,
+        "stress_override_authorized": false
+      },
+      "evidence_id": "P1_COM_05_STRESS_OVERRIDE_UNRATIFIED_BOUNDARY",
+      "artifact_key": "stress_override_evidence",
+      "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+      "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+      "pull_request": 334,
+      "published_at": "2026-08-27T01:56:01+09:00",
+      "available_at": "2026-08-27T02:07:53+09:00"
+    },
+    {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1",
+      "repository_policy_registry_status": "ABSENT",
+      "source_policy_component": "INVALIDATION",
+      "candidate_component": "INVALIDATION",
+      "component_status": "UNRATIFIED",
+      "reason_code": "INVALIDATION_POLICY_UNRATIFIED",
+      "authority_checks": {
+        "policy_ratification_authorized": false
+      },
+      "evidence_id": "P1_COM_05_INVALIDATION_UNRATIFIED_BOUNDARY",
+      "artifact_key": "invalidation_evidence",
+      "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+      "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+      "pull_request": 334,
+      "published_at": "2026-08-27T01:56:01+09:00",
+      "available_at": "2026-08-27T02:07:53+09:00"
+    },
+    {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1",
+      "repository_policy_registry_status": "ABSENT",
+      "source_policy_component": "HYSTERESIS",
+      "candidate_component": "HYSTERESIS",
+      "component_status": "UNRATIFIED",
+      "reason_code": "HYSTERESIS_POLICY_UNRATIFIED",
+      "authority_checks": {
+        "policy_ratification_authorized": false,
+        "hysteresis_authorized": false
+      },
+      "evidence_id": "P1_COM_05_HYSTERESIS_UNRATIFIED_BOUNDARY",
+      "artifact_key": "hysteresis_evidence",
+      "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+      "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+      "pull_request": 334,
+      "published_at": "2026-08-27T01:56:01+09:00",
+      "available_at": "2026-08-27T02:07:53+09:00"
+    }
+  ],
   "candidate": {
-    "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V3",
+    "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V4",
     "market": "COMMON",
     "decision_at": "2026-08-27T12:14:25+09:00",
     "policy_status": "DRAFT_NOT_RATIFIED",
@@ -79,6 +185,11 @@
     "evidence": "evidence/regime/policy_candidates/minimum_coverage_evidence.json",
     "normalization_evidence": "evidence/regime/policy_candidates/market_normalization_unratified_evidence.json",
     "classification_evidence": "evidence/regime/policy_candidates/regime_classification_absent_evidence.json",
+    "direction_evidence": "evidence/regime/policy_candidates/direction_policy_unratified_evidence.json",
+    "confidence_evidence": "evidence/regime/policy_candidates/confidence_policy_unratified_evidence.json",
+    "stress_override_evidence": "evidence/regime/policy_candidates/stress_override_policy_unratified_evidence.json",
+    "invalidation_evidence": "evidence/regime/policy_candidates/invalidation_policy_unratified_evidence.json",
+    "hysteresis_evidence": "evidence/regime/policy_candidates/hysteresis_policy_unratified_evidence.json",
     "manifest": "evidence/regime/policy_candidates/candidate_manifest.json",
     "inventory": "evidence/regime/policy_candidates/candidate_inventory.json"
   },
@@ -88,9 +199,14 @@
     ],
     "explicit_negative_components": [
       "MARKET_NORMALIZATION",
-      "REGIME_CLASSIFICATION"
+      "REGIME_CLASSIFICATION",
+      "DIRECTION",
+      "CONFIDENCE",
+      "STRESS_OVERRIDE",
+      "INVALIDATION",
+      "HYSTERESIS"
     ],
-    "missing_evidence_component_count": 6,
+    "missing_evidence_component_count": 1,
     "blocked_component_count": 8,
     "candidate_status": "CANDIDATE_BLOCKED",
     "replay_population_status": "NOT_COMPUTABLE"

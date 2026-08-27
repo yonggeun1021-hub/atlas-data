@@ -82,8 +82,8 @@ def _expected_contract() -> dict:
         },
         "policy_candidate_population_contract": {
             "path": "config/regime_policy_candidate_population_contract.json",
-            "sha256": "3dfc74fffac46c3fe7f029861e8686bae892e8e35e2ff6198bf04d1ba526c4e1",
-            "contract_version": "regime_policy_candidate_population/v3",
+            "sha256": "8bfaaae4e660aaea2d040da1c521aa127df8f8548fab9f94f229010630496fa9",
+            "contract_version": "regime_policy_candidate_population/v4",
         },
         "required_markets": ["US", "KR", "CRYPTO"],
         "required_candidate_status": "CANDIDATE_READY",
