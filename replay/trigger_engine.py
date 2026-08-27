@@ -109,7 +109,15 @@ def relative_strength_reversal(series: PriceSeries, peers: dict[str, PriceSeries
     subj_ret = (series.close_on(subj_window[-1]) / series.close_on(subj_window[0])) - 1.0
 
     peer_rets = []
-    for peer in peers.values():
+    # ``peers`` is assembled from repository evidence whose discovery path
+    # may pass through sets.  Dict insertion order therefore is not a stable
+    # arithmetic order across Python processes (different hash seeds).  The
+    # floating-point sum below is order-sensitive at the final ULP, and that
+    # tiny variation used to change Dynamic Clock candidate hashes and make a
+    # freshly published daily briefing fail validation in a second process.
+    # Sorting is a serialization/determinism control only; it does not change
+    # the peer population or any investment threshold.
+    for _, peer in sorted(peers.items(), key=lambda item: item[0]):
         if peer.subject == series.subject:
             continue
         pw = window_at_or_before(peer, decision_date, lookback)
