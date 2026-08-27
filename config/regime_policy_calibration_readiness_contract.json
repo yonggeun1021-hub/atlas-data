@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_policy_calibration_readiness/v1",
+  "contract_mode": "SHADOW_CALIBRATION_READINESS_ONLY",
+  "methodology_status": "RATIFIED_PROCESS_B_MARKET_ROLLOUT_C",
+  "bound_contracts": {
+    "live_axis_adapter": {
+      "path": "config/regime_live_axis_adapter_contract.json",
+      "sha256": "a117733e083d90b5de63902071accf0bf7bdfbad1f0f3fb83c3a04517b5baafe",
+      "contract_version": "regime_live_axis_adapter/v3"
+    },
+    "minimum_coverage": {
+      "path": "config/regime_minimum_coverage_policy.json",
+      "sha256": "92bfc5704e97d65a4c9a28043db49a2e09a75eea08e88c157be88db6dcd81e7b",
+      "contract_version": "regime_minimum_coverage/v1"
+    },
+    "policy_candidate_population": {
+      "path": "config/regime_policy_candidate_population_contract.json",
+      "sha256": "ddcba56291409fc5b8ac9e0a9324d6c6e779240ac8138468b310feb0b512db76",
+      "contract_version": "regime_policy_candidate_population/v5"
+    }
+  },
+  "required_markets": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "minimum_defined_axes": 5,
+  "coverage_policy": "ALL_REQUIRED_AXES_5_OF_5",
+  "history_requirement": "UNRATIFIED_NO_MINIMUM_INVENTED",
+  "market_rollout_policy": "FIRST_MARKET_WITH_VALIDATED_5_OF_5_PIT_HISTORY",
+  "candidate_mode": "SHADOW_ONLY_AFTER_COVERAGE_AND_SEPARATE_VALUE_RATIFICATION",
+  "not_ready_status": "NOT_READY_AXIS_COVERAGE",
+  "authority": {
+    "readiness_inventory_only": true,
+    "policy_value_generation_authorized": false,
+    "shadow_candidate_generation_authorized": false,
+    "replay_population_authorized": false,
+    "candidate_selection_authorized": false,
+    "policy_recommendation_authorized": false,
+    "policy_ratification_authorized": false,
+    "regime_classification_authorized": false,
+    "direction_authorized": false,
+    "confidence_authorized": false,
+    "threshold_authorized": false,
+    "weight_authorized": false,
+    "market_ranking_authorized": false,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "order_authorized": false,
+    "capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -444,6 +444,13 @@ APPROVED_TESTS = [
     #   without retained raw provenance and partial IEX/watchlist/membership
     #   data are never promoted. Regime/direction stay UNKNOWN; authority false.
     "test/test_regime_live_axis_adapter.py",
+    # ★ P1-COM-05 user-ratified B+C calibration-readiness inventory.
+    #   Replays retained FRED/BTC/Stablecoin raw bytes with existing validators
+    #   and reports US 1/5, Korea 0/5, Crypto 3/5 plus PIT history spans.
+    #   No missing axis, history minimum, policy value, Shadow candidate,
+    #   replay case, market rank, Regime, capital, or trading authority is
+    #   invented; resigned output/source tamper fails closed. temp output only.
+    "test/test_regime_policy_calibration_readiness.py",
     # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
     #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
     #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가
