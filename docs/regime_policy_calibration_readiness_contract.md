@@ -8,7 +8,7 @@ five-of-five coverage (C).
 ## What the packet proves
 
 The command independently replays every retained raw source currently bound by
-`regime_live_axis_adapter/v3`:
+`regime_live_axis_adapter/v4`:
 
 - FRED VIX append-only evidence for `US/RISK_VOL`
 - Kraken BTC append-only snapshots for `CRYPTO/TREND` and

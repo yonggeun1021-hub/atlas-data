@@ -19,13 +19,15 @@ The evidence-only live-axis adapter also publishes exact deferred-axis reasons.
 For Korea Breadth, the committed `korea_breadth_context_lineage/2` receipts
 retain source hashes and observation timestamps but deliberately omit the
 participation counts needed to rederive a market-wide Breadth observation.
-They therefore remain `UNDEFINED` with
-`AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE`. The exact aggregate count and
-fraction packets are now append-only retained, but the KRX response bodies and
-per-symbol rows needed for independent source replay are still absent. Even a
-self-rehashed receipt or aggregate with fabricated counts cannot define that
-axis. This is a source-readiness boundary, not a Breadth state, normalization
-rule, or Regime policy.
+They therefore remain `UNDEFINED`. The exact aggregate count/fraction packets
+are append-only retained publicly, and an exact private replay later matched
+all eight source responses and four stable aggregate facts. Only a sanitized,
+pinned boolean attestation is public; raw bodies and per-symbol rows remain
+private. The deferred reason is now
+`SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED`: replay availability is proven,
+but no Breadth classification or scoring rule is ratified. Even a self-rehashed
+receipt, aggregate, or attestation cannot define that axis. This is a policy
+readiness boundary, not a Breadth state, normalization rule, or Regime policy.
 
 The header is deliberately non-interpretive:
 
