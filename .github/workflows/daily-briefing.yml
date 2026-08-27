@@ -55,6 +55,10 @@ jobs:
         env:
           DISPATCH_SLOT: ${{ inputs.slot }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_HEAD_SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
@@ -168,6 +172,10 @@ jobs:
           LINEAGE_PATH=""
           SHADOW_READINESS_CHANGED=false
           SHADOW_READINESS_PATH=""
+          RUN_RECEIPT_CHANGED=false
+          RUN_RECEIPT_PATH=""
+          ACCEPTANCE_CHANGED=false
+          ACCEPTANCE_PATH=""
           for ATTEMPT in 1 2; do
             if [ "$ATTEMPT" -gt 1 ]; then
               git fetch origin "$DEFAULT_BRANCH"
@@ -200,7 +208,25 @@ jobs:
               --expected-kst-date "$DECISION_DATE" \
               --source-commit "$CONSUMER_READY_COMMIT" \
               --authority-path "$AUTHORITY_PATH"
-            if [ "$AUTHORITY_CHANGED" != "true" ] && [ "$LINEAGE_CHANGED" != "true" ] && [ "$SHADOW_READINESS_CHANGED" != "true" ]; then
+            RUN_RECEIPT_OUTPUT=$(python3 acceptance/capital_rotation_e2e.py publish-run-receipt \
+              --event-name "$EVENT_NAME" \
+              --event-schedule "$EVENT_SCHEDULE" \
+              --run-id "$RUN_ID" \
+              --run-attempt "$RUN_ATTEMPT" \
+              --workflow-head-sha "$WORKFLOW_HEAD_SHA" \
+              --decision-date "$DECISION_DATE" \
+              --slot "$SLOT" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --authority-path "$AUTHORITY_PATH")
+            echo "$RUN_RECEIPT_OUTPUT"
+            RUN_RECEIPT_PATH=$(echo "$RUN_RECEIPT_OUTPUT" | sed -n 's/^run_receipt_path=//p')
+            RUN_RECEIPT_CHANGED=$(echo "$RUN_RECEIPT_OUTPUT" | sed -n 's/^run_receipt_changed=//p')
+            ACCEPTANCE_OUTPUT=$(python3 acceptance/capital_rotation_e2e.py evaluate)
+            echo "$ACCEPTANCE_OUTPUT"
+            ACCEPTANCE_PATH=$(echo "$ACCEPTANCE_OUTPUT" | sed -n 's/^acceptance_path=//p')
+            ACCEPTANCE_CHANGED=$(echo "$ACCEPTANCE_OUTPUT" | sed -n 's/^acceptance_changed=//p')
+            python3 acceptance/capital_rotation_e2e.py validate-inventory "$ACCEPTANCE_PATH"
+            if [ "$AUTHORITY_CHANGED" != "true" ] && [ "$LINEAGE_CHANGED" != "true" ] && [ "$SHADOW_READINESS_CHANGED" != "true" ] && [ "$RUN_RECEIPT_CHANGED" != "true" ] && [ "$ACCEPTANCE_CHANGED" != "true" ]; then
               break
             fi
             if [ "$AUTHORITY_CHANGED" = "true" ]; then
@@ -212,7 +238,13 @@ jobs:
             if [ "$SHADOW_READINESS_CHANGED" = "true" ]; then
               git add "$SHADOW_READINESS_PATH"
             fi
-            git commit -m "scheduled briefing authority, decision lineage, and Shadow readiness $SLOT $DECISION_DATE"
+            if [ "$RUN_RECEIPT_CHANGED" = "true" ]; then
+              git add "$RUN_RECEIPT_PATH"
+            fi
+            if [ "$ACCEPTANCE_CHANGED" = "true" ]; then
+              git add "$ACCEPTANCE_PATH"
+            fi
+            git commit -m "scheduled briefing authority, lineage, Shadow, and P8-15 receipt $SLOT $DECISION_DATE"
             if git push origin "HEAD:$DEFAULT_BRANCH"; then
               test -z "$(git status --porcelain)" || {
                 echo "STOP: uncommitted output remained after authority commit" >&2
@@ -227,7 +259,7 @@ jobs:
             echo "main advanced while publishing authority; retrying from latest main" >&2
           done
 
-          if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ] || [ "$LINEAGE_CHANGED" = "true" ] || [ "$SHADOW_READINESS_CHANGED" = "true" ]; then
+          if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ] || [ "$LINEAGE_CHANGED" = "true" ] || [ "$SHADOW_READINESS_CHANGED" = "true" ] || [ "$RUN_RECEIPT_CHANGED" = "true" ] || [ "$ACCEPTANCE_CHANGED" = "true" ]; then
             RESULT=published
           else
             RESULT=no_new_revision
@@ -244,6 +276,10 @@ jobs:
           echo "lineage_changed=$LINEAGE_CHANGED" >> "$GITHUB_OUTPUT"
           echo "shadow_readiness_path=$SHADOW_READINESS_PATH" >> "$GITHUB_OUTPUT"
           echo "shadow_readiness_changed=$SHADOW_READINESS_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "run_receipt_path=$RUN_RECEIPT_PATH" >> "$GITHUB_OUTPUT"
+          echo "run_receipt_changed=$RUN_RECEIPT_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "acceptance_path=$ACCEPTANCE_PATH" >> "$GITHUB_OUTPUT"
+          echo "acceptance_changed=$ACCEPTANCE_CHANGED" >> "$GITHUB_OUTPUT"
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
 
           # Storage (this workflow committing evidence/daily_briefing/...)
