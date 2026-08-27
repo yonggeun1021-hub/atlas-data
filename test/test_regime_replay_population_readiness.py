@@ -33,6 +33,7 @@ def copied_root(destination: Path) -> Path:
         "config/regime_policy_candidate_population_contract.json",
         "config/regime_policy_candidate_contract.json",
         "config/regime_minimum_coverage_policy.json",
+        "config/regime_decision_authority_contract.json",
         "evidence/regime/policy_candidates/minimum_coverage_evidence.json",
         "evidence/regime/policy_candidates/market_normalization_unratified_evidence.json",
         "evidence/regime/policy_candidates/candidate_manifest.json",
@@ -116,6 +117,8 @@ class RegimeReplayPopulationReadinessTest(unittest.TestCase):
     def test_candidate_artifact_tamper_fails_through_source_validator(self):
         with tempfile.TemporaryDirectory() as raw:
             root = copied_root(Path(raw))
+            valid = MODULE.POPULATION.validate_population(root, root)
+            self.assertEqual(valid["candidate_status"], "CANDIDATE_BLOCKED")
             path = root / "evidence/regime/policy_candidates/candidate_inventory.json"
             inventory = json.loads(path.read_text(encoding="utf-8"))
             inventory["candidate_status"] = "CANDIDATE_READY"
