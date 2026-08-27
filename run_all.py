@@ -487,6 +487,11 @@ APPROVED_TESTS = [
     #   shortfall this PR does not attempt to close, never a scan-order
     #   issue. Top-100/90% thresholds unchanged.
     "test/test_crypto_breadth_unverified_identity_real_evidence.py",
+    # ★ P3-04 — deterministic taxonomy gap review inventory. Rebuilds the
+    #   exact cutoff-relevant UNKNOWN/EXCLUDED rows from a committed Kraken
+    #   snapshot and binds manifest/policy/taxonomy hashes. It creates no
+    #   classification, ratification, investability, Stage, or trading right.
+    "test/test_crypto_taxonomy_gap_inventory.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
