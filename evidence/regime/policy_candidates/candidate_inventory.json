@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_policy_candidate_evidence/v1",
+  "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
+  "candidate_id": "P1_COM_05_MINIMUM_COVERAGE_EVIDENCE_V1",
+  "candidate_status": "CANDIDATE_BLOCKED",
+  "policy_status": "DRAFT_NOT_RATIFIED",
+  "market": "COMMON",
+  "decision_at": "2026-08-27T09:26:04+09:00",
+  "source_refs": {
+    "candidate_manifest_contract_version": "regime_policy_candidate_manifest/v1",
+    "candidate_manifest_sha256": "78f743f65b4ba4365dcba2b766c0934839487aec8a7caef906c906fde5b3c9d7"
+  },
+  "parameters": [
+    {
+      "component": "MARKET_NORMALIZATION",
+      "parameter_id": "MARKET_NORMALIZATION",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "MINIMUM_COVERAGE",
+      "parameter_id": "MINIMUM_COVERAGE",
+      "value_type": "STRUCTURED",
+      "proposed_value": {
+        "schema_version": 1,
+        "contract_version": "regime_minimum_coverage/v1",
+        "source_contract_version": "regime_output/v1",
+        "policy_status": "RATIFIED",
+        "policy_name": "ALL_REQUIRED_AXES_5_OF_5",
+        "runtime_authorized_results": [
+          "BLOCKED",
+          "COVERAGE_MET"
+        ],
+        "minimum_defined_axes": 5,
+        "required_axes": [
+          "TREND",
+          "BREADTH",
+          "RISK_VOL",
+          "LIQUIDITY",
+          "LEADERSHIP"
+        ],
+        "axis_missing_reason_codes": {
+          "TREND": "TREND_UNDEFINED",
+          "BREADTH": "BREADTH_UNDEFINED",
+          "RISK_VOL": "RISK_VOL_UNDEFINED",
+          "LIQUIDITY": "LIQUIDITY_UNDEFINED",
+          "LEADERSHIP": "LEADERSHIP_UNDEFINED"
+        },
+        "minimum_not_met_reason_code": "MINIMUM_COVERAGE_NOT_MET",
+        "downstream_blocker_reason_codes": [
+          "FRESHNESS_POLICY_UNRATIFIED",
+          "REGIME_CLASSIFICATION_NOT_AUTHORIZED"
+        ],
+        "fail_closed_regime": "UNKNOWN",
+        "fail_closed_direction": "UNKNOWN",
+        "confidence_policy": "null_until_replay_defined",
+        "neutral_unknown_invariant": "NEUTRAL_IS_OBSERVED_STATE_UNKNOWN_IS_INSUFFICIENT_EVIDENCE"
+      },
+      "status": "SUPPORTED",
+      "blocking_reasons": [],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": [
+        {
+          "evidence_id": "P1_COM_02_USER_RATIFIED_MINIMUM_COVERAGE",
+          "evidence_kind": "CIO_DOCTRINE",
+          "path": "evidence/regime/policy_candidates/minimum_coverage_evidence.json",
+          "sha256": "6a14b9c5b2e918aabbb5dfc05d54f438d7d7a21ece3f3424ba53a6747d18062a",
+          "available_at": "2026-08-20T06:31:58+09:00",
+          "claim_type": "EXPLICIT_PARAMETER_VALUE",
+          "derivation": "USER_RATIFIED_REPOSITORY_POLICY",
+          "caveats": [
+            "CLASSIFICATION_UNAUTHORIZED",
+            "COVERAGE_ONLY",
+            "FRESHNESS_POLICY_UNRATIFIED"
+          ]
+        }
+      ]
+    },
+    {
+      "component": "REGIME_CLASSIFICATION",
+      "parameter_id": "REGIME_CLASSIFICATION",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "DIRECTION",
+      "parameter_id": "DIRECTION",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "CONFIDENCE",
+      "parameter_id": "CONFIDENCE",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "STRESS_OVERRIDE",
+      "parameter_id": "STRESS_OVERRIDE",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "INVALIDATION",
+      "parameter_id": "INVALIDATION",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "HYSTERESIS",
+      "parameter_id": "HYSTERESIS",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    },
+    {
+      "component": "REPLAY_ACCEPTANCE",
+      "parameter_id": "REPLAY_ACCEPTANCE",
+      "value_type": "UNSPECIFIED",
+      "proposed_value": null,
+      "status": "BLOCKED",
+      "blocking_reasons": [
+        "EVIDENCE_MISSING",
+        "VALUE_UNSPECIFIED"
+      ],
+      "non_supporting_evidence_reasons": [],
+      "supporting_evidence": []
+    }
+  ],
+  "blocked_components": [
+    "MARKET_NORMALIZATION",
+    "REGIME_CLASSIFICATION",
+    "DIRECTION",
+    "CONFIDENCE",
+    "STRESS_OVERRIDE",
+    "INVALIDATION",
+    "HYSTERESIS",
+    "REPLAY_ACCEPTANCE"
+  ],
+  "replay": {
+    "candidate_input_eligible": false,
+    "population_status": "NOT_COMPUTABLE",
+    "winner_selected": false
+  },
+  "ratification": {
+    "selected": false,
+    "recommended": false,
+    "ratified": false,
+    "runtime_eligible": false
+  },
+  "authority": {
+    "candidate_evidence_inventory_authorized": true,
+    "candidate_selection_authorized": false,
+    "policy_recommendation_authorized": false,
+    "policy_ratification_authorized": false,
+    "runtime_classification_authorized": false,
+    "hysteresis_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

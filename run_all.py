@@ -408,6 +408,11 @@ APPROVED_TESTS = [
     #   비준되지 않은 현재는 BLOCKED_COVERAGE 또는 BLOCKED_POLICY_UNRATIFIED만
     #   허용한다. ⛔ Regime 분류/score/전략/Production/trading 없음.
     "test/test_regime_decision_authority.py",
+    # ★ P1-COM-05 evidence population — 비준된 P1-COM-02 5/5 coverage만
+    #   exact policy bytes/PR/WBS lineage로 후보에 결합한다. 나머지 8개
+    #   파라미터와 replay는 BLOCKED/NOT_COMPUTABLE, 모든 downstream 권한은 false다.
+    #   ⛔ network/workflow/정책선택/분류/Production/trading 없음.
+    "test/test_regime_policy_candidate_population.py",
     # ★ P1-COM-01 — Regime 공통 pre-score UNKNOWN output contract.
     #   5축 evidence/coverage/timestamp를 같은 schema로 고정하고 데이터 부족을
     #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
