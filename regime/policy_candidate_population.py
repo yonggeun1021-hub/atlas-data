@@ -30,10 +30,11 @@ if str(ROOT) not in sys.path:
 from regime import minimum_coverage as MINIMUM  # noqa: E402
 from regime import policy_candidate as CANDIDATE  # noqa: E402
 from regime import decision_authority as DECISION  # noqa: E402
+from regime import replay_harness as REPLAY  # noqa: E402
 
 
 CONTRACT_PATH = ROOT / "config" / "regime_policy_candidate_population_contract.json"
-CONTRACT_BYTES_SHA256 = "8bfaaae4e660aaea2d040da1c521aa127df8f8548fab9f94f229010630496fa9"
+CONTRACT_BYTES_SHA256 = "ddcba56291409fc5b8ac9e0a9324d6c6e779240ac8138468b310feb0b512db76"
 
 
 class PolicyCandidatePopulationError(RuntimeError):
@@ -116,6 +117,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         "unratified_policy_boundary",
         "classification_policy_boundary",
         "unratified_policy_boundaries",
+        "replay_acceptance_boundary",
         "candidate",
         "artifact_paths",
         "expected_population",
@@ -125,7 +127,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         fail("POPULATION_CONTRACT_INVALID", "schema")
     pinned = {
         "schema_version": 1,
-        "contract_version": "regime_policy_candidate_population/v4",
+        "contract_version": "regime_policy_candidate_population/v5",
         "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
     }
     if any(contract.get(key) != value for key, value in pinned.items()):
@@ -135,6 +137,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         "source_policy",
         "unratified_policy_boundary",
         "classification_policy_boundary",
+        "replay_acceptance_boundary",
         "candidate",
         "artifact_paths",
     ):
@@ -180,6 +183,35 @@ def _validate_population_contract_shape(contract: object) -> dict:
         fail("POPULATION_CONTRACT_INVALID", "duplicate unratified boundary")
     if any(key not in contract["artifact_paths"] for key in artifact_keys):
         fail("POPULATION_CONTRACT_INVALID", "unratified boundary artifact")
+    replay_boundary = contract["replay_acceptance_boundary"]
+    replay_required = {
+        "candidate_component",
+        "derived_boundary_status",
+        "policy_registry_source",
+        "replay_harness_source",
+        "candidate_authority_checks",
+        "evidence_id",
+        "artifact_key",
+        "published_at",
+        "available_at",
+    }
+    if set(replay_boundary) != replay_required:
+        fail("POPULATION_CONTRACT_INVALID", "replay acceptance boundary schema")
+    if replay_boundary["candidate_component"] != "REPLAY_ACCEPTANCE":
+        fail("POPULATION_CONTRACT_INVALID", "replay acceptance component")
+    if replay_boundary["derived_boundary_status"] != (
+        "ABSENT_NO_RATIFIED_ACCEPTANCE_CONTRACT"
+    ):
+        fail("POPULATION_CONTRACT_INVALID", "replay acceptance status")
+    for group in (
+        "policy_registry_source",
+        "replay_harness_source",
+        "candidate_authority_checks",
+    ):
+        if not isinstance(replay_boundary[group], dict) or not replay_boundary[group]:
+            fail("POPULATION_CONTRACT_INVALID", f"replay acceptance {group}")
+    if replay_boundary["artifact_key"] not in contract["artifact_paths"]:
+        fail("POPULATION_CONTRACT_INVALID", "replay acceptance artifact")
     for key, value in contract["artifact_paths"].items():
         safe_relative_path(value, f"artifact_paths.{key}")
     authority = contract["authority"]
@@ -217,7 +249,14 @@ def validate_population_contract(contract: object) -> dict:
 def load_source_contracts(
     source_root: Path,
     contract: dict,
-) -> tuple[dict, dict, dict, dict, list[tuple[dict, dict]]]:
+) -> tuple[
+    dict,
+    dict,
+    dict,
+    dict,
+    list[tuple[dict, dict]],
+    tuple[dict, dict],
+]:
     candidate_ref = contract["candidate_contract"]
     candidate_path = resolve_path(
         source_root,
@@ -238,11 +277,26 @@ def load_source_contracts(
         classification_ref["path"],
         "classification_policy_boundary.path",
     )
+    replay_boundary_ref = contract["replay_acceptance_boundary"]
+    replay_registry_ref = replay_boundary_ref["policy_registry_source"]
+    replay_registry_path = resolve_path(
+        source_root,
+        replay_registry_ref["path"],
+        "replay_acceptance_boundary.policy_registry_source.path",
+    )
+    replay_harness_ref = replay_boundary_ref["replay_harness_source"]
+    replay_harness_path = resolve_path(
+        source_root,
+        replay_harness_ref["path"],
+        "replay_acceptance_boundary.replay_harness_source.path",
+    )
     try:
         candidate_raw = candidate_path.read_bytes()
         minimum_raw = minimum_path.read_bytes()
         boundary_raw = boundary_path.read_bytes()
         classification_raw = classification_path.read_bytes()
+        replay_registry_raw = replay_registry_path.read_bytes()
+        replay_harness_raw = replay_harness_path.read_bytes()
     except OSError as exc:
         fail("SOURCE_POLICY_MISSING", str(exc))
     if sha256(candidate_raw) != candidate_ref["sha256"]:
@@ -256,6 +310,10 @@ def load_source_contracts(
             "CLASSIFICATION_BOUNDARY_SOURCE_SHA_MISMATCH",
             classification_ref["path"],
         )
+    if sha256(replay_registry_raw) != replay_registry_ref["sha256"]:
+        fail("REPLAY_ACCEPTANCE_REGISTRY_SHA_MISMATCH", replay_registry_ref["path"])
+    if sha256(replay_harness_raw) != replay_harness_ref["sha256"]:
+        fail("REPLAY_ACCEPTANCE_HARNESS_SHA_MISMATCH", replay_harness_ref["path"])
     try:
         candidate_contract = CANDIDATE.validate_contract(
             load_json_bytes(candidate_raw, candidate_ref["path"])
@@ -269,10 +327,15 @@ def load_source_contracts(
         classification_contract = DECISION.validate_contract(
             load_json_bytes(classification_raw, classification_ref["path"])
         )
+        replay_registry_contract = DECISION.validate_contract(
+            load_json_bytes(replay_registry_raw, replay_registry_ref["path"])
+        )
+        replay_harness_contract = REPLAY.load_contract(replay_harness_path)
     except (
         CANDIDATE.PolicyCandidateError,
         MINIMUM.MinimumCoverageError,
         DECISION.DecisionAuthorityError,
+        REPLAY.ReplayHarnessError,
     ) as exc:
         fail("SOURCE_POLICY_INVALID", str(exc))
     if candidate_contract["contract_version"] != candidate_ref["contract_version"]:
@@ -323,6 +386,32 @@ def load_source_contracts(
         classification_ref["authority_key"]
     ) is not classification_ref["authority_value"]:
         fail("SOURCE_POLICY_INVALID", "classification authority")
+    if replay_registry_contract["contract_version"] != replay_registry_ref[
+        "contract_version"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "replay registry contract version")
+    if replay_registry_contract["repository_policy_registry_status"] != (
+        replay_registry_ref["repository_policy_registry_status"]
+    ):
+        fail("SOURCE_POLICY_INVALID", "replay registry status")
+    for authority_key, expected_value in replay_registry_ref[
+        "authority_checks"
+    ].items():
+        if replay_registry_contract["authority"].get(authority_key) is not expected_value:
+            fail("SOURCE_POLICY_INVALID", f"replay registry authority {authority_key}")
+    for key in (
+        "contract_version",
+        "source_contract_mode",
+        "comparison_policy",
+        "success_status",
+    ):
+        if replay_harness_contract.get(key) != replay_harness_ref[key]:
+            fail("SOURCE_POLICY_INVALID", f"replay harness {key}")
+    for authority_key, expected_value in replay_boundary_ref[
+        "candidate_authority_checks"
+    ].items():
+        if candidate_contract["authority"].get(authority_key) is not expected_value:
+            fail("SOURCE_POLICY_INVALID", f"candidate authority {authority_key}")
     policy_boundaries = []
     for boundary_ref in contract["unratified_policy_boundaries"]:
         boundary_path = resolve_path(
@@ -374,6 +463,7 @@ def load_source_contracts(
         boundary_contract,
         classification_contract,
         policy_boundaries,
+        (replay_registry_contract, replay_harness_contract),
     )
 
 
@@ -537,6 +627,54 @@ def expected_unratified_component_evidence(
     }
 
 
+def expected_replay_acceptance_negative_evidence(
+    contract: dict,
+    candidate_contract: dict,
+    replay_registry_contract: dict,
+    replay_harness_contract: dict,
+) -> dict:
+    boundary = contract["replay_acceptance_boundary"]
+    registry = boundary["policy_registry_source"]
+    harness = boundary["replay_harness_source"]
+    return {
+        "schema_version": 1,
+        "contract_version": candidate_contract["evidence_document_version"],
+        "evidence_id": boundary["evidence_id"],
+        "evidence_kind": "UNSUPPORTED",
+        "published_at": boundary["published_at"],
+        "available_at": boundary["available_at"],
+        "valid_through": None,
+        "source_locator": (
+            f"github://yonggeun1021-hub/atlas-data/pull/{registry['pull_request']}"
+            f"?source={registry['source_commit']}&merge={registry['merge_commit']}"
+            f"&path={registry['path']}&replay_pull={harness['pull_request']}"
+            f"&replay_source={harness['source_commit']}"
+            f"&replay_merge={harness['merge_commit']}"
+            f"&replay_path={harness['path']}"
+        ),
+        "parameter_claims": [
+            {
+                "parameter_id": boundary["candidate_component"],
+                "claim_type": "UNSUPPORTED",
+                "supported_value": None,
+                "observation_count": None,
+                "distinct_observation_dates": None,
+                "derivation": "REPOSITORY_ABSENT_REPLAY_ACCEPTANCE_POLICY_BOUNDARY",
+            }
+        ],
+        "caveats": [
+            f"REPOSITORY_POLICY_REGISTRY_{replay_registry_contract['repository_policy_registry_status']}",
+            f"REPLAY_HARNESS_MODE_{replay_harness_contract['source_contract_mode']}",
+            "REPLAY_HARNESS_COMPARISON_"
+            + replay_harness_contract["comparison_policy"].upper(),
+            f"REPLAY_HARNESS_SUCCESS_{replay_harness_contract['success_status']}",
+            boundary["derived_boundary_status"],
+            "NO_ACCEPTANCE_THRESHOLD_OR_WINNER_SELECTION_POLICY",
+            "NO_PARAMETER_VALUE_AUTHORIZED",
+        ],
+    }
+
+
 def expected_manifest(
     contract: dict,
     candidate_contract: dict,
@@ -545,6 +683,7 @@ def expected_manifest(
     normalization_evidence_raw: bytes,
     classification_evidence_raw: bytes,
     component_evidence_raw: dict[str, bytes],
+    replay_acceptance_evidence_raw: bytes,
 ) -> dict:
     candidate = contract["candidate"]
     evidence_path = contract["artifact_paths"]["evidence"]
@@ -558,6 +697,7 @@ def expected_manifest(
         item["candidate_component"]: item
         for item in contract["unratified_policy_boundaries"]
     }
+    replay_acceptance_boundary = contract["replay_acceptance_boundary"]
     parameters = []
     for component in candidate_contract["required_components"]:
         if component == candidate["populated_component"]:
@@ -627,6 +767,23 @@ def expected_manifest(
                     ],
                 }
             )
+        elif component == replay_acceptance_boundary["candidate_component"]:
+            artifact_key = replay_acceptance_boundary["artifact_key"]
+            parameters.append(
+                {
+                    "component": component,
+                    "parameter_id": component,
+                    "value_type": "UNSPECIFIED",
+                    "proposed_value": None,
+                    "evidence_refs": [
+                        {
+                            "path": contract["artifact_paths"][artifact_key],
+                            "sha256": sha256(replay_acceptance_evidence_raw),
+                            "evidence_id": replay_acceptance_boundary["evidence_id"],
+                        }
+                    ],
+                }
+            )
         else:
             parameters.append(
                 {
@@ -669,6 +826,7 @@ def build_population(
         boundary_contract,
         classification_contract,
         policy_boundaries,
+        replay_acceptance_sources,
     ) = load_source_contracts(source_root, contract)
     with tempfile.TemporaryDirectory() as raw:
         temporary_root = Path(raw)
@@ -716,6 +874,21 @@ def build_population(
                 component_evidence,
             )
             component_evidence_raw[artifact_key] = component_evidence_path.read_bytes()
+        replay_registry_contract, replay_harness_contract = replay_acceptance_sources
+        replay_acceptance_evidence = expected_replay_acceptance_negative_evidence(
+            contract,
+            candidate_contract,
+            replay_registry_contract,
+            replay_harness_contract,
+        )
+        replay_acceptance_artifact_key = contract["replay_acceptance_boundary"][
+            "artifact_key"
+        ]
+        replay_acceptance_evidence_path = write_artifact(
+            temporary_root,
+            contract["artifact_paths"][replay_acceptance_artifact_key],
+            replay_acceptance_evidence,
+        )
         manifest = expected_manifest(
             contract,
             candidate_contract,
@@ -724,6 +897,7 @@ def build_population(
             normalization_evidence_path.read_bytes(),
             classification_evidence_path.read_bytes(),
             component_evidence_raw,
+            replay_acceptance_evidence_path.read_bytes(),
         )
         write_artifact(
             temporary_root,
@@ -766,6 +940,7 @@ def validate_population(
         boundary_contract,
         classification_contract,
         policy_boundaries,
+        replay_acceptance_sources,
     ) = load_source_contracts(source_root, contract)
     paths = {
         key: resolve_path(artifact_root, relative, f"artifact_paths.{key}")
@@ -781,6 +956,12 @@ def validate_population(
             ].read_bytes()
             for boundary_ref, _ in policy_boundaries
         }
+        replay_acceptance_artifact_key = contract["replay_acceptance_boundary"][
+            "artifact_key"
+        ]
+        replay_acceptance_evidence_raw = paths[
+            replay_acceptance_artifact_key
+        ].read_bytes()
         manifest_raw = paths["manifest"].read_bytes()
         inventory_raw = paths["inventory"].read_bytes()
     except OSError as exc:
@@ -825,6 +1006,18 @@ def validate_population(
                 "UNRATIFIED_COMPONENT_EVIDENCE_ARTIFACT_MISMATCH",
                 boundary_ref["candidate_component"],
             )
+    replay_registry_contract, replay_harness_contract = replay_acceptance_sources
+    replay_acceptance_evidence = expected_replay_acceptance_negative_evidence(
+        contract,
+        candidate_contract,
+        replay_registry_contract,
+        replay_harness_contract,
+    )
+    if replay_acceptance_evidence_raw != render_bytes(replay_acceptance_evidence):
+        fail(
+            "REPLAY_ACCEPTANCE_EVIDENCE_ARTIFACT_MISMATCH",
+            str(paths[replay_acceptance_artifact_key]),
+        )
     manifest = expected_manifest(
         contract,
         candidate_contract,
@@ -833,6 +1026,7 @@ def validate_population(
         normalization_evidence_raw,
         classification_evidence_raw,
         component_evidence_raw,
+        replay_acceptance_evidence_raw,
     )
     if manifest_raw != render_bytes(manifest):
         fail("MANIFEST_ARTIFACT_MISMATCH", str(paths["manifest"]))
@@ -941,6 +1135,20 @@ def validate_population(
             }
             for boundary_ref, _ in policy_boundaries
         ],
+        "replay_acceptance_boundary": {
+            "candidate_component": contract["replay_acceptance_boundary"][
+                "candidate_component"
+            ],
+            "derived_boundary_status": contract["replay_acceptance_boundary"][
+                "derived_boundary_status"
+            ],
+            "policy_registry_source": dict(
+                contract["replay_acceptance_boundary"]["policy_registry_source"]
+            ),
+            "replay_harness_source": dict(
+                contract["replay_acceptance_boundary"]["replay_harness_source"]
+            ),
+        },
         "artifact_sha256": {
             "evidence": sha256(evidence_raw),
             "normalization_evidence": sha256(normalization_evidence_raw),
@@ -949,6 +1157,9 @@ def validate_population(
                 artifact_key: sha256(raw)
                 for artifact_key, raw in component_evidence_raw.items()
             },
+            replay_acceptance_artifact_key: sha256(
+                replay_acceptance_evidence_raw
+            ),
             "manifest": sha256(manifest_raw),
             "inventory": sha256(inventory_raw),
         },

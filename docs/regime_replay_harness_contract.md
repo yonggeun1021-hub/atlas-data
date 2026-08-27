@@ -60,9 +60,9 @@ the exact replay-harness contract bytes and independently validates the retained
 P1-COM-05 candidate evidence chain before reporting readiness.
 
 The current canonical candidate supports only `MINIMUM_COVERAGE`. Normalization,
-classification, direction, confidence, stress override, invalidation, and
-hysteresis carry exact negative evidence but no values; only replay acceptance
-still lacks evidence. All eight components remain blocked. The candidate is
+classification, direction, confidence, stress override, invalidation,
+hysteresis, and replay acceptance carry exact negative evidence but no values.
+All eight components remain blocked. The candidate is
 therefore `CANDIDATE_BLOCKED`, eligible markets and cases are both zero, and no
 historical outcome is evaluated. The readiness status is
 `NOT_COMPUTABLE_POLICY_CANDIDATE_BLOCKED`; it is not an empty successful replay.

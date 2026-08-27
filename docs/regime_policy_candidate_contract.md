@@ -100,10 +100,11 @@ The builder independently reconstructs all three retained artifacts:
 - `candidate_manifest.json`
 - `candidate_inventory.json`
 
-Only `MINIMUM_COVERAGE` becomes `SUPPORTED`. The other eight components remain
-`BLOCKED`: seven have exact negative `UNSUPPORTED_EVIDENCE`, while
-`REPLAY_ACCEPTANCE` still has `EVIDENCE_MISSING`. The candidate as a whole
-remains `CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
+Only `MINIMUM_COVERAGE` becomes `SUPPORTED`. In v1 the other eight components
+remain `BLOCKED` with `EVIDENCE_MISSING` plus `VALUE_UNSPECIFIED`; later
+population versions distinguish those missing entries from exact negative
+evidence one boundary at a time. The candidate as a whole remains
+`CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
 
 The retained evidence is coverage-only. It preserves the policy's explicit
 `UNKNOWN` fail-close and `UNKNOWN != NEUTRAL` semantics but does not turn its
@@ -168,9 +169,25 @@ Each component receives a separate `UNSUPPORTED` evidence document with no
 parameter value. This is not a policy proposal and does not convert an
 unratified component into a default. A changed source byte, fabricated value,
 re-signed artifact chain, or downstream authority toggle fails closed.
-`REPLAY_ACCEPTANCE` is intentionally the sole remaining
-`EVIDENCE_MISSING` component because the authority boundary does not define or
-ratify an acceptance policy.
+The authority boundary does not define or ratify an acceptance policy, so v4
+leaves `REPLAY_ACCEPTANCE` as the sole `EVIDENCE_MISSING` component.
+
+## Explicit negative evidence: replay acceptance
+
+`regime_policy_candidate_population/v5` closes the inventory distinction for
+the last component without inventing an acceptance rule. It pins both the PR
+#334 policy-registry boundary and the PR #67 replay harness. The former says the
+repository policy registry is absent and policy/classification authority is
+false. The latter authorizes only `PRE_SCORE_UNKNOWN_ONLY` canonical-byte
+determinism and reports `DETERMINISM_VERIFIED_PRE_SCORE`; it contains no
+acceptance threshold, classified outcome comparison, or winner-selection rule.
+
+`REPLAY_ACCEPTANCE` therefore receives exact `UNSUPPORTED` evidence with a null
+value. All eight blocked components now carry explicit negative evidence and
+the missing-evidence count is zero, but the candidate remains
+`CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`. Re-signing the evidence
+with a fabricated UNKNOWN ratio, flip target, transition-delay limit, stress
+rule, or winner selector fails against independent source re-derivation.
 
 ## Replay-population consumer boundary
 
@@ -179,5 +196,5 @@ P1-COM-04 consumes this retained inventory through
 candidate as an empty successful replay: while the candidate remains blocked,
 eligible market count and case count are both zero, outcome evaluation is false,
 and replay population remains explicitly `NOT_COMPUTABLE`. The consumer pins
-the v4 population contract and preserves all seven explicit-negative
-components plus the one missing component without inventing a value.
+the v5 population contract and preserves all eight explicit-negative
+components without inventing a value.

@@ -48,6 +48,7 @@ def copied_source_root(root: Path) -> Path:
         "config/regime_policy_candidate_contract.json",
         "config/regime_minimum_coverage_policy.json",
         "config/regime_decision_authority_contract.json",
+        "config/regime_replay_harness_contract.json",
     ):
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -76,11 +77,10 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                     "STRESS_OVERRIDE",
                     "INVALIDATION",
                     "HYSTERESIS",
+                    "REPLAY_ACCEPTANCE",
                 ],
             )
-            self.assertEqual(
-                summary["missing_evidence_components"], ["REPLAY_ACCEPTANCE"]
-            )
+            self.assertEqual(summary["missing_evidence_components"], [])
             self.assertEqual(len(summary["blocked_components"]), 8)
             self.assertEqual(summary["replay_population_status"], "NOT_COMPUTABLE")
 
@@ -115,6 +115,7 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                     "STRESS_OVERRIDE",
                     "INVALIDATION",
                     "HYSTERESIS",
+                    "REPLAY_ACCEPTANCE",
                 }:
                     self.assertEqual(parameter["status"], "BLOCKED")
                     self.assertEqual(
@@ -249,6 +250,19 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                 ):
                     MODULE.build_population(source_root / "artifacts", source_root)
 
+    def test_replay_acceptance_harness_boundary_is_exactly_pinned(self):
+        with tempfile.TemporaryDirectory() as raw:
+            source_root = copied_source_root(Path(raw))
+            path = source_root / "config/regime_replay_harness_contract.json"
+            changed = read_json(path)
+            changed["success_status"] = "REPLAY_ACCEPTED"
+            write_json(path, changed)
+            with self.assertRaisesRegex(
+                MODULE.PolicyCandidatePopulationError,
+                "REPLAY_ACCEPTANCE_HARNESS_SHA_MISMATCH",
+            ):
+                MODULE.build_population(source_root / "artifacts", source_root)
+
     def test_resigned_component_negative_cannot_fake_support(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -282,6 +296,45 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 MODULE.PolicyCandidatePopulationError,
                 "UNRATIFIED_COMPONENT_EVIDENCE_ARTIFACT_MISMATCH",
+            ):
+                MODULE.validate_population(root, ROOT)
+
+    def test_resigned_replay_acceptance_negative_cannot_fake_threshold(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            MODULE.build_population(root, ROOT)
+            paths = artifact_paths(root)
+            evidence = read_json(paths["replay_acceptance_evidence"])
+            manifest = read_json(paths["manifest"])
+            fake_value = {"max_unknown_ratio": "0.10", "winner_rule": "LOWEST_FLIPS"}
+            evidence["evidence_kind"] = "CIO_DOCTRINE"
+            evidence["parameter_claims"][0].update(
+                claim_type="EXPLICIT_PARAMETER_VALUE",
+                supported_value=fake_value,
+                derivation="FAKE_RATIFICATION",
+            )
+            evidence["caveats"] = []
+            write_json(paths["replay_acceptance_evidence"], evidence)
+            acceptance = next(
+                item
+                for item in manifest["parameters"]
+                if item["component"] == "REPLAY_ACCEPTANCE"
+            )
+            acceptance["value_type"] = "STRUCTURED"
+            acceptance["proposed_value"] = fake_value
+            acceptance["evidence_refs"][0]["sha256"] = hashlib.sha256(
+                paths["replay_acceptance_evidence"].read_bytes()
+            ).hexdigest()
+            write_json(paths["manifest"], manifest)
+            inventory = MODULE.CANDIDATE.build_candidate_inventory(
+                manifest,
+                root,
+                MODULE.CANDIDATE.load_contract(),
+            )
+            write_json(paths["inventory"], inventory)
+            with self.assertRaisesRegex(
+                MODULE.PolicyCandidatePopulationError,
+                "REPLAY_ACCEPTANCE_EVIDENCE_ARTIFACT_MISMATCH",
             ):
                 MODULE.validate_population(root, ROOT)
 

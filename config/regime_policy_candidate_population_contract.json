@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_policy_candidate_population/v4",
+  "contract_version": "regime_policy_candidate_population/v5",
   "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
   "candidate_contract": {
     "path": "config/regime_policy_candidate_contract.json",
@@ -172,10 +172,51 @@
       "available_at": "2026-08-27T02:07:53+09:00"
     }
   ],
+  "replay_acceptance_boundary": {
+    "candidate_component": "REPLAY_ACCEPTANCE",
+    "derived_boundary_status": "ABSENT_NO_RATIFIED_ACCEPTANCE_CONTRACT",
+    "policy_registry_source": {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1",
+      "repository_policy_registry_status": "ABSENT",
+      "authority_checks": {
+        "policy_ratification_authorized": false,
+        "classification_authorized": false
+      },
+      "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+      "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+      "pull_request": 334,
+      "published_at": "2026-08-27T01:56:01+09:00",
+      "available_at": "2026-08-27T02:07:53+09:00"
+    },
+    "replay_harness_source": {
+      "path": "config/regime_replay_harness_contract.json",
+      "sha256": "d6703e9f58a54aa1e9f08ae001722ce1c8195091da3a576b6d35aa53cf98fe4a",
+      "contract_version": "regime_replay_harness/v1",
+      "source_contract_mode": "PRE_SCORE_UNKNOWN_ONLY",
+      "comparison_policy": "canonical_byte_identical_first_and_rerun",
+      "success_status": "DETERMINISM_VERIFIED_PRE_SCORE",
+      "source_commit": "9b83859fff21881c8131af2119ad1ae13a07cbcf",
+      "merge_commit": "bba8440b928f078f852209718a25cc540466da1d",
+      "pull_request": 67,
+      "published_at": "2026-08-20T00:53:27+09:00",
+      "available_at": "2026-08-20T00:55:07+09:00"
+    },
+    "candidate_authority_checks": {
+      "candidate_selection_authorized": false,
+      "policy_recommendation_authorized": false,
+      "policy_ratification_authorized": false
+    },
+    "evidence_id": "P1_COM_05_REPLAY_ACCEPTANCE_ABSENT_BOUNDARY",
+    "artifact_key": "replay_acceptance_evidence",
+    "published_at": "2026-08-27T01:56:01+09:00",
+    "available_at": "2026-08-27T02:07:53+09:00"
+  },
   "candidate": {
-    "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V4",
+    "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V5",
     "market": "COMMON",
-    "decision_at": "2026-08-27T12:14:25+09:00",
+    "decision_at": "2026-08-27T13:52:36+09:00",
     "policy_status": "DRAFT_NOT_RATIFIED",
     "populated_component": "MINIMUM_COVERAGE",
     "parameter_id": "MINIMUM_COVERAGE",
@@ -190,6 +231,7 @@
     "stress_override_evidence": "evidence/regime/policy_candidates/stress_override_policy_unratified_evidence.json",
     "invalidation_evidence": "evidence/regime/policy_candidates/invalidation_policy_unratified_evidence.json",
     "hysteresis_evidence": "evidence/regime/policy_candidates/hysteresis_policy_unratified_evidence.json",
+    "replay_acceptance_evidence": "evidence/regime/policy_candidates/replay_acceptance_absent_evidence.json",
     "manifest": "evidence/regime/policy_candidates/candidate_manifest.json",
     "inventory": "evidence/regime/policy_candidates/candidate_inventory.json"
   },
@@ -204,9 +246,10 @@
       "CONFIDENCE",
       "STRESS_OVERRIDE",
       "INVALIDATION",
-      "HYSTERESIS"
+      "HYSTERESIS",
+      "REPLAY_ACCEPTANCE"
     ],
-    "missing_evidence_component_count": 1,
+    "missing_evidence_component_count": 0,
     "blocked_component_count": 8,
     "candidate_status": "CANDIDATE_BLOCKED",
     "replay_population_status": "NOT_COMPUTABLE"

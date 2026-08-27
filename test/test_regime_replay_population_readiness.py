@@ -42,6 +42,7 @@ def copied_root(destination: Path) -> Path:
         "evidence/regime/policy_candidates/stress_override_policy_unratified_evidence.json",
         "evidence/regime/policy_candidates/invalidation_policy_unratified_evidence.json",
         "evidence/regime/policy_candidates/hysteresis_policy_unratified_evidence.json",
+        "evidence/regime/policy_candidates/replay_acceptance_absent_evidence.json",
         "evidence/regime/policy_candidates/candidate_manifest.json",
         "evidence/regime/policy_candidates/candidate_inventory.json",
     )
@@ -73,12 +74,10 @@ class RegimeReplayPopulationReadinessTest(unittest.TestCase):
                 "STRESS_OVERRIDE",
                 "INVALIDATION",
                 "HYSTERESIS",
+                "REPLAY_ACCEPTANCE",
             ],
         )
-        self.assertEqual(
-            result["candidate"]["missing_evidence_components"],
-            ["REPLAY_ACCEPTANCE"],
-        )
+        self.assertEqual(result["candidate"]["missing_evidence_components"], [])
         self.assertEqual(len(result["candidate"]["blocked_components"]), 8)
         self.assertTrue(result["replay_capability"]["capability_available"])
         self.assertTrue(result["replay_capability"]["candidate_inventory_bound"])
