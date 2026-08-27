@@ -188,6 +188,23 @@ jobs:
             --data-root data \
             --out-root data/observations/dart_event_observations
 
+      # P4-03 — derive a provider-free structure-only index from the exact
+      # retained DART ZIP/member bytes.  The mutable metadata/content pointers
+      # are copied byte-for-byte into the append-only evidence directory so a
+      # future validator never substitutes newer inputs.  No filing text,
+      # numeric value, item meaning, Rule result, Stage, Action or trade is
+      # produced here; item extraction remains explicitly unratified.
+      - name: Populate DART Structural Content Index (P4-03)
+        if: always()
+        run: |
+          DECISION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/dart_structural_content_index.py \
+            --decision-at "$DECISION_AT" \
+            --source data/latest_dart.json \
+            --content data/latest_dart_content.json \
+            --data-root data \
+            --out-root data/observations/dart_structural_content_index
+
       # P4-02 — metadata 도착과 filing 본문 소비를 같은 성공으로 뭉개지 않는다.
       # Guard=fresh 여도 이전 content 실패는 독립적으로 repair할 수 있어야 하므로
       # always()에서 실행한다. helper가 latest_sec의 오늘 KST 날짜를 다시 검증한다.
