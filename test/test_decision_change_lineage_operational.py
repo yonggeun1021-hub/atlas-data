@@ -92,6 +92,37 @@ class OperationalDecisionLineageTests(unittest.TestCase):
         value = REAL_VALIDATE_DAILY_AT_COMMIT(SOURCE_COMMIT, relative, blob_sha)
         self.assertEqual(value["packet_sha256"], json.loads(PACKET.read_text())["packet_sha256"])
 
+    def test_exact_source_checkout_retains_git_provenance_and_is_clean(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / "repo"
+            MODULE._materialize_exact_commit(SOURCE_COMMIT, checkout)
+            self.assertTrue((checkout / ".git").is_dir())
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
+                ).strip(),
+                SOURCE_COMMIT,
+            )
+            identity_path = "config/canonical_security_identity.json"
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "log", "-1", "--format=%H", "--", identity_path],
+                    cwd=checkout,
+                    text=True,
+                ).strip(),
+                subprocess.check_output(
+                    ["git", "log", "-1", "--format=%H", "--", identity_path],
+                    cwd=ROOT,
+                    text=True,
+                ).strip(),
+            )
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "status", "--porcelain"], cwd=checkout, text=True
+                ).strip(),
+                "",
+            )
+
     def test_real_committed_briefing_builds_created_zero_authority_record(self):
         record = self.record()
         self.assertEqual(record["lineage_packet"]["entries"][0]["change_type"], "CREATED")

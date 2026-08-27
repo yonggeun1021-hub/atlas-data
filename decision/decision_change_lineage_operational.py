@@ -14,14 +14,12 @@ import datetime as dt
 import functools
 import hashlib
 import importlib.util
-import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
-import tarfile
 import tempfile
 
 
@@ -122,31 +120,81 @@ def _git_blob(commit: str, relative: str) -> bytes:
     return completed.stdout
 
 
+def _materialize_exact_commit(commit: str, checkout: Path) -> None:
+    """Create an isolated exact-commit checkout while retaining git history.
+
+    ``git archive`` is insufficient for Atlas validators that independently
+    prove first-seen provenance from commit history. Fetching the immutable
+    commit and its ancestry into a new local repository preserves that
+    evidence without consulting a branch name or the network.
+    """
+    if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
+        raise OperationalDecisionLineageError("SOURCE_COMMIT_MUST_BE_FULL_SHA")
+    resolved = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if resolved.returncode != 0 or resolved.stdout.strip() != commit:
+        raise OperationalDecisionLineageError("SOURCE_COMMIT_NOT_IMMUTABLE")
+    commands = (
+        ["git", "init", "--quiet", str(checkout)],
+        [
+            "git", "-C", str(checkout), "fetch", "--quiet", "--no-tags",
+            str(ROOT), commit,
+        ],
+        ["git", "-C", str(checkout), "checkout", "--quiet", "--detach", commit],
+    )
+    for command in commands:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode != 0:
+            raise OperationalDecisionLineageError(
+                "SOURCE_COMMIT_CHECKOUT_FAILED"
+            )
+    checked = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=checkout,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=checkout,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if (
+        checked.returncode != 0
+        or checked.stdout.strip() != commit
+        or dirty.returncode != 0
+        or dirty.stdout.strip()
+    ):
+        raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_INVALID")
+
+
 @functools.lru_cache(maxsize=16)
 def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> dict:
     """Run the exact commit's own validator against its exact repository state."""
     blob = _git_blob(commit, relative)
     if hashlib.sha256(blob).hexdigest() != blob_sha256:
         raise OperationalDecisionLineageError("SOURCE_BLOB_SHA256_MISMATCH")
-    archive = subprocess.run(
-        ["git", "archive", "--format=tar", commit],
-        cwd=ROOT,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if archive.returncode != 0:
-        raise OperationalDecisionLineageError("SOURCE_COMMIT_ARCHIVE_UNAVAILABLE")
     with tempfile.TemporaryDirectory(prefix="atlas-p10-04-validate-") as temporary:
-        checkout = Path(temporary)
-        with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as handle:
-            members = handle.getmembers()
-            if any(
-                member.name.startswith("/") or ".." in Path(member.name).parts
-                for member in members
-            ):
-                raise OperationalDecisionLineageError("SOURCE_ARCHIVE_PATH_INVALID")
-            handle.extractall(checkout)
+        checkout = Path(temporary) / "repo"
+        _materialize_exact_commit(commit, checkout)
         completed = subprocess.run(
             [sys.executable, "briefing/daily_orchestrator.py", "validate", relative],
             cwd=checkout,
