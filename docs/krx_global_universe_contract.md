@@ -1,8 +1,9 @@
 # KOSPI / KOSDAQ Global Universe Adapter (P3-03)
 
-Status: exact-date KRX source-coverage membership capability implemented. An
-approved investable Korea universe, liquidity/tradability rules, and scheduled
-master population remain unratified or unimplemented.
+Status: exact-date KRX source-coverage membership capability and append-only
+manual population wiring implemented. An approved investable Korea universe,
+liquidity/tradability rules, and scheduled population remain unratified or
+unimplemented.
 
 ## Purpose
 
@@ -67,4 +68,14 @@ python3 universe/krx_global_universe.py /tmp/krx-universe-input.json \
 ```
 
 No tracked Master, workflow, provider request, evaluator input, or trading
-artifact is created by this capability.
+artifact is created by the adapter command itself.  The existing P1-KR-05
+workflow reuses its already-built recent packet without another provider call,
+independently validates it with
+`.github/scripts/korea_global_universe_populate.py`, and commits the exact
+packet to `data/observations/krx_global_universe/{date}/packet.json`.
+
+That tracked packet is still source coverage only. It contains KRX identity,
+name, membership and source lineage, but no response body or price/volume/
+market-cap fields. Re-running the same bytes is a no-op; a different packet for
+an existing date fails closed. Investability, liquidity, tradability, listing/
+delisting, Theme, Stage, Production, and trading authorities remain false.

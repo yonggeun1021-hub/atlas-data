@@ -24,7 +24,10 @@ class GlobalAssetMasterPopulationReadinessTests(unittest.TestCase):
         packet = READINESS.build_readiness("2026-08-26")
         by_market = {row["market"]: row for row in packet["markets"]}
         self.assertEqual(packet["status"], "BLOCKED_SOURCE_COVERAGE_INCOMPLETE")
-        self.assertEqual(packet["ready_market_count"], 1)
+        self.assertEqual(
+            packet["ready_market_count"],
+            sum(row["status"] == "SOURCE_COVERAGE_READY" for row in packet["markets"]),
+        )
         self.assertEqual(by_market["US"]["status"], "SOURCE_COVERAGE_READY")
         self.assertEqual(by_market["US"]["source_date"], "2026-08-25")
         self.assertGreater(by_market["US"]["record_count"], 10000)
@@ -32,10 +35,20 @@ class GlobalAssetMasterPopulationReadinessTests(unittest.TestCase):
         self.assertLessEqual(
             by_market["US"]["knowledge_first_seen_at"], "2026-08-26T23:59:59Z"
         )
-        self.assertEqual(
-            by_market["KOREA"]["reason"],
-            "COMMITTED_EXACT_KRX_POPULATION_PACKET_MISSING",
-        )
+        if by_market["KOREA"]["status"] == "SOURCE_COVERAGE_READY":
+            self.assertLessEqual(by_market["KOREA"]["source_date"], "2026-08-26")
+            self.assertGreater(by_market["KOREA"]["record_count"], 0)
+            self.assertRegex(
+                by_market["KOREA"]["knowledge_first_seen_commit"], r"^[0-9a-f]{40}$"
+            )
+        else:
+            self.assertIn(
+                by_market["KOREA"]["reason"],
+                {
+                    "COMMITTED_EXACT_KRX_POPULATION_PACKET_MISSING",
+                    "COMMITTED_EXACT_KRX_POPULATION_PACKET_NOT_KNOWN_BY_AS_OF",
+                },
+            )
         self.assertEqual(by_market["CRYPTO"]["source_date"], "2026-08-26")
         self.assertTrue(
             by_market["CRYPTO"]["reason"].startswith("BREADTH_SELECTION_")
@@ -115,17 +128,53 @@ class GlobalAssetMasterPopulationReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "2026-08-26").mkdir()
-            with self.assertRaisesRegex(
-                READINESS.ReadinessError, "KOREA_POPULATION_VALIDATOR_NOT_IMPLEMENTED"
+            packet = READINESS.build_readiness(
+                "2026-08-26",
+                us_raw_root=root / "us-raw",
+                us_data_root=root / "us-data",
+                crypto_raw_root=root / "crypto-raw",
+                crypto_data_root=root / "crypto-data",
+                korea_data_root=root,
+            )
+            korea = next(row for row in packet["markets"] if row["market"] == "KOREA")
+            self.assertEqual(korea["status"], "SOURCE_COVERAGE_NOT_READY")
+            self.assertEqual(
+                korea["reason"],
+                "COMMITTED_EXACT_KRX_POPULATION_PACKET_NOT_KNOWN_BY_AS_OF",
+            )
+
+    def test_korea_packet_uses_production_validator_before_ready(self):
+        fixture_path = ROOT / "test" / "test_krx_global_universe.py"
+        fixture_spec = importlib.util.spec_from_file_location("krx_ready_fixture", fixture_path)
+        fixture = importlib.util.module_from_spec(fixture_spec)
+        assert fixture_spec.loader is not None
+        fixture_spec.loader.exec_module(fixture)
+        value = fixture.KRU.build_packet(fixture.sample_input())
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "2026-08-20" / "packet.json"
+            target.parent.mkdir(parents=True)
+            target.write_text(json.dumps(value), encoding="utf-8")
+            with mock.patch.object(
+                READINESS,
+                "_latest_knowledge_eligible_date",
+                return_value=("2026-08-20", "a" * 40, "2026-08-20T08:00:00Z"),
             ):
-                READINESS.build_readiness(
-                    "2026-08-26",
-                    us_raw_root=root / "us-raw",
-                    us_data_root=root / "us-data",
-                    crypto_raw_root=root / "crypto-raw",
-                    crypto_data_root=root / "crypto-data",
-                    korea_data_root=root,
-                )
+                row = READINESS._korea_state("2026-08-20", root)
+            self.assertEqual(row["status"], "SOURCE_COVERAGE_READY")
+            self.assertEqual(row["record_count"], 3)
+
+            value["authority"]["trading_authorized"] = True
+            value["payload_sha256"] = READINESS.KOREA_POPULATION.payload_sha256(
+                {key: item for key, item in value.items() if key != "payload_sha256"}
+            )
+            target.write_text(json.dumps(value), encoding="utf-8")
+            with mock.patch.object(
+                READINESS,
+                "_latest_knowledge_eligible_date",
+                return_value=("2026-08-20", "a" * 40, "2026-08-20T08:00:00Z"),
+            ), self.assertRaisesRegex(READINESS.ReadinessError, "KOREA_PACKET_DRIFT_OR_TAMPER"):
+                READINESS._korea_state("2026-08-20", root)
 
     def test_atomic_output_only_after_validation(self):
         with tempfile.TemporaryDirectory() as temp:

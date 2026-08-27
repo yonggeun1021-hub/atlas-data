@@ -136,6 +136,12 @@ APPROVED_TESTS = [
     #   역적용하지 않고 liquidity/tradability/investability 정책을 발명하지 않는다.
     #   ⛔ live KRX/workflow/tracked master 없음 — exact-byte fixtures + temp output only.
     "test/test_krx_global_universe.py",
+    # ★ P3-01/P3-03 operational Korea population.  Reuses the exact packet
+    #   already built from P1-KR-05's shared KRX fetch artifact, validates the
+    #   nested Global Asset Master, and persists it append-only by observation
+    #   date. No second provider call, raw response, price field, investability,
+    #   Stage, Production, or trading authority is introduced.
+    "test/test_korea_global_universe_populate.py",
     # ★ P3-04 — ratified Crypto breadth selection → Global Asset Master adapter.
     #   exact append-only Kraken snapshot/manifest/policy/taxonomy/identity lineage와
     #   full target observation을 요구해 breadth source-coverage membership만 만든다.
