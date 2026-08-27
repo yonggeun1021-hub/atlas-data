@@ -238,6 +238,19 @@ jobs:
             --data-root data \
             --out-root data/observations/official_release_observations
 
+      # P4-04 — consume the complete ordered News Summary from the exact
+      # retained Sandisk Exhibit 99.1 bytes.  The adapter records every item in
+      # the registered block and keeps interpretation/source-ranking/Rule/
+      # Stage/Action/Order/Production/trading authority disabled.
+      - name: Populate Sandisk Official Release Summary (P4-04)
+        if: always()
+        run: |
+          DECISION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/official_release_summary_observation.py \
+            --decision-at "$DECISION_AT" \
+            --data-root data \
+            --out-root data/observations/official_release_summary_observations
+
       # P3-08 — existing SEC D1 records become operational Discovery Cases.
       # No provider call or new importance policy is introduced here.  The
       # adapter links evidence only when the already-retained filing-content
