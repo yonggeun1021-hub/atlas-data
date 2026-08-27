@@ -99,6 +99,9 @@ def _load(name: str, relative_path: str):
 
 
 REGIME = _load("atlas_daily_regime", "regime/output_contract.py")
+LIVE_AXIS_ADAPTER = _load(
+    "atlas_daily_live_axis_adapter", "regime/live_axis_adapter.py"
+)
 HEADER = _load("atlas_daily_header", "briefing/three_market_regime_header.py")
 LEDGER = _load("atlas_daily_ledger", "rotation/rotation_state_ledger.py")
 DISCOVERY = _load("atlas_daily_discovery", "discovery/event_case.py")
@@ -1303,15 +1306,24 @@ def build_crypto_breadth(decision_date: str, snapshot: dict | None = None) -> di
 
 
 # ---------------------------------------------------------------------------
-# Regime (always buildable today: no live axis adapter exists yet, so every
-# market is honestly UNKNOWN -- never fabricated as any other regime).
+# Regime. Qualified source evidence can define individual axes, but no score,
+# threshold, direction, market preference, or action is authorized here.
 # ---------------------------------------------------------------------------
 
 
-def build_regime_outputs(generated_at: str) -> dict[str, dict]:
+def build_regime_outputs(
+    generated_at: str, component_rows: dict | None = None,
+) -> dict[str, dict]:
+    factors = (
+        LIVE_AXIS_ADAPTER.build_axis_factors(component_rows, generated_at)
+        if component_rows is not None
+        else {market: {} for market in REGIME.load_contract()["markets"]}
+    )
     outputs = {}
     for market in REGIME.load_contract()["markets"]:
-        outputs[market] = REGIME.build_unknown_output(market, generated_at)
+        outputs[market] = REGIME.build_unknown_output(
+            market, generated_at, factors.get(market, {})
+        )
     return outputs
 
 
@@ -1320,10 +1332,19 @@ def build_three_market_header(regime_outputs: dict[str, dict], slot: str, genera
         packet = HEADER.build_header(list(regime_outputs.values()), slot, generated_at)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("THREE_MARKET_REGIME_HEADER", exc)
+    defined_count = sum(
+        output.get("coverage", {}).get("defined_count", 0)
+        for output in regime_outputs.values()
+    )
+    reason = (
+        "LIVE_AXIS_EVIDENCE_WIRED_REGIME_SCORING_UNRATIFIED"
+        if defined_count
+        else "NO_QUALIFIED_LIVE_AXIS_EVIDENCE"
+    )
     return component_row(
         "THREE_MARKET_REGIME_HEADER",
         "PENDING",
-        "ALL_MARKETS_UNKNOWN_NO_LIVE_AXIS_ADAPTER_WIRED",
+        reason,
         as_of_date=generated_at[:10],
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
@@ -2417,7 +2438,7 @@ def build_packet(
         except Exception as exc:  # noqa: BLE001
             dynamic_report_error = exc
 
-    regime_outputs = build_regime_outputs(generated_at)
+    regime_outputs = build_regime_outputs(generated_at, rows)
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
         regime_outputs, slot, generated_at
     ))
@@ -3164,7 +3185,7 @@ _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
 
 
 _FINGERPRINT_NOISE_KEYS = frozenset({
-    "as_of_utc", "decision_at", "packet_id", "source_as_of"
+    "age_seconds", "as_of_utc", "decision_at", "packet_id", "source_as_of"
 })
 
 
@@ -3189,7 +3210,7 @@ def _strip_fingerprint_noise(value):
       generated_at-tainted content, which cannot be un-derived by
       blanking the literal timestamp string it was built from.
     - A small fixed set of other timestamp/id fields that are equally
-      generated_at-derived (as_of_utc, packet_id, source_as_of).
+      generated_at-derived (age_seconds, as_of_utc, packet_id, source_as_of).
 
     This never drops a row's own top-level source_packet_sha256 (handled
     separately, per component, in _component_semantic_fingerprint()) or
