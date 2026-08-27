@@ -1,0 +1,7 @@
+{
+  "_comment": "Does a semantic validator exist that will answer? The gate's 20-minute wait exists to give one time to reply. With no such validator the wait cannot change anything -- it only guarantees that every clean round finishes red and undelivered, because the workflow job times out at 15 minutes and no same-day re-entry is scheduled (docs/daily_orchestrator_contract.md: SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED).",
+  "expected": false,
+  "timeout_minutes": 20,
+  "_note_when_flipping_to_true": "Setting expected=true reinstates the wait AND makes a re-entry caller a hard prerequisite: something must invoke drain again after timeout_minutes. As of 2026-08-27 no such caller exists -- the P0-02/P0-04 'independent cron' pattern is staggered GitHub Actions crons (same failure plane), and the external consumer contract is read-only (retrieval_pointer_only: true), so it has no authority to fire a repository_dispatch. Do not flip this without naming the caller.",
+  "_note_no_new_cron": "Adding a cron to manufacture re-entry was deliberately rejected upstream; see docs/daily_orchestrator_contract.md. This config does not add one."
+}

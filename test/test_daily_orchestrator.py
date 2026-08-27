@@ -1849,7 +1849,10 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn('for ATTEMPT in 1 2; do', command)
         self.assertIn('git reset --hard "origin/$DEFAULT_BRANCH"', command)
         self.assertIn('if [ "$CREATED" != "true" ]', command)
-        self.assertIn("GITHUB_STEP_SUMMARY", command)
+        # The accepted finalization gate, rather than the producer, now owns
+        # the single human-reaching write.  The producer may only prepare the
+        # immutable consume payload for that later gate.
+        self.assertNotIn("GITHUB_STEP_SUMMARY", command)
         self.assertLess(steps.index(regression), steps.index(publish))
         # Commit lives in the publish step so a rejected push can discard
         # the entire attempt and regenerate the immutable pointer from a

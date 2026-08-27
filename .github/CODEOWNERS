@@ -1,0 +1,24 @@
+# Approval trust root and the code that verifies it.
+# A repo writer who can change these can approve their own briefings, so these
+# paths require review by the code owner regardless of who opens the PR.
+#
+# ⚠ AS OF rev 7 THIS FILE IS ADVISORY ONLY.
+# The ruleset that would have enforced it was withdrawn: push rulesets are not
+# available on a public repository, and "Restrict file paths" blocks the push
+# outright rather than routing it through a PR -- which would have blocked the
+# bot pushes the delivery pipeline depends on. main is currently unprotected.
+#
+# What actually holds today: the approval public key is anchored out-of-band by
+# the repo secret ATLAS_APPROVAL_PUBKEY_FINGERPRINT, which a repo writer cannot
+# change. The integrity of the VERIFIER CODE below is NOT protected; that needs
+# data-push and code to live on separately protected refs, which is separate work.
+
+/config/atlas_approval_pubkey.txt            @yonggeun1021-hub
+/config/atlas_conclusion_diff_allowlist.json @yonggeun1021-hub
+/.github/scripts/briefing_finalization.py    @yonggeun1021-hub
+/.github/scripts/atlas_ed25519.py            @yonggeun1021-hub
+/.github/scripts/sign_approval.py            @yonggeun1021-hub
+/.github/scripts/notion_projection_adapter.py @yonggeun1021-hub
+/.github/workflows/daily-briefing.yml         @yonggeun1021-hub
+/config/atlas_projection.json                 @yonggeun1021-hub
+/.github/CODEOWNERS                          @yonggeun1021-hub

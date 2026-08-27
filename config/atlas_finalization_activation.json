@@ -1,0 +1,6 @@
+{
+  "_comment": "When finalization became responsible for delivery. Slots before this are NOT debt: the artifacts could not exist before the feature did. Set active_from_kst_date to the date of the first briefing the gate is expected to deliver, on the same PR that merges the workflow patch. Leave null until then -- with it null the gate owes nothing and drain stays green.",
+  "active_from_kst_date": null,
+  "active_from_slot": "morning",
+  "_note_backfill": "Slots before the epoch are never auto-reconstructed. If a past round is ever recreated it must be marked LATE_RECONSTRUCTION / generated_after_slot=true / normal_delivery=false and must not be delivered as a normal briefing."
+}
