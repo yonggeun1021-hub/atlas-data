@@ -187,6 +187,25 @@ class ImportantEventDetectorTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ImportantEventDetectorError, "EVENT_ID_DUPLICATE"):
             self.build([event(), copy.deepcopy(event())])
 
+    def test_one_and_two_character_subject_ids_are_valid(self):
+        for subject_id in ("A", "MU"):
+            with self.subTest(subject_id=subject_id):
+                packet = self.build([event(subject_id=subject_id)])
+                self.assertEqual(packet["detections"][0]["subject_id"], subject_id)
+
+    def test_malformed_subject_ids_fail_closed_without_relaxing_generic_tokens(self):
+        for subject_id in ("", "mu", "/MU", "MU/../X", " MU"):
+            with self.subTest(subject_id=subject_id), self.assertRaisesRegex(
+                MODULE.ImportantEventDetectorError, "SUBJECT_ID_INVALID"
+            ):
+                self.build([event(subject_id=subject_id)])
+        self.assertIsNone(MODULE.TOKEN_RE.fullmatch("MU"))
+        self.assertIsNotNone(MODULE.SUBJECT_ID_RE.fullmatch("MU"))
+        with self.assertRaisesRegex(
+            MODULE.ImportantEventDetectorError, "EVENT_TYPE_INVALID"
+        ):
+            self.build([event(event_type="MU")])
+
     def test_time_digest_and_authority_drift_fail_closed(self):
         reversed_time = batch([event(received_at="2026-08-21T02:58:00Z")])
         with self.assertRaisesRegex(MODULE.ImportantEventDetectorError, "EVENT_TIME_ORDER_INVALID"):
