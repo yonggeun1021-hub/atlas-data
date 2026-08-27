@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_policy_parameter_evidence/v1",
+  "evidence_id": "P1_COM_02_USER_RATIFIED_MINIMUM_COVERAGE",
+  "evidence_kind": "CIO_DOCTRINE",
+  "published_at": "2026-08-20T06:29:55+09:00",
+  "available_at": "2026-08-20T06:31:58+09:00",
+  "valid_through": null,
+  "source_locator": "github://yonggeun1021-hub/atlas-data/pull/73?source=14e386907e44c3e1548ac14cb496ff0707239c79&merge=0051651164a8e6cc0327eea58588b416c86ab73d&path=config/regime_minimum_coverage_policy.json;notion:https://app.notion.com/p/3bf9f2d73c848173b2efea81c872126d",
+  "parameter_claims": [
+    {
+      "parameter_id": "MINIMUM_COVERAGE",
+      "claim_type": "EXPLICIT_PARAMETER_VALUE",
+      "supported_value": {
+        "schema_version": 1,
+        "contract_version": "regime_minimum_coverage/v1",
+        "source_contract_version": "regime_output/v1",
+        "policy_status": "RATIFIED",
+        "policy_name": "ALL_REQUIRED_AXES_5_OF_5",
+        "runtime_authorized_results": [
+          "BLOCKED",
+          "COVERAGE_MET"
+        ],
+        "minimum_defined_axes": 5,
+        "required_axes": [
+          "TREND",
+          "BREADTH",
+          "RISK_VOL",
+          "LIQUIDITY",
+          "LEADERSHIP"
+        ],
+        "axis_missing_reason_codes": {
+          "TREND": "TREND_UNDEFINED",
+          "BREADTH": "BREADTH_UNDEFINED",
+          "RISK_VOL": "RISK_VOL_UNDEFINED",
+          "LIQUIDITY": "LIQUIDITY_UNDEFINED",
+          "LEADERSHIP": "LEADERSHIP_UNDEFINED"
+        },
+        "minimum_not_met_reason_code": "MINIMUM_COVERAGE_NOT_MET",
+        "downstream_blocker_reason_codes": [
+          "FRESHNESS_POLICY_UNRATIFIED",
+          "REGIME_CLASSIFICATION_NOT_AUTHORIZED"
+        ],
+        "fail_closed_regime": "UNKNOWN",
+        "fail_closed_direction": "UNKNOWN",
+        "confidence_policy": "null_until_replay_defined",
+        "neutral_unknown_invariant": "NEUTRAL_IS_OBSERVED_STATE_UNKNOWN_IS_INSUFFICIENT_EVIDENCE"
+      },
+      "observation_count": null,
+      "distinct_observation_dates": null,
+      "derivation": "USER_RATIFIED_REPOSITORY_POLICY"
+    }
+  ],
+  "caveats": [
+    "CLASSIFICATION_UNAUTHORIZED",
+    "COVERAGE_ONLY",
+    "FRESHNESS_POLICY_UNRATIFIED"
+  ]
+}

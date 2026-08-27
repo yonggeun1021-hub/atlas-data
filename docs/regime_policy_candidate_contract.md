@@ -87,3 +87,25 @@ recommendation, policy ratification, runtime classification, hysteresis,
 strategy, Stage, Buy, Action, Proposal, Order, Production, and trading authority
 remain false. No workflow, cron, briefing, Portal, private-account, broker, or
 order path is changed by this slice.
+
+## First canonical population: minimum coverage only
+
+`regime_policy_candidate_population/v1` binds the user-ratified P1-COM-02
+`ALL_REQUIRED_AXES_5_OF_5` policy to `MINIMUM_COVERAGE`. The population contract
+pins the exact policy and candidate-contract bytes, PR #73 source and merge
+commits, the policy's availability time, and the canonical P1-COM-02 WBS page.
+The builder independently reconstructs all three retained artifacts:
+
+- `minimum_coverage_evidence.json`
+- `candidate_manifest.json`
+- `candidate_inventory.json`
+
+Only `MINIMUM_COVERAGE` becomes `SUPPORTED`. The other eight components remain
+`BLOCKED` with `VALUE_UNSPECIFIED` and `EVIDENCE_MISSING`, so the candidate as a
+whole remains `CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
+
+The retained evidence is coverage-only. It preserves the policy's explicit
+`UNKNOWN` fail-close and `UNKNOWN != NEUTRAL` semantics but does not turn its
+freshness or classification blockers into values. Changing five-of-five to
+four-of-five, replacing an axis, or re-signing a changed evidence/manifest/
+inventory chain fails against the independently pinned source policy.
