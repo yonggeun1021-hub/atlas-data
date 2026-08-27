@@ -163,6 +163,45 @@ taxonomy category, ratify a record, reduce the Top-100/90% gates, or authorize
 investability, Stage, Production, or trading. Its purpose is to turn the live
 coverage blocker into a deterministic review queue, not to decide the queue.
 
+### Effective-dated cutoff Slice (2026-08-27)
+
+The 2026-08-27 review inventory put 42 previously unclassified assets at ranks
+69 through 141 before the taxonomy cutoff. Each exact Kraken identity was
+confirmed against the retained, enabled Assets catalog and online USD pair
+catalog, then independently matched to a project/foundation protocol document,
+token contract, migration notice, or exact-contract asset report. The retained
+pair-catalog body is
+`evidence/crypto/breadth/raw/2026-08-27/kraken_asset_pairs.json.gz` with SHA-256
+`90d105c571b464ffea2a1a21a814f5f5ae3da9f63086e49e49fee55c53ec1a61`.
+Ticker text alone was not accepted; the reason field records the disambiguating
+identity for migration/collision-sensitive cases such as LIT, NIL, M, DOG,
+BABYSHARK, SYRUP, POPCAT, EIGEN, and ETHFI.
+
+The resulting source-coverage records are effective 2026-08-27 for exactly:
+
+```text
+ACU APT ARB ASTER BABY BABYSHARK BONK CVX DCR DOG EIGEN ESP ETHFI FLOKI
+ICNT JASMY JTO KNTQ KTA LIT M MANA MELANIA MINA NIL OP PENDLE PLUME POPCAT
+PYTH RIZE SCRT STRK STX SYRUP TIA VIRTUAL WIF XAN XNY XPL ZRO
+```
+
+They are all `eligible_crypto` only in the narrow breadth source-coverage
+taxonomy. This is not an investability, capacity, venue-selection, security,
+or trading judgment. `target_asset_count=100` and
+`minimum_observation_coverage_bps=9000` are unchanged, as are all false
+classification/threshold/Regime/Production/trading authority flags.
+
+The retained 2026-08-27 capture has `as_of_date=2026-08-26`, so replaying it
+with the production policy still returns the original
+`TAXONOMY_COVERAGE_UNKNOWN` (87 known eligible assets, 515 unknown rows). This
+is the required non-retroactive PIT result. A test-only, non-persisted replay
+that moves only these 42 effective dates back one day isolates the existing
+gate logic: the same raw snapshot selects 100 assets, observes all 100, leaves
+zero unknown rows before the cutoff, and emits only
+`OBSERVED_UNCLASSIFIED`. That counterfactual is not historical evidence and
+cannot close the operational Gate; the first natural capture whose
+`as_of_date` is on or after 2026-08-27 must do that independently.
+
 ## Output and missing policy
 
 For each included member, the helper emits canonical/source identity, exact
