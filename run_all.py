@@ -423,6 +423,11 @@ APPROVED_TESTS = [
     #   NEUTRAL로 위장하지 않으며 score/threshold/Production은 차단한다.
     #   ⛔ 시장판정/네트워크/tracked output 없음 — temp envelope fixtures only.
     "test/test_regime_output_contract.py",
+    # ★ P8-04 live-axis evidence adapter. Qualified BTC trend/risk and
+    #   stablecoin observations can populate evidence-only axes, while VIXCLS
+    #   without retained raw provenance and partial IEX/watchlist/membership
+    #   data are never promoted. Regime/direction stay UNKNOWN; authority false.
+    "test/test_regime_live_axis_adapter.py",
     # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
     #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
     #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가

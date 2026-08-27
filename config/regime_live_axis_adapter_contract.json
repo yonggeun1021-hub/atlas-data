@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_live_axis_adapter/v1",
+  "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
+  "bindings": {
+    "CRYPTO/TREND": {
+      "source_component": "BTC_TREND",
+      "source_transform_version": "btc_trend/v1",
+      "axis_transform_version": "regime_live_axis_btc_trend/v1"
+    },
+    "CRYPTO/RISK_VOL": {
+      "source_component": "BTC_RISK",
+      "source_transform_version": "btc_risk/v1",
+      "axis_transform_version": "regime_live_axis_btc_risk/v1"
+    },
+    "CRYPTO/LIQUIDITY": {
+      "source_component": "STABLECOIN_NET_ISSUANCE",
+      "source_transform_version": "stablecoin_net_issuance/v1",
+      "axis_transform_version": "regime_live_axis_stablecoin/v1"
+    }
+  },
+  "deferred_axes": {
+    "US/RISK_VOL": "RAW_PROVENANCE_VALIDATOR_MISSING",
+    "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
+    "KR/BREADTH": "MARKET_WIDE_SOURCE_MISSING",
+    "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
+    "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
+    "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED"
+  },
+  "non_promotable_evidence": [
+    "IEX_THREE_SYMBOL_SAMPLE",
+    "KRX_SEVEN_SYMBOL_WATCHLIST",
+    "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES"
+  ],
+  "authority": {
+    "axis_evidence_binding_only": true,
+    "regime_interpretation_authorized": false,
+    "direction_authorized": false,
+    "confidence_authorized": false,
+    "threshold_authorized": false,
+    "weight_authorized": false,
+    "market_ranking_authorized": false,
+    "strategy_authorized": false,
+    "action_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
