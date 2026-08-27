@@ -3,8 +3,10 @@
 
 The user-ratified P1-COM-02 five-of-five policy supports MINIMUM_COVERAGE.  The
 P1-COM-05 authority boundary explicitly proves that MARKET_NORMALIZATION is
-unratified; it is retained as UNSUPPORTED_EVIDENCE, not converted into a value.
-Every remaining component stays unspecified and the candidate stays blocked.
+unratified and that the aggregation weights and classification thresholds
+needed by REGIME_CLASSIFICATION are absent. Both are retained as
+UNSUPPORTED_EVIDENCE, not converted into values. Every remaining component
+stays unspecified and the candidate stays blocked.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from regime import decision_authority as DECISION  # noqa: E402
 
 
 CONTRACT_PATH = ROOT / "config" / "regime_policy_candidate_population_contract.json"
-CONTRACT_BYTES_SHA256 = "0d0adf64b56a14cde3186d04bcbb5583b6783eaafe08130dd7f5144b74253bf0"
+CONTRACT_BYTES_SHA256 = "3dfc74fffac46c3fe7f029861e8686bae892e8e35e2ff6198bf04d1ba526c4e1"
 
 
 class PolicyCandidatePopulationError(RuntimeError):
@@ -111,6 +113,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         "candidate_contract",
         "source_policy",
         "unratified_policy_boundary",
+        "classification_policy_boundary",
         "candidate",
         "artifact_paths",
         "expected_population",
@@ -120,7 +123,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         fail("POPULATION_CONTRACT_INVALID", "schema")
     pinned = {
         "schema_version": 1,
-        "contract_version": "regime_policy_candidate_population/v2",
+        "contract_version": "regime_policy_candidate_population/v3",
         "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
     }
     if any(contract.get(key) != value for key, value in pinned.items()):
@@ -129,6 +132,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         "candidate_contract",
         "source_policy",
         "unratified_policy_boundary",
+        "classification_policy_boundary",
         "candidate",
         "artifact_paths",
     ):
@@ -171,7 +175,7 @@ def validate_population_contract(contract: object) -> dict:
 def load_source_contracts(
     source_root: Path,
     contract: dict,
-) -> tuple[dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict]:
     candidate_ref = contract["candidate_contract"]
     candidate_path = resolve_path(
         source_root,
@@ -186,10 +190,17 @@ def load_source_contracts(
         boundary_ref["path"],
         "unratified_policy_boundary.path",
     )
+    classification_ref = contract["classification_policy_boundary"]
+    classification_path = resolve_path(
+        source_root,
+        classification_ref["path"],
+        "classification_policy_boundary.path",
+    )
     try:
         candidate_raw = candidate_path.read_bytes()
         minimum_raw = minimum_path.read_bytes()
         boundary_raw = boundary_path.read_bytes()
+        classification_raw = classification_path.read_bytes()
     except OSError as exc:
         fail("SOURCE_POLICY_MISSING", str(exc))
     if sha256(candidate_raw) != candidate_ref["sha256"]:
@@ -198,6 +209,11 @@ def load_source_contracts(
         fail("MINIMUM_COVERAGE_SOURCE_SHA_MISMATCH", minimum_ref["path"])
     if sha256(boundary_raw) != boundary_ref["sha256"]:
         fail("UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH", boundary_ref["path"])
+    if sha256(classification_raw) != classification_ref["sha256"]:
+        fail(
+            "CLASSIFICATION_BOUNDARY_SOURCE_SHA_MISMATCH",
+            classification_ref["path"],
+        )
     try:
         candidate_contract = CANDIDATE.validate_contract(
             load_json_bytes(candidate_raw, candidate_ref["path"])
@@ -207,6 +223,9 @@ def load_source_contracts(
         )
         boundary_contract = DECISION.validate_contract(
             load_json_bytes(boundary_raw, boundary_ref["path"])
+        )
+        classification_contract = DECISION.validate_contract(
+            load_json_bytes(classification_raw, classification_ref["path"])
         )
     except (
         CANDIDATE.PolicyCandidateError,
@@ -241,7 +260,33 @@ def load_source_contracts(
         "authority_value"
     ]:
         fail("SOURCE_POLICY_INVALID", "normalization authority")
-    return candidate_contract, minimum_contract, boundary_contract
+    if classification_contract["contract_version"] != classification_ref[
+        "contract_version"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "classification boundary contract version")
+    if classification_contract["repository_policy_registry_status"] != classification_ref[
+        "repository_policy_registry_status"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "classification policy registry status")
+    for source_component in classification_ref["source_policy_components"]:
+        if classification_contract["policy_component_status"].get(
+            source_component
+        ) != classification_ref["component_statuses"].get(source_component):
+            fail("SOURCE_POLICY_INVALID", f"classification status {source_component}")
+        if classification_contract["policy_reason_codes"].get(
+            source_component
+        ) != classification_ref["reason_codes"].get(source_component):
+            fail("SOURCE_POLICY_INVALID", f"classification reason {source_component}")
+    if classification_contract["authority"].get(
+        classification_ref["authority_key"]
+    ) is not classification_ref["authority_value"]:
+        fail("SOURCE_POLICY_INVALID", "classification authority")
+    return (
+        candidate_contract,
+        minimum_contract,
+        boundary_contract,
+        classification_contract,
+    )
 
 
 def minimum_coverage_value(minimum_contract: dict) -> dict:
@@ -326,17 +371,62 @@ def expected_normalization_negative_evidence(
     }
 
 
+def expected_classification_negative_evidence(
+    contract: dict,
+    candidate_contract: dict,
+    classification_contract: dict,
+) -> dict:
+    source = contract["classification_policy_boundary"]
+    return {
+        "schema_version": 1,
+        "contract_version": candidate_contract["evidence_document_version"],
+        "evidence_id": source["evidence_id"],
+        "evidence_kind": "UNSUPPORTED",
+        "published_at": source["published_at"],
+        "available_at": source["available_at"],
+        "valid_through": None,
+        "source_locator": (
+            f"github://yonggeun1021-hub/atlas-data/pull/{source['pull_request']}"
+            f"?source={source['source_commit']}&merge={source['merge_commit']}"
+            f"&path={source['path']}"
+        ),
+        "parameter_claims": [
+            {
+                "parameter_id": source["candidate_component"],
+                "claim_type": "UNSUPPORTED",
+                "supported_value": None,
+                "observation_count": None,
+                "distinct_observation_dates": None,
+                "derivation": "REPOSITORY_ABSENT_CLASSIFICATION_POLICY_BOUNDARY",
+            }
+        ],
+        "caveats": [
+            classification_contract["policy_reason_codes"][source_component]
+            for source_component in source["source_policy_components"]
+        ]
+        + [
+            "POLICY_REGISTRY_ABSENT",
+            "NUMERIC_THRESHOLDS_AND_WEIGHTS_NOT_RATIFIED",
+        ],
+    }
+
+
 def expected_manifest(
     contract: dict,
     candidate_contract: dict,
     minimum_contract: dict,
     minimum_evidence_raw: bytes,
     normalization_evidence_raw: bytes,
+    classification_evidence_raw: bytes,
 ) -> dict:
     candidate = contract["candidate"]
     evidence_path = contract["artifact_paths"]["evidence"]
     boundary = contract["unratified_policy_boundary"]
     normalization_evidence_path = contract["artifact_paths"]["normalization_evidence"]
+    classification_boundary = contract["classification_policy_boundary"]
+    classification_evidence_path = contract["artifact_paths"][
+        "classification_evidence"
+    ]
     parameters = []
     for component in candidate_contract["required_components"]:
         if component == candidate["populated_component"]:
@@ -367,6 +457,22 @@ def expected_manifest(
                             "path": normalization_evidence_path,
                             "sha256": sha256(normalization_evidence_raw),
                             "evidence_id": boundary["evidence_id"],
+                        }
+                    ],
+                }
+            )
+        elif component == classification_boundary["candidate_component"]:
+            parameters.append(
+                {
+                    "component": component,
+                    "parameter_id": component,
+                    "value_type": "UNSPECIFIED",
+                    "proposed_value": None,
+                    "evidence_refs": [
+                        {
+                            "path": classification_evidence_path,
+                            "sha256": sha256(classification_evidence_raw),
+                            "evidence_id": classification_boundary["evidence_id"],
                         }
                     ],
                 }
@@ -407,10 +513,12 @@ def build_population(
     contract = validate_population_contract(
         load_population_contract() if contract is None else contract
     )
-    candidate_contract, minimum_contract, boundary_contract = load_source_contracts(
-        source_root,
-        contract,
-    )
+    (
+        candidate_contract,
+        minimum_contract,
+        boundary_contract,
+        classification_contract,
+    ) = load_source_contracts(source_root, contract)
     with tempfile.TemporaryDirectory() as raw:
         temporary_root = Path(raw)
         minimum_evidence = expected_minimum_coverage_evidence(
@@ -433,12 +541,23 @@ def build_population(
             contract["artifact_paths"]["normalization_evidence"],
             normalization_evidence,
         )
+        classification_evidence = expected_classification_negative_evidence(
+            contract,
+            candidate_contract,
+            classification_contract,
+        )
+        classification_evidence_path = write_artifact(
+            temporary_root,
+            contract["artifact_paths"]["classification_evidence"],
+            classification_evidence,
+        )
         manifest = expected_manifest(
             contract,
             candidate_contract,
             minimum_contract,
             minimum_evidence_path.read_bytes(),
             normalization_evidence_path.read_bytes(),
+            classification_evidence_path.read_bytes(),
         )
         write_artifact(
             temporary_root,
@@ -475,10 +594,12 @@ def validate_population(
     contract = validate_population_contract(
         load_population_contract() if contract is None else contract
     )
-    candidate_contract, minimum_contract, boundary_contract = load_source_contracts(
-        source_root,
-        contract,
-    )
+    (
+        candidate_contract,
+        minimum_contract,
+        boundary_contract,
+        classification_contract,
+    ) = load_source_contracts(source_root, contract)
     paths = {
         key: resolve_path(artifact_root, relative, f"artifact_paths.{key}")
         for key, relative in contract["artifact_paths"].items()
@@ -486,6 +607,7 @@ def validate_population(
     try:
         evidence_raw = paths["evidence"].read_bytes()
         normalization_evidence_raw = paths["normalization_evidence"].read_bytes()
+        classification_evidence_raw = paths["classification_evidence"].read_bytes()
         manifest_raw = paths["manifest"].read_bytes()
         inventory_raw = paths["inventory"].read_bytes()
     except OSError as exc:
@@ -508,12 +630,23 @@ def validate_population(
             "NORMALIZATION_EVIDENCE_ARTIFACT_MISMATCH",
             str(paths["normalization_evidence"]),
         )
+    classification_evidence = expected_classification_negative_evidence(
+        contract,
+        candidate_contract,
+        classification_contract,
+    )
+    if classification_evidence_raw != render_bytes(classification_evidence):
+        fail(
+            "CLASSIFICATION_EVIDENCE_ARTIFACT_MISMATCH",
+            str(paths["classification_evidence"]),
+        )
     manifest = expected_manifest(
         contract,
         candidate_contract,
         minimum_contract,
         evidence_raw,
         normalization_evidence_raw,
+        classification_evidence_raw,
     )
     if manifest_raw != render_bytes(manifest):
         fail("MANIFEST_ARTIFACT_MISMATCH", str(paths["manifest"]))
@@ -595,9 +728,23 @@ def validate_population(
                 "pull_request"
             ],
         },
+        "classification_policy_boundary": {
+            "path": contract["classification_policy_boundary"]["path"],
+            "sha256": contract["classification_policy_boundary"]["sha256"],
+            "source_commit": contract["classification_policy_boundary"][
+                "source_commit"
+            ],
+            "merge_commit": contract["classification_policy_boundary"][
+                "merge_commit"
+            ],
+            "pull_request": contract["classification_policy_boundary"][
+                "pull_request"
+            ],
+        },
         "artifact_sha256": {
             "evidence": sha256(evidence_raw),
             "normalization_evidence": sha256(normalization_evidence_raw),
+            "classification_evidence": sha256(classification_evidence_raw),
             "manifest": sha256(manifest_raw),
             "inventory": sha256(inventory_raw),
         },

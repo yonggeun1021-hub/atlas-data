@@ -134,10 +134,32 @@ unsupported document with a fabricated explicit value fails closed. The
 candidate remains `CANDIDATE_BLOCKED`, replay remains `NOT_COMPUTABLE`, and the
 same downstream authority boundary remains false.
 
+## Explicit negative evidence: regime classification
+
+`regime_policy_candidate_population/v3` binds the next dependency to the same
+exact PR #334 authority boundary. The repository contract states that both
+`AGGREGATION_WEIGHTS` and `CLASSIFICATION_THRESHOLDS` are `ABSENT`, with reason
+codes `AGGREGATION_WEIGHTS_ABSENT` and `CLASSIFICATION_THRESHOLDS_ABSENT`, and
+that `classification_authorized=false`.
+
+The retained `REGIME_CLASSIFICATION` evidence is therefore `UNSUPPORTED`; it
+contains no weight, threshold, score, or proposed value. Its candidate value
+remains `UNSPECIFIED`, and its blocking reasons are
+`UNSUPPORTED_EVIDENCE` plus `VALUE_UNSPECIFIED`. Qualitative CIO doctrine that
+requires a classification policy does not authorize numeric values.
+
+Fabricating a weight or threshold, changing the exact source bytes, enabling
+classification authority, re-signing the negative evidence as doctrine, or
+claiming a ready candidate fails closed. `MINIMUM_COVERAGE` remains the only
+supported component; normalization and classification are explicit negative
+evidence, the remaining six components still lack evidence, and the candidate
+and replay remain blocked.
+
 ## Replay-population consumer boundary
 
 P1-COM-04 consumes this retained inventory through
 `regime_replay_population_readiness/v1`. It does not reinterpret a blocked
 candidate as an empty successful replay: while the candidate remains blocked,
 eligible market count and case count are both zero, outcome evaluation is false,
-and replay population remains explicitly `NOT_COMPUTABLE`.
+and replay population remains explicitly `NOT_COMPUTABLE`. The consumer pins
+the v3 population contract and preserves the two explicit-negative components.

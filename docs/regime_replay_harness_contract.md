@@ -46,10 +46,11 @@ source payload. A modified report or source fails closed.
 valid and byte-identical. It does not mean the market has enough sensor
 coverage, that a Regime has been classified, or that a strategy is eligible.
 
-The minimum-coverage policy is still `UNRATIFIED`. Thresholds, weights, Regime
-score/classification, hysteresis, strategy eligibility, Production wiring, and
-trading action all remain unauthorized. The module has no network call,
-scheduled workflow, tracked report, or paid data dependency.
+The minimum-coverage policy is ratified and retained as candidate evidence, but
+thresholds, weights, Regime score/classification, hysteresis, strategy
+eligibility, Production wiring, and trading action all remain unauthorized. The
+module has no network call, scheduled workflow, tracked report, or paid data
+dependency.
 
 ## Canonical replay-population readiness
 
@@ -58,11 +59,12 @@ replay capability and an actually eligible historical case population. It pins
 the exact replay-harness contract bytes and independently validates the retained
 P1-COM-05 candidate evidence chain before reporting readiness.
 
-The current canonical candidate supports only `MINIMUM_COVERAGE`. The other
-eight required components—normalization, classification, direction, confidence,
-stress override, invalidation, hysteresis, and replay acceptance—remain blocked.
-The candidate is therefore `CANDIDATE_BLOCKED`, eligible markets and cases are
-both zero, and no historical outcome is evaluated. The readiness status is
+The current canonical candidate supports only `MINIMUM_COVERAGE`. Normalization
+and classification carry exact negative evidence but no values; direction,
+confidence, stress override, invalidation, hysteresis, and replay acceptance
+still lack evidence. All eight components remain blocked. The candidate is
+therefore `CANDIDATE_BLOCKED`, eligible markets and cases are both zero, and no
+historical outcome is evaluated. The readiness status is
 `NOT_COMPUTABLE_POLICY_CANDIDATE_BLOCKED`; it is not an empty successful replay.
 
 If a later candidate becomes ready, this v1 module deliberately fails instead
