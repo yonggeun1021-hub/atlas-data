@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 import tempfile
@@ -209,19 +210,6 @@ class EndToEndRealRatifiedProofTest(unittest.TestCase):
         _, _, second, _, _ = self._build()
         self.assertEqual(first, second)
 
-    def test_ledger_accepts_real_effective_packet(self):
-        KCR, WIRE, packet, _, _ = self._build()
-        LEDGER = MODULE._load_module(
-            "ledger_for_e2e_test", "rotation/rotation_state_ledger.py"
-        )
-        state_policy = MODULE.build_state_policy(packet)
-        ledger = LEDGER.apply_rotation(packet, state_policy, previous_ledger=None)
-        self.assertEqual(ledger["status"], "STATE_HISTORY_OBSERVED")
-        self.assertEqual(len(ledger["records"]), 46)
-        for record in ledger["records"]:
-            self.assertEqual(record["ledger_revision"], 1)
-            self.assertEqual(record["market"], "KOREA")
-
     def test_briefing_pointer_and_orchestrator_render_breadth_blocked_not_pass(self):
         _, WIRE, packet, source, reason = self._build()
         pointer = WIRE.build_briefing_pointer(
@@ -329,7 +317,7 @@ class RealAvailableEndToEndProofTest(unittest.TestCase):
     authority."""
 
     def test_run_produces_real_available_breadth_and_ready_briefing(self):
-        result = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
+        result = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None)
         packet = result["rotation_packet"]
         self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
         self.assertTrue(packet["rotation_policy_effective"])
@@ -364,21 +352,28 @@ class RealAvailableEndToEndProofTest(unittest.TestCase):
             self.assertFalse(authorized)
 
     def test_rerun_is_byte_identical(self):
-        first = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
-        second = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
+        first = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None)
+        second = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None)
         self.assertEqual(first["rotation_packet"], second["rotation_packet"])
         self.assertEqual(first["pointer"], second["pointer"])
 
-    def test_ledger_accepts_real_available_packet(self):
-        LEDGER = MODULE._load_module(
-            "ledger_for_available_test", "rotation/rotation_state_ledger.py"
+    def test_production_proof_has_no_state_policy_or_ledger_write_surface(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertFalse(hasattr(MODULE, "build_state_policy"))
+        self.assertEqual(
+            list(inspect.signature(MODULE.run).parameters),
+            ["prior_date", "current_date", "pointer_out"],
         )
-        result = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None, None)
-        packet = result["rotation_packet"]
-        state_policy = MODULE.build_state_policy(packet)
-        ledger = LEDGER.apply_rotation(packet, state_policy, previous_ledger=None)
-        self.assertEqual(ledger["status"], "STATE_HISTORY_OBSERVED")
-        self.assertEqual(len(ledger["records"]), 46)
+        for forbidden in (
+            "POLICY.P2.05.PROOF",
+            "--ledger-out",
+            "LEDGER.apply_rotation",
+            '"ledger": ledger',
+        ):
+            self.assertNotIn(forbidden, source)
+
+        result = MODULE.run(AVAILABLE_PRIOR, AVAILABLE_CURRENT, None)
+        self.assertEqual(set(result), {"rotation_packet", "pointer"})
 
 
 if __name__ == "__main__":

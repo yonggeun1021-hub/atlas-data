@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "contract_version": "rotation_state_ledger_operational_readiness/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "ledger_contract_version": "rotation_state_ledger/1",
+  "repository_default_state_policy": "ABSENT",
+  "repository_operational_ledger_evidence": "ABSENT",
+  "market_rotation_evidence": {
+    "US": null,
+    "KOREA": "data/latest_korea_rotation.json",
+    "CRYPTO": null
+  },
+  "readiness_requirement": [
+    "FULL_PRODUCTION_ROTATION_PACKET",
+    "EXTERNAL_RATIFIED_STATE_POLICY",
+    "APPEND_ONLY_OPERATIONAL_LEDGER_EVIDENCE"
+  ],
+  "authority": {
+    "readiness_inventory_only": true,
+    "p2_state_vocabulary_authorized": false,
+    "state_ledger_authorized": false,
+    "regime_input_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "briefing_wiring_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
