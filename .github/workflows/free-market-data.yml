@@ -49,7 +49,7 @@ jobs:
         run: |
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
-          git add evidence/free_market_data/derived evidence/free_market_data/raw data/latest_free_market_data.json
+          git add evidence/free_market_data/derived evidence/free_market_data/raw evidence/free_market_data/fred/raw data/latest_free_market_data.json
           if git diff --staged --quiet; then exit 0; fi
           git commit -m "data: free market evidence $(date -u +%Y-%m-%d)"
           git push
