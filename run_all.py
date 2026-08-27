@@ -66,6 +66,9 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    # Finalization Portal/SSOT adapter: exact read-after-write verification,
+    # idempotent briefing identity, and atomic append-only receipts.
+    "test/test_notion_projection_adapter.py",
     # ★ Observation layer 구현 상태가 실제 모듈과 어긋나지 않게 한다.
     #   ③ Normalization·④ Store는 구현, ⑤ Pair·⑥ Evaluator는 미구현 경계다.
     "test/test_observation_layer_inventory.py",
