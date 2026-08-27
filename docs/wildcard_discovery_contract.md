@@ -56,3 +56,27 @@ The helper is offline, has no workflow, and writes only to an explicit path
 outside the repository. Live nomination, tracked case publication, Theme
 taxonomy completion, source hierarchy, ranking, and briefing integration remain
 separate WBS gates.
+
+## Operational intake and append-only publication
+
+`wildcard_operational_intake/v1` adds a manual, provider-free operating path.
+It accepts only a submission JSON already reviewed and committed under
+`data/intake/wildcard/` at one exact full commit SHA. Every linked evidence item
+must point to a primary-source body committed in that same immutable revision;
+the publisher verifies the real bytes, SHA-256, and exact-content git first-seen
+time before rebuilding the existing wildcard packet. Operational availability is
+`max(retrieved_at_utc, exact_content_first_seen_at)` and must not exceed the
+decision time; a source may be officially observed before its immutable git
+capture without being falsely rejected or backdated.
+
+The resulting envelope is content-addressed and append-only under
+`evidence/operational/wildcard_discovery/`. Re-dispatching identical input is a
+byte-identical no-op; a concurrent main advance fails closed without rebase or
+force push. GitHub inputs cannot contain free-form nominations or source claims,
+and the workflow makes no external provider call.
+
+This publication authority records cases and pending submissions only. Strength,
+importance, ranking, candidate eligibility, Stage, Rule, Action, Proposal, Order,
+Production, and trading remain false or null. Until a genuine committed
+submission is processed on main, this is an operational capability rather than
+an observed live sample; briefing integration remains a separate gate.

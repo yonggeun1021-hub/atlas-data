@@ -1,0 +1,74 @@
+name: P3-11 Wildcard Operational Intake
+
+# Operator-triggered publication only. The workflow makes no provider call and
+# accepts no free-form claim in GitHub inputs: the submitted JSON and every
+# linked primary-source body must already exist in an reviewed main commit.
+on:
+  workflow_dispatch:
+    inputs:
+      submission_path:
+        description: "Committed path under data/intake/wildcard/"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-p3-11-wildcard-intake
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Offline Wildcard contract regression
+        run: |
+          python3 test/test_wildcard_discovery.py
+          python3 test/test_wildcard_operational_intake.py
+      - name: Re-sync to latest main before immutable intake
+        run: |
+          git fetch origin "${{ github.event.repository.default_branch }}"
+          git reset --hard "origin/${{ github.event.repository.default_branch }}"
+      - name: Validate committed submission and publish content-addressed envelope
+        env:
+          SUBMISSION_PATH: ${{ inputs.submission_path }}
+        run: |
+          case "$SUBMISSION_PATH" in
+            data/intake/wildcard/*.json) ;;
+            *) echo "STOP: submission_path must be one committed JSON under data/intake/wildcard/" >&2; exit 2 ;;
+          esac
+          SOURCE_COMMIT=$(git rev-parse HEAD)
+          DECISION_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/wildcard_operational_intake.py \
+            --submission "$SUBMISSION_PATH" \
+            --source-commit "$SOURCE_COMMIT" \
+            --decision-at-utc "$DECISION_AT_UTC"
+      - name: Commit append-only publication if new
+        id: commit
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add evidence/operational/wildcard_discovery
+          if git diff --cached --quiet; then
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "P3-11 wildcard intake publication [run ${{ github.run_id }}]"
+            echo "committed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Push without rebase or force
+        if: steps.commit.outputs.committed == 'true'
+        run: |
+          git push origin "HEAD:${{ github.event.repository.default_branch }}" \
+            || { echo "STOP: main advanced; not force-pushing a stale publication" >&2; exit 1; }
+      - name: Guard unrelated tracked changes
+        run: git diff --exit-code -- . ':!evidence/operational/wildcard_discovery'

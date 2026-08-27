@@ -286,6 +286,10 @@ APPROVED_TESTS = [
     #   차단한다. strength/importance/candidate eligibility는 비승인이고 rank·Stage·
     #   Rule·action·Production·trading은 닫힌다. temp output only.
     "test/test_wildcard_discovery.py",
+    # ★ P3-11 operational intake — reviewed committed submission + exact
+    #   primary-source body bytes/git first-seen을 검증해 content-addressed
+    #   append-only envelope만 게시한다. ⛔ provider/ranking/Stage/Action/trading 없음.
+    "test/test_wildcard_operational_intake.py",
     # ★ P4-02 — SEC filing primary/EX-99 content acquisition.
     #   Stage/form scope, SGML+index identity, bounded content, immutable hash,
     #   quote+offset extraction, skip/mutation/status separation을 fail-closed한다.
