@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_replay_population_readiness/v1",
+  "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
+  "replay_harness_contract": {
+    "path": "config/regime_replay_harness_contract.json",
+    "sha256": "d6703e9f58a54aa1e9f08ae001722ce1c8195091da3a576b6d35aa53cf98fe4a",
+    "contract_version": "regime_replay_harness/v1"
+  },
+  "policy_candidate_population_contract": {
+    "path": "config/regime_policy_candidate_population_contract.json",
+    "sha256": "0d0adf64b56a14cde3186d04bcbb5583b6783eaafe08130dd7f5144b74253bf0",
+    "contract_version": "regime_policy_candidate_population/v2"
+  },
+  "required_markets": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "required_candidate_status": "CANDIDATE_READY",
+  "not_ready_status": "NOT_COMPUTABLE_POLICY_CANDIDATE_BLOCKED",
+  "authority": {
+    "readiness_inventory_only": true,
+    "replay_population_authorized": false,
+    "candidate_selection_authorized": false,
+    "policy_recommendation_authorized": false,
+    "policy_ratification_authorized": false,
+    "regime_classification_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -133,3 +133,11 @@ boundary to `RATIFIED`, changing authority to true, or replacing the retained
 unsupported document with a fabricated explicit value fails closed. The
 candidate remains `CANDIDATE_BLOCKED`, replay remains `NOT_COMPUTABLE`, and the
 same downstream authority boundary remains false.
+
+## Replay-population consumer boundary
+
+P1-COM-04 consumes this retained inventory through
+`regime_replay_population_readiness/v1`. It does not reinterpret a blocked
+candidate as an empty successful replay: while the candidate remains blocked,
+eligible market count and case count are both zero, outcome evaluation is false,
+and replay population remains explicitly `NOT_COMPUTABLE`.

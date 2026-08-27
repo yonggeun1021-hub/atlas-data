@@ -425,6 +425,12 @@ APPROVED_TESTS = [
     #   미비준인 동안 UNKNOWN을 유지하며 score/hysteresis/Production을 차단한다.
     #   ⛔ live network/workflow/tracked report 없음 — in-memory envelopes only.
     "test/test_regime_replay_harness.py",
+    # ★ P1-COM-04 canonical replay-population readiness.
+    #   replay capability를 P1-COM-05 retained candidate inventory에 exact-byte로
+    #   결합한다. 현재 MINIMUM_COVERAGE 1개만 supported, 나머지 8개 blocked라
+    #   eligible market/case=0, outcome 미평가, 모든 downstream 권한=false다.
+    #   ⛔ case/threshold/정책/성과/network/workflow/tracked output 발명 없음.
+    "test/test_regime_replay_population_readiness.py",
     # ★ P1-CR-05 — BTC Risk / Volatility transform + prefix replay.
     #   qualified BTC PIT close로 RV30·90일 drawdown을 재현하되 stress 임계값,
     #   Regime/Production/trading 권한은 부여하지 않고 gap은 fail-closed한다.
