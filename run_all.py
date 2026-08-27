@@ -277,6 +277,7 @@ APPROVED_TESTS = [
     # metadata/content bytes are checked but no event type or importance is
     # inferred and no downstream authority is opened.
     "test/test_dart_event_observation.py",
+    "test/test_dart_structural_content_index.py",
     # ★ P9-02 source adapter — the exact published P3-08 packet becomes a
     #   normalized observation batch.  Current SEC event time is DATE_ONLY, so
     #   every observation is BLOCKED; no importance/policy/notification/action.

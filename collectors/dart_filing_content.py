@@ -208,7 +208,8 @@ def default_fetcher(api_key: str, max_zip_bytes: int):
     return fetch
 
 
-def _decode_document(raw: bytes) -> str:
+def decode_document(raw: bytes) -> str:
+    """Decode one retained text member using the collector's exact policy."""
     declared = XML_ENCODING_RE.search(raw[:512])
     encodings = []
     if declared:
@@ -230,7 +231,7 @@ def _decode_document(raw: bytes) -> str:
 def normalized_visible_text(raw: bytes) -> str:
     parser = _VisibleText()
     try:
-        parser.feed(_decode_document(raw))
+        parser.feed(decode_document(raw))
     except Exception as exc:
         if isinstance(exc, DartContentError):
             raise
