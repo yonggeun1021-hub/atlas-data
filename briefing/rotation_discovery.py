@@ -42,6 +42,10 @@ DYNAMIC_SIGNAL = _load_module(
     "atlas_rotation_discovery_dynamic_signal",
     ROOT / "decision" / "dynamic_clock_signal_observation.py",
 )
+WILDCARD_INTAKE = _load_module(
+    "atlas_wildcard_operational_intake",
+    ROOT / "discovery" / "wildcard_operational_intake.py",
+)
 
 
 class RotationDiscoveryBriefingError(ValueError):
@@ -66,11 +70,12 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "rotation_discovery_briefing/2",
-        "output_schema_version": "rotation_discovery_briefing_packet/2",
+        "contract_version": "rotation_discovery_briefing/3",
+        "output_schema_version": "rotation_discovery_briefing_packet/3",
         "rotation_source_contract": "rotation_state_ledger/1",
         "discovery_source_contract": "event_discovery_case/2",
         "signal_observation_source_contract": "dynamic_clock_signal_observation/1",
+        "wildcard_source_contract": "wildcard_operational_intake/v1",
         "market_order": ["US", "KOREA", "CRYPTO"],
         "rotation_states": ["EMERGING", "STRONG", "WEAKENING"],
         "evidence_statuses": [
@@ -296,6 +301,165 @@ def _signal_observation_section(dynamic_report: dict | None, generated_at: str, 
         "observations": rows,
         "source_packet_sha256": source["packet_sha256"],
     }
+
+
+def load_operational_wildcard_envelopes(
+    generated_at: str, root: Path = ROOT
+) -> list[dict]:
+    """Load the latest committed envelope revision for each submission path.
+
+    The loader never invents a nomination and never carries a future envelope
+    into a historical briefing.  Every eligible envelope is independently
+    re-derived from its immutable source commit before it can be returned.
+    """
+    generated = _utc(generated_at, "WILDCARD_GENERATED_AT_INVALID")
+    root = Path(root)
+    publication_root = root / "evidence" / "operational" / "wildcard_discovery"
+    if not publication_root.exists():
+        return []
+    latest_by_submission: dict[str, tuple[dt.datetime, str, dict]] = {}
+    for path in sorted(publication_root.glob("*/*.json")):
+        raw = _read_json(path)
+        decision_value = raw.get("decision_at_utc") if isinstance(raw, dict) else None
+        decision = _utc(decision_value, "WILDCARD_DECISION_AT_INVALID")
+        if decision > generated:
+            continue
+        try:
+            envelope = WILDCARD_INTAKE.validate_envelope(raw, root)
+        except WILDCARD_INTAKE.WildcardOperationalIntakeError as exc:
+            raise RotationDiscoveryBriefingError(
+                f"WILDCARD_ENVELOPE_INVALID:{path}:{exc}"
+            ) from exc
+        if envelope["contract_version"] != contract_value(root)["wildcard_source_contract"]:
+            raise RotationDiscoveryBriefingError("WILDCARD_CONTRACT_INVALID")
+        if WILDCARD_INTAKE.publication_path(envelope, root).resolve() != path.resolve():
+            raise RotationDiscoveryBriefingError(
+                f"WILDCARD_PUBLICATION_LOCATOR_INVALID:{path}"
+            )
+        digest = envelope["payload_sha256"]
+        for lineage in envelope["submission_lineage"]:
+            key = lineage["path"]
+            previous = latest_by_submission.get(key)
+            if previous is not None and previous[0] == decision and previous[1] != digest:
+                raise RotationDiscoveryBriefingError(
+                    f"WILDCARD_ENVELOPE_REVISION_AMBIGUOUS:{key}:{decision_value}"
+                )
+            if previous is None or (decision, digest) > (previous[0], previous[1]):
+                latest_by_submission[key] = (decision, digest, envelope)
+    unique = {item[1]: item[2] for item in latest_by_submission.values()}
+    return [unique[key] for key in sorted(unique)]
+
+
+def contract_value(root: Path = ROOT) -> dict:
+    """Load this read-model contract from an explicit repository root."""
+    return load_contract(Path(root) / "config" / CONTRACT_PATH.name)
+
+
+def _wildcard_observation_section(
+    envelopes: list[dict] | None,
+    generated: dt.datetime,
+    contract: dict,
+    root: Path,
+) -> dict:
+    envelopes = [] if envelopes is None else copy.deepcopy(envelopes)
+    if not isinstance(envelopes, list):
+        raise RotationDiscoveryBriefingError("WILDCARD_ENVELOPES_INVALID")
+    checked_envelopes = []
+    observations = []
+    seen_envelope_sha = set()
+    seen_submission_paths = set()
+    seen_observation_ids = set()
+    for envelope in envelopes:
+        try:
+            checked = WILDCARD_INTAKE.validate_envelope(envelope, root)
+        except WILDCARD_INTAKE.WildcardOperationalIntakeError as exc:
+            raise RotationDiscoveryBriefingError(
+                f"WILDCARD_ENVELOPE_INVALID:{exc}"
+            ) from exc
+        if checked["contract_version"] != contract["wildcard_source_contract"]:
+            raise RotationDiscoveryBriefingError("WILDCARD_CONTRACT_INVALID")
+        envelope_sha = checked["payload_sha256"]
+        if envelope_sha in seen_envelope_sha:
+            raise RotationDiscoveryBriefingError("WILDCARD_ENVELOPE_DUPLICATE")
+        seen_envelope_sha.add(envelope_sha)
+        paths = {item["path"] for item in checked["submission_lineage"]}
+        if paths & seen_submission_paths:
+            raise RotationDiscoveryBriefingError("WILDCARD_SUBMISSION_REVISION_DUPLICATE")
+        seen_submission_paths.update(paths)
+        decision = _utc(checked["decision_at_utc"], "WILDCARD_DECISION_AT_INVALID")
+        if decision > generated:
+            raise RotationDiscoveryBriefingError("WILDCARD_ENVELOPE_FROM_FUTURE")
+        checked_envelopes.append(checked)
+        source_commit = checked["source_commit"]
+        for case in checked["packet"]["cases"]:
+            observation_id = ("CASE", case["case_id"])
+            if observation_id in seen_observation_ids:
+                raise RotationDiscoveryBriefingError("WILDCARD_OBSERVATION_DUPLICATE")
+            seen_observation_ids.add(observation_id)
+            observations.append({
+                "observation_type": "EVIDENCE_LINKED_CASE",
+                "case_id": case["case_id"],
+                "submission_id": None,
+                "market": case["market"],
+                "asset_id": case["asset_id"],
+                "subject": case["subject"],
+                "observation_date": case["observation_date"],
+                "evidence_status": case["evidence_status"],
+                "strength_status": case["strength_status"],
+                "importance_status": case["importance"],
+                "candidate_eligible": False,
+                "ready_status": "NOT_EVALUATED",
+                "promotion_status": "PROMOTION_NOT_AUTHORIZED",
+                "action": None,
+                "source_commit": source_commit,
+                "source_envelope_sha256": envelope_sha,
+                "decision_at_utc": checked["decision_at_utc"],
+            })
+        for submission in checked["packet"]["submissions"]:
+            if submission["case_created"]:
+                continue
+            observation_id = ("PENDING", submission["submission_id"])
+            if observation_id in seen_observation_ids:
+                raise RotationDiscoveryBriefingError("WILDCARD_OBSERVATION_DUPLICATE")
+            seen_observation_ids.add(observation_id)
+            observations.append({
+                "observation_type": "PENDING_SUBMISSION",
+                "case_id": None,
+                "submission_id": submission["submission_id"],
+                "market": submission["market"],
+                "asset_id": submission["asset_id"],
+                "subject": submission["subject"],
+                "observation_date": submission["observed_on"],
+                "evidence_status": submission["pending_reason"],
+                "strength_status": "UNRATIFIED",
+                "importance_status": "UNRATIFIED",
+                "candidate_eligible": False,
+                "ready_status": "NOT_EVALUATED",
+                "promotion_status": "PROMOTION_NOT_AUTHORIZED",
+                "action": None,
+                "source_commit": source_commit,
+                "source_envelope_sha256": envelope_sha,
+                "decision_at_utc": checked["decision_at_utc"],
+            })
+    checked_envelopes.sort(key=lambda value: (value["decision_at_utc"], value["payload_sha256"]))
+    observations.sort(key=lambda value: (
+        value["market"], value["asset_id"], value["observation_type"],
+        value["case_id"] or value["submission_id"], value["source_envelope_sha256"],
+    ))
+    return {
+        "status": (
+            "VERIFIED_WILDCARD_OBSERVATIONS_PRESENT_NO_PROMOTION_AUTHORITY"
+            if observations else "NOT_AVAILABLE"
+        ),
+        "envelope_count": len(checked_envelopes),
+        "observation_count": len(observations),
+        "case_count": sum(row["observation_type"] == "EVIDENCE_LINKED_CASE" for row in observations),
+        "pending_count": sum(row["observation_type"] == "PENDING_SUBMISSION" for row in observations),
+        "observations": observations,
+        "source_envelopes": checked_envelopes,
+    }
+
+
 def build_briefing(
     rotation_ledger: dict,
     discovery_records: list[dict],
@@ -304,6 +468,8 @@ def build_briefing(
     generated_at: str,
     contract: dict | None = None,
     dynamic_report: dict | None = None,
+    wildcard_envelopes: list[dict] | None = None,
+    wildcard_root: Path = ROOT,
 ) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if slot not in contract["slots"]:
@@ -316,6 +482,9 @@ def build_briefing(
     signal_observations = _signal_observation_section(
         dynamic_report, generated_at, contract
     )
+    wildcard_observations = _wildcard_observation_section(
+        wildcard_envelopes, generated, contract, Path(wildcard_root)
+    )
     packet = {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
@@ -325,12 +494,14 @@ def build_briefing(
         "rotation": rotation,
         "discovery": discovery,
         "signal_observations": signal_observations,
+        "wildcard_observations": wildcard_observations,
         "summary": {
             "rotation_change_count": rotation["latest_change_count"],
             "discovery_case_count": discovery["case_count"],
             "new_candidate_count": 0,
             "existing_candidate_change_count": 0,
             "signal_observation_count": signal_observations["observation_count"],
+            "wildcard_observation_count": wildcard_observations["observation_count"],
             "ready_count": 0,
             "entry_trigger_count": 0,
             "ranked_candidate": None,
@@ -347,14 +518,17 @@ def build_briefing(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_briefing(packet, contract)
+    return validate_briefing(packet, contract, wildcard_root=wildcard_root)
 
 
-def validate_briefing(packet: dict, contract: dict | None = None) -> dict:
+def validate_briefing(
+    packet: dict, contract: dict | None = None, wildcard_root: Path = ROOT
+) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "slot", "generated_at", "status",
-        "rotation", "discovery", "signal_observations", "summary", "authority", "unresolved_boundaries",
+        "rotation", "discovery", "signal_observations", "wildcard_observations",
+        "summary", "authority", "unresolved_boundaries",
         "packet_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
@@ -371,10 +545,12 @@ def validate_briefing(packet: dict, contract: dict | None = None) -> dict:
     rotation = packet.get("rotation")
     discovery = packet.get("discovery")
     signal_observations = packet.get("signal_observations")
+    wildcard_observations = packet.get("wildcard_observations")
     if (
         not isinstance(rotation, dict)
         or not isinstance(discovery, dict)
         or not isinstance(signal_observations, dict)
+        or not isinstance(wildcard_observations, dict)
     ):
         raise RotationDiscoveryBriefingError("BRIEFING_SECTIONS_INVALID")
     rotation_fields = {
@@ -558,12 +734,21 @@ def validate_briefing(packet: dict, contract: dict | None = None) -> dict:
             raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_SOURCE_SHA_INVALID")
     elif signal_source_sha is not None:
         raise RotationDiscoveryBriefingError("BRIEFING_SIGNAL_SOURCE_SHA_INVALID")
+    wildcard_source_envelopes = wildcard_observations.get("source_envelopes")
+    if not isinstance(wildcard_source_envelopes, list):
+        raise RotationDiscoveryBriefingError("BRIEFING_WILDCARD_ENVELOPES_INVALID")
+    expected_wildcard = _wildcard_observation_section(
+        wildcard_source_envelopes, generated, contract, Path(wildcard_root)
+    )
+    if wildcard_observations != expected_wildcard:
+        raise RotationDiscoveryBriefingError("BRIEFING_WILDCARD_DERIVATION_MISMATCH")
     expected_summary = {
         "rotation_change_count": len(rotation["latest_changes"]),
         "discovery_case_count": len(discovery["cases"]),
         "new_candidate_count": 0,
         "existing_candidate_change_count": 0,
         "signal_observation_count": len(observations),
+        "wildcard_observation_count": wildcard_observations["observation_count"],
         "ready_count": 0,
         "entry_trigger_count": 0,
         "ranked_candidate": None,

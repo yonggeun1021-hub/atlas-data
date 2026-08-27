@@ -33,6 +33,10 @@ ROTATION_FIXTURE = load_module(
 DISCOVERY_FIXTURE = load_module(
     "rotation_discovery_event_fixture", ROOT / "test" / "test_event_discovery_case.py"
 )
+WILDCARD_FIXTURE = load_module(
+    "rotation_discovery_wildcard_fixture",
+    ROOT / "test" / "test_wildcard_operational_intake.py",
+)
 CONTRACT = MODULE.load_contract()
 
 
@@ -158,6 +162,125 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
             "BRIEFING_SIGNAL_ROW_VALUE_INVALID",
         ):
             MODULE.validate_briefing(result, CONTRACT)
+
+    def test_verified_operational_wildcard_is_visible_without_promotion(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            head, relative = WILDCARD_FIXTURE.init_repo(root)
+            envelope = MODULE.WILDCARD_INTAKE.build_envelope(
+                [relative], head, "2026-08-19T14:00:00Z", root
+            )
+            result = MODULE.build_briefing(
+                empty_ledger(), records(), bindings(),
+                "evening", "2026-08-21T02:00:00Z", CONTRACT,
+                wildcard_envelopes=[envelope], wildcard_root=root,
+            )
+            wildcard = result["wildcard_observations"]
+            self.assertEqual(
+                wildcard["status"],
+                "VERIFIED_WILDCARD_OBSERVATIONS_PRESENT_NO_PROMOTION_AUTHORITY",
+            )
+            self.assertEqual(wildcard["envelope_count"], 1)
+            self.assertEqual(wildcard["case_count"], 1)
+            self.assertEqual(wildcard["pending_count"], 0)
+            self.assertEqual(result["summary"]["wildcard_observation_count"], 1)
+            row = wildcard["observations"][0]
+            self.assertEqual(row["observation_type"], "EVIDENCE_LINKED_CASE")
+            self.assertFalse(row["candidate_eligible"])
+            self.assertEqual(row["ready_status"], "NOT_EVALUATED")
+            self.assertEqual(row["promotion_status"], "PROMOTION_NOT_AUTHORIZED")
+            self.assertIsNone(row["action"])
+            self.assertEqual(result["summary"]["new_candidate_count"], 0)
+
+    def test_wildcard_projection_tamper_and_future_envelope_fail_closed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            head, relative = WILDCARD_FIXTURE.init_repo(root)
+            envelope = MODULE.WILDCARD_INTAKE.build_envelope(
+                [relative], head, "2026-08-19T14:00:00Z", root
+            )
+            result = MODULE.build_briefing(
+                empty_ledger(), records(), bindings(),
+                "evening", "2026-08-21T02:00:00Z", CONTRACT,
+                wildcard_envelopes=[envelope], wildcard_root=root,
+            )
+            result["wildcard_observations"]["observations"][0][
+                "candidate_eligible"
+            ] = True
+            result["packet_sha256"] = MODULE.payload_sha256({
+                key: value for key, value in result.items() if key != "packet_sha256"
+            })
+            with self.assertRaisesRegex(
+                MODULE.RotationDiscoveryBriefingError,
+                "BRIEFING_WILDCARD_DERIVATION_MISMATCH",
+            ):
+                MODULE.validate_briefing(result, CONTRACT, wildcard_root=root)
+            future = MODULE.WILDCARD_INTAKE.build_envelope(
+                [relative], head, "2026-08-22T14:00:00Z", root
+            )
+            with self.assertRaisesRegex(
+                MODULE.RotationDiscoveryBriefingError,
+                "WILDCARD_ENVELOPE_FROM_FUTURE",
+            ):
+                MODULE.build_briefing(
+                    empty_ledger(), records(), bindings(),
+                    "evening", "2026-08-21T02:00:00Z", CONTRACT,
+                    wildcard_envelopes=[future], wildcard_root=root,
+                )
+
+    def test_operational_loader_selects_latest_revision_per_submission(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            head, relative = WILDCARD_FIXTURE.init_repo(root)
+            target = root / "config" / "rotation_discovery_briefing_contract.json"
+            target.write_bytes((ROOT / "config" / target.name).read_bytes())
+            WILDCARD_FIXTURE.commit(root, "read model contract", "2026-08-19T13:30:00Z")
+            head = WILDCARD_FIXTURE.git(root, "rev-parse", "HEAD")
+            first = MODULE.WILDCARD_INTAKE.build_envelope(
+                [relative], head, "2026-08-19T14:00:00Z", root
+            )
+            second = MODULE.WILDCARD_INTAKE.build_envelope(
+                [relative], head, "2026-08-19T15:00:00Z", root
+            )
+            MODULE.WILDCARD_INTAKE.publish(first, root)
+            MODULE.WILDCARD_INTAKE.publish(second, root)
+            loaded = MODULE.load_operational_wildcard_envelopes(
+                "2026-08-19T16:00:00Z", root
+            )
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["decision_at_utc"], "2026-08-19T15:00:00Z")
+
+    def test_duplicate_or_mislocated_wildcard_envelope_fails_closed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            head, relative = WILDCARD_FIXTURE.init_repo(root)
+            target = root / "config" / "rotation_discovery_briefing_contract.json"
+            target.write_bytes((ROOT / "config" / target.name).read_bytes())
+            WILDCARD_FIXTURE.commit(root, "read model contract", "2026-08-19T13:30:00Z")
+            head = WILDCARD_FIXTURE.git(root, "rev-parse", "HEAD")
+            envelope = MODULE.WILDCARD_INTAKE.build_envelope(
+                [relative], head, "2026-08-19T14:00:00Z", root
+            )
+            with self.assertRaisesRegex(
+                MODULE.RotationDiscoveryBriefingError,
+                "WILDCARD_ENVELOPE_DUPLICATE",
+            ):
+                MODULE.build_briefing(
+                    empty_ledger(), records(), bindings(),
+                    "evening", "2026-08-21T02:00:00Z", CONTRACT,
+                    wildcard_envelopes=[envelope, envelope], wildcard_root=root,
+                )
+            correct = MODULE.WILDCARD_INTAKE.publish(envelope, root)
+            wrong = correct.with_name("wildcard-mislocated.json")
+            wrong.write_bytes(correct.read_bytes())
+            correct.unlink()
+            with self.assertRaisesRegex(
+                MODULE.RotationDiscoveryBriefingError,
+                "WILDCARD_PUBLICATION_LOCATOR_INVALID",
+            ):
+                MODULE.load_operational_wildcard_envelopes(
+                    "2026-08-19T16:00:00Z", root
+                )
 
     def test_tampered_rotation_ledger_and_invalid_discovery_fail_closed(self):
         ledger = observed_ledger()
