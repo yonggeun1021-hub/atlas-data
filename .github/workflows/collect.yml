@@ -173,6 +173,21 @@ jobs:
             --expected-kst-date "$TODAY" \
             --observed-at-utc "$OBSERVED_AT"
 
+      # P3-08 — record exact OpenDART relevant-filing observations from the
+      # already-collected metadata and retained P4-03 bytes.  The adapter is
+      # provider-free and deliberately leaves event type, direction,
+      # importance, notification, Action, Order and trading authority closed.
+      - name: Populate DART Event Observations (P3-08)
+        if: always()
+        run: |
+          DECISION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/dart_event_observation.py \
+            --decision-at "$DECISION_AT" \
+            --source data/latest_dart.json \
+            --content data/latest_dart_content.json \
+            --data-root data \
+            --out-root data/observations/dart_event_observations
+
       # P4-02 — metadata 도착과 filing 본문 소비를 같은 성공으로 뭉개지 않는다.
       # Guard=fresh 여도 이전 content 실패는 독립적으로 repair할 수 있어야 하므로
       # always()에서 실행한다. helper가 latest_sec의 오늘 KST 날짜를 다시 검증한다.

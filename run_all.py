@@ -259,6 +259,10 @@ APPROVED_TESTS = [
     #   live network나 importance/promotion 정책은 추가하지 않는다.
     "test/test_event_discovery_case.py",
     "test/test_event_discovery_population.py",
+    # P3-08 DART official-filing observations remain evidence-only: exact
+    # metadata/content bytes are checked but no event type or importance is
+    # inferred and no downstream authority is opened.
+    "test/test_dart_event_observation.py",
     # ★ P9-02 source adapter — the exact published P3-08 packet becomes a
     #   normalized observation batch.  Current SEC event time is DATE_ONLY, so
     #   every observation is BLOCKED; no importance/policy/notification/action.
