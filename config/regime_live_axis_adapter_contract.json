@@ -1,8 +1,13 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_live_axis_adapter/v1",
+  "contract_version": "regime_live_axis_adapter/v2",
   "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
   "bindings": {
+    "US/RISK_VOL": {
+      "axis_transform_version": "regime_live_axis_fred_vix/v1",
+      "source_component": "FREE_MARKET_DATA",
+      "source_transform_version": "free_market_data/2"
+    },
     "CRYPTO/TREND": {
       "source_component": "BTC_TREND",
       "source_transform_version": "btc_trend/v1",
@@ -20,7 +25,6 @@
     }
   },
   "deferred_axes": {
-    "US/RISK_VOL": "RAW_PROVENANCE_VALIDATOR_MISSING",
     "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
     "KR/BREADTH": "MARKET_WIDE_SOURCE_MISSING",
     "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",

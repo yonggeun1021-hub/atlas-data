@@ -7,15 +7,14 @@ direction, applies a threshold, ranks a market, or authorizes an action.
 
 Only direct semantic bindings are supported:
 
+* US/RISK_VOL     <- independently replayed FRED VIXCLS raw evidence
 * CRYPTO/TREND    <- BTC_TREND
 * CRYPTO/RISK_VOL <- BTC_RISK
 * CRYPTO/LIQUIDITY<- STABLECOIN_NET_ISSUANCE
 The Korea seven-name post-close watchlist, the three-name IEX sample, and the
 US membership roster are deliberately not promoted into market-wide axes.
-The current FRED/VIX pointer also remains UNDEFINED here because its raw bytes
-are intentionally transient and no independent append-only provenance
-validator exists yet; a self-hashed derived pointer is not sufficient evidence
-for a Regime axis.
+FRED is eligible only after the append-only raw response is independently
+replayed.  A self-hashed derived pointer is not sufficient evidence.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v1"
+CONTRACT_VERSION = "regime_live_axis_adapter/v2"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -49,6 +48,11 @@ def _expected_contract() -> dict:
         "contract_version": CONTRACT_VERSION,
         "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
         "bindings": {
+            "US/RISK_VOL": {
+                "source_component": "FREE_MARKET_DATA",
+                "source_transform_version": "free_market_data/2",
+                "axis_transform_version": "regime_live_axis_fred_vix/v1",
+            },
             "CRYPTO/TREND": {
                 "source_component": "BTC_TREND",
                 "source_transform_version": "btc_trend/v1",
@@ -66,7 +70,6 @@ def _expected_contract() -> dict:
             },
         },
         "deferred_axes": {
-            "US/RISK_VOL": "RAW_PROVENANCE_VALIDATOR_MISSING",
             "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
             "KR/BREADTH": "MARKET_WIDE_SOURCE_MISSING",
             "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
@@ -118,6 +121,9 @@ BTC_TREND = _load("atlas_regime_axis_btc_trend", ".github/scripts/btc_trend.py")
 BTC_RISK = _load("atlas_regime_axis_btc_risk", ".github/scripts/btc_risk.py")
 STABLECOIN = _load(
     "atlas_regime_axis_stablecoin", ".github/scripts/stablecoin_net_issuance.py"
+)
+FRED_VIX = _load(
+    "atlas_regime_axis_fred_vix", "collectors/fred_vix_provenance.py"
 )
 
 
@@ -314,6 +320,53 @@ def _stablecoin(rows: dict, generated_at: str, binding: dict) -> dict:
     )
 
 
+def _fred_vix(rows: dict, generated_at: str, binding: dict) -> dict:
+    component_id = "FREE_MARKET_DATA"
+    row = rows.get(component_id)
+    if not isinstance(row, dict) or row.get("component_id") != component_id:
+        fail("COMPONENT_MISSING", component_id)
+    if row.get("status") not in {"READY", "DEGRADED"} or row.get("validated") is not True:
+        fail("COMPONENT_NOT_READY", component_id)
+    if any(row.get(key) is not False for key in (
+        "decision_eligible", "action_eligible", "order_eligible"
+    )) or not _authority_false(row):
+        fail("COMPONENT_AUTHORITY_INVALID", component_id)
+    generated = _parse_utc(generated_at, "generated_at")
+    available = _parse_utc(
+        row.get("available_at") or row.get("generated_at"),
+        f"{component_id}.available_at",
+    )
+    if available > generated:
+        fail("COMPONENT_FROM_FUTURE", component_id)
+    packet = row.get("packet")
+    if not isinstance(packet, dict):
+        fail("COMPONENT_PACKET_INVALID", component_id)
+    replay = FRED_VIX.validate_evidence(
+        ROOT, packet.get("fred_evidence"), decision_at=generated_at
+    )
+    observation = replay["observation"]
+    if (
+        row.get("contract_version") != binding["source_transform_version"]
+        or packet.get("vixcls") != {
+            "date": observation.get("observation_date"),
+            "value": observation.get("value"),
+        }
+        or row.get("as_of_date") != observation.get("observation_date")
+        or row.get("generated_at") != replay.get("captured_at_utc")
+        or row.get("available_at") != replay.get("captured_at_utc")
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", component_id)
+    return _defined(
+        row,
+        observation["observation_date"],
+        replay["captured_at_utc"],
+        binding["axis_transform_version"],
+        f"atlas-raw-response://{replay['pointer']['raw_path']}",
+        replay["pointer"]["raw_response_sha256"],
+        ["REGIME_INTERPRETATION_UNAUTHORIZED"],
+    )
+
+
 def _attempt(builder, rows: dict, generated_at: str, binding: dict) -> dict:
     try:
         return builder(rows, generated_at, binding)
@@ -329,8 +382,8 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
     contract = load_contract()
     bindings = contract["bindings"]
     result = {market: {} for market in MARKETS}
-    result["US"]["RISK_VOL"] = _undefined(
-        "LIVE_AXIS_PROVENANCE_VALIDATOR_MISSING"
+    result["US"]["RISK_VOL"] = _attempt(
+        _fred_vix, component_rows, generated_at, bindings["US/RISK_VOL"]
     )
     result["CRYPTO"]["TREND"] = _attempt(
         _btc_trend, component_rows, generated_at, bindings["CRYPTO/TREND"]

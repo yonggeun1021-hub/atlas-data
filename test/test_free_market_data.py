@@ -37,7 +37,7 @@ class FreeMarketDataTests(unittest.TestCase):
     def test_contract_is_iex_shadow_only(self):
         c = M.load_contract()
         self.assertEqual(c["alpaca"]["feed"], "iex")
-        self.assertEqual(c["fred"]["raw_retention"], "TRANSIENT_NOT_PERSISTED")
+        self.assertEqual(c["fred"]["raw_retention"], "APPEND_ONLY_CONTENT_ADDRESSED")
         self.assertTrue(c["fred"]["partial_publish_authorized"])
         self.assertEqual(c["alpaca"]["credential_scope"], "DEDICATED_MARKET_DATA_ONLY")
         self.assertTrue(c["authority"]["evidence_capture_only"])
@@ -45,7 +45,7 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertFalse(c["authority"]["order_authorized"])
         self.assertFalse(c["authority"]["trading_authorized"])
 
-    def test_fetch_build_and_publish_preserve_alpaca_raw_but_not_fred_raw(self):
+    def test_fetch_build_and_publish_preserve_alpaca_and_append_only_fred_raw(self):
         now = dt.datetime(2026, 8, 22, 1, 2, 3, tzinfo=dt.timezone.utc)
         fred_raw = json.dumps({"observations":[{"date":"2026-08-21","value":"15.5","realtime_start":"2026-08-22","realtime_end":"2026-08-22"}]}).encode()
         alpaca_raw = json.dumps({"bars":{"MSFT":{"c":500.1,"v":1200,"t":"2026-08-21T19:59:00Z"}}}).encode()
@@ -53,32 +53,39 @@ class FreeMarketDataTests(unittest.TestCase):
         fred_got, fred = M.fetch_fred("x", now, getter=lambda *_: fred_raw)
         alpaca_got, bars = M.fetch_alpaca("k", "s", ["MSFT"], getter=lambda *_: alpaca_raw)
         daily_got, daily_bars = M.fetch_alpaca_daily_bars("k", "s", ["MSFT"], now, getter=lambda *_: daily_raw)
+        fred_bundle = M.FRED_PROVENANCE.build_evidence_bundle(now, fred_raw)
         packet = M.build_capture(
             now, fred_got, fred, M.load_contract(), alpaca_status="READY",
+            fred_evidence=fred_bundle["pointer"],
             alpaca_raw=alpaca_got, bars=bars, daily_raw=daily_got,
             daily_bars=daily_bars,
         )
-        self.assertEqual(packet["schema_version"], "free_market_data_capture/3")
+        self.assertEqual(packet["schema_version"], "free_market_data_capture/4")
         self.assertEqual(packet["fred"]["response_sha256"], M.sha256_bytes(fred_raw))
-        self.assertEqual(packet["fred"]["raw_retention"], "TRANSIENT_NOT_PERSISTED")
+        self.assertEqual(packet["fred"]["raw_retention"], "APPEND_ONLY_CONTENT_ADDRESSED")
         self.assertEqual(packet["alpaca"]["source_scope"], "IEX_ONLY_PARTIAL_US_MARKET")
         self.assertEqual(packet["alpaca"]["status"], "READY")
         self.assertFalse(packet["authority"]["entry_authorized"])
         self.assertEqual(packet["alpaca"]["daily_timeframe"], "1Day")
         self.assertEqual(packet["alpaca"]["daily_bars"][0]["symbol"], "MSFT")
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp); M.publish(root, now, packet, alpaca_raw=alpaca_raw, daily_raw=daily_got)
+            root=Path(tmp); M.publish(root, now, packet, fred_bundle=fred_bundle, alpaca_raw=alpaca_raw, daily_raw=daily_got)
             self.assertTrue((root/"data/latest_free_market_data.json").exists())
             self.assertTrue((root/"evidence/free_market_data/derived/2026-08-22/manifest.json").exists())
-            self.assertFalse((root/"evidence/free_market_data/raw/2026-08-22/fred_vixcls.json.gz").exists())
+            self.assertTrue((root/fred_bundle["pointer"]["raw_path"]).exists())
+            self.assertTrue((root/fred_bundle["pointer"]["manifest_path"]).exists())
+            replay = M.FRED_PROVENANCE.validate_evidence(root, packet["fred"]["evidence"])
+            self.assertEqual(replay["observation"]["value"], "15.5")
             self.assertTrue((root/"evidence/free_market_data/raw/2026-08-22/alpaca_iex_daily_bars.json.gz").exists())
 
     def test_fred_derived_capture_survives_explicit_alpaca_block(self):
         now = dt.datetime(2026, 8, 22, 1, 2, 3, tzinfo=dt.timezone.utc)
-        fred_raw = b'{"observations":[]}'
+        fred_raw = b'{"observations":[{"date":"2026-08-21","value":"15.5"}]}'
         fred = {"series_id":"VIXCLS", "observation_date":"2026-08-21", "value":"15.5"}
+        fred_bundle = M.FRED_PROVENANCE.build_evidence_bundle(now, fred_raw)
         packet = M.build_capture(
             now, fred_raw, fred, M.load_contract(),
+            fred_evidence=fred_bundle["pointer"],
             alpaca_status="BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL",
         )
         self.assertEqual(packet["fred"]["status"], "READY")
@@ -86,9 +93,9 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertIsNone(packet["alpaca"]["raw_sha256"])
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            M.publish(root, now, packet)
+            M.publish(root, now, packet, fred_bundle=fred_bundle)
             self.assertTrue((root/"evidence/free_market_data/derived/2026-08-22/manifest.json").exists())
-            self.assertFalse((root/"evidence/free_market_data/raw/2026-08-22").exists())
+            self.assertTrue((root/fred_bundle["pointer"]["raw_path"]).exists())
 
     def test_missing_or_malformed_provider_data_fails_closed(self):
         now = dt.datetime(2026, 8, 22, tzinfo=dt.timezone.utc)

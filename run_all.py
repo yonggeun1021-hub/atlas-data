@@ -376,11 +376,16 @@ APPROVED_TESTS = [
     #   synthetic stdin rows에서 RV/drawdown만 계산하며 vendor price 보존을 막는다.
     #   ⛔ live Tiingo/workflow/tracked factor 없음 — temp policy/in-memory fixtures only.
     "test/test_us_risk.py",
-    # ★ Free provider capture — FRED VIX initial-release evidence + Alpaca
-    #   Basic IEX latest bars. Raw bytes/hash are retained, while IEX remains
-    #   partial-US SHADOW evidence with no breadth/entry/action/order authority.
+    # ★ Free provider capture — FRED VIX append-only public raw evidence +
+    #   Alpaca Basic IEX bars. IEX remains partial-US SHADOW evidence with no
+    #   breadth/entry/action/order authority.
     #   ⛔ regression uses injected bytes only; no live key/network access.
     "test/test_free_market_data.py",
+    # ★ FRED VIX append-only provenance — content-and-capture addressed raw
+    #   revisions are independently decompressed/re-derived and cannot be
+    #   overwritten, backdated, path-substituted, or re-signed after tamper.
+    #   ⛔ observation evidence only; no Regime interpretation/trading authority.
+    "test/test_fred_vix_provenance.py",
     # ★ P1-US-07 — US stress replay research-packet contract.
     #   explicit 2008 stress/recent bull·bear·sideways dates의 validated
     #   regime_output/v1 evidence를 묶되 historical PIT·threshold·weight 권한은 닫는다.
