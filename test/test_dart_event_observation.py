@@ -58,6 +58,7 @@ class DartEventObservationTests(unittest.TestCase):
         self.assertEqual(self.packet["source_failures"], [])
         self.assertEqual({row["subject_id"] for row in self.packet["observations"]}, {"034020", "329180"})
         for row in self.packet["observations"]:
+            self.assertEqual(row["schema_version"], "dart_event_observation/2")
             self.assertIsNone(row["event_at"])
             self.assertEqual(row["time_precision"], "DATE_ONLY")
             self.assertIsNone(row["event_type"])
@@ -65,15 +66,32 @@ class DartEventObservationTests(unittest.TestCase):
             self.assertIsNone(row["importance"])
             self.assertEqual(row["status"], "OBSERVED_ESCALATION_BLOCKED")
 
-    def test_committed_legacy_v1_packet_remains_exactly_valid(self):
+    def test_legacy_v1_validation_never_substitutes_newer_mutable_inputs(self):
         legacy_paths = sorted(
             (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
         )
         self.assertTrue(legacy_paths)
         legacy = json.loads(legacy_paths[-1].read_text(encoding="utf-8"))
         self.assertEqual(legacy["schema_version"], "dart_event_observation_packet/1")
-        checked = MODULE.validate_packet(legacy)
-        self.assertEqual(checked, legacy)
+        unsigned = copy.deepcopy(legacy)
+        declared = unsigned.pop("packet_sha256")
+        self.assertEqual(MODULE.payload_sha256(unsigned), declared)
+        current_hashes_match = (
+            hashlib.sha256(MODULE.DEFAULT_DART.read_bytes()).hexdigest()
+            == legacy["lineage"]["source_sha256"]
+            and hashlib.sha256(MODULE.DEFAULT_CONTENT.read_bytes()).hexdigest()
+            == legacy["lineage"]["content_run_sha256"]
+        )
+        if current_hashes_match:
+            checked = MODULE.validate_packet(legacy)
+            self.assertEqual(checked, legacy)
+            self.assertTrue(all(
+                row["schema_version"] == "dart_event_observation/1"
+                for row in checked["observations"]
+            ))
+        else:
+            with self.assertRaises(MODULE.DartEventObservationError):
+                MODULE.validate_packet(legacy)
 
     def test_real_retained_zip_and_member_bytes_are_independently_revalidated(self):
         linked = next(row for row in self.packet["observations"] if row["subject_id"] == "329180")
@@ -183,6 +201,10 @@ class DartEventObservationTests(unittest.TestCase):
                 "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED",
             )
             self.assertEqual(packet["schema_version"], "dart_event_observation_packet/2")
+            self.assertTrue(all(
+                row["schema_version"] == "dart_event_observation/2"
+                for row in packet["observations"]
+            ))
             self.assertEqual(packet["summary"]["source_ok_count"], 6)
             self.assertEqual(packet["summary"]["source_failed_count"], 1)
             self.assertEqual({row["subject_id"] for row in packet["observations"]}, {"329180"})

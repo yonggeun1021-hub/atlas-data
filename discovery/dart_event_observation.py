@@ -29,7 +29,8 @@ import dart_filing_content as DART  # noqa: E402
 
 SCHEMA_VERSION = "dart_event_observation_packet/2"
 LEGACY_SCHEMA_VERSION = "dart_event_observation_packet/1"
-OBSERVATION_VERSION = "dart_event_observation/1"
+OBSERVATION_VERSION = "dart_event_observation/2"
+LEGACY_OBSERVATION_VERSION = "dart_event_observation/1"
 DEFAULT_DART = ROOT / "data/latest_dart.json"
 DEFAULT_CONTENT = ROOT / "data/latest_dart_content.json"
 DEFAULT_DATA_ROOT = ROOT / "data"
@@ -455,6 +456,8 @@ def validate_packet(
             "source_ok_count", "source_failed_count", "content_failure_count",
         ):
             expected["summary"].pop(key)
+        for observation in expected["observations"]:
+            observation["schema_version"] = LEGACY_OBSERVATION_VERSION
         expected.pop("packet_sha256")
         expected["packet_sha256"] = payload_sha256(expected)
     if packet != expected:

@@ -33,10 +33,14 @@ SEC D1 `event_discovery_case_packet/2`에 합쳐지거나 중요도 detector에 
 누락만 packet 발행을 중단한다. 실패 메시지 원문은 파생 packet에 복제하지 않고
 exact source/content-run SHA lineage로 감사한다.
 
-부분 실패 격리는 `dart_event_observation_packet/2`부터 적용한다. 이미 운영에서
-발행된 all-success `/1` packet은 같은 원천 bytes에서 legacy shape를 독립 재구성할
-수 있을 때만 계속 유효하다. `/1`로 partial failure를 표현하거나 `/2` 필드를
-제거하는 downgrade는 허용하지 않는다.
+부분 실패 격리는 `dart_event_observation_packet/2`와
+`dart_event_observation/2`부터 적용한다. 이미 운영에서
+발행된 all-success `/1` packet은 self-hash audit record로 보존한다. 그 packet이
+가리킨 exact source/content bytes가 아직 검증 입력으로 제공될 때만 legacy shape를
+독립 재구성할 수 있으며, 더 최신 mutable `latest` bytes를 과거 packet에 대입해
+유효하다고 주장하지 않는다. `/1`로 partial failure를 표현하거나 `/2` 필드를
+제거하는 downgrade도 허용하지 않는다. v2 이후 장기 재검증용 immutable input
+snapshot locator는 별도 retention gate다.
 
 ## 권한 경계
 
