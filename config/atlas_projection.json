@@ -1,0 +1,17 @@
+{
+  "_comment": "What a post-delivery source change must PROVE before it counts as finished. A signed CIO ruling establishes WHETHER the change moves an investment conclusion; it does not establish that the record was corrected or that anyone was told. Those need receipts from real adapters.",
+  "portal": {
+    "adapter": "notion_cockpit",
+    "implemented": false,
+    "verified_against_live_api": false,
+    "api_version": "2026-03-11",
+    "data_source_id": "7207d3d2-8806-4aa9-bfe2-cfddc3ea6869",
+    "database_id": "2ede08c3-1288-47fc-a8e4-0fb63713fa83",
+    "_note": "Adapter code and a dedicated Atlas Briefing SSOT data source exist. Keep implemented=false until the GitHub Actions identity completes write + read-after-write live canary. No receipt is accepted before that evidence."
+  },
+  "alert": {
+    "required_for_capital_impact": ["PRESENT"],
+    "user_reaching_channels": [],
+    "_note": "github_step_summary is NOT user-reaching: it requires a person to open Actions. Listing a channel here asserts that a message on it actually arrives at the user. Empty until a FULL delivery adapter is verified live."
+  }
+}
