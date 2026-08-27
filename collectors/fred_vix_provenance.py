@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import gzip
 import hashlib
+import io
 import json
 import math
 from pathlib import Path
@@ -59,6 +60,24 @@ def canonical_bytes(value: object) -> bytes:
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def deterministic_gzip(value: bytes) -> bytes:
+    """Return a gzip container whose header is stable across Python/OS.
+
+    ``gzip.compress(..., mtime=0)`` delegated to zlib in some Python
+    releases and leaked the host OS byte into the header.  That made evidence
+    captured by the Linux Actions runner fail an otherwise identical replay
+    on macOS.  ``GzipFile`` writes the portable ``OS=255`` header explicitly.
+    The raw response hash, not the gzip container, remains the evidence
+    identity.
+    """
+    output = io.BytesIO()
+    with gzip.GzipFile(
+        filename="", mode="wb", fileobj=output, compresslevel=9, mtime=0
+    ) as stream:
+        stream.write(value)
+    return output.getvalue()
 
 
 def _parse_utc(value: object, code: str) -> dt.datetime:
@@ -160,7 +179,7 @@ def build_evidence_bundle(captured_at: dt.datetime, raw: bytes) -> dict:
     manifest_bytes = json.dumps(
         manifest, ensure_ascii=False, indent=2, sort_keys=True
     ).encode("utf-8") + b"\n"
-    raw_gzip_bytes = gzip.compress(raw, mtime=0)
+    raw_gzip_bytes = deterministic_gzip(raw)
     pointer = {
         "evidence_revision_id": revision_id,
         "manifest_path": f"{base}/manifest.json",
@@ -259,7 +278,17 @@ def validate_evidence(
         fail("RAW_RESPONSE_HASH_MISMATCH")
     captured = _parse_utc(manifest.get("captured_at_utc"), "CAPTURE_TIME_INVALID")
     expected = build_evidence_bundle(captured, raw)
-    if manifest != expected["manifest"] or pointer != expected["pointer"]:
+    # The gzip file hash binds the exact stored container and was already
+    # checked above.  Logical replay must not require re-compressing the raw
+    # bytes to the identical platform-specific container representation:
+    # older Python releases encoded a host OS byte in an otherwise valid
+    # mtime=0 gzip header.  Every determining field remains independently
+    # re-derived from the decompressed raw response.
+    logical_pointer_fields = expected["pointer"].keys() - {"raw_file_sha256"}
+    if manifest != expected["manifest"] or any(
+        pointer[key] != expected["pointer"][key]
+        for key in logical_pointer_fields
+    ):
         fail("EVIDENCE_REDERIVATION_MISMATCH")
     if decision_at is not None and captured > _parse_utc(decision_at, "DECISION_TIME_INVALID"):
         fail("EVIDENCE_FROM_FUTURE")
