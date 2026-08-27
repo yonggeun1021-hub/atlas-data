@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -39,6 +40,40 @@ WILDCARD_FIXTURE = load_module(
     ROOT / "test" / "test_wildcard_operational_intake.py",
 )
 CONTRACT = MODULE.load_contract()
+
+
+def _parse_utc(value):
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def current_dart_input_decision_at():
+    source = json.loads(MODULE.DART_OBSERVATION.DEFAULT_DART.read_text(encoding="utf-8"))
+    content = json.loads(
+        MODULE.DART_OBSERVATION.DEFAULT_CONTENT.read_text(encoding="utf-8")
+    )
+    return max(
+        _parse_utc(source["collected_at_utc"]),
+        _parse_utc(content["observed_at_utc"]),
+    ).astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def operational_dart_times():
+    packets = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(
+            (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
+        )
+    ]
+    if not packets:
+        raise AssertionError("committed DART observation packet required")
+    ordered = sorted(packets, key=lambda packet: _parse_utc(packet["decision_at"]))
+    earliest = _parse_utc(ordered[0]["decision_at"]) - dt.timedelta(seconds=1)
+    latest = _parse_utc(ordered[-1]["decision_at"]) + dt.timedelta(seconds=1)
+    return (
+        earliest.isoformat().replace("+00:00", "Z"),
+        latest.isoformat().replace("+00:00", "Z"),
+        ordered[-1],
+    )
 
 
 def empty_ledger():
@@ -149,23 +184,38 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         ))
 
     def test_real_dart_observations_are_visible_but_escalation_stays_blocked(self):
+        _, generated_at, expected_packet = operational_dart_times()
         source = MODULE.load_operational_dart_observation_packet(
-            "2026-08-27T23:59:59Z", ROOT
+            generated_at, ROOT
         )
         self.assertIsNotNone(source)
         result = MODULE.build_briefing(
             empty_ledger(), records(), bindings(),
-            "evening", "2026-08-27T23:59:59Z", CONTRACT,
+            "evening", generated_at, CONTRACT,
             dart_observation_packet=source, dart_root=ROOT,
         )
         section = result["dart_observations"]
-        self.assertEqual(section["observation_count"], 2)
-        self.assertEqual(section["raw_bytes_verified_count"], 1)
-        self.assertEqual(section["metadata_only_count"], 1)
-        self.assertEqual(section["source_failed_count"], 0)
-        self.assertEqual(section["content_failure_count"], 0)
-        self.assertEqual(section["source_failures"], [])
-        self.assertEqual(result["summary"]["dart_observation_count"], 2)
+        expected_summary = expected_packet["summary"]
+        self.assertEqual(
+            section["observation_count"], expected_summary["relevant_filing_count"]
+        )
+        self.assertEqual(
+            section["raw_bytes_verified_count"],
+            expected_summary["raw_bytes_verified_count"],
+        )
+        self.assertEqual(
+            section["metadata_only_count"], expected_summary["metadata_only_count"]
+        )
+        self.assertEqual(
+            section["source_failed_count"], expected_summary.get("source_failed_count", 0)
+        )
+        self.assertEqual(
+            section["content_failure_count"],
+            expected_summary.get("content_failure_count", 0),
+        )
+        self.assertEqual(
+            result["summary"]["dart_observation_count"], section["observation_count"]
+        )
         for row in section["observations"]:
             self.assertIsNone(row["event_type"])
             self.assertIsNone(row["direction"])
@@ -176,12 +226,15 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
 
     def test_current_v2_dart_packet_is_consumed_without_reinterpreting_v1_history(self):
         source = MODULE.DART_OBSERVATION.build_packet(
-            decision_at="2026-08-27T14:59:59Z"
+            decision_at=current_dart_input_decision_at()
         )
+        generated_at = (
+            _parse_utc(source["decision_at"]) + dt.timedelta(seconds=1)
+        ).isoformat().replace("+00:00", "Z")
         self.assertEqual(source["schema_version"], "dart_event_observation_packet/2")
         result = MODULE.build_briefing(
             empty_ledger(), records(), bindings(),
-            "evening", "2026-08-27T23:59:59Z", CONTRACT,
+            "evening", generated_at, CONTRACT,
             dart_observation_packet=source, dart_root=ROOT,
         )
         self.assertEqual(
@@ -192,8 +245,11 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
 
     def test_partial_failure_counts_remain_visible_in_briefing(self):
         source = MODULE.DART_OBSERVATION.build_packet(
-            decision_at="2026-08-27T14:59:59Z"
+            decision_at=current_dart_input_decision_at()
         )
+        generated_at = (
+            _parse_utc(source["decision_at"]) + dt.timedelta(seconds=1)
+        ).isoformat().replace("+00:00", "Z")
         source["status"] = (
             "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
         )
@@ -212,7 +268,7 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         ):
             result = MODULE.build_briefing(
                 empty_ledger(), records(), bindings(),
-                "evening", "2026-08-27T23:59:59Z", CONTRACT,
+                "evening", generated_at, CONTRACT,
                 dart_observation_packet=source, dart_root=ROOT,
             )
         section = result["dart_observations"]
@@ -220,9 +276,49 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         self.assertEqual(section["source_failures"][0]["ticker"], "298040")
         self.assertIn("WITH_PARTIAL_FAILURES", section["status"])
 
+    def test_partial_failure_is_visible_even_when_no_observation_row_survives(self):
+        source = MODULE.DART_OBSERVATION.build_packet(
+            decision_at=current_dart_input_decision_at()
+        )
+        generated_at = (
+            _parse_utc(source["decision_at"]) + dt.timedelta(seconds=1)
+        ).isoformat().replace("+00:00", "Z")
+        source["status"] = (
+            "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+        )
+        source["observations"] = []
+        source["summary"].update({
+            "relevant_filing_count": 0,
+            "raw_bytes_verified_count": 0,
+            "metadata_only_count": 0,
+            "source_failed_count": 1,
+            "content_failure_count": 0,
+        })
+        source["source_failures"] = [{
+            "ticker": "298040", "name": "효성중공업", "atlas_stage": "Candidate",
+            "coverage": True, "status": "SOURCE_COLLECTION_FAILED",
+            "reasons": ["DART_STOCK_COLLECTION_FAILED"],
+        }]
+        source["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in source.items() if key != "packet_sha256"
+        })
+        with mock.patch.object(
+            MODULE, "_validated_dart_observation_packet", return_value=source,
+        ):
+            result = MODULE.build_briefing(
+                empty_ledger(), records(), bindings(),
+                "evening", generated_at, CONTRACT,
+                dart_observation_packet=source, dart_root=ROOT,
+            )
+        section = result["dart_observations"]
+        self.assertEqual(section["observation_count"], 0)
+        self.assertEqual(section["source_failed_count"], 1)
+        self.assertIn("WITH_PARTIAL_FAILURES", section["status"])
+
     def test_dart_source_and_projection_tamper_fail_closed(self):
+        _, generated_at, _ = operational_dart_times()
         source = MODULE.load_operational_dart_observation_packet(
-            "2026-08-27T23:59:59Z", ROOT
+            generated_at, ROOT
         )
         tampered_source = copy.deepcopy(source)
         tampered_source["observations"][0]["filing_title"] = "조작된 공시"
@@ -236,13 +332,13 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         ):
             MODULE.build_briefing(
                 empty_ledger(), records(), bindings(),
-                "evening", "2026-08-27T23:59:59Z", CONTRACT,
+                "evening", generated_at, CONTRACT,
                 dart_observation_packet=tampered_source, dart_root=ROOT,
             )
 
         result = MODULE.build_briefing(
             empty_ledger(), records(), bindings(),
-            "evening", "2026-08-27T23:59:59Z", CONTRACT,
+            "evening", generated_at, CONTRACT,
             dart_observation_packet=source, dart_root=ROOT,
         )
         result["dart_observations"]["observations"][0]["ready_status"] = "READY"
@@ -256,17 +352,24 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
             MODULE.validate_briefing(result, CONTRACT, dart_root=ROOT)
 
     def test_future_dart_observation_is_not_backfilled(self):
+        before_first, _, _ = operational_dart_times()
         self.assertIsNone(MODULE.load_operational_dart_observation_packet(
-            "2026-08-27T09:00:00Z", ROOT
+            before_first, ROOT
         ))
 
     def test_loader_rebuilds_only_the_latest_eligible_dart_pointer(self):
+        _, generated_at, _ = operational_dart_times()
         latest = MODULE.load_operational_dart_observation_packet(
-            "2026-08-27T23:59:59Z", ROOT
+            generated_at, ROOT
         )
         historical = copy.deepcopy(latest)
-        historical["decision_at"] = "2026-08-26T09:53:02Z"
-        historical["source_date"] = "2026-08-26"
+        historical_decision = _parse_utc(latest["decision_at"]) - dt.timedelta(days=1)
+        historical["decision_at"] = historical_decision.isoformat().replace(
+            "+00:00", "Z"
+        )
+        historical["source_date"] = (
+            dt.date.fromisoformat(latest["source_date"]) - dt.timedelta(days=1)
+        ).isoformat()
         historical["packet_sha256"] = MODULE.payload_sha256({
             key: value for key, value in historical.items()
             if key != "packet_sha256"
@@ -287,7 +390,7 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
                 return_value=latest,
             ) as validator:
                 selected = MODULE.load_operational_dart_observation_packet(
-                    "2026-08-27T23:59:59Z", root
+                    generated_at, root
                 )
             self.assertEqual(selected, latest)
             validator.assert_called_once()

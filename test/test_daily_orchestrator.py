@@ -2354,25 +2354,86 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
 
 class DartObservationBriefingIntegrationTests(unittest.TestCase):
     def test_real_dart_observations_render_as_evidence_not_a_recommendation(self):
-        generated_at = "2026-08-27T23:59:59Z"
+        paths = sorted(
+            (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
+        )
+        self.assertTrue(paths)
+        source = max(
+            (json.loads(path.read_text(encoding="utf-8")) for path in paths),
+            key=lambda packet: dt.datetime.fromisoformat(
+                packet["decision_at"].replace("Z", "+00:00")
+            ),
+        )
+        generated_at = (
+            dt.datetime.fromisoformat(source["decision_at"].replace("Z", "+00:00"))
+            + dt.timedelta(seconds=1)
+        ).isoformat().replace("+00:00", "Z")
         row = MODULE.build_rotation_discovery("evening", generated_at)
         self.assertEqual(row["status"], "PENDING")
-        self.assertEqual(row["reason"], "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED")
         dart = row["packet"]["dart_observations"]
-        self.assertEqual(dart["observation_count"], 2)
-        self.assertEqual(dart["source_failed_count"], 0)
-        self.assertEqual(dart["content_failure_count"], 0)
+        expected_summary = source["summary"]
+        self.assertEqual(
+            dart["observation_count"], expected_summary["relevant_filing_count"]
+        )
+        self.assertEqual(
+            dart["source_failed_count"], expected_summary.get("source_failed_count", 0)
+        )
+        self.assertEqual(
+            dart["content_failure_count"], expected_summary.get("content_failure_count", 0)
+        )
+        self.assertEqual(
+            row["reason"],
+            "DART_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+            if dart["source_failed_count"] or dart["content_failure_count"]
+            else "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED",
+        )
         self.assertEqual(row["authority"]["stage_promotion_authorized"], False)
         self.assertEqual(row["authority"]["action_generation_authorized"], False)
         self.assertEqual(row["authority"]["trading_authorized"], False)
 
-        packet = MODULE.build_packet("evening", "2026-08-27", generated_at)
+        packet = MODULE.build_packet("evening", source["source_date"], generated_at)
         rendered = MODULE.render_markdown(packet)
-        self.assertIn("DART observations=2", rendered)
-        self.assertIn("source_failed=0 content_failed=0", rendered)
-        self.assertIn("event_type=UNRATIFIED importance=UNRATIFIED", rendered)
-        self.assertIn("DART 329180 HD현대중공업", rendered)
-        self.assertIn("action=null", rendered)
+        if dart["observation_count"] or dart["source_failed_count"] or dart["content_failure_count"]:
+            self.assertIn(f"DART observations={dart['observation_count']}", rendered)
+            self.assertIn(
+                f"source_failed={dart['source_failed_count']} "
+                f"content_failed={dart['content_failure_count']}",
+                rendered,
+            )
+            self.assertIn("event_type=UNRATIFIED importance=UNRATIFIED", rendered)
+        for observation in dart["observations"][:10]:
+            self.assertIn(observation["subject_name"], rendered)
+            self.assertIn("action=null", rendered)
+
+    def test_zero_observation_partial_failure_is_not_hidden(self):
+        packet = {
+            "summary": {
+                "rotation_change_count": 0,
+                "discovery_case_count": 0,
+                "new_candidate_count": 0,
+                "existing_candidate_change_count": 0,
+                "signal_observation_count": 0,
+                "dart_observation_count": 0,
+                "ready_count": 0,
+                "entry_trigger_count": 0,
+            },
+            "dart_observations": {
+                "observation_count": 0,
+                "raw_bytes_verified_count": 0,
+                "metadata_only_count": 0,
+                "source_failed_count": 1,
+                "content_failure_count": 0,
+                "observations": [],
+            },
+            "signal_observations": {},
+            "wildcard_observations": {},
+        }
+        lines = MODULE._format_component_detail({
+            "component_id": "ROTATION_DISCOVERY", "packet": packet,
+        })
+        rendered = "\n".join(lines)
+        self.assertIn("DART observations=0", rendered)
+        self.assertIn("source_failed=1 content_failed=0", rendered)
 
 
 if __name__ == "__main__":

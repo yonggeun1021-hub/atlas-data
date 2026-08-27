@@ -1452,7 +1452,7 @@ def build_rotation_discovery(
         "PENDING",
         (
             "DART_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
-            if dart_count and dart_partial_failure
+            if dart_partial_failure
             else "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
             if dart_count
             else "WILDCARD_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
@@ -2874,7 +2874,11 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"ready={summary.get('ready_count')} entry={summary.get('entry_trigger_count')}"
             )
             dart = packet.get("dart_observations", {})
-            if dart.get("observation_count"):
+            if (
+                dart.get("observation_count")
+                or dart.get("source_failed_count")
+                or dart.get("content_failure_count")
+            ):
                 lines.append(
                     f"    - DART observations={dart.get('observation_count')} "
                     f"raw_verified={dart.get('raw_bytes_verified_count')} "
