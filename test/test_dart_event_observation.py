@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import json
@@ -17,7 +18,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "discovery/dart_event_observation.py"
 WORKFLOW = ROOT / ".github/workflows/collect.yml"
 RUN_ALL = ROOT / "run_all.py"
-DECISION_AT = "2026-08-27T07:50:00Z"
+
+
+def current_decision_at() -> str:
+    source = json.loads((ROOT / "data/latest_dart.json").read_text(encoding="utf-8"))
+    content = json.loads((ROOT / "data/latest_dart_content.json").read_text(encoding="utf-8"))
+    timestamps = [source["collected_at_utc"], content["observed_at_utc"]]
+    parsed = [dt.datetime.fromisoformat(value.replace("Z", "+00:00")) for value in timestamps]
+    return max(parsed).astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+DECISION_AT = current_decision_at()
 
 
 def load_module(name: str, path: Path):
@@ -37,18 +48,50 @@ class DartEventObservationTests(unittest.TestCase):
         cls.packet = MODULE.build_packet(decision_at=DECISION_AT)
 
     def test_real_dart_population_records_two_facts_without_interpretation(self):
+        self.assertEqual(self.packet["schema_version"], "dart_event_observation_packet/2")
         self.assertEqual(self.packet["status"], "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED")
         self.assertEqual(self.packet["summary"]["relevant_filing_count"], 2)
         self.assertEqual(self.packet["summary"]["raw_bytes_verified_count"], 1)
         self.assertEqual(self.packet["summary"]["metadata_only_count"], 1)
+        self.assertEqual(self.packet["summary"]["source_failed_count"], 0)
+        self.assertEqual(self.packet["summary"]["content_failure_count"], 0)
+        self.assertEqual(self.packet["source_failures"], [])
         self.assertEqual({row["subject_id"] for row in self.packet["observations"]}, {"034020", "329180"})
         for row in self.packet["observations"]:
+            self.assertEqual(row["schema_version"], "dart_event_observation/2")
             self.assertIsNone(row["event_at"])
             self.assertEqual(row["time_precision"], "DATE_ONLY")
             self.assertIsNone(row["event_type"])
             self.assertIsNone(row["direction"])
             self.assertIsNone(row["importance"])
             self.assertEqual(row["status"], "OBSERVED_ESCALATION_BLOCKED")
+
+    def test_legacy_v1_validation_never_substitutes_newer_mutable_inputs(self):
+        legacy_paths = sorted(
+            (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
+        )
+        self.assertTrue(legacy_paths)
+        legacy = json.loads(legacy_paths[-1].read_text(encoding="utf-8"))
+        self.assertEqual(legacy["schema_version"], "dart_event_observation_packet/1")
+        unsigned = copy.deepcopy(legacy)
+        declared = unsigned.pop("packet_sha256")
+        self.assertEqual(MODULE.payload_sha256(unsigned), declared)
+        current_hashes_match = (
+            hashlib.sha256(MODULE.DEFAULT_DART.read_bytes()).hexdigest()
+            == legacy["lineage"]["source_sha256"]
+            and hashlib.sha256(MODULE.DEFAULT_CONTENT.read_bytes()).hexdigest()
+            == legacy["lineage"]["content_run_sha256"]
+        )
+        if current_hashes_match:
+            checked = MODULE.validate_packet(legacy)
+            self.assertEqual(checked, legacy)
+            self.assertTrue(all(
+                row["schema_version"] == "dart_event_observation/1"
+                for row in checked["observations"]
+            ))
+        else:
+            with self.assertRaises(MODULE.DartEventObservationError):
+                MODULE.validate_packet(legacy)
 
     def test_real_retained_zip_and_member_bytes_are_independently_revalidated(self):
         linked = next(row for row in self.packet["observations"] if row["subject_id"] == "329180")
@@ -94,7 +137,10 @@ class DartEventObservationTests(unittest.TestCase):
             root = Path(temporary)
             source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
             content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
-            source["collected_at_utc"] = "2026-08-27T08:00:00+00:00"
+            decision = dt.datetime.fromisoformat(DECISION_AT.replace("Z", "+00:00"))
+            source["collected_at_utc"] = (
+                decision + dt.timedelta(seconds=1)
+            ).isoformat()
             source_path = root / "latest_dart.json"
             content_path = root / "latest_dart_content.json"
             source_path.write_text(json.dumps(source), encoding="utf-8")
@@ -121,6 +167,127 @@ class DartEventObservationTests(unittest.TestCase):
                     decision_at=DECISION_AT, source_path=source_path,
                     content_path=content_path,
                 )
+
+    def test_partial_source_failure_is_isolated_to_that_symbol(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
+            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            failed = source["stocks"]["034020"]
+            source["stocks"]["034020"] = {
+                "name": failed["name"], "atlas_stage": failed["atlas_stage"],
+                "coverage": failed["coverage"], "db_state": failed["db_state"],
+                "in_notion": failed["in_notion"], "status": "FAILED",
+                "error": "ConnectionError: injected",
+            }
+            source["summary"] = {"ok": 6, "failed": 1}
+            content["records"] = [
+                row for row in content["records"]
+                if row["filing_identity"]["stock_code"] != "034020"
+            ]
+            content["counts"] = {"captured": 0, "failed": 0, "not_applicable": 0, "skipped": 1}
+            source_path = root / "latest_dart.json"
+            content_path = root / "latest_dart_content.json"
+            source_path.write_text(json.dumps(source), encoding="utf-8")
+            content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+
+            packet = MODULE.build_packet(
+                decision_at=DECISION_AT, source_path=source_path,
+                content_path=content_path,
+            )
+            self.assertEqual(
+                packet["status"],
+                "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED",
+            )
+            self.assertEqual(packet["schema_version"], "dart_event_observation_packet/2")
+            self.assertTrue(all(
+                row["schema_version"] == "dart_event_observation/2"
+                for row in packet["observations"]
+            ))
+            self.assertEqual(packet["summary"]["source_ok_count"], 6)
+            self.assertEqual(packet["summary"]["source_failed_count"], 1)
+            self.assertEqual({row["subject_id"] for row in packet["observations"]}, {"329180"})
+            self.assertEqual(packet["source_failures"][0]["ticker"], "034020")
+            self.assertNotIn("ConnectionError", json.dumps(packet["source_failures"]))
+
+    def test_all_source_failures_still_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
+            for ticker, stock in source["stocks"].items():
+                source["stocks"][ticker] = {
+                    "name": stock["name"], "atlas_stage": stock["atlas_stage"],
+                    "coverage": stock["coverage"], "db_state": stock["db_state"],
+                    "in_notion": stock["in_notion"], "status": "FAILED",
+                    "error": "ConnectionError: injected",
+                }
+            source["summary"] = {"ok": 0, "failed": len(source["stocks"])}
+            source_path = root / "latest_dart.json"
+            content_path = root / "latest_dart_content.json"
+            source_path.write_text(json.dumps(source), encoding="utf-8")
+            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+            with self.assertRaisesRegex(MODULE.DartEventObservationError, "DART_ALL_STOCKS_FAILED"):
+                MODULE.build_packet(
+                    decision_at=DECISION_AT, source_path=source_path,
+                    content_path=content_path,
+                )
+
+    def test_degraded_content_failure_isolated_to_one_filing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_path = root / "latest_dart.json"
+            content_path = root / "latest_dart_content.json"
+            source_path.write_bytes(MODULE.DEFAULT_DART.read_bytes())
+            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            failed = next(
+                row for row in content["records"]
+                if row["filing_identity"]["stock_code"] == "329180"
+            )
+            failed["operation"] = "failed"
+            failed["publication_status"] = "FAILED"
+            failed["reasons"] = ["PERSIST_OR_CACHE_FAILED:ConnectionError:injected"]
+            content["run_status"] = "DEGRADED"
+            content["counts"] = {"captured": 0, "failed": 1, "not_applicable": 1, "skipped": 0}
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+
+            packet = MODULE.build_packet(
+                decision_at=DECISION_AT, source_path=source_path,
+                content_path=content_path,
+            )
+            failed_observation = next(
+                row for row in packet["observations"] if row["subject_id"] == "329180"
+            )
+            self.assertEqual(failed_observation["evidence"]["status"], "CONTENT_CAPTURE_FAILED")
+            self.assertIn("DART_CONTENT_CAPTURE_FAILED", failed_observation["blocked_reasons"])
+            self.assertEqual(packet["summary"]["content_failure_count"], 1)
+
+    def test_failed_content_run_preserves_metadata_observations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_path = root / "latest_dart.json"
+            content_path = root / "latest_dart_content.json"
+            source_path.write_bytes(MODULE.DEFAULT_DART.read_bytes())
+            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            content["run_status"] = "FAILED"
+            content["counts"] = {"captured": 0, "failed": 1, "not_applicable": 0, "skipped": 0}
+            content["records"] = []
+            content["reasons"] = ["DartContentError:injected"]
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+
+            packet = MODULE.build_packet(
+                decision_at=DECISION_AT, source_path=source_path,
+                content_path=content_path,
+            )
+            self.assertEqual(packet["summary"]["relevant_filing_count"], 2)
+            self.assertEqual(packet["summary"]["content_failure_count"], 2)
+            self.assertEqual(
+                {row["evidence"]["status"] for row in packet["observations"]},
+                {"CONTENT_RUN_FAILED"},
+            )
+            self.assertNotIn("injected", json.dumps(packet["observations"]))
 
     def test_retained_raw_member_tamper_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
