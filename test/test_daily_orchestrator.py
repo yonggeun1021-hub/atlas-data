@@ -2087,8 +2087,45 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(row["reason"], "FRED_DERIVED_CONTRACT_INVALID")
 
     def test_free_market_v3_requires_same_kst_capture_date(self):
-        current = json.loads((ROOT / "data" / "latest_free_market_data.json").read_text())
-        current["observed_at_utc"] = "2026-08-26T11:32:34Z"
+        # This is a v3 freshness-contract test, so it must not inherit the
+        # repository's moving latest pointer (now v4 with append-only FRED
+        # provenance).  Otherwise an unrelated current-evidence problem can
+        # make the supposedly "fresh" v3 control case DEGRADED before the
+        # date boundary is what gets tested.
+        current = {
+            "schema_version": "free_market_data_capture/3",
+            "contract_version": "free_market_data/1",
+            "observed_at_utc": "2026-08-26T11:32:34Z",
+            "packet_sha256": "a" * 64,
+            "fred": {
+                "status": "READY",
+                "series_id": "VIXCLS",
+                "observation_date": "2026-08-25",
+                "value": "15.5",
+                "response_sha256": "b" * 64,
+                "raw_retention": "TRANSIENT_NOT_PERSISTED",
+            },
+            "alpaca": {
+                "status": "READY",
+                "feed": "iex",
+                "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+                "bars": [{"symbol": "MSFT"}],
+                "daily_bars": [{"symbol": "MSFT"}],
+                "raw_sha256": "c" * 64,
+                "daily_raw_sha256": "d" * 64,
+            },
+            "authority": {
+                "evidence_capture_only": True,
+                "us_breadth_authorized": False,
+                "market_wide_price_authorized": False,
+                "entry_authorized": False,
+                "action_authorized": False,
+                "order_authorized": False,
+                "broker_submission_authorized": False,
+                "production_authorized": False,
+                "trading_authorized": False,
+            },
+        }
         fresh = MODULE.build_free_market_data(
             {"kind": "ready", "value": current}, decision_date="2026-08-26"
         )
