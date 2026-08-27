@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "contract_version": "strategic_capital_posture_readiness/1",
+  "output_schema_version": "strategic_capital_posture_readiness_packet/1",
+  "scope": "ZERO_CAPITAL_CROSS_MARKET_BUDGET_READINESS",
+  "markets": [
+    "CRYPTO",
+    "KOREA",
+    "US"
+  ],
+  "runtime_status": "BLOCKED",
+  "runtime_evaluation_status": "NOT_EVALUATED",
+  "budget_unit": "NAV_FRACTION",
+  "source_order": [
+    "P1_REGIME_DECISION",
+    "P2_CROSS_MARKET_FLOW",
+    "P2_ROTATION_STATE",
+    "P6_DEFENSIVE_ACTION",
+    "P7_CONCENTRATION_GUARD",
+    "P7_MARKET_THEME_BUDGET",
+    "P7_CRYPTO_EXPOSURE_LIMIT",
+    "P7_PLANNED_LOSS_BUDGET",
+    "P7_CURRENCY_EXPOSURE"
+  ],
+  "unavailable_only_source_slots": [
+    "P1_REGIME_DECISION",
+    "P2_CROSS_MARKET_FLOW",
+    "P2_ROTATION_STATE"
+  ],
+  "source_specs": {
+    "P6_DEFENSIVE_ACTION": {
+      "schema_version": "defensive_action_decision_readiness_packet/1",
+      "contract_version": "defensive_action_decision_readiness/1",
+      "statuses": [
+        "DEFENSIVE_ACTION_READINESS_BLOCKED"
+      ]
+    },
+    "P7_CONCENTRATION_GUARD": {
+      "schema_version": "concentration_correlation_packet/2",
+      "contract_version": "concentration_correlation_guard/2",
+      "statuses": [
+        "LIMIT_BREACH",
+        "WITHIN_RATIFIED_LIMITS"
+      ]
+    },
+    "P7_MARKET_THEME_BUDGET": {
+      "schema_version": "market_theme_exposure_packet/2",
+      "contract_version": "market_theme_exposure_budget/1",
+      "statuses": [
+        "LIMIT_BREACH",
+        "WITHIN_RATIFIED_BUDGET"
+      ]
+    },
+    "P7_CRYPTO_EXPOSURE_LIMIT": {
+      "schema_version": "crypto_exposure_packet/2",
+      "contract_version": "crypto_exposure_limit/1",
+      "statuses": [
+        "LIMIT_BREACH",
+        "WITHIN_RATIFIED_LIMITS"
+      ]
+    },
+    "P7_PLANNED_LOSS_BUDGET": {
+      "schema_version": "planned_loss_packet/2",
+      "contract_version": "planned_loss_budget/2",
+      "statuses": [
+        "LIMIT_BREACH",
+        "WITHIN_RATIFIED_LOSS_BUDGET"
+      ]
+    },
+    "P7_CURRENCY_EXPOSURE": {
+      "schema_version": "currency_exposure_packet/1",
+      "contract_version": "currency_exposure/1",
+      "statuses": [
+        "RAW_QUOTE_CURRENCY_EXPOSURE_ONLY"
+      ]
+    }
+  },
+  "constraint_checks": [
+    "ALLOCATION_SUM",
+    "CURRENCY_BOUNDARY",
+    "OVERLAP_EXPOSURE"
+  ],
+  "invariants": [
+    "BLOCKED_OR_MISSING_INPUT_NEVER_IMPLIES_ZERO_BUDGET",
+    "CURRENCY_AMOUNTS_NEVER_SUM_WITHOUT_RATIFIED_CONVERSION",
+    "DEFENSIVE_ACTION_NEVER_IMPLIES_CAPITAL_ALLOCATION",
+    "MISSING_INPUT_NEVER_IMPLIES_NO_ACTION",
+    "OVERLAPPING_EXPOSURE_NEVER_COUNTS_AS_INDEPENDENT_HEADROOM",
+    "READINESS_NEVER_IMPLIES_ORDER_OR_TRADING_AUTHORITY"
+  ],
+  "authority": {
+    "readiness_inventory_only": true,
+    "strategic_posture_authorized": false,
+    "capital_budget_definition_authorized": false,
+    "cross_market_allocation_authorized": false,
+    "cash_reserve_authorized": false,
+    "hedge_budget_authorized": false,
+    "gross_net_risk_authorized": false,
+    "theme_headroom_authorized": false,
+    "currency_conversion_authorized": false,
+    "action_proposal_authorized": false,
+    "position_size_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
