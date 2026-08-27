@@ -1,0 +1,78 @@
+{
+  "as_of": "2026-08-27T07:56:15Z",
+  "authority": {
+    "action_authorized": false,
+    "exit_authorized": false,
+    "harvest_review_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "quantity_authorized": false,
+    "reallocation_authorized": false,
+    "reduce_authorized": false,
+    "review_only": true,
+    "trading_authorized": false
+  },
+  "boundary_sha256": "645f48fdb8f3f364f6d031c3faa4470ede317808c22434a097c3c2b17ad5be30",
+  "decision": {
+    "harvest_proposal": null,
+    "quantity_proposal": null,
+    "reallocation_handoff": null,
+    "recommended_action": "NONE",
+    "review_items": [],
+    "status": "LOCKED_POLICY_UNRATIFIED"
+  },
+  "design_options": {
+    "H1_THESIS_PRESERVING": "PROPOSED_UNRATIFIED",
+    "H2_BALANCED_HARVEST_REVIEW": "PROVISIONAL_DESIGN_PREFERENCE_ONLY",
+    "H3_RISK_RECOVERY_PRIORITY": "PROPOSED_UNRATIFIED"
+  },
+  "policy_axes": {
+    "action_family": {
+      "diagnostic_vocabulary": [
+        "HOLD",
+        "HARVEST_PARTIAL",
+        "RECOVER_RISK",
+        "TRAIL",
+        "REDUCE",
+        "EXIT"
+      ],
+      "status": "LOCKED_AUTHORITY_UNRATIFIED"
+    },
+    "quantity_authority": {
+      "partial_exit_quantity": null,
+      "remaining_core_quantity": null,
+      "risk_recovery_quantity": null,
+      "status": "NOT_COMPUTABLE_AUTHORITY_UNRATIFIED"
+    },
+    "reallocation_handoff": {
+      "expected_proceeds_are_available_cash": false,
+      "settled_cash_required": true,
+      "status": "LOCKED_AUTHORITY_UNRATIFIED"
+    },
+    "trigger_eligibility": {
+      "required_authorities": [
+        "HARVEST_TRIGGER_AUTHORITY",
+        "THESIS_STATE_AUTHORITY",
+        "GIVEBACK_AUTHORITY"
+      ],
+      "status": "NOT_COMPUTABLE_AUTHORITY_UNRATIFIED"
+    }
+  },
+  "population_authority": {
+    "diagnostic_only_markets": [
+      "KOREA"
+    ],
+    "not_computable_markets": [
+      "CRYPTO"
+    ],
+    "official_kpi_eligible_markets": [
+      "BTC"
+    ],
+    "outcome_labels_are_operational_inputs": false
+  },
+  "schema_version": "profit_harvest_policy_boundary/1",
+  "source": {
+    "contract_sha256": "647f6298ff75494e97a76ff4f28f957bb639d5ae3044e16b5161d86cec74cf66",
+    "profit_harvest_readiness_sha256": "78b1a799255484d5d356dadfb9cdc1f9e0ed4393a04439ca65058b121e0f3689"
+  }
+}
