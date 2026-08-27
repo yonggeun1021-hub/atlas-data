@@ -46,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       context_exists: ${{ steps.existing_context.outputs.exists }}
+      artifact_id: ${{ steps.upload_derived.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_derived.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Reuse an exact committed Breadth context instead of re-fetching the same date
@@ -90,6 +92,7 @@ jobs:
             --recent-date "$RECENT_DATE" \
             --out-dir "$RUNNER_TEMP/p1-kr05-derived"
       - name: Upload P1-KR-05 derived output artifacts
+        id: upload_derived
         if: steps.existing_context.outputs.exists != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -118,10 +121,28 @@ jobs:
       - name: Populate committed Korea Breadth context lineage
         if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         run: |
+          # Use the live main tip before creating append-only evidence. The
+          # producer still remains bound to github.sha in the manifest.
+          git fetch origin main
+          git reset --hard origin/main
           python3 .github/scripts/korea_breadth_context_populate.py \
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
             --workflow-run-id "${{ github.run_id }}" \
             --capture-mode forward_live
+          ARTIFACT_DIGEST="${{ needs.korea-breadth-live-proof.outputs.artifact_digest }}"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) ;;
+            *) ARTIFACT_DIGEST="sha256:$ARTIFACT_DIGEST" ;;
+          esac
+          python3 .github/scripts/korea_breadth_aggregate_populate.py \
+            --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --source-head-sha "${{ github.sha }}" \
+            --workflow-path ".github/workflows/p2-03-korea-observation-pair.yml" \
+            --artifact-id "${{ needs.korea-breadth-live-proof.outputs.artifact_id }}" \
+            --artifact-name "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}" \
+            --artifact-digest "$ARTIFACT_DIGEST"
       - name: Commit Korea Breadth context lineage
         if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         run: |
@@ -133,11 +154,7 @@ jobs:
           # have already pushed since then, so re-sync to the real current
           # tip before committing, or this push can be rejected as
           # non-fast-forward even though nothing here actually conflicts.
-          # Only the branch pointer/tracked tree is reset; the new untracked
-          # evidence file written above is left on disk.
-          git fetch origin main
-          git reset --hard origin/main
-          git add data/observations/korea_breadth_context
+          git add data/observations/korea_breadth_context data/observations/korea_breadth_aggregate
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
           else

@@ -16,6 +16,9 @@ permissions:
 jobs:
   korea-breadth-live-proof:
     runs-on: ubuntu-latest
+    outputs:
+      artifact_id: ${{ steps.upload_derived.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_derived.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -52,6 +55,7 @@ jobs:
             --recent-date "$RECENT_DATE" \
             --out-dir "$RUNNER_TEMP/p1-kr05-derived"
       - name: Upload P1-KR-05 derived output artifacts
+        id: upload_derived
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -65,7 +69,9 @@ jobs:
   # above, whose entire point is to prove NOTHING gets committed from a
   # raw KRX response. Downloads that job's own already-built "recent"
   # scope artifact (no second KRX request) and commits only the non-
-  # reconstructive per-market lineage summary
+  # reconstructive per-market lineage summary plus the exact four aggregate
+  # packets and immutable artifact lineage. This still does not retain raw
+  # responses or per-symbol rows and cannot authorize the KR Breadth axis.
   # (.github/scripts/korea_breadth_context_populate.py) that
   # rotation/korea_capital_rotation_ledger_wire.py reads to build P2-03's
   # coverage_context.breadth. No new schedule/cron: still workflow_
@@ -87,17 +93,34 @@ jobs:
           path: ${{ runner.temp }}/p1-kr05-derived
       - name: Populate committed Korea Breadth context lineage
         run: |
+          # This checkout is pinned when the dispatch starts. Rebase the write
+          # job onto the live main tip before creating append-only evidence.
+          git fetch origin main
+          git reset --hard origin/main
           python3 .github/scripts/korea_breadth_context_populate.py \
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
             --workflow-run-id "${{ github.run_id }}" \
             --capture-mode forward_live
           python3 .github/scripts/korea_global_universe_populate.py \
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived"
+          ARTIFACT_DIGEST="${{ needs.korea-breadth-live-proof.outputs.artifact_digest }}"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) ;;
+            *) ARTIFACT_DIGEST="sha256:$ARTIFACT_DIGEST" ;;
+          esac
+          python3 .github/scripts/korea_breadth_aggregate_populate.py \
+            --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --source-head-sha "${{ github.sha }}" \
+            --artifact-id "${{ needs.korea-breadth-live-proof.outputs.artifact_id }}" \
+            --artifact-name "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}" \
+            --artifact-digest "$ARTIFACT_DIGEST"
       - name: Commit Korea Breadth context lineage
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
-          git add data/observations/korea_breadth_context data/observations/krx_global_universe
+          git add data/observations/korea_breadth_context data/observations/krx_global_universe data/observations/korea_breadth_aggregate
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
           else

@@ -72,7 +72,7 @@ def _expected_contract() -> dict:
         },
         "deferred_axes": {
             "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
-            "KR/BREADTH": "MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED",
+            "KR/BREADTH": "AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE",
             "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
             "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
             "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED",

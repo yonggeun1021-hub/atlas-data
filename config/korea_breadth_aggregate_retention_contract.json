@@ -1,0 +1,46 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "breadth_classification_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "regime_score_authorized": false,
+    "strategy_authorized": false,
+    "threshold_authorized": false,
+    "trading_authorized": false
+  },
+  "allowed_workflow_paths": [
+    ".github/workflows/p1-kr05-korea-breadth-live.yml",
+    ".github/workflows/p2-03-korea-observation-pair.yml"
+  ],
+  "contract_version": "korea_breadth_aggregate_retention/1",
+  "historical_pair": {
+    "as_of_date": "20100105",
+    "previous_date": "20100104"
+  },
+  "market_endpoints": {
+    "KOSDAQ": "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd",
+    "KOSPI": "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd"
+  },
+  "output_decimal_places": 12,
+  "output_root": "data/observations/korea_breadth_aggregate",
+  "required_markets": [
+    "KOSPI",
+    "KOSDAQ"
+  ],
+  "required_scopes": [
+    "historical",
+    "recent"
+  ],
+  "retention_boundary": {
+    "axis_evidence_eligible": false,
+    "exact_aggregate_packet_bytes_retained": true,
+    "independent_source_replay_available": false,
+    "per_symbol_identity_and_price_retained": false,
+    "raw_response_bodies_retained": false
+  },
+  "schema_version": 1,
+  "source_packet_schema_version": "korea_breadth_observation/1",
+  "universe_semantics": "exact_date_official_response_rows_source_coverage_not_investable"
+}

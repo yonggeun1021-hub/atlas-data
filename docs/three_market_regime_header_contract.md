@@ -20,9 +20,12 @@ For Korea Breadth, the committed `korea_breadth_context_lineage/2` receipts
 retain source hashes and observation timestamps but deliberately omit the
 participation counts needed to rederive a market-wide Breadth observation.
 They therefore remain `UNDEFINED` with
-`MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED`. Even a self-rehashed receipt with
-fabricated counts cannot define that axis. This is a source-readiness boundary,
-not a Breadth state, normalization rule, or Regime policy.
+`AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE`. The exact aggregate count and
+fraction packets are now append-only retained, but the KRX response bodies and
+per-symbol rows needed for independent source replay are still absent. Even a
+self-rehashed receipt or aggregate with fabricated counts cannot define that
+axis. This is a source-readiness boundary, not a Breadth state, normalization
+rule, or Regime policy.
 
 The header is deliberately non-interpretive:
 

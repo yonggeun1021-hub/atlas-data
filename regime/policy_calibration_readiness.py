@@ -116,7 +116,7 @@ def _expected_contract() -> dict:
         "bound_contracts": {
             "live_axis_adapter": {
                 "path": "config/regime_live_axis_adapter_contract.json",
-                "sha256": "a117733e083d90b5de63902071accf0bf7bdfbad1f0f3fb83c3a04517b5baafe",
+                "sha256": "05d1a7a8593e3bdab78baa23802780204a124d7362575fb0ceac042f3377da1e",
                 "contract_version": "regime_live_axis_adapter/v3",
             },
             "minimum_coverage": {
