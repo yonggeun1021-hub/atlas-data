@@ -24,6 +24,34 @@ A missing entity creates neither a synthetic state nor a tombstone. Regime,
 Candidate, Stage, briefing, Production, and trading remain unauthorized. The
 CLI writes only to an explicit path outside the repository.
 
+## Production-proof boundary correction
+
+The Korea capital-rotation one-shot proof is a P2-03 rotation and briefing
+pointer proof only. It has no state-policy builder, `--ledger-out` option, or
+call to `rotation_state_ledger.apply_rotation()`. Earlier code copied a test
+fixture mapping into that production-facing script, labelled it RATIFIED, and
+could write an external ledger. That contradicted this contract's
+`repository_default_policy = ABSENT` boundary and has been removed. Generic
+ledger mechanics remain fully tested in `test_rotation_state_ledger.py`, where
+the policy is explicitly test-only.
+
+## Operational readiness inventory
+
+`rotation/rotation_state_ledger_operational_readiness.py` re-derives the
+repository's current readiness without provider calls or caller-supplied policy
+objects. A rolling briefing pointer is reported only as pointer lineage; it is
+never promoted to the full producer packet, an approved state policy, or an
+append-only operational ledger. The exact pointer bytes must match the current
+committed git blob.
+
+The current repository result is intentionally fail-closed: zero of US, Korea,
+and Crypto have all three required inputs. Korea has a committed rotation
+briefing pointer but not the full producer packet; US and Crypto have no
+committed operational rotation evidence. The repository provides no P2-05 state
+policy and no operational state-ledger evidence for any market. Therefore no
+P2 state, Regime input, Candidate ranking, Stage, briefing integration,
+Production, or trading authority is opened by this readiness artifact.
+
 ## Producer validation boundary
 
 The ledger does not substitute a generic packet-shape check for producer

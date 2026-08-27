@@ -218,6 +218,7 @@ APPROVED_TESTS = [
     #   US/Korea/Crypto scope는 독립이며 재분류·backfill·Regime/Stage 없음.
     #   ⛔ repository default policy/live network/tracked ledger 없음 — temp only.
     "test/test_rotation_state_ledger.py",
+    "test/test_rotation_state_ledger_operational_readiness.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. Persisted validator가 decimal 산술,

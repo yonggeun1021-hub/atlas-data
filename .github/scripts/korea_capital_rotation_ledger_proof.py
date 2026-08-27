@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""P2-03 -> rotation_state_ledger -> daily briefing one-shot wiring proof.
+"""P2-03 Korea capital-rotation -> daily briefing one-shot wiring proof.
 
 Manual verification tool (mirrors the existing korea_breadth_derived_
 outputs.py precedent): builds one real Korea capital-rotation packet
 using the committed, real P3-03/P1-KR-05 breadth-context lineage
 (rotation/korea_capital_rotation_ledger_wire.py's coverage_context.
-breadth), applies it through the existing, UNCHANGED rotation_state_
-ledger.apply_rotation(), and refreshes the committed briefing pointer
+breadth), and refreshes the committed briefing pointer
 (data/latest_korea_rotation.json) that briefing/daily_orchestrator.py
 reads -- then, optionally, builds one real daily briefing packet for the
-same decision_date to prove the BLOCKED breadth lineage renders all the
-way through.
+same decision_date to prove the breadth lineage renders all the way
+through.
+
+This production proof deliberately has no P2-05 state-policy or ledger
+write path. P2-05 requires an external, independently ratified state
+mapping and the repository contract declares that mapping ABSENT. Test
+fixtures may exercise the generic ledger capability, but this script
+must never manufacture a RATIFIED policy or turn a fixture mapping into
+operational state history.
 
 Honesty boundary, updated 2026-08-22 (minimal rotation_policy
 ratification + PIT temporal-invariant correction): Breadth, Leadership,
@@ -87,7 +93,6 @@ WIRE = _load_module(
     "rotation/korea_capital_rotation_ledger_wire.py",
 )
 KCR = _load_module("korea_capital_rotation_for_proof", "rotation/korea_capital_rotation.py")
-LEDGER = _load_module("rotation_state_ledger_for_proof", "rotation/rotation_state_ledger.py")
 
 
 def load_real_leadership_packet(observation_date: str) -> dict:
@@ -227,34 +232,7 @@ def build_real_price_side(prior_date: str, current_date: str):
     return input_value, rotation_policy
 
 
-def build_state_policy(rotation_packet: dict) -> dict:
-    """Same closed-vocabulary RATIFIED test state policy already used by
-    test/test_rotation_state_ledger.py -- the ledger itself is unchanged,
-    this only supplies a policy that satisfies its own validator."""
-    return {
-        "schema_version": LEDGER.POLICY_SCHEMA_VERSION,
-        "policy_id": "POLICY.P2.05.PROOF",
-        "approval_status": "RATIFIED",
-        "ratified_by": "Atlas CIO",
-        "ratified_at_utc": "2026-08-01T00:00:00Z",
-        "effective_from": "2026-08-01",
-        "effective_to": None,
-        "market": "KOREA",
-        "input_rotation_contract_version": rotation_packet["contract_version"],
-        "input_rotation_policy_sha256": rotation_packet["lineage"]["rotation_policy_sha256"],
-        "state_vocabulary": ["EMERGING", "STRONG", "WEAKENING"],
-        "state_by_bucket_transition": {
-            "BOTTOM_TO_BOTTOM": "WEAKENING", "BOTTOM_TO_MIDDLE": "EMERGING",
-            "BOTTOM_TO_TOP": "EMERGING", "MIDDLE_TO_BOTTOM": "WEAKENING",
-            "MIDDLE_TO_MIDDLE": "STRONG", "MIDDLE_TO_TOP": "EMERGING",
-            "TOP_TO_BOTTOM": "WEAKENING", "TOP_TO_MIDDLE": "WEAKENING",
-            "TOP_TO_TOP": "STRONG",
-        },
-        "maximum_ledger_gap_days": 30,
-    }
-
-
-def run(prior_date: str, current_date: str, ledger_out: Path | None, pointer_out: Path | None) -> dict:
+def run(prior_date: str, current_date: str, pointer_out: Path | None) -> dict:
     as_of_date = current_date
     value, rotation_policy = build_real_price_side(prior_date, current_date)
     source = WIRE.load_breadth_context_source(as_of_date)
@@ -267,21 +245,6 @@ def run(prior_date: str, current_date: str, ledger_out: Path | None, pointer_out
     breadth, reason = WIRE.build_coverage_context_breadth(as_of_date, 3, source, decision_time)
     value["coverage_context"]["breadth"] = breadth
     rotation_packet = KCR.build_packet(value, rotation_policy)
-
-    ledger = None
-    # rotation_policy is now RATIFIED for real, but build_packet() still
-    # independently re-derives rotation_policy_effective per the actual
-    # observation pair's dates and anti-lookahead check (see module
-    # docstring) -- a pair the ratified policy does not cover, or one
-    # that predates real ratification, still honestly comes back
-    # POLICY_NOT_EFFECTIVE. rotation_state_ledger.apply_rotation() only
-    # ever accepts a packet whose own status is ROTATION_BUCKETS_OBSERVED
-    # (rotation_policy_effective=True); an ineffective packet is
-    # correctly never pushed into the ledger, fail-closed either way.
-    if rotation_packet["rotation_policy_effective"] and ledger_out is not None:
-        state_policy = build_state_policy(rotation_packet)
-        ledger = LEDGER.apply_rotation(rotation_packet, state_policy, previous_ledger=None)
-        LEDGER.write_json_atomic(ledger_out, ledger)
 
     context_rel_path = None
     if source is not None:
@@ -296,7 +259,6 @@ def run(prior_date: str, current_date: str, ledger_out: Path | None, pointer_out
         WIRE.write_json_atomic(pointer_out, pointer)
     return {
         "rotation_packet": rotation_packet,
-        "ledger": ledger,
         "pointer": pointer,
     }
 
@@ -305,20 +267,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prior-date", required=True, help="YYYY-MM-DD, real committed Leadership evidence")
     parser.add_argument("--current-date", required=True, help="YYYY-MM-DD, real committed Leadership evidence")
-    parser.add_argument("--ledger-out", type=Path, default=None)
     parser.add_argument(
         "--commit-pointer", action="store_true",
         help="Also write data/latest_korea_rotation.json (tracked, committed).",
     )
     args = parser.parse_args()
     pointer_out = WIRE.BRIEFING_POINTER_PATH if args.commit_pointer else None
-    result = run(args.prior_date, args.current_date, args.ledger_out, pointer_out)
+    result = run(args.prior_date, args.current_date, pointer_out)
     print(
-        "korea capital rotation ledger proof: "
+        "korea capital rotation briefing proof: "
         f"rotation_status={result['rotation_packet']['status']} "
         f"rotation_policy_effective={result['rotation_packet']['rotation_policy_effective']} "
         f"breadth_status={result['rotation_packet']['coverage_context']['breadth']['status']} "
-        f"ledger_revision={result['ledger']['ledger_revision'] if result['ledger'] else '(not eligible)'} "
         f"pointer_path={pointer_out or '(not written)'}"
     )
     return 0
