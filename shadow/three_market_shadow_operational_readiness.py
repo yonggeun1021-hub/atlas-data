@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
-import io
 import importlib.util
 import json
 import os
@@ -13,7 +12,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tarfile
 import tempfile
 
 
@@ -133,19 +131,8 @@ def _validate_shadow_inputs_at_commit(
     schemas and cross-packet lineage inside an isolated archive of the exact
     source commit.
     """
-    # _git_blob performs the full immutable-SHA verification before archive use.
+    # _git_blob performs the full immutable-SHA verification before checkout.
     DAILY_LINEAGE._git_blob(source_commit, relative)
-    archive = subprocess.run(
-        ["git", "archive", "--format=tar", source_commit],
-        cwd=ROOT,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if archive.returncode != 0:
-        raise ThreeMarketShadowOperationalReadinessError(
-            "SOURCE_COMMIT_ARCHIVE_UNAVAILABLE"
-        )
     program = r'''
 import importlib.util
 import json
@@ -179,17 +166,13 @@ print(json.dumps({
 }, sort_keys=True))
 '''
     with tempfile.TemporaryDirectory(prefix="atlas-p10-01-validate-") as temporary:
-        checkout = Path(temporary)
-        with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as handle:
-            members = handle.getmembers()
-            if any(
-                member.name.startswith("/") or ".." in Path(member.name).parts
-                for member in members
-            ):
-                raise ThreeMarketShadowOperationalReadinessError(
-                    "SOURCE_ARCHIVE_PATH_INVALID"
-                )
-            handle.extractall(checkout)
+        checkout = Path(temporary) / "repo"
+        try:
+            DAILY_LINEAGE._materialize_exact_commit(source_commit, checkout)
+        except DAILY_LINEAGE.OperationalDecisionLineageError as exc:
+            raise ThreeMarketShadowOperationalReadinessError(
+                f"SOURCE_COMMIT_CHECKOUT_FAILED:{exc}"
+            ) from exc
         completed = subprocess.run(
             [sys.executable, "-c", program, relative],
             cwd=checkout,
