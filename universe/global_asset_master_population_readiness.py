@@ -4,9 +4,9 @@
 This module inventories the latest committed source-coverage population on or
 before an explicit date.  It independently rebuilds US and Crypto results from
 their immutable raw archives through the existing production population
-builders.  Korea remains blocked until an exact KRX population packet is
-committed; the repository intentionally does not retain reconstructive KRX raw
-responses.
+builders.  Korea validates the exact packet produced in the same P1-KR-05
+workflow from both official KRX response bodies; the repository intentionally
+does not retain reconstructive KRX raw responses.
 
 Readiness here means source coverage only.  It never approves a universe,
 infers freshness without a policy, decides investability, promotes a Stage, or
@@ -49,6 +49,10 @@ US_POPULATION = _load_module(
 CRYPTO_POPULATION = _load_module(
     "crypto_forward_universe_for_master_readiness",
     ".github/scripts/crypto_forward_universe_populate.py",
+)
+KOREA_POPULATION = _load_module(
+    "korea_global_universe_for_master_readiness",
+    ".github/scripts/korea_global_universe_populate.py",
 )
 
 
@@ -309,12 +313,19 @@ def _crypto_state(as_of_date: str, raw_root: Path, data_root: Path) -> dict:
 
 
 def _korea_state(as_of_date: str, data_root: Path) -> dict:
-    source_date = _latest_date(data_root, as_of_date)
+    dated_candidates = _dated_directories(data_root, as_of_date)
+    source_date, first_seen_commit, first_seen_at = _latest_knowledge_eligible_date(
+        data_root, as_of_date, "packet.json"
+    )
     if source_date is None:
         return {
             "market": "KOREA",
             "status": "SOURCE_COVERAGE_NOT_READY",
-            "reason": "COMMITTED_EXACT_KRX_POPULATION_PACKET_MISSING",
+            "reason": (
+                "COMMITTED_EXACT_KRX_POPULATION_PACKET_NOT_KNOWN_BY_AS_OF"
+                if dated_candidates
+                else "COMMITTED_EXACT_KRX_POPULATION_PACKET_MISSING"
+            ),
             "source_date": None,
             "knowledge_first_seen_commit": None,
             "knowledge_first_seen_at": None,
@@ -322,9 +333,24 @@ def _korea_state(as_of_date: str, data_root: Path) -> dict:
             "packet_path": None,
             "packet_sha256": None,
         }
-    # No tracked KRX population contract exists yet. Refuse to bless an
-    # arbitrary file merely because a dated directory appeared.
-    raise ReadinessError(f"KOREA_POPULATION_VALIDATOR_NOT_IMPLEMENTED:{source_date}")
+    target = Path(data_root) / source_date / "packet.json"
+    try:
+        packet = KOREA_POPULATION.validate_packet(_read_json(target))
+    except KOREA_POPULATION.PopulationError as exc:
+        raise ReadinessError(f"KOREA_PACKET_DRIFT_OR_TAMPER:{source_date}:{exc}") from exc
+    if packet["as_of_date"] != source_date:
+        raise ReadinessError(f"KOREA_PACKET_DATE_MISMATCH:{source_date}")
+    return {
+        "market": "KOREA",
+        "status": "SOURCE_COVERAGE_READY",
+        "reason": None,
+        "source_date": source_date,
+        "knowledge_first_seen_commit": first_seen_commit,
+        "knowledge_first_seen_at": first_seen_at,
+        "record_count": packet["total_count"],
+        "packet_path": f"data/observations/krx_global_universe/{source_date}/packet.json",
+        "packet_sha256": packet["payload_sha256"],
+    }
 
 
 def build_readiness(
@@ -409,6 +435,7 @@ def run(argv=None) -> int:
         US_POPULATION.UGU.UsUniverseError,
         CRYPTO_POPULATION.PopulationError,
         CRYPTO_POPULATION.CGU.CryptoUniverseError,
+        KOREA_POPULATION.PopulationError,
     ) as exc:
         print(f"P3-01 population readiness failed: {exc}")
         return 1

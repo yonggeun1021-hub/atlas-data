@@ -91,11 +91,13 @@ jobs:
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
             --workflow-run-id "${{ github.run_id }}" \
             --capture-mode forward_live
+          python3 .github/scripts/korea_global_universe_populate.py \
+            --derived-dir "$RUNNER_TEMP/p1-kr05-derived"
       - name: Commit Korea Breadth context lineage
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
-          git add data/observations/korea_breadth_context
+          git add data/observations/korea_breadth_context data/observations/krx_global_universe
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
           else
