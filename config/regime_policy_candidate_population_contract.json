@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_policy_candidate_population/v1",
+  "contract_version": "regime_policy_candidate_population/v2",
   "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
   "candidate_contract": {
     "path": "config/regime_policy_candidate_contract.json",
@@ -21,10 +21,28 @@
     "effective_date": "2026-08-20",
     "canonical_wbs_url": "https://app.notion.com/p/3bf9f2d73c848173b2efea81c872126d"
   },
+  "unratified_policy_boundary": {
+    "path": "config/regime_decision_authority_contract.json",
+    "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+    "contract_version": "regime_decision_authority/v1",
+    "repository_policy_registry_status": "ABSENT",
+    "source_policy_component": "FACTOR_NORMALIZATION",
+    "candidate_component": "MARKET_NORMALIZATION",
+    "component_status": "UNRATIFIED",
+    "reason_code": "FACTOR_NORMALIZATION_POLICY_UNRATIFIED",
+    "authority_key": "factor_normalization_authorized",
+    "authority_value": false,
+    "evidence_id": "P1_COM_05_FACTOR_NORMALIZATION_UNRATIFIED_BOUNDARY",
+    "source_commit": "b010af506a7330f4b6957a0d1389b1801b33f39b",
+    "merge_commit": "d334aed37d045dd0c579a0f84c26a1d6313fd9f0",
+    "pull_request": 334,
+    "published_at": "2026-08-27T01:56:01+09:00",
+    "available_at": "2026-08-27T02:07:53+09:00"
+  },
   "candidate": {
-    "candidate_id": "P1_COM_05_MINIMUM_COVERAGE_EVIDENCE_V1",
+    "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V2",
     "market": "COMMON",
-    "decision_at": "2026-08-27T09:26:04+09:00",
+    "decision_at": "2026-08-27T10:43:01+09:00",
     "policy_status": "DRAFT_NOT_RATIFIED",
     "populated_component": "MINIMUM_COVERAGE",
     "parameter_id": "MINIMUM_COVERAGE",
@@ -32,6 +50,7 @@
   },
   "artifact_paths": {
     "evidence": "evidence/regime/policy_candidates/minimum_coverage_evidence.json",
+    "normalization_evidence": "evidence/regime/policy_candidates/market_normalization_unratified_evidence.json",
     "manifest": "evidence/regime/policy_candidates/candidate_manifest.json",
     "inventory": "evidence/regime/policy_candidates/candidate_inventory.json"
   },
@@ -39,6 +58,10 @@
     "supported_components": [
       "MINIMUM_COVERAGE"
     ],
+    "explicit_negative_components": [
+      "MARKET_NORMALIZATION"
+    ],
+    "missing_evidence_component_count": 7,
     "blocked_component_count": 8,
     "candidate_status": "CANDIDATE_BLOCKED",
     "replay_population_status": "NOT_COMPUTABLE"

@@ -109,3 +109,27 @@ The retained evidence is coverage-only. It preserves the policy's explicit
 freshness or classification blockers into values. Changing five-of-five to
 four-of-five, replacing an axis, or re-signing a changed evidence/manifest/
 inventory chain fails against the independently pinned source policy.
+
+## Explicit negative evidence: market normalization
+
+`regime_policy_candidate_population/v2` distinguishes missing evidence from an
+exact source that says a policy is not authorized. It pins the bytes of
+`regime_decision_authority/v1` from PR #334. That boundary states:
+
+- the repository policy registry is `ABSENT`;
+- `FACTOR_NORMALIZATION` is `UNRATIFIED`;
+- the reason is `FACTOR_NORMALIZATION_POLICY_UNRATIFIED`;
+- `factor_normalization_authorized=false`.
+
+The resulting `MARKET_NORMALIZATION` evidence is deliberately classified as
+`UNSUPPORTED`. Its candidate value remains `UNSPECIFIED`, so its blocking
+reasons are `UNSUPPORTED_EVIDENCE` and `VALUE_UNSPECIFIED`, rather than
+`EVIDENCE_MISSING`. The structural `normalize_factors()` operation in
+`regime_output/v1` validates fields, axis identity, and timestamps; it is not a
+market-specific orientation, scale, threshold, or weighting policy.
+
+This negative evidence cannot be re-signed into support. Changing the pinned
+boundary to `RATIFIED`, changing authority to true, or replacing the retained
+unsupported document with a fabricated explicit value fails closed. The
+candidate remains `CANDIDATE_BLOCKED`, replay remains `NOT_COMPUTABLE`, and the
+same downstream authority boundary remains false.

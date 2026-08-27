@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "contract_version": "regime_policy_candidate_manifest/v1",
-  "candidate_id": "P1_COM_05_MINIMUM_COVERAGE_EVIDENCE_V1",
+  "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V2",
   "market": "COMMON",
-  "decision_at": "2026-08-27T09:26:04+09:00",
+  "decision_at": "2026-08-27T10:43:01+09:00",
   "policy_status": "DRAFT_NOT_RATIFIED",
   "parameters": [
     {
@@ -11,7 +11,13 @@
       "parameter_id": "MARKET_NORMALIZATION",
       "value_type": "UNSPECIFIED",
       "proposed_value": null,
-      "evidence_refs": []
+      "evidence_refs": [
+        {
+          "path": "evidence/regime/policy_candidates/market_normalization_unratified_evidence.json",
+          "sha256": "53c9b3359fcfe0c5b2b36ad2909c76329268b611ebc670ec9acb24153279fec3",
+          "evidence_id": "P1_COM_05_FACTOR_NORMALIZATION_UNRATIFIED_BOUNDARY"
+        }
+      ]
     },
     {
       "component": "MINIMUM_COVERAGE",
