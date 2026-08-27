@@ -1,0 +1,41 @@
+{
+  "action": null,
+  "authority": {
+    "action_generation_authorized": false,
+    "capital_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "shadow_observation_recording_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "three_market_shadow_operational_readiness/1",
+  "input_status": {
+    "ENTRY_EXIT_TRIGGER_ELIGIBILITY": "NOT_AVAILABLE_DAILY_COMPONENT_NOT_WIRED",
+    "INTRADAY_RISK_ESCALATION": "NOT_AVAILABLE_DAILY_COMPONENT_NOT_WIRED",
+    "UNIFIED_DECISION": "READY_VALIDATED"
+  },
+  "order_intent": null,
+  "packet_sha256": "d8d1cc17954caa0f523ab5a0db150376afcf4d5f9e85d048430caa9246d50161",
+  "recorded_at": "2026-08-27T14:19:19Z",
+  "schema_version": "three_market_shadow_operational_readiness_packet/1",
+  "shadow_ledger": null,
+  "source": {
+    "daily_briefing_blob_sha256": "ae2979b0cb58b9a40f1b11ab9be22b73070cb171f607a8041cf4017b3c1cedcd",
+    "daily_briefing_packet_sha256": "5c17ae4ca5bc20491fd3b88a267bf5797b46867cab2c72af97cf4016760757c3",
+    "daily_briefing_path": "evidence/daily_briefing/evening/2026-08-27/rev-002/packet.json",
+    "entry_exit_trigger_eligibility_packet_sha256": null,
+    "intraday_risk_escalation_packet_sha256": null,
+    "source_commit": "8b6553440ad49bc709df10c0c7a52e7c08ccffca",
+    "unified_decision_packet_sha256": "0c119bf126598fa9cd3c18ea68fbb02617d0280da3ecd74ba31f3e73317786cb"
+  },
+  "status": "BLOCKED_MISSING_EXACT_P9_LIVE_INPUTS",
+  "summary": {
+    "entry_exit_trigger_eligibility_ready_count": 0,
+    "intraday_risk_escalation_ready_count": 0,
+    "real_capital_deployed": "0",
+    "real_order_count": 0,
+    "shadow_append_ready_count": 0,
+    "shadow_record_count": 0,
+    "unified_decision_ready_count": 1
+  }
+}
