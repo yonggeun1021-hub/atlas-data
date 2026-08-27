@@ -1351,6 +1351,9 @@ def build_rotation_discovery(
         population = EVENT_POPULATION.build_population_inputs(
             repo_root=ROOT, decision_at=generated_at
         )
+        wildcard_envelopes = ROTATION_DISCOVERY.load_operational_wildcard_envelopes(
+            generated_at, ROOT
+        )
         packet = ROTATION_DISCOVERY.build_briefing(
             ledger,
             population["records"],
@@ -1358,16 +1361,21 @@ def build_rotation_discovery(
             slot,
             generated_at,
             dynamic_report=dynamic_report,
+            wildcard_envelopes=wildcard_envelopes,
+            wildcard_root=ROOT,
         )
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ROTATION_DISCOVERY", exc)
     case_count = packet["discovery"]["case_count"]
     signal_count = packet["signal_observations"]["observation_count"]
+    wildcard_count = packet["wildcard_observations"]["observation_count"]
     return component_row(
         "ROTATION_DISCOVERY",
         "PENDING",
         (
-            "SIGNAL_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
+            "WILDCARD_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
+            if wildcard_count
+            else "SIGNAL_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
             if signal_count
             else (
                 "EVENT_CASES_RECORDED_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
@@ -2784,6 +2792,13 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"    - signal_markets={signal.get('market_counts')} "
                     f"tier_diagnostic_only={signal.get('tier_counts_diagnostic_only')} "
                     "promotion=NOT_AUTHORIZED"
+                )
+            wildcard = packet.get("wildcard_observations", {})
+            if wildcard:
+                lines.append(
+                    f"    - wildcard_observations={wildcard.get('observation_count')} "
+                    f"cases={wildcard.get('case_count')} pending={wildcard.get('pending_count')} "
+                    "importance=UNRATIFIED promotion=NOT_AUTHORIZED"
                 )
         elif cid == "BUSINESS_ACCELERATION":
             summary = packet.get("summary", {})
