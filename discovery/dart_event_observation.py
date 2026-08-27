@@ -103,7 +103,7 @@ def _date(value, code: str) -> dt.date:
     return parsed
 
 
-def _validate_source(source: dict, decision_at: dt.datetime) -> list[dict]:
+def _validate_source(source: dict, decision_at: dt.datetime) -> dict:
     if source.get("source") != "OpenDART (금융감독원)" or source.get("source_tier") != "Official":
         raise DartEventObservationError("DART_SOURCE_IDENTITY_INVALID")
     collected = _utc(source.get("collected_at_utc"), "DART_COLLECTED_AT_INVALID")
@@ -117,11 +117,31 @@ def _validate_source(source: dict, decision_at: dt.datetime) -> list[dict]:
     if not isinstance(keywords, list) or not keywords or not isinstance(stocks, dict):
         raise DartEventObservationError("DART_SOURCE_SHAPE_INVALID")
     observations = []
+    failures = []
+    ok_count = 0
     for ticker, stock in sorted(stocks.items()):
         if STOCK_RE.fullmatch(ticker) is None or not isinstance(stock, dict):
             raise DartEventObservationError("DART_STOCK_INVALID")
+        if stock.get("status") == "FAILED":
+            if (
+                not isinstance(stock.get("name"), str)
+                or not stock["name"]
+                or not isinstance(stock.get("error"), str)
+                or not stock["error"]
+            ):
+                raise DartEventObservationError(f"DART_STOCK_FAILURE_INVALID:{ticker}")
+            failures.append({
+                "ticker": ticker,
+                "name": stock["name"],
+                "atlas_stage": stock.get("atlas_stage"),
+                "coverage": stock.get("coverage"),
+                "status": "SOURCE_COLLECTION_FAILED",
+                "reasons": ["DART_STOCK_COLLECTION_FAILED"],
+            })
+            continue
         if stock.get("status") != "ok":
-            raise DartEventObservationError(f"DART_STOCK_STATUS_NOT_OK:{ticker}")
+            raise DartEventObservationError(f"DART_STOCK_STATUS_INVALID:{ticker}")
+        ok_count += 1
         relevant = stock.get("relevant")
         if (
             not isinstance(relevant, list)
@@ -147,25 +167,31 @@ def _validate_source(source: dict, decision_at: dt.datetime) -> list[dict]:
                 "atlas_stage": stock.get("atlas_stage"),
                 "filing": normalized,
             })
-    return observations
+    expected_summary = {"ok": ok_count, "failed": len(failures)}
+    if source.get("summary") != expected_summary:
+        raise DartEventObservationError("DART_SOURCE_SUMMARY_MISMATCH")
+    if ok_count == 0:
+        raise DartEventObservationError("DART_ALL_STOCKS_FAILED")
+    return {"observations": observations, "failures": failures}
 
 
 def _validate_content_run(
     run: dict, source_bytes: bytes, source: dict, decision_at: dt.datetime
-) -> dict[tuple[str, str], dict]:
+) -> dict:
     contract = DART.load_contract()
-    fields = {
+    base_fields = {
         "schema_version", "source_file", "source_sha256", "collected_for_kst_date",
         "observed_at_utc", "contract_version", "run_status", "counts", "records",
         "authority",
     }
-    if not isinstance(run, dict) or set(run) != fields:
+    if not isinstance(run, dict) or set(run) not in (base_fields, base_fields | {"reasons"}):
         raise DartEventObservationError("DART_CONTENT_RUN_FIELDS_MISMATCH")
+    run_status = run.get("run_status")
     if (
         run.get("schema_version") != DART.RUN_SCHEMA_VERSION
         or run.get("contract_version") != contract["contract_version"]
         or run.get("authority") != contract["authority"]
-        or run.get("run_status") != "OK"
+        or run_status not in {"OK", "DEGRADED", "FAILED"}
         or run.get("collected_for_kst_date") != source.get("collected_for_kst_date")
         or run.get("source_sha256") != hashlib.sha256(source_bytes).hexdigest()
     ):
@@ -176,6 +202,20 @@ def _validate_content_run(
     counts = run.get("counts")
     if not isinstance(records, list) or not isinstance(counts, dict):
         raise DartEventObservationError("DART_CONTENT_RUN_SHAPE_INVALID")
+    if run_status == "FAILED":
+        reasons = run.get("reasons")
+        if (
+            set(run) != base_fields | {"reasons"}
+            or records != []
+            or counts != {"captured": 0, "skipped": 0, "failed": 1, "not_applicable": 0}
+            or not isinstance(reasons, list)
+            or not reasons
+            or not all(isinstance(reason, str) and reason for reason in reasons)
+        ):
+            raise DartEventObservationError("DART_CONTENT_FAILED_RUN_INVALID")
+        return {"run_status": run_status, "records": {}, "reasons": copy.deepcopy(reasons)}
+    if set(run) != base_fields:
+        raise DartEventObservationError("DART_CONTENT_RUN_FIELDS_MISMATCH")
     expected_counts = {
         "captured": sum(row.get("operation") == "captured" for row in records),
         "skipped": sum(row.get("operation") == "skipped" for row in records),
@@ -184,6 +224,8 @@ def _validate_content_run(
     }
     if counts != expected_counts:
         raise DartEventObservationError("DART_CONTENT_COUNTS_MISMATCH")
+    if (run_status == "OK") != (counts["failed"] == 0):
+        raise DartEventObservationError("DART_CONTENT_RUN_STATUS_MISMATCH")
     indexed = {}
     for row in records:
         identity = row.get("filing_identity") if isinstance(row, dict) else None
@@ -193,7 +235,7 @@ def _validate_content_run(
         if key in indexed:
             raise DartEventObservationError("DART_CONTENT_RECORD_DUPLICATE")
         indexed[key] = copy.deepcopy(row)
-    return indexed
+    return {"run_status": run_status, "records": indexed, "reasons": []}
 
 
 def _content_evidence(
@@ -210,6 +252,26 @@ def _content_evidence(
         or content_row.get("atlas_stage") != source_row["atlas_stage"]
     ):
         raise DartEventObservationError(f"DART_CONTENT_SOURCE_MISMATCH:{ticker}:{rcept_no}")
+    content_failed = (
+        content_row.get("operation") == "failed"
+        or content_row.get("publication_status") == "FAILED"
+    )
+    if content_failed:
+        if (
+            content_row.get("operation") != "failed"
+            or content_row.get("publication_status") != "FAILED"
+        ):
+            raise DartEventObservationError(f"DART_CONTENT_FAILURE_STATUS_MISMATCH:{ticker}:{rcept_no}")
+        reasons = content_row.get("reasons")
+        if not isinstance(reasons, list) or not reasons:
+            raise DartEventObservationError(f"DART_CONTENT_FAILURE_INVALID:{ticker}:{rcept_no}")
+        return {
+            "status": "CONTENT_CAPTURE_FAILED",
+            "available_at": None,
+            "source_uri": filing["url"],
+            "source_sha256": None,
+            "reasons": ["DART_CONTENT_CAPTURE_FAILED"],
+        }
     if content_row.get("content_status") == "OK":
         try:
             manifest = DART.load_existing_manifest(data_root, ticker, rcept_no)
@@ -252,6 +314,16 @@ def _content_evidence(
     }
 
 
+def _failed_content_run_evidence(source_row: dict) -> dict:
+    return {
+        "status": "CONTENT_RUN_FAILED",
+        "available_at": None,
+        "source_uri": source_row["filing"]["url"],
+        "source_sha256": None,
+        "reasons": ["DART_CONTENT_RUN_FAILED"],
+    }
+
+
 def build_packet(
     *, decision_at: str, source_path: Path = DEFAULT_DART,
     content_path: Path = DEFAULT_CONTENT, data_root: Path = DEFAULT_DATA_ROOT,
@@ -262,17 +334,23 @@ def build_packet(
     content_bytes = content_path.read_bytes()
     source = _read_json(source_path)
     content_run = _read_json(content_path)
-    source_rows = _validate_source(source, decision)
-    content_by_id = _validate_content_run(content_run, source_bytes, source, decision)
+    source_validation = _validate_source(source, decision)
+    source_rows = source_validation["observations"]
+    source_failures = source_validation["failures"]
+    content_validation = _validate_content_run(content_run, source_bytes, source, decision)
+    content_by_id = content_validation["records"]
     observations = []
     expected_ids = set()
     for row in source_rows:
         filing = row["filing"]
         key = (row["ticker"], filing["rcept_no"])
         expected_ids.add(key)
-        if key not in content_by_id:
+        if content_validation["run_status"] == "FAILED":
+            evidence = _failed_content_run_evidence(row)
+        elif key not in content_by_id:
             raise DartEventObservationError(f"DART_CONTENT_RECORD_MISSING:{key[0]}:{key[1]}")
-        evidence = _content_evidence(data_root, row, content_by_id[key], decision)
+        else:
+            evidence = _content_evidence(data_root, row, content_by_id[key], decision)
         observation = {
             "schema_version": OBSERVATION_VERSION,
             "observation_id": f"DART_{filing['rcept_no']}_{row['ticker']}",
@@ -303,11 +381,20 @@ def build_packet(
     if extra:
         raise DartEventObservationError(f"DART_CONTENT_RECORD_NOT_IN_SOURCE:{extra[0][0]}:{extra[0][1]}")
     observations.sort(key=lambda row: (row["filing_date"], row["rcept_no"], row["subject_id"]))
+    content_failure_count = sum(
+        row["evidence"]["status"] in {"CONTENT_CAPTURE_FAILED", "CONTENT_RUN_FAILED"}
+        for row in observations
+    )
+    partial_failure = bool(source_failures or content_failure_count)
     packet = {
         "schema_version": SCHEMA_VERSION,
         "decision_at": decision_at,
         "source_date": source["collected_for_kst_date"],
-        "status": "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED",
+        "status": (
+            "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+            if partial_failure
+            else "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED"
+        ),
         "lineage": {
             "source_path": _source_ref(source_path),
             "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
@@ -316,6 +403,8 @@ def build_packet(
             "content_contract_version": content_run["contract_version"],
         },
         "summary": {
+            "source_ok_count": source["summary"]["ok"],
+            "source_failed_count": source["summary"]["failed"],
             "relevant_filing_count": len(observations),
             "raw_bytes_verified_count": sum(
                 row["evidence"]["status"] == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
@@ -325,12 +414,14 @@ def build_packet(
                 row["evidence"]["status"] == "METADATA_ONLY_STAGE_NOT_ASSIGNED"
                 for row in observations
             ),
+            "content_failure_count": content_failure_count,
             "event_type_inferred_count": 0,
             "importance_classified_count": 0,
             "notification_sent_count": 0,
             "action_count": 0,
             "order_count": 0,
         },
+        "source_failures": source_failures,
         "observations": observations,
         "authority": copy.deepcopy(AUTHORITY),
     }
