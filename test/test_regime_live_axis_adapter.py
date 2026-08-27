@@ -92,7 +92,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             contract["deferred_axes"]["KR/BREADTH"],
-            "MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED",
+            "AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE",
         )
         self.assertIn(
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
@@ -132,7 +132,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
             },
             {
                 "TREND": ["MARKET_WIDE_SOURCE_MISSING"],
-                "BREADTH": ["MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED"],
+                "BREADTH": ["AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE"],
                 "RISK_VOL": ["MARKET_WIDE_SOURCE_MISSING"],
                 "LIQUIDITY": ["SOURCE_POLICY_UNRATIFIED"],
                 "LEADERSHIP": ["SOURCE_POLICY_UNRATIFIED"],
@@ -288,7 +288,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         self.assertEqual(breadth["status"], "UNDEFINED")
         self.assertEqual(
             breadth["warnings"],
-            ["MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED"],
+            ["AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE"],
         )
         self.assertIsNone(breadth["evidence"])
         self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")

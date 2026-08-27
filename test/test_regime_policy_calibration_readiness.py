@@ -72,7 +72,7 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         }
         self.assertEqual(
             axes["KR/BREADTH"]["blocker"],
-            "MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED",
+            "AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE",
         )
         self.assertEqual(
             axes["US/BREADTH"]["blocker"], "NO_RATIFIED_LIVE_AXIS_BINDING"

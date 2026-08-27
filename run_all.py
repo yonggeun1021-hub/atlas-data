@@ -205,6 +205,14 @@ APPROVED_TESTS = [
     #   available_at만 추출해 idempotent하게 commit한다. 원시 가격·종목명
     #   없음, 재요청 없음, drift/tamper는 fail-closed.
     "test/test_korea_breadth_context_populate.py",
+    # ★ P8-04/P1-KR-05 exact aggregate evidence retention. The four KOSPI/
+    #   KOSDAQ historical/recent aggregate packets are byte-retained with
+    #   workflow run, source commit, immutable artifact, file, and packet
+    #   hashes. Both live capture workflows publish append-only bundles.
+    #   Raw KRX bodies and per-symbol rows remain absent, so KR/BREADTH stays
+    #   UNDEFINED and every axis/strategy/action/order/Production authority
+    #   remains false.
+    "test/test_korea_breadth_aggregate_retention.py",
     # ★ P2-04 — external RATIFIED policy-gated BTC/ETH/ALT rotation transform.
     #   selected 7d/30d Crypto Leadership window 두 시점에서 deterministic bucket
     #   rank·TOP/MIDDLE/BOTTOM transition만 만든다. sector/chain은 UNKNOWN 유지.
