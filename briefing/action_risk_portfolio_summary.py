@@ -93,6 +93,14 @@ REGIME_INVERSE_INVARIANT = _load_portfolio_validator(
     "atlas_regime_inverse_for_p806",
     "portfolio/regime_inverse_invariant.py",
 )
+DEFENSIVE_ACTION_DECISION = _load_portfolio_validator(
+    "atlas_defensive_action_for_p806",
+    "portfolio/defensive_action_decision.py",
+)
+STRATEGIC_CAPITAL_POSTURE = _load_portfolio_validator(
+    "atlas_strategic_posture_for_p806",
+    "portfolio/strategic_capital_posture.py",
+)
 P6_VALIDATORS = {
     "CASH_EXPOSURE_US": CASH_EXPOSURE_ACTION,
     "CASH_EXPOSURE_KOREA": CASH_EXPOSURE_ACTION,
@@ -164,6 +172,12 @@ SOURCE_IDENTITIES = {
         ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
         "config/crypto_exposure_limit_contract.json",
     ),
+    "DEFENSIVE_ACTION_DECISION": (
+        "defensive_action_decision_readiness_packet/1",
+        "defensive_action_decision_readiness/1",
+        ["DEFENSIVE_ACTION_READINESS_BLOCKED"],
+        "config/defensive_action_decision_contract.json",
+    ),
     "HEDGE_ELIGIBILITY": (
         "hedge_instrument_eligibility_packet/2", "hedge_instrument_eligibility/1",
         ["ELIGIBILITY_REGISTRY_VALIDATED"],
@@ -204,6 +218,12 @@ SOURCE_IDENTITIES = {
         ["MAXIMUM_AND_TARGET_SIZED_NO_ACTION_AUTHORITY", "SIZING_BLOCKED"],
         "config/position_sizing_contract.json",
     ),
+    "STRATEGIC_CAPITAL_POSTURE": (
+        "strategic_capital_posture_readiness_packet/1",
+        "strategic_capital_posture_readiness/1",
+        ["STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"],
+        "config/strategic_capital_posture_contract.json",
+    ),
     "UNIFIED_DECISION": (
         "unified_daily_decision/1", "unified_decision_contract/1",
         ["DAILY_DECISION_ASSEMBLED_NO_ACTION_AUTHORITY"],
@@ -214,21 +234,26 @@ SOURCE_IDENTITIES = {
 
 def _expected_contract() -> dict:
     source_order = [
-        "UNIFIED_DECISION", "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA",
+        "UNIFIED_DECISION", "DEFENSIVE_ACTION_DECISION",
+        "STRATEGIC_CAPITAL_POSTURE", "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA",
         "CASH_EXPOSURE_CRYPTO", "LONG_SHORT_INVARIANT", "INVERSE_US",
         "INVERSE_KOREA", "INVERSE_CRYPTO", "HEDGE_ELIGIBILITY",
         "BEAR_HEDGE_BUDGET", "POSITION_SIZING", "CONCENTRATION_GUARD",
         "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET",
     ]
     return {
-        "schema_version": 2,
-        "contract_version": "action_risk_portfolio_summary/2",
-        "output_schema_version": "action_risk_portfolio_summary_packet/2",
+        "schema_version": 3,
+        "contract_version": "action_risk_portfolio_summary/3",
+        "output_schema_version": "action_risk_portfolio_summary_packet/3",
         "slots": ["morning", "evening"],
         "action_categories": ["BUY", "WATCH", "REDUCE", "HEDGE", "EXIT", "NOTHING"],
         "runtime_action_status": "NOT_EVALUATED",
         "source_order": source_order,
-        "required_sources": ["UNIFIED_DECISION"],
+        "required_sources": [
+            "UNIFIED_DECISION",
+            "DEFENSIVE_ACTION_DECISION",
+            "STRATEGIC_CAPITAL_POSTURE",
+        ],
         "risk_sources": [
             "POSITION_SIZING", "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET",
             "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET",
@@ -397,6 +422,20 @@ def _validate_source(name: str, packet: dict, contract: dict) -> dict:
             raise ActionRiskPortfolioSummaryError(
                 f"CRYPTO_EXPOSURE_LIMIT_INVALID:{exc}"
             ) from exc
+    if name == "DEFENSIVE_ACTION_DECISION":
+        try:
+            DEFENSIVE_ACTION_DECISION.validate_packet(copy.deepcopy(packet))
+        except DEFENSIVE_ACTION_DECISION.DefensiveActionDecisionError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"DEFENSIVE_ACTION_DECISION_INVALID:{exc}"
+            ) from exc
+    if name == "STRATEGIC_CAPITAL_POSTURE":
+        try:
+            STRATEGIC_CAPITAL_POSTURE.validate_packet(copy.deepcopy(packet))
+        except STRATEGIC_CAPITAL_POSTURE.StrategicCapitalPostureError as exc:
+            raise ActionRiskPortfolioSummaryError(
+                f"STRATEGIC_CAPITAL_POSTURE_INVALID:{exc}"
+            ) from exc
     if name in P6_VALIDATORS:
         validator = P6_VALIDATORS[name]
         try:
@@ -474,15 +513,25 @@ def _source_rows(source_packets: dict, unavailable_reasons: dict, contract: dict
 
 
 ACTION_SOURCES = {
-    "BUY": ["UNIFIED_DECISION", "POSITION_SIZING"],
+    "BUY": ["UNIFIED_DECISION", "STRATEGIC_CAPITAL_POSTURE", "POSITION_SIZING"],
     "WATCH": ["UNIFIED_DECISION"],
-    "REDUCE": ["CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO"],
+    "REDUCE": [
+        "DEFENSIVE_ACTION_DECISION", "STRATEGIC_CAPITAL_POSTURE",
+        "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
+    ],
     "HEDGE": [
+        "DEFENSIVE_ACTION_DECISION", "STRATEGIC_CAPITAL_POSTURE",
         "LONG_SHORT_INVARIANT", "INVERSE_US", "INVERSE_KOREA", "INVERSE_CRYPTO",
         "HEDGE_ELIGIBILITY", "BEAR_HEDGE_BUDGET",
     ],
-    "EXIT": ["UNIFIED_DECISION", "PLANNED_LOSS_BUDGET"],
-    "NOTHING": ["UNIFIED_DECISION"],
+    "EXIT": [
+        "UNIFIED_DECISION", "DEFENSIVE_ACTION_DECISION",
+        "STRATEGIC_CAPITAL_POSTURE", "PLANNED_LOSS_BUDGET",
+    ],
+    "NOTHING": [
+        "UNIFIED_DECISION", "DEFENSIVE_ACTION_DECISION",
+        "STRATEGIC_CAPITAL_POSTURE",
+    ],
 }
 
 
@@ -525,6 +574,12 @@ def _assemble(
         raise ActionRiskPortfolioSummaryError("UNIFIED_DECISION_FROM_FUTURE")
     if unified_packet["generated_at"][:10] != generated_at[:10]:
         raise ActionRiskPortfolioSummaryError("SUMMARY_DATE_MISMATCH")
+    for name in ("DEFENSIVE_ACTION_DECISION", "STRATEGIC_CAPITAL_POSTURE"):
+        packet = source_packets[name]
+        if packet["generated_at"] > generated_at:
+            raise ActionRiskPortfolioSummaryError(f"{name}_FROM_FUTURE")
+        if packet["as_of_date"] != unified_packet["decision_date"]:
+            raise ActionRiskPortfolioSummaryError(f"{name}_DATE_MISMATCH")
     actions = _action_rows(sources, contract)
     risk_findings = [
         {
@@ -569,6 +624,8 @@ def _assemble(
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
             "RULE_PASS_FAIL_NOT_AUTHORIZED",
+            "DEFENSIVE_ACTION_DECISION_BLOCKED",
+            "STRATEGIC_CAPITAL_POSTURE_BLOCKED",
             "CASH_EXPOSURE_ACTION_NOT_AUTHORIZED",
             "HEDGE_AND_INVERSE_NOT_EVALUATED",
             "PORTFOLIO_POLICIES_PARTIALLY_UNRATIFIED",

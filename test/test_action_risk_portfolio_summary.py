@@ -55,6 +55,12 @@ LONG_SHORT_FIXTURE = load_module(
 INVERSE_FIXTURE = load_module(
     "p806_inverse_fixture", ROOT / "test" / "test_regime_inverse_invariant.py"
 )
+DEFENSIVE_FIXTURE = load_module(
+    "p806_defensive_fixture", ROOT / "test" / "test_defensive_action_decision.py"
+)
+STRATEGIC_FIXTURE = load_module(
+    "p806_strategic_fixture", ROOT / "test" / "test_strategic_capital_posture.py"
+)
 
 
 def unified_packet():
@@ -106,6 +112,24 @@ def source_packet(name, status=None, breaches=None):
     if name == "LONG_SHORT_INVARIANT":
         return LONG_SHORT_FIXTURE.MODULE.build_packet(
             LONG_SHORT_FIXTURE.upstream_packet(), LONG_SHORT_FIXTURE.CONTRACT
+        )
+    if name == "DEFENSIVE_ACTION_DECISION":
+        packets, reasons = DEFENSIVE_FIXTURE.bundle()
+        return DEFENSIVE_FIXTURE.MODULE.build_packet(
+            packets,
+            reasons,
+            "2026-08-21",
+            "2026-08-21T02:00:00Z",
+            contract=DEFENSIVE_FIXTURE.CONTRACT,
+        )
+    if name == "STRATEGIC_CAPITAL_POSTURE":
+        packets, reasons = STRATEGIC_FIXTURE.bundle_with_all_supported_sources()
+        return STRATEGIC_FIXTURE.MODULE.build_packet(
+            packets,
+            reasons,
+            "2026-08-21",
+            "2026-08-21T03:00:00Z",
+            contract=STRATEGIC_FIXTURE.CONTRACT,
         )
     if name == "MARKET_THEME_BUDGET":
         return MARKET_THEME_FIXTURE.MODULE.build_packet(
@@ -180,7 +204,7 @@ def bundle(all_available=True):
         if name == "UNIFIED_DECISION":
             packets[name] = unified_packet()
             reasons[name] = []
-        elif all_available:
+        elif all_available or name in CONTRACT["required_sources"]:
             packets[name] = source_packet(name)
             reasons[name] = []
         else:
@@ -200,7 +224,11 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         self.assertEqual(CONTRACT["action_categories"], [
             "BUY", "WATCH", "REDUCE", "HEDGE", "EXIT", "NOTHING"
         ])
-        self.assertEqual(CONTRACT["required_sources"], ["UNIFIED_DECISION"])
+        self.assertEqual(CONTRACT["required_sources"], [
+            "UNIFIED_DECISION",
+            "DEFENSIVE_ACTION_DECISION",
+            "STRATEGIC_CAPITAL_POSTURE",
+        ])
         self.assertTrue(CONTRACT["authority"]["briefing_read_model_only"])
         for key, value in CONTRACT["authority"].items():
             if key != "briefing_read_model_only":
@@ -215,14 +243,14 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
 
     def test_all_sources_present_but_every_action_stays_not_evaluated(self):
         packets, reasons = bundle()
-        packet = MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+        packet = MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
         self.assertEqual(packet["status"], "ACTION_RISK_PORTFOLIO_PRESENTED_NO_ACTION_AUTHORITY")
         self.assertEqual([row["category"] for row in packet["actions"]], CONTRACT["action_categories"])
         self.assertTrue(all(row["evaluation_status"] == "NOT_EVALUATED" for row in packet["actions"]))
         self.assertTrue(all(row["action"] is None for row in packet["actions"]))
         self.assertEqual(packet["summary"], {
-            "source_count": 15,
-            "available_source_count": 15,
+            "source_count": 17,
+            "available_source_count": 17,
             "unavailable_source_count": 0,
             "risk_breach_source_count": 0,
             "action_category_count": 6,
@@ -234,12 +262,68 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
 
     def test_optional_sources_remain_explicitly_unavailable(self):
         packets, reasons = bundle(all_available=False)
-        packet = MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
-        self.assertEqual(packet["summary"]["available_source_count"], 1)
+        packet = MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
+        self.assertEqual(packet["summary"]["available_source_count"], 3)
         self.assertEqual(packet["summary"]["unavailable_source_count"], 14)
         reduce_row = next(row for row in packet["actions"] if row["category"] == "REDUCE")
         self.assertIn("SOURCE_UNAVAILABLE:CASH_EXPOSURE_US", reduce_row["reasons"])
-        self.assertEqual(reduce_row["evidence_packet_sha256"], [])
+        self.assertEqual(
+            reduce_row["evidence_packet_sha256"],
+            [
+                packets["DEFENSIVE_ACTION_DECISION"]["packet_sha256"],
+                packets["STRATEGIC_CAPITAL_POSTURE"]["packet_sha256"],
+            ],
+        )
+
+    def test_p6_and_p7_readiness_packets_are_revalidated_and_stay_blocked(self):
+        packets, reasons = bundle()
+        packet = MODULE.build_summary(
+            packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
+        )
+        by_name = {row["name"]: row for row in packet["sources"]}
+        self.assertEqual(
+            by_name["DEFENSIVE_ACTION_DECISION"]["source_status"],
+            "DEFENSIVE_ACTION_READINESS_BLOCKED",
+        )
+        self.assertEqual(
+            by_name["STRATEGIC_CAPITAL_POSTURE"]["source_status"],
+            "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED",
+        )
+        self.assertTrue(all(row["action"] is None for row in packet["actions"]))
+        self.assertTrue(
+            all(row["evaluation_status"] == "NOT_EVALUATED" for row in packet["actions"])
+        )
+
+        for name, error, field in (
+            (
+                "DEFENSIVE_ACTION_DECISION",
+                "DEFENSIVE_ACTION_DECISION_INVALID",
+                "available_source_count",
+            ),
+            (
+                "STRATEGIC_CAPITAL_POSTURE",
+                "STRATEGIC_CAPITAL_POSTURE_INVALID",
+                "available_source_count",
+            ),
+        ):
+            with self.subTest(source=name):
+                tampered_packets, tampered_reasons = bundle()
+                source = tampered_packets[name]
+                source["summary"][field] += 1
+                source["packet_sha256"] = MODULE.payload_sha256({
+                    key: value
+                    for key, value in source.items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.ActionRiskPortfolioSummaryError, error
+                ):
+                    MODULE.build_summary(
+                        tampered_packets,
+                        tampered_reasons,
+                        "2026-08-21T03:35:00Z",
+                        CONTRACT,
+                    )
 
     def test_portfolio_breaches_are_shown_but_not_translated_to_action(self):
         packets, reasons = bundle()
@@ -247,7 +331,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         packets["CONCENTRATION_GUARD"] = source_packet(
             "CONCENTRATION_GUARD", status="LIMIT_BREACH", breaches=breach
         )
-        packet = MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+        packet = MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
         finding = next(row for row in packet["risk_findings"] if row["source"] == "CONCENTRATION_GUARD")
         self.assertEqual(finding["breaches"], breach)
         self.assertEqual(packet["summary"]["risk_breach_source_count"], 1)
@@ -256,7 +340,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
     def test_position_sizing_is_fully_validated_and_never_becomes_buy(self):
         packets, reasons = bundle()
         packet = MODULE.build_summary(
-            packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+            packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
         )
         finding = next(
             row for row in packet["risk_findings"]
@@ -285,7 +369,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             MODULE.ActionRiskPortfolioSummaryError, "POSITION_SIZING_INVALID"
         ):
             MODULE.build_summary(
-                packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
             )
 
     def test_p7_risk_packets_require_full_production_validation(self):
@@ -303,7 +387,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             MODULE.ActionRiskPortfolioSummaryError, "CONCENTRATION_GUARD_INVALID"
         ):
             MODULE.build_summary(
-                packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
             )
 
         packets, reasons = bundle()
@@ -316,7 +400,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
             MODULE.ActionRiskPortfolioSummaryError, "PLANNED_LOSS_BUDGET_INVALID"
         ):
             MODULE.build_summary(
-                packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
             )
 
         for name in ["MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT"]:
@@ -337,7 +421,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                     f"{name}_INVALID:OUTPUT_DERIVATION_MISMATCH",
                 ):
                     MODULE.build_summary(
-                        packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                        packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
                     )
 
     def test_p6_packets_require_full_production_validation(self):
@@ -370,7 +454,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                     f"P6_SOURCE_INVALID:{name}",
                 ):
                     MODULE.build_summary(
-                        packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                        packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
                     )
 
     def test_unratified_hedge_instrument_and_budget_cannot_propagate(self):
@@ -425,18 +509,22 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                     f"P6_SOURCE_INVALID:{name}:OUTPUT_DERIVATION_MISMATCH",
                 ):
                     MODULE.build_summary(
-                        packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+                        packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
                     )
 
-    def test_required_unified_source_and_same_day_time_are_enforced(self):
-        packets, reasons = bundle()
-        packets["UNIFIED_DECISION"] = None
-        reasons["UNIFIED_DECISION"] = ["TEST_MISSING"]
-        with self.assertRaisesRegex(
-            MODULE.ActionRiskPortfolioSummaryError,
-            "REQUIRED_SOURCE_UNAVAILABLE:UNIFIED_DECISION",
-        ):
-            MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+    def test_required_sources_and_same_day_time_are_enforced(self):
+        for name in CONTRACT["required_sources"]:
+            with self.subTest(source=name):
+                packets, reasons = bundle()
+                packets[name] = None
+                reasons[name] = ["TEST_MISSING"]
+                with self.assertRaisesRegex(
+                    MODULE.ActionRiskPortfolioSummaryError,
+                    f"REQUIRED_SOURCE_UNAVAILABLE:{name}",
+                ):
+                    MODULE.build_summary(
+                        packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
+                    )
 
         packets, reasons = bundle()
         with self.assertRaisesRegex(MODULE.ActionRiskPortfolioSummaryError, "SUMMARY_DATE_MISMATCH"):
@@ -446,7 +534,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         packets, reasons = bundle()
         packets["CASH_EXPOSURE_US"]["reasons"][0] = "TAMPER"
         with self.assertRaisesRegex(MODULE.ActionRiskPortfolioSummaryError, "SOURCE_PACKET_SHA_MISMATCH"):
-            MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+            MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
 
         packets, reasons = bundle()
         packets["CASH_EXPOSURE_US"]["authority"]["order_authorized"] = True
@@ -454,7 +542,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         unsigned.pop("packet_sha256")
         packets["CASH_EXPOSURE_US"]["packet_sha256"] = MODULE.payload_sha256(unsigned)
         with self.assertRaisesRegex(MODULE.ActionRiskPortfolioSummaryError, "SOURCE_IDENTITY_INVALID"):
-            MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+            MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
 
         packets, reasons = bundle()
         packets["CASH_EXPOSURE_US"]["order_intents"] = [{"symbol": "MSFT"}]
@@ -462,7 +550,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         unsigned.pop("packet_sha256")
         packets["CASH_EXPOSURE_US"]["packet_sha256"] = MODULE.payload_sha256(unsigned)
         with self.assertRaisesRegex(MODULE.ActionRiskPortfolioSummaryError, "SOURCE_ACTION_SMUGGLING"):
-            MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+            MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
 
     def test_unified_decision_requires_full_source_validation(self):
         packets, reasons = bundle()
@@ -472,12 +560,12 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
         unsigned.pop("packet_sha256")
         unified["packet_sha256"] = MODULE.payload_sha256(unsigned)
         with self.assertRaisesRegex(MODULE.ActionRiskPortfolioSummaryError, "UNIFIED_DECISION_INVALID"):
-            MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+            MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
 
     def test_output_is_deterministic_and_lineage_complete(self):
         packets, reasons = bundle()
-        first = MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
-        second = MODULE.build_summary(packets, reasons, "2026-08-21T00:35:00Z", CONTRACT)
+        first = MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
+        second = MODULE.build_summary(packets, reasons, "2026-08-21T03:35:00Z", CONTRACT)
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
         self.assertEqual(
             first["lineage"]["unified_decision_packet_sha256"],
@@ -493,7 +581,7 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
     def test_self_rehashed_summary_tamper_fails_closed(self):
         packets, reasons = bundle()
         packet = MODULE.build_summary(
-            packets, reasons, "2026-08-21T00:35:00Z", CONTRACT
+            packets, reasons, "2026-08-21T03:35:00Z", CONTRACT
         )
         packet["summary"]["risk_breach_source_count"] = 99
         packet["packet_sha256"] = MODULE.payload_sha256(
@@ -523,12 +611,12 @@ class ActionRiskPortfolioSummaryTests(unittest.TestCase):
                 "unavailable_reasons": reasons,
             })
             output = tmp / "nested" / "packet.json"
-            self.assertEqual(MODULE.run(source, "2026-08-21T00:35:00Z", output), 0)
+            self.assertEqual(MODULE.run(source, "2026-08-21T03:35:00Z", output), 0)
             serialized = json.loads(output.read_text())
             self.assertEqual(serialized["summary"]["action_category_count"], 6)
             self.assertEqual(MODULE.validate_packet(serialized, CONTRACT), serialized)
             forbidden = ROOT / "data" / "action_risk_summary_test.json"
-            self.assertEqual(MODULE.run(source, "2026-08-21T00:35:00Z", forbidden), 1)
+            self.assertEqual(MODULE.run(source, "2026-08-21T03:35:00Z", forbidden), 1)
             self.assertFalse(forbidden.exists())
 
 

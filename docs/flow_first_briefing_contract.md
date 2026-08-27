@@ -20,6 +20,12 @@ flow-direction authority.
 Stablecoin, KRX investor-flow, prices, or macro context are not silently
 relabeled as direct cross-market capital flow.
 
+The `Capital Action` section now exposes the exact P6 Defensive Action
+readiness packet, P7 Strategic Capital Posture readiness packet, and their P8-06
+Action/Risk/Portfolio summary together. The two upstream packets remain
+`PENDING/BLOCKED`; null actions and budgets are not converted into a positive
+`NO_ACTION`, and the section retains false action/order eligibility.
+
 This contract grants presentation-order authority only. Regime scoring,
 cross-market flow inference, theme ranking, candidate promotion, capital
 action, sizing, orders, Production, and trading authority remain false.

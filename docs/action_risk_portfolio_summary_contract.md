@@ -4,7 +4,13 @@
 from the exact P8-02 unified decision, P6 action/invariant/hedge sources, and
 P7 portfolio risk packets. Each source is self-hash checked, matched to its
 contract identity and authority map, and recursively checked for unauthorized
-action, target, size, hedge, or order content. Contract v2 invokes the
+action, target, size, hedge, or order content. Contract v3 also requires and
+revalidates the exact P6-06 `DEFENSIVE_ACTION_DECISION` and P7-12
+`STRATEGIC_CAPITAL_POSTURE` readiness packets at the briefing consumption
+boundary. Their current `BLOCKED` states, null decisions/budgets/proposals,
+empty orders, and closed authorities remain explicit evidence; they can never
+be translated into `NO_ACTION`, a zero budget, or an executable instruction.
+Contract v2 introduced the production validators for
 production validators for P7-02 position sizing, P7-03 concentration, and P7-06
 planned loss. P7-02 position sizing is fully
 revalidated with its embedded Constitution, bucket membership, sizing input,
@@ -31,7 +37,7 @@ exposures, assessments, breaches, summaries, action closures, authority, and
 lineage. A self-rehashed raised limit or suppressed breach cannot enter the
 briefing summary.
 
-The output embeds the exact 15-source bundle and unavailable-reason map, then
+The output embeds the exact 17-source bundle and unavailable-reason map, then
 rebuilds itself during `validate_packet()`. A self-rehashed summary mutation or
 a self-rehashed P7 semantic mutation therefore fails closed.
 
@@ -43,8 +49,10 @@ actions is never relabeled as a positive “Nothing” action.
 Available P7 sizing and breach evidence is displayed as risk findings. A
 calculated size or a concentration, market/theme, Crypto, or planned-loss
 breach remains evidence, not a buy, reduction, or exit instruction. Unavailable
-optional policies stay explicit with reason codes; the unified daily decision
-is the only required source.
+optional policies stay explicit with reason codes. The unified daily decision,
+P6-06 defensive readiness, and P7-12 strategic posture readiness are the three
+required sources; failure of any one isolates the summary as degraded instead
+of silently dropping that layer.
 
 This read model cannot interpret a Rule, select a hedge, generate an exit,
 adjust a position, create an order, or authorize Production/trading. CLI output

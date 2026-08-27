@@ -137,6 +137,14 @@ INVESTMENT_SHADOW = _load(
 CASH_EXPOSURE = _load("atlas_daily_cash_exposure", "portfolio/cash_exposure_action.py")
 INVERSE = _load("atlas_daily_inverse", "portfolio/regime_inverse_invariant.py")
 LONG_SHORT = _load("atlas_daily_long_short", "portfolio/long_short_invariant.py")
+DEFENSIVE_ACTION_DECISION = _load(
+    "atlas_daily_defensive_action_decision",
+    "portfolio/defensive_action_decision.py",
+)
+STRATEGIC_CAPITAL_POSTURE = _load(
+    "atlas_daily_strategic_capital_posture",
+    "portfolio/strategic_capital_posture.py",
+)
 ACTION_SUMMARY = _load("atlas_daily_action_summary", "briefing/action_risk_portfolio_summary.py")
 FLOW_FIRST_BRIEFING = _load(
     "atlas_daily_flow_first_briefing", "briefing/flow_first_briefing.py"
@@ -2300,10 +2308,110 @@ _POLICY_BLOCKED_ACTION_SOURCES = {
 }
 
 
+def build_defensive_action_decision(
+    component_rows: dict[str, dict], decision_date: str, generated_at: str
+) -> dict:
+    contract = DEFENSIVE_ACTION_DECISION.load_contract()
+    unsupported = set(contract["unavailable_only_source_slots"])
+    source_packets = {}
+    unavailable_reasons = {}
+    for name in contract["source_order"]:
+        if name in unsupported:
+            source_packets[name] = None
+            unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            continue
+        row = component_rows[name]
+        if row["packet"] is not None and row["validated"]:
+            source_packets[name] = row["packet"]
+            unavailable_reasons[name] = []
+        else:
+            source_packets[name] = None
+            unavailable_reasons[name] = [row["reason"] or f"{name}_UNAVAILABLE"]
+    try:
+        packet = DEFENSIVE_ACTION_DECISION.build_packet(
+            source_packets,
+            unavailable_reasons,
+            decision_date,
+            generated_at,
+            contract=contract,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("DEFENSIVE_ACTION_DECISION", exc)
+    available = packet["summary"]["available_source_count"]
+    total = packet["summary"]["source_count"]
+    return component_row(
+        "DEFENSIVE_ACTION_DECISION",
+        "PENDING",
+        f"{available}/{total}_SOURCES_AVAILABLE_POLICY_NOT_RATIFIED",
+        as_of_date=decision_date,
+        generated_at=generated_at,
+        source_packet_sha256=packet.get("packet_sha256"),
+        validated=True,
+        authority=packet.get("authority"),
+        contract_version=packet.get("contract_version"),
+        packet=packet,
+    )
+
+
+def build_strategic_capital_posture(
+    component_rows: dict[str, dict], decision_date: str, generated_at: str
+) -> dict:
+    contract = STRATEGIC_CAPITAL_POSTURE.load_contract()
+    name_map = {
+        "P6_DEFENSIVE_ACTION": "DEFENSIVE_ACTION_DECISION",
+        "P7_CONCENTRATION_GUARD": "CONCENTRATION_GUARD",
+        "P7_MARKET_THEME_BUDGET": "MARKET_THEME_BUDGET",
+        "P7_CRYPTO_EXPOSURE_LIMIT": "CRYPTO_EXPOSURE_LIMIT",
+        "P7_PLANNED_LOSS_BUDGET": "PLANNED_LOSS_BUDGET",
+        "P7_CURRENCY_EXPOSURE": "PORTFOLIO_CURRENCY",
+    }
+    unsupported = set(contract["unavailable_only_source_slots"])
+    source_packets = {}
+    unavailable_reasons = {}
+    for name in contract["source_order"]:
+        if name in unsupported:
+            source_packets[name] = None
+            unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            continue
+        row = component_rows[name_map[name]]
+        if row["packet"] is not None and row["validated"]:
+            source_packets[name] = row["packet"]
+            unavailable_reasons[name] = []
+        else:
+            source_packets[name] = None
+            unavailable_reasons[name] = [row["reason"] or f"{name}_UNAVAILABLE"]
+    try:
+        packet = STRATEGIC_CAPITAL_POSTURE.build_packet(
+            source_packets,
+            unavailable_reasons,
+            decision_date,
+            generated_at,
+            contract=contract,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("STRATEGIC_CAPITAL_POSTURE", exc)
+    available = packet["summary"]["available_source_count"]
+    total = packet["summary"]["source_count"]
+    return component_row(
+        "STRATEGIC_CAPITAL_POSTURE",
+        "PENDING",
+        f"{available}/{total}_SOURCES_AVAILABLE_POLICY_NOT_RATIFIED",
+        as_of_date=decision_date,
+        generated_at=generated_at,
+        source_packet_sha256=packet.get("packet_sha256"),
+        validated=True,
+        authority=packet.get("authority"),
+        contract_version=packet.get("contract_version"),
+        packet=packet,
+    )
+
+
 def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str) -> dict:
     contract = ACTION_SUMMARY.load_contract()
     name_map = {
         "UNIFIED_DECISION": "UNIFIED_DECISION",
+        "DEFENSIVE_ACTION_DECISION": "DEFENSIVE_ACTION_DECISION",
+        "STRATEGIC_CAPITAL_POSTURE": "STRATEGIC_CAPITAL_POSTURE",
         "CASH_EXPOSURE_US": "CASH_EXPOSURE_US",
         "CASH_EXPOSURE_KOREA": "CASH_EXPOSURE_KOREA",
         "CASH_EXPOSURE_CRYPTO": "CASH_EXPOSURE_CRYPTO",
@@ -2585,8 +2693,16 @@ def build_packet(
     for name, reason in _POLICY_BLOCKED_ACTION_SOURCES.items():
         rows[name] = _blocked(name, "POLICY_BLOCKED", reason)
 
-    # ACTION_RISK_PORTFOLIO_SUMMARY reads UNIFIED_DECISION/CASH_EXPOSURE_*/
-    # LONG_SHORT_INVARIANT/INVERSE_* -- all already boundary-checked above.
+    rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
+        build_defensive_action_decision(rows, decision_date, generated_at)
+    )
+    rows["STRATEGIC_CAPITAL_POSTURE"] = _boundary(
+        build_strategic_capital_posture(rows, decision_date, generated_at)
+    )
+
+    # ACTION_RISK_PORTFOLIO_SUMMARY reads the two fail-closed P6/P7 readiness
+    # packets plus UNIFIED_DECISION/CASH_EXPOSURE_*/LONG_SHORT_INVARIANT/
+    # INVERSE_* -- all already boundary-checked above.
     rows["ACTION_RISK_PORTFOLIO_SUMMARY"] = _boundary(
         build_action_risk_summary(rows, generated_at)
     )
@@ -2764,10 +2880,13 @@ _SECTION_GROUPS = [
         "INVERSE_KOREA", "INVERSE_CRYPTO", "LONG_SHORT_INVARIANT",
         "HEDGE_ELIGIBILITY", "BEAR_HEDGE_BUDGET", "POSITION_SIZING",
         "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT",
-        "PLANNED_LOSS_BUDGET",
+        "PLANNED_LOSS_BUDGET", "STRATEGIC_CAPITAL_POSTURE",
     ]),
     ("Decision Review", ["INVESTMENT_DECISION_REVIEW"]),
-    ("Decision & action boundary", ["ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY"]),
+    ("Decision & action boundary", [
+        "ACTION_BOUNDARY", "UNIFIED_DECISION", "DEFENSIVE_ACTION_DECISION",
+        "ACTION_RISK_PORTFOLIO_SUMMARY",
+    ]),
     ("Shadow learning record", ["INVESTMENT_REVIEW_SHADOW"]),
     ("Forward Alpha Review (Pilot)", ["FORWARD_ALPHA_REVIEW"]),
     ("Dynamic Clock (Opportunity Trigger / Review Queue)", ["DYNAMIC_CLOCK"]),
@@ -3016,6 +3135,35 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"evaluated_actions={summary.get('evaluated_action_count')} "
                 f"risk_breach_sources={summary.get('risk_breach_source_count')}"
             )
+        elif cid == "DEFENSIVE_ACTION_DECISION":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - decision_status={packet.get('decision_status')} "
+                f"available_sources={summary.get('available_source_count')}/"
+                f"{summary.get('source_count')} "
+                f"evaluated_decisions={summary.get('evaluated_decision_count')} "
+                f"no_action={summary.get('no_action')}"
+            )
+            lines.append(
+                f"    - selected_action={packet.get('selected_action')} "
+                f"action_proposal={packet.get('action_proposal')} "
+                f"orders={len(packet.get('order_intents', []))}"
+            )
+        elif cid == "STRATEGIC_CAPITAL_POSTURE":
+            summary = packet.get("summary", {})
+            lines.append(
+                f"    - decision_status={packet.get('decision_status')} "
+                f"available_sources={summary.get('available_source_count')}/"
+                f"{summary.get('source_count')} "
+                f"market_budget={packet.get('market_budget')}"
+            )
+            lines.append(
+                f"    - cash_reserve={packet.get('cash_reserve')} "
+                f"hedge_budget={packet.get('hedge_budget')} "
+                f"max_gross={packet.get('max_gross_risk')} "
+                f"max_net={packet.get('max_net_risk')} "
+                f"theme_headroom={packet.get('theme_headroom')}"
+            )
         elif cid.startswith("CASH_EXPOSURE_"):
             lines.append(
                 f"    - regime={packet.get('regime')} "
@@ -3258,7 +3406,8 @@ def _component_semantic_fingerprint(packet: dict) -> dict[str, str]:
     several downstream *synthetic* packets built from it -- REGIME (hence
     also CASH_EXPOSURE_*/INVERSE_*, built from Regime's output),
     THREE_MARKET_REGIME_HEADER, ROTATION_DISCOVERY, ACTION_BOUNDARY,
-    UNIFIED_DECISION, ACTION_RISK_PORTFOLIO_SUMMARY -- collectively
+    UNIFIED_DECISION, DEFENSIVE_ACTION_DECISION, STRATEGIC_CAPITAL_POSTURE,
+    ACTION_RISK_PORTFOLIO_SUMMARY -- collectively
     _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS. It does not merely
     reappear verbatim there -- those packets also embed *hashes computed
     over* their own generated_at-tainted content (packet_sha256,
@@ -3307,6 +3456,7 @@ _GENERATED_AT_TAINTED_SELF_HASH_COMPONENTS = frozenset({
     "KRX_POST_CLOSE", "THREE_MARKET_REGIME_HEADER", "ROTATION_DISCOVERY",
     "BUSINESS_ACCELERATION",
     "ACTION_BOUNDARY", "UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY",
+    "DEFENSIVE_ACTION_DECISION", "STRATEGIC_CAPITAL_POSTURE",
     "INVESTMENT_DECISION_REVIEW", "INVESTMENT_REVIEW_SHADOW",
     "CASH_EXPOSURE_US", "CASH_EXPOSURE_KOREA", "CASH_EXPOSURE_CRYPTO",
     "INVERSE_US", "INVERSE_KOREA", "INVERSE_CRYPTO",

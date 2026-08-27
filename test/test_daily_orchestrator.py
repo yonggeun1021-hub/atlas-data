@@ -289,6 +289,50 @@ class DailyOrchestratorTest(unittest.TestCase):
             by_id["CRYPTO_BREADTH"]["status"], ("POLICY_BLOCKED", "READY")
         )
 
+    def test_defensive_and_strategic_readiness_are_wired_fail_closed(self):
+        packet = MODULE.build_packet(
+            "morning", DECISION_DATE, MORNING_GENERATED_AT
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        defensive = by_id["DEFENSIVE_ACTION_DECISION"]
+        strategic = by_id["STRATEGIC_CAPITAL_POSTURE"]
+        summary = by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]
+
+        self.assertEqual(defensive["status"], "PENDING")
+        self.assertEqual(
+            defensive["packet"]["status"],
+            "DEFENSIVE_ACTION_READINESS_BLOCKED",
+        )
+        self.assertTrue(
+            all(row["eligible"] is None for row in defensive["packet"]["decisions"])
+        )
+        self.assertIsNone(defensive["packet"]["selected_action"])
+        self.assertEqual(defensive["packet"]["order_intents"], [])
+
+        self.assertEqual(strategic["status"], "PENDING")
+        self.assertEqual(
+            strategic["packet"]["status"],
+            "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED",
+        )
+        self.assertTrue(
+            all(value is None for value in strategic["packet"]["market_budget"].values())
+        )
+        self.assertIsNone(strategic["packet"]["allocation_proposal"])
+        self.assertEqual(strategic["packet"]["order_intents"], [])
+
+        embedded = summary["packet"]["source_packets"]
+        self.assertEqual(
+            embedded["DEFENSIVE_ACTION_DECISION"]["packet_sha256"],
+            defensive["packet"]["packet_sha256"],
+        )
+        self.assertEqual(
+            embedded["STRATEGIC_CAPITAL_POSTURE"]["packet_sha256"],
+            strategic["packet"]["packet_sha256"],
+        )
+        self.assertTrue(
+            all(row["action"] is None for row in summary["packet"]["actions"])
+        )
+
     def test_replaying_a_past_decision_date_never_reads_newer_evidence(self):
         # This repo has real committed evidence for both 2026-08-20 and
         # 2026-08-21 for BTC/stablecoin/crypto-breadth. Building a briefing
@@ -1237,7 +1281,12 @@ class DailyOrchestratorTest(unittest.TestCase):
         # dynamic STEP0-ready date) is behind P8-12's real advancing
         # evidence -- see the identical DYNAMIC_CLOCK note in
         # test_morning_build_against_real_evidence_has_no_degraded_components.
-        expected_degraded = {"UNIFIED_DECISION", "ACTION_RISK_PORTFOLIO_SUMMARY"}
+        expected_degraded = {
+            "UNIFIED_DECISION",
+            "DEFENSIVE_ACTION_DECISION",
+            "STRATEGIC_CAPITAL_POSTURE",
+            "ACTION_RISK_PORTFOLIO_SUMMARY",
+        }
         if by_id["DYNAMIC_CLOCK"]["status"] == "DEGRADED":
             expected_degraded.add("DYNAMIC_CLOCK")
         actual_degraded = {row["component_id"] for row in packet["components"] if row["status"] == "DEGRADED"}

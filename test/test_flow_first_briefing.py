@@ -42,7 +42,7 @@ def row(component_id, status="READY", *, as_of="2026-08-26", reason=None, packet
 def daily_packet():
     packet = {
         "schema_version": 1,
-        "contract_version": "daily_orchestrator/4",
+        "contract_version": "daily_orchestrator/5",
         "output_schema_version": "daily_briefing_packet/1",
         "decision_date": "2026-08-26",
         "slot": "evening",
@@ -51,6 +51,8 @@ def daily_packet():
             row("THREE_MARKET_REGIME_HEADER"),
             row("ROTATION_DISCOVERY"),
             row("KOREA_ROTATION"),
+            row("DEFENSIVE_ACTION_DECISION", "PENDING", reason="P6_POLICY_UNRATIFIED"),
+            row("STRATEGIC_CAPITAL_POSTURE", "PENDING", reason="P7_POLICY_UNRATIFIED"),
             row("ACTION_RISK_PORTFOLIO_SUMMARY"),
             row("SHADOW_ENTRY_REVIEW"),
             row("POSITION_SIZING", "POLICY_BLOCKED", reason="POSITION_SIZING_POLICY_UNRATIFIED"),
@@ -130,6 +132,23 @@ class FlowFirstBriefingTests(unittest.TestCase):
         section = packet["sections"][-1]
         self.assertEqual(section["status"], "POLICY_BLOCKED")
         self.assertEqual(section["unknown_reason"], "SOURCE_COMPONENT_NOT_READY")
+
+    def test_capital_action_exposes_defensive_and_strategic_readiness(self):
+        packet = MODULE.build_packet(daily_packet())
+        section = next(
+            row for row in packet["sections"] if row["section_id"] == "CAPITAL_ACTION"
+        )
+        self.assertEqual(section["status"], "PENDING")
+        self.assertEqual(
+            [row["component_id"] for row in section["source_components"]],
+            [
+                "DEFENSIVE_ACTION_DECISION",
+                "STRATEGIC_CAPITAL_POSTURE",
+                "ACTION_RISK_PORTFOLIO_SUMMARY",
+            ],
+        )
+        self.assertFalse(section["action_eligible"])
+        self.assertFalse(section["order_eligible"])
 
     def test_different_source_dates_fail_closed(self):
         source = daily_packet()
