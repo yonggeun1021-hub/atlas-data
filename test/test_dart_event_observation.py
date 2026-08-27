@@ -71,7 +71,13 @@ class DartEventObservationTests(unittest.TestCase):
             (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
         )
         self.assertTrue(legacy_paths)
-        legacy = json.loads(legacy_paths[-1].read_text(encoding="utf-8"))
+        legacy_packets = []
+        for path in legacy_paths:
+            packet = json.loads(path.read_text(encoding="utf-8"))
+            if packet.get("schema_version") == "dart_event_observation_packet/1":
+                legacy_packets.append(packet)
+        self.assertTrue(legacy_packets)
+        legacy = legacy_packets[-1]
         self.assertEqual(legacy["schema_version"], "dart_event_observation_packet/1")
         unsigned = copy.deepcopy(legacy)
         declared = unsigned.pop("packet_sha256")
