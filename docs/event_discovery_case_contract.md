@@ -25,6 +25,14 @@ SEC D1 `event_discovery_case_packet/2`에 합쳐지거나 중요도 detector에 
 않으며 Candidate/Stage/Rule/notification/Action/Order/Production/trading 권한을
 열지 않는다.
 
+수집 실패도 같은 층에 격리한다. 일부 종목의 DART metadata 수집 실패는
+`source_failures`에 종목별로 기록하고 성공 종목의 관측은 계속 발행한다. 본문
+수집이 `DEGRADED` 또는 `FAILED`이면 해당 filing evidence만
+`CONTENT_CAPTURE_FAILED`/`CONTENT_RUN_FAILED`로 남기고 metadata 관측을 버리지
+않는다. 전 종목 metadata 실패, 정본 날짜·hash 불일치, 조용한 content-record
+누락만 packet 발행을 중단한다. 실패 메시지 원문은 파생 packet에 복제하지 않고
+exact source/content-run SHA lineage로 감사한다.
+
 ## 권한 경계
 
 case는 “분류된 사건이 관측됐다”는 기록이다. “중요하다”, “긍정/부정이다”, “후보로
