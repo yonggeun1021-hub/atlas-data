@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_breadth_replay_attestation/1",
+  "approved_proof": {
+    "attestation_relative_path": "data/observations/korea_breadth_replay_attestation/2026-08-26/run-33089264800-attempt-1/attestation.json",
+    "observation_date": "2026-08-26",
+    "private_repository": "yonggeun1021-hub/atlas-private-evidence",
+    "private_capture_source_commit_sha": "e415f331bb346849616a9c11d7e83fa73bae2f2d",
+    "private_evidence_commit_sha": "5fbc9283211ffa773f4bcd573020ee5201afd766",
+    "private_manifest_sha256": "e2ca51c2a03c7ed1d0eef50746db3673864e756b506ede3b93fca2dc8f0367e9",
+    "private_workflow_path": ".github/workflows/krx-breadth-raw-capture.yml",
+    "private_workflow_run_id": "33089264800",
+    "private_workflow_run_attempt": 1,
+    "private_evidence_committed_at": "2026-08-27T15:42:44Z",
+    "public_code_commit_sha": "8b9e0414ed94d4485085f6f2e0b67f98b9a7c979",
+    "public_bundle_relative_path": "data/observations/korea_breadth_aggregate/2026-08-26/run-33049365069-attempt-1",
+    "public_bundle_payload_sha256": "352ad44a23d3e1a57ff7305a68ddbdf30c55bf388260d2eb969e44d43e3a6b38",
+    "packet_link_count": 4,
+    "raw_response_count": 8
+  },
+  "required_result": {
+    "replay_status": "MATCHED",
+    "source_response_hashes_all_match": true,
+    "stable_aggregate_facts_all_match": true,
+    "independent_source_replay_available": true
+  },
+  "disclosure_boundary": {
+    "raw_response_bodies_public": false,
+    "raw_response_hashes_republished": false,
+    "per_symbol_rows_public": false,
+    "api_key_public": false,
+    "sanitized_boolean_attestation_only": true
+  },
+  "policy_boundary": {
+    "breadth_scoring_policy_ratified": false,
+    "axis_promotion_authorized": false,
+    "classification_authorized": false
+  },
+  "authority": {
+    "threshold_authorized": false,
+    "regime_score_authorized": false,
+    "strategy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

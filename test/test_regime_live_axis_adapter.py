@@ -83,7 +83,7 @@ def v4_free_market_row(root: Path) -> tuple[dict, dict]:
 class RegimeLiveAxisAdapterTest(unittest.TestCase):
     def test_adapter_contract_is_versioned_and_all_authority_is_false(self):
         contract = MODULE.LIVE_AXIS_ADAPTER.load_contract()
-        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v3")
+        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v4")
         self.assertEqual(contract["mode"], "EVIDENCE_ONLY_NO_INTERPRETATION")
         self.assertTrue(all_authorities_false(contract))
         self.assertEqual(
@@ -92,7 +92,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             contract["deferred_axes"]["KR/BREADTH"],
-            "AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE",
+            "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED",
         )
         self.assertIn(
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
@@ -110,6 +110,23 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
                 "CONTRACT_INVALID",
             ):
                 MODULE.LIVE_AXIS_ADAPTER.load_contract(path)
+
+    def test_missing_replay_attestation_fails_closed_without_defining_breadth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                MODULE.LIVE_AXIS_ADAPTER.KOREA_BREADTH_REPLAY,
+                "ROOT",
+                Path(tmp),
+            ):
+                outputs = MODULE.build_regime_outputs(GENERATED_AT, crypto_rows())
+        breadth = outputs["KR"]["factor_results"]["BREADTH"]
+        self.assertEqual(breadth["status"], "UNDEFINED")
+        self.assertEqual(
+            breadth["warnings"],
+            ["KOREA_BREADTH_REPLAY_ATTESTATION_UNAVAILABLE"],
+        )
+        self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")
+        self.assertTrue(all_authorities_false(outputs["KR"]))
 
     def test_real_crypto_archives_define_three_evidence_axes_only(self):
         outputs = MODULE.build_regime_outputs(GENERATED_AT, crypto_rows())
@@ -132,7 +149,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
             },
             {
                 "TREND": ["MARKET_WIDE_SOURCE_MISSING"],
-                "BREADTH": ["AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE"],
+                "BREADTH": ["SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED"],
                 "RISK_VOL": ["MARKET_WIDE_SOURCE_MISSING"],
                 "LIQUIDITY": ["SOURCE_POLICY_UNRATIFIED"],
                 "LEADERSHIP": ["SOURCE_POLICY_UNRATIFIED"],
@@ -288,7 +305,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         self.assertEqual(breadth["status"], "UNDEFINED")
         self.assertEqual(
             breadth["warnings"],
-            ["AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE"],
+            ["SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED"],
         )
         self.assertIsNone(breadth["evidence"])
         self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")

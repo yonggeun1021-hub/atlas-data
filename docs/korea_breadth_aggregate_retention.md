@@ -46,14 +46,17 @@ identity is rejected.
 
 ## Boundary that remains open
 
-The original producer deliberately emitted no KRX raw response body and no
-per-symbol identity or price row. Therefore aggregate retention proves what the
-producer recorded, but cannot independently replay the market-wide source
-calculation. `KR/BREADTH` remains `UNDEFINED` with reason
-`AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE`; KR coverage remains `0/5`,
-Regime/direction remain `UNKNOWN`, and confidence remains null.
+The original public producer deliberately emitted no KRX raw response body and
+no per-symbol identity or price row. Aggregate retention by itself therefore
+proves only what the producer recorded. A later private, fixed-pair replay
+retained eight exact raw responses and reproduced all four source hashes and
+stable aggregate facts. The public repository records that result only through
+the separately pinned, sanitized `korea_breadth_replay_attestation/1`; no raw
+body, per-symbol row, or response-hash list is republished.
 
-A separate decision must establish a replayable source-retention contract and
-then ratify Korea-specific Breadth interpretation/scoring. Nothing here grants
-classification, threshold, Regime, strategy, action, order, capital,
-Production, or trading authority.
+That attestation closes the source-replay blocker but does not ratify a
+Korea-specific Breadth interpretation. `KR/BREADTH` remains `UNDEFINED` with
+reason `SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED`; KR coverage remains
+`0/5`, Regime/direction remain `UNKNOWN`, and confidence remains null. Nothing
+here grants classification, threshold, Regime, strategy, action, order,
+capital, Production, or trading authority.

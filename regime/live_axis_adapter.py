@@ -13,7 +13,9 @@ Only direct semantic bindings are supported:
 * CRYPTO/LIQUIDITY<- STABLECOIN_NET_ISSUANCE
 The Korea seven-name post-close watchlist, Korea Breadth lineage-only receipts,
 the three-name IEX sample, and the US membership roster are deliberately not
-promoted into market-wide axes.
+promoted into market-wide axes.  A sanitized Korea Breadth replay attestation
+can close the raw-source replay blocker, but it cannot define the axis until a
+separate scoring policy is ratified.
 FRED is eligible only after the append-only raw response is independently
 replayed.  A self-hashed derived pointer is not sufficient evidence.
 """
@@ -31,7 +33,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v3"
+CONTRACT_VERSION = "regime_live_axis_adapter/v4"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -72,7 +74,7 @@ def _expected_contract() -> dict:
         },
         "deferred_axes": {
             "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
-            "KR/BREADTH": "AGGREGATE_RETAINED_RAW_SOURCE_NOT_REPLAYABLE",
+            "KR/BREADTH": "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED",
             "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
             "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
             "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED",
@@ -81,6 +83,7 @@ def _expected_contract() -> dict:
             "IEX_THREE_SYMBOL_SAMPLE",
             "KRX_SEVEN_SYMBOL_WATCHLIST",
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
+            "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_RATIFIED_SCORING_POLICY",
             "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES",
         ],
         "authority": {
@@ -126,6 +129,10 @@ STABLECOIN = _load(
 )
 FRED_VIX = _load(
     "atlas_regime_axis_fred_vix", "collectors/fred_vix_provenance.py"
+)
+KOREA_BREADTH_REPLAY = _load(
+    "atlas_korea_breadth_replay_attestation",
+    "regime/korea_breadth_replay_attestation.py",
 )
 
 
@@ -376,6 +383,17 @@ def _attempt(builder, rows: dict, generated_at: str, binding: dict) -> dict:
         return _undefined("LIVE_AXIS_EVIDENCE_UNAVAILABLE")
 
 
+def _korea_breadth_deferred_reason(approved_reason: str) -> str:
+    expected = "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED"
+    if approved_reason != expected:
+        fail("CONTRACT_INVALID", "KR/BREADTH replay boundary")
+    try:
+        KOREA_BREADTH_REPLAY.load_approved_attestation()
+    except Exception:
+        return "KOREA_BREADTH_REPLAY_ATTESTATION_UNAVAILABLE"
+    return expected
+
+
 def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dict]:
     """Return evidence-only factor specs for the three Regime envelopes."""
     if not isinstance(component_rows, dict):
@@ -403,5 +421,7 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
                 "CONTRACT_INVALID",
                 f"deferred axis conflicts with binding: {qualified_axis}",
             )
+        if qualified_axis == "KR/BREADTH":
+            reason = _korea_breadth_deferred_reason(reason)
         result[market][axis] = _undefined(reason)
     return result
