@@ -1,0 +1,3356 @@
+{
+  "as_of_date": "2026-08-26",
+  "authority": {
+    "classifications_created": 0,
+    "investability_authorized": false,
+    "production_authorized": false,
+    "records_ratified": 0,
+    "stage_promotion_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
+  "generated_at": "2026-08-27T07:48:02Z",
+  "lineage": {
+    "available_at": "2026-08-27T07:48:02Z",
+    "capture_version": "crypto-breadth-capture/v2",
+    "identity_policy_sha256": "5d6d0574d3f002c80c9c918300f559a98add6a92aa8692fc877a2b494340338c",
+    "identity_policy_version": "crypto_asset_identity_exceptions/v1",
+    "manifest_sha256": "9a496bac05892cdafcfd07441e41670f338ebb4fb8c9d5febda23a9eb3843a5f",
+    "raw_bundle_path": "evidence/crypto/breadth/raw/2026-08-27",
+    "taxonomy_approval_status": "RATIFIED",
+    "taxonomy_path": "config/crypto_breadth_exclusion_taxonomy.json",
+    "taxonomy_policy_sha256": "0011a30adb2e7757152ea8e1bf28769484e8390565d712e1ac73481cbd19d109",
+    "taxonomy_policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "universe_policy_path": "config/crypto_breadth_universe_policy.json",
+    "universe_policy_sha256": "b9189e59ae697b1c5cb2cefa68a96601b2fefe38b365b8fbc7328e196c894aa7",
+    "universe_policy_version": "crypto_breadth_universe/v1"
+  },
+  "payload_sha256": "948461b01c81453843815a973c203e23c34ccc84c338f6cd604bcd66eadfda48",
+  "review_population": {
+    "ranking_ineligible": [
+      {
+        "canonical_asset_id": "ALIGN",
+        "pair_id": "ALIGN/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "AUGUR",
+        "pair_id": "AUGUR/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "BNKR",
+        "pair_id": "BNKR/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "DGAI",
+        "pair_id": "DGAI/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "DOS",
+        "pair_id": "DOS/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "FOLD",
+        "pair_id": "FOLD/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "KII",
+        "pair_id": "KII/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "LIGHTER",
+        "pair_id": "LIGHTER/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "PWT",
+        "pair_id": "PWT/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "QUID",
+        "pair_id": "QUID/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "SN44",
+        "pair_id": "SN44/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "SODA",
+        "pair_id": "SODA/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "TMX",
+        "pair_id": "TMX/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "USDGO",
+        "pair_id": "USDGO/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "USDSM",
+        "pair_id": "USDSM/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      },
+      {
+        "canonical_asset_id": "XU3O8",
+        "pair_id": "XU3O8/USD",
+        "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+      }
+    ],
+    "taxonomy_excluded_before_cutoff": [
+      {
+        "canonical_asset_id": "USDT",
+        "category": "stablecoin",
+        "pair_id": "USDT/USD",
+        "rank_before_taxonomy": 1,
+        "trailing_usd_turnover": "4761999507.476733462958"
+      },
+      {
+        "canonical_asset_id": "USDC",
+        "category": "stablecoin",
+        "pair_id": "USDC/USD",
+        "rank_before_taxonomy": 3,
+        "trailing_usd_turnover": "1890219915.231349182135"
+      },
+      {
+        "canonical_asset_id": "EUR",
+        "category": "fiat",
+        "pair_id": "EUR/USD",
+        "rank_before_taxonomy": 6,
+        "trailing_usd_turnover": "563608482.625314810561"
+      },
+      {
+        "canonical_asset_id": "GBP",
+        "category": "fiat",
+        "pair_id": "GBP/USD",
+        "rank_before_taxonomy": 16,
+        "trailing_usd_turnover": "90911191.489854076312"
+      },
+      {
+        "canonical_asset_id": "PAXG",
+        "category": "commodity_linked",
+        "pair_id": "PAXG/USD",
+        "rank_before_taxonomy": 19,
+        "trailing_usd_turnover": "69428776.6930793253"
+      },
+      {
+        "canonical_asset_id": "USDG",
+        "category": "stablecoin",
+        "pair_id": "USDG/USD",
+        "rank_before_taxonomy": 39,
+        "trailing_usd_turnover": "21747983.31605066"
+      },
+      {
+        "canonical_asset_id": "AUD",
+        "category": "fiat",
+        "pair_id": "AUD/USD",
+        "rank_before_taxonomy": 44,
+        "trailing_usd_turnover": "20163171.426260872474"
+      },
+      {
+        "canonical_asset_id": "XAUT",
+        "category": "commodity_linked",
+        "pair_id": "XAUT/USD",
+        "rank_before_taxonomy": 59,
+        "trailing_usd_turnover": "12070469.680986089"
+      },
+      {
+        "canonical_asset_id": "EURC",
+        "category": "stablecoin",
+        "pair_id": "EURC/USD",
+        "rank_before_taxonomy": 61,
+        "trailing_usd_turnover": "12000387.503110516513"
+      },
+      {
+        "canonical_asset_id": "NIGHT",
+        "category": "unverified_identity",
+        "pair_id": "NIGHT/USD",
+        "rank_before_taxonomy": 62,
+        "trailing_usd_turnover": "11963524.8618816502"
+      },
+      {
+        "canonical_asset_id": "RE",
+        "category": "unverified_identity",
+        "pair_id": "RE/USD",
+        "rank_before_taxonomy": 63,
+        "trailing_usd_turnover": "11788627.5876508743"
+      },
+      {
+        "canonical_asset_id": "PLAY",
+        "category": "unverified_identity",
+        "pair_id": "PLAY/USD",
+        "rank_before_taxonomy": 89,
+        "trailing_usd_turnover": "6855548.37856228058"
+      },
+      {
+        "canonical_asset_id": "DAI",
+        "category": "stablecoin",
+        "pair_id": "DAI/USD",
+        "rank_before_taxonomy": 125,
+        "trailing_usd_turnover": "3715127.768367198008"
+      },
+      {
+        "canonical_asset_id": "PYUSD",
+        "category": "stablecoin",
+        "pair_id": "PYUSD/USD",
+        "rank_before_taxonomy": 152,
+        "trailing_usd_turnover": "2644898.684315286"
+      },
+      {
+        "canonical_asset_id": "WBTC",
+        "category": "wrapped",
+        "pair_id": "WBTC/USD",
+        "rank_before_taxonomy": 164,
+        "trailing_usd_turnover": "2391460.034533238"
+      },
+      {
+        "canonical_asset_id": "USDE",
+        "category": "stablecoin",
+        "pair_id": "USDE/USD",
+        "rank_before_taxonomy": 237,
+        "trailing_usd_turnover": "1257129.079818729"
+      },
+      {
+        "canonical_asset_id": "RLUSD",
+        "category": "stablecoin",
+        "pair_id": "RLUSD/USD",
+        "rank_before_taxonomy": 308,
+        "trailing_usd_turnover": "612535.8298402955"
+      },
+      {
+        "canonical_asset_id": "USDS",
+        "category": "stablecoin",
+        "pair_id": "USDS/USD",
+        "rank_before_taxonomy": 430,
+        "trailing_usd_turnover": "255911.488998726074"
+      },
+      {
+        "canonical_asset_id": "TBTC",
+        "category": "wrapped",
+        "pair_id": "TBTC/USD",
+        "rank_before_taxonomy": 604,
+        "trailing_usd_turnover": "13871.596206433"
+      }
+    ],
+    "taxonomy_unknown_before_cutoff": [
+      {
+        "canonical_asset_id": "ASTER",
+        "pair_id": "ASTER/USD",
+        "rank_before_taxonomy": 69,
+        "trailing_usd_turnover": "10577574.6772379666"
+      },
+      {
+        "canonical_asset_id": "XPL",
+        "pair_id": "XPL/USD",
+        "rank_before_taxonomy": 71,
+        "trailing_usd_turnover": "10475829.845670848"
+      },
+      {
+        "canonical_asset_id": "ZRO",
+        "pair_id": "ZRO/USD",
+        "rank_before_taxonomy": 80,
+        "trailing_usd_turnover": "8692841.5582682"
+      },
+      {
+        "canonical_asset_id": "STX",
+        "pair_id": "STX/USD",
+        "rank_before_taxonomy": 84,
+        "trailing_usd_turnover": "7558139.204516307723"
+      },
+      {
+        "canonical_asset_id": "VIRTUAL",
+        "pair_id": "VIRTUAL/USD",
+        "rank_before_taxonomy": 91,
+        "trailing_usd_turnover": "6440718.736407683"
+      },
+      {
+        "canonical_asset_id": "WIF",
+        "pair_id": "WIF/USD",
+        "rank_before_taxonomy": 97,
+        "trailing_usd_turnover": "5340442.636941"
+      },
+      {
+        "canonical_asset_id": "ETHFI",
+        "pair_id": "ETHFI/USD",
+        "rank_before_taxonomy": 101,
+        "trailing_usd_turnover": "5039901.501271057"
+      },
+      {
+        "canonical_asset_id": "BONK",
+        "pair_id": "BONK/USD",
+        "rank_before_taxonomy": 102,
+        "trailing_usd_turnover": "5031253.626989807734"
+      },
+      {
+        "canonical_asset_id": "KTA",
+        "pair_id": "KTA/USD",
+        "rank_before_taxonomy": 103,
+        "trailing_usd_turnover": "4969754.23231126"
+      },
+      {
+        "canonical_asset_id": "ARB",
+        "pair_id": "ARB/USD",
+        "rank_before_taxonomy": 104,
+        "trailing_usd_turnover": "4907375.258595828"
+      },
+      {
+        "canonical_asset_id": "DCR",
+        "pair_id": "DCR/USD",
+        "rank_before_taxonomy": 105,
+        "trailing_usd_turnover": "4901929.73470042"
+      },
+      {
+        "canonical_asset_id": "PENDLE",
+        "pair_id": "PENDLE/USD",
+        "rank_before_taxonomy": 106,
+        "trailing_usd_turnover": "4833145.33242915"
+      },
+      {
+        "canonical_asset_id": "CVX",
+        "pair_id": "CVX/USD",
+        "rank_before_taxonomy": 109,
+        "trailing_usd_turnover": "4575012.08286560991"
+      },
+      {
+        "canonical_asset_id": "ACU",
+        "pair_id": "ACU/USD",
+        "rank_before_taxonomy": 111,
+        "trailing_usd_turnover": "4493454.099339693"
+      },
+      {
+        "canonical_asset_id": "LIT",
+        "pair_id": "LIT/USD",
+        "rank_before_taxonomy": 112,
+        "trailing_usd_turnover": "4309520.905955665"
+      },
+      {
+        "canonical_asset_id": "JTO",
+        "pair_id": "JTO/USD",
+        "rank_before_taxonomy": 114,
+        "trailing_usd_turnover": "4045474.8064503559"
+      },
+      {
+        "canonical_asset_id": "APT",
+        "pair_id": "APT/USD",
+        "rank_before_taxonomy": 115,
+        "trailing_usd_turnover": "4015541.717231393945"
+      },
+      {
+        "canonical_asset_id": "JASMY",
+        "pair_id": "JASMY/USD",
+        "rank_before_taxonomy": 116,
+        "trailing_usd_turnover": "4009848.341324886096"
+      },
+      {
+        "canonical_asset_id": "TIA",
+        "pair_id": "TIA/USD",
+        "rank_before_taxonomy": 117,
+        "trailing_usd_turnover": "3995636.14100316"
+      },
+      {
+        "canonical_asset_id": "RIZE",
+        "pair_id": "RIZE/USD",
+        "rank_before_taxonomy": 118,
+        "trailing_usd_turnover": "3972165.29401894203"
+      },
+      {
+        "canonical_asset_id": "SCRT",
+        "pair_id": "SCRT/USD",
+        "rank_before_taxonomy": 119,
+        "trailing_usd_turnover": "3961713.989503079308"
+      },
+      {
+        "canonical_asset_id": "NIL",
+        "pair_id": "NIL/USD",
+        "rank_before_taxonomy": 120,
+        "trailing_usd_turnover": "3945699.912387356"
+      },
+      {
+        "canonical_asset_id": "PYTH",
+        "pair_id": "PYTH/USD",
+        "rank_before_taxonomy": 121,
+        "trailing_usd_turnover": "3919613.5980569797"
+      },
+      {
+        "canonical_asset_id": "STRK",
+        "pair_id": "STRK/USD",
+        "rank_before_taxonomy": 122,
+        "trailing_usd_turnover": "3827929.0768772152"
+      },
+      {
+        "canonical_asset_id": "PLUME",
+        "pair_id": "PLUME/USD",
+        "rank_before_taxonomy": 123,
+        "trailing_usd_turnover": "3749596.7811994838"
+      },
+      {
+        "canonical_asset_id": "KNTQ",
+        "pair_id": "KNTQ/USD",
+        "rank_before_taxonomy": 124,
+        "trailing_usd_turnover": "3733726.0851333458"
+      },
+      {
+        "canonical_asset_id": "ICNT",
+        "pair_id": "ICNT/USD",
+        "rank_before_taxonomy": 126,
+        "trailing_usd_turnover": "3641922.18346727"
+      },
+      {
+        "canonical_asset_id": "BABY",
+        "pair_id": "BABY/USD",
+        "rank_before_taxonomy": 127,
+        "trailing_usd_turnover": "3624925.508224295"
+      },
+      {
+        "canonical_asset_id": "MINA",
+        "pair_id": "MINA/USD",
+        "rank_before_taxonomy": 128,
+        "trailing_usd_turnover": "3609898.544061572344"
+      },
+      {
+        "canonical_asset_id": "XNY",
+        "pair_id": "XNY/USD",
+        "rank_before_taxonomy": 129,
+        "trailing_usd_turnover": "3561584.38489822221"
+      },
+      {
+        "canonical_asset_id": "DOG",
+        "pair_id": "DOG/USD",
+        "rank_before_taxonomy": 130,
+        "trailing_usd_turnover": "3524055.47627333775"
+      },
+      {
+        "canonical_asset_id": "SYRUP",
+        "pair_id": "SYRUP/USD",
+        "rank_before_taxonomy": 131,
+        "trailing_usd_turnover": "3511638.5703506746"
+      },
+      {
+        "canonical_asset_id": "XAN",
+        "pair_id": "XAN/USD",
+        "rank_before_taxonomy": 132,
+        "trailing_usd_turnover": "3448939.7680689076"
+      },
+      {
+        "canonical_asset_id": "BABYSHARK",
+        "pair_id": "BABYSHARK/USD",
+        "rank_before_taxonomy": 133,
+        "trailing_usd_turnover": "3414856.81258199896"
+      },
+      {
+        "canonical_asset_id": "MELANIA",
+        "pair_id": "MELANIA/USD",
+        "rank_before_taxonomy": 134,
+        "trailing_usd_turnover": "3406658.307641442"
+      },
+      {
+        "canonical_asset_id": "FLOKI",
+        "pair_id": "FLOKI/USD",
+        "rank_before_taxonomy": 135,
+        "trailing_usd_turnover": "3399608.60642615228"
+      },
+      {
+        "canonical_asset_id": "M",
+        "pair_id": "M/USD",
+        "rank_before_taxonomy": 136,
+        "trailing_usd_turnover": "3323494.5997955585"
+      },
+      {
+        "canonical_asset_id": "EIGEN",
+        "pair_id": "EIGEN/USD",
+        "rank_before_taxonomy": 137,
+        "trailing_usd_turnover": "3247703.675745049"
+      },
+      {
+        "canonical_asset_id": "MANA",
+        "pair_id": "MANA/USD",
+        "rank_before_taxonomy": 138,
+        "trailing_usd_turnover": "3228433.70952445134"
+      },
+      {
+        "canonical_asset_id": "POPCAT",
+        "pair_id": "POPCAT/USD",
+        "rank_before_taxonomy": 139,
+        "trailing_usd_turnover": "3124667.127410553"
+      },
+      {
+        "canonical_asset_id": "OP",
+        "pair_id": "OP/USD",
+        "rank_before_taxonomy": 140,
+        "trailing_usd_turnover": "3122311.834496645"
+      },
+      {
+        "canonical_asset_id": "ESP",
+        "pair_id": "ESP/USD",
+        "rank_before_taxonomy": 141,
+        "trailing_usd_turnover": "3113199.1322308581"
+      },
+      {
+        "canonical_asset_id": "DRV",
+        "pair_id": "DRV/USD",
+        "rank_before_taxonomy": 143,
+        "trailing_usd_turnover": "3050340.3255830228"
+      },
+      {
+        "canonical_asset_id": "FHE",
+        "pair_id": "FHE/USD",
+        "rank_before_taxonomy": 144,
+        "trailing_usd_turnover": "3024406.3427152475"
+      },
+      {
+        "canonical_asset_id": "TRAC",
+        "pair_id": "TRAC/USD",
+        "rank_before_taxonomy": 145,
+        "trailing_usd_turnover": "2957672.779249161"
+      },
+      {
+        "canonical_asset_id": "MNT",
+        "pair_id": "MNT/USD",
+        "rank_before_taxonomy": 146,
+        "trailing_usd_turnover": "2893135.620253546"
+      },
+      {
+        "canonical_asset_id": "KSM",
+        "pair_id": "KSM/USD",
+        "rank_before_taxonomy": 147,
+        "trailing_usd_turnover": "2781387.7644068905"
+      },
+      {
+        "canonical_asset_id": "GRT",
+        "pair_id": "GRT/USD",
+        "rank_before_taxonomy": 148,
+        "trailing_usd_turnover": "2773416.416940172767"
+      },
+      {
+        "canonical_asset_id": "TRIA",
+        "pair_id": "TRIA/USD",
+        "rank_before_taxonomy": 149,
+        "trailing_usd_turnover": "2745123.0274974263"
+      },
+      {
+        "canonical_asset_id": "MOODENG",
+        "pair_id": "MOODENG/USD",
+        "rank_before_taxonomy": 150,
+        "trailing_usd_turnover": "2712956.1423907971"
+      },
+      {
+        "canonical_asset_id": "CHIP",
+        "pair_id": "CHIP/USD",
+        "rank_before_taxonomy": 151,
+        "trailing_usd_turnover": "2703093.9330522322"
+      },
+      {
+        "canonical_asset_id": "ZEREBRO",
+        "pair_id": "ZEREBRO/USD",
+        "rank_before_taxonomy": 153,
+        "trailing_usd_turnover": "2629032.8498004052"
+      },
+      {
+        "canonical_asset_id": "SHX",
+        "pair_id": "SHX/USD",
+        "rank_before_taxonomy": 154,
+        "trailing_usd_turnover": "2622523.88890915418"
+      },
+      {
+        "canonical_asset_id": "SKR",
+        "pair_id": "SKR/USD",
+        "rank_before_taxonomy": 155,
+        "trailing_usd_turnover": "2591071.783728239721"
+      },
+      {
+        "canonical_asset_id": "INX",
+        "pair_id": "INX/USD",
+        "rank_before_taxonomy": 156,
+        "trailing_usd_turnover": "2572126.788993138256"
+      },
+      {
+        "canonical_asset_id": "ENS",
+        "pair_id": "ENS/USD",
+        "rank_before_taxonomy": 157,
+        "trailing_usd_turnover": "2475242.0980496595"
+      },
+      {
+        "canonical_asset_id": "ROBO",
+        "pair_id": "ROBO/USD",
+        "rank_before_taxonomy": 158,
+        "trailing_usd_turnover": "2471472.2800381299"
+      },
+      {
+        "canonical_asset_id": "AVNT",
+        "pair_id": "AVNT/USD",
+        "rank_before_taxonomy": 159,
+        "trailing_usd_turnover": "2466694.4465151113"
+      },
+      {
+        "canonical_asset_id": "TLM",
+        "pair_id": "TLM/USD",
+        "rank_before_taxonomy": 160,
+        "trailing_usd_turnover": "2462269.324159125034"
+      },
+      {
+        "canonical_asset_id": "AUSD",
+        "pair_id": "AUSD/USD",
+        "rank_before_taxonomy": 161,
+        "trailing_usd_turnover": "2430444.830386241034"
+      },
+      {
+        "canonical_asset_id": "XTZ",
+        "pair_id": "XTZ/USD",
+        "rank_before_taxonomy": 162,
+        "trailing_usd_turnover": "2395191.2758807086"
+      },
+      {
+        "canonical_asset_id": "SAND",
+        "pair_id": "SAND/USD",
+        "rank_before_taxonomy": 163,
+        "trailing_usd_turnover": "2394102.859493830327"
+      },
+      {
+        "canonical_asset_id": "GALA",
+        "pair_id": "GALA/USD",
+        "rank_before_taxonomy": 165,
+        "trailing_usd_turnover": "2356765.94813551103"
+      },
+      {
+        "canonical_asset_id": "NPC",
+        "pair_id": "NPC/USD",
+        "rank_before_taxonomy": 166,
+        "trailing_usd_turnover": "2270151.31250304761"
+      },
+      {
+        "canonical_asset_id": "STORJ",
+        "pair_id": "STORJ/USD",
+        "rank_before_taxonomy": 167,
+        "trailing_usd_turnover": "2236089.223938912661"
+      },
+      {
+        "canonical_asset_id": "ETC",
+        "pair_id": "ETC/USD",
+        "rank_before_taxonomy": 168,
+        "trailing_usd_turnover": "2196387.14882028029"
+      },
+      {
+        "canonical_asset_id": "BRL1",
+        "pair_id": "BRL1/USD",
+        "rank_before_taxonomy": 169,
+        "trailing_usd_turnover": "2171581.169197079902"
+      },
+      {
+        "canonical_asset_id": "FUN",
+        "pair_id": "FUN/USD",
+        "rank_before_taxonomy": 170,
+        "trailing_usd_turnover": "2169183.0336443577"
+      },
+      {
+        "canonical_asset_id": "ADI",
+        "pair_id": "ADI/USD",
+        "rank_before_taxonomy": 171,
+        "trailing_usd_turnover": "2168307.448512364"
+      },
+      {
+        "canonical_asset_id": "CRO",
+        "pair_id": "CRO/USD",
+        "rank_before_taxonomy": 172,
+        "trailing_usd_turnover": "2155973.2613718505"
+      },
+      {
+        "canonical_asset_id": "RIVER",
+        "pair_id": "RIVER/USD",
+        "rank_before_taxonomy": 173,
+        "trailing_usd_turnover": "2135131.14572227"
+      },
+      {
+        "canonical_asset_id": "XMN",
+        "pair_id": "XMN/USD",
+        "rank_before_taxonomy": 174,
+        "trailing_usd_turnover": "2133036.4632840208"
+      },
+      {
+        "canonical_asset_id": "BIO",
+        "pair_id": "BIO/USD",
+        "rank_before_taxonomy": 175,
+        "trailing_usd_turnover": "2126734.1223549055"
+      },
+      {
+        "canonical_asset_id": "LCX",
+        "pair_id": "LCX/USD",
+        "rank_before_taxonomy": 176,
+        "trailing_usd_turnover": "2125745.249594096446"
+      },
+      {
+        "canonical_asset_id": "TURBO",
+        "pair_id": "TURBO/USD",
+        "rank_before_taxonomy": 177,
+        "trailing_usd_turnover": "2121370.318009163713"
+      },
+      {
+        "canonical_asset_id": "DENT",
+        "pair_id": "DENT/USD",
+        "rank_before_taxonomy": 178,
+        "trailing_usd_turnover": "2104609.181945370056"
+      },
+      {
+        "canonical_asset_id": "PIEVERSE",
+        "pair_id": "PIEVERSE/USD",
+        "rank_before_taxonomy": 179,
+        "trailing_usd_turnover": "2103115.827196519"
+      },
+      {
+        "canonical_asset_id": "SLX",
+        "pair_id": "SLX/USD",
+        "rank_before_taxonomy": 180,
+        "trailing_usd_turnover": "2096395.3823175204"
+      },
+      {
+        "canonical_asset_id": "WINGS",
+        "pair_id": "WINGS/USD",
+        "rank_before_taxonomy": 181,
+        "trailing_usd_turnover": "2063278.35005085343"
+      },
+      {
+        "canonical_asset_id": "OKB",
+        "pair_id": "OKB/USD",
+        "rank_before_taxonomy": 182,
+        "trailing_usd_turnover": "2057224.0099604"
+      },
+      {
+        "canonical_asset_id": "TRUST",
+        "pair_id": "TRUST/USD",
+        "rank_before_taxonomy": 183,
+        "trailing_usd_turnover": "2028494.5450723757"
+      },
+      {
+        "canonical_asset_id": "GRASS",
+        "pair_id": "GRASS/USD",
+        "rank_before_taxonomy": 184,
+        "trailing_usd_turnover": "2009550.575735245"
+      },
+      {
+        "canonical_asset_id": "STG",
+        "pair_id": "STG/USD",
+        "rank_before_taxonomy": 185,
+        "trailing_usd_turnover": "1980939.13344025318"
+      },
+      {
+        "canonical_asset_id": "OOB",
+        "pair_id": "OOB/USD",
+        "rank_before_taxonomy": 186,
+        "trailing_usd_turnover": "1964428.3518966932"
+      },
+      {
+        "canonical_asset_id": "ZBT",
+        "pair_id": "ZBT/USD",
+        "rank_before_taxonomy": 187,
+        "trailing_usd_turnover": "1937168.2230984871"
+      },
+      {
+        "canonical_asset_id": "RED",
+        "pair_id": "RED/USD",
+        "rank_before_taxonomy": 188,
+        "trailing_usd_turnover": "1862468.446007956"
+      },
+      {
+        "canonical_asset_id": "AI",
+        "pair_id": "AI/USD",
+        "rank_before_taxonomy": 189,
+        "trailing_usd_turnover": "1855590.9362414854"
+      },
+      {
+        "canonical_asset_id": "VSN",
+        "pair_id": "VSN/USD",
+        "rank_before_taxonomy": 190,
+        "trailing_usd_turnover": "1830434.8484868319"
+      },
+      {
+        "canonical_asset_id": "AVA",
+        "pair_id": "AVA/USD",
+        "rank_before_taxonomy": 191,
+        "trailing_usd_turnover": "1824867.263254344"
+      },
+      {
+        "canonical_asset_id": "BAT",
+        "pair_id": "BAT/USD",
+        "rank_before_taxonomy": 192,
+        "trailing_usd_turnover": "1821202.297817068131"
+      },
+      {
+        "canonical_asset_id": "SUSHI",
+        "pair_id": "SUSHI/USD",
+        "rank_before_taxonomy": 193,
+        "trailing_usd_turnover": "1791038.00285053972"
+      },
+      {
+        "canonical_asset_id": "ALLO",
+        "pair_id": "ALLO/USD",
+        "rank_before_taxonomy": 194,
+        "trailing_usd_turnover": "1782069.925898244"
+      },
+      {
+        "canonical_asset_id": "PONKE",
+        "pair_id": "PONKE/USD",
+        "rank_before_taxonomy": 195,
+        "trailing_usd_turnover": "1774685.4476714453"
+      },
+      {
+        "canonical_asset_id": "FLOW",
+        "pair_id": "FLOW/USD",
+        "rank_before_taxonomy": 196,
+        "trailing_usd_turnover": "1754044.295944099231"
+      },
+      {
+        "canonical_asset_id": "RAY",
+        "pair_id": "RAY/USD",
+        "rank_before_taxonomy": 197,
+        "trailing_usd_turnover": "1739127.9500812192"
+      },
+      {
+        "canonical_asset_id": "CFG",
+        "pair_id": "CFG/USD",
+        "rank_before_taxonomy": 198,
+        "trailing_usd_turnover": "1725307.674880132327"
+      },
+      {
+        "canonical_asset_id": "CASH",
+        "pair_id": "CASH/USD",
+        "rank_before_taxonomy": 199,
+        "trailing_usd_turnover": "1720226.192926456"
+      },
+      {
+        "canonical_asset_id": "REPPO",
+        "pair_id": "REPPO/USD",
+        "rank_before_taxonomy": 200,
+        "trailing_usd_turnover": "1689737.49017073592"
+      },
+      {
+        "canonical_asset_id": "ZIG",
+        "pair_id": "ZIG/USD",
+        "rank_before_taxonomy": 201,
+        "trailing_usd_turnover": "1684885.1307395979"
+      },
+      {
+        "canonical_asset_id": "0G",
+        "pair_id": "0G/USD",
+        "rank_before_taxonomy": 202,
+        "trailing_usd_turnover": "1678780.83443177"
+      },
+      {
+        "canonical_asset_id": "MOVR",
+        "pair_id": "MOVR/USD",
+        "rank_before_taxonomy": 203,
+        "trailing_usd_turnover": "1678663.695727041696"
+      },
+      {
+        "canonical_asset_id": "MANTRA",
+        "pair_id": "MANTRA/USD",
+        "rank_before_taxonomy": 204,
+        "trailing_usd_turnover": "1668068.705522058446"
+      },
+      {
+        "canonical_asset_id": "PORTAL",
+        "pair_id": "PORTAL/USD",
+        "rank_before_taxonomy": 205,
+        "trailing_usd_turnover": "1666602.6519623355"
+      },
+      {
+        "canonical_asset_id": "SPK",
+        "pair_id": "SPK/USD",
+        "rank_before_taxonomy": 206,
+        "trailing_usd_turnover": "1664262.873769226284"
+      },
+      {
+        "canonical_asset_id": "SUPER",
+        "pair_id": "SUPER/USD",
+        "rank_before_taxonomy": 207,
+        "trailing_usd_turnover": "1636064.379363259577"
+      },
+      {
+        "canonical_asset_id": "MET",
+        "pair_id": "MET/USD",
+        "rank_before_taxonomy": 208,
+        "trailing_usd_turnover": "1585654.347517117"
+      },
+      {
+        "canonical_asset_id": "CTSI",
+        "pair_id": "CTSI/USD",
+        "rank_before_taxonomy": 209,
+        "trailing_usd_turnover": "1579939.892549409904"
+      },
+      {
+        "canonical_asset_id": "MEGA",
+        "pair_id": "MEGA/USD",
+        "rank_before_taxonomy": 210,
+        "trailing_usd_turnover": "1566630.2855622042"
+      },
+      {
+        "canonical_asset_id": "AIO",
+        "pair_id": "AIO/USD",
+        "rank_before_taxonomy": 211,
+        "trailing_usd_turnover": "1562955.6123502989"
+      },
+      {
+        "canonical_asset_id": "SHAPE",
+        "pair_id": "SHAPE/USD",
+        "rank_before_taxonomy": 212,
+        "trailing_usd_turnover": "1551006.36310040151"
+      },
+      {
+        "canonical_asset_id": "AR",
+        "pair_id": "AR/USD",
+        "rank_before_taxonomy": 213,
+        "trailing_usd_turnover": "1550655.34478614"
+      },
+      {
+        "canonical_asset_id": "STBL",
+        "pair_id": "STBL/USD",
+        "rank_before_taxonomy": 214,
+        "trailing_usd_turnover": "1523779.43754095672"
+      },
+      {
+        "canonical_asset_id": "NEIRO",
+        "pair_id": "NEIRO/USD",
+        "rank_before_taxonomy": 215,
+        "trailing_usd_turnover": "1502615.000387731688"
+      },
+      {
+        "canonical_asset_id": "APE",
+        "pair_id": "APE/USD",
+        "rank_before_taxonomy": 216,
+        "trailing_usd_turnover": "1465636.555233375096"
+      },
+      {
+        "canonical_asset_id": "TEL",
+        "pair_id": "TEL/USD",
+        "rank_before_taxonomy": 217,
+        "trailing_usd_turnover": "1465615.766311364603"
+      },
+      {
+        "canonical_asset_id": "PEAQ",
+        "pair_id": "PEAQ/USD",
+        "rank_before_taxonomy": 218,
+        "trailing_usd_turnover": "1454258.5744768339"
+      },
+      {
+        "canonical_asset_id": "ACH",
+        "pair_id": "ACH/USD",
+        "rank_before_taxonomy": 219,
+        "trailing_usd_turnover": "1440590.039335844706"
+      },
+      {
+        "canonical_asset_id": "BASED",
+        "pair_id": "BASED/USD",
+        "rank_before_taxonomy": 220,
+        "trailing_usd_turnover": "1433407.6017872453"
+      },
+      {
+        "canonical_asset_id": "NANO",
+        "pair_id": "NANO/USD",
+        "rank_before_taxonomy": 221,
+        "trailing_usd_turnover": "1417847.175955294398"
+      },
+      {
+        "canonical_asset_id": "OXT",
+        "pair_id": "OXT/USD",
+        "rank_before_taxonomy": 222,
+        "trailing_usd_turnover": "1413659.094520135047"
+      },
+      {
+        "canonical_asset_id": "COMP",
+        "pair_id": "COMP/USD",
+        "rank_before_taxonomy": 223,
+        "trailing_usd_turnover": "1404894.5910850558"
+      },
+      {
+        "canonical_asset_id": "IMX",
+        "pair_id": "IMX/USD",
+        "rank_before_taxonomy": 224,
+        "trailing_usd_turnover": "1404002.708199121878"
+      },
+      {
+        "canonical_asset_id": "RUNE",
+        "pair_id": "RUNE/USD",
+        "rank_before_taxonomy": 225,
+        "trailing_usd_turnover": "1393505.6330976868"
+      },
+      {
+        "canonical_asset_id": "TAKE",
+        "pair_id": "TAKE/USD",
+        "rank_before_taxonomy": 226,
+        "trailing_usd_turnover": "1382113.4347184782"
+      },
+      {
+        "canonical_asset_id": "TOSHI",
+        "pair_id": "TOSHI/USD",
+        "rank_before_taxonomy": 227,
+        "trailing_usd_turnover": "1371683.3257953289"
+      },
+      {
+        "canonical_asset_id": "FORTH",
+        "pair_id": "FORTH/USD",
+        "rank_before_taxonomy": 228,
+        "trailing_usd_turnover": "1370124.79623514678"
+      },
+      {
+        "canonical_asset_id": "PRCL",
+        "pair_id": "PRCL/USD",
+        "rank_before_taxonomy": 229,
+        "trailing_usd_turnover": "1334183.4481661244"
+      },
+      {
+        "canonical_asset_id": "BOB",
+        "pair_id": "BOB/USD",
+        "rank_before_taxonomy": 230,
+        "trailing_usd_turnover": "1330361.2371558694"
+      },
+      {
+        "canonical_asset_id": "2Z",
+        "pair_id": "2Z/USD",
+        "rank_before_taxonomy": 231,
+        "trailing_usd_turnover": "1293892.526548793"
+      },
+      {
+        "canonical_asset_id": "MUBARAK",
+        "pair_id": "MUBARAK/USD",
+        "rank_before_taxonomy": 232,
+        "trailing_usd_turnover": "1287306.2666597065"
+      },
+      {
+        "canonical_asset_id": "RARE",
+        "pair_id": "RARE/USD",
+        "rank_before_taxonomy": 233,
+        "trailing_usd_turnover": "1279325.1140079491"
+      },
+      {
+        "canonical_asset_id": "CAKE",
+        "pair_id": "CAKE/USD",
+        "rank_before_taxonomy": 234,
+        "trailing_usd_turnover": "1279201.09789712"
+      },
+      {
+        "canonical_asset_id": "S",
+        "pair_id": "S/USD",
+        "rank_before_taxonomy": 235,
+        "trailing_usd_turnover": "1273343.023441613"
+      },
+      {
+        "canonical_asset_id": "SAGA",
+        "pair_id": "SAGA/USD",
+        "rank_before_taxonomy": 236,
+        "trailing_usd_turnover": "1261032.4984878847"
+      },
+      {
+        "canonical_asset_id": "GIGA",
+        "pair_id": "GIGA/USD",
+        "rank_before_taxonomy": 238,
+        "trailing_usd_turnover": "1251372.60793810171"
+      },
+      {
+        "canonical_asset_id": "WAL",
+        "pair_id": "WAL/USD",
+        "rank_before_taxonomy": 239,
+        "trailing_usd_turnover": "1199753.7015100427"
+      },
+      {
+        "canonical_asset_id": "VET",
+        "pair_id": "VET/USD",
+        "rank_before_taxonomy": 240,
+        "trailing_usd_turnover": "1189532.02227352151"
+      },
+      {
+        "canonical_asset_id": "SXT",
+        "pair_id": "SXT/USD",
+        "rank_before_taxonomy": 241,
+        "trailing_usd_turnover": "1184016.0079561394"
+      },
+      {
+        "canonical_asset_id": "VANRY",
+        "pair_id": "VANRY/USD",
+        "rank_before_taxonomy": 242,
+        "trailing_usd_turnover": "1171015.221239047"
+      },
+      {
+        "canonical_asset_id": "MOG",
+        "pair_id": "MOG/USD",
+        "rank_before_taxonomy": 243,
+        "trailing_usd_turnover": "1159592.497326229774"
+      },
+      {
+        "canonical_asset_id": "PNUT",
+        "pair_id": "PNUT/USD",
+        "rank_before_taxonomy": 244,
+        "trailing_usd_turnover": "1154017.189950669"
+      },
+      {
+        "canonical_asset_id": "OCEAN",
+        "pair_id": "OCEAN/USD",
+        "rank_before_taxonomy": 245,
+        "trailing_usd_turnover": "1150319.644281599074"
+      },
+      {
+        "canonical_asset_id": "FIDA",
+        "pair_id": "FIDA/USD",
+        "rank_before_taxonomy": 246,
+        "trailing_usd_turnover": "1137512.339803464144"
+      },
+      {
+        "canonical_asset_id": "W",
+        "pair_id": "W/USD",
+        "rank_before_taxonomy": 247,
+        "trailing_usd_turnover": "1107587.1236906928"
+      },
+      {
+        "canonical_asset_id": "AXS",
+        "pair_id": "AXS/USD",
+        "rank_before_taxonomy": 248,
+        "trailing_usd_turnover": "1107105.31661823879"
+      },
+      {
+        "canonical_asset_id": "SOON",
+        "pair_id": "SOON/USD",
+        "rank_before_taxonomy": 249,
+        "trailing_usd_turnover": "1100943.82693561"
+      },
+      {
+        "canonical_asset_id": "ARX",
+        "pair_id": "ARX/USD",
+        "rank_before_taxonomy": 250,
+        "trailing_usd_turnover": "1097117.5393426684"
+      },
+      {
+        "canonical_asset_id": "BTR",
+        "pair_id": "BTR/USD",
+        "rank_before_taxonomy": 251,
+        "trailing_usd_turnover": "1079667.2684950784"
+      },
+      {
+        "canonical_asset_id": "BANANAS31",
+        "pair_id": "BANANAS31/USD",
+        "rank_before_taxonomy": 252,
+        "trailing_usd_turnover": "1073743.1996168015"
+      },
+      {
+        "canonical_asset_id": "ATH",
+        "pair_id": "ATH/USD",
+        "rank_before_taxonomy": 253,
+        "trailing_usd_turnover": "1068492.4973371576"
+      },
+      {
+        "canonical_asset_id": "PROMPT",
+        "pair_id": "PROMPT/USD",
+        "rank_before_taxonomy": 254,
+        "trailing_usd_turnover": "1051722.5231478767"
+      },
+      {
+        "canonical_asset_id": "ASSET",
+        "pair_id": "ASSET/USD",
+        "rank_before_taxonomy": 255,
+        "trailing_usd_turnover": "1048197.7481386799"
+      },
+      {
+        "canonical_asset_id": "MYX",
+        "pair_id": "MYX/USD",
+        "rank_before_taxonomy": 256,
+        "trailing_usd_turnover": "1040620.20286635"
+      },
+      {
+        "canonical_asset_id": "OPEN",
+        "pair_id": "OPEN/USD",
+        "rank_before_taxonomy": 257,
+        "trailing_usd_turnover": "1039949.993097162"
+      },
+      {
+        "canonical_asset_id": "LMWR",
+        "pair_id": "LMWR/USD",
+        "rank_before_taxonomy": 258,
+        "trailing_usd_turnover": "1024862.5363403866"
+      },
+      {
+        "canonical_asset_id": "ALICE",
+        "pair_id": "ALICE/USD",
+        "rank_before_taxonomy": 259,
+        "trailing_usd_turnover": "1000858.59705292952"
+      },
+      {
+        "canonical_asset_id": "CHZ",
+        "pair_id": "CHZ/USD",
+        "rank_before_taxonomy": 260,
+        "trailing_usd_turnover": "996442.753410085632"
+      },
+      {
+        "canonical_asset_id": "TRU",
+        "pair_id": "TRU/USD",
+        "rank_before_taxonomy": 261,
+        "trailing_usd_turnover": "991146.511814381103"
+      },
+      {
+        "canonical_asset_id": "BERA",
+        "pair_id": "BERA/USD",
+        "rank_before_taxonomy": 262,
+        "trailing_usd_turnover": "990092.481139038"
+      },
+      {
+        "canonical_asset_id": "PEP",
+        "pair_id": "PEP/USD",
+        "rank_before_taxonomy": 263,
+        "trailing_usd_turnover": "952763.508409870984"
+      },
+      {
+        "canonical_asset_id": "TAC",
+        "pair_id": "TAC/USD",
+        "rank_before_taxonomy": 264,
+        "trailing_usd_turnover": "917144.98113218092"
+      },
+      {
+        "canonical_asset_id": "ZORA",
+        "pair_id": "ZORA/USD",
+        "rank_before_taxonomy": 265,
+        "trailing_usd_turnover": "914764.94781179686"
+      },
+      {
+        "canonical_asset_id": "WBT",
+        "pair_id": "WBT/USD",
+        "rank_before_taxonomy": 266,
+        "trailing_usd_turnover": "905006.545505749"
+      },
+      {
+        "canonical_asset_id": "HMSTR",
+        "pair_id": "HMSTR/USD",
+        "rank_before_taxonomy": 267,
+        "trailing_usd_turnover": "904690.554657656152"
+      },
+      {
+        "canonical_asset_id": "LSK",
+        "pair_id": "LSK/USD",
+        "rank_before_taxonomy": 268,
+        "trailing_usd_turnover": "904665.93252808916"
+      },
+      {
+        "canonical_asset_id": "HOLO",
+        "pair_id": "HOLO/USD",
+        "rank_before_taxonomy": 269,
+        "trailing_usd_turnover": "890437.74702946"
+      },
+      {
+        "canonical_asset_id": "SNX",
+        "pair_id": "SNX/USD",
+        "rank_before_taxonomy": 270,
+        "trailing_usd_turnover": "874134.38402405924"
+      },
+      {
+        "canonical_asset_id": "LCAP",
+        "pair_id": "LCAP/USD",
+        "rank_before_taxonomy": 271,
+        "trailing_usd_turnover": "862924.24429149"
+      },
+      {
+        "canonical_asset_id": "PI",
+        "pair_id": "PI/USD",
+        "rank_before_taxonomy": 272,
+        "trailing_usd_turnover": "838095.9539441409"
+      },
+      {
+        "canonical_asset_id": "GOAT",
+        "pair_id": "GOAT/USD",
+        "rank_before_taxonomy": 273,
+        "trailing_usd_turnover": "833334.4153534076"
+      },
+      {
+        "canonical_asset_id": "DYDX",
+        "pair_id": "DYDX/USD",
+        "rank_before_taxonomy": 274,
+        "trailing_usd_turnover": "830423.265684498078"
+      },
+      {
+        "canonical_asset_id": "PROVE",
+        "pair_id": "PROVE/USD",
+        "rank_before_taxonomy": 275,
+        "trailing_usd_turnover": "798484.253595971"
+      },
+      {
+        "canonical_asset_id": "TGBP",
+        "pair_id": "TGBP/USD",
+        "rank_before_taxonomy": 276,
+        "trailing_usd_turnover": "789342.580911191355"
+      },
+      {
+        "canonical_asset_id": "ENSO",
+        "pair_id": "ENSO/USD",
+        "rank_before_taxonomy": 277,
+        "trailing_usd_turnover": "763758.75742604"
+      },
+      {
+        "canonical_asset_id": "ORCA",
+        "pair_id": "ORCA/USD",
+        "rank_before_taxonomy": 278,
+        "trailing_usd_turnover": "763008.81374066221"
+      },
+      {
+        "canonical_asset_id": "JITOSOL",
+        "pair_id": "JITOSOL/USD",
+        "rank_before_taxonomy": 279,
+        "trailing_usd_turnover": "760662.9125195"
+      },
+      {
+        "canonical_asset_id": "ZK",
+        "pair_id": "ZK/USD",
+        "rank_before_taxonomy": 280,
+        "trailing_usd_turnover": "748149.6592165418"
+      },
+      {
+        "canonical_asset_id": "WMTX",
+        "pair_id": "WMTX/USD",
+        "rank_before_taxonomy": 281,
+        "trailing_usd_turnover": "747340.8030792769"
+      },
+      {
+        "canonical_asset_id": "IDOS",
+        "pair_id": "IDOS/USD",
+        "rank_before_taxonomy": 282,
+        "trailing_usd_turnover": "740541.8661058005"
+      },
+      {
+        "canonical_asset_id": "PIPE",
+        "pair_id": "PIPE/USD",
+        "rank_before_taxonomy": 283,
+        "trailing_usd_turnover": "738850.0718940336"
+      },
+      {
+        "canonical_asset_id": "SAFE",
+        "pair_id": "SAFE/USD",
+        "rank_before_taxonomy": 284,
+        "trailing_usd_turnover": "736317.046445223"
+      },
+      {
+        "canonical_asset_id": "SOMI",
+        "pair_id": "SOMI/USD",
+        "rank_before_taxonomy": 285,
+        "trailing_usd_turnover": "733936.572524799"
+      },
+      {
+        "canonical_asset_id": "KAT",
+        "pair_id": "KAT/USD",
+        "rank_before_taxonomy": 286,
+        "trailing_usd_turnover": "727187.8880450357"
+      },
+      {
+        "canonical_asset_id": "DEEP",
+        "pair_id": "DEEP/USD",
+        "rank_before_taxonomy": 287,
+        "trailing_usd_turnover": "726867.4597670743"
+      },
+      {
+        "canonical_asset_id": "BLUR",
+        "pair_id": "BLUR/USD",
+        "rank_before_taxonomy": 288,
+        "trailing_usd_turnover": "716790.2661456113"
+      },
+      {
+        "canonical_asset_id": "IP",
+        "pair_id": "IP/USD",
+        "rank_before_taxonomy": 289,
+        "trailing_usd_turnover": "714815.090510607"
+      },
+      {
+        "canonical_asset_id": "SC",
+        "pair_id": "SC/USD",
+        "rank_before_taxonomy": 290,
+        "trailing_usd_turnover": "713572.330082569923"
+      },
+      {
+        "canonical_asset_id": "FIS",
+        "pair_id": "FIS/USD",
+        "rank_before_taxonomy": 291,
+        "trailing_usd_turnover": "704663.952977641298"
+      },
+      {
+        "canonical_asset_id": "NES",
+        "pair_id": "NES/USD",
+        "rank_before_taxonomy": 292,
+        "trailing_usd_turnover": "702995.377395849"
+      },
+      {
+        "canonical_asset_id": "GOMINING",
+        "pair_id": "GOMINING/USD",
+        "rank_before_taxonomy": 293,
+        "trailing_usd_turnover": "701964.37584064"
+      },
+      {
+        "canonical_asset_id": "ARKM",
+        "pair_id": "ARKM/USD",
+        "rank_before_taxonomy": 294,
+        "trailing_usd_turnover": "699092.767731082"
+      },
+      {
+        "canonical_asset_id": "KGEN",
+        "pair_id": "KGEN/USD",
+        "rank_before_taxonomy": 295,
+        "trailing_usd_turnover": "696509.360405376"
+      },
+      {
+        "canonical_asset_id": "NOS",
+        "pair_id": "NOS/USD",
+        "rank_before_taxonomy": 296,
+        "trailing_usd_turnover": "690981.605658564"
+      },
+      {
+        "canonical_asset_id": "A",
+        "pair_id": "A/USD",
+        "rank_before_taxonomy": 297,
+        "trailing_usd_turnover": "688435.962269433"
+      },
+      {
+        "canonical_asset_id": "GLMR",
+        "pair_id": "GLMR/USD",
+        "rank_before_taxonomy": 298,
+        "trailing_usd_turnover": "682967.049730714848"
+      },
+      {
+        "canonical_asset_id": "ZRX",
+        "pair_id": "ZRX/USD",
+        "rank_before_taxonomy": 299,
+        "trailing_usd_turnover": "680921.326340447634"
+      },
+      {
+        "canonical_asset_id": "RLC",
+        "pair_id": "RLC/USD",
+        "rank_before_taxonomy": 300,
+        "trailing_usd_turnover": "678985.437672108431"
+      },
+      {
+        "canonical_asset_id": "DAG",
+        "pair_id": "DAG/USD",
+        "rank_before_taxonomy": 301,
+        "trailing_usd_turnover": "674916.32248499149"
+      },
+      {
+        "canonical_asset_id": "ENJ",
+        "pair_id": "ENJ/USD",
+        "rank_before_taxonomy": 302,
+        "trailing_usd_turnover": "673740.159179901974"
+      },
+      {
+        "canonical_asset_id": "VELO",
+        "pair_id": "VELO/USD",
+        "rank_before_taxonomy": 303,
+        "trailing_usd_turnover": "673585.74216895219"
+      },
+      {
+        "canonical_asset_id": "CPOOL",
+        "pair_id": "CPOOL/USD",
+        "rank_before_taxonomy": 304,
+        "trailing_usd_turnover": "670779.4642354818"
+      },
+      {
+        "canonical_asset_id": "USDPT",
+        "pair_id": "USDPT/USD",
+        "rank_before_taxonomy": 305,
+        "trailing_usd_turnover": "659617.7345121167"
+      },
+      {
+        "canonical_asset_id": "KMNO",
+        "pair_id": "KMNO/USD",
+        "rank_before_taxonomy": 306,
+        "trailing_usd_turnover": "623684.7118413567"
+      },
+      {
+        "canonical_asset_id": "COW",
+        "pair_id": "COW/USD",
+        "rank_before_taxonomy": 307,
+        "trailing_usd_turnover": "618300.68076588"
+      },
+      {
+        "canonical_asset_id": "RSR",
+        "pair_id": "RSR/USD",
+        "rank_before_taxonomy": 309,
+        "trailing_usd_turnover": "593393.02622322412"
+      },
+      {
+        "canonical_asset_id": "EGLD",
+        "pair_id": "EGLD/USD",
+        "rank_before_taxonomy": 310,
+        "trailing_usd_turnover": "588269.7344465689"
+      },
+      {
+        "canonical_asset_id": "NOCK",
+        "pair_id": "NOCK/USD",
+        "rank_before_taxonomy": 311,
+        "trailing_usd_turnover": "584694.5567786568"
+      },
+      {
+        "canonical_asset_id": "IDEX",
+        "pair_id": "IDEX/USD",
+        "rank_before_taxonomy": 312,
+        "trailing_usd_turnover": "582688.607263720742"
+      },
+      {
+        "canonical_asset_id": "ARC",
+        "pair_id": "ARC/USD",
+        "rank_before_taxonomy": 313,
+        "trailing_usd_turnover": "576389.4960044718"
+      },
+      {
+        "canonical_asset_id": "NEX",
+        "pair_id": "NEX/USD",
+        "rank_before_taxonomy": 314,
+        "trailing_usd_turnover": "575436.789578426773"
+      },
+      {
+        "canonical_asset_id": "GENIUS",
+        "pair_id": "GENIUS/USD",
+        "rank_before_taxonomy": 315,
+        "trailing_usd_turnover": "573375.742091149"
+      },
+      {
+        "canonical_asset_id": "GUN",
+        "pair_id": "GUN/USD",
+        "rank_before_taxonomy": 316,
+        "trailing_usd_turnover": "571281.2112175554"
+      },
+      {
+        "canonical_asset_id": "POWR",
+        "pair_id": "POWR/USD",
+        "rank_before_taxonomy": 317,
+        "trailing_usd_turnover": "564658.63920227471"
+      },
+      {
+        "canonical_asset_id": "IAG",
+        "pair_id": "IAG/USD",
+        "rank_before_taxonomy": 318,
+        "trailing_usd_turnover": "563987.2556936779"
+      },
+      {
+        "canonical_asset_id": "SWELL",
+        "pair_id": "SWELL/USD",
+        "rank_before_taxonomy": 319,
+        "trailing_usd_turnover": "560946.86033183025"
+      },
+      {
+        "canonical_asset_id": "SN8",
+        "pair_id": "SN8/USD",
+        "rank_before_taxonomy": 320,
+        "trailing_usd_turnover": "559474.63699896"
+      },
+      {
+        "canonical_asset_id": "HNT",
+        "pair_id": "HNT/USD",
+        "rank_before_taxonomy": 321,
+        "trailing_usd_turnover": "556287.984182322"
+      },
+      {
+        "canonical_asset_id": "THQ",
+        "pair_id": "THQ/USD",
+        "rank_before_taxonomy": 322,
+        "trailing_usd_turnover": "554134.9163978996"
+      },
+      {
+        "canonical_asset_id": "REZ",
+        "pair_id": "REZ/USD",
+        "rank_before_taxonomy": 323,
+        "trailing_usd_turnover": "552892.68237991612"
+      },
+      {
+        "canonical_asset_id": "QCAD",
+        "pair_id": "QCAD/USD",
+        "rank_before_taxonomy": 324,
+        "trailing_usd_turnover": "549236.207310494279"
+      },
+      {
+        "canonical_asset_id": "PEPECOIN",
+        "pair_id": "PEPECOIN/USD",
+        "rank_before_taxonomy": 325,
+        "trailing_usd_turnover": "546544.6457903724"
+      },
+      {
+        "canonical_asset_id": "STABLE",
+        "pair_id": "STABLE/USD",
+        "rank_before_taxonomy": 326,
+        "trailing_usd_turnover": "545484.7309683113"
+      },
+      {
+        "canonical_asset_id": "OMI",
+        "pair_id": "OMI/USD",
+        "rank_before_taxonomy": 327,
+        "trailing_usd_turnover": "542931.402374140276"
+      },
+      {
+        "canonical_asset_id": "ACT",
+        "pair_id": "ACT/USD",
+        "rank_before_taxonomy": 328,
+        "trailing_usd_turnover": "535548.8480678212"
+      },
+      {
+        "canonical_asset_id": "TREE",
+        "pair_id": "TREE/USD",
+        "rank_before_taxonomy": 329,
+        "trailing_usd_turnover": "526409.145667456"
+      },
+      {
+        "canonical_asset_id": "ZEUS",
+        "pair_id": "ZEUS/USD",
+        "rank_before_taxonomy": 330,
+        "trailing_usd_turnover": "517850.5135342986"
+      },
+      {
+        "canonical_asset_id": "DRIFT",
+        "pair_id": "DRIFT/USD",
+        "rank_before_taxonomy": 331,
+        "trailing_usd_turnover": "516609.564377617"
+      },
+      {
+        "canonical_asset_id": "TX",
+        "pair_id": "TX/USD",
+        "rank_before_taxonomy": 332,
+        "trailing_usd_turnover": "509973.7483283372"
+      },
+      {
+        "canonical_asset_id": "JST",
+        "pair_id": "JST/USD",
+        "rank_before_taxonomy": 333,
+        "trailing_usd_turnover": "508665.4385599718"
+      },
+      {
+        "canonical_asset_id": "DOGS",
+        "pair_id": "DOGS/USD",
+        "rank_before_taxonomy": 334,
+        "trailing_usd_turnover": "506711.790728777973"
+      },
+      {
+        "canonical_asset_id": "LPT",
+        "pair_id": "LPT/USD",
+        "rank_before_taxonomy": 335,
+        "trailing_usd_turnover": "501945.52569162043"
+      },
+      {
+        "canonical_asset_id": "ALKIMI",
+        "pair_id": "ALKIMI/USD",
+        "rank_before_taxonomy": 336,
+        "trailing_usd_turnover": "501736.4590108096"
+      },
+      {
+        "canonical_asset_id": "1INCH",
+        "pair_id": "1INCH/USD",
+        "rank_before_taxonomy": 337,
+        "trailing_usd_turnover": "498134.997754308067"
+      },
+      {
+        "canonical_asset_id": "AVAAI",
+        "pair_id": "AVAAI/USD",
+        "rank_before_taxonomy": 338,
+        "trailing_usd_turnover": "497840.4981551236"
+      },
+      {
+        "canonical_asset_id": "WFB",
+        "pair_id": "WFB/USD",
+        "rank_before_taxonomy": 339,
+        "trailing_usd_turnover": "496242.532005352"
+      },
+      {
+        "canonical_asset_id": "WARD",
+        "pair_id": "WARD/USD",
+        "rank_before_taxonomy": 340,
+        "trailing_usd_turnover": "494541.5735840685"
+      },
+      {
+        "canonical_asset_id": "AIOZ",
+        "pair_id": "AIOZ/USD",
+        "rank_before_taxonomy": 341,
+        "trailing_usd_turnover": "494457.436540879"
+      },
+      {
+        "canonical_asset_id": "PHA",
+        "pair_id": "PHA/USD",
+        "rank_before_taxonomy": 342,
+        "trailing_usd_turnover": "494383.558788031686"
+      },
+      {
+        "canonical_asset_id": "MEW",
+        "pair_id": "MEW/USD",
+        "rank_before_taxonomy": 343,
+        "trailing_usd_turnover": "491615.0554651715"
+      },
+      {
+        "canonical_asset_id": "AZTEC",
+        "pair_id": "AZTEC/USD",
+        "rank_before_taxonomy": 344,
+        "trailing_usd_turnover": "487855.0309090086"
+      },
+      {
+        "canonical_asset_id": "SAPIEN",
+        "pair_id": "SAPIEN/USD",
+        "rank_before_taxonomy": 345,
+        "trailing_usd_turnover": "484964.3549560724"
+      },
+      {
+        "canonical_asset_id": "SN51",
+        "pair_id": "SN51/USD",
+        "rank_before_taxonomy": 346,
+        "trailing_usd_turnover": "484751.06894445"
+      },
+      {
+        "canonical_asset_id": "CFX",
+        "pair_id": "CFX/USD",
+        "rank_before_taxonomy": 347,
+        "trailing_usd_turnover": "480849.5686940552"
+      },
+      {
+        "canonical_asset_id": "GRIFFAIN",
+        "pair_id": "GRIFFAIN/USD",
+        "rank_before_taxonomy": 348,
+        "trailing_usd_turnover": "478508.6843906464"
+      },
+      {
+        "canonical_asset_id": "LRC",
+        "pair_id": "LRC/USD",
+        "rank_before_taxonomy": 349,
+        "trailing_usd_turnover": "470290.918311713634"
+      },
+      {
+        "canonical_asset_id": "YGG",
+        "pair_id": "YGG/USD",
+        "rank_before_taxonomy": 350,
+        "trailing_usd_turnover": "460757.896523106961"
+      },
+      {
+        "canonical_asset_id": "KAVA",
+        "pair_id": "KAVA/USD",
+        "rank_before_taxonomy": 351,
+        "trailing_usd_turnover": "459322.54820601726"
+      },
+      {
+        "canonical_asset_id": "PACT",
+        "pair_id": "PACT/USD",
+        "rank_before_taxonomy": 352,
+        "trailing_usd_turnover": "456981.961047696661"
+      },
+      {
+        "canonical_asset_id": "REKT",
+        "pair_id": "REKT/USD",
+        "rank_before_taxonomy": 353,
+        "trailing_usd_turnover": "456570.174953308159"
+      },
+      {
+        "canonical_asset_id": "CELO",
+        "pair_id": "CELO/USD",
+        "rank_before_taxonomy": 354,
+        "trailing_usd_turnover": "453785.027466387"
+      },
+      {
+        "canonical_asset_id": "PARTI",
+        "pair_id": "PARTI/USD",
+        "rank_before_taxonomy": 355,
+        "trailing_usd_turnover": "452984.8079247869"
+      },
+      {
+        "canonical_asset_id": "HONEY",
+        "pair_id": "HONEY/USD",
+        "rank_before_taxonomy": 356,
+        "trailing_usd_turnover": "448517.7277488748"
+      },
+      {
+        "canonical_asset_id": "AEVO",
+        "pair_id": "AEVO/USD",
+        "rank_before_taxonomy": 357,
+        "trailing_usd_turnover": "447200.0622860954"
+      },
+      {
+        "canonical_asset_id": "ZRC",
+        "pair_id": "ZRC/USD",
+        "rank_before_taxonomy": 358,
+        "trailing_usd_turnover": "446446.10138827379"
+      },
+      {
+        "canonical_asset_id": "MASK",
+        "pair_id": "MASK/USD",
+        "rank_before_taxonomy": 359,
+        "trailing_usd_turnover": "445648.84633068923"
+      },
+      {
+        "canonical_asset_id": "USDUC",
+        "pair_id": "USDUC/USD",
+        "rank_before_taxonomy": 360,
+        "trailing_usd_turnover": "443836.47924133945"
+      },
+      {
+        "canonical_asset_id": "GAME2",
+        "pair_id": "GAME2/USD",
+        "rank_before_taxonomy": 361,
+        "trailing_usd_turnover": "428918.127311377575"
+      },
+      {
+        "canonical_asset_id": "BLZ",
+        "pair_id": "BLZ/USD",
+        "rank_before_taxonomy": 362,
+        "trailing_usd_turnover": "428636.058391452756"
+      },
+      {
+        "canonical_asset_id": "COOKIE",
+        "pair_id": "COOKIE/USD",
+        "rank_before_taxonomy": 363,
+        "trailing_usd_turnover": "428097.6054249387"
+      },
+      {
+        "canonical_asset_id": "SPACE",
+        "pair_id": "SPACE/USD",
+        "rank_before_taxonomy": 364,
+        "trailing_usd_turnover": "421902.43929298074"
+      },
+      {
+        "canonical_asset_id": "DYM",
+        "pair_id": "DYM/USD",
+        "rank_before_taxonomy": 365,
+        "trailing_usd_turnover": "421400.179834438"
+      },
+      {
+        "canonical_asset_id": "AB",
+        "pair_id": "AB/USD",
+        "rank_before_taxonomy": 366,
+        "trailing_usd_turnover": "418242.26903133597"
+      },
+      {
+        "canonical_asset_id": "NMR",
+        "pair_id": "NMR/USD",
+        "rank_before_taxonomy": 367,
+        "trailing_usd_turnover": "417264.892005125"
+      },
+      {
+        "canonical_asset_id": "FLUX",
+        "pair_id": "FLUX/USD",
+        "rank_before_taxonomy": 368,
+        "trailing_usd_turnover": "416953.2318169248"
+      },
+      {
+        "canonical_asset_id": "ELIZAOS",
+        "pair_id": "ELIZAOS/USD",
+        "rank_before_taxonomy": 369,
+        "trailing_usd_turnover": "411979.25998238576"
+      },
+      {
+        "canonical_asset_id": "DUAL",
+        "pair_id": "DUAL/USD",
+        "rank_before_taxonomy": 370,
+        "trailing_usd_turnover": "411088.67684617797"
+      },
+      {
+        "canonical_asset_id": "BILLY",
+        "pair_id": "BILLY/USD",
+        "rank_before_taxonomy": 371,
+        "trailing_usd_turnover": "409345.11294906981"
+      },
+      {
+        "canonical_asset_id": "QTUM",
+        "pair_id": "QTUM/USD",
+        "rank_before_taxonomy": 372,
+        "trailing_usd_turnover": "409258.080794899543"
+      },
+      {
+        "canonical_asset_id": "CCD",
+        "pair_id": "CCD/USD",
+        "rank_before_taxonomy": 373,
+        "trailing_usd_turnover": "397306.12026971647"
+      },
+      {
+        "canonical_asset_id": "YFI",
+        "pair_id": "YFI/USD",
+        "rank_before_taxonomy": 374,
+        "trailing_usd_turnover": "393294.97047729"
+      },
+      {
+        "canonical_asset_id": "BLEND",
+        "pair_id": "BLEND/USD",
+        "rank_before_taxonomy": 375,
+        "trailing_usd_turnover": "388747.5166293538"
+      },
+      {
+        "canonical_asset_id": "BEAM",
+        "pair_id": "BEAM/USD",
+        "rank_before_taxonomy": 376,
+        "trailing_usd_turnover": "383925.86981054174"
+      },
+      {
+        "canonical_asset_id": "RLS",
+        "pair_id": "RLS/USD",
+        "rank_before_taxonomy": 377,
+        "trailing_usd_turnover": "382182.5358326518"
+      },
+      {
+        "canonical_asset_id": "GTC",
+        "pair_id": "GTC/USD",
+        "rank_before_taxonomy": 378,
+        "trailing_usd_turnover": "379115.823341894968"
+      },
+      {
+        "canonical_asset_id": "PRIME",
+        "pair_id": "PRIME/USD",
+        "rank_before_taxonomy": 379,
+        "trailing_usd_turnover": "375849.13817197"
+      },
+      {
+        "canonical_asset_id": "SENT",
+        "pair_id": "SENT/USD",
+        "rank_before_taxonomy": 380,
+        "trailing_usd_turnover": "365969.529927976234"
+      },
+      {
+        "canonical_asset_id": "METH",
+        "pair_id": "METH/USD",
+        "rank_before_taxonomy": 381,
+        "trailing_usd_turnover": "363549.532920493"
+      },
+      {
+        "canonical_asset_id": "USUAL",
+        "pair_id": "USUAL/USD",
+        "rank_before_taxonomy": 382,
+        "trailing_usd_turnover": "354824.4115608908"
+      },
+      {
+        "canonical_asset_id": "API3",
+        "pair_id": "API3/USD",
+        "rank_before_taxonomy": 383,
+        "trailing_usd_turnover": "352312.537079347163"
+      },
+      {
+        "canonical_asset_id": "ZKP",
+        "pair_id": "ZKP/USD",
+        "rank_before_taxonomy": 384,
+        "trailing_usd_turnover": "350737.5106597253"
+      },
+      {
+        "canonical_asset_id": "NOT",
+        "pair_id": "NOT/USD",
+        "rank_before_taxonomy": 385,
+        "trailing_usd_turnover": "348738.60561714799"
+      },
+      {
+        "canonical_asset_id": "LQTY",
+        "pair_id": "LQTY/USD",
+        "rank_before_taxonomy": 386,
+        "trailing_usd_turnover": "347924.706918459"
+      },
+      {
+        "canonical_asset_id": "UFD",
+        "pair_id": "UFD/USD",
+        "rank_before_taxonomy": 387,
+        "trailing_usd_turnover": "347800.0530344173"
+      },
+      {
+        "canonical_asset_id": "MERL",
+        "pair_id": "MERL/USD",
+        "rank_before_taxonomy": 388,
+        "trailing_usd_turnover": "345981.1557838787"
+      },
+      {
+        "canonical_asset_id": "CHEX",
+        "pair_id": "CHEX/USD",
+        "rank_before_taxonomy": 389,
+        "trailing_usd_turnover": "344193.368202885"
+      },
+      {
+        "canonical_asset_id": "MIRA",
+        "pair_id": "MIRA/USD",
+        "rank_before_taxonomy": 390,
+        "trailing_usd_turnover": "339920.168459408"
+      },
+      {
+        "canonical_asset_id": "SN64",
+        "pair_id": "SN64/USD",
+        "rank_before_taxonomy": 391,
+        "trailing_usd_turnover": "338852.90136878"
+      },
+      {
+        "canonical_asset_id": "INIT",
+        "pair_id": "INIT/USD",
+        "rank_before_taxonomy": 392,
+        "trailing_usd_turnover": "335238.580297434"
+      },
+      {
+        "canonical_asset_id": "C98",
+        "pair_id": "C98/USD",
+        "rank_before_taxonomy": 393,
+        "trailing_usd_turnover": "329939.452555802609"
+      },
+      {
+        "canonical_asset_id": "DEGEN",
+        "pair_id": "DEGEN/USD",
+        "rank_before_taxonomy": 394,
+        "trailing_usd_turnover": "328239.81323694027"
+      },
+      {
+        "canonical_asset_id": "HDX",
+        "pair_id": "HDX/USD",
+        "rank_before_taxonomy": 395,
+        "trailing_usd_turnover": "328048.34671388663"
+      },
+      {
+        "canonical_asset_id": "GFI",
+        "pair_id": "GFI/USD",
+        "rank_before_taxonomy": 396,
+        "trailing_usd_turnover": "325768.091445112"
+      },
+      {
+        "canonical_asset_id": "SNEK",
+        "pair_id": "SNEK/USD",
+        "rank_before_taxonomy": 397,
+        "trailing_usd_turnover": "323199.482568847"
+      },
+      {
+        "canonical_asset_id": "SUP",
+        "pair_id": "SUP/USD",
+        "rank_before_taxonomy": 398,
+        "trailing_usd_turnover": "322739.097215646661"
+      },
+      {
+        "canonical_asset_id": "SSV",
+        "pair_id": "SSV/USD",
+        "rank_before_taxonomy": 399,
+        "trailing_usd_turnover": "319923.33612432269"
+      },
+      {
+        "canonical_asset_id": "AUDX",
+        "pair_id": "AUDX/USD",
+        "rank_before_taxonomy": 400,
+        "trailing_usd_turnover": "317528.386505267736"
+      },
+      {
+        "canonical_asset_id": "FIGHT",
+        "pair_id": "FIGHT/USD",
+        "rank_before_taxonomy": 401,
+        "trailing_usd_turnover": "313683.4800428141"
+      },
+      {
+        "canonical_asset_id": "WIN",
+        "pair_id": "WIN/USD",
+        "rank_before_taxonomy": 402,
+        "trailing_usd_turnover": "312157.755374605786"
+      },
+      {
+        "canonical_asset_id": "APU",
+        "pair_id": "APU/USD",
+        "rank_before_taxonomy": 403,
+        "trailing_usd_turnover": "311410.87361972401"
+      },
+      {
+        "canonical_asset_id": "Q",
+        "pair_id": "Q/USD",
+        "rank_before_taxonomy": 404,
+        "trailing_usd_turnover": "308866.28367866925"
+      },
+      {
+        "canonical_asset_id": "RPL",
+        "pair_id": "RPL/USD",
+        "rank_before_taxonomy": 405,
+        "trailing_usd_turnover": "308513.66547451832"
+      },
+      {
+        "canonical_asset_id": "SAHARA",
+        "pair_id": "SAHARA/USD",
+        "rank_before_taxonomy": 406,
+        "trailing_usd_turnover": "306979.3044938772"
+      },
+      {
+        "canonical_asset_id": "WCT",
+        "pair_id": "WCT/USD",
+        "rank_before_taxonomy": 407,
+        "trailing_usd_turnover": "306771.7446482341"
+      },
+      {
+        "canonical_asset_id": "NEO",
+        "pair_id": "NEO/USD",
+        "rank_before_taxonomy": 408,
+        "trailing_usd_turnover": "300922.08193829"
+      },
+      {
+        "canonical_asset_id": "OSMO",
+        "pair_id": "OSMO/USD",
+        "rank_before_taxonomy": 409,
+        "trailing_usd_turnover": "300247.1456627244"
+      },
+      {
+        "canonical_asset_id": "PUPS",
+        "pair_id": "PUPS/USD",
+        "rank_before_taxonomy": 410,
+        "trailing_usd_turnover": "297772.99886228227"
+      },
+      {
+        "canonical_asset_id": "B2",
+        "pair_id": "B2/USD",
+        "rank_before_taxonomy": 411,
+        "trailing_usd_turnover": "295607.097847361"
+      },
+      {
+        "canonical_asset_id": "POND",
+        "pair_id": "POND/USD",
+        "rank_before_taxonomy": 412,
+        "trailing_usd_turnover": "294547.100979983159"
+      },
+      {
+        "canonical_asset_id": "ZETA",
+        "pair_id": "ZETA/USD",
+        "rank_before_taxonomy": 413,
+        "trailing_usd_turnover": "294243.900825843"
+      },
+      {
+        "canonical_asset_id": "SN62",
+        "pair_id": "SN62/USD",
+        "rank_before_taxonomy": 414,
+        "trailing_usd_turnover": "288843.62252433"
+      },
+      {
+        "canonical_asset_id": "SOSO",
+        "pair_id": "SOSO/USD",
+        "rank_before_taxonomy": 415,
+        "trailing_usd_turnover": "288369.201905296"
+      },
+      {
+        "canonical_asset_id": "GMT",
+        "pair_id": "GMT/USD",
+        "rank_before_taxonomy": 416,
+        "trailing_usd_turnover": "281665.44863097875"
+      },
+      {
+        "canonical_asset_id": "XYO",
+        "pair_id": "XYO/USD",
+        "rank_before_taxonomy": 417,
+        "trailing_usd_turnover": "280562.48942100033"
+      },
+      {
+        "canonical_asset_id": "SGB",
+        "pair_id": "SGB/USD",
+        "rank_before_taxonomy": 418,
+        "trailing_usd_turnover": "279526.627375662861"
+      },
+      {
+        "canonical_asset_id": "SOLV",
+        "pair_id": "SOLV/USD",
+        "rank_before_taxonomy": 419,
+        "trailing_usd_turnover": "278810.5571299509"
+      },
+      {
+        "canonical_asset_id": "QUAI",
+        "pair_id": "QUAI/USD",
+        "rank_before_taxonomy": 420,
+        "trailing_usd_turnover": "278253.940072988"
+      },
+      {
+        "canonical_asset_id": "VINE",
+        "pair_id": "VINE/USD",
+        "rank_before_taxonomy": 421,
+        "trailing_usd_turnover": "277949.8284692901"
+      },
+      {
+        "canonical_asset_id": "ROLL",
+        "pair_id": "ROLL/USD",
+        "rank_before_taxonomy": 422,
+        "trailing_usd_turnover": "273553.010764917"
+      },
+      {
+        "canonical_asset_id": "OPN",
+        "pair_id": "OPN/USD",
+        "rank_before_taxonomy": 423,
+        "trailing_usd_turnover": "273495.960372164"
+      },
+      {
+        "canonical_asset_id": "B3",
+        "pair_id": "B3/USD",
+        "rank_before_taxonomy": 424,
+        "trailing_usd_turnover": "270254.21037431385"
+      },
+      {
+        "canonical_asset_id": "YB",
+        "pair_id": "YB/USD",
+        "rank_before_taxonomy": 425,
+        "trailing_usd_turnover": "270225.5982173551"
+      },
+      {
+        "canonical_asset_id": "EWT",
+        "pair_id": "EWT/USD",
+        "rank_before_taxonomy": 426,
+        "trailing_usd_turnover": "269821.55470832175"
+      },
+      {
+        "canonical_asset_id": "CHILLHOUSE",
+        "pair_id": "CHILLHOUSE/USD",
+        "rank_before_taxonomy": 427,
+        "trailing_usd_turnover": "264222.9026828617"
+      },
+      {
+        "canonical_asset_id": "GHST",
+        "pair_id": "GHST/USD",
+        "rank_before_taxonomy": 428,
+        "trailing_usd_turnover": "261733.099327152384"
+      },
+      {
+        "canonical_asset_id": "TNSR",
+        "pair_id": "TNSR/USD",
+        "rank_before_taxonomy": 429,
+        "trailing_usd_turnover": "259257.545746236"
+      },
+      {
+        "canonical_asset_id": "UMA",
+        "pair_id": "UMA/USD",
+        "rank_before_taxonomy": 431,
+        "trailing_usd_turnover": "255637.47995211491"
+      },
+      {
+        "canonical_asset_id": "HPOS10I",
+        "pair_id": "HPOS10I/USD",
+        "rank_before_taxonomy": 432,
+        "trailing_usd_turnover": "255588.0597516534"
+      },
+      {
+        "canonical_asset_id": "U",
+        "pair_id": "U/USD",
+        "rank_before_taxonomy": 433,
+        "trailing_usd_turnover": "249625.19153641777"
+      },
+      {
+        "canonical_asset_id": "AIXBT",
+        "pair_id": "AIXBT/USD",
+        "rank_before_taxonomy": 434,
+        "trailing_usd_turnover": "246603.5472501122"
+      },
+      {
+        "canonical_asset_id": "DOVU",
+        "pair_id": "DOVU/USD",
+        "rank_before_taxonomy": 435,
+        "trailing_usd_turnover": "245265.779466519653"
+      },
+      {
+        "canonical_asset_id": "ALCX",
+        "pair_id": "ALCX/USD",
+        "rank_before_taxonomy": 436,
+        "trailing_usd_turnover": "243605.2703518169"
+      },
+      {
+        "canonical_asset_id": "GNO",
+        "pair_id": "GNO/USD",
+        "rank_before_taxonomy": 437,
+        "trailing_usd_turnover": "243470.6843027641"
+      },
+      {
+        "canonical_asset_id": "LINEA",
+        "pair_id": "LINEA/USD",
+        "rank_before_taxonomy": 438,
+        "trailing_usd_turnover": "243091.9383526085"
+      },
+      {
+        "canonical_asset_id": "AIN",
+        "pair_id": "AIN/USD",
+        "rank_before_taxonomy": 439,
+        "trailing_usd_turnover": "242953.8560528695"
+      },
+      {
+        "canonical_asset_id": "ANKR",
+        "pair_id": "ANKR/USD",
+        "rank_before_taxonomy": 440,
+        "trailing_usd_turnover": "242768.50676609488"
+      },
+      {
+        "canonical_asset_id": "MEME",
+        "pair_id": "MEME/USD",
+        "rank_before_taxonomy": 441,
+        "trailing_usd_turnover": "242317.85988933389"
+      },
+      {
+        "canonical_asset_id": "CTR",
+        "pair_id": "CTR/USD",
+        "rank_before_taxonomy": 442,
+        "trailing_usd_turnover": "241291.4302579194"
+      },
+      {
+        "canonical_asset_id": "REQ",
+        "pair_id": "REQ/USD",
+        "rank_before_taxonomy": 443,
+        "trailing_usd_turnover": "240355.473858052061"
+      },
+      {
+        "canonical_asset_id": "BERT",
+        "pair_id": "BERT/USD",
+        "rank_before_taxonomy": 444,
+        "trailing_usd_turnover": "234087.86413840375"
+      },
+      {
+        "canonical_asset_id": "CAMP",
+        "pair_id": "CAMP/USD",
+        "rank_before_taxonomy": 445,
+        "trailing_usd_turnover": "232165.88926588205"
+      },
+      {
+        "canonical_asset_id": "FWOG",
+        "pair_id": "FWOG/USD",
+        "rank_before_taxonomy": 446,
+        "trailing_usd_turnover": "231332.9992157481"
+      },
+      {
+        "canonical_asset_id": "USD1",
+        "pair_id": "USD1/USD",
+        "rank_before_taxonomy": 447,
+        "trailing_usd_turnover": "228733.634819327"
+      },
+      {
+        "canonical_asset_id": "ES",
+        "pair_id": "ES/USD",
+        "rank_before_taxonomy": 448,
+        "trailing_usd_turnover": "228433.052424068"
+      },
+      {
+        "canonical_asset_id": "CELR",
+        "pair_id": "CELR/USD",
+        "rank_before_taxonomy": 449,
+        "trailing_usd_turnover": "225355.629447984333"
+      },
+      {
+        "canonical_asset_id": "FLOCK",
+        "pair_id": "FLOCK/USD",
+        "rank_before_taxonomy": 450,
+        "trailing_usd_turnover": "223434.8335309424"
+      },
+      {
+        "canonical_asset_id": "SPELL",
+        "pair_id": "SPELL/USD",
+        "rank_before_taxonomy": 451,
+        "trailing_usd_turnover": "218641.908604612995"
+      },
+      {
+        "canonical_asset_id": "RSC",
+        "pair_id": "RSC/USD",
+        "rank_before_taxonomy": 452,
+        "trailing_usd_turnover": "215620.988225353"
+      },
+      {
+        "canonical_asset_id": "CARV",
+        "pair_id": "CARV/USD",
+        "rank_before_taxonomy": 453,
+        "trailing_usd_turnover": "213845.1858919129"
+      },
+      {
+        "canonical_asset_id": "BAND",
+        "pair_id": "BAND/USD",
+        "rank_before_taxonomy": 454,
+        "trailing_usd_turnover": "212771.303926995386"
+      },
+      {
+        "canonical_asset_id": "VELODROME",
+        "pair_id": "VELODROME/USD",
+        "rank_before_taxonomy": 455,
+        "trailing_usd_turnover": "212339.9256989702"
+      },
+      {
+        "canonical_asset_id": "WOO",
+        "pair_id": "WOO/USD",
+        "rank_before_taxonomy": 456,
+        "trailing_usd_turnover": "210640.931829290155"
+      },
+      {
+        "canonical_asset_id": "MIM",
+        "pair_id": "MIM/USD",
+        "rank_before_taxonomy": 457,
+        "trailing_usd_turnover": "208814.606555024853"
+      },
+      {
+        "canonical_asset_id": "PRO",
+        "pair_id": "PRO/USD",
+        "rank_before_taxonomy": 458,
+        "trailing_usd_turnover": "208026.209146181"
+      },
+      {
+        "canonical_asset_id": "ASTR",
+        "pair_id": "ASTR/USD",
+        "rank_before_taxonomy": 459,
+        "trailing_usd_turnover": "205370.924429995451"
+      },
+      {
+        "canonical_asset_id": "METIS",
+        "pair_id": "METIS/USD",
+        "rank_before_taxonomy": 460,
+        "trailing_usd_turnover": "204793.46210593"
+      },
+      {
+        "canonical_asset_id": "ANON",
+        "pair_id": "ANON/USD",
+        "rank_before_taxonomy": 461,
+        "trailing_usd_turnover": "202408.31493753"
+      },
+      {
+        "canonical_asset_id": "AMI",
+        "pair_id": "AMI/USD",
+        "rank_before_taxonomy": 462,
+        "trailing_usd_turnover": "197994.778244515444"
+      },
+      {
+        "canonical_asset_id": "AUCTION",
+        "pair_id": "AUCTION/USD",
+        "rank_before_taxonomy": 463,
+        "trailing_usd_turnover": "197667.12911102"
+      },
+      {
+        "canonical_asset_id": "WAXL",
+        "pair_id": "WAXL/USD",
+        "rank_before_taxonomy": 464,
+        "trailing_usd_turnover": "196472.209416966"
+      },
+      {
+        "canonical_asset_id": "FIDD",
+        "pair_id": "FIDD/USD",
+        "rank_before_taxonomy": 465,
+        "trailing_usd_turnover": "195937.74986952"
+      },
+      {
+        "canonical_asset_id": "ACA",
+        "pair_id": "ACA/USD",
+        "rank_before_taxonomy": 466,
+        "trailing_usd_turnover": "195099.886888916911"
+      },
+      {
+        "canonical_asset_id": "MEZO",
+        "pair_id": "MEZO/USD",
+        "rank_before_taxonomy": 467,
+        "trailing_usd_turnover": "194072.9321963824"
+      },
+      {
+        "canonical_asset_id": "LOFI",
+        "pair_id": "LOFI/USD",
+        "rank_before_taxonomy": 468,
+        "trailing_usd_turnover": "191491.8423632872"
+      },
+      {
+        "canonical_asset_id": "ANIME",
+        "pair_id": "ANIME/USD",
+        "rank_before_taxonomy": 469,
+        "trailing_usd_turnover": "190167.79851177778"
+      },
+      {
+        "canonical_asset_id": "EDGEX",
+        "pair_id": "EDGEX/USD",
+        "rank_before_taxonomy": 470,
+        "trailing_usd_turnover": "187208.2948961351"
+      },
+      {
+        "canonical_asset_id": "EDGE",
+        "pair_id": "EDGE/USD",
+        "rank_before_taxonomy": 471,
+        "trailing_usd_turnover": "181709.3889057106"
+      },
+      {
+        "canonical_asset_id": "DBR",
+        "pair_id": "DBR/USD",
+        "rank_before_taxonomy": 472,
+        "trailing_usd_turnover": "178423.5828036828"
+      },
+      {
+        "canonical_asset_id": "ALEO",
+        "pair_id": "ALEO/USD",
+        "rank_before_taxonomy": 473,
+        "trailing_usd_turnover": "178360.7482928844"
+      },
+      {
+        "canonical_asset_id": "LAYER",
+        "pair_id": "LAYER/USD",
+        "rank_before_taxonomy": 474,
+        "trailing_usd_turnover": "178258.829724136"
+      },
+      {
+        "canonical_asset_id": "CAT",
+        "pair_id": "CAT/USD",
+        "rank_before_taxonomy": 475,
+        "trailing_usd_turnover": "177356.185363709039"
+      },
+      {
+        "canonical_asset_id": "COQ",
+        "pair_id": "COQ/USD",
+        "rank_before_taxonomy": 476,
+        "trailing_usd_turnover": "177133.021609107778"
+      },
+      {
+        "canonical_asset_id": "DUCK",
+        "pair_id": "DUCK/USD",
+        "rank_before_taxonomy": 477,
+        "trailing_usd_turnover": "172809.10745511696"
+      },
+      {
+        "canonical_asset_id": "DMC",
+        "pair_id": "DMC/USD",
+        "rank_before_taxonomy": 478,
+        "trailing_usd_turnover": "168363.10621988619"
+      },
+      {
+        "canonical_asset_id": "SAUCE",
+        "pair_id": "SAUCE/USD",
+        "rank_before_taxonomy": 479,
+        "trailing_usd_turnover": "167355.1962477573"
+      },
+      {
+        "canonical_asset_id": "SWEAT",
+        "pair_id": "SWEAT/USD",
+        "rank_before_taxonomy": 480,
+        "trailing_usd_turnover": "166966.54072189052"
+      },
+      {
+        "canonical_asset_id": "GMX",
+        "pair_id": "GMX/USD",
+        "rank_before_taxonomy": 481,
+        "trailing_usd_turnover": "166936.9856624538"
+      },
+      {
+        "canonical_asset_id": "BAL",
+        "pair_id": "BAL/USD",
+        "rank_before_taxonomy": 482,
+        "trailing_usd_turnover": "165675.27397711194"
+      },
+      {
+        "canonical_asset_id": "ARPA",
+        "pair_id": "ARPA/USD",
+        "rank_before_taxonomy": 483,
+        "trailing_usd_turnover": "164264.743065334964"
+      },
+      {
+        "canonical_asset_id": "UNITAS",
+        "pair_id": "UNITAS/USD",
+        "rank_before_taxonomy": 484,
+        "trailing_usd_turnover": "163639.5286324281"
+      },
+      {
+        "canonical_asset_id": "WELL",
+        "pair_id": "WELL/USD",
+        "rank_before_taxonomy": 485,
+        "trailing_usd_turnover": "162404.2389483507"
+      },
+      {
+        "canonical_asset_id": "KERNEL",
+        "pair_id": "KERNEL/USD",
+        "rank_before_taxonomy": 486,
+        "trailing_usd_turnover": "162250.3154254435"
+      },
+      {
+        "canonical_asset_id": "KNC",
+        "pair_id": "KNC/USD",
+        "rank_before_taxonomy": 487,
+        "trailing_usd_turnover": "161092.62059403487"
+      },
+      {
+        "canonical_asset_id": "EV",
+        "pair_id": "EV/USD",
+        "rank_before_taxonomy": 488,
+        "trailing_usd_turnover": "158193.017757902656"
+      },
+      {
+        "canonical_asset_id": "AUDIO",
+        "pair_id": "AUDIO/USD",
+        "rank_before_taxonomy": 489,
+        "trailing_usd_turnover": "156837.670772666512"
+      },
+      {
+        "canonical_asset_id": "T",
+        "pair_id": "T/USD",
+        "rank_before_taxonomy": 490,
+        "trailing_usd_turnover": "154782.593464851724"
+      },
+      {
+        "canonical_asset_id": "CVC",
+        "pair_id": "CVC/USD",
+        "rank_before_taxonomy": 491,
+        "trailing_usd_turnover": "154631.891717109387"
+      },
+      {
+        "canonical_asset_id": "CHR",
+        "pair_id": "CHR/USD",
+        "rank_before_taxonomy": 492,
+        "trailing_usd_turnover": "152096.508346822999"
+      },
+      {
+        "canonical_asset_id": "BODEN",
+        "pair_id": "BODEN/USD",
+        "rank_before_taxonomy": 493,
+        "trailing_usd_turnover": "151842.37594427908"
+      },
+      {
+        "canonical_asset_id": "CXT",
+        "pair_id": "CXT/USD",
+        "rank_before_taxonomy": 494,
+        "trailing_usd_turnover": "149206.5386193686"
+      },
+      {
+        "canonical_asset_id": "TOKEN",
+        "pair_id": "TOKEN/USD",
+        "rank_before_taxonomy": 495,
+        "trailing_usd_turnover": "142512.91770574602"
+      },
+      {
+        "canonical_asset_id": "ME",
+        "pair_id": "ME/USD",
+        "rank_before_taxonomy": 496,
+        "trailing_usd_turnover": "141005.834267839"
+      },
+      {
+        "canonical_asset_id": "MLN",
+        "pair_id": "MLN/USD",
+        "rank_before_taxonomy": 497,
+        "trailing_usd_turnover": "138783.345741101739"
+      },
+      {
+        "canonical_asset_id": "SYND",
+        "pair_id": "SYND/USD",
+        "rank_before_taxonomy": 498,
+        "trailing_usd_turnover": "138339.7901250682"
+      },
+      {
+        "canonical_asset_id": "G",
+        "pair_id": "G/USD",
+        "rank_before_taxonomy": 499,
+        "trailing_usd_turnover": "134157.52376771889"
+      },
+      {
+        "canonical_asset_id": "OGN",
+        "pair_id": "OGN/USD",
+        "rank_before_taxonomy": 500,
+        "trailing_usd_turnover": "134105.724592334176"
+      },
+      {
+        "canonical_asset_id": "BNT",
+        "pair_id": "BNT/USD",
+        "rank_before_taxonomy": 501,
+        "trailing_usd_turnover": "130036.967474687171"
+      },
+      {
+        "canonical_asset_id": "SWARMS",
+        "pair_id": "SWARMS/USD",
+        "rank_before_taxonomy": 502,
+        "trailing_usd_turnover": "129871.3470849733"
+      },
+      {
+        "canonical_asset_id": "BIGTIME",
+        "pair_id": "BIGTIME/USD",
+        "rank_before_taxonomy": 503,
+        "trailing_usd_turnover": "125595.41151534399"
+      },
+      {
+        "canonical_asset_id": "SN75",
+        "pair_id": "SN75/USD",
+        "rank_before_taxonomy": 504,
+        "trailing_usd_turnover": "124556.11983805"
+      },
+      {
+        "canonical_asset_id": "SUN",
+        "pair_id": "SUN/USD",
+        "rank_before_taxonomy": 505,
+        "trailing_usd_turnover": "123512.9480340312"
+      },
+      {
+        "canonical_asset_id": "RARI",
+        "pair_id": "RARI/USD",
+        "rank_before_taxonomy": 506,
+        "trailing_usd_turnover": "121452.506004437683"
+      },
+      {
+        "canonical_asset_id": "ALTHEA",
+        "pair_id": "ALTHEA/USD",
+        "rank_before_taxonomy": 507,
+        "trailing_usd_turnover": "119681.493608208"
+      },
+      {
+        "canonical_asset_id": "XION",
+        "pair_id": "XION/USD",
+        "rank_before_taxonomy": 508,
+        "trailing_usd_turnover": "118429.205112089"
+      },
+      {
+        "canonical_asset_id": "WAR",
+        "pair_id": "WAR/USD",
+        "rank_before_taxonomy": 509,
+        "trailing_usd_turnover": "118168.565511153"
+      },
+      {
+        "canonical_asset_id": "UP",
+        "pair_id": "UP/USD",
+        "rank_before_taxonomy": 510,
+        "trailing_usd_turnover": "117459.3564439576"
+      },
+      {
+        "canonical_asset_id": "CLANKER",
+        "pair_id": "CLANKER/USD",
+        "rank_before_taxonomy": 511,
+        "trailing_usd_turnover": "117178.3384991"
+      },
+      {
+        "canonical_asset_id": "MXNB",
+        "pair_id": "MXNB/USD",
+        "rank_before_taxonomy": 512,
+        "trailing_usd_turnover": "114984.7665186677"
+      },
+      {
+        "canonical_asset_id": "UXLINK",
+        "pair_id": "UXLINK/USD",
+        "rank_before_taxonomy": 513,
+        "trailing_usd_turnover": "113713.0983549373"
+      },
+      {
+        "canonical_asset_id": "RAD",
+        "pair_id": "RAD/USD",
+        "rank_before_taxonomy": 514,
+        "trailing_usd_turnover": "112288.674630140077"
+      },
+      {
+        "canonical_asset_id": "BOS",
+        "pair_id": "BOS/USD",
+        "rank_before_taxonomy": 515,
+        "trailing_usd_turnover": "111111.12092850517"
+      },
+      {
+        "canonical_asset_id": "MOCA",
+        "pair_id": "MOCA/USD",
+        "rank_before_taxonomy": 516,
+        "trailing_usd_turnover": "110709.810156494"
+      },
+      {
+        "canonical_asset_id": "SRM",
+        "pair_id": "SRM/USD",
+        "rank_before_taxonomy": 517,
+        "trailing_usd_turnover": "108746.699430603365"
+      },
+      {
+        "canonical_asset_id": "CLOUD",
+        "pair_id": "CLOUD/USD",
+        "rank_before_taxonomy": 518,
+        "trailing_usd_turnover": "108616.355407179"
+      },
+      {
+        "canonical_asset_id": "XL1",
+        "pair_id": "XL1/USD",
+        "rank_before_taxonomy": 519,
+        "trailing_usd_turnover": "104776.584983547553"
+      },
+      {
+        "canonical_asset_id": "YOM",
+        "pair_id": "YOM/USD",
+        "rank_before_taxonomy": 520,
+        "trailing_usd_turnover": "104705.7814272314"
+      },
+      {
+        "canonical_asset_id": "L3",
+        "pair_id": "L3/USD",
+        "rank_before_taxonomy": 521,
+        "trailing_usd_turnover": "103950.22457827069"
+      },
+      {
+        "canonical_asset_id": "GAS",
+        "pair_id": "GAS/USD",
+        "rank_before_taxonomy": 522,
+        "trailing_usd_turnover": "103920.771459925"
+      },
+      {
+        "canonical_asset_id": "VFY",
+        "pair_id": "VFY/USD",
+        "rank_before_taxonomy": 523,
+        "trailing_usd_turnover": "103295.5857039017"
+      },
+      {
+        "canonical_asset_id": "UMXM",
+        "pair_id": "UMXM/USD",
+        "rank_before_taxonomy": 524,
+        "trailing_usd_turnover": "100529.619623735"
+      },
+      {
+        "canonical_asset_id": "ELX",
+        "pair_id": "ELX/USD",
+        "rank_before_taxonomy": 525,
+        "trailing_usd_turnover": "98236.43670907003"
+      },
+      {
+        "canonical_asset_id": "GST",
+        "pair_id": "GST/USD",
+        "rank_before_taxonomy": 526,
+        "trailing_usd_turnover": "98187.691529175309"
+      },
+      {
+        "canonical_asset_id": "MSOL",
+        "pair_id": "MSOL/USD",
+        "rank_before_taxonomy": 527,
+        "trailing_usd_turnover": "96938.9182226216"
+      },
+      {
+        "canonical_asset_id": "BTT",
+        "pair_id": "BTT/USD",
+        "rank_before_taxonomy": 528,
+        "trailing_usd_turnover": "96888.107122123744"
+      },
+      {
+        "canonical_asset_id": "ODOS",
+        "pair_id": "ODOS/USD",
+        "rank_before_taxonomy": 529,
+        "trailing_usd_turnover": "96438.54313682405"
+      },
+      {
+        "canonical_asset_id": "FF",
+        "pair_id": "FF/USD",
+        "rank_before_taxonomy": 530,
+        "trailing_usd_turnover": "94360.333083196"
+      },
+      {
+        "canonical_asset_id": "NOBODY",
+        "pair_id": "NOBODY/USD",
+        "rank_before_taxonomy": 531,
+        "trailing_usd_turnover": "91504.1072585674"
+      },
+      {
+        "canonical_asset_id": "JAILSTOOL",
+        "pair_id": "JAILSTOOL/USD",
+        "rank_before_taxonomy": 532,
+        "trailing_usd_turnover": "90985.6513719417"
+      },
+      {
+        "canonical_asset_id": "SUKU",
+        "pair_id": "SUKU/USD",
+        "rank_before_taxonomy": 533,
+        "trailing_usd_turnover": "90412.4341145524"
+      },
+      {
+        "canonical_asset_id": "HSK",
+        "pair_id": "HSK/USD",
+        "rank_before_taxonomy": 534,
+        "trailing_usd_turnover": "89959.5819721198"
+      },
+      {
+        "canonical_asset_id": "FXS",
+        "pair_id": "FXS/USD",
+        "rank_before_taxonomy": 535,
+        "trailing_usd_turnover": "87028.95298252991"
+      },
+      {
+        "canonical_asset_id": "EAT",
+        "pair_id": "EAT/USD",
+        "rank_before_taxonomy": 536,
+        "trailing_usd_turnover": "86016.2780447376"
+      },
+      {
+        "canonical_asset_id": "USDD",
+        "pair_id": "USDD/USD",
+        "rank_before_taxonomy": 537,
+        "trailing_usd_turnover": "84794.004834471"
+      },
+      {
+        "canonical_asset_id": "BGB",
+        "pair_id": "BGB/USD",
+        "rank_before_taxonomy": 538,
+        "trailing_usd_turnover": "84755.85956607"
+      },
+      {
+        "canonical_asset_id": "VTHO",
+        "pair_id": "VTHO/USD",
+        "rank_before_taxonomy": 539,
+        "trailing_usd_turnover": "84340.966896140061"
+      },
+      {
+        "canonical_asset_id": "QI",
+        "pair_id": "QI/USD",
+        "rank_before_taxonomy": 540,
+        "trailing_usd_turnover": "82722.17573108031"
+      },
+      {
+        "canonical_asset_id": "APENFT",
+        "pair_id": "APENFT/USD",
+        "rank_before_taxonomy": 541,
+        "trailing_usd_turnover": "79373.503556480671"
+      },
+      {
+        "canonical_asset_id": "IN",
+        "pair_id": "IN/USD",
+        "rank_before_taxonomy": 542,
+        "trailing_usd_turnover": "78536.9514122175"
+      },
+      {
+        "canonical_asset_id": "SAMO",
+        "pair_id": "SAMO/USD",
+        "rank_before_taxonomy": 543,
+        "trailing_usd_turnover": "78183.119010554172"
+      },
+      {
+        "canonical_asset_id": "FOLKS",
+        "pair_id": "FOLKS/USD",
+        "rank_before_taxonomy": 544,
+        "trailing_usd_turnover": "78071.830403285"
+      },
+      {
+        "canonical_asset_id": "EDU",
+        "pair_id": "EDU/USD",
+        "rank_before_taxonomy": 545,
+        "trailing_usd_turnover": "77321.5374744644"
+      },
+      {
+        "canonical_asset_id": "DOLO",
+        "pair_id": "DOLO/USD",
+        "rank_before_taxonomy": 546,
+        "trailing_usd_turnover": "77244.8190701741"
+      },
+      {
+        "canonical_asset_id": "REN",
+        "pair_id": "REN/USD",
+        "rank_before_taxonomy": 547,
+        "trailing_usd_turnover": "74591.427097639956"
+      },
+      {
+        "canonical_asset_id": "PUFFER",
+        "pair_id": "PUFFER/USD",
+        "rank_before_taxonomy": 548,
+        "trailing_usd_turnover": "74162.2855581698"
+      },
+      {
+        "canonical_asset_id": "BOBA",
+        "pair_id": "BOBA/USD",
+        "rank_before_taxonomy": 549,
+        "trailing_usd_turnover": "73209.292866597177"
+      },
+      {
+        "canonical_asset_id": "USAT",
+        "pair_id": "USAT/USD",
+        "rank_before_taxonomy": 550,
+        "trailing_usd_turnover": "71432.7861047"
+      },
+      {
+        "canonical_asset_id": "RUJI",
+        "pair_id": "RUJI/USD",
+        "rank_before_taxonomy": 551,
+        "trailing_usd_turnover": "70495.818137336"
+      },
+      {
+        "canonical_asset_id": "RAILS",
+        "pair_id": "RAILS/USD",
+        "rank_before_taxonomy": 552,
+        "trailing_usd_turnover": "67641.7683667928"
+      },
+      {
+        "canonical_asset_id": "LAVA",
+        "pair_id": "LAVA/USD",
+        "rank_before_taxonomy": 553,
+        "trailing_usd_turnover": "67406.6011611285"
+      },
+      {
+        "canonical_asset_id": "GIB",
+        "pair_id": "GIB/USD",
+        "rank_before_taxonomy": 554,
+        "trailing_usd_turnover": "66110.17283243328"
+      },
+      {
+        "canonical_asset_id": "ALT",
+        "pair_id": "ALT/USD",
+        "rank_before_taxonomy": 555,
+        "trailing_usd_turnover": "64143.6760038886"
+      },
+      {
+        "canonical_asset_id": "PERP",
+        "pair_id": "PERP/USD",
+        "rank_before_taxonomy": 556,
+        "trailing_usd_turnover": "61263.120208469662"
+      },
+      {
+        "canonical_asset_id": "JUNO",
+        "pair_id": "JUNO/USD",
+        "rank_before_taxonomy": 557,
+        "trailing_usd_turnover": "60754.726712981317"
+      },
+      {
+        "canonical_asset_id": "BMB",
+        "pair_id": "BMB/USD",
+        "rank_before_taxonomy": 558,
+        "trailing_usd_turnover": "60618.32425684925"
+      },
+      {
+        "canonical_asset_id": "LION",
+        "pair_id": "LION/USD",
+        "rank_before_taxonomy": 559,
+        "trailing_usd_turnover": "60454.48770785063"
+      },
+      {
+        "canonical_asset_id": "SBR",
+        "pair_id": "SBR/USD",
+        "rank_before_taxonomy": 560,
+        "trailing_usd_turnover": "59974.26547178475"
+      },
+      {
+        "canonical_asset_id": "ZEX",
+        "pair_id": "ZEX/USD",
+        "rank_before_taxonomy": 561,
+        "trailing_usd_turnover": "59827.3308527045"
+      },
+      {
+        "canonical_asset_id": "JOE",
+        "pair_id": "JOE/USD",
+        "rank_before_taxonomy": 562,
+        "trailing_usd_turnover": "59356.546885435"
+      },
+      {
+        "canonical_asset_id": "BLUE",
+        "pair_id": "BLUE/USD",
+        "rank_before_taxonomy": 563,
+        "trailing_usd_turnover": "57777.62427758349"
+      },
+      {
+        "canonical_asset_id": "POLS",
+        "pair_id": "POLS/USD",
+        "rank_before_taxonomy": 564,
+        "trailing_usd_turnover": "57774.513300072326"
+      },
+      {
+        "canonical_asset_id": "ALPHA",
+        "pair_id": "ALPHA/USD",
+        "rank_before_taxonomy": 565,
+        "trailing_usd_turnover": "57635.244367700028"
+      },
+      {
+        "canonical_asset_id": "LSETH",
+        "pair_id": "LSETH/USD",
+        "rank_before_taxonomy": 566,
+        "trailing_usd_turnover": "55010.879962246"
+      },
+      {
+        "canonical_asset_id": "APXUSD",
+        "pair_id": "APXUSD/USD",
+        "rank_before_taxonomy": 567,
+        "trailing_usd_turnover": "54965.3837050703"
+      },
+      {
+        "canonical_asset_id": "OBOL",
+        "pair_id": "OBOL/USD",
+        "rank_before_taxonomy": 568,
+        "trailing_usd_turnover": "54645.07622517113"
+      },
+      {
+        "canonical_asset_id": "PACK",
+        "pair_id": "PACK/USD",
+        "rank_before_taxonomy": 569,
+        "trailing_usd_turnover": "53368.31597053936"
+      },
+      {
+        "canonical_asset_id": "SIGMA",
+        "pair_id": "SIGMA/USD",
+        "rank_before_taxonomy": 570,
+        "trailing_usd_turnover": "51789.34147110355"
+      },
+      {
+        "canonical_asset_id": "ATLAS",
+        "pair_id": "ATLAS/USD",
+        "rank_before_taxonomy": 571,
+        "trailing_usd_turnover": "50592.261069191955"
+      },
+      {
+        "canonical_asset_id": "KULA",
+        "pair_id": "KULA/USD",
+        "rank_before_taxonomy": 572,
+        "trailing_usd_turnover": "49126.335094172"
+      },
+      {
+        "canonical_asset_id": "SIGN",
+        "pair_id": "SIGN/USD",
+        "rank_before_taxonomy": 573,
+        "trailing_usd_turnover": "45688.4295217821"
+      },
+      {
+        "canonical_asset_id": "CHEEMS",
+        "pair_id": "CHEEMS/USD",
+        "rank_before_taxonomy": 574,
+        "trailing_usd_turnover": "44963.330042508885"
+      },
+      {
+        "canonical_asset_id": "POLIS",
+        "pair_id": "POLIS/USD",
+        "rank_before_taxonomy": 575,
+        "trailing_usd_turnover": "44676.366511257631"
+      },
+      {
+        "canonical_asset_id": "UNFI",
+        "pair_id": "UNFI/USD",
+        "rank_before_taxonomy": 576,
+        "trailing_usd_turnover": "43378.652351882839"
+      },
+      {
+        "canonical_asset_id": "BONZO",
+        "pair_id": "BONZO/USD",
+        "rank_before_taxonomy": 577,
+        "trailing_usd_turnover": "42486.080295413"
+      },
+      {
+        "canonical_asset_id": "BREV",
+        "pair_id": "BREV/USD",
+        "rank_before_taxonomy": 578,
+        "trailing_usd_turnover": "40693.132728334"
+      },
+      {
+        "canonical_asset_id": "LSSOL",
+        "pair_id": "LSSOL/USD",
+        "rank_before_taxonomy": 579,
+        "trailing_usd_turnover": "38265.826519"
+      },
+      {
+        "canonical_asset_id": "CHECK",
+        "pair_id": "CHECK/USD",
+        "rank_before_taxonomy": 580,
+        "trailing_usd_turnover": "36713.22607276385"
+      },
+      {
+        "canonical_asset_id": "CTC",
+        "pair_id": "CTC/USD",
+        "rank_before_taxonomy": 581,
+        "trailing_usd_turnover": "35903.320033973"
+      },
+      {
+        "canonical_asset_id": "VULT",
+        "pair_id": "VULT/USD",
+        "rank_before_taxonomy": 582,
+        "trailing_usd_turnover": "34876.562632237"
+      },
+      {
+        "canonical_asset_id": "MIR",
+        "pair_id": "MIR/USD",
+        "rank_before_taxonomy": 583,
+        "trailing_usd_turnover": "34218.077200253173"
+      },
+      {
+        "canonical_asset_id": "XTER",
+        "pair_id": "XTER/USD",
+        "rank_before_taxonomy": 584,
+        "trailing_usd_turnover": "34066.5292665084"
+      },
+      {
+        "canonical_asset_id": "ALCH",
+        "pair_id": "ALCH/USD",
+        "rank_before_taxonomy": 585,
+        "trailing_usd_turnover": "30315.5100809294"
+      },
+      {
+        "canonical_asset_id": "CMETH",
+        "pair_id": "CMETH/USD",
+        "rank_before_taxonomy": 586,
+        "trailing_usd_turnover": "29574.32533132"
+      },
+      {
+        "canonical_asset_id": "FOREST",
+        "pair_id": "FOREST/USD",
+        "rank_before_taxonomy": 587,
+        "trailing_usd_turnover": "28475.080336595"
+      },
+      {
+        "canonical_asset_id": "SCOR",
+        "pair_id": "SCOR/USD",
+        "rank_before_taxonomy": 588,
+        "trailing_usd_turnover": "27613.6570396856"
+      },
+      {
+        "canonical_asset_id": "OMG",
+        "pair_id": "OMG/USD",
+        "rank_before_taxonomy": 589,
+        "trailing_usd_turnover": "27143.342522489993"
+      },
+      {
+        "canonical_asset_id": "MULTI",
+        "pair_id": "MULTI/USD",
+        "rank_before_taxonomy": 590,
+        "trailing_usd_turnover": "26245.549752863304"
+      },
+      {
+        "canonical_asset_id": "EURQ",
+        "pair_id": "EURQ/USD",
+        "rank_before_taxonomy": 591,
+        "trailing_usd_turnover": "26046.767456243"
+      },
+      {
+        "canonical_asset_id": "EUROP",
+        "pair_id": "EUROP/USD",
+        "rank_before_taxonomy": 592,
+        "trailing_usd_turnover": "22745.539418614"
+      },
+      {
+        "canonical_asset_id": "BKS",
+        "pair_id": "BKS/USD",
+        "rank_before_taxonomy": 593,
+        "trailing_usd_turnover": "22215.47567169111"
+      },
+      {
+        "canonical_asset_id": "USDQ",
+        "pair_id": "USDQ/USD",
+        "rank_before_taxonomy": 594,
+        "trailing_usd_turnover": "22131.11701738"
+      },
+      {
+        "canonical_asset_id": "CYBER",
+        "pair_id": "CYBER/USD",
+        "rank_before_taxonomy": 595,
+        "trailing_usd_turnover": "21565.19799045"
+      },
+      {
+        "canonical_asset_id": "GAIB",
+        "pair_id": "GAIB/USD",
+        "rank_before_taxonomy": 596,
+        "trailing_usd_turnover": "21219.1237955574"
+      },
+      {
+        "canonical_asset_id": "RVV",
+        "pair_id": "RVV/USD",
+        "rank_before_taxonomy": 597,
+        "trailing_usd_turnover": "21044.072186060245"
+      },
+      {
+        "canonical_asset_id": "SUNDOG",
+        "pair_id": "SUNDOG/USD",
+        "rank_before_taxonomy": 598,
+        "trailing_usd_turnover": "18980.31215908"
+      },
+      {
+        "canonical_asset_id": "ADX",
+        "pair_id": "ADX/USD",
+        "rank_before_taxonomy": 599,
+        "trailing_usd_turnover": "18644.424487614977"
+      },
+      {
+        "canonical_asset_id": "ST",
+        "pair_id": "ST/USD",
+        "rank_before_taxonomy": 600,
+        "trailing_usd_turnover": "16981.89072327479"
+      },
+      {
+        "canonical_asset_id": "KEEP",
+        "pair_id": "KEEP/USD",
+        "rank_before_taxonomy": 601,
+        "trailing_usd_turnover": "15165.666579749656"
+      },
+      {
+        "canonical_asset_id": "VOOI",
+        "pair_id": "VOOI/USD",
+        "rank_before_taxonomy": 602,
+        "trailing_usd_turnover": "14792.6825969166"
+      },
+      {
+        "canonical_asset_id": "CQT",
+        "pair_id": "CQT/USD",
+        "rank_before_taxonomy": 603,
+        "trailing_usd_turnover": "14389.941652044298"
+      },
+      {
+        "canonical_asset_id": "BNC",
+        "pair_id": "BNC/USD",
+        "rank_before_taxonomy": 605,
+        "trailing_usd_turnover": "13769.787552947136"
+      },
+      {
+        "canonical_asset_id": "SONIC",
+        "pair_id": "SONIC/USD",
+        "rank_before_taxonomy": 606,
+        "trailing_usd_turnover": "13279.0966774063"
+      },
+      {
+        "canonical_asset_id": "SCA",
+        "pair_id": "SCA/USD",
+        "rank_before_taxonomy": 607,
+        "trailing_usd_turnover": "8897.364675954"
+      },
+      {
+        "canonical_asset_id": "FRNT",
+        "pair_id": "FRNT/USD",
+        "rank_before_taxonomy": 608,
+        "trailing_usd_turnover": "8283.195022636787"
+      },
+      {
+        "canonical_asset_id": "BADGER",
+        "pair_id": "BADGER/USD",
+        "rank_before_taxonomy": 609,
+        "trailing_usd_turnover": "7436.370822759265"
+      },
+      {
+        "canonical_asset_id": "RBC",
+        "pair_id": "RBC/USD",
+        "rank_before_taxonomy": 610,
+        "trailing_usd_turnover": "7435.144639085572"
+      },
+      {
+        "canonical_asset_id": "RNBW",
+        "pair_id": "RNBW/USD",
+        "rank_before_taxonomy": 611,
+        "trailing_usd_turnover": "6871.0070248982"
+      },
+      {
+        "canonical_asset_id": "BDXN",
+        "pair_id": "BDXN/USD",
+        "rank_before_taxonomy": 612,
+        "trailing_usd_turnover": "6310.4763247519"
+      },
+      {
+        "canonical_asset_id": "NODE",
+        "pair_id": "NODE/USD",
+        "rank_before_taxonomy": 613,
+        "trailing_usd_turnover": "3888.9396519136"
+      },
+      {
+        "canonical_asset_id": "GAIA",
+        "pair_id": "GAIA/USD",
+        "rank_before_taxonomy": 614,
+        "trailing_usd_turnover": "3781.43431744849"
+      },
+      {
+        "canonical_asset_id": "ORDER",
+        "pair_id": "ORDER/USD",
+        "rank_before_taxonomy": 615,
+        "trailing_usd_turnover": "3651.3753985129"
+      },
+      {
+        "canonical_asset_id": "MF",
+        "pair_id": "MF/USD",
+        "rank_before_taxonomy": 616,
+        "trailing_usd_turnover": "3585.3983632283"
+      },
+      {
+        "canonical_asset_id": "IR",
+        "pair_id": "IR/USD",
+        "rank_before_taxonomy": 617,
+        "trailing_usd_turnover": "1828.2649768714"
+      },
+      {
+        "canonical_asset_id": "MAT",
+        "pair_id": "MAT/USD",
+        "rank_before_taxonomy": 618,
+        "trailing_usd_turnover": "1621.317732341"
+      },
+      {
+        "canonical_asset_id": "CORN",
+        "pair_id": "CORN/USD",
+        "rank_before_taxonomy": 619,
+        "trailing_usd_turnover": "503.0924005333"
+      },
+      {
+        "canonical_asset_id": "EPT",
+        "pair_id": "EPT/USD",
+        "rank_before_taxonomy": 620,
+        "trailing_usd_turnover": "165.96411482052"
+      },
+      {
+        "canonical_asset_id": "COPM",
+        "pair_id": "COPM/USD",
+        "rank_before_taxonomy": 621,
+        "trailing_usd_turnover": "98.724237535999"
+      }
+    ]
+  },
+  "schema_version": "crypto_taxonomy_gap_inventory/1",
+  "selection_context": {
+    "excluded_before_cutoff_count": 19,
+    "known_eligible_count_so_far": 87,
+    "ranked_candidate_count": 621,
+    "ranking_eligible_count": 621,
+    "ranking_ineligible_count": 16,
+    "target_asset_count": 100,
+    "unknown_before_cutoff_count": 515
+  },
+  "source_date": "2026-08-27",
+  "source_outcome": {
+    "status": "UNKNOWN",
+    "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN"
+  },
+  "status": "REVIEW_INVENTORY_ONLY"
+}
