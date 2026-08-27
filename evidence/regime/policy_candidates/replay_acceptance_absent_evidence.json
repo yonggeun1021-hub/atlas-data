@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_policy_parameter_evidence/v1",
+  "evidence_id": "P1_COM_05_REPLAY_ACCEPTANCE_ABSENT_BOUNDARY",
+  "evidence_kind": "UNSUPPORTED",
+  "published_at": "2026-08-27T01:56:01+09:00",
+  "available_at": "2026-08-27T02:07:53+09:00",
+  "valid_through": null,
+  "source_locator": "github://yonggeun1021-hub/atlas-data/pull/334?source=b010af506a7330f4b6957a0d1389b1801b33f39b&merge=d334aed37d045dd0c579a0f84c26a1d6313fd9f0&path=config/regime_decision_authority_contract.json&replay_pull=67&replay_source=9b83859fff21881c8131af2119ad1ae13a07cbcf&replay_merge=bba8440b928f078f852209718a25cc540466da1d&replay_path=config/regime_replay_harness_contract.json",
+  "parameter_claims": [
+    {
+      "parameter_id": "REPLAY_ACCEPTANCE",
+      "claim_type": "UNSUPPORTED",
+      "supported_value": null,
+      "observation_count": null,
+      "distinct_observation_dates": null,
+      "derivation": "REPOSITORY_ABSENT_REPLAY_ACCEPTANCE_POLICY_BOUNDARY"
+    }
+  ],
+  "caveats": [
+    "REPOSITORY_POLICY_REGISTRY_ABSENT",
+    "REPLAY_HARNESS_MODE_PRE_SCORE_UNKNOWN_ONLY",
+    "REPLAY_HARNESS_COMPARISON_CANONICAL_BYTE_IDENTICAL_FIRST_AND_RERUN",
+    "REPLAY_HARNESS_SUCCESS_DETERMINISM_VERIFIED_PRE_SCORE",
+    "ABSENT_NO_RATIFIED_ACCEPTANCE_CONTRACT",
+    "NO_ACCEPTANCE_THRESHOLD_OR_WINNER_SELECTION_POLICY",
+    "NO_PARAMETER_VALUE_AUTHORIZED"
+  ]
+}
