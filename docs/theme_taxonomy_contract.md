@@ -1,6 +1,7 @@
 # P2-01 Theme / Value-Chain taxonomy contract
 
-Status: external-graph validation capability; no repository taxonomy or live membership population.
+Status: external-graph validation plus an empty independent authority-registry
+mechanism; no approved repository taxonomy or live membership population.
 
 ## No default taxonomy
 
@@ -32,8 +33,26 @@ no later than the claimed ratification time.
 Those fields remain caller-supplied claims, not independent proof that a
 canonical CIO/Rule Authority record approved these exact bytes. A syntactically
 valid SHA-256, ratifier name, timestamp, or re-signed payload therefore cannot
-open membership authority. The repository currently has no P2-01 approval
-authority registry. `theme_taxonomy/2` reports a coherent active claim as
+open membership authority.
+
+`config/theme_taxonomy_authority_registry.json` now supplies the separate
+authority boundary, but deliberately contains zero records. A record can be
+used only when all of the following independently hold:
+
+- its complete determining payload binds the exact graph payload;
+- the registry file and approval-evidence file match their exact bytes at the
+  current clean git HEAD or an externally supplied immutable full commit SHA;
+- the approval evidence repeats and hashes that complete determining payload;
+- the registry row and the exact evidence bytes are found in real git history;
+- `real_usable_from = max(effective_from, ratified_at, row_first_seen_at,
+  evidence_first_seen_at)` precedes the date-only decision day (same-day
+  availability remains not computable rather than being backdated);
+- exactly one active `RATIFIED` record matches.
+
+There is no caller-injected registry dictionary and no mutable branch/tag/HEAD
+pin. Dirty, missing, ambiguous, unratified, expired, path-traversing, or
+re-signed evidence fails closed. With the committed empty registry,
+`theme_taxonomy/2` reports a coherent active claim as
 `STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED`, while
 `theme_membership_authorized` stays false and the adapter stays empty.
 
@@ -43,10 +62,11 @@ the claim is even structurally eligible. Otherwise the graph reports
 `DRAFT_OR_NOT_EFFECTIVE_GRAPH`. The packet separates historical-union
 `covered_markets` from `active_covered_markets` and `active_edge_count`.
 
-A later contract may add adapter activation only after a separate authority
-registry binds the complete determining payload, approval evidence, effective
-interval, and PIT availability. That authority design is not implemented or
-presumed here.
+The mechanism can activate only a detached, unweighted membership adapter after
+a future separately reviewed authority record meets that boundary. No such
+record, Theme node, membership, or role is added by this change. Source ranking,
+rotation scoring, candidate selection, and trading authority remain independent
+unratified gates.
 
 The existing US/Korea rotation contracts still declare `theme_taxonomy/1`.
 They are intentionally not relabeled as `/2`: their current binding shape does

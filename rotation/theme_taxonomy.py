@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""P2-01 externally ratified Theme / Value-Chain graph validator.
+"""P2-01 Theme / Value-Chain graph and independent authority validator.
 
 The repository contains no default Theme catalog.  This module validates an
 external effective-dated graph and explicit evidence-linked US/Korea asset
-memberships.  Only an effective RATIFIED graph activates a detached Global
-Asset Master membership adapter; no inference, weighting or rotation score is
-performed.
+memberships.  A self-declared RATIFIED claim never activates anything.  A
+detached Global Asset Master adapter can open only when the separate committed
+authority registry independently binds the exact graph.  No inference,
+weighting or rotation score is performed.
 """
 from __future__ import annotations
 
@@ -19,6 +20,13 @@ from pathlib import Path
 import re
 import tempfile
 from urllib.parse import urlparse
+
+try:
+    from rotation import theme_taxonomy_authority as TTA
+except ModuleNotFoundError:  # direct ``python rotation/theme_taxonomy.py`` CLI
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from rotation import theme_taxonomy_authority as TTA
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,7 +82,8 @@ def _expected_contract() -> dict:
         "membership_adapter_status": "DETACHED_REQUIRES_SEPARATE_MASTER_INGESTION",
         "policy_status": {
             "repository_default_taxonomy": "ABSENT",
-            "approval_authority_registry": "ABSENT",
+            "approval_authority_registry": "PRESENT_EMPTY",
+            "approval_authority_registry_contract": TTA.REGISTRY_SCHEMA,
             "theme_selection": "EXTERNAL_RATIFICATION_REQUIRED",
             "membership_selection": "EXPLICIT_EVIDENCE_LINKED_ONLY",
             "value_chain_role_vocabulary": "EXTERNAL_TAXONOMY_DEFINED",
@@ -372,7 +381,12 @@ def _assert_membership_intervals(memberships: list[dict]) -> None:
                     raise ThemeTaxonomyError(f"MEMBERSHIP_INTERVAL_OVERLAP:{':'.join(key)}")
 
 
-def build_packet(value: dict, contract: dict | None = None) -> dict:
+def build_packet(
+    value: dict,
+    contract: dict | None = None,
+    authority_registry_path: Path = TTA.REGISTRY_PATH,
+    trusted_commit: str | None = None,
+) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {"schema_version", "taxonomy_id", "as_of_date", "approval", "nodes", "edges", "memberships"}
     if not isinstance(value, dict) or value.get("schema_version") != INPUT_SCHEMA_VERSION:
@@ -435,22 +449,47 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         and bool(active_edges)
         and active_covered_markets == contract["required_markets_for_ratified_graph"]
     )
-    # The input document can only *claim* that an external decision ratified
-    # this graph.  A shaped SHA-256 string, ratifier name, and timestamp do not
-    # prove that a canonical Rule Authority record exists or that it approved
-    # these exact bytes.  Until that separate authority registry is designed,
-    # ratified, and independently verified, this validator is deliberately
-    # structural-only: even a fully coherent claim cannot open the adapter.
-    graph_currently_effective = False
+    # The graph's own approval object is only a claim.  Authority comes from a
+    # separate committed registry and approval-evidence file, both verified
+    # against immutable git bytes and PIT first-seen clocks.
+    authority_resolution = TTA.resolve_graph_authority(
+        value,
+        as_of_date,
+        registry_path=authority_registry_path,
+        trusted_commit=trusted_commit,
+    )
+    graph_currently_effective = (
+        structurally_eligible_claim
+        and authority_resolution["status"] == "AUTHORIZED"
+    )
     adapter = []
+    if graph_currently_effective:
+        adapter = [
+            {
+                "membership_id": item["membership_id"],
+                "asset_id": item["asset_id"],
+                "market": item["market"],
+                "theme_id": item["theme_id"],
+                "role_id": item["role_id"],
+                "valid_from": item["valid_from"],
+                "valid_to": item["valid_to"],
+            }
+            for item in active_memberships
+        ]
+    output_authority = copy.deepcopy(contract["authority"])
+    output_authority["theme_membership_activation_authorized"] = graph_currently_effective
     packet = {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "contract_version": contract["contract_version"], "taxonomy_id": taxonomy_id,
         "as_of_date": as_of_date,
         "graph_status": (
-            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED"
-            if structurally_eligible_claim
-            else "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+            "AUTHORIZED_EFFECTIVE_GRAPH"
+            if graph_currently_effective
+            else (
+                "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED"
+                if structurally_eligible_claim
+                else "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+            )
         ),
         "structurally_eligible_ratification_claim": structurally_eligible_claim,
         "approval": approval,
@@ -463,10 +502,16 @@ def build_packet(value: dict, contract: dict | None = None) -> dict:
         "nodes": nodes_out, "edges": edges_out, "memberships": memberships_out,
         "theme_membership_authorized": graph_currently_effective,
         "global_asset_master_membership_adapter": adapter,
+        "authority_resolution": authority_resolution,
         "policy_status": copy.deepcopy(contract["policy_status"]),
-        "authority": copy.deepcopy(contract["authority"]),
+        "authority": output_authority,
         "unresolved_boundaries": [
-            "REPOSITORY_DEFAULT_TAXONOMY_ABSENT", "APPROVAL_AUTHORITY_REGISTRY_ABSENT",
+            "REPOSITORY_DEFAULT_TAXONOMY_ABSENT",
+            *(
+                []
+                if graph_currently_effective
+                else ["APPROVAL_AUTHORITY_REGISTRY_PRESENT_BUT_EMPTY"]
+            ),
             "SOURCE_HIERARCHY_UNRATIFIED",
             "ROTATION_SCORING_UNRATIFIED", "TRACKED_TAXONOMY_NOT_IMPLEMENTED",
             "DOWNSTREAM_ROTATION_TAXONOMY_CONTRACT_V1_NOT_AUTHORITY_COMPATIBLE",
