@@ -47,6 +47,7 @@ def copied_source_root(root: Path) -> Path:
     for relative in (
         "config/regime_policy_candidate_contract.json",
         "config/regime_minimum_coverage_policy.json",
+        "config/regime_decision_authority_contract.json",
     ):
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +66,11 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
 
             self.assertEqual(summary["candidate_status"], "CANDIDATE_BLOCKED")
             self.assertEqual(summary["supported_components"], ["MINIMUM_COVERAGE"])
+            self.assertEqual(
+                summary["explicit_negative_components"],
+                ["MARKET_NORMALIZATION"],
+            )
+            self.assertEqual(len(summary["missing_evidence_components"]), 7)
             self.assertEqual(len(summary["blocked_components"]), 8)
             self.assertEqual(summary["replay_population_status"], "NOT_COMPUTABLE")
 
@@ -91,6 +97,16 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             for parameter in inventory["parameters"]:
                 if parameter["component"] == "MINIMUM_COVERAGE":
                     self.assertEqual(parameter["status"], "SUPPORTED")
+                elif parameter["component"] == "MARKET_NORMALIZATION":
+                    self.assertEqual(parameter["status"], "BLOCKED")
+                    self.assertEqual(
+                        parameter["blocking_reasons"],
+                        ["UNSUPPORTED_EVIDENCE", "VALUE_UNSPECIFIED"],
+                    )
+                    self.assertNotIn(
+                        "EVIDENCE_MISSING",
+                        parameter["blocking_reasons"],
+                    )
                 else:
                     self.assertEqual(parameter["status"], "BLOCKED")
                     self.assertEqual(
@@ -114,7 +130,7 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             second_summary = MODULE.build_population(second, ROOT)
 
             self.assertEqual(first_summary, second_summary)
-            for key in ("evidence", "manifest", "inventory"):
+            for key in artifact_paths(first):
                 self.assertEqual(
                     artifact_paths(first)[key].read_bytes(),
                     artifact_paths(second)[key].read_bytes(),
@@ -140,6 +156,21 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                     "MINIMUM_COVERAGE_SOURCE_SHA_MISMATCH",
                 ):
                     MODULE.build_population(source_root / "artifacts", source_root)
+
+    def test_unratified_normalization_boundary_is_exactly_pinned(self):
+        with tempfile.TemporaryDirectory() as raw:
+            source_root = copied_source_root(Path(raw))
+            path = source_root / "config/regime_decision_authority_contract.json"
+            changed = read_json(path)
+            changed["policy_component_status"]["FACTOR_NORMALIZATION"] = "RATIFIED"
+            changed["authority"]["factor_normalization_authorized"] = True
+            write_json(path, changed)
+
+            with self.assertRaisesRegex(
+                MODULE.PolicyCandidatePopulationError,
+                "UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH",
+            ):
+                MODULE.build_population(source_root / "artifacts", source_root)
 
     def test_resigned_artifact_chain_cannot_replace_ratified_value(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -205,6 +236,47 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                     ):
                         MODULE.validate_population(root, ROOT)
                     write_json(inventory_path, inventory)
+
+    def test_resigned_negative_evidence_cannot_fake_normalization_support(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            MODULE.build_population(root, ROOT)
+            paths = artifact_paths(root)
+            evidence = read_json(paths["normalization_evidence"])
+            manifest = read_json(paths["manifest"])
+            fake_value = {"method": "UNRATIFIED_AS_SUPPORTED"}
+
+            evidence["evidence_kind"] = "CIO_DOCTRINE"
+            evidence["parameter_claims"][0]["claim_type"] = (
+                "EXPLICIT_PARAMETER_VALUE"
+            )
+            evidence["parameter_claims"][0]["supported_value"] = fake_value
+            evidence["parameter_claims"][0]["derivation"] = "FAKE_RATIFICATION"
+            evidence["caveats"] = []
+            write_json(paths["normalization_evidence"], evidence)
+            normalization = next(
+                item
+                for item in manifest["parameters"]
+                if item["component"] == "MARKET_NORMALIZATION"
+            )
+            normalization["value_type"] = "STRUCTURED"
+            normalization["proposed_value"] = fake_value
+            normalization["evidence_refs"][0]["sha256"] = hashlib.sha256(
+                paths["normalization_evidence"].read_bytes()
+            ).hexdigest()
+            write_json(paths["manifest"], manifest)
+            inventory = MODULE.CANDIDATE.build_candidate_inventory(
+                manifest,
+                root,
+                MODULE.CANDIDATE.load_contract(),
+            )
+            write_json(paths["inventory"], inventory)
+
+            with self.assertRaisesRegex(
+                MODULE.PolicyCandidatePopulationError,
+                "NORMALIZATION_EVIDENCE_ARTIFACT_MISMATCH",
+            ):
+                MODULE.validate_population(root, ROOT)
 
     def test_population_contract_cannot_open_downstream_authority(self):
         contract = copy.deepcopy(MODULE.load_population_contract())

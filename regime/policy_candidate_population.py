@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Populate one evidence-backed P1-COM-05 policy parameter.
+"""Populate exact positive and negative P1-COM-05 policy evidence.
 
-The only populated component in v1 is the already user-ratified P1-COM-02
-five-of-five minimum-coverage policy.  Every other P1-COM-05 component remains
-explicitly unspecified, so the overall candidate remains CANDIDATE_BLOCKED.
+The user-ratified P1-COM-02 five-of-five policy supports MINIMUM_COVERAGE.  The
+P1-COM-05 authority boundary explicitly proves that MARKET_NORMALIZATION is
+unratified; it is retained as UNSUPPORTED_EVIDENCE, not converted into a value.
+Every remaining component stays unspecified and the candidate stays blocked.
 """
 
 from __future__ import annotations
@@ -25,10 +26,11 @@ if str(ROOT) not in sys.path:
 
 from regime import minimum_coverage as MINIMUM  # noqa: E402
 from regime import policy_candidate as CANDIDATE  # noqa: E402
+from regime import decision_authority as DECISION  # noqa: E402
 
 
 CONTRACT_PATH = ROOT / "config" / "regime_policy_candidate_population_contract.json"
-CONTRACT_BYTES_SHA256 = "c79b0406e56aaf5a8811176109095b4e93478ed81ce5946947b5abf9ee17d2e3"
+CONTRACT_BYTES_SHA256 = "0d0adf64b56a14cde3186d04bcbb5583b6783eaafe08130dd7f5144b74253bf0"
 
 
 class PolicyCandidatePopulationError(RuntimeError):
@@ -108,6 +110,7 @@ def _validate_population_contract_shape(contract: object) -> dict:
         "contract_mode",
         "candidate_contract",
         "source_policy",
+        "unratified_policy_boundary",
         "candidate",
         "artifact_paths",
         "expected_population",
@@ -117,12 +120,18 @@ def _validate_population_contract_shape(contract: object) -> dict:
         fail("POPULATION_CONTRACT_INVALID", "schema")
     pinned = {
         "schema_version": 1,
-        "contract_version": "regime_policy_candidate_population/v1",
+        "contract_version": "regime_policy_candidate_population/v2",
         "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
     }
     if any(contract.get(key) != value for key, value in pinned.items()):
         fail("POPULATION_CONTRACT_INVALID", "identity")
-    for group in ("candidate_contract", "source_policy", "candidate", "artifact_paths"):
+    for group in (
+        "candidate_contract",
+        "source_policy",
+        "unratified_policy_boundary",
+        "candidate",
+        "artifact_paths",
+    ):
         if not isinstance(contract[group], dict):
             fail("POPULATION_CONTRACT_INVALID", group)
     for key, value in contract["artifact_paths"].items():
@@ -159,7 +168,10 @@ def validate_population_contract(contract: object) -> dict:
     return validated
 
 
-def load_source_contracts(source_root: Path, contract: dict) -> tuple[dict, dict]:
+def load_source_contracts(
+    source_root: Path,
+    contract: dict,
+) -> tuple[dict, dict, dict]:
     candidate_ref = contract["candidate_contract"]
     candidate_path = resolve_path(
         source_root,
@@ -168,15 +180,24 @@ def load_source_contracts(source_root: Path, contract: dict) -> tuple[dict, dict
     )
     minimum_ref = contract["source_policy"]
     minimum_path = resolve_path(source_root, minimum_ref["path"], "source_policy.path")
+    boundary_ref = contract["unratified_policy_boundary"]
+    boundary_path = resolve_path(
+        source_root,
+        boundary_ref["path"],
+        "unratified_policy_boundary.path",
+    )
     try:
         candidate_raw = candidate_path.read_bytes()
         minimum_raw = minimum_path.read_bytes()
+        boundary_raw = boundary_path.read_bytes()
     except OSError as exc:
         fail("SOURCE_POLICY_MISSING", str(exc))
     if sha256(candidate_raw) != candidate_ref["sha256"]:
         fail("CANDIDATE_CONTRACT_SHA_MISMATCH", candidate_ref["path"])
     if sha256(minimum_raw) != minimum_ref["sha256"]:
         fail("MINIMUM_COVERAGE_SOURCE_SHA_MISMATCH", minimum_ref["path"])
+    if sha256(boundary_raw) != boundary_ref["sha256"]:
+        fail("UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH", boundary_ref["path"])
     try:
         candidate_contract = CANDIDATE.validate_contract(
             load_json_bytes(candidate_raw, candidate_ref["path"])
@@ -184,7 +205,14 @@ def load_source_contracts(source_root: Path, contract: dict) -> tuple[dict, dict
         minimum_contract = MINIMUM.validate_contract(
             load_json_bytes(minimum_raw, minimum_ref["path"])
         )
-    except (CANDIDATE.PolicyCandidateError, MINIMUM.MinimumCoverageError) as exc:
+        boundary_contract = DECISION.validate_contract(
+            load_json_bytes(boundary_raw, boundary_ref["path"])
+        )
+    except (
+        CANDIDATE.PolicyCandidateError,
+        MINIMUM.MinimumCoverageError,
+        DECISION.DecisionAuthorityError,
+    ) as exc:
         fail("SOURCE_POLICY_INVALID", str(exc))
     if candidate_contract["contract_version"] != candidate_ref["contract_version"]:
         fail("SOURCE_POLICY_INVALID", "candidate contract version")
@@ -194,7 +222,26 @@ def load_source_contracts(source_root: Path, contract: dict) -> tuple[dict, dict
         fail("SOURCE_POLICY_INVALID", "minimum coverage policy name")
     if minimum_contract["policy_status"] != minimum_ref["policy_status"]:
         fail("SOURCE_POLICY_INVALID", "minimum coverage policy status")
-    return candidate_contract, minimum_contract
+    if boundary_contract["contract_version"] != boundary_ref["contract_version"]:
+        fail("SOURCE_POLICY_INVALID", "unratified boundary contract version")
+    if boundary_contract["repository_policy_registry_status"] != boundary_ref[
+        "repository_policy_registry_status"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "repository policy registry status")
+    source_component = boundary_ref["source_policy_component"]
+    if boundary_contract["policy_component_status"].get(source_component) != boundary_ref[
+        "component_status"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "normalization component status")
+    if boundary_contract["policy_reason_codes"].get(source_component) != boundary_ref[
+        "reason_code"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "normalization reason code")
+    if boundary_contract["authority"].get(boundary_ref["authority_key"]) is not boundary_ref[
+        "authority_value"
+    ]:
+        fail("SOURCE_POLICY_INVALID", "normalization authority")
+    return candidate_contract, minimum_contract, boundary_contract
 
 
 def minimum_coverage_value(minimum_contract: dict) -> dict:
@@ -203,7 +250,7 @@ def minimum_coverage_value(minimum_contract: dict) -> dict:
     return copy.deepcopy(minimum_contract)
 
 
-def expected_evidence(
+def expected_minimum_coverage_evidence(
     contract: dict,
     candidate_contract: dict,
     minimum_contract: dict,
@@ -241,14 +288,55 @@ def expected_evidence(
     }
 
 
+def expected_normalization_negative_evidence(
+    contract: dict,
+    candidate_contract: dict,
+    boundary_contract: dict,
+) -> dict:
+    source = contract["unratified_policy_boundary"]
+    source_component = source["source_policy_component"]
+    return {
+        "schema_version": 1,
+        "contract_version": candidate_contract["evidence_document_version"],
+        "evidence_id": source["evidence_id"],
+        "evidence_kind": "UNSUPPORTED",
+        "published_at": source["published_at"],
+        "available_at": source["available_at"],
+        "valid_through": None,
+        "source_locator": (
+            f"github://yonggeun1021-hub/atlas-data/pull/{source['pull_request']}"
+            f"?source={source['source_commit']}&merge={source['merge_commit']}"
+            f"&path={source['path']}"
+        ),
+        "parameter_claims": [
+            {
+                "parameter_id": source["candidate_component"],
+                "claim_type": "UNSUPPORTED",
+                "supported_value": None,
+                "observation_count": None,
+                "distinct_observation_dates": None,
+                "derivation": "REPOSITORY_UNRATIFIED_POLICY_BOUNDARY",
+            }
+        ],
+        "caveats": [
+            boundary_contract["policy_reason_codes"][source_component],
+            "POLICY_REGISTRY_ABSENT",
+            "STRUCTURAL_NORMALIZATION_IS_NOT_POLICY_NORMALIZATION",
+        ],
+    }
+
+
 def expected_manifest(
     contract: dict,
     candidate_contract: dict,
     minimum_contract: dict,
-    evidence_raw: bytes,
+    minimum_evidence_raw: bytes,
+    normalization_evidence_raw: bytes,
 ) -> dict:
     candidate = contract["candidate"]
     evidence_path = contract["artifact_paths"]["evidence"]
+    boundary = contract["unratified_policy_boundary"]
+    normalization_evidence_path = contract["artifact_paths"]["normalization_evidence"]
     parameters = []
     for component in candidate_contract["required_components"]:
         if component == candidate["populated_component"]:
@@ -261,8 +349,24 @@ def expected_manifest(
                     "evidence_refs": [
                         {
                             "path": evidence_path,
-                            "sha256": sha256(evidence_raw),
+                            "sha256": sha256(minimum_evidence_raw),
                             "evidence_id": candidate["evidence_id"],
+                        }
+                    ],
+                }
+            )
+        elif component == boundary["candidate_component"]:
+            parameters.append(
+                {
+                    "component": component,
+                    "parameter_id": component,
+                    "value_type": "UNSPECIFIED",
+                    "proposed_value": None,
+                    "evidence_refs": [
+                        {
+                            "path": normalization_evidence_path,
+                            "sha256": sha256(normalization_evidence_raw),
+                            "evidence_id": boundary["evidence_id"],
                         }
                     ],
                 }
@@ -303,20 +407,38 @@ def build_population(
     contract = validate_population_contract(
         load_population_contract() if contract is None else contract
     )
-    candidate_contract, minimum_contract = load_source_contracts(source_root, contract)
+    candidate_contract, minimum_contract, boundary_contract = load_source_contracts(
+        source_root,
+        contract,
+    )
     with tempfile.TemporaryDirectory() as raw:
         temporary_root = Path(raw)
-        evidence = expected_evidence(contract, candidate_contract, minimum_contract)
-        evidence_path = write_artifact(
+        minimum_evidence = expected_minimum_coverage_evidence(
+            contract,
+            candidate_contract,
+            minimum_contract,
+        )
+        minimum_evidence_path = write_artifact(
             temporary_root,
             contract["artifact_paths"]["evidence"],
-            evidence,
+            minimum_evidence,
+        )
+        normalization_evidence = expected_normalization_negative_evidence(
+            contract,
+            candidate_contract,
+            boundary_contract,
+        )
+        normalization_evidence_path = write_artifact(
+            temporary_root,
+            contract["artifact_paths"]["normalization_evidence"],
+            normalization_evidence,
         )
         manifest = expected_manifest(
             contract,
             candidate_contract,
             minimum_contract,
-            evidence_path.read_bytes(),
+            minimum_evidence_path.read_bytes(),
+            normalization_evidence_path.read_bytes(),
         )
         write_artifact(
             temporary_root,
@@ -353,26 +475,45 @@ def validate_population(
     contract = validate_population_contract(
         load_population_contract() if contract is None else contract
     )
-    candidate_contract, minimum_contract = load_source_contracts(source_root, contract)
+    candidate_contract, minimum_contract, boundary_contract = load_source_contracts(
+        source_root,
+        contract,
+    )
     paths = {
         key: resolve_path(artifact_root, relative, f"artifact_paths.{key}")
         for key, relative in contract["artifact_paths"].items()
     }
     try:
         evidence_raw = paths["evidence"].read_bytes()
+        normalization_evidence_raw = paths["normalization_evidence"].read_bytes()
         manifest_raw = paths["manifest"].read_bytes()
         inventory_raw = paths["inventory"].read_bytes()
     except OSError as exc:
         fail("POPULATION_ARTIFACT_MISSING", str(exc))
 
-    evidence = expected_evidence(contract, candidate_contract, minimum_contract)
+    evidence = expected_minimum_coverage_evidence(
+        contract,
+        candidate_contract,
+        minimum_contract,
+    )
     if evidence_raw != render_bytes(evidence):
         fail("EVIDENCE_ARTIFACT_MISMATCH", str(paths["evidence"]))
+    normalization_evidence = expected_normalization_negative_evidence(
+        contract,
+        candidate_contract,
+        boundary_contract,
+    )
+    if normalization_evidence_raw != render_bytes(normalization_evidence):
+        fail(
+            "NORMALIZATION_EVIDENCE_ARTIFACT_MISMATCH",
+            str(paths["normalization_evidence"]),
+        )
     manifest = expected_manifest(
         contract,
         candidate_contract,
         minimum_contract,
         evidence_raw,
+        normalization_evidence_raw,
     )
     if manifest_raw != render_bytes(manifest):
         fail("MANIFEST_ARTIFACT_MISMATCH", str(paths["manifest"]))
@@ -395,6 +536,22 @@ def validate_population(
     expected_population = contract["expected_population"]
     if supported != expected_population["supported_components"]:
         fail("POPULATION_SEMANTICS_INVALID", "supported components")
+    explicit_negative = [
+        item["component"]
+        for item in expected_inventory["parameters"]
+        if item["blocking_reasons"] == ["UNSUPPORTED_EVIDENCE", "VALUE_UNSPECIFIED"]
+    ]
+    if explicit_negative != expected_population["explicit_negative_components"]:
+        fail("POPULATION_SEMANTICS_INVALID", "explicit negative components")
+    evidence_missing = [
+        item["component"]
+        for item in expected_inventory["parameters"]
+        if "EVIDENCE_MISSING" in item["blocking_reasons"]
+    ]
+    if len(evidence_missing) != expected_population[
+        "missing_evidence_component_count"
+    ]:
+        fail("POPULATION_SEMANTICS_INVALID", "missing evidence component count")
     if len(expected_inventory["blocked_components"]) != expected_population[
         "blocked_component_count"
     ]:
@@ -415,6 +572,8 @@ def validate_population(
         "candidate_id": expected_inventory["candidate_id"],
         "candidate_status": expected_inventory["candidate_status"],
         "supported_components": supported,
+        "explicit_negative_components": explicit_negative,
+        "missing_evidence_components": evidence_missing,
         "blocked_components": list(expected_inventory["blocked_components"]),
         "source_policy": {
             "path": contract["source_policy"]["path"],
@@ -423,8 +582,22 @@ def validate_population(
             "merge_commit": contract["source_policy"]["merge_commit"],
             "pull_request": contract["source_policy"]["pull_request"],
         },
+        "unratified_policy_boundary": {
+            "path": contract["unratified_policy_boundary"]["path"],
+            "sha256": contract["unratified_policy_boundary"]["sha256"],
+            "source_commit": contract["unratified_policy_boundary"][
+                "source_commit"
+            ],
+            "merge_commit": contract["unratified_policy_boundary"][
+                "merge_commit"
+            ],
+            "pull_request": contract["unratified_policy_boundary"][
+                "pull_request"
+            ],
+        },
         "artifact_sha256": {
             "evidence": sha256(evidence_raw),
+            "normalization_evidence": sha256(normalization_evidence_raw),
             "manifest": sha256(manifest_raw),
             "inventory": sha256(inventory_raw),
         },
