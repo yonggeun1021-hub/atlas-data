@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import gzip
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -71,6 +72,43 @@ class FredVixProvenanceTests(unittest.TestCase):
             first["manifest"]["raw_retention"],
             "APPEND_ONLY_CONTENT_ADDRESSED",
         )
+        self.assertEqual(first["raw_gzip_bytes"][9], 255)
+
+    def test_replay_accepts_legacy_cross_runtime_gzip_header(self):
+        """Linux/Python 3.11 evidence must replay on macOS/Python 3.9.
+
+        The gzip OS byte is container metadata, not a change to the retained
+        FRED response.  Its exact bytes remain bound by raw_file_sha256 while
+        the observation is independently re-derived from decompressed bytes.
+        """
+        bundle = M.build_evidence_bundle(NOW, raw())
+        legacy = bytearray(bundle["raw_gzip_bytes"])
+        legacy[9] = 3 if legacy[9] != 3 else 255
+        pointer = copy.deepcopy(bundle["pointer"])
+        pointer["raw_file_sha256"] = hashlib.sha256(legacy).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / pointer["manifest_path"]
+            raw_path = root / pointer["raw_path"]
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_bytes(bundle["manifest_bytes"])
+            raw_path.write_bytes(bytes(legacy))
+            replay = M.validate_evidence(root, pointer)
+        self.assertEqual(replay["observation"]["value"], "15.50")
+
+    def test_current_committed_fred_pointer_replays_in_this_runtime(self):
+        pointer = json.loads(
+            (ROOT / "data/latest_free_market_data.json").read_text(encoding="utf-8")
+        )
+        if pointer.get("schema_version") != "free_market_data_capture/4":
+            self.skipTest("append-only FRED pointer not present in this revision")
+        replay = M.validate_evidence(ROOT, pointer["fred"]["evidence"])
+        self.assertEqual(
+            replay["observation"]["observation_date"],
+            pointer["fred"]["observation_date"],
+        )
+        self.assertEqual(replay["observation"]["value"], pointer["fred"]["value"])
 
     def test_publish_and_independent_replay(self):
         bundle = M.build_evidence_bundle(NOW, raw())
