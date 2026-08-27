@@ -237,7 +237,7 @@ class UsEquityEvidenceTests(unittest.TestCase):
         self.assertEqual(pe._us_return_window_label(180), "6m")
         self.assertIsNone(pe._us_return_window_label(45))
 
-    def test_v3_derived_manifest_is_consumed_without_chart_history_escalation(self):
+    def test_v3_and_v4_derived_manifests_are_consumed_without_chart_history_escalation(self):
         authority = {
             "evidence_capture_only": True,
             "us_breadth_authorized": False,
@@ -251,28 +251,34 @@ class UsEquityEvidenceTests(unittest.TestCase):
             raw_dir = root / "raw"
             derived_dir = root / "derived/2026-08-26"
             derived_dir.mkdir(parents=True)
-            (derived_dir / "manifest.json").write_text(json.dumps({
-                "schema_version": "free_market_data_capture/3",
-                "observed_at_utc": "2026-08-26T11:32:34Z",
-                "alpaca": {
-                    "status": "READY", "feed": "iex",
-                    "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
-                    "bars": [{
-                        "symbol": "TSM", "close": "417.34",
-                        "provider_timestamp": "2026-08-25T19:59:00Z",
-                    }],
-                    "daily_bars": [{
-                        "symbol": "TSM", "close": "1",
-                        "opened_at": "2026-01-01T00:00:00Z",
-                    }],
-                },
-                "authority": authority,
-            }), encoding="utf-8")
+            for index, schema_version in enumerate(
+                ("free_market_data_capture/3", "free_market_data_capture/4")
+            ):
+                target = derived_dir if index == 0 else root / "derived/2026-08-27"
+                target.mkdir(parents=True, exist_ok=True)
+                (target / "manifest.json").write_text(json.dumps({
+                    "schema_version": schema_version,
+                    "observed_at_utc": f"2026-08-{26 + index}T11:32:34Z",
+                    "alpaca": {
+                        "status": "READY", "feed": "iex",
+                        "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+                        "bars": [{
+                            "symbol": "TSM", "close": str(417.34 + index),
+                            "provider_timestamp": f"2026-08-{25 + index}T19:59:00Z",
+                        }],
+                        "daily_bars": [{
+                            "symbol": "TSM", "close": "1",
+                            "opened_at": "2026-01-01T00:00:00Z",
+                        }],
+                    },
+                    "authority": authority,
+                }), encoding="utf-8")
             points = pe._us_price_points("TSM", raw_dir, root / "derived")
-        self.assertEqual(len(points), 1)
+        self.assertEqual(len(points), 2)
         self.assertEqual(points[0]["provider_timestamp"], "2026-08-25T19:59:00Z")
         self.assertEqual(points[0]["close"], Decimal("417.34"))
         self.assertEqual(points[0]["capture_date"], "2026-08-26")
+        self.assertEqual(points[1]["provider_timestamp"], "2026-08-26T19:59:00Z")
 
     def test_current_v3_manifest_advances_latest_tsm_point(self):
         ev = pe.assemble_us_equity_evidence("TSM", "2026-08-26")

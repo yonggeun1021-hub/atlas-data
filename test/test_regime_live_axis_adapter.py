@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,15 +41,54 @@ def all_authorities_false(value) -> bool:
     return True
 
 
+def v4_free_market_row(root: Path) -> tuple[dict, dict]:
+    captured = dt.datetime(2026, 8, 27, 1, 2, 3, tzinfo=dt.timezone.utc)
+    raw = json.dumps({"observations": [{
+        "date": "2026-08-26", "value": "15.50",
+        "realtime_start": "2026-08-27", "realtime_end": "2026-08-27",
+    }]}, sort_keys=True).encode()
+    bundle = MODULE.FRED_VIX_PROVENANCE.build_evidence_bundle(captured, raw)
+    MODULE.FRED_VIX_PROVENANCE.publish_evidence_bundle(root, bundle)
+    authority = json.loads((ROOT / "config/free_market_data_contract.json").read_text())["authority"]
+    packet = {
+        "schema_version": "free_market_data_capture/4",
+        "contract_version": "free_market_data/2",
+        "observed_at_utc": "2026-08-27T01:02:03Z",
+        "fred": {
+            "series_id": "VIXCLS", "observation_date": "2026-08-26",
+            "value": "15.50", "realtime_start": "2026-08-27",
+            "realtime_end": "2026-08-27", "status": "READY",
+            "source_scope": "FRED_OFFICIAL_SERIES_API",
+            "response_sha256": bundle["pointer"]["raw_response_sha256"],
+            "raw_retention": "APPEND_ONLY_CONTENT_ADDRESSED",
+            "evidence": bundle["pointer"],
+        },
+        "alpaca": {
+            "status": "BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL",
+            "feed": "iex", "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+            "bars": [], "raw_sha256": None, "daily_bars": [],
+            "daily_raw_sha256": None, "daily_timeframe": "1Day",
+            "daily_adjustment": "raw",
+        },
+        "authority": authority,
+    }
+    packet["packet_sha256"] = MODULE.payload_sha256(packet)
+    with mock.patch.object(MODULE, "ROOT", root):
+        row = MODULE._classify_free_market_data(
+            {"kind": "ready", "value": packet}, "2026-08-27"
+        )
+    return row, bundle
+
+
 class RegimeLiveAxisAdapterTest(unittest.TestCase):
     def test_adapter_contract_is_versioned_and_all_authority_is_false(self):
         contract = MODULE.LIVE_AXIS_ADAPTER.load_contract()
-        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v1")
+        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v2")
         self.assertEqual(contract["mode"], "EVIDENCE_ONLY_NO_INTERPRETATION")
         self.assertTrue(all_authorities_false(contract))
         self.assertEqual(
-            contract["deferred_axes"]["US/RISK_VOL"],
-            "RAW_PROVENANCE_VALIDATOR_MISSING",
+            contract["bindings"]["US/RISK_VOL"]["source_component"],
+            "FREE_MARKET_DATA",
         )
 
     def test_adapter_contract_drift_fails_closed(self):
@@ -90,9 +131,45 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         self.assertEqual(us["factor_results"]["TREND"]["status"], "UNDEFINED")
         self.assertEqual(
             us["factor_results"]["RISK_VOL"]["warnings"],
-            ["LIVE_AXIS_PROVENANCE_VALIDATOR_MISSING"],
+            ["LIVE_AXIS_EVIDENCE_UNAVAILABLE"],
         )
         self.assertEqual(us["regime"], "UNKNOWN")
+
+    def test_append_only_vix_defines_us_risk_axis_without_regime_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row, bundle = v4_free_market_row(root)
+            self.assertEqual(row["status"], "DEGRADED")
+            self.assertTrue(row["validated"])
+            with mock.patch.object(MODULE.LIVE_AXIS_ADAPTER, "ROOT", root):
+                outputs = MODULE.build_regime_outputs(
+                    "2026-08-27T23:59:59Z", {"FREE_MARKET_DATA": row}
+                )
+        us = outputs["US"]
+        self.assertEqual(us["coverage"]["defined_axes"], ["RISK_VOL"])
+        self.assertEqual(us["coverage"]["ratio"], "1/5")
+        self.assertEqual(us["regime"], "UNKNOWN")
+        self.assertEqual(us["direction"], "UNKNOWN")
+        self.assertEqual(
+            us["factor_results"]["RISK_VOL"]["evidence"]["sha256"],
+            bundle["pointer"]["raw_response_sha256"],
+        )
+        self.assertTrue(all_authorities_false(us))
+
+    def test_vix_raw_tamper_fails_closed_per_axis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row, bundle = v4_free_market_row(root)
+            (root / bundle["pointer"]["raw_path"]).write_bytes(b"not-gzip")
+            with mock.patch.object(MODULE.LIVE_AXIS_ADAPTER, "ROOT", root):
+                factors = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(
+                    {"FREE_MARKET_DATA": row}, "2026-08-27T23:59:59Z"
+                )
+        self.assertEqual(factors["US"]["RISK_VOL"]["status"], "UNDEFINED")
+        self.assertEqual(
+            factors["US"]["RISK_VOL"]["warnings"],
+            ["LIVE_AXIS_EVIDENCE_UNAVAILABLE"],
+        )
 
     def test_axis_evidence_binds_exact_immutable_raw_response(self):
         rows = crypto_rows()

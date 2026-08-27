@@ -22,10 +22,13 @@ jobs:
         with:
           python-version: '3.11'
       - name: Offline contract regression
-        run: python3 test/test_free_market_data.py
-      # FRED is independently published as derived-only evidence: its raw
-      # API response is never persisted. A missing dedicated Alpaca key is
-      # an explicit PARTIAL result and does not suppress the FRED observation.
+        run: |
+          python3 test/test_fred_vix_provenance.py
+          python3 test/test_free_market_data.py
+      # FRED public response bytes are retained as content-addressed,
+      # append-only evidence and independently replayed before downstream use.
+      # A missing dedicated Alpaca key is an explicit PARTIAL result and does
+      # not suppress the FRED observation.
       # ★ 2026-08-23 cutover: ALPACA_API_KEY/ALPACA_API_SECRET (account/
       #   trading credential) were removed from this repo's secrets and
       #   now live ONLY in the private atlas-private-evidence repo. This

@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "contract_version": "free_market_data/1",
+  "contract_version": "free_market_data/2",
   "fred": {
     "series": ["VIXCLS"],
     "source_scope": "FRED_OFFICIAL_SERIES_API",
     "output_type": 1,
-    "raw_retention": "TRANSIENT_NOT_PERSISTED",
+    "raw_retention": "APPEND_ONLY_CONTENT_ADDRESSED",
     "partial_publish_authorized": true
   },
   "alpaca": {

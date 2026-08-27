@@ -102,6 +102,9 @@ REGIME = _load("atlas_daily_regime", "regime/output_contract.py")
 LIVE_AXIS_ADAPTER = _load(
     "atlas_daily_live_axis_adapter", "regime/live_axis_adapter.py"
 )
+FRED_VIX_PROVENANCE = _load(
+    "atlas_daily_fred_vix_provenance", "collectors/fred_vix_provenance.py"
+)
 HEADER = _load("atlas_daily_header", "briefing/three_market_regime_header.py")
 LEDGER = _load("atlas_daily_ledger", "rotation/rotation_state_ledger.py")
 DISCOVERY = _load("atlas_daily_discovery", "discovery/event_case.py")
@@ -1063,6 +1066,7 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
             "free_market_data_capture/1",
             "free_market_data_capture/2",
             "free_market_data_capture/3",
+            "free_market_data_capture/4",
         }
         or not isinstance(authority, dict)
         or authority.get("evidence_capture_only") is not True
@@ -1076,7 +1080,7 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
     # existed. Enforcing it only for v3 preserves byte-identical rebuilds of
     # already-published v1/v2 briefing packets while preventing a newly
     # generated briefing from presenting a prior KST day's pointer as READY.
-    if schema_version == "free_market_data_capture/3" and decision_date is not None:
+    if schema_version in {"free_market_data_capture/3", "free_market_data_capture/4"} and decision_date is not None:
         try:
             expected_date = dt.date.fromisoformat(decision_date)
             observed_at = payload.get("observed_at_utc")
@@ -1098,14 +1102,51 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
                 "FREE_MARKET_DATA", "DATA_BLOCKED", "CAPTURE_FUTURE_FOR_DECISION_DATE"
             )
     alpaca_status = alpaca.get("status", "READY")
-    if schema_version == "free_market_data_capture/3":
+    if schema_version in {"free_market_data_capture/3", "free_market_data_capture/4"}:
+        expected_retention = (
+            "TRANSIENT_NOT_PERSISTED"
+            if schema_version == "free_market_data_capture/3"
+            else "APPEND_ONLY_CONTENT_ADDRESSED"
+        )
         if (
             fred.get("status") != "READY"
-            or fred.get("raw_retention") != "TRANSIENT_NOT_PERSISTED"
+            or fred.get("raw_retention") != expected_retention
             or not isinstance(fred.get("response_sha256"), str)
             or len(fred["response_sha256"]) != 64
         ):
             return component_row("FREE_MARKET_DATA", "DEGRADED", "FRED_DERIVED_CONTRACT_INVALID")
+        if schema_version == "free_market_data_capture/4":
+            if payload.get("contract_version") != "free_market_data/2":
+                return component_row(
+                    "FREE_MARKET_DATA", "DEGRADED", "CAPTURE_CONTRACT_INVALID"
+                )
+            unsigned = copy.deepcopy(payload)
+            claimed_packet_sha256 = unsigned.pop("packet_sha256", None)
+            if claimed_packet_sha256 != payload_sha256(unsigned):
+                return component_row("FREE_MARKET_DATA", "DEGRADED", "CAPTURE_PACKET_HASH_INVALID")
+            try:
+                replay = FRED_VIX_PROVENANCE.validate_evidence(
+                    ROOT,
+                    fred.get("evidence"),
+                    decision_at=payload.get("observed_at_utc"),
+                )
+            except Exception:
+                return component_row(
+                    "FREE_MARKET_DATA", "DEGRADED", "FRED_APPEND_ONLY_EVIDENCE_INVALID"
+                )
+            observation = replay["observation"]
+            if (
+                fred.get("response_sha256") != replay["pointer"]["raw_response_sha256"]
+                or fred.get("series_id") != observation.get("series_id")
+                or fred.get("observation_date") != observation.get("observation_date")
+                or fred.get("value") != observation.get("value")
+                or fred.get("realtime_start") != observation.get("realtime_start")
+                or fred.get("realtime_end") != observation.get("realtime_end")
+                or payload.get("observed_at_utc") != replay.get("captured_at_utc")
+            ):
+                return component_row(
+                    "FREE_MARKET_DATA", "DEGRADED", "FRED_APPEND_ONLY_REDERIVATION_MISMATCH"
+                )
         if alpaca_status == "READY":
             if not bars or not alpaca.get("daily_bars"):
                 return component_row("FREE_MARKET_DATA", "DEGRADED", "ALPACA_READY_EVIDENCE_INCOMPLETE")
@@ -1137,6 +1178,7 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
         contract_version=payload.get("contract_version"),
         packet={
             "vixcls": {"date": fred.get("observation_date"), "value": fred.get("value")},
+            **({"fred_evidence": fred.get("evidence")} if schema_version == "free_market_data_capture/4" else {}),
             "alpaca_iex_bars": bars,
             "alpaca_status": alpaca_status,
             "source_scope": alpaca.get("source_scope"),

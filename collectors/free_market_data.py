@@ -6,6 +6,7 @@ import argparse
 import datetime as dt
 import gzip
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,19 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "free_market_data_contract.json"
 UTC = dt.timezone.utc
+
+
+def _load_fred_provenance():
+    path = ROOT / "collectors" / "fred_vix_provenance.py"
+    spec = importlib.util.spec_from_file_location("atlas_fred_vix_provenance", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("FRED_PROVENANCE_MODULE_LOAD_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+FRED_PROVENANCE = _load_fred_provenance()
 
 
 class FreeMarketDataError(ValueError):
@@ -34,11 +48,11 @@ def sha256_bytes(value: bytes) -> str:
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     value = json.loads(Path(path).read_text(encoding="utf-8"))
-    if value.get("contract_version") != "free_market_data/1":
+    if value.get("contract_version") != "free_market_data/2":
         raise FreeMarketDataError("CONTRACT_VERSION_INVALID")
     if value.get("alpaca", {}).get("feed") != "iex":
         raise FreeMarketDataError("ALPACA_FEED_MUST_BE_IEX")
-    if value.get("fred", {}).get("raw_retention") != "TRANSIENT_NOT_PERSISTED":
+    if value.get("fred", {}).get("raw_retention") != FRED_PROVENANCE.RAW_RETENTION:
         raise FreeMarketDataError("FRED_RAW_RETENTION_INVALID")
     if value.get("fred", {}).get("partial_publish_authorized") is not True:
         raise FreeMarketDataError("FRED_PARTIAL_PUBLISH_NOT_AUTHORIZED")
@@ -185,6 +199,7 @@ def build_capture(
     fred: dict,
     contract: dict,
     *,
+    fred_evidence: dict,
     alpaca_status: str,
     alpaca_raw: bytes | None = None,
     bars: list[dict] | None = None,
@@ -200,7 +215,7 @@ def build_capture(
     elif alpaca_raw is not None or daily_raw is not None or bars or daily_bars:
         raise FreeMarketDataError("ALPACA_BLOCKED_MUST_NOT_CARRY_EVIDENCE")
     packet = {
-        "schema_version": "free_market_data_capture/3",
+        "schema_version": "free_market_data_capture/4",
         "contract_version": contract["contract_version"],
         "observed_at_utc": observed,
         "fred": {
@@ -209,6 +224,7 @@ def build_capture(
             "source_scope": contract["fred"]["source_scope"],
             "response_sha256": sha256_bytes(fred_raw),
             "raw_retention": contract["fred"]["raw_retention"],
+            "evidence": fred_evidence,
         },
         "alpaca": {
             "status": alpaca_status,
@@ -232,13 +248,13 @@ def publish(
     observed_at: dt.datetime,
     packet: dict,
     *,
+    fred_bundle: dict,
     alpaca_raw: bytes | None = None,
     daily_raw: bytes | None = None,
 ) -> None:
     day = observed_at.astimezone(UTC).date().isoformat()
     derived_dir = root / "evidence" / "free_market_data" / "derived" / day
-    # FRED response bytes are intentionally transient. Only derived value,
-    # vintage metadata and the response digest are retained.
+    FRED_PROVENANCE.publish_evidence_bundle(root, fred_bundle)
     _atomic_write(derived_dir / "manifest.json", json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n")
     if packet["alpaca"]["status"] == "READY":
         if alpaca_raw is None or daily_raw is None:
@@ -269,6 +285,16 @@ def main() -> int:
     observed_at = dt.datetime.now(UTC).replace(microsecond=0)
     contract = load_contract(args.root / "config" / "free_market_data_contract.json")
     fred_raw, fred = fetch_fred(fred_key, observed_at)
+    fred_bundle = FRED_PROVENANCE.build_evidence_bundle(observed_at, fred_raw)
+    normalized_fred = {
+        "series_id": fred.get("series_id"),
+        "observation_date": fred.get("observation_date"),
+        "value": fred.get("value"),
+        "realtime_start": fred.get("realtime_start"),
+        "realtime_end": fred.get("realtime_end"),
+    }
+    if fred_bundle["manifest"]["observation"] != normalized_fred:
+        raise FreeMarketDataError("FRED_DERIVATION_MISMATCH")
     alpaca_raw = daily_raw = None
     bars: list[dict] = []
     daily_bars: list[dict] = []
@@ -300,6 +326,7 @@ def main() -> int:
         fred_raw,
         fred,
         contract,
+        fred_evidence=fred_bundle["pointer"],
         alpaca_status=alpaca_status,
         alpaca_raw=alpaca_raw,
         bars=bars,
@@ -310,6 +337,7 @@ def main() -> int:
         args.root,
         observed_at,
         packet,
+        fred_bundle=fred_bundle,
         alpaca_raw=alpaca_raw,
         daily_raw=daily_raw,
     )

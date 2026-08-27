@@ -409,7 +409,7 @@ def _us_price_points(
     derived_dir: Path = FREE_MARKET_DATA_DERIVED_DIR,
 ) -> list[dict]:
     """Real Alpaca IEX single-bar snapshots for `symbol`, one point per
-    committed day. v1/v2 stored the manifest below ``raw``; v3 stores the
+    committed day. v1/v2 stored the manifest below ``raw``; v3/v4 store the
     sanitized manifest below ``derived`` and reserves ``raw`` for compressed
     provider responses. Chart-only ``daily_bars`` are deliberately ignored."""
     out: list[dict] = []
@@ -436,13 +436,13 @@ def _us_price_points(
         if (
             schema_version not in {
                 "free_market_data_capture/1", "free_market_data_capture/2",
-                "free_market_data_capture/3",
+                "free_market_data_capture/3", "free_market_data_capture/4",
             }
             or alpaca.get("feed") != "iex"
             or alpaca.get("source_scope") != "IEX_ONLY_PARTIAL_US_MARKET"
             or authority.get("evidence_capture_only") is not True
             or any(authority.get(key) is not False for key in required_false)
-            or (schema_version == "free_market_data_capture/3" and alpaca.get("status") != "READY")
+            or (schema_version in {"free_market_data_capture/3", "free_market_data_capture/4"} and alpaca.get("status") != "READY")
         ):
             continue
         bar = next((b for b in alpaca.get("bars", []) if b.get("symbol") == symbol), None)
