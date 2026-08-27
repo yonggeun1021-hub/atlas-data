@@ -224,7 +224,8 @@ def _linked_source_records(
         first_seen = _exact_content_first_seen(root, commit, relative, raw)
         first_seen_at = _utc(first_seen)
         retrieved_at = _utc(evidence["source_identity"]["retrieved_at_utc"])
-        if first_seen_at > nominated_at or retrieved_at > nominated_at or nominated_at > decision_at:
+        effective_available_at = max(first_seen_at, retrieved_at)
+        if retrieved_at > nominated_at or nominated_at > decision_at or effective_available_at > decision_at:
             raise WildcardOperationalIntakeError("SOURCE_BODY_PIT_ORDER_INVALID")
         records.append(
             {
@@ -232,6 +233,9 @@ def _linked_source_records(
                 "record_locator": relative,
                 "source_sha256": digest,
                 "exact_content_first_seen_at": first_seen,
+                "effective_available_at": effective_available_at.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ),
             }
         )
     return sorted(records, key=lambda item: item["evidence_id"])

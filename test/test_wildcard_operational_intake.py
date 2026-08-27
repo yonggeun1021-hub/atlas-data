@@ -175,7 +175,7 @@ class WildcardOperationalIntakeTest(unittest.TestCase):
             ):
                 MODULE.build_envelope([relative], changed, "2026-08-19T14:00:00Z", root)
 
-    def test_source_first_seen_after_nomination_is_lookahead_and_rejected(self):
+    def test_git_capture_after_nomination_but_before_decision_is_not_backdated_or_rejected(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             head, relative = init_repo(root)
@@ -186,11 +186,13 @@ class WildcardOperationalIntakeTest(unittest.TestCase):
             submission = json.loads(submission_path.read_text(encoding="utf-8"))
             submission["evidence"][0]["source_identity"]["source_sha256"] = source_sha
             submission_path.write_text(json.dumps(submission), encoding="utf-8")
-            changed = commit(root, "future body", "2026-08-19T12:30:00Z")
-            with self.assertRaisesRegex(
-                MODULE.WildcardOperationalIntakeError, "SOURCE_BODY_PIT_ORDER_INVALID"
-            ):
-                MODULE.build_envelope([relative], changed, "2026-08-19T14:00:00Z", root)
+            changed = commit(root, "later immutable capture", "2026-08-19T13:30:00Z")
+            value = MODULE.build_envelope(
+                [relative], changed, "2026-08-19T14:00:00Z", root
+            )
+            lineage = value["source_body_lineage"][0]
+            self.assertEqual(lineage["exact_content_first_seen_at"], "2026-08-19T13:30:00Z")
+            self.assertEqual(lineage["effective_available_at"], "2026-08-19T13:30:00Z")
 
     def test_full_sha_and_current_checkout_are_required_for_operational_publish(self):
         with tempfile.TemporaryDirectory() as raw:

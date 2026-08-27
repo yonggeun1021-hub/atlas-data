@@ -64,7 +64,10 @@ It accepts only a submission JSON already reviewed and committed under
 `data/intake/wildcard/` at one exact full commit SHA. Every linked evidence item
 must point to a primary-source body committed in that same immutable revision;
 the publisher verifies the real bytes, SHA-256, and exact-content git first-seen
-time before rebuilding the existing wildcard packet.
+time before rebuilding the existing wildcard packet. Operational availability is
+`max(retrieved_at_utc, exact_content_first_seen_at)` and must not exceed the
+decision time; a source may be officially observed before its immutable git
+capture without being falsely rejected or backdated.
 
 The resulting envelope is content-addressed and append-only under
 `evidence/operational/wildcard_discovery/`. Re-dispatching identical input is a
