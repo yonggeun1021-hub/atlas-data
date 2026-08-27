@@ -212,10 +212,13 @@ APPROVED_TESTS = [
     #   KOSDAQ historical/recent aggregate packets are byte-retained with
     #   workflow run, source commit, immutable artifact, file, and packet
     #   hashes. Both live capture workflows publish append-only bundles.
-    #   Raw KRX bodies and per-symbol rows remain absent, so KR/BREADTH stays
-    #   UNDEFINED and every axis/strategy/action/order/Production authority
-    #   remains false.
+    #   Raw KRX bodies and per-symbol rows remain absent from the public repo.
     "test/test_korea_breadth_aggregate_retention.py",
+    # ★ P8-04 sanitized private replay attestation. Exact private run/commit/
+    #   manifest and public bundle lineage prove MATCHED replay without
+    #   republishing raw bodies, rows, or response hashes. Scoring remains
+    #   unratified, so KR/BREADTH stays UNDEFINED and every authority false.
+    "test/test_korea_breadth_replay_attestation.py",
     # ★ P2-04 — external RATIFIED policy-gated BTC/ETH/ALT rotation transform.
     #   selected 7d/30d Crypto Leadership window 두 시점에서 deterministic bucket
     #   rank·TOP/MIDDLE/BOTTOM transition만 만든다. sector/chain은 UNKNOWN 유지.
