@@ -11,8 +11,9 @@ Only direct semantic bindings are supported:
 * CRYPTO/TREND    <- BTC_TREND
 * CRYPTO/RISK_VOL <- BTC_RISK
 * CRYPTO/LIQUIDITY<- STABLECOIN_NET_ISSUANCE
-The Korea seven-name post-close watchlist, the three-name IEX sample, and the
-US membership roster are deliberately not promoted into market-wide axes.
+The Korea seven-name post-close watchlist, Korea Breadth lineage-only receipts,
+the three-name IEX sample, and the US membership roster are deliberately not
+promoted into market-wide axes.
 FRED is eligible only after the append-only raw response is independently
 replayed.  A self-hashed derived pointer is not sufficient evidence.
 """
@@ -30,7 +31,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v2"
+CONTRACT_VERSION = "regime_live_axis_adapter/v3"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -71,7 +72,7 @@ def _expected_contract() -> dict:
         },
         "deferred_axes": {
             "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
-            "KR/BREADTH": "MARKET_WIDE_SOURCE_MISSING",
+            "KR/BREADTH": "MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED",
             "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
             "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
             "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED",
@@ -79,6 +80,7 @@ def _expected_contract() -> dict:
         "non_promotable_evidence": [
             "IEX_THREE_SYMBOL_SAMPLE",
             "KRX_SEVEN_SYMBOL_WATCHLIST",
+            "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
             "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES",
         ],
         "authority": {
@@ -394,4 +396,12 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
     result["CRYPTO"]["LIQUIDITY"] = _attempt(
         _stablecoin, component_rows, generated_at, bindings["CRYPTO/LIQUIDITY"]
     )
+    for qualified_axis, reason in sorted(contract["deferred_axes"].items()):
+        market, axis = qualified_axis.split("/", 1)
+        if market not in result or axis in result[market]:
+            fail(
+                "CONTRACT_INVALID",
+                f"deferred axis conflicts with binding: {qualified_axis}",
+            )
+        result[market][axis] = _undefined(reason)
     return result

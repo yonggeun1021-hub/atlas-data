@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_live_axis_adapter/v2",
+  "contract_version": "regime_live_axis_adapter/v3",
   "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
   "bindings": {
     "US/RISK_VOL": {
@@ -26,7 +26,7 @@
   },
   "deferred_axes": {
     "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
-    "KR/BREADTH": "MARKET_WIDE_SOURCE_MISSING",
+    "KR/BREADTH": "MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED",
     "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
     "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
     "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED"
@@ -34,6 +34,7 @@
   "non_promotable_evidence": [
     "IEX_THREE_SYMBOL_SAMPLE",
     "KRX_SEVEN_SYMBOL_WATCHLIST",
+    "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
     "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES"
   ],
   "authority": {

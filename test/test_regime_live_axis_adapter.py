@@ -83,12 +83,20 @@ def v4_free_market_row(root: Path) -> tuple[dict, dict]:
 class RegimeLiveAxisAdapterTest(unittest.TestCase):
     def test_adapter_contract_is_versioned_and_all_authority_is_false(self):
         contract = MODULE.LIVE_AXIS_ADAPTER.load_contract()
-        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v2")
+        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v3")
         self.assertEqual(contract["mode"], "EVIDENCE_ONLY_NO_INTERPRETATION")
         self.assertTrue(all_authorities_false(contract))
         self.assertEqual(
             contract["bindings"]["US/RISK_VOL"]["source_component"],
             "FREE_MARKET_DATA",
+        )
+        self.assertEqual(
+            contract["deferred_axes"]["KR/BREADTH"],
+            "MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED",
+        )
+        self.assertIn(
+            "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
+            contract["non_promotable_evidence"],
         )
 
     def test_adapter_contract_drift_fails_closed(self):
@@ -117,6 +125,19 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         self.assertIsNone(crypto["confidence"])
         self.assertEqual(outputs["US"]["coverage"]["ratio"], "0/5")
         self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")
+        self.assertEqual(
+            {
+                axis: outputs["KR"]["factor_results"][axis]["warnings"]
+                for axis in ("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP")
+            },
+            {
+                "TREND": ["MARKET_WIDE_SOURCE_MISSING"],
+                "BREADTH": ["MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED"],
+                "RISK_VOL": ["MARKET_WIDE_SOURCE_MISSING"],
+                "LIQUIDITY": ["SOURCE_POLICY_UNRATIFIED"],
+                "LEADERSHIP": ["SOURCE_POLICY_UNRATIFIED"],
+            },
+        )
         self.assertTrue(all_authorities_false(outputs))
 
     def test_transient_vix_pointer_does_not_define_axis_without_provenance(self):
@@ -237,6 +258,41 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
 
         self.assertEqual(outputs["US"]["coverage"]["ratio"], "0/5")
         self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")
+
+    def test_rehashed_korea_breadth_lineage_receipt_cannot_define_axis(self):
+        receipt = json.loads(
+            (
+                ROOT
+                / "data/observations/korea_breadth_context/2026-08-21/packet.json"
+            ).read_text(encoding="utf-8")
+        )
+        receipt["markets"]["KOSPI"]["advancing_count"] = 9999
+        receipt["markets"]["KOSDAQ"]["advancing_count"] = 9999
+        unsigned = {
+            key: value for key, value in receipt.items() if key != "payload_sha256"
+        }
+        receipt["payload_sha256"] = MODULE.payload_sha256(unsigned)
+        rows = {
+            "KOREA_BREADTH_CONTEXT": MODULE.component_row(
+                "KOREA_BREADTH_CONTEXT",
+                "READY",
+                None,
+                validated=True,
+                packet=receipt,
+            )
+        }
+
+        outputs = MODULE.build_regime_outputs(GENERATED_AT, rows)
+
+        breadth = outputs["KR"]["factor_results"]["BREADTH"]
+        self.assertEqual(breadth["status"], "UNDEFINED")
+        self.assertEqual(
+            breadth["warnings"],
+            ["MARKET_WIDE_SOURCE_CONTENT_NOT_RETAINED"],
+        )
+        self.assertIsNone(breadth["evidence"])
+        self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")
+        self.assertTrue(all_authorities_false(outputs["KR"]))
 
     def test_header_reports_axis_wiring_without_claiming_regime_authority(self):
         outputs = MODULE.build_regime_outputs(GENERATED_AT, crypto_rows())
