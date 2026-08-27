@@ -68,9 +68,9 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             self.assertEqual(summary["supported_components"], ["MINIMUM_COVERAGE"])
             self.assertEqual(
                 summary["explicit_negative_components"],
-                ["MARKET_NORMALIZATION"],
+                ["MARKET_NORMALIZATION", "REGIME_CLASSIFICATION"],
             )
-            self.assertEqual(len(summary["missing_evidence_components"]), 7)
+            self.assertEqual(len(summary["missing_evidence_components"]), 6)
             self.assertEqual(len(summary["blocked_components"]), 8)
             self.assertEqual(summary["replay_population_status"], "NOT_COMPUTABLE")
 
@@ -97,7 +97,10 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             for parameter in inventory["parameters"]:
                 if parameter["component"] == "MINIMUM_COVERAGE":
                     self.assertEqual(parameter["status"], "SUPPORTED")
-                elif parameter["component"] == "MARKET_NORMALIZATION":
+                elif parameter["component"] in {
+                    "MARKET_NORMALIZATION",
+                    "REGIME_CLASSIFICATION",
+                }:
                     self.assertEqual(parameter["status"], "BLOCKED")
                     self.assertEqual(
                         parameter["blocking_reasons"],
@@ -171,6 +174,34 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                 "UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH",
             ):
                 MODULE.build_population(source_root / "artifacts", source_root)
+
+    def test_absent_classification_boundary_is_exactly_pinned(self):
+        for name, mutate in (
+            (
+                "weights_fabricated",
+                lambda value: value["policy_component_status"].update(
+                    AGGREGATION_WEIGHTS="RATIFIED"
+                ),
+            ),
+            (
+                "classification_authorized",
+                lambda value: value["authority"].update(
+                    classification_authorized=True
+                ),
+            ),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as raw:
+                source_root = copied_source_root(Path(raw))
+                path = source_root / "config/regime_decision_authority_contract.json"
+                changed = read_json(path)
+                mutate(changed)
+                write_json(path, changed)
+
+                with self.assertRaisesRegex(
+                    MODULE.PolicyCandidatePopulationError,
+                    "UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH",
+                ):
+                    MODULE.build_population(source_root / "artifacts", source_root)
 
     def test_resigned_artifact_chain_cannot_replace_ratified_value(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -275,6 +306,50 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 MODULE.PolicyCandidatePopulationError,
                 "NORMALIZATION_EVIDENCE_ARTIFACT_MISMATCH",
+            ):
+                MODULE.validate_population(root, ROOT)
+
+    def test_resigned_negative_evidence_cannot_fake_classification_support(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            MODULE.build_population(root, ROOT)
+            paths = artifact_paths(root)
+            evidence = read_json(paths["classification_evidence"])
+            manifest = read_json(paths["manifest"])
+            fake_value = {
+                "aggregation_weights": {"TREND": 1},
+                "classification_thresholds": {"RISK_ON": 1},
+            }
+
+            evidence["evidence_kind"] = "CIO_DOCTRINE"
+            evidence["parameter_claims"][0]["claim_type"] = (
+                "EXPLICIT_PARAMETER_VALUE"
+            )
+            evidence["parameter_claims"][0]["supported_value"] = fake_value
+            evidence["parameter_claims"][0]["derivation"] = "FAKE_RATIFICATION"
+            evidence["caveats"] = []
+            write_json(paths["classification_evidence"], evidence)
+            classification = next(
+                item
+                for item in manifest["parameters"]
+                if item["component"] == "REGIME_CLASSIFICATION"
+            )
+            classification["value_type"] = "STRUCTURED"
+            classification["proposed_value"] = fake_value
+            classification["evidence_refs"][0]["sha256"] = hashlib.sha256(
+                paths["classification_evidence"].read_bytes()
+            ).hexdigest()
+            write_json(paths["manifest"], manifest)
+            inventory = MODULE.CANDIDATE.build_candidate_inventory(
+                manifest,
+                root,
+                MODULE.CANDIDATE.load_contract(),
+            )
+            write_json(paths["inventory"], inventory)
+
+            with self.assertRaisesRegex(
+                MODULE.PolicyCandidatePopulationError,
+                "CLASSIFICATION_EVIDENCE_ARTIFACT_MISMATCH",
             ):
                 MODULE.validate_population(root, ROOT)
 

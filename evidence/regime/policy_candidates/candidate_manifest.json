@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "contract_version": "regime_policy_candidate_manifest/v1",
-  "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V2",
+  "candidate_id": "P1_COM_05_EVIDENCE_POPULATION_V3",
   "market": "COMMON",
-  "decision_at": "2026-08-27T10:43:01+09:00",
+  "decision_at": "2026-08-27T12:14:25+09:00",
   "policy_status": "DRAFT_NOT_RATIFIED",
   "parameters": [
     {
@@ -71,7 +71,13 @@
       "parameter_id": "REGIME_CLASSIFICATION",
       "value_type": "UNSPECIFIED",
       "proposed_value": null,
-      "evidence_refs": []
+      "evidence_refs": [
+        {
+          "path": "evidence/regime/policy_candidates/regime_classification_absent_evidence.json",
+          "sha256": "ba20aa02a9216abc47cb0f23ab2fcc1709d49f86094ee0df6b9f29ff432027f9",
+          "evidence_id": "P1_COM_05_REGIME_CLASSIFICATION_ABSENT_BOUNDARY"
+        }
+      ]
     },
     {
       "component": "DIRECTION",

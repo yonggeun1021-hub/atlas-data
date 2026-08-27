@@ -36,6 +36,7 @@ def copied_root(destination: Path) -> Path:
         "config/regime_decision_authority_contract.json",
         "evidence/regime/policy_candidates/minimum_coverage_evidence.json",
         "evidence/regime/policy_candidates/market_normalization_unratified_evidence.json",
+        "evidence/regime/policy_candidates/regime_classification_absent_evidence.json",
         "evidence/regime/policy_candidates/candidate_manifest.json",
         "evidence/regime/policy_candidates/candidate_inventory.json",
     )
@@ -59,9 +60,9 @@ class RegimeReplayPopulationReadinessTest(unittest.TestCase):
         )
         self.assertEqual(
             result["candidate"]["explicit_negative_components"],
-            ["MARKET_NORMALIZATION"],
+            ["MARKET_NORMALIZATION", "REGIME_CLASSIFICATION"],
         )
-        self.assertEqual(len(result["candidate"]["missing_evidence_components"]), 7)
+        self.assertEqual(len(result["candidate"]["missing_evidence_components"]), 6)
         self.assertEqual(len(result["candidate"]["blocked_components"]), 8)
         self.assertTrue(result["replay_capability"]["capability_available"])
         self.assertTrue(result["replay_capability"]["candidate_inventory_bound"])
