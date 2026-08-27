@@ -143,5 +143,10 @@ records를 넣지 않고 같은 population builder를 호출한다. 그러나 br
 `new_candidates`와 `existing_candidate_changes`는 계속 비어 있고, importance,
 interpretation, Stage, Rule, action, order, Production, trading 권한은 전부 닫혀 있다.
 
+`rotation_discovery_briefing/4`부터 최신 PIT-eligible DART observation packet도
+별도 `dart_observations` 섹션으로 렌더한다. 공시 제목과 raw-byte 검증 여부만
+보여주며 `event_type`/`direction`/`importance`/READY/promotion/action은 계속
+null 또는 비승인이다. 이는 SEC D1 case로의 승격이나 중요 이벤트 판정이 아니다.
+
 DART item extraction, news, policy, Crypto source와 importance ranking은 이 slice의
 범위가 아니며 기존 `UNRATIFIED`/`NOT_IMPLEMENTED` 상태를 유지한다.

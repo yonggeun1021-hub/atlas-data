@@ -81,7 +81,7 @@ Production, and trading remain false or null. Until a genuine committed
 submission is processed on main, this is an operational capability rather than
 an observed live sample.
 
-`rotation_discovery_briefing/3` closes the read-model wiring gate. It validates
+`rotation_discovery_briefing/4` preserves this read-model wiring gate. It validates
 eligible envelopes again, selects the latest immutable revision for each
 submission path, and exposes evidence-linked cases and pending submissions as
 non-promotable observations in the Daily Orchestrator. The read model never

@@ -46,6 +46,10 @@ WILDCARD_INTAKE = _load_module(
     "atlas_wildcard_operational_intake",
     ROOT / "discovery" / "wildcard_operational_intake.py",
 )
+DART_OBSERVATION = _load_module(
+    "atlas_dart_event_observation",
+    ROOT / "discovery" / "dart_event_observation.py",
+)
 
 
 class RotationDiscoveryBriefingError(ValueError):
@@ -70,12 +74,16 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "rotation_discovery_briefing/3",
-        "output_schema_version": "rotation_discovery_briefing_packet/3",
+        "contract_version": "rotation_discovery_briefing/4",
+        "output_schema_version": "rotation_discovery_briefing_packet/4",
         "rotation_source_contract": "rotation_state_ledger/1",
         "discovery_source_contract": "event_discovery_case/2",
         "signal_observation_source_contract": "dynamic_clock_signal_observation/1",
         "wildcard_source_contract": "wildcard_operational_intake/v1",
+        "dart_observation_source_contracts": [
+            "dart_event_observation_packet/1",
+            "dart_event_observation_packet/2",
+        ],
         "market_order": ["US", "KOREA", "CRYPTO"],
         "rotation_states": ["EMERGING", "STRONG", "WEAKENING"],
         "evidence_statuses": [
@@ -460,6 +468,175 @@ def _wildcard_observation_section(
     }
 
 
+def _repo_source_path(root: Path, value: object, code: str) -> Path:
+    if not isinstance(value, str) or not value or value.startswith("external_fixture/"):
+        raise RotationDiscoveryBriefingError(code)
+    candidate = (Path(root) / value).resolve()
+    try:
+        candidate.relative_to(Path(root).resolve())
+    except ValueError as exc:
+        raise RotationDiscoveryBriefingError(code) from exc
+    return candidate
+
+
+def _validated_dart_observation_packet(packet: dict, root: Path) -> dict:
+    if not isinstance(packet, dict):
+        raise RotationDiscoveryBriefingError("DART_OBSERVATION_PACKET_INVALID")
+    lineage = packet.get("lineage")
+    if not isinstance(lineage, dict):
+        raise RotationDiscoveryBriefingError("DART_OBSERVATION_LINEAGE_INVALID")
+    source_path = _repo_source_path(
+        root, lineage.get("source_path"), "DART_OBSERVATION_SOURCE_PATH_INVALID"
+    )
+    content_path = _repo_source_path(
+        root,
+        lineage.get("content_run_path"),
+        "DART_OBSERVATION_CONTENT_PATH_INVALID",
+    )
+    try:
+        return DART_OBSERVATION.validate_packet(
+            copy.deepcopy(packet),
+            source_path=source_path,
+            content_path=content_path,
+            data_root=Path(root) / "data",
+        )
+    except DART_OBSERVATION.DartEventObservationError as exc:
+        raise RotationDiscoveryBriefingError(
+            f"DART_OBSERVATION_PACKET_INVALID:{exc}"
+        ) from exc
+
+
+def load_operational_dart_observation_packet(
+    generated_at: str, root: Path = ROOT
+) -> dict | None:
+    """Return the latest PIT-eligible immutable DART observation packet."""
+    generated = _utc(generated_at, "DART_OBSERVATION_GENERATED_AT_INVALID")
+    root = Path(root)
+    publication_root = root / "data" / "observations" / "dart_event_observations"
+    if not publication_root.exists():
+        return None
+    eligible = []
+    for path in sorted(publication_root.glob("*/*.json")):
+        packet = _read_json(path)
+        if packet.get("schema_version") not in {
+            DART_OBSERVATION.LEGACY_SCHEMA_VERSION,
+            DART_OBSERVATION.SCHEMA_VERSION,
+        }:
+            raise RotationDiscoveryBriefingError("DART_OBSERVATION_PACKET_INVALID")
+        declared_sha = packet.get("packet_sha256")
+        if not isinstance(declared_sha, str) or SHA256_RE.fullmatch(declared_sha) is None:
+            raise RotationDiscoveryBriefingError("DART_OBSERVATION_PACKET_SHA_INVALID")
+        unsigned = copy.deepcopy(packet)
+        unsigned.pop("packet_sha256", None)
+        if payload_sha256(unsigned) != declared_sha:
+            raise RotationDiscoveryBriefingError("DART_OBSERVATION_PACKET_SHA_MISMATCH")
+        decision = _utc(
+            packet.get("decision_at"), "DART_OBSERVATION_DECISION_AT_INVALID"
+        )
+        if decision > generated:
+            continue
+        source_date = _date(
+            packet.get("source_date"), "DART_OBSERVATION_SOURCE_DATE_INVALID"
+        )
+        if source_date > generated.astimezone(
+            dt.timezone(dt.timedelta(hours=9))
+        ).date():
+            raise RotationDiscoveryBriefingError("DART_OBSERVATION_FROM_FUTURE")
+        expected = (
+            publication_root
+            / packet["source_date"]
+            / f"packet-{declared_sha[:16]}.json"
+        )
+        if path.resolve() != expected.resolve():
+            raise RotationDiscoveryBriefingError(
+                "DART_OBSERVATION_PUBLICATION_LOCATOR_INVALID"
+            )
+        eligible.append((decision, declared_sha, packet))
+    if not eligible:
+        return None
+    eligible.sort(key=lambda item: (item[0], item[1]))
+    latest = eligible[-1]
+    if any(
+        item[0] == latest[0] and item[1] != latest[1]
+        for item in eligible[:-1]
+    ):
+        raise RotationDiscoveryBriefingError("DART_OBSERVATION_REVISION_AMBIGUOUS")
+    return _validated_dart_observation_packet(latest[2], root)
+
+
+def _dart_observation_section(
+    packet: dict | None, generated: dt.datetime, root: Path
+) -> dict:
+    if packet is None:
+        return {
+            "status": "NOT_AVAILABLE",
+            "observation_count": 0,
+            "raw_bytes_verified_count": 0,
+            "metadata_only_count": 0,
+            "source_failed_count": 0,
+            "content_failure_count": 0,
+            "source_failures": [],
+            "observations": [],
+            "source_packet": None,
+            "source_packet_sha256": None,
+        }
+    checked = _validated_dart_observation_packet(packet, root)
+    if checked["schema_version"] not in {
+        DART_OBSERVATION.LEGACY_SCHEMA_VERSION,
+        DART_OBSERVATION.SCHEMA_VERSION,
+    }:
+        raise RotationDiscoveryBriefingError("DART_OBSERVATION_CONTRACT_INVALID")
+    if _utc(checked["decision_at"], "DART_OBSERVATION_DECISION_AT_INVALID") > generated:
+        raise RotationDiscoveryBriefingError("DART_OBSERVATION_FROM_FUTURE")
+    observations = []
+    for row in checked["observations"]:
+        if (
+            row.get("event_type") is not None
+            or row.get("direction") is not None
+            or row.get("importance") is not None
+            or row.get("status") != "OBSERVED_ESCALATION_BLOCKED"
+        ):
+            raise RotationDiscoveryBriefingError("DART_OBSERVATION_AUTHORITY_OPENED")
+        observations.append({
+            "observation_id": row["observation_id"],
+            "subject_id": row["subject_id"],
+            "subject_name": row["subject_name"],
+            "filing_date": row["filing_date"],
+            "filing_title": row["filing_title"],
+            "filing_url": row["filing_url"],
+            "time_precision": row["time_precision"],
+            "evidence_status": row["evidence"]["status"],
+            "evidence_available_at": row["evidence"]["available_at"],
+            "blocked_reasons": copy.deepcopy(row["blocked_reasons"]),
+            "event_type": None,
+            "direction": None,
+            "importance": None,
+            "ready_status": "NOT_EVALUATED",
+            "promotion_status": "PROMOTION_NOT_AUTHORIZED",
+            "action": None,
+        })
+    source_failed_count = checked["summary"].get("source_failed_count", 0)
+    content_failure_count = checked["summary"].get("content_failure_count", 0)
+    source_failures = copy.deepcopy(checked.get("source_failures", []))
+    partial_failure = bool(source_failed_count or content_failure_count)
+    return {
+        "status": (
+            "DART_FILING_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+            if partial_failure
+            else "DART_FILING_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
+        ),
+        "observation_count": len(observations),
+        "raw_bytes_verified_count": checked["summary"]["raw_bytes_verified_count"],
+        "metadata_only_count": checked["summary"]["metadata_only_count"],
+        "source_failed_count": source_failed_count,
+        "content_failure_count": content_failure_count,
+        "source_failures": source_failures,
+        "observations": observations,
+        "source_packet": copy.deepcopy(checked),
+        "source_packet_sha256": checked["packet_sha256"],
+    }
+
+
 def build_briefing(
     rotation_ledger: dict,
     discovery_records: list[dict],
@@ -470,6 +647,8 @@ def build_briefing(
     dynamic_report: dict | None = None,
     wildcard_envelopes: list[dict] | None = None,
     wildcard_root: Path = ROOT,
+    dart_observation_packet: dict | None = None,
+    dart_root: Path = ROOT,
 ) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     if slot not in contract["slots"]:
@@ -485,6 +664,9 @@ def build_briefing(
     wildcard_observations = _wildcard_observation_section(
         wildcard_envelopes, generated, contract, Path(wildcard_root)
     )
+    dart_observations = _dart_observation_section(
+        dart_observation_packet, generated, Path(dart_root)
+    )
     packet = {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
@@ -495,6 +677,7 @@ def build_briefing(
         "discovery": discovery,
         "signal_observations": signal_observations,
         "wildcard_observations": wildcard_observations,
+        "dart_observations": dart_observations,
         "summary": {
             "rotation_change_count": rotation["latest_change_count"],
             "discovery_case_count": discovery["case_count"],
@@ -502,6 +685,9 @@ def build_briefing(
             "existing_candidate_change_count": 0,
             "signal_observation_count": signal_observations["observation_count"],
             "wildcard_observation_count": wildcard_observations["observation_count"],
+            "dart_observation_count": dart_observations["observation_count"],
+            "dart_source_failed_count": dart_observations["source_failed_count"],
+            "dart_content_failure_count": dart_observations["content_failure_count"],
             "ready_count": 0,
             "entry_trigger_count": 0,
             "ranked_candidate": None,
@@ -511,6 +697,7 @@ def build_briefing(
         "unresolved_boundaries": [
             "DISCOVERY_IMPORTANCE_POLICY_UNRATIFIED",
             "DISCOVERY_INTERPRETATION_NOT_AUTHORIZED",
+            "DART_OBSERVATION_ESCALATION_BLOCKED",
             "CANDIDATE_STAGE_PROMOTION_NOT_AUTHORIZED",
             "CANDIDATE_RANKING_NOT_AUTHORIZED",
             "ACTION_GENERATION_NOT_AUTHORIZED",
@@ -518,16 +705,25 @@ def build_briefing(
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_briefing(packet, contract, wildcard_root=wildcard_root)
+    return validate_briefing(
+        packet,
+        contract,
+        wildcard_root=wildcard_root,
+        dart_root=dart_root,
+    )
 
 
 def validate_briefing(
-    packet: dict, contract: dict | None = None, wildcard_root: Path = ROOT
+    packet: dict,
+    contract: dict | None = None,
+    wildcard_root: Path = ROOT,
+    dart_root: Path = ROOT,
 ) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "slot", "generated_at", "status",
         "rotation", "discovery", "signal_observations", "wildcard_observations",
+        "dart_observations",
         "summary", "authority", "unresolved_boundaries",
         "packet_sha256",
     }
@@ -546,11 +742,13 @@ def validate_briefing(
     discovery = packet.get("discovery")
     signal_observations = packet.get("signal_observations")
     wildcard_observations = packet.get("wildcard_observations")
+    dart_observations = packet.get("dart_observations")
     if (
         not isinstance(rotation, dict)
         or not isinstance(discovery, dict)
         or not isinstance(signal_observations, dict)
         or not isinstance(wildcard_observations, dict)
+        or not isinstance(dart_observations, dict)
     ):
         raise RotationDiscoveryBriefingError("BRIEFING_SECTIONS_INVALID")
     rotation_fields = {
@@ -742,6 +940,12 @@ def validate_briefing(
     )
     if wildcard_observations != expected_wildcard:
         raise RotationDiscoveryBriefingError("BRIEFING_WILDCARD_DERIVATION_MISMATCH")
+    dart_source_packet = dart_observations.get("source_packet")
+    expected_dart = _dart_observation_section(
+        dart_source_packet, generated, Path(dart_root)
+    )
+    if dart_observations != expected_dart:
+        raise RotationDiscoveryBriefingError("BRIEFING_DART_DERIVATION_MISMATCH")
     expected_summary = {
         "rotation_change_count": len(rotation["latest_changes"]),
         "discovery_case_count": len(discovery["cases"]),
@@ -749,6 +953,9 @@ def validate_briefing(
         "existing_candidate_change_count": 0,
         "signal_observation_count": len(observations),
         "wildcard_observation_count": wildcard_observations["observation_count"],
+        "dart_observation_count": dart_observations["observation_count"],
+        "dart_source_failed_count": dart_observations["source_failed_count"],
+        "dart_content_failure_count": dart_observations["content_failure_count"],
         "ready_count": 0,
         "entry_trigger_count": 0,
         "ranked_candidate": None,
@@ -759,6 +966,7 @@ def validate_briefing(
     expected_boundaries = [
         "DISCOVERY_IMPORTANCE_POLICY_UNRATIFIED",
         "DISCOVERY_INTERPRETATION_NOT_AUTHORIZED",
+        "DART_OBSERVATION_ESCALATION_BLOCKED",
         "CANDIDATE_STAGE_PROMOTION_NOT_AUTHORIZED",
         "CANDIDATE_RANKING_NOT_AUTHORIZED",
         "ACTION_GENERATION_NOT_AUTHORIZED",

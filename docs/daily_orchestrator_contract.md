@@ -122,6 +122,12 @@ and `KRX_PREOPEN_COMPACT` additionally distinguish a collector-data failure
 distinction `check_briefing_readiness.py` already draws -- because the two
 have different remediation paths.
 
+The DART observation projection preserves the same boundary inside one
+component: valid symbols remain visible while metadata/content failures are
+reported as `source_failed`/`content_failed` counts. A partial failure changes
+the component reason but never creates event, importance, promotion, action,
+order, Production, or trading authority.
+
 ## Point-in-time safety: every sensor is decision_date-pinned
 
 Every filesystem-reading component resolves its evidence relative to
@@ -404,6 +410,12 @@ it has nothing real to show; a `PENDING`/`POLICY_BLOCKED`/`DATA_BLOCKED`/
 `UNAVAILABLE` component is always listed with its reason. The rendering
 opens with an explicit statement that no action, order, Production, or
 trading authority is granted.
+
+The `ROTATION_DISCOVERY` detail now includes the latest independently
+validated P3-08 DART observation packet. It renders at most ten filing-title
+rows plus total/raw-verified/metadata-only counts. These rows explicitly say
+event type and importance are unratified, promotion is unauthorized, and
+action is null; a filing observation is never presented as a recommendation.
 
 `_format_component_detail()` pulls actual retained values out of each
 component's own packet -- BTC direction/200DMA, realized-volatility and
