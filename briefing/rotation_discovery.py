@@ -80,7 +80,10 @@ def _expected_contract() -> dict:
         "discovery_source_contract": "event_discovery_case/2",
         "signal_observation_source_contract": "dynamic_clock_signal_observation/1",
         "wildcard_source_contract": "wildcard_operational_intake/v1",
-        "dart_observation_source_contract": "dart_event_observation_packet/1",
+        "dart_observation_source_contracts": [
+            "dart_event_observation_packet/1",
+            "dart_event_observation_packet/2",
+        ],
         "market_order": ["US", "KOREA", "CRYPTO"],
         "rotation_states": ["EMERGING", "STRONG", "WEAKENING"],
         "evidence_statuses": [
@@ -515,7 +518,10 @@ def load_operational_dart_observation_packet(
     eligible = []
     for path in sorted(publication_root.glob("*/*.json")):
         packet = _read_json(path)
-        if packet.get("schema_version") != "dart_event_observation_packet/1":
+        if packet.get("schema_version") not in {
+            DART_OBSERVATION.LEGACY_SCHEMA_VERSION,
+            DART_OBSERVATION.SCHEMA_VERSION,
+        }:
             raise RotationDiscoveryBriefingError("DART_OBSERVATION_PACKET_INVALID")
         declared_sha = packet.get("packet_sha256")
         if not isinstance(declared_sha, str) or SHA256_RE.fullmatch(declared_sha) is None:
@@ -567,12 +573,18 @@ def _dart_observation_section(
             "observation_count": 0,
             "raw_bytes_verified_count": 0,
             "metadata_only_count": 0,
+            "source_failed_count": 0,
+            "content_failure_count": 0,
+            "source_failures": [],
             "observations": [],
             "source_packet": None,
             "source_packet_sha256": None,
         }
     checked = _validated_dart_observation_packet(packet, root)
-    if checked["schema_version"] != "dart_event_observation_packet/1":
+    if checked["schema_version"] not in {
+        DART_OBSERVATION.LEGACY_SCHEMA_VERSION,
+        DART_OBSERVATION.SCHEMA_VERSION,
+    }:
         raise RotationDiscoveryBriefingError("DART_OBSERVATION_CONTRACT_INVALID")
     if _utc(checked["decision_at"], "DART_OBSERVATION_DECISION_AT_INVALID") > generated:
         raise RotationDiscoveryBriefingError("DART_OBSERVATION_FROM_FUTURE")
@@ -603,11 +615,22 @@ def _dart_observation_section(
             "promotion_status": "PROMOTION_NOT_AUTHORIZED",
             "action": None,
         })
+    source_failed_count = checked["summary"].get("source_failed_count", 0)
+    content_failure_count = checked["summary"].get("content_failure_count", 0)
+    source_failures = copy.deepcopy(checked.get("source_failures", []))
+    partial_failure = bool(source_failed_count or content_failure_count)
     return {
-        "status": "DART_FILING_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED",
+        "status": (
+            "DART_FILING_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+            if partial_failure
+            else "DART_FILING_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
+        ),
         "observation_count": len(observations),
         "raw_bytes_verified_count": checked["summary"]["raw_bytes_verified_count"],
         "metadata_only_count": checked["summary"]["metadata_only_count"],
+        "source_failed_count": source_failed_count,
+        "content_failure_count": content_failure_count,
+        "source_failures": source_failures,
         "observations": observations,
         "source_packet": copy.deepcopy(checked),
         "source_packet_sha256": checked["packet_sha256"],
@@ -663,6 +686,8 @@ def build_briefing(
             "signal_observation_count": signal_observations["observation_count"],
             "wildcard_observation_count": wildcard_observations["observation_count"],
             "dart_observation_count": dart_observations["observation_count"],
+            "dart_source_failed_count": dart_observations["source_failed_count"],
+            "dart_content_failure_count": dart_observations["content_failure_count"],
             "ready_count": 0,
             "entry_trigger_count": 0,
             "ranked_candidate": None,
@@ -929,6 +954,8 @@ def validate_briefing(
         "signal_observation_count": len(observations),
         "wildcard_observation_count": wildcard_observations["observation_count"],
         "dart_observation_count": dart_observations["observation_count"],
+        "dart_source_failed_count": dart_observations["source_failed_count"],
+        "dart_content_failure_count": dart_observations["content_failure_count"],
         "ready_count": 0,
         "entry_trigger_count": 0,
         "ranked_candidate": None,

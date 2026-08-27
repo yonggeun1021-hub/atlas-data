@@ -162,6 +162,9 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         self.assertEqual(section["observation_count"], 2)
         self.assertEqual(section["raw_bytes_verified_count"], 1)
         self.assertEqual(section["metadata_only_count"], 1)
+        self.assertEqual(section["source_failed_count"], 0)
+        self.assertEqual(section["content_failure_count"], 0)
+        self.assertEqual(section["source_failures"], [])
         self.assertEqual(result["summary"]["dart_observation_count"], 2)
         for row in section["observations"]:
             self.assertIsNone(row["event_type"])
@@ -170,6 +173,52 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
             self.assertEqual(row["ready_status"], "NOT_EVALUATED")
             self.assertEqual(row["promotion_status"], "PROMOTION_NOT_AUTHORIZED")
             self.assertIsNone(row["action"])
+
+    def test_current_v2_dart_packet_is_consumed_without_reinterpreting_v1_history(self):
+        source = MODULE.DART_OBSERVATION.build_packet(
+            decision_at="2026-08-27T14:59:59Z"
+        )
+        self.assertEqual(source["schema_version"], "dart_event_observation_packet/2")
+        result = MODULE.build_briefing(
+            empty_ledger(), records(), bindings(),
+            "evening", "2026-08-27T23:59:59Z", CONTRACT,
+            dart_observation_packet=source, dart_root=ROOT,
+        )
+        self.assertEqual(
+            result["dart_observations"]["source_packet"]["schema_version"],
+            "dart_event_observation_packet/2",
+        )
+        self.assertEqual(result["dart_observations"]["source_failed_count"], 0)
+
+    def test_partial_failure_counts_remain_visible_in_briefing(self):
+        source = MODULE.DART_OBSERVATION.build_packet(
+            decision_at="2026-08-27T14:59:59Z"
+        )
+        source["status"] = (
+            "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+        )
+        source["summary"]["source_failed_count"] = 1
+        source["summary"]["source_ok_count"] -= 1
+        source["source_failures"] = [{
+            "ticker": "298040", "name": "효성중공업", "atlas_stage": "Candidate",
+            "coverage": True, "status": "SOURCE_COLLECTION_FAILED",
+            "reasons": ["DART_STOCK_COLLECTION_FAILED"],
+        }]
+        source["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in source.items() if key != "packet_sha256"
+        })
+        with mock.patch.object(
+            MODULE, "_validated_dart_observation_packet", return_value=source,
+        ):
+            result = MODULE.build_briefing(
+                empty_ledger(), records(), bindings(),
+                "evening", "2026-08-27T23:59:59Z", CONTRACT,
+                dart_observation_packet=source, dart_root=ROOT,
+            )
+        section = result["dart_observations"]
+        self.assertEqual(section["source_failed_count"], 1)
+        self.assertEqual(section["source_failures"][0]["ticker"], "298040")
+        self.assertIn("WITH_PARTIAL_FAILURES", section["status"])
 
     def test_dart_source_and_projection_tamper_fail_closed(self):
         source = MODULE.load_operational_dart_observation_packet(

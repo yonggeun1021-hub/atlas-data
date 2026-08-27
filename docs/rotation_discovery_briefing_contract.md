@@ -21,6 +21,11 @@ content-addressed locator, and reruns the production DART packet validator
 against the exact retained metadata/content hashes. The briefing exposes the
 filing title and whether raw bytes were verified or only metadata was available.
 It does not infer an event type, direction, importance, candidate, or action.
+Historical all-success `dart_event_observation_packet/1` and current
+partial-failure-capable `/2` are accepted only through the producer's exact
+validator. The section exposes `source_failed_count`, `content_failure_count`,
+and redacted `source_failures`, so a valid observation cannot hide a sibling
+metadata/content failure and a partial failure cannot erase valid rows.
 
 The adapter does not call a data provider and does not infer importance,
 direction, candidate rank, promotion, or action. Current Discovery policy marks

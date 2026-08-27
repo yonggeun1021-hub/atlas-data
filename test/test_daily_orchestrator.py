@@ -2360,6 +2360,8 @@ class DartObservationBriefingIntegrationTests(unittest.TestCase):
         self.assertEqual(row["reason"], "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED")
         dart = row["packet"]["dart_observations"]
         self.assertEqual(dart["observation_count"], 2)
+        self.assertEqual(dart["source_failed_count"], 0)
+        self.assertEqual(dart["content_failure_count"], 0)
         self.assertEqual(row["authority"]["stage_promotion_authorized"], False)
         self.assertEqual(row["authority"]["action_generation_authorized"], False)
         self.assertEqual(row["authority"]["trading_authorized"], False)
@@ -2367,6 +2369,7 @@ class DartObservationBriefingIntegrationTests(unittest.TestCase):
         packet = MODULE.build_packet("evening", "2026-08-27", generated_at)
         rendered = MODULE.render_markdown(packet)
         self.assertIn("DART observations=2", rendered)
+        self.assertIn("source_failed=0 content_failed=0", rendered)
         self.assertIn("event_type=UNRATIFIED importance=UNRATIFIED", rendered)
         self.assertIn("DART 329180 HD현대중공업", rendered)
         self.assertIn("action=null", rendered)

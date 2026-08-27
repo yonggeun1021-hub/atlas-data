@@ -122,6 +122,12 @@ and `KRX_PREOPEN_COMPACT` additionally distinguish a collector-data failure
 distinction `check_briefing_readiness.py` already draws -- because the two
 have different remediation paths.
 
+The DART observation projection preserves the same boundary inside one
+component: valid symbols remain visible while metadata/content failures are
+reported as `source_failed`/`content_failed` counts. A partial failure changes
+the component reason but never creates event, importance, promotion, action,
+order, Production, or trading authority.
+
 ## Point-in-time safety: every sensor is decision_date-pinned
 
 Every filesystem-reading component resolves its evidence relative to

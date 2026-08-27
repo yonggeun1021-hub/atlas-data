@@ -6,7 +6,10 @@
   "discovery_source_contract": "event_discovery_case/2",
   "signal_observation_source_contract": "dynamic_clock_signal_observation/1",
   "wildcard_source_contract": "wildcard_operational_intake/v1",
-  "dart_observation_source_contract": "dart_event_observation_packet/1",
+  "dart_observation_source_contracts": [
+    "dart_event_observation_packet/1",
+    "dart_event_observation_packet/2"
+  ],
   "market_order": [
     "US",
     "KOREA",

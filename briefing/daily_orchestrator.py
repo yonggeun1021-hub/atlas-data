@@ -1440,6 +1440,10 @@ def build_rotation_discovery(
     signal_count = packet["signal_observations"]["observation_count"]
     wildcard_count = packet["wildcard_observations"]["observation_count"]
     dart_count = packet["dart_observations"]["observation_count"]
+    dart_partial_failure = bool(
+        packet["dart_observations"]["source_failed_count"]
+        or packet["dart_observations"]["content_failure_count"]
+    )
     source_dates = [population["source_as_of_date"]]
     if dart_observation_packet is not None:
         source_dates.append(dart_observation_packet["source_date"])
@@ -1447,7 +1451,9 @@ def build_rotation_discovery(
         "ROTATION_DISCOVERY",
         "PENDING",
         (
-            "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
+            "DART_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+            if dart_count and dart_partial_failure
+            else "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
             if dart_count
             else "WILDCARD_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
             if wildcard_count
@@ -2873,6 +2879,8 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"    - DART observations={dart.get('observation_count')} "
                     f"raw_verified={dart.get('raw_bytes_verified_count')} "
                     f"metadata_only={dart.get('metadata_only_count')} "
+                    f"source_failed={dart.get('source_failed_count')} "
+                    f"content_failed={dart.get('content_failure_count')} "
                     "event_type=UNRATIFIED importance=UNRATIFIED "
                     "promotion=NOT_AUTHORIZED"
                 )
