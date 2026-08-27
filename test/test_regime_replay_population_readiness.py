@@ -37,6 +37,11 @@ def copied_root(destination: Path) -> Path:
         "evidence/regime/policy_candidates/minimum_coverage_evidence.json",
         "evidence/regime/policy_candidates/market_normalization_unratified_evidence.json",
         "evidence/regime/policy_candidates/regime_classification_absent_evidence.json",
+        "evidence/regime/policy_candidates/direction_policy_unratified_evidence.json",
+        "evidence/regime/policy_candidates/confidence_policy_unratified_evidence.json",
+        "evidence/regime/policy_candidates/stress_override_policy_unratified_evidence.json",
+        "evidence/regime/policy_candidates/invalidation_policy_unratified_evidence.json",
+        "evidence/regime/policy_candidates/hysteresis_policy_unratified_evidence.json",
         "evidence/regime/policy_candidates/candidate_manifest.json",
         "evidence/regime/policy_candidates/candidate_inventory.json",
     )
@@ -60,9 +65,20 @@ class RegimeReplayPopulationReadinessTest(unittest.TestCase):
         )
         self.assertEqual(
             result["candidate"]["explicit_negative_components"],
-            ["MARKET_NORMALIZATION", "REGIME_CLASSIFICATION"],
+            [
+                "MARKET_NORMALIZATION",
+                "REGIME_CLASSIFICATION",
+                "DIRECTION",
+                "CONFIDENCE",
+                "STRESS_OVERRIDE",
+                "INVALIDATION",
+                "HYSTERESIS",
+            ],
         )
-        self.assertEqual(len(result["candidate"]["missing_evidence_components"]), 6)
+        self.assertEqual(
+            result["candidate"]["missing_evidence_components"],
+            ["REPLAY_ACCEPTANCE"],
+        )
         self.assertEqual(len(result["candidate"]["blocked_components"]), 8)
         self.assertTrue(result["replay_capability"]["capability_available"])
         self.assertTrue(result["replay_capability"]["candidate_inventory_bound"])

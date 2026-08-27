@@ -101,8 +101,9 @@ The builder independently reconstructs all three retained artifacts:
 - `candidate_inventory.json`
 
 Only `MINIMUM_COVERAGE` becomes `SUPPORTED`. The other eight components remain
-`BLOCKED` with `VALUE_UNSPECIFIED` and `EVIDENCE_MISSING`, so the candidate as a
-whole remains `CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
+`BLOCKED`: seven have exact negative `UNSUPPORTED_EVIDENCE`, while
+`REPLAY_ACCEPTANCE` still has `EVIDENCE_MISSING`. The candidate as a whole
+remains `CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
 
 The retained evidence is coverage-only. It preserves the policy's explicit
 `UNKNOWN` fail-close and `UNKNOWN != NEUTRAL` semantics but does not turn its
@@ -152,8 +153,24 @@ Fabricating a weight or threshold, changing the exact source bytes, enabling
 classification authority, re-signing the negative evidence as doctrine, or
 claiming a ready candidate fails closed. `MINIMUM_COVERAGE` remains the only
 supported component; normalization and classification are explicit negative
-evidence, the remaining six components still lack evidence, and the candidate
-and replay remain blocked.
+evidence and the candidate and replay remain blocked.
+
+## Explicit negative evidence: remaining policy boundaries
+
+`regime_policy_candidate_population/v4` retains five additional facts from the
+same exact PR #334 authority bytes. `DIRECTION`, `CONFIDENCE`,
+`STRESS_OVERRIDE`, `INVALIDATION`, and `HYSTERESIS` are each `UNRATIFIED` with
+their exact reason code. Global `policy_ratification_authorized=false` is
+required for all five, and component-specific authority flags are also checked
+where the source contract defines one.
+
+Each component receives a separate `UNSUPPORTED` evidence document with no
+parameter value. This is not a policy proposal and does not convert an
+unratified component into a default. A changed source byte, fabricated value,
+re-signed artifact chain, or downstream authority toggle fails closed.
+`REPLAY_ACCEPTANCE` is intentionally the sole remaining
+`EVIDENCE_MISSING` component because the authority boundary does not define or
+ratify an acceptance policy.
 
 ## Replay-population consumer boundary
 
@@ -162,4 +179,5 @@ P1-COM-04 consumes this retained inventory through
 candidate as an empty successful replay: while the candidate remains blocked,
 eligible market count and case count are both zero, outcome evaluation is false,
 and replay population remains explicitly `NOT_COMPUTABLE`. The consumer pins
-the v3 population contract and preserves the two explicit-negative components.
+the v4 population contract and preserves all seven explicit-negative
+components plus the one missing component without inventing a value.

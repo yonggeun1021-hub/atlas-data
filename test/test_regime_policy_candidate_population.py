@@ -68,9 +68,19 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
             self.assertEqual(summary["supported_components"], ["MINIMUM_COVERAGE"])
             self.assertEqual(
                 summary["explicit_negative_components"],
-                ["MARKET_NORMALIZATION", "REGIME_CLASSIFICATION"],
+                [
+                    "MARKET_NORMALIZATION",
+                    "REGIME_CLASSIFICATION",
+                    "DIRECTION",
+                    "CONFIDENCE",
+                    "STRESS_OVERRIDE",
+                    "INVALIDATION",
+                    "HYSTERESIS",
+                ],
             )
-            self.assertEqual(len(summary["missing_evidence_components"]), 6)
+            self.assertEqual(
+                summary["missing_evidence_components"], ["REPLAY_ACCEPTANCE"]
+            )
             self.assertEqual(len(summary["blocked_components"]), 8)
             self.assertEqual(summary["replay_population_status"], "NOT_COMPUTABLE")
 
@@ -100,6 +110,11 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                 elif parameter["component"] in {
                     "MARKET_NORMALIZATION",
                     "REGIME_CLASSIFICATION",
+                    "DIRECTION",
+                    "CONFIDENCE",
+                    "STRESS_OVERRIDE",
+                    "INVALIDATION",
+                    "HYSTERESIS",
                 }:
                     self.assertEqual(parameter["status"], "BLOCKED")
                     self.assertEqual(
@@ -202,6 +217,73 @@ class RegimePolicyCandidatePopulationTest(unittest.TestCase):
                     "UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH",
                 ):
                     MODULE.build_population(source_root / "artifacts", source_root)
+
+    def test_unratified_component_boundaries_are_exactly_pinned(self):
+        mutations = {
+            "direction": lambda value: value["authority"].update(
+                direction_authorized=True
+            ),
+            "confidence": lambda value: value["policy_component_status"].update(
+                CONFIDENCE="RATIFIED"
+            ),
+            "stress": lambda value: value["authority"].update(
+                stress_override_authorized=True
+            ),
+            "invalidation": lambda value: value["policy_component_status"].update(
+                INVALIDATION="RATIFIED"
+            ),
+            "hysteresis": lambda value: value["authority"].update(
+                hysteresis_authorized=True
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as raw:
+                source_root = copied_source_root(Path(raw))
+                path = source_root / "config/regime_decision_authority_contract.json"
+                changed = read_json(path)
+                mutate(changed)
+                write_json(path, changed)
+                with self.assertRaisesRegex(
+                    MODULE.PolicyCandidatePopulationError,
+                    "UNRATIFIED_BOUNDARY_SOURCE_SHA_MISMATCH",
+                ):
+                    MODULE.build_population(source_root / "artifacts", source_root)
+
+    def test_resigned_component_negative_cannot_fake_support(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            MODULE.build_population(root, ROOT)
+            paths = artifact_paths(root)
+            evidence = read_json(paths["direction_evidence"])
+            manifest = read_json(paths["manifest"])
+            evidence["evidence_kind"] = "CIO_DOCTRINE"
+            evidence["parameter_claims"][0].update(
+                claim_type="EXPLICIT_PARAMETER_VALUE",
+                supported_value="UP",
+                derivation="FAKE_RATIFICATION",
+            )
+            evidence["caveats"] = []
+            write_json(paths["direction_evidence"], evidence)
+            direction = next(
+                item for item in manifest["parameters"] if item["component"] == "DIRECTION"
+            )
+            direction["value_type"] = "TEXT"
+            direction["proposed_value"] = "UP"
+            direction["evidence_refs"][0]["sha256"] = hashlib.sha256(
+                paths["direction_evidence"].read_bytes()
+            ).hexdigest()
+            write_json(paths["manifest"], manifest)
+            inventory = MODULE.CANDIDATE.build_candidate_inventory(
+                manifest,
+                root,
+                MODULE.CANDIDATE.load_contract(),
+            )
+            write_json(paths["inventory"], inventory)
+            with self.assertRaisesRegex(
+                MODULE.PolicyCandidatePopulationError,
+                "UNRATIFIED_COMPONENT_EVIDENCE_ARTIFACT_MISMATCH",
+            ):
+                MODULE.validate_population(root, ROOT)
 
     def test_resigned_artifact_chain_cannot_replace_ratified_value(self):
         with tempfile.TemporaryDirectory() as raw:
