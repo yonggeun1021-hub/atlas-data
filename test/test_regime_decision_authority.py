@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""P1-COM-05 Regime decision-authority boundary regression."""
+"""P1-COM-05 Regime decision-authority and draft-policy regressions."""
 
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -19,6 +20,14 @@ SPEC.loader.exec_module(MODULE)
 CONTRACT = MODULE.load_contract()
 OUTPUT = MODULE.OUTPUT
 COVERAGE = MODULE.COVERAGE
+
+POLICY_SCRIPT = ROOT / "regime" / "policy_candidate.py"
+POLICY_SPEC = importlib.util.spec_from_file_location(
+    "regime_policy_candidate", POLICY_SCRIPT
+)
+POLICY = importlib.util.module_from_spec(POLICY_SPEC)
+POLICY_SPEC.loader.exec_module(POLICY)
+POLICY_CONTRACT = POLICY.load_contract()
 
 
 def defined(axis, character):
@@ -54,6 +63,92 @@ def full_source():
 
 def gate(value):
     return COVERAGE.evaluate_minimum_coverage(value)
+
+
+def policy_manifest(decision_at="2026-08-27T01:00:00Z"):
+    values = {
+        component: f"{component}_DRAFT_VALUE"
+        for component in POLICY_CONTRACT["required_components"]
+    }
+    values["MINIMUM_COVERAGE"] = 5
+    return {
+        "schema_version": 1,
+        "contract_version": POLICY_CONTRACT["candidate_manifest_version"],
+        "candidate_id": "EVIDENCE_BOUND_DRAFT",
+        "market": "CRYPTO",
+        "decision_at": decision_at,
+        "policy_status": "DRAFT_NOT_RATIFIED",
+        "parameters": [
+            {
+                "component": component,
+                "parameter_id": component,
+                "value_type": "NUMBER" if component == "MINIMUM_COVERAGE" else "TEXT",
+                "proposed_value": values[component],
+                "evidence_refs": [],
+            }
+            for component in POLICY_CONTRACT["required_components"]
+        ],
+    }
+
+
+def evidence_document(
+    manifest,
+    *,
+    evidence_id="CIO_EXPLICIT_POLICY_VALUES",
+    evidence_kind="CIO_DOCTRINE",
+    claim_type="EXPLICIT_PARAMETER_VALUE",
+    available_at="2026-08-26T00:00:00Z",
+    valid_through=None,
+    observation_count=None,
+    distinct_observation_dates=None,
+):
+    return {
+        "schema_version": 1,
+        "contract_version": POLICY_CONTRACT["evidence_document_version"],
+        "evidence_id": evidence_id,
+        "evidence_kind": evidence_kind,
+        "published_at": "2026-08-25T00:00:00Z",
+        "available_at": available_at,
+        "valid_through": valid_through,
+        "source_locator": "notion://atlas/cio-doctrine",
+        "parameter_claims": [
+            {
+                "parameter_id": parameter["parameter_id"],
+                "claim_type": claim_type,
+                "supported_value": parameter["proposed_value"],
+                "observation_count": observation_count,
+                "distinct_observation_dates": distinct_observation_dates,
+                "derivation": "DIRECT_STATEMENT",
+            }
+            for parameter in manifest["parameters"]
+        ],
+        "caveats": [],
+    }
+
+
+def write_evidence(root, document, name="policy-evidence.json"):
+    path = root / name
+    raw = (json.dumps(document, indent=2) + "\n").encode("utf-8")
+    path.write_bytes(raw)
+    return {
+        "path": name,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "evidence_id": document["evidence_id"],
+    }
+
+
+def bind_all_parameters(manifest, reference):
+    for parameter in manifest["parameters"]:
+        parameter["evidence_refs"] = [copy.deepcopy(reference)]
+    return manifest
+
+
+def parameter_result(inventory, component):
+    return next(
+        parameter
+        for parameter in inventory["parameters"]
+        if parameter["component"] == component
+    )
 
 
 class RegimeDecisionAuthorityTest(unittest.TestCase):
@@ -225,6 +320,239 @@ class RegimeDecisionAuthorityTest(unittest.TestCase):
                 json.loads(decision_path.read_text())["decision_status"],
                 "BLOCKED_POLICY_UNRATIFIED",
             )
+
+
+class RegimePolicyCandidateTest(unittest.TestCase):
+    def test_candidate_contract_is_evidence_only_and_fail_closed(self):
+        self.assertEqual(
+            POLICY_CONTRACT["contract_version"],
+            "regime_policy_candidate_evidence/v1",
+        )
+        self.assertEqual(POLICY_CONTRACT["policy_status"], "DRAFT_NOT_RATIFIED")
+        self.assertEqual(POLICY_CONTRACT["contract_mode"], "SHADOW_DIAGNOSTIC_ONLY")
+        self.assertTrue(
+            POLICY_CONTRACT["authority"]["candidate_evidence_inventory_authorized"]
+        )
+        for key, value in POLICY_CONTRACT["authority"].items():
+            if key != "candidate_evidence_inventory_authorized":
+                self.assertFalse(value, key)
+
+    def test_unspecified_baseline_is_blocked_without_defaults(self):
+        manifest = POLICY.build_baseline_manifest(
+            "CRYPTO", "2026-08-27T01:00:00Z"
+        )
+        inventory = POLICY.build_candidate_inventory(manifest)
+
+        self.assertEqual(inventory["candidate_status"], "CANDIDATE_BLOCKED")
+        self.assertEqual(
+            inventory["blocked_components"],
+            POLICY_CONTRACT["required_components"],
+        )
+        for parameter in inventory["parameters"]:
+            self.assertEqual(parameter["proposed_value"], None)
+            self.assertEqual(parameter["status"], "BLOCKED")
+            self.assertEqual(
+                parameter["blocking_reasons"],
+                ["EVIDENCE_MISSING", "VALUE_UNSPECIFIED"],
+            )
+        self.assertEqual(inventory["replay"]["population_status"], "NOT_COMPUTABLE")
+        self.assertFalse(inventory["replay"]["winner_selected"])
+
+    def test_exact_available_evidence_can_only_make_candidate_replay_ready(self):
+        manifest = policy_manifest()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            document = evidence_document(manifest)
+            reference = write_evidence(root, document)
+            bind_all_parameters(manifest, reference)
+
+            inventory = POLICY.build_candidate_inventory(manifest, root)
+            reordered = copy.deepcopy(manifest)
+            reordered["parameters"] = list(reversed(reordered["parameters"]))
+
+            self.assertEqual(inventory["candidate_status"], "CANDIDATE_READY")
+            self.assertEqual(inventory["blocked_components"], [])
+            self.assertTrue(inventory["replay"]["candidate_input_eligible"])
+            self.assertFalse(inventory["ratification"]["selected"])
+            self.assertFalse(inventory["ratification"]["recommended"])
+            self.assertFalse(inventory["ratification"]["ratified"])
+            self.assertFalse(inventory["ratification"]["runtime_eligible"])
+            self.assertEqual(
+                inventory,
+                POLICY.build_candidate_inventory(reordered, root),
+            )
+
+    def test_qualitative_doctrine_cannot_justify_numeric_policy(self):
+        manifest = policy_manifest()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            document = evidence_document(
+                manifest,
+                evidence_id="QUALITATIVE_DOCTRINE_ONLY",
+                claim_type="QUALITATIVE_PRINCIPLE",
+            )
+            reference = write_evidence(root, document)
+            bind_all_parameters(manifest, reference)
+
+            inventory = POLICY.build_candidate_inventory(manifest, root)
+            minimum = parameter_result(inventory, "MINIMUM_COVERAGE")
+
+            self.assertEqual(minimum["status"], "BLOCKED")
+            self.assertEqual(minimum["blocking_reasons"], ["QUALITATIVE_ONLY"])
+            self.assertEqual(inventory["candidate_status"], "CANDIDATE_BLOCKED")
+
+    def test_single_observation_statistic_cannot_become_policy_value(self):
+        manifest = policy_manifest()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            document = evidence_document(
+                manifest,
+                evidence_id="ONE_POINT_EMPIRICAL_STATISTIC",
+                evidence_kind="EMPIRICAL_DISTRIBUTION",
+                claim_type="EMPIRICAL_STATISTIC",
+                observation_count=1,
+                distinct_observation_dates=1,
+            )
+            reference = write_evidence(root, document)
+            bind_all_parameters(manifest, reference)
+
+            inventory = POLICY.build_candidate_inventory(manifest, root)
+            minimum = parameter_result(inventory, "MINIMUM_COVERAGE")
+
+            self.assertEqual(minimum["status"], "BLOCKED")
+            self.assertEqual(
+                minimum["blocking_reasons"],
+                ["SINGLE_OBSERVATION_STATISTIC"],
+            )
+
+    def test_missing_future_and_stale_evidence_are_distinct(self):
+        cases = [
+            (
+                "missing",
+                None,
+                "EVIDENCE_MISSING",
+            ),
+            (
+                "future",
+                {
+                    "available_at": "2026-08-28T00:00:00Z",
+                    "valid_through": None,
+                },
+                "FUTURE_EVIDENCE",
+            ),
+            (
+                "stale",
+                {
+                    "available_at": "2026-08-26T00:00:00Z",
+                    "valid_through": "2026-08-26T12:00:00Z",
+                },
+                "STALE_EVIDENCE",
+            ),
+        ]
+        for name, timing, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                manifest = policy_manifest()
+                if timing is None:
+                    reference = {
+                        "path": "missing.json",
+                        "sha256": "f" * 64,
+                        "evidence_id": "MISSING_POLICY_EVIDENCE",
+                    }
+                else:
+                    document = evidence_document(manifest, **timing)
+                    reference = write_evidence(root, document)
+                bind_all_parameters(manifest, reference)
+
+                inventory = POLICY.build_candidate_inventory(manifest, root)
+                minimum = parameter_result(inventory, "MINIMUM_COVERAGE")
+                self.assertIn(expected, minimum["blocking_reasons"])
+
+    def test_evidence_and_inventory_tampering_fail_closed(self):
+        manifest = policy_manifest()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            document = evidence_document(manifest)
+            reference = write_evidence(root, document)
+            bind_all_parameters(manifest, reference)
+            inventory = POLICY.build_candidate_inventory(manifest, root)
+
+            changed_evidence = copy.deepcopy(document)
+            changed_evidence["parameter_claims"][0]["supported_value"] = "TAMPERED"
+            (root / reference["path"]).write_text(
+                json.dumps(changed_evidence), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                POLICY.PolicyCandidateError,
+                "EVIDENCE_SHA_MISMATCH",
+            ):
+                POLICY.build_candidate_inventory(manifest, root)
+
+            write_evidence(root, document)
+            authority = copy.deepcopy(inventory)
+            authority["authority"]["runtime_classification_authorized"] = True
+            with self.assertRaisesRegex(
+                POLICY.PolicyCandidateError,
+                "CANDIDATE_INVENTORY_DERIVATION_MISMATCH",
+            ):
+                POLICY.validate_candidate_inventory(
+                    authority,
+                    manifest,
+                    root,
+                )
+
+    def test_candidate_contract_cannot_be_edited_into_authority(self):
+        runtime = copy.deepcopy(POLICY_CONTRACT)
+        runtime["authority"]["runtime_classification_authorized"] = True
+        ready_means_ratified = copy.deepcopy(POLICY_CONTRACT)
+        ready_means_ratified["evidence_policy"][
+            "candidate_ready_does_not_select_recommend_or_ratify"
+        ] = False
+
+        for changed in (runtime, ready_means_ratified):
+            with self.subTest(changed=changed), self.assertRaisesRegex(
+                POLICY.PolicyCandidateError,
+                "CONTRACT_INVALID",
+            ):
+                POLICY.validate_contract(changed)
+
+    def test_candidate_cli_evaluate_and_validate(self):
+        manifest = policy_manifest()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            document = evidence_document(manifest)
+            reference = write_evidence(root, document)
+            bind_all_parameters(manifest, reference)
+            manifest_path = root / "manifest.json"
+            inventory_path = root / "inventory.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                inventory_exit = POLICY.main(
+                    [
+                        "inventory",
+                        str(manifest_path),
+                        "--evidence-root",
+                        str(root),
+                        "--out",
+                        str(inventory_path),
+                    ]
+                )
+                validate_exit = POLICY.main(
+                    [
+                        "validate",
+                        str(inventory_path),
+                        "--candidate-manifest",
+                        str(manifest_path),
+                        "--evidence-root",
+                        str(root),
+                    ]
+                )
+            self.assertEqual(inventory_exit, 0)
+            self.assertEqual(validate_exit, 0)
+            persisted = json.loads(inventory_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["candidate_status"], "CANDIDATE_READY")
+            self.assertEqual(persisted["policy_status"], "DRAFT_NOT_RATIFIED")
 
 
 if __name__ == "__main__":

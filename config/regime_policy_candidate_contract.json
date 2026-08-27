@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "contract_version": "regime_policy_candidate_evidence/v1",
+  "contract_mode": "SHADOW_DIAGNOSTIC_ONLY",
+  "candidate_manifest_version": "regime_policy_candidate_manifest/v1",
+  "evidence_document_version": "regime_policy_parameter_evidence/v1",
+  "policy_status": "DRAFT_NOT_RATIFIED",
+  "candidate_statuses": [
+    "CANDIDATE_BLOCKED",
+    "CANDIDATE_READY"
+  ],
+  "parameter_statuses": [
+    "BLOCKED",
+    "SUPPORTED"
+  ],
+  "required_components": [
+    "MARKET_NORMALIZATION",
+    "MINIMUM_COVERAGE",
+    "REGIME_CLASSIFICATION",
+    "DIRECTION",
+    "CONFIDENCE",
+    "STRESS_OVERRIDE",
+    "INVALIDATION",
+    "HYSTERESIS",
+    "REPLAY_ACCEPTANCE"
+  ],
+  "value_types": [
+    "UNSPECIFIED",
+    "NUMBER",
+    "BOOLEAN",
+    "TEXT",
+    "STRUCTURED"
+  ],
+  "evidence_kinds": [
+    "EMPIRICAL_DISTRIBUTION",
+    "HISTORICAL_EPISODE",
+    "CIO_DOCTRINE",
+    "EXTERNAL_RESEARCH",
+    "UNSUPPORTED"
+  ],
+  "claim_types": [
+    "EXPLICIT_PARAMETER_VALUE",
+    "EMPIRICAL_STATISTIC",
+    "HISTORICAL_EPISODE_RULE",
+    "QUALITATIVE_PRINCIPLE",
+    "UNSUPPORTED"
+  ],
+  "blocked_reason_codes": [
+    "VALUE_UNSPECIFIED",
+    "EVIDENCE_MISSING",
+    "UNSUPPORTED_EVIDENCE",
+    "FUTURE_EVIDENCE",
+    "STALE_EVIDENCE",
+    "PARAMETER_CLAIM_MISSING",
+    "VALUE_MISMATCH",
+    "QUALITATIVE_ONLY",
+    "EVIDENCE_KIND_CLAIM_MISMATCH",
+    "SINGLE_OBSERVATION_STATISTIC"
+  ],
+  "evidence_policy": {
+    "numeric_or_boolean_requires_explicit_equal_value": true,
+    "qualitative_principle_never_supports_parameter_value": true,
+    "single_observation_statistic_never_supports_policy_value": true,
+    "evidence_must_be_available_by_decision_at": true,
+    "expired_evidence_is_stale": true,
+    "every_required_component_must_be_supported_for_ready": true,
+    "candidate_ready_does_not_select_recommend_or_ratify": true
+  },
+  "authority": {
+    "candidate_evidence_inventory_authorized": true,
+    "candidate_selection_authorized": false,
+    "policy_recommendation_authorized": false,
+    "policy_ratification_authorized": false,
+    "runtime_classification_authorized": false,
+    "hysteresis_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
