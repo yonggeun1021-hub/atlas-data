@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_as_of": "2026-08-27",
+  "reviewed_as_of": "2026-08-28",
   "execution_platform": "github_actions",
   "local_machine_required": false,
   "active_wbs_snapshot_count": 24,
@@ -197,7 +197,7 @@
       "workflow": ".github/workflows/tsmc-live-fetch.yml",
       "crons": ["17 1 * * 1"],
       "required_workflow_tokens": ["tsmc_sec_monthly_probe.py", "p4-04-tsmc-sec-primary", "tsmc_official_release_probe.py", "p4-04-tsmc-ir-secondary"],
-      "remaining_gate": "primary SEC 6-K scheduled live proof and secondary IR human verification; normal data/briefing publication wiring remains separate"
+      "remaining_gate": "provider-free retained SEC observation publication is wired in Daily Collect; first committed scheduled observation packet, briefing overlay, and secondary IR human verification remain separate; source hierarchy remains UNRATIFIED"
     },
     {
       "work_item_id": "P4-06",

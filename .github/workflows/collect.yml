@@ -224,6 +224,20 @@ jobs:
             --expected-kst-date "$TODAY" \
             --observed-at-utc "$OBSERVED_AT"
 
+      # P4-04 — consume only exact SEC 6-K bytes already retained by P4-02.
+      # The provider-free adapter records the approved TSMC consolidated
+      # monthly-revenue table as published observations and explicitly excludes
+      # unrelated 6-K filings.  It does not compare thresholds, rank sources,
+      # evaluate Rules, change Stage, or create Action/Order/trading authority.
+      - name: Populate TSMC Official Release Observations (P4-04)
+        if: always()
+        run: |
+          DECISION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 discovery/official_release_observation.py \
+            --decision-at "$DECISION_AT" \
+            --data-root data \
+            --out-root data/observations/official_release_observations
+
       # P3-08 — existing SEC D1 records become operational Discovery Cases.
       # No provider call or new importance policy is introduced here.  The
       # adapter links evidence only when the already-retained filing-content
