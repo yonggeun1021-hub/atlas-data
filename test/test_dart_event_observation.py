@@ -67,11 +67,20 @@ class DartEventObservationTests(unittest.TestCase):
             self.assertEqual(row["status"], "OBSERVED_ESCALATION_BLOCKED")
 
     def test_legacy_v1_validation_never_substitutes_newer_mutable_inputs(self):
-        legacy_paths = sorted(
+        # The append-only observation directory can contain newer schema
+        # revisions for the same date.  File-name order is content-addressed,
+        # not a schema/version order, so select the retained v1 packet by its
+        # declared contract rather than assuming the lexicographically last
+        # packet is legacy.
+        legacy_packets = []
+        for path in sorted(
             (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
-        )
-        self.assertTrue(legacy_paths)
-        legacy = json.loads(legacy_paths[-1].read_text(encoding="utf-8"))
+        ):
+            packet = json.loads(path.read_text(encoding="utf-8"))
+            if packet.get("schema_version") == MODULE.LEGACY_SCHEMA_VERSION:
+                legacy_packets.append(packet)
+        self.assertTrue(legacy_packets)
+        legacy = legacy_packets[-1]
         self.assertEqual(legacy["schema_version"], "dart_event_observation_packet/1")
         unsigned = copy.deepcopy(legacy)
         declared = unsigned.pop("packet_sha256")
