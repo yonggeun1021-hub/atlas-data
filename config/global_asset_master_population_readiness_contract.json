@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "contract_version": "global_asset_master_population_readiness/1",
+  "markets": [
+    "US",
+    "KOREA",
+    "CRYPTO"
+  ],
+  "date_selection": "LATEST_COMMITTED_SOURCE_DATE_ON_OR_BEFORE_AS_OF",
+  "knowledge_time_policy": "EXACT_CONTENT_GIT_FIRST_SEEN_ON_OR_BEFORE_AS_OF_END_UTC",
+  "freshness_policy": "UNRATIFIED_NO_STALE_INFERENCE",
+  "overall_ready_requirement": "ALL_THREE_MARKETS_SOURCE_COVERAGE_READY",
+  "authority": {
+    "source_coverage_readiness_only": true,
+    "universe_approval_authorized": false,
+    "investability_authorized": false,
+    "stage_promotion_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

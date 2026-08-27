@@ -90,3 +90,27 @@ Every output record fixes these values:
 The packet also preserves the contract's `UNRATIFIED` universe and theme
 boundaries. A later populated master or market policy must be reviewed as a
 separate WBS change; this capability cannot grant that authority itself.
+
+## Committed population readiness
+
+`universe/global_asset_master_population_readiness.py` inventories the latest
+committed market population on or before an explicit date. It independently
+rebuilds the US population from its immutable Nasdaq raw archive and invokes
+the existing Crypto population builder against the latest Kraken archive. It
+does not treat a directory or self-rehashed JSON as proof: the retained packet
+must equal the production builder's fresh re-derivation.
+
+Directory dates are never treated as historical knowledge time. The exact
+current bytes of the US population packet or Crypto raw manifest must appear in
+real git history by the end of the requested UTC `as_of_date`; later backfills
+are excluded. Each eligible market row retains that exact-content first-seen
+commit and committer timestamp. Full git history is therefore a fail-closed
+runtime prerequisite for this audit/readiness command.
+
+As of 2026-08-26 the repository truth is intentionally incomplete: US source
+coverage is populated, Crypto remains blocked by the existing breadth/taxonomy
+coverage gate, and no exact KRX Global Master population packet is committed.
+The readiness result is therefore `BLOCKED_SOURCE_COVERAGE_INCOMPLETE`. This is
+not a claim that US rows are investable, nor permission to infer a freshness
+window. Universe approval, investability, Stage, action, order, Production,
+and trading authority remain false.
