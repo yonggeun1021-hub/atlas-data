@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rotation import theme_taxonomy_authority as TTA
-from test.test_theme_taxonomy import TT, fixture
+
+_FIXTURE_SPEC = importlib.util.spec_from_file_location(
+    "atlas_theme_taxonomy_fixture",
+    ROOT / "test" / "test_theme_taxonomy.py",
+)
+assert _FIXTURE_SPEC is not None and _FIXTURE_SPEC.loader is not None
+_FIXTURE_MODULE = importlib.util.module_from_spec(_FIXTURE_SPEC)
+_FIXTURE_SPEC.loader.exec_module(_FIXTURE_MODULE)
+TT = _FIXTURE_MODULE.TT
+fixture = _FIXTURE_MODULE.fixture
 
 
 def canonical_bytes(value: dict) -> bytes:
