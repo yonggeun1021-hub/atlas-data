@@ -1,10 +1,6 @@
 name: stablecoin-daily-capture
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/stablecoin-capture.yml"
   schedule:
     # 15:20/16:20/17:20 KST. 첫 complete UTC-date snapshot이 이기고,
     # 뒤 슬롯은 provider 호출 전에 append-only guard에서 종료한다.
