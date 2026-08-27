@@ -154,6 +154,15 @@ policy is required.
 a specific blocking candidate near the cutoff — is visible directly in
 committed evidence, without needing to re-derive it by hand.
 
+The scheduled capture also publishes an append-only
+`data/observations/crypto_taxonomy_gap/<source_date>/packet.json`. This is a
+`REVIEW_INVENTORY_ONLY` artifact rebuilt from the same production transform:
+it binds the raw manifest, universe policy and taxonomy hashes and preserves
+the ranked UNKNOWN, EXCLUDED and rank-ineligible rows. It does not add a
+taxonomy category, ratify a record, reduce the Top-100/90% gates, or authorize
+investability, Stage, Production, or trading. Its purpose is to turn the live
+coverage blocker into a deterministic review queue, not to decide the queue.
+
 ## Output and missing policy
 
 For each included member, the helper emits canonical/source identity, exact

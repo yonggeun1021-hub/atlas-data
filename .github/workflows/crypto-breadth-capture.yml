@@ -130,6 +130,17 @@ jobs:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
         run: |
           python3 .github/scripts/crypto_forward_universe_populate.py "$SNAPSHOT_DATE"
+      # The source-coverage packet above correctly remains BLOCKED while the
+      # taxonomy is incomplete. This separate diagnostic preserves the exact
+      # cutoff-relevant review population without classifying or ratifying it.
+      - name: Populate P3-04 taxonomy review inventory
+        id: p3_04_taxonomy_gap
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: python3 .github/scripts/crypto_taxonomy_gap_inventory.py "$SNAPSHOT_DATE"
       - name: Record Crypto Breadth scheduler telemetry
         if: always()
         env:
@@ -220,6 +231,26 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "crypto global universe population ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
+      - name: Commit P3-04 taxonomy review inventory
+        if: always()
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/crypto_taxonomy_gap/$SNAPSHOT_DATE" ]; then
+            git add "data/observations/crypto_taxonomy_gap/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "crypto taxonomy review inventory ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
             git pull --rebase origin "$DEFAULT_BRANCH"
             git push origin "HEAD:$DEFAULT_BRANCH"
           fi
