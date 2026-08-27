@@ -840,6 +840,11 @@ APPROVED_TESTS = [
     #   conflict와 역행은 fail-closed이며 real capital/order는 영구 0이다.
     #   ⛔ 해석/성과주장/capital/action/order/Production/trading 및 live network 없음.
     "test/test_three_market_shadow_ledger.py",
+    # ★ P10-01 operational readiness — each immutable committed Daily Briefing
+    #   is checked for the exact Unified Decision + both exact P9 live packets.
+    #   Missing P9 wiring is a committed fail-closed observation, never a fabricated
+    #   Shadow append. Capital/order/action/Production/trading remain false and zero.
+    "test/test_three_market_shadow_operational_readiness.py",
     # ★ P10-06 — P8-07 Investment Review append-only zero-capital ledger.
     #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
     #   Shadow 편입·Stage 변경·capital/action/order로 승격되지 않는다.

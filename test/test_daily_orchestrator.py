@@ -1826,6 +1826,11 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("publish_scheduled_briefing_authority.py publish", command)
         self.assertIn("publish_scheduled_briefing_authority.py validate", command)
         self.assertIn("decision/decision_change_lineage_operational.py", command)
+        self.assertIn("shadow/three_market_shadow_operational_readiness.py", command)
+        self.assertLess(
+            command.index("decision/decision_change_lineage_operational.py"),
+            command.index("shadow/three_market_shadow_operational_readiness.py"),
+        )
         self.assertNotIn('SOURCE_COMMIT=$(git rev-parse HEAD)', command)
         self.assertIn('CONSUMER_READY_COMMIT=$(git rev-parse HEAD)', command)
         self.assertIn('--source-commit "$CONSUMER_READY_COMMIT"', command)
