@@ -5,6 +5,9 @@ review round 1), the PIT-safe tiering fix (CIO review round 2), determinism,
 and a full anti-lookahead sweep of everything the orchestrator produces."""
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -17,6 +20,44 @@ from clock.run_dynamic_clock import (  # noqa: E402
     build_briefing_section,
     run,
 )
+
+
+class CrossProcessDeterminismTests(unittest.TestCase):
+    """Operational packets must not depend on Python's randomized hash seed.
+
+    The daily briefing publishes in one Python process and validates the
+    persisted packet in another.  A last-ULP change in peer-average strength
+    previously changed candidate record hashes between those two processes,
+    causing a real ``OUTPUT_MISMATCH`` after an otherwise successful build.
+    """
+
+    def _canonical_report(self, hash_seed: str) -> str:
+        env = os.environ.copy()
+        env["PYTHONHASHSEED"] = hash_seed
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import json; "
+                    "from clock.run_dynamic_clock import run; "
+                    "print(json.dumps(run(decision_date='2026-08-27'), "
+                    "ensure_ascii=False, sort_keys=True, separators=(',', ':')))"
+                ),
+            ],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip()
+
+    def test_operational_report_is_byte_identical_across_hash_seeds(self):
+        first = self._canonical_report("1")
+        second = self._canonical_report("987654")
+        self.assertEqual(json.loads(first), json.loads(second))
+        self.assertEqual(first, second)
 
 
 class BtcRegressionCaseTests(unittest.TestCase):
