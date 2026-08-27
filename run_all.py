@@ -712,6 +712,9 @@ APPROVED_TESTS = [
     # P4-04 retained Sandisk Exhibit 99.1: preserve the complete ordered News
     # Summary block as observation only; all investment authority remains off.
     "test/test_official_release_summary_observation.py",
+    # P4-04 evidence-only daily briefing consumer. Renders every retained
+    # official summary item while interpretation/ranking/action stays closed.
+    "test/test_official_release_summary_briefing.py",
     # ★ P5-03 — canonical Rule ↔ Evidence Envelope lineage binding.
     #   명시된 exact key만 연결하고 as_of/available_at/source/envelope hash를 보존한다.
     #   persisted packet도 Rule/reference/binding-set/summary/authority를 재파생한다.

@@ -495,7 +495,8 @@ default branch (a platform constraint) -- validated by shape/content tests
 ★ round 1: `briefing/daily_orchestrator.py::build_dynamic_clock_status()`
 wires in the new `DYNAMIC_CLOCK` component (introduced under
 `daily_orchestrator/2`; the current additive contract is
-`daily_orchestrator/3` after the separate zero-capital review bridge).
+`daily_orchestrator/4` after the separate zero-capital review bridge and
+evidence-only official-release summary component).
 Re-checked for conflicts against current `main` before wiring (PR #211 was
 the only open PR at the time; Forward Alpha's touches to this file were
 already merged).
