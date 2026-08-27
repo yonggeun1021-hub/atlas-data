@@ -51,6 +51,17 @@ def authorities_false(value) -> bool:
 
 
 class FredVixProvenanceTests(unittest.TestCase):
+    def test_workflow_commits_the_advertised_fred_raw_evidence_tree(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "free-market-data.yml"
+        ).read_text(encoding="utf-8")
+        commit_line = next(
+            line.strip()
+            for line in workflow.splitlines()
+            if line.strip().startswith("git add ")
+        )
+        self.assertIn("evidence/free_market_data/fred/raw", commit_line.split())
+
     def test_bundle_is_deterministic_and_authority_false(self):
         first = M.build_evidence_bundle(NOW, raw())
         second = M.build_evidence_bundle(NOW, raw())
