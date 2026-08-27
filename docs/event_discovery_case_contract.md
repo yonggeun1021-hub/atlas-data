@@ -15,6 +15,16 @@
 DART는 item extraction policy가 미비준이고, news/policy/Crypto source는 구현되지
 않았다. 이 상태를 packet의 `source_coverage`에 그대로 노출한다.
 
+2026-08-27부터 `discovery/dart_event_observation.py`가 기존 OpenDART metadata와
+P4-03 retained ZIP/member bytes를 provider 호출 없이 재검증해 별도 append-only
+관측 packet을 만든다. 이 packet은 공시 접수번호·제목·날짜와 원문 보존 상태만
+기록한다. DART 원천에는 정확한 공시 timestamp와 비준된 item/event-type 해석
+정책이 없으므로 `event_at`, `event_type`, `direction`, `importance`는 모두 null이고
+모든 observation은 `OBSERVED_ESCALATION_BLOCKED`다. 이 관측 packet은 아직
+SEC D1 `event_discovery_case_packet/2`에 합쳐지거나 중요도 detector에 투입되지
+않으며 Candidate/Stage/Rule/notification/Action/Order/Production/trading 권한을
+열지 않는다.
+
 ## 권한 경계
 
 case는 “분류된 사건이 관측됐다”는 기록이다. “중요하다”, “긍정/부정이다”, “후보로
