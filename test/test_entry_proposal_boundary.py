@@ -72,17 +72,24 @@ class EntryProposalBoundaryTests(unittest.TestCase):
         values.update(overrides)
         return boundary.build_packet(**values)
 
-    def test_real_population_becomes_three_review_materials_and_zero_proposals(self):
+    def test_real_population_becomes_current_review_materials_and_zero_proposals(self):
         summary = self.packet["summary"]
-        self.assertEqual(69, summary["observed_candidate_count"])
-        self.assertEqual(3, summary["human_review_material_count"])
-        self.assertEqual(66, summary["observation_only_count"])
+        candidate_count = self.readiness_packet["summary"]["candidate_count"]
+        reviewable_count = self.readiness_packet["summary"]["diagnostic_reviewable_count"]
+        self.assertEqual(candidate_count, summary["observed_candidate_count"])
+        self.assertEqual(reviewable_count, summary["human_review_material_count"])
+        self.assertEqual(
+            candidate_count - reviewable_count, summary["observation_only_count"]
+        )
         self.assertEqual(0, summary["actionable_proposal_count"])
         self.assertEqual(0, summary["entry_proposal_count"])
         self.assertEqual(0, summary["order_intent_count"])
 
     def test_every_review_material_is_non_executable(self):
-        self.assertEqual(3, len(self.packet["human_review_material"]))
+        self.assertEqual(
+            self.packet["summary"]["human_review_material_count"],
+            len(self.packet["human_review_material"]),
+        )
         for row in self.packet["human_review_material"]:
             self.assertEqual("DIAGNOSTIC_REVIEW_MATERIAL_ONLY", row["material_status"])
             self.assertEqual("LOCKED_POLICY_UNRATIFIED", row["proposal_status"])

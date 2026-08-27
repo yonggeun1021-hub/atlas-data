@@ -60,18 +60,36 @@ class EntryPolicyReadinessTests(unittest.TestCase):
         return readiness.build_packet(**values)
 
     def test_real_population_is_preserved_but_nothing_is_executable(self):
-        self.assertEqual(69, self.packet["summary"]["candidate_count"])
-        self.assertEqual(3, self.packet["summary"]["diagnostic_reviewable_count"])
-        self.assertEqual(1, self.packet["summary"]["probe_review_diagnostic_count"])
+        reviewable = [
+            row for row in self.shadow_packet["review_items"]
+            if row["review_state"] != "NOT_REVIEWABLE"
+        ]
+        probes = [
+            row for row in reviewable if row["participation_state"] == "PROBE_REVIEW"
+        ]
+        self.assertEqual(
+            len(self.shadow_packet["review_items"]),
+            self.packet["summary"]["candidate_count"],
+        )
+        self.assertEqual(
+            len(reviewable), self.packet["summary"]["diagnostic_reviewable_count"]
+        )
+        self.assertEqual(
+            len(probes), self.packet["summary"]["probe_review_diagnostic_count"]
+        )
         self.assertEqual(0, self.packet["summary"]["execution_eligible_count"])
         self.assertEqual(0, self.packet["summary"]["entry_proposal_count"])
         self.assertEqual(0, self.packet["summary"]["order_intent_count"])
 
     def test_real_review_states_do_not_become_portfolio_states(self):
         rows = {row["subject"]: row for row in self.packet["candidates"]}
-        self.assertEqual("PROBE_REVIEW", rows["005930"]["diagnostic_participation_state"])
-        self.assertEqual("RADAR", rows["BTC"]["diagnostic_participation_state"])
-        self.assertEqual("RADAR", rows["000660"]["diagnostic_participation_state"])
+        upstream = {row["subject"]: row for row in self.shadow_packet["review_items"]}
+        self.assertEqual(set(upstream), set(rows))
+        for subject, row in rows.items():
+            self.assertEqual(
+                upstream[subject]["participation_state"],
+                row["diagnostic_participation_state"],
+            )
         for row in rows.values():
             self.assertEqual("LOCKED_POLICY_UNRATIFIED", row["execution_status"])
             self.assertEqual("LOCKED_NOT_STARTED", row["p8_13_entry_proposal"])

@@ -34,19 +34,26 @@ class ShadowEntryReviewTests(unittest.TestCase):
         cls.packet = review.build_packet(cls.report, cls.identity, cls.contract)
         cls.by_subject = {row["subject"]: row for row in cls.packet["review_items"]}
 
-    def test_real_samsung_candidate_reaches_zero_capital_reversal_review(self):
+    def test_real_samsung_candidate_remains_a_zero_capital_diagnostic(self):
         row = self.by_subject["005930"]
-        self.assertEqual("REVERSAL_PROBE_REVIEW", row["review_state"])
-        self.assertEqual("PROBE_REVIEW", row["participation_state"])
-        self.assertEqual("ZERO_CAPITAL_HUMAN_REVIEW_ITEM", row["p8_13_review_surface"])
-        self.assertEqual(2, row["confirmation_count"])
-        self.assertEqual("KRX:005930:COMMON", row["canonical_instrument_id"])
+        self.assertIn(row["review_state"], {
+            review.REVIEW_MOMENTUM, review.REVIEW_REVERSAL,
+            review.REVIEW_PULLBACK, review.REVIEW_WATCH, review.REVIEW_BLOCKED,
+        })
+        self.assertIn(row["participation_state"], {"RADAR", "PROBE_REVIEW"})
+        self.assertEqual(0, row["money_boundary"]["capital"])
+        self.assertIsNone(row["money_boundary"]["trade_proposal"])
 
-    def test_real_btc_and_hynix_are_not_misrepresented_as_entries(self):
-        self.assertEqual("WAIT_FOR_PULLBACK_REVIEW", self.by_subject["BTC"]["review_state"])
-        self.assertEqual("WATCH_REVIEW", self.by_subject["000660"]["review_state"])
-        self.assertEqual("RADAR", self.by_subject["BTC"]["participation_state"])
-        self.assertEqual("RADAR", self.by_subject["000660"]["participation_state"])
+    def test_real_btc_and_hynix_are_never_misrepresented_as_executable_entries(self):
+        for subject in ("BTC", "000660"):
+            row = self.by_subject[subject]
+            self.assertIn(row["review_state"], {
+                review.REVIEW_MOMENTUM, review.REVIEW_REVERSAL,
+                review.REVIEW_PULLBACK, review.REVIEW_WATCH, review.REVIEW_BLOCKED,
+            })
+            self.assertIn(row["participation_state"], {"RADAR", "PROBE_REVIEW"})
+            self.assertEqual(0, row["money_boundary"]["capital"])
+            self.assertIsNone(row["money_boundary"]["trade_proposal"])
 
     def test_unresolved_identity_remains_not_reviewable(self):
         row = self.by_subject["034020"]

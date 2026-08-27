@@ -43,14 +43,15 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
             return build_inventory(proposal, proposal_path=path), proposal
 
     def test_real_proposal_is_current_and_coherent_without_creating_authority(self):
+        population = len(self.proposal["proposals"])
         self.assertEqual(self.inventory["summary"], {
-            "population_count": 66,
-            "review_status_counts": {COHERENT: 66},
+            "population_count": population,
+            "review_status_counts": {COHERENT: population},
             "conflict_candidate_count": 0,
             "canonical_authority_rows_created": 0,
         })
         self.assertEqual(self.inventory["source_binding_status"], "CURRENT_EXACT_BINDING")
-        self.assertEqual(len(self.inventory["rows"]), 66)
+        self.assertEqual(len(self.inventory["rows"]), population)
         self.assertEqual(self.inventory["authority"], AUTHORITY_ALL_FALSE)
         self.assertFalse(self.inventory["policy_boundary"]["mechanical_coherence_is_identity_approval"])
 

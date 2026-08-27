@@ -186,6 +186,19 @@ def _blocked(reason: str) -> tuple[str, str, str]:
 
 def _classify(candidate: dict, identity: dict, contract: dict) -> tuple[str, str, str]:
     """Return review_state, P7 shadow state and one deterministic reason."""
+    # Reflection authority is a packet-wide safety invariant, not merely a
+    # prerequisite for candidates that happen to reach the price-state branch.
+    # Check it before any ordinary fail-closed classification so an unresolved
+    # identity or expired candidate cannot conceal an upstream authority leak.
+    price = candidate["price_reflection_status"]
+    if price.get("status") == "LINKED":
+        if price.get("reflection_status") != "UNKNOWN":
+            raise ShadowEntryReviewError("REFLECTION_AUTHORITY_MUST_REMAIN_UNKNOWN")
+        if price.get("threshold_basis") != "PROVISIONAL":
+            raise ShadowEntryReviewError("PRICE_THRESHOLD_BASIS_CONTRACT_CHANGED")
+    elif "reflection_status" in price and price.get("reflection_status") != "UNKNOWN":
+        raise ShadowEntryReviewError("REFLECTION_AUTHORITY_MUST_REMAIN_UNKNOWN")
+
     if candidate["pit_eligibility_status"] != "PASS":
         return _blocked("PIT_ELIGIBILITY_NOT_PASS")
     if _date(candidate["expiry"], field="EXPIRY") < _date(candidate["decision_at"], field="DECISION_AT"):
@@ -201,13 +214,8 @@ def _classify(candidate: dict, identity: dict, contract: dict) -> tuple[str, str
     if not set(candidate["trigger_types"]) <= set(contract["supported_trigger_types"]):
         return _blocked("TRIGGER_FAMILY_NOT_SUPPORTED_BY_REVIEW_CONTRACT")
 
-    price = candidate["price_reflection_status"]
     if price.get("status") != "LINKED":
         return _blocked("PRICE_STATE_NOT_LINKED")
-    if price.get("reflection_status") != "UNKNOWN":
-        raise ShadowEntryReviewError("REFLECTION_AUTHORITY_MUST_REMAIN_UNKNOWN")
-    if price.get("threshold_basis") != "PROVISIONAL":
-        raise ShadowEntryReviewError("PRICE_THRESHOLD_BASIS_CONTRACT_CHANGED")
 
     price_state = price.get("price_state")
     if price_state == PRICE_OVEREXTENDED:

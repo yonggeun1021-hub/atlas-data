@@ -204,7 +204,21 @@ class SourcePairPopulationTests(unittest.TestCase):
         result = POPULATE.build_source_pair(raw_root=POPULATE.RAW_ROOT)
         self.assertIn(result["status"], {"ready", "blocked"})
         if result["status"] == "blocked":
-            self.assertIn("INSUFFICIENT_CONTIGUOUS_HISTORY", result["reason"])
+            snapshots = POPULATE.LEADERSHIP.discover_snapshot_map(POPULATE.RAW_ROOT)
+            current_date = max(snapshots)
+            prior = POPULATE._build_leadership(
+                POPULATE.RAW_ROOT, current_date - POPULATE.dt.timedelta(days=1)
+            )
+            current = POPULATE._build_leadership(POPULATE.RAW_ROOT, current_date)
+            expected_reason = ";".join(
+                reason for reason in (
+                    POPULATE._blocked_reason("prior", prior),
+                    POPULATE._blocked_reason("current", current),
+                ) if reason is not None
+            )
+            self.assertTrue(expected_reason)
+            self.assertEqual(result["reason"], expected_reason)
+            self.assertEqual(result["as_of_date"], current_date.isoformat())
         else:
             self.assertEqual(
                 result["packet"]["status"],
