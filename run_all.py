@@ -71,6 +71,13 @@ APPROVED_TESTS = [
     #   packets remain explicit BLOCKED evidence. Missing/unevaluated input is
     #   never NO_ACTION, and no action/allocation/size/order authority is opened.
     "test/test_defensive_action_decision.py",
+    # ★ P7-12 Strategic Capital Posture readiness boundary. P1 Regime,
+    #   P2 Flow/Rotation, P6 Defensive Action, and P7 risk sources are
+    #   independently revalidated before any cross-market budget could exist.
+    #   Current unratified/missing inputs remain BLOCKED: all numeric budgets,
+    #   allocation/action/order fields stay null/empty and execution authority
+    #   remains false. Missing is never treated as zero or NO_ACTION.
+    "test/test_strategic_capital_posture.py",
     # Finalization Portal/SSOT adapter: exact read-after-write verification,
     # idempotent briefing identity, and atomic append-only receipts.
     "test/test_notion_projection_adapter.py",
