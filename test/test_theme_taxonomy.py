@@ -156,7 +156,7 @@ class ThemeTaxonomyTests(unittest.TestCase):
         self.assertFalse(packet["theme_membership_authorized"])
         self.assertEqual(packet["global_asset_master_membership_adapter"], [])
         self.assertIn(
-            "APPROVAL_AUTHORITY_REGISTRY_ABSENT",
+            "APPROVAL_AUTHORITY_REGISTRY_PRESENT_BUT_EMPTY",
             packet["unresolved_boundaries"],
         )
 
@@ -336,7 +336,11 @@ class ThemeTaxonomyTests(unittest.TestCase):
             if field != "external_ratification_claim_validation_only":
                 self.assertFalse(value, field)
         self.assertEqual(packet["policy_status"]["repository_default_taxonomy"], "ABSENT")
-        self.assertEqual(packet["policy_status"]["approval_authority_registry"], "ABSENT")
+        self.assertEqual(packet["policy_status"]["approval_authority_registry"], "PRESENT_EMPTY")
+        self.assertEqual(
+            packet["policy_status"]["approval_authority_registry_contract"],
+            "theme_taxonomy_authority_registry/1",
+        )
         self.assertEqual(packet["policy_status"]["source_hierarchy"], "UNRATIFIED")
         self.assertEqual(packet["policy_status"]["rotation_scoring"], "UNRATIFIED")
         self.assertIn("GLOBAL_ASSET_MASTER_INGESTION_NOT_IMPLEMENTED", packet["unresolved_boundaries"])

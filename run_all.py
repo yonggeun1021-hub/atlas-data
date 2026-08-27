@@ -157,6 +157,7 @@ APPROVED_TESTS = [
     #   Global Asset Master adapter를 만들며 inference/weight/score/Stage/trading 없음.
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
+    "test/test_theme_taxonomy_authority.py",
     # ★ P2-02 — external RATIFIED policy-gated US Theme rotation transform.
     #   forward-PIT US Leadership 두 시점과 exact taxonomy lineage를 묶어
     #   deterministic rank·TOP/MIDDLE/BOTTOM·bucket transition만 재현한다.
