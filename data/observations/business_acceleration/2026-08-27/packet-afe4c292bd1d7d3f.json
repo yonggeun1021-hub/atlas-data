@@ -1,0 +1,347 @@
+{
+  "authority": {
+    "candidate_ranking_authorized": false,
+    "importance_ranking_authorized": false,
+    "production_authorized": false,
+    "radar_case_recording_only": true,
+    "rule_evaluation_authorized": false,
+    "source_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "trading_authorized": false
+  },
+  "decision_at": "2026-08-27T07:49:43Z",
+  "population_sha256": "afe4c292bd1d7d3f492aaaecc261658f021624a32476a2935a0a2ba0b34394f9",
+  "radar_packet": {
+    "as_of_utc": "2026-08-27T07:49:43Z",
+    "authority": {
+      "candidate_ranking_authorized": false,
+      "importance_ranking_authorized": false,
+      "production_authorized": false,
+      "radar_case_recording_only": true,
+      "rule_evaluation_authorized": false,
+      "source_ranking_authorized": false,
+      "stage_promotion_authorized": false,
+      "trading_authorized": false
+    },
+    "case_count": 1,
+    "cases": [
+      {
+        "action": null,
+        "asset_id": "US:XNYS:TSM",
+        "candidate_eligible": false,
+        "candidate_rank": null,
+        "case_id": "RADAR-BA-98F50E5748AF5484",
+        "confirmed_evidence": [
+          {
+            "economic_period_end": "2026-05-31",
+            "numeric_value": "30.0",
+            "source_identity": {
+              "available_at": "2026-06-10",
+              "retrieved_at_utc": "2026-08-25T02:15:00Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "70f9b29df86394ac201271308f47d0f44af3d9a76b0cfae84103f29932089f51",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000367/tsm-revenue20260610.htm"
+            },
+            "unit": "pct"
+          },
+          {
+            "economic_period_end": "2026-06-30",
+            "numeric_value": "35.6",
+            "source_identity": {
+              "available_at": "2026-07-13",
+              "retrieved_at_utc": "2026-08-25T02:15:00Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "dc46a26db7b637575aa9e2572ddd4637174a9ddd784ccf13217dfd3fade968db",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000447/tsm-revenue20260713.htm"
+            },
+            "unit": "pct"
+          },
+          {
+            "economic_period_end": "2026-07-31",
+            "numeric_value": "37.0",
+            "source_identity": {
+              "available_at": "2026-08-10",
+              "retrieved_at_utc": "2026-08-20T21:59:19Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "40ed24df015806db57c8d711f4a7c2b5ad71de10c4da237a87fe25520ca12959",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000471/tsm-revenue20260810.htm"
+            },
+            "unit": "pct"
+          }
+        ],
+        "importance": "UNRATIFIED",
+        "schema_version": "business_acceleration_case/1",
+        "stage_transition": null,
+        "subject": "TSM",
+        "unconfirmed_items": [
+          "IMPORTANCE_THRESHOLD_UNRATIFIED",
+          "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
+          "CANDIDATE_RANKING_UNRATIFIED"
+        ],
+        "why_found": {
+          "comparison_basis": "SEC-filed cumulative year-to-date revenue YoY percent, unchanged basis",
+          "latest_change_pp": "1.400000000000",
+          "pattern": "TWO_STEP_ACCELERATION_OBSERVED",
+          "prior_change_pp": "5.600000000000",
+          "published_growth_values_pct": [
+            "30.000000000000",
+            "35.600000000000",
+            "37.000000000000"
+          ]
+        }
+      }
+    ],
+    "contract_version": "business_acceleration_radar/2",
+    "pattern_counts": {
+      "LATEST_STEP_NOT_UP": 1,
+      "LATEST_STEP_UP_ONLY": 0,
+      "TWO_STEP_ACCELERATION_OBSERVED": 1,
+      "UNKNOWN_EVIDENCE": 0
+    },
+    "payload_sha256": "1259c18722e0a24727d27dc7905934215a222860e63d09dcd3b5e0e03ca91371",
+    "policy_status": {
+      "automatic_stage_promotion": "PROHIBITED",
+      "candidate_ranking": "UNRATIFIED",
+      "cross_company_comparability": "UNRATIFIED",
+      "importance_threshold": "UNRATIFIED",
+      "source_hierarchy": "UNRATIFIED"
+    },
+    "schema_version": "business_acceleration_radar_packet/2",
+    "series_count": 2,
+    "series_results": [
+      {
+        "acceleration_change_pp": "-4.200000000000",
+        "asset_id": "US:XNYS:TSM",
+        "candidate_eligible": false,
+        "candidate_rank": null,
+        "comparison_basis": "SEC-filed cumulative year-to-date revenue YoY percent, unchanged basis",
+        "economic_periods": [
+          "2026-05-31",
+          "2026-06-30",
+          "2026-07-31"
+        ],
+        "evidence_source": [
+          {
+            "economic_period_end": "2026-05-31",
+            "numeric_value": "30.0",
+            "source_identity": {
+              "available_at": "2026-06-10",
+              "retrieved_at_utc": "2026-08-25T02:15:00Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "70f9b29df86394ac201271308f47d0f44af3d9a76b0cfae84103f29932089f51",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000367/tsm-revenue20260610.htm"
+            },
+            "unit": "pct"
+          },
+          {
+            "economic_period_end": "2026-06-30",
+            "numeric_value": "35.6",
+            "source_identity": {
+              "available_at": "2026-07-13",
+              "retrieved_at_utc": "2026-08-25T02:15:00Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "dc46a26db7b637575aa9e2572ddd4637174a9ddd784ccf13217dfd3fade968db",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000447/tsm-revenue20260713.htm"
+            },
+            "unit": "pct"
+          },
+          {
+            "economic_period_end": "2026-07-31",
+            "numeric_value": "37.0",
+            "source_identity": {
+              "available_at": "2026-08-10",
+              "retrieved_at_utc": "2026-08-20T21:59:19Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "40ed24df015806db57c8d711f4a7c2b5ad71de10c4da237a87fe25520ca12959",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000471/tsm-revenue20260810.htm"
+            },
+            "unit": "pct"
+          }
+        ],
+        "frequency": "MONTHLY",
+        "importance": "UNRATIFIED",
+        "latest_change_pp": "1.400000000000",
+        "measurement_identity": "TSMC consolidated cumulative net revenue YoY",
+        "metric_type": "REVENUE_GROWTH",
+        "pattern": "TWO_STEP_ACCELERATION_OBSERVED",
+        "prior_change_pp": "5.600000000000",
+        "radar_case_created": true,
+        "series_id": "TSM_CUMULATIVE_REVENUE_YOY_SEC",
+        "stage_transition": null,
+        "subject": "TSM",
+        "unavailable_evidence": [],
+        "values_pct": [
+          "30.000000000000",
+          "35.600000000000",
+          "37.000000000000"
+        ]
+      },
+      {
+        "acceleration_change_pp": "-61.000000000000",
+        "asset_id": "US:XNYS:TSM",
+        "candidate_eligible": false,
+        "candidate_rank": null,
+        "comparison_basis": "SEC-filed monthly revenue YoY percent, unchanged basis",
+        "economic_periods": [
+          "2026-05-31",
+          "2026-06-30",
+          "2026-07-31"
+        ],
+        "evidence_source": [
+          {
+            "economic_period_end": "2026-05-31",
+            "numeric_value": "30.1",
+            "source_identity": {
+              "available_at": "2026-06-10",
+              "retrieved_at_utc": "2026-08-25T02:15:00Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "70f9b29df86394ac201271308f47d0f44af3d9a76b0cfae84103f29932089f51",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000367/tsm-revenue20260610.htm"
+            },
+            "unit": "pct"
+          },
+          {
+            "economic_period_end": "2026-06-30",
+            "numeric_value": "67.9",
+            "source_identity": {
+              "available_at": "2026-07-13",
+              "retrieved_at_utc": "2026-08-25T02:15:00Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "dc46a26db7b637575aa9e2572ddd4637174a9ddd784ccf13217dfd3fade968db",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000447/tsm-revenue20260713.htm"
+            },
+            "unit": "pct"
+          },
+          {
+            "economic_period_end": "2026-07-31",
+            "numeric_value": "44.7",
+            "source_identity": {
+              "available_at": "2026-08-10",
+              "retrieved_at_utc": "2026-08-20T21:59:19Z",
+              "source_id": "sec_edgar",
+              "source_sha256": "40ed24df015806db57c8d711f4a7c2b5ad71de10c4da237a87fe25520ca12959",
+              "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000471/tsm-revenue20260810.htm"
+            },
+            "unit": "pct"
+          }
+        ],
+        "frequency": "MONTHLY",
+        "importance": "UNRATIFIED",
+        "latest_change_pp": "-23.200000000000",
+        "measurement_identity": "TSMC consolidated monthly net revenue YoY",
+        "metric_type": "REVENUE_GROWTH",
+        "pattern": "LATEST_STEP_NOT_UP",
+        "prior_change_pp": "37.800000000000",
+        "radar_case_created": false,
+        "series_id": "TSM_MONTHLY_REVENUE_YOY_SEC",
+        "stage_transition": null,
+        "subject": "TSM",
+        "unavailable_evidence": [],
+        "values_pct": [
+          "30.100000000000",
+          "67.900000000000",
+          "44.700000000000"
+        ]
+      }
+    ],
+    "source_coverage": {
+      "dart_open_api": "PARTIAL",
+      "microsoft_sec_issuer_disclosure": "PARTIAL",
+      "msft_official_earnings_release": "PARTIAL",
+      "sec_edgar": "PARTIAL",
+      "tsmc_investor_relations": "PARTIAL",
+      "tsmc_ir_monthly_revenue": "PARTIAL"
+    },
+    "status": "RADAR_CAPABILITY_RESULT",
+    "unresolved_boundaries": [
+      "COMPLETE_CROSS_COMPANY_EVIDENCE_NETWORK_UNAVAILABLE",
+      "SOURCE_HIERARCHY_UNRATIFIED",
+      "IMPORTANCE_THRESHOLD_UNRATIFIED",
+      "CROSS_COMPANY_COMPARABILITY_UNRATIFIED",
+      "CANDIDATE_RANKING_UNRATIFIED",
+      "LIVE_RADAR_POPULATION_PARTIAL_TSM_SEC_ONLY"
+    ]
+  },
+  "schema_version": "business_acceleration_population/1",
+  "scope": "TSM_SEC_MONTHLY_REVENUE_ONLY",
+  "selected_months": [
+    "2026-05",
+    "2026-06",
+    "2026-07"
+  ],
+  "source_reports": [
+    {
+      "accession": "0001046179-26-000367",
+      "manifest_path": "data/sec_content/TSM/0001046179-26-000367/_manifest.json",
+      "manifest_sha256": "4cb90465349b9e971dad7ce08611d81192c4866b3908dff145d8756bf26c7769",
+      "observation": {
+        "cumulative_revenue_ntd_mn": "1,961,804",
+        "cumulative_yoy_pct_published": "30.0",
+        "monthly_revenue_ntd_mn": "416,975",
+        "monthly_yoy_pct_published": "30.1"
+      },
+      "published_at": "2026-06-10",
+      "retrieved_at_utc": "2026-08-25T02:15:00Z",
+      "source_bytes": 88046,
+      "source_sha256": "70f9b29df86394ac201271308f47d0f44af3d9a76b0cfae84103f29932089f51",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000367/tsm-revenue20260610.htm",
+      "table_locator": {
+        "data_row_index": 5,
+        "table_index": 4,
+        "unit_evidence": "(Unit:NT$ million)"
+      },
+      "target_month": "2026-05"
+    },
+    {
+      "accession": "0001046179-26-000447",
+      "manifest_path": "data/sec_content/TSM/0001046179-26-000447/_manifest.json",
+      "manifest_sha256": "b9af8b5ca5187795dcd296459bfca27f1fe28f2dd9574fdb50bbf896cdf3924d",
+      "observation": {
+        "cumulative_revenue_ntd_mn": "2,404,484",
+        "cumulative_yoy_pct_published": "35.6",
+        "monthly_revenue_ntd_mn": "442,680",
+        "monthly_yoy_pct_published": "67.9"
+      },
+      "published_at": "2026-07-13",
+      "retrieved_at_utc": "2026-08-25T02:15:00Z",
+      "source_bytes": 88011,
+      "source_sha256": "dc46a26db7b637575aa9e2572ddd4637174a9ddd784ccf13217dfd3fade968db",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000447/tsm-revenue20260713.htm",
+      "table_locator": {
+        "data_row_index": 5,
+        "table_index": 4,
+        "unit_evidence": "(Unit:NT$ million)"
+      },
+      "target_month": "2026-06"
+    },
+    {
+      "accession": "0001046179-26-000471",
+      "manifest_path": "data/sec_content/TSM/0001046179-26-000471/_manifest.json",
+      "manifest_sha256": "63201e9308ff6445fe4bd1d3ada2f87b7f058516ad96979e1c461a98c356e4ac",
+      "observation": {
+        "cumulative_revenue_ntd_mn": "2,872,064",
+        "cumulative_yoy_pct_published": "37.0",
+        "monthly_revenue_ntd_mn": "467,580",
+        "monthly_yoy_pct_published": "44.7"
+      },
+      "published_at": "2026-08-10",
+      "retrieved_at_utc": "2026-08-20T21:59:19Z",
+      "source_bytes": 88661,
+      "source_sha256": "40ed24df015806db57c8d711f4a7c2b5ad71de10c4da237a87fe25520ca12959",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000471/tsm-revenue20260810.htm",
+      "table_locator": {
+        "data_row_index": 5,
+        "table_index": 4,
+        "unit_evidence": "(Unit:NT$ million)"
+      },
+      "target_month": "2026-07"
+    }
+  ],
+  "status": "RADAR_POPULATED",
+  "summary": {
+    "case_count": 1,
+    "eligible_report_count": 3,
+    "selected_report_count": 3,
+    "series_count": 2
+  }
+}
