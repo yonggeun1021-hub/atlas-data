@@ -27,8 +27,8 @@ sys.path.insert(0, str(COLLECTORS))
 import dart_filing_content as DART  # noqa: E402
 
 
-SCHEMA_VERSION = "dart_event_observation_packet/1"
-OBSERVATION_VERSION = "dart_event_observation/1"
+SCHEMA_VERSION = "dart_event_observation_packet/2"
+OBSERVATION_VERSION = "dart_event_observation/2"
 DEFAULT_DART = ROOT / "data/latest_dart.json"
 DEFAULT_CONTENT = ROOT / "data/latest_dart_content.json"
 DEFAULT_DATA_ROOT = ROOT / "data"

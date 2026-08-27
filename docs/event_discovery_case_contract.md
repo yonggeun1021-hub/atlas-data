@@ -33,6 +33,11 @@ SEC D1 `event_discovery_case_packet/2`에 합쳐지거나 중요도 detector에 
 누락만 packet 발행을 중단한다. 실패 메시지 원문은 파생 packet에 복제하지 않고
 exact source/content-run SHA lineage로 감사한다.
 
+이 additive failure vocabulary와 source/content failure summary는 기존 성공 전용
+packet과 같은 의미가 아니므로 packet은 `dart_event_observation_packet/2`, row는
+`dart_event_observation/2`로 명시적으로 version-up한다. v1 역사 packet을 같은
+schema로 재해석하지 않는다.
+
 ## 권한 경계
 
 case는 “분류된 사건이 관측됐다”는 기록이다. “중요하다”, “긍정/부정이다”, “후보로
