@@ -507,7 +507,11 @@ def build_packet(
         "authority": output_authority,
         "unresolved_boundaries": [
             "REPOSITORY_DEFAULT_TAXONOMY_ABSENT",
-            "APPROVAL_AUTHORITY_REGISTRY_PRESENT_BUT_EMPTY",
+            *(
+                []
+                if graph_currently_effective
+                else ["APPROVAL_AUTHORITY_REGISTRY_PRESENT_BUT_EMPTY"]
+            ),
             "SOURCE_HIERARCHY_UNRATIFIED",
             "ROTATION_SCORING_UNRATIFIED", "TRACKED_TAXONOMY_NOT_IMPLEMENTED",
             "DOWNSTREAM_ROTATION_TAXONOMY_CONTRACT_V1_NOT_AUTHORITY_COMPATIBLE",

@@ -121,6 +121,10 @@ class ThemeTaxonomyAuthorityTests(unittest.TestCase):
             self.assertTrue(forbidden.isdisjoint(row))
         self.assertFalse(packet["authority"]["rotation_score_authorized"])
         self.assertFalse(packet["authority"]["trading_authorized"])
+        self.assertNotIn(
+            "APPROVAL_AUTHORITY_REGISTRY_PRESENT_BUT_EMPTY",
+            packet["unresolved_boundaries"],
+        )
 
     def test_self_declared_claim_cannot_replace_empty_registry(self):
         graph = fixture()
