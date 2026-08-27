@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import json
@@ -17,7 +18,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "discovery/dart_event_observation.py"
 WORKFLOW = ROOT / ".github/workflows/collect.yml"
 RUN_ALL = ROOT / "run_all.py"
-DECISION_AT = "2026-08-27T07:50:00Z"
+
+
+def current_decision_at() -> str:
+    source = json.loads((ROOT / "data/latest_dart.json").read_text(encoding="utf-8"))
+    content = json.loads((ROOT / "data/latest_dart_content.json").read_text(encoding="utf-8"))
+    timestamps = [source["collected_at_utc"], content["observed_at_utc"]]
+    parsed = [dt.datetime.fromisoformat(value.replace("Z", "+00:00")) for value in timestamps]
+    return max(parsed).astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+DECISION_AT = current_decision_at()
 
 
 def load_module(name: str, path: Path):
@@ -37,6 +48,7 @@ class DartEventObservationTests(unittest.TestCase):
         cls.packet = MODULE.build_packet(decision_at=DECISION_AT)
 
     def test_real_dart_population_records_two_facts_without_interpretation(self):
+        self.assertEqual(self.packet["schema_version"], "dart_event_observation_packet/2")
         self.assertEqual(self.packet["status"], "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED")
         self.assertEqual(self.packet["summary"]["relevant_filing_count"], 2)
         self.assertEqual(self.packet["summary"]["raw_bytes_verified_count"], 1)
@@ -52,6 +64,16 @@ class DartEventObservationTests(unittest.TestCase):
             self.assertIsNone(row["direction"])
             self.assertIsNone(row["importance"])
             self.assertEqual(row["status"], "OBSERVED_ESCALATION_BLOCKED")
+
+    def test_committed_legacy_v1_packet_remains_exactly_valid(self):
+        legacy_paths = sorted(
+            (ROOT / "data/observations/dart_event_observations").glob("*/*.json")
+        )
+        self.assertTrue(legacy_paths)
+        legacy = json.loads(legacy_paths[-1].read_text(encoding="utf-8"))
+        self.assertEqual(legacy["schema_version"], "dart_event_observation_packet/1")
+        checked = MODULE.validate_packet(legacy)
+        self.assertEqual(checked, legacy)
 
     def test_real_retained_zip_and_member_bytes_are_independently_revalidated(self):
         linked = next(row for row in self.packet["observations"] if row["subject_id"] == "329180")
@@ -97,7 +119,10 @@ class DartEventObservationTests(unittest.TestCase):
             root = Path(temporary)
             source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
             content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
-            source["collected_at_utc"] = "2026-08-27T08:00:00+00:00"
+            decision = dt.datetime.fromisoformat(DECISION_AT.replace("Z", "+00:00"))
+            source["collected_at_utc"] = (
+                decision + dt.timedelta(seconds=1)
+            ).isoformat()
             source_path = root / "latest_dart.json"
             content_path = root / "latest_dart_content.json"
             source_path.write_text(json.dumps(source), encoding="utf-8")
@@ -157,6 +182,7 @@ class DartEventObservationTests(unittest.TestCase):
                 packet["status"],
                 "DART_OBSERVATIONS_RECORDED_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED",
             )
+            self.assertEqual(packet["schema_version"], "dart_event_observation_packet/2")
             self.assertEqual(packet["summary"]["source_ok_count"], 6)
             self.assertEqual(packet["summary"]["source_failed_count"], 1)
             self.assertEqual({row["subject_id"] for row in packet["observations"]}, {"329180"})

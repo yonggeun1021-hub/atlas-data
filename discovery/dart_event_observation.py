@@ -27,7 +27,8 @@ sys.path.insert(0, str(COLLECTORS))
 import dart_filing_content as DART  # noqa: E402
 
 
-SCHEMA_VERSION = "dart_event_observation_packet/1"
+SCHEMA_VERSION = "dart_event_observation_packet/2"
+LEGACY_SCHEMA_VERSION = "dart_event_observation_packet/1"
 OBSERVATION_VERSION = "dart_event_observation/1"
 DEFAULT_DART = ROOT / "data/latest_dart.json"
 DEFAULT_CONTENT = ROOT / "data/latest_dart_content.json"
@@ -433,12 +434,29 @@ def validate_packet(
     packet: dict, *, source_path: Path = DEFAULT_DART,
     content_path: Path = DEFAULT_CONTENT, data_root: Path = DEFAULT_DATA_ROOT,
 ) -> dict:
-    if not isinstance(packet, dict) or packet.get("schema_version") != SCHEMA_VERSION:
+    if (
+        not isinstance(packet, dict)
+        or packet.get("schema_version") not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}
+    ):
         raise DartEventObservationError("PACKET_SCHEMA_INVALID")
     expected = build_packet(
         decision_at=packet.get("decision_at"), source_path=source_path,
         content_path=content_path, data_root=data_root,
     )
+    if packet.get("schema_version") == LEGACY_SCHEMA_VERSION:
+        if (
+            expected["source_failures"]
+            or expected["summary"]["content_failure_count"] != 0
+        ):
+            raise DartEventObservationError("LEGACY_PACKET_CANNOT_REPRESENT_PARTIAL_FAILURE")
+        expected["schema_version"] = LEGACY_SCHEMA_VERSION
+        expected.pop("source_failures")
+        for key in (
+            "source_ok_count", "source_failed_count", "content_failure_count",
+        ):
+            expected["summary"].pop(key)
+        expected.pop("packet_sha256")
+        expected["packet_sha256"] = payload_sha256(expected)
     if packet != expected:
         raise DartEventObservationError("PACKET_DRIFT_OR_TAMPER")
     return copy.deepcopy(packet)
