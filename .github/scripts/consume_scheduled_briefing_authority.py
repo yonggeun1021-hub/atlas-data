@@ -346,7 +346,8 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         fail("DELIVERY_PACKET_FIELDS_MISMATCH")
     if (
         packet.get("schema_version") != 1
-        or packet.get("contract_version") != "daily_orchestrator/3"
+        or packet.get("contract_version")
+        not in ("daily_orchestrator/3", "daily_orchestrator/4")
         or packet.get("output_schema_version") != "daily_briefing_packet/1"
         or packet.get("capture_mode")
         != "provider_free_aggregation_of_persisted_evidence_only"

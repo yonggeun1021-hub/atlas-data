@@ -37,6 +37,16 @@ audit labels are forbidden from both the daily packet and the H-24 delivery
 projection. `UPSTREAM_WORKFLOW_RUN` is labelled a natural operational sample;
 manual/local runs remain diagnostic and cannot be presented as natural.
 
+## Exact official-release facts
+
+`daily_orchestrator/4` adds `OFFICIAL_RELEASE_SUMMARY` as an additive,
+evidence-only component. It rebuilds and validates the P4-04 retained Sandisk
+Exhibit 99.1 packet, then renders the complete ordered five-item `News Summary`
+with its official title and publication date. It does not select a favourable
+item, assign positive/negative meaning, rank the source, promote a candidate,
+or feed the unified decision/action path. The component remains `PENDING` with
+interpretation and source ranking explicitly `UNRATIFIED`.
+
 Status: provider-free daily orchestrator implemented and scheduled; most
 downstream components remain PENDING/POLICY_BLOCKED/DATA_BLOCKED/UNAVAILABLE
 because their own upstream policies are unratified or their own upstream
@@ -54,7 +64,7 @@ and `decision/` to assemble one combined daily briefing packet twice a day
 builders' logic; it is purely the wiring between them and this repository's
 persisted evidence.
 
-Every one of the 41 tracked components is reported with:
+Every one of the 42 tracked components is reported with:
 
 - `component_id`, `contract_version`, `status` (one of `READY`, `PENDING`,
   `UNKNOWN`, `DEGRADED`, `POLICY_BLOCKED`, `DATA_BLOCKED`, `UNAVAILABLE`),

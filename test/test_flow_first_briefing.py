@@ -42,7 +42,7 @@ def row(component_id, status="READY", *, as_of="2026-08-26", reason=None, packet
 def daily_packet():
     packet = {
         "schema_version": 1,
-        "contract_version": "daily_orchestrator/3",
+        "contract_version": "daily_orchestrator/4",
         "output_schema_version": "daily_briefing_packet/1",
         "decision_date": "2026-08-26",
         "slot": "evening",

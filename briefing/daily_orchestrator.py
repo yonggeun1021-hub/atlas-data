@@ -115,6 +115,10 @@ BUSINESS_ACCELERATION_POPULATION = _load(
     "atlas_daily_business_acceleration_population",
     "discovery/business_acceleration_population.py",
 )
+OFFICIAL_RELEASE_SUMMARY = _load(
+    "atlas_daily_official_release_summary",
+    "discovery/official_release_summary_observation.py",
+)
 ROTATION_DISCOVERY = _load("atlas_daily_rotation_discovery", "briefing/rotation_discovery.py")
 BINDING = _load("atlas_daily_binding", "bridge/rule_evidence_binding.py")
 EVALUATOR = _load("atlas_daily_evaluator", "rules/deterministic_rule_evaluator.py")
@@ -1512,6 +1516,30 @@ def build_business_acceleration_status(generated_at: str) -> dict:
     )
 
 
+def build_official_release_summary_status(generated_at: str) -> dict:
+    """Expose exact retained release facts without interpreting or ranking them."""
+    try:
+        packet = OFFICIAL_RELEASE_SUMMARY.build_packet(
+            data_root=ROOT / "data", decision_at=generated_at
+        )
+        OFFICIAL_RELEASE_SUMMARY.validate_packet(packet, data_root=ROOT / "data")
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("OFFICIAL_RELEASE_SUMMARY", exc)
+    return component_row(
+        "OFFICIAL_RELEASE_SUMMARY",
+        "PENDING",
+        "OFFICIAL_FACTS_OBSERVED_INTERPRETATION_AND_RANKING_UNRATIFIED",
+        as_of_date=packet["evidence_as_of"][:10],
+        generated_at=packet["evidence_as_of"],
+        available_at=packet["evidence_as_of"],
+        source_packet_sha256=packet["packet_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=packet["schema_version"],
+        packet=packet,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Rule evaluation (real deterministic run today: 0/25 Rules are consumable,
 # so every Rule is honestly UNKNOWN/UNDEFINED -- never PASS/FAIL).
@@ -2513,6 +2541,9 @@ def build_packet(
     rows["BUSINESS_ACCELERATION"] = _boundary(
         build_business_acceleration_status(generated_at)
     )
+    rows["OFFICIAL_RELEASE_SUMMARY"] = _boundary(
+        build_official_release_summary_status(generated_at)
+    )
     korea_rotation_snapshot = frozen_sources.get("KOREA_ROTATION")
     if korea_rotation_snapshot is None:
         korea_rotation_snapshot = _fetch_korea_rotation_snapshot()
@@ -2723,7 +2754,9 @@ _SECTION_GROUPS = [
     ]),
     ("3-Market Regime", ["THREE_MARKET_REGIME_HEADER"]),
     ("Rotation / Theme", ["ROTATION_DISCOVERY", "KOREA_ROTATION"]),
-    ("New Discovery / candidate change", ["ROTATION_DISCOVERY", "BUSINESS_ACCELERATION"]),
+    ("New Discovery / candidate change", [
+        "ROTATION_DISCOVERY", "BUSINESS_ACCELERATION", "OFFICIAL_RELEASE_SUMMARY",
+    ]),
     ("Rule status", ["RULE_EVALUATION"]),
     ("Portfolio / Risk", [
         "PORTFOLIO_BUCKET", "PORTFOLIO_CURRENCY", "CASH_EXPOSURE_US",
@@ -2926,6 +2959,24 @@ def _format_component_detail(row: dict) -> list[str]:
                     f"pattern={result.get('pattern')} values_pct={result.get('values_pct')} "
                     f"candidate_eligible={result.get('candidate_eligible')}"
                 )
+        elif cid == "OFFICIAL_RELEASE_SUMMARY":
+            lines.append(
+                f"    - subject={packet.get('subject')} "
+                f"observed_releases={packet.get('counts', {}).get('observed_registered_releases')} "
+                f"summary_items={packet.get('counts', {}).get('observed_summary_items')} "
+                "interpretation=UNDETERMINED ranking=UNRATIFIED"
+            )
+            for observation in packet.get("observations", []):
+                lines.append(
+                    f"    - {observation.get('subject')}: "
+                    f"{observation.get('release_title')} "
+                    f"published_at={observation.get('published_at')}"
+                )
+                for item in observation.get("summary_items", []):
+                    lines.append(
+                        f"      - official_summary_{item.get('ordinal')}: "
+                        f"{item.get('text')}"
+                    )
         elif cid == "RULE_EVALUATION":
             summary = packet.get("summary", {})
             lines.append(

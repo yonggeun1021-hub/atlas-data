@@ -69,7 +69,7 @@ def _validate_contract(contract: object) -> dict:
         raise CrossAssetFlowEvidenceError("CONTRACT_FIELDS_MISMATCH")
     if contract.get("schema_version") != 1 or contract.get("contract_version") != "cross_asset_flow_evidence/1":
         raise CrossAssetFlowEvidenceError("CONTRACT_VERSION_MISMATCH")
-    if contract.get("source_contract_version") != "daily_orchestrator/3":
+    if contract.get("source_contract_version") != "daily_orchestrator/4":
         raise CrossAssetFlowEvidenceError("SOURCE_CONTRACT_VERSION_MISMATCH")
     if contract.get("source_output_schema_version") != "daily_briefing_packet/1":
         raise CrossAssetFlowEvidenceError("SOURCE_OUTPUT_SCHEMA_MISMATCH")
