@@ -65,15 +65,36 @@ def _file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _load_kraken_capture(root: Path, decision_date: str) -> tuple[dict, dict]:
+def _source_ref(path: Path) -> str:
+    """Return a stable provenance label without assuming fixtures live in-repo."""
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external_fixture/{path.name}"
+
+
+def _load_kraken_capture(
+    root: Path,
+    decision_date: str,
+    *,
+    capture_date: str | None = None,
+) -> tuple[dict, dict]:
     try:
         decision = dt.date.fromisoformat(decision_date)
     except ValueError as exc:
         raise CandidateIdentityAuthorityProposalError("DECISION_DATE_INVALID") from exc
-    choices = sorted(
-        p for p in root.iterdir()
-        if p.is_dir() and p.name <= decision.isoformat() and (p / "_manifest.json").is_file()
-    )
+    if capture_date is None:
+        choices = sorted(
+            p for p in root.iterdir()
+            if p.is_dir() and p.name <= decision.isoformat() and (p / "_manifest.json").is_file()
+        )
+    else:
+        try:
+            pinned_date = dt.date.fromisoformat(capture_date)
+        except ValueError as exc:
+            raise CandidateIdentityAuthorityProposalError("KRAKEN_CAPTURE_DATE_INVALID") from exc
+        pinned = root / pinned_date.isoformat()
+        choices = [pinned] if pinned_date <= decision and (pinned / "_manifest.json").is_file() else []
     if not choices:
         raise CandidateIdentityAuthorityProposalError("KRAKEN_CAPTURE_NOT_AVAILABLE")
     capture = choices[-1]
@@ -170,13 +191,13 @@ def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
         "name": name,
         "corp_code": corp_code,
         "krx": {
-            "path": str(krx_path.relative_to(ROOT)),
+            "path": _source_ref(krx_path),
             "bytes_sha256": _file_sha(krx_path),
             "collected_at_utc": krx["collected_at_utc"],
             "source": krx["source"],
         },
         "dart": {
-            "path": str(dart_path.relative_to(ROOT)),
+            "path": _source_ref(dart_path),
             "bytes_sha256": _file_sha(dart_path),
             "collected_at_utc": dart["collected_at_utc"],
             "source": dart["source"],
@@ -291,6 +312,7 @@ def build_packet(
     authority_path: Path = ci.SECURITY_IDENTITY_PATH,
     scope_authority_path: Path = ci.MARKET_ACCOUNT_SCOPE_PATH,
     market_data_root: Path = ROOT / "data",
+    kraken_capture_date: str | None = None,
 ) -> dict:
     if gaps.get("schema_version") != "candidate_identity_gap_inventory/1":
         raise CandidateIdentityAuthorityProposalError("GAP_INVENTORY_SCHEMA_INVALID")
@@ -304,7 +326,11 @@ def build_packet(
         authority_path=authority_path,
         scope_authority_path=scope_authority_path,
     )
-    pairs, capture = _load_kraken_capture(raw_root, gaps["decision_date"])
+    pairs, capture = _load_kraken_capture(
+        raw_root,
+        gaps["decision_date"],
+        capture_date=kraken_capture_date,
+    )
     korea_evidence: dict[str, dict] = {}
     for gap in gaps["identity_gaps"]:
         if gap.get("market") == "KOREA":
@@ -346,7 +372,16 @@ def validate_packet(
     raw_root: Path,
     **source_paths: Path,
 ) -> dict:
-    if packet != build_packet(gaps, taxonomy_path, raw_root, **source_paths):
+    capture_date = packet.get("source_kraken_capture", {}).get("capture_date")
+    if not isinstance(capture_date, str):
+        raise CandidateIdentityAuthorityProposalError("PROPOSAL_CAPTURE_LINEAGE_INVALID")
+    if packet != build_packet(
+        gaps,
+        taxonomy_path,
+        raw_root,
+        kraken_capture_date=capture_date,
+        **source_paths,
+    ):
         raise CandidateIdentityAuthorityProposalError("PROPOSAL_PACKET_MISMATCH")
     return packet
 

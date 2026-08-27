@@ -11,6 +11,7 @@ publication, and the false authority boundary.
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -2222,26 +2223,53 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
     def tearDown(self):
         MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
 
-    def _row(self, decision_date="2026-08-26"):
+    def _source_decision_date(self):
+        return MODULE._read_json(
+            MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH
+        )["decision_date"]
+
+    def _row(self, decision_date=None):
+        decision_date = decision_date or self._source_decision_date()
         return MODULE.build_shadow_entry_review_status(
-            decision_date, "evening", "2026-08-26T23:45:00+09:00"
+            decision_date, "evening", f"{decision_date}T23:45:00+09:00"
         )
 
-    def test_natural_sample_exposes_only_three_zero_capital_review_items(self):
+    def test_natural_sample_exposes_current_zero_capital_review_items(self):
         row = self._row()
         self.assertEqual(row["status"], "READY")
         packet = row["packet"]
         self.assertEqual(packet["sample_status"], "NATURAL_OPERATIONAL_SAMPLE")
-        self.assertEqual(packet["summary"]["candidate_count"], 69)
-        self.assertEqual(packet["summary"]["zero_capital_review_item_count"], 3)
+        source = MODULE._read_json(MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH)
+        self.assertEqual(packet["summary"]["candidate_count"], len(source["review_items"]))
+        retained_source = [
+            item for item in source["review_items"]
+            if item["p8_13_review_surface"] == "ZERO_CAPITAL_HUMAN_REVIEW_ITEM"
+        ]
+        retained = [{
+            "subject": item["subject"],
+            "market": item["market"],
+            "canonical_instrument_id": item["canonical_instrument_id"],
+            "identity_status": item["identity_status"],
+            "trigger_types": item["trigger_types"],
+            "confirmation_count": item["confirmation_count"],
+            "decision_at": item["decision_at"],
+            "next_review_at": item["next_review_at"],
+            "review_due_status": MODULE._review_due_status(
+                item["next_review_at"], source["decision_date"]
+            ),
+            "price_state": item["price_state"],
+            "reflection_status": item["reflection_status"],
+            "review_state": item["review_state"],
+            "participation_state": item["participation_state"],
+            "review_reason": item["review_reason"],
+            "p8_13_review_surface": item["p8_13_review_surface"],
+            "money_boundary": item["money_boundary"],
+        } for item in retained_source]
+        self.assertEqual(packet["review_items"], retained)
         self.assertEqual(
-            {item["subject"] for item in packet["review_items"]},
-            {"000660", "005930", "BTC"},
+            packet["summary"]["zero_capital_review_item_count"], len(retained)
         )
-        states = {item["subject"]: item["review_state"] for item in packet["review_items"]}
-        self.assertEqual(states["005930"], "REVERSAL_PROBE_REVIEW")
-        self.assertEqual(states["BTC"], "WAIT_FOR_PULLBACK_REVIEW")
-        self.assertEqual(states["000660"], "WATCH_REVIEW")
+        self.assertGreater(len(retained), 0)
 
     def test_every_retained_item_and_component_keep_money_authority_at_zero(self):
         packet = self._row()["packet"]
@@ -2262,7 +2290,8 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         self.assertFalse(MODULE._contains_shadow_review_post_hoc_key(packet))
 
     def test_other_decision_date_is_fail_closed_not_reused_as_current(self):
-        row = self._row("2026-08-25")
+        source_date = dt.date.fromisoformat(self._source_decision_date())
+        row = self._row((source_date - dt.timedelta(days=1)).isoformat())
         self.assertEqual(row["status"], "DATA_BLOCKED")
         self.assertEqual(row["reason"], "SHADOW_ENTRY_REVIEW_DECISION_DATE_MISMATCH")
         self.assertIsNone(row["packet"])
@@ -2293,8 +2322,9 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
 
     def test_markdown_says_why_now_and_why_not_without_buy_language(self):
         row = self._row()
+        decision_date = self._source_decision_date()
         packet = MODULE.build_packet(
-            "evening", "2026-08-26", "2026-08-26T14:45:00Z"
+            "evening", decision_date, f"{decision_date}T23:59:59Z"
         )
         packet["components"] = [
             row if item["component_id"] == "SHADOW_ENTRY_REVIEW" else item
@@ -2309,9 +2339,12 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         )
         rendered = MODULE.render_markdown(packet)
         self.assertIn("Zero-capital human review", rendered)
-        self.assertIn("005930 (KOREA): review_state=REVERSAL_PROBE_REVIEW", rendered)
-        self.assertIn("BTC (BTC): review_state=WAIT_FOR_PULLBACK_REVIEW", rendered)
-        self.assertIn("000660 (KOREA): review_state=WATCH_REVIEW", rendered)
+        for item in row["packet"]["review_items"]:
+            self.assertIn(
+                f"{item['subject']} ({item['market']}): "
+                f"review_state={item['review_state']}",
+                rendered,
+            )
         self.assertIn("capital=0 trade_proposal=null", rendered)
         self.assertIn("ENTRY_POLICY_UNRATIFIED", rendered)
         self.assertNotIn("forward_return", rendered.lower())

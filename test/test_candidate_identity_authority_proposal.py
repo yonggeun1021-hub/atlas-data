@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import json
 import shutil
 import sys
@@ -101,7 +102,10 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
             build_packet(gaps, self.taxonomy, self.raw)
 
     def test_korea_direct_review_uses_two_official_sources_and_stays_unclassified(self):
-        row = next(x for x in self.packet["proposals"] if x["market"] == "KOREA")
+        row = next(
+            x for x in self.packet["proposals"]
+            if x["market"] == "KOREA" and x["subject"] == "034020"
+        )
         self.assertEqual(row["subject"], "034020")
         self.assertEqual(row["review_status"], COMPLETE)
         self.assertEqual(row["proposed_rows"]["issuer"]["canonical_issuer_id"], "DART:00159616")
@@ -131,7 +135,8 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
             for name in ("krx.json", "dart.json"):
                 shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
             krx = json.loads((day / "krx.json").read_text())
-            krx["collected_at_utc"] = "2026-08-27T00:00:00Z"
+            future_date = dt.date.fromisoformat(self.gaps["decision_date"]) + dt.timedelta(days=1)
+            krx["collected_at_utc"] = future_date.isoformat() + "T00:00:00Z"
             (day / "krx.json").write_text(json.dumps(krx, ensure_ascii=False))
             with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_KRX_EVIDENCE_INVALID"):
                 build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
@@ -156,6 +161,24 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
         packet["packet_sha256"] = "0" * 64
         with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "PROPOSAL_PACKET_MISMATCH"):
             validate_packet(packet, self.gaps, self.taxonomy, self.raw)
+
+    def test_validator_replays_the_advertised_capture_not_a_later_capture(self):
+        decision = dt.date.fromisoformat(self.gaps["decision_date"])
+        captures = sorted(
+            path.name for path in self.raw.iterdir()
+            if path.is_dir()
+            and (path / "_manifest.json").is_file()
+            and dt.date.fromisoformat(path.name) <= decision
+        )
+        self.assertGreaterEqual(len(captures), 2)
+        packet = build_packet(
+            self.gaps,
+            self.taxonomy,
+            self.raw,
+            kraken_capture_date=captures[-2],
+        )
+        self.assertEqual(packet["source_kraken_capture"]["capture_date"], captures[-2])
+        self.assertEqual(validate_packet(packet, self.gaps, self.taxonomy, self.raw), packet)
 
     def test_missing_eligible_capture_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
