@@ -100,10 +100,11 @@ The builder independently reconstructs all three retained artifacts:
 - `candidate_manifest.json`
 - `candidate_inventory.json`
 
-Only `MINIMUM_COVERAGE` becomes `SUPPORTED`. The other eight components remain
-`BLOCKED`: seven have exact negative `UNSUPPORTED_EVIDENCE`, while
-`REPLAY_ACCEPTANCE` still has `EVIDENCE_MISSING`. The candidate as a whole
-remains `CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
+Only `MINIMUM_COVERAGE` becomes `SUPPORTED`. In v1 the other eight components
+remain `BLOCKED` with `EVIDENCE_MISSING` plus `VALUE_UNSPECIFIED`; later
+population versions distinguish those missing entries from exact negative
+evidence one boundary at a time. The candidate as a whole remains
+`CANDIDATE_BLOCKED` and replay remains `NOT_COMPUTABLE`.
 
 The retained evidence is coverage-only. It preserves the policy's explicit
 `UNKNOWN` fail-close and `UNKNOWN != NEUTRAL` semantics but does not turn its
