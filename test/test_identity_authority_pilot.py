@@ -88,7 +88,25 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
             for source in approval["source_evidence"]:
                 source_path = ROOT / source["path"]
                 self.assertTrue(source_path.is_file(), source)
-                self.assertEqual(sha256_file(source_path), source["sha256"])
+                current_sha = sha256_file(source_path)
+                if current_sha == source["sha256"]:
+                    continue
+                # Effective-dated policy files legitimately gain future rows.
+                # A historical approval must keep the exact bytes it reviewed,
+                # not be rewritten to bless the later policy. The sole mutable
+                # source used by this pilot therefore falls back to an immutable
+                # content-addressed snapshot of the originally approved bytes.
+                self.assertEqual(
+                    source["path"],
+                    "config/crypto_breadth_exclusion_taxonomy.json",
+                    source,
+                )
+                snapshot = (
+                    ROOT / "evidence/identity/source_snapshots/sha256"
+                    / f"{source['sha256']}.json"
+                )
+                self.assertTrue(snapshot.is_file(), source)
+                self.assertEqual(sha256_file(snapshot), source["sha256"])
 
     def test_btc_claim_matches_existing_committed_contracts(self):
         price = json.loads((ROOT / "config/btc_price_contract.json").read_text())

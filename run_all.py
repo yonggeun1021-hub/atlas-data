@@ -522,6 +522,13 @@ APPROVED_TESTS = [
     #   identity를 확정하지 않는다는 규칙의 실제 검증 사례. 실 raw snapshot
     #   replay로 coverage 여전히 미달·blocked 유지를 재확인한다.
     "test/test_crypto_taxonomy_identity_slice.py",
+    # ★ P1-CR-06 — 2026-08-27 cutoff-relevant taxonomy Slice (42개).
+    #   retained Kraken online USD identity와 독립 project/contract source를
+    #   결합해 effective-dated source-coverage category만 비준한다. 8/27 raw는
+    #   as_of=8/26이라 PIT 결과를 그대로 보존하고, 비영속 logic-only replay로
+    #   기존 Top-100/90% gate가 임계값 완화 없이 닫힐 충분조건만 검증한다.
+    #   ⛔ investability/Regime/Production/trading 권한 없음.
+    "test/test_crypto_taxonomy_cutoff_slice_20260827.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.

@@ -29,3 +29,10 @@ backdate that boundary.
 Source evidence is revalidated by
 `test/test_identity_authority_pilot.py`. The generic tamper/provenance
 mechanism remains covered by `test/test_identity_foundation.py`.
+
+The Crypto Breadth taxonomy is effective-dated and may acquire future rows
+after an identity approval. The BTC approval therefore continues to bind the
+exact policy bytes reviewed on 2026-08-25 (`0011a30a…d109`), retained under
+`evidence/identity/source_snapshots/sha256/`. If the current policy bytes have
+changed, validation accepts only that exact content-addressed historical
+snapshot; it does not rewrite the old approval to bless the later taxonomy.
