@@ -17,7 +17,9 @@ than being silently excluded.
 Every row binds the exact manifest bytes, permanent raw-cache path and digest,
 SEC source URL, accession, and P4-02 retrieval time. `decision_at` is only a PIT
 upper bound. The persisted `evidence_as_of` is derived from eligible retained
-inputs, so running later with unchanged inputs is byte-identical.
+inputs, so running later with unchanged inputs is byte-identical. A document's
+published date may not be later than the verified capture date; the actual
+PIT-availability gate remains the precise P4-02 retrieval timestamp.
 
 ## Publication and validation
 

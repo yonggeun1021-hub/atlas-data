@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""P3-05 TSM SEC monthly-revenue population from retained official bytes.
+"""P3-05 TSM acceleration population from P4-04 official observations.
 
-This provider-free adapter scans only P4-02 manifests and gzip payloads already
-retained in the repository.  It reuses the canonical SEC manifest validator,
-the existing TSM monthly-report parser, and the existing Business Acceleration
-engine.  No source ranking, importance threshold, candidate promotion, Rule,
-action, order, Production, or trading authority is introduced.
+This provider-free adapter consumes the exact P4-04 observation packet, which
+already validates the retained P4-02 SEC manifests and raw gzip bytes.  It then
+reuses the existing Business Acceleration engine.  No parallel raw parser,
+source ranking, importance threshold, candidate promotion, Rule, action, order,
+Production, or trading authority is introduced.
 
 The first operational slice is deliberately narrow: TSM monthly and cumulative
 published YoY revenue growth from three consecutive SEC-filed monthly reports.
@@ -18,7 +18,6 @@ import argparse
 import calendar
 import copy
 import datetime as dt
-import gzip
 import hashlib
 import json
 import os
@@ -29,15 +28,13 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "collectors"))
 sys.path.insert(0, str(ROOT / "discovery"))
 
 import business_acceleration as RADAR  # noqa: E402
-import sec_filing_content as SEC  # noqa: E402
-import tsmc_sec_monthly_probe as TSM  # noqa: E402
+import official_release_observation as OFFICIAL_RELEASE  # noqa: E402
 
 
-SCHEMA_VERSION = "business_acceleration_population/1"
+SCHEMA_VERSION = "business_acceleration_population/2"
 STATUS_POPULATED = "RADAR_POPULATED"
 STATUS_INSUFFICIENT = "NOT_COMPUTABLE_INSUFFICIENT_CONSECUTIVE_EVIDENCE"
 KST = ZoneInfo("Asia/Seoul")
@@ -87,97 +84,61 @@ def _consecutive(left: str, right: str) -> bool:
     return right == f"{next_year:04d}-{next_month:02d}"
 
 
-def _read_manifest(path: Path) -> dict:
+def _report_from_observation(
+    row: dict, *, data_root: Path, repo_root: Path
+) -> dict:
+    """Translate one independently validated P4-04 observation without reparsing raw."""
+    lineage = row["lineage"]
+    accession = lineage["accession"]
+    manifest_path = Path(data_root) / "sec_content" / "TSM" / accession / "_manifest.json"
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise BusinessAccelerationPopulationError(
-            f"MANIFEST_READ_FAILED:{path}:{exc}"
+            f"OBSERVATION_MANIFEST_READ_FAILED:{accession}:{exc}"
         ) from exc
-    if not isinstance(value, dict):
-        raise BusinessAccelerationPopulationError(f"MANIFEST_NOT_OBJECT:{path}")
-    return value
-
-
-def _validated_report(
-    manifest_path: Path, decision_at: dt.datetime, repo_root: Path
-) -> dict | None:
-    manifest = _read_manifest(manifest_path)
-    try:
-        manifest = SEC.validate_manifest(manifest)
-    except SEC.SecContentError as exc:
+    if hashlib.sha256(manifest_bytes).hexdigest() != lineage["manifest_sha256"]:
         raise BusinessAccelerationPopulationError(
-            f"SEC_MANIFEST_INVALID:{manifest_path}:{exc}"
-        ) from exc
-    if manifest.get("ticker") != "TSM" or manifest.get("form") != "6-K":
-        return None
-    retrieved_at = _parse_utc(
-        manifest.get("retrieved_at_utc"), "RETRIEVED_AT_INVALID"
-    )
-    if retrieved_at > decision_at:
-        return None
-
-    raw_by_name = {}
-    for document in manifest["documents"]:
-        name = document["document_name"]
-        if SEC.SAFE_DOCUMENT_RE.fullmatch(name) is None:
-            raise BusinessAccelerationPopulationError("DOCUMENT_NAME_UNSAFE")
-        try:
-            with gzip.open(manifest_path.parent / f"{name}.gz", "rb") as handle:
-                raw_by_name[name] = handle.read()
-        except (OSError, EOFError) as exc:
-            raise BusinessAccelerationPopulationError(
-                f"RETAINED_CONTENT_READ_FAILED:{manifest_path}:{exc}"
-            ) from exc
-    try:
-        manifest = SEC.validate_manifest(manifest, raw_by_name=raw_by_name)
-    except SEC.SecContentError as exc:
-        raise BusinessAccelerationPopulationError(
-            f"SEC_RETAINED_CONTENT_INVALID:{manifest_path}:{exc}"
-        ) from exc
-    primary = [row for row in manifest["documents"] if row["kind"] == "primary"]
+            f"OBSERVATION_MANIFEST_LINEAGE_MISMATCH:{accession}"
+        )
+    primary = [item for item in manifest.get("documents", []) if item.get("kind") == "primary"]
     if len(primary) != 1:
         raise BusinessAccelerationPopulationError("PRIMARY_CARDINALITY_INVALID")
-    try:
-        report = TSM.parse_retained_monthly_report(
-            manifest, raw_by_name[primary[0]["document_name"]]
-        )
-    except TSM.SecProbeError as exc:
-        if str(exc) == "MONTHLY_REPORT_IDENTITY_MISSING":
-            return None
+    primary = primary[0]
+    expected_primary = {
+        "document_name": lineage["primary_document_name"],
+        "source_uri": lineage["primary_source_uri"],
+        "content_sha256": lineage["primary_content_sha256"],
+    }
+    actual_primary = {key: primary.get(key) for key in expected_primary}
+    if actual_primary != expected_primary:
         raise BusinessAccelerationPopulationError(
-            f"TSM_MONTHLY_REPORT_INVALID:{manifest_path}:{exc}"
-        ) from exc
-    if dt.date.fromisoformat(report["published_at"]) > decision_at.date():
-        return None
+            f"OBSERVATION_PRIMARY_LINEAGE_MISMATCH:{accession}"
+        )
     return {
-        "target_month": report["target_month"],
-        "published_at": report["published_at"],
-        "retrieved_at_utc": manifest["retrieved_at_utc"],
-        "accession": report["accession"],
-        "source_url": report["source_url"],
-        "source_sha256": report["source_sha256"],
-        "source_bytes": report["source_bytes"],
+        "target_month": row["economic_period"],
+        "published_at": row["published_at"],
+        "retrieved_at_utc": lineage["retrieved_at_utc"],
+        "accession": accession,
+        "source_url": lineage["primary_source_uri"],
+        "source_sha256": lineage["primary_content_sha256"],
+        "source_bytes": primary["content_bytes"],
         "manifest_path": manifest_path.relative_to(repo_root).as_posix()
         if manifest_path.is_relative_to(repo_root)
         else manifest_path.as_posix(),
-        "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-        "table_locator": copy.deepcopy(report["table_locator"]),
-        "observation": copy.deepcopy(report["observation"]),
+        "manifest_sha256": lineage["manifest_sha256"],
+        "table_locator": copy.deepcopy(row["table_locator"]),
+        "observation": copy.deepcopy(row["published_values"]),
     }
 
 
-def _reports_at_decision(
-    data_root: Path, decision_at: dt.datetime, repo_root: Path
+def _reports_from_observation_packet(
+    packet: dict, *, data_root: Path, repo_root: Path
 ) -> list[dict]:
-    base = Path(data_root) / "sec_content" / "TSM"
-    if not base.is_dir():
-        return []
     by_month = {}
-    for manifest_path in sorted(base.glob("*/_manifest.json")):
-        report = _validated_report(manifest_path, decision_at, repo_root)
-        if report is None:
-            continue
+    for row in packet["observations"]:
+        report = _report_from_observation(row, data_root=data_root, repo_root=repo_root)
         month = report["target_month"]
         if month in by_month:
             raise BusinessAccelerationPopulationError(
@@ -268,10 +229,21 @@ def _series(window: list[dict], *, cumulative: bool) -> dict:
 def build_population(
     *, decision_at: str, repo_root: Path = ROOT, data_root: Path | None = None
 ) -> dict:
-    decision = _parse_utc(decision_at)
+    _parse_utc(decision_at)
     repo_root = Path(repo_root)
     data_root = Path(data_root) if data_root is not None else repo_root / "data"
-    reports = _reports_at_decision(data_root, decision, repo_root)
+    try:
+        observation_packet = OFFICIAL_RELEASE.build_packet(
+            data_root=data_root, decision_at=decision_at
+        )
+        OFFICIAL_RELEASE.validate_packet(observation_packet, data_root=data_root)
+    except OFFICIAL_RELEASE.OfficialReleaseObservationError as exc:
+        raise BusinessAccelerationPopulationError(
+            f"OFFICIAL_RELEASE_OBSERVATION_INVALID:{exc}"
+        ) from exc
+    reports = _reports_from_observation_packet(
+        observation_packet, data_root=data_root, repo_root=repo_root
+    )
     window = _latest_consecutive_three(reports)
     radar_packet = None
     status = STATUS_INSUFFICIENT
@@ -300,6 +272,9 @@ def build_population(
         "decision_at": decision_at,
         "status": status,
         "scope": "TSM_SEC_MONTHLY_REVENUE_ONLY",
+        "source_observation_schema_version": observation_packet["schema_version"],
+        "source_observation_packet_sha256": observation_packet["packet_sha256"],
+        "source_observation_evidence_as_of": observation_packet["evidence_as_of"],
         "source_reports": reports,
         "selected_months": selected_months,
         "summary": summary,

@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +49,19 @@ class RealPopulationTests(unittest.TestCase):
 
     def test_real_population_reuses_three_retained_official_reports(self):
         packet = self.packet
+        observation_packet = POPULATION.OFFICIAL_RELEASE.build_packet(
+            data_root=ROOT / "data", decision_at=DECISION_AT
+        )
         self.assertEqual(packet["status"], POPULATION.STATUS_POPULATED)
+        self.assertEqual(packet["schema_version"], "business_acceleration_population/2")
+        self.assertEqual(
+            packet["source_observation_packet_sha256"],
+            observation_packet["packet_sha256"],
+        )
+        self.assertEqual(
+            packet["source_observation_schema_version"],
+            POPULATION.OFFICIAL_RELEASE.SCHEMA_VERSION,
+        )
         self.assertEqual(packet["selected_months"], ["2026-05", "2026-06", "2026-07"])
         self.assertEqual([row["accession"] for row in packet["source_reports"]], list(ACCESSIONS))
         self.assertEqual(packet["summary"], {
@@ -100,7 +113,9 @@ class RealPopulationTests(unittest.TestCase):
                 raw = handle.read()
             self.assertEqual(hashlib.sha256(raw).hexdigest(), report["source_sha256"])
             self.assertEqual(len(raw), report["source_bytes"])
-            POPULATION.SEC.validate_manifest(manifest, raw_by_name={primary["document_name"]: raw})
+            POPULATION.OFFICIAL_RELEASE.SEC.validate_manifest(
+                manifest, raw_by_name={primary["document_name"]: raw}
+            )
 
     def test_retained_parser_rederives_each_published_observation(self):
         observations = []
@@ -110,7 +125,11 @@ class RealPopulationTests(unittest.TestCase):
             primary = next(row for row in manifest["documents"] if row["kind"] == "primary")
             with gzip.open(manifest_path.parent / f"{primary['document_name']}.gz", "rb") as handle:
                 raw = handle.read()
-            observations.append(POPULATION.TSM.parse_retained_monthly_report(manifest, raw)["observation"])
+            observations.append(
+                POPULATION.OFFICIAL_RELEASE.TSMC.parse_retained_monthly_report(
+                    manifest, raw
+                )["observation"]
+            )
         self.assertEqual(
             [row["monthly_yoy_pct_published"] for row in observations],
             ["30.1", "67.9", "44.7"],
@@ -155,7 +174,7 @@ class FailClosedPopulationTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 POPULATION.BusinessAccelerationPopulationError,
-                "DUPLICATE_TARGET_MONTH_AUTHORITY_UNRESOLVED:2026-05",
+                "OFFICIAL_RELEASE_OBSERVATION_INVALID:MONTHLY_PERIOD_AMBIGUOUS",
             ):
                 POPULATION.build_population(
                     decision_at=DECISION_AT, repo_root=repo, data_root=data
@@ -174,7 +193,7 @@ class FailClosedPopulationTests(unittest.TestCase):
             raw_path.write_bytes(gzip.compress(raw + b"tamper"))
             with self.assertRaisesRegex(
                 POPULATION.BusinessAccelerationPopulationError,
-                "SEC_RETAINED_CONTENT_INVALID",
+                "OFFICIAL_RELEASE_OBSERVATION_INVALID:SEC_MANIFEST_INVALID",
             ):
                 POPULATION.build_population(
                     decision_at=DECISION_AT, repo_root=repo, data_root=data
@@ -200,7 +219,7 @@ class FailClosedPopulationTests(unittest.TestCase):
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(
                 POPULATION.BusinessAccelerationPopulationError,
-                "SEC_MANIFEST_INVALID:.*MANIFEST_TIME_INVALID",
+                "OFFICIAL_RELEASE_OBSERVATION_INVALID:MANIFEST_RETRIEVED_AT_INVALID",
             ):
                 POPULATION.build_population(
                     decision_at=DECISION_AT, repo_root=repo, data_root=data
@@ -226,11 +245,38 @@ class PublicationAndWiringTests(unittest.TestCase):
 
     def test_adapter_reuses_canonical_modules_and_has_no_provider_call(self):
         text = MODULE_PATH.read_text(encoding="utf-8")
-        self.assertIn("SEC.validate_manifest", text)
-        self.assertIn("TSM.parse_retained_monthly_report", text)
+        self.assertIn("OFFICIAL_RELEASE.build_packet", text)
+        self.assertIn("OFFICIAL_RELEASE.validate_packet", text)
         self.assertIn("RADAR.build_packet", text)
+        self.assertNotIn("SEC.validate_manifest", text)
+        self.assertNotIn("TSM.parse_retained_monthly_report", text)
         for forbidden in ("requests.", "urllib.request", "C4.get(", "run_probe(", "curl "):
             self.assertNotIn(forbidden, text)
+
+    def test_source_observation_lineage_tamper_is_independently_rejected(self):
+        packet = POPULATION.build_population(decision_at=DECISION_AT)
+        packet["source_observation_packet_sha256"] = "0" * 64
+        packet["population_sha256"] = unsigned_hash(packet)
+        with self.assertRaisesRegex(
+            POPULATION.BusinessAccelerationPopulationError,
+            "POPULATION_REBUILD_MISMATCH",
+        ):
+            POPULATION.validate_population(packet)
+
+    def test_p4_04_production_validator_is_called_before_radar(self):
+        original = POPULATION.OFFICIAL_RELEASE.validate_packet
+        with mock.patch.object(
+            POPULATION.OFFICIAL_RELEASE,
+            "validate_packet",
+            wraps=original,
+        ) as validator:
+            packet = POPULATION.build_population(decision_at=DECISION_AT)
+        self.assertEqual(validator.call_count, 1)
+        self.assertEqual(
+            validator.call_args.kwargs["data_root"],
+            ROOT / "data",
+        )
+        self.assertEqual(packet["status"], POPULATION.STATUS_POPULATED)
 
     def test_daily_collect_population_is_after_sec_capture_and_before_read_model(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

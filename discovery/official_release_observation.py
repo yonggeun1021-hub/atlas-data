@@ -158,6 +158,19 @@ def _observation_from_retained(
         raise OfficialReleaseObservationError(
             f"IDENTIFIED_MONTHLY_REPORT_INVALID:{lineage['accession']}:{exc}"
         ) from exc
+    try:
+        published_date = dt.date.fromisoformat(parsed["published_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OfficialReleaseObservationError(
+            f"OBSERVATION_PUBLISHED_AT_INVALID:{lineage['accession']}"
+        ) from exc
+    retrieved_date = _utc(
+        lineage["retrieved_at_utc"], "MANIFEST_RETRIEVED_AT_INVALID"
+    ).date()
+    if published_date > retrieved_date:
+        raise OfficialReleaseObservationError(
+            f"OBSERVATION_PUBLISHED_AFTER_CAPTURE:{lineage['accession']}"
+        )
     return {
         "schema_version": OBSERVATION_VERSION,
         "status": "OBSERVED",

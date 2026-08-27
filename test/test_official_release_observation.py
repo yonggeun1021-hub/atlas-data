@@ -127,6 +127,25 @@ class OfficialReleaseObservationTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.OfficialReleaseObservationError, "DECISION_AT_INVALID"):
             MODULE.build_packet(data_root=ROOT / "data", decision_at="2026-08-28")
 
+    def test_published_date_after_capture_is_rejected(self):
+        original = MODULE.TSMC.parse_retained_monthly_report
+
+        def future_published_at(manifest, raw):
+            parsed = original(manifest, raw)
+            parsed["published_at"] = "2099-01-01"
+            return parsed
+
+        with mock.patch.object(
+            MODULE.TSMC,
+            "parse_retained_monthly_report",
+            side_effect=future_published_at,
+        ):
+            with self.assertRaisesRegex(
+                MODULE.OfficialReleaseObservationError,
+                "OBSERVATION_PUBLISHED_AFTER_CAPTURE",
+            ):
+                self.real_packet()
+
     def test_raw_cache_tamper_is_rejected_before_observation(self):
         with tempfile.TemporaryDirectory() as tmp:
             data_root = self.copy_tsm_data(Path(tmp))

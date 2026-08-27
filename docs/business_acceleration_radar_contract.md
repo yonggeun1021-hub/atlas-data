@@ -90,14 +90,14 @@ evidence envelope 전체가 아니라, 표준 재구축에 필요한 최소 필�
 
 ## Retained-evidence population slice
 
-`discovery/business_acceleration_population.py`는 P4-02가 이미 보존한 TSM
-SEC 6-K manifest와 gzip 원문만 읽는다. 신규 provider 호출이나 fixture를 쓰지
-않고 다음 정본 구현을 그대로 재사용한다.
+`discovery/business_acceleration_population.py`는 P4-04가 P4-02의 exact TSM
+SEC 6-K 바이트에서 만든 `official_release_observation_packet/1`만을 정규 입력
+경계로 소비한다. 신규 provider 호출이나 별도 원문 parser를 만들지 않고 다음
+정본 구현을 그대로 재사용한다.
 
-- `collectors/sec_filing_content.py::validate_manifest()` — manifest와 보존
-  원문 바이트/길이/SHA-256 검증;
-- `collectors/tsmc_sec_monthly_probe.py::parse_retained_monthly_report()` —
-  기존 SEC live probe와 같은 제목·표·단위 parser; 및
+- `discovery/official_release_observation.py::build_packet()` 및
+  `validate_packet()` — manifest·보존 원문·월간보고 identity·표·단위·PIT를
+  독립 검증한 P4-04 관측 packet;
 - `discovery/business_acceleration.py::build_packet()` — 3기간 pattern/case
   산술과 권한 경계.
 
@@ -112,8 +112,9 @@ YoY와 누적 YTD YoY 두 series를 만들되, 현재 범위는
 `30.0→35.6→37.0`은 `TWO_STEP_ACCELERATION_OBSERVED`다. 후자는 중요도,
 지속성, 밸류에이션, 후보자격 또는 매수신호를 뜻하지 않는다.
 
-Population validator는 저장 packet hash만 확인하지 않고 같은 의사결정시각의
-보존 원문에서 packet 전체를 다시 만든다. 출력은 KST 의사결정일 아래
+Population packet `/2`는 exact P4-04 packet SHA·schema·evidence-as-of를
+내장한다. Validator는 저장 packet hash만 확인하지 않고 같은 의사결정시각의
+P4-04 관측 packet부터 전체를 다시 만든다. 출력은 KST 의사결정일 아래
 `packet-<content-sha>.json`로 append-only 게시되며 동일 내용은 no-op, 같은
 content-addressed 경로의 다른 바이트는 실패한다. Daily Collect는 기존 SEC
 content capture 뒤 이 provider-free population을 실행하고 브리핑에는
