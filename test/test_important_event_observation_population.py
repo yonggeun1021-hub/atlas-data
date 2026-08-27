@@ -56,6 +56,37 @@ class ImportantEventObservationPopulationTests(unittest.TestCase):
         self.assertEqual(len(checked["events"]), 9)
         self.assertTrue(all(row["evidence_status"] == "BLOCKED" for row in checked["events"]))
 
+    def test_latest_committed_population_with_mu_builds_and_remains_blocked(self):
+        source_path = (
+            ROOT
+            / "data/observations/event_discovery_cases/2026-08-27"
+            / "packet-dee372f765090030.json"
+        )
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        packet = POP.build_packet(source, "2026-08-26T23:39:29Z")
+        self.assertEqual(packet["summary"]["source_cases"], 13)
+        self.assertEqual(packet["summary"]["observation_events"], 13)
+        self.assertEqual(packet["summary"]["blocked_events"], 13)
+        self.assertEqual(packet["summary"]["confirmed_events"], 0)
+        self.assertEqual(packet["summary"]["importance_classified_events"], 0)
+        self.assertEqual(packet["summary"]["notification_sent_count"], 0)
+        self.assertEqual(packet["summary"]["action_count"], 0)
+        self.assertEqual(packet["summary"]["order_count"], 0)
+        mu_rows = [
+            row
+            for row in packet["event_batch"]["events"]
+            if row["subject_id"] == "MU"
+        ]
+        self.assertEqual(len(mu_rows), 2)
+        self.assertTrue(all(row["evidence_status"] == "BLOCKED" for row in mu_rows))
+        self.assertTrue(
+            all(
+                value is False
+                for key, value in packet["authority"].items()
+                if key != "observation_population_only"
+            )
+        )
+
     def test_linked_sndk_rows_keep_exact_sec_url_and_content_hash(self):
         linked = [
             row for row in self.packet["event_batch"]["events"]

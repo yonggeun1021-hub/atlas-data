@@ -17,6 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "important_event_detector_contract.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
+# Exchange symbols can legitimately be one or two characters (for example,
+# ``A`` and ``MU``).  They are identifiers, not the generic contract tokens
+# above, so validating them with TOKEN_RE would reject a valid observation and
+# fail the whole batch.
+SUBJECT_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{0,127}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -120,6 +125,12 @@ def _date(value, code: str) -> dt.date:
 
 def _token(value, code: str) -> str:
     if not isinstance(value, str) or TOKEN_RE.fullmatch(value) is None:
+        raise ImportantEventDetectorError(code)
+    return value
+
+
+def _subject_id(value, code: str) -> str:
+    if not isinstance(value, str) or SUBJECT_ID_RE.fullmatch(value) is None:
         raise ImportantEventDetectorError(code)
     return value
 
@@ -280,7 +291,9 @@ def _validate_events(value: dict, detected_at: dt.datetime, contract: dict) -> d
         events.append({
             "event_id": _token(row.get("event_id"), f"EVENT_ID_INVALID:{context}"),
             "market": row["market"],
-            "subject_id": _token(row.get("subject_id"), f"SUBJECT_ID_INVALID:{context}"),
+            "subject_id": _subject_id(
+                row.get("subject_id"), f"SUBJECT_ID_INVALID:{context}"
+            ),
             "source_kind": row["source_kind"],
             "event_type": _token(row.get("event_type"), f"EVENT_TYPE_INVALID:{context}"),
             "event_at": row["event_at"],
