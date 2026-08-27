@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import sys
 
 
@@ -146,6 +147,105 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
             and row["action"] is None
             for row in signal["observations"]
         ))
+
+    def test_real_dart_observations_are_visible_but_escalation_stays_blocked(self):
+        source = MODULE.load_operational_dart_observation_packet(
+            "2026-08-27T23:59:59Z", ROOT
+        )
+        self.assertIsNotNone(source)
+        result = MODULE.build_briefing(
+            empty_ledger(), records(), bindings(),
+            "evening", "2026-08-27T23:59:59Z", CONTRACT,
+            dart_observation_packet=source, dart_root=ROOT,
+        )
+        section = result["dart_observations"]
+        self.assertEqual(section["observation_count"], 2)
+        self.assertEqual(section["raw_bytes_verified_count"], 1)
+        self.assertEqual(section["metadata_only_count"], 1)
+        self.assertEqual(result["summary"]["dart_observation_count"], 2)
+        for row in section["observations"]:
+            self.assertIsNone(row["event_type"])
+            self.assertIsNone(row["direction"])
+            self.assertIsNone(row["importance"])
+            self.assertEqual(row["ready_status"], "NOT_EVALUATED")
+            self.assertEqual(row["promotion_status"], "PROMOTION_NOT_AUTHORIZED")
+            self.assertIsNone(row["action"])
+
+    def test_dart_source_and_projection_tamper_fail_closed(self):
+        source = MODULE.load_operational_dart_observation_packet(
+            "2026-08-27T23:59:59Z", ROOT
+        )
+        tampered_source = copy.deepcopy(source)
+        tampered_source["observations"][0]["filing_title"] = "조작된 공시"
+        tampered_source["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in tampered_source.items()
+            if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.RotationDiscoveryBriefingError,
+            "DART_OBSERVATION_PACKET_INVALID",
+        ):
+            MODULE.build_briefing(
+                empty_ledger(), records(), bindings(),
+                "evening", "2026-08-27T23:59:59Z", CONTRACT,
+                dart_observation_packet=tampered_source, dart_root=ROOT,
+            )
+
+        result = MODULE.build_briefing(
+            empty_ledger(), records(), bindings(),
+            "evening", "2026-08-27T23:59:59Z", CONTRACT,
+            dart_observation_packet=source, dart_root=ROOT,
+        )
+        result["dart_observations"]["observations"][0]["ready_status"] = "READY"
+        result["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in result.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.RotationDiscoveryBriefingError,
+            "BRIEFING_DART_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_briefing(result, CONTRACT, dart_root=ROOT)
+
+    def test_future_dart_observation_is_not_backfilled(self):
+        self.assertIsNone(MODULE.load_operational_dart_observation_packet(
+            "2026-08-27T09:00:00Z", ROOT
+        ))
+
+    def test_loader_rebuilds_only_the_latest_eligible_dart_pointer(self):
+        latest = MODULE.load_operational_dart_observation_packet(
+            "2026-08-27T23:59:59Z", ROOT
+        )
+        historical = copy.deepcopy(latest)
+        historical["decision_at"] = "2026-08-26T09:53:02Z"
+        historical["source_date"] = "2026-08-26"
+        historical["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in historical.items()
+            if key != "packet_sha256"
+        })
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            for packet in (historical, latest):
+                target = (
+                    root / "data" / "observations" / "dart_event_observations"
+                    / packet["source_date"]
+                    / f"packet-{packet['packet_sha256'][:16]}.json"
+                )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(json.dumps(packet), encoding="utf-8")
+            with mock.patch.object(
+                MODULE,
+                "_validated_dart_observation_packet",
+                return_value=latest,
+            ) as validator:
+                selected = MODULE.load_operational_dart_observation_packet(
+                    "2026-08-27T23:59:59Z", root
+                )
+            self.assertEqual(selected, latest)
+            validator.assert_called_once()
+            self.assertEqual(
+                validator.call_args.args[0]["packet_sha256"],
+                latest["packet_sha256"],
+            )
 
     def test_signal_observation_tamper_and_resign_fails_closed(self):
         result = MODULE.build_briefing(

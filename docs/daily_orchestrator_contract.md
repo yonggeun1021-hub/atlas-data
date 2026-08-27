@@ -405,6 +405,12 @@ it has nothing real to show; a `PENDING`/`POLICY_BLOCKED`/`DATA_BLOCKED`/
 opens with an explicit statement that no action, order, Production, or
 trading authority is granted.
 
+The `ROTATION_DISCOVERY` detail now includes the latest independently
+validated P3-08 DART observation packet. It renders at most ten filing-title
+rows plus total/raw-verified/metadata-only counts. These rows explicitly say
+event type and importance are unratified, promotion is unauthorized, and
+action is null; a filing observation is never presented as a recommendation.
+
 `_format_component_detail()` pulls actual retained values out of each
 component's own packet -- BTC direction/200DMA, realized-volatility and
 drawdown fractions, the exact stablecoin daily/weekly net issuance amount,

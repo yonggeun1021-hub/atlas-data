@@ -2352,5 +2352,25 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         self.assertNotIn("mae", rendered.lower())
 
 
+class DartObservationBriefingIntegrationTests(unittest.TestCase):
+    def test_real_dart_observations_render_as_evidence_not_a_recommendation(self):
+        generated_at = "2026-08-27T23:59:59Z"
+        row = MODULE.build_rotation_discovery("evening", generated_at)
+        self.assertEqual(row["status"], "PENDING")
+        self.assertEqual(row["reason"], "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED")
+        dart = row["packet"]["dart_observations"]
+        self.assertEqual(dart["observation_count"], 2)
+        self.assertEqual(row["authority"]["stage_promotion_authorized"], False)
+        self.assertEqual(row["authority"]["action_generation_authorized"], False)
+        self.assertEqual(row["authority"]["trading_authorized"], False)
+
+        packet = MODULE.build_packet("evening", "2026-08-27", generated_at)
+        rendered = MODULE.render_markdown(packet)
+        self.assertIn("DART observations=2", rendered)
+        self.assertIn("event_type=UNRATIFIED importance=UNRATIFIED", rendered)
+        self.assertIn("DART 329180 HD현대중공업", rendered)
+        self.assertIn("action=null", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

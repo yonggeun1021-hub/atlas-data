@@ -1417,6 +1417,11 @@ def build_rotation_discovery(
         wildcard_envelopes = ROTATION_DISCOVERY.load_operational_wildcard_envelopes(
             generated_at, ROOT
         )
+        dart_observation_packet = (
+            ROTATION_DISCOVERY.load_operational_dart_observation_packet(
+                generated_at, ROOT
+            )
+        )
         packet = ROTATION_DISCOVERY.build_briefing(
             ledger,
             population["records"],
@@ -1426,17 +1431,25 @@ def build_rotation_discovery(
             dynamic_report=dynamic_report,
             wildcard_envelopes=wildcard_envelopes,
             wildcard_root=ROOT,
+            dart_observation_packet=dart_observation_packet,
+            dart_root=ROOT,
         )
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ROTATION_DISCOVERY", exc)
     case_count = packet["discovery"]["case_count"]
     signal_count = packet["signal_observations"]["observation_count"]
     wildcard_count = packet["wildcard_observations"]["observation_count"]
+    dart_count = packet["dart_observations"]["observation_count"]
+    source_dates = [population["source_as_of_date"]]
+    if dart_observation_packet is not None:
+        source_dates.append(dart_observation_packet["source_date"])
     return component_row(
         "ROTATION_DISCOVERY",
         "PENDING",
         (
-            "WILDCARD_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
+            "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
+            if dart_count
+            else "WILDCARD_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
             if wildcard_count
             else "SIGNAL_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"
             if signal_count
@@ -1446,7 +1459,11 @@ def build_rotation_discovery(
                 else "NO_CASE_OR_SIGNAL_OBSERVATION_AVAILABLE"
             )
         ),
-        as_of_date=population["source_as_of_date"] or generated_at[:10],
+        as_of_date=(
+            max(value for value in source_dates if value)
+            if any(source_dates)
+            else generated_at[:10]
+        ),
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
         validated=True,
@@ -2847,8 +2864,29 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"new_candidates={summary.get('new_candidate_count')} "
                 f"existing_candidate_changes={summary.get('existing_candidate_change_count')} "
                 f"signal_observations={summary.get('signal_observation_count')} "
+                f"dart_observations={summary.get('dart_observation_count')} "
                 f"ready={summary.get('ready_count')} entry={summary.get('entry_trigger_count')}"
             )
+            dart = packet.get("dart_observations", {})
+            if dart.get("observation_count"):
+                lines.append(
+                    f"    - DART observations={dart.get('observation_count')} "
+                    f"raw_verified={dart.get('raw_bytes_verified_count')} "
+                    f"metadata_only={dart.get('metadata_only_count')} "
+                    "event_type=UNRATIFIED importance=UNRATIFIED "
+                    "promotion=NOT_AUTHORIZED"
+                )
+                for observation in dart.get("observations", [])[:10]:
+                    lines.append(
+                        f"    - DART {observation.get('subject_id')} "
+                        f"{observation.get('subject_name')}: "
+                        f"{observation.get('filing_title')} "
+                        f"evidence={observation.get('evidence_status')} "
+                        "action=null"
+                    )
+                omitted = dart.get("observation_count", 0) - 10
+                if omitted > 0:
+                    lines.append(f"    - DART +{omitted} additional observations omitted")
             signal = packet.get("signal_observations", {})
             if signal:
                 lines.append(

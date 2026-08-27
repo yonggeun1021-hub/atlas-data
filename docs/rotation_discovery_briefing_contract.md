@@ -14,6 +14,14 @@ latest revision per committed submission path. A source-envelope mismatch,
 same-time conflicting revision, future envelope, or altered projection fails
 closed. No wildcard is fabricated when the evidence directory is empty.
 
+Version 4 adds the committed P3-08 DART observation packet as a separate
+`dart_observations` section. The loader selects only an append-only packet whose
+decision timestamp is at or before briefing generation, verifies its
+content-addressed locator, and reruns the production DART packet validator
+against the exact retained metadata/content hashes. The briefing exposes the
+filing title and whether raw bytes were verified or only metadata was available.
+It does not infer an event type, direction, importance, candidate, or action.
+
 The adapter does not call a data provider and does not infer importance,
 direction, candidate rank, promotion, or action. Current Discovery policy marks
 importance as unratified and promotion as unauthorized, so `new_candidates` and
@@ -36,12 +44,19 @@ strength/importance, `candidate_eligible=false`, `ready_status=NOT_EVALUATED`,
 shown to the operator but cannot populate `new_candidates`, READY, entry, rank,
 or action counts.
 
+DART rows are separately labelled `dart_observations`. Every row keeps
+`event_type=null`, `direction=null`, `importance=null`,
+`ready_status=NOT_EVALUATED`, `promotion_status=PROMOTION_NOT_AUTHORIZED`, and
+`action=null`. The renderer caps inline rows at ten while retaining the full
+validated source packet and count in the read model.
+
 Rotation states are copied only from a ledger that passes its complete source,
 policy, record-chain, and digest validation. Future-dated Rotation observations
 or Discovery evidence are rejected. Output is deterministic, digest-bound, and
 may be written only outside the repository.
 
-Cross-market Discovery sources beyond current SEC coverage, candidate
-importance/ranking/promotion policy, and capital authority remain unresolved.
+Cross-market Discovery sources beyond current SEC and evidence-only DART
+coverage, DART item/event interpretation, candidate importance/ranking/promotion
+policy, and capital authority remain unresolved.
 P3-11 operational intake/publication and briefing consumption are implemented,
 but a genuine main submission/live briefing sample has not yet been observed.
