@@ -34,11 +34,11 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         self.assertEqual(self.packet["status"], "NOT_READY_AXIS_COVERAGE")
         self.assertEqual(markets["US"]["coverage"]["ratio"], "1/5")
         self.assertEqual(markets["KR"]["coverage"]["ratio"], "0/5")
-        self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], "3/5")
+        self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], "4/5")
         self.assertEqual(markets["US"]["coverage"]["defined_axes"], ["RISK_VOL"])
         self.assertEqual(
             markets["CRYPTO"]["coverage"]["defined_axes"],
-            ["TREND", "RISK_VOL", "LIQUIDITY"],
+            ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY"],
         )
         self.assertEqual(
             self.packet["summary"]["current_readiness_order_not_market_ranking"],
@@ -52,7 +52,7 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         }
         for qualified in (
             "US/RISK_VOL", "CRYPTO/TREND", "CRYPTO/RISK_VOL",
-            "CRYPTO/LIQUIDITY",
+            "CRYPTO/LIQUIDITY", "CRYPTO/BREADTH",
         ):
             history = axes[qualified]["history"]
             self.assertEqual(history["status"], "VALIDATED_RETAINED")
@@ -77,10 +77,15 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         self.assertEqual(
             axes["US/BREADTH"]["blocker"], "NO_RATIFIED_LIVE_AXIS_BINDING"
         )
+        # P1-CR-08: CRYPTO/LEADERSHIP is now a real, bound axis -- its
+        # blocker is that no history has been VALIDATED_RETAINED yet
+        # (dual-window methodology needs more committed evidence than
+        # currently exists), not that no binding exists at all.
         self.assertEqual(
             axes["CRYPTO/LEADERSHIP"]["blocker"],
-            "NO_RATIFIED_LIVE_AXIS_BINDING",
+            "VALIDATED_RETAINED_EVIDENCE_MISSING",
         )
+        self.assertIsNone(axes["CRYPTO/BREADTH"]["blocker"])
 
     def test_methodology_is_ratified_without_generating_policy_values(self):
         self.assertEqual(

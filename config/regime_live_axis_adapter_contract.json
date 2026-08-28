@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_live_axis_adapter/v4",
+  "contract_version": "regime_live_axis_adapter/v5",
   "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
   "bindings": {
     "US/RISK_VOL": {
-      "axis_transform_version": "regime_live_axis_fred_vix/v1",
       "source_component": "FREE_MARKET_DATA",
-      "source_transform_version": "free_market_data/2"
+      "source_transform_version": "free_market_data/2",
+      "axis_transform_version": "regime_live_axis_fred_vix/v1"
     },
     "CRYPTO/TREND": {
       "source_component": "BTC_TREND",
@@ -19,9 +19,22 @@
       "axis_transform_version": "regime_live_axis_btc_risk/v1"
     },
     "CRYPTO/LIQUIDITY": {
-      "source_component": "STABLECOIN_NET_ISSUANCE",
-      "source_transform_version": "stablecoin_net_issuance/v1",
-      "axis_transform_version": "regime_live_axis_stablecoin/v1"
+      "source_components": {
+        "STABLECOIN_NET_ISSUANCE": "stablecoin_net_issuance/v1",
+        "UPBIT_MARKET_EVIDENCE": "upbit_market_evidence_packet/1"
+      },
+      "qualification_rule": "any_qualifying_input_present",
+      "axis_transform_version": "regime_live_axis_crypto_liquidity/v2"
+    },
+    "CRYPTO/BREADTH": {
+      "source_component": "CRYPTO_BREADTH",
+      "source_transform_version": "crypto_breadth_observation/v2",
+      "axis_transform_version": "regime_live_axis_crypto_breadth/v1"
+    },
+    "CRYPTO/LEADERSHIP": {
+      "source_component": "CRYPTO_LEADERSHIP",
+      "source_transform_version": "crypto_leadership_contract/v2",
+      "axis_transform_version": "regime_live_axis_crypto_leadership/v1"
     }
   },
   "deferred_axes": {

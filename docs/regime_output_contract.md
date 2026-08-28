@@ -1,5 +1,11 @@
 # Regime Common Output Contract (P1-COM-01)
 
+For which axes currently have real, evidence-backed bindings (as opposed to
+this contract's own market/axis-agnostic envelope shape), see
+`docs/regime_live_axis_adapter_contract.md` -- including P1-CR-08's Crypto
+axis coverage and the recorded Notion-vs-repo evidence-presence-only scope
+decision.
+
 ## Current authorization boundary
 
 The contract records the approved future vocabulary for US, Korea, and Crypto,

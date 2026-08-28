@@ -7,10 +7,30 @@ direction, applies a threshold, ranks a market, or authorizes an action.
 
 Only direct semantic bindings are supported:
 
-* US/RISK_VOL     <- independently replayed FRED VIXCLS raw evidence
-* CRYPTO/TREND    <- BTC_TREND
-* CRYPTO/RISK_VOL <- BTC_RISK
-* CRYPTO/LIQUIDITY<- STABLECOIN_NET_ISSUANCE
+* US/RISK_VOL       <- independently replayed FRED VIXCLS raw evidence
+* CRYPTO/TREND      <- BTC_TREND
+* CRYPTO/RISK_VOL   <- BTC_RISK
+* CRYPTO/LIQUIDITY  <- STABLECOIN_NET_ISSUANCE, and/or Upbit microstructure
+                       evidence (P4-07 UPBIT_MARKET_EVIDENCE) -- either
+                       qualifying input alone is sufficient for DEFINED; this
+                       is still a presence check, never an interpretation of
+                       which input "means" more liquidity.
+* CRYPTO/BREADTH    <- CRYPTO_BREADTH (P1-CR-06)
+* CRYPTO/LEADERSHIP <- CRYPTO_LEADERSHIP (P1-CR-07), derived from CR-06
+                       breadth snapshots; UNDEFINED today whenever the
+                       component row is absent (no daily_orchestrator.py
+                       capture wiring exists yet for this component -- see
+                       docs/regime_live_axis_adapter_contract.md) or the underlying
+                       dual-window history is incomplete.
+
+P1-CR-08 note: every binding above proves only evidence PRESENCE
+(DEFINED/UNDEFINED). It intentionally does NOT compute or emit any of the
+interpreted axis values (POSITIVE/NEUTRAL/NEGATIVE, 확산/편중/붕괴, etc.)
+described by the Notion Crypto policy doc's "5축 판정" section. That gap
+between Notion canon and this repository's ratified P1-COM-01 evidence-only
+contract is a known, user-acknowledged scope decision (2026-08-29), not an
+implementation oversight -- see docs/regime_live_axis_adapter_contract.md.
+
 The Korea seven-name post-close watchlist, Korea Breadth lineage-only receipts,
 the three-name IEX sample, and the US membership roster are deliberately not
 promoted into market-wide axes.  A sanitized Korea Breadth replay attestation
@@ -33,7 +53,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v4"
+CONTRACT_VERSION = "regime_live_axis_adapter/v5"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -67,9 +87,22 @@ def _expected_contract() -> dict:
                 "axis_transform_version": "regime_live_axis_btc_risk/v1",
             },
             "CRYPTO/LIQUIDITY": {
-                "source_component": "STABLECOIN_NET_ISSUANCE",
-                "source_transform_version": "stablecoin_net_issuance/v1",
-                "axis_transform_version": "regime_live_axis_stablecoin/v1",
+                "source_components": {
+                    "STABLECOIN_NET_ISSUANCE": "stablecoin_net_issuance/v1",
+                    "UPBIT_MARKET_EVIDENCE": "upbit_market_evidence_packet/1",
+                },
+                "qualification_rule": "any_qualifying_input_present",
+                "axis_transform_version": "regime_live_axis_crypto_liquidity/v2",
+            },
+            "CRYPTO/BREADTH": {
+                "source_component": "CRYPTO_BREADTH",
+                "source_transform_version": "crypto_breadth_observation/v2",
+                "axis_transform_version": "regime_live_axis_crypto_breadth/v1",
+            },
+            "CRYPTO/LEADERSHIP": {
+                "source_component": "CRYPTO_LEADERSHIP",
+                "source_transform_version": "crypto_leadership_contract/v2",
+                "axis_transform_version": "regime_live_axis_crypto_leadership/v1",
             },
         },
         "deferred_axes": {
@@ -126,6 +159,16 @@ BTC_TREND = _load("atlas_regime_axis_btc_trend", ".github/scripts/btc_trend.py")
 BTC_RISK = _load("atlas_regime_axis_btc_risk", ".github/scripts/btc_risk.py")
 STABLECOIN = _load(
     "atlas_regime_axis_stablecoin", ".github/scripts/stablecoin_net_issuance.py"
+)
+CRYPTO_BREADTH = _load(
+    "atlas_regime_axis_crypto_breadth", ".github/scripts/crypto_breadth.py"
+)
+CRYPTO_LEADERSHIP = _load(
+    "atlas_regime_axis_crypto_leadership", ".github/scripts/crypto_leadership.py"
+)
+UPBIT_MARKET_EVIDENCE = _load(
+    "atlas_regime_axis_upbit_liquidity",
+    ".github/scripts/upbit_microstructure_populate.py",
 )
 FRED_VIX = _load(
     "atlas_regime_axis_fred_vix", "collectors/fred_vix_provenance.py"
@@ -291,7 +334,7 @@ def _btc_risk(rows: dict, generated_at: str, binding: dict) -> dict:
     )
 
 
-def _stablecoin(rows: dict, generated_at: str, binding: dict) -> dict:
+def _stablecoin_evidence(rows: dict, generated_at: str, source_transform_version: str):
     row = _row(rows, "STABLECOIN_NET_ISSUANCE", generated_at)
     path = _source_dir(row, "evidence/stablecoin/raw/")
     packet = STABLECOIN.build_transform(path)
@@ -310,7 +353,7 @@ def _stablecoin(rows: dict, generated_at: str, binding: dict) -> dict:
         "weekly_status": latest.get("weekly_status"),
     }
     if (
-        packet.get("transform_version") != binding["source_transform_version"]
+        packet.get("transform_version") != source_transform_version
         or row.get("packet") != expected
         or row.get("generated_at") != packet.get("lineage", {}).get("available_at")
         or row.get("as_of_date") != packet.get("lineage", {}).get("vintage_date")
@@ -318,13 +361,189 @@ def _stablecoin(rows: dict, generated_at: str, binding: dict) -> dict:
         or latest.get("weekly_status") != "AVAILABLE"
     ):
         fail("COMPONENT_REDERIVATION_MISMATCH", "STABLECOIN_NET_ISSUANCE")
-    return _defined(
+    return (
         row,
         latest["observation_date"],
         packet["lineage"]["available_at"],
-        binding["axis_transform_version"],
         f"atlas-raw-response://{row['source_packet_path']}/stablecoincharts_all.json.gz",
         packet["source"]["response_sha256"],
+    )
+
+
+def _upbit_liquidity_evidence(
+    rows: dict, generated_at: str, source_transform_version: str
+):
+    row = _row(rows, "UPBIT_MARKET_EVIDENCE", generated_at)
+    path = _source_dir(row, "evidence/crypto/upbit/microstructure/")
+    record = UPBIT_MARKET_EVIDENCE.rebuild(path.name, path.parent)
+    if record.get("policy_ratified") is not True:
+        fail("SOURCE_POLICY_UNRATIFIED", "UPBIT_MARKET_EVIDENCE")
+    summary = record.get("summary", {})
+    if not summary.get("packet_count"):
+        fail("SOURCE_EMPTY", "UPBIT_MARKET_EVIDENCE")
+    expected = {
+        "market_count": summary.get("market_count"),
+        "packet_count": summary.get("packet_count"),
+        "error_count": summary.get("error_count"),
+    }
+    if (
+        record.get("builder", {}).get("output_schema_version")
+        != source_transform_version
+        or row.get("packet") != expected
+        or row.get("generated_at") != record.get("generated_at")
+        or row.get("as_of_date") != record.get("snapshot_date")
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", "UPBIT_MARKET_EVIDENCE")
+    return (
+        row,
+        record["snapshot_date"],
+        record["generated_at"],
+        f"atlas-raw-response://{row['source_packet_path']}/_manifest.json",
+        record["payload_sha256"],
+    )
+
+
+def _crypto_liquidity(rows: dict, generated_at: str, binding: dict) -> dict:
+    """CRYPTO/LIQUIDITY is DEFINED whenever AT LEAST ONE qualifying evidence
+    input exists (stablecoin net issuance and/or Upbit microstructure) --
+    this stays a presence check across two candidate inputs, never a claim
+    about which input is more informative. When only one input qualifies,
+    that single input's raw evidence pointer is cited and a warning records
+    which sibling input was unavailable; when both qualify, the stablecoin
+    pointer is cited for backward-compatible determinism and a warning
+    still never appears for the sibling that IS present.
+    """
+    versions = binding["source_components"]
+    stablecoin_result = None
+    upbit_result = None
+    try:
+        stablecoin_result = _stablecoin_evidence(
+            rows, generated_at, versions["STABLECOIN_NET_ISSUANCE"]
+        )
+    except LiveAxisAdapterError:
+        stablecoin_result = None
+    try:
+        upbit_result = _upbit_liquidity_evidence(
+            rows, generated_at, versions["UPBIT_MARKET_EVIDENCE"]
+        )
+    except LiveAxisAdapterError:
+        upbit_result = None
+
+    if stablecoin_result is None and upbit_result is None:
+        fail("LIQUIDITY_NO_QUALIFYING_INPUT", "CRYPTO/LIQUIDITY")
+
+    warnings = ["REGIME_INTERPRETATION_UNAUTHORIZED"]
+    if stablecoin_result is not None:
+        chosen = stablecoin_result
+        if upbit_result is None:
+            warnings.append("CRYPTO_LIQUIDITY_UPBIT_MICROSTRUCTURE_INPUT_UNAVAILABLE")
+    else:
+        chosen = upbit_result
+        warnings.append("CRYPTO_LIQUIDITY_STABLECOIN_INPUT_UNAVAILABLE")
+
+    row, observation_date, available_at, source_uri, source_sha256 = chosen
+    return _defined(
+        row,
+        observation_date,
+        available_at,
+        binding["axis_transform_version"],
+        source_uri,
+        source_sha256,
+        warnings,
+    )
+
+
+def _crypto_breadth(rows: dict, generated_at: str, binding: dict) -> dict:
+    row = _row(rows, "CRYPTO_BREADTH", generated_at)
+    path = _source_dir(row, "evidence/crypto/breadth/raw/")
+    packet = CRYPTO_BREADTH.build_transform(path)
+    if packet.get("status") != "OBSERVED_UNCLASSIFIED":
+        fail("COMPONENT_NOT_OBSERVED", "CRYPTO_BREADTH")
+    expected = {
+        "status": packet.get("status"),
+        "selected_asset_count": packet.get("selected_asset_count"),
+    }
+    if (
+        packet.get("transform_version") != binding["source_transform_version"]
+        or row.get("packet") != expected
+        or row.get("generated_at") != packet.get("lineage", {}).get("available_at")
+        or row.get("as_of_date") != packet.get("lineage", {}).get("vintage_date")
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", "CRYPTO_BREADTH")
+    return _defined(
+        row,
+        packet["as_of_date"],
+        packet["lineage"]["available_at"],
+        binding["axis_transform_version"],
+        f"atlas-raw-response://{row['source_packet_path']}/_manifest.json",
+        packet["lineage"]["manifest_sha256"],
+        ["REGIME_INTERPRETATION_UNAUTHORIZED"],
+    )
+
+
+def _crypto_leadership(rows: dict, generated_at: str, binding: dict) -> dict:
+    """Derived, not directly captured: CRYPTO_LEADERSHIP re-derives from the
+    same evidence/crypto/breadth/raw CR-06 snapshots CRYPTO_BREADTH reads,
+    independently, for the row's own as_of_date end-of-window date. No
+    daily_orchestrator.py component-row producer exists yet for
+    CRYPTO_LEADERSHIP (see docs/regime_live_axis_adapter_contract.md) -- until one is
+    added, this binding fails closed to UNDEFINED (COMPONENT_MISSING) in
+    every production run, exactly like every other absent component row.
+    """
+    row = _row(rows, "CRYPTO_LEADERSHIP", generated_at)
+    path = _source_dir(row, "evidence/crypto/breadth/raw")
+    # Mirrors CRYPTO_BREADTH's own row.as_of_date convention: the capture
+    # VINTAGE directory name, one calendar day after the trading day the
+    # evidence actually reports on -- see crypto_breadth.py's
+    # ``as_of = core["vintage"] - timedelta(days=1)``. crypto_leadership's
+    # own ``end_date`` argument is the trading day itself.
+    vintage = row.get("as_of_date")
+    if not isinstance(vintage, str):
+        fail("SOURCE_EVIDENCE_INVALID", "CRYPTO_LEADERSHIP")
+    try:
+        end_date = (
+            dt.date.fromisoformat(vintage) - dt.timedelta(days=1)
+        ).isoformat()
+    except ValueError:
+        fail("SOURCE_EVIDENCE_INVALID", "CRYPTO_LEADERSHIP")
+    packet = CRYPTO_LEADERSHIP.build_transform(path, end_date=end_date)
+    if packet.get("status") != "OBSERVED_UNCLASSIFIED":
+        fail("COMPONENT_NOT_OBSERVED", "CRYPTO_LEADERSHIP")
+    expected = {"status": packet.get("status")}
+    if (
+        packet.get("contract_version") != binding["source_transform_version"]
+        or row.get("packet") != expected
+        or packet.get("as_of_date") != end_date
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", "CRYPTO_LEADERSHIP")
+    manifest_entries = packet.get("lineage", {}).get("manifest_sha256_by_date", [])
+    matching = [
+        entry
+        for entry in manifest_entries
+        if entry.get("as_of_date") == packet["as_of_date"]
+    ]
+    if len(matching) != 1:
+        fail("SOURCE_EVIDENCE_INVALID", "CRYPTO_LEADERSHIP")
+    available_candidates = [
+        point.get("lineage", {}).get("available_at")
+        for window in packet.get("windows", [])
+        for point in window.get("daily_points", [])
+    ]
+    if not available_candidates or any(
+        value is None for value in available_candidates
+    ):
+        fail("SOURCE_EVIDENCE_INVALID", "CRYPTO_LEADERSHIP")
+    available_at = max(available_candidates)
+    return _defined(
+        row,
+        packet["as_of_date"],
+        available_at,
+        binding["axis_transform_version"],
+        (
+            "atlas-raw-response://evidence/crypto/breadth/raw/"
+            f"{vintage}/_manifest.json"
+        ),
+        matching[0]["manifest_sha256"],
         ["REGIME_INTERPRETATION_UNAUTHORIZED"],
     )
 
@@ -412,7 +631,16 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
         _btc_risk, component_rows, generated_at, bindings["CRYPTO/RISK_VOL"]
     )
     result["CRYPTO"]["LIQUIDITY"] = _attempt(
-        _stablecoin, component_rows, generated_at, bindings["CRYPTO/LIQUIDITY"]
+        _crypto_liquidity, component_rows, generated_at, bindings["CRYPTO/LIQUIDITY"]
+    )
+    result["CRYPTO"]["BREADTH"] = _attempt(
+        _crypto_breadth, component_rows, generated_at, bindings["CRYPTO/BREADTH"]
+    )
+    result["CRYPTO"]["LEADERSHIP"] = _attempt(
+        _crypto_leadership,
+        component_rows,
+        generated_at,
+        bindings["CRYPTO/LEADERSHIP"],
     )
     for qualified_axis, reason in sorted(contract["deferred_axes"].items()):
         market, axis = qualified_axis.split("/", 1)
