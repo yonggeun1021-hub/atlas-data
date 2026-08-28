@@ -1,0 +1,148 @@
+name: P4-07 Upbit Market Evidence & Microstructure Daily Capture
+
+on:
+  schedule:
+    - cron: "20 1 * * *"  # 01:20 UTC / 10:20 KST; after P3-12's 00:50 UTC universe capture + classification
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-upbit-microstructure-daily-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Capture Upbit microstructure runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Offline P4-07 Upbit microstructure regression
+        run: |
+          python3 test/test_upbit_candle_finalization.py
+          python3 test/test_upbit_microstructure_capture.py
+          python3 test/test_upbit_market_evidence_microstructure.py
+      - name: Find latest committed P3-12 tradeable-universe classification
+        id: universe
+        run: |
+          set -euo pipefail
+          LATEST=$(ls -1 data/observations/upbit_tradeable_universe 2>/dev/null | sort | tail -n 1 || true)
+          echo "packet_date=${LATEST}" >> "$GITHUB_OUTPUT"
+          if [ -n "$LATEST" ] && [ -f "data/observations/upbit_tradeable_universe/$LATEST/packet.json" ]; then
+            echo "packet_path=data/observations/upbit_tradeable_universe/$LATEST/packet.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "packet_path=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Capture complete append-only Upbit microstructure snapshot
+        id: capture
+        run: |
+          set -euo pipefail
+          SNAPSHOT_DATE=$(date -u +%F)
+          SNAPSHOT="evidence/crypto/upbit/microstructure/$SNAPSHOT_DATE"
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          if [ -f "$SNAPSHOT/_manifest.json" ]; then
+            echo "이미 $SNAPSHOT_DATE Upbit microstructure snapshot이 있습니다."
+            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -e "$SNAPSHOT" ]; then
+            echo "불완전한 기존 경로가 있어 덮어쓰지 않습니다: $SNAPSHOT" >&2
+            echo "result=incomplete_existing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          UNIVERSE_ARG=()
+          if [ -n "${{ steps.universe.outputs.packet_path }}" ]; then
+            UNIVERSE_ARG=(--universe-packet "${{ steps.universe.outputs.packet_path }}")
+          fi
+          python3 .github/scripts/upbit_microstructure_capture.py \
+            --snapshot-root evidence/crypto/upbit/microstructure \
+            --request-interval-seconds 1.05 \
+            "${UNIVERSE_ARG[@]}"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
+      # No order/withdrawal/private endpoint is ever called above -- see
+      # config/upbit_market_evidence_contract.json's
+      # auth_required/order_or_withdrawal_endpoints_called invariants
+      # (enforced fail-closed by upbit_microstructure_capture.py::load_contract)
+      # and test_upbit_microstructure_capture.py's endpoint-path assertions.
+      - name: P4-07 evidence derivation (reads raw snapshot only, never re-fetches)
+        id: p4_07
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: python3 .github/scripts/upbit_microstructure_populate.py "$SNAPSHOT_DATE"
+      - name: Record P4-07 Upbit microstructure scheduler telemetry
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
+          ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_P4_07_STEP_OUTCOME: ${{ steps.p4_07.outcome }}
+          ATLAS_P4_07_RESULT: ${{ steps.p4_07.outputs.outcome }}
+          ATLAS_P4_07_REASON: ${{ steps.p4_07.outputs.reason }}
+          ATLAS_P4_07_PATH: ${{ steps.p4_07.outputs.path }}
+          ATLAS_P4_07_SHA256: ${{ steps.p4_07.outputs.payload_sha256 }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/record_upbit_microstructure_run.py
+      - name: Commit immutable raw snapshot and run telemetry
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/operations/upbit_microstructure_capture_runs || true
+          if [ "$CAPTURE_RESULT" = "captured" ]; then
+            git add "evidence/crypto/upbit/microstructure/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "upbit microstructure capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
+      # Deliberately its own step and commit, after raw evidence above is
+      # already pushed -- a P4-07 derivation failure can never lose or roll
+      # back the already-committed raw snapshot.
+      - name: Commit P4-07 market-evidence packet
+        if: always()
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/upbit_market_evidence/$SNAPSHOT_DATE" ]; then
+            git add "data/observations/upbit_market_evidence/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "upbit microstructure evidence ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
