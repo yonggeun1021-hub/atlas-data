@@ -1,0 +1,74 @@
+# Portfolio Risk Input Contract v2 (Account Fact) -- Provider/Scope Separation
+
+Status: proposed (P0-2B, Atlas execution-infra track). Independent of, and
+does not modify, `docs/portfolio_risk_input_contract.md` (v1) -- v1 stays
+exactly as merged and remains the only contract Alpaca capture uses.
+
+## Why a v2, not a v1 extension
+
+v1's account fact (`portfolio_risk/portfolio_snapshot.py`) identifies an
+account with a single `source` string that conflates the actual
+broker/data provider with the market it covers -- `"ALPACA_PAPER_ACCOUNT"`
+(provider=Alpaca, scope=US, implicitly) or `"MANUAL_SNAPSHOT:KOREA"`
+(provider=manual, scope=Korea, joined by a colon). `_validate_position_source_identity()`
+hard-codes exactly those two shapes; anything else is rejected as
+`POSITION_SOURCE_IDENTITY_UNSUPPORTED_ACCOUNT_SOURCE`.
+
+Adding a real broker for Korea (KIS PAPER) the same way v1 already
+distinguishes Alpaca from manual data would mean widening that hard-coded
+check inside v1's own validator -- which changes what v1 accepts, not
+merely what a *new* contract accepts. Per the reviewed direction for this
+work: v1's semantics are not touched. Instead, `portfolio_snapshot_v2.py`
+defines an independent `portfolio_account_fact/2` contract with `provider`
+and `account_scope` as two explicit, separate fields from the start, plus
+its own, independent build/validate pair -- not an extension of v1's.
+
+## What v2 is, and is not
+
+- **Is**: a build+validate pair for *one provider's account fact*, with
+  the same PIT-timing, dedup, NAV-reconciliation, and position
+  source-identity discipline v1 already applies -- reimplemented
+  independently in this file rather than importing v1's private helpers
+  (matching this codebase's existing convention of small, per-module,
+  independently-auditable mechanics).
+- **Is not**: a packet-level `assemble_snapshot`/cross-provider
+  `risk_capacity_inputs` aggregator. Combining a v2 KIS fact with v1 Alpaca
+  facts into one NAV/exposure view is a separate, later decision -- not
+  defined here, and not assumed by any code in this file.
+- **Is not**: an identity-resolution or canonical-instrument-mapping
+  mechanism. A v2 position's `source_asset_id` is the provider's own raw
+  identifier (e.g. KIS's `pdno`), transported verbatim. Binding that to an
+  already-RATIFIED canonical instrument (`KRX:005930:COMMON`, etc.) is a
+  separate, independently-reviewed identity-alias change, tracked apart
+  from this contract.
+
+## Registered providers
+
+A provider may only be used if it is registered in
+`PROVIDER_VERIFICATION_STATUS` (code) / `registered_providers`
+(`config/portfolio_risk_input_contract_v2.json`) -- this is a fixed
+registry, never a caller-suppliable pair. As of this contract:
+
+| Provider | Required `verificationStatus` | Account scope |
+|---|---|---|
+| `KIS_PAPER_ACCOUNT` | `BROKER_VERIFIED` | `KOREA` |
+
+`account_scope` must be one of v1's own `CANONICAL_ACCOUNT_SCOPE` values
+(`ALPACA_PAPER_ACCOUNT`, `KOREA`, `CRYPTO`) -- this reuses that
+already-ratified registry rather than defining a new, competing one.
+`KOREA` was already present in that registry before this contract existed.
+
+## Real data
+
+Same discipline as v1: this repo is PUBLIC. No real NAV/cash/position
+value produced by this contract's code ever lands in this repo or GitHub
+Actions. Real KIS capture and persistence happen entirely inside the
+private `atlas-private-evidence` repo's own root-only Ubuntu runtime
+state (see that repo's `kis_paper_full_account_snapshot.py`).
+
+## Authority
+
+Identical structural boundary to v1: `review_only: true`, every other
+authority flag hard-`false`. No code path in this file ever sets any of
+them `true`. This contract supplies facts only -- it computes no risk
+budget, no position size, and grants no order/trading authority.
