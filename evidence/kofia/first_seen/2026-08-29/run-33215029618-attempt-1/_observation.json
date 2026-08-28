@@ -1,0 +1,90 @@
+{
+  "api_field_unit_status": "unverified",
+  "atlas_first_seen_is_source_available_at": false,
+  "available_at": null,
+  "captured_at_utc": "2026-08-28T22:00:59Z",
+  "contract_version": "kofia_liquidity_source/v3",
+  "decision_eligible": false,
+  "first_seen_authority": "atlas_observation_only_not_source_release_time",
+  "historical_range_status": "unverified",
+  "mode": "first_seen",
+  "operations": {
+    "credit_financing": {
+      "latest_observation_date": "2026-08-26",
+      "missing_query_dates": [
+        "2026-08-29",
+        "2026-08-28",
+        "2026-08-27",
+        "2026-08-23",
+        "2026-08-22"
+      ],
+      "observed_rows": [
+        {
+          "atlas_first_seen_at_utc": "2026-08-25T22:03:14Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-24",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "32628245884660",
+          "row_sha256": "9aa241034c1886ae50ea1c9cb9c398ea1ee7e7a2d0f9f8628c0ae1a27e8b19e9"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-28T06:22:39Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-25",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "32848307484817",
+          "row_sha256": "11a2837667e6a0ca7890945728da15afbda8c4eadbf914121f83ae0bd8cc85fd"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-28T06:22:39Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-26",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "33102366526442",
+          "row_sha256": "29431071273b9ef67cf0054a6da2f5dbb6a71a397ebd61b166048c608119febd"
+        }
+      ]
+    },
+    "investor_deposits": {
+      "latest_observation_date": "2026-08-26",
+      "missing_query_dates": [
+        "2026-08-29",
+        "2026-08-28",
+        "2026-08-27",
+        "2026-08-23",
+        "2026-08-22"
+      ],
+      "observed_rows": [
+        {
+          "atlas_first_seen_at_utc": "2026-08-25T22:03:14Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-24",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "103013653662055",
+          "row_sha256": "80cf1a9b49469c9565d413c59026108bcb720e0bd514d0ca19e4d5463a561c00"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-28T06:22:39Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-25",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "102534149924256",
+          "row_sha256": "3784d4953ba575bf10e45b1445838bf7c202dfa91a036284c07dbdeeef462205"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-28T06:22:39Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-26",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "98917653413503",
+          "row_sha256": "c32341f437748c40b5dc5213b0aa5c0af51d56afaf6adc22ee837ef5518e4234"
+        }
+      ]
+    }
+  },
+  "production_wiring_authorized": false,
+  "regime_score_authorized": false,
+  "schema_version": 1,
+  "source_release_time_status": "atlas_first_seen_sequence_collecting",
+  "trading_action_authorized": false
+}
