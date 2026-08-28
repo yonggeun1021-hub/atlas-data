@@ -38,9 +38,15 @@ projection; it never calls the human delivery path again.
 ## Dispatch and receipt ownership
 
 `dispatch-validated-portal-projection.yml` is manual-only and has no cron. It
-requires an envelope already committed to atlas-data, re-reads those exact
-bytes from `envelope_commit`, verifies the supplied SHA-256, and emits
-`portal_projection_validated_v2` to atlas-portal. The envelope's
+can run only from the repository default branch and checks out only that
+trusted executor. It never checks out or executes `envelope_commit`; the
+envelope, sibling bundle/index, validation artifacts, and exact source refs are
+read as data through the GitHub API. Both `envelope_commit` and `source_commit`
+must be exact full-SHA ancestors of current `main`. The envelope path is
+restricted to the immutable producer directory, every bundle artifact hash is
+rechecked, the envelope is rebuilt from the claim ledger/report/display bytes,
+and only then is `portal_projection_validated_v2` emitted to atlas-portal. The
+envelope's
 `source_commit` remains the evidence authority; `envelope_commit` is only the
 publication authority for the envelope itself.
 
@@ -49,8 +55,10 @@ write, Portal deployment verification, and its receipt. This producer never
 delivers a briefing to a person and never creates an order.
 
 Required user-managed secret (not needed for local code/tests):
-`ATLAS_PORTAL_DISPATCH_TOKEN` in the **atlas-data repository → Actions
-secrets**.
+`ATLAS_PORTAL_DISPATCH_TOKEN` in the **atlas-data repository → Environments →
+`atlas-portal-dispatch` → Environment secrets**. The environment must restrict
+deployment branches to `main`; this keeps a feature-branch workflow from
+receiving the token even if someone manually selects that branch.
 
 ## Example
 

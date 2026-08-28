@@ -44,6 +44,24 @@ def _write_json(path: Path, value: dict) -> bytes:
     return body
 
 
+class FakeGitHubData:
+    def __init__(self, bodies: dict[tuple[str, str], bytes], ancestors: set[str]):
+        self.bodies = bodies
+        self.ancestors = ancestors
+        self.requested: list[tuple[str, str]] = []
+
+    def require_main_ancestor(self, commit: str, default_branch: str) -> None:
+        if default_branch != "main" or commit not in self.ancestors:
+            raise dispatcher.DispatchError(f"NON_MAIN_COMMIT_REJECTED:{commit}")
+
+    def get_bytes(self, commit: str, path: str) -> bytes:
+        self.requested.append((commit, path))
+        try:
+            return self.bodies[(commit, path)]
+        except KeyError:
+            raise dispatcher.DispatchError(f"CONTENT_NOT_FILE:{path}") from None
+
+
 class ValidatedBriefingPortalProducerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -144,6 +162,35 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
             display_proposal=str(display_path),
             out_root="evidence/validated_briefing_portal",
         )
+
+    def _dispatch_fixture(self):
+        built = producer.build(self._inputs())
+        attack_path = self.repo / ".github/scripts/dispatch_portal_projection.py"
+        attack_path.parent.mkdir(parents=True)
+        attack_path.write_text("raise RuntimeError('ATTACK_CODE_EXECUTED')\n")
+        subprocess.run(
+            ["git", "add", "evidence/validated_briefing_portal", ".github"],
+            cwd=self.repo, check=True,
+        )
+        subprocess.run(["git", "commit", "-qm", "validated envelope plus hostile code"],
+                       cwd=self.repo, check=True)
+        envelope_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
+        ).strip()
+        bodies: dict[tuple[str, str], bytes] = {
+            (self.source_commit, "evidence/source.json"): subprocess.check_output(
+                ["git", "show", f"{self.source_commit}:evidence/source.json"], cwd=self.repo
+            ),
+            (envelope_commit, ".github/scripts/dispatch_portal_projection.py"):
+                attack_path.read_bytes(),
+        }
+        root = self.repo / Path(built["envelope_path"]).parent
+        for path in root.iterdir():
+            bodies[(envelope_commit, path.relative_to(self.repo).as_posix())] = path.read_bytes()
+        index = root.parent / "index.json"
+        bodies[(envelope_commit, index.relative_to(self.repo).as_posix())] = index.read_bytes()
+        client = FakeGitHubData(bodies, {self.source_commit, envelope_commit})
+        return built, envelope_commit, client
 
     def test_builds_atomic_bundle_and_replay_is_no_change(self):
         args = self._inputs()
@@ -248,26 +295,56 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         self.assertEqual(manifest["post_delivery_change_key"], change_key)
         self.assertEqual(manifest["redelivery"], "FORBIDDEN")
 
-    def test_dispatch_payload_separates_source_and_envelope_commits(self):
-        built = producer.build(self._inputs())
-        subprocess.run(["git", "add", "evidence/validated_briefing_portal"], cwd=self.repo, check=True)
-        subprocess.run(["git", "commit", "-qm", "validated envelope"], cwd=self.repo, check=True)
-        envelope_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
-        ).strip()
-        payload = dispatcher.prepare_payload(
-            self.repo, envelope_commit, built["envelope_path"], built["envelope_sha256"]
+    def test_dispatch_rebuilds_bundle_and_never_reads_attacker_script(self):
+        built, envelope_commit, client = self._dispatch_fixture()
+        payload = dispatcher.validate_dispatch_candidate(
+            client, envelope_commit, built["envelope_path"],
+            built["envelope_sha256"], "main",
         )
         self.assertNotEqual(envelope_commit, self.source_commit)
         self.assertEqual(payload["client_payload"]["envelope_commit"], envelope_commit)
         self.assertEqual(payload["client_payload"]["source_commit"], self.source_commit)
+        self.assertNotIn(
+            (envelope_commit, ".github/scripts/dispatch_portal_projection.py"),
+            client.requested,
+        )
 
-    def test_dispatch_refuses_uncommitted_or_hash_changed_envelope(self):
-        built = producer.build(self._inputs())
-        with self.assertRaisesRegex(dispatcher.DispatchError, "COMMITTED_ENVELOPE_UNAVAILABLE"):
-            dispatcher.prepare_payload(
-                self.repo, self.source_commit, built["envelope_path"], built["envelope_sha256"]
+    def test_dispatch_rejects_non_main_envelope_commit(self):
+        built, envelope_commit, client = self._dispatch_fixture()
+        client.ancestors.remove(envelope_commit)
+        with self.assertRaisesRegex(dispatcher.DispatchError, "NON_MAIN_COMMIT_REJECTED"):
+            dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, built["envelope_path"],
+                built["envelope_sha256"], "main",
             )
+
+    def test_dispatch_rejects_path_outside_immutable_prefix(self):
+        _, envelope_commit, client = self._dispatch_fixture()
+        with self.assertRaisesRegex(dispatcher.DispatchError, "ENVELOPE_PATH_PREFIX_REJECTED"):
+            dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, ".github/scripts/dispatch_portal_projection.py",
+                "a" * 64, "main",
+            )
+
+    def test_dispatch_rejects_bundle_or_index_lineage_tamper(self):
+        built, envelope_commit, client = self._dispatch_fixture()
+        bundle_path = built["envelope_path"].replace("portal-projection.json", "bundle.json")
+        bundle = json.loads(client.bodies[(envelope_commit, bundle_path)])
+        bundle["projection_id"] = "2026-08-28-AM-tampered"
+        client.bodies[(envelope_commit, bundle_path)] = producer.canonical(bundle) + b"\n"
+        with self.assertRaisesRegex(dispatcher.DispatchError, "BUNDLE_IDENTITY_MISMATCH"):
+            dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, built["envelope_path"],
+                built["envelope_sha256"], "main",
+            )
+
+    def test_dispatch_workflow_executes_default_branch_code_only(self):
+        workflow = (ROOT / ".github/workflows/dispatch-validated-portal-projection.yml").read_text()
+        self.assertIn("github.ref == format('refs/heads/{0}'", workflow)
+        self.assertIn("environment: atlas-portal-dispatch", workflow)
+        self.assertIn("ref: ${{ github.event.repository.default_branch }}", workflow)
+        self.assertNotIn("ref: ${{ inputs.envelope_commit }}", workflow)
+        self.assertIn("persist-credentials: false", workflow)
 
     def test_retry_repairs_index_after_atomic_directory_publish(self):
         args = self._inputs()
