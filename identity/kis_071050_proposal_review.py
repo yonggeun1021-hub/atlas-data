@@ -2,6 +2,9 @@
 """Independent fail-closed review of the two 071050 proposal packets."""
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -32,6 +35,19 @@ _FIELDS = {
     "evidence", "canonicalAuthorityConfigMutated", "authority", "proposalSha256",
 }
 _FORBIDDEN_STATUSES = {"RATIFIED", "BROKER_VERIFIED"}
+_MASTER_TRAILING_FIELD_BYTES = 227
+_PREFERRED_STOCK_FIELD_OFFSET = 158
+_PREFERRED_STOCK_MEANINGS = {
+    "0": "COMMON_STOCK",
+    "1": "PREFERRED_STOCK_OLD",
+    "2": "PREFERRED_STOCK_NEW",
+}
+_PUBLIC_MASTER_BINDING = {
+    "archiveSha256": "8de794458d38e4304b0b1f69c9de0f2b4ab71ea5781585653d83b2d5c0d13be1",
+    "masterSha256": "abfec9c79eca665741b6189fc88214961088067782791f9c90aa0715c510b4a2",
+    "rowLineNumber": 1035,
+    "rowSha256": "aa3dc58fe82e95d22013d2f312b8cab9e84b63833836513b1decfc1716416286",
+}
 
 
 class Kis071050ProposalReviewError(ValueError):
@@ -112,6 +128,77 @@ def _verify_atlas_identity_semantics(checkout: Path) -> None:
         raise Kis071050ProposalReviewError("ATLAS_DART_BINDING_MISMATCH")
 
 
+def _parse_public_master_row(raw_row: bytes) -> dict:
+    """Parse only the identity fields defined by the pinned KIS header/parser.
+
+    The public observation carries the exact raw row, so review does not trust
+    the separately serialized observation object to prove its own claims.
+    """
+    if len(raw_row) <= _MASTER_TRAILING_FIELD_BYTES:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_TOO_SHORT")
+    part1 = raw_row[:-_MASTER_TRAILING_FIELD_BYTES]
+    part2 = raw_row[-_MASTER_TRAILING_FIELD_BYTES:]
+    try:
+        short_code = part1[0:9].decode("cp949").strip()
+        standard_number = part1[9:21].decode("ascii").strip()
+        korean_name = part1[21:].decode("cp949").strip()
+        security_group = part2[0:2].decode("ascii").strip()
+        preferred_code = part2[
+            _PREFERRED_STOCK_FIELD_OFFSET:_PREFERRED_STOCK_FIELD_OFFSET + 1
+        ].decode("ascii").strip()
+    except UnicodeDecodeError:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_ENCODING_INVALID") from None
+    if preferred_code not in _PREFERRED_STOCK_MEANINGS:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_SHARE_CLASS_CODE_INVALID")
+    return {
+        "shortCode": short_code,
+        "standardProductNumber": standard_number,
+        "koreanName": korean_name,
+        "securityGroupCode": security_group,
+        "preferredStockClassCode": preferred_code,
+        "officialMeaning": _PREFERRED_STOCK_MEANINGS[preferred_code],
+    }
+
+
+def _verify_public_master_exact_row(packet: dict) -> None:
+    matches = [
+        evidence for evidence in packet["evidence"]
+        if evidence.get("kind") == "PUBLIC_KIS_MASTER_EXACT_ROW_OBSERVATION"
+    ]
+    if len(matches) != 1:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_EVIDENCE_NOT_UNIQUE")
+    evidence = matches[0]
+    if any(evidence.get(field) != expected for field, expected in _PUBLIC_MASTER_BINDING.items()):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_MASTER_ROW_BINDING_MISMATCH")
+    raw_base64 = evidence.get("rawBase64")
+    if not isinstance(raw_base64, str):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_BASE64_INVALID")
+    try:
+        raw_row = base64.b64decode(raw_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_BASE64_INVALID") from None
+    if len(raw_row) != 288:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_LENGTH_INVALID")
+    if hashlib.sha256(raw_row).hexdigest() != evidence.get("rowSha256"):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_HASH_MISMATCH")
+    parsed = _parse_public_master_row(raw_row)
+    if parsed != evidence.get("observation"):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_OBSERVATION_MISMATCH")
+    if evidence.get("rowLineNumber") != 1035:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ROW_LINE_MISMATCH")
+    claim = packet["claim"]
+    expected_claim = {
+        "shortCode": claim.get("subject"),
+        "standardProductNumber": claim.get("standardProductNumber"),
+        "koreanName": claim.get("koreanName"),
+        "securityGroupCode": "ST",
+        "preferredStockClassCode": "0",
+        "officialMeaning": claim.get("instrumentType"),
+    }
+    if parsed != expected_claim:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_CLAIM_MISMATCH")
+
+
 def _review_result(packet: dict, reasons: list[str]) -> dict:
     reasons = sorted(set(reasons))
     return {
@@ -132,6 +219,10 @@ def review_identity_proposal(
 ) -> dict:
     packet = validate_identity_proposal(packet)
     reasons: list[str] = []
+    try:
+        _verify_public_master_exact_row(packet)
+    except Kis071050ProposalReviewError as error:
+        reasons.append(f"PUBLIC_MASTER_EXACT_ROW_FAILED:{error}")
     if official_checkout is None:
         reasons.append("OFFICIAL_KIS_EXACT_BYTES_REPRODUCTION_REQUIRED")
     else:

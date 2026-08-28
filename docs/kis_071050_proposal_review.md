@@ -6,9 +6,12 @@ This change prepares two independent CIO review inputs. It grants no authority.
    observation to `DART:00432102`, `XKRX:071050`,
    `KRX:071050:COMMON`, ISIN `KR7071050009`, the Korean name, and the observed
    common-share code. The master archive, extracted master, row, parser, header,
-   and Atlas DART map are content/commit pinned. The listing, ISIN, name, and
-   share class come directly from the exact KIS KOSPI master row rather than a
-   second, derivative Atlas universe packet.
+   and Atlas DART map are content/commit pinned. The proposal carries the exact
+   288-byte row as base64, its SHA-256, and its line number. The reviewer
+   decodes and parses those bytes independently before accepting the listing,
+   ISIN, name, security group, or share class; serialized observation fields
+   and a rehashed proposal cannot prove themselves. No derivative Atlas
+   universe packet or generic six-digit symbol rule is used.
 2. `EXACT_SOURCE_ALIAS` binds only the exact source pair
    `kis_paper_domestic_balance / 071050` to the proposed listing/instrument.
    It cites instrument-specific official KIS static examples at one immutable

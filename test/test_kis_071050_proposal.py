@@ -2,7 +2,9 @@
 """071050 proposal-only packets and fail-closed review counterexamples."""
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import json
 import sys
 import unittest
@@ -12,6 +14,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from identity import kis_071050_proposal as proposal_module
 from identity.kis_071050_proposal import (
     AUTHORITY_ALL_FALSE,
     PROPOSAL_STATUS,
@@ -23,6 +26,7 @@ from identity.kis_071050_proposal import (
 from identity.kis_071050_proposal_review import (
     Kis071050ProposalReviewError,
     _verify_atlas_identity_semantics,
+    _verify_public_master_exact_row,
     review_alias_proposal,
     review_identity_proposal,
     validate_alias_proposal,
@@ -56,6 +60,15 @@ class ProposalShapeTests(unittest.TestCase):
         self.assertEqual(claim["standardProductNumber"], "KR7071050009")
         self.assertEqual(claim["instrumentType"], "COMMON_STOCK")
         self.assertIn("NO_GENERIC", claim["scope"])
+
+    def test_public_master_exact_raw_row_is_hash_bound_and_parseable(self):
+        packet = instrument_identity_proposal_071050()
+        evidence = packet["evidence"][2]
+        raw_row = base64.b64decode(evidence["rawBase64"], validate=True)
+        self.assertEqual(len(raw_row), 288)
+        self.assertEqual(hashlib.sha256(raw_row).hexdigest(), evidence["rowSha256"])
+        self.assertEqual(evidence["rowLineNumber"], 1035)
+        _verify_public_master_exact_row(packet)
 
     def test_alias_claim_is_exact_source_pair_not_generic_pdno_rule(self):
         claim = source_alias_proposal_071050()["claim"]
@@ -113,6 +126,16 @@ class CounterexampleTests(unittest.TestCase):
                 self.assert_rehashed_rejected(
                     packet, validate_identity_proposal, "PROPOSAL_DIFFERS"
                 )
+
+    def test_reviewer_independently_binds_archive_master_row_tuple(self):
+        for field in ("archiveSha256", "masterSha256", "rowSha256", "rowLineNumber"):
+            packet = instrument_identity_proposal_071050()
+            packet["evidence"][2][field] = 1 if field == "rowLineNumber" else "0" * 64
+            with self.subTest(field=field), self.assertRaisesRegex(
+                Kis071050ProposalReviewError,
+                "PUBLIC_MASTER_ARCHIVE_MASTER_ROW_BINDING_MISMATCH",
+            ):
+                _verify_public_master_exact_row(packet)
 
     def test_master_row_field_mismatches_each_rejected(self):
         for field, wrong in {
@@ -208,6 +231,30 @@ class IndependentReviewTests(unittest.TestCase):
             self.assertEqual(result["proposalStatus"], PROPOSAL_STATUS)
             self.assertEqual(result["authority"], AUTHORITY_ALL_FALSE)
             self.assertFalse(result["canonicalAuthorityConfigMutated"])
+
+    def test_rehashed_hardcoded_observation_cannot_ready_without_matching_raw_row(self):
+        tampered_master = copy.deepcopy(proposal_module.PUBLIC_MASTER_OBSERVATION)
+        tampered_master["observation"]["koreanName"] = "조작된회사"
+        resolution = {"resolutionStatus": "EXACT_GIT_BYTES_REPRODUCED"}
+        with mock.patch.object(
+            proposal_module, "PUBLIC_MASTER_OBSERVATION", tampered_master,
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._resolve_git_evidence",
+            return_value=resolution,
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._verify_required_fragments",
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._verify_atlas_identity_semantics",
+        ):
+            packet = instrument_identity_proposal_071050()
+            result = review_identity_proposal(
+                packet, official_checkout=Path("/official"), atlas_checkout=Path("/atlas")
+            )
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertTrue(any(
+            reason.startswith("PUBLIC_MASTER_EXACT_ROW_FAILED:")
+            for reason in result["reasons"]
+        ))
 
     def test_current_pinned_atlas_semantics_are_reproduced(self):
         _verify_atlas_identity_semantics(ROOT)

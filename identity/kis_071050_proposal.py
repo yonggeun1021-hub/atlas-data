@@ -53,6 +53,17 @@ PUBLIC_MASTER_OBSERVATION = {
     "capturedAt": "2026-08-28T15:42:55Z",
     "archiveSha256": "8de794458d38e4304b0b1f69c9de0f2b4ab71ea5781585653d83b2d5c0d13be1",
     "masterSha256": "abfec9c79eca665741b6189fc88214961088067782791f9c90aa0715c510b4a2",
+    "rowLineNumber": 1035,
+    "rawBase64": (
+        "MDcxMDUwICAgS1I3MDcxMDUwMDA5x9GxubHdwLbB9sHWICAgICAgICAgICAgICAgICAgICAgICAg"
+        "ICAgIFNUMTAwMjEwMDAwMDAwMCBOTjZZTlkgTllOTk5OTk5OME5OTllOTk5OMDAwMTkxNDAwMDAw"
+        "MDEwMDAwMU5OTjAwTk5OMDAwMDAwMDIwWTA5MDAwMDAwMDExMTIxODAwMDAwMDAwNTAwMDIwMDMw"
+        "NzIxMDAwMDAwMDAwMDU1NzI1MDAwMDAwMDAwMjc4NjI5OTYwMDAwMTIgICAgICAgMCBOWVkwMDAx"
+        "MDQxNjAwMDAwMTEwNjMwMDAwMTIzNjIwOTE2NzAwMDAyMS44NjIwMjYwMzMxMDAwMTA2NjU5ICAg"
+        "Tk5Z"
+    ),
+    # SHA-256 of the exact decoded 288-byte row above, reproduced by the
+    # canonical private parser from the cited archive/master pair.
     "rowSha256": "aa3dc58fe82e95d22013d2f312b8cab9e84b63833836513b1decfc1716416286",
     "observation": {
         "shortCode": "071050",
