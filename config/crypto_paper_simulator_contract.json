@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_paper_simulator/1",
+  "ledger_schema_version": "crypto_paper_ledger/1",
+  "event_schema_version": "crypto_paper_ledger_event/1",
+  "intent_schema_version": "crypto_paper_order_intent/1",
+  "snapshot_schema_version": "crypto_paper_orderbook_snapshot/1",
+  "account_state_schema_version": "crypto_paper_account_state/1",
+  "mode": "PAPER_LAB_ONLY",
+  "currency": "KRW",
+  "market_prefix": "KRW-",
+  "supported_sides": [
+    "BUY",
+    "SELL"
+  ],
+  "supported_order_types": [
+    "LIMIT",
+    "MARKET"
+  ],
+  "market_regime_statuses": [
+    "PASS",
+    "FAIL",
+    "UNKNOWN",
+    "NOT_EVALUATED"
+  ],
+  "lab_scope": "MECHANISM_ONLY_NO_INVESTMENT_AUTHORITY",
+  "event_types": [
+    "ACCOUNT_OPENED",
+    "ORDER_SUBMITTED",
+    "MATCH_EVALUATED_NO_FILL",
+    "FILL_APPLIED",
+    "ORDER_CANCELLED",
+    "ORDER_EXPIRED"
+  ],
+  "order_states": [
+    "OPEN",
+    "PARTIALLY_FILLED",
+    "FILLED",
+    "CANCELLED",
+    "EXPIRED"
+  ],
+  "decimal_scale": 18,
+  "cost_model": "CALLER_SUPPLIED_FEE_RATE_AND_QUEUE_FRACTION_NO_DEFAULTS",
+  "slippage_model": "REALIZED_VWAP_VERSUS_SNAPSHOT_BEST_PRICE",
+  "ledger_mode": "IMMUTABLE_HASH_CHAIN_WITH_CONTENT_ADDRESSED_SNAPSHOTS",
+  "market_judgment_policy": "PRESERVE_INPUT_STATUS_NO_PROMOTION",
+  "account_mark_freshness_required": "FRESH",
+  "intent_authority": {
+    "paper_simulation_requested": true,
+    "investment_eligibility_authorized": false,
+    "exchange_order_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "snapshot_authority": {
+    "public_market_evidence_only": true,
+    "investment_eligibility_authorized": false,
+    "exchange_order_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "paper_simulation_only": true,
+    "network_access_authorized": false,
+    "credential_access_authorized": false,
+    "investment_eligibility_authorized": false,
+    "action_authorized": false,
+    "exchange_order_authorized": false,
+    "broker_submission_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
