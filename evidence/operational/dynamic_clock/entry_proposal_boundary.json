@@ -26,7 +26,7 @@
     "status": "LOCKED_POLICY_UNRATIFIED",
     "trade_proposal": null
   },
-  "decision_date": "2026-08-27",
+  "decision_date": "2026-08-28",
   "human_review_material": [
     {
       "authority": {
@@ -45,8 +45,8 @@
       "candidate_id": "6fb7aaa45bbbf7677bc0c18c37573f843facba231674c59ed2c2e6d71880f69b",
       "canonical_instrument_id": "KRX:000660:COMMON",
       "capital": 0,
-      "diagnostic_participation_state": "PROBE_REVIEW",
-      "diagnostic_reason": "PIT_TRIGGER_WITH_LINKED_MOMENTUM_PRICE_STATE",
+      "diagnostic_participation_state": "RADAR",
+      "diagnostic_reason": "OVEREXTENDED_PRICE_STATE_REQUIRES_PULLBACK_REVIEW",
       "entry_zone": null,
       "identity_status": "RESOLVED",
       "invalidation": null,
@@ -59,10 +59,10 @@
       "proposal_status": "LOCKED_POLICY_UNRATIFIED",
       "proposed_action": "NONE",
       "quantity": null,
-      "readiness_row_sha256": "c3620a38f93cb5de328e85bc2e864d16bcd2651062b17ae6adb30ef587df5da3",
-      "review_state": "MOMENTUM_PROBE_REVIEW",
+      "readiness_row_sha256": "57a92d48ee6eab40beaa99be0ea259fde606471d8fb039b1ec4603323e73c5f8",
+      "review_state": "WAIT_FOR_PULLBACK_REVIEW",
       "risk_budget_pct": null,
-      "row_sha256": "48f0f7eba50fba0442f5a4857d8ab0cb4cd6d1e6f19908f66e4eca9c93241cf9",
+      "row_sha256": "b1b82c9305b335d9d449e62829ee488e7a9fb20dc08c34bc49d7e3f909f1dbf2",
       "status": "LOCKED_POLICY_UNRATIFIED",
       "subject": "000660",
       "trade_proposal": null
@@ -81,7 +81,7 @@
         "stage_promotion_authority": false,
         "trading_authority": false
       },
-      "candidate_id": "c814e4a55458c65577a89df7bdf8c011a4cf9338bdc0b37325fbd641da045c92",
+      "candidate_id": "cdae44e049ee92211184bb723dd2e23d7f1526738d98e922f02c4fc3c10de280",
       "canonical_instrument_id": "CRYPTO:BTC",
       "capital": 0,
       "diagnostic_participation_state": "RADAR",
@@ -98,36 +98,36 @@
       "proposal_status": "LOCKED_POLICY_UNRATIFIED",
       "proposed_action": "NONE",
       "quantity": null,
-      "readiness_row_sha256": "6c30f70f7c82104808ad571464c2cc909f3438afc08c83511fec9078c97f2c1f",
+      "readiness_row_sha256": "15e743e061fed9a67a7c093e386893cb3108422ecca095ebd577a57bc2eeaa97",
       "review_state": "WAIT_FOR_PULLBACK_REVIEW",
       "risk_budget_pct": null,
-      "row_sha256": "f6ec3268726c0ef247534c666b7682b3f7f986bde5ae204fa04fc159cee7e9de",
+      "row_sha256": "23292b9bd36b5fabefcf53701b3669d894345cf1d40c0820465a0e8905278bd5",
       "status": "LOCKED_POLICY_UNRATIFIED",
       "subject": "BTC",
       "trade_proposal": null
     }
   ],
   "operational_evaluation": {
-    "evaluated_at_utc": "2026-08-27T11:30:18Z",
+    "evaluated_at_utc": "2026-08-28T06:30:54Z",
     "status": "EXACT_CALLER_SUPPLIED_OPERATIONAL_RUN_TIMESTAMP",
     "time_precision": "TIMESTAMP"
   },
-  "packet_sha256": "9fdefa0207648dec29fd2e6869cb3df0e00be3dfac1a3475187840cccb392bb2",
+  "packet_sha256": "9c710be3e6a8f0e2e7db43aed2781b8523782477e7a50c62aa432f3435d6532e",
   "schema_version": "entry_proposal_boundary/1",
   "source": {
-    "candidate_identity_packet_sha256": "28287e8a77d55766cc84305453000530b8b1d251f06c98c659f6d9caf510ac17",
-    "dynamic_clock_report_sha256": "d009ce07506490d6a8c80c1bc672dd4a02fa65965f8fdb65393f1a7dfc665b7f",
-    "entry_policy_readiness_packet_sha256": "f4c08e49e937e63f4d5cdd6480293a8a13ac65f9ef91eec5d032398ba73aa596",
+    "candidate_identity_packet_sha256": "7f666023bc940d8a94dbe38bfb2084769c6c427a96fd7937643193df800b5ef7",
+    "dynamic_clock_report_sha256": "8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512",
+    "entry_policy_readiness_packet_sha256": "e1dccf0079f057de6fd6ea1323d5c76a18e2e08439c6200f3ef64742d3ec3327",
     "entry_proposal_boundary_contract_sha256": "4d07a80a63e84bc74d256d7fff54607246dac886426c3029068d8a99cafaf2bd",
-    "shadow_entry_review_packet_sha256": "f633d2c98445cb35b39a2522bd9cd0fb56328cc57cfe847ff15606747e9f287c",
+    "shadow_entry_review_packet_sha256": "5dd6338be9278a3efd2fd4fea3f292a4e480196b6ae32cb5d57f060916a16d31",
     "trigger_kind": "UPSTREAM_WORKFLOW_RUN"
   },
   "summary": {
     "actionable_proposal_count": 0,
     "entry_proposal_count": 0,
     "human_review_material_count": 2,
-    "observation_only_count": 72,
-    "observed_candidate_count": 74,
+    "observation_only_count": 76,
+    "observed_candidate_count": 78,
     "order_intent_count": 0
   }
 }
