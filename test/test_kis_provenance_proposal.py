@@ -58,7 +58,7 @@ class BuildProposalShapeTests(unittest.TestCase):
                 file_path="kis_devlp.yaml", content_sha256="a" * 64, note="x",
             )
 
-    def test_proposal_module_does_not_self_ratify_aliases_or_expand_provider_scope(self):
+    def test_proposal_module_does_not_expand_ratified_provider_or_alias_scope(self):
         providers = json.loads((ROOT / "config" / "data_provider_authority.json").read_text())
         identities = json.loads((ROOT / "config" / "canonical_security_identity.json").read_text())
         self.assertEqual(len(providers["provider_authority_records"]), 1)
@@ -66,10 +66,15 @@ class BuildProposalShapeTests(unittest.TestCase):
             providers["provider_authority_records"][0]["rule_id"],
             "atlas.identity.provider.kis-paper-account",
         )
-        self.assertFalse(any(
-            row.get("source_name") == "kis_paper_domestic_balance"
-            for row in identities["source_aliases"]
-        ))
+        aliases = [
+            row for row in identities["source_aliases"]
+            if row.get("source_name") == "kis_paper_domestic_balance"
+        ]
+        self.assertEqual(len(aliases), 1)
+        self.assertEqual(
+            (aliases[0]["source_asset_id"], aliases[0]["listing_id"]),
+            ("071050", "XKRX:071050"),
+        )
 
 
 class FailClosedReviewTests(unittest.TestCase):

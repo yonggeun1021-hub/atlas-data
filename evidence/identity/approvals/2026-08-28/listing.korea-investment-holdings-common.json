@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.listing.korea-investment-holdings-common",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-28T17:44:03Z",
+  "layer": "LISTING",
+  "approved_full_payload_sha256": "4001f2143f62adc473f501c0e79077488a961c36e9b7d50d149b8f795a450ce6",
+  "source_evidence": [
+    {
+      "path": "evidence/identity/proposals/kis_071050_instrument_identity_proposal.json",
+      "sha256": "e9fa30285a1935c89ec37ee90c0e14539b91bd74466adf08b753b2f7a4a6a033"
+    },
+    {
+      "path": "identity/kis_071050_proposal.py",
+      "sha256": "d5fdc935f713fb0657cb8a7e65291d0da834ddaa01e7cf77666e484fdc53b870"
+    },
+    {
+      "path": "identity/kis_071050_proposal_review.py",
+      "sha256": "3f5b82e31e727dd2e74fcf9e4ba98d50860cdde73e44bccf6f315b3ae640e335"
+    }
+  ],
+  "assertion": {
+    "listing_id": "XKRX:071050",
+    "canonical_instrument_id": "KRX:071050:COMMON",
+    "exchange": "XKRX",
+    "market": "KOREA",
+    "currency": "KRW",
+    "ticker": "071050",
+    "standard_product_number": "KR7071050009",
+    "proposal_id": "atlas.identity.proposal.kis-071050-instrument",
+    "proposal_sha256": "bf4fc161b5e1f17aa77a72fecea70b3cb24b6f37b93c038dd57dc443b0ccdb0d",
+    "review_status": "REVIEW_READY_FOR_CIO"
+  },
+  "approval_basis": "CIO mechanical identity review accepted only the exact XKRX 071050 listing. No universe membership, investability, or trading eligibility is granted.",
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}

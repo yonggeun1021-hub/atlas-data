@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.instrument.korea-investment-holdings-common",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-28T17:44:03Z",
+  "layer": "INSTRUMENT",
+  "approved_full_payload_sha256": "e08b4f28a5225b9806bcdc9929b8c4dd823d4697684e2c37f11bfaadc28c8e86",
+  "source_evidence": [
+    {
+      "path": "evidence/identity/proposals/kis_071050_instrument_identity_proposal.json",
+      "sha256": "e9fa30285a1935c89ec37ee90c0e14539b91bd74466adf08b753b2f7a4a6a033"
+    },
+    {
+      "path": "identity/kis_071050_proposal.py",
+      "sha256": "d5fdc935f713fb0657cb8a7e65291d0da834ddaa01e7cf77666e484fdc53b870"
+    },
+    {
+      "path": "identity/kis_071050_proposal_review.py",
+      "sha256": "3f5b82e31e727dd2e74fcf9e4ba98d50860cdde73e44bccf6f315b3ae640e335"
+    }
+  ],
+  "assertion": {
+    "canonical_issuer_id": "DART:00432102",
+    "canonical_instrument_id": "KRX:071050:COMMON",
+    "instrument_type": "COMMON_STOCK",
+    "standard_product_number": "KR7071050009",
+    "preferred_stock_class_code": "0",
+    "proposal_id": "atlas.identity.proposal.kis-071050-instrument",
+    "proposal_sha256": "bf4fc161b5e1f17aa77a72fecea70b3cb24b6f37b93c038dd57dc443b0ccdb0d",
+    "public_master_row_sha256": "aa3dc58fe82e95d22013d2f312b8cab9e84b63833836513b1decfc1716416286",
+    "review_status": "REVIEW_READY_FOR_CIO"
+  },
+  "approval_basis": "CIO mechanical identity review accepted COMMON_STOCK only from the exact 071050 master row, official KIS field layout, and independently reproduced archive membership.",
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}

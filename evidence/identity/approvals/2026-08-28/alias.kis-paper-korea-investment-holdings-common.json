@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.alias.kis-paper-korea-investment-holdings-common",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-28T17:44:03Z",
+  "layer": "SOURCE_ALIAS",
+  "approved_full_payload_sha256": "4f546a2bc51ae069d4659aff351259f60d7982928f09e2cef5e3db0c1c9d2af1",
+  "source_evidence": [
+    {
+      "path": "evidence/identity/proposals/kis_071050_source_alias_proposal.json",
+      "sha256": "eb4bbb80f39e0106908b665a69847124c2903459ab2efeda77c0327521453f88"
+    },
+    {
+      "path": "evidence/identity/proposals/kis_071050_instrument_identity_proposal.json",
+      "sha256": "e9fa30285a1935c89ec37ee90c0e14539b91bd74466adf08b753b2f7a4a6a033"
+    },
+    {
+      "path": "identity/kis_071050_proposal_review.py",
+      "sha256": "3f5b82e31e727dd2e74fcf9e4ba98d50860cdde73e44bccf6f315b3ae640e335"
+    },
+    {
+      "path": "config/data_provider_authority.json",
+      "sha256": "3a41be7dfb9ee751c3607fff6f54468358c60d82e12fe0bb38ba133c78acd595"
+    }
+  ],
+  "assertion": {
+    "provider": "KIS_PAPER_ACCOUNT",
+    "source_name": "kis_paper_domestic_balance",
+    "source_asset_id": "071050",
+    "listing_id": "XKRX:071050",
+    "canonical_instrument_id": "KRX:071050:COMMON",
+    "proposal_id": "atlas.identity.proposal.kis-balance-071050-alias",
+    "proposal_sha256": "d672585a15f863e34e1eb12cd8d224e20dade533c0088c25ca3b2135b8fb0764",
+    "scope": "EXACT_SOURCE_PAIR_ONLY_NO_GENERIC_SIX_DIGIT_PDNO_RULE",
+    "review_status": "REVIEW_READY_FOR_CIO"
+  },
+  "approval_basis": "CIO mechanical identity review accepted only the exact KIS PAPER balance-source tuple for pdno 071050. The failed live product-info read remains negative evidence and no other pdno is ratified.",
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}
