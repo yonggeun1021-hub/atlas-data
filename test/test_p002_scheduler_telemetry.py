@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -26,6 +27,11 @@ with WORKFLOW.open(encoding="utf-8") as fh:
     WF = yaml.safe_load(fh)
 
 STEPS = WF["jobs"]["collect"]["steps"]
+CURRENT_CRONS = (
+    ("55 20 * * 0-4", "primary_0555_kst"),
+    ("15 21 * * 0-4", "backup_0615_kst"),
+    ("35 21 * * 0-4", "final_0635_kst"),
+)
 
 
 def workflow_step(name):
@@ -54,6 +60,42 @@ class P002SchedulerTelemetryTest(unittest.TestCase):
         found = workflow_step(name)
         self.assertIsNotNone(found, f"missing workflow step: {name}")
         return found
+
+    def test_workflow_uses_only_current_pre_gate_slots(self):
+        raw = WORKFLOW.read_text(encoding="utf-8")
+        scheduled = tuple(
+            re.findall(r"^\s*-\s*cron:\s*'([^']+)'", raw, re.MULTILINE)
+        )
+        self.assertEqual(scheduled, tuple(cron for cron, _ in CURRENT_CRONS))
+
+    def test_current_pre_gate_slots_have_measured_telemetry_identity(self):
+        cases = (
+            ("55 20 * * 0-4", "2026-08-18T21:00:00Z", "primary_0555_kst", 300),
+            ("15 21 * * 0-4", "2026-08-18T21:21:00Z", "backup_0615_kst", 360),
+            ("35 21 * * 0-4", "2026-08-18T21:48:20Z", "final_0635_kst", 800),
+        )
+
+        for cron, observed, expected_id, expected_delay in cases:
+            with self.subTest(cron=cron):
+                record = MODULE.build_record(
+                    environment(
+                        ATLAS_EVENT_SCHEDULE=cron,
+                        ATLAS_RUNNER_STARTED_AT_UTC=observed,
+                    )
+                )
+                self.assertEqual(record["slot"]["id"], expected_id)
+                self.assertEqual(record["slot"]["timing_status"], "measured")
+                self.assertEqual(record["slot"]["delay_seconds"], expected_delay)
+
+    def test_nominal_buffers_before_0655_are_60_40_20_minutes(self):
+        kst_minutes = []
+        for cron, _ in CURRENT_CRONS:
+            minute, hour, *_ = cron.split()
+            total = (int(hour) * 60 + int(minute) + 9 * 60) % (24 * 60)
+            kst_minutes.append(total)
+
+        checkpoint = 6 * 60 + 55
+        self.assertEqual([checkpoint - minute for minute in kst_minutes], [60, 40, 20])
 
     def test_primary_slot_has_measured_runner_delay(self):
         record = MODULE.build_record(environment())
