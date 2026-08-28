@@ -81,6 +81,11 @@ APPROVED_TESTS = [
     # Finalization Portal/SSOT adapter: exact read-after-write verification,
     # idempotent briefing identity, and atomic append-only receipts.
     "test/test_notion_projection_adapter.py",
+    # P-PORTAL/#274 producer boundary: exact-source claim ledger and ChatGPT
+    # validation hashes become one immutable portal_projection/2 envelope.
+    # UNKNOWN stays escalated, post-delivery needs a signed ruling and remains
+    # non-redeliverable, and cross-repo dispatch separates source/envelope SHAs.
+    "test/test_validated_briefing_portal_producer.py",
     # Finalization rev18 accepted safety contract: one delivery, signed ruling,
     # UNKNOWN escalation, post-delivery redelivery prohibition, and latest
     # receipt revision per change. Portal projection is a fail-closed gate

@@ -1,0 +1,62 @@
+name: Dispatch Validated Portal Projection v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      envelope_commit:
+        description: "Exact atlas-data commit containing the envelope"
+        required: true
+        type: string
+      envelope_path:
+        description: "Repository-relative immutable envelope path"
+        required: true
+        type: string
+      envelope_sha256:
+        description: "Exact committed envelope SHA-256"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validated-portal-projection-${{ inputs.envelope_sha256 }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    # workflow_dispatch can otherwise select a feature-branch workflow. Never
+    # expose the dispatch environment to code outside the default branch.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    environment: atlas-portal-dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Trusted executor code only. envelope_commit is fetched below as
+          # data through the GitHub API and is never checked out or executed.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Verify immutable envelope and dispatch once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ATLAS_PORTAL_DISPATCH_TOKEN: ${{ secrets.ATLAS_PORTAL_DISPATCH_TOKEN }}
+          ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
+          ENVELOPE_COMMIT: ${{ inputs.envelope_commit }}
+          ENVELOPE_PATH: ${{ inputs.envelope_path }}
+          ENVELOPE_SHA256: ${{ inputs.envelope_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/dispatch_portal_projection.py \
+            --envelope-commit "$ENVELOPE_COMMIT" \
+            --envelope-path "$ENVELOPE_PATH" \
+            --envelope-sha256 "$ENVELOPE_SHA256" \
+            --default-branch "${{ github.event.repository.default_branch }}"
+
+      # This workflow never delivers a briefing to a person. atlas-portal owns
+      # APPLIED/NO_CHANGE, deploy verification, and the one Portal receipt.
