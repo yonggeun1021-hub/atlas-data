@@ -55,6 +55,7 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
         self.assertEqual(
             set(self.contract["actions"]),
             {
+                "actions/attest-build-provenance",
                 "actions/checkout",
                 "actions/setup-python",
                 "actions/upload-artifact",
@@ -63,7 +64,11 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
         )
         for action, item in self.contract["actions"].items():
             self.assertRegex(item["commit_sha"], SHA)
-            self.assertEqual(item["runtime"], "node24")
+            if action == "actions/attest-build-provenance":
+                self.assertEqual(item["runtime"], "composite")
+                self.assertEqual(item["transitive_runtime"], "node24")
+            else:
+                self.assertEqual(item["runtime"], "node24")
             self.assertEqual(
                 item["release_url"],
                 f"https://github.com/{action}/releases/tag/{item['version']}",
@@ -78,8 +83,9 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
                         observed[action].append((path.name, use))
                         self.assertEqual(use, f"{action}@{item['commit_sha']}")
 
-        self.assertEqual(len(observed["actions/checkout"]), 30)
-        self.assertEqual(len(observed["actions/setup-python"]), 28)
+        self.assertEqual(len(observed["actions/attest-build-provenance"]), 1)
+        self.assertEqual(len(observed["actions/checkout"]), 31)
+        self.assertEqual(len(observed["actions/setup-python"]), 29)
         self.assertEqual(len(observed["actions/upload-artifact"]), 13)
         self.assertEqual(len(observed["actions/download-artifact"]), 2)
 
