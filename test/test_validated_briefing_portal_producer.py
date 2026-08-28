@@ -548,6 +548,15 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
             "ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}",
             workflow,
         )
+        for name, expression in (
+            ("ENVELOPE_COMMIT", "${{ inputs.envelope_commit }}"),
+            ("ENVELOPE_PATH", "${{ inputs.envelope_path }}"),
+            ("ENVELOPE_SHA256", "${{ inputs.envelope_sha256 }}"),
+        ):
+            self.assertIn(f"{name}: {expression}", workflow)
+            self.assertIn(f'"${name}"', workflow)
+        run_body = workflow.split("        run: |\n", 1)[1]
+        self.assertNotRegex(run_body, r"\$\{\{\s*inputs\.")
 
     def test_retry_repairs_index_after_atomic_directory_publish(self):
         args = self._inputs()

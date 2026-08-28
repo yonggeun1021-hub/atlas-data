@@ -47,12 +47,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           ATLAS_PORTAL_DISPATCH_TOKEN: ${{ secrets.ATLAS_PORTAL_DISPATCH_TOKEN }}
           ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
+          ENVELOPE_COMMIT: ${{ inputs.envelope_commit }}
+          ENVELOPE_PATH: ${{ inputs.envelope_path }}
+          ENVELOPE_SHA256: ${{ inputs.envelope_sha256 }}
         run: |
           set -euo pipefail
           python3 .github/scripts/dispatch_portal_projection.py \
-            --envelope-commit "${{ inputs.envelope_commit }}" \
-            --envelope-path "${{ inputs.envelope_path }}" \
-            --envelope-sha256 "${{ inputs.envelope_sha256 }}" \
+            --envelope-commit "$ENVELOPE_COMMIT" \
+            --envelope-path "$ENVELOPE_PATH" \
+            --envelope-sha256 "$ENVELOPE_SHA256" \
             --default-branch "${{ github.event.repository.default_branch }}"
 
       # This workflow never delivers a briefing to a person. atlas-portal owns
