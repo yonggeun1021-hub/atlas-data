@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Real-evidence regression for the first mechanical identity authority rows.
+"""Real-evidence regression for the narrow mechanical identity authority rows.
 
-This is deliberately a narrow pilot.  It proves identity/scope facts for
-BTC, Samsung Electronics common stock, and SK hynix common stock.  It does
-not make any security investable or eligible for entry, sizing, or trading.
+This remains deliberately narrow. It proves identity/scope facts for BTC,
+Samsung Electronics common stock, SK hynix common stock, and the exact KIS
+PAPER 071050 Korea Investment Holdings common share. It does not make any
+security investable or eligible for entry, sizing, strategy, or trading.
 """
 from __future__ import annotations
 
@@ -19,12 +20,16 @@ sys.path.insert(0, str(ROOT))
 from identity import canonical_identity as ci  # noqa: E402
 
 
-DECISION_DATE_AFTER_FIRST_SEEN = "2026-08-26"
+DECISION_DATE_AFTER_FIRST_SEEN = "2026-08-29"
 
 EXPECTED_RESOLUTIONS = (
     ("kraken_spot_ohlc", "BTC/USD", "BTC", "CRYPTO:BTC", "KRAKEN:BTC-USD:SPOT"),
     ("krx_open_api_stock_daily", "005930", "KOREA", "KRX:005930:COMMON", "XKRX:005930"),
     ("krx_open_api_stock_daily", "000660", "KOREA", "KRX:000660:COMMON", "XKRX:000660"),
+    (
+        "kis_paper_domestic_balance", "071050", "KOREA",
+        "KRX:071050:COMMON", "XKRX:071050",
+    ),
 )
 
 
@@ -38,14 +43,17 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
         cls.authority = ci.load_authority()
         cls.scope_authority = ci.load_scope_authority()
 
-    def test_pilot_contains_only_the_three_approved_instruments(self):
-        self.assertEqual(len(self.authority["issuers"]), 3)
-        self.assertEqual(len(self.authority["instruments"]), 3)
-        self.assertEqual(len(self.authority["listings"]), 3)
-        self.assertEqual(len(self.authority["source_aliases"]), 3)
+    def test_pilot_contains_only_the_four_approved_instruments(self):
+        self.assertEqual(len(self.authority["issuers"]), 4)
+        self.assertEqual(len(self.authority["instruments"]), 4)
+        self.assertEqual(len(self.authority["listings"]), 4)
+        self.assertEqual(len(self.authority["source_aliases"]), 4)
         self.assertEqual(
             {r["canonical_instrument_id"] for r in self.authority["instruments"]},
-            {"CRYPTO:BTC", "KRX:005930:COMMON", "KRX:000660:COMMON"},
+            {
+                "CRYPTO:BTC", "KRX:005930:COMMON", "KRX:000660:COMMON",
+                "KRX:071050:COMMON",
+            },
         )
 
     def test_scope_pilot_contains_only_current_clock_markets(self):
@@ -64,7 +72,8 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
             for row in self.authority[key]:
                 ci.validate_authority_row(row, layer)
                 self.assertEqual(row["approval_status"], "RATIFIED")
-                self.assertEqual(row["effective_from"], "2026-08-25T06:19:27Z")
+                self.assertEqual(row["effective_from"], row["ratified_at"])
+                self.assertEqual(row["first_seen_at"], row["ratified_at"])
                 self.assertIsNone(row["effective_to"])
         for row in self.scope_authority["edges"]:
             ci.validate_authority_row(row, ci.LAYER_MARKET_ACCOUNT_SCOPE)
@@ -78,7 +87,7 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
             + self.authority["source_aliases"]
             + self.scope_authority["edges"]
         )
-        self.assertEqual(len(all_rows), 15)
+        self.assertEqual(len(all_rows), 19)
         for row in all_rows:
             approval_path = ROOT / row["approval_evidence_ref"]
             self.assertTrue(approval_path.is_file(), row["rule_id"])
@@ -175,9 +184,9 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
         issuers = {r["canonical_issuer_id"] for r in self.authority["issuers"]}
         instruments = {r["canonical_instrument_id"]: r for r in self.authority["instruments"]}
         listings = {r["listing_id"]: r for r in self.authority["listings"]}
-        self.assertEqual(len(issuers), 3)
-        self.assertEqual(len(instruments), 3)
-        self.assertEqual(len(listings), 3)
+        self.assertEqual(len(issuers), 4)
+        self.assertEqual(len(instruments), 4)
+        self.assertEqual(len(listings), 4)
         for instrument in instruments.values():
             self.assertIn(instrument["canonical_issuer_id"], issuers)
         for listing in listings.values():
@@ -190,7 +199,7 @@ class IdentityAuthorityPilotTests(unittest.TestCase):
             "investable", "entry_eligible", "buy_authorized", "order_authorized",
             "production_authorized", "trading_authorized", "stage_authorized",
         }
-        for path in (ROOT / "evidence/identity/approvals/2026-08-25").glob("*.json"):
+        for path in (ROOT / "evidence/identity/approvals").glob("*/*.json"):
             text = path.read_text()
             for field in forbidden_true:
                 self.assertNotIn(f'"{field}": true', text)

@@ -1451,22 +1451,20 @@ APPROVED_TESTS = [
     #   special-casing, P8-13 not opened.
     "test/test_identity_foundation.py",
     # P5-06/P7-08 mechanical identity pilot: exact committed provider
-    # contracts/observations -> 3 instruments + 3 explicit scope edges.
+    # contracts/observations -> 4 instruments + 3 explicit scope edges.
     # Identity only; no investability, entry, sizing, or trading authority.
     "test/test_identity_authority_pilot.py",
     # P0-2C-1: provider-authority mechanism layer -- whether a data
     # PROVIDER (e.g. KIS_PAPER_ACCOUNT) is a RATIFIED portfolio-fact
     # source is a separate fact from whether its API can be read.
-    # config/data_provider_authority.json stays an empty mechanism
-    # (provider_authority_records: []); no real row exists or is
-    # ratified by this file. Identity only; no investability, Stage,
-    # Buy, or Order authority.
+    # Exactly one KIS PAPER balance-provider tuple is provenance-bound;
+    # every other tuple remains closed. Identity only; no investability,
+    # Stage, Buy, or Order authority.
     "test/test_data_provider_authority.py",
     # P0-2C-2: proves the EXISTING resolve_instrument_identity() safely
     # handles a KIS pdno source pair (kis_paper_domestic_balance + a
-    # 6-digit code) -- no new resolver, no new canonical
-    # issuer/instrument/listing. Today, both real KOREA pdnos resolve
-    # NOT_COMPUTABLE (no kis_paper_domestic_balance alias exists yet).
+    # 6-digit code). Exactly 071050 resolves through the independently
+    # reviewed common-share chain; every other KIS pdno remains closed.
     # Identity only; no investability, Stage, Buy, or Order authority.
     "test/test_kis_paper_source_identity_resolution.py",
     # P0-2C: KIS provider-authority + source-alias PROPOSED artifacts --
@@ -1483,6 +1481,11 @@ APPROVED_TESTS = [
     # exact instrument/listing and exact KIS balance source pair without
     # mutating identity/provider authority config or granting money authority.
     "test/test_kis_071050_proposal.py",
+    # CIO-ratified mechanical identity only: exact DART:00432102 ->
+    # KRX:071050:COMMON -> XKRX:071050 ->
+    # kis_paper_domestic_balance/071050 chain. Proposal artifacts stay
+    # PROPOSED and every money/trading authority remains false.
+    "test/test_kis_071050_identity_authority.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.

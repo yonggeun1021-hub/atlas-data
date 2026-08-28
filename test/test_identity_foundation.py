@@ -1341,20 +1341,23 @@ class StructuralValidationTests(_GitRepoMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# The real shipped authority files must stay within the approved pilot.
+# The real shipped authority files must stay within the approved narrow set.
 # ---------------------------------------------------------------------------
 
 class RealShippedAuthorityFilesHaveNarrowPilotTests(unittest.TestCase):
 
-    def test_real_canonical_security_identity_file_has_only_three_pilot_chains(self):
+    def test_real_canonical_security_identity_file_has_only_four_narrow_chains(self):
         doc = ci.load_authority()
-        self.assertEqual(len(doc["issuers"]), 3)
-        self.assertEqual(len(doc["instruments"]), 3)
-        self.assertEqual(len(doc["listings"]), 3)
-        self.assertEqual(len(doc["source_aliases"]), 3)
+        self.assertEqual(len(doc["issuers"]), 4)
+        self.assertEqual(len(doc["instruments"]), 4)
+        self.assertEqual(len(doc["listings"]), 4)
+        self.assertEqual(len(doc["source_aliases"]), 4)
         self.assertEqual(
             {row["canonical_instrument_id"] for row in doc["instruments"]},
-            {"CRYPTO:BTC", "KRX:005930:COMMON", "KRX:000660:COMMON"},
+            {
+                "CRYPTO:BTC", "KRX:005930:COMMON", "KRX:000660:COMMON",
+                "KRX:071050:COMMON",
+            },
         )
         for layer_key in ("issuers", "instruments", "listings", "source_aliases"):
             self.assertTrue(all(row["approval_status"] == "RATIFIED" for row in doc[layer_key]))
