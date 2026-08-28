@@ -414,6 +414,34 @@ def _display_path(path: Path, base: Path) -> str:
         return path.as_posix()
 
 
+def _portal_slot_lineage(run_receipt: dict) -> dict:
+    """Return the exact natural-run identity embedded by the Portal observer."""
+    github = run_receipt["github"]
+    delivery = run_receipt["delivery"]
+    return {
+        "slot": run_receipt["slot"],
+        "run_id": github["run_id"],
+        "run_attempt": github["run_attempt"],
+        "workflow_head_sha": github["workflow_head_sha"],
+        "source_commit": run_receipt["source_commit"],
+        "generation_id": run_receipt["generation_id"],
+        "packet_sha256": delivery["packet_sha256"],
+        "briefing_sha256": delivery["briefing_sha256"],
+    }
+
+
+def _portal_pair_lineage(portal_receipt: dict) -> dict:
+    pair = portal_receipt["natural_pair"]
+    return {
+        "decision_date": pair["decision_date"],
+        "atlas_discovery_commit": pair["atlas_discovery_commit"],
+        "slots": {
+            slot_row["slot"]: slot_row
+            for slot_row in pair["slots"]
+        },
+    }
+
+
 def build_inventory(
     repo_root: Path = ROOT,
     *,
@@ -489,9 +517,23 @@ def build_inventory(
     for row in portal_natural:
         portal_by_date.setdefault(row["natural_pair"]["decision_date"], []).append(row)
     for date, rows in portal_by_date.items():
-        if len({row["observer"]["run_id"] for row in rows}) != 1:
-            fail("DUPLICATE_NATURAL_PORTAL_OBSERVATION", date)
-    projected_pair_dates = sorted(date for date in portal_by_date if date in pair_dates)
+        pair_lineages = {canonical_json(_portal_pair_lineage(row)) for row in rows}
+        if len(pair_lineages) != 1:
+            fail("PORTAL_RECEIPT_LINEAGE_CONFLICT", date)
+        if date not in by_date or set(by_date[date]) != SLOTS:
+            continue
+        expected_slots = {
+            slot: _portal_slot_lineage(run_receipt)
+            for slot, (_, run_receipt) in by_date[date].items()
+        }
+        actual_slots = _portal_pair_lineage(rows[0])["slots"]
+        if actual_slots != expected_slots:
+            fail("PORTAL_RECEIPT_SOURCE_LINEAGE_MISMATCH", date)
+    projected_pair_dates = sorted(
+        date
+        for date in portal_by_date
+        if date in by_date and set(by_date[date]) == SLOTS
+    )
     fail_closed_count = 0
     exit_gate = contract["exit_gate"]
     blockers = []

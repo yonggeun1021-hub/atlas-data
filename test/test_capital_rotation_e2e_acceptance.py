@@ -52,12 +52,33 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
     @staticmethod
-    def portal_receipt(event_name="schedule", event_schedule=portal.OBSERVER_SCHEDULE):
+    def portal_slot(run_receipt: dict):
+        github = run_receipt["github"]
+        delivery = run_receipt["delivery"]
+        return {
+            "slot": run_receipt["slot"],
+            "run_id": github["run_id"],
+            "run_attempt": github["run_attempt"],
+            "workflow_head_sha": github["workflow_head_sha"],
+            "source_commit": run_receipt["source_commit"],
+            "generation_id": run_receipt["generation_id"],
+            "packet_sha256": delivery["packet_sha256"],
+            "briefing_sha256": delivery["briefing_sha256"],
+        }
+
+    @staticmethod
+    def portal_receipt(
+        event_name="schedule",
+        event_schedule=portal.OBSERVER_SCHEDULE,
+        *,
+        slots=None,
+        observer_run_id=301,
+    ):
         observer = {
             "workflow": portal.OBSERVER_WORKFLOW,
             "event_name": event_name,
             "event_schedule": event_schedule,
-            "run_id": 301,
+            "run_id": observer_run_id,
             "run_attempt": 1,
             "workflow_head_sha": "4" * 40,
             "observed_at_utc": "2026-08-26T23:05:00Z",
@@ -82,7 +103,7 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
             "natural_pair": {
                 "decision_date": "2026-08-26",
                 "atlas_discovery_commit": "8" * 40,
-                "slots": [
+                "slots": slots or [
                     {
                         "slot": slot,
                         "run_id": run_id,
@@ -258,9 +279,16 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             base = Path(name)
             run_root, portal_root = base / "runs", base / "portal"
-            self.write_run(run_root, self.receipt("morning", 201))
-            self.write_run(run_root, self.receipt("evening", 202))
-            self.write_portal_package(portal_root, self.portal_receipt())
+            morning = self.receipt("morning", 201)
+            evening = self.receipt("evening", 202)
+            self.write_run(run_root, morning)
+            self.write_run(run_root, evening)
+            self.write_portal_package(
+                portal_root,
+                self.portal_receipt(
+                    slots=[self.portal_slot(morning), self.portal_slot(evening)]
+                ),
+            )
             verified = []
             result = acceptance.build_inventory(
                 ROOT,
@@ -276,6 +304,94 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
             self.assertEqual(result["observed"]["portal_receipt_count"], 1)
             self.assertEqual(len(verified), 1)
             self.assertEqual(result["status"], "NOT_READY")
+
+    def test_same_date_portal_pair_with_different_source_lineage_fails_closed(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            run_root, portal_root = base / "runs", base / "portal"
+            morning = self.receipt("morning", 201)
+            evening = self.receipt("evening", 202)
+            self.write_run(run_root, morning)
+            self.write_run(run_root, evening)
+            mismatched = self.portal_receipt(
+                slots=[self.portal_slot(morning), self.portal_slot(evening)]
+            )
+            mismatched["natural_pair"]["slots"][0]["packet_sha256"] = "e" * 64
+            mismatched["receipt_sha256"] = portal.payload_sha256(
+                mismatched, "receipt_sha256"
+            )
+            self.write_portal_package(portal_root, mismatched)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "PORTAL_RECEIPT_SOURCE_LINEAGE_MISMATCH",
+            ):
+                acceptance.build_inventory(
+                    ROOT,
+                    run_root=run_root,
+                    portal_root=portal_root,
+                    fail_root=base / "fail",
+                    portal_attestation_verifier=lambda *args: None,
+                    portal_trusted_root_sha256=portal.bytes_sha256(
+                        (portal_root / "2026-08-26" / "run-301-attempt-1" / "trusted_root.jsonl").read_bytes()
+                    ),
+                )
+
+    def test_reobserved_identical_portal_pair_counts_once(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            run_root, portal_root = base / "runs", base / "portal"
+            morning = self.receipt("morning", 201)
+            evening = self.receipt("evening", 202)
+            slots = [self.portal_slot(morning), self.portal_slot(evening)]
+            self.write_run(run_root, morning)
+            self.write_run(run_root, evening)
+            self.write_portal_package(
+                portal_root, self.portal_receipt(slots=slots, observer_run_id=301)
+            )
+            self.write_portal_package(
+                portal_root, self.portal_receipt(slots=slots, observer_run_id=302)
+            )
+            result = acceptance.build_inventory(
+                ROOT,
+                run_root=run_root,
+                portal_root=portal_root,
+                fail_root=base / "fail",
+                portal_attestation_verifier=lambda *args: None,
+                portal_trusted_root_sha256=portal.bytes_sha256(
+                    (portal_root / "2026-08-26" / "run-301-attempt-1" / "trusted_root.jsonl").read_bytes()
+                ),
+            )
+            self.assertEqual(
+                result["observed"]["viewer_visible_projected_pair_dates"],
+                ["2026-08-26"],
+            )
+            self.assertEqual(result["observed"]["portal_receipt_count"], 2)
+
+    def test_conflicting_portal_pairs_for_same_date_fail_closed(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            portal_root = base / "portal"
+            first = self.portal_receipt(observer_run_id=301)
+            second = self.portal_receipt(observer_run_id=302)
+            second["natural_pair"]["atlas_discovery_commit"] = "f" * 40
+            second["receipt_sha256"] = portal.payload_sha256(
+                second, "receipt_sha256"
+            )
+            self.write_portal_package(portal_root, first)
+            self.write_portal_package(portal_root, second)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError, "PORTAL_RECEIPT_LINEAGE_CONFLICT"
+            ):
+                acceptance.build_inventory(
+                    ROOT,
+                    run_root=base / "runs",
+                    portal_root=portal_root,
+                    fail_root=base / "fail",
+                    portal_attestation_verifier=lambda *args: None,
+                    portal_trusted_root_sha256=portal.bytes_sha256(
+                        (portal_root / "2026-08-26" / "run-301-attempt-1" / "trusted_root.jsonl").read_bytes()
+                    ),
+                )
 
     def test_portal_receipt_bundle_tamper_is_rejected_before_counting(self):
         with tempfile.TemporaryDirectory() as name:
