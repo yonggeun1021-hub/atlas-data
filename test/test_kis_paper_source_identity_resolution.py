@@ -24,6 +24,7 @@ effective/tampered row ever resolving.
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import tempfile
 import unittest
@@ -185,6 +186,87 @@ class KisPaperSourceIdentityGitBackedPositiveControlTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], ci.NOT_COMPUTABLE_LAYER_MISMATCH)
         self.assertIsNone(result["canonical_instrument_id"])
+        self.assertTrue(all(v is False for v in result["authority"].values()))
+
+
+class KisPaperProviderAuthorityGitBackedPositiveControlTests(unittest.TestCase):
+    """Prove the newly merged provider-authority layer can really resolve.
+
+    PR #406 intentionally shipped an empty registry and negative tests.  That
+    is the correct production state, but a mechanism also needs a disposable
+    positive control proving that a fully committed row and its independently
+    committed approval evidence traverse the generic authority gate.  This
+    test never changes the shipped empty registry.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = GitAuthorityRepo(Path(self._tmp.name) / "repo")
+        self.ratified_at = "2026-08-25T06:19:27Z"
+        self.row = {
+            "rule_id": "atlas.identity.provider.kis-test-positive",
+            "rule_version": 1,
+            "approval_status": "PROVISIONAL",
+            "ratified_at": None,
+            "approval_evidence_ref": None,
+            "approval_evidence_sha256": None,
+            "business_payload_sha256": None,
+            "first_seen_at": "2026-01-01T00:00:00Z",
+            "effective_from": "2026-01-01T00:00:00Z",
+            "effective_to": None,
+            "provider": "KIS_PAPER_ACCOUNT",
+            "account_scope": "KOREA",
+            "currency": "KRW",
+            "position_source_name": KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME,
+        }
+        self.repo.commit_evidence(
+            self.row,
+            ci.LAYER_PROVIDER_AUTHORITY,
+            self.ratified_at,
+            self.ratified_at,
+        )
+        doc = {
+            "schema_version": 1,
+            "policy_version": "data_provider_authority/v1",
+            "provider_authority_records": [self.row],
+        }
+        data = json.dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        authority_path = self.repo._commit(
+            "config/data_provider_authority.json",
+            data,
+            self.ratified_at,
+            "add provider authority",
+        )
+        self.authority = ci.load_provider_authority(authority_path)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_exact_provider_tuple_reaches_resolved_with_all_money_authority_false(self):
+        result = ci.resolve_provider_authority(
+            provider="KIS_PAPER_ACCOUNT",
+            account_scope="KOREA",
+            currency="KRW",
+            position_source_name=KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME,
+            decision_date=DECISION_DATE,
+            authority=self.authority,
+        )
+        self.assertEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["provider"], "KIS_PAPER_ACCOUNT")
+        self.assertTrue(all(v is False for v in result["authority"].values()))
+
+    def test_near_match_cannot_borrow_the_ratified_provider_name(self):
+        result = ci.resolve_provider_authority(
+            provider="KIS_PAPER_ACCOUNT",
+            account_scope="KOREA",
+            currency="USD",
+            position_source_name=KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME,
+            decision_date=DECISION_DATE,
+            authority=self.authority,
+        )
+        self.assertEqual(
+            result["status"], ci.NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED
+        )
         self.assertTrue(all(v is False for v in result["authority"].values()))
 
 
