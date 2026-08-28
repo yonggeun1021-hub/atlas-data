@@ -74,10 +74,17 @@ class ProposalShapeTests(unittest.TestCase):
 
     def test_operating_precedent_is_exact_but_not_policy_authority(self):
         precedent = freshness_policy_proposal()["operationalPrecedent"]
-        self.assertEqual(precedent["status"], "OPERATING_PRECEDENT_NOT_POLICY_AUTHORITY")
+        self.assertEqual(
+            precedent["status"],
+            "OPERATING_PRECEDENT_NOT_VALUATION_POLICY_EVIDENCE",
+        )
         self.assertEqual(precedent["commitSha"], PRIVATE_PRECEDENT_COMMIT)
         self.assertEqual(precedent["filePath"], PRIVATE_PRECEDENT_PATH)
         self.assertEqual(precedent["contentSha256"], PRIVATE_PRECEDENT_SHA256)
+        rationale = freshness_policy_proposal()["selectionRationale"]
+        self.assertEqual(rationale["evidenceStatus"], "UNVALIDATED_NO_LIVE_PAIR_SAMPLE")
+        self.assertEqual(rationale["livePairSampleCount"], 0)
+        self.assertFalse(rationale["atomicCaptureSessionBindingPresent"])
 
 
 class DiagnosticBoundaryTests(unittest.TestCase):
@@ -137,10 +144,12 @@ class ReviewTests(unittest.TestCase):
                 private_checkout=Path("/independent/private-checkout"),
             )
 
-    def test_exact_packet_and_semantically_parsed_precedent_are_ready_for_cio(self):
+    def test_exact_packet_stays_incomplete_despite_semantically_parsed_precedent(self):
         result = self.review()
-        self.assertEqual(result["reviewStatus"], "REVIEW_READY_FOR_CIO")
-        self.assertEqual(result["reasons"], [])
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertEqual(result["reasons"], [
+            "VALUATION_PAIR_GAP_EVIDENCE_UNVALIDATED_NO_LIVE_PAIR_SAMPLE",
+        ])
         self.assertEqual(result["authority"], AUTHORITY_ALL_FALSE)
 
     def test_missing_private_exact_commit_reproduction_is_incomplete(self):
@@ -148,6 +157,27 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
         self.assertIn(
             "PRIVATE_OPERATING_PRECEDENT_REPRODUCTION_REQUIRED", result["reasons"]
+        )
+        self.assertIn(
+            "VALUATION_PAIR_GAP_EVIDENCE_UNVALIDATED_NO_LIVE_PAIR_SAMPLE",
+            result["reasons"],
+        )
+
+    def test_self_rehashed_fake_live_sample_cannot_clear_evidence_blocker(self):
+        packet = copy.deepcopy(freshness_policy_proposal())
+        packet["selectionRationale"]["evidenceStatus"] = "VALIDATED"
+        packet["selectionRationale"]["livePairSampleCount"] = 99
+        packet["selectionRationale"]["atomicCaptureSessionBindingPresent"] = True
+        packet["reviewReadiness"]["status"] = "REVIEW_READY_FOR_CIO"
+        packet["reviewReadiness"]["blockingReason"] = None
+        _rehash(packet)
+        result = self.review(packet)
+        self.assertIn("PROPOSAL_DIFFERS_FROM_CANONICAL_GENERATOR_OUTPUT", result["reasons"])
+        self.assertIn("SELECTION_RATIONALE_BOUNDARY_INVALID", result["reasons"])
+        self.assertIn("REVIEW_READINESS_BOUNDARY_INVALID", result["reasons"])
+        self.assertIn(
+            "VALUATION_PAIR_GAP_EVIDENCE_UNVALIDATED_NO_LIVE_PAIR_SAMPLE",
+            result["reasons"],
         )
 
     def test_self_rehashed_threshold_change_cannot_redefine_policy(self):

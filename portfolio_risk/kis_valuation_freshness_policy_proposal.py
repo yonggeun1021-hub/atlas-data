@@ -81,7 +81,7 @@ def freshness_policy_proposal() -> dict:
             "callerOverridePermitted": False,
         },
         "operationalPrecedent": {
-            "status": "OPERATING_PRECEDENT_NOT_POLICY_AUTHORITY",
+            "status": "OPERATING_PRECEDENT_NOT_VALUATION_POLICY_EVIDENCE",
             "repo": PRIVATE_PRECEDENT_REPO,
             "commitSha": PRIVATE_PRECEDENT_COMMIT,
             "filePath": PRIVATE_PRECEDENT_PATH,
@@ -97,16 +97,28 @@ def freshness_policy_proposal() -> dict:
             },
         },
         "selectionRationale": {
-            "maxSourceAge": (
-                "Literal reuse of the existing KIS PAPER human-approved decision "
-                "age default; the valuation path is not allowed a looser window."
+            "maxSourceAgeStatus": (
+                "PROPOSED_CONSERVATIVE_ANALOGY_SAME_AGE_TO_DECISION_AXIS_"
+                "NOT_VALUATION_VALIDATION"
             ),
-            "maxPairGap": (
-                "Literal reuse of the existing 120-second KIS PAPER human "
-                "confirmation TTL as the tighter coherence window between the "
-                "two account observations."
+            "maxPairGapStatus": (
+                "PROPOSED_HEURISTIC_ONLY_CROSS_DOMAIN_CONFIRMATION_TTL_"
+                "ANALOGY_NOT_PAIR_COHERENCE_EVIDENCE"
             ),
+            "evidenceStatus": "UNVALIDATED_NO_LIVE_PAIR_SAMPLE",
+            "livePairSampleCount": 0,
+            "atomicCaptureSessionBindingPresent": False,
             "numericRiskBudgetOrPositionSizeSelected": False,
+        },
+        "reviewReadiness": {
+            "status": "REVIEW_INCOMPLETE",
+            "blockingReason": (
+                "VALUATION_PAIR_GAP_EVIDENCE_UNVALIDATED_NO_LIVE_PAIR_SAMPLE"
+            ),
+            "requiredNextEvidence": [
+                "live full-account-v3 to buy-capacity capture-gap observation",
+                "exact binding showing both records belong to one capture session",
+            ],
         },
         "applicability": {
             "effectiveOnlyAfterSeparateRatification": True,

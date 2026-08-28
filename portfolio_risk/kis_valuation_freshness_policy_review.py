@@ -31,6 +31,9 @@ _FORBIDDEN_KEYS = {
     "broker_verified", "brokerVerified", "tradingAuthority", "orderAuthority",
 }
 _FORBIDDEN_VALUES = {"RATIFIED", "BROKER_VERIFIED"}
+_PAIR_GAP_EVIDENCE_BLOCKER = (
+    "VALUATION_PAIR_GAP_EVIDENCE_UNVALIDATED_NO_LIVE_PAIR_SAMPLE"
+)
 
 
 class KisValuationFreshnessPolicyReviewError(ValueError):
@@ -268,9 +271,21 @@ def review_freshness_policy_proposal(
     if not isinstance(applicability, dict) or applicability != expected["applicability"]:
         reasons.append("APPLICABILITY_BOUNDARY_INVALID")
 
+    rationale = proposal.get("selectionRationale")
+    if not isinstance(rationale, dict) or rationale != expected["selectionRationale"]:
+        reasons.append("SELECTION_RATIONALE_BOUNDARY_INVALID")
+    readiness = proposal.get("reviewReadiness")
+    if not isinstance(readiness, dict) or readiness != expected["reviewReadiness"]:
+        reasons.append("REVIEW_READINESS_BOUNDARY_INVALID")
+
     raw, source_reasons = _resolve_private_precedent(private_checkout)
     reasons.extend(source_reasons)
     reasons.extend(_review_precedent_semantics(raw))
+    # Exact reproduction of an order-decision age and a confirmation-token TTL
+    # cannot prove valuation source age or pair coherence.  No caller input can
+    # clear this blocker; a future contract must add independently reviewed live
+    # pair evidence and atomic capture-session binding first.
+    reasons.append(_PAIR_GAP_EVIDENCE_BLOCKER)
     reasons = sorted(set(reasons))
     return {
         "reviewStatus": "REVIEW_READY_FOR_CIO" if not reasons else "REVIEW_INCOMPLETE",
