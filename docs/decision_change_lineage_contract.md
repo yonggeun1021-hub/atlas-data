@@ -28,7 +28,9 @@ consumer-ready bundle, the adapter reads the packet from its exact immutable
 full-SHA Git blob, verifies the complete blob's content hash, and extracts the
 exact Unified Decision. Each prior/current snapshot is then revalidated by the
 Unified Decision validator from the immutable source commit named in that
-snapshot's strict raw-GitHub source reference. This per-snapshot boundary is
+snapshot's strict raw-GitHub source reference. That commit must also be an
+actual ancestor of the current checkout, so an unmerged side-branch commit
+cannot supply executable historical validation code. This per-snapshot boundary is
 intentional: replaying a historical Daily Briefing as if every diagnostic
 component were produced from today's mutable source files or today's visible
 Git ref graph can change DART timing and first-seen diagnostics even though the

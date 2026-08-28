@@ -120,6 +120,17 @@ def _git_blob(commit: str, relative: str) -> bytes:
     )
     if resolved.returncode != 0 or resolved.stdout.strip() != commit:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_NOT_IMMUTABLE")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if ancestor.returncode != 0:
+        raise OperationalDecisionLineageError(
+            "SOURCE_COMMIT_NOT_ANCESTOR_OF_CURRENT_HEAD"
+        )
     return completed.stdout
 
 
