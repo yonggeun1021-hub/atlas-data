@@ -46,6 +46,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'
+      - name: CIO approval public-key anchor
+        env:
+          ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
+        run: python3 .github/scripts/check_approval_pubkey_anchor.py
       # ★ CIO 판정 2026-08-17 — 승인 회귀 전용 의존성. production requirements.txt
       #   (pykrx·pandas·requests) 는 이 gate 에서 설치하지 않는다 — 회귀는 fixture
       #   only 이므로 collector 런타임이 필요 없다.
