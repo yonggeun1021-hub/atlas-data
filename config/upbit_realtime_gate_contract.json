@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "upbit_realtime_gate_contract/1",
+  "source_name": "upbit_realtime_ws_gate",
+  "websocket_endpoint": "wss://api.upbit.com/websocket/v1",
+  "market_prefix": "KRW-",
+  "public_message_types": ["ticker", "trade", "orderbook"],
+  "candle_ws_type_by_timeframe": {"15m": "candle.15m", "1h": "candle.60m", "4h": "candle.240m"},
+  "candle_ws_unsupported_timeframes": ["1d"],
+  "private_channel_types_forbidden": ["myOrder", "myAsset"],
+  "auth_required": false,
+  "order_or_withdrawal_endpoints_called": false,
+  "private_channel_subscribed": false,
+  "transform_version": "upbit_realtime_gate/1",
+  "reconnect_default_max_attempts": 6,
+  "reconnect_default_base_backoff_seconds": 1.0,
+  "reconnect_default_max_backoff_seconds": 30.0,
+  "connection_gap_min_seconds_for_backfill": 5,
+  "default_max_staleness_seconds_by_kind": {
+    "ticker": 30,
+    "trade": 30,
+    "orderbook": 15,
+    "candle": 120
+  },
+  "evidence_root_template": "evidence/crypto/upbit/realtime/{DATE}",
+  "bounded_run_default_duration_seconds": 240
+}

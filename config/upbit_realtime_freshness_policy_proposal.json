@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "policy_version": "upbit_realtime_freshness_policy_proposal/v1",
+  "approval_status": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+  "effective_date": "2026-08-29",
+  "input_contract_version": "intraday_freshness_guard/1",
+  "proposed_max_provider_age_seconds_by_market": {
+    "US": 60,
+    "KOREA": 45,
+    "CRYPTO": 20
+  },
+  "proposed_max_transport_delay_seconds_by_market": {
+    "US": 10,
+    "KOREA": 8,
+    "CRYPTO": 3
+  },
+  "note": "This is NOT a RATIFIED execution/intraday_freshness.py policy packet -- it is a proposal only, in a different shape than intraday_freshness_policy/1 (no ratified_by/ratified_at_utc/packet_sha256 binding). P9-06's realtime/upbit_realtime_gate.py::evaluate_via_intraday_freshness_guard() calls execution/intraday_freshness.py's evaluate_freshness() directly -- literal reuse, not reimplementation -- but always passes ratified_policy=None in production today, so every call fails closed to UNKNOWN (reason P9_01_RATIFIED_POLICY_ABSENT) until a human ratifies a real intraday_freshness_policy/1 packet for the CRYPTO market, using these or CIO-adjusted thresholds. This is the same 'repository ships no default threshold' discipline P9-01 itself established (config/intraday_freshness_guard_contract.json: repository_default_policy=ABSENT)."
+}
