@@ -31,6 +31,10 @@ _PROPOSAL_FIELDS = {
 }
 _OFFICIAL_REPO = "koreainvestment/open-trading-api"
 _OFFICIAL_COMMIT = "b4e6249714418aa57833d1cbbbced39cbcc5b125"
+_FORBIDDEN_EMBEDDED_AUTHORITY_KEYS = {
+    "approval_status", "approvalStatus", "ratified_at", "ratifiedAt",
+    "authority_status", "authorityStatus", "broker_verified", "brokerVerified",
+}
 
 
 class KisProvenanceProposalReviewError(ValueError):
@@ -49,6 +53,30 @@ def _reject_forbidden_authority(proposal: dict) -> None:
             raise KisProvenanceProposalReviewError("AUTHORITY_NOT_ALL_FALSE")
     if proposal.get("canonicalAuthorityConfigMutated") is not False:
         raise KisProvenanceProposalReviewError("CANONICAL_AUTHORITY_CONFIG_MUTATION_CLAIMED")
+
+    def walk(value, path: str) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_path = f"{path}.{key}" if path else key
+                if key in _FORBIDDEN_EMBEDDED_AUTHORITY_KEYS:
+                    raise KisProvenanceProposalReviewError(
+                        f"EMBEDDED_AUTHORITY_FIELD_FORBIDDEN:{child_path}"
+                    )
+                walk(child, child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, f"{path}[{index}]")
+        elif isinstance(value, str) and value in _FORBIDDEN_STATUS_STRINGS:
+            raise KisProvenanceProposalReviewError(
+                f"EMBEDDED_AUTHORITY_VALUE_FORBIDDEN:{path}:{value}"
+            )
+
+    # Top-level proposalStatus/authority have their own exact contract
+    # above. Claims and evidence may discuss authority narratively, but
+    # cannot carry a machine-readable approval field or exact authority
+    # value that a downstream consumer could mistake for a grant.
+    walk(proposal.get("claim"), "claim")
+    walk(proposal.get("evidenceLineage"), "evidenceLineage")
 
 
 def _incomplete(reasons: list[str]) -> dict:
@@ -117,6 +145,9 @@ def review_provider_authority_proposal(proposal: dict) -> dict:
     _reject_forbidden_authority(proposal)
     reasons = _review_common_shape(proposal)
     claim = proposal.get("claim", {})
+    expected_claim_fields = {"provider", "accountScope", "currency", "positionSourceName", "assertion"}
+    if not isinstance(claim, dict) or set(claim) != expected_claim_fields:
+        reasons.append("PROVIDER_CLAIM_FIELDS_INVALID")
     real = portfolio_snapshot_v2.PROVIDER_IMPLEMENTATIONS.get(claim.get("provider"))
     if real is None:
         reasons.append("PROVIDER_NOT_IN_CURRENT_IMPLEMENTATION_REGISTRY")
@@ -158,6 +189,11 @@ def review_source_alias_proposal(proposal: dict) -> dict:
     reasons = _review_common_shape(proposal)
     reasons.extend(_review_alias_evidence_binding(proposal))
     claim = proposal.get("claim", {})
+    expected_claim_fields = {
+        "sourceName", "sourceAssetId", "listingId", "canonicalInstrumentId", "assertion",
+    }
+    if not isinstance(claim, dict) or set(claim) != expected_claim_fields:
+        reasons.append("SOURCE_ALIAS_CLAIM_FIELDS_INVALID")
     target_refs = [
         entry for entry in proposal.get("evidenceLineage", [])
         if isinstance(entry, dict) and entry.get("kind") == "ATLAS_CANONICAL_TARGET_REFERENCE"

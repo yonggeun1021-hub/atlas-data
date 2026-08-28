@@ -152,6 +152,20 @@ class FailClosedReviewTests(unittest.TestCase):
         ):
             reject_if_evidence_reused_across_alias_proposals(proposal_005930, forged_000660)
 
+    def test_reused_urls_cannot_be_hidden_by_changing_only_narrative(self):
+        proposal_005930 = source_alias_proposal_005930()
+        forged_000660 = copy.deepcopy(source_alias_proposal_000660())
+        source_entry = next(
+            copy.deepcopy(entry) for entry in proposal_005930["evidenceLineage"]
+            if entry.get("kind") == "MUTABLE_PUBLIC_INSTRUMENT_CONFIRMATION"
+        )
+        source_entry["claim"] = "different narrative text does not make reused sources independent"
+        forged_000660["evidenceLineage"].append(source_entry)
+        with self.assertRaisesRegex(
+            KisProvenanceProposalReviewError, "INSTRUMENT_SPECIFIC_EVIDENCE_REUSED_ACROSS_PROPOSALS",
+        ):
+            reject_if_evidence_reused_across_alias_proposals(proposal_005930, forged_000660)
+
     def test_shared_general_pdno_shape_pin_is_not_instrument_specific_reuse(self):
         reject_if_evidence_reused_across_alias_proposals(
             source_alias_proposal_005930(), source_alias_proposal_000660(),
@@ -184,6 +198,15 @@ class FailClosedReviewTests(unittest.TestCase):
         _rehash(proposal)
         with self.assertRaisesRegex(
             KisProvenanceProposalReviewError, "CANONICAL_AUTHORITY_CONFIG_MUTATION_CLAIMED",
+        ):
+            review_provider_authority_proposal(proposal)
+
+    def test_rehashed_embedded_ratified_claim_is_rejected(self):
+        proposal = copy.deepcopy(provider_authority_proposal())
+        proposal["claim"]["approval_status"] = "RATIFIED"
+        _rehash(proposal)
+        with self.assertRaisesRegex(
+            KisProvenanceProposalReviewError, "EMBEDDED_AUTHORITY_FIELD_FORBIDDEN:claim.approval_status",
         ):
             review_provider_authority_proposal(proposal)
 
