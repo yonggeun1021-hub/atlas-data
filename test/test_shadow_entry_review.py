@@ -44,9 +44,13 @@ class ShadowEntryReviewTests(unittest.TestCase):
         self.assertEqual(0, row["money_boundary"]["capital"])
         self.assertIsNone(row["money_boundary"]["trade_proposal"])
 
-    def test_real_btc_and_hynix_are_never_misrepresented_as_executable_entries(self):
-        for subject in ("BTC", "000660"):
-            row = self.by_subject[subject]
+    def test_real_btc_and_current_korea_candidates_are_never_executable_entries(self):
+        korea_rows = [
+            row for row in self.packet["review_items"]
+            if row["market"] == "KOREA"
+        ]
+        self.assertTrue(korea_rows)
+        for row in [self.by_subject["BTC"], *korea_rows]:
             self.assertIn(row["review_state"], {
                 review.REVIEW_MOMENTUM, review.REVIEW_REVERSAL,
                 review.REVIEW_PULLBACK, review.REVIEW_WATCH, review.REVIEW_BLOCKED,
