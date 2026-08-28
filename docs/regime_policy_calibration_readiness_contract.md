@@ -8,12 +8,19 @@ five-of-five coverage (C).
 ## What the packet proves
 
 The command independently replays every retained raw source currently bound by
-`regime_live_axis_adapter/v4`:
+`regime_live_axis_adapter/v5`:
 
 - FRED VIX append-only evidence for `US/RISK_VOL`
 - Kraken BTC append-only snapshots for `CRYPTO/TREND` and
   `CRYPTO/RISK_VOL`
 - DefiLlama stablecoin append-only snapshots for `CRYPTO/LIQUIDITY`
+  (Upbit microstructure evidence is a second qualifying `CRYPTO/LIQUIDITY`
+  input in the live adapter, but this history scanner still replays the
+  stablecoin side only -- see P1-CR-08's PR notes)
+- Kraken-derived Crypto Breadth (CR-06) snapshots for `CRYPTO/BREADTH`
+- Crypto Breadth-derived dual-window relative-strength history for
+  `CRYPTO/LEADERSHIP` (CR-07); this is real-evidence-backed but currently
+  short of the 30-day primary window, so it retains no history yet
 
 Each source is checked by its existing production validator. The packet records
 the exact raw URI, hash, observation date, Atlas availability time, revision
@@ -27,11 +34,17 @@ or lineage-only receipt is promoted to a market-wide axis.
 
 ## Current expected result
 
-At the v1 baseline the repository replays:
+As of `regime_live_axis_adapter/v5` (P1-CR-08), the repository replays:
 
 - US: `1/5` (`RISK_VOL`)
 - Korea: `0/5`
-- Crypto: `3/5` (`TREND`, `RISK_VOL`, `LIQUIDITY`)
+- Crypto: `4/5` (`TREND`, `BREADTH`, `RISK_VOL`, `LIQUIDITY`) -- `BREADTH` newly
+  retains history from this PR (one validated 2026-08-28 observation to
+  date; earlier committed days are real, genuine
+  `TAXONOMY_COVERAGE_UNKNOWN` blocks, not retained). `LEADERSHIP` retains no
+  history yet -- `NO_VALIDATED_EVIDENCE` -- because its dual-window
+  methodology needs a longer unbroken run of Crypto Breadth snapshots than
+  currently exists in committed evidence.
 
 All three markets therefore remain `NOT_READY_AXIS_COVERAGE`. The readiness
 order `CRYPTO, US, KR` is an engineering gap order only; it is explicitly not a

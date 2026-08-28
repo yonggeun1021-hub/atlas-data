@@ -116,8 +116,8 @@ def _expected_contract() -> dict:
         "bound_contracts": {
             "live_axis_adapter": {
                 "path": "config/regime_live_axis_adapter_contract.json",
-                "sha256": "fc4c0910325e75646244b84098501189c0aeda038a0790f0ce871941580d47f6",
-                "contract_version": "regime_live_axis_adapter/v4",
+                "sha256": "16cbfc40487803513cd422a0be943b8af8fb6d773a59549a9920fc100e2a5bde",
+                "contract_version": "regime_live_axis_adapter/v5",
             },
             "minimum_coverage": {
                 "path": "config/regime_minimum_coverage_policy.json",
@@ -353,6 +353,75 @@ def _scan_fred(root: Path) -> list[dict]:
     return records
 
 
+def _scan_crypto_breadth(root: Path) -> list[dict]:
+    records = []
+    for path in _date_directories(root, "evidence/crypto/breadth/raw"):
+        try:
+            packet = LIVE_AXIS.CRYPTO_BREADTH.build_transform(path)
+        except Exception as exc:  # noqa: BLE001
+            raise PolicyCalibrationReadinessError(
+                f"SOURCE_EVIDENCE_INVALID:CRYPTO/BREADTH:{path.name}"
+            ) from exc
+        if not _all_authorized_false(packet):
+            fail("SOURCE_AUTHORITY_INVALID", f"CRYPTO/BREADTH:{path.name}")
+        if packet.get("status") != "OBSERVED_UNCLASSIFIED":
+            continue
+        lineage = packet["lineage"]
+        records.append(_record(
+            observation_date=packet["as_of_date"],
+            available_at=lineage["available_at"],
+            uri=f"atlas-raw-response://{path.relative_to(root).as_posix()}/_manifest.json",
+            evidence_sha256=lineage["manifest_sha256"],
+            source_revision_id=f"{path.name}:{lineage['manifest_sha256']}",
+        ))
+    return records
+
+
+def _scan_crypto_leadership(root: Path) -> list[dict]:
+    breadth_root = _safe(root, "evidence/crypto/breadth/raw")
+    records = []
+    for path in _date_directories(root, "evidence/crypto/breadth/raw"):
+        vintage = _parse_date(path.name, "SOURCE_DIRECTORY_DATE_INVALID")
+        end_date = (vintage - dt.timedelta(days=1)).isoformat()
+        try:
+            packet = LIVE_AXIS.CRYPTO_LEADERSHIP.build_transform(
+                breadth_root, end_date=end_date
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise PolicyCalibrationReadinessError(
+                f"SOURCE_EVIDENCE_INVALID:CRYPTO/LEADERSHIP:{path.name}"
+            ) from exc
+        if not _all_authorized_false(packet):
+            fail("SOURCE_AUTHORITY_INVALID", f"CRYPTO/LEADERSHIP:{path.name}")
+        if packet.get("status") != "OBSERVED_UNCLASSIFIED":
+            continue
+        manifest_entries = packet["lineage"]["manifest_sha256_by_date"]
+        matching = [
+            entry for entry in manifest_entries
+            if entry["as_of_date"] == packet["as_of_date"]
+        ]
+        if len(matching) != 1:
+            continue
+        available_candidates = [
+            point["lineage"]["available_at"]
+            for window in packet["windows"]
+            for point in window.get("daily_points", [])
+        ]
+        if not available_candidates:
+            continue
+        records.append(_record(
+            observation_date=packet["as_of_date"],
+            available_at=max(available_candidates),
+            uri=(
+                "atlas-raw-response://evidence/crypto/breadth/raw/"
+                f"{path.name}/_manifest.json"
+            ),
+            evidence_sha256=matching[0]["manifest_sha256"],
+            source_revision_id=f"{path.name}:{matching[0]['manifest_sha256']}",
+        ))
+    return records
+
+
 def _scan_source_history(root: Path, qualified_axis: str) -> list[dict]:
     if qualified_axis == "US/RISK_VOL":
         return _scan_fred(root)
@@ -362,6 +431,10 @@ def _scan_source_history(root: Path, qualified_axis: str) -> list[dict]:
         return _scan_btc(root, "RISK_VOL")
     if qualified_axis == "CRYPTO/LIQUIDITY":
         return _scan_stablecoin(root)
+    if qualified_axis == "CRYPTO/BREADTH":
+        return _scan_crypto_breadth(root)
+    if qualified_axis == "CRYPTO/LEADERSHIP":
+        return _scan_crypto_leadership(root)
     fail("SOURCE_SCANNER_UNDEFINED", qualified_axis)
 
 
@@ -437,7 +510,8 @@ def build_readiness(root: Path = ROOT) -> dict:
     ]["contract_version"]:
         fail("BOUND_CONTRACT_VERSION_MISMATCH", "policy_candidate_population")
     if list(live_contract["bindings"]) != [
-        "US/RISK_VOL", "CRYPTO/TREND", "CRYPTO/RISK_VOL", "CRYPTO/LIQUIDITY"
+        "US/RISK_VOL", "CRYPTO/TREND", "CRYPTO/RISK_VOL", "CRYPTO/LIQUIDITY",
+        "CRYPTO/BREADTH", "CRYPTO/LEADERSHIP",
     ]:
         fail("LIVE_BINDING_SET_MISMATCH")
 
