@@ -317,7 +317,7 @@ class P004KrxPostCloseTest(unittest.TestCase):
         )
         self.assertEqual(
             daily_schedules,
-            {"5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"},
+            {"55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"},
         )
         self.assertNotEqual(
             WF["concurrency"]["group"], DAILY_WF["concurrency"]["group"]
