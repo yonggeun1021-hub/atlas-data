@@ -330,6 +330,23 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         with self.assertRaisesRegex(producer.PortalProducerError, "VERIFIED_FACT_SOURCE_MISSING"):
             producer.build(args)
 
+    def test_safety_attestation_rejects_python_bool_integer_aliases(self):
+        args = self._inputs()
+        ledger_path = Path(args.claim_ledger)
+        ledger = json.loads(ledger_path.read_text())
+        ledger["safety_attestation"] = {
+            key: int(value) for key, value in ledger["safety_attestation"].items()
+        }
+        ledger_body = _write_json(ledger_path, ledger)
+        report_path = Path(args.validation_report)
+        report = json.loads(report_path.read_text())
+        report["claim_ledger_sha256"] = _sha(ledger_body)
+        _write_json(report_path, report)
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "SAFETY_ATTESTATION_FAILED"
+        ):
+            producer.build(args)
+
     def test_post_delivery_change_without_signed_source_ruling_is_blocked(self):
         post_delivery = {
             "post_delivery_change_key": "b" * 64,
@@ -568,6 +585,161 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         self.assertEqual(replay["projection_id"], built["projection_id"])
         repaired = json.loads(index.read_text())
         self.assertEqual(len(repaired["revisions"]), 1)
+
+    def test_no_change_revalidates_the_complete_immutable_revision(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+        (revision / "claim-ledger.json").unlink()
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_REVISION_INCOMPLETE"
+        ):
+            producer.build(args)
+
+    def test_no_change_rejects_noncanonical_bundle_bytes(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+        bundle_path = revision / "bundle.json"
+        bundle = json.loads(bundle_path.read_text())
+        bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n")
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_BUNDLE_NOT_CANONICAL"
+        ):
+            producer.build(args)
+
+    def test_new_revision_rejects_canonical_reordered_prior_bundle(self):
+        first_args = self._inputs()
+        built = producer.build(first_args)
+        revision = (self.repo / built["envelope_path"]).parent
+        bundle_path = revision / "bundle.json"
+        bundle = json.loads(bundle_path.read_text())
+        bundle["artifacts"] = list(reversed(bundle["artifacts"]))
+        _write_json(bundle_path, bundle)
+
+        second_args = self._inputs()
+        display_path = Path(second_args.display_proposal)
+        display = json.loads(display_path.read_text())
+        display["changes"][0]["content"]["summary"] = "A distinct later revision."
+        display_body = _write_json(display_path, display)
+        report_path = Path(second_args.validation_report)
+        report = json.loads(report_path.read_text())
+        report["display_proposal_sha256"] = _sha(display_body)
+        _write_json(report_path, report)
+
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_BUNDLE_REBUILD_MISMATCH"
+        ):
+            producer.build(second_args)
+
+    def test_no_change_replays_production_validation_not_only_bundle_hashes(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+
+        ledger = json.loads((revision / "claim-ledger.json").read_text())
+        ledger["safety_attestation"] = {
+            key: int(value) for key, value in ledger["safety_attestation"].items()
+        }
+        ledger_body = producer.canonical(ledger) + b"\n"
+        (revision / "claim-ledger.json").write_bytes(ledger_body)
+
+        report = json.loads((revision / "validation-report.json").read_text())
+        report["claim_ledger_sha256"] = _sha(ledger_body)
+        report_body = producer.canonical(report) + b"\n"
+        (revision / "validation-report.json").write_bytes(report_body)
+
+        display = json.loads((revision / "display-proposal.json").read_text())
+        envelope = producer.build_envelope(ledger, report, display)
+        envelope_body = producer.canonical(envelope) + b"\n"
+        (revision / "portal-projection.json").write_bytes(envelope_body)
+
+        bundle = json.loads((revision / "bundle.json").read_text())
+        bundle["projection_id"] = envelope["projection_id"]
+        bodies = {
+            "briefing.md": (revision / "briefing.md").read_bytes(),
+            "claim-ledger.json": ledger_body,
+            "validation-report.json": report_body,
+            "display-proposal.json": (revision / "display-proposal.json").read_bytes(),
+            "portal-projection.json": envelope_body,
+        }
+        bundle["artifacts"] = [
+            producer._artifact(name, body) for name, body in bodies.items()
+        ]
+        (revision / "bundle.json").write_bytes(producer.canonical(bundle) + b"\n")
+
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "SAFETY_ATTESTATION_FAILED"
+        ):
+            producer.build(args)
+
+    def test_index_recovery_rejects_a_coordinated_semantic_bundle_rewrite(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+
+        ledger = json.loads((revision / "claim-ledger.json").read_text())
+        display = json.loads((revision / "display-proposal.json").read_text())
+        display["changes"][0]["content"]["authority"]["order_authority"] = True
+        display_body = _write_json(revision / "display-proposal.json", display)
+
+        report = json.loads((revision / "validation-report.json").read_text())
+        report["display_proposal_sha256"] = _sha(display_body)
+        _write_json(revision / "validation-report.json", report)
+        envelope = producer.build_envelope(ledger, report, display)
+        _write_json(revision / "portal-projection.json", envelope)
+
+        bundle_path = revision / "bundle.json"
+        bundle = json.loads(bundle_path.read_text())
+        bundle["projection_id"] = envelope["projection_id"]
+        for artifact in bundle["artifacts"]:
+            body = (revision / artifact["path"]).read_bytes()
+            artifact["sha256"] = _sha(body)
+            artifact["bytes"] = len(body)
+        _write_json(bundle_path, bundle)
+
+        (revision.parent / "index.json").unlink()
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "AUTHORITY_ESCALATION_BLOCKED"
+        ):
+            producer.build(args)
+
+    def test_no_change_rejects_unexpected_slot_inventory(self):
+        args = self._inputs()
+        built = producer.build(args)
+        slot_root = (self.repo / built["envelope_path"]).parent.parent
+        (slot_root / "unexpected.txt").write_text("not immutable evidence\n")
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_SLOT_INVENTORY_INVALID"
+        ):
+            producer.build(args)
+
+    def test_retry_rebuilds_the_full_multi_revision_index(self):
+        first_args = self._inputs()
+        first = producer.build(first_args)
+
+        second_args = self._inputs()
+        display_path = Path(second_args.display_proposal)
+        display = json.loads(display_path.read_text())
+        display["changes"][0]["content"]["summary"] = "Revised Portal display only."
+        display_body = _write_json(display_path, display)
+        report_path = Path(second_args.validation_report)
+        report = json.loads(report_path.read_text())
+        report["display_proposal_sha256"] = _sha(display_body)
+        _write_json(report_path, report)
+        second = producer.build(second_args)
+        self.assertNotEqual(first["projection_id"], second["projection_id"])
+
+        index = self.repo / "evidence/validated_briefing_portal/morning/2026-08-28/index.json"
+        index.unlink()
+        replay = producer.build(second_args)
+        self.assertEqual(replay["result"], "NO_CHANGE")
+        repaired = json.loads(index.read_text())
+        self.assertEqual(repaired["latest_revision"], 2)
+        self.assertEqual(
+            [entry["projection_id"] for entry in repaired["revisions"]],
+            [first["projection_id"], second["projection_id"]],
+        )
 
 
 if __name__ == "__main__":
