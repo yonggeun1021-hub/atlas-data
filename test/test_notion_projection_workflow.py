@@ -48,6 +48,7 @@ class NotionProjectionWorkflowTests(unittest.TestCase):
     def test_receipts_are_committed_by_the_existing_finalization_step(self):
         commit = self.named("Commit finalization artifacts")["run"]
         self.assertIn("git add data/briefing/finalization", commit)
+        self.assertIn("[ -d data/briefing/finalization ]", commit)
 
     def test_no_schedule_or_action_dependency_was_added(self):
         self.assertEqual(self.text.count("- cron:"), 2)
