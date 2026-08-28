@@ -120,5 +120,56 @@ class ExactGitEvidenceResolverTests(unittest.TestCase):
         self.assertFalse(output["authority"]["trading_authorized"])
 
 
+class CliRealSubprocessInvocationTests(unittest.TestCase):
+    """Regression for a real execution-path defect: calling main() in-
+    process (as every other test in this file does) never exercises
+    Python's own module-resolution for a script invoked directly --
+    `python3 identity/kis_official_evidence_resolver.py` sets sys.path[0]
+    to the script's own directory, not the repo root, so the module's
+    `from identity.kis_provenance_proposal import ...` absolute import
+    previously raised ModuleNotFoundError only under this exact real
+    invocation, never under `python3 -m ...` or an in-process call. Both
+    real subprocess invocation styles must behave identically."""
+
+    def _run(self, args: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            args, cwd=str(ROOT), capture_output=True, text=True, timeout=30,
+        )
+
+    def test_module_invocation_and_direct_script_invocation_agree(self) -> None:
+        module_result = self._run(
+            [sys.executable, "-m", "identity.kis_official_evidence_resolver", "relative"]
+        )
+        script_result = self._run(
+            [sys.executable, "identity/kis_official_evidence_resolver.py", "relative"]
+        )
+        self.assertNotIn("ModuleNotFoundError", script_result.stderr)
+        self.assertEqual(module_result.returncode, script_result.returncode)
+        self.assertEqual(
+            json.loads(module_result.stdout)["resolutionStatus"],
+            json.loads(script_result.stdout)["resolutionStatus"],
+        )
+
+    def test_direct_script_invocation_resolves_real_evidence_end_to_end(self) -> None:
+        _, repo, commit, manifest = ExactGitEvidenceResolverTests._repo(self)
+        # Reuse the resolver's own real manifest module shape by pointing
+        # a genuinely detached checkout at the fixture repo -- this only
+        # proves the CLI's import path works end to end under a real
+        # subprocess; the manifest/commit pinned inside the module itself
+        # (koreainvestment/open-trading-api) is exercised separately.
+        result = self._run(
+            [sys.executable, "identity/kis_official_evidence_resolver.py", str(repo)]
+        )
+        self.assertNotIn("ModuleNotFoundError", result.stderr)
+        payload = json.loads(result.stdout)
+        # This fixture repo's commit will not match the module's own
+        # pinned koreainvestment/open-trading-api commit, so resolution
+        # itself fails closed -- the point here is solely that the CLI
+        # reached real resolver code (a JSON resolutionStatus was
+        # produced at all) rather than crashing on import.
+        self.assertIn("resolutionStatus", payload)
+        self.assertFalse(payload["authority"]["order_authorized"])
+
+
 if __name__ == "__main__":
     unittest.main()

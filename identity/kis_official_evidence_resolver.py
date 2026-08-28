@@ -17,10 +17,23 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Mapping
 
-from identity.kis_provenance_proposal import (
+# This module is invoked directly as a CLI (see __main__ below), not only
+# imported as part of the `identity` package -- when run as
+# `python3 identity/kis_official_evidence_resolver.py`, Python puts only
+# this file's own directory on sys.path, not the repo root, so the
+# `identity.kis_provenance_proposal` absolute import below would fail
+# with ModuleNotFoundError. Insert the repo root first so both
+# `python3 -m identity.kis_official_evidence_resolver` and direct
+# execution resolve identically.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from identity.kis_provenance_proposal import (  # noqa: E402
     KIS_PINNED_EVIDENCE_MANIFEST,
     _KIS_OPEN_TRADING_API_PINNED_COMMIT,
     _KIS_OPEN_TRADING_API_REPO,
