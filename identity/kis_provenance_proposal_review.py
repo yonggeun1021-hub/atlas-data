@@ -14,6 +14,8 @@ registry or a re-signed in-memory identity document.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from identity import canonical_identity
 from identity.kis_provenance_proposal import (
     AUTHORITY_ALL_FALSE,
@@ -24,6 +26,10 @@ from identity.kis_provenance_proposal import (
     payload_sha256,
 )
 from portfolio_risk import portfolio_snapshot_v2
+from identity.kis_official_evidence_resolver import (
+    KisOfficialEvidenceResolutionError,
+    reproduce_kis_official_evidence,
+)
 
 _PROPOSAL_FIELDS = {
     "schemaVersion", "proposalId", "reviewAsOf", "proposalStatus", "claim",
@@ -79,11 +85,19 @@ def _reject_forbidden_authority(proposal: dict) -> None:
     walk(proposal.get("evidenceLineage"), "evidenceLineage")
 
 
-def _incomplete(reasons: list[str]) -> dict:
-    return {"reviewStatus": "REVIEW_INCOMPLETE", "reasons": sorted(set(reasons))}
+def _review_result(reasons: list[str]) -> dict:
+    unique = sorted(set(reasons))
+    return {
+        "reviewStatus": "REVIEW_INCOMPLETE" if unique else "REVIEW_READY_FOR_CIO",
+        "reasons": unique,
+    }
 
 
-def _review_common_shape(proposal: dict) -> list[str]:
+def _review_common_shape(
+    proposal: dict,
+    *,
+    reproduced_paths: set[str] | None = None,
+) -> list[str]:
     reasons: list[str] = []
     if not isinstance(proposal, dict) or set(proposal) != _PROPOSAL_FIELDS:
         return ["PROPOSAL_FIELDS_INVALID"]
@@ -136,14 +150,39 @@ def _review_common_shape(proposal: dict) -> list[str]:
             reasons.append(f"OFFICIAL_EVIDENCE_PATH_NOT_IN_MANIFEST:{path}")
         elif entry.get("contentSha256") != expected_hash:
             reasons.append(f"OFFICIAL_EVIDENCE_HASH_DIFFERS_FROM_MANIFEST:{path}")
-        reasons.append(f"EXTERNAL_SOURCE_BYTES_REPRODUCTION_REQUIRED:{path}")
+        if reproduced_paths is None or path not in reproduced_paths:
+            reasons.append(f"EXTERNAL_SOURCE_BYTES_REPRODUCTION_REQUIRED:{path}")
     return reasons
 
 
-def review_provider_authority_proposal(proposal: dict) -> dict:
+def _reproduced_paths(official_checkout: Path | None) -> tuple[set[str] | None, list[str]]:
+    if official_checkout is None:
+        return None, []
+    try:
+        resolution = reproduce_kis_official_evidence(Path(official_checkout))
+    except KisOfficialEvidenceResolutionError as error:
+        return None, [f"EXTERNAL_SOURCE_REPRODUCTION_FAILED:{error}"]
+    if (
+        resolution.get("resolutionStatus") != "EXACT_GIT_BYTES_REPRODUCED"
+        or resolution.get("repo") != _OFFICIAL_REPO
+        or resolution.get("commitSha") != _OFFICIAL_COMMIT
+    ):
+        return None, ["EXTERNAL_SOURCE_REPRODUCTION_RESULT_INVALID"]
+    return {
+        row["filePath"] for row in resolution.get("files", [])
+        if isinstance(row, dict) and row.get("contentSha256") == KIS_PINNED_EVIDENCE_MANIFEST.get(row.get("filePath"))
+    }, []
+
+
+def review_provider_authority_proposal(
+    proposal: dict,
+    official_checkout: Path | None = None,
+) -> dict:
     """Review against the actual runtime implementation registry."""
     _reject_forbidden_authority(proposal)
-    reasons = _review_common_shape(proposal)
+    reproduced_paths, reproduction_reasons = _reproduced_paths(official_checkout)
+    reasons = _review_common_shape(proposal, reproduced_paths=reproduced_paths)
+    reasons.extend(reproduction_reasons)
     claim = proposal.get("claim", {})
     expected_claim_fields = {"provider", "accountScope", "currency", "positionSourceName", "assertion"}
     if not isinstance(claim, dict) or set(claim) != expected_claim_fields:
@@ -158,7 +197,7 @@ def review_provider_authority_proposal(proposal: dict) -> dict:
             reasons.append("CLAIM_CURRENCY_MISMATCH")
         if claim.get("positionSourceName") != real.get("position_source_name"):
             reasons.append("CLAIM_POSITION_SOURCE_NAME_MISMATCH")
-    return _incomplete(reasons)
+    return _review_result(reasons)
 
 
 def _review_alias_evidence_binding(proposal: dict) -> list[str]:
@@ -179,14 +218,19 @@ def _review_alias_evidence_binding(proposal: dict) -> list[str]:
     return reasons
 
 
-def review_source_alias_proposal(proposal: dict) -> dict:
+def review_source_alias_proposal(
+    proposal: dict,
+    official_checkout: Path | None = None,
+) -> dict:
     """Review the target through Atlas's git-provenance-checked resolver.
 
     Existing Atlas identity proves only that the target instrument
     exists. It does not prove that a KIS ``pdno`` denotes that target.
     """
     _reject_forbidden_authority(proposal)
-    reasons = _review_common_shape(proposal)
+    reproduced_paths, reproduction_reasons = _reproduced_paths(official_checkout)
+    reasons = _review_common_shape(proposal, reproduced_paths=reproduced_paths)
+    reasons.extend(reproduction_reasons)
     reasons.extend(_review_alias_evidence_binding(proposal))
     claim = proposal.get("claim", {})
     expected_claim_fields = {
@@ -200,7 +244,7 @@ def review_source_alias_proposal(proposal: dict) -> dict:
     ]
     if len(target_refs) != 1:
         reasons.append("EXACTLY_ONE_ATLAS_TARGET_REFERENCE_REQUIRED")
-        return _incomplete(reasons)
+        return _review_result(reasons)
     target = target_refs[0]
     try:
         authority = canonical_identity.load_authority()
@@ -210,7 +254,7 @@ def review_source_alias_proposal(proposal: dict) -> dict:
         )
     except (canonical_identity.IdentityError, OSError, ValueError, TypeError):
         reasons.append("ATLAS_CANONICAL_TARGET_AUTHORITY_UNAVAILABLE")
-        return _incomplete(reasons)
+        return _review_result(reasons)
     if resolved.get("status") != canonical_identity.RESOLVED:
         reasons.append(f"ATLAS_CANONICAL_TARGET_NOT_RESOLVED:{resolved.get('status')}")
     else:
@@ -218,7 +262,7 @@ def review_source_alias_proposal(proposal: dict) -> dict:
             reasons.append("TARGET_LISTING_MISMATCH")
         if resolved.get("canonical_instrument_id") != claim.get("canonicalInstrumentId"):
             reasons.append("TARGET_INSTRUMENT_MISMATCH")
-    return _incomplete(reasons)
+    return _review_result(reasons)
 
 
 def reject_if_evidence_reused_across_alias_proposals(proposal_a: dict, proposal_b: dict) -> None:

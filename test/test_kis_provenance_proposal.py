@@ -8,6 +8,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -91,8 +92,54 @@ class FailClosedReviewTests(unittest.TestCase):
     def test_review_apis_do_not_accept_caller_supplied_registry_or_identity(self):
         provider_parameters = inspect.signature(review_provider_authority_proposal).parameters
         alias_parameters = inspect.signature(review_source_alias_proposal).parameters
-        self.assertEqual(set(provider_parameters), {"proposal"})
-        self.assertEqual(set(alias_parameters), {"proposal"})
+        self.assertEqual(set(provider_parameters), {"proposal", "official_checkout"})
+        self.assertEqual(set(alias_parameters), {"proposal", "official_checkout"})
+
+    def test_exact_official_byte_reproduction_makes_provider_review_ready_only(self):
+        resolution = {
+            "resolutionStatus": "EXACT_GIT_BYTES_REPRODUCED",
+            "repo": "koreainvestment/open-trading-api",
+            "commitSha": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+            "files": [
+                {"filePath": path, "contentSha256": digest}
+                for path, digest in {
+                    "backtester/kis_backtest/providers/kis/constants.py": "986cc68c92e889321361ab4e64266749650e4c3f8b8e37f7ee2d9fe9444d2811",
+                    "kis_devlp.yaml": "61f036e51e02c4f8b86fb26e361fe98ecb26e0d587160d724f2d62768a60e2a2",
+                    "examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py": "5897fd3ce320a8d9683208689727714c037241b2010cc89f4c7e6c63b6255c89",
+                    "legacy/Sample01/kis_domstk.py": "d7bc6da85f4b086de3063f110d6e426fbc5751bc340b45e533ccdf9a5d55e575",
+                }.items()
+            ],
+        }
+        with mock.patch(
+            "identity.kis_provenance_proposal_review.reproduce_kis_official_evidence",
+            return_value=resolution,
+        ):
+            provider = review_provider_authority_proposal(
+                provider_authority_proposal(), Path("/independently-obtained/official")
+            )
+            alias = review_source_alias_proposal(
+                source_alias_proposal_005930(), Path("/independently-obtained/official")
+            )
+        self.assertEqual(provider["reviewStatus"], "REVIEW_READY_FOR_CIO")
+        self.assertEqual(provider["reasons"], [])
+        self.assertEqual(alias["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertIn("MUTABLE_INSTRUMENT_EVIDENCE_UNPINNED", alias["reasons"])
+
+    def test_official_checkout_retrieval_failure_stays_incomplete(self):
+        from identity.kis_official_evidence_resolver import KisOfficialEvidenceResolutionError
+
+        with mock.patch(
+            "identity.kis_provenance_proposal_review.reproduce_kis_official_evidence",
+            side_effect=KisOfficialEvidenceResolutionError("EVIDENCE_CHECKOUT_HEAD_MISMATCH"),
+        ):
+            result = review_provider_authority_proposal(
+                provider_authority_proposal(), Path("/wrong-checkout")
+            )
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertIn(
+            "EXTERNAL_SOURCE_REPRODUCTION_FAILED:EVIDENCE_CHECKOUT_HEAD_MISMATCH",
+            result["reasons"],
+        )
 
     def test_rehashed_official_hash_change_still_detected_against_manifest(self):
         proposal = copy.deepcopy(provider_authority_proposal())
