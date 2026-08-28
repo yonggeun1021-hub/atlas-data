@@ -1,6 +1,7 @@
 # Portfolio Risk Input Contract v2 (Account Fact) -- Provider/Scope Separation
 
-Status: proposed (P0-2B, Atlas execution-infra track). Independent of, and
+Status: **MECHANISM_ONLY_PROPOSED_UNRATIFIED** (P0-2B, Atlas
+execution-infra track). Independent of, and
 does not modify, `docs/portfolio_risk_input_contract.md` (v1) -- v1 stays
 exactly as merged and remains the only contract Alpaca capture uses.
 
@@ -42,23 +43,27 @@ its own, independent build/validate pair -- not an extension of v1's.
   separate, independently-reviewed identity-alias change, tracked apart
   from this contract.
 
-## Registered providers
+## Implemented provider shapes are not authority
 
-A provider may only be used if it is registered in
-`PROVIDER_VERIFICATION_STATUS` (code) / `registered_providers`
-(`config/portfolio_risk_input_contract_v2.json`) -- this is a fixed
-registry, never a caller-suppliable pair. As of this contract:
+`PROVIDER_IMPLEMENTATIONS` (code) / `provider_implementations` (config)
+only define the tuple that this diagnostic builder knows how to parse.
+They are not an authority registry and cannot make caller-supplied values
+broker-verified. The separately named `provider_authority_records` array
+is empty in this PR. Therefore every emitted fact is fixed to
+`verificationStatus=PROPOSED_UNRATIFIED`,
+`providerAuthorityStatus=PROPOSED_UNRATIFIED`, and
+`factUsabilityStatus=NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED`.
 
-| Provider | Required `verificationStatus` | Account scope | Currency | Position source |
-|---|---|---|---|---|
-| `KIS_PAPER_ACCOUNT` | `BROKER_VERIFIED` | `KOREA` | `KRW` | `kis_paper_domestic_balance` |
+| Provider label | Mechanical account scope | Currency | Position source |
+|---|---|---|---|
+| `KIS_PAPER_ACCOUNT` | `KOREA` | `KRW` | `kis_paper_domestic_balance` |
 
-`account_scope` must be one of v1's own `CANONICAL_ACCOUNT_SCOPE` values
-(`ALPACA_PAPER_ACCOUNT`, `KOREA`, `CRYPTO`) -- this reuses that
-already-ratified registry rather than defining a new, competing one.
-`KOREA` was already present in that registry before this contract existed.
-The registry binds the entire tuple: a caller cannot pair the registered KIS
-provider with another otherwise-ratified scope, currency, or source name.
+The fixed tuple prevents a caller from relabelling the implemented parser
+to another scope, currency, or source name. It does **not** prove that an
+input came from KIS, that `KOREA` is a ratified account scope, or that the
+provider/scope edge is operationally usable. Those claims require a later,
+separately reviewed authority record with provenance and PIT gates; no such
+record is created by this PR.
 
 ## Timing: `capturedAt` / `availableAt` / `decisionAt`
 
@@ -93,14 +98,18 @@ Same discipline as v1: this repo is PUBLIC. No real NAV/cash/position
 value produced by this contract's code ever lands in this repo or GitHub
 Actions. Real KIS capture and persistence happen entirely inside the
 private `atlas-private-evidence` repo's own root-only Ubuntu runtime
-state (see that repo's `kis_paper_full_account_snapshot.py`).
+state. The current private main contains a read-only KIS PAPER full-account
+snapshot that records broker-returned quantities and orderable cash, but it
+does not supply the valuation fields required by this v2 shape and it is not
+an authority bridge into this public module.
 
 ## Authority
 
-Identical structural boundary to v1: every account fact itself carries
+Every diagnostic account fact itself carries
 `review_only: true` and every other authority flag hard-`false`; the
 consumer validator rechecks the exact block. `orderEligibilityStatus` is
 fixed to `NOT_APPLICABLE_READ_ONLY_FACT`, not supplied by a caller. No code
-path in this file ever sets authority true. This contract supplies facts
-only -- it computes no risk budget, no position size, and grants no
-order/trading authority.
+path in this file ever sets authority true. This contract supplies a
+mechanically validated **unratified diagnostic** only -- it computes no
+risk budget, no position size, grants no order/trading authority, and
+cannot be consumed as broker-verified account capacity.

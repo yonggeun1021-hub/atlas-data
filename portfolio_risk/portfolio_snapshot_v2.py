@@ -13,13 +13,11 @@ conflated ``source`` string (``"ALPACA_PAPER_ACCOUNT"``,
 
 v2 does not call or extend v1's ``_validate_position_source_identity()``
 (v1's own Alpaca/Manual-only source validator) -- it has its own,
-independent account-fact validator here. It reuses only v1's genuinely
-public, already-ratified constant ``CANONICAL_ACCOUNT_SCOPE`` -- never its
-private (``_``-prefixed) helpers -- matching this codebase's existing
-convention of small, independently-auditable per-module mechanics rather
-than shared private internals (see, e.g., every ``private_evidence``
-module re-implementing its own ``canonical_json``/``payload_sha256``
-rather than importing one shared copy).
+independent account-fact validator here.  It also does **not** reinterpret
+v1's plain implementation constants as authority records.  Provider/scope
+tuples in this module are mechanical shapes only; until a separately
+reviewed, provenance-bound authority record exists, every result remains
+``PROPOSED_UNRATIFIED`` and operationally ``NOT_COMPUTABLE``.
 
 Scope of this file: ONE provider's account fact, built and independently
 re-validated. Combining a v2 KIS fact with v1 Alpaca facts into one
@@ -54,28 +52,24 @@ import json
 import math
 import re
 
-from portfolio_risk.portfolio_snapshot import CANONICAL_ACCOUNT_SCOPE
-
 SCHEMA_VERSION = "portfolio_account_fact/2"
 POSITION_SOURCE_IDENTITY_CONTRACT_VERSION = "portfolio_position_source_lineage_v2/1"
 FORBIDDEN_POSITION_IDENTITY_CLAIMS = frozenset({
     "canonical_issuer_id", "canonical_instrument_id", "listing_id", "identity_status",
 })
 
-# Fixed, not caller-suppliable: the complete identity tuple for each provider.
-# A provider name alone may never authorize a different account scope,
-# currency, or raw source identity.
-PROVIDER_CONTRACTS = {
+# Fixed, not caller-suppliable: the mechanically implemented tuple for each
+# provider.  This table is deliberately not an authority registry.  It only
+# constrains the shape accepted by the diagnostic builder/validator.
+PROVIDER_IMPLEMENTATIONS = {
     "KIS_PAPER_ACCOUNT": {
-        "verification_status": "BROKER_VERIFIED",
         "account_scope": "KOREA",
         "currency": "KRW",
         "position_source_name": "kis_paper_domestic_balance",
     },
 }
-PROVIDER_VERIFICATION_STATUS = {
-    provider: contract["verification_status"] for provider, contract in PROVIDER_CONTRACTS.items()
-}
+PROVIDER_AUTHORITY_STATUS = "PROPOSED_UNRATIFIED"
+FACT_USABILITY_STATUS = "NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED"
 KIS_SOURCE_ASSET_ID_RE = re.compile(r"^[0-9]{6}$")
 ORDER_ELIGIBILITY_NOT_APPLICABLE = "NOT_APPLICABLE_READ_ONLY_FACT"
 AUTHORITY_ALL_FALSE = {
@@ -93,6 +87,7 @@ STALENESS_MAX_AGE_HOURS = 24
 
 ACCOUNT_FACT_FIELDS = {
     "contractVersion", "provider", "accountScope", "verificationStatus",
+    "providerAuthorityStatus", "factUsabilityStatus",
     "accountIdentityHash", "currency", "equity", "cash", "buyingPower",
     "positions", "positionCount", "orderEligibilityStatus",
     "navReconciliationStatus", "navReconciliationMismatchPct",
@@ -253,15 +248,13 @@ def _build_position_source_identity(*, source_name: object, source_asset_id: obj
 
 
 def _provider_contract(provider: object) -> dict:
-    if not isinstance(provider, str) or provider not in PROVIDER_CONTRACTS:
-        raise PortfolioAccountFactV2Error(f"PROVIDER_NOT_REGISTERED:{provider}")
-    return PROVIDER_CONTRACTS[provider]
+    if not isinstance(provider, str) or provider not in PROVIDER_IMPLEMENTATIONS:
+        raise PortfolioAccountFactV2Error(f"PROVIDER_IMPLEMENTATION_NOT_AVAILABLE:{provider}")
+    return PROVIDER_IMPLEMENTATIONS[provider]
 
 
 def _validate_provider_scope(provider: str, account_scope: object, currency: object) -> dict:
     contract = _provider_contract(provider)
-    if account_scope not in CANONICAL_ACCOUNT_SCOPE:
-        raise PortfolioAccountFactV2Error(f"ACCOUNT_SCOPE_NOT_RATIFIED:{account_scope}")
     if account_scope != contract["account_scope"]:
         raise PortfolioAccountFactV2Error(
             f"PROVIDER_ACCOUNT_SCOPE_MISMATCH:{provider}:{account_scope}"
@@ -316,7 +309,6 @@ def build_provider_account_fact_v2(
     reviewed identity-alias concern, not this contract's job).
     """
     provider_contract = _validate_provider_scope(provider, account_scope, currency)
-    required_verification_status = provider_contract["verification_status"]
     if order_eligibility_status != ORDER_ELIGIBILITY_NOT_APPLICABLE:
         raise PortfolioAccountFactV2Error("ORDER_ELIGIBILITY_STATUS_NOT_READ_ONLY")
     _validate_account_identity_hash(account_identity_hash)
@@ -368,7 +360,9 @@ def build_provider_account_fact_v2(
         "contractVersion": SCHEMA_VERSION,
         "provider": provider,
         "accountScope": account_scope,
-        "verificationStatus": required_verification_status,
+        "verificationStatus": PROVIDER_AUTHORITY_STATUS,
+        "providerAuthorityStatus": PROVIDER_AUTHORITY_STATUS,
+        "factUsabilityStatus": FACT_USABILITY_STATUS,
         "accountIdentityHash": account_identity_hash,
         "currency": currency,
         "equity": equity_value,
@@ -402,9 +396,12 @@ def validate_provider_account_fact_v2(fact: object, *, decision_at: str) -> dict
     provider_contract = _validate_provider_scope(
         provider, fact.get("accountScope"), fact.get("currency")
     )
-    required_verification_status = provider_contract["verification_status"]
-    if fact.get("verificationStatus") != required_verification_status:
+    if fact.get("verificationStatus") != PROVIDER_AUTHORITY_STATUS:
         raise PortfolioAccountFactV2Error("VERIFICATION_STATUS_INVALID")
+    if fact.get("providerAuthorityStatus") != PROVIDER_AUTHORITY_STATUS:
+        raise PortfolioAccountFactV2Error("PROVIDER_AUTHORITY_STATUS_INVALID")
+    if fact.get("factUsabilityStatus") != FACT_USABILITY_STATUS:
+        raise PortfolioAccountFactV2Error("FACT_USABILITY_STATUS_INVALID")
     if fact.get("orderEligibilityStatus") != ORDER_ELIGIBILITY_NOT_APPLICABLE:
         raise PortfolioAccountFactV2Error("ORDER_ELIGIBILITY_STATUS_NOT_READ_ONLY")
     _validate_authority(fact.get("authority"))

@@ -1,18 +1,20 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "contract_version": "portfolio_account_fact/2",
+  "status": "MECHANISM_ONLY_PROPOSED_UNRATIFIED",
   "purpose": "READ-ONLY, per-provider account-fact snapshot with provider and account_scope kept as explicit, separate fields (unlike v1's single conflated 'source' string). NOT a sizing/policy decision -- this contract never computes or ratifies a risk-budget percentage, a stop-loss cap, or a position size.",
   "supersedes": null,
   "coexists_with": "portfolio_risk_input/1 (portfolio_risk/portfolio_snapshot.py) -- v1 is unmodified and remains the only contract Alpaca capture uses. This is an independent, additive contract for new providers, starting with KIS PAPER.",
-  "registered_providers": {
+  "provider_implementations": {
     "KIS_PAPER_ACCOUNT": {
-      "required_verification_status": "BROKER_VERIFIED",
-      "allowed_account_scope": "KOREA",
-      "required_currency": "KRW",
-      "required_position_source_name": "kis_paper_domestic_balance",
-      "note": "KOREA is already a RATIFIED entry in v1's CANONICAL_ACCOUNT_SCOPE registry (portfolio_risk/portfolio_snapshot.py) -- this contract reuses that existing registry rather than defining a new one."
+      "account_scope": "KOREA",
+      "currency": "KRW",
+      "position_source_name": "kis_paper_domestic_balance"
     }
   },
+  "provider_authority_records": [],
+  "provider_authority_status": "PROPOSED_UNRATIFIED",
+  "fact_usability_status": "NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED",
   "real_data_persistence": {
     "status": "PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE",
     "note": "This repo is PUBLIC. No real NAV/cash/positions/account_identity_hash produced by this contract's code path is ever written to any file, committed or otherwise, here. Real capture and persistence happen entirely inside the private atlas-private-evidence repo's own root-only Ubuntu runtime state, never in this repo, never in GitHub Actions."

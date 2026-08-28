@@ -67,36 +67,27 @@ def _rehash(fact):
 
 
 class ContractShapeTests(unittest.TestCase):
-    def test_contract_config_declares_v2_and_kis_provider(self):
+    def test_contract_config_declares_mechanism_only_unratified_provider_shape(self):
         contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract_v2.json").read_text())
         self.assertEqual(contract["contract_version"], "portfolio_account_fact/2")
-        self.assertIn("KIS_PAPER_ACCOUNT", contract["registered_providers"])
+        self.assertEqual(contract["status"], "MECHANISM_ONLY_PROPOSED_UNRATIFIED")
+        self.assertIn("KIS_PAPER_ACCOUNT", contract["provider_implementations"])
+        self.assertEqual(contract["provider_authority_records"], [])
+        self.assertEqual(contract["provider_authority_status"], "PROPOSED_UNRATIFIED")
         self.assertEqual(
-            contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["required_verification_status"],
-            "BROKER_VERIFIED",
-        )
-        self.assertEqual(contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["allowed_account_scope"], "KOREA")
-        self.assertEqual(contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["required_currency"], "KRW")
-        self.assertEqual(
-            contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["required_position_source_name"],
-            "kis_paper_domestic_balance",
+            contract["fact_usability_status"],
+            "NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED",
         )
         self.assertFalse(contract["authority"]["order_authorized"])
         self.assertFalse(contract["authority"]["trading_authorized"])
 
-    def test_contract_config_is_an_exact_mirror_of_runtime_provider_authority(self):
+    def test_contract_config_mirrors_implementation_without_creating_authority(self):
         contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract_v2.json").read_text())
-        configured_providers = {
-            provider: {
-                "verification_status": row["required_verification_status"],
-                "account_scope": row["allowed_account_scope"],
-                "currency": row["required_currency"],
-                "position_source_name": row["required_position_source_name"],
-            }
-            for provider, row in contract["registered_providers"].items()
-        }
         self.assertEqual(contract["contract_version"], PS2.SCHEMA_VERSION)
-        self.assertEqual(configured_providers, PS2.PROVIDER_CONTRACTS)
+        self.assertEqual(contract["provider_implementations"], PS2.PROVIDER_IMPLEMENTATIONS)
+        self.assertEqual(contract["provider_authority_records"], [])
+        self.assertEqual(contract["provider_authority_status"], PS2.PROVIDER_AUTHORITY_STATUS)
+        self.assertEqual(contract["fact_usability_status"], PS2.FACT_USABILITY_STATUS)
         self.assertEqual(contract["authority"], PS2.AUTHORITY_ALL_FALSE)
         self.assertEqual(
             contract["order_eligibility_status"],
@@ -109,6 +100,13 @@ class ContractShapeTests(unittest.TestCase):
         self.assertEqual(PS.SCHEMA_VERSION, "portfolio_risk_input/1")
         self.assertIn("ALPACA_PAPER_ACCOUNT", PS.CANONICAL_ACCOUNT_SCOPE)
 
+    def test_unratified_v2_has_no_broker_verified_runtime_claim(self):
+        runtime = (ROOT / "portfolio_risk" / "portfolio_snapshot_v2.py").read_text()
+        config = (ROOT / "config" / "portfolio_risk_input_contract_v2.json").read_text()
+        self.assertNotIn('"BROKER_VERIFIED"', runtime)
+        self.assertNotIn('"BROKER_VERIFIED"', config)
+        self.assertNotIn("CANONICAL_ACCOUNT_SCOPE", runtime)
+
 
 class BuildProviderAccountFactV2Tests(unittest.TestCase):
     def test_real_fact_has_explicit_provider_and_scope_fields(self):
@@ -116,7 +114,12 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
         self.assertEqual(fact["contractVersion"], "portfolio_account_fact/2")
         self.assertEqual(fact["provider"], "KIS_PAPER_ACCOUNT")
         self.assertEqual(fact["accountScope"], "KOREA")
-        self.assertEqual(fact["verificationStatus"], "BROKER_VERIFIED")
+        self.assertEqual(fact["verificationStatus"], "PROPOSED_UNRATIFIED")
+        self.assertEqual(fact["providerAuthorityStatus"], "PROPOSED_UNRATIFIED")
+        self.assertEqual(
+            fact["factUsabilityStatus"],
+            "NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED",
+        )
         self.assertEqual(fact["accountIdentityHash"], ACCOUNT_IDENTITY_HASH)
         self.assertEqual(fact["orderEligibilityStatus"], PS2.ORDER_ELIGIBILITY_NOT_APPLICABLE)
         self.assertEqual(fact["authority"], PS2.AUTHORITY_ALL_FALSE)
@@ -125,16 +128,16 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
         self.assertEqual(fact["positions"][0]["source_identity_lineage"]["source_pairs"], [
             {"source_name": "kis_paper_domestic_balance", "source_asset_id": "005930"}
         ])
-        # Reuses v1's OWN already-ratified account-scope registry.
-        self.assertIn(fact["accountScope"], PS.CANONICAL_ACCOUNT_SCOPE)
+        # A mechanically accepted tuple is explicitly not broker authority.
+        self.assertNotEqual(fact["verificationStatus"], "BROKER_VERIFIED")
         PS2.validate_provider_account_fact_v2(fact, decision_at=T0)  # round-trips cleanly
 
     def test_unregistered_provider_is_rejected(self):
-        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "PROVIDER_NOT_REGISTERED"):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "PROVIDER_IMPLEMENTATION_NOT_AVAILABLE"):
             _build_fact(provider="SOME_OTHER_BROKER")
 
-    def test_account_scope_not_in_canonical_registry_is_rejected(self):
-        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "ACCOUNT_SCOPE_NOT_RATIFIED"):
+    def test_account_scope_outside_implemented_shape_is_rejected(self):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "PROVIDER_ACCOUNT_SCOPE_MISMATCH"):
             _build_fact(account_scope="JAPAN")
 
     def test_registered_provider_cannot_be_relabelled_to_another_ratified_scope(self):
@@ -222,6 +225,9 @@ class ValidateProviderAccountFactV2Tests(unittest.TestCase):
         cases = [
             ("accountScope", "CRYPTO", "PROVIDER_ACCOUNT_SCOPE_MISMATCH"),
             ("currency", "USD", "PROVIDER_CURRENCY_MISMATCH"),
+            ("verificationStatus", "BROKER_VERIFIED", "VERIFICATION_STATUS_INVALID"),
+            ("providerAuthorityStatus", "RATIFIED", "PROVIDER_AUTHORITY_STATUS_INVALID"),
+            ("factUsabilityStatus", "COMPUTABLE", "FACT_USABILITY_STATUS_INVALID"),
             ("orderEligibilityStatus", "ORDER_APPROVED", "ORDER_ELIGIBILITY_STATUS_NOT_READ_ONLY"),
         ]
         for field, value, code in cases:
