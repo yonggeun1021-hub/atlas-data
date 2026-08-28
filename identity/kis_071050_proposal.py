@@ -52,6 +52,7 @@ ATLAS_IDENTITY_EVIDENCE_MANIFEST = {
 PUBLIC_MASTER_OBSERVATION = {
     "capturedAt": "2026-08-28T15:42:55Z",
     "archiveSha256": "8de794458d38e4304b0b1f69c9de0f2b4ab71ea5781585653d83b2d5c0d13be1",
+    "masterMember": "kospi_code.mst",
     "masterSha256": "abfec9c79eca665741b6189fc88214961088067782791f9c90aa0715c510b4a2",
     "rowLineNumber": 1035,
     "rawBase64": (

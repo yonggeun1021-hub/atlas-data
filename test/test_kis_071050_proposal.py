@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 import copy
 import hashlib
+import io
 import json
 import sys
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from identity import kis_071050_proposal as proposal_module
+from identity import kis_071050_proposal_review as review_module
 from identity.kis_071050_proposal import (
     AUTHORITY_ALL_FALSE,
     PROPOSAL_STATUS,
@@ -26,6 +29,7 @@ from identity.kis_071050_proposal import (
 from identity.kis_071050_proposal_review import (
     Kis071050ProposalReviewError,
     _verify_atlas_identity_semantics,
+    _verify_public_master_archive,
     _verify_public_master_exact_row,
     review_alias_proposal,
     review_identity_proposal,
@@ -207,6 +211,81 @@ class IndependentReviewTests(unittest.TestCase):
             "REVIEW_INCOMPLETE",
         )
 
+    def test_archive_reproduction_is_required_even_when_other_sources_reproduce(self):
+        identity = instrument_identity_proposal_071050()
+        resolution = {"resolutionStatus": "EXACT_GIT_BYTES_REPRODUCED"}
+        with mock.patch(
+            "identity.kis_071050_proposal_review._resolve_git_evidence",
+            return_value=resolution,
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._verify_required_fragments",
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._verify_atlas_identity_semantics",
+        ):
+            result = review_identity_proposal(
+                identity, official_checkout=Path("/official"), atlas_checkout=Path("/atlas")
+            )
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertIn("PUBLIC_MASTER_ARCHIVE_REPRODUCTION_REQUIRED", result["reasons"])
+
+    def test_wrong_archive_bytes_cannot_make_review_ready(self):
+        identity = instrument_identity_proposal_071050()
+        result = review_identity_proposal(identity, public_master_archive=b"not-the-archive")
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertTrue(any(
+            "PUBLIC_MASTER_ARCHIVE_HASH_MISMATCH" in reason
+            for reason in result["reasons"]
+        ))
+
+    @staticmethod
+    def _archive(member: str, master: bytes) -> bytes:
+        target = io.BytesIO()
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr(member, master)
+        return target.getvalue()
+
+    def test_wrong_archive_member_is_rejected(self):
+        packet = instrument_identity_proposal_071050()
+        archive = self._archive("wrong.mst", b"master")
+        digest = hashlib.sha256(archive).hexdigest()
+        packet["evidence"][2]["archiveSha256"] = digest
+        binding = dict(review_module._PUBLIC_MASTER_BINDING, archiveSha256=digest)
+        with mock.patch.object(review_module, "_PUBLIC_MASTER_BINDING", binding), self.assertRaisesRegex(
+            Kis071050ProposalReviewError, "PUBLIC_MASTER_ARCHIVE_MEMBER_INVALID",
+        ):
+            _verify_public_master_archive(packet, archive)
+
+    def test_wrong_master_hash_is_rejected(self):
+        packet = instrument_identity_proposal_071050()
+        archive = self._archive("kospi_code.mst", b"wrong-master")
+        digest = hashlib.sha256(archive).hexdigest()
+        packet["evidence"][2]["archiveSha256"] = digest
+        binding = dict(review_module._PUBLIC_MASTER_BINDING, archiveSha256=digest)
+        with mock.patch.object(review_module, "_PUBLIC_MASTER_BINDING", binding), self.assertRaisesRegex(
+            Kis071050ProposalReviewError, "PUBLIC_MASTER_HASH_MISMATCH",
+        ):
+            _verify_public_master_archive(packet, archive)
+
+    def test_row_not_present_in_verified_master_is_rejected(self):
+        packet = instrument_identity_proposal_071050()
+        master = b"\n".join([b"not-a-master-row"] * 1035) + b"\n"
+        archive = self._archive("kospi_code.mst", master)
+        archive_digest = hashlib.sha256(archive).hexdigest()
+        master_digest = hashlib.sha256(master).hexdigest()
+        packet["evidence"][2].update({
+            "archiveSha256": archive_digest,
+            "masterSha256": master_digest,
+        })
+        binding = dict(
+            review_module._PUBLIC_MASTER_BINDING,
+            archiveSha256=archive_digest,
+            masterSha256=master_digest,
+        )
+        with mock.patch.object(review_module, "_PUBLIC_MASTER_BINDING", binding), self.assertRaisesRegex(
+            Kis071050ProposalReviewError, "PUBLIC_MASTER_EXACT_SYMBOL_NOT_UNIQUE",
+        ):
+            _verify_public_master_archive(packet, archive)
+
     def test_exact_external_reproduction_can_only_make_review_ready(self):
         identity = instrument_identity_proposal_071050()
         alias = source_alias_proposal_071050()
@@ -218,9 +297,12 @@ class IndependentReviewTests(unittest.TestCase):
             "identity.kis_071050_proposal_review._verify_required_fragments",
         ), mock.patch(
             "identity.kis_071050_proposal_review._verify_atlas_identity_semantics",
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._verify_public_master_archive",
         ):
             identity_result = review_identity_proposal(
-                identity, official_checkout=Path("/official"), atlas_checkout=Path("/atlas")
+                identity, official_checkout=Path("/official"), atlas_checkout=Path("/atlas"),
+                public_master_archive=b"verified-by-mock",
             )
             alias_result = review_alias_proposal(
                 alias, identity_packet=identity, official_checkout=Path("/official")
@@ -245,10 +327,13 @@ class IndependentReviewTests(unittest.TestCase):
             "identity.kis_071050_proposal_review._verify_required_fragments",
         ), mock.patch(
             "identity.kis_071050_proposal_review._verify_atlas_identity_semantics",
+        ), mock.patch(
+            "identity.kis_071050_proposal_review._verify_public_master_archive",
         ):
             packet = instrument_identity_proposal_071050()
             result = review_identity_proposal(
-                packet, official_checkout=Path("/official"), atlas_checkout=Path("/atlas")
+                packet, official_checkout=Path("/official"), atlas_checkout=Path("/atlas"),
+                public_master_archive=b"verified-by-mock",
             )
         self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
         self.assertTrue(any(

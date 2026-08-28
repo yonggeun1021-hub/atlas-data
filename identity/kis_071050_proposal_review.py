@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import io
 import json
 import subprocess
+import zipfile
 from pathlib import Path
 
 from identity.kis_071050_proposal import (
@@ -44,10 +46,13 @@ _PREFERRED_STOCK_MEANINGS = {
 }
 _PUBLIC_MASTER_BINDING = {
     "archiveSha256": "8de794458d38e4304b0b1f69c9de0f2b4ab71ea5781585653d83b2d5c0d13be1",
+    "masterMember": "kospi_code.mst",
     "masterSha256": "abfec9c79eca665741b6189fc88214961088067782791f9c90aa0715c510b4a2",
     "rowLineNumber": 1035,
     "rowSha256": "aa3dc58fe82e95d22013d2f312b8cab9e84b63833836513b1decfc1716416286",
 }
+_MAX_PUBLIC_MASTER_ARCHIVE_BYTES = 5_000_000
+_MAX_PUBLIC_MASTER_BYTES = 20_000_000
 
 
 class Kis071050ProposalReviewError(ValueError):
@@ -160,7 +165,7 @@ def _parse_public_master_row(raw_row: bytes) -> dict:
     }
 
 
-def _verify_public_master_exact_row(packet: dict) -> None:
+def _verify_public_master_exact_row(packet: dict) -> tuple[dict, bytes, dict]:
     matches = [
         evidence for evidence in packet["evidence"]
         if evidence.get("kind") == "PUBLIC_KIS_MASTER_EXACT_ROW_OBSERVATION"
@@ -197,6 +202,67 @@ def _verify_public_master_exact_row(packet: dict) -> None:
     }
     if parsed != expected_claim:
         raise Kis071050ProposalReviewError("PUBLIC_MASTER_RAW_ROW_CLAIM_MISMATCH")
+    return evidence, raw_row, parsed
+
+
+def _verify_public_master_archive(packet: dict, archive: bytes) -> None:
+    evidence, embedded_row, _ = _verify_public_master_exact_row(packet)
+    if not isinstance(archive, bytes) or not archive or len(archive) > _MAX_PUBLIC_MASTER_ARCHIVE_BYTES:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_SIZE_INVALID")
+    if hashlib.sha256(archive).hexdigest() != evidence["archiveSha256"]:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_HASH_MISMATCH")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            members = bundle.infolist()
+            if (
+                len(members) != 1
+                or members[0].filename != evidence["masterMember"]
+                or members[0].is_dir()
+            ):
+                raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_MEMBER_INVALID")
+            if members[0].file_size > _MAX_PUBLIC_MASTER_BYTES:
+                raise Kis071050ProposalReviewError("PUBLIC_MASTER_SIZE_INVALID")
+            master = bundle.read(members[0])
+    except Kis071050ProposalReviewError:
+        raise
+    except (zipfile.BadZipFile, RuntimeError, OSError):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_INVALID") from None
+    if not master or len(master) > _MAX_PUBLIC_MASTER_BYTES:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_SIZE_INVALID")
+    if hashlib.sha256(master).hexdigest() != evidence["masterSha256"]:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_HASH_MISMATCH")
+    rows = master.splitlines()
+    line_number = evidence["rowLineNumber"]
+    if line_number > len(rows):
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ROW_LINE_NOT_PRESENT")
+    selected_row = rows[line_number - 1]
+    matches: list[bytes] = []
+    for row in rows:
+        try:
+            parsed = _parse_public_master_row(row)
+        except Kis071050ProposalReviewError:
+            continue
+        if parsed["shortCode"] == packet["claim"]["subject"]:
+            matches.append(row)
+    if len(matches) != 1:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_EXACT_SYMBOL_NOT_UNIQUE")
+    if selected_row != matches[0] or selected_row != embedded_row:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_EMBEDDED_ROW_NOT_FROM_ARCHIVE")
+
+
+def _operator_archive_bytes(
+    *, archive: bytes | None, archive_path: Path | None,
+) -> bytes | None:
+    if archive is not None and archive_path is not None:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_INPUT_AMBIGUOUS")
+    if archive_path is None:
+        return archive
+    path = Path(archive_path)
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_PATH_INVALID")
+    if path.stat().st_size > _MAX_PUBLIC_MASTER_ARCHIVE_BYTES:
+        raise Kis071050ProposalReviewError("PUBLIC_MASTER_ARCHIVE_SIZE_INVALID")
+    return path.read_bytes()
 
 
 def _review_result(packet: dict, reasons: list[str]) -> dict:
@@ -216,6 +282,8 @@ def review_identity_proposal(
     *,
     official_checkout: Path | None = None,
     atlas_checkout: Path | None = None,
+    public_master_archive: bytes | None = None,
+    public_master_archive_path: Path | None = None,
 ) -> dict:
     packet = validate_identity_proposal(packet)
     reasons: list[str] = []
@@ -223,6 +291,16 @@ def review_identity_proposal(
         _verify_public_master_exact_row(packet)
     except Kis071050ProposalReviewError as error:
         reasons.append(f"PUBLIC_MASTER_EXACT_ROW_FAILED:{error}")
+    try:
+        archive = _operator_archive_bytes(
+            archive=public_master_archive, archive_path=public_master_archive_path,
+        )
+        if archive is None:
+            reasons.append("PUBLIC_MASTER_ARCHIVE_REPRODUCTION_REQUIRED")
+        else:
+            _verify_public_master_archive(packet, archive)
+    except Kis071050ProposalReviewError as error:
+        reasons.append(f"PUBLIC_MASTER_ARCHIVE_FAILED:{error}")
     if official_checkout is None:
         reasons.append("OFFICIAL_KIS_EXACT_BYTES_REPRODUCTION_REQUIRED")
     else:

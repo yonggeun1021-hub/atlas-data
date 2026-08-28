@@ -12,6 +12,11 @@ This change prepares two independent CIO review inputs. It grants no authority.
    ISIN, name, security group, or share class; serialized observation fields
    and a rehashed proposal cannot prove themselves. No derivative Atlas
    universe packet or generic six-digit symbol rule is used.
+   `REVIEW_READY_FOR_CIO` additionally requires operator-supplied independent
+   archive bytes (or an absolute archive path). The reviewer enforces the size
+   cap, archive hash, the single exact `kospi_code.mst` member, master hash,
+   line 1035, unique 071050 row membership, embedded-row equality, and parsed
+   claim equality. Missing archive reproduction remains review-incomplete.
 2. `EXACT_SOURCE_ALIAS` binds only the exact source pair
    `kis_paper_domestic_balance / 071050` to the proposed listing/instrument.
    It cites instrument-specific official KIS static examples at one immutable
