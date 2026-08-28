@@ -1284,6 +1284,17 @@ APPROVED_TESTS = [
     #   structural order-API-impossibility, sizing-while-unratified,
     #   authority-flip).
     "test/test_portfolio_risk_input.py",
+    # ★ Portfolio Risk Input Contract v2 (portfolio_account_fact/2,
+    #   portfolio_risk/portfolio_snapshot_v2.py) -- an independent,
+    #   additive account-fact contract for a new provider (KIS PAPER
+    #   first) that separates `provider` from `account_scope` as explicit
+    #   fields, instead of v1's single conflated `source` string. Does not
+    #   modify, extend, or import v1's private helpers or its
+    #   Alpaca/Manual-only source validator; reuses only v1's already-
+    #   ratified `CANONICAL_ACCOUNT_SCOPE`. Still no sizing/policy
+    #   decision: no risk budget, position size, or trading authority is
+    #   computed or granted. See docs/portfolio_risk_input_contract_v2.md.
+    "test/test_portfolio_risk_input_v2.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not

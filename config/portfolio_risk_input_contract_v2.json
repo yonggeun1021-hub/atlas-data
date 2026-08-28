@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "contract_version": "portfolio_account_fact/2",
+  "status": "MECHANISM_ONLY_PROPOSED_UNRATIFIED",
+  "purpose": "READ-ONLY, per-provider account-fact snapshot with provider and account_scope kept as explicit, separate fields (unlike v1's single conflated 'source' string). NOT a sizing/policy decision -- this contract never computes or ratifies a risk-budget percentage, a stop-loss cap, or a position size.",
+  "supersedes": null,
+  "coexists_with": "portfolio_risk_input/1 (portfolio_risk/portfolio_snapshot.py) -- v1 is unmodified and remains the only contract Alpaca capture uses. This is an independent, additive contract for new providers, starting with KIS PAPER.",
+  "provider_implementations": {
+    "KIS_PAPER_ACCOUNT": {
+      "account_scope": "KOREA",
+      "currency": "KRW",
+      "position_source_name": "kis_paper_domestic_balance"
+    }
+  },
+  "provider_authority_records": [],
+  "provider_authority_status": "PROPOSED_UNRATIFIED",
+  "fact_usability_status": "NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED",
+  "real_data_persistence": {
+    "status": "PRIVATE_STORAGE_REQUIRED_BEFORE_LIVE_PERSISTENCE",
+    "note": "This repo is PUBLIC. No real NAV/cash/positions/account_identity_hash produced by this contract's code path is ever written to any file, committed or otherwise, here. Real capture and persistence happen entirely inside the private atlas-private-evidence repo's own root-only Ubuntu runtime state, never in this repo, never in GitHub Actions."
+  },
+  "cross_provider_aggregation": {
+    "status": "NOT_IN_SCOPE_FOR_THIS_CONTRACT_VERSION",
+    "note": "Combining a v2 account fact (e.g. KIS_PAPER_ACCOUNT/KOREA) with v1 account facts (e.g. ALPACA_PAPER_ACCOUNT/US) into one packet-level risk_capacity_inputs computation is a separate, later decision and is not defined by this file."
+  },
+  "authority": {
+    "review_only": true,
+    "action_authorized": false,
+    "order_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "order_eligibility_status": "NOT_APPLICABLE_READ_ONLY_FACT"
+}
