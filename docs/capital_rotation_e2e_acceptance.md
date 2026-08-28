@@ -28,9 +28,14 @@ snapshot.  Import also performs online verification before downloading the
 offline bundle.  A GitHub trusted-root rotation therefore fails closed until
 the contract pin is independently reviewed and updated; it is never accepted
 implicitly.  A self-authored or merely self-hashed JSON receipt is still
-rejected.  No natural Portal receipt exists
-yet, so the projected-pair count remains zero.  The separate genuine
-fail-closed receipt producer is still not implemented.
+rejected.  The same Portal observer now emits a separate attested fail-closed
+receipt only for a genuine scheduled HTTP 503 `FAIL_CLOSED` response whose
+rendered viewer independently remains a read-only `WAITING_NATURAL_PAIR`
+surface with the same bounded reason.  Normal HTTP 202 waiting is not a
+failure, manual observations never count, and rerun attempts of the same
+scheduled run count once.  No qualifying natural fail-closed receipt exists
+yet, so that Exit Gate remains open even though the producer and trusted
+importer are implemented.
 
 All Regime, strategy, Stage, Buy, Action, Order, Production, and trading
 authority remains false.

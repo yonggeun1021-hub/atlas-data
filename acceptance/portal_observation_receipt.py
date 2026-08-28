@@ -30,6 +30,11 @@ PORTAL_SOURCE_PATH = re.compile(
     r"^evidence/p8-15/portal-observations/(\d{4}-\d{2}-\d{2})/"
     r"run-(\d+)-attempt-(\d+)\.json$"
 )
+FAIL_CLOSED_SOURCE_PATH = re.compile(
+    r"^evidence/p8-15/portal-fail-closed-observations/(\d{4}-\d{2}-\d{2})/"
+    r"run-(\d+)-attempt-(\d+)\.json$"
+)
+FAIL_REASON = re.compile(r"^[A-Z0-9_]+$")
 PORTAL_REPOSITORY = "yonggeun1021-hub/atlas-portal"
 SIGNER_WORKFLOW = (
     "yonggeun1021-hub/atlas-portal/"
@@ -237,6 +242,80 @@ def validate_portal_receipt(value: dict) -> dict:
     return value
 
 
+def validate_portal_fail_closed_receipt(value: dict) -> dict:
+    if set(value) != {
+        "schema_version", "wbs_item", "sample_qualification", "observer", "site",
+        "fail_closed", "completion_state", "authority", "receipt_sha256",
+    }:
+        fail("PORTAL_FAIL_CLOSED_RECEIPT_FIELDS_MISMATCH")
+    observer = value.get("observer")
+    site = value.get("site")
+    closed = value.get("fail_closed")
+    if not isinstance(observer, dict) or set(observer) != {
+        "workflow", "event_name", "event_schedule", "run_id", "run_attempt",
+        "workflow_head_sha", "observed_at_utc",
+    }:
+        fail("PORTAL_FAIL_CLOSED_OBSERVER_FIELDS_MISMATCH")
+    if not isinstance(site, dict) or set(site) != {
+        "url", "api_url", "api_status", "api_sha256", "page_url",
+        "page_html_sha256",
+    }:
+        fail("PORTAL_FAIL_CLOSED_SITE_FIELDS_MISMATCH")
+    if not isinstance(closed, dict) or set(closed) != {
+        "observation_date_kst", "api_state", "reason", "viewer_state",
+    }:
+        fail("PORTAL_FAIL_CLOSED_STATE_FIELDS_MISMATCH")
+    if (
+        value.get("schema_version") != "portal_fail_closed_observation/1"
+        or value.get("wbs_item") != "P8-15"
+        or value.get("completion_state") != "API_FAIL_CLOSED_AND_VIEWER_SAFE_FALLBACK_VALIDATED"
+        or observer.get("workflow") != OBSERVER_WORKFLOW
+    ):
+        fail("PORTAL_FAIL_CLOSED_RECEIPT_IDENTITY_INVALID")
+    _positive_int(observer.get("run_id"), "PORTAL_FAIL_CLOSED_RUN_ID_INVALID")
+    _positive_int(observer.get("run_attempt"), "PORTAL_FAIL_CLOSED_RUN_ATTEMPT_INVALID")
+    _full_sha(observer.get("workflow_head_sha"), "PORTAL_FAIL_CLOSED_WORKFLOW_HEAD_INVALID")
+    observed_at = _timestamp(observer.get("observed_at_utc"), "PORTAL_FAIL_CLOSED_OBSERVED_AT_INVALID")
+    if value.get("sample_qualification") != _expected_qualification(observer):
+        fail("PORTAL_FAIL_CLOSED_QUALIFICATION_TAMPERED")
+    if site.get("url") != "https://atlas-investment-console.yonggeun1021.chatgpt.site":
+        fail("PORTAL_FAIL_CLOSED_SITE_IDENTITY_INVALID")
+    if (
+        site.get("api_url") != f"{site['url']}/api/v1/atlas/scheduled-briefing"
+        or site.get("page_url") != f"{site['url']}/briefing"
+        or site.get("api_status") != 503
+    ):
+        fail("PORTAL_FAIL_CLOSED_SITE_LOCATOR_INVALID")
+    _sha256(site.get("api_sha256"), "PORTAL_FAIL_CLOSED_API_HASH_INVALID")
+    _sha256(site.get("page_html_sha256"), "PORTAL_FAIL_CLOSED_PAGE_HASH_INVALID")
+    observation_date = _date(closed.get("observation_date_kst"), "PORTAL_FAIL_CLOSED_DATE_INVALID")
+    reason = closed.get("reason")
+    if (
+        closed.get("api_state") != "FAIL_CLOSED"
+        or closed.get("viewer_state") != "WAITING_NATURAL_PAIR"
+        or not isinstance(reason, str)
+        or len(reason) > 160
+        or FAIL_REASON.fullmatch(reason) is None
+    ):
+        fail("PORTAL_FAIL_CLOSED_STATE_INVALID")
+    observed = dt.datetime.fromisoformat(observed_at[:-1] + "+00:00")
+    if observation_date != (observed + dt.timedelta(hours=9)).date().isoformat():
+        fail("PORTAL_FAIL_CLOSED_KST_DATE_MISMATCH")
+    _assert_false_authority(value.get("authority"), RECEIPT_AUTHORITY, "PORTAL_FAIL_CLOSED_AUTHORITY_INVALID")
+    _sha256(value.get("receipt_sha256"), "PORTAL_FAIL_CLOSED_RECEIPT_HASH_INVALID")
+    if value["receipt_sha256"] != payload_sha256(value, "receipt_sha256"):
+        fail("PORTAL_FAIL_CLOSED_RECEIPT_HASH_MISMATCH")
+    return value
+
+
+def _validate_receipt(value: dict) -> dict:
+    if value.get("schema_version") == "portal_projection_observation/1":
+        return validate_portal_receipt(value)
+    if value.get("schema_version") == "portal_fail_closed_observation/1":
+        return validate_portal_fail_closed_receipt(value)
+    fail("PORTAL_RECEIPT_SCHEMA_UNSUPPORTED")
+
+
 def _verification_command(receipt_path: Path, bundle_path: Path, root_path: Path, receipt: dict) -> list[str]:
     return [
         "gh", "attestation", "verify", str(receipt_path),
@@ -275,8 +354,14 @@ def verify_attestation(receipt_path: Path, bundle_path: Path, root_path: Path, r
 
 def _package_path(portal_root: Path, receipt: dict) -> Path:
     observer = receipt["observer"]
+    if receipt["schema_version"] == "portal_projection_observation/1":
+        date = receipt["natural_pair"]["decision_date"]
+    elif receipt["schema_version"] == "portal_fail_closed_observation/1":
+        date = receipt["fail_closed"]["observation_date_kst"]
+    else:
+        fail("PORTAL_RECEIPT_SCHEMA_UNSUPPORTED")
     return (
-        portal_root / receipt["natural_pair"]["decision_date"]
+        portal_root / date
         / f"run-{observer['run_id']}-attempt-{observer['run_attempt']}"
     )
 
@@ -287,6 +372,7 @@ def validate_import_package(
     portal_root: Path,
     verifier: Verifier | None = None,
     expected_trusted_root_sha256: str,
+    expected_receipt_schema: str = "portal_projection_observation/1",
 ) -> dict:
     if not package.is_dir() or set(item.name for item in package.iterdir()) != EXPECTED_FILES:
         fail("PORTAL_IMPORT_PACKAGE_FILES_MISMATCH")
@@ -299,7 +385,9 @@ def validate_import_package(
     root_bytes = root_path.read_bytes()
     if bytes_sha256(root_bytes) != expected_trusted_root_sha256:
         fail("PORTAL_TRUSTED_ROOT_NOT_CONTRACT_PINNED")
-    receipt = validate_portal_receipt(_load_json_bytes(receipt_bytes, "PORTAL_RECEIPT_UNREADABLE"))
+    receipt = _validate_receipt(_load_json_bytes(receipt_bytes, "PORTAL_RECEIPT_UNREADABLE"))
+    if receipt["schema_version"] != expected_receipt_schema:
+        fail("PORTAL_IMPORT_RECEIPT_KIND_MISMATCH")
     imported = _load_json_bytes(import_path.read_bytes(), "PORTAL_IMPORT_RECORD_UNREADABLE")
     if set(imported) != {
         "schema_version", "wbs_item", "source_repository", "source_commit",
@@ -319,13 +407,23 @@ def validate_import_package(
     if imported.get("source_commit_role") != "DISCOVERY_COMMIT_NOT_ATTESTATION_IDENTITY":
         fail("PORTAL_IMPORT_SOURCE_COMMIT_ROLE_INVALID")
     source_path = _safe_path(imported.get("source_path"), "PORTAL_IMPORT_SOURCE_PATH_INVALID")
-    match = PORTAL_SOURCE_PATH.fullmatch(source_path)
+    source_pattern = (
+        PORTAL_SOURCE_PATH
+        if receipt["schema_version"] == "portal_projection_observation/1"
+        else FAIL_CLOSED_SOURCE_PATH
+    )
+    match = source_pattern.fullmatch(source_path)
     if not match:
         fail("PORTAL_IMPORT_SOURCE_PATH_INVALID")
     date, run_id, run_attempt = match.groups()
     observer = receipt["observer"]
+    receipt_date = (
+        receipt["natural_pair"]["decision_date"]
+        if receipt["schema_version"] == "portal_projection_observation/1"
+        else receipt["fail_closed"]["observation_date_kst"]
+    )
     if (
-        date != receipt["natural_pair"]["decision_date"]
+        date != receipt_date
         or int(run_id) != observer["run_id"]
         or int(run_attempt) != observer["run_attempt"]
         or package.resolve() != _package_path(portal_root, receipt).resolve()
@@ -394,6 +492,34 @@ def iter_imported_receipts(
             portal_root=portal_root,
             verifier=verifier,
             expected_trusted_root_sha256=expected_trusted_root_sha256,
+            expected_receipt_schema="portal_projection_observation/1",
+        )
+        for package in packages
+    ]
+
+
+def iter_imported_fail_closed_receipts(
+    fail_root: Path,
+    *,
+    verifier: Verifier | None = None,
+    expected_trusted_root_sha256: str,
+) -> list[dict]:
+    if not fail_root.exists():
+        return []
+    packages = sorted(fail_root.glob("*/run-*-attempt-*"))
+    stray = [
+        path for path in fail_root.rglob("*")
+        if path.is_file() and not any(parent in packages for parent in path.parents)
+    ]
+    if stray:
+        fail("UNTRUSTED_FAIL_CLOSED_RECEIPT_PRESENT", stray[0].as_posix())
+    return [
+        validate_import_package(
+            package,
+            portal_root=fail_root,
+            verifier=verifier,
+            expected_trusted_root_sha256=expected_trusted_root_sha256,
+            expected_receipt_schema="portal_fail_closed_observation/1",
         )
         for package in packages
     ]
@@ -446,7 +572,7 @@ def import_receipt(
     working_path = portal_repo_root / source_path
     if not working_path.is_file() or working_path.read_bytes() != receipt_bytes:
         fail("PORTAL_SOURCE_WORKTREE_MISMATCH")
-    receipt = validate_portal_receipt(_load_json_bytes(receipt_bytes, "PORTAL_RECEIPT_UNREADABLE"))
+    receipt = _validate_receipt(_load_json_bytes(receipt_bytes, "PORTAL_RECEIPT_UNREADABLE"))
     digest = bytes_sha256(receipt_bytes)
     with tempfile.TemporaryDirectory() as name:
         temporary = Path(name)
@@ -542,6 +668,7 @@ def import_receipt(
         target,
         portal_root=portal_root,
         expected_trusted_root_sha256=expected_trusted_root_sha256,
+        expected_receipt_schema=receipt["schema_version"],
     )
     return target, changed
 
@@ -562,6 +689,7 @@ def main(argv=None) -> int:
     parser.add_argument("--portal-repo-root", type=Path, required=True)
     parser.add_argument("--portal-commit", required=True)
     parser.add_argument("--portal-root", type=Path, required=True)
+    parser.add_argument("--fail-root", type=Path, required=True)
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--event-schedule", default="")
     parser.add_argument("--run-id", required=True)
@@ -578,6 +706,7 @@ def main(argv=None) -> int:
         "PORTAL_TRUSTED_ROOT_CONTRACT_INVALID",
     )
     source_root = args.portal_repo_root.resolve() / "evidence" / "p8-15" / "portal-observations"
+    fail_source_root = args.portal_repo_root.resolve() / "evidence" / "p8-15" / "portal-fail-closed-observations"
     changed = 0
     if source_root.exists():
         for source in sorted(source_root.glob("*/run-*-attempt-*.json")):
@@ -589,6 +718,22 @@ def main(argv=None) -> int:
                 portal_commit=args.portal_commit,
                 source_path=source.relative_to(args.portal_repo_root.resolve()).as_posix(),
                 portal_root=args.portal_root.resolve(),
+                importer=importer,
+                expected_trusted_root_sha256=expected_trusted_root_sha256,
+            )
+            changed += int(wrote)
+    if fail_source_root.exists():
+        for source in sorted(fail_source_root.glob("*/run-*-attempt-*.json")):
+            receipt = validate_portal_fail_closed_receipt(
+                _load_json_bytes(source.read_bytes(), "PORTAL_FAIL_CLOSED_RECEIPT_UNREADABLE")
+            )
+            if receipt["sample_qualification"] != "NATURAL_SCHEDULED_PORTAL_OBSERVATION":
+                continue
+            _, wrote = import_receipt(
+                portal_repo_root=args.portal_repo_root.resolve(),
+                portal_commit=args.portal_commit,
+                source_path=source.relative_to(args.portal_repo_root.resolve()).as_posix(),
+                portal_root=args.fail_root.resolve(),
                 importer=importer,
                 expected_trusted_root_sha256=expected_trusted_root_sha256,
             )

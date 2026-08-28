@@ -53,6 +53,7 @@ jobs:
             --portal-repo-root "${{ steps.portal.outputs.root }}" \
             --portal-commit "${{ steps.portal.outputs.commit }}" \
             --portal-root "evidence/capital_rotation_acceptance/portal_receipts" \
+            --fail-root "evidence/capital_rotation_acceptance/fail_closed_receipts" \
             --event-name "$EVENT_NAME" \
             --event-schedule "$EVENT_SCHEDULE" \
             --run-id "$RUN_ID" \
@@ -73,6 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           git add evidence/capital_rotation_acceptance/portal_receipts \
+            evidence/capital_rotation_acceptance/fail_closed_receipts \
             evidence/operational/capital_rotation_e2e_acceptance.json
           if git diff --cached --quiet; then
             echo "No new trusted Portal observation"

@@ -124,12 +124,64 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         return value
 
     @staticmethod
+    def fail_closed_receipt(
+        event_name="schedule",
+        event_schedule=portal.OBSERVER_SCHEDULE,
+        *,
+        observer_run_id=501,
+        run_attempt=1,
+    ):
+        value = {
+            "schema_version": "portal_fail_closed_observation/1",
+            "wbs_item": "P8-15",
+            "sample_qualification": (
+                "MANUAL_DIAGNOSTIC_EXCLUDED"
+                if event_name == "workflow_dispatch"
+                else "NATURAL_SCHEDULED_PORTAL_OBSERVATION"
+            ),
+            "observer": {
+                "workflow": portal.OBSERVER_WORKFLOW,
+                "event_name": event_name,
+                "event_schedule": event_schedule,
+                "run_id": observer_run_id,
+                "run_attempt": run_attempt,
+                "workflow_head_sha": "4" * 40,
+                "observed_at_utc": "2026-08-26T23:05:00Z",
+            },
+            "site": {
+                "url": "https://atlas-investment-console.yonggeun1021.chatgpt.site",
+                "api_url": "https://atlas-investment-console.yonggeun1021.chatgpt.site/api/v1/atlas/scheduled-briefing",
+                "api_status": 503,
+                "api_sha256": "6" * 64,
+                "page_url": "https://atlas-investment-console.yonggeun1021.chatgpt.site/briefing",
+                "page_html_sha256": "7" * 64,
+            },
+            "fail_closed": {
+                "observation_date_kst": "2026-08-27",
+                "api_state": "FAIL_CLOSED",
+                "reason": "DISCOVERY_TREE_UNUSABLE",
+                "viewer_state": "WAITING_NATURAL_PAIR",
+            },
+            "completion_state": "API_FAIL_CLOSED_AND_VIEWER_SAFE_FALLBACK_VALIDATED",
+            "authority": dict(portal.RECEIPT_AUTHORITY),
+        }
+        value["receipt_sha256"] = portal.payload_sha256(value, "receipt_sha256")
+        return value
+
+    @staticmethod
     def write_portal_package(root: Path, receipt: dict):
         package = portal._package_path(root, receipt)
         package.mkdir(parents=True)
         receipt_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
         bundle = b'{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n'
         trusted_root = b'{"mediaType":"application/vnd.dev.sigstore.trustedroot+json;version=0.1"}\n'
+        is_fail_closed = receipt["schema_version"] == "portal_fail_closed_observation/1"
+        receipt_date = (
+            receipt["fail_closed"]["observation_date_kst"]
+            if is_fail_closed
+            else receipt["natural_pair"]["decision_date"]
+        )
+        source_directory = "portal-fail-closed-observations" if is_fail_closed else "portal-observations"
         imported = {
             "schema_version": "portal_observation_import/1",
             "wbs_item": "P8-15",
@@ -137,7 +189,7 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
             "source_commit": "e" * 40,
             "source_commit_role": "DISCOVERY_COMMIT_NOT_ATTESTATION_IDENTITY",
             "source_path": (
-                "evidence/p8-15/portal-observations/2026-08-26/"
+                f"evidence/p8-15/{source_directory}/{receipt_date}/"
                 f"run-{receipt['observer']['run_id']}-attempt-{receipt['observer']['run_attempt']}.json"
             ),
             "receipt_sha256": portal.bytes_sha256(receipt_bytes),
@@ -438,6 +490,116 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
                     fail_root=base / "fail",
                 )
 
+    def test_attested_natural_fail_closed_receipt_counts_once(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            fail_root = base / "fail"
+            receipt = self.fail_closed_receipt()
+            package = self.write_portal_package(fail_root, receipt)
+            result = acceptance.build_inventory(
+                ROOT,
+                run_root=base / "runs",
+                portal_root=base / "portal",
+                fail_root=fail_root,
+                portal_attestation_verifier=lambda *args: None,
+                portal_trusted_root_sha256=portal.bytes_sha256(
+                    (package / "trusted_root.jsonl").read_bytes()
+                ),
+            )
+            self.assertEqual(result["observed"]["genuine_scheduled_fail_closed_sample_count"], 1)
+            self.assertEqual(result["observed"]["fail_closed_receipt_count"], 1)
+            self.assertNotIn("GENUINE_SCHEDULED_FAIL_CLOSED_RECEIPT_MISSING", result["blockers"])
+            self.assertFalse(any(
+                value for key, value in result["authority"].items()
+                if key != "evidence_inventory_only"
+            ))
+
+    def test_manual_fail_closed_receipt_is_visible_but_excluded(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            fail_root = base / "fail"
+            receipt = self.fail_closed_receipt(
+                event_name="workflow_dispatch", event_schedule=None
+            )
+            package = self.write_portal_package(fail_root, receipt)
+            result = acceptance.build_inventory(
+                ROOT,
+                run_root=base / "runs",
+                portal_root=base / "portal",
+                fail_root=fail_root,
+                portal_attestation_verifier=lambda *args: None,
+                portal_trusted_root_sha256=portal.bytes_sha256(
+                    (package / "trusted_root.jsonl").read_bytes()
+                ),
+            )
+            self.assertEqual(result["observed"]["genuine_scheduled_fail_closed_sample_count"], 0)
+            self.assertEqual(result["observed"]["manual_or_non_schedule_fail_closed_receipt_count"], 1)
+
+    def test_fail_closed_rerun_attempts_count_as_one_scheduled_run(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            fail_root = base / "fail"
+            first = self.fail_closed_receipt(run_attempt=1)
+            second = self.fail_closed_receipt(run_attempt=2)
+            first_package = self.write_portal_package(fail_root, first)
+            self.write_portal_package(fail_root, second)
+            result = acceptance.build_inventory(
+                ROOT,
+                run_root=base / "runs",
+                portal_root=base / "portal",
+                fail_root=fail_root,
+                portal_attestation_verifier=lambda *args: None,
+                portal_trusted_root_sha256=portal.bytes_sha256(
+                    (first_package / "trusted_root.jsonl").read_bytes()
+                ),
+            )
+            self.assertEqual(result["observed"]["genuine_scheduled_fail_closed_sample_count"], 1)
+            self.assertEqual(result["observed"]["fail_closed_receipt_count"], 2)
+            self.assertEqual(result["observed"]["superseded_fail_closed_rerun_attempt_count"], 1)
+
+    def test_fail_closed_attestation_bundle_tamper_is_rejected(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            fail_root = base / "fail"
+            package = self.write_portal_package(fail_root, self.fail_closed_receipt())
+            trusted_hash = portal.bytes_sha256((package / "trusted_root.jsonl").read_bytes())
+            (package / "attestation.jsonl").write_bytes(b"changed")
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "INVALID_TRUSTED_FAIL_CLOSED_RECEIPT_PRESENT"):
+                acceptance.build_inventory(
+                    ROOT,
+                    run_root=base / "runs",
+                    portal_root=base / "portal",
+                    fail_root=fail_root,
+                    portal_attestation_verifier=lambda *args: None,
+                    portal_trusted_root_sha256=trusted_hash,
+                )
+
+    def test_fail_closed_receipt_tamper_and_wrong_root_are_rejected(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            fail_root = base / "fail"
+            receipt = self.fail_closed_receipt()
+            package = self.write_portal_package(fail_root, receipt)
+            changed = json.loads((package / "receipt.json").read_text())
+            changed["authority"]["trading_authority"] = True
+            changed["receipt_sha256"] = portal.payload_sha256(changed, "receipt_sha256")
+            (package / "receipt.json").write_text(json.dumps(changed, indent=2, sort_keys=True) + "\n")
+            imported = json.loads((package / "import.json").read_text())
+            imported["receipt_sha256"] = portal.bytes_sha256((package / "receipt.json").read_bytes())
+            imported["import_record_sha256"] = portal.payload_sha256(imported, "import_record_sha256")
+            (package / "import.json").write_text(json.dumps(imported, indent=2, sort_keys=True) + "\n")
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "INVALID_TRUSTED_FAIL_CLOSED_RECEIPT_PRESENT"):
+                acceptance.build_inventory(
+                    ROOT,
+                    run_root=base / "runs",
+                    portal_root=base / "portal",
+                    fail_root=fail_root,
+                    portal_attestation_verifier=lambda *args: None,
+                    portal_trusted_root_sha256=portal.bytes_sha256(
+                        (package / "trusted_root.jsonl").read_bytes()
+                    ),
+                )
+
     def test_inventory_recomputed_validation_rejects_rehash_tamper(self):
         current = acceptance.build_inventory(ROOT)
         changed = copy.deepcopy(current)
@@ -469,6 +631,7 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         self.assertIn("attestations: read", text)
         self.assertIn("fetch-depth: 0", text)
         self.assertIn("acceptance.portal_observation_receipt", text)
+        self.assertIn('--fail-root "evidence/capital_rotation_acceptance/fail_closed_receipts"', text)
         self.assertIn("acceptance.capital_rotation_e2e validate-inventory", text)
         self.assertIn('git push origin "HEAD:${{ github.event.repository.default_branch }}"', text)
         self.assertNotIn("--force", text)
@@ -477,7 +640,7 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         value = json.loads((ROOT / "evidence/operational/capital_rotation_e2e_acceptance.json").read_text())
         self.assertEqual(acceptance.validate_inventory(ROOT, value), value)
         self.assertEqual(value["status"], "NOT_READY")
-        self.assertEqual(value["schema_version"], "capital_rotation_e2e_acceptance/2")
+        self.assertEqual(value["schema_version"], "capital_rotation_e2e_acceptance/3")
         self.assertEqual(value["observed"]["portal_receipt_count"], 0)
         self.assertEqual(value["observed"]["natural_pair_dates"], [])
 
