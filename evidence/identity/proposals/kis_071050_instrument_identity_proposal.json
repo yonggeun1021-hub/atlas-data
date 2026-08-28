@@ -1,0 +1,97 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "investment_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_authorized": false,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "canonicalAuthorityConfigMutated": false,
+  "claim": {
+    "canonicalInstrumentId": "KRX:071050:COMMON",
+    "canonicalIssuerId": "DART:00432102",
+    "instrumentType": "COMMON_STOCK",
+    "koreanName": "한국금융지주",
+    "listingId": "XKRX:071050",
+    "scope": "EXACT_INSTRUMENT_ONLY_NO_GENERIC_SYMBOL_RULE",
+    "standardProductNumber": "KR7071050009",
+    "subject": "071050"
+  },
+  "evidence": [
+    {
+      "commitSha": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+      "evidenceDomain": "071050_ISSUER_INSTRUMENT_LISTING_IDENTITY",
+      "files": [
+        {
+          "contentSha256": "135ed22451832935f3d962d1997a05726aaec84cc9d1472ff40ea24685edd0d4",
+          "filePath": "stocks_info/kis_kospi_code_mst.py",
+          "requiredFragments": [
+            "rf1_1 = rf1[0:9].rstrip()",
+            "rf1_2 = rf1[9:21].rstrip()",
+            "rf1_3 = rf1[21:].strip()",
+            "part1_columns = ['단축코드', '표준코드', '한글명']",
+            "'우선주'"
+          ]
+        },
+        {
+          "contentSha256": "383cb7a4bb6f7359bc742781afd18f87c95e9a939502d2e548593a1be0de24e4",
+          "filePath": "stocks_info/종목마스터정보(코스피).h",
+          "requiredFragments": [
+            "mksc_shrn_iscd",
+            "stnd_iscd",
+            "hts_kor_isnm",
+            "scrt_grp_cls_code",
+            "우선주 구분 코드 (0:해당없음(보통주)"
+          ]
+        }
+      ],
+      "kind": "PINNED_OFFICIAL_KIS_STATIC_EVIDENCE",
+      "repository": "koreainvestment/open-trading-api"
+    },
+    {
+      "authorityStatus": "OBSERVED_NOT_RATIFIED",
+      "commitSha": "5daa75caa529fee6bbd3c5a48cc7ed82cf6ec2b5",
+      "evidenceDomain": "071050_ISSUER_INSTRUMENT_LISTING_IDENTITY",
+      "files": [
+        {
+          "contentSha256": "714e0eeb9e796122df268066e46574cd3f1e455b0b251b75dc8ae5dc899ea52a",
+          "filePath": "config/corp_map.json"
+        }
+      ],
+      "kind": "PINNED_ATLAS_OBSERVATION_EVIDENCE",
+      "observedBindings": {
+        "corpMap": {
+          "dartCorpCode": "00432102",
+          "symbol": "071050"
+        }
+      },
+      "repository": "yonggeun1021-hub/atlas-data"
+    },
+    {
+      "archiveSha256": "8de794458d38e4304b0b1f69c9de0f2b4ab71ea5781585653d83b2d5c0d13be1",
+      "capturedAt": "2026-08-28T15:42:55Z",
+      "evidenceDomain": "071050_ISSUER_INSTRUMENT_LISTING_IDENTITY",
+      "independentReproductionStatus": "CIO_REPRODUCED_EXACT_HASH_MATCH",
+      "kind": "PUBLIC_KIS_MASTER_EXACT_ROW_OBSERVATION",
+      "mappingStatus": "OBSERVED_NOT_RATIFIED",
+      "masterSha256": "abfec9c79eca665741b6189fc88214961088067782791f9c90aa0715c510b4a2",
+      "observation": {
+        "koreanName": "한국금융지주",
+        "officialMeaning": "COMMON_STOCK",
+        "preferredStockClassCode": "0",
+        "securityGroupCode": "ST",
+        "shortCode": "071050",
+        "standardProductNumber": "KR7071050009"
+      },
+      "rowSha256": "aa3dc58fe82e95d22013d2f312b8cab9e84b63833836513b1decfc1716416286"
+    }
+  ],
+  "proposalId": "atlas.identity.proposal.kis-071050-instrument",
+  "proposalKind": "ISSUER_INSTRUMENT_LISTING_IDENTITY",
+  "proposalSha256": "da446cd7b09db832539a53dbeb7c1e096f2801f81c203e1aeeb65cfc165f0ec6",
+  "proposalStatus": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+  "schemaVersion": "kis_071050_evidence_proposal/1"
+}
