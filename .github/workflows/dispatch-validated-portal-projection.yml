@@ -46,6 +46,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ATLAS_PORTAL_DISPATCH_TOKEN: ${{ secrets.ATLAS_PORTAL_DISPATCH_TOKEN }}
+          ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
         run: |
           set -euo pipefail
           python3 .github/scripts/dispatch_portal_projection.py \

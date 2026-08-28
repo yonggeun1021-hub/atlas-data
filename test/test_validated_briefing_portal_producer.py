@@ -207,6 +207,34 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         index = json.loads((self.repo / "evidence/validated_briefing_portal/morning/2026-08-28/index.json").read_text())
         self.assertEqual(len(index["revisions"]), 1)
 
+    def test_output_tree_symlink_cannot_redirect_publish_outside_repository(self):
+        with tempfile.TemporaryDirectory() as outside_name:
+            out_root = self.repo / "evidence/validated_briefing_portal"
+            out_root.mkdir(parents=True)
+            (out_root / "morning").symlink_to(
+                Path(outside_name), target_is_directory=True
+            )
+            with self.assertRaisesRegex(
+                producer.PortalProducerError, "OUTPUT_SLOT_OUTSIDE_REPOSITORY"
+            ):
+                producer.build(self._inputs())
+            self.assertEqual(list(Path(outside_name).iterdir()), [])
+
+    def test_replay_rejects_untrusted_index_envelope_path(self):
+        args = self._inputs()
+        producer.build(args)
+        index_path = (
+            self.repo
+            / "evidence/validated_briefing_portal/morning/2026-08-28/index.json"
+        )
+        index = json.loads(index_path.read_text())
+        index["revisions"][0]["envelope_path"] = "/etc/passwd"
+        _write_json(index_path, index)
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "PORTAL_INDEX_ENVELOPE_PATH_INVALID"
+        ):
+            producer.build(args)
+
     def test_report_must_bind_exact_input_bytes(self):
         with self.assertRaisesRegex(producer.PortalProducerError, "BRIEFING_HASH_MISMATCH"):
             producer.build(self._inputs(bad_briefing_hash=True))
@@ -295,6 +323,39 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         self.assertEqual(manifest["post_delivery_change_key"], change_key)
         self.assertEqual(manifest["redelivery"], "FORBIDDEN")
 
+        subprocess.run(
+            ["git", "add", "evidence/validated_briefing_portal"],
+            cwd=self.repo, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-qm", "valid signed correction projection"],
+            cwd=self.repo, check=True,
+        )
+        envelope_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
+        ).strip()
+        bodies: dict[tuple[str, str], bytes] = {}
+        for ref in ledger["source_refs"]:
+            bodies[(self.source_commit, ref["path"])] = subprocess.check_output(
+                ["git", "show", f"{self.source_commit}:{ref['path']}"], cwd=self.repo
+            )
+        revision_root = self.repo / Path(built["envelope_path"]).parent
+        for path in revision_root.iterdir():
+            bodies[(envelope_commit, path.relative_to(self.repo).as_posix())] = path.read_bytes()
+        index_path = revision_root.parent / "index.json"
+        bodies[(envelope_commit, index_path.relative_to(self.repo).as_posix())] = index_path.read_bytes()
+        client = FakeGitHubData(bodies, {self.source_commit, envelope_commit})
+        with mock.patch.dict(
+            "os.environ", {"ATLAS_APPROVAL_PUBKEY_FINGERPRINT": fingerprint}
+        ):
+            payload = dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, built["envelope_path"],
+                built["envelope_sha256"], "main", repo_root=self.repo,
+            )
+        self.assertEqual(
+            payload["client_payload"]["projection_id"], built["projection_id"]
+        )
+
     def test_dispatch_rebuilds_bundle_and_never_reads_attacker_script(self):
         built, envelope_commit, client = self._dispatch_fixture()
         payload = dispatcher.validate_dispatch_candidate(
@@ -338,6 +399,58 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
                 built["envelope_sha256"], "main",
             )
 
+    def test_dispatch_revalidates_post_delivery_signature_on_self_consistent_bundle(self):
+        built, envelope_commit, client = self._dispatch_fixture()
+        revision_root = built["envelope_path"].rsplit("/", 1)[0]
+        report_path = f"{revision_root}/validation-report.json"
+        ledger_path = f"{revision_root}/claim-ledger.json"
+        display_path = f"{revision_root}/display-proposal.json"
+        bundle_path = f"{revision_root}/bundle.json"
+        index_path = f"{revision_root.rsplit('/', 1)[0]}/index.json"
+        envelope_path = built["envelope_path"]
+
+        ledger = json.loads(client.bodies[(envelope_commit, ledger_path)])
+        report = json.loads(client.bodies[(envelope_commit, report_path)])
+        display = json.loads(client.bodies[(envelope_commit, display_path)])
+        report["verdict"] = "PASS_WITH_CORRECTION"
+        report["corrections"] = [{"kind": "POST_DELIVERY", "summary": "forged"}]
+        report["post_delivery"] = {
+            "post_delivery_change_key": "b" * 64,
+            "signed_ruling_path": "evidence/source.json",
+            "signed_ruling_sha256": self.source_sha,
+            "redelivery": "FORBIDDEN",
+        }
+        report_body = producer.canonical(report) + b"\n"
+        envelope = producer.build_envelope(ledger, report, display)
+        envelope_body = producer.canonical(envelope) + b"\n"
+        envelope_sha = _sha(envelope_body)
+
+        bundle = json.loads(client.bodies[(envelope_commit, bundle_path)])
+        bundle["projection_id"] = envelope["projection_id"]
+        bundle["post_delivery_change_key"] = "b" * 64
+        for artifact in bundle["artifacts"]:
+            if artifact["path"] == "validation-report.json":
+                artifact.update({"sha256": _sha(report_body), "bytes": len(report_body)})
+            elif artifact["path"] == "portal-projection.json":
+                artifact.update({"sha256": envelope_sha, "bytes": len(envelope_body)})
+        index = json.loads(client.bodies[(envelope_commit, index_path)])
+        index["latest_projection_id"] = envelope["projection_id"]
+        index["revisions"][0].update({
+            "projection_id": envelope["projection_id"],
+            "envelope_sha256": envelope_sha,
+        })
+        client.bodies[(envelope_commit, report_path)] = report_body
+        client.bodies[(envelope_commit, envelope_path)] = envelope_body
+        client.bodies[(envelope_commit, bundle_path)] = producer.canonical(bundle) + b"\n"
+        client.bodies[(envelope_commit, index_path)] = producer.canonical(index) + b"\n"
+
+        with self.assertRaisesRegex(
+            dispatcher.DispatchError, "SIGNED_RULING_CHANGE_MISMATCH"
+        ):
+            dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, envelope_path, envelope_sha, "main"
+            )
+
     def test_dispatch_workflow_executes_default_branch_code_only(self):
         workflow = (ROOT / ".github/workflows/dispatch-validated-portal-projection.yml").read_text()
         self.assertIn("github.ref == format('refs/heads/{0}'", workflow)
@@ -345,6 +458,10 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         self.assertIn("ref: ${{ github.event.repository.default_branch }}", workflow)
         self.assertNotIn("ref: ${{ inputs.envelope_commit }}", workflow)
         self.assertIn("persist-credentials: false", workflow)
+        self.assertIn(
+            "ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}",
+            workflow,
+        )
 
     def test_retry_repairs_index_after_atomic_directory_publish(self):
         args = self._inputs()

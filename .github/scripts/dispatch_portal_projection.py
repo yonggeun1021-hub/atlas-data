@@ -13,6 +13,7 @@ import argparse
 import base64
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -64,6 +65,10 @@ REPORT_FIELDS = {
     "safety_attestation",
 }
 DISPLAY_FIELDS = {"schema_version", "briefing_id", "changes"}
+POST_DELIVERY_FIELDS = {
+    "post_delivery_change_key", "signed_ruling_path",
+    "signed_ruling_sha256", "redelivery",
+}
 BUNDLE_FIELDS = {
     "schema_version", "briefing_id", "briefing_date", "slot", "revision",
     "projection_id", "source_commit", "generation_id", "classification",
@@ -163,6 +168,65 @@ def _declared_generations(value: Any) -> set[str]:
     if isinstance(nested, dict) and isinstance(nested.get("generation_id"), str):
         found.add(nested["generation_id"])
     return found
+
+
+def _load_finalization_module(repo_root: Path):
+    path = repo_root / ".github/scripts/briefing_finalization.py"
+    spec = importlib.util.spec_from_file_location("atlas_dispatch_finalization", path)
+    if spec is None or spec.loader is None:
+        raise DispatchError("FINALIZATION_MODULE_UNAVAILABLE")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, ImportError) as exc:
+        raise DispatchError(f"FINALIZATION_MODULE_UNAVAILABLE:{type(exc).__name__}") from None
+    return module
+
+
+def _verify_post_delivery_ruling(
+    repo_root: Path, ledger: dict, post_delivery: dict, source_bytes: dict[str, bytes]
+) -> None:
+    _exact(post_delivery, POST_DELIVERY_FIELDS, "POST_DELIVERY_FIELDS_MISMATCH")
+    change_key = post_delivery.get("post_delivery_change_key")
+    if not isinstance(change_key, str) or SHA256.fullmatch(change_key) is None:
+        raise DispatchError("POST_DELIVERY_CHANGE_KEY_INVALID")
+    if post_delivery.get("redelivery") != "FORBIDDEN":
+        raise DispatchError("POST_DELIVERY_REDELIVERY_FORBIDDEN")
+    ruling_path = _safe_repo_path(
+        post_delivery.get("signed_ruling_path"), "SIGNED_RULING_PATH_INVALID"
+    )
+    ruling_bytes = source_bytes.get(ruling_path)
+    if ruling_bytes is None:
+        raise DispatchError("SIGNED_RULING_NOT_A_SOURCE_REF")
+    if post_delivery.get("signed_ruling_sha256") != digest_bytes(ruling_bytes):
+        raise DispatchError("SIGNED_RULING_HASH_MISMATCH")
+    try:
+        ruling = json.loads(ruling_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise DispatchError("SIGNED_RULING_INVALID_JSON") from None
+    if not isinstance(ruling, dict):
+        raise DispatchError("SIGNED_RULING_INVALID")
+    if ruling.get("post_delivery_change_key") != change_key:
+        raise DispatchError("SIGNED_RULING_CHANGE_MISMATCH")
+    capital_impact = ruling.get("capital_impact")
+    resolved_by = ruling.get("resolved_by")
+    action_taken = ruling.get("action_taken", "")
+    if capital_impact not in {"NONE", "PRESENT"} or not resolved_by:
+        raise DispatchError("SIGNED_RULING_CONTENT_INVALID")
+    if capital_impact == "PRESENT" and not str(action_taken).strip():
+        raise DispatchError("SIGNED_RULING_ACTION_MISSING")
+    bf = _load_finalization_module(repo_root)
+    try:
+        public_key = bf.load_public_key(repo_root)
+        signature = bytes.fromhex(str(ruling.get("signature", "")))
+        message = bf.change_resolution_message(
+            ledger["briefing_id"], change_key, capital_impact, resolved_by,
+            action_taken, ruling.get("contract_version", bf.CONTRACT_VERSION),
+        )
+    except (ValueError, getattr(bf, "FinalizationError", RuntimeError)) as exc:
+        raise DispatchError(f"SIGNED_RULING_UNTRUSTED:{type(exc).__name__}") from None
+    if not bf.ed25519.verify(signature, message, public_key):
+        raise DispatchError("SIGNED_RULING_SIGNATURE_INVALID")
 
 
 class GitHubDataClient:
@@ -334,6 +398,7 @@ def validate_dispatch_candidate(
     envelope_path: str,
     expected_sha256: str,
     default_branch: str,
+    repo_root: Path | None = None,
 ) -> dict:
     if FULL_SHA.fullmatch(envelope_commit) is None:
         raise DispatchError("ENVELOPE_COMMIT_INVALID")
@@ -353,6 +418,7 @@ def validate_dispatch_candidate(
     _validate_envelope(envelope, path_match)
     source_commit = envelope["source_commit"]
     client.require_main_ancestor(source_commit, default_branch)
+    source_bytes: dict[str, bytes] = {}
     for ref in envelope["source_refs"]:
         source_body = client.get_bytes(source_commit, ref["path"])
         if digest_bytes(source_body) != ref["sha256"]:
@@ -364,6 +430,7 @@ def validate_dispatch_candidate(
         declared = _declared_generations(source_json)
         if declared and declared != {envelope["generation_id"]}:
             raise DispatchError(f"MIXED_GENERATION:{ref['path']}")
+        source_bytes[ref["path"]] = source_body
 
     slot_dir, date, revision_text = path_match.groups()
     revision = int(revision_text)
@@ -463,11 +530,13 @@ def validate_dispatch_candidate(
     post_delivery = report.get("post_delivery")
     expected_change_key = None
     if post_delivery is not None:
-        if not isinstance(post_delivery, dict) or post_delivery.get("redelivery") != "FORBIDDEN":
-            raise DispatchError("POST_DELIVERY_REDELIVERY_FORBIDDEN")
-        expected_change_key = post_delivery.get("post_delivery_change_key")
-        if not isinstance(expected_change_key, str) or SHA256.fullmatch(expected_change_key) is None:
-            raise DispatchError("POST_DELIVERY_CHANGE_KEY_INVALID")
+        if report.get("verdict") != "PASS_WITH_CORRECTION":
+            raise DispatchError("POST_DELIVERY_REQUIRES_CORRECTION_VERDICT")
+        if not isinstance(post_delivery, dict):
+            raise DispatchError("POST_DELIVERY_INVALID")
+        trusted_root = (repo_root or Path(__file__).resolve().parents[2]).resolve()
+        _verify_post_delivery_ruling(trusted_root, ledger, post_delivery, source_bytes)
+        expected_change_key = post_delivery["post_delivery_change_key"]
     if bundle.get("post_delivery_change_key") != expected_change_key:
         raise DispatchError("BUNDLE_CHANGE_KEY_MISMATCH")
     _contains_forbidden_authority({"ledger": ledger, "report": report, "display": display})

@@ -492,7 +492,9 @@ def _artifact(name: str, body: bytes) -> dict:
     return {"path": name, "sha256": digest_bytes(body), "bytes": len(body)}
 
 
-def _load_index(path: Path) -> dict:
+def _load_index(path: Path, repo_root: Path, slot_root: Path) -> dict:
+    if path.is_symlink():
+        raise PortalProducerError("PORTAL_INDEX_SYMLINK_BLOCKED")
     if not path.exists():
         return {"schema_version": INDEX_SCHEMA, "latest_revision": 0,
                 "latest_projection_id": None, "revisions": []}
@@ -501,6 +503,52 @@ def _load_index(path: Path) -> dict:
         raise PortalProducerError("PORTAL_INDEX_FIELDS_MISMATCH")
     if value.get("schema_version") != INDEX_SCHEMA or not isinstance(value.get("revisions"), list):
         raise PortalProducerError("PORTAL_INDEX_INVALID")
+    revisions = value["revisions"]
+    latest_revision = value.get("latest_revision")
+    latest_projection_id = value.get("latest_projection_id")
+    if (not isinstance(latest_revision, int) or isinstance(latest_revision, bool)
+            or latest_revision < 0 or latest_revision > 999):
+        raise PortalProducerError("PORTAL_INDEX_LATEST_REVISION_INVALID")
+    expected_root = slot_root.relative_to(repo_root).as_posix()
+    seen_revisions: set[int] = set()
+    seen_projection_ids: set[str] = set()
+    previous_revision = 0
+    for entry in revisions:
+        if not isinstance(entry, dict) or set(entry) != {
+            "revision", "projection_id", "envelope_path", "envelope_sha256",
+            "source_commit", "generation_id",
+        }:
+            raise PortalProducerError("PORTAL_INDEX_ENTRY_INVALID")
+        revision = entry.get("revision")
+        if (not isinstance(revision, int) or isinstance(revision, bool)
+                or revision < 1 or revision > 999 or revision <= previous_revision
+                or revision in seen_revisions):
+            raise PortalProducerError("PORTAL_INDEX_REVISION_INVALID")
+        projection_id = entry.get("projection_id")
+        if (not isinstance(projection_id, str) or not projection_id
+                or projection_id in seen_projection_ids):
+            raise PortalProducerError("PORTAL_INDEX_PROJECTION_ID_INVALID")
+        expected_path = (
+            f"{expected_root}/rev-{revision:03d}/portal-projection.json"
+        )
+        if entry.get("envelope_path") != expected_path:
+            raise PortalProducerError("PORTAL_INDEX_ENVELOPE_PATH_INVALID")
+        if (not isinstance(entry.get("envelope_sha256"), str)
+                or SHA256.fullmatch(entry["envelope_sha256"]) is None):
+            raise PortalProducerError("PORTAL_INDEX_ENVELOPE_HASH_INVALID")
+        if (not isinstance(entry.get("source_commit"), str)
+                or FULL_SHA.fullmatch(entry["source_commit"]) is None):
+            raise PortalProducerError("PORTAL_INDEX_SOURCE_COMMIT_INVALID")
+        if (not isinstance(entry.get("generation_id"), str)
+                or SHA256.fullmatch(entry["generation_id"]) is None):
+            raise PortalProducerError("PORTAL_INDEX_GENERATION_INVALID")
+        seen_revisions.add(revision)
+        seen_projection_ids.add(projection_id)
+        previous_revision = revision
+    expected_latest = revisions[-1]["revision"] if revisions else 0
+    expected_projection = revisions[-1]["projection_id"] if revisions else None
+    if latest_revision != expected_latest or latest_projection_id != expected_projection:
+        raise PortalProducerError("PORTAL_INDEX_LATEST_IDENTITY_INVALID")
     return value
 
 
@@ -514,8 +562,15 @@ def publish_bundle(
     envelope: dict,
 ) -> dict:
     slot_root = out_root / SLOT_DIR[ledger["slot"]] / ledger["briefing_date"]
+    resolved_slot_root = slot_root.resolve()
+    try:
+        resolved_slot_root.relative_to(repo_root)
+    except ValueError:
+        raise PortalProducerError("OUTPUT_SLOT_OUTSIDE_REPOSITORY") from None
+    if resolved_slot_root != slot_root.absolute():
+        raise PortalProducerError("OUTPUT_PATH_SYMLINK_BLOCKED")
     index_path = slot_root / "index.json"
-    index = _load_index(index_path)
+    index = _load_index(index_path, repo_root, slot_root)
     envelope_bytes = canonical(envelope) + b"\n"
     projection_id = envelope["projection_id"]
 
@@ -523,7 +578,9 @@ def publish_bundle(
         if entry.get("projection_id") != projection_id:
             continue
         existing_path = repo_root / entry.get("envelope_path", "")
-        if not existing_path.is_file() or digest_bytes(existing_path.read_bytes()) != digest_bytes(envelope_bytes):
+        if (existing_path.is_symlink() or not existing_path.is_file()
+                or existing_path.parent.resolve() != existing_path.parent.absolute()
+                or digest_bytes(existing_path.read_bytes()) != digest_bytes(envelope_bytes)):
             raise PortalProducerError("PROJECTION_ID_CONFLICT")
         return {
             "result": "NO_CHANGE",
@@ -544,13 +601,15 @@ def publish_bundle(
     disk_revisions: list[int] = []
     if slot_root.exists():
         for directory in slot_root.glob("rev-[0-9][0-9][0-9]"):
+            if directory.is_symlink() or not directory.is_dir():
+                raise PortalProducerError("IMMUTABLE_REVISION_SYMLINK_BLOCKED")
             try:
                 revision_on_disk = int(directory.name.removeprefix("rev-"))
             except ValueError:
                 continue
             disk_revisions.append(revision_on_disk)
             orphan_envelope = directory / "portal-projection.json"
-            if not orphan_envelope.is_file():
+            if orphan_envelope.is_symlink() or not orphan_envelope.is_file():
                 raise PortalProducerError("IMMUTABLE_REVISION_INCOMPLETE")
             try:
                 orphan_value = json.loads(orphan_envelope.read_bytes())
@@ -585,8 +644,10 @@ def publish_bundle(
     revisions = index["revisions"]
     numeric = [entry.get("revision") for entry in revisions if isinstance(entry.get("revision"), int)]
     revision = max([index.get("latest_revision", 0), *numeric, *disk_revisions]) + 1
+    if revision > 999:
+        raise PortalProducerError("IMMUTABLE_REVISION_SPACE_EXHAUSTED")
     final_dir = slot_root / f"rev-{revision:03d}"
-    if final_dir.exists():
+    if final_dir.is_symlink() or final_dir.exists():
         raise PortalProducerError("IMMUTABLE_REVISION_CONFLICT")
     slot_root.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".rev-{revision:03d}.", dir=slot_root))

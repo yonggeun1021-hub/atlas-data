@@ -45,7 +45,9 @@ read as data through the GitHub API. Both `envelope_commit` and `source_commit`
 must be exact full-SHA ancestors of current `main`. The envelope path is
 restricted to the immutable producer directory, every bundle artifact hash is
 rechecked, the envelope is rebuilt from the claim ledger/report/display bytes,
-and only then is `portal_projection_validated_v2` emitted to atlas-portal. The
+and any post-delivery CIO ruling is re-verified against the anchored Ed25519
+public key at this final consumption boundary. Only then is
+`portal_projection_validated_v2` emitted to atlas-portal. The
 envelope's
 `source_commit` remains the evidence authority; `envelope_commit` is only the
 publication authority for the envelope itself.
@@ -54,11 +56,12 @@ atlas-portal exclusively owns `APPLIED | NO_CHANGE | BLOCKED`, the allowlisted
 write, Portal deployment verification, and its receipt. This producer never
 delivers a briefing to a person and never creates an order.
 
-Required user-managed secret (not needed for local code/tests):
-`ATLAS_PORTAL_DISPATCH_TOKEN` in the **atlas-data repository → Environments →
-`atlas-portal-dispatch` → Environment secrets**. The environment must restrict
+Required user-managed secrets (not needed for local code/tests) in the
+**atlas-data repository → Environments → `atlas-portal-dispatch` → Environment
+secrets** are `ATLAS_PORTAL_DISPATCH_TOKEN` and the existing
+`ATLAS_APPROVAL_PUBKEY_FINGERPRINT` anchor. The environment must restrict
 deployment branches to `main`; this keeps a feature-branch workflow from
-receiving the token even if someone manually selects that branch.
+receiving either secret even if someone manually selects that branch.
 
 ## Example
 
