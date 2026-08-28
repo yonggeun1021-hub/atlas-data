@@ -25,12 +25,18 @@ cannot create or change a Decision, candidate stage, action, or order.
 `decision/decision_change_lineage_operational.py` is the provider-free live
 wiring for the scheduled Daily Briefing workflow. After Phase A commits the
 consumer-ready bundle, the adapter reads the packet from its exact immutable
-full-SHA Git blob, runs that commit's own Daily Briefing validator in an
-isolated archive, extracts the exact validated Unified Decision, and appends a
-content-addressed forward-only record. Phase B commits that record beside the
-scheduled retrieval-authority envelope. Retries are idempotent; a broken prior
-record chain, mutable ref, disk/blob mismatch, future decision, or semantic
-tamper fails closed. It makes no provider call and never interprets a change.
+full-SHA Git blob, verifies the complete blob's content hash, and extracts the
+exact Unified Decision. Each prior/current snapshot is then revalidated by the
+Unified Decision validator from the immutable source commit named in that
+snapshot's strict raw-GitHub source reference. This per-snapshot boundary is
+intentional: replaying a historical Daily Briefing as if every diagnostic
+component were produced from today's mutable source files or today's visible
+Git ref graph can change DART timing and first-seen diagnostics even though the
+recorded Decision bytes are unchanged. Phase B commits the resulting
+content-addressed forward-only record beside the scheduled retrieval-authority
+envelope. Retries are idempotent; a broken prior record chain, mutable or
+non-Atlas source ref, disk/blob mismatch, future decision, or semantic tamper
+fails closed. It makes no provider call and never interprets a change.
 
 The remaining unresolved boundary is the exact three-market Shadow-ledger
 lineage link. Neither CLI has money, action, order, Production, or trading

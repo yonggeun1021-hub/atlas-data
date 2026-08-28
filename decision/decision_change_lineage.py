@@ -160,6 +160,7 @@ def _validate_snapshot(
     change_time: dt.datetime,
     contract: dict,
     context: str,
+    snapshot_validator=None,
 ) -> dict | None:
     if value is None:
         return None
@@ -179,8 +180,15 @@ def _validate_snapshot(
     decided = _utc(value.get("decided_at"), f"SNAPSHOT_TIME_INVALID:{context}")
     if decided > change_time:
         raise DecisionChangeLineageError(f"SNAPSHOT_FROM_FUTURE:{context}")
+    source_ref = _text(value.get("source_ref"), f"SOURCE_REF_INVALID:{context}")
     try:
-        decision_packet = UNIFIED.validate_packet(value.get("decision_packet"))
+        decision_packet = (
+            UNIFIED.validate_packet(value.get("decision_packet"))
+            if snapshot_validator is None
+            else snapshot_validator(
+                value.get("decision_packet"), source_ref, context
+            )
+        )
     except Exception as exc:
         raise DecisionChangeLineageError(
             f"UNIFIED_DECISION_INVALID:{context}:{exc}"
@@ -213,7 +221,7 @@ def _validate_snapshot(
         "subject_id": subject_id,
         "decided_at": value["decided_at"],
         "decision_sha256": decision_sha,
-        "source_ref": _text(value.get("source_ref"), f"SOURCE_REF_INVALID:{context}"),
+        "source_ref": source_ref,
         "source_sha256": source_sha,
         "decision_packet": decision_packet,
     }
@@ -272,7 +280,7 @@ def _validate_evidence(
     return rows
 
 
-def _validate_batch(value: dict, contract: dict) -> dict:
+def _validate_batch(value: dict, contract: dict, snapshot_validator=None) -> dict:
     fields = {
         "schema_version", "contract_version", "batch_id", "observed_at",
         "claims", "authority", "packet_sha256",
@@ -319,11 +327,11 @@ def _validate_batch(value: dict, contract: dict) -> dict:
             raise DecisionChangeLineageError(f"CHANGE_FROM_FUTURE:{context}")
         prior = _validate_snapshot(
             claim.get("prior_snapshot"), decision_key, market, subject_id,
-            change_time, contract, f"{context}:prior",
+            change_time, contract, f"{context}:prior", snapshot_validator,
         )
         current = _validate_snapshot(
             claim.get("current_snapshot"), decision_key, market, subject_id,
-            change_time, contract, f"{context}:current",
+            change_time, contract, f"{context}:current", snapshot_validator,
         )
         if prior is not None and current is not None and (
             _utc(prior["decided_at"], "PRIOR_TIME_INVALID")
@@ -391,9 +399,13 @@ def _validate_batch(value: dict, contract: dict) -> dict:
     }
 
 
-def build_lineage(claim_batch: dict, contract: dict | None = None) -> dict:
+def build_lineage(
+    claim_batch: dict,
+    contract: dict | None = None,
+    snapshot_validator=None,
+) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
-    batch = _validate_batch(claim_batch, contract)
+    batch = _validate_batch(claim_batch, contract, snapshot_validator)
     counts = {change_type: 0 for change_type in contract["change_types"]}
     entries = []
     for claim in batch["claims"]:
@@ -429,10 +441,14 @@ def build_lineage(claim_batch: dict, contract: dict | None = None) -> dict:
         ],
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_output(packet, contract)
+    return validate_output(packet, contract, snapshot_validator)
 
 
-def validate_output(packet: dict, contract: dict | None = None) -> dict:
+def validate_output(
+    packet: dict,
+    contract: dict | None = None,
+    snapshot_validator=None,
+) -> dict:
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "status", "batch_id", "observed_at",
@@ -452,7 +468,7 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
     _token(packet.get("batch_id"), "OUTPUT_BATCH_ID_INVALID")
     observed = _utc(packet.get("observed_at"), "OUTPUT_OBSERVED_AT_INVALID")
     source_batch = packet.get("source_claim_batch")
-    source = _validate_batch(source_batch, contract)
+    source = _validate_batch(source_batch, contract, snapshot_validator)
     if (
         packet["batch_id"] != source["batch_id"]
         or packet["observed_at"] != source["observed_at"]
@@ -488,11 +504,11 @@ def validate_output(packet: dict, contract: dict | None = None) -> dict:
             raise DecisionChangeLineageError(f"OUTPUT_CHANGE_FROM_FUTURE:{context}")
         prior = _validate_snapshot(
             entry.get("prior_snapshot"), decision_key, market, subject_id,
-            change_time, contract, f"{context}:prior",
+            change_time, contract, f"{context}:prior", snapshot_validator,
         )
         current = _validate_snapshot(
             entry.get("current_snapshot"), decision_key, market, subject_id,
-            change_time, contract, f"{context}:current",
+            change_time, contract, f"{context}:current", snapshot_validator,
         )
         if prior is not None and current is not None and (
             _utc(prior["decided_at"], "OUTPUT_PRIOR_TIME_INVALID")

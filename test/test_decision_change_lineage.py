@@ -103,6 +103,24 @@ def batch(rows=None):
 
 
 class DecisionChangeLineageTests(unittest.TestCase):
+    def test_snapshot_validator_receives_each_exact_source_context(self):
+        seen = []
+
+        def validate_at_source(packet, source_ref, context):
+            seen.append((source_ref, context))
+            return MODULE.UNIFIED.validate_packet(packet)
+
+        packet = MODULE.build_lineage(
+            batch(), CONTRACT, snapshot_validator=validate_at_source
+        )
+        MODULE.validate_output(
+            packet, CONTRACT, snapshot_validator=validate_at_source
+        )
+        self.assertIn(("test://decision/a", "claim:0:prior"), seen)
+        self.assertIn(("test://decision/b", "claim:0:current"), seen)
+        self.assertIn(("test://decision/a", "entry:0:prior"), seen)
+        self.assertIn(("test://decision/b", "entry:0:current"), seen)
+
     def test_contract_binds_exact_unified_packet_and_closes_action_authority(self):
         self.assertEqual(
             CONTRACT["repository_decision_contract"],

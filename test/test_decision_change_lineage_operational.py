@@ -31,6 +31,10 @@ UNIFIED_FIXTURE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UNIFIED_FIXTURE)
 PACKETS = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
 PACKET = PACKETS[-1]
+HISTORICAL_RECORDS = sorted(
+    (ROOT / "evidence" / "operational" / "decision_change_lineage" / "records")
+    .glob("record-*.json")
+)
 
 
 def commit_for(path: Path) -> str:
@@ -91,6 +95,28 @@ class OperationalDecisionLineageTests(unittest.TestCase):
         blob_sha = MODULE.hashlib.sha256(PACKET.read_bytes()).hexdigest()
         value = REAL_VALIDATE_DAILY_AT_COMMIT(SOURCE_COMMIT, relative, blob_sha)
         self.assertEqual(value["packet_sha256"], json.loads(PACKET.read_text())["packet_sha256"])
+
+    def test_committed_history_revalidates_at_each_snapshot_source_commit(self):
+        self.assertTrue(HISTORICAL_RECORDS)
+        record = json.loads(HISTORICAL_RECORDS[-1].read_text(encoding="utf-8"))
+        with mock.patch.object(
+            MODULE,
+            "_validate_daily_at_commit",
+            side_effect=REAL_VALIDATE_DAILY_AT_COMMIT,
+        ):
+            validated = MODULE.validate_record(record)
+        self.assertEqual(validated["record_sha256"], record["record_sha256"])
+
+    def test_snapshot_source_ref_is_exact_repo_commit_path_only(self):
+        with self.assertRaisesRegex(
+            MODULE.OperationalDecisionLineageError,
+            "SNAPSHOT_SOURCE_REF_INVALID",
+        ):
+            MODULE._validate_snapshot_at_source(
+                current_unified(),
+                "https://example.invalid/evidence/daily_briefing/packet.json",
+                "test:current",
+            )
 
     def test_exact_source_checkout_retains_git_provenance_and_is_clean(self):
         with tempfile.TemporaryDirectory() as temporary:
