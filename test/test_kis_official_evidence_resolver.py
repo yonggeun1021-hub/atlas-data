@@ -38,6 +38,7 @@ class ExactGitEvidenceResolverTests(unittest.TestCase):
             ["git", "-C", str(repo), "rev-parse", "HEAD"],
             check=True, capture_output=True, text=True,
         ).stdout.strip()
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "--detach", commit], check=True)
         manifest = {
             relative: hashlib.sha256(data).hexdigest()
             for relative, data in contents.items()
@@ -82,12 +83,24 @@ class ExactGitEvidenceResolverTests(unittest.TestCase):
 
     def test_wrong_checkout_head_is_rejected_before_file_reads(self) -> None:
         _, repo, commit, manifest = self._repo()
+        subprocess.run(["git", "-C", str(repo), "switch", "-q", "-c", "next"], check=True)
         (repo / "next.txt").write_text("next\n")
         subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "next"], check=True)
         with self.assertRaisesRegex(
             KisOfficialEvidenceResolutionError,
             "EVIDENCE_CHECKOUT_HEAD_MISMATCH",
+        ):
+            _resolve_git_evidence(
+                repo, repo="example/official", commit_sha=commit, manifest=manifest
+            )
+
+    def test_branch_at_exact_commit_is_not_an_exact_detached_checkout(self) -> None:
+        _, repo, commit, manifest = self._repo()
+        subprocess.run(["git", "-C", str(repo), "switch", "-q", "-c", "mutable-ref"], check=True)
+        with self.assertRaisesRegex(
+            KisOfficialEvidenceResolutionError,
+            "EVIDENCE_CHECKOUT_HEAD_NOT_DETACHED",
         ):
             _resolve_git_evidence(
                 repo, repo="example/official", commit_sha=commit, manifest=manifest

@@ -114,6 +114,12 @@ def _resolve_git_evidence(
     head = _git(checkout, "rev-parse", "HEAD").decode("ascii").strip()
     if head != commit_sha:
         raise KisOfficialEvidenceResolutionError("EVIDENCE_CHECKOUT_HEAD_MISMATCH")
+    try:
+        _git(checkout, "symbolic-ref", "-q", "HEAD")
+    except KisOfficialEvidenceResolutionError:
+        pass
+    else:
+        raise KisOfficialEvidenceResolutionError("EVIDENCE_CHECKOUT_HEAD_NOT_DETACHED")
     _git(checkout, "cat-file", "-e", f"{commit_sha}^{{commit}}")
 
     files = []

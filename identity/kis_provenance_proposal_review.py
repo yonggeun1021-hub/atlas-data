@@ -31,6 +31,9 @@ from identity.kis_provenance_proposal import (
     SCHEMA_VERSION,
     _FORBIDDEN_STATUS_STRINGS,
     payload_sha256,
+    provider_authority_proposal,
+    source_alias_proposal_000660,
+    source_alias_proposal_005930,
 )
 from portfolio_risk import portfolio_snapshot_v2
 from identity.kis_official_evidence_resolver import (
@@ -98,6 +101,20 @@ def _review_result(reasons: list[str]) -> dict:
         "reviewStatus": "REVIEW_INCOMPLETE" if unique else "REVIEW_READY_FOR_CIO",
         "reasons": unique,
     }
+
+
+def _review_exact_canonical_proposal(proposal: dict, expected: dict) -> list[str]:
+    """Reject a re-signed packet that is not the proposal this module owns.
+
+    A self-hash only proves internal consistency.  Without this comparison a
+    caller could delete every official KIS citation, replace it with an
+    unrelated Atlas reference, recompute ``proposalSha256`` and incorrectly
+    reach ``REVIEW_READY_FOR_CIO``.  Review readiness is therefore available
+    only to the exact, code-owned canonical proposal packet.
+    """
+    if proposal != expected:
+        return ["PROPOSAL_DIFFERS_FROM_CANONICAL_GENERATOR_OUTPUT"]
+    return []
 
 
 def _review_common_shape(
@@ -189,6 +206,7 @@ def review_provider_authority_proposal(
     _reject_forbidden_authority(proposal)
     reproduced_paths, reproduction_reasons = _reproduced_paths(official_checkout)
     reasons = _review_common_shape(proposal, reproduced_paths=reproduced_paths)
+    reasons.extend(_review_exact_canonical_proposal(proposal, provider_authority_proposal()))
     reasons.extend(reproduction_reasons)
     claim = proposal.get("claim", {})
     expected_claim_fields = {"provider", "accountScope", "currency", "positionSourceName", "assertion"}
@@ -237,6 +255,16 @@ def review_source_alias_proposal(
     _reject_forbidden_authority(proposal)
     reproduced_paths, reproduction_reasons = _reproduced_paths(official_checkout)
     reasons = _review_common_shape(proposal, reproduced_paths=reproduced_paths)
+    proposal_id = proposal.get("proposalId") if isinstance(proposal, dict) else None
+    expected_by_id = {
+        "atlas.identity.alias.kis-samsung-electronics": source_alias_proposal_005930,
+        "atlas.identity.alias.kis-sk-hynix": source_alias_proposal_000660,
+    }
+    expected_factory = expected_by_id.get(proposal_id)
+    if expected_factory is None:
+        reasons.append("SOURCE_ALIAS_PROPOSAL_ID_UNSUPPORTED")
+    else:
+        reasons.extend(_review_exact_canonical_proposal(proposal, expected_factory()))
     reasons.extend(reproduction_reasons)
     reasons.extend(_review_alias_evidence_binding(proposal))
     claim = proposal.get("claim", {})

@@ -141,6 +141,39 @@ class FailClosedReviewTests(unittest.TestCase):
             result["reasons"],
         )
 
+    def test_rehashed_provider_with_unrelated_evidence_cannot_be_review_ready(self):
+        proposal = copy.deepcopy(provider_authority_proposal())
+        proposal["evidenceLineage"] = [{
+            "kind": "ATLAS_CANONICAL_TARGET_REFERENCE",
+            "sourceName": "krx_open_api_stock_daily",
+            "sourceAssetId": "005930",
+            "market": "KOREA",
+            "listingId": "XKRX:005930",
+            "canonicalInstrumentId": "KRX:005930:COMMON",
+        }]
+        proposal["proposalSha256"] = payload_sha256({
+            key: value for key, value in proposal.items() if key != "proposalSha256"
+        })
+        result = review_provider_authority_proposal(proposal)
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertIn(
+            "PROPOSAL_DIFFERS_FROM_CANONICAL_GENERATOR_OUTPUT",
+            result["reasons"],
+        )
+
+    def test_rehashed_alias_with_changed_subject_cannot_be_review_ready(self):
+        proposal = copy.deepcopy(source_alias_proposal_005930())
+        proposal["proposalId"] = "atlas.identity.alias.kis-sk-hynix"
+        proposal["proposalSha256"] = payload_sha256({
+            key: value for key, value in proposal.items() if key != "proposalSha256"
+        })
+        result = review_source_alias_proposal(proposal)
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertIn(
+            "PROPOSAL_DIFFERS_FROM_CANONICAL_GENERATOR_OUTPUT",
+            result["reasons"],
+        )
+
     def test_rehashed_official_hash_change_still_detected_against_manifest(self):
         proposal = copy.deepcopy(provider_authority_proposal())
         proposal["evidenceLineage"][0]["contentSha256"] = "0" * 64
