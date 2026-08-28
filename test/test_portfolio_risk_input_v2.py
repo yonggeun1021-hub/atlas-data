@@ -84,6 +84,25 @@ class ContractShapeTests(unittest.TestCase):
         self.assertFalse(contract["authority"]["order_authorized"])
         self.assertFalse(contract["authority"]["trading_authorized"])
 
+    def test_contract_config_is_an_exact_mirror_of_runtime_provider_authority(self):
+        contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract_v2.json").read_text())
+        configured_providers = {
+            provider: {
+                "verification_status": row["required_verification_status"],
+                "account_scope": row["allowed_account_scope"],
+                "currency": row["required_currency"],
+                "position_source_name": row["required_position_source_name"],
+            }
+            for provider, row in contract["registered_providers"].items()
+        }
+        self.assertEqual(contract["contract_version"], PS2.SCHEMA_VERSION)
+        self.assertEqual(configured_providers, PS2.PROVIDER_CONTRACTS)
+        self.assertEqual(contract["authority"], PS2.AUTHORITY_ALL_FALSE)
+        self.assertEqual(
+            contract["order_eligibility_status"],
+            PS2.ORDER_ELIGIBILITY_NOT_APPLICABLE,
+        )
+
     def test_v1_module_is_completely_unaffected(self):
         # v2 must never monkeypatch, extend, or otherwise mutate v1's
         # module-level state.
