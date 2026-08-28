@@ -1373,6 +1373,13 @@ APPROVED_TESTS = [
     # ratified by this file. Identity only; no investability, Stage,
     # Buy, or Order authority.
     "test/test_data_provider_authority.py",
+    # P0-2C-2: proves the EXISTING resolve_instrument_identity() safely
+    # handles a KIS pdno source pair (kis_paper_domestic_balance + a
+    # 6-digit code) -- no new resolver, no new canonical
+    # issuer/instrument/listing. Today, both real KOREA pdnos resolve
+    # NOT_COMPUTABLE (no kis_paper_domestic_balance alias exists yet).
+    # Identity only; no investability, Stage, Buy, or Order authority.
+    "test/test_kis_paper_source_identity_resolution.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
