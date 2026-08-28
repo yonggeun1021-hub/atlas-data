@@ -1321,21 +1321,24 @@ class DailyOrchestratorTest(unittest.TestCase):
             )
         # KRX_PREOPEN_COMPACT correctly reports DATA_BLOCKED (a collector
         # data failure -- the mismatched date -- not a read-model-only
-        # DEGRADED), and ACTION_RISK_PORTFOLIO_SUMMARY cascades to DEGRADED
-        # because its one required source (UNIFIED_DECISION) is unavailable.
+        # DEGRADED).  Builders that independently enforce the generated-date
+        # boundary still fail closed, while STRATEGIC_CAPITAL_POSTURE can
+        # honestly assemble a PENDING packet from unavailable machine-coded
+        # sources instead of cascading a human-readable diagnostic failure.
         self.assertEqual(by_id["KRX_PREOPEN_COMPACT"]["status"], "DATA_BLOCKED")
         self.assertEqual(
             by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]["status"], "DEGRADED"
         )
-        # UNIFIED_DECISION + ACTION_RISK_PORTFOLIO_SUMMARY, always. Plus
-        # DYNAMIC_CLOCK whenever this decision_date (one day before the
-        # dynamic STEP0-ready date) is behind P8-12's real advancing
-        # evidence -- see the identical DYNAMIC_CLOCK note in
+        self.assertEqual(by_id["STRATEGIC_CAPITAL_POSTURE"]["status"], "PENDING")
+        self.assertTrue(by_id["STRATEGIC_CAPITAL_POSTURE"]["validated"])
+        # The three builders with their own date/input failure remain
+        # DEGRADED. Plus DYNAMIC_CLOCK whenever this decision_date (one day
+        # before the dynamic STEP0-ready date) is behind P8-12's real
+        # advancing evidence -- see the identical DYNAMIC_CLOCK note in
         # test_morning_build_against_real_evidence_has_no_degraded_components.
         expected_degraded = {
             "UNIFIED_DECISION",
             "DEFENSIVE_ACTION_DECISION",
-            "STRATEGIC_CAPITAL_POSTURE",
             "ACTION_RISK_PORTFOLIO_SUMMARY",
         }
         if by_id["DYNAMIC_CLOCK"]["status"] == "DEGRADED":
