@@ -45,14 +45,26 @@ def _write_json(path: Path, value: dict) -> bytes:
 
 
 class FakeGitHubData:
-    def __init__(self, bodies: dict[tuple[str, str], bytes], ancestors: set[str]):
+    def __init__(
+        self,
+        bodies: dict[tuple[str, str], bytes],
+        ancestors: set[str],
+        lineages: set[tuple[str, str]],
+    ):
         self.bodies = bodies
         self.ancestors = ancestors
+        self.lineages = lineages
         self.requested: list[tuple[str, str]] = []
 
     def require_main_ancestor(self, commit: str, default_branch: str) -> None:
         if default_branch != "main" or commit not in self.ancestors:
-            raise dispatcher.DispatchError(f"NON_MAIN_COMMIT_REJECTED:{commit}")
+            raise dispatcher.DispatchError(f"COMMIT_LINEAGE_REJECTED:{commit}:{default_branch}")
+
+    def require_ancestor(self, ancestor: str, descendant: str) -> None:
+        if (ancestor, descendant) not in self.lineages:
+            raise dispatcher.DispatchError(
+                f"COMMIT_LINEAGE_REJECTED:{ancestor}:{descendant}"
+            )
 
     def get_bytes(self, commit: str, path: str) -> bytes:
         self.requested.append((commit, path))
@@ -163,10 +175,69 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
             out_root="evidence/validated_briefing_portal",
         )
 
-    def _dispatch_fixture(self):
-        built = producer.build(self._inputs())
+    def _signed_inputs(self):
+        scripts = self.repo / ".github/scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / ".github/scripts/briefing_finalization.py", scripts)
+        shutil.copy(ROOT / ".github/scripts/atlas_ed25519.py", scripts)
+        ed = _load("test_atlas_ed25519", ".github/scripts/atlas_ed25519.py")
+        bf = _load("test_briefing_finalization", ".github/scripts/briefing_finalization.py")
+        secret = bytes(range(32))
+        public = ed.publickey(secret)
+        config = self.repo / "config"
+        config.mkdir(exist_ok=True)
+        (config / "atlas_approval_pubkey.txt").write_text(public.hex() + "\n")
+        change_key = "b" * 64
+        message = bf.change_resolution_message(
+            "2026-08-28-am", change_key, "NONE", "CIO", "Portal correction only"
+        )
+        ruling = {
+            "contract_version": bf.CONTRACT_VERSION,
+            "post_delivery_change_key": change_key,
+            "capital_impact": "NONE",
+            "resolved_by": "CIO",
+            "action_taken": "Portal correction only",
+            "signature": ed.sign(message, secret).hex(),
+        }
+        ruling_path = self.repo / "evidence/signed-ruling.json"
+        ruling_bytes = _write_json(ruling_path, ruling)
+        subprocess.run(["git", "add", ".github", "config", "evidence"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "signed correction ruling"], cwd=self.repo, check=True)
+        self.source_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
+        ).strip()
+        post_delivery = {
+            "post_delivery_change_key": change_key,
+            "signed_ruling_path": "evidence/signed-ruling.json",
+            "signed_ruling_sha256": _sha(ruling_bytes),
+            "redelivery": "FORBIDDEN",
+        }
+        args = self._inputs(post_delivery=post_delivery)
+        ledger_path = Path(args.claim_ledger)
+        ledger = json.loads(ledger_path.read_text())
+        ledger["source_refs"].append({
+            "path": "evidence/signed-ruling.json",
+            "sha256": _sha(ruling_bytes),
+            "generation_id": self.generation,
+        })
+        ledger_bytes = _write_json(ledger_path, ledger)
+        report_path = Path(args.validation_report)
+        report = json.loads(report_path.read_text())
+        report["claim_ledger_sha256"] = _sha(ledger_bytes)
+        _write_json(report_path, report)
+        fingerprint = hashlib.sha256(public).hexdigest()
+        return args, public, fingerprint, ruling_bytes
+
+    def _dispatch_fixture(self, args=None, fingerprint=None):
+        args = args or self._inputs()
+        environment = (
+            {"ATLAS_APPROVAL_PUBKEY_FINGERPRINT": fingerprint}
+            if fingerprint is not None else {}
+        )
+        with mock.patch.dict("os.environ", environment):
+            built = producer.build(args)
         attack_path = self.repo / ".github/scripts/dispatch_portal_projection.py"
-        attack_path.parent.mkdir(parents=True)
+        attack_path.parent.mkdir(parents=True, exist_ok=True)
         attack_path.write_text("raise RuntimeError('ATTACK_CODE_EXECUTED')\n")
         subprocess.run(
             ["git", "add", "evidence/validated_briefing_portal", ".github"],
@@ -177,19 +248,25 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         envelope_commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
         ).strip()
-        bodies: dict[tuple[str, str], bytes] = {
-            (self.source_commit, "evidence/source.json"): subprocess.check_output(
-                ["git", "show", f"{self.source_commit}:evidence/source.json"], cwd=self.repo
-            ),
-            (envelope_commit, ".github/scripts/dispatch_portal_projection.py"):
-                attack_path.read_bytes(),
-        }
+        envelope = json.loads((self.repo / built["envelope_path"]).read_text())
+        bodies: dict[tuple[str, str], bytes] = {}
+        for ref in envelope["source_refs"]:
+            bodies[(self.source_commit, ref["path"])] = subprocess.check_output(
+                ["git", "show", f"{self.source_commit}:{ref['path']}"], cwd=self.repo
+            )
+        bodies[(envelope_commit, ".github/scripts/dispatch_portal_projection.py")] = (
+            attack_path.read_bytes()
+        )
         root = self.repo / Path(built["envelope_path"]).parent
         for path in root.iterdir():
             bodies[(envelope_commit, path.relative_to(self.repo).as_posix())] = path.read_bytes()
         index = root.parent / "index.json"
         bodies[(envelope_commit, index.relative_to(self.repo).as_posix())] = index.read_bytes()
-        client = FakeGitHubData(bodies, {self.source_commit, envelope_commit})
+        client = FakeGitHubData(
+            bodies,
+            {self.source_commit, envelope_commit},
+            {(self.source_commit, envelope_commit)},
+        )
         return built, envelope_commit, client
 
     def test_builds_atomic_bundle_and_replay_is_no_change(self):
@@ -264,97 +341,15 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
             producer.build(self._inputs(post_delivery=post_delivery))
 
     def test_post_delivery_accepts_only_existing_anchored_ed25519_ruling(self):
-        scripts = self.repo / ".github/scripts"
-        scripts.mkdir(parents=True)
-        shutil.copy(ROOT / ".github/scripts/briefing_finalization.py", scripts)
-        shutil.copy(ROOT / ".github/scripts/atlas_ed25519.py", scripts)
-        ed = _load("test_atlas_ed25519", ".github/scripts/atlas_ed25519.py")
-        bf = _load("test_briefing_finalization", ".github/scripts/briefing_finalization.py")
-        secret = bytes(range(32))
-        public = ed.publickey(secret)
-        config = self.repo / "config"
-        config.mkdir()
-        (config / "atlas_approval_pubkey.txt").write_text(public.hex() + "\n")
-        change_key = "b" * 64
-        message = bf.change_resolution_message(
-            "2026-08-28-am", change_key, "NONE", "CIO", "Portal correction only"
-        )
-        ruling = {
-            "contract_version": bf.CONTRACT_VERSION,
-            "post_delivery_change_key": change_key,
-            "capital_impact": "NONE",
-            "resolved_by": "CIO",
-            "action_taken": "Portal correction only",
-            "signature": ed.sign(message, secret).hex(),
-        }
-        ruling_path = self.repo / "evidence/signed-ruling.json"
-        ruling_bytes = _write_json(ruling_path, ruling)
-        subprocess.run(["git", "add", ".github", "config", "evidence"], cwd=self.repo, check=True)
-        subprocess.run(["git", "commit", "-qm", "signed correction ruling"], cwd=self.repo, check=True)
-        self.source_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
-        ).strip()
-        post_delivery = {
-            "post_delivery_change_key": change_key,
-            "signed_ruling_path": "evidence/signed-ruling.json",
-            "signed_ruling_sha256": _sha(ruling_bytes),
-            "redelivery": "FORBIDDEN",
-        }
-        args = self._inputs(post_delivery=post_delivery)
-        ledger_path = Path(args.claim_ledger)
-        ledger = json.loads(ledger_path.read_text())
-        ledger["source_refs"].append({
-            "path": "evidence/signed-ruling.json",
-            "sha256": _sha(ruling_bytes),
-            "generation_id": self.generation,
-        })
-        ledger_bytes = _write_json(ledger_path, ledger)
-        report_path = Path(args.validation_report)
-        report = json.loads(report_path.read_text())
-        report["claim_ledger_sha256"] = _sha(ledger_bytes)
-        _write_json(report_path, report)
-        fingerprint = hashlib.sha256(public).hexdigest()
+        args, _, fingerprint, _ = self._signed_inputs()
         with mock.patch.dict("os.environ", {"ATLAS_APPROVAL_PUBKEY_FINGERPRINT": fingerprint}):
             built = producer.build(args)
         self.assertEqual(built["result"], "APPLIED")
         envelope = json.loads((self.repo / built["envelope_path"]).read_text())
         self.assertEqual(envelope["safety_attestation"]["trading_authority"], False)
         manifest = json.loads((self.repo / built["envelope_path"]).with_name("bundle.json").read_text())
-        self.assertEqual(manifest["post_delivery_change_key"], change_key)
+        self.assertEqual(manifest["post_delivery_change_key"], "b" * 64)
         self.assertEqual(manifest["redelivery"], "FORBIDDEN")
-
-        subprocess.run(
-            ["git", "add", "evidence/validated_briefing_portal"],
-            cwd=self.repo, check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-qm", "valid signed correction projection"],
-            cwd=self.repo, check=True,
-        )
-        envelope_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
-        ).strip()
-        bodies: dict[tuple[str, str], bytes] = {}
-        for ref in ledger["source_refs"]:
-            bodies[(self.source_commit, ref["path"])] = subprocess.check_output(
-                ["git", "show", f"{self.source_commit}:{ref['path']}"], cwd=self.repo
-            )
-        revision_root = self.repo / Path(built["envelope_path"]).parent
-        for path in revision_root.iterdir():
-            bodies[(envelope_commit, path.relative_to(self.repo).as_posix())] = path.read_bytes()
-        index_path = revision_root.parent / "index.json"
-        bodies[(envelope_commit, index_path.relative_to(self.repo).as_posix())] = index_path.read_bytes()
-        client = FakeGitHubData(bodies, {self.source_commit, envelope_commit})
-        with mock.patch.dict(
-            "os.environ", {"ATLAS_APPROVAL_PUBKEY_FINGERPRINT": fingerprint}
-        ):
-            payload = dispatcher.validate_dispatch_candidate(
-                client, envelope_commit, built["envelope_path"],
-                built["envelope_sha256"], "main", repo_root=self.repo,
-            )
-        self.assertEqual(
-            payload["client_payload"]["projection_id"], built["projection_id"]
-        )
 
     def test_dispatch_rebuilds_bundle_and_never_reads_attacker_script(self):
         built, envelope_commit, client = self._dispatch_fixture()
@@ -373,10 +368,39 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
     def test_dispatch_rejects_non_main_envelope_commit(self):
         built, envelope_commit, client = self._dispatch_fixture()
         client.ancestors.remove(envelope_commit)
-        with self.assertRaisesRegex(dispatcher.DispatchError, "NON_MAIN_COMMIT_REJECTED"):
+        with self.assertRaisesRegex(dispatcher.DispatchError, "COMMIT_LINEAGE_REJECTED"):
             dispatcher.validate_dispatch_candidate(
                 client, envelope_commit, built["envelope_path"],
                 built["envelope_sha256"], "main",
+            )
+
+    def test_dispatch_rejects_sibling_source_and_envelope_commits(self):
+        built, envelope_commit, client = self._dispatch_fixture()
+        client.lineages.remove((self.source_commit, envelope_commit))
+        with self.assertRaisesRegex(dispatcher.DispatchError, "COMMIT_LINEAGE_REJECTED"):
+            dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, built["envelope_path"],
+                built["envelope_sha256"], "main",
+            )
+
+    def test_dispatch_rejects_source_internal_generation_mismatch(self):
+        built, envelope_commit, client = self._dispatch_fixture()
+        source_key = (self.source_commit, "evidence/source.json")
+        mismatched = producer.canonical({
+            "generation_id": "c" * 64,
+            "generation": {"generation_id": self.generation},
+            "packet": {"generation": {"generation_id": self.generation}},
+            "value": 7,
+        }) + b"\n"
+        client.bodies[source_key] = mismatched
+        envelope_path = built["envelope_path"]
+        envelope = json.loads(client.bodies[(envelope_commit, envelope_path)])
+        envelope["source_refs"][0]["sha256"] = _sha(mismatched)
+        envelope_bytes = producer.canonical(envelope) + b"\n"
+        client.bodies[(envelope_commit, envelope_path)] = envelope_bytes
+        with self.assertRaisesRegex(dispatcher.DispatchError, "MIXED_GENERATION"):
+            dispatcher.validate_dispatch_candidate(
+                client, envelope_commit, envelope_path, _sha(envelope_bytes), "main",
             )
 
     def test_dispatch_rejects_path_outside_immutable_prefix(self):
@@ -445,10 +469,72 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         client.bodies[(envelope_commit, index_path)] = producer.canonical(index) + b"\n"
 
         with self.assertRaisesRegex(
-            dispatcher.DispatchError, "SIGNED_RULING_CHANGE_MISMATCH"
+            dispatcher.DispatchError, "SIGNED_RULING_FIELDS_MISMATCH"
         ):
             dispatcher.validate_dispatch_candidate(
                 client, envelope_commit, envelope_path, envelope_sha, "main"
+            )
+
+    def test_dispatch_independently_verifies_signed_post_delivery_ruling(self):
+        args, public, fingerprint, _ = self._signed_inputs()
+        built, envelope_commit, client = self._dispatch_fixture(args, fingerprint)
+        payload = dispatcher.validate_dispatch_candidate(
+            client, envelope_commit, built["envelope_path"],
+            built["envelope_sha256"], "main",
+            public.hex().encode("ascii") + b"\n", fingerprint,
+        )
+        self.assertEqual(payload["client_payload"]["envelope_commit"], envelope_commit)
+
+    def _dispatcher_ruling_material(self):
+        args, public, fingerprint, ruling_bytes = self._signed_inputs()
+        report = json.loads(Path(args.validation_report).read_text())
+        ledger = json.loads(Path(args.claim_ledger).read_text())
+        ruling_path = "evidence/signed-ruling.json"
+        return report, ledger["source_refs"], {ruling_path: ruling_bytes}, public, fingerprint
+
+    def test_dispatch_rejects_invalid_post_delivery_signature(self):
+        report, refs, bodies, public, fingerprint = self._dispatcher_ruling_material()
+        ruling_path = report["post_delivery"]["signed_ruling_path"]
+        ruling = json.loads(bodies[ruling_path])
+        ruling["signature"] = "00" * 64
+        tampered = producer.canonical(ruling) + b"\n"
+        report["post_delivery"]["signed_ruling_sha256"] = _sha(tampered)
+        refs[-1]["sha256"] = _sha(tampered)
+        bodies[ruling_path] = tampered
+        with self.assertRaisesRegex(dispatcher.DispatchError, "SIGNED_RULING_SIGNATURE_INVALID"):
+            dispatcher._verify_post_delivery_ruling(
+                report, refs, bodies, "2026-08-28-am",
+                public.hex().encode("ascii") + b"\n", fingerprint,
+            )
+
+    def test_dispatch_rejects_unsigned_post_delivery_ruling(self):
+        report, refs, bodies, public, fingerprint = self._dispatcher_ruling_material()
+        ruling_path = report["post_delivery"]["signed_ruling_path"]
+        ruling = json.loads(bodies[ruling_path])
+        ruling["signature"] = ""
+        unsigned = producer.canonical(ruling) + b"\n"
+        report["post_delivery"]["signed_ruling_sha256"] = _sha(unsigned)
+        refs[-1]["sha256"] = _sha(unsigned)
+        bodies[ruling_path] = unsigned
+        with self.assertRaisesRegex(dispatcher.DispatchError, "SIGNED_RULING_SIGNATURE_INVALID"):
+            dispatcher._verify_post_delivery_ruling(
+                report, refs, bodies, "2026-08-28-am",
+                public.hex().encode("ascii") + b"\n", fingerprint,
+            )
+
+    def test_dispatch_rejects_self_consistent_ruling_content_tamper(self):
+        report, refs, bodies, public, fingerprint = self._dispatcher_ruling_material()
+        ruling_path = report["post_delivery"]["signed_ruling_path"]
+        ruling = json.loads(bodies[ruling_path])
+        ruling["action_taken"] = "Tampered after signing"
+        tampered = producer.canonical(ruling) + b"\n"
+        report["post_delivery"]["signed_ruling_sha256"] = _sha(tampered)
+        refs[-1]["sha256"] = _sha(tampered)
+        bodies[ruling_path] = tampered
+        with self.assertRaisesRegex(dispatcher.DispatchError, "SIGNED_RULING_SIGNATURE_INVALID"):
+            dispatcher._verify_post_delivery_ruling(
+                report, refs, bodies, "2026-08-28-am",
+                public.hex().encode("ascii") + b"\n", fingerprint,
             )
 
     def test_dispatch_workflow_executes_default_branch_code_only(self):

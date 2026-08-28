@@ -13,15 +13,18 @@ import argparse
 import base64
 import datetime as dt
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import sys
 from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import atlas_ed25519 as ed25519  # noqa: E402
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -65,10 +68,6 @@ REPORT_FIELDS = {
     "safety_attestation",
 }
 DISPLAY_FIELDS = {"schema_version", "briefing_id", "changes"}
-POST_DELIVERY_FIELDS = {
-    "post_delivery_change_key", "signed_ruling_path",
-    "signed_ruling_sha256", "redelivery",
-}
 BUNDLE_FIELDS = {
     "schema_version", "briefing_id", "briefing_date", "slot", "revision",
     "projection_id", "source_commit", "generation_id", "classification",
@@ -90,6 +89,15 @@ DISPLAY_ALLOWLIST = {
     "generated/atlas-public-snapshot.json",
     "public/portal-projection-status.json",
 }
+POST_DELIVERY_FIELDS = {
+    "post_delivery_change_key", "signed_ruling_path",
+    "signed_ruling_sha256", "redelivery",
+}
+RULING_FIELDS = {
+    "contract_version", "post_delivery_change_key", "capital_impact",
+    "resolved_by", "action_taken", "signature",
+}
+FINALIZATION_CONTRACT = "briefing_finalization/17"
 
 
 class DispatchError(RuntimeError):
@@ -170,22 +178,56 @@ def _declared_generations(value: Any) -> set[str]:
     return found
 
 
-def _load_finalization_module(repo_root: Path):
-    path = repo_root / ".github/scripts/briefing_finalization.py"
-    spec = importlib.util.spec_from_file_location("atlas_dispatch_finalization", path)
-    if spec is None or spec.loader is None:
-        raise DispatchError("FINALIZATION_MODULE_UNAVAILABLE")
-    module = importlib.util.module_from_spec(spec)
+def _change_resolution_message(
+    briefing_id: str,
+    change_key: str,
+    capital_impact: str,
+    resolved_by: str,
+    action_taken: str,
+    contract_version: str,
+) -> bytes:
+    return canonical({
+        "contract_version": contract_version,
+        "purpose": "atlas.briefing_finalization.post_delivery_resolution",
+        "briefing_id": briefing_id,
+        "post_delivery_change_key": change_key,
+        "capital_impact": capital_impact,
+        "resolved_by": resolved_by,
+        "action_taken": action_taken,
+    })
+
+
+def _trusted_public_key(public_key_bytes: bytes, expected_fingerprint: str) -> bytes:
+    if not expected_fingerprint or SHA256.fullmatch(expected_fingerprint.lower()) is None:
+        raise DispatchError("FINALIZATION_APPROVAL_ANCHOR_MISSING")
+    if not public_key_bytes:
+        raise DispatchError("FINALIZATION_APPROVAL_PUBKEY_MISSING")
     try:
-        spec.loader.exec_module(module)
-    except (OSError, ImportError) as exc:
-        raise DispatchError(f"FINALIZATION_MODULE_UNAVAILABLE:{type(exc).__name__}") from None
-    return module
+        public_key = bytes.fromhex(public_key_bytes.decode("ascii").strip())
+    except (UnicodeDecodeError, ValueError):
+        raise DispatchError("FINALIZATION_APPROVAL_PUBKEY_MALFORMED") from None
+    if len(public_key) != 32:
+        raise DispatchError("FINALIZATION_APPROVAL_PUBKEY_MALFORMED")
+    if digest_bytes(public_key) != expected_fingerprint.lower():
+        raise DispatchError("FINALIZATION_APPROVAL_PUBKEY_UNTRUSTED")
+    return public_key
 
 
 def _verify_post_delivery_ruling(
-    repo_root: Path, ledger: dict, post_delivery: dict, source_bytes: dict[str, bytes]
-) -> None:
+    report: dict,
+    source_refs: list[dict],
+    source_bodies: dict[str, bytes],
+    briefing_id: str,
+    public_key_bytes: bytes,
+    approval_fingerprint: str,
+) -> str | None:
+    post_delivery = report.get("post_delivery")
+    if post_delivery is None:
+        return None
+    if report.get("verdict") != "PASS_WITH_CORRECTION" or not report.get("corrections"):
+        raise DispatchError("POST_DELIVERY_REQUIRES_CORRECTION_VERDICT")
+    if not isinstance(post_delivery, dict):
+        raise DispatchError("POST_DELIVERY_INVALID")
     _exact(post_delivery, POST_DELIVERY_FIELDS, "POST_DELIVERY_FIELDS_MISMATCH")
     change_key = post_delivery.get("post_delivery_change_key")
     if not isinstance(change_key, str) or SHA256.fullmatch(change_key) is None:
@@ -195,10 +237,18 @@ def _verify_post_delivery_ruling(
     ruling_path = _safe_repo_path(
         post_delivery.get("signed_ruling_path"), "SIGNED_RULING_PATH_INVALID"
     )
-    ruling_bytes = source_bytes.get(ruling_path)
+    ruling_sha = post_delivery.get("signed_ruling_sha256")
+    if not isinstance(ruling_sha, str) or SHA256.fullmatch(ruling_sha) is None:
+        raise DispatchError("SIGNED_RULING_HASH_INVALID")
+    matching_refs = [ref for ref in source_refs if ref.get("path") == ruling_path]
+    if len(matching_refs) != 1:
+        raise DispatchError("SIGNED_RULING_NOT_A_SOURCE_REF")
+    if matching_refs[0].get("sha256") != ruling_sha:
+        raise DispatchError("SIGNED_RULING_SOURCE_REF_HASH_MISMATCH")
+    ruling_bytes = source_bodies.get(ruling_path)
     if ruling_bytes is None:
         raise DispatchError("SIGNED_RULING_NOT_A_SOURCE_REF")
-    if post_delivery.get("signed_ruling_sha256") != digest_bytes(ruling_bytes):
+    if digest_bytes(ruling_bytes) != ruling_sha:
         raise DispatchError("SIGNED_RULING_HASH_MISMATCH")
     try:
         ruling = json.loads(ruling_bytes)
@@ -206,27 +256,42 @@ def _verify_post_delivery_ruling(
         raise DispatchError("SIGNED_RULING_INVALID_JSON") from None
     if not isinstance(ruling, dict):
         raise DispatchError("SIGNED_RULING_INVALID")
+    _exact(ruling, RULING_FIELDS, "SIGNED_RULING_FIELDS_MISMATCH")
+    if ruling.get("contract_version") != FINALIZATION_CONTRACT:
+        raise DispatchError("SIGNED_RULING_CONTRACT_INVALID")
     if ruling.get("post_delivery_change_key") != change_key:
         raise DispatchError("SIGNED_RULING_CHANGE_MISMATCH")
     capital_impact = ruling.get("capital_impact")
     resolved_by = ruling.get("resolved_by")
-    action_taken = ruling.get("action_taken", "")
-    if capital_impact not in {"NONE", "PRESENT"} or not resolved_by:
+    action_taken = ruling.get("action_taken")
+    if (
+        capital_impact not in {"NONE", "PRESENT"}
+        or not isinstance(resolved_by, str)
+        or not resolved_by.strip()
+        or not isinstance(action_taken, str)
+    ):
         raise DispatchError("SIGNED_RULING_CONTENT_INVALID")
-    if capital_impact == "PRESENT" and not str(action_taken).strip():
+    if capital_impact == "PRESENT" and not action_taken.strip():
         raise DispatchError("SIGNED_RULING_ACTION_MISSING")
-    bf = _load_finalization_module(repo_root)
-    try:
-        public_key = bf.load_public_key(repo_root)
-        signature = bytes.fromhex(str(ruling.get("signature", "")))
-        message = bf.change_resolution_message(
-            ledger["briefing_id"], change_key, capital_impact, resolved_by,
-            action_taken, ruling.get("contract_version", bf.CONTRACT_VERSION),
-        )
-    except (ValueError, getattr(bf, "FinalizationError", RuntimeError)) as exc:
-        raise DispatchError(f"SIGNED_RULING_UNTRUSTED:{type(exc).__name__}") from None
-    if not bf.ed25519.verify(signature, message, public_key):
+    signature_text = ruling.get("signature")
+    if not isinstance(signature_text, str):
         raise DispatchError("SIGNED_RULING_SIGNATURE_INVALID")
+    try:
+        signature = bytes.fromhex(signature_text)
+    except ValueError:
+        raise DispatchError("SIGNED_RULING_SIGNATURE_INVALID") from None
+    public_key = _trusted_public_key(public_key_bytes, approval_fingerprint)
+    message = _change_resolution_message(
+        briefing_id,
+        change_key,
+        capital_impact,
+        resolved_by,
+        action_taken,
+        ruling["contract_version"],
+    )
+    if not ed25519.verify(signature, message, public_key):
+        raise DispatchError("SIGNED_RULING_SIGNATURE_INVALID")
+    return change_key
 
 
 class GitHubDataClient:
@@ -262,17 +327,22 @@ class GitHubDataClient:
         return value
 
     def require_main_ancestor(self, commit: str, default_branch: str) -> None:
-        if FULL_SHA.fullmatch(commit) is None:
+        self.require_ancestor(commit, default_branch)
+
+    def require_ancestor(self, ancestor: str, descendant: str) -> None:
+        if FULL_SHA.fullmatch(ancestor) is None:
             raise DispatchError("COMMIT_INVALID")
-        branch = urllib.parse.quote(default_branch, safe="")
+        if FULL_SHA.fullmatch(descendant) is None and re.fullmatch(r"[A-Za-z0-9._/-]+", descendant) is None:
+            raise DispatchError("COMMIT_OR_BRANCH_INVALID")
+        head = urllib.parse.quote(descendant, safe="")
         comparison = self._get(
-            f"/repos/{self.repository}/compare/{commit}...{branch}"
+            f"/repos/{self.repository}/compare/{ancestor}...{head}"
         )
         if comparison.get("status") not in {"ahead", "identical"}:
-            raise DispatchError(f"NON_MAIN_COMMIT_REJECTED:{commit}")
+            raise DispatchError(f"COMMIT_LINEAGE_REJECTED:{ancestor}:{descendant}")
         base = comparison.get("base_commit") or {}
-        if base.get("sha") != commit:
-            raise DispatchError(f"NON_MAIN_COMMIT_REJECTED:{commit}")
+        if base.get("sha") != ancestor:
+            raise DispatchError(f"COMMIT_LINEAGE_REJECTED:{ancestor}:{descendant}")
 
     def get_bytes(self, commit: str, path: str) -> bytes:
         safe_path = urllib.parse.quote(_safe_repo_path(path, "CONTENT_PATH_INVALID"), safe="/")
@@ -398,7 +468,8 @@ def validate_dispatch_candidate(
     envelope_path: str,
     expected_sha256: str,
     default_branch: str,
-    repo_root: Path | None = None,
+    approval_public_key_bytes: bytes = b"",
+    approval_fingerprint: str = "",
 ) -> dict:
     if FULL_SHA.fullmatch(envelope_commit) is None:
         raise DispatchError("ENVELOPE_COMMIT_INVALID")
@@ -418,9 +489,11 @@ def validate_dispatch_candidate(
     _validate_envelope(envelope, path_match)
     source_commit = envelope["source_commit"]
     client.require_main_ancestor(source_commit, default_branch)
-    source_bytes: dict[str, bytes] = {}
+    client.require_ancestor(source_commit, envelope_commit)
+    source_bodies: dict[str, bytes] = {}
     for ref in envelope["source_refs"]:
         source_body = client.get_bytes(source_commit, ref["path"])
+        source_bodies[ref["path"]] = source_body
         if digest_bytes(source_body) != ref["sha256"]:
             raise DispatchError(f"SOURCE_HASH_MISMATCH:{ref['path']}")
         try:
@@ -430,7 +503,6 @@ def validate_dispatch_candidate(
         declared = _declared_generations(source_json)
         if declared and declared != {envelope["generation_id"]}:
             raise DispatchError(f"MIXED_GENERATION:{ref['path']}")
-        source_bytes[ref["path"]] = source_body
 
     slot_dir, date, revision_text = path_match.groups()
     revision = int(revision_text)
@@ -527,16 +599,14 @@ def validate_dispatch_candidate(
         raise DispatchError("UNKNOWN_ESCALATION_MISMATCH")
     if not isinstance(display.get("changes"), list) or display["changes"] != envelope.get("display_proposal"):
         raise DispatchError("DISPLAY_PROJECTION_MISMATCH")
-    post_delivery = report.get("post_delivery")
-    expected_change_key = None
-    if post_delivery is not None:
-        if report.get("verdict") != "PASS_WITH_CORRECTION":
-            raise DispatchError("POST_DELIVERY_REQUIRES_CORRECTION_VERDICT")
-        if not isinstance(post_delivery, dict):
-            raise DispatchError("POST_DELIVERY_INVALID")
-        trusted_root = (repo_root or Path(__file__).resolve().parents[2]).resolve()
-        _verify_post_delivery_ruling(trusted_root, ledger, post_delivery, source_bytes)
-        expected_change_key = post_delivery["post_delivery_change_key"]
+    expected_change_key = _verify_post_delivery_ruling(
+        report,
+        envelope["source_refs"],
+        source_bodies,
+        expected_briefing_id,
+        approval_public_key_bytes,
+        approval_fingerprint,
+    )
     if bundle.get("post_delivery_change_key") != expected_change_key:
         raise DispatchError("BUNDLE_CHANGE_KEY_MISMATCH")
     _contains_forbidden_authority({"ledger": ledger, "report": report, "display": display})
@@ -632,9 +702,15 @@ def main() -> int:
         client = GitHubDataClient(
             os.environ.get("GITHUB_TOKEN", ""), args.source_repository, args.api_root
         )
+        try:
+            approval_public_key = Path("config/atlas_approval_pubkey.txt").read_bytes()
+        except OSError:
+            approval_public_key = b""
         payload = validate_dispatch_candidate(
             client, args.envelope_commit, args.envelope_path,
             args.envelope_sha256, args.default_branch,
+            approval_public_key,
+            os.environ.get("ATLAS_APPROVAL_PUBKEY_FINGERPRINT", "").strip(),
         )
         if args.dry_run:
             print(canonical(payload).decode("utf-8"))

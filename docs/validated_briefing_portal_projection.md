@@ -42,13 +42,16 @@ can run only from the repository default branch and checks out only that
 trusted executor. It never checks out or executes `envelope_commit`; the
 envelope, sibling bundle/index, validation artifacts, and exact source refs are
 read as data through the GitHub API. Both `envelope_commit` and `source_commit`
-must be exact full-SHA ancestors of current `main`. The envelope path is
-restricted to the immutable producer directory, every bundle artifact hash is
-rechecked, the envelope is rebuilt from the claim ledger/report/display bytes,
-and any post-delivery CIO ruling is re-verified against the anchored Ed25519
-public key at this final consumption boundary. Only then is
-`portal_projection_validated_v2` emitted to atlas-portal. The
-envelope's
+must be exact full-SHA ancestors of current `main`, and `source_commit` must be
+an actual ancestor of `envelope_commit` (two sibling histories are rejected).
+The envelope path is restricted to the immutable producer directory, every
+bundle artifact hash is rechecked, and known generation declarations inside
+source JSON are independently rebound to the envelope generation. The
+envelope is rebuilt from the claim ledger/report/display bytes before any
+event is emitted. For a post-delivery correction, the trusted default-branch
+dispatcher also repeats the exact-field, source-ref/hash, fingerprint-anchor,
+and Ed25519 signature checks; producer acceptance alone is not trusted. Only
+then is `portal_projection_validated_v2` emitted to atlas-portal. The envelope's
 `source_commit` remains the evidence authority; `envelope_commit` is only the
 publication authority for the envelope itself.
 
@@ -56,12 +59,13 @@ atlas-portal exclusively owns `APPLIED | NO_CHANGE | BLOCKED`, the allowlisted
 write, Portal deployment verification, and its receipt. This producer never
 delivers a briefing to a person and never creates an order.
 
-Required user-managed secrets (not needed for local code/tests) in the
-**atlas-data repository → Environments → `atlas-portal-dispatch` → Environment
-secrets** are `ATLAS_PORTAL_DISPATCH_TOKEN` and the existing
-`ATLAS_APPROVAL_PUBKEY_FINGERPRINT` anchor. The environment must restrict
+Required user-managed secret (not needed for local code/tests):
+`ATLAS_PORTAL_DISPATCH_TOKEN` in the **atlas-data repository → Environments →
+`atlas-portal-dispatch` → Environment secrets**. The environment must restrict
 deployment branches to `main`; this keeps a feature-branch workflow from
-receiving either secret even if someone manually selects that branch.
+receiving the token even if someone manually selects that branch. The existing
+repository secret `ATLAS_APPROVAL_PUBKEY_FINGERPRINT` is consumed as the
+out-of-band anchor; its value is never copied into the committed bundle.
 
 ## Example
 

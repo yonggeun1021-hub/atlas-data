@@ -26,13 +26,14 @@
   "publication": {
     "bundle": "ATOMIC_IMMUTABLE_REVISION",
     "index": "ATOMIC_LATEST_REVISION",
-    "dispatch": "DEFAULT_BRANCH_EXECUTOR_MAIN_ANCESTRY_DATA_ONLY_MANUAL_NO_CRON",
+    "dispatch": "DEFAULT_BRANCH_EXECUTOR_SOURCE_TO_ENVELOPE_TO_MAIN_ANCESTRY_DATA_ONLY_MANUAL_NO_CRON",
+    "source_generation_revalidation": "REQUIRED",
+    "post_delivery_signature_revalidation": "REQUIRED",
     "target_event": "portal_projection_validated_v2",
     "required_environment": "atlas-portal-dispatch",
-    "required_secrets": [
-      "ATLAS_PORTAL_DISPATCH_TOKEN",
-      "ATLAS_APPROVAL_PUBKEY_FINGERPRINT"
-    ]
+    "required_environment_secret": "ATLAS_PORTAL_DISPATCH_TOKEN",
+    "required_repository_secret": "ATLAS_APPROVAL_PUBKEY_FINGERPRINT",
+    "required_fingerprint_anchor": "ATLAS_APPROVAL_PUBKEY_FINGERPRINT"
   },
   "authority": {
     "read_only": true,
