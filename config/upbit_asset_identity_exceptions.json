@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "policy_version": "upbit_asset_identity_exceptions/v1",
+  "approval_status": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+  "source_name": "upbit_krw_market_data",
+  "note": "Mirrors config/crypto_asset_identity_exceptions.json's effective-dated, overlap-checked alias shape. Unlike that file, every record here is a PROPOSED, human-ratification-pending exception -- identity/upbit_market_identity_proposal.py's default candidate_canonical_asset_id is the Upbit market's base symbol taken as-is (e.g. KRW-BTC -> BTC). A record here overrides that default only after being ratified by a separate, later change; this module never applies it automatically.",
+  "records": []
+}

@@ -189,6 +189,19 @@ APPROVED_TESTS = [
     #   provider 호출 없이 커밋된 raw만으로 이뤄지고 기존 cron은 바뀌지 않는다.
     #   ⛔ investable/Stage/Production/trading 권한 없음 — source coverage only.
     "test/test_crypto_forward_universe_populate.py",
+    # ★ P3-12 — Upbit KRW public-market capture, canonical-asset<->Upbit
+    #   identity proposal (PROPOSED_UNRATIFIED, never auto-applied), and
+    #   TRADEABLE_UNIVERSE/PAPER_ELIGIBLE classifier. No API key/order/
+    #   withdrawal endpoint is ever called; the shipped policy/taxonomy/
+    #   identity registry are all unratified, so every market classifies
+    #   OBSERVATION_POOL in production — expected, not a bug. Kraken
+    #   breadth/leadership membership is read-only labeling only and can
+    #   never change a market's state (asserted by source inspection and
+    #   behavior). Deterministic: no wall-clock in the classification math.
+    #   ⛔ investable/PAPER/Stage/Production/trading/order 권한 없음.
+    "test/test_upbit_market_capture.py",
+    "test/test_upbit_market_identity_proposal.py",
+    "test/test_upbit_tradeable_universe.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached

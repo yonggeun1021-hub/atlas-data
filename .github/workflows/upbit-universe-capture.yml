@@ -1,0 +1,134 @@
+name: P3-12 Upbit KRW Tradeable Universe Daily Capture
+
+on:
+  schedule:
+    - cron: "50 0 * * *"  # 00:50 UTC / 09:50 KST; after the Kraken 00:40 UTC capture slot
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-upbit-universe-daily-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Capture Upbit universe runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Offline P3-12 Upbit universe regression
+        run: |
+          python3 test/test_upbit_market_capture.py
+          python3 test/test_upbit_market_identity_proposal.py
+          python3 test/test_upbit_tradeable_universe.py
+      - name: Capture complete append-only Upbit KRW market snapshot
+        id: capture
+        run: |
+          set -euo pipefail
+          SNAPSHOT_DATE=$(date -u +%F)
+          SNAPSHOT="evidence/crypto/upbit/raw/$SNAPSHOT_DATE"
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          if [ -f "$SNAPSHOT/_manifest.json" ]; then
+            echo "이미 $SNAPSHOT_DATE Upbit universe snapshot이 있습니다."
+            echo "result=skipped_existing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -e "$SNAPSHOT" ]; then
+            echo "불완전한 기존 경로가 있어 덮어쓰지 않습니다: $SNAPSHOT" >&2
+            echo "result=incomplete_existing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          python3 .github/scripts/upbit_market_capture.py \
+            --snapshot-root evidence/crypto/upbit/raw \
+            --request-interval-seconds 1.05
+          echo "result=captured" >> "$GITHUB_OUTPUT"
+      # No order/withdrawal/private endpoint is ever called above -- see
+      # config/upbit_market_capture_contract.json's
+      # auth_required/order_or_withdrawal_endpoints_called invariants
+      # (enforced fail-closed by upbit_market_capture.py::load_contract)
+      # and test_upbit_market_capture.py's endpoint-path assertions.
+      - name: P3-12 classification (reads raw snapshot only, never re-fetches)
+        id: p3_12
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: python3 .github/scripts/upbit_universe_populate.py "$SNAPSHOT_DATE"
+      - name: Record P3-12 Upbit universe scheduler telemetry
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
+          ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_P3_12_STEP_OUTCOME: ${{ steps.p3_12.outcome }}
+          ATLAS_P3_12_RESULT: ${{ steps.p3_12.outputs.outcome }}
+          ATLAS_P3_12_REASON: ${{ steps.p3_12.outputs.reason }}
+          ATLAS_P3_12_PATH: ${{ steps.p3_12.outputs.path }}
+          ATLAS_P3_12_SHA256: ${{ steps.p3_12.outputs.payload_sha256 }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/record_upbit_universe_run.py
+      - name: Commit immutable raw snapshot and run telemetry
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/operations/upbit_universe_capture_runs || true
+          if [ "$CAPTURE_RESULT" = "captured" ]; then
+            git add "evidence/crypto/upbit/raw/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "upbit universe capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
+      # Deliberately its own step and commit, after raw evidence above is
+      # already pushed -- a P3-12 population failure can never lose or roll
+      # back the already-committed raw snapshot. Every market landing in
+      # OBSERVATION_POOL is an expected, deterministic outcome (identity
+      # and policy ship PROPOSED_UNRATIFIED), never treated as a failure.
+      - name: Commit P3-12 tradeable-universe classification
+        if: always()
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/upbit_tradeable_universe/$SNAPSHOT_DATE" ]; then
+            git add "data/observations/upbit_tradeable_universe/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "upbit tradeable universe classification ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi

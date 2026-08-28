@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "contract_version": "upbit_tradeable_universe_classifier/1",
+  "output_schema_version": "upbit_tradeable_universe_packet/1",
+  "capture_contract": {
+    "path": "config/upbit_market_capture_contract.json",
+    "schema_version": 1,
+    "source_name": "upbit_krw_market_data"
+  },
+  "tradeable_universe_policy": {
+    "path": "config/upbit_tradeable_universe_policy.json",
+    "approval_status": "PROPOSED_PAPER_BASELINE_UNRATIFIED",
+    "policy_kind": "proposed_paper_eligibility_baseline_not_ratified"
+  },
+  "taxonomy_policy": {
+    "path": "config/upbit_exclusion_taxonomy.json",
+    "approval_status": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
+  "identity_proposal_path": "config/upbit_asset_identity_exceptions.json",
+  "source_id": "upbit_public_api",
+  "market": "CRYPTO",
+  "asset_class": "CRYPTO_ASSET",
+  "exchange_id": "UPBIT",
+  "quote_currency": "KRW",
+  "states": [
+    "OBSERVATION_POOL",
+    "TRADEABLE_UNIVERSE",
+    "PAPER_ELIGIBLE",
+    "BLOCKED"
+  ],
+  "kraken_cross_reference_policy": {
+    "usage": "OBSERVATIONAL_LABEL_ONLY",
+    "may_affect_state": false,
+    "may_affect_diagnostic_tier": false,
+    "statement": "Kraken breadth/leadership Top-N membership is never a promotion input for Upbit tradeability. Upbit state is derived only from Upbit's own public market data."
+  },
+  "policy_status": {
+    "identity_mapping": "PROPOSED_UNRATIFIED_PER_MARKET",
+    "exchange_coverage": "UPBIT_ONLY",
+    "listing_policy": "PROPOSED_UNRATIFIED",
+    "warning_delisting_policy": "HARD_CODED_FORCE_EXCLUDE_NOT_POLICY_OVERRIDABLE",
+    "liquidity_for_investability": "PROPOSED_UNRATIFIED",
+    "spread_policy": "PROPOSED_UNRATIFIED",
+    "slippage_policy": "PROPOSED_UNRATIFIED",
+    "custody_policy": "UNRATIFIED",
+    "investable_universe_policy": "UNRATIFIED"
+  },
+  "authority": {
+    "observation_pool_population_only": true,
+    "identity_ratification_authorized": false,
+    "taxonomy_ratification_authorized": false,
+    "policy_ratification_authorized": false,
+    "tradeable_universe_promotion_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "investable_eligible_authorized": false,
+    "custody_filter_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false
+  }
+}

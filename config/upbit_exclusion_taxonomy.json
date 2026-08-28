@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "policy_version": "upbit_exclusion_taxonomy/v1",
+  "approval_status": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+  "source_name": "upbit_krw_market_data",
+  "eligible_category": "eligible_crypto",
+  "excluded_categories": [
+    "stablecoin",
+    "wrapped",
+    "leveraged",
+    "derivative_like",
+    "unverified_identity"
+  ],
+  "unknown_asset_policy": "fail_closed_unknown",
+  "records": [
+    {
+      "canonical_asset_id": "USDT",
+      "category": "stablecoin",
+      "effective_from": "2026-08-28",
+      "effective_to": null,
+      "reason": "Tether -- USD-pegged stablecoin. Confirmed live on Upbit KRW-USDT (english_name=Tether) 2026-08-28 via GET /v1/market/all."
+    },
+    {
+      "canonical_asset_id": "USDC",
+      "category": "stablecoin",
+      "effective_from": "2026-08-28",
+      "effective_to": null,
+      "reason": "USD Coin -- USD-pegged stablecoin. Confirmed live on Upbit KRW-USDC (english_name=USD Coin) 2026-08-28 via GET /v1/market/all."
+    },
+    {
+      "canonical_asset_id": "USDE",
+      "category": "stablecoin",
+      "effective_from": "2026-08-28",
+      "effective_to": null,
+      "reason": "Ethena USDe -- synthetic USD-pegged dollar. Confirmed live on Upbit KRW-USDE (english_name=Ethena USDe) 2026-08-28 via GET /v1/market/all."
+    },
+    {
+      "canonical_asset_id": "USDS",
+      "category": "stablecoin",
+      "effective_from": "2026-08-28",
+      "effective_to": null,
+      "reason": "USDS -- USD-pegged stablecoin (Sky Ecosystem). Confirmed live on Upbit KRW-USDS (english_name=USDS) 2026-08-28 via GET /v1/market/all."
+    },
+    {
+      "canonical_asset_id": "RLUSD",
+      "category": "stablecoin",
+      "effective_from": "2026-08-28",
+      "effective_to": null,
+      "reason": "Ripple USD -- USD-pegged stablecoin. Confirmed live on Upbit KRW-RLUSD (english_name=Ripple USD) 2026-08-28 via GET /v1/market/all."
+    },
+    {
+      "canonical_asset_id": "EURC",
+      "category": "stablecoin",
+      "effective_from": "2026-08-28",
+      "effective_to": null,
+      "reason": "EURC -- EUR-pegged stablecoin (Circle). Confirmed live on Upbit KRW-EURC (english_name=EURC) 2026-08-28 via GET /v1/market/all. Excluded as a non-USD-KRW-reference stable asset, not evaluated for KRW-quote investability."
+    }
+  ]
+}
