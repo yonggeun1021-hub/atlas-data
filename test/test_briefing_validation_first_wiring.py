@@ -41,7 +41,7 @@ class ValidationFirstWiring(unittest.TestCase):
     def test_activation_requires_portal_before_final_notion_and_delivery(self):
         activation = json.loads(
             (ROOT / "config/atlas_finalization_activation.json").read_text(encoding="utf-8"))
-        self.assertEqual(activation["active_from_kst_date"], "2026-08-30")
+        self.assertEqual(activation["active_from_kst_date"], "2026-08-29")
         self.assertEqual(activation["active_from_slot"], "morning")
         self.assertIs(activation["portal_before_delivery"], True)
         self.assertIs(activation["notion_final_after_portal"], True)
