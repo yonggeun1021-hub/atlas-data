@@ -1,0 +1,49 @@
+name: Dispatch Validated Portal Projection v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      envelope_commit:
+        description: "Exact atlas-data commit containing the envelope"
+        required: true
+        type: string
+      envelope_path:
+        description: "Repository-relative immutable envelope path"
+        required: true
+        type: string
+      envelope_sha256:
+        description: "Exact committed envelope SHA-256"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validated-portal-projection-${{ inputs.envelope_sha256 }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.envelope_commit }}
+          fetch-depth: 1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Verify immutable envelope and dispatch once
+        env:
+          ATLAS_PORTAL_DISPATCH_TOKEN: ${{ secrets.ATLAS_PORTAL_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/dispatch_portal_projection.py \
+            --envelope-commit "${{ inputs.envelope_commit }}" \
+            --envelope-path "${{ inputs.envelope_path }}" \
+            --envelope-sha256 "${{ inputs.envelope_sha256 }}"
+
+      # This workflow never delivers a briefing to a person. atlas-portal owns
+      # APPLIED/NO_CHANGE, deploy verification, and the one Portal receipt.

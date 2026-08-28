@@ -1,0 +1,43 @@
+{
+  "schema_version": "validated_briefing_portal_contract/1",
+  "input_contracts": {
+    "claim_ledger": "claim_ledger/1",
+    "display_proposal": "portal_display_proposal/1",
+    "validation_report": "briefing_validation_report/1"
+  },
+  "output_contract": "portal_projection/2",
+  "input_state": "READY_FOR_CHATGPT_VALIDATION",
+  "output_state": "VALIDATED",
+  "projection_paths": [
+    "generated/atlas-public-snapshot.json",
+    "public/portal-projection-status.json"
+  ],
+  "identity": {
+    "briefing": ["briefing_id", "briefing_date", "slot"],
+    "evidence": ["source_commit", "generation_id", "source_refs"],
+    "projection": "briefing_date + slot + canonical validated content hash"
+  },
+  "unknown_policy": "ESCALATE_AND_EXCLUDE_FROM_VERIFIED_FACTS",
+  "post_delivery": {
+    "signed_cio_ruling_required": true,
+    "redelivery": "FORBIDDEN",
+    "projection": "REQUIRED"
+  },
+  "publication": {
+    "bundle": "ATOMIC_IMMUTABLE_REVISION",
+    "index": "ATOMIC_LATEST_REVISION",
+    "dispatch": "MANUAL_SECRET_GATED_NO_CRON",
+    "target_event": "portal_projection_validated_v2",
+    "required_secret": "ATLAS_PORTAL_DISPATCH_TOKEN"
+  },
+  "authority": {
+    "read_only": true,
+    "stage_authority": false,
+    "buy_authority": false,
+    "action_authority": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false,
+    "broker_credentials_present": false
+  }
+}
