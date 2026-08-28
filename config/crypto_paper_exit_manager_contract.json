@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_paper_exit_manager/1",
+  "plan_schema_version": "crypto_paper_exit_plan/1",
+  "observation_schema_version": "crypto_paper_exit_observation/1",
+  "output_schema_version": "crypto_paper_exit_decision/1",
+  "source_account_schema_version": "crypto_paper_account_state/1",
+  "source_account_contract_version": "crypto_paper_simulator/1",
+  "mode": "PAPER_LAB_ONLY",
+  "priority_categories": [
+    "HARD_EXIT",
+    "SECURITY_LIQUIDITY",
+    "RISK_REGIME",
+    "TREND",
+    "PROFIT_TRAIL",
+    "TIME_REVIEW"
+  ],
+  "conditions": [
+    "KILL_SWITCH_TRIGGERED",
+    "SECURITY_BLOCKED",
+    "LIQUIDITY_BLOCKED",
+    "RISK_BUDGET_BREACH",
+    "REGIME_FAIL",
+    "TREND_BROKEN",
+    "PRICE_AT_OR_BELOW",
+    "PRICE_AT_OR_ABOVE",
+    "DRAWDOWN_FROM_PRIOR_HIGH_AT_OR_ABOVE",
+    "TIME_AT_OR_AFTER"
+  ],
+  "actions": [
+    "HOLD",
+    "REDUCE",
+    "HARVEST_PARTIAL",
+    "TRAIL",
+    "EXIT_REVIEW"
+  ],
+  "quantity_actions": [
+    "REDUCE",
+    "HARVEST_PARTIAL",
+    "EXIT_REVIEW"
+  ],
+  "signal_vocabularies": {
+    "kill_switch": [
+      "TRIGGERED",
+      "CLEAR",
+      "UNKNOWN"
+    ],
+    "security": [
+      "BLOCKED",
+      "CLEAR",
+      "UNKNOWN"
+    ],
+    "liquidity": [
+      "BLOCKED",
+      "CLEAR",
+      "UNKNOWN"
+    ],
+    "risk_budget": [
+      "BREACH",
+      "CLEAR",
+      "UNKNOWN"
+    ],
+    "regime": [
+      "FAIL",
+      "PASS",
+      "UNKNOWN",
+      "NOT_EVALUATED"
+    ],
+    "trend": [
+      "BROKEN",
+      "INTACT",
+      "UNKNOWN"
+    ]
+  },
+  "condition_threshold_policy": {
+    "NONE": [
+      "KILL_SWITCH_TRIGGERED",
+      "SECURITY_BLOCKED",
+      "LIQUIDITY_BLOCKED",
+      "RISK_BUDGET_BREACH",
+      "REGIME_FAIL",
+      "TREND_BROKEN"
+    ],
+    "POSITIVE_PRICE": [
+      "PRICE_AT_OR_BELOW",
+      "PRICE_AT_OR_ABOVE"
+    ],
+    "FRACTION_0_TO_1": [
+      "DRAWDOWN_FROM_PRIOR_HIGH_AT_OR_ABOVE"
+    ],
+    "UTC_TIMESTAMP": [
+      "TIME_AT_OR_AFTER"
+    ]
+  },
+  "unknown_policy": "FIRST_UNRESOLVED_PLANNED_TRIGGER_WAITS_FAIL_CLOSED",
+  "high_watermark_policy": "EVALUATE_AGAINST_PRIOR_THEN_ADVANCE_WITH_CURRENT_PRICE",
+  "duplicate_trigger_policy": "DETERMINISTIC_PAPER_ORDER_ID_ALREADY_PRESENT_MEANS_ALREADY_APPLIED",
+  "plan_authority": {
+    "paper_exit_plan_only": true,
+    "investment_policy_ratified": false,
+    "live_exit_authorized": false,
+    "quantity_authorized": false,
+    "exchange_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "observation_authority": {
+    "paper_exit_observation_only": true,
+    "market_judgment_authorized": false,
+    "live_exit_authorized": false,
+    "exchange_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "authority": {
+    "paper_exit_review_only": true,
+    "market_judgment_authorized": false,
+    "investment_eligibility_authorized": false,
+    "live_exit_authorized": false,
+    "live_quantity_authorized": false,
+    "action_authorized": false,
+    "exchange_order_authorized": false,
+    "broker_submission_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
