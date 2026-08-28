@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "observation_contract_version": "kis_kospi_master_share_class/1",
+  "observed_at": "2026-08-28T15:51:38Z",
+  "source": {
+    "provider": "KIS_PUBLIC_MASTER",
+    "url": "https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip",
+    "archive_sha256": "8de794458d38e4304b0b1f69c9de0f2b4ab71ea5781585653d83b2d5c0d13be1",
+    "member": "kospi_code.mst",
+    "master_sha256": "abfec9c79eca665741b6189fc88214961088067782791f9c90aa0715c510b4a2"
+  },
+  "official_layout": {
+    "repository": "koreainvestment/open-trading-api",
+    "commit_sha": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+    "trailing_field_bytes": 227,
+    "preferred_stock_class_offset": 158,
+    "preferred_stock_class_field": "prst_cls_code",
+    "preferred_stock_class_field_korean": "우선주 구분 코드",
+    "files": [
+      {
+        "path": "stocks_info/kis_kospi_code_mst.py",
+        "sha256": "135ed22451832935f3d962d1997a05726aaec84cc9d1472ff40ea24685edd0d4"
+      },
+      {
+        "path": "stocks_info/종목마스터정보(코스피).h",
+        "sha256": "383cb7a4bb6f7359bc742781afd18f87c95e9a939502d2e548593a1be0de24e4"
+      }
+    ],
+    "code_meanings": {
+      "0": "COMMON_STOCK",
+      "1": "PREFERRED_STOCK_OLD",
+      "2": "PREFERRED_STOCK_NEW"
+    }
+  },
+  "target": {
+    "line_number": 1035,
+    "row_sha256": "aa3dc58fe82e95d22013d2f312b8cab9e84b63833836513b1decfc1716416286",
+    "row_raw_base64": "MDcxMDUwICAgS1I3MDcxMDUwMDA5x9GxubHdwLbB9sHWICAgICAgICAgICAgICAgICAgICAgICAgICAgIFNUMTAwMjEwMDAwMDAwMCBOTjZZTlkgTllOTk5OTk5OME5OTllOTk5OMDAwMTkxNDAwMDAwMDEwMDAwMU5OTjAwTk5OMDAwMDAwMDIwWTA5MDAwMDAwMDExMTIxODAwMDAwMDAwNTAwMDIwMDMwNzIxMDAwMDAwMDAwMDU1NzI1MDAwMDAwMDAwMjc4NjI5OTYwMDAwMTIgICAgICAgMCBOWVkwMDAxMDQxNjAwMDAwMTEwNjMwMDAwMTIzNjIwOTE2NzAwMDAyMS44NjIwMjYwMzMxMDAwMTA2NjU5ICAgTk5Z",
+    "observation": {
+      "short_code": "071050",
+      "standard_product_number": "KR7071050009",
+      "korean_name": "한국금융지주",
+      "security_group_code": "ST",
+      "preferred_stock_class_code": "0",
+      "official_share_class": "COMMON_STOCK"
+    }
+  },
+  "common_preferred_confusion_counterexample": {
+    "line_number": 1036,
+    "row_sha256": "796a93979878527c6b3f2d79f460c832272758acb90175296bac4b71bc2a9365",
+    "row_raw_base64": "MDcxMDU1ICAgS1I3MDcxMDUxMDA3x9GxubHdwLbB9sHWv+wgICAgICAgICAgICAgICAgICAgICAgICAgIFNUMDAwMjEwMDAwMDAwMCBOTjBOTk4gTk5OTk5OTk5OME5OTk5OTk5OMDAwMTQ5MjAwMDAwMDEwMDAwMU5OTjAwTk5OMDAwMDAwMDMwWTA5MDAwMDAwMDAxNzMzMjAwMDAwMDAwNTAwMDIwMDMwNzIxMDAwMDAwMDAwMDA1ODU4MDAwMDAwMDAwMDI5MjkxMjU1MDAwMTIgICAgICAgMSBOTk4wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMC4wMCAgICAgICAgMDAwMDA4NzQwICAgTk5O",
+    "observation": {
+      "short_code": "071055",
+      "standard_product_number": "KR7071051007",
+      "korean_name": "한국금융지주우",
+      "security_group_code": "ST",
+      "preferred_stock_class_code": "1",
+      "official_share_class": "PREFERRED_STOCK_OLD"
+    }
+  },
+  "locked_private_capture_attestation": {
+    "contract_version": "kis_paper_locked_instrument_master_capture/1",
+    "schema_version": "kis_paper_instrument_master_snapshot/1",
+    "captured_at": "2026-08-28T15:51:38Z",
+    "record_sha256": "047c0adb0b38b6989a9f0cf2ed8196c9897cc2c6d5b71b4d0b827c748b8e6fda",
+    "preflight_status": "PASS_LOCKED_READY",
+    "exact_allowlisted_symbol_matched_once": true,
+    "security_group_stock_observed": true,
+    "common_stock_class_observed": true,
+    "standard_product_number_looks_like_korean_isin": true,
+    "broker_read_attempted": false,
+    "order_submission_attempted": false
+  },
+  "authority": {
+    "investment": false,
+    "stage": false,
+    "buy": false,
+    "action": false,
+    "order": false,
+    "production": false,
+    "trading": false,
+    "real": false
+  }
+}

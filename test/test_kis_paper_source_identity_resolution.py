@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
-"""P0-2C prep: KIS PAPER pdno -> existing RATIFIED canonical identity.
+"""KIS PAPER pdno -> exact RATIFIED canonical identity.
 
-Proves the resolution boundary for `kis_paper_domestic_balance` +
-KIS `pdno` using the SAME generic, already-ratified
-`identity.canonical_identity.resolve_instrument_identity()` pipeline the
-`krx_open_api_stock_daily` pilot (test_identity_authority_pilot.py) already
-proves for 005930/000660 -- no new resolution mechanism, no new canonical
-issuer/instrument/listing, and no self-ratification. This file only
-exercises the *reading* side of that mechanism.
+Proves the resolution boundary for `kis_paper_domestic_balance` + KIS
+`pdno` using the SAME generic `identity.canonical_identity.resolve_
+instrument_identity()` pipeline the `krx_open_api_stock_daily` pilot
+already proves for 005930/000660. The separately reviewed 071050 chain
+adds no new resolver or per-ticker special case; this file exercises the
+reading side and its retained fail-closed boundaries.
 
-As of this writing, `config/canonical_security_identity.json` has NO
-`kis_paper_domestic_balance` source_alias row yet -- that addition is a
-separate, independently-reviewed, versioned PR opened only after this
-change lands. Adding it does not create a new instrument/listing/issuer;
-it can only ever point KIS's own pdno at an issuer/instrument/listing that
-some OTHER, already-RATIFIED path (krx_open_api_stock_daily today) has
-already established. This file proves both the honest today-state
-(unresolved -- no such row exists yet) and the fail-closed boundary the
-future row must satisfy once it does: exact (source_name, source_asset_id)
-binding only, no ticker-digit-only merge, no unratified/expired/not-yet-
-effective/tampered row ever resolving.
+The real authority document contains exactly one such alias: 071050,
+ratified only after an independently reproduced KIS KOSPI master row and
+the adjacent 071055 preferred-share counterexample proved the share class.
+This file proves that exact positive path and the fail-closed boundary:
+no ticker-digit-only merge and no other pdno, unratified, expired,
+not-yet-effective, or tampered row ever resolves. Identity resolution
+still grants no investment, Stage, Buy, Action, Order, Production,
+Trading, or REAL authority.
 """
 from __future__ import annotations
 
@@ -52,12 +48,9 @@ from test_identity_foundation import (  # noqa: E402
 # payload_sha256 rather than importing one shared copy).
 KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME = "kis_paper_domestic_balance"
 
-DECISION_DATE = "2026-08-28"
+DECISION_DATE = "2026-08-29"
 
-# The only two RATIFIED KOREA listings that exist today (see
-# test_identity_authority_pilot.py's EXPECTED_RESOLUTIONS) -- a KIS pdno
-# for anything else must resolve NOT_COMPUTABLE regardless of format.
-ALREADY_RATIFIED_KOREA_PDNOS = ("005930", "000660")
+UNRATIFIED_KIS_PDNOS = ("005930", "000660", "071055")
 
 
 def _synthetic_alias_row(**overrides) -> dict:
@@ -81,25 +74,43 @@ def _synthetic_alias_row(**overrides) -> dict:
 
 
 class KisPaperSourceIdentityTodayStateTests(unittest.TestCase):
-    """The honest, current (pre-P0-2C-authority-PR) state of the world."""
+    """The one real KIS alias and every retained closed boundary."""
 
     @classmethod
     def setUpClass(cls):
         cls.authority = ci.load_authority()
 
-    def test_no_kis_paper_domestic_balance_alias_exists_yet(self):
-        self.assertFalse(
-            any(
-                row.get("source_name") == KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME
-                for row in self.authority["source_aliases"]
-            ),
-            "a kis_paper_domestic_balance alias already exists -- update this "
-            "file's assumptions and EXPECTED_RESOLUTIONS-style real assertions "
-            "once the P0-2C authority PR lands",
+    def test_registry_contains_only_the_exact_071050_kis_alias(self):
+        aliases = [
+            row for row in self.authority["source_aliases"]
+            if row.get("source_name") == KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME
+        ]
+        self.assertEqual(len(aliases), 1)
+        self.assertEqual(
+            (aliases[0]["source_asset_id"], aliases[0]["listing_id"]),
+            ("071050", "XKRX:071050"),
         )
 
-    def test_every_ratified_pdno_currently_resolves_not_computable(self):
-        for pdno in ALREADY_RATIFIED_KOREA_PDNOS:
+    def test_071050_resolves_to_the_common_share_without_other_authority(self):
+        result = ci.resolve_instrument_identity(
+            KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME, "071050", "KOREA",
+            DECISION_DATE, self.authority,
+        )
+        self.assertEqual(result["status"], ci.RESOLVED, result)
+        self.assertEqual(result["canonical_issuer_id"], "DART:00432102")
+        self.assertEqual(result["canonical_instrument_id"], "KRX:071050:COMMON")
+        self.assertEqual(result["listing_id"], "XKRX:071050")
+        self.assertTrue(all(v is False for v in result["authority"].values()))
+
+    def test_resolution_does_not_backdate_to_capture_day(self):
+        result = ci.resolve_instrument_identity(
+            KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME, "071050", "KOREA",
+            "2026-08-28", self.authority,
+        )
+        self.assertNotEqual(result["status"], ci.RESOLVED)
+
+    def test_every_other_kis_pdno_remains_not_computable(self):
+        for pdno in UNRATIFIED_KIS_PDNOS:
             result = ci.resolve_instrument_identity(
                 KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME, pdno, "KOREA",
                 DECISION_DATE, self.authority,

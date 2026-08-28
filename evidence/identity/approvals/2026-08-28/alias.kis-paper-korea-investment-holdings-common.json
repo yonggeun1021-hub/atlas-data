@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.alias.kis-paper-korea-investment-holdings-common",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-28T15:55:29Z",
+  "layer": "SOURCE_ALIAS",
+  "approved_full_payload_sha256": "19234ce9e356f2d1c69995d8988dd6caa0f725aa4c407ae638bc683b4dd9b061",
+  "source_evidence": [
+    {
+      "path": "evidence/identity/observations/2026-08-28/kis-kospi-master-071050-share-class.json",
+      "sha256": "9094daa3615468f54cd606104ea3d9d51bf29956fd77b5918c3a2fb981da8885"
+    },
+    {
+      "path": "config/data_provider_authority.json",
+      "sha256": "3a41be7dfb9ee751c3607fff6f54468358c60d82e12fe0bb38ba133c78acd595"
+    },
+    {
+      "path": "portfolio_risk/portfolio_snapshot_v2.py",
+      "sha256": "89ce174c4c17fa21d089f14893bfee85b1c41b0b60630d838b44c5dce907d0b0"
+    }
+  ],
+  "assertion": {
+    "provider": "KIS_PAPER_ACCOUNT",
+    "source_name": "kis_paper_domestic_balance",
+    "source_asset_id": "071050",
+    "listing_id": "XKRX:071050",
+    "locked_capture_record_sha256": "047c0adb0b38b6989a9f0cf2ed8196c9897cc2c6d5b71b4d0b827c748b8e6fda"
+  },
+  "approval_basis": "PM/CIO mechanical identity review accepted only the exact KIS PAPER balance-source tuple for pdno 071050. No other pdno or KIS source alias is ratified.",
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}

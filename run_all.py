@@ -1375,24 +1375,26 @@ APPROVED_TESTS = [
     #   special-casing, P8-13 not opened.
     "test/test_identity_foundation.py",
     # P5-06/P7-08 mechanical identity pilot: exact committed provider
-    # contracts/observations -> 3 instruments + 3 explicit scope edges.
+    # contracts/observations -> 4 instruments + 3 explicit scope edges.
     # Identity only; no investability, entry, sizing, or trading authority.
     "test/test_identity_authority_pilot.py",
     # P0-2C-1: provider-authority mechanism layer -- whether a data
     # PROVIDER (e.g. KIS_PAPER_ACCOUNT) is a RATIFIED portfolio-fact
     # source is a separate fact from whether its API can be read.
-    # config/data_provider_authority.json stays an empty mechanism
-    # (provider_authority_records: []); no real row exists or is
-    # ratified by this file. Identity only; no investability, Stage,
-    # Buy, or Order authority.
+    # Exactly one KIS PAPER balance-provider tuple is provenance-bound;
+    # every other tuple remains closed. Identity only; no investability,
+    # Stage, Buy, or Order authority.
     "test/test_data_provider_authority.py",
     # P0-2C-2: proves the EXISTING resolve_instrument_identity() safely
     # handles a KIS pdno source pair (kis_paper_domestic_balance + a
-    # 6-digit code) -- no new resolver, no new canonical
-    # issuer/instrument/listing. Today, both real KOREA pdnos resolve
-    # NOT_COMPUTABLE (no kis_paper_domestic_balance alias exists yet).
+    # 6-digit code). Exactly 071050 resolves through the independently
+    # share-class-proven chain; all other KIS pdnos remain closed.
     # Identity only; no investability, Stage, Buy, or Order authority.
     "test/test_kis_paper_source_identity_resolution.py",
+    # Locked KIS public-master row preservation, exact 071050 common-stock
+    # decoding, adjacent 071055 preferred-stock confusion counterexample,
+    # and four-row approval/source-evidence binding.
+    "test/test_kis_071050_identity_evidence.py",
     # P0-2C: KIS provider-authority + source-alias PROPOSED artifacts --
     # mechanical proposals only, mirroring candidate_identity_authority_
     # proposal.py's own proposal/ratify separation. Never touches

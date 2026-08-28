@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "policy_version": "canonical_security_identity/v1",
-  "evidence_basis": "PM/CIO mechanical identity pilot ratified 2026-08-25 from existing committed provider contracts and observations. Covers only BTC, Samsung Electronics common stock, and SK hynix common stock. It does not ratify investability, entry eligibility, sizing, stage, order, production, or trading authority.",
+  "evidence_basis": "PM/CIO mechanical identity pilot ratified 2026-08-25 from existing committed provider contracts and observations. The 2026-08-28 extension adds only Korea Investment Holdings 071050 after a locked KIS public-master capture and pinned official prst_cls_code layout independently proved it is the common share rather than 071055 preferred stock; only the exact kis_paper_domestic_balance/071050 source alias is added. It does not ratify investability, entry eligibility, sizing, market regime, strategy, stage, order, production, REAL, or trading authority.",
   "issuers": [
     {
       "rule_id": "atlas.identity.issuer.btc",
@@ -16,6 +16,21 @@
       "effective_to": null,
       "canonical_issuer_id": "CRYPTO:BTC",
       "issuer_name_reference": "Bitcoin",
+      "predecessor_issuer_id": null
+    },
+    {
+      "rule_id": "atlas.identity.issuer.korea-investment-holdings",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-28T15:55:29Z",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-28/issuer.korea-investment-holdings.json",
+      "approval_evidence_sha256": "9d4eac2cabcd6f0394f26fda74cff9d5a029980898666d556e9f12e138678dad",
+      "business_payload_sha256": "7ff61af778241866b478b79792735eef71cf9d1bf709ea9ce5cd2b55bb57761f",
+      "first_seen_at": "2026-08-28T15:55:29Z",
+      "effective_from": "2026-08-28T15:55:29Z",
+      "effective_to": null,
+      "canonical_issuer_id": "DART:00432102",
+      "issuer_name_reference": "한국금융지주",
       "predecessor_issuer_id": null
     },
     {
@@ -64,6 +79,22 @@
       "canonical_instrument_id": "CRYPTO:BTC",
       "canonical_issuer_id": "CRYPTO:BTC",
       "instrument_type": "CRYPTO_ASSET",
+      "predecessor_instrument_id": null
+    },
+    {
+      "rule_id": "atlas.identity.instrument.korea-investment-holdings-common",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-28T15:55:29Z",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-28/instrument.korea-investment-holdings-common.json",
+      "approval_evidence_sha256": "69bf778a4c8de652ff5aa40a3c8b88d6e17e1a460999ee7871ce69a87097cf9c",
+      "business_payload_sha256": "3d404b467a455a06b47cbf413d5726383dafc96e5409681f81b80585fdf7cb65",
+      "first_seen_at": "2026-08-28T15:55:29Z",
+      "effective_from": "2026-08-28T15:55:29Z",
+      "effective_to": null,
+      "canonical_instrument_id": "KRX:071050:COMMON",
+      "canonical_issuer_id": "DART:00432102",
+      "instrument_type": "COMMON_STOCK",
       "predecessor_instrument_id": null
     },
     {
@@ -153,6 +184,24 @@
       "exchange": "XKRX",
       "currency": "KRW",
       "ticker": "000660"
+    },
+    {
+      "rule_id": "atlas.identity.listing.korea-investment-holdings-common",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-28T15:55:29Z",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-28/listing.korea-investment-holdings-common.json",
+      "approval_evidence_sha256": "a47bfd5a9c206af1db85bf171913f02f28ec027544d2ee78d550421207e3a43b",
+      "business_payload_sha256": "6c847ed59f073af9b073bdb2feea96aa326fe1ce5edc9e5dd8d348fea8424135",
+      "first_seen_at": "2026-08-28T15:55:29Z",
+      "effective_from": "2026-08-28T15:55:29Z",
+      "effective_to": null,
+      "listing_id": "XKRX:071050",
+      "canonical_instrument_id": "KRX:071050:COMMON",
+      "market": "KOREA",
+      "exchange": "XKRX",
+      "currency": "KRW",
+      "ticker": "071050"
     }
   ],
   "source_aliases": [
@@ -200,6 +249,21 @@
       "source_name": "krx_open_api_stock_daily",
       "source_asset_id": "000660",
       "listing_id": "XKRX:000660"
+    },
+    {
+      "rule_id": "atlas.identity.alias.kis-paper-korea-investment-holdings-common",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-28T15:55:29Z",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-28/alias.kis-paper-korea-investment-holdings-common.json",
+      "approval_evidence_sha256": "e5933de01f79e97bb822b6fd7be94345d5bd61e87fb99b0f6a6ece2dc343f0fd",
+      "business_payload_sha256": "f12e11ac1f32ae8583b996082beba243a6af18959c8b3358ae8ac371d374dd90",
+      "first_seen_at": "2026-08-28T15:55:29Z",
+      "effective_from": "2026-08-28T15:55:29Z",
+      "effective_to": null,
+      "source_name": "kis_paper_domestic_balance",
+      "source_asset_id": "071050",
+      "listing_id": "XKRX:071050"
     }
   ]
 }

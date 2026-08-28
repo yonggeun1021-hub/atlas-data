@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.instrument.korea-investment-holdings-common",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-28T15:55:29Z",
+  "layer": "INSTRUMENT",
+  "approved_full_payload_sha256": "39225a743915ac2f6a1cdffe9d0bdbc77290b0208fab91c178298b372310aa60",
+  "source_evidence": [
+    {
+      "path": "evidence/identity/observations/2026-08-28/kis-kospi-master-071050-share-class.json",
+      "sha256": "9094daa3615468f54cd606104ea3d9d51bf29956fd77b5918c3a2fb981da8885"
+    },
+    {
+      "path": "data/observations/krx_global_universe/2026-08-27/packet.json",
+      "sha256": "484c6bdf4b8c790560bea5d89670003110cf8ecba0f36bce44127c5eab1f094f"
+    },
+    {
+      "path": "config/corp_map.json",
+      "sha256": "714e0eeb9e796122df268066e46574cd3f1e455b0b251b75dc8ae5dc899ea52a"
+    }
+  ],
+  "assertion": {
+    "krx_isu_cd": "071050",
+    "standard_product_number": "KR7071050009",
+    "kis_preferred_stock_class_code": "0",
+    "official_share_class": "COMMON_STOCK",
+    "confusion_counterexample": "071055/KR7071051007/code 1/PREFERRED_STOCK_OLD",
+    "canonical_issuer_id": "DART:00432102",
+    "canonical_instrument_id": "KRX:071050:COMMON"
+  },
+  "approval_basis": "PM/CIO mechanical identity review accepted COMMON_STOCK only after the pinned official KIS header mapping and the adjacent 071055 preferred-stock counterexample independently separated the share classes.",
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}
