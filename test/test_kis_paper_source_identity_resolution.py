@@ -25,13 +25,23 @@ from __future__ import annotations
 
 import copy
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "test"))
 
 from identity import canonical_identity as ci  # noqa: E402
+from test_identity_foundation import (  # noqa: E402
+    GitAuthorityRepo,
+    full_authority,
+    make_instrument,
+    make_issuer,
+    make_listing,
+    make_source_alias,
+)
 
 # The private atlas-private-evidence repo's kis_paper_full_account_snapshot.py
 # exports this same literal as its SOURCE_NAME constant -- intentionally
@@ -98,6 +108,84 @@ class KisPaperSourceIdentityTodayStateTests(unittest.TestCase):
             self.assertIsNone(result["canonical_instrument_id"])
             self.assertIsNone(result["listing_id"])
             self.assertTrue(all(v is False for v in result["authority"].values()))
+
+
+class KisPaperSourceIdentityGitBackedPositiveControlTests(unittest.TestCase):
+    """Reach the real market check with fully git-backed evidence.
+
+    Pure in-memory rows correctly fail before resolution because they have no
+    independently verifiable first-seen history.  They therefore cannot prove
+    that a matching KIS alias reaches the existing instrument chain or that a
+    wrong market is rejected *at the market/listing boundary*.  This fixture
+    commits each approval record and the complete authority document to a
+    disposable git repository so those two claims are exercised end to end.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = GitAuthorityRepo(Path(self._tmp.name) / "repo")
+
+        issuer = make_issuer("DART:00126380", issuer_name_reference="삼성전자")
+        instrument = make_instrument(
+            "KRX:005930:COMMON", "DART:00126380", instrument_type="COMMON_STOCK"
+        )
+        listing = make_listing(
+            "XKRX:005930",
+            "KRX:005930:COMMON",
+            "KOREA",
+            exchange="XKRX",
+            currency="KRW",
+            ticker="005930",
+        )
+        alias = make_source_alias(
+            KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME, "005930", "XKRX:005930"
+        )
+
+        ratified_at = "2026-08-25T06:19:27Z"
+        for row, layer in (
+            (issuer, ci.LAYER_ISSUER),
+            (instrument, ci.LAYER_INSTRUMENT),
+            (listing, ci.LAYER_LISTING),
+            (alias, ci.LAYER_SOURCE_ALIAS),
+        ):
+            self.repo.commit_evidence(row, layer, ratified_at, ratified_at)
+
+        doc = full_authority(
+            issuers=[issuer],
+            instruments=[instrument],
+            listings=[listing],
+            source_aliases=[alias],
+        )
+        authority_path = self.repo.commit_authority(doc, ratified_at)
+        self.authority = ci.load_authority(authority_path)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_exact_kis_pair_resolves_existing_instrument_chain(self):
+        result = ci.resolve_instrument_identity(
+            KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME,
+            "005930",
+            "KOREA",
+            DECISION_DATE,
+            self.authority,
+        )
+        self.assertEqual(result["status"], ci.RESOLVED)
+        self.assertEqual(result["canonical_instrument_id"], "KRX:005930:COMMON")
+        self.assertEqual(result["listing_id"], "XKRX:005930")
+        self.assertTrue(all(v is False for v in result["authority"].values()))
+
+    def test_wrong_market_reaches_and_fails_at_listing_boundary(self):
+        result = ci.resolve_instrument_identity(
+            KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME,
+            "005930",
+            "US",
+            DECISION_DATE,
+            self.authority,
+        )
+        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_LAYER_MISMATCH)
+        self.assertIsNone(result["canonical_instrument_id"])
+        self.assertTrue(all(v is False for v in result["authority"].values()))
 
 
 class KisPaperSourceIdentityFailClosedCounterExampleTests(unittest.TestCase):
@@ -225,19 +313,6 @@ class KisPaperSourceIdentityFailClosedCounterExampleTests(unittest.TestCase):
                 KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME, "005930", "KOREA",
                 DECISION_DATE, malformed,
             )
-
-    def test_wrong_market_for_an_otherwise_matching_alias_is_layer_mismatch(self):
-        # Proves the market/listing binding is also enforced, not just the
-        # source_name/source_asset_id pair -- a future KIS-for-a-different-
-        # market misuse cannot silently pass by omission.
-        authority = self._authority(_synthetic_alias_row())
-        result = ci.resolve_instrument_identity(
-            KIS_PAPER_DOMESTIC_BALANCE_SOURCE_NAME, "005930", "US",
-            DECISION_DATE, authority,
-        )
-        self.assertNotEqual(result["status"], ci.RESOLVED)
-        self.assertTrue(result["status"].startswith("IDENTITY_NOT_COMPUTABLE"))
-
 
 if __name__ == "__main__":
     unittest.main()
