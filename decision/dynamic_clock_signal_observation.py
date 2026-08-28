@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config/dynamic_clock_signal_observation_contract.json"
+KST = dt.timezone(dt.timedelta(hours=9), name="Asia/Seoul")
 
 
 class DynamicClockSignalObservationError(ValueError):
@@ -141,7 +142,15 @@ def _validate_report(report: object, contract: dict, as_of_utc: str) -> list[dic
         # is deterministic; this comparison separately rejects additions.
         if not isinstance(by_market, dict) or set(by_market) != set(contract["source_markets"]):
             raise DynamicClockSignalObservationError("REPORT_MARKETS_MISMATCH")
-    as_of_date = dt.datetime.strptime(as_of_utc, "%Y-%m-%dT%H:%M:%SZ").date()
+    # Dynamic Clock decision_date is a KST operational date, while the
+    # boundary timestamp is canonically stored in UTC.  Comparing the raw UTC
+    # calendar date rejects every valid run between 00:00 and 08:59 KST.
+    as_of_date = (
+        dt.datetime.strptime(as_of_utc, "%Y-%m-%dT%H:%M:%SZ")
+        .replace(tzinfo=dt.timezone.utc)
+        .astimezone(KST)
+        .date()
+    )
     try:
         decision_date = dt.date.fromisoformat(report["decision_date"])
     except (TypeError, ValueError) as exc:

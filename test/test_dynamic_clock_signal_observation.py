@@ -101,14 +101,34 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
             adapter.build_packet(tampered, self.as_of_utc)
 
     def test_report_after_boundary_asof_is_rejected(self):
-        day_before = (
-            dt.date.fromisoformat(self.report["decision_date"]) - dt.timedelta(days=1)
-        ).isoformat()
+        decision = dt.date.fromisoformat(self.report["decision_date"])
+        prior_kst = dt.datetime.combine(
+            decision - dt.timedelta(days=1),
+            dt.time.max,
+            tzinfo=adapter.KST,
+        )
+        prior_utc = prior_kst.astimezone(dt.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         with self.assertRaisesRegex(
             adapter.DynamicClockSignalObservationError,
             "REPORT_DECISION_AFTER_BOUNDARY_AS_OF",
         ):
-            adapter.build_packet(self.report, f"{day_before}T23:59:59Z")
+            adapter.build_packet(self.report, prior_utc)
+
+    def test_previous_utc_date_on_same_kst_decision_day_is_accepted(self):
+        decision = dt.date.fromisoformat(self.report["decision_date"])
+        start_kst = dt.datetime.combine(
+            decision,
+            dt.time.min,
+            tzinfo=adapter.KST,
+        )
+        boundary_utc = start_kst.astimezone(dt.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        self.assertLess(boundary_utc[:10], self.report["decision_date"])
+        packet = adapter.build_packet(self.report, boundary_utc)
+        self.assertEqual(packet["as_of_utc"], boundary_utc)
 
     def test_candidate_decision_date_must_match_report_decision_date(self):
         tampered = copy.deepcopy(self.report)

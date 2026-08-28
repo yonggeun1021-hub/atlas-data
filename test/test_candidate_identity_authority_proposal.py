@@ -24,6 +24,10 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
         cls.gaps = json.loads((ROOT / "evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json").read_text())
         cls.taxonomy = ROOT / "config/crypto_breadth_exclusion_taxonomy.json"
         cls.raw = ROOT / "evidence/crypto/breadth/raw"
+        cls.report = json.loads(
+            (ROOT / "evidence/operational/dynamic_clock/dynamic_clock_report.json").read_text()
+        )
+        cls.korea_evidence_as_of = cls.report["by_market"]["KOREA"]["evidence_as_of"]
         cls.packet = build_packet(cls.gaps, cls.taxonomy, cls.raw)
 
     def test_real_gap_population_reconciles(self):
@@ -133,10 +137,10 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     def test_korea_cross_source_name_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            day = root / self.gaps["decision_date"]
+            day = root / self.korea_evidence_as_of
             day.mkdir()
             for name in ("krx.json", "dart.json"):
-                shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
+                shutil.copy2(ROOT / "data" / self.korea_evidence_as_of / name, day / name)
             dart = json.loads((day / "dart.json").read_text())
             dart["stocks"]["034020"]["name"] = "다른회사"
             (day / "dart.json").write_text(json.dumps(dart, ensure_ascii=False))
@@ -146,16 +150,26 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     def test_korea_future_collector_timestamp_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            day = root / self.gaps["decision_date"]
+            day = root / self.korea_evidence_as_of
             day.mkdir()
             for name in ("krx.json", "dart.json"):
-                shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
+                shutil.copy2(ROOT / "data" / self.korea_evidence_as_of / name, day / name)
             krx = json.loads((day / "krx.json").read_text())
-            future_date = dt.date.fromisoformat(self.gaps["decision_date"]) + dt.timedelta(days=1)
+            future_date = dt.date.fromisoformat(self.korea_evidence_as_of) + dt.timedelta(days=1)
             krx["collected_at_utc"] = future_date.isoformat() + "T00:00:00Z"
             (day / "krx.json").write_text(json.dumps(krx, ensure_ascii=False))
             with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_KRX_EVIDENCE_INVALID"):
                 build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
+
+    def test_korea_identity_uses_report_evidence_as_of_across_decision_day_boundary(self):
+        self.assertLessEqual(self.korea_evidence_as_of, self.gaps["decision_date"])
+        self.assertEqual(
+            self.packet["source_korea_identity_evidence_as_of"],
+            self.korea_evidence_as_of,
+        )
+        for evidence in self.packet["source_korea_identity_evidence"].values():
+            self.assertIn(f"data/{self.korea_evidence_as_of}/", evidence["krx"]["path"])
+            self.assertIn(f"data/{self.korea_evidence_as_of}/", evidence["dart"]["path"])
 
     def test_korea_subject_must_equal_the_exact_provider_symbol(self):
         gap = copy.deepcopy(next(x for x in self.gaps["identity_gaps"] if x["market"] == "KOREA"))

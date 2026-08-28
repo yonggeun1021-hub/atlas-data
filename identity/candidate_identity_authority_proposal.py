@@ -135,7 +135,7 @@ def _parse_collected_at(value: object, *, code: str) -> dt.datetime:
     return parsed.astimezone(dt.timezone.utc)
 
 
-def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
+def _load_korea_evidence(root: Path, evidence_as_of: str, symbol: str) -> dict:
     """Load two independent official collector records for a Korea symbol.
 
     KRX proves the exact listed symbol/name pair.  OpenDART independently
@@ -143,12 +143,12 @@ def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
     share class, so the proposal deliberately remains OTHER_UNCLASSIFIED.
     """
     try:
-        decision = dt.date.fromisoformat(decision_date)
+        evidence_date = dt.date.fromisoformat(evidence_as_of)
     except ValueError as exc:
-        raise CandidateIdentityAuthorityProposalError("DECISION_DATE_INVALID") from exc
+        raise CandidateIdentityAuthorityProposalError("KOREA_EVIDENCE_AS_OF_INVALID") from exc
     if not (isinstance(symbol, str) and len(symbol) == 6 and symbol.isdigit()):
         raise CandidateIdentityAuthorityProposalError("KOREA_SYMBOL_INVALID")
-    day_root = root / decision.isoformat()
+    day_root = root / evidence_date.isoformat()
     krx_path = day_root / "krx.json"
     dart_path = day_root / "dart.json"
     try:
@@ -160,16 +160,16 @@ def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
         ) from exc
 
     kst = dt.timezone(dt.timedelta(hours=9))
-    decision_end = dt.datetime.combine(decision, dt.time.max, tzinfo=kst).astimezone(
+    evidence_day_end = dt.datetime.combine(evidence_date, dt.time.max, tzinfo=kst).astimezone(
         dt.timezone.utc
     )
     for doc, source, code in (
         (krx, "KRX 정보데이터시스템 (pykrx)", "KOREA_KRX_EVIDENCE_INVALID"),
         (dart, "OpenDART (금융감독원)", "KOREA_DART_EVIDENCE_INVALID"),
     ):
-        if doc.get("collected_for_kst_date") != decision.isoformat():
+        if doc.get("collected_for_kst_date") != evidence_date.isoformat():
             raise CandidateIdentityAuthorityProposalError(code)
-        if _parse_collected_at(doc.get("collected_at_utc"), code=code) > decision_end:
+        if _parse_collected_at(doc.get("collected_at_utc"), code=code) > evidence_day_end:
             raise CandidateIdentityAuthorityProposalError(code)
         if doc.get("source") != source or doc.get("source_tier") != "Official":
             raise CandidateIdentityAuthorityProposalError(code)
@@ -270,7 +270,7 @@ def _validate_source_gap_inventory(
     report_path: Path,
     authority_path: Path,
     scope_authority_path: Path,
-) -> tuple[dict, dict[str, dict]]:
+) -> tuple[dict, dict[str, dict], dict]:
     """Independently rebuild the source inventory from its canonical inputs.
 
     A packet hash is not provenance: a caller could alter the inventory and
@@ -299,7 +299,32 @@ def _validate_source_gap_inventory(
         raise CandidateIdentityAuthorityProposalError(
             "SOURCE_GAP_INVENTORY_INDEPENDENT_VALIDATION_FAILED"
         ) from exc
-    return taxonomy_doc, taxonomy_records
+    return taxonomy_doc, taxonomy_records, report
+
+
+def _korea_evidence_as_of(report: dict, decision_date: str) -> str:
+    """Resolve Korea identity evidence from the report's PIT evidence date.
+
+    The operational decision date can advance across a weekend or holiday
+    while the latest official KRX/OpenDART collection remains on the prior
+    trading day.  Binding the raw-data path to ``decision_date`` therefore
+    rejects a valid point-in-time source pair.  The independently validated
+    Dynamic Clock report already records the exact Korea ``evidence_as_of``;
+    consume that date and still reject future-dated evidence.
+    """
+    try:
+        decision = dt.date.fromisoformat(decision_date)
+        value = report["by_market"]["KOREA"]["evidence_as_of"]
+        evidence_date = dt.date.fromisoformat(value)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CandidateIdentityAuthorityProposalError(
+            "KOREA_EVIDENCE_AS_OF_INVALID"
+        ) from exc
+    if evidence_date > decision:
+        raise CandidateIdentityAuthorityProposalError(
+            "KOREA_EVIDENCE_AS_OF_AFTER_DECISION_DATE"
+        )
+    return evidence_date.isoformat()
 
 
 def build_packet(
@@ -318,7 +343,7 @@ def build_packet(
         raise CandidateIdentityAuthorityProposalError("GAP_INVENTORY_SCHEMA_INVALID")
     if gaps.get("policy_boundary", {}).get("authority_rows_created") != 0:
         raise CandidateIdentityAuthorityProposalError("GAP_INVENTORY_AUTHORITY_ESCALATION")
-    taxonomy, _ = _validate_source_gap_inventory(
+    taxonomy, _, report = _validate_source_gap_inventory(
         gaps,
         taxonomy_path,
         observation_path=observation_path,
@@ -331,13 +356,14 @@ def build_packet(
         gaps["decision_date"],
         capture_date=kraken_capture_date,
     )
+    korea_evidence_as_of = _korea_evidence_as_of(report, gaps["decision_date"])
     korea_evidence: dict[str, dict] = {}
     for gap in gaps["identity_gaps"]:
         if gap.get("market") == "KOREA":
             diagnostic = gap.get("provider_pair_diagnostics", [{}])[0]
             symbol = diagnostic.get("source_asset_id")
             korea_evidence[gap["candidate_id"]] = _load_korea_evidence(
-                market_data_root, gaps["decision_date"], symbol
+                market_data_root, korea_evidence_as_of, symbol
             )
     proposals = sorted(
         (
@@ -355,6 +381,7 @@ def build_packet(
         "source_gap_inventory_packet_sha256": gaps["packet_sha256"],
         "source_taxonomy": {"path": str(taxonomy_path.relative_to(ROOT)), "bytes_sha256": _file_sha(taxonomy_path), "policy_version": taxonomy["policy_version"], "approval_status": taxonomy["approval_status"]},
         "source_kraken_capture": capture,
+        "source_korea_identity_evidence_as_of": korea_evidence_as_of,
         "source_korea_identity_evidence": dict(sorted(korea_evidence.items())),
         "summary": {"gap_count": len(gaps["identity_gaps"]), "proposal_count": len(proposals), "review_status_counts": dict(sorted(counts.items())), "canonical_authority_rows_created": 0},
         "proposals": proposals,
