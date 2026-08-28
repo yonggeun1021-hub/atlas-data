@@ -137,7 +137,9 @@ class OperationalDecisionLineageTests(unittest.TestCase):
                     text=True,
                 ).strip(),
                 subprocess.check_output(
-                    ["git", "log", "-1", "--format=%H", "--", identity_path],
+                    [
+                        "git", "rev-list", "-1", SOURCE_COMMIT, "--", identity_path,
+                    ],
                     cwd=ROOT,
                     text=True,
                 ).strip(),
