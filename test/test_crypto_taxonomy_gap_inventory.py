@@ -135,17 +135,39 @@ class CryptoTaxonomyGapInventoryTests(unittest.TestCase):
                     taxonomy_path=taxonomy,
                 )
 
-    def test_real_latest_archive_yields_ranked_review_population_without_authority(self):
+    def test_real_latest_archive_reports_its_actual_cutoff_state_without_authority(self):
         raw_root = ROOT / "evidence" / "crypto" / "breadth" / "raw"
         source_date = sorted(path.name for path in raw_root.iterdir() if path.is_dir())[-1]
         record = INVENTORY.build_inventory(source_date, raw_root=raw_root)
         self.assertEqual(record["status"], "REVIEW_INVENTORY_ONLY")
-        self.assertGreater(record["selection_context"]["unknown_before_cutoff_count"], 0)
+        context = record["selection_context"]
+        unknown = record["review_population"]["taxonomy_unknown_before_cutoff"]
         ranks = [
             row["rank_before_taxonomy"]
-            for row in record["review_population"]["taxonomy_unknown_before_cutoff"]
+            for row in unknown
         ]
         self.assertEqual(ranks, sorted(ranks))
+        self.assertEqual(context["unknown_before_cutoff_count"], len(unknown))
+        if unknown:
+            self.assertEqual(record["source_outcome"], {
+                "status": "UNKNOWN",
+                "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN",
+            })
+            self.assertIsInstance(context["known_eligible_count_so_far"], int)
+            self.assertLessEqual(
+                context["known_eligible_count_so_far"],
+                context["target_asset_count"],
+            )
+        else:
+            # A newly effective ratified taxonomy slice can legitimately let
+            # the cutoff-aware scan reach all 100 members.  That natural
+            # success must not make the regression suite demand yesterday's
+            # gap forever or reinterpret it as investment authority.
+            self.assertEqual(record["source_outcome"], {
+                "status": "OBSERVED_UNCLASSIFIED",
+                "unknown_reason": None,
+            })
+            self.assertIsNone(context["known_eligible_count_so_far"])
         self.assertEqual(record["authority"]["records_ratified"], 0)
         self.assertFalse(record["authority"]["investability_authorized"])
 

@@ -81,6 +81,41 @@ def _us_breadth_ready_decision_date_and_generated_at():
     return latest_snapshot_date, generated_at
 
 
+def _us_breadth_and_btc_ready_decision_date_and_generated_at():
+    """Latest immutable date that is present in both source archives.
+
+    The latest US-breadth date is not guaranteed to have a same-date BTC
+    capture (2026-08-27 is a real example).  A component-isolation test must
+    not relabel that honest absence as a transform failure.  Select the
+    latest intersection instead, then place packet generation after both
+    sources' own retained download timestamps so the injected BTC transform
+    exception is the only reason BTC_TREND becomes DEGRADED.
+    """
+    breadth_root = MODULE.US_BREADTH.RAW_ROOT
+    btc_root = MODULE.ROOT / "evidence" / "crypto" / "btc" / "raw"
+    breadth_dates = {
+        path.name
+        for path in breadth_root.iterdir()
+        if path.is_dir() and (path / "_downloaded_at.txt").is_file()
+    }
+    btc_dates = {
+        path.name
+        for path in btc_root.iterdir()
+        if path.is_dir() and (path / "_downloaded_at.txt").is_file()
+    }
+    common_dates = sorted(breadth_dates & btc_dates)
+    if not common_dates:
+        raise AssertionError("no common immutable US-breadth/BTC capture date")
+    decision_date = common_dates[-1]
+    downloaded_dates = [
+        (root / decision_date / "_downloaded_at.txt")
+        .read_text(encoding="utf-8").strip()[:10]
+        for root in (breadth_root, btc_root)
+    ]
+    generated_at = f"{max(downloaded_dates)}T23:59:59Z"
+    return decision_date, generated_at
+
+
 def _step0_ready_decision_date_and_generated_at():
     """(decision_date, generated_at) that resolve STEP0_READ_MODEL_HEALTH's
     (and KRX_PREOPEN_COMPACT's, and -- since they read the exact same
@@ -1342,8 +1377,17 @@ class DailyOrchestratorTest(unittest.TestCase):
         # fault isolation is proven separately against the STEP0-ready
         # pair, with the same fault still injected in both builds.
         us_breadth_date, us_breadth_generated_at = (
-            _us_breadth_ready_decision_date_and_generated_at()
+            _us_breadth_and_btc_ready_decision_date_and_generated_at()
         )
+        # Prove the fixture reaches both healthy production builders before
+        # injecting the fault.  Otherwise a future archive skew could turn
+        # this back into an assertion about missing evidence instead of
+        # component failure isolation.
+        self.assertEqual(
+            MODULE.build_us_breadth_membership(us_breadth_date)["status"],
+            "READY",
+        )
+        self.assertEqual(MODULE.build_btc_trend(us_breadth_date)["status"], "READY")
         MODULE.BTC_TREND.build_transform = _boom
         try:
             us_breadth_packet = MODULE.build_packet(

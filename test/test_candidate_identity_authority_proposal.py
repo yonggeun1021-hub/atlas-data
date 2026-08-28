@@ -43,9 +43,25 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
             set(self.packet["summary"]["review_status_counts"]),
             {row["review_status"] for row in self.packet["proposals"]},
         )
-        doge = next(x for x in self.packet["proposals"] if x["subject"] == "DOGE/USD")
-        self.assertEqual(doge["review_status"], COMPLETE)
-        self.assertEqual(doge["proposed_rows"]["source_alias"]["source_asset_id"], "DOGE/USD")
+        # The live gap population is expected to change as identity rows are
+        # resolved.  Reconcile every currently-present Crypto proposal to its
+        # own exact provider pair instead of requiring DOGE/USD to remain a
+        # gap forever.
+        completed_crypto = [
+            proposal
+            for proposal in self.packet["proposals"]
+            if proposal["market"] == "CRYPTO"
+            and proposal["review_status"] == COMPLETE
+        ]
+        self.assertTrue(
+            completed_crypto,
+            "expected at least one COMPLETE Crypto proposal in the live gap population",
+        )
+        for proposal in completed_crypto:
+            self.assertEqual(
+                proposal["proposed_rows"]["source_alias"]["source_asset_id"],
+                proposal["subject"],
+            )
 
     def test_mechanical_proposals_remain_unratified_and_create_no_authority(self):
         self.assertEqual(self.packet["summary"]["canonical_authority_rows_created"], 0)
@@ -143,8 +159,10 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
 
     def test_korea_subject_must_equal_the_exact_provider_symbol(self):
         gap = copy.deepcopy(next(x for x in self.gaps["identity_gaps"] if x["market"] == "KOREA"))
-        evidence = next(iter(self.packet["source_korea_identity_evidence"].values()))
-        gap["subject"] = "NOT-034020"
+        source_id = gap["provider_pair_diagnostics"][0]["source_asset_id"]
+        evidence = self.packet["source_korea_identity_evidence"][gap["candidate_id"]]
+        self.assertEqual(evidence["symbol"], source_id)
+        gap["subject"] = f"NOT-{source_id}"
         row = _proposal(gap, {}, evidence)
         self.assertEqual(row["review_status"], INCOMPLETE)
         self.assertEqual(row["reason_codes"], ["KOREA_SUBJECT_SOURCE_ID_MISMATCH"])
