@@ -4,9 +4,16 @@
 This module distinguishes three facts that the original draft
 conflated: a proposal self-hash is consistent, a citation names an
 immutable external git object, and the cited external bytes were
-independently reproduced. Only the first two are available here.
-Therefore current packets remain ``REVIEW_INCOMPLETE`` until a later,
-separate CIO authority change reproduces and retains the official bytes.
+independently reproduced. With no external checkout only the first two
+are available and review remains ``REVIEW_INCOMPLETE``. When a separately
+obtained checkout is supplied, the sibling exact-git-object resolver
+reproduces all official bytes before the provider packet may advance to
+``REVIEW_READY_FOR_CIO``. Alias packets remain incomplete while their
+instrument-specific evidence is mutable/unpinned.
+
+``REVIEW_READY_FOR_CIO`` is not ratification and cannot mutate either
+authority registry. It is only a mechanical-review state for a later,
+separate human authority decision.
 
 The reviewer reads Atlas runtime registries and canonical identity from
 their real committed modules/files. Callers cannot inject a friendlier
