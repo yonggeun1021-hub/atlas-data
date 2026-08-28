@@ -86,6 +86,10 @@ APPROVED_TESTS = [
     # receipt revision per change. Portal projection is a fail-closed gate
     # before the delivery step and adds no cron or third-party Action.
     "test/test_briefing_finalization_e2e.py",
+    # The committed CIO Ed25519 verification key must match the out-of-band
+    # GitHub secret anchor before any PR can pass the authoritative CI gate.
+    # Failure output is code-only and never prints the configured anchor.
+    "test/test_approval_pubkey_anchor.py",
     "test/test_briefing_validator.py",
     "test/test_workflow_patch.py",
     "test/test_notion_projection_workflow.py",
