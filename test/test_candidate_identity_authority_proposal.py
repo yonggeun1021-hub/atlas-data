@@ -43,9 +43,26 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
             set(self.packet["summary"]["review_status_counts"]),
             {row["review_status"] for row in self.packet["proposals"]},
         )
-        doge = next(x for x in self.packet["proposals"] if x["subject"] == "DOGE/USD")
-        self.assertEqual(doge["review_status"], COMPLETE)
-        self.assertEqual(doge["proposed_rows"]["source_alias"]["source_asset_id"], "DOGE/USD")
+        # This pinned a specific real symbol (DOGE/USD) as "always present
+        # and COMPLETE in the live gap population" -- DOGE/USD has since
+        # been resolved out of the real gap inventory entirely (it is no
+        # longer a gap at all), which is exactly the same class of
+        # live-corpus drift as the crypto taxonomy gap inventory finding:
+        # a frozen assumption about a specific real symbol, not a defect.
+        # The scenario DOGE/USD was chosen to demonstrate -- a provider
+        # display alias (wsname) differing from the exact dictionary-key
+        # identity that's actually bound -- is already covered
+        # deterministically by
+        # test_provider_display_alias_may_differ_when_exact_key_and_structured_identity_match
+        # via a frozen fixture. What this real-data test still needs to
+        # prove, without depending on which symbol currently qualifies:
+        # the real population actually produces at least one COMPLETE
+        # proposal, and every COMPLETE proposal's subject is exactly its
+        # own bound provider source_asset_id (never a display alias).
+        completed = [row for row in self.packet["proposals"] if row["review_status"] == COMPLETE]
+        self.assertTrue(completed, "expected at least one COMPLETE proposal in the real gap population")
+        for row in completed:
+            self.assertEqual(row["subject"], row["proposed_rows"]["source_alias"]["source_asset_id"])
 
     def test_mechanical_proposals_remain_unratified_and_create_no_authority(self):
         self.assertEqual(self.packet["summary"]["canonical_authority_rows_created"], 0)
@@ -143,7 +160,19 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
 
     def test_korea_subject_must_equal_the_exact_provider_symbol(self):
         gap = copy.deepcopy(next(x for x in self.gaps["identity_gaps"] if x["market"] == "KOREA"))
-        evidence = next(iter(self.packet["source_korea_identity_evidence"].values()))
+        # ``source_korea_identity_evidence`` is exact-bound to a gap by
+        # ``candidate_id`` (see ``build_packet``'s
+        # ``korea_evidence[gap["candidate_id"]] = ...``) -- the packet only
+        # sorts that dict by candidate_id afterwards for deterministic
+        # output, which is NOT the same order as ``identity_gaps``. With a
+        # single real KOREA gap, "first gap" and "first evidence value"
+        # happened to be the same row and this test passed by accident;
+        # with multiple real KOREA gaps now present, they can be two
+        # unrelated candidates, so evidence for a *different* symbol gets
+        # paired with this gap -- correctly tripping
+        # KOREA_CROSS_SOURCE_EVIDENCE_MISSING before subject is even
+        # checked. Look the evidence up by the same key the producer uses.
+        evidence = self.packet["source_korea_identity_evidence"][gap["candidate_id"]]
         gap["subject"] = "NOT-034020"
         row = _proposal(gap, {}, evidence)
         self.assertEqual(row["review_status"], INCOMPLETE)
