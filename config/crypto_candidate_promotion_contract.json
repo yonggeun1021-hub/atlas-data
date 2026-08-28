@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_candidate_promotion_contract/1",
+  "input_states": ["TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE"],
+  "criteria": [
+    "IDENTITY",
+    "TRADABILITY",
+    "REGIME",
+    "TREND",
+    "RELATIVE_STRENGTH",
+    "VOLUME_LIQUIDITY",
+    "OVEREXTENSION",
+    "MATERIAL_BLOCKER"
+  ],
+  "criterion_statuses": ["PASS", "FAIL", "UNKNOWN"],
+  "promotion_states": ["WATCH", "FOCUSED_REVIEW", "BLOCKED"],
+  "leadership_reference_window_id": "primary_30d",
+  "authority": {
+    "investable_eligible": false,
+    "paper_eligible": false,
+    "focused_review_authorized": false,
+    "entry_authorized": false,
+    "stage_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false
+  }
+}
