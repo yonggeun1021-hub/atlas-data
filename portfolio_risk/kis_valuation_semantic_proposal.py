@@ -29,8 +29,12 @@ KIS_OFFICIAL_COMMIT = "b4e6249714418aa57833d1cbbbced39cbcc5b125"
 KIS_VALUATION_EVIDENCE_MANIFEST = {
     "examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py":
         "5897fd3ce320a8d9683208689727714c037241b2010cc89f4c7e6c63b6255c89",
+    "examples_llm/domestic_stock/inquire_balance/inquire_balance.py":
+        "32f2759f925dfaf9ac710bc7caf3447f31da83d0a3decdee9b02791a3f0cdfe5",
     "examples_llm/domestic_stock/inquire_psbl_order/chk_inquire_psbl_order.py":
         "2e4e1a42625ed86a165fb3779d32cb9ac5a21d8c9e1f0e8807c4600d6f1e3d5b",
+    "examples_llm/domestic_stock/inquire_psbl_order/inquire_psbl_order.py":
+        "c4af94ce55e3eb176a3ce5ef4c473d5fffb7274e0b2a9cc56c1e3973555d14c9",
 }
 
 AUTHORITY_ALL_FALSE = {
@@ -171,6 +175,14 @@ def valuation_semantic_mapping_proposal() -> dict:
             _official_evidence(
                 "examples_llm/domestic_stock/inquire_psbl_order/chk_inquire_psbl_order.py",
                 "Official KIS field labels for instrument-specific no-receivable buy capacity.",
+            ),
+            _official_evidence(
+                "examples_llm/domestic_stock/inquire_balance/inquire_balance.py",
+                "Official KIS balance implementation returns separate output1 and output2 frames.",
+            ),
+            _official_evidence(
+                "examples_llm/domestic_stock/inquire_psbl_order/inquire_psbl_order.py",
+                "Official KIS buy-capacity implementation requires pdno and ord_unpr query inputs.",
             ),
         ],
         "privateOperationalEvidence": {
