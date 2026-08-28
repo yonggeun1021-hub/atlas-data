@@ -254,6 +254,82 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
         with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, "RETRIEVAL_AUTHORITY_UNAVAILABLE"):
             self.consume()
 
+    def test_first_revision_404_can_be_polled_within_a_bounded_window(self):
+        original_get = self.fixture.get
+        first_url = self.fixture.envelope["bootstrap_url"]
+        calls = {"first": 0}
+        clock = {"now": 0.0, "sleeps": []}
+
+        def get(url):
+            if self.fixture.clean_url(url) == first_url:
+                calls["first"] += 1
+                if calls["first"] < 3:
+                    return 404, b""
+            return original_get(url)
+
+        def sleep(seconds):
+            clock["sleeps"].append(seconds)
+            clock["now"] += seconds
+
+        raw, envelope = CONSUMER.consume(
+            DATE,
+            "morning",
+            {"krx": ["005930"]},
+            contract=self.contract,
+            get=get,
+            nonce_factory=lambda: "unique",
+            first_revision_wait_seconds=10,
+            poll_interval_seconds=5,
+            sleeper=sleep,
+            monotonic=lambda: clock["now"],
+        )
+        self.assertEqual(calls["first"], 3)
+        self.assertEqual(clock["sleeps"], [5, 5])
+        self.assertEqual(envelope["source_commit"], self.fixture.commit)
+        self.assertIn("data/briefing/step0_status.json", raw)
+
+    def test_bounded_poll_expires_fail_closed_without_fallback(self):
+        self.fixture.responses.pop(self.fixture.envelope["bootstrap_url"])
+        clock = {"now": 0.0, "sleeps": []}
+
+        def sleep(seconds):
+            clock["sleeps"].append(seconds)
+            clock["now"] += seconds
+
+        with self.assertRaisesRegex(
+            CONSUMER.ScheduledConsumerError, "RETRIEVAL_AUTHORITY_UNAVAILABLE"
+        ):
+            CONSUMER.consume(
+                DATE,
+                "morning",
+                contract=self.contract,
+                get=self.fixture.get,
+                nonce_factory=lambda: "unique",
+                first_revision_wait_seconds=10,
+                poll_interval_seconds=5,
+                sleeper=sleep,
+                monotonic=lambda: clock["now"],
+            )
+        self.assertEqual(clock["sleeps"], [5, 5])
+
+    def test_wait_policy_bounds_are_fail_closed(self):
+        for timeout, interval, code in (
+            (901, 15, "FIRST_REVISION_WAIT_INVALID"),
+            (-1, 15, "FIRST_REVISION_WAIT_INVALID"),
+            (10, 0, "POLL_INTERVAL_INVALID"),
+            (10, 61, "POLL_INTERVAL_INVALID"),
+        ):
+            with self.subTest(timeout=timeout, interval=interval):
+                with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, code):
+                    CONSUMER.discover_latest(
+                        DATE,
+                        "morning",
+                        contract=self.contract,
+                        get=self.fixture.get,
+                        first_revision_wait_seconds=timeout,
+                        poll_interval_seconds=interval,
+                    )
+
     def test_non_404_after_valid_revision_does_not_use_older_revision(self):
         rev2 = self.fixture.envelope["bootstrap_url"].replace("rev-001", "rev-002")
         self.fixture.responses[rev2] = (503, b"")

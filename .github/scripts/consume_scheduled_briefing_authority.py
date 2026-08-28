@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import tempfile
+import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -282,6 +283,10 @@ def discover_latest(
     contract: dict | None = None,
     get=_default_get,
     nonce_factory=lambda: secrets.token_hex(16),
+    first_revision_wait_seconds: float = 0,
+    poll_interval_seconds: float = 15,
+    sleeper=time.sleep,
+    monotonic=time.monotonic,
 ) -> dict:
     contract = contract or _load_contract()
     if slot not in contract["allowed_slots"]:
@@ -292,12 +297,34 @@ def discover_latest(
         calendar_date.fromisoformat(expected_date)
     except (TypeError, ValueError):
         fail("EXPECTED_KST_DATE_INVALID")
+    if (
+        isinstance(first_revision_wait_seconds, bool)
+        or not isinstance(first_revision_wait_seconds, (int, float))
+        or first_revision_wait_seconds < 0
+        or first_revision_wait_seconds > 900
+    ):
+        fail("FIRST_REVISION_WAIT_INVALID")
+    if (
+        isinstance(poll_interval_seconds, bool)
+        or not isinstance(poll_interval_seconds, (int, float))
+        or poll_interval_seconds <= 0
+        or poll_interval_seconds > 60
+    ):
+        fail("POLL_INTERVAL_INVALID")
+    deadline = monotonic() + first_revision_wait_seconds
     latest = None
     for revision in range(1, contract["max_revisions_per_slot"] + 1):
         url = contract["bootstrap_url_template"].format(
             expected_kst_date=expected_date, slot=slot, revision=f"{revision:03d}"
         )
-        status, raw = get(_with_nonce(url, nonce_factory()))
+        while True:
+            status, raw = get(_with_nonce(url, nonce_factory()))
+            if status != 404 or latest is not None or revision != 1:
+                break
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleeper(min(poll_interval_seconds, remaining))
         if status == 404:
             if latest is None:
                 fail("RETRIEVAL_AUTHORITY_UNAVAILABLE")
@@ -429,10 +456,22 @@ def consume(
     contract: dict | None = None,
     get=_default_get,
     nonce_factory=lambda: secrets.token_hex(16),
+    first_revision_wait_seconds: float = 0,
+    poll_interval_seconds: float = 15,
+    sleeper=time.sleep,
+    monotonic=time.monotonic,
 ) -> tuple[dict[str, bytes], dict]:
     contract = contract or _load_contract()
     envelope = discover_latest(
-        expected_date, slot, contract=contract, get=get, nonce_factory=nonce_factory
+        expected_date,
+        slot,
+        contract=contract,
+        get=get,
+        nonce_factory=nonce_factory,
+        first_revision_wait_seconds=first_revision_wait_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleeper=sleeper,
+        monotonic=monotonic,
     )
     raw_by_path = {}
     for record in envelope["required_artifacts"] + envelope["delivery_artifacts"]:
@@ -525,10 +564,23 @@ def main(argv=None) -> int:
     parser.add_argument("--krx-symbol", action="append", default=[])
     parser.add_argument("--dart-symbol", action="append", default=[])
     parser.add_argument("--sec-symbol", action="append", default=[])
+    parser.add_argument(
+        "--wait-timeout-seconds",
+        type=float,
+        default=0,
+        help="bounded wait for the first date/slot authority revision (max 900)",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=float,
+        default=15,
+        help="first-revision poll interval (1..60 seconds)",
+    )
     args = parser.parse_args(argv)
     raw, envelope = consume(args.expected_kst_date, args.slot, {
         "krx": args.krx_symbol, "dart": args.dart_symbol, "sec": args.sec_symbol,
-    })
+    }, first_revision_wait_seconds=args.wait_timeout_seconds,
+       poll_interval_seconds=args.poll_interval_seconds)
     persist(args.output_dir, raw, envelope)
     print(json.dumps({
         "status": "PASS",
