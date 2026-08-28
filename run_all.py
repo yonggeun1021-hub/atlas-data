@@ -635,8 +635,9 @@ APPROVED_TESTS = [
     # append-only run receipt must prove the exact GitHub event/cron.  Three
     # distinct natural AM/PM dates, viewer-visible Portal receipts for both
     # slots, and one separately attested genuine fail-closed run are required.
-    # The latter two trusted producers are not implemented in this slice, so
-    # self-authored/self-hashed JSON is rejected and both counts stay zero.
+    # Portal receipts require GitHub-attested exact bytes plus offline replay;
+    # self-authored/self-hashed JSON stays rejected. The separate genuine
+    # fail-closed producer is not implemented, so that count remains zero.
     # Manual/replay/recovery is always excluded and every money/trading
     # authority remains false.
     "test/test_capital_rotation_e2e_acceptance.py",

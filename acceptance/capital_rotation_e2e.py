@@ -29,6 +29,8 @@ import sys
 import tempfile
 from typing import Iterable
 
+from acceptance import portal_observation_receipt as portal_observation
+
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN_ROOT = ROOT / "evidence" / "capital_rotation_acceptance" / "run_receipts"
@@ -129,16 +131,18 @@ def load_contract(repo_root: Path) -> dict:
     if set(value) != {
         "schema_version", "wbs_item", "exit_gate", "manual_and_replay_count_as_natural",
         "portal_receipt_required", "portal_receipt_producer_status",
-        "fail_closed_receipt_producer_status", "authority",
+        "fail_closed_receipt_producer_status",
+        "github_attestation_trusted_root_sha256", "authority",
     }:
         fail("ACCEPTANCE_CONTRACT_FIELDS_MISMATCH")
     if (
-        value.get("schema_version") != "capital_rotation_e2e_acceptance_contract/1"
+        value.get("schema_version") != "capital_rotation_e2e_acceptance_contract/2"
         or value.get("wbs_item") != "P8-15"
         or value.get("manual_and_replay_count_as_natural") is not False
         or value.get("portal_receipt_required") is not True
-        or value.get("portal_receipt_producer_status") != "NOT_IMPLEMENTED_FAIL_CLOSED"
+        or value.get("portal_receipt_producer_status") != "IMPLEMENTED_GITHUB_ATTESTED_IMPORT"
         or value.get("fail_closed_receipt_producer_status") != "NOT_IMPLEMENTED_FAIL_CLOSED"
+        or SHA256.fullmatch(str(value.get("github_attestation_trusted_root_sha256", ""))) is None
         or value.get("authority") != AUTHORITY
         or value.get("exit_gate") != {
             "required_distinct_natural_pair_dates": 3,
@@ -410,12 +414,42 @@ def _display_path(path: Path, base: Path) -> str:
         return path.as_posix()
 
 
+def _portal_slot_lineage(run_receipt: dict) -> dict:
+    """Return the exact natural-run identity embedded by the Portal observer."""
+    github = run_receipt["github"]
+    delivery = run_receipt["delivery"]
+    return {
+        "slot": run_receipt["slot"],
+        "run_id": github["run_id"],
+        "run_attempt": github["run_attempt"],
+        "workflow_head_sha": github["workflow_head_sha"],
+        "source_commit": run_receipt["source_commit"],
+        "generation_id": run_receipt["generation_id"],
+        "packet_sha256": delivery["packet_sha256"],
+        "briefing_sha256": delivery["briefing_sha256"],
+    }
+
+
+def _portal_pair_lineage(portal_receipt: dict) -> dict:
+    pair = portal_receipt["natural_pair"]
+    return {
+        "decision_date": pair["decision_date"],
+        "atlas_discovery_commit": pair["atlas_discovery_commit"],
+        "slots": {
+            slot_row["slot"]: slot_row
+            for slot_row in pair["slots"]
+        },
+    }
+
+
 def build_inventory(
     repo_root: Path = ROOT,
     *,
     run_root: Path | None = None,
     portal_root: Path | None = None,
     fail_root: Path | None = None,
+    portal_attestation_verifier=None,
+    portal_trusted_root_sha256: str | None = None,
 ) -> dict:
     contract = load_contract(repo_root)
     run_root = run_root or (repo_root / RUN_ROOT.relative_to(ROOT))
@@ -459,16 +493,47 @@ def build_inventory(
         by_date[date] = selected_slots
     pair_dates = sorted(date for date, slots in by_date.items() if set(slots) == SLOTS)
 
-    # Portal visibility and genuine fail-closed observations require separate
-    # trusted producers. Their contracts are deliberately not invented here:
-    # accepting a self-hashed JSON file would let a manual author manufacture
-    # either Exit Gate. Until those producers are implemented, any file in the
-    # reserved roots is an explicit contract violation and both counts stay 0.
-    if list(_iter_json(portal_root)):
-        fail("UNTRUSTED_PORTAL_RECEIPT_PRESENT")
+    try:
+        portal_receipts = portal_observation.iter_imported_receipts(
+            portal_root,
+            verifier=portal_attestation_verifier,
+            expected_trusted_root_sha256=(
+                portal_trusted_root_sha256
+                or contract["github_attestation_trusted_root_sha256"]
+            ),
+        )
+    except portal_observation.PortalReceiptError as exc:
+        code = str(exc).split(":", 1)[0]
+        if code == "UNTRUSTED_PORTAL_RECEIPT_PRESENT":
+            fail(code)
+        fail("INVALID_TRUSTED_PORTAL_RECEIPT_PRESENT", code)
     if list(_iter_json(fail_root)):
         fail("UNTRUSTED_FAIL_CLOSED_RECEIPT_PRESENT")
-    projected_pair_dates: list[str] = []
+    portal_natural = [
+        row for row in portal_receipts
+        if row["sample_qualification"] == "NATURAL_SCHEDULED_PORTAL_OBSERVATION"
+    ]
+    portal_by_date: dict[str, list[dict]] = {}
+    for row in portal_natural:
+        portal_by_date.setdefault(row["natural_pair"]["decision_date"], []).append(row)
+    for date, rows in portal_by_date.items():
+        pair_lineages = {canonical_json(_portal_pair_lineage(row)) for row in rows}
+        if len(pair_lineages) != 1:
+            fail("PORTAL_RECEIPT_LINEAGE_CONFLICT", date)
+        if date not in by_date or set(by_date[date]) != SLOTS:
+            continue
+        expected_slots = {
+            slot: _portal_slot_lineage(run_receipt)
+            for slot, (_, run_receipt) in by_date[date].items()
+        }
+        actual_slots = _portal_pair_lineage(rows[0])["slots"]
+        if actual_slots != expected_slots:
+            fail("PORTAL_RECEIPT_SOURCE_LINEAGE_MISMATCH", date)
+    projected_pair_dates = sorted(
+        date
+        for date in portal_by_date
+        if date in by_date and set(by_date[date]) == SLOTS
+    )
     fail_closed_count = 0
     exit_gate = contract["exit_gate"]
     blockers = []
@@ -476,12 +541,11 @@ def build_inventory(
         blockers.append("THREE_DISTINCT_NATURAL_AM_PM_PAIRS_NOT_MET")
     if len(projected_pair_dates) < exit_gate["required_viewer_visible_projected_pair_dates"]:
         blockers.append("THREE_VIEWER_VISIBLE_PROJECTED_PAIRS_NOT_MET")
-        blockers.append("TRUSTED_PORTAL_RECEIPT_PRODUCER_NOT_IMPLEMENTED")
     if fail_closed_count < exit_gate["required_genuine_scheduled_fail_closed_samples"]:
         blockers.append("GENUINE_SCHEDULED_FAIL_CLOSED_RECEIPT_MISSING")
         blockers.append("TRUSTED_FAIL_CLOSED_RECEIPT_PRODUCER_NOT_IMPLEMENTED")
     inventory = {
-        "schema_version": "capital_rotation_e2e_acceptance/1",
+        "schema_version": "capital_rotation_e2e_acceptance/2",
         "wbs_item": "P8-15",
         "status": "PASS" if not blockers else "NOT_READY",
         "exit_gate": exit_gate,
@@ -491,6 +555,8 @@ def build_inventory(
             "superseded_natural_rerun_attempt_count": superseded_attempt_count,
             "manual_or_non_schedule_receipt_count": manual_count,
             "natural_pair_dates": pair_dates,
+            "portal_receipt_count": len(portal_receipts),
+            "manual_or_non_schedule_portal_receipt_count": len(portal_receipts) - len(portal_natural),
             "viewer_visible_projected_pair_dates": projected_pair_dates,
             "genuine_scheduled_fail_closed_sample_count": fail_closed_count,
         },
@@ -500,6 +566,7 @@ def build_inventory(
             "filename_or_packet_success_infers_natural": False,
             "portal_receipt_required_for_projection": True,
             "portal_receipt_producer_status": contract["portal_receipt_producer_status"],
+            "github_attestation_trusted_root_sha256": contract["github_attestation_trusted_root_sha256"],
             "fail_closed_receipt_producer_status": contract["fail_closed_receipt_producer_status"],
             "successful_packet_infers_fail_closed_sample": False,
         },
