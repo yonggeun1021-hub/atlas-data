@@ -452,7 +452,21 @@ class Recovery(Base):
         self.assertIn(f"{DATE}-pm", ids)
         entry = next(m for m in state["missing_production"] if m["briefing_id"] == f"{DATE}-pm")
         self.assertEqual(entry["action"], "RUN_PRODUCER")
-        self.assertEqual(entry["calendar_confidence"], "WEEKDAY_ONLY_HOLIDAYS_UNKNOWN")
+        self.assertEqual(
+            entry["calendar_confidence"],
+            "DAILY_MORNING_WEEKDAY_EVENING_HOLIDAYS_UNKNOWN",
+        )
+
+    def test_weekend_morning_is_owed_but_weekend_evening_is_not(self):
+        sunday_after_evening = dt.datetime(2026, 8, 30, 11, 0,
+                                           tzinfo=dt.timezone.utc)  # 20:00 KST
+        slots = bf.expected_slots(sunday_after_evening, activation={
+            "active_from_kst_date": "2026-08-30",
+            "active_from_slot": "morning",
+        })
+        ids = {(item["kst_date"], item["slot"]) for item in slots}
+        self.assertIn(("2026-08-30", "morning"), ids)
+        self.assertNotIn(("2026-08-30", "evening"), ids)
 
     def test_sealed_slot_moves_from_missing_to_pending(self):
         self._seal()

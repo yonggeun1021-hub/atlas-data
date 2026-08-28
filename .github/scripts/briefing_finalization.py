@@ -1795,9 +1795,12 @@ def expected_slots(now_utc: _dt.datetime, lookback_days: int = MISSED_SLOT_LOOKB
     scheduler never fired produced no draft and therefore looked like nothing
     was owed.  This enumerates what OUGHT to exist instead.
 
-    Weekday-only.  The KRX/holiday calendar is not available to this module, so
-    a public holiday yields a false positive rather than a silent miss; those
-    are reported as `calendar_confidence: "WEEKDAY_ONLY_HOLIDAYS_UNKNOWN"`.
+    Morning is owed every calendar day.  A weekend morning still has a useful
+    fail-closed result (market closed / no new session / latest confirmed
+    evidence), so silently omitting it is not allowed.  Evening remains
+    weekday-only because it is a post-close market round.  The KRX/holiday
+    calendar is not available to this module, so a weekday public holiday can
+    still yield a false positive rather than a silent miss.
     """
     cutoff = _activation_cutoff(activation)
     if cutoff is None:
@@ -1808,9 +1811,9 @@ def expected_slots(now_utc: _dt.datetime, lookback_days: int = MISSED_SLOT_LOOKB
     out = []
     for back in range(lookback_days, -1, -1):
         day = (now_kst - _dt.timedelta(days=back)).date()
-        if day.weekday() >= 5:
-            continue
         for slot in SUPPORTED_SLOTS:
+            if slot == "evening" and day.weekday() >= 5:
+                continue
             hour, minute = SLOT_DUE_KST[slot]
             due = _dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=KST)
             if now_kst < due + _dt.timedelta(minutes=SLOT_DUE_GRACE_MIN):
@@ -1822,7 +1825,8 @@ def expected_slots(now_utc: _dt.datetime, lookback_days: int = MISSED_SLOT_LOOKB
                 continue
             out.append({"kst_date": iso, "slot": slot,
                         "due_kst": due.isoformat(),
-                        "calendar_confidence": "WEEKDAY_ONLY_HOLIDAYS_UNKNOWN"})
+                        "calendar_confidence":
+                            "DAILY_MORNING_WEEKDAY_EVENING_HOLIDAYS_UNKNOWN"})
     return out
 
 
