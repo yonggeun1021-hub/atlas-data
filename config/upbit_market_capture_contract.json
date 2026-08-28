@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "source_name": "upbit_krw_market_data",
+  "market_all_endpoint": "https://api.upbit.com/v1/market/all?is_details=true",
+  "ticker_endpoint_template": "https://api.upbit.com/v1/ticker?markets={MARKETS}",
+  "orderbook_endpoint_template": "https://api.upbit.com/v1/orderbook?markets={MARKETS}",
+  "candles_days_endpoint_template": "https://api.upbit.com/v1/candles/days?market={MARKET}&count={COUNT}",
+  "quote_currency": "KRW",
+  "market_prefix": "KRW-",
+  "candle_lookback_count": 100,
+  "capture_mode": "direct_fetch_append_only",
+  "market_all_raw_file": "upbit_market_all.json.gz",
+  "ticker_raw_file": "upbit_ticker.json.gz",
+  "orderbook_raw_file": "upbit_orderbook.json.gz",
+  "candles_bundle_raw_file": "upbit_candles_days.ndjson.gz",
+  "candles_bundle_format": "sorted_market_base64_raw_response_ndjson",
+  "current_candle_policy": "exclude_first_row_always",
+  "turnover_lookback_finalized_days": 30,
+  "transform_version": "upbit_market_capture/1",
+  "auth_required": false,
+  "endpoints_are_public_get_only": true,
+  "order_or_withdrawal_endpoints_called": false
+}
