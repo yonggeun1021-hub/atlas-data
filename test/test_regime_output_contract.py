@@ -152,6 +152,48 @@ class RegimeOutputContractTest(unittest.TestCase):
             ):
                 MODULE.validate_output(payload, CONTRACT)
 
+    def test_newly_bound_crypto_axes_get_no_special_treatment_in_the_invariant(self):
+        """P1-CR-08: CRYPTO/BREADTH and CRYPTO/LEADERSHIP are newly bound in
+        ``regime/live_axis_adapter.py``, but ``output_contract.py`` itself
+        never special-cases any axis by name -- ``validate_output`` rejects
+        an interpreted regime/direction/confidence value identically no
+        matter which axes happen to be DEFINED. This proves the two new
+        axes cannot open any gap in that generic enforcement.
+        """
+        result = MODULE.build_unknown_output(
+            "CRYPTO",
+            "2026-08-20T14:00:00Z",
+            {
+                "BREADTH": defined(
+                    "2026-08-19", "2026-08-20T00:30:00Z",
+                    "regime_live_axis_crypto_breadth/v1", "b",
+                ),
+                "LEADERSHIP": defined(
+                    "2026-08-19", "2026-08-20T00:30:00Z",
+                    "regime_live_axis_crypto_leadership/v1", "c",
+                ),
+            },
+        )
+        self.assertEqual(result["coverage"]["defined_axes"], ["BREADTH", "LEADERSHIP"])
+
+        neutral = copy.deepcopy(result)
+        neutral["regime"] = "NEUTRAL"
+        improving = copy.deepcopy(result)
+        improving["direction"] = "IMPROVING"
+        confident = copy.deepcopy(result)
+        confident["confidence"] = "0.8"
+
+        for payload, error in (
+            (neutral, "REGIME_NOT_AUTHORIZED"),
+            (improving, "DIRECTION_NOT_AUTHORIZED"),
+            (confident, "CONFIDENCE_NOT_AUTHORIZED"),
+        ):
+            with self.subTest(error=error), self.assertRaisesRegex(
+                MODULE.OutputContractError,
+                error,
+            ):
+                MODULE.validate_output(payload, CONTRACT)
+
     def test_future_evidence_uses_market_local_date_and_utc_availability(self):
         us_future_date = {
             "TREND": defined(
