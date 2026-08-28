@@ -1384,6 +1384,13 @@ APPROVED_TESTS = [
     #   decision: no risk budget, position size, or trading authority is
     #   computed or granted. See docs/portfolio_risk_input_contract_v2.md.
     "test/test_portfolio_risk_input_v2.py",
+    # P0-2D valuation-semantic proposal -- exact pinned KIS field meanings
+    # plus money-free private relationship attestations.  Additive
+    # portfolio_account_fact/3 target only; /2 is unchanged.  Proposal and
+    # review readiness never grant account-fact, risk, action, or order
+    # authority, and instrument-specific buy capacity cannot be relabelled
+    # as a generic account-wide buyingPower value.
+    "test/test_kis_valuation_semantic_proposal.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
