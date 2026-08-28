@@ -648,7 +648,10 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         self.assertIn("RUN_ATTEMPT: ${{ github.run_attempt }}", text)
         self.assertIn("WORKFLOW_HEAD_SHA: ${{ github.sha }}", text)
         self.assertNotIn("inputs.event_name", text)
-        self.assertIn("publish-run-receipt", text)
+        self.assertIn("python3 -m acceptance.capital_rotation_e2e publish-run-receipt", text)
+        self.assertIn("python3 -m acceptance.capital_rotation_e2e evaluate", text)
+        self.assertIn("python3 -m acceptance.capital_rotation_e2e validate-inventory", text)
+        self.assertNotIn("python3 acceptance/capital_rotation_e2e.py", text)
         self.assertIn('git add "$RUN_RECEIPT_PATH"', text)
         self.assertIn('validate-inventory "$ACCEPTANCE_PATH"', text)
 

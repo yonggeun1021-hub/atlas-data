@@ -381,7 +381,7 @@ jobs:
               SHADOW_READINESS_STATUS=BLOCKED_FAIL_CLOSED
               echo "::warning::Shadow readiness sidecar blocked fail-closed; retrieval authority remains valid"
             fi
-            RUN_RECEIPT_OUTPUT=$(python3 acceptance/capital_rotation_e2e.py publish-run-receipt \
+            RUN_RECEIPT_OUTPUT=$(python3 -m acceptance.capital_rotation_e2e publish-run-receipt \
               --event-name "$EVENT_NAME" \
               --event-schedule "$EVENT_SCHEDULE" \
               --run-id "$RUN_ID" \
@@ -394,11 +394,11 @@ jobs:
             echo "$RUN_RECEIPT_OUTPUT"
             RUN_RECEIPT_PATH=$(echo "$RUN_RECEIPT_OUTPUT" | sed -n 's/^run_receipt_path=//p')
             RUN_RECEIPT_CHANGED=$(echo "$RUN_RECEIPT_OUTPUT" | sed -n 's/^run_receipt_changed=//p')
-            ACCEPTANCE_OUTPUT=$(python3 acceptance/capital_rotation_e2e.py evaluate)
+            ACCEPTANCE_OUTPUT=$(python3 -m acceptance.capital_rotation_e2e evaluate)
             echo "$ACCEPTANCE_OUTPUT"
             ACCEPTANCE_PATH=$(echo "$ACCEPTANCE_OUTPUT" | sed -n 's/^acceptance_path=//p')
             ACCEPTANCE_CHANGED=$(echo "$ACCEPTANCE_OUTPUT" | sed -n 's/^acceptance_changed=//p')
-            python3 acceptance/capital_rotation_e2e.py validate-inventory "$ACCEPTANCE_PATH"
+            python3 -m acceptance.capital_rotation_e2e validate-inventory "$ACCEPTANCE_PATH"
             if [ "$LINEAGE_CHANGED" != "true" ] && [ "$SHADOW_READINESS_CHANGED" != "true" ] && [ "$RUN_RECEIPT_CHANGED" != "true" ] && [ "$ACCEPTANCE_CHANGED" != "true" ]; then
               break
             fi
