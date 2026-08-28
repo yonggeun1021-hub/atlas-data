@@ -616,6 +616,8 @@ def _read_stored_revision(
         raise PortalProducerError("IMMUTABLE_REPORT_NOT_CANONICAL")
     if canonical(display) + b"\n" != bodies["display-proposal.json"]:
         raise PortalProducerError("IMMUTABLE_DISPLAY_NOT_CANONICAL")
+    if canonical(bundle) + b"\n" != bodies["bundle.json"]:
+        raise PortalProducerError("IMMUTABLE_BUNDLE_NOT_CANONICAL")
 
     # Recovery must apply the same source-bound semantic validation as a
     # first publication.  Cross-file hashes alone only prove that a bundle is
@@ -650,6 +652,11 @@ def _read_stored_revision(
         ) from None
     if canonical(rebuilt_envelope) + b"\n" != bodies["portal-projection.json"]:
         raise PortalProducerError("IMMUTABLE_ENVELOPE_REBUILD_MISMATCH")
+    expected_bundle = _revision_bodies(
+        bodies["briefing.md"], ledger, report, display, rebuilt_envelope, revision
+    )["bundle.json"]
+    if expected_bundle != bodies["bundle.json"]:
+        raise PortalProducerError("IMMUTABLE_BUNDLE_REBUILD_MISMATCH")
 
     projection_id = envelope.get("projection_id")
     source_commit = envelope.get("source_commit")
