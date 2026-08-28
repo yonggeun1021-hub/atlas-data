@@ -27,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 RECORD_ROOT = ROOT / "evidence" / "operational" / "decision_change_lineage" / "records"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+RAW_DAILY_PREFIX = (
+    "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/"
+)
 
 
 def _load(name: str, relative: str):
@@ -117,6 +120,17 @@ def _git_blob(commit: str, relative: str) -> bytes:
     )
     if resolved.returncode != 0 or resolved.stdout.strip() != commit:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_NOT_IMMUTABLE")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if ancestor.returncode != 0:
+        raise OperationalDecisionLineageError(
+            "SOURCE_COMMIT_NOT_ANCESTOR_OF_CURRENT_HEAD"
+        )
     return completed.stdout
 
 
@@ -188,30 +202,118 @@ def _materialize_exact_commit(commit: str, checkout: Path) -> None:
 
 @functools.lru_cache(maxsize=16)
 def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> dict:
-    """Run the exact commit's own validator against its exact repository state."""
+    """Validate the immutable daily blob and its Unified Decision at source.
+
+    Rebuilding an entire historical daily packet is not a stable lineage
+    check: some diagnostic components intentionally derive Git first-seen
+    provenance from the repository graph visible when the packet was built.
+    A later clone can have a different ref graph even while the committed
+    packet bytes and the Decision are unchanged.  P10-04 only consumes the
+    Unified Decision, so this boundary verifies the whole daily blob's
+    content hash, extracts that exact component, and runs the source commit's
+    own Unified Decision validator in an isolated checkout.
+    """
     blob = _git_blob(commit, relative)
     if hashlib.sha256(blob).hexdigest() != blob_sha256:
         raise OperationalDecisionLineageError("SOURCE_BLOB_SHA256_MISMATCH")
+    try:
+        value = json.loads(blob)
+    except json.JSONDecodeError as exc:
+        raise OperationalDecisionLineageError("SOURCE_PACKET_JSON_INVALID") from exc
+    if not isinstance(value, dict):
+        raise OperationalDecisionLineageError("SOURCE_PACKET_OBJECT_REQUIRED")
+    digest = value.get("packet_sha256")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise OperationalDecisionLineageError("SOURCE_PACKET_SHA256_INVALID")
+    unsigned = copy.deepcopy(value)
+    unsigned.pop("packet_sha256", None)
+    if payload_sha256(unsigned) != digest:
+        raise OperationalDecisionLineageError("SOURCE_PACKET_SHA256_MISMATCH")
+    rows = value.get("components")
+    if not isinstance(rows, list):
+        raise OperationalDecisionLineageError("DAILY_COMPONENTS_NOT_LIST")
+    matches = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("component_id") == "UNIFIED_DECISION"
+    ]
+    if len(matches) != 1:
+        raise OperationalDecisionLineageError(
+            "DAILY_COMPONENT_IDENTITY_INVALID:UNIFIED_DECISION"
+        )
+    unified_row = matches[0]
+    unified = unified_row.get("packet")
+    if unified_row.get("validated") is not True or not isinstance(unified, dict):
+        raise OperationalDecisionLineageError(
+            "DAILY_COMPONENT_NOT_VALIDATED:UNIFIED_DECISION"
+        )
     with tempfile.TemporaryDirectory(prefix="atlas-p10-04-validate-") as temporary:
         checkout = Path(temporary) / "repo"
         _materialize_exact_commit(commit, checkout)
+        validator = """
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+path = Path("decision/unified_decision_contract.py")
+spec = importlib.util.spec_from_file_location("atlas_exact_unified", path)
+if spec is None or spec.loader is None:
+    raise RuntimeError("UNIFIED_VALIDATOR_IMPORT_FAILED")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.validate_packet(json.load(sys.stdin))
+"""
         completed = subprocess.run(
-            [sys.executable, "briefing/daily_orchestrator.py", "validate", relative],
+            [sys.executable, "-c", validator],
             cwd=checkout,
             check=False,
             text=True,
+            input=canonical_json(unified),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
         if completed.returncode != 0:
             raise OperationalDecisionLineageError(
-                f"DAILY_PACKET_INVALID_AT_SOURCE_COMMIT:{completed.stdout.strip()}"
+                f"UNIFIED_DECISION_INVALID_AT_SOURCE_COMMIT:{completed.stdout.strip()}"
             )
-        try:
-            value = json.loads((checkout / relative).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise OperationalDecisionLineageError("SOURCE_PACKET_RELOAD_FAILED") from exc
     return value
+
+
+def _parse_daily_source_ref(source_ref: str) -> tuple[str, str]:
+    if not isinstance(source_ref, str) or not source_ref.startswith(RAW_DAILY_PREFIX):
+        raise OperationalDecisionLineageError("SNAPSHOT_SOURCE_REF_INVALID")
+    remainder = source_ref[len(RAW_DAILY_PREFIX):]
+    try:
+        commit, relative = remainder.split("/", 1)
+    except ValueError as exc:
+        raise OperationalDecisionLineageError("SNAPSHOT_SOURCE_REF_INVALID") from exc
+    path = Path(relative)
+    if (
+        FULL_SHA_RE.fullmatch(commit) is None
+        or path.is_absolute()
+        or ".." in path.parts
+        or not relative.startswith("evidence/daily_briefing/")
+        or not relative.endswith("/packet.json")
+    ):
+        raise OperationalDecisionLineageError("SNAPSHOT_SOURCE_REF_INVALID")
+    return commit, relative
+
+
+def _validate_snapshot_at_source(
+    decision_packet: dict, source_ref: str, context: str
+) -> dict:
+    """Resolve each snapshot against the immutable daily blob it cites."""
+    commit, relative = _parse_daily_source_ref(source_ref)
+    blob = _git_blob(commit, relative)
+    daily = _validate_daily_at_commit(
+        commit, relative, hashlib.sha256(blob).hexdigest()
+    )
+    unified = _component(daily, "UNIFIED_DECISION")["packet"]
+    if decision_packet != unified:
+        raise OperationalDecisionLineageError(
+            f"SNAPSHOT_DECISION_SOURCE_MISMATCH:{context}"
+        )
+    return copy.deepcopy(unified)
 
 
 def _component(packet: dict, component_id: str) -> dict:
@@ -288,7 +390,10 @@ def validate_record(record: dict) -> dict:
     if record.get("authority") != expected_authority:
         raise OperationalDecisionLineageError("RECORD_AUTHORITY_INVALID")
     try:
-        lineage_packet = LINEAGE.validate_output(record.get("lineage_packet"))
+        lineage_packet = LINEAGE.validate_output(
+            record.get("lineage_packet"),
+            snapshot_validator=_validate_snapshot_at_source,
+        )
     except Exception as exc:
         raise OperationalDecisionLineageError(f"LINEAGE_PACKET_INVALID:{exc}") from exc
     if lineage_packet["observed_at"] != record["recorded_at"]:
@@ -415,7 +520,9 @@ def build_record(
         "authority": copy.deepcopy(contract["input_authority"]),
     }
     batch["packet_sha256"] = LINEAGE.payload_sha256(batch)
-    lineage = LINEAGE.build_lineage(batch, contract)
+    lineage = LINEAGE.build_lineage(
+        batch, contract, snapshot_validator=_validate_snapshot_at_source
+    )
     record = {
         "schema_version": "decision_change_lineage_operational_record/1",
         "contract_version": "decision_change_lineage_operational/1",
