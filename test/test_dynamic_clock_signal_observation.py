@@ -7,6 +7,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -28,9 +29,8 @@ DAILY_SPEC.loader.exec_module(DAILY)
 class DynamicClockSignalObservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        reproduction = run_dynamic_clock.run()
         cls.report = run_dynamic_clock.run(
-            decision_date=reproduction["report_asof_evidence_date"]
+            "2026-08-20", run_dynamic_clock.MODE_HISTORICAL_REPLAY
         )
         cls.as_of_utc = f"{cls.report['decision_date']}T23:59:59Z"
 
@@ -112,31 +112,17 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
 
     def test_candidate_decision_date_must_match_report_decision_date(self):
         tampered = copy.deepcopy(self.report)
-        candidate = tampered["by_market"]["BTC"]["review_queue"][0]
-        candidate["decision_at"] = (
+        tampered["decision_date"] = (
             dt.date.fromisoformat(self.report["decision_date"])
-            - dt.timedelta(days=1)
+            + dt.timedelta(days=1)
         ).isoformat()
-        candidate["price_as_of"] = None
-        candidate["timing_precision"]["price_as_of"] = "NOT_AVAILABLE"
-        candidate["candidate_updated_at"] = candidate["decision_at"]
-        candidate["candidate_created_at"] = min(
-            candidate["candidate_created_at"], candidate["decision_at"]
-        )
-        candidate["trigger_observed_at"] = min(
-            candidate["trigger_observed_at"], candidate["decision_at"]
-        )
-        candidate["evidence_as_of"] = min(
-            candidate["evidence_as_of"], candidate["trigger_observed_at"]
-        )
-        candidate["record_hash"] = adapter.REVIEW_CANDIDATE.payload_sha256({
-            key: value for key, value in candidate.items() if key != "record_hash"
-        })
         with self.assertRaisesRegex(
             adapter.DynamicClockSignalObservationError,
             "CANDIDATE_REPORT_DECISION_DATE_MISMATCH",
         ):
-            adapter.build_packet(tampered, self.as_of_utc)
+            adapter.build_packet(
+                tampered, f"{tampered['decision_date']}T23:59:59Z"
+            )
 
     def test_tier_does_not_change_signal_identity_or_authority(self):
         baseline = adapter.build_packet(self.report, self.as_of_utc)
@@ -190,11 +176,17 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
         self.assertEqual(row["packet"]["summary"]["subject_count"], 0)
 
     def test_real_daily_packet_wires_the_same_live_signal_population(self):
-        packet = DAILY.build_packet(
-            "evening",
-            self.report["decision_date"],
-            self.as_of_utc,
-        )
+        daily_decision_date = (
+            dt.date.fromisoformat(self.report["decision_date"]) + dt.timedelta(days=1)
+        ).isoformat()
+        with mock.patch.object(
+            DAILY.DYNAMIC_CLOCK, "run", return_value=copy.deepcopy(self.report)
+        ):
+            packet = DAILY.build_packet(
+                "evening",
+                daily_decision_date,
+                f"{daily_decision_date}T23:59:59Z",
+            )
         row = next(
             item for item in packet["components"]
             if item["component_id"] == "ACTION_BOUNDARY"

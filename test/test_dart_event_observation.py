@@ -42,22 +42,55 @@ def load_module(name: str, path: Path):
 MODULE = load_module("dart_event_observation_test", SOURCE)
 
 
+def recount_content_records(content: dict) -> None:
+    records = content["records"]
+    content["counts"] = {
+        "captured": sum(row.get("operation") == "captured" for row in records),
+        "failed": sum(row.get("operation") == "failed" for row in records),
+        "not_applicable": sum(
+            row.get("publication_status") == "NOT_APPLICABLE" for row in records
+        ),
+        "skipped": sum(row.get("operation") == "skipped" for row in records),
+    }
+
+
 class DartEventObservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.packet = MODULE.build_packet(decision_at=DECISION_AT)
 
-    def test_real_dart_population_records_two_facts_without_interpretation(self):
+    def test_real_dart_population_records_current_facts_without_interpretation(self):
         self.assertEqual(self.packet["schema_version"], "dart_event_observation_packet/2")
         self.assertEqual(self.packet["status"], "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED")
-        self.assertEqual(self.packet["summary"]["relevant_filing_count"], 2)
-        self.assertEqual(self.packet["summary"]["raw_bytes_verified_count"], 1)
-        self.assertEqual(self.packet["summary"]["metadata_only_count"], 1)
+        observations = self.packet["observations"]
+        self.assertGreater(len(observations), 0)
+        self.assertEqual(self.packet["summary"]["relevant_filing_count"], len(observations))
+        self.assertEqual(
+            self.packet["summary"]["raw_bytes_verified_count"],
+            sum(
+                row["evidence"]["status"]
+                == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+                for row in observations
+            ),
+        )
+        self.assertEqual(
+            self.packet["summary"]["metadata_only_count"],
+            sum(
+                row["evidence"]["status"] == "METADATA_ONLY_STAGE_NOT_ASSIGNED"
+                for row in observations
+            ),
+        )
         self.assertEqual(self.packet["summary"]["source_failed_count"], 0)
         self.assertEqual(self.packet["summary"]["content_failure_count"], 0)
         self.assertEqual(self.packet["source_failures"], [])
-        self.assertEqual({row["subject_id"] for row in self.packet["observations"]}, {"034020", "329180"})
-        for row in self.packet["observations"]:
+        self.assertEqual(
+            {row["observation_id"] for row in observations},
+            {
+                f"DART_{record['filing_identity']['rcept_no']}_{record['filing_identity']['stock_code']}"
+                for record in json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))["records"]
+            },
+        )
+        for row in observations:
             self.assertEqual(row["schema_version"], "dart_event_observation/2")
             self.assertIsNone(row["event_at"])
             self.assertEqual(row["time_precision"], "DATE_ONLY")
@@ -103,7 +136,10 @@ class DartEventObservationTests(unittest.TestCase):
                 MODULE.validate_packet(legacy)
 
     def test_real_retained_zip_and_member_bytes_are_independently_revalidated(self):
-        linked = next(row for row in self.packet["observations"] if row["subject_id"] == "329180")
+        linked = next(
+            row for row in self.packet["observations"]
+            if row["subject_id"] == "329180" and row["rcept_no"] == "20260824800122"
+        )
         self.assertEqual(linked["evidence"]["status"], "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED")
         self.assertEqual(
             linked["evidence"]["source_sha256"],
@@ -194,7 +230,7 @@ class DartEventObservationTests(unittest.TestCase):
                 row for row in content["records"]
                 if row["filing_identity"]["stock_code"] != "034020"
             ]
-            content["counts"] = {"captured": 0, "failed": 0, "not_applicable": 0, "skipped": 1}
+            recount_content_records(content)
             source_path = root / "latest_dart.json"
             content_path = root / "latest_dart_content.json"
             source_path.write_text(json.dumps(source), encoding="utf-8")
@@ -214,9 +250,15 @@ class DartEventObservationTests(unittest.TestCase):
                 row["schema_version"] == "dart_event_observation/2"
                 for row in packet["observations"]
             ))
-            self.assertEqual(packet["summary"]["source_ok_count"], 6)
+            self.assertEqual(packet["summary"]["source_ok_count"], len(source["stocks"]) - 1)
             self.assertEqual(packet["summary"]["source_failed_count"], 1)
-            self.assertEqual({row["subject_id"] for row in packet["observations"]}, {"329180"})
+            self.assertEqual(
+                {row["observation_id"] for row in packet["observations"]},
+                {
+                    row["observation_id"] for row in self.packet["observations"]
+                    if row["subject_id"] != "034020"
+                },
+            )
             self.assertEqual(packet["source_failures"][0]["ticker"], "034020")
             self.assertNotIn("ConnectionError", json.dumps(packet["source_failures"]))
 
@@ -259,7 +301,7 @@ class DartEventObservationTests(unittest.TestCase):
             failed["publication_status"] = "FAILED"
             failed["reasons"] = ["PERSIST_OR_CACHE_FAILED:ConnectionError:injected"]
             content["run_status"] = "DEGRADED"
-            content["counts"] = {"captured": 0, "failed": 1, "not_applicable": 1, "skipped": 0}
+            recount_content_records(content)
             content_path.write_text(json.dumps(content), encoding="utf-8")
 
             packet = MODULE.build_packet(
@@ -267,7 +309,8 @@ class DartEventObservationTests(unittest.TestCase):
                 content_path=content_path,
             )
             failed_observation = next(
-                row for row in packet["observations"] if row["subject_id"] == "329180"
+                row for row in packet["observations"]
+                if row["rcept_no"] == failed["filing_identity"]["rcept_no"]
             )
             self.assertEqual(failed_observation["evidence"]["status"], "CONTENT_CAPTURE_FAILED")
             self.assertIn("DART_CONTENT_CAPTURE_FAILED", failed_observation["blocked_reasons"])
@@ -290,8 +333,12 @@ class DartEventObservationTests(unittest.TestCase):
                 decision_at=DECISION_AT, source_path=source_path,
                 content_path=content_path,
             )
-            self.assertEqual(packet["summary"]["relevant_filing_count"], 2)
-            self.assertEqual(packet["summary"]["content_failure_count"], 2)
+            self.assertEqual(
+                packet["summary"]["relevant_filing_count"], len(self.packet["observations"])
+            )
+            self.assertEqual(
+                packet["summary"]["content_failure_count"], len(self.packet["observations"])
+            )
             self.assertEqual(
                 {row["evidence"]["status"] for row in packet["observations"]},
                 {"CONTENT_RUN_FAILED"},
