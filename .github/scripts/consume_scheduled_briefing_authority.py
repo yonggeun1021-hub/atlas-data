@@ -14,6 +14,7 @@ import argparse
 from datetime import date as calendar_date
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 import re
 import secrets
@@ -300,6 +301,7 @@ def discover_latest(
     if (
         isinstance(first_revision_wait_seconds, bool)
         or not isinstance(first_revision_wait_seconds, (int, float))
+        or not math.isfinite(first_revision_wait_seconds)
         or first_revision_wait_seconds < 0
         or first_revision_wait_seconds > 900
     ):
@@ -307,6 +309,7 @@ def discover_latest(
     if (
         isinstance(poll_interval_seconds, bool)
         or not isinstance(poll_interval_seconds, (int, float))
+        or not math.isfinite(poll_interval_seconds)
         or poll_interval_seconds <= 0
         or poll_interval_seconds > 60
     ):
