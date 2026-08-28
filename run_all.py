@@ -1178,6 +1178,17 @@ APPROVED_TESTS = [
     #   OPPORTUNITY_STATE_UNMAPPED로 loud하게 fail-closed됨을 별도 회귀로 확인.
     #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
     "test/test_alpha_shadow_ledger.py",
+    # ★ P10-11 — account-independent Crypto PAPER order simulator and
+    #   append-only ledger foundation. Caller supplies every quantity, limit,
+    #   fee rate, queue fraction, expiry, mark, and frozen public orderbook;
+    #   repository economic defaults are absent. LIMIT/MARKET, partial fill,
+    #   fee/slippage, cancel/expiry, virtual cash/position/P&L, idempotent
+    #   snapshot matching, hash-chain replay, content-addressed persistence,
+    #   and restart recovery are deterministic and fail closed. Regime UNKNOWN
+    #   is preserved rather than promoted. No HTTP/WebSocket/credential/private
+    #   endpoint exists and every exchange/broker/withdrawal/Production/
+    #   Trading/REAL authority remains false.
+    "test/test_crypto_paper_simulator.py",
     # ★ P8-11 stage 2 — real Pilot evidence intake (TSM/298040.KS/267260.KS/
     #   034020.KS). 저장소에 이미 커밋된 real evidence file만 읽어 forward_thesis/
     #   expectations_gap/price_reflection input을 조립한다. TSM의 5개 6-K 중
