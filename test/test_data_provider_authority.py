@@ -68,6 +68,9 @@ class DataProviderAuthorityRatifiedStateTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["approval_status"], "RATIFIED")
+        self.assertEqual(row["ratified_at"], "2026-08-28T14:18:55Z")
+        self.assertEqual(row["first_seen_at"], row["ratified_at"])
+        self.assertEqual(row["effective_from"], row["ratified_at"])
         self.assertEqual(
             {key: row[key] for key in KIS_PROVIDER_TUPLE},
             KIS_PROVIDER_TUPLE,
