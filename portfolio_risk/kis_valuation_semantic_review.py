@@ -7,7 +7,9 @@ operational attestations.  ``REVIEW_READY_FOR_CIO`` is still not authority.
 """
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
+import re
 
 from identity.kis_official_evidence_resolver import (
     KisOfficialEvidenceResolutionError,
@@ -54,12 +56,16 @@ _BUY_CAPACITY_TRUE_FIELDS = {
 _COMMON_ATTESTATION_FIELDS = {
     "contractVersion", "status", "snapshotSchemaVersion",
     "semanticMappingRatified", "orderSubmissionAttempted", "authority",
+    "sourceRecordSha256", "capturedAt", "availableAt", "accountBindingHash",
     "attestationSha256",
 }
 _RELATIONSHIP_ATTESTATION_FIELDS = _COMMON_ATTESTATION_FIELDS | _RELATIONSHIP_TRUE_FIELDS
 _BUY_CAPACITY_ATTESTATION_FIELDS = (
-    _COMMON_ATTESTATION_FIELDS | _BUY_CAPACITY_TRUE_FIELDS | {"capacityKisFields"}
+    _COMMON_ATTESTATION_FIELDS | _BUY_CAPACITY_TRUE_FIELDS
+    | {"capacityKisFields", "instrumentBindingHash"}
 )
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 class KisValuationSemanticReviewError(ValueError):
@@ -159,6 +165,21 @@ def _review_common_attestation(attestation: object, version: str) -> list[str]:
         "accountIdentityHash", "evidencePath", "moneyValues", "positions", "sourceAssetId",
     )):
         reasons.append(f"PRIVATE_ATTESTATION_SENSITIVE_FIELD_FORBIDDEN:{version}")
+    for field in ("sourceRecordSha256", "accountBindingHash"):
+        if _SHA256_RE.fullmatch(str(attestation.get(field, ""))) is None:
+            reasons.append(f"PRIVATE_ATTESTATION_SHA256_INVALID:{version}:{field}")
+    try:
+        captured = dt.datetime.strptime(
+            str(attestation.get("capturedAt")), _TIMESTAMP_FORMAT
+        ).replace(tzinfo=dt.timezone.utc)
+        available = dt.datetime.strptime(
+            str(attestation.get("availableAt")), _TIMESTAMP_FORMAT
+        ).replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        reasons.append(f"PRIVATE_ATTESTATION_TIMESTAMP_INVALID:{version}")
+    else:
+        if available < captured:
+            reasons.append(f"PRIVATE_ATTESTATION_AVAILABLE_BEFORE_CAPTURED:{version}")
     claimed_hash = attestation.get("attestationSha256")
     computed_hash = payload_sha256({
         key: value for key, value in attestation.items() if key != "attestationSha256"
@@ -199,6 +220,8 @@ def _review_buy_capacity_attestation(attestation: object) -> list[str]:
     }
     if set(attestation.get("capacityKisFields", [])) != expected_fields:
         reasons.append("BUY_CAPACITY_KIS_FIELDS_INCOMPLETE")
+    if _SHA256_RE.fullmatch(str(attestation.get("instrumentBindingHash", ""))) is None:
+        reasons.append("BUY_CAPACITY_INSTRUMENT_BINDING_HASH_INVALID")
     for field in sorted(_BUY_CAPACITY_TRUE_FIELDS):
         if attestation.get(field) is not True:
             reasons.append(f"BUY_CAPACITY_RELATIONSHIP_NOT_PROVEN:{field}")
@@ -218,6 +241,11 @@ def review_valuation_semantic_mapping_proposal(
     reasons.extend(_review_official_bytes(official_checkout))
     reasons.extend(_review_relationship_attestation(relationship_attestation))
     reasons.extend(_review_buy_capacity_attestation(buy_capacity_attestation))
+    if isinstance(relationship_attestation, dict) and isinstance(buy_capacity_attestation, dict):
+        if relationship_attestation.get("accountBindingHash") != buy_capacity_attestation.get(
+            "accountBindingHash"
+        ):
+            reasons.append("PRIVATE_ATTESTATION_ACCOUNT_BINDING_MISMATCH")
     unique = sorted(set(reasons))
     return {
         "reviewStatus": "REVIEW_INCOMPLETE" if unique else "REVIEW_READY_FOR_CIO",

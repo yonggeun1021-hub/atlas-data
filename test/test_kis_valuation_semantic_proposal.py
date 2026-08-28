@@ -47,6 +47,10 @@ def relationship_attestation(**overrides) -> dict:
         "netAssetEqualsCashDepositPlusPositionMarketValue": True,
         "semanticMappingRatified": False,
         "orderSubmissionAttempted": False,
+        "sourceRecordSha256": "1" * 64,
+        "capturedAt": "2026-08-28T14:20:00Z",
+        "availableAt": "2026-08-28T14:20:00Z",
+        "accountBindingHash": "2" * 64,
         "authority": dict(AUTHORITY_ALL_FALSE),
     }
     value.update(overrides)
@@ -68,6 +72,11 @@ def buy_capacity_attestation(**overrides) -> dict:
         "quantityCalculationPriceMatchesQuote": True,
         "semanticMappingRatified": False,
         "orderSubmissionAttempted": False,
+        "sourceRecordSha256": "3" * 64,
+        "capturedAt": "2026-08-28T14:21:00Z",
+        "availableAt": "2026-08-28T14:21:00Z",
+        "accountBindingHash": "2" * 64,
+        "instrumentBindingHash": "4" * 64,
         "authority": dict(AUTHORITY_ALL_FALSE),
     }
     value.update(overrides)
@@ -226,6 +235,27 @@ class ReviewTests(unittest.TestCase):
         relationship = relationship_attestation(equityKrw=123)
         result = self.review_ready(relationship=relationship)
         self.assertIn("VALUATION_RELATIONSHIP_ATTESTATION_FIELDS_INVALID", result["reasons"])
+
+    def test_private_attestations_must_bind_to_the_same_account(self):
+        capacity = buy_capacity_attestation(accountBindingHash="9" * 64)
+        result = self.review_ready(buy_capacity=capacity)
+        self.assertIn("PRIVATE_ATTESTATION_ACCOUNT_BINDING_MISMATCH", result["reasons"])
+
+    def test_attestation_source_hash_and_timing_are_fail_closed(self):
+        relationship = relationship_attestation(
+            sourceRecordSha256="bad",
+            capturedAt="2026-08-28T14:22:00Z",
+            availableAt="2026-08-28T14:21:00Z",
+        )
+        result = self.review_ready(relationship=relationship)
+        self.assertIn(
+            f"PRIVATE_ATTESTATION_SHA256_INVALID:{RELATIONSHIP_ATTESTATION_VERSION}:sourceRecordSha256",
+            result["reasons"],
+        )
+        self.assertIn(
+            f"PRIVATE_ATTESTATION_AVAILABLE_BEFORE_CAPTURED:{RELATIONSHIP_ATTESTATION_VERSION}",
+            result["reasons"],
+        )
 
     def test_recursive_authority_injection_is_rejected_before_hash_readiness(self):
         proposal = copy.deepcopy(valuation_semantic_mapping_proposal())
