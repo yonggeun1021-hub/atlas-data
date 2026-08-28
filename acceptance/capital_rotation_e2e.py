@@ -29,6 +29,7 @@ import sys
 import tempfile
 from typing import Iterable
 
+from acceptance import fail_closed_observation_receipt as fail_closed_observation
 from acceptance import portal_observation_receipt as portal_observation
 
 
@@ -136,12 +137,13 @@ def load_contract(repo_root: Path) -> dict:
     }:
         fail("ACCEPTANCE_CONTRACT_FIELDS_MISMATCH")
     if (
-        value.get("schema_version") != "capital_rotation_e2e_acceptance_contract/2"
+        value.get("schema_version") != "capital_rotation_e2e_acceptance_contract/3"
         or value.get("wbs_item") != "P8-15"
         or value.get("manual_and_replay_count_as_natural") is not False
         or value.get("portal_receipt_required") is not True
         or value.get("portal_receipt_producer_status") != "IMPLEMENTED_GITHUB_ATTESTED_IMPORT"
-        or value.get("fail_closed_receipt_producer_status") != "NOT_IMPLEMENTED_FAIL_CLOSED"
+        or value.get("fail_closed_receipt_producer_status")
+        != "IMPLEMENTED_GITHUB_ATTESTED_WORKFLOW_RUN_OBSERVER"
         or SHA256.fullmatch(str(value.get("github_attestation_trusted_root_sha256", ""))) is None
         or value.get("authority") != AUTHORITY
         or value.get("exit_gate") != {
@@ -450,6 +452,8 @@ def build_inventory(
     fail_root: Path | None = None,
     portal_attestation_verifier=None,
     portal_trusted_root_sha256: str | None = None,
+    fail_closed_attestation_verifier=None,
+    fail_closed_trusted_root_sha256: str | None = None,
 ) -> dict:
     contract = load_contract(repo_root)
     run_root = run_root or (repo_root / RUN_ROOT.relative_to(ROOT))
@@ -507,8 +511,21 @@ def build_inventory(
         if code == "UNTRUSTED_PORTAL_RECEIPT_PRESENT":
             fail(code)
         fail("INVALID_TRUSTED_PORTAL_RECEIPT_PRESENT", code)
-    if list(_iter_json(fail_root)):
-        fail("UNTRUSTED_FAIL_CLOSED_RECEIPT_PRESENT")
+    try:
+        fail_closed_receipts = fail_closed_observation.iter_receipts(
+            repo_root,
+            fail_root,
+            verifier=fail_closed_attestation_verifier,
+            expected_trusted_root_sha256=(
+                fail_closed_trusted_root_sha256
+                or contract["github_attestation_trusted_root_sha256"]
+            ),
+        )
+    except fail_closed_observation.FailClosedReceiptError as exc:
+        code = str(exc).split(":", 1)[0]
+        if code == "UNTRUSTED_FAIL_CLOSED_RECEIPT_PRESENT":
+            fail(code)
+        fail("INVALID_TRUSTED_FAIL_CLOSED_RECEIPT_PRESENT", code)
     portal_natural = [
         row for row in portal_receipts
         if row["sample_qualification"] == "NATURAL_SCHEDULED_PORTAL_OBSERVATION"
@@ -534,7 +551,21 @@ def build_inventory(
         for date in portal_by_date
         if date in by_date and set(by_date[date]) == SLOTS
     )
-    fail_closed_count = 0
+    fail_closed_by_run: dict[int, dict] = {}
+    for row in fail_closed_receipts:
+        subject = row["subject"]
+        identity = {
+            "workflow_name": subject["workflow_name"],
+            "workflow_path": subject["workflow_path"],
+            "event_name": subject["event_name"],
+            "conclusion": subject["conclusion"],
+            "run_id": subject["run_id"],
+            "head_sha": subject["head_sha"],
+        }
+        prior = fail_closed_by_run.setdefault(subject["run_id"], identity)
+        if prior != identity:
+            fail("FAIL_CLOSED_SUBJECT_LINEAGE_CONFLICT", str(subject["run_id"]))
+    fail_closed_count = len(fail_closed_by_run)
     exit_gate = contract["exit_gate"]
     blockers = []
     if len(pair_dates) < exit_gate["required_distinct_natural_pair_dates"]:
@@ -543,9 +574,9 @@ def build_inventory(
         blockers.append("THREE_VIEWER_VISIBLE_PROJECTED_PAIRS_NOT_MET")
     if fail_closed_count < exit_gate["required_genuine_scheduled_fail_closed_samples"]:
         blockers.append("GENUINE_SCHEDULED_FAIL_CLOSED_RECEIPT_MISSING")
-        blockers.append("TRUSTED_FAIL_CLOSED_RECEIPT_PRODUCER_NOT_IMPLEMENTED")
+        blockers.append("TRUSTED_FAIL_CLOSED_OBSERVER_WAITING_FOR_SAMPLE")
     inventory = {
-        "schema_version": "capital_rotation_e2e_acceptance/2",
+        "schema_version": "capital_rotation_e2e_acceptance/3",
         "wbs_item": "P8-15",
         "status": "PASS" if not blockers else "NOT_READY",
         "exit_gate": exit_gate,
@@ -558,6 +589,7 @@ def build_inventory(
             "portal_receipt_count": len(portal_receipts),
             "manual_or_non_schedule_portal_receipt_count": len(portal_receipts) - len(portal_natural),
             "viewer_visible_projected_pair_dates": projected_pair_dates,
+            "fail_closed_receipt_count": len(fail_closed_receipts),
             "genuine_scheduled_fail_closed_sample_count": fail_closed_count,
         },
         "blockers": blockers,

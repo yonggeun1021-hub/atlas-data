@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from acceptance import capital_rotation_e2e as acceptance
+from acceptance import fail_closed_observation_receipt as fail_closed
 from acceptance import portal_observation_receipt as portal
 
 
@@ -168,6 +170,52 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         (package / "attestation.jsonl").write_bytes(bundle)
         (package / "trusted_root.jsonl").write_bytes(trusted_root)
         (package / "import.json").write_text(json.dumps(imported, indent=2, sort_keys=True) + "\n")
+        return package
+
+    @staticmethod
+    def fail_closed_receipt(
+        *,
+        observer_run_id=501,
+        upstream_run_id=401,
+        upstream_run_attempt=1,
+        conclusion="failure",
+    ):
+        head = subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+        ).strip()
+        status, value = fail_closed.build_receipt(
+            ROOT,
+            observer_event="workflow_run",
+            observer_run_id=observer_run_id,
+            observer_run_attempt=1,
+            observer_head_sha=head,
+            upstream_workflow_name=fail_closed.UPSTREAM_WORKFLOW_NAME,
+            upstream_workflow_path=fail_closed.UPSTREAM_WORKFLOW_PATH,
+            upstream_event="schedule",
+            upstream_conclusion=conclusion,
+            upstream_run_id=upstream_run_id,
+            upstream_run_attempt=upstream_run_attempt,
+            upstream_head_sha=head,
+            upstream_started_at="2026-08-27T22:05:00Z",
+            upstream_completed_at="2026-08-27T22:06:00Z",
+        )
+        if status != "GENUINE_SCHEDULED_FAIL_CLOSED_RUN" or value is None:
+            raise AssertionError(status)
+        return value
+
+    @staticmethod
+    def write_fail_closed_package(root: Path, value: dict, trusted_root: bytes):
+        receipt_path, _ = fail_closed.prepare_package(root, value)
+        package = receipt_path.parent
+        bundle = b'{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n'
+        (package / "attestation.jsonl").write_bytes(bundle)
+        (package / "trusted_root.jsonl").write_bytes(trusted_root)
+        observed = fail_closed._observation_record(
+            value, receipt_path.read_bytes(), bundle, trusted_root
+        )
+        (package / "observation.json").write_text(
+            json.dumps(observed, indent=2, sort_keys=True) + "\n"
+        )
         return package
 
     def test_real_retrieval_envelope_builds_natural_receipt(self):
@@ -438,6 +486,106 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
                     fail_root=base / "fail",
                 )
 
+    def test_attested_genuine_scheduled_failure_counts_once(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            trusted_root = b'{"trustedRoot":"fixture"}\n'
+            self.write_fail_closed_package(
+                base / "fail", self.fail_closed_receipt(), trusted_root
+            )
+            result = acceptance.build_inventory(
+                ROOT,
+                run_root=base / "runs",
+                portal_root=base / "portal",
+                fail_root=base / "fail",
+                fail_closed_attestation_verifier=lambda *args: None,
+                fail_closed_trusted_root_sha256=fail_closed.bytes_sha256(
+                    trusted_root
+                ),
+            )
+            self.assertEqual(result["observed"]["fail_closed_receipt_count"], 1)
+            self.assertEqual(
+                result["observed"]["genuine_scheduled_fail_closed_sample_count"],
+                1,
+            )
+            self.assertNotIn(
+                "GENUINE_SCHEDULED_FAIL_CLOSED_RECEIPT_MISSING",
+                result["blockers"],
+            )
+            self.assertNotIn(
+                "TRUSTED_FAIL_CLOSED_OBSERVER_WAITING_FOR_SAMPLE",
+                result["blockers"],
+            )
+
+    def test_fail_closed_rerun_attempts_for_one_subject_count_once(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            trusted_root = b'{"trustedRoot":"fixture"}\n'
+            self.write_fail_closed_package(
+                base / "fail",
+                self.fail_closed_receipt(
+                    observer_run_id=501, upstream_run_attempt=1
+                ),
+                trusted_root,
+            )
+            self.write_fail_closed_package(
+                base / "fail",
+                self.fail_closed_receipt(
+                    observer_run_id=502, upstream_run_attempt=2
+                ),
+                trusted_root,
+            )
+            result = acceptance.build_inventory(
+                ROOT,
+                run_root=base / "runs",
+                portal_root=base / "portal",
+                fail_root=base / "fail",
+                fail_closed_attestation_verifier=lambda *args: None,
+                fail_closed_trusted_root_sha256=fail_closed.bytes_sha256(
+                    trusted_root
+                ),
+            )
+            self.assertEqual(result["observed"]["fail_closed_receipt_count"], 2)
+            self.assertEqual(
+                result["observed"]["genuine_scheduled_fail_closed_sample_count"],
+                1,
+            )
+
+    def test_conflicting_fail_closed_subject_lineage_fails_closed(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            trusted_root = b'{"trustedRoot":"fixture"}\n'
+            self.write_fail_closed_package(
+                base / "fail",
+                self.fail_closed_receipt(
+                    observer_run_id=501, upstream_run_attempt=1
+                ),
+                trusted_root,
+            )
+            self.write_fail_closed_package(
+                base / "fail",
+                self.fail_closed_receipt(
+                    observer_run_id=502,
+                    upstream_run_attempt=2,
+                    conclusion="timed_out",
+                ),
+                trusted_root,
+            )
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "FAIL_CLOSED_SUBJECT_LINEAGE_CONFLICT",
+            ):
+                acceptance.build_inventory(
+                    ROOT,
+                    run_root=base / "runs",
+                    portal_root=base / "portal",
+                    fail_root=base / "fail",
+                    fail_closed_attestation_verifier=lambda *args: None,
+                    fail_closed_trusted_root_sha256=fail_closed.bytes_sha256(
+                        trusted_root
+                    ),
+                )
+
     def test_inventory_recomputed_validation_rejects_rehash_tamper(self):
         current = acceptance.build_inventory(ROOT)
         changed = copy.deepcopy(current)
@@ -477,7 +625,7 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         value = json.loads((ROOT / "evidence/operational/capital_rotation_e2e_acceptance.json").read_text())
         self.assertEqual(acceptance.validate_inventory(ROOT, value), value)
         self.assertEqual(value["status"], "NOT_READY")
-        self.assertEqual(value["schema_version"], "capital_rotation_e2e_acceptance/2")
+        self.assertEqual(value["schema_version"], "capital_rotation_e2e_acceptance/3")
         self.assertEqual(value["observed"]["portal_receipt_count"], 0)
         self.assertEqual(value["observed"]["natural_pair_dates"], [])
 

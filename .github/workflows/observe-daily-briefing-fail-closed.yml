@@ -24,13 +24,15 @@ jobs:
        github.event.workflow_run.conclusion == 'timed_out')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       # workflow_run carries a write token. Execute only code from the current
-      # trusted default branch; the failed upstream head is read with git show
-      # for hashing and is never checked out or executed.
+      # trusted default-branch event SHA; the failed upstream head is read with
+      # git show for hashing and is never checked out or executed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:

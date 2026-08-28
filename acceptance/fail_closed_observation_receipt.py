@@ -178,6 +178,15 @@ def build_receipt(
     )
     _full_sha(observer_head_sha, "FAIL_CLOSED_OBSERVER_HEAD_INVALID")
     _full_sha(upstream_head_sha, "FAIL_CLOSED_SUBJECT_HEAD_INVALID")
+    current_head = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if current_head.returncode or current_head.stdout.strip() != observer_head_sha:
+        fail("FAIL_CLOSED_OBSERVER_CHECKOUT_MISMATCH")
     started_at = _timestamp(upstream_started_at, "FAIL_CLOSED_STARTED_AT_INVALID")
     completed_at = _timestamp(upstream_completed_at, "FAIL_CLOSED_COMPLETED_AT_INVALID")
     if completed_at < started_at:

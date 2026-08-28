@@ -100,6 +100,13 @@ class FailClosedObservationTests(unittest.TestCase):
         ):
             receipt.validate_receipt(ROOT, changed)
 
+    def test_observer_receipt_requires_exact_checked_out_event_sha(self):
+        with self.assertRaisesRegex(
+            receipt.FailClosedReceiptError,
+            "FAIL_CLOSED_OBSERVER_CHECKOUT_MISMATCH",
+        ):
+            build(observer_head_sha="f" * 40)
+
     def test_attested_package_revalidates_and_binds_path(self):
         _, value = build()
         with tempfile.TemporaryDirectory() as name:
@@ -191,7 +198,8 @@ class FailClosedObservationTests(unittest.TestCase):
         self.assertIn("workflow_run:", text)
         self.assertIn("github.event.workflow_run.event == 'schedule'", text)
         self.assertIn("github.event.workflow_run.conclusion == 'failure'", text)
-        self.assertIn("ref: ${{ github.event.repository.default_branch }}", text)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", text)
+        self.assertIn("ref: ${{ github.sha }}", text)
         self.assertNotIn("ref: ${{ github.event.workflow_run.head_sha }}", text)
         self.assertIn(
             "actions/attest-build-provenance@"

@@ -644,11 +644,13 @@ APPROVED_TESTS = [
     # distinct natural AM/PM dates, viewer-visible Portal receipts for both
     # slots, and one separately attested genuine fail-closed run are required.
     # Portal receipts require GitHub-attested exact bytes plus offline replay;
-    # self-authored/self-hashed JSON stays rejected. The separate genuine
-    # fail-closed producer is not implemented, so that count remains zero.
+    # self-authored/self-hashed JSON stays rejected. A separate workflow_run
+    # observer accepts only GitHub-authored scheduled failure/timed_out events,
+    # stores exact attested bytes, and awaits its first genuine natural sample.
     # Manual/replay/recovery is always excluded and every money/trading
     # authority remains false.
     "test/test_capital_rotation_e2e_acceptance.py",
+    "test/test_p8_15_fail_closed_observation.py",
     # ★ H-24 — exact producer locator -> deterministic read-only consumer.
     #   No directory scan/prior-date/alternate-slot fallback; slot/date/revision,
     #   index/packet/rendered hashes and authority=false are independently checked.

@@ -7,9 +7,13 @@ or a manual recovery.  Daily Briefing therefore commits a separate append-only
 run receipt whose event provenance comes directly from GitHub Actions context.
 
 The evaluator counts a date only when both morning and evening receipts are
-`NATURAL_SCHEDULED_RUN`.  `workflow_dispatch`, replay, non-schedule events,
-unknown cron expressions, duplicate slots, missing or tampered envelopes, and
-mixed source/generation lineage fail closed or remain excluded.
+`NATURAL_SCHEDULED_RUN`.  A Portal projection must rejoin both embedded slots
+to those exact selected receipts by run id/attempt, workflow head, source
+commit, generation id, packet hash, and briefing hash.  Re-observing an
+identical natural pair is deduplicated by decision date; conflicting lineage
+for the same date fails closed.  `workflow_dispatch`, replay, non-schedule
+events, unknown cron expressions, duplicate slots, missing or tampered
+envelopes, and mixed source/generation lineage fail closed or remain excluded.
 
 The canonical Exit Gate remains:
 
@@ -28,9 +32,21 @@ snapshot.  Import also performs online verification before downloading the
 offline bundle.  A GitHub trusted-root rotation therefore fails closed until
 the contract pin is independently reviewed and updated; it is never accepted
 implicitly.  A self-authored or merely self-hashed JSON receipt is still
-rejected.  No natural Portal receipt exists
-yet, so the projected-pair count remains zero.  The separate genuine
-fail-closed receipt producer is still not implemented.
+rejected.  No natural Portal receipt exists yet, so the projected-pair count
+remains zero.
+
+The genuine fail-closed producer is a separate `workflow_run` observer.  It
+runs only after `Atlas Daily Briefing Integration v1` completes with a
+GitHub-authored `schedule` event and a `failure` or `timed_out` conclusion.
+The observer checks out only the exact trusted default-branch event SHA, never
+executes the failed upstream revision, hashes the exact upstream workflow bytes from its
+immutable head, and signs the observation with GitHub build provenance.  The
+stored bundle is replayed offline against the same contract-pinned trusted
+root used by Portal imports.  Manual, successful, cancelled, skipped, and
+non-`workflow_run` executions cannot produce a counted sample.  Re-run
+attempts of one upstream run count once, while conflicting subject lineage
+fails closed.  The producer is implemented but the required natural failure
+sample has not occurred, so that count remains zero.
 
 All Regime, strategy, Stage, Buy, Action, Order, Production, and trading
 authority remains false.
