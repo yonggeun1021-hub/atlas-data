@@ -48,24 +48,53 @@ class DartStructuralContentIndexTests(unittest.TestCase):
     def setUpClass(cls):
         cls.packet = MODULE.build_packet(decision_at=DECISION_AT)
 
-    def test_real_retained_filing_is_indexed_without_semantic_items(self):
+    def test_real_retained_filings_are_indexed_without_semantic_items(self):
         packet = self.packet
         self.assertEqual(packet["schema_version"], "dart_structural_content_index_packet/1")
         self.assertEqual(
             packet["status"],
             "STRUCTURAL_INDEX_RECORDED_ITEM_EXTRACTION_UNRATIFIED",
         )
-        self.assertEqual(packet["summary"]["source_observation_count"], 2)
-        self.assertEqual(packet["summary"]["raw_bytes_verified_count"], 1)
-        self.assertEqual(packet["summary"]["indexed_filing_count"], 1)
-        self.assertEqual(packet["summary"]["indexed_document_count"], 1)
-        self.assertEqual(packet["summary"]["text_document_count"], 1)
+        source_observations = MODULE.DART_OBSERVATION.build_packet(
+            decision_at=DECISION_AT
+        )["observations"]
+        raw_source_identities = {
+            (row["subject_id"], row["rcept_no"])
+            for row in source_observations
+            if row["evidence"]["status"]
+            == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+        }
+        indexed_identities = {
+            (row["subject_id"], row["rcept_no"])
+            for row in packet["indexed_filings"]
+        }
+        self.assertEqual(
+            packet["summary"]["source_observation_count"], len(source_observations)
+        )
+        self.assertEqual(
+            packet["summary"]["raw_bytes_verified_count"], len(raw_source_identities)
+        )
+        self.assertEqual(
+            packet["summary"]["indexed_filing_count"], len(packet["indexed_filings"])
+        )
+        self.assertEqual(indexed_identities, raw_source_identities)
+        self.assertEqual(
+            packet["summary"]["indexed_document_count"], len(packet["documents"])
+        )
+        self.assertEqual(
+            packet["summary"]["text_document_count"],
+            sum(
+                document["status"] == "STRUCTURE_ONLY_ITEM_EXTRACTION_UNRATIFIED"
+                for document in packet["documents"]
+            ),
+        )
+        self.assertGreater(len(packet["indexed_filings"]), 0)
         self.assertGreater(packet["summary"]["table_count"], 0)
         self.assertGreater(packet["summary"]["row_count"], 0)
         self.assertGreater(packet["summary"]["cell_count"], 0)
         self.assertEqual(packet["summary"]["semantic_item_count"], 0)
-        self.assertEqual(packet["indexed_filings"][0]["subject_id"], "329180")
-        self.assertEqual(packet["documents"][0]["semantic_items"], [])
+        self.assertTrue(all(row["subject_id"] == "329180" for row in packet["indexed_filings"]))
+        self.assertTrue(all(document["semantic_items"] == [] for document in packet["documents"]))
 
     def test_metadata_only_filing_is_not_presented_as_content_indexed(self):
         self.assertNotIn(

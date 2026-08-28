@@ -1266,8 +1266,24 @@ class DailyOrchestratorTest(unittest.TestCase):
         # decision_date genuinely does not match the real committed
         # collector evidence's own collected_for_kst_date -- that is
         # correct, honest behaviour, not a cascading crash.)
-        self.assertEqual(by_id["BTC_TREND"]["status"], "READY")
-        self.assertEqual(by_id["US_BREADTH_MEMBERSHIP"]["status"], "READY")
+        # These independent components must have exactly the status their
+        # own production builders derive for this real evidence date.  Do
+        # not freeze that status to READY: append-only archives can have an
+        # honest date gap (for example BTC capture 2026-08-27 is absent),
+        # and DATA_BLOCKED/NO_CAPTURE_FOR_DECISION_DATE is then the correct
+        # non-cascading result.  The invariant under test is that the
+        # UNIFIED_DECISION date failure does not rewrite either component.
+        for component_id, builder in (
+            ("BTC_TREND", MODULE.build_btc_trend),
+            ("US_BREADTH_MEMBERSHIP", MODULE.build_us_breadth_membership),
+        ):
+            independent = builder(mismatched_decision_date)
+            self.assertEqual(
+                by_id[component_id]["status"], independent["status"], component_id
+            )
+            self.assertEqual(
+                by_id[component_id]["reason"], independent["reason"], component_id
+            )
         # KRX_PREOPEN_COMPACT correctly reports DATA_BLOCKED (a collector
         # data failure -- the mismatched date -- not a read-model-only
         # DEGRADED), and ACTION_RISK_PORTFOLIO_SUMMARY cascades to DEGRADED
