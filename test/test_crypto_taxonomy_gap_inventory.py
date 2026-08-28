@@ -140,12 +140,33 @@ class CryptoTaxonomyGapInventoryTests(unittest.TestCase):
         source_date = sorted(path.name for path in raw_root.iterdir() if path.is_dir())[-1]
         record = INVENTORY.build_inventory(source_date, raw_root=raw_root)
         self.assertEqual(record["status"], "REVIEW_INVENTORY_ONLY")
-        self.assertGreater(record["selection_context"]["unknown_before_cutoff_count"], 0)
-        ranks = [
-            row["rank_before_taxonomy"]
-            for row in record["review_population"]["taxonomy_unknown_before_cutoff"]
-        ]
+        # 2026-08-22 audit finding (crypto_breadth.py's qualified_members
+        # docstring): this is a cutoff-aware Top-N scan, not a full-universe
+        # classification pass. unknown_before_cutoff_count reaches 0
+        # exactly when real taxonomy ratification has caught up with every
+        # candidate ranked ahead of the target-th eligible_crypto slot on
+        # THIS real snapshot -- that is genuine, legitimate classification
+        # coverage progress on live data, not a defect. This test must
+        # never assert a specific non-zero count against the real archive
+        # (the frozen-fixture test above,
+        # test_gap_inventory_is_diagnostic_only_and_creates_no_classification,
+        # already pins the non-zero-unknown scenario deterministically).
+        # What must hold regardless of how much of the real universe is
+        # currently classified:
+        unknown_count = record["selection_context"]["unknown_before_cutoff_count"]
+        unknown_rows = record["review_population"]["taxonomy_unknown_before_cutoff"]
+        self.assertGreaterEqual(unknown_count, 0)
+        self.assertEqual(unknown_count, len(unknown_rows))
+        ranks = [row["rank_before_taxonomy"] for row in unknown_rows]
         self.assertEqual(ranks, sorted(ranks))
+        # The unknown_reason/unknown_count relationship IS a meaningful,
+        # state-independent invariant: it must never claim a taxonomy
+        # coverage gap when there isn't one, and never omit the reason
+        # when there is.
+        if unknown_count > 0:
+            self.assertEqual(record["source_outcome"]["unknown_reason"], "TAXONOMY_COVERAGE_UNKNOWN")
+        else:
+            self.assertNotEqual(record["source_outcome"]["unknown_reason"], "TAXONOMY_COVERAGE_UNKNOWN")
         self.assertEqual(record["authority"]["records_ratified"], 0)
         self.assertFalse(record["authority"]["investability_authorized"])
 
