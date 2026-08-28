@@ -616,6 +616,8 @@ def _read_stored_revision(
         raise PortalProducerError("IMMUTABLE_REPORT_NOT_CANONICAL")
     if canonical(display) + b"\n" != bodies["display-proposal.json"]:
         raise PortalProducerError("IMMUTABLE_DISPLAY_NOT_CANONICAL")
+    if canonical(bundle) + b"\n" != bodies["bundle.json"]:
+        raise PortalProducerError("IMMUTABLE_BUNDLE_NOT_CANONICAL")
 
     # Recovery must apply the same source-bound semantic validation as a
     # first publication.  Cross-file hashes alone only prove that a bundle is

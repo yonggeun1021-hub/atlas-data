@@ -596,6 +596,18 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         ):
             producer.build(args)
 
+    def test_no_change_rejects_noncanonical_bundle_bytes(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+        bundle_path = revision / "bundle.json"
+        bundle = json.loads(bundle_path.read_text())
+        bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n")
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_BUNDLE_NOT_CANONICAL"
+        ):
+            producer.build(args)
+
     def test_no_change_replays_production_validation_not_only_bundle_hashes(self):
         args = self._inputs()
         built = producer.build(args)
