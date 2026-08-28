@@ -1,3 +1,10 @@
 pykrx>=1.2.8
 requests>=2.31.0
 pandas>=2.0.0
+# P9-06 -- Upbit public realtime WebSocket capture
+# (.github/scripts/upbit_realtime_capture.py). No API key/secret; public
+# market-data channels only (ticker/trade/orderbook/candle.*). Imported
+# lazily inside that script (never at module import time), so
+# realtime/upbit_realtime_gate.py and its regression suite have zero
+# dependency on this package.
+websockets>=12.0

@@ -19,8 +19,8 @@ def main() -> int:
         date, slot = data.get("active_from") or (None, None)
         print(f"::notice::finalization active from {date} {slot}")
     if data.get("semantic_validator_expected") is False:
-        print("::notice::no semantic validator configured — clean rounds deliver "
-              "stamped UNVALIDATED_NO_VALIDATOR; facts were never checked")
+        print("::error::no semantic validator configured — the slot remains sealed "
+              "and no Portal, Notion-final, or user delivery is authorized")
     for item in data.get("pending_delivery_debt", []):
         print(f"::error::{item['briefing_id']} sealed but never delivered "
               f"({item.get('age_days')} days old) — debt does not expire")

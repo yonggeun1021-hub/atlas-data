@@ -91,6 +91,10 @@ APPROVED_TESTS = [
     # receipt revision per change. Portal projection is a fail-closed gate
     # before the delivery step and adds no cron or third-party Action.
     "test/test_briefing_finalization_e2e.py",
+    # Validation-first production wiring: natural producer stops at DRAFT,
+    # semantic timeout is HOLD, and the activated epoch requires Portal
+    # verification before final Notion projection or user delivery.
+    "test/test_briefing_validation_first_wiring.py",
     # The committed CIO Ed25519 verification key must match the out-of-band
     # GitHub secret anchor before any PR can pass the authoritative CI gate.
     # Failure output is code-only and never prints the configured anchor.
@@ -221,6 +225,36 @@ APPROVED_TESTS = [
     "test/test_upbit_candle_finalization.py",
     "test/test_upbit_microstructure_capture.py",
     "test/test_upbit_market_evidence_microstructure.py",
+    # ★ P9-06 -- real-time Upbit public WebSocket layer sitting on top of
+    #   P4-07's REST evidence contract. A deployment-agnostic, fully
+    #   mock-tested state machine (realtime/upbit_realtime_gate.py, zero
+    #   network/``websockets`` dependency) -- connection/reconnect with
+    #   exponential backoff, an exact-duplicate guard, a
+    #   sequential_id/timestamp out-of-order tracker, finalized-candle
+    #   idempotency built directly on P4-07's
+    #   ``classify_candles``/``merge_finalized_no_overwrite`` (candle.15m/
+    #   60m/240m over WS -- verified live; no WS daily candle stream
+    #   exists, so 1d stays REST-only), connection-outage gap windows for
+    #   REST backfill, and a health/ready/metrics ``status_snapshot``.
+    #   Real-time freshness evaluation literally calls (never
+    #   reimplements) P9-01's ``execution/intraday_freshness.py`` and fails
+    #   closed to UNKNOWN pending a human-ratified CRYPTO threshold policy
+    #   -- this repo ships none by design, same as P9-01 itself. Dynamic
+    #   subscription is scoped to P3-12's committed TRADEABLE_UNIVERSE/
+    #   PAPER_ELIGIBLE set only -- currently empty in production since
+    #   P3-12 remains unratified; an empty subscription list is a normal,
+    #   successful outcome, not a bug. The bounded-run capture script
+    #   (`.github/scripts/upbit_realtime_capture.py`) is this repo's cron
+    #   architecture's honest fit for a WS layer -- connect, stream for a
+    #   configurable bounded window (reconnecting within it), write
+    #   append-only evidence, exit cleanly; a genuinely persistent daemon
+    #   is a separate, later, infrastructure-track decision, not this PR's.
+    #   Only Upbit's public ticker/trade/orderbook/candle.* channels are
+    #   ever subscribed to -- ``myOrder``/``myAsset`` and any order/
+    #   withdrawal/private REST endpoint are hard-forbidden in code
+    #   (``PRIVATE_WS_TYPES_FORBIDDEN``), never merely policy-forbidden.
+    #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
+    "test/test_upbit_realtime_gate.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached

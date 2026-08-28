@@ -2013,7 +2013,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         schedule = WF.get("on", WF.get(True))["schedule"]
         self.assertEqual(
             {item["cron"] for item in schedule},
-            {"5 22 * * 0-4", "30 9 * * 1-5"},
+            {"5 22 * * *", "30 9 * * 1-5"},
         )
         publish = next(
             step for step in WF["jobs"]["briefing"]["steps"]
@@ -2021,7 +2021,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         )
         command = publish["run"]
         self.assertIn("EVENT_SCHEDULE", publish.get("env", {}))
-        self.assertIn('"5 22 * * 0-4") SLOT="morning"', command)
+        self.assertIn('"5 22 * * *") SLOT="morning"', command)
         self.assertIn('"30 9 * * 1-5") SLOT="evening"', command)
         self.assertNotIn("date +%H", command)
         self.assertNotIn("KST_HOUR", command)

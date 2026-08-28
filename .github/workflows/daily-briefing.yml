@@ -2,9 +2,10 @@ name: Atlas Daily Briefing Integration v1
 
 on:
   schedule:
-    # 07:05 KST weekday morning slot -- after the 06:57 P0-02 recovery gate,
-    # confirmed-history only. Sun-Thu UTC == Mon-Fri KST next day.
-    - cron: "5 22 * * 0-4"
+    # 07:05 KST daily morning slot.  Weekends still produce a fail-closed
+    # briefing from the latest confirmed history; "market closed / no new
+    # session" is a valid morning result, not a reason to skip the round.
+    - cron: "5 22 * * *"
     # 18:30 KST weekday evening slot -- after the P0-04 18:00 KRX post-close
     # cutoff. Mon-Fri UTC == Mon-Fri KST same day.
     - cron: "30 9 * * 1-5"
@@ -116,7 +117,7 @@ jobs:
           case "${{ github.event_name }}" in
             schedule)
               case "$EVENT_SCHEDULE" in
-                "5 22 * * 0-4") SLOT="morning" ;;
+                "5 22 * * *") SLOT="morning" ;;
                 "30 9 * * 1-5") SLOT="evening" ;;
                 *) echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2; exit 2 ;;
               esac
@@ -187,7 +188,7 @@ jobs:
             # at -- a large scheduler delay could push a morning run past
             # noon KST and misclassify it as evening if hour were used.
             case "$EVENT_SCHEDULE" in
-              "5 22 * * 0-4") SLOT="morning" ;;
+              "5 22 * * *") SLOT="morning" ;;
               "30 9 * * 1-5") SLOT="evening" ;;
               *)
                 echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2
@@ -544,12 +545,12 @@ jobs:
             git push origin "HEAD:$DEFAULT_BRANCH"
           }
 
-      # Portal projection is a pre-delivery gate. Once the policy is live, a
-      # Notion write/readback failure prevents the one user delivery; a retry
-      # upserts the same briefing/change and reuses valid receipts. With the
-      # policy flags false this is an explicit no-op. The canary override is
-      # manual-only and cannot be reached by schedule/repository_dispatch.
+      # Final Notion SSOT projection is drain-only. The natural producer leaves
+      # only a DRAFT/semantic handoff. The named external validator invokes
+      # drain after semantic PASS and after the Portal viewer + Portal Notion
+      # receipt have been independently verified and recorded source-side.
       - name: Project canonical briefing to Notion SSOT
+        if: steps.resolve.outputs.mode == 'drain'
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
@@ -574,6 +575,7 @@ jobs:
       # item, and exits non-zero while any due slot is still undelivered. A
       # briefing nobody received is not a green build.
       - name: Ingest verdicts and deliver
+        if: steps.resolve.outputs.mode == 'drain'
         id: gate
         env:
           ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}

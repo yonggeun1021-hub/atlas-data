@@ -260,8 +260,8 @@ NEW_STEPS = '''
             --repo-root . || echo "::warning::pending verdict could not be recorded; the gate will fail closed at drain"
 
       # Deterministic checks only. A clean result is NOT a final PASS: it writes
-      # a machine record and leaves the gate's verdict slot open, so the existing
-      # fail-open policy still owns the outcome. Exits 0 even on HOLD -- the
+      # a machine record and leaves the gate's verdict slot open until the named
+      # semantic validator answers. Exits 0 even on HOLD -- the
       # verdict, not the exit code, is what blocks.
       - name: Run deterministic validator
         if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
