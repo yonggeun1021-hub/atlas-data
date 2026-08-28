@@ -136,12 +136,12 @@ def load_contract(repo_root: Path) -> dict:
     }:
         fail("ACCEPTANCE_CONTRACT_FIELDS_MISMATCH")
     if (
-        value.get("schema_version") != "capital_rotation_e2e_acceptance_contract/2"
+        value.get("schema_version") != "capital_rotation_e2e_acceptance_contract/3"
         or value.get("wbs_item") != "P8-15"
         or value.get("manual_and_replay_count_as_natural") is not False
         or value.get("portal_receipt_required") is not True
         or value.get("portal_receipt_producer_status") != "IMPLEMENTED_GITHUB_ATTESTED_IMPORT"
-        or value.get("fail_closed_receipt_producer_status") != "NOT_IMPLEMENTED_FAIL_CLOSED"
+        or value.get("fail_closed_receipt_producer_status") != "IMPLEMENTED_GITHUB_ATTESTED_IMPORT"
         or SHA256.fullmatch(str(value.get("github_attestation_trusted_root_sha256", ""))) is None
         or value.get("authority") != AUTHORITY
         or value.get("exit_gate") != {
@@ -442,6 +442,23 @@ def _portal_pair_lineage(portal_receipt: dict) -> dict:
     }
 
 
+def _portal_fail_closed_lineage(portal_receipt: dict) -> dict:
+    """Normalize one scheduled observer run across GitHub rerun attempts."""
+    observer = portal_receipt["observer"]
+    return {
+        "observer": {
+            "workflow": observer["workflow"],
+            "event_name": observer["event_name"],
+            "event_schedule": observer["event_schedule"],
+            "run_id": observer["run_id"],
+            "workflow_head_sha": observer["workflow_head_sha"],
+        },
+        "site": portal_receipt["site"],
+        "fail_closed": portal_receipt["fail_closed"],
+        "completion_state": portal_receipt["completion_state"],
+    }
+
+
 def build_inventory(
     repo_root: Path = ROOT,
     *,
@@ -507,8 +524,20 @@ def build_inventory(
         if code == "UNTRUSTED_PORTAL_RECEIPT_PRESENT":
             fail(code)
         fail("INVALID_TRUSTED_PORTAL_RECEIPT_PRESENT", code)
-    if list(_iter_json(fail_root)):
-        fail("UNTRUSTED_FAIL_CLOSED_RECEIPT_PRESENT")
+    try:
+        fail_closed_receipts = portal_observation.iter_imported_fail_closed_receipts(
+            fail_root,
+            verifier=portal_attestation_verifier,
+            expected_trusted_root_sha256=(
+                portal_trusted_root_sha256
+                or contract["github_attestation_trusted_root_sha256"]
+            ),
+        )
+    except portal_observation.PortalReceiptError as exc:
+        code = str(exc).split(":", 1)[0]
+        if code == "UNTRUSTED_FAIL_CLOSED_RECEIPT_PRESENT":
+            fail(code)
+        fail("INVALID_TRUSTED_FAIL_CLOSED_RECEIPT_PRESENT", code)
     portal_natural = [
         row for row in portal_receipts
         if row["sample_qualification"] == "NATURAL_SCHEDULED_PORTAL_OBSERVATION"
@@ -534,7 +563,26 @@ def build_inventory(
         for date in portal_by_date
         if date in by_date and set(by_date[date]) == SLOTS
     )
-    fail_closed_count = 0
+    fail_closed_natural = [
+        row for row in fail_closed_receipts
+        if row["sample_qualification"] == "NATURAL_SCHEDULED_PORTAL_OBSERVATION"
+    ]
+    fail_closed_by_run: dict[int, list[dict]] = {}
+    for row in fail_closed_natural:
+        fail_closed_by_run.setdefault(row["observer"]["run_id"], []).append(row)
+    superseded_fail_closed_attempt_count = 0
+    for run_id, rows in fail_closed_by_run.items():
+        attempts = [row["observer"]["run_attempt"] for row in rows]
+        if len(set(attempts)) != len(attempts):
+            fail("DUPLICATE_FAIL_CLOSED_RUN_ATTEMPT", str(run_id))
+        lineages = {
+            canonical_json(_portal_fail_closed_lineage(row))
+            for row in rows
+        }
+        if len(lineages) != 1:
+            fail("FAIL_CLOSED_RECEIPT_LINEAGE_CONFLICT", str(run_id))
+        superseded_fail_closed_attempt_count += len(rows) - 1
+    fail_closed_count = len(fail_closed_by_run)
     exit_gate = contract["exit_gate"]
     blockers = []
     if len(pair_dates) < exit_gate["required_distinct_natural_pair_dates"]:
@@ -543,9 +591,8 @@ def build_inventory(
         blockers.append("THREE_VIEWER_VISIBLE_PROJECTED_PAIRS_NOT_MET")
     if fail_closed_count < exit_gate["required_genuine_scheduled_fail_closed_samples"]:
         blockers.append("GENUINE_SCHEDULED_FAIL_CLOSED_RECEIPT_MISSING")
-        blockers.append("TRUSTED_FAIL_CLOSED_RECEIPT_PRODUCER_NOT_IMPLEMENTED")
     inventory = {
-        "schema_version": "capital_rotation_e2e_acceptance/2",
+        "schema_version": "capital_rotation_e2e_acceptance/3",
         "wbs_item": "P8-15",
         "status": "PASS" if not blockers else "NOT_READY",
         "exit_gate": exit_gate,
@@ -559,6 +606,9 @@ def build_inventory(
             "manual_or_non_schedule_portal_receipt_count": len(portal_receipts) - len(portal_natural),
             "viewer_visible_projected_pair_dates": projected_pair_dates,
             "genuine_scheduled_fail_closed_sample_count": fail_closed_count,
+            "fail_closed_receipt_count": len(fail_closed_receipts),
+            "manual_or_non_schedule_fail_closed_receipt_count": len(fail_closed_receipts) - len(fail_closed_natural),
+            "superseded_fail_closed_rerun_attempt_count": superseded_fail_closed_attempt_count,
         },
         "blockers": blockers,
         "provenance_rules": {
