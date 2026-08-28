@@ -97,13 +97,17 @@ class ProposalShapeTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(json.loads((root / name).read_text()), packet)
 
-    def test_authority_configs_remain_without_071050_kis_alias(self):
+    def test_authority_config_contains_only_the_separately_ratified_071050_alias(self):
         identity = json.loads((ROOT / "config" / "canonical_security_identity.json").read_text())
-        self.assertFalse(any(
-            row.get("source_name") == "kis_paper_domestic_balance"
-            and row.get("source_asset_id") == "071050"
-            for row in identity["source_aliases"]
-        ))
+        aliases = [
+            row for row in identity["source_aliases"]
+            if row.get("source_name") == "kis_paper_domestic_balance"
+        ]
+        self.assertEqual(len(aliases), 1)
+        self.assertEqual(
+            (aliases[0]["source_asset_id"], aliases[0]["listing_id"]),
+            ("071050", "XKRX:071050"),
+        )
 
 
 class CounterexampleTests(unittest.TestCase):
