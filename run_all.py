@@ -1365,6 +1365,14 @@ APPROVED_TESTS = [
     # contracts/observations -> 3 instruments + 3 explicit scope edges.
     # Identity only; no investability, entry, sizing, or trading authority.
     "test/test_identity_authority_pilot.py",
+    # P0-2C-1: provider-authority mechanism layer -- whether a data
+    # PROVIDER (e.g. KIS_PAPER_ACCOUNT) is a RATIFIED portfolio-fact
+    # source is a separate fact from whether its API can be read.
+    # config/data_provider_authority.json stays an empty mechanism
+    # (provider_authority_records: []); no real row exists or is
+    # ratified by this file. Identity only; no investability, Stage,
+    # Buy, or Order authority.
+    "test/test_data_provider_authority.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.

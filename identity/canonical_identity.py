@@ -213,9 +213,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SECURITY_IDENTITY_PATH = ROOT / "config" / "canonical_security_identity.json"
 MARKET_ACCOUNT_SCOPE_PATH = ROOT / "config" / "market_account_scope_map.json"
+DATA_PROVIDER_AUTHORITY_PATH = ROOT / "config" / "data_provider_authority.json"
 
 SUPPORTED_SECURITY_IDENTITY_POLICY_VERSIONS = frozenset({"canonical_security_identity/v1"})
 SUPPORTED_MARKET_ACCOUNT_SCOPE_POLICY_VERSIONS = frozenset({"market_account_scope_map/v1"})
+SUPPORTED_DATA_PROVIDER_AUTHORITY_POLICY_VERSIONS = frozenset({"data_provider_authority/v1"})
 
 ALLOWED_APPROVAL_STATUS = frozenset({"PROVISIONAL", "RATIFIED"})
 
@@ -224,6 +226,7 @@ LAYER_INSTRUMENT = "INSTRUMENT"
 LAYER_LISTING = "LISTING"
 LAYER_SOURCE_ALIAS = "SOURCE_ALIAS"
 LAYER_MARKET_ACCOUNT_SCOPE = "MARKET_ACCOUNT_SCOPE"
+LAYER_PROVIDER_AUTHORITY = "PROVIDER_AUTHORITY"
 
 _LAYER_ARRAY_KEY = {
     LAYER_ISSUER: "issuers",
@@ -231,6 +234,7 @@ _LAYER_ARRAY_KEY = {
     LAYER_LISTING: "listings",
     LAYER_SOURCE_ALIAS: "source_aliases",
     LAYER_MARKET_ACCOUNT_SCOPE: "edges",
+    LAYER_PROVIDER_AUTHORITY: "provider_authority_records",
 }
 
 _SECURITY_IDENTITY_ARRAYS = ("issuers", "instruments", "listings", "source_aliases")
@@ -251,6 +255,7 @@ LAYER_BUSINESS_FIELDS = {
     LAYER_LISTING: ("listing_id", "canonical_instrument_id", "market", "exchange", "currency", "ticker"),
     LAYER_SOURCE_ALIAS: ("source_name", "source_asset_id", "listing_id"),
     LAYER_MARKET_ACCOUNT_SCOPE: ("market", "account_scope"),
+    LAYER_PROVIDER_AUTHORITY: ("provider", "account_scope", "currency", "position_source_name"),
 }
 
 # rev 4: the FULL set of fields that actually control the eligibility
@@ -290,6 +295,7 @@ NOT_COMPUTABLE_UNRATIFIED_RECORD = "IDENTITY_NOT_COMPUTABLE_UNRATIFIED_RECORD"
 NOT_COMPUTABLE_AMBIGUOUS = "IDENTITY_NOT_COMPUTABLE_AMBIGUOUS"
 NOT_COMPUTABLE_PIT_VIOLATION = "IDENTITY_NOT_COMPUTABLE_PIT_VIOLATION"
 NOT_COMPUTABLE_SCOPE_MAP_MISSING = "IDENTITY_NOT_COMPUTABLE_SCOPE_MAP_MISSING"
+NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED = "IDENTITY_NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED"
 NOT_COMPUTABLE_SCHEMA_VERSION_MISMATCH = "IDENTITY_NOT_COMPUTABLE_SCHEMA_VERSION_MISMATCH"
 NOT_COMPUTABLE_LAYER_MISMATCH = "IDENTITY_NOT_COMPUTABLE_LAYER_MISMATCH"
 NOT_COMPUTABLE_TAMPERED_RECORD = "IDENTITY_NOT_COMPUTABLE_TAMPERED_RECORD"
@@ -484,6 +490,21 @@ def validate_market_account_scope_document(doc) -> None:
         raise IdentityError(f"UNSUPPORTED_SCOPE_POLICY_VERSION:{doc.get('policy_version')!r}")
     if not isinstance(doc.get("edges"), list):
         raise IdentityError("AUTHORITY_DOCUMENT_MISSING_ARRAY:edges")
+
+
+def validate_data_provider_authority_document(doc) -> None:
+    """P0-2C-1: a data PROVIDER (e.g. ``KIS_PAPER_ACCOUNT``) being
+    genuinely readable is a completely separate fact from Atlas
+    recognizing it as an authoritative portfolio-fact source. This
+    document is that recognition -- and, same as every other layer here,
+    grants no investability/Stage/Buy/Order authority regardless of
+    approval_status."""
+    if not isinstance(doc, dict):
+        raise IdentityError("AUTHORITY_DOCUMENT_NOT_A_DICT")
+    if doc.get("policy_version") not in SUPPORTED_DATA_PROVIDER_AUTHORITY_POLICY_VERSIONS:
+        raise IdentityError(f"UNSUPPORTED_PROVIDER_AUTHORITY_POLICY_VERSION:{doc.get('policy_version')!r}")
+    if not isinstance(doc.get("provider_authority_records"), list):
+        raise IdentityError("AUTHORITY_DOCUMENT_MISSING_ARRAY:provider_authority_records")
 
 
 # ---------------------------------------------------------------------------
@@ -773,6 +794,18 @@ def load_scope_authority(path=MARKET_ACCOUNT_SCOPE_PATH) -> dict:
     validate_market_account_scope_document(doc)
     for row in doc.get("edges", []):
         validate_authority_row(row, LAYER_MARKET_ACCOUNT_SCOPE)
+    doc["_source_path"] = str(path)
+    return doc
+
+
+def load_provider_authority(path=DATA_PROVIDER_AUTHORITY_PATH) -> dict:
+    path = Path(path)
+    if not path.is_file():
+        raise IdentityError("PROVIDER_AUTHORITY_FILE_NOT_FOUND")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    validate_data_provider_authority_document(doc)
+    for row in doc.get("provider_authority_records", []):
+        validate_authority_row(row, LAYER_PROVIDER_AUTHORITY)
     doc["_source_path"] = str(path)
     return doc
 
@@ -1131,6 +1164,38 @@ def resolve_account_scope(market: str, decision_date: str, scope_authority: dict
             status = NOT_COMPUTABLE_SCOPE_MAP_MISSING
         return _result(status, decision_date, identity_basis=basis)
     return _result(RESOLVED, decision_date, identity_basis=basis, account_scope=row["account_scope"])
+
+
+def resolve_provider_authority(provider: str, account_scope: str, currency: str, position_source_name: str,
+                                decision_date: str, authority: dict, trusted_commit: str | None = None) -> dict:
+    """P0-2C-1: resolves whether the EXACT tuple ``(provider, account_scope,
+    currency, position_source_name)`` is a RATIFIED, provenance-bound
+    portfolio-fact source as of ``decision_date`` -- never merely whether
+    the provider's API can technically be read. A caller-suppliable
+    provider name never authorizes itself; absence of a record, or a
+    PROPOSED/PROVISIONAL one, both resolve NOT_COMPUTABLE the same as
+    every other layer in this module, mapped here to the single,
+    domain-specific ``NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED``
+    (mirrors ``resolve_account_scope``'s ``NOT_COMPUTABLE_SCOPE_MAP_MISSING``
+    collapse). Grants no investability/Stage/Buy/Order authority -- see
+    ``AUTHORITY_ALL_FALSE`` on the returned result."""
+    _parse_temporal(decision_date)
+    validate_data_provider_authority_document(authority)
+    tamper_status = _document_tamper_status(authority, trusted_commit=trusted_commit)
+    if tamper_status is not None:
+        return _result(tamper_status, decision_date, identity_basis=_basis_from_row(None))
+    git_path = authority.get("_source_path")
+    rows = [
+        r for r in authority.get("provider_authority_records", [])
+        if r.get("provider") == provider and r.get("account_scope") == account_scope
+        and r.get("currency") == currency and r.get("position_source_name") == position_source_name
+    ]
+    status, row, basis = _resolve_layer_row(rows, decision_date, LAYER_PROVIDER_AUTHORITY, git_path)
+    if status is not None:
+        if status in (NOT_COMPUTABLE_NO_AUTHORITY_RECORD, NOT_COMPUTABLE_UNRATIFIED_RECORD):
+            status = NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED
+        return _result(status, decision_date, identity_basis=basis)
+    return _result(RESOLVED, decision_date, identity_basis=basis, provider=row["provider"])
 
 
 # ---------------------------------------------------------------------------
