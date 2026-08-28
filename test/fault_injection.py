@@ -340,7 +340,7 @@ def test_intraday_exclusion() -> None:
     # ── 8-3 ★★ end-to-end 시각 불변성 — main() 을 일곱 시각에 돌려 비교한다 ──
     #   v4.0 초안(16:00 임계값)이었다면 16:30·23:59 에서 결과가 갈렸을 검사다.
     seen = set()
-    for h, m in ((6, 5), (9, 0), (10, 52), (14, 0), (15, 45), (16, 30), (23, 59)):
+    for h, m in ((5, 55), (6, 5), (9, 0), (10, 52), (14, 0), (15, 45), (16, 30), (23, 59)):
         wire()
         krx.now_kst = lambda h=h, m=m: dt.datetime(2026, 8, 14, h, m)
         captured.clear()
@@ -350,7 +350,7 @@ def test_intraday_exclusion() -> None:
             pass
         s5 = captured["stocks"]["005930"]
         seen.add((s5["latest_trading_day"], s5["sma20"], s5["latest_observed_day"]))
-    check("★★ 06:05~23:59 어느 시각에 main() 을 돌려도 산출물이 동일 (재현성)",
+    check("★★ 05:55~23:59 어느 시각에 main() 을 돌려도 산출물이 동일 (재현성)",
           seen == {("2026-08-13", 1000.0, "2026-08-14")}, f"got {seen}")
 
     # ── 8-4 확정은 다음 날 아침에 일어난다 — 데이터를 영구히 버리는 게 아니다 ──

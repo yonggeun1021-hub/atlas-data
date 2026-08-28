@@ -2230,7 +2230,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         # This test file's own existence and content must not have altered
         # either sibling collector workflow's schedule.
-        self.assertIn("cron: '5 21 * * 0-4'", collect_yml)
+        self.assertIn("cron: '55 20 * * 0-4'", collect_yml)
         self.assertIn("cron: '5 7 * * 1-5'", krx_post_close_yml)
 
 

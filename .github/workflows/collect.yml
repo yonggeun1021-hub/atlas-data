@@ -3,13 +3,15 @@ name: Atlas Daily Collect
 on:
   schedule:
     # ★★ GitHub schedule 은 best-effort 다 — 고부하 시 지연되거나 실행이 아예 드롭된다.
-    #    (공식 문서: "During periods of high load, your scheduled workflow may be delayed",
-    #     그리고 정시 :00 스케줄은 피하라고 권고)
-    #    따라서 슬롯을 하나만 두지 않고 3개를 건다. 먼저 성공한 회차가 데이터를 만들고,
-    #    뒤 회차는 아래 Guard 스텝이 스스로 종료시킨다.  (CIO 승인 2026-08-14)
-    - cron: '5 21 * * 0-4'    # 06:05 KST — 본 회차
-    - cron: '25 21 * * 0-4'   # 06:25 KST — 1차 백업
-    - cron: '45 21 * * 0-4'   # 06:45 KST — 2차 백업 (07:00 브리핑 전 마지막 기회)
+    #    최근 운영 관측에서 기존 06:05/06:25/06:45 슬롯이 06:55 checkpoint 뒤까지
+    #    반복 지연됐고, 2026-08-27에는 결국 수동 복구가 필요했다.
+    #    따라서 source-capture 시각을 크게 훼손하지 않는 선에서 10분 앞당겨
+    #    06:55까지 nominal 60/40/20분 버퍼를 확보한다.
+    #    이 변경은 best-effort 지연 완화책이지 hard-SLA 보장은 아니다.
+    #    먼저 성공한 회차가 데이터를 만들고 뒤 회차는 Guard가 collector 중복을 막는다.
+    - cron: '55 20 * * 0-4'   # 05:55 KST — 본 회차 (06:55까지 nominal 60분)
+    - cron: '15 21 * * 0-4'   # 06:15 KST — 1차 백업 (nominal 40분)
+    - cron: '35 21 * * 0-4'   # 06:35 KST — 2차 백업 (nominal 20분)
   workflow_dispatch:
 
 permissions:
@@ -340,7 +342,7 @@ jobs:
         env:
           # ★ 어느 트리거가 이 수집을 성사시켰는지 기록한다.
           #   schedule 이면 실제 발동한 cron 식이, 수동이면 workflow_dispatch 가 들어온다.
-          #   이 값이 쌓여야 "06:05 가 계속 이기는가 / 백업이 자주 받아내는가"를
+          #   이 값이 쌓여야 "본 회차가 계속 이기는가 / 백업이 자주 받아내는가"를
           #   측정할 수 있다. 이것 없이는 스케줄 신뢰도를 사후에 알 방법이 없다.
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
         run: |

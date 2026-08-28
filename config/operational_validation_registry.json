@@ -17,7 +17,7 @@
       "work_item_id": "P0-02",
       "automation_state": "SCHEDULED_INLINE",
       "workflow": ".github/workflows/collect.yml",
-      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "crons": ["55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"],
       "required_workflow_tokens": ["Record scheduler telemetry (P0-02)", "record_collect_run.py"],
       "remaining_gate": "measured scheduled-run sample count 3-5"
     },
@@ -41,7 +41,7 @@
       "work_item_id": "P1-KR-04",
       "automation_state": "SCHEDULED_UPSTREAM",
       "workflow": ".github/workflows/collect.yml",
-      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "crons": ["55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"],
       "required_workflow_tokens": ["Collect KRX"],
       "remaining_gate": "next-morning prior-session scheduled evidence"
     },
@@ -113,7 +113,7 @@
       "work_item_id": "P1-KR-06",
       "automation_state": "SCHEDULED_UPSTREAM",
       "workflow": ".github/workflows/collect.yml",
-      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "crons": ["55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"],
       "required_workflow_tokens": ["Capture next-session KOSPI availability (P1-KR-06)", "korea_risk_availability.py"],
       "remaining_gate": "first natural next-session receipt, then separately ratified volatility/drawdown parameters and transform/replay"
     },
@@ -179,7 +179,7 @@
       "work_item_id": "P4-02",
       "automation_state": "SCHEDULED_UPSTREAM",
       "workflow": ".github/workflows/collect.yml",
-      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "crons": ["55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"],
       "required_workflow_tokens": ["Capture SEC filing content (P4-02)", "latest_sec_content.json"],
       "remaining_gate": "first post-merge regular Daily Collect output and briefing overlay"
     },
@@ -187,7 +187,7 @@
       "work_item_id": "P4-03",
       "automation_state": "SCHEDULED_UPSTREAM",
       "workflow": ".github/workflows/collect.yml",
-      "crons": ["5 21 * * 0-4", "25 21 * * 0-4", "45 21 * * 0-4"],
+      "crons": ["55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"],
       "required_workflow_tokens": ["Capture DART filing content (P4-03)", "dart_filing_content.py"],
       "remaining_gate": "first relevant live filing plus item-extraction policy"
     },
