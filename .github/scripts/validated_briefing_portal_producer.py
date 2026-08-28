@@ -652,6 +652,11 @@ def _read_stored_revision(
         ) from None
     if canonical(rebuilt_envelope) + b"\n" != bodies["portal-projection.json"]:
         raise PortalProducerError("IMMUTABLE_ENVELOPE_REBUILD_MISMATCH")
+    expected_bundle = _revision_bodies(
+        bodies["briefing.md"], ledger, report, display, rebuilt_envelope, revision
+    )["bundle.json"]
+    if expected_bundle != bodies["bundle.json"]:
+        raise PortalProducerError("IMMUTABLE_BUNDLE_REBUILD_MISMATCH")
 
     projection_id = envelope.get("projection_id")
     source_commit = envelope.get("source_commit")

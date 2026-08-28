@@ -608,6 +608,30 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         ):
             producer.build(args)
 
+    def test_new_revision_rejects_canonical_reordered_prior_bundle(self):
+        first_args = self._inputs()
+        built = producer.build(first_args)
+        revision = (self.repo / built["envelope_path"]).parent
+        bundle_path = revision / "bundle.json"
+        bundle = json.loads(bundle_path.read_text())
+        bundle["artifacts"] = list(reversed(bundle["artifacts"]))
+        _write_json(bundle_path, bundle)
+
+        second_args = self._inputs()
+        display_path = Path(second_args.display_proposal)
+        display = json.loads(display_path.read_text())
+        display["changes"][0]["content"]["summary"] = "A distinct later revision."
+        display_body = _write_json(display_path, display)
+        report_path = Path(second_args.validation_report)
+        report = json.loads(report_path.read_text())
+        report["display_proposal_sha256"] = _sha(display_body)
+        _write_json(report_path, report)
+
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_BUNDLE_REBUILD_MISMATCH"
+        ):
+            producer.build(second_args)
+
     def test_no_change_replays_production_validation_not_only_bundle_hashes(self):
         args = self._inputs()
         built = producer.build(args)
