@@ -202,6 +202,25 @@ APPROVED_TESTS = [
     "test/test_upbit_market_capture.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
+    # ★ P4-07 -- REST-based Upbit public-market evidence & microstructure
+    #   contract, extending P3-12's capture (not re-fetching what it already
+    #   gets). Introduces the repo's first explicit, timeframe-generalized
+    #   "is this candle finalized?" boundary primitive
+    #   (microstructure/upbit_candle_finalization.py) across 15m/1h/4h/1d,
+    #   plus trade-tick/orderbook microstructure evidence (spread, depth,
+    #   estimated PAPER slippage -- REUSES, not duplicates,
+    #   universe/upbit_tradeable_universe.py's slippage/spread formulas),
+    #   an explicit FRESH/STALE/UNKNOWN freshness contract per artifact, and
+    #   gap-detection/backfill for the append-only evidence history. Only
+    #   markets already at TRADEABLE_UNIVERSE/PAPER_ELIGIBLE are captured;
+    #   currently empty in production since P3-12 remains unratified -- an
+    #   empty capture is a normal, successful outcome, not a bug. REST only;
+    #   real-time WebSocket ingestion is P9-06's job, not this one's. No
+    #   API key/order/withdrawal/private endpoint is ever called.
+    #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
+    "test/test_upbit_candle_finalization.py",
+    "test/test_upbit_microstructure_capture.py",
+    "test/test_upbit_market_evidence_microstructure.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached

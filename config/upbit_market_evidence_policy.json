@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "policy_version": "upbit_market_evidence_policy/v1",
+  "approval_status": "PROPOSED_UNRATIFIED",
+  "effective_date": "2026-08-29",
+  "quote_currency": "KRW",
+  "orderbook_depth_levels": 5,
+  "paper_slippage_estimate_notional_krw": "1000000",
+  "max_spread_bps_normal": "100",
+  "max_slippage_bps_normal": "150",
+  "max_staleness_seconds_by_timeframe": {
+    "15m": 1800,
+    "1h": 7200,
+    "4h": 28800,
+    "1d": 172800
+  },
+  "max_trades_staleness_seconds": 600,
+  "max_orderbook_staleness_seconds": 300,
+  "unknown_metric_policy": "fail_closed_unknown"
+}
