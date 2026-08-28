@@ -164,15 +164,19 @@ class OfficialReleaseSummaryBriefingTests(unittest.TestCase):
         cross = json.loads(
             (ROOT / "config/cross_asset_flow_evidence_contract.json").read_text()
         )
-        self.assertEqual(daily["contract_version"], "daily_orchestrator/4")
+        self.assertEqual(daily["contract_version"], "daily_orchestrator/5")
         self.assertEqual(
             daily["component_order"].count("OFFICIAL_RELEASE_SUMMARY"), 1
         )
-        self.assertEqual(flow["source_contract_version"], "daily_orchestrator/4")
-        self.assertEqual(cross["source_contract_version"], "daily_orchestrator/4")
+        self.assertEqual(flow["source_contract_version"], "daily_orchestrator/5")
+        self.assertEqual(cross["source_contract_version"], "daily_orchestrator/5")
 
     def test_retrieval_consumer_accepts_previous_and_current_during_rollout(self):
-        for version in ("daily_orchestrator/3", "daily_orchestrator/4"):
+        for version in (
+            "daily_orchestrator/3",
+            "daily_orchestrator/4",
+            "daily_orchestrator/5",
+        ):
             with self.subTest(version=version):
                 self.consumer._validate_pinned_delivery_packet(
                     _pinned_delivery_packet(version), "2026-08-28", "morning"
@@ -184,7 +188,7 @@ class OfficialReleaseSummaryBriefingTests(unittest.TestCase):
             "DELIVERY_PACKET_SCHEMA_UNSUPPORTED",
         ):
             self.consumer._validate_pinned_delivery_packet(
-                _pinned_delivery_packet("daily_orchestrator/5"),
+                _pinned_delivery_packet("daily_orchestrator/6"),
                 "2026-08-28",
                 "morning",
             )

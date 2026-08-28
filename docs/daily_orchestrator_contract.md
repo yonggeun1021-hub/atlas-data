@@ -47,6 +47,23 @@ item, assign positive/negative meaning, rank the source, promote a candidate,
 or feed the unified decision/action path. The component remains `PENDING` with
 interpretation and source ranking explicitly `UNRATIFIED`.
 
+## Defensive action and strategic capital readiness
+
+`daily_orchestrator/5` adds `DEFENSIVE_ACTION_DECISION` and
+`STRATEGIC_CAPITAL_POSTURE` before `ACTION_RISK_PORTFOLIO_SUMMARY`. The first
+revalidates the current P6 cash, hedge, inverse, and long/short boundaries while
+keeping missing P1/P2 production contracts explicit. The second consumes that
+exact P6 readiness packet and the currently available P7 risk packets while
+keeping Regime, cross-market flow/rotation, and a ratified allocation policy
+explicitly unavailable.
+
+Both components are readiness inventories only. Every decision and constraint
+remains `NOT_EVALUATED`; market budgets and target exposures remain null;
+proposals and orders remain empty; Production and trading authority remain
+false. Their producer validators run again when P8-06 consumes them. A producer
+failure therefore degrades only the dependent component chain instead of
+allowing a self-rehashed semantic mutation into the briefing.
+
 Status: provider-free daily orchestrator implemented and scheduled; most
 downstream components remain PENDING/POLICY_BLOCKED/DATA_BLOCKED/UNAVAILABLE
 because their own upstream policies are unratified or their own upstream
@@ -64,7 +81,7 @@ and `decision/` to assemble one combined daily briefing packet twice a day
 builders' logic; it is purely the wiring between them and this repository's
 persisted evidence.
 
-Every one of the 42 tracked components is reported with:
+Every one of the 44 tracked components is reported with:
 
 - `component_id`, `contract_version`, `status` (one of `READY`, `PENDING`,
   `UNKNOWN`, `DEGRADED`, `POLICY_BLOCKED`, `DATA_BLOCKED`, `UNAVAILABLE`),
@@ -98,6 +115,12 @@ Step 0 / read-model health
      UNAVAILABLE; the regime-driven structural pass-throughs -- cash
      exposure action, regime-inverse invariant, long/short invariant -- run
      for real against the honest UNKNOWN regime/rule state)
+  -> P6 Defensive Action readiness (BLOCKED, decisions NOT_EVALUATED,
+     selected action/proposal/order absent)
+  -> P7 Strategic Capital Posture readiness (BLOCKED, all numeric budgets,
+     targets, and allocation proposals absent)
+  -> P8 Action/Risk/Portfolio read model (all action categories remain
+     NOT_EVALUATED and null)
   -> Unified Decision (assembles whichever of the six components above are
      actually available; state is always NO_ACTION_AUTHORIZED)
   -> Action/Risk/Portfolio summary (one required source, fourteen optional;

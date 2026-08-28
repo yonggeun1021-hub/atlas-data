@@ -1,7 +1,7 @@
 {
-  "schema_version": 2,
-  "contract_version": "action_risk_portfolio_summary/2",
-  "output_schema_version": "action_risk_portfolio_summary_packet/2",
+  "schema_version": 3,
+  "contract_version": "action_risk_portfolio_summary/3",
+  "output_schema_version": "action_risk_portfolio_summary_packet/3",
   "slots": [
     "morning",
     "evening"
@@ -17,6 +17,8 @@
   "runtime_action_status": "NOT_EVALUATED",
   "source_order": [
     "UNIFIED_DECISION",
+    "DEFENSIVE_ACTION_DECISION",
+    "STRATEGIC_CAPITAL_POSTURE",
     "CASH_EXPOSURE_US",
     "CASH_EXPOSURE_KOREA",
     "CASH_EXPOSURE_CRYPTO",
@@ -33,7 +35,9 @@
     "PLANNED_LOSS_BUDGET"
   ],
   "required_sources": [
-    "UNIFIED_DECISION"
+    "UNIFIED_DECISION",
+    "DEFENSIVE_ACTION_DECISION",
+    "STRATEGIC_CAPITAL_POSTURE"
   ],
   "risk_sources": [
     "POSITION_SIZING",
@@ -78,6 +82,12 @@
       "contract_version": "crypto_exposure_limit/1",
       "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
       "authority_contract": "config/crypto_exposure_limit_contract.json"
+    },
+    "DEFENSIVE_ACTION_DECISION": {
+      "schema_version": "defensive_action_decision_readiness_packet/1",
+      "contract_version": "defensive_action_decision_readiness/1",
+      "statuses": ["DEFENSIVE_ACTION_READINESS_BLOCKED"],
+      "authority_contract": "config/defensive_action_decision_contract.json"
     },
     "HEDGE_ELIGIBILITY": {
       "schema_version": "hedge_instrument_eligibility_packet/2",
@@ -129,6 +139,12 @@
         "SIZING_BLOCKED"
       ],
       "authority_contract": "config/position_sizing_contract.json"
+    },
+    "STRATEGIC_CAPITAL_POSTURE": {
+      "schema_version": "strategic_capital_posture_readiness_packet/1",
+      "contract_version": "strategic_capital_posture_readiness/1",
+      "statuses": ["STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"],
+      "authority_contract": "config/strategic_capital_posture_contract.json"
     },
     "UNIFIED_DECISION": {
       "schema_version": "unified_daily_decision/1",
