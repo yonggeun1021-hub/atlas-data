@@ -40,8 +40,8 @@ class CrossProcessDeterminismTests(unittest.TestCase):
                 "-c",
                 (
                     "import json; "
-                    "from clock.run_dynamic_clock import run; "
-                    "print(json.dumps(run(decision_date='2026-08-27'), "
+                    "from clock.run_dynamic_clock import MODE_HISTORICAL_REPLAY, run; "
+                    "print(json.dumps(run('2026-08-20', MODE_HISTORICAL_REPLAY), "
                     "ensure_ascii=False, sort_keys=True, separators=(',', ':')))"
                 ),
             ],
