@@ -1155,6 +1155,18 @@ APPROVED_TESTS = [
     #   endpoint exists and every exchange/broker/withdrawal/Production/
     #   Trading/REAL authority remains false.
     "test/test_crypto_paper_simulator.py",
+    # ★ P7-13 — deterministic Crypto PAPER exit/position-management review.
+    #   Entry-time plan embeds the exact P10-11 account and caller-supplied
+    #   ordered triggers; current account and observation are independently
+    #   revalidated and must share exact price/source/time/ledger lineage.
+    #   Hard-exit→security/liquidity→risk/Regime→trend→profit/trail→time
+    #   priority, prior-only high watermark, target-quantity cap, and repeated
+    #   trigger/order identity are deterministic. A planned UNKNOWN waits;
+    #   unplanned Regime UNKNOWN is preserved, never promoted or interpreted.
+    #   Full buy→review→virtual partial sell integration uses only the offline
+    #   P10-11 simulator. Human review remains required and every live exit,
+    #   quantity/action/exchange/broker/Production/Trading/REAL authority false.
+    "test/test_crypto_paper_exit_manager.py",
     # ★ P8-11 stage 2 — real Pilot evidence intake (TSM/298040.KS/267260.KS/
     #   034020.KS). 저장소에 이미 커밋된 real evidence file만 읽어 forward_thesis/
     #   expectations_gap/price_reflection input을 조립한다. TSM의 5개 6-K 중
