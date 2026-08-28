@@ -1058,6 +1058,10 @@ def publish_ledger_snapshot(
     contract = load_contract() if contract is None else _validate_contract(contract)
     checked = validate_ledger(ledger, contract)
     root = Path(root)
+    resolved_root = root.resolve(strict=False)
+    resolved_repository = ROOT.resolve()
+    if resolved_root == resolved_repository or resolved_repository in resolved_root.parents:
+        raise CryptoPaperSimulatorError(f"TRACKED_LEDGER_OUTPUT_FORBIDDEN:{root}")
     root.mkdir(parents=True, exist_ok=True)
     if root.is_symlink():
         raise CryptoPaperSimulatorError("LEDGER_ROOT_SYMLINK_FORBIDDEN")
