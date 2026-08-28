@@ -76,6 +76,17 @@ POST_DELIVERY_FIELDS = {
     "post_delivery_change_key", "signed_ruling_path",
     "signed_ruling_sha256", "redelivery",
 }
+REVISION_ARTIFACT_NAMES = {
+    "briefing.md", "claim-ledger.json", "validation-report.json",
+    "display-proposal.json", "portal-projection.json",
+}
+REVISION_FILE_NAMES = REVISION_ARTIFACT_NAMES | {"bundle.json"}
+BUNDLE_FIELDS = {
+    "schema_version", "briefing_id", "briefing_date", "slot", "revision",
+    "projection_id", "source_commit", "generation_id", "classification",
+    "artifacts", "post_delivery_change_key", "redelivery", "authority",
+}
+ARTIFACT_FIELDS = {"path", "sha256", "bytes"}
 
 
 class PortalProducerError(RuntimeError):
@@ -142,7 +153,9 @@ def _contains_forbidden_authority(value: Any, path: str = "root") -> None:
 
 
 def _validate_attestation(value: Any) -> None:
-    if value != SAFETY_ATTESTATION:
+    if (not isinstance(value, dict) or set(value) != set(SAFETY_ATTESTATION)
+            or any(type(value[key]) is not bool for key in SAFETY_ATTESTATION)
+            or value != SAFETY_ATTESTATION):
         raise PortalProducerError("SAFETY_ATTESTATION_FAILED")
 
 
@@ -492,6 +505,180 @@ def _artifact(name: str, body: bytes) -> dict:
     return {"path": name, "sha256": digest_bytes(body), "bytes": len(body)}
 
 
+def _revision_bodies(
+    briefing_bytes: bytes,
+    ledger: dict,
+    report: dict,
+    display: dict,
+    envelope: dict,
+    revision: int,
+) -> dict[str, bytes]:
+    bodies = {
+        "briefing.md": briefing_bytes,
+        "claim-ledger.json": canonical(ledger) + b"\n",
+        "validation-report.json": canonical(report) + b"\n",
+        "display-proposal.json": canonical(display) + b"\n",
+        "portal-projection.json": canonical(envelope) + b"\n",
+    }
+    manifest = {
+        "schema_version": BUNDLE_SCHEMA,
+        "briefing_id": ledger["briefing_id"],
+        "briefing_date": ledger["briefing_date"],
+        "slot": ledger["slot"],
+        "revision": revision,
+        "projection_id": envelope["projection_id"],
+        "source_commit": envelope["source_commit"],
+        "generation_id": envelope["generation_id"],
+        "classification": "APPLY_CANDIDATE",
+        "artifacts": [_artifact(name, body) for name, body in bodies.items()],
+        "post_delivery_change_key": (
+            report["post_delivery"].get("post_delivery_change_key")
+            if report.get("post_delivery") else None
+        ),
+        "redelivery": "FORBIDDEN",
+        "authority": SAFETY_ATTESTATION,
+    }
+    bodies["bundle.json"] = canonical(manifest) + b"\n"
+    return bodies
+
+
+def _read_stored_revision(
+    repo_root: Path, directory: Path, *, briefing_date: str, slot: str,
+) -> dict:
+    if (directory.is_symlink() or not directory.is_dir()
+            or directory.resolve() != directory.absolute()):
+        raise PortalProducerError("IMMUTABLE_REVISION_SYMLINK_BLOCKED")
+    match = re.fullmatch(r"rev-(\d{3})", directory.name)
+    if match is None:
+        raise PortalProducerError("IMMUTABLE_REVISION_PATH_INVALID")
+    revision = int(match.group(1))
+    children = list(directory.iterdir())
+    if {child.name for child in children} != REVISION_FILE_NAMES:
+        raise PortalProducerError("IMMUTABLE_REVISION_INCOMPLETE")
+    bodies: dict[str, bytes] = {}
+    for child in children:
+        if child.is_symlink() or not child.is_file():
+            raise PortalProducerError("IMMUTABLE_REVISION_ARTIFACT_INVALID")
+        try:
+            bodies[child.name] = child.read_bytes()
+        except OSError as exc:
+            raise PortalProducerError(
+                f"IMMUTABLE_REVISION_UNREADABLE:{type(exc).__name__}"
+            ) from None
+
+    bundle = _read_json(directory / "bundle.json", "IMMUTABLE_BUNDLE_UNREADABLE")
+    envelope = _read_json(
+        directory / "portal-projection.json", "IMMUTABLE_ENVELOPE_UNREADABLE"
+    )
+    ledger = _read_json(directory / "claim-ledger.json", "IMMUTABLE_LEDGER_UNREADABLE")
+    report = _read_json(directory / "validation-report.json", "IMMUTABLE_REPORT_UNREADABLE")
+    display = _read_json(directory / "display-proposal.json", "IMMUTABLE_DISPLAY_UNREADABLE")
+    _exact_keys(bundle, BUNDLE_FIELDS, "IMMUTABLE_BUNDLE_FIELDS_MISMATCH")
+    if (bundle.get("schema_version") != BUNDLE_SCHEMA
+            or bundle.get("briefing_id") != f"{briefing_date}-{slot.lower()}"
+            or bundle.get("briefing_date") != briefing_date
+            or bundle.get("slot") != slot
+            or isinstance(bundle.get("revision"), bool)
+            or not isinstance(bundle.get("revision"), int)
+            or bundle.get("revision") != revision
+            or bundle.get("classification") != "APPLY_CANDIDATE"
+            or bundle.get("redelivery") != "FORBIDDEN"):
+        raise PortalProducerError("IMMUTABLE_BUNDLE_IDENTITY_INVALID")
+    _validate_attestation(bundle.get("authority"))
+    artifacts = bundle.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise PortalProducerError("IMMUTABLE_BUNDLE_ARTIFACTS_INVALID")
+    artifact_map: dict[str, dict] = {}
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            raise PortalProducerError("IMMUTABLE_BUNDLE_ARTIFACT_INVALID")
+        _exact_keys(artifact, ARTIFACT_FIELDS, "IMMUTABLE_BUNDLE_ARTIFACT_FIELDS_MISMATCH")
+        name = artifact.get("path")
+        if not isinstance(name, str) or name not in REVISION_ARTIFACT_NAMES:
+            raise PortalProducerError("IMMUTABLE_BUNDLE_ARTIFACT_PATH_INVALID")
+        if name in artifact_map:
+            raise PortalProducerError("IMMUTABLE_BUNDLE_ARTIFACT_DUPLICATE")
+        artifact_map[name] = artifact
+    if set(artifact_map) != REVISION_ARTIFACT_NAMES:
+        raise PortalProducerError("IMMUTABLE_BUNDLE_ARTIFACT_SET_MISMATCH")
+    for name in REVISION_ARTIFACT_NAMES:
+        record = artifact_map[name]
+        body = bodies[name]
+        recorded_bytes = record.get("bytes")
+        if (isinstance(recorded_bytes, bool) or not isinstance(recorded_bytes, int)
+                or record.get("sha256") != digest_bytes(body)
+                or recorded_bytes != len(body)):
+            raise PortalProducerError(f"IMMUTABLE_BUNDLE_ARTIFACT_HASH_MISMATCH:{name}")
+
+    if canonical(ledger) + b"\n" != bodies["claim-ledger.json"]:
+        raise PortalProducerError("IMMUTABLE_LEDGER_NOT_CANONICAL")
+    if canonical(report) + b"\n" != bodies["validation-report.json"]:
+        raise PortalProducerError("IMMUTABLE_REPORT_NOT_CANONICAL")
+    if canonical(display) + b"\n" != bodies["display-proposal.json"]:
+        raise PortalProducerError("IMMUTABLE_DISPLAY_NOT_CANONICAL")
+    expected_change_key = (
+        report["post_delivery"].get("post_delivery_change_key")
+        if isinstance(report.get("post_delivery"), dict) else None
+    )
+    if bundle.get("post_delivery_change_key") != expected_change_key:
+        raise PortalProducerError("IMMUTABLE_BUNDLE_CHANGE_KEY_MISMATCH")
+    try:
+        rebuilt_envelope = build_envelope(ledger, report, display)
+    except (KeyError, TypeError) as exc:
+        raise PortalProducerError(
+            f"IMMUTABLE_ENVELOPE_REBUILD_INVALID:{type(exc).__name__}"
+        ) from None
+    if canonical(rebuilt_envelope) + b"\n" != bodies["portal-projection.json"]:
+        raise PortalProducerError("IMMUTABLE_ENVELOPE_REBUILD_MISMATCH")
+
+    projection_id = envelope.get("projection_id")
+    source_commit = envelope.get("source_commit")
+    generation_id = envelope.get("generation_id")
+    if (envelope.get("schema_version") != ENVELOPE_SCHEMA
+            or envelope.get("completion_state") != VALIDATED_STATE
+            or not isinstance(projection_id, str) or not projection_id
+            or bundle.get("projection_id") != projection_id
+            or bundle.get("source_commit") != source_commit
+            or bundle.get("generation_id") != generation_id
+            or envelope.get("briefing_date") != briefing_date
+            or envelope.get("slot") != slot):
+        raise PortalProducerError("IMMUTABLE_ENVELOPE_BUNDLE_IDENTITY_MISMATCH")
+    if not isinstance(source_commit, str) or FULL_SHA.fullmatch(source_commit) is None:
+        raise PortalProducerError("IMMUTABLE_SOURCE_COMMIT_INVALID")
+    if not isinstance(generation_id, str) or SHA256.fullmatch(generation_id) is None:
+        raise PortalProducerError("IMMUTABLE_GENERATION_INVALID")
+    _validate_attestation(envelope.get("safety_attestation"))
+    envelope_path = (directory / "portal-projection.json").relative_to(repo_root).as_posix()
+    return {
+        "revision": revision,
+        "projection_id": projection_id,
+        "envelope_path": envelope_path,
+        "envelope_sha256": digest_bytes(bodies["portal-projection.json"]),
+        "source_commit": source_commit,
+        "generation_id": generation_id,
+    }
+
+
+def _scan_stored_revisions(
+    repo_root: Path, slot_root: Path, *, briefing_date: str, slot: str,
+) -> list[dict]:
+    if not slot_root.exists():
+        return []
+    directories = sorted(
+        (path for path in slot_root.iterdir() if re.fullmatch(r"rev-\d{3}", path.name)),
+        key=lambda path: path.name,
+    )
+    entries = [
+        _read_stored_revision(
+            repo_root, directory, briefing_date=briefing_date, slot=slot,
+        )
+        for directory in directories
+    ]
+    if [entry["revision"] for entry in entries] != list(range(1, len(entries) + 1)):
+        raise PortalProducerError("IMMUTABLE_REVISION_SEQUENCE_INVALID")
+    return entries
+
+
 def _load_index(path: Path, repo_root: Path, slot_root: Path) -> dict:
     if path.is_symlink():
         raise PortalProducerError("PORTAL_INDEX_SYMLINK_BLOCKED")
@@ -574,14 +761,36 @@ def publish_bundle(
     envelope_bytes = canonical(envelope) + b"\n"
     projection_id = envelope["projection_id"]
 
-    for entry in index["revisions"]:
-        if entry.get("projection_id") != projection_id:
+    # The index is only a locator.  The immutable revision directories are
+    # the evidence authority, so every replay revalidates their complete
+    # sibling bundle and may only repair an index that is an exact prefix of
+    # that fully-verified append-only history.
+    stored = _scan_stored_revisions(
+        repo_root, slot_root,
+        briefing_date=ledger["briefing_date"], slot=ledger["slot"],
+    )
+    indexed = index["revisions"]
+    if len(indexed) > len(stored) or indexed != stored[:len(indexed)]:
+        raise PortalProducerError("PORTAL_INDEX_DISK_LINEAGE_MISMATCH")
+    if indexed != stored:
+        repaired = {
+            "schema_version": INDEX_SCHEMA,
+            "latest_revision": stored[-1]["revision"] if stored else 0,
+            "latest_projection_id": stored[-1]["projection_id"] if stored else None,
+            "revisions": stored,
+        }
+        _atomic_write(index_path, canonical(repaired) + b"\n")
+
+    for entry in stored:
+        if entry["projection_id"] != projection_id:
             continue
-        existing_path = repo_root / entry.get("envelope_path", "")
-        if (existing_path.is_symlink() or not existing_path.is_file()
-                or existing_path.parent.resolve() != existing_path.parent.absolute()
-                or digest_bytes(existing_path.read_bytes()) != digest_bytes(envelope_bytes)):
-            raise PortalProducerError("PROJECTION_ID_CONFLICT")
+        expected = _revision_bodies(
+            briefing_bytes, ledger, report, display, envelope, entry["revision"]
+        )
+        directory = (repo_root / entry["envelope_path"]).parent
+        for name, body in expected.items():
+            if (directory / name).read_bytes() != body:
+                raise PortalProducerError("PROJECTION_ID_CONFLICT")
         return {
             "result": "NO_CHANGE",
             "projection_id": projection_id,
@@ -590,60 +799,8 @@ def publish_bundle(
             "source_commit": envelope["source_commit"],
         }
 
-    # A process can die after the complete revision directory was atomically
-    # renamed into place but before the small locator/index was replaced. A
-    # retry repairs that locator from the immutable bytes instead of making the
-    # valid bundle permanently unusable or allocating a duplicate revision.
-    indexed_revisions = {
-        entry.get("revision") for entry in index["revisions"]
-        if isinstance(entry.get("revision"), int)
-    }
-    disk_revisions: list[int] = []
-    if slot_root.exists():
-        for directory in slot_root.glob("rev-[0-9][0-9][0-9]"):
-            if directory.is_symlink() or not directory.is_dir():
-                raise PortalProducerError("IMMUTABLE_REVISION_SYMLINK_BLOCKED")
-            try:
-                revision_on_disk = int(directory.name.removeprefix("rev-"))
-            except ValueError:
-                continue
-            disk_revisions.append(revision_on_disk)
-            orphan_envelope = directory / "portal-projection.json"
-            if orphan_envelope.is_symlink() or not orphan_envelope.is_file():
-                raise PortalProducerError("IMMUTABLE_REVISION_INCOMPLETE")
-            try:
-                orphan_value = json.loads(orphan_envelope.read_bytes())
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                raise PortalProducerError("IMMUTABLE_REVISION_UNREADABLE") from None
-            if orphan_value.get("projection_id") != projection_id:
-                continue
-            if orphan_envelope.read_bytes() != envelope_bytes:
-                raise PortalProducerError("PROJECTION_ID_CONFLICT")
-            envelope_path = orphan_envelope.relative_to(repo_root).as_posix()
-            entry = {
-                "revision": revision_on_disk,
-                "projection_id": projection_id,
-                "envelope_path": envelope_path,
-                "envelope_sha256": digest_bytes(envelope_bytes),
-                "source_commit": envelope["source_commit"],
-                "generation_id": envelope["generation_id"],
-            }
-            if revision_on_disk not in indexed_revisions:
-                revisions = sorted(
-                    [*index["revisions"], entry], key=lambda row: row["revision"]
-                )
-                updated = {
-                    "schema_version": INDEX_SCHEMA,
-                    "latest_revision": max(row["revision"] for row in revisions),
-                    "latest_projection_id": revisions[-1]["projection_id"],
-                    "revisions": revisions,
-                }
-                _atomic_write(index_path, canonical(updated) + b"\n")
-            return {"result": "NO_CHANGE", **entry}
-
-    revisions = index["revisions"]
-    numeric = [entry.get("revision") for entry in revisions if isinstance(entry.get("revision"), int)]
-    revision = max([index.get("latest_revision", 0), *numeric, *disk_revisions]) + 1
+    revisions = stored
+    revision = len(revisions) + 1
     if revision > 999:
         raise PortalProducerError("IMMUTABLE_REVISION_SPACE_EXHAUSTED")
     final_dir = slot_root / f"rev-{revision:03d}"
@@ -652,32 +809,9 @@ def publish_bundle(
     slot_root.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".rev-{revision:03d}.", dir=slot_root))
     try:
-        bodies = {
-            "briefing.md": briefing_bytes,
-            "claim-ledger.json": canonical(ledger) + b"\n",
-            "validation-report.json": canonical(report) + b"\n",
-            "display-proposal.json": canonical(display) + b"\n",
-            "portal-projection.json": envelope_bytes,
-        }
-        manifest = {
-            "schema_version": BUNDLE_SCHEMA,
-            "briefing_id": ledger["briefing_id"],
-            "briefing_date": ledger["briefing_date"],
-            "slot": ledger["slot"],
-            "revision": revision,
-            "projection_id": projection_id,
-            "source_commit": envelope["source_commit"],
-            "generation_id": envelope["generation_id"],
-            "classification": "APPLY_CANDIDATE",
-            "artifacts": [_artifact(name, body) for name, body in bodies.items()],
-            "post_delivery_change_key": (
-                report["post_delivery"].get("post_delivery_change_key")
-                if report.get("post_delivery") else None
-            ),
-            "redelivery": "FORBIDDEN",
-            "authority": SAFETY_ATTESTATION,
-        }
-        bodies["bundle.json"] = canonical(manifest) + b"\n"
+        bodies = _revision_bodies(
+            briefing_bytes, ledger, report, display, envelope, revision
+        )
         for name, body in bodies.items():
             (temporary / name).write_bytes(body)
         os.replace(temporary, final_dir)
