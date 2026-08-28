@@ -1388,6 +1388,7 @@ APPROVED_TESTS = [
     # @b4e6249714418aa57833d1cbbbced39cbcc5b125 (commit SHA + file path +
     # content hash, never a bare mutable URL). No RATIFIED row anywhere.
     "test/test_kis_provenance_proposal.py",
+    "test/test_kis_official_evidence_resolver.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
