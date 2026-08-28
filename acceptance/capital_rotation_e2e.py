@@ -442,6 +442,23 @@ def _portal_pair_lineage(portal_receipt: dict) -> dict:
     }
 
 
+def _portal_fail_closed_lineage(portal_receipt: dict) -> dict:
+    """Normalize one scheduled observer run across GitHub rerun attempts."""
+    observer = portal_receipt["observer"]
+    return {
+        "observer": {
+            "workflow": observer["workflow"],
+            "event_name": observer["event_name"],
+            "event_schedule": observer["event_schedule"],
+            "run_id": observer["run_id"],
+            "workflow_head_sha": observer["workflow_head_sha"],
+        },
+        "site": portal_receipt["site"],
+        "fail_closed": portal_receipt["fail_closed"],
+        "completion_state": portal_receipt["completion_state"],
+    }
+
+
 def build_inventory(
     repo_root: Path = ROOT,
     *,
@@ -558,6 +575,12 @@ def build_inventory(
         attempts = [row["observer"]["run_attempt"] for row in rows]
         if len(set(attempts)) != len(attempts):
             fail("DUPLICATE_FAIL_CLOSED_RUN_ATTEMPT", str(run_id))
+        lineages = {
+            canonical_json(_portal_fail_closed_lineage(row))
+            for row in rows
+        }
+        if len(lineages) != 1:
+            fail("FAIL_CLOSED_RECEIPT_LINEAGE_CONFLICT", str(run_id))
         superseded_fail_closed_attempt_count += len(rows) - 1
     fail_closed_count = len(fail_closed_by_run)
     exit_gate = contract["exit_gate"]

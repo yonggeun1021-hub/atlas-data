@@ -557,6 +557,33 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
             self.assertEqual(result["observed"]["fail_closed_receipt_count"], 2)
             self.assertEqual(result["observed"]["superseded_fail_closed_rerun_attempt_count"], 1)
 
+    def test_conflicting_fail_closed_rerun_lineage_fails_closed(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            fail_root = base / "fail"
+            first = self.fail_closed_receipt(run_attempt=1)
+            second = self.fail_closed_receipt(run_attempt=2)
+            second["fail_closed"]["reason"] = "SOURCE_LINEAGE_CONFLICT"
+            second["receipt_sha256"] = portal.payload_sha256(
+                second, "receipt_sha256"
+            )
+            first_package = self.write_portal_package(fail_root, first)
+            self.write_portal_package(fail_root, second)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "FAIL_CLOSED_RECEIPT_LINEAGE_CONFLICT",
+            ):
+                acceptance.build_inventory(
+                    ROOT,
+                    run_root=base / "runs",
+                    portal_root=base / "portal",
+                    fail_root=fail_root,
+                    portal_attestation_verifier=lambda *args: None,
+                    portal_trusted_root_sha256=portal.bytes_sha256(
+                        (first_package / "trusted_root.jsonl").read_bytes()
+                    ),
+                )
+
     def test_fail_closed_attestation_bundle_tamper_is_rejected(self):
         with tempfile.TemporaryDirectory() as name:
             base = Path(name)
