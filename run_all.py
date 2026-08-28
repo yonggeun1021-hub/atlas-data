@@ -1478,6 +1478,11 @@ APPROVED_TESTS = [
     # content hash, never a bare mutable URL). No RATIFIED row anywhere.
     "test/test_kis_provenance_proposal.py",
     "test/test_kis_official_evidence_resolver.py",
+    # 071050 proposal-only follow-up after the exact KIS PAPER provider tuple
+    # was separately ratified. Two mechanically reviewable packets bind the
+    # exact instrument/listing and exact KIS balance source pair without
+    # mutating identity/provider authority config or granting money authority.
+    "test/test_kis_071050_proposal.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.

@@ -1,0 +1,81 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "investment_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_authorized": false,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "canonicalAuthorityConfigMutated": false,
+  "claim": {
+    "canonicalInstrumentId": "KRX:071050:COMMON",
+    "listingId": "XKRX:071050",
+    "scope": "EXACT_SOURCE_PAIR_ONLY_NO_GENERIC_SIX_DIGIT_PDNO_RULE",
+    "sourceAssetId": "071050",
+    "sourceName": "kis_paper_domestic_balance"
+  },
+  "evidence": [
+    {
+      "commitSha": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+      "evidenceDomain": "071050_EXACT_KIS_SOURCE_ALIAS",
+      "files": [
+        {
+          "contentSha256": "35af050e8c5b1860a227dda02dffb362db3b63122fc52711743b428023e68a24",
+          "filePath": "legacy/Sample01/kis_api01.py",
+          "requiredFragments": [
+            "종목번호 6자리",
+            "itm_no=\"071050\"",
+            "get_inquire_price(itm_no=\"071050\")",
+            "get_quotations_inquire_price(itm_no=\"071050\")"
+          ]
+        },
+        {
+          "contentSha256": "d7bc6da85f4b086de3063f110d6e426fbc5751bc340b45e533ccdf9a5d55e575",
+          "filePath": "legacy/Sample01/kis_domstk.py",
+          "requiredFragments": [
+            "def get_order_cash",
+            "\"PDNO\": itm_no",
+            "종목코드(6자리)"
+          ]
+        },
+        {
+          "contentSha256": "196f9390fc722b0648d63e8afc6ccc84c596aa7268c68358234cd863af355b72",
+          "filePath": "legacy/postman/모의계좌_POSTMAN_샘플코드_v1.6.json",
+          "requiredFragments": [
+            "\\\"PDNO\\\": \\\"071050\\\""
+          ]
+        }
+      ],
+      "kind": "PINNED_OFFICIAL_KIS_STATIC_EVIDENCE",
+      "repository": "koreainvestment/open-trading-api"
+    },
+    {
+      "canonicalInstrumentId": "KRX:071050:COMMON",
+      "canonicalIssuerId": "DART:00432102",
+      "evidenceDomain": "071050_EXACT_KIS_SOURCE_ALIAS",
+      "kind": "PROPOSED_IDENTITY_TARGET_REFERENCE_NOT_AUTHORITY",
+      "listingId": "XKRX:071050",
+      "preferredStockClassCode": "0",
+      "proposalId": "atlas.identity.proposal.kis-071050-instrument",
+      "proposalSha256": "bf4fc161b5e1f17aa77a72fecea70b3cb24b6f37b93c038dd57dc443b0ccdb0d",
+      "proposalStatus": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+      "standardProductNumber": "KR7071050009"
+    },
+    {
+      "brokerReadAttempted": true,
+      "evidenceDomain": "071050_EXACT_KIS_SOURCE_ALIAS",
+      "kind": "LIVE_PRODUCT_INFO_READ_RESULT",
+      "orderSubmissionAttempted": false,
+      "positiveEvidenceAccepted": false,
+      "status": "NOT_OBTAINED_FAIL_CLOSED"
+    }
+  ],
+  "proposalId": "atlas.identity.proposal.kis-balance-071050-alias",
+  "proposalKind": "EXACT_SOURCE_ALIAS",
+  "proposalSha256": "d672585a15f863e34e1eb12cd8d224e20dade533c0088c25ca3b2135b8fb0764",
+  "proposalStatus": "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY",
+  "schemaVersion": "kis_071050_evidence_proposal/1"
+}
