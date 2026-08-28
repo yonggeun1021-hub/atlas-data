@@ -43,7 +43,7 @@ def _positions(**overrides):
     return [row]
 
 
-def _build_fact(*, decision_at=T0, captured_at=T0, positions=None, **overrides):
+def _build_fact(*, decision_at=T0, captured_at=T0, available_at=T0, positions=None, **overrides):
     kwargs = dict(
         provider="KIS_PAPER_ACCOUNT",
         account_scope="KOREA",
@@ -54,6 +54,7 @@ def _build_fact(*, decision_at=T0, captured_at=T0, positions=None, **overrides):
         buying_power=1_000_000.0,
         positions=positions if positions is not None else _positions(),
         captured_at=captured_at,
+        available_at=available_at,
         decision_at=decision_at,
     )
     kwargs.update(overrides)
@@ -100,6 +101,8 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
         self.assertEqual(fact["accountIdentityHash"], ACCOUNT_IDENTITY_HASH)
         self.assertEqual(fact["orderEligibilityStatus"], PS2.ORDER_ELIGIBILITY_NOT_APPLICABLE)
         self.assertEqual(fact["authority"], PS2.AUTHORITY_ALL_FALSE)
+        self.assertEqual(fact["capturedAt"], T0)
+        self.assertEqual(fact["availableAt"], T0)
         self.assertEqual(fact["positions"][0]["source_identity_lineage"]["source_pairs"], [
             {"source_name": "kis_paper_domestic_balance", "source_asset_id": "005930"}
         ])
@@ -131,7 +134,21 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
 
     def test_future_dated_captured_at_is_rejected(self):
         with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "FUTURE_DATED_VALUE_REJECTED"):
-            _build_fact(captured_at=T_LATER, decision_at=T0)
+            _build_fact(captured_at=T_LATER, available_at=T_LATER, decision_at=T0)
+
+    # -- capturedAt / availableAt / decisionAt timing chain (P0-2B-2) --------
+
+    def test_available_before_captured_is_rejected(self):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "TIMING_INVARIANT_VIOLATED"):
+            _build_fact(captured_at=T_LATER, available_at=T0, decision_at=T_LATER)
+
+    def test_available_after_decision_is_rejected(self):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "AVAILABLE_AFTER_DECISION_REJECTED"):
+            _build_fact(captured_at=T0, available_at=T_LATER, decision_at=T0)
+
+    def test_available_at_is_preserved_on_the_fact(self):
+        fact = _build_fact(captured_at=T0, available_at=T_LATER, decision_at=T_LATER)
+        self.assertEqual(fact["availableAt"], T_LATER)
 
     def test_negative_cash_is_rejected(self):
         with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "NEGATIVE_VALUE_REJECTED"):
@@ -255,6 +272,23 @@ class ValidateProviderAccountFactV2Tests(unittest.TestCase):
         fact = _build_fact(captured_at=T0, decision_at=T0)
         with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "FUTURE_DATED_VALUE_REJECTED"):
             PS2.validate_provider_account_fact_v2(fact, decision_at=T_EARLIER)
+
+    def test_validator_recomputes_available_at_chain_not_trusts_it(self):
+        # Tamper availableAt to be after the caller-supplied decision_at,
+        # post-hoc, with a freshly regenerated hash -- the validator must
+        # still catch it by re-deriving the chain against the
+        # *caller-supplied* decision_at, never by trusting anything
+        # stored on the fact.
+        fact = _build_fact(captured_at=T0, available_at=T0, decision_at=T_LATER)
+        fact["availableAt"] = T_MUCH_LATER
+        _rehash(fact)
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "AVAILABLE_AFTER_DECISION_REJECTED"):
+            PS2.validate_provider_account_fact_v2(fact, decision_at=T_LATER)
+
+    def test_validator_rejects_available_at_before_captured_at_even_rehashed(self):
+        fact = _rehash({**_build_fact(captured_at=T0, available_at=T0, decision_at=T_LATER), "capturedAt": T_LATER})
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "TIMING_INVARIANT_VIOLATED"):
+            PS2.validate_provider_account_fact_v2(fact, decision_at=T_LATER)
 
     def test_wrong_schema_version_is_rejected(self):
         fact = _build_fact()

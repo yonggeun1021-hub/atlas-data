@@ -30,6 +30,21 @@ smuggled in through this contract.
 Same physical-separation boundary as v1: this supplies real, PIT-safe
 account facts a FUTURE sizing/policy decision will need. It never computes
 or ratifies a risk-budget percentage, a stop-loss cap, or a position size.
+
+★ This contract's ``equity``/``buying_power``/position ``market_value``/
+``unrealized_pl`` fields exist because a general account-fact contract
+needs them -- they are NOT yet backed by any real bridge. As of this
+writing, the private KIS PAPER full-account snapshot
+(``atlas-private-evidence``'s ``kis_paper_full_account_snapshot.py``)
+deliberately records only ``holdingQuantity``/``orderableQuantity``/
+``confirmedOrderableCashKrw`` per the same "never invent a valuation
+figure the broker didn't return" discipline. A future bridge from that
+snapshot into this contract must either extract a genuinely
+KIS-response-confirmed NAV/valuation figure first, or leave the
+corresponding P7 capacity ``NOT_COMPUTABLE`` -- it must never synthesize
+``equity``, ``buying_power``, or a position's ``market_value``/
+``unrealized_pl`` from cash plus quantity, a stale price, or a zero
+default.
 """
 from __future__ import annotations
 
@@ -81,7 +96,7 @@ ACCOUNT_FACT_FIELDS = {
     "accountIdentityHash", "currency", "equity", "cash", "buyingPower",
     "positions", "positionCount", "orderEligibilityStatus",
     "navReconciliationStatus", "navReconciliationMismatchPct",
-    "stalenessStatus", "capturedAt", "authority", "factSha256",
+    "stalenessStatus", "capturedAt", "availableAt", "authority", "factSha256",
 }
 POSITION_FIELDS = {"symbol", "quantity", "market_value", "unrealized_pl", "currency", "source_identity_lineage"}
 
@@ -117,6 +132,27 @@ def _enforce_pit_timing(*, label: str, event_at: str, decision_at: str) -> None:
     if event > decision:
         raise PortfolioAccountFactV2Error(
             f"FUTURE_DATED_VALUE_REJECTED:{label}={event_at}>decision_at={decision_at}"
+        )
+
+
+def _validate_available_at(*, captured_at: str, available_at: str, decision_at: str) -> None:
+    """``availableAt`` is when the observation was actually usable as a
+    decision input -- distinct from ``capturedAt`` (when the provider
+    observed it) and ``decisionAt`` (the caller's clock). Enforces
+    ``captured_at <= available_at <= decision_at``, independently, at
+    both build time and validate time -- the validator re-derives this
+    from the fact's own fields plus the caller-supplied ``decision_at``;
+    it never trusts a previously-computed timing verdict."""
+    captured = _parse_utc(captured_at)
+    available = _parse_utc(available_at)
+    decision = _parse_utc(decision_at)
+    if available < captured:
+        raise PortfolioAccountFactV2Error(
+            f"TIMING_INVARIANT_VIOLATED:available_at({available_at})<captured_at({captured_at})"
+        )
+    if available > decision:
+        raise PortfolioAccountFactV2Error(
+            f"AVAILABLE_AFTER_DECISION_REJECTED:available_at({available_at})>decision_at({decision_at})"
         )
 
 
@@ -269,7 +305,7 @@ def _validate_account_identity_hash(value: object) -> str:
 def build_provider_account_fact_v2(
     *, provider: str, account_scope: str, account_identity_hash: str,
     currency: str, equity: object, cash: object, buying_power: object,
-    positions: list[dict], captured_at: str, decision_at: str,
+    positions: list[dict], captured_at: str, available_at: str, decision_at: str,
     order_eligibility_status: str = ORDER_ELIGIBILITY_NOT_APPLICABLE,
 ) -> dict:
     """``positions``: list of ``{symbol, quantity, market_value,
@@ -285,6 +321,7 @@ def build_provider_account_fact_v2(
         raise PortfolioAccountFactV2Error("ORDER_ELIGIBILITY_STATUS_NOT_READ_ONLY")
     _validate_account_identity_hash(account_identity_hash)
     _enforce_pit_timing(label=f"{provider}.captured_at", event_at=captured_at, decision_at=decision_at)
+    _validate_available_at(captured_at=captured_at, available_at=available_at, decision_at=decision_at)
 
     equity_value = _require_nonnegative_number(equity, "equity")
     cash_value = _require_nonnegative_number(cash, "cash")
@@ -344,6 +381,7 @@ def build_provider_account_fact_v2(
         "navReconciliationMismatchPct": diagnostics["nav_reconciliation_mismatch_pct"],
         "stalenessStatus": diagnostics["staleness_status"],
         "capturedAt": captured_at,
+        "availableAt": available_at,
         "authority": dict(AUTHORITY_ALL_FALSE),
     }
     fact["factSha256"] = payload_sha256({key: value for key, value in fact.items() if key != "factSha256"})
@@ -378,6 +416,9 @@ def validate_provider_account_fact_v2(fact: object, *, decision_at: str) -> dict
 
     _enforce_pit_timing(
         label=f"{provider}.captured_at", event_at=fact.get("capturedAt"), decision_at=decision_at
+    )
+    _validate_available_at(
+        captured_at=fact.get("capturedAt"), available_at=fact.get("availableAt"), decision_at=decision_at
     )
 
     positions = fact.get("positions")

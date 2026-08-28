@@ -60,6 +60,33 @@ already-ratified registry rather than defining a new, competing one.
 The registry binds the entire tuple: a caller cannot pair the registered KIS
 provider with another otherwise-ratified scope, currency, or source name.
 
+## Timing: `capturedAt` / `availableAt` / `decisionAt`
+
+Every fact carries `capturedAt` (when the provider observed the account)
+and `availableAt` (when that observation was actually usable as a
+decision input), in addition to the `decisionAt` supplied at validation
+time. The invariant `capturedAt <= availableAt <= decisionAt` is enforced
+independently at both build time and validate time -- the validator
+re-derives the chain from the fact's own fields and the caller-supplied
+`decisionAt`; it never trusts a previously-computed timing verdict stored
+on the fact itself. A future-dated `capturedAt`, an `availableAt` before
+`capturedAt`, or an `availableAt` after `decisionAt` are all rejected.
+
+## No fabricated valuation fields
+
+This contract's `equity` / `buyingPower` / position `market_value` /
+`unrealized_pl` fields exist because a general account-fact contract needs
+them -- they are **not yet backed by any real bridge**. The private KIS
+PAPER full-account snapshot (`atlas-private-evidence`'s
+`kis_paper_full_account_snapshot.py`) deliberately records only
+`holdingQuantity` / `orderableQuantity` / `confirmedOrderableCashKrw` per
+the "never invent a fact the broker didn't return" discipline. A future
+bridge from that snapshot into this contract must either extract a
+genuinely KIS-response-confirmed valuation figure first, or leave the
+corresponding capacity input `NOT_COMPUTABLE` -- it must never synthesize
+`equity`, `buyingPower`, or a position's `market_value` / `unrealized_pl`
+from cash plus quantity, a stale price, or a zero default.
+
 ## Real data
 
 Same discipline as v1: this repo is PUBLIC. No real NAV/cash/position
