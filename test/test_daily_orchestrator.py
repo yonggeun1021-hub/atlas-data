@@ -2363,7 +2363,7 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         source = MODULE._read_json(MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH)
         expected_sample_status = {
             "UPSTREAM_WORKFLOW_RUN": "NATURAL_OPERATIONAL_SAMPLE",
-            "MANUAL_WORKFLOW_DISPATCH": "MANUAL_OPERATIONAL_SAMPLE",
+            "MANUAL_WORKFLOW_DISPATCH": "MANUAL_DIAGNOSTIC_SAMPLE",
             "LOCAL_REPRODUCTION": "LOCAL_REPRODUCTION_ONLY",
         }[source["source"]["trigger_kind"]]
         self.assertEqual(packet["sample_status"], expected_sample_status)
@@ -2399,6 +2399,44 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
             packet["summary"]["zero_capital_review_item_count"], len(retained)
         )
         self.assertGreater(len(retained), 0)
+
+    def test_each_review_trigger_has_an_independently_exercised_exact_label(self):
+        validated = MODULE._validated_shadow_review_source()["packet"]
+        cases = (
+            ("UPSTREAM_WORKFLOW_RUN", "NATURAL_OPERATIONAL_SAMPLE"),
+            ("MANUAL_WORKFLOW_DISPATCH", "MANUAL_DIAGNOSTIC_SAMPLE"),
+            ("LOCAL_REPRODUCTION", "LOCAL_REPRODUCTION_ONLY"),
+        )
+        for trigger_kind, expected_sample_status in cases:
+            with self.subTest(trigger_kind=trigger_kind), mock.patch.object(
+                MODULE,
+                "_validated_shadow_review_source",
+                return_value={
+                    "packet": copy.deepcopy(validated),
+                    "trigger_kind": trigger_kind,
+                },
+            ):
+                packet = self._row(validated["decision_date"])["packet"]
+                self.assertEqual(packet["sample_status"], expected_sample_status)
+                if trigger_kind != "UPSTREAM_WORKFLOW_RUN":
+                    self.assertNotEqual(
+                        packet["sample_status"], "NATURAL_OPERATIONAL_SAMPLE"
+                    )
+
+    def test_unknown_review_trigger_fails_closed(self):
+        validated = MODULE._validated_shadow_review_source()["packet"]
+        with mock.patch.object(
+            MODULE,
+            "_validated_shadow_review_source",
+            return_value={
+                "packet": copy.deepcopy(validated),
+                "trigger_kind": "UNKNOWN_TRIGGER",
+            },
+        ), self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "SHADOW_ENTRY_REVIEW_TRIGGER_KIND_INVALID",
+        ):
+            self._row(validated["decision_date"])
 
     def test_every_retained_item_and_component_keep_money_authority_at_zero(self):
         packet = self._row()["packet"]
