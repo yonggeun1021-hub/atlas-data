@@ -54,6 +54,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Production publication must not wait behind a multi-minute regression
+  # suite.  Keep the exact same checks on every invocation, but run them in a
+  # parallel job so the 07:05/18:30 retrieval-authority SLA is not consumed by
+  # tests that already ran in CI before merge.
+  offline-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Offline daily orchestrator regression
+        run: |
+          python3 test/test_daily_orchestrator.py
+          python3 test/test_decision_change_lineage_operational.py
+          python3 test/test_three_market_shadow_operational_readiness.py
+
   briefing:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -73,11 +96,6 @@ jobs:
         run: |
           git fetch origin "$DEFAULT_BRANCH"
           git reset --hard "origin/$DEFAULT_BRANCH"
-      - name: Offline daily orchestrator regression
-        run: |
-          python3 test/test_daily_orchestrator.py
-          python3 test/test_decision_change_lineage_operational.py
-          python3 test/test_three_market_shadow_operational_readiness.py
       # Resolves slot/mode/date for all three triggers BEFORE the producer runs.
       # It cannot live inside the producer step: in `drain` mode that step is
       # skipped entirely, so the decision to skip it cannot be made there.
@@ -263,40 +281,18 @@ jobs:
             echo "main advanced while the briefing locator was built; rebuilding once" >&2
           done
 
-          # Phase B publishes the append-only bootstrap in a separate commit.
-          # A concurrent unrelated main advance is safe: the bootstrap remains
-          # bound to the immutable Phase-A commit and is rebuilt on top of the
-          # latest main without changing that binding.
+          # Phase B publishes the P0-06 append-only retrieval bootstrap before
+          # any downstream lineage/Shadow work.  A valid briefing packet must
+          # remain retrievable even when an independent downstream validator
+          # correctly fails closed.  The bootstrap is still bound to the
+          # immutable Phase-A commit and never grants decision/trading authority.
           AUTHORITY_CHANGED=false
           AUTHORITY_PATH=""
-          LINEAGE_CHANGED=false
-          LINEAGE_PATH=""
-          SHADOW_READINESS_CHANGED=false
-          SHADOW_READINESS_PATH=""
-          RUN_RECEIPT_CHANGED=false
-          RUN_RECEIPT_PATH=""
-          ACCEPTANCE_CHANGED=false
-          ACCEPTANCE_PATH=""
           for ATTEMPT in 1 2; do
             if [ "$ATTEMPT" -gt 1 ]; then
               git fetch origin "$DEFAULT_BRANCH"
               git reset --hard "origin/$DEFAULT_BRANCH"
             fi
-            LINEAGE_RECORDED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            LINEAGE_OUTPUT=$(python3 decision/decision_change_lineage_operational.py \
-              "$CAPTURE_PATH/packet.json" \
-              --source-commit "$CONSUMER_READY_COMMIT" \
-              --recorded-at "$LINEAGE_RECORDED_AT")
-            echo "$LINEAGE_OUTPUT"
-            LINEAGE_PATH=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_path=//p')
-            LINEAGE_CHANGED=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_created=//p')
-            SHADOW_READINESS_OUTPUT=$(python3 shadow/three_market_shadow_operational_readiness.py \
-              "$CAPTURE_PATH/packet.json" \
-              --source-commit "$CONSUMER_READY_COMMIT" \
-              --recorded-at "$LINEAGE_RECORDED_AT")
-            echo "$SHADOW_READINESS_OUTPUT"
-            SHADOW_READINESS_PATH=$(echo "$SHADOW_READINESS_OUTPUT" | sed -n 's/^readiness_path=//p')
-            SHADOW_READINESS_CHANGED=$(echo "$SHADOW_READINESS_OUTPUT" | sed -n 's/^readiness_created=//p')
             AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
               --slot "$SLOT" \
               --expected-kst-date "$DECISION_DATE" \
@@ -309,6 +305,82 @@ jobs:
               --expected-kst-date "$DECISION_DATE" \
               --source-commit "$CONSUMER_READY_COMMIT" \
               --authority-path "$AUTHORITY_PATH"
+            if [ "$AUTHORITY_CHANGED" != "true" ]; then
+              break
+            fi
+            git add "$AUTHORITY_PATH"
+            git commit -m "scheduled briefing retrieval authority $SLOT $DECISION_DATE"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              test -z "$(git status --porcelain)" || {
+                echo "STOP: uncommitted output remained after authority commit" >&2
+                exit 1
+              }
+              break
+            fi
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "STOP: main advanced twice; no authority bootstrap was published" >&2
+              exit 1
+            fi
+            echo "main advanced while publishing authority; retrying from latest main" >&2
+          done
+
+          # Phase C records downstream operational sidecars.  These are
+          # intentionally isolated from P0-06: a lineage or Shadow semantic
+          # rejection writes no sidecar and remains BLOCKED_FAIL_CLOSED, while
+          # the already-validated retrieval bootstrap stays available to the
+          # read-only AM/PM consumer.
+          LINEAGE_CHANGED=false
+          LINEAGE_PATH=""
+          LINEAGE_STATUS=PASS
+          SHADOW_READINESS_CHANGED=false
+          SHADOW_READINESS_PATH=""
+          SHADOW_READINESS_STATUS=PASS
+          RUN_RECEIPT_CHANGED=false
+          RUN_RECEIPT_PATH=""
+          ACCEPTANCE_CHANGED=false
+          ACCEPTANCE_PATH=""
+          for ATTEMPT in 1 2; do
+            if [ "$ATTEMPT" -gt 1 ]; then
+              git fetch origin "$DEFAULT_BRANCH"
+              git reset --hard "origin/$DEFAULT_BRANCH"
+            fi
+            LINEAGE_RECORDED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            set +e
+            LINEAGE_OUTPUT=$(python3 decision/decision_change_lineage_operational.py \
+              "$CAPTURE_PATH/packet.json" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --recorded-at "$LINEAGE_RECORDED_AT" 2>&1)
+            LINEAGE_RC=$?
+            set -e
+            echo "$LINEAGE_OUTPUT"
+            if [ "$LINEAGE_RC" -eq 0 ]; then
+              LINEAGE_PATH=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_path=//p')
+              LINEAGE_CHANGED=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_created=//p')
+              LINEAGE_STATUS=PASS
+            else
+              LINEAGE_PATH=""
+              LINEAGE_CHANGED=false
+              LINEAGE_STATUS=BLOCKED_FAIL_CLOSED
+              echo "::warning::Decision lineage sidecar blocked fail-closed; retrieval authority remains valid"
+            fi
+            set +e
+            SHADOW_READINESS_OUTPUT=$(python3 shadow/three_market_shadow_operational_readiness.py \
+              "$CAPTURE_PATH/packet.json" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --recorded-at "$LINEAGE_RECORDED_AT" 2>&1)
+            SHADOW_READINESS_RC=$?
+            set -e
+            echo "$SHADOW_READINESS_OUTPUT"
+            if [ "$SHADOW_READINESS_RC" -eq 0 ]; then
+              SHADOW_READINESS_PATH=$(echo "$SHADOW_READINESS_OUTPUT" | sed -n 's/^readiness_path=//p')
+              SHADOW_READINESS_CHANGED=$(echo "$SHADOW_READINESS_OUTPUT" | sed -n 's/^readiness_created=//p')
+              SHADOW_READINESS_STATUS=PASS
+            else
+              SHADOW_READINESS_PATH=""
+              SHADOW_READINESS_CHANGED=false
+              SHADOW_READINESS_STATUS=BLOCKED_FAIL_CLOSED
+              echo "::warning::Shadow readiness sidecar blocked fail-closed; retrieval authority remains valid"
+            fi
             RUN_RECEIPT_OUTPUT=$(python3 acceptance/capital_rotation_e2e.py publish-run-receipt \
               --event-name "$EVENT_NAME" \
               --event-schedule "$EVENT_SCHEDULE" \
@@ -327,11 +399,8 @@ jobs:
             ACCEPTANCE_PATH=$(echo "$ACCEPTANCE_OUTPUT" | sed -n 's/^acceptance_path=//p')
             ACCEPTANCE_CHANGED=$(echo "$ACCEPTANCE_OUTPUT" | sed -n 's/^acceptance_changed=//p')
             python3 acceptance/capital_rotation_e2e.py validate-inventory "$ACCEPTANCE_PATH"
-            if [ "$AUTHORITY_CHANGED" != "true" ] && [ "$LINEAGE_CHANGED" != "true" ] && [ "$SHADOW_READINESS_CHANGED" != "true" ] && [ "$RUN_RECEIPT_CHANGED" != "true" ] && [ "$ACCEPTANCE_CHANGED" != "true" ]; then
+            if [ "$LINEAGE_CHANGED" != "true" ] && [ "$SHADOW_READINESS_CHANGED" != "true" ] && [ "$RUN_RECEIPT_CHANGED" != "true" ] && [ "$ACCEPTANCE_CHANGED" != "true" ]; then
               break
-            fi
-            if [ "$AUTHORITY_CHANGED" = "true" ]; then
-              git add "$AUTHORITY_PATH"
             fi
             if [ "$LINEAGE_CHANGED" = "true" ]; then
               git add "$LINEAGE_PATH"
@@ -345,19 +414,19 @@ jobs:
             if [ "$ACCEPTANCE_CHANGED" = "true" ]; then
               git add "$ACCEPTANCE_PATH"
             fi
-            git commit -m "scheduled briefing authority, lineage, Shadow, and P8-15 receipt $SLOT $DECISION_DATE"
+            git commit -m "scheduled briefing lineage, Shadow, and P8-15 receipt $SLOT $DECISION_DATE"
             if git push origin "HEAD:$DEFAULT_BRANCH"; then
               test -z "$(git status --porcelain)" || {
-                echo "STOP: uncommitted output remained after authority commit" >&2
+                echo "STOP: uncommitted output remained after sidecar commit" >&2
                 exit 1
               }
               break
             fi
             if [ "$ATTEMPT" -eq 2 ]; then
-              echo "STOP: main advanced twice; no authority bootstrap was published" >&2
+              echo "STOP: main advanced twice; no briefing sidecars were published" >&2
               exit 1
             fi
-            echo "main advanced while publishing authority; retrying from latest main" >&2
+            echo "main advanced while publishing briefing sidecars; retrying from latest main" >&2
           done
 
           if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ] || [ "$LINEAGE_CHANGED" = "true" ] || [ "$SHADOW_READINESS_CHANGED" = "true" ] || [ "$RUN_RECEIPT_CHANGED" = "true" ] || [ "$ACCEPTANCE_CHANGED" = "true" ]; then
@@ -375,8 +444,10 @@ jobs:
           echo "authority_changed=$AUTHORITY_CHANGED" >> "$GITHUB_OUTPUT"
           echo "lineage_path=$LINEAGE_PATH" >> "$GITHUB_OUTPUT"
           echo "lineage_changed=$LINEAGE_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "lineage_status=$LINEAGE_STATUS" >> "$GITHUB_OUTPUT"
           echo "shadow_readiness_path=$SHADOW_READINESS_PATH" >> "$GITHUB_OUTPUT"
           echo "shadow_readiness_changed=$SHADOW_READINESS_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "shadow_readiness_status=$SHADOW_READINESS_STATUS" >> "$GITHUB_OUTPUT"
           echo "run_receipt_path=$RUN_RECEIPT_PATH" >> "$GITHUB_OUTPUT"
           echo "run_receipt_changed=$RUN_RECEIPT_CHANGED" >> "$GITHUB_OUTPUT"
           echo "acceptance_path=$ACCEPTANCE_PATH" >> "$GITHUB_OUTPUT"

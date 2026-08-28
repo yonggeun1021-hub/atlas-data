@@ -52,7 +52,23 @@ class NotionProjectionWorkflowTests(unittest.TestCase):
 
     def test_no_schedule_or_action_dependency_was_added(self):
         self.assertEqual(self.text.count("- cron:"), 2)
-        self.assertEqual(self.text.count("uses:"), 2)
+        # The producer and its independent offline-regression job each use
+        # the same two immutable first-party actions. The parallel job adds
+        # invocations, not a new action dependency or a mutable ref.
+        uses = [
+            step["uses"]
+            for job in self.doc["jobs"].values()
+            for step in job.get("steps", [])
+            if "uses" in step
+        ]
+        self.assertEqual(len(uses), 4)
+        self.assertEqual(
+            set(uses),
+            {
+                "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            },
+        )
 
 
 if __name__ == "__main__":
