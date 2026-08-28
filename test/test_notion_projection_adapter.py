@@ -266,6 +266,44 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(content["delivery_payload_sha256"], payload_sha)
             self.assertFalse(content["safety_attestation"]["trading_authority"])
 
+    def test_semantic_pass_cannot_reach_notion_before_portal_receipt(self):
+        class BF:
+            @staticmethod
+            def resolve_validation(_directory):
+                return ({"routing": {"status_deliverable": True}}, None)
+
+            @staticmethod
+            def load_ratified_specs(_root):
+                return set()
+
+            @staticmethod
+            def derive_routing(_validation, _specs):
+                return {"status_deliverable": True}
+
+            @staticmethod
+            def verify_pre_delivery_portal_receipt(*_args, **_kwargs):
+                raise RuntimeError("PORTAL_FINAL_RECEIPT_MISSING")
+
+        with tempfile.TemporaryDirectory() as root:
+            repo = Path(root)
+            directory = repo / "data/briefing/finalization/2026-08-31/morning"
+            directory.mkdir(parents=True)
+            payload = b"# exact final briefing\n"
+            payload_sha = hashlib.sha256(payload).hexdigest()
+            draft = {
+                "contract_version": "briefing_finalization/18",
+                "briefing_id": "2026-08-31-am",
+                "rev": 1,
+                "delivery_payload_sha256": payload_sha,
+                "delivery_marker": "marker",
+                "source": {"revision": 1, "briefing_sha256": "b" * 64},
+                "source_fingerprint": {"briefing_sha256": "b" * 64},
+            }
+            (directory / "draft-rev-001.json").write_text(json.dumps(draft))
+            (directory / "payload-rev-001.md").write_bytes(payload)
+            with self.assertRaisesRegex(RuntimeError, "PORTAL_FINAL_RECEIPT_MISSING"):
+                np.initial_projection_content(repo, "2026-08-31", "morning", bf=BF)
+
     def test_legacy_portal_bootstrap_is_a_projection_candidate_without_redelivery(self):
         with tempfile.TemporaryDirectory() as root:
             repo = Path(root)

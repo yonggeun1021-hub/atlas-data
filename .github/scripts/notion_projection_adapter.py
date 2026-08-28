@@ -11,7 +11,7 @@ SSOT data source. A successful operation means all of the following are true:
 
 Normal briefing delivery is never performed here. Post-delivery corrections
 remain non-redeliverable and their receipt contract is the one accepted by
-``briefing_finalization/17`` (rev18 latest-per-change authority).
+``briefing_finalization/18`` (validation-first delivery authority).
 """
 
 from __future__ import annotations
@@ -541,6 +541,8 @@ def initial_projection_content(repo_root: Path, kst_date: str, slot: str,
             validation, bf.load_ratified_specs(repo_root))
         if not routing.get("status_deliverable"):
             return None
+        bf.verify_pre_delivery_portal_receipt(
+            repo_root, kst_date, slot, draft=draft, validation=validation)
     elif bf.load_semantic_validator_policy(repo_root)["expected"]:
         return None
     payload_path = directory / f"payload-rev-{int(draft['rev']):03d}.md"

@@ -466,15 +466,15 @@ break the whole render.
 ## Storage is not delivery
 
 Committing `evidence/daily_briefing/...` to `main` is *storage*, not proof
-that a person received the briefing. `.github/workflows/daily-briefing.yml`
-also writes the rendered `briefing.md` into the run's job summary
-(`$GITHUB_STEP_SUMMARY`) on every run, published or not -- that is the one
-delivery path this workflow itself provides. Anything beyond that (a push
-notification, an email, a message from Claude/Codex) is not implemented
-here and must not be reported as done until live delivery evidence exists,
-matching how P0-02/P0-04's own "독립 06:57/18:00 caller" gap is tracked: the
-documented, ready-to-use consumption path for an external read-only
-reporter is
+that a person received the briefing. A natural `brief` run now seals the
+draft and publishes machine-checkable evidence, but it does **not** write the
+final Notion SSOT and does **not** deliver to a person. Those operations exist
+only in `drain` mode after an explicit semantic verdict and a verified Portal
+final receipt. A timeout, a missing validator, or a machine-only clean result
+never becomes delivery authority.
+
+The documented, ready-to-use consumption path for an external read-only
+semantic reviewer is
 
 ```bash
 python3 briefing/daily_orchestrator.py validate \
@@ -497,6 +497,30 @@ any path or hash drift, a missing Decision Review/Shadow component, and any
 authority flag set to true. It never lists a directory, falls back to a
 prior day, or guesses another slot. A BLOCKED Decision Review and a Shadow
 row with no ledger record are delivered results, not delivery failures.
+
+## Validation-first finalization order
+
+From the activation epoch in `config/atlas_finalization_activation.json`, the
+only permitted order is:
+
+1. Claude/analysis writes a clearly labelled DRAFT handoff.
+2. Codex/ChatGPT independently binds an explicit semantic `PASS`,
+   `PASS_WITH_CORRECTION`, or `HOLD` to the sealed payload hash.
+3. A validated immutable `portal_projection/2` envelope is dispatched.
+4. atlas-portal proves `DEPLOYED` or viewer-verified `NO_CHANGE` and the Notion
+   Portal receipt is read back.
+5. The observer records an append-only
+   `portal-final-receipt-rev-NNN.json` through
+   `briefing_finalization.py portal-receipt`.
+6. Only then may `drain` update the final Notion SSOT and deliver the sealed
+   payload once.
+
+The Portal final receipt is bound to the exact payload hash, semantic
+validation revision, projection ID, envelope commit/path/hash, target run,
+viewer SHA/URL, and Notion receipt page. `BLOCKED`, missing readback, a mixed
+identity, or any authority flag set true fails closed. Historical
+`UNVALIDATED_TIMEOUT` and `UNVALIDATED_NO_VALIDATOR` records remain audit data
+but are not deliverable under `briefing_finalization/18`.
 
 ## Scheduling
 
