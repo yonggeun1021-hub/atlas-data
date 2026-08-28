@@ -97,7 +97,7 @@ RULING_FIELDS = {
     "contract_version", "post_delivery_change_key", "capital_impact",
     "resolved_by", "action_taken", "signature",
 }
-FINALIZATION_CONTRACT = "briefing_finalization/17"
+FINALIZATION_CONTRACTS = {"briefing_finalization/17", "briefing_finalization/18"}
 
 
 class DispatchError(RuntimeError):
@@ -257,7 +257,7 @@ def _verify_post_delivery_ruling(
     if not isinstance(ruling, dict):
         raise DispatchError("SIGNED_RULING_INVALID")
     _exact(ruling, RULING_FIELDS, "SIGNED_RULING_FIELDS_MISMATCH")
-    if ruling.get("contract_version") != FINALIZATION_CONTRACT:
+    if ruling.get("contract_version") not in FINALIZATION_CONTRACTS:
         raise DispatchError("SIGNED_RULING_CONTRACT_INVALID")
     if ruling.get("post_delivery_change_key") != change_key:
         raise DispatchError("SIGNED_RULING_CHANGE_MISMATCH")

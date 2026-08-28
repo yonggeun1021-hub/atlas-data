@@ -7,10 +7,9 @@ cross-references.  Everything requiring judgement -- whether a claim is true,
 whether a cause is the cause, whether a market reading is sound -- is listed
 explicitly under ``unverified_semantic`` and is NOT silently treated as passed.
 
-Why this exists: without a producer, the gate's fail-open path meant every
-round was delivered as ``UNVALIDATED_TIMEOUT`` twenty minutes after sealing.
-That is a timeout system, not a validation system.  This closes the machine
-checkable half and leaves the other half honestly marked.
+Why this exists: a timeout is not semantic validation.  The finalization gate
+now remains sealed after timeout, while this validator closes the
+machine-checkable half and leaves the other half honestly marked.
 
 Structural validation is DELEGATED, never reimplemented.  rev 1 carried its own
 abbreviated packet/locator checks and consequently passed a packet whose
@@ -405,10 +404,10 @@ def validate(repo_root: Path, kst_date: str, slot: str) -> dict:
         machine_status = "MACHINE_PASS"
 
     # (P0) A clean machine run is NOT a final PASS.  Nothing here can see
-    # whether a claim is true, so the gate's verdict slot stays empty and the
-    # existing fail-open policy decides what happens if no semantic validator
-    # ever answers.  Submitting PASS would be the machine vouching for facts it
-    # never examined -- and rev 1 did exactly that, straight through to delivery.
+    # whether a claim is true, so the gate's verdict slot stays empty until the
+    # named semantic validator answers. Submitting PASS would be the machine
+    # vouching for facts it never examined -- and rev 1 did exactly that,
+    # straight through to delivery.
     semantic_status = "UNVERIFIED"
     submit = machine_status in ("HOLD", "PASS_WITH_CORRECTION")
     clears_prior_block = False

@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -382,15 +383,17 @@ class StateMachine(Base):
             bf.ingest_inbox(self.repo, DATE, SLOT)
         self.assertEqual(ctx.exception.code, "FINALIZATION_STATUS_NOT_EXTERNALLY_SUBMITTABLE")
 
-    def test_timeout_is_minted_only_after_real_elapsed_time(self):
+    def test_timeout_never_becomes_delivery_authority(self):
         self._seal()
         with self.assertRaises(bf.FinalizationError) as ctx:
             self._deliver()
         self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_PENDING")
         later = bf._utcnow() + dt.timedelta(minutes=bf.VALIDATION_TIMEOUT_MIN + 1)
-        r = bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
                        durability_probe=lambda *_: True)
-        self.assertEqual(r["validation_status_at_delivery"], "UNVALIDATED_TIMEOUT")
+        self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_TIMEOUT")
+        self.assertFalse(bf.already_delivered(self.repo, DATE, SLOT))
 
 
 # ========================= P0-5 idempotent seal ============================
@@ -797,13 +800,14 @@ class InvalidVerdictIsNotSilence(Base):
         self.assertEqual([e["error"] for e in out["machine_failures"]],
                          ["FINALIZATION_VALIDATION_INVALID"])
 
-    def test_true_silence_still_times_out(self):
-        """Fail-open must survive: no inbox at all is silence, not a fault."""
+    def test_true_silence_remains_undelivered_after_timeout(self):
         self._seal()
         later = bf._utcnow() + dt.timedelta(minutes=bf.VALIDATION_TIMEOUT_MIN + 1)
-        r = bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
                        durability_probe=lambda *_: True)
-        self.assertEqual(r["validation_status_at_delivery"], "UNVALIDATED_TIMEOUT")
+        self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_TIMEOUT")
+        self.assertFalse(bf.already_delivered(self.repo, DATE, SLOT))
 
 
 class DebtNeverExpires(Base):
@@ -1332,17 +1336,18 @@ class AuthorityStreams(Base):
         self.assertIsNone(problem)
         return v
 
-    def test_machine_hold_then_clear_releases_the_block(self):
+    def test_machine_hold_then_clear_returns_to_semantic_pending(self):
         """rev10: a transient structural fault held the briefing forever."""
         self._seal()
         self._submit("HOLD", "machine")
         self.assertEqual(self._governing()["validation_status"], "HOLD")
         self._submit(bf.MACHINE_CLEARED, "machine")
-        self.assertIsNone(self._governing())          # slot open, fail-open owns it
+        self.assertIsNone(self._governing())          # slot open, semantic validator still owns it
         later = bf._utcnow() + dt.timedelta(minutes=bf.VALIDATION_TIMEOUT_MIN + 1)
-        r = bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
                        durability_probe=lambda *_: True)
-        self.assertEqual(r["validation_status_at_delivery"], "UNVALIDATED_TIMEOUT")
+        self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_TIMEOUT")
 
     def test_machine_correction_then_clear_releases_the_block(self):
         self._seal()
@@ -1527,15 +1532,16 @@ class SemanticValidatorPolicy(Base):
         path.write_text(json.dumps({"expected": expected, "timeout_minutes": minutes}),
                         encoding="utf-8")
 
-    def test_no_validator_configured_delivers_in_band(self):
+    def test_no_validator_configured_blocks_delivery(self):
         self._policy(False)
         self._seal()
-        r = bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"],
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"],
                        durability_probe=lambda *_: True)
-        self.assertEqual(r["validation_status_at_delivery"], "UNVALIDATED_NO_VALIDATOR")
-        self.assertEqual(r["channels"], ["github_step_summary"])
+        self.assertEqual(ctx.exception.code, "FINALIZATION_SEMANTIC_VALIDATOR_REQUIRED")
+        self.assertFalse(bf.already_delivered(self.repo, DATE, SLOT))
 
-    def test_no_validator_configured_makes_drain_green(self):
+    def test_no_validator_configured_keeps_drain_incomplete(self):
         # activation starts at THIS slot, so the morning slot is not owed
         path = self.repo / bf.ACTIVATION_PATH
         path.write_text(json.dumps({"active_from_kst_date": DATE,
@@ -1543,18 +1549,17 @@ class SemanticValidatorPolicy(Base):
         self._policy(False)
         self._seal()
         out = bf.drain(self.repo, ["github_step_summary"], durability_probe=lambda *_: True)
-        self.assertTrue(out["complete"], out)
-        self.assertEqual(out["exit_code"], bf.EXIT_OK)
+        self.assertFalse(out["complete"], out)
+        self.assertEqual(out["exit_code"], bf.EXIT_DRAIN_INCOMPLETE)
         self.assertFalse(out["semantic_validator_expected"])
 
-    def test_the_record_says_nothing_was_waited_for(self):
+    def test_no_validator_does_not_mint_an_internal_verdict(self):
         self._policy(False)
         self._seal()
-        bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"],
-                   durability_probe=lambda *_: True)
-        latest = json.loads(bf._latest(bf.slot_dir(self.repo, DATE, SLOT), "validation").read_text())
-        self.assertFalse(latest["semantic_validator_expected"])
-        self.assertIn("nothing to wait for", latest["semantic_validation_reason"])
+        with self.assertRaises(bf.FinalizationError):
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"],
+                       durability_probe=lambda *_: True)
+        self.assertIsNone(bf._latest(bf.slot_dir(self.repo, DATE, SLOT), "validation"))
 
     def test_expected_validator_still_waits(self):
         self._policy(True)
@@ -1563,9 +1568,10 @@ class SemanticValidatorPolicy(Base):
             self._deliver()
         self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_PENDING")
         later = bf._utcnow() + dt.timedelta(minutes=21)
-        r = bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
                        durability_probe=lambda *_: True)
-        self.assertEqual(r["validation_status_at_delivery"], "UNVALIDATED_TIMEOUT")
+        self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_TIMEOUT")
 
     def test_absent_policy_file_keeps_the_conservative_wait(self):
         self._seal()
@@ -1589,25 +1595,22 @@ class SemanticValidatorPolicy(Base):
 
     def test_no_validator_does_not_relax_durable_intent(self):
         self._policy(False)
-        self._seal()
+        self._seal(); self._validate()
         with self.assertRaises(bf.FinalizationError) as ctx:
             bf.deliver(self.repo, DATE, SLOT, ["test_unsafe"], durability_probe=self.durable)
         self.assertEqual(ctx.exception.code, "FINALIZATION_INTENT_NOT_DURABLE")
         self.assertEqual(len(self.unsafe.sent), 0)
 
-    def test_waited_minutes_is_zero_when_nothing_was_waited_for(self):
-        """rev14 recorded the elapsed time as if it had been a wait."""
+    def test_no_validator_never_creates_wait_metadata(self):
         self._policy(False)
         self._seal()
         later = bf._utcnow() + dt.timedelta(minutes=7)
-        bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
-                   durability_probe=lambda *_: True)
-        latest = json.loads(bf._latest(bf.slot_dir(self.repo, DATE, SLOT), "validation").read_text())
-        self.assertEqual(latest["waited_minutes"], 0.0)
-        self.assertEqual(latest["validation_status"], "UNVALIDATED_NO_VALIDATOR")
+        with self.assertRaises(bf.FinalizationError):
+            bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
+                       durability_probe=lambda *_: True)
+        self.assertIsNone(bf._latest(bf.slot_dir(self.repo, DATE, SLOT), "validation"))
 
-    def test_retry_does_not_stack_duplicate_internal_verdicts(self):
-        """rev14 minted a fresh UNVALIDATED_NO_VALIDATOR on every attempt."""
+    def test_retry_does_not_create_internal_verdicts(self):
         self._policy(False)
         self._seal()
         for _ in range(3):
@@ -1617,13 +1620,140 @@ class SemanticValidatorPolicy(Base):
             except bf.FinalizationError:
                 pass
         recorded = bf._recorded_validations(bf.slot_dir(self.repo, DATE, SLOT))
-        self.assertEqual(len(recorded), 1)
+        self.assertEqual(len(recorded), 0)
 
     def test_external_validator_cannot_claim_no_validator(self):
         self._seal()
         with self.assertRaises(bf.FinalizationError) as ctx:
             self._validate(status="UNVALIDATED_NO_VALIDATOR")
         self.assertEqual(ctx.exception.code, "FINALIZATION_STATUS_NOT_EXTERNALLY_SUBMITTABLE")
+
+
+class PortalBeforeDelivery(Base):
+    def setUp(self):
+        super().setUp()
+        path = self.repo / bf.ACTIVATION_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "active_from_kst_date": DATE,
+            "active_from_slot": "morning",
+            "portal_before_delivery": True,
+            "notion_final_after_portal": True,
+        }), encoding="utf-8")
+
+    def _portal_receipt(self, draft, validation, **updates):
+        projection_id = f"{DATE}-PM-" + "a" * 24
+        envelope_path = (
+            f"evidence/validated_briefing_portal/{SLOT}/{DATE}/"
+            "rev-001/portal-projection.json"
+        )
+        if not (self.repo / ".git").exists():
+            subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+            subprocess.run(["git", "-C", str(self.repo), "config",
+                            "user.email", "atlas-tests@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(self.repo), "config",
+                            "user.name", "Atlas Tests"], check=True)
+            (self.repo / "source.txt").write_text("sealed source\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(self.repo), "add", "source.txt"], check=True)
+            subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "source"],
+                           check=True)
+        source_commit = subprocess.run(
+            ["git", "-C", str(self.repo), "rev-list", "--max-parents=0", "HEAD"],
+            capture_output=True, text=True, check=True).stdout.splitlines()[0]
+        envelope = {
+            "schema_version": "portal_projection/2",
+            "briefing_date": DATE,
+            "slot": "PM",
+            "projection_id": projection_id,
+            "source_commit": source_commit,
+            "completion_state": "VALIDATED",
+            "safety_attestation": bf.PORTAL_RECEIPT_AUTHORITY,
+        }
+        envelope_file = self.repo / envelope_path
+        envelope_file.parent.mkdir(parents=True, exist_ok=True)
+        envelope_file.write_bytes(bf._canonical(envelope))
+        subprocess.run(["git", "-C", str(self.repo), "add", envelope_path], check=True)
+        if subprocess.run(["git", "-C", str(self.repo), "diff", "--cached", "--quiet"],
+                          check=False).returncode != 0:
+            subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "envelope"],
+                           check=True)
+        envelope_commit = subprocess.run(
+            ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        body = {
+            "schema_version": bf.PORTAL_FINAL_RECEIPT_SCHEMA,
+            "briefing_id": f"{DATE}-pm",
+            "kst_date": DATE,
+            "slot": SLOT,
+            "projection_id": projection_id,
+            "envelope_commit": envelope_commit,
+            "envelope_path": envelope_path,
+            "envelope_sha256": bf._sha256(envelope_file.read_bytes()),
+            "source_commit": source_commit,
+            "portal_result": "DEPLOYED",
+            "portal_run_id": "33176553036",
+            "portal_source_sha": "e" * 40,
+            "deployment_url": "https://atlas.example.test",
+            "notion_receipt_page_id": "3ca9f2d73c84818a9481e8b4bb5a1fca",
+            "viewer_readback_verified": True,
+            "notion_receipt_readback_verified": True,
+            "delivery_payload_sha256": draft["delivery_payload_sha256"],
+            "validation_rev": validation["rev"],
+            "observed_at_utc": "2026-08-27T10:00:00Z",
+            "authority": bf.PORTAL_RECEIPT_AUTHORITY,
+        }
+        body.update(updates)
+        return body
+
+    def test_semantic_pass_without_portal_receipt_stays_undelivered(self):
+        self._seal(); self._validate()
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            self._deliver()
+        self.assertEqual(ctx.exception.code, "PORTAL_FINAL_RECEIPT_MISSING")
+        self.assertFalse(bf.already_delivered(self.repo, DATE, SLOT))
+
+    def test_verified_portal_and_notion_receipt_unlocks_delivery(self):
+        draft = self._seal(); validation = self._validate()
+        recorded = bf.record_portal_final_receipt(
+            self.repo, DATE, SLOT, self._portal_receipt(draft, validation))
+        self.assertTrue(recorded["recorded"])
+        result = bf.deliver(
+            self.repo, DATE, SLOT, ["github_step_summary"],
+            durability_probe=lambda *_: True)
+        self.assertEqual(result["validation_status_at_delivery"], "PASS")
+
+    def test_blocked_or_unverified_portal_receipt_is_rejected(self):
+        draft = self._seal(); validation = self._validate()
+        for update, code in (
+            ({"portal_result": "BLOCKED"}, "PORTAL_FINAL_RECEIPT_RESULT_BLOCKED"),
+            ({"viewer_readback_verified": False},
+             "PORTAL_FINAL_RECEIPT_READBACK_UNVERIFIED"),
+            ({"authority": {**bf.PORTAL_RECEIPT_AUTHORITY,
+                            "trading_authority": True}},
+             "PORTAL_FINAL_RECEIPT_AUTHORITY_FAILED"),
+        ):
+            with self.subTest(update=update):
+                with self.assertRaises(bf.FinalizationError) as ctx:
+                    bf.record_portal_final_receipt(
+                        self.repo, DATE, SLOT,
+                        self._portal_receipt(draft, validation, **update))
+                self.assertEqual(ctx.exception.code, code)
+
+    def test_receipt_is_bound_to_local_and_committed_envelope_bytes(self):
+        draft = self._seal(); validation = self._validate()
+        receipt = self._portal_receipt(draft, validation)
+        (self.repo / receipt["envelope_path"]).write_text("{}", encoding="utf-8")
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.record_portal_final_receipt(self.repo, DATE, SLOT, receipt)
+        self.assertEqual(ctx.exception.code, "PORTAL_FINAL_RECEIPT_ENVELOPE_HASH_MISMATCH")
+
+    def test_receipt_cannot_name_an_unrelated_envelope_commit(self):
+        draft = self._seal(); validation = self._validate()
+        receipt = self._portal_receipt(
+            draft, validation, envelope_commit="f" * 40)
+        with self.assertRaises(bf.FinalizationError) as ctx:
+            bf.record_portal_final_receipt(self.repo, DATE, SLOT, receipt)
+        self.assertEqual(ctx.exception.code, "PORTAL_FINAL_RECEIPT_COMMIT_UNVERIFIED")
 
 
 class DrainLiveness(Base):

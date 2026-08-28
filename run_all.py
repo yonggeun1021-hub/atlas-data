@@ -91,6 +91,10 @@ APPROVED_TESTS = [
     # receipt revision per change. Portal projection is a fail-closed gate
     # before the delivery step and adds no cron or third-party Action.
     "test/test_briefing_finalization_e2e.py",
+    # Validation-first production wiring: natural producer stops at DRAFT,
+    # semantic timeout is HOLD, and the activated epoch requires Portal
+    # verification before final Notion projection or user delivery.
+    "test/test_briefing_validation_first_wiring.py",
     # The committed CIO Ed25519 verification key must match the out-of-band
     # GitHub secret anchor before any PR can pass the authoritative CI gate.
     # Failure output is code-only and never prints the configured anchor.
