@@ -235,6 +235,12 @@ class ProposalShapeTests(unittest.TestCase):
         self.assertEqual(proposal["authority"], AUTHORITY_ALL_FALSE)
         self.assertFalse(proposal["canonicalAuthorityConfigMutated"])
         self.assertFalse(proposal["existingPortfolioAccountFactV2Mutated"])
+        self.assertEqual(proposal["freshnessPolicy"], {
+            "status": "UNRATIFIED_NO_NUMERIC_LIMIT",
+            "maxSourceAgeSeconds": None,
+            "maxPairGapSeconds": None,
+            "effect": "REVIEW_INCOMPLETE_FAIL_CLOSED",
+        })
         self.assertEqual(portfolio_snapshot_v2.SCHEMA_VERSION, "portfolio_account_fact/2")
         self.assertEqual(portfolio_snapshot_v2.PROVIDER_AUTHORITY_STATUS, "PROPOSED_UNRATIFIED")
 
@@ -317,10 +323,35 @@ class ReviewTests(unittest.TestCase):
             result["reasons"],
         )
 
-    def test_exact_bytes_and_complete_attestations_reach_review_only_ready(self):
+    def test_exact_bytes_and_complete_attestations_stay_blocked_without_freshness_policy(self):
         result = self.review_ready()
-        self.assertEqual(result["reviewStatus"], "REVIEW_READY_FOR_CIO")
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertEqual(result["reasons"], [
+            "PRIVATE_SOURCE_FRESHNESS_POLICY_UNRATIFIED",
+        ])
         self.assertEqual(result["authority"], AUTHORITY_ALL_FALSE)
+
+    def test_old_relationship_and_current_capacity_cannot_claim_freshness(self):
+        source = full_account_source_record()
+        source["capturedAt"] = "2026-01-01T00:00:00Z"
+        source["availableAt"] = "2026-01-01T00:00:00Z"
+        source["recordSha256"] = payload_sha256({
+            key: value for key, value in source.items() if key != "recordSha256"
+        })
+        relationship = relationship_attestation(
+            sourceRecordSha256=source["recordSha256"],
+            capturedAt=source["capturedAt"],
+            availableAt=source["availableAt"],
+        )
+        result = self.review_ready(
+            relationship=relationship,
+            relationship_source=_private_bytes(source),
+        )
+        self.assertEqual(result["reviewStatus"], "REVIEW_INCOMPLETE")
+        self.assertIn(
+            "PRIVATE_SOURCE_FRESHNESS_POLICY_UNRATIFIED",
+            result["reasons"],
+        )
 
     def test_rehashed_mapping_change_cannot_redefine_equity(self):
         proposal = copy.deepcopy(valuation_semantic_mapping_proposal())

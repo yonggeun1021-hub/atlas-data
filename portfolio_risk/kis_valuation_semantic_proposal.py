@@ -195,6 +195,12 @@ def valuation_semantic_mapping_proposal() -> dict:
             "accountIdentityPermittedInPublicArtifact": False,
             "positionSymbolsPermittedInPublicArtifact": False,
         },
+        "freshnessPolicy": {
+            "status": "UNRATIFIED_NO_NUMERIC_LIMIT",
+            "maxSourceAgeSeconds": None,
+            "maxPairGapSeconds": None,
+            "effect": "REVIEW_INCOMPLETE_FAIL_CLOSED",
+        },
         "canonicalAuthorityConfigMutated": False,
         "existingPortfolioAccountFactV2Mutated": False,
         "authority": dict(AUTHORITY_ALL_FALSE),
