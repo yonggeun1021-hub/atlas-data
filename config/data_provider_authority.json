@@ -1,6 +1,23 @@
 {
   "schema_version": 1,
   "policy_version": "data_provider_authority/v1",
-  "evidence_basis": "P0-2C-1 mechanism: recognizing that a data PROVIDER can be technically read (an endpoint responds) is not the same fact as Atlas recognizing that provider as an authoritative portfolio-fact source. No provider_authority_records exist yet -- every provider tuple (including KIS_PAPER_ACCOUNT/KOREA/KRW/kis_paper_domestic_balance) resolves NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED until a separately reviewed, provenance-bound record is added here and RATIFIED. Adding a PROPOSED (not yet RATIFIED) row is a mechanical proposal only and grants no authority by itself -- see identity/candidate_identity_authority_proposal.py's proposal/ratify separation for the same discipline applied at the instrument-identity layer.",
-  "provider_authority_records": []
+  "evidence_basis": "P0-2C provider authority registry. PM/CIO mechanical provenance review on 2026-08-28 approved only the exact KIS_PAPER_ACCOUNT/KOREA/KRW/kis_paper_domestic_balance tuple after bytes from the pinned official koreainvestment/open-trading-api commit were independently reproduced and the Atlas implementation boundary was revalidated. The user delegated safe-development PM decisions; that delegation is not itself provider, investment, order, Production, Trading, or REAL approval. This row is mechanical portfolio-fact source recognition only and grants none of those authorities.",
+  "provider_authority_records": [
+    {
+      "rule_id": "atlas.identity.provider.kis-paper-account",
+      "rule_version": 1,
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-08-28T14:18:55Z",
+      "approval_evidence_ref": "evidence/identity/approvals/2026-08-28/provider.kis-paper-account.json",
+      "approval_evidence_sha256": "9a41a24d3e08ecd17a19b73753f954be4cf8069bdebc9cfde60bae09d317b893",
+      "business_payload_sha256": "8d7db8ab89e2781e2ee6854ddd7aff30e606db52177fdfd81787c5c76b003c90",
+      "first_seen_at": "2026-08-28T14:18:55Z",
+      "effective_from": "2026-08-28T14:18:55Z",
+      "effective_to": null,
+      "provider": "KIS_PAPER_ACCOUNT",
+      "account_scope": "KOREA",
+      "currency": "KRW",
+      "position_source_name": "kis_paper_domestic_balance"
+    }
+  ]
 }

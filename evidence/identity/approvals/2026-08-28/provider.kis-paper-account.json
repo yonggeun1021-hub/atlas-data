@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "approval_contract_version": "canonical_identity_approval/1",
+  "rule_id": "atlas.identity.provider.kis-paper-account",
+  "rule_version": 1,
+  "approval_status": "RATIFIED",
+  "ratified_at": "2026-08-28T14:18:55Z",
+  "layer": "PROVIDER_AUTHORITY",
+  "approved_full_payload_sha256": "7680fbfe2860378d694e571459389e7e50a9442aba81b33fe1e65c571fee452d",
+  "source_evidence": [
+    {
+      "path": "identity/kis_provenance_proposal.py",
+      "sha256": "541f118caf9aaca46ee92b960ee5eca8e9e239bdaaa224fe5d05d76077f70066"
+    },
+    {
+      "path": "identity/kis_official_evidence_resolver.py",
+      "sha256": "8dc8980aa1e0e3e6fd52b96194184333d7ec0ce791715658a3e77aaa7610c99e"
+    },
+    {
+      "path": "identity/kis_provenance_proposal_review.py",
+      "sha256": "d6f4206cf49cbf2b22d2431d6811d1ff474c6899c63f987725224a2886212074"
+    }
+  ],
+  "assertion": {
+    "provider": "KIS_PAPER_ACCOUNT",
+    "account_scope": "KOREA",
+    "currency": "KRW",
+    "position_source_name": "kis_paper_domestic_balance",
+    "official_repository": "koreainvestment/open-trading-api",
+    "official_commit_sha": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+    "independent_resolution_sha256": "a90c3a7c76bb9b468a4337ed11b24a475071f4d3c7aeaf384994ce50e3c8fdef",
+    "review_status": "REVIEW_READY_FOR_CIO",
+    "approval_basis": "PM/CIO mechanical provenance review on 2026-08-28 approved only the exact KIS PAPER balance provider tuple after independent official-byte reproduction and Atlas implementation revalidation. This is not user investment, order, Production, Trading, or REAL approval."
+  },
+  "boundary": "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY"
+}

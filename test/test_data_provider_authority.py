@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""P0-2C-1 prep: provider authority for KIS_PAPER_ACCOUNT (and any future
-data provider) as a layer independent from, and strictly prior to,
-instrument-identity resolution (P0-2C-2, test_kis_paper_source_identity_resolution.py).
+"""Provider authority for KIS_PAPER_ACCOUNT as a layer independent from,
+and strictly prior to, instrument-identity resolution.
 
 "Can Atlas technically read this provider's API" and "is this provider a
-RATIFIED portfolio-fact source" are two separate facts. This file proves
-the resolution boundary only -- it does not add, propose, or ratify any
-real provider_authority_records row (config/data_provider_authority.json
-stays an empty mechanism today; see that file's own evidence_basis).
+RATIFIED portfolio-fact source" remain separate facts. The one shipped KIS
+PAPER balance tuple is backed by a standalone approval packet and independently
+reproduced official git bytes; every other provider tuple still fails closed.
 """
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -56,23 +56,76 @@ def _authority(*rows: dict) -> dict:
     }
 
 
-class DataProviderAuthorityTodayStateTests(unittest.TestCase):
-    """Honest current (pre-P0-2C-1-authority-PR) state of the world."""
+class DataProviderAuthorityRatifiedStateTests(unittest.TestCase):
+    """The one real provider tuple ratified after independent byte review."""
 
     @classmethod
     def setUpClass(cls):
         cls.authority = ci.load_provider_authority()
 
-    def test_no_provider_authority_records_exist_yet(self):
-        self.assertEqual(self.authority["provider_authority_records"], [])
-
-    def test_kis_paper_account_tuple_currently_resolves_not_computable(self):
-        result = ci.resolve_provider_authority(
-            **KIS_PROVIDER_TUPLE, decision_date=DECISION_DATE, authority=self.authority,
+    def test_registry_contains_only_the_kis_paper_balance_tuple(self):
+        rows = self.authority["provider_authority_records"]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["approval_status"], "RATIFIED")
+        self.assertEqual(row["ratified_at"], "2026-08-28T14:18:55Z")
+        self.assertEqual(row["first_seen_at"], row["ratified_at"])
+        self.assertEqual(row["effective_from"], row["ratified_at"])
+        self.assertEqual(
+            {key: row[key] for key in KIS_PROVIDER_TUPLE},
+            KIS_PROVIDER_TUPLE,
         )
-        self.assertEqual(result["status"], ci.NOT_COMPUTABLE_PROVIDER_AUTHORITY_UNRATIFIED)
-        self.assertIsNone(result.get("provider"))
+
+    def test_kis_paper_account_tuple_resolves_only_after_verified_first_seen(self):
+        too_early = ci.resolve_provider_authority(
+            **KIS_PROVIDER_TUPLE,
+            decision_date="2026-08-28",
+            authority=self.authority,
+        )
+        self.assertNotEqual(too_early["status"], ci.RESOLVED)
+        result = ci.resolve_provider_authority(
+            **KIS_PROVIDER_TUPLE,
+            decision_date="2026-08-29",
+            authority=self.authority,
+        )
+        self.assertEqual(result["status"], ci.RESOLVED, result)
+        self.assertEqual(result["provider"], "KIS_PAPER_ACCOUNT")
         self.assertTrue(all(v is False for v in result["authority"].values()))
+
+    def test_real_approval_packet_and_every_retained_source_hash_match(self):
+        row = self.authority["provider_authority_records"][0]
+        approval_path = ROOT / row["approval_evidence_ref"]
+        self.assertTrue(approval_path.is_file())
+        self.assertEqual(
+            hashlib.sha256(approval_path.read_bytes()).hexdigest(),
+            row["approval_evidence_sha256"],
+        )
+        approval = json.loads(approval_path.read_text())
+        self.assertEqual(approval["layer"], ci.LAYER_PROVIDER_AUTHORITY)
+        self.assertEqual(
+            approval["assertion"]["independent_resolution_sha256"],
+            "a90c3a7c76bb9b468a4337ed11b24a475071f4d3c7aeaf384994ce50e3c8fdef",
+        )
+        self.assertEqual(approval["assertion"]["review_status"], "REVIEW_READY_FOR_CIO")
+        for source in approval["source_evidence"]:
+            source_path = ROOT / source["path"]
+            self.assertTrue(source_path.is_file(), source)
+            self.assertEqual(
+                hashlib.sha256(source_path.read_bytes()).hexdigest(),
+                source["sha256"],
+            )
+
+    def test_provider_ratification_grants_no_investment_or_order_authority(self):
+        approval = json.loads(
+            (ROOT / self.authority["provider_authority_records"][0]["approval_evidence_ref"]).read_text()
+        )
+        self.assertEqual(
+            approval["boundary"],
+            "MECHANICAL_IDENTITY_OR_SCOPE_ONLY_NO_INVESTMENT_OR_TRADING_AUTHORITY",
+        )
+        self.assertNotIn("user explicitly directed", self.authority["evidence_basis"].lower())
+        self.assertNotIn("user instruction", approval["assertion"]["approval_basis"].lower())
+        self.assertIn("not user investment", approval["assertion"]["approval_basis"].lower())
 
 
 class DataProviderAuthorityFailClosedCounterExampleTests(unittest.TestCase):
