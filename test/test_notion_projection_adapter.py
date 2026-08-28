@@ -149,6 +149,23 @@ class AdapterTests(unittest.TestCase):
             np.verify_readback(client.page, CONTENT, np.digest(CONTENT),
                                "2026-08-28", "morning")
 
+    def test_written_at_uses_notion_round_trip_precision_and_semantic_instant(self):
+        self.assertEqual(
+            np._utc_iso(dt.datetime(2026, 8, 28, 0, 48, 29, 999,
+                                    tzinfo=dt.timezone.utc)),
+            "2026-08-28T00:48:00Z")
+        props = np.projection_properties(
+            CONTENT, np.digest(CONTENT), "2026-08-28T00:48:00Z",
+            "2026-08-28", "morning")
+        page = {"properties": materialize(props)}
+        page["properties"]["Written At UTC"]["date"]["start"] = (
+            "2026-08-28T00:48:00.000+00:00")
+        np.verify_readback(page, CONTENT, np.digest(CONTENT),
+                           "2026-08-28", "morning", "2026-08-28T00:48:00Z")
+        with self.assertRaisesRegex(np.ProjectionError, "Written At UTC"):
+            np.verify_readback(page, CONTENT, np.digest(CONTENT),
+                               "2026-08-28", "morning", "2026-08-28T00:49:00Z")
+
     def test_bad_latest_receipt_can_be_recovered_append_only(self):
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)

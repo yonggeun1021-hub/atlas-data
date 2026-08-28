@@ -528,7 +528,9 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/briefing/finalization
+          if [ -d data/briefing/finalization ]; then
+            git add data/briefing/finalization
+          fi
           git diff --cached --quiet || {
             git commit -m "finalization ${{ steps.resolve.outputs.decision_date }}"
             git push origin "HEAD:$DEFAULT_BRANCH"

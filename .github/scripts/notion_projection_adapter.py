@@ -83,7 +83,20 @@ def _utc_iso(value: dt.datetime | None = None) -> str:
     current = value or dt.datetime.now(dt.timezone.utc)
     if current.tzinfo is None:
         raise ProjectionError("WRITTEN_AT_MUST_BE_TIMEZONE_AWARE")
-    return current.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    # Notion date properties normalize sub-minute precision away.  Write at
+    # the precision the authority can round-trip so an exact semantic readback
+    # does not reject the same instant solely because seconds were truncated.
+    current = current.astimezone(dt.timezone.utc).replace(second=0, microsecond=0)
+    return current.isoformat().replace("+00:00", "Z")
+
+
+def _same_instant(left: str, right: str) -> bool:
+    try:
+        a = dt.datetime.fromisoformat(left.replace("Z", "+00:00"))
+        b = dt.datetime.fromisoformat(right.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return False
+    return a.tzinfo is not None and b.tzinfo is not None and a == b
 
 
 def rich_text(value: str) -> dict:
@@ -299,7 +312,8 @@ def verify_readback(page: dict, content: dict, expected_sha: str,
     if _date_start(props.get("Decision Date", {})) != decision_date:
         raise ProjectionError("NOTION_READBACK_MISMATCH:Decision Date")
     written_at = _date_start(props.get("Written At UTC", {}))
-    if not written_at or (expected_written_at is not None and written_at != expected_written_at):
+    if not written_at or (expected_written_at is not None
+                          and not _same_instant(written_at, expected_written_at)):
         raise ProjectionError("NOTION_READBACK_MISMATCH:Written At UTC")
     return written_at
 
