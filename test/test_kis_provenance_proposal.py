@@ -58,10 +58,14 @@ class BuildProposalShapeTests(unittest.TestCase):
                 file_path="kis_devlp.yaml", content_sha256="a" * 64, note="x",
             )
 
-    def test_no_authority_config_rows_are_added(self):
+    def test_proposal_module_does_not_self_ratify_aliases_or_expand_provider_scope(self):
         providers = json.loads((ROOT / "config" / "data_provider_authority.json").read_text())
         identities = json.loads((ROOT / "config" / "canonical_security_identity.json").read_text())
-        self.assertEqual(providers["provider_authority_records"], [])
+        self.assertEqual(len(providers["provider_authority_records"]), 1)
+        self.assertEqual(
+            providers["provider_authority_records"][0]["rule_id"],
+            "atlas.identity.provider.kis-paper-account",
+        )
         self.assertFalse(any(
             row.get("source_name") == "kis_paper_domestic_balance"
             for row in identities["source_aliases"]
