@@ -7,7 +7,14 @@
     "api_version": "2026-03-11",
     "data_source_id": "7207d3d2-8806-4aa9-bfe2-cfddc3ea6869",
     "database_id": "2ede08c3-1288-47fc-a8e4-0fb63713fa83",
-    "_note": "Adapter code and a dedicated Atlas Briefing SSOT data source exist. Keep implemented=false until the GitHub Actions identity completes write + read-after-write live canary. No receipt is accepted before that evidence."
+    "upsert_identity": ["briefing_id", "post_delivery_change_key"],
+    "canonical_hash": "SHA256(sorted-key compact UTF-8 JSON)",
+    "read_after_write_required": true,
+    "receipt_publication": "ATOMIC_APPEND_ONLY",
+    "receipt_authority": "LATEST_REVISION_PER_CHANGE",
+    "normal_delivery_order": "PORTAL_PROJECTION_BEFORE_SINGLE_USER_DELIVERY",
+    "post_delivery_redelivery": "FORBIDDEN",
+    "_note": "Adapter code, workflow wiring, and the dedicated Atlas Briefing SSOT data source exist. Keep both flags false until the GitHub Actions identity completes a real write + exact read-after-write canary. The explicit manual canary path is allowed to run while false, but no operational receipt is accepted by Finalization until the verified policy change is committed."
   },
   "alert": {
     "required_for_capital_impact": ["PRESENT"],

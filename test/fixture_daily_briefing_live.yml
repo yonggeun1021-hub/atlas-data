@@ -1,0 +1,265 @@
+name: Atlas Daily Briefing Integration v1
+
+on:
+  schedule:
+    # 07:05 KST weekday morning slot -- after the 06:57 P0-02 recovery gate,
+    # confirmed-history only. Sun-Thu UTC == Mon-Fri KST next day.
+    - cron: "5 22 * * 0-4"
+    # 18:30 KST weekday evening slot -- after the P0-04 18:00 KRX post-close
+    # cutoff. Mon-Fri UTC == Mon-Fri KST same day.
+    - cron: "30 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "morning or evening (required for manual dispatch)"
+        required: true
+        type: choice
+        options:
+          - morning
+          - evening
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-daily-briefing
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Re-sync to the latest main before binding retrieval authority
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch origin "$DEFAULT_BRANCH"
+          git reset --hard "origin/$DEFAULT_BRANCH"
+      - name: Offline daily orchestrator regression
+        run: |
+          python3 test/test_daily_orchestrator.py
+          python3 test/test_decision_change_lineage_operational.py
+          python3 test/test_three_market_shadow_operational_readiness.py
+      - name: Publish provider-free daily briefing packet
+        id: briefing
+        env:
+          DISPATCH_SLOT: ${{ inputs.slot }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          SLOT="$DISPATCH_SLOT"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Determine the slot from the exact cron expression that fired,
+            # not from the KST wall-clock hour the runner happens to start
+            # at -- a large scheduler delay could push a morning run past
+            # noon KST and misclassify it as evening if hour were used.
+            case "$EVENT_SCHEDULE" in
+              "5 22 * * 0-4") SLOT="morning" ;;
+              "30 9 * * 1-5") SLOT="evening" ;;
+              *)
+                echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2
+                exit 2
+                ;;
+            esac
+          fi
+          case "$SLOT" in
+            morning|evening) ;;
+            *) echo "STOP: unsupported slot" >&2; exit 2 ;;
+          esac
+          DECISION_DATE=$(TZ=Asia/Seoul date +%F)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          DELIVERY_CHANGED=false
+
+          # Phase A commits the briefing bundle and H-24 locator first.  The
+          # P0-06 source_commit must name a commit that already contains those
+          # consumer-ready bytes; binding the pre-publication checkout would
+          # make the locator impossible to retrieve from the advertised SHA.
+          for ATTEMPT in 1 2; do
+            if [ "$ATTEMPT" -gt 1 ]; then
+              git fetch origin "$DEFAULT_BRANCH"
+              git reset --hard "origin/$DEFAULT_BRANCH"
+            fi
+            GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            # Always call publish -- it is the one that decides, from real
+            # evidence, whether anything changed since the last revision for
+            # this (slot, decision_date). A prior run may have published a
+            # revision with several components DATA_BLOCKED because their
+            # capture had not landed yet; this call re-aggregates from
+            # whatever now exists and adds a new revision only if that
+            # materially changed something (same-day recovery), otherwise it
+            # is a safe no-op.
+            OUTPUT=$(python3 briefing/daily_orchestrator.py publish \
+              --slot "$SLOT" \
+              --decision-date "$DECISION_DATE" \
+              --generated-at "$GENERATED_AT")
+            echo "$OUTPUT"
+            CAPTURE_PATH=$(echo "$OUTPUT" | sed -n 's/^path=//p')
+            CREATED=$(echo "$OUTPUT" | sed -n 's/^created=//p')
+
+            python3 briefing/daily_orchestrator.py validate "$CAPTURE_PATH/packet.json"
+            LOCATOR_OUTPUT=$(python3 .github/scripts/daily_briefing_delivery.py publish-locator \
+              --slot "$SLOT" \
+              --decision-date "$DECISION_DATE")
+            echo "$LOCATOR_OUTPUT"
+            LOCATOR_CHANGED=$(echo "$LOCATOR_OUTPUT" | sed -n 's/^locator_changed=//p')
+
+            # Consume exactly what the locator names. This is the H-24
+            # producer -> locator -> consumer delivery proof; no directory
+            # scan, prior-date fallback, or alternate-slot guess is allowed.
+            python3 .github/scripts/daily_briefing_delivery.py consume \
+              --slot "$SLOT" \
+              --decision-date "$DECISION_DATE" \
+              > /tmp/investment-review-delivery.md
+
+            if [ "$CREATED" != "true" ] && [ "$LOCATOR_CHANGED" != "true" ]; then
+              LOCAL_COMMIT=$(git rev-parse HEAD)
+              git fetch origin "$DEFAULT_BRANCH"
+              REMOTE_COMMIT=$(git rev-parse "origin/$DEFAULT_BRANCH")
+              if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
+                if [ "$ATTEMPT" -eq 2 ]; then
+                  echo "STOP: main advanced twice while confirming unchanged delivery" >&2
+                  exit 1
+                fi
+                echo "main advanced while delivery appeared unchanged; rebuilding once" >&2
+                continue
+              fi
+              CONSUMER_READY_COMMIT="$LOCAL_COMMIT"
+              break
+            fi
+
+            git add "$(dirname "$CAPTURE_PATH")"
+            git add data/briefing/daily_briefing_sources.json
+            git commit -m "daily briefing $SLOT ${CAPTURE_PATH##*/}"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              test -z "$(git status --porcelain)" || {
+                echo "STOP: uncommitted output remained after daily briefing commit" >&2
+                exit 1
+              }
+              CONSUMER_READY_COMMIT=$(git rev-parse HEAD)
+              DELIVERY_CHANGED=true
+              break
+            fi
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "STOP: main advanced twice; no briefing locator was published" >&2
+              exit 1
+            fi
+            echo "main advanced while the briefing locator was built; rebuilding once" >&2
+          done
+
+          # Phase B publishes the append-only bootstrap in a separate commit.
+          # A concurrent unrelated main advance is safe: the bootstrap remains
+          # bound to the immutable Phase-A commit and is rebuilt on top of the
+          # latest main without changing that binding.
+          AUTHORITY_CHANGED=false
+          AUTHORITY_PATH=""
+          LINEAGE_CHANGED=false
+          LINEAGE_PATH=""
+          SHADOW_READINESS_CHANGED=false
+          SHADOW_READINESS_PATH=""
+          for ATTEMPT in 1 2; do
+            if [ "$ATTEMPT" -gt 1 ]; then
+              git fetch origin "$DEFAULT_BRANCH"
+              git reset --hard "origin/$DEFAULT_BRANCH"
+            fi
+            LINEAGE_RECORDED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            LINEAGE_OUTPUT=$(python3 decision/decision_change_lineage_operational.py \
+              "$CAPTURE_PATH/packet.json" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --recorded-at "$LINEAGE_RECORDED_AT")
+            echo "$LINEAGE_OUTPUT"
+            LINEAGE_PATH=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_path=//p')
+            LINEAGE_CHANGED=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_created=//p')
+            SHADOW_READINESS_OUTPUT=$(python3 shadow/three_market_shadow_operational_readiness.py \
+              "$CAPTURE_PATH/packet.json" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --recorded-at "$LINEAGE_RECORDED_AT")
+            echo "$SHADOW_READINESS_OUTPUT"
+            SHADOW_READINESS_PATH=$(echo "$SHADOW_READINESS_OUTPUT" | sed -n 's/^readiness_path=//p')
+            SHADOW_READINESS_CHANGED=$(echo "$SHADOW_READINESS_OUTPUT" | sed -n 's/^readiness_created=//p')
+            AUTHORITY_OUTPUT=$(python3 .github/scripts/publish_scheduled_briefing_authority.py publish \
+              --slot "$SLOT" \
+              --expected-kst-date "$DECISION_DATE" \
+              --source-commit "$CONSUMER_READY_COMMIT")
+            echo "$AUTHORITY_OUTPUT"
+            AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
+            AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
+            python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
+              --slot "$SLOT" \
+              --expected-kst-date "$DECISION_DATE" \
+              --source-commit "$CONSUMER_READY_COMMIT" \
+              --authority-path "$AUTHORITY_PATH"
+            if [ "$AUTHORITY_CHANGED" != "true" ] && [ "$LINEAGE_CHANGED" != "true" ] && [ "$SHADOW_READINESS_CHANGED" != "true" ]; then
+              break
+            fi
+            if [ "$AUTHORITY_CHANGED" = "true" ]; then
+              git add "$AUTHORITY_PATH"
+            fi
+            if [ "$LINEAGE_CHANGED" = "true" ]; then
+              git add "$LINEAGE_PATH"
+            fi
+            if [ "$SHADOW_READINESS_CHANGED" = "true" ]; then
+              git add "$SHADOW_READINESS_PATH"
+            fi
+            git commit -m "scheduled briefing authority, decision lineage, and Shadow readiness $SLOT $DECISION_DATE"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              test -z "$(git status --porcelain)" || {
+                echo "STOP: uncommitted output remained after authority commit" >&2
+                exit 1
+              }
+              break
+            fi
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "STOP: main advanced twice; no authority bootstrap was published" >&2
+              exit 1
+            fi
+            echo "main advanced while publishing authority; retrying from latest main" >&2
+          done
+
+          if [ "$DELIVERY_CHANGED" = "true" ] || [ "$AUTHORITY_CHANGED" = "true" ] || [ "$LINEAGE_CHANGED" = "true" ] || [ "$SHADOW_READINESS_CHANGED" = "true" ]; then
+            RESULT=published
+          else
+            RESULT=no_new_revision
+          fi
+
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$CONSUMER_READY_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "capture_path=$CAPTURE_PATH" >> "$GITHUB_OUTPUT"
+          echo "locator_changed=$LOCATOR_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "authority_path=$AUTHORITY_PATH" >> "$GITHUB_OUTPUT"
+          echo "authority_changed=$AUTHORITY_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "lineage_path=$LINEAGE_PATH" >> "$GITHUB_OUTPUT"
+          echo "lineage_changed=$LINEAGE_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "shadow_readiness_path=$SHADOW_READINESS_PATH" >> "$GITHUB_OUTPUT"
+          echo "shadow_readiness_changed=$SHADOW_READINESS_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+
+          # Storage (this workflow committing evidence/daily_briefing/...)
+          # is not the same thing as delivery to a person. Publishing the
+          # rendered briefing into the job summary is the one delivery path
+          # this workflow itself provides; an external read-only reporter
+          # (matching the P0-02/P0-04 independent-cron pattern) is the
+          # documented path for anything beyond that -- see
+          # docs/daily_orchestrator_contract.md for the exact consumption
+          # command. Push/email/Claude delivery is not implemented here and
+          # must not be reported as done until live delivery evidence
+          # exists.
+          {
+            echo "## Atlas Daily Briefing — $SLOT $DECISION_DATE"
+            echo
+            cat "$CAPTURE_PATH/briefing.md"
+            echo
+            cat /tmp/investment-review-delivery.md
+          } >> "$GITHUB_STEP_SUMMARY"

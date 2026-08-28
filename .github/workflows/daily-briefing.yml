@@ -8,15 +8,43 @@ on:
     # 18:30 KST weekday evening slot -- after the P0-04 18:00 KRX post-close
     # cutoff. Mon-Fri UTC == Mon-Fri KST same day.
     - cron: "30 9 * * 1-5"
+  # A manual/operator entry point for re-running or draining a slot.
+  #
+  # NOT a recovery guarantee. The "P0-02/P0-04 independent-cron pattern" is
+  # staggered GitHub Actions crons, i.e. the same failure plane, and the
+  # external consumer contract is read-only (retrieval_pointer_only: true), so
+  # it has no authority to fire this. No caller exists today. A same-day
+  # automatic retrigger remains the disclosed upstream blocker
+  # SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED, and a cron to manufacture
+  # one was deliberately rejected there -- so none is added here either.
+  repository_dispatch:
+    types: [atlas-briefing-run, atlas-finalization-drain]
   workflow_dispatch:
     inputs:
       slot:
-        description: "morning or evening (required for manual dispatch)"
-        required: true
+        description: "morning or evening (required for brief mode)"
+        required: false
         type: choice
         options:
           - morning
           - evening
+      mode:
+        description: "brief = normal round / drain = recover undelivered only"
+        required: false
+        default: brief
+        type: choice
+        options:
+          - brief
+          - drain
+      decision_date:
+        description: "KST YYYY-MM-DD (drain recovery; defaults to today)"
+        required: false
+        type: string
+      portal_canary:
+        description: "Manual Notion CI write/readback canary before adapter activation"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -50,10 +78,82 @@ jobs:
           python3 test/test_daily_orchestrator.py
           python3 test/test_decision_change_lineage_operational.py
           python3 test/test_three_market_shadow_operational_readiness.py
-      - name: Publish provider-free daily briefing packet
-        id: briefing
+      # Resolves slot/mode/date for all three triggers BEFORE the producer runs.
+      # It cannot live inside the producer step: in `drain` mode that step is
+      # skipped entirely, so the decision to skip it cannot be made there.
+      - name: Resolve slot, mode and decision date
+        id: resolve
         env:
           DISPATCH_SLOT: ${{ inputs.slot }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+          DISPATCH_DATE: ${{ inputs.decision_date }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PAYLOAD_SLOT: ${{ github.event.client_payload.slot }}
+          PAYLOAD_MODE: ${{ github.event.client_payload.mode }}
+          PAYLOAD_DATE: ${{ github.event.client_payload.decision_date }}
+        run: |
+          set -euo pipefail
+          MODE="brief"; SLOT=""; DECISION_DATE=""
+          case "${{ github.event_name }}" in
+            schedule)
+              case "$EVENT_SCHEDULE" in
+                "5 22 * * 0-4") SLOT="morning" ;;
+                "30 9 * * 1-5") SLOT="evening" ;;
+                *) echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2; exit 2 ;;
+              esac
+              ;;
+            workflow_dispatch)
+              SLOT="${DISPATCH_SLOT:-}"
+              MODE="${DISPATCH_MODE:-brief}"
+              DECISION_DATE="${DISPATCH_DATE:-}"
+              ;;
+            repository_dispatch)
+              # The event type is the authority, not the payload. A payload
+              # claiming mode=brief must not be able to turn a drain request
+              # into a briefing run.
+              case "$EVENT_ACTION" in
+                atlas-finalization-drain) MODE="drain" ;;
+                atlas-briefing-run)       MODE="brief" ;;
+                *) echo "STOP: unsupported dispatch type '$EVENT_ACTION'" >&2; exit 2 ;;
+              esac
+              if [ -n "${PAYLOAD_MODE:-}" ] && [ "${PAYLOAD_MODE}" != "$MODE" ]; then
+                echo "STOP: client_payload.mode '${PAYLOAD_MODE}' contradicts dispatch type '$EVENT_ACTION'" >&2
+                exit 2
+              fi
+              SLOT="${PAYLOAD_SLOT:-}"
+              DECISION_DATE="${PAYLOAD_DATE:-}"
+              ;;
+            *) echo "STOP: unsupported event ${{ github.event_name }}" >&2; exit 2 ;;
+          esac
+          case "$MODE" in
+            brief|drain) ;;
+            *) echo "STOP: unsupported mode '$MODE'" >&2; exit 2 ;;
+          esac
+          if [ "$MODE" = "brief" ]; then
+            case "$SLOT" in
+              morning|evening) ;;
+              *) echo "STOP: brief mode requires a slot" >&2; exit 2 ;;
+            esac
+          fi
+          if [ -n "$DECISION_DATE" ]; then
+            echo "$DECISION_DATE" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' \
+              || { echo "STOP: malformed decision_date '$DECISION_DATE'" >&2; exit 2; }
+          else
+            DECISION_DATE=$(TZ=Asia/Seoul date +%F)
+          fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Publish provider-free daily briefing packet
+        if: steps.resolve.outputs.mode == 'brief'
+        id: briefing
+        env:
+          # Fed by the resolver so repository_dispatch reaches the producer at
+          # all -- `inputs.slot` is empty for that event.
+          DISPATCH_SLOT: ${{ steps.resolve.outputs.slot }}
+          RESOLVED_DATE: ${{ steps.resolve.outputs.decision_date }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           EVENT_NAME: ${{ github.event_name }}
           RUN_ID: ${{ github.run_id }}
@@ -81,7 +181,8 @@ jobs:
             morning|evening) ;;
             *) echo "STOP: unsupported slot" >&2; exit 2 ;;
           esac
-          DECISION_DATE=$(TZ=Asia/Seoul date +%F)
+          # Supplied by the resolver so every trigger agrees on one date.
+          DECISION_DATE="$RESOLVED_DATE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           DELIVERY_CHANGED=false
@@ -292,10 +393,143 @@ jobs:
           # command. Push/email/Claude delivery is not implemented here and
           # must not be reported as done until live delivery evidence
           # exists.
-          {
-            echo "## Atlas Daily Briefing — $SLOT $DECISION_DATE"
-            echo
-            cat "$CAPTURE_PATH/briefing.md"
-            echo
-            cat /tmp/investment-review-delivery.md
-          } >> "$GITHUB_STEP_SUMMARY"
+          # The rendered briefing now reaches a person only through the
+          # finalization gate, which delivers it once, records what was
+          # transmitted, and refuses when a verdict is HOLD or an approval is
+          # missing. This step only hands the gate its input.
+          if [ -f /tmp/investment-review-delivery.md ]; then
+            cp /tmp/investment-review-delivery.md "$RUNNER_TEMP/consume.md"
+            echo "consume_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "consume_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Seal briefing for finalization
+        if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
+        run: |
+          set -euo pipefail
+          ARGS=""
+          if [ "${{ steps.briefing.outputs.consume_ready }}" = "true" ]; then
+            ARGS="--consume-output $RUNNER_TEMP/consume.md"
+          fi
+          python3 .github/scripts/briefing_finalization.py seal \
+            --slot "${{ steps.resolve.outputs.slot }}" \
+            --decision-date "${{ steps.resolve.outputs.decision_date }}" \
+            --repo-root . $ARGS
+
+      # The sealed payload must be durable before delivery. `seal` is idempotent
+      # on identical input, so a retry reuses the same draft, marker and clock.
+      - name: Publish sealed draft
+        if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/briefing/finalization
+          git diff --cached --quiet || {
+            git commit -m "finalization seal ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          }
+
+      # Record any verdict a previous run published but died before ingesting.
+      # Without this a machine HOLD left unrecorded by a dead runner would be
+      # ingested for the first time AFTER the validator had already decided
+      # there was nothing to withdraw -- costing the fixed briefing a round.
+      # Non-fatal on purpose: an unrecordable verdict still fails the gate
+      # closed at drain, and swallowing it here would only skip the validator.
+      - name: Reconcile verdicts left by a previous run
+        if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
+        run: |
+          set -uo pipefail
+          python3 .github/scripts/briefing_finalization.py ingest \
+            --slot "${{ steps.resolve.outputs.slot }}" \
+            --decision-date "${{ steps.resolve.outputs.decision_date }}" \
+            --repo-root . || echo "::warning::pending verdict could not be recorded; the gate will fail closed at drain"
+
+      # Deterministic checks only. A clean result is NOT a final PASS: it writes
+      # a machine record and leaves the gate's verdict slot open, so the existing
+      # fail-open policy still owns the outcome. Exits 0 even on HOLD -- the
+      # verdict, not the exit code, is what blocks.
+      - name: Run deterministic validator
+        if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/briefing_validator.py \
+            --slot "${{ steps.resolve.outputs.slot }}" \
+            --decision-date "${{ steps.resolve.outputs.decision_date }}" \
+            --repo-root . --emit-inbox
+
+      - name: Publish validator verdict
+        if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git add data/briefing/finalization
+          git diff --cached --quiet || {
+            git commit -m "machine validation ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          }
+
+      # Portal projection is a pre-delivery gate. Once the policy is live, a
+      # Notion write/readback failure prevents the one user delivery; a retry
+      # upserts the same briefing/change and reuses valid receipts. With the
+      # policy flags false this is an explicit no-op. The canary override is
+      # manual-only and cannot be reached by schedule/repository_dispatch.
+      - name: Project canonical briefing to Notion SSOT
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
+          EVENT_NAME: ${{ github.event_name }}
+          PORTAL_CANARY: ${{ inputs.portal_canary }}
+        run: |
+          set -euo pipefail
+          ARGS=(--sync-all --repo-root . --decision-date "${{ steps.resolve.outputs.decision_date }}")
+          if [ -n "${{ steps.resolve.outputs.slot }}" ]; then
+            ARGS+=(--slot "${{ steps.resolve.outputs.slot }}")
+          fi
+          if [ "${PORTAL_CANARY:-false}" = "true" ]; then
+            [ "$EVENT_NAME" = "workflow_dispatch" ] || {
+              echo "STOP: portal canary is manual-only" >&2
+              exit 2
+            }
+            ARGS+=(--live-canary)
+          fi
+          python3 .github/scripts/notion_projection_adapter.py "${ARGS[@]}"
+
+      # drain ingests each stream's authoritative verdict THEN delivers, per
+      # item, and exits non-zero while any due slot is still undelivered. A
+      # briefing nobody received is not a green build.
+      - name: Ingest verdicts and deliver
+        id: gate
+        env:
+          ATLAS_APPROVAL_PUBKEY_FINGERPRINT: ${{ secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 .github/scripts/briefing_finalization.py drain \
+            --repo-root . \
+            --channel github_step_summary \
+            --required-channel github_step_summary > drain.json
+          RC=$?
+          python3 .github/scripts/report_drain.py drain.json
+          rm -f drain.json
+          exit "$RC"
+
+      - name: Commit finalization artifacts
+        if: always()
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/briefing/finalization
+          git diff --cached --quiet || {
+            git commit -m "finalization ${{ steps.resolve.outputs.decision_date }}"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          }
