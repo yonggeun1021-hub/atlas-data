@@ -3,8 +3,9 @@
 
 Review readiness requires the exact canonical proposal, independently parsed
 official KIS git bytes, and two money-free private operational attestations
-bound to their exact canonical private source records.  A
-``REVIEW_READY_FOR_CIO`` result is still not authority.
+bound to their exact canonical private source records.  Because no numeric
+freshness policy is ratified yet, the current contract deliberately remains
+``REVIEW_INCOMPLETE`` even when every other layer reproduces exactly.
 """
 from __future__ import annotations
 
@@ -858,6 +859,11 @@ def review_valuation_semantic_mapping_proposal(
     reasons.extend(_review_buy_capacity_source(
         buy_capacity_source_record, buy_capacity_attestation, review_as_of
     ))
+    # The proposal requires both private source records to be fresh, but no
+    # CIO-ratified maximum source age or maximum pair gap exists yet.  PIT
+    # upper bounds alone do not prove freshness.  Never invent numeric policy
+    # here and never let otherwise self-consistent stale records become READY.
+    reasons.append("PRIVATE_SOURCE_FRESHNESS_POLICY_UNRATIFIED")
     if isinstance(relationship_attestation, dict) and isinstance(buy_capacity_attestation, dict):
         if relationship_attestation.get("accountBindingHash") != buy_capacity_attestation.get(
             "accountBindingHash"
