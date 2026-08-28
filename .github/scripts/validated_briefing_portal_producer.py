@@ -616,6 +616,22 @@ def _read_stored_revision(
         raise PortalProducerError("IMMUTABLE_REPORT_NOT_CANONICAL")
     if canonical(display) + b"\n" != bodies["display-proposal.json"]:
         raise PortalProducerError("IMMUTABLE_DISPLAY_NOT_CANONICAL")
+
+    # A matching manifest only proves that the stored files agree with one
+    # another.  Re-run the production validators so a complete, consistently
+    # re-hashed bundle cannot turn invalid claims, mutable source refs, or a
+    # forbidden authority value into accepted immutable history.
+    refs = validate_claim_ledger(repo_root, ledger)
+    validate_display_proposal(display, ledger)
+    validate_report(
+        repo_root,
+        report,
+        ledger,
+        bodies["briefing.md"],
+        bodies["claim-ledger.json"],
+        bodies["display-proposal.json"],
+        refs,
+    )
     expected_change_key = (
         report["post_delivery"].get("post_delivery_change_key")
         if isinstance(report.get("post_delivery"), dict) else None

@@ -596,6 +596,47 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         ):
             producer.build(args)
 
+    def test_no_change_replays_production_validation_not_only_bundle_hashes(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+
+        ledger = json.loads((revision / "claim-ledger.json").read_text())
+        ledger["safety_attestation"] = {
+            key: int(value) for key, value in ledger["safety_attestation"].items()
+        }
+        ledger_body = producer.canonical(ledger) + b"\n"
+        (revision / "claim-ledger.json").write_bytes(ledger_body)
+
+        report = json.loads((revision / "validation-report.json").read_text())
+        report["claim_ledger_sha256"] = _sha(ledger_body)
+        report_body = producer.canonical(report) + b"\n"
+        (revision / "validation-report.json").write_bytes(report_body)
+
+        display = json.loads((revision / "display-proposal.json").read_text())
+        envelope = producer.build_envelope(ledger, report, display)
+        envelope_body = producer.canonical(envelope) + b"\n"
+        (revision / "portal-projection.json").write_bytes(envelope_body)
+
+        bundle = json.loads((revision / "bundle.json").read_text())
+        bundle["projection_id"] = envelope["projection_id"]
+        bodies = {
+            "briefing.md": (revision / "briefing.md").read_bytes(),
+            "claim-ledger.json": ledger_body,
+            "validation-report.json": report_body,
+            "display-proposal.json": (revision / "display-proposal.json").read_bytes(),
+            "portal-projection.json": envelope_body,
+        }
+        bundle["artifacts"] = [
+            producer._artifact(name, body) for name, body in bodies.items()
+        ]
+        (revision / "bundle.json").write_bytes(producer.canonical(bundle) + b"\n")
+
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "SAFETY_ATTESTATION_FAILED"
+        ):
+            producer.build(args)
+
     def test_retry_rebuilds_the_full_multi_revision_index(self):
         first_args = self._inputs()
         first = producer.build(first_args)
