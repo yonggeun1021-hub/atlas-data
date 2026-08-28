@@ -316,8 +316,10 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
         for timeout, interval, code in (
             (901, 15, "FIRST_REVISION_WAIT_INVALID"),
             (-1, 15, "FIRST_REVISION_WAIT_INVALID"),
+            (float("nan"), 15, "FIRST_REVISION_WAIT_INVALID"),
             (10, 0, "POLL_INTERVAL_INVALID"),
             (10, 61, "POLL_INTERVAL_INVALID"),
+            (10, float("nan"), "POLL_INTERVAL_INVALID"),
         ):
             with self.subTest(timeout=timeout, interval=interval):
                 with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, code):
