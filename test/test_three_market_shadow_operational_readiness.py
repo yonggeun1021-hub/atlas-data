@@ -2,6 +2,7 @@
 """P10-01 committed Daily Briefing to Shadow readiness regressions."""
 import ast
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -41,7 +42,16 @@ def commit_for(path: Path) -> str:
 
 
 SOURCE_COMMIT = commit_for(PACKET)
-RECORDED_AT = "2026-08-27T00:00:01Z"
+PACKET_DOCUMENT = json.loads(PACKET.read_text(encoding="utf-8"))
+PACKET_UNIFIED_GENERATED_AT = next(
+    row["packet"]["generated_at"]
+    for row in PACKET_DOCUMENT["components"]
+    if row["component_id"] == "UNIFIED_DECISION" and row["validated"] is True
+)
+RECORDED_AT = (
+    dt.datetime.strptime(PACKET_UNIFIED_GENERATED_AT, "%Y-%m-%dT%H:%M:%SZ")
+    + dt.timedelta(seconds=1)
+).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def current_unified():
@@ -196,11 +206,17 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
         self.assertTrue(all(value is False for value in packet["authority"].values()))
 
     def test_future_unified_decision_is_rejected(self):
+        before_unified = (
+            dt.datetime.strptime(
+                PACKET_UNIFIED_GENERATED_AT, "%Y-%m-%dT%H:%M:%SZ"
+            )
+            - dt.timedelta(seconds=1)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
         with self.assertRaisesRegex(
             MODULE.ThreeMarketShadowOperationalReadinessError,
             "UNIFIED_DECISION_FROM_FUTURE",
         ):
-            self.packet(recorded_at="2026-08-26T23:59:59Z")
+            MODULE.build_packet(PACKET, SOURCE_COMMIT, before_unified)
 
     def test_current_unified_validator_is_never_used_for_historical_packet(self):
         with mock.patch.object(
