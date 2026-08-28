@@ -617,11 +617,15 @@ def _read_stored_revision(
     if canonical(display) + b"\n" != bodies["display-proposal.json"]:
         raise PortalProducerError("IMMUTABLE_DISPLAY_NOT_CANONICAL")
 
-    # A matching manifest only proves that the stored files agree with one
-    # another.  Re-run the production validators so a complete, consistently
-    # re-hashed bundle cannot turn invalid claims, mutable source refs, or a
-    # forbidden authority value into accepted immutable history.
-    refs = validate_claim_ledger(repo_root, ledger)
+    # Recovery must apply the same source-bound semantic validation as a
+    # first publication.  Cross-file hashes alone only prove that a bundle is
+    # internally self-consistent: if the small locator/index is lost, an
+    # attacker could otherwise rewrite ledger/report/display/envelope/bundle
+    # together and have that coordinated rewrite adopted as immutable
+    # history.  Re-resolve every source ref from the recorded Git commit and
+    # re-run all allow-list, UNKNOWN, signature, and authority checks before
+    # the revision is eligible to rebuild an index.
+    source_bytes = validate_claim_ledger(repo_root, ledger)
     validate_display_proposal(display, ledger)
     validate_report(
         repo_root,
@@ -630,7 +634,7 @@ def _read_stored_revision(
         bodies["briefing.md"],
         bodies["claim-ledger.json"],
         bodies["display-proposal.json"],
-        refs,
+        source_bytes,
     )
     expected_change_key = (
         report["post_delivery"].get("post_delivery_change_key")
@@ -680,10 +684,18 @@ def _scan_stored_revisions(
 ) -> list[dict]:
     if not slot_root.exists():
         return []
-    directories = sorted(
-        (path for path in slot_root.iterdir() if re.fullmatch(r"rev-\d{3}", path.name)),
-        key=lambda path: path.name,
-    )
+    if slot_root.is_symlink() or not slot_root.is_dir():
+        raise PortalProducerError("IMMUTABLE_SLOT_ROOT_INVALID")
+    directories: list[Path] = []
+    for path in slot_root.iterdir():
+        if path.name == "index.json":
+            if path.is_symlink() or not path.is_file():
+                raise PortalProducerError("PORTAL_INDEX_SYMLINK_BLOCKED")
+            continue
+        if re.fullmatch(r"rev-\d{3}", path.name) is None:
+            raise PortalProducerError("IMMUTABLE_SLOT_INVENTORY_INVALID")
+        directories.append(path)
+    directories.sort(key=lambda path: path.name)
     entries = [
         _read_stored_revision(
             repo_root, directory, briefing_date=briefing_date, slot=slot,

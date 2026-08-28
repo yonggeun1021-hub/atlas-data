@@ -637,6 +637,47 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
         ):
             producer.build(args)
 
+    def test_index_recovery_rejects_a_coordinated_semantic_bundle_rewrite(self):
+        args = self._inputs()
+        built = producer.build(args)
+        revision = (self.repo / built["envelope_path"]).parent
+
+        ledger = json.loads((revision / "claim-ledger.json").read_text())
+        display = json.loads((revision / "display-proposal.json").read_text())
+        display["changes"][0]["content"]["authority"]["order_authority"] = True
+        display_body = _write_json(revision / "display-proposal.json", display)
+
+        report = json.loads((revision / "validation-report.json").read_text())
+        report["display_proposal_sha256"] = _sha(display_body)
+        _write_json(revision / "validation-report.json", report)
+        envelope = producer.build_envelope(ledger, report, display)
+        _write_json(revision / "portal-projection.json", envelope)
+
+        bundle_path = revision / "bundle.json"
+        bundle = json.loads(bundle_path.read_text())
+        bundle["projection_id"] = envelope["projection_id"]
+        for artifact in bundle["artifacts"]:
+            body = (revision / artifact["path"]).read_bytes()
+            artifact["sha256"] = _sha(body)
+            artifact["bytes"] = len(body)
+        _write_json(bundle_path, bundle)
+
+        (revision.parent / "index.json").unlink()
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "AUTHORITY_ESCALATION_BLOCKED"
+        ):
+            producer.build(args)
+
+    def test_no_change_rejects_unexpected_slot_inventory(self):
+        args = self._inputs()
+        built = producer.build(args)
+        slot_root = (self.repo / built["envelope_path"]).parent.parent
+        (slot_root / "unexpected.txt").write_text("not immutable evidence\n")
+        with self.assertRaisesRegex(
+            producer.PortalProducerError, "IMMUTABLE_SLOT_INVENTORY_INVALID"
+        ):
+            producer.build(args)
+
     def test_retry_rebuilds_the_full_multi_revision_index(self):
         first_args = self._inputs()
         first = producer.build(first_args)
