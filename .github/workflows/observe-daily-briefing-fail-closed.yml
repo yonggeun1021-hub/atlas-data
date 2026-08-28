@@ -1,0 +1,103 @@
+name: Observe Atlas Daily Briefing Fail-Closed
+
+on:
+  workflow_run:
+    workflows:
+      - Atlas Daily Briefing Integration v1
+    types:
+      - completed
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: p8-15-daily-briefing-fail-closed-observer
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    if: >-
+      github.event.workflow_run.event == 'schedule' &&
+      (github.event.workflow_run.conclusion == 'failure' ||
+       github.event.workflow_run.conclusion == 'timed_out')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # workflow_run carries a write token. Execute only code from the current
+      # trusted default branch; the failed upstream head is read with git show
+      # for hashing and is never checked out or executed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Prepare exact GitHub workflow_run receipt
+        id: prepare
+        env:
+          OBSERVER_EVENT: ${{ github.event_name }}
+          OBSERVER_RUN_ID: ${{ github.run_id }}
+          OBSERVER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          OBSERVER_HEAD_SHA: ${{ github.sha }}
+          UPSTREAM_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          UPSTREAM_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          UPSTREAM_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          UPSTREAM_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+          UPSTREAM_COMPLETED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          set -euo pipefail
+          OUTPUT=$(python3 -m acceptance.fail_closed_observation_receipt prepare \
+            --fail-root evidence/capital_rotation_acceptance/fail_closed_receipts \
+            --observer-event "$OBSERVER_EVENT" \
+            --observer-run-id "$OBSERVER_RUN_ID" \
+            --observer-run-attempt "$OBSERVER_RUN_ATTEMPT" \
+            --observer-head-sha "$OBSERVER_HEAD_SHA" \
+            --upstream-workflow-name "$UPSTREAM_WORKFLOW_NAME" \
+            --upstream-workflow-path "$UPSTREAM_WORKFLOW_PATH" \
+            --upstream-event "$UPSTREAM_EVENT" \
+            --upstream-conclusion "$UPSTREAM_CONCLUSION" \
+            --upstream-run-id "$UPSTREAM_RUN_ID" \
+            --upstream-run-attempt "$UPSTREAM_RUN_ATTEMPT" \
+            --upstream-head-sha "$UPSTREAM_HEAD_SHA" \
+            --upstream-started-at "$UPSTREAM_STARTED_AT" \
+            --upstream-completed-at "$UPSTREAM_COMPLETED_AT")
+          echo "$OUTPUT"
+          echo "receipt=$(echo "$OUTPUT" | sed -n 's/^fail_closed_receipt_path=//p')" >> "$GITHUB_OUTPUT"
+          echo "package=$(echo "$OUTPUT" | sed -n 's/^fail_closed_package_path=//p')" >> "$GITHUB_OUTPUT"
+      - name: Attest exact fail-closed receipt bytes
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: ${{ steps.prepare.outputs.receipt }}
+      - name: Seal and offline-reverify attested package
+        env:
+          PACKAGE_PATH: ${{ steps.prepare.outputs.package }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          TRUSTED_ROOT_SHA=$(python3 -c 'import json; print(json.load(open("config/capital_rotation_e2e_acceptance_contract.json"))["github_attestation_trusted_root_sha256"])')
+          python3 -m acceptance.fail_closed_observation_receipt seal \
+            --package "$PACKAGE_PATH" \
+            --bundle "$BUNDLE_PATH" \
+            --trusted-root-sha256 "$TRUSTED_ROOT_SHA"
+          python3 -m acceptance.capital_rotation_e2e evaluate
+          python3 -m acceptance.capital_rotation_e2e validate-inventory \
+            evidence/operational/capital_rotation_e2e_acceptance.json
+      - name: Commit append-only attested failure observation
+        env:
+          PACKAGE_PATH: ${{ steps.prepare.outputs.package }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$PACKAGE_PATH" evidence/operational/capital_rotation_e2e_acceptance.json
+          git commit -m "observe genuine scheduled P8-15 fail-closed run"
+          git pull --rebase origin main
+          git push origin HEAD:main
