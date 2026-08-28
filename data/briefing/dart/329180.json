@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-08-26T23:39:14+00:00",
+    "generation_basis_at_utc": "2026-08-28T04:46:18+00:00",
     "generation_contract_version": 1,
-    "generation_id": "2e5b59b8b03e1cbc37cc6b20d96f8a0f56f164c35f3d41e1fbb80ff7dcea6676"
+    "generation_id": "77911b03aff6203fc9dd271457db12f7c0efd76ac90866d56950a7c15c341b02"
   },
   "market": "DART",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-26T23:39:06+00:00",
-    "collected_for_kst_date": "2026-08-27",
+    "collected_at_utc": "2026-08-28T04:46:10+00:00",
+    "collected_for_kst_date": "2026-08-28",
     "source_file": "data/latest_dart.json",
-    "source_sha256": "08d6d4adaa117876f7f50060883a44177220db409a3389a53a533874e5fde450"
+    "source_sha256": "c643059d37f4281dd97663e6a7be9d2ad137a81d5a975668f17ffbe29feba063"
   },
   "stock": {
     "atlas_stage": "Discovery",
@@ -20,6 +20,58 @@
     "in_notion": true,
     "name": "HD현대중공업",
     "relevant": [
+      {
+        "body_capture_status": "OK",
+        "body_captured": true,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "best_effort",
+          "content_status": "OK",
+          "discovery_status": "OK",
+          "documents": [
+            {
+              "cache_name": "member-001-2c0abac9d769774e.gz",
+              "content_bytes": 21786,
+              "content_sha256": "2c0abac9d769774e340cc14e0a689cf948741b50ca84e5ee980b8bd427e9e73f",
+              "member_name": "20260827800389.xml",
+              "normalized_text_chars": 1978,
+              "normalized_text_sha256": "b3b1df170568f0ed4680948838934c6fbda3cee98be1f1333315b59c09807062",
+              "offset_basis": "normalized_visible_text",
+              "text_status": "OK"
+            }
+          ],
+          "evidence_status": "PENDING",
+          "extracted": [],
+          "extractor_version": "dart_filing_content/1-no-items-ratified",
+          "filing_classification": "MATERIAL_RELEVANT_TITLE",
+          "interpretation_status": "UNDETERMINED",
+          "operation": "captured",
+          "publication_status": "OK",
+          "raw_cache_policy": "delete_after_90_days_allowed",
+          "reasons": [
+            "ITEM_EXTRACTION_POLICY_UNRATIFIED"
+          ],
+          "retrieved_at_utc": "2026-08-28T04:46:32Z",
+          "rule_impact": "NONE",
+          "source": {
+            "collected_for_kst_date": "2026-08-28",
+            "observed_at_utc": "2026-08-28T04:46:32Z",
+            "run_status": "OK",
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": "ef15bf8a2a0df4cf0ea1c104475fc987d0865f2436beb3b09c8b0be45465d873"
+          },
+          "source_archive": {
+            "content_bytes": 2454,
+            "content_sha256": "489e8667c5efb453f2e1273195fce96f19ee792a524ba764453d1894589eb1d3",
+            "rcept_no": "20260827800389",
+            "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260827800389"
+          }
+        },
+        "date": "20260827",
+        "rcept_no": "20260827800389",
+        "title": "영업(잠정)실적(공정공시)              ",
+        "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260827800389"
+      },
       {
         "body_capture_status": "OK",
         "body_captured": true,
@@ -55,11 +107,11 @@
           "rule_impact": "NONE",
           "skip_reason": "already_captured",
           "source": {
-            "collected_for_kst_date": "2026-08-27",
-            "observed_at_utc": "2026-08-27T11:25:22Z",
+            "collected_for_kst_date": "2026-08-28",
+            "observed_at_utc": "2026-08-28T04:46:32Z",
             "run_status": "OK",
             "source_file": "data/latest_dart_content.json",
-            "source_sha256": "0b64cf26c416c033849f67e57923a1f199b8eef6769118099a72348394a6bf3b"
+            "source_sha256": "ef15bf8a2a0df4cf0ea1c104475fc987d0865f2436beb3b09c8b0be45465d873"
           },
           "source_archive": {
             "content_bytes": 1784,
@@ -74,9 +126,9 @@
         "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260824800122"
       }
     ],
-    "relevant_count": 1,
+    "relevant_count": 2,
     "status": "ok",
-    "total_count": 4
+    "total_count": 5
   },
   "symbol": "329180"
 }

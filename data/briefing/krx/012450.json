@@ -3,87 +3,102 @@
   "confirmed_metrics": {
     "history_basis": "confirmed_only",
     "reason": null,
-    "sma20": 1064650.0,
+    "sma20": 1081650.0,
     "sma20_basis": 20,
-    "sma20_through": "2026-08-26",
+    "sma20_through": "2026-08-27",
     "status": "ok"
   },
   "decision_readiness": {
-    "confirmed_through": "2026-08-26",
+    "confirmed_through": "2026-08-27",
     "same_day_confirmation": "next_day"
   },
   "generation": {
-    "generation_basis_at_utc": "2026-08-26T23:39:14+00:00",
+    "generation_basis_at_utc": "2026-08-28T04:46:18+00:00",
     "generation_contract_version": 1,
-    "generation_id": "2e5b59b8b03e1cbc37cc6b20d96f8a0f56f164c35f3d41e1fbb80ff7dcea6676"
+    "generation_id": "77911b03aff6203fc9dd271457db12f7c0efd76ac90866d56950a7c15c341b02"
   },
   "investor_data_completeness": {
-    "complete": true,
-    "investor_rows_missing": [],
-    "investor_rows_missing_by_source": {},
+    "complete": false,
+    "investor_rows_missing": [
+      "2026-08-28"
+    ],
+    "investor_rows_missing_by_source": {
+      "net_value": [
+        "2026-08-28"
+      ],
+      "net_value_detail": [
+        "2026-08-28"
+      ],
+      "net_volume": [
+        "2026-08-28"
+      ],
+      "net_volume_detail": [
+        "2026-08-28"
+      ]
+    },
     "missing_investors": [],
-    "reason": "no_missing_investor_data",
-    "status": "complete"
+    "reason": "reported_missing_investor_data",
+    "status": "incomplete"
   },
-  "latest_confirmed_day": "2026-08-26",
+  "latest_confirmed_day": "2026-08-27",
   "latest_confirmed_row": {
-    "change_pct": -1.3611615245009074,
-    "close": 1087000,
+    "change_pct": 5.795768169273229,
+    "close": 1150000,
     "confirm_reason": "prior_session",
     "confirmed": true,
-    "high": 1102000,
+    "high": 1159000,
     "investor_rows_absent": [],
-    "low": 1055000,
+    "low": 1096000,
     "net_value": {
-      "개인": 7900047000,
-      "기관합계": -13297768500,
-      "기타법인": 6841000,
-      "외국인합계": 5390880500
+      "개인": -22225933000,
+      "기관합계": 20420556500,
+      "기타법인": 108487500,
+      "외국인합계": 1696889000
     },
     "net_value_detail": {
-      "개인": 7900047000,
-      "금융투자": 7818095000,
-      "기타금융": -379500,
-      "기타법인": 6841000,
-      "기타외국인": 51572500,
-      "보험": -1127759000,
-      "사모": -3173415000,
-      "연기금": -14064256000,
-      "외국인": 5339308000,
-      "은행": 0,
-      "투신": -2750054000
+      "개인": -22225933000,
+      "금융투자": 12314666500,
+      "기타금융": 246238000,
+      "기타법인": 108487500,
+      "기타외국인": 67360000,
+      "보험": 820611500,
+      "사모": -5288224000,
+      "연기금": 10337190000,
+      "외국인": 1629529000,
+      "은행": 10288000,
+      "투신": 1979786500
     },
     "net_volume": {
-      "개인": 7434,
-      "기관합계": -12466,
-      "기타법인": 7,
-      "외국인합계": 5025
+      "개인": -19636,
+      "기관합계": 17961,
+      "기타법인": 94,
+      "외국인합계": 1581
     },
     "net_volume_detail": {
-      "개인": 7434,
-      "금융투자": 7261,
-      "기타금융": 0,
-      "기타법인": 7,
-      "기타외국인": 48,
-      "보험": -1048,
-      "사모": -2951,
-      "연기금": -13172,
-      "외국인": 4977,
-      "은행": 0,
-      "투신": -2556
+      "개인": -19636,
+      "금융투자": 10843,
+      "기타금융": 218,
+      "기타법인": 94,
+      "기타외국인": 59,
+      "보험": 719,
+      "사모": -4713,
+      "연기금": 9160,
+      "외국인": 1522,
+      "은행": 9,
+      "투신": 1725
     },
-    "observed_at_kst": "2026-08-27T08:39:01+09:00",
-    "open": 1102000,
-    "volume": 83239
+    "observed_at_kst": "2026-08-28T13:46:02+09:00",
+    "open": 1111000,
+    "volume": 139565
   },
   "market": "KRX",
   "name": "한화에어로스페이스",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-26T23:38:52+00:00",
-    "collected_for_kst_date": "2026-08-27",
+    "collected_at_utc": "2026-08-28T04:45:49+00:00",
+    "collected_for_kst_date": "2026-08-28",
     "source_file": "data/latest_krx.json",
-    "source_sha256": "02c7c86a7346d89895ebd44f657a49186f6b011f3438171d49c6abdc26aeee9b"
+    "source_sha256": "0a684273fb37cceee9fea54ec5b17645582f6f34ba9bc2f516228253778e63ab"
   },
   "status": "ok",
   "symbol": "012450"

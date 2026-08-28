@@ -3,87 +3,102 @@
   "confirmed_metrics": {
     "history_basis": "confirmed_only",
     "reason": null,
-    "sma20": 1568850.0,
+    "sma20": 1585300.0,
     "sma20_basis": 20,
-    "sma20_through": "2026-08-26",
+    "sma20_through": "2026-08-27",
     "status": "ok"
   },
   "decision_readiness": {
-    "confirmed_through": "2026-08-26",
+    "confirmed_through": "2026-08-27",
     "same_day_confirmation": "next_day"
   },
   "generation": {
-    "generation_basis_at_utc": "2026-08-26T23:39:14+00:00",
+    "generation_basis_at_utc": "2026-08-28T04:46:18+00:00",
     "generation_contract_version": 1,
-    "generation_id": "2e5b59b8b03e1cbc37cc6b20d96f8a0f56f164c35f3d41e1fbb80ff7dcea6676"
+    "generation_id": "77911b03aff6203fc9dd271457db12f7c0efd76ac90866d56950a7c15c341b02"
   },
   "investor_data_completeness": {
-    "complete": true,
-    "investor_rows_missing": [],
-    "investor_rows_missing_by_source": {},
+    "complete": false,
+    "investor_rows_missing": [
+      "2026-08-28"
+    ],
+    "investor_rows_missing_by_source": {
+      "net_value": [
+        "2026-08-28"
+      ],
+      "net_value_detail": [
+        "2026-08-28"
+      ],
+      "net_volume": [
+        "2026-08-28"
+      ],
+      "net_volume_detail": [
+        "2026-08-28"
+      ]
+    },
     "missing_investors": [],
-    "reason": "no_missing_investor_data",
-    "status": "complete"
+    "reason": "reported_missing_investor_data",
+    "status": "incomplete"
   },
-  "latest_confirmed_day": "2026-08-26",
+  "latest_confirmed_day": "2026-08-27",
   "latest_confirmed_row": {
-    "change_pct": 0.5959475566150179,
-    "close": 1688000,
+    "change_pct": 2.4881516587677726,
+    "close": 1730000,
     "confirm_reason": "prior_session",
     "confirmed": true,
-    "high": 1735000,
+    "high": 1788000,
     "investor_rows_absent": [],
-    "low": 1662000,
+    "low": 1708000,
     "net_value": {
-      "개인": -709219929000,
-      "기관합계": 5606890000,
-      "기타법인": 1088641013500,
-      "외국인합계": -385027974500
+      "개인": -591299275500,
+      "기관합계": -242209174000,
+      "기타법인": 1105982037000,
+      "외국인합계": -272473587500
     },
     "net_value_detail": {
-      "개인": -709219929000,
-      "금융투자": 28151442000,
-      "기타금융": -2728519000,
-      "기타법인": 1088641013500,
-      "기타외국인": -2940806500,
-      "보험": 2106743500,
-      "사모": 184855000,
-      "연기금": -9544343000,
-      "외국인": -382087168000,
-      "은행": -26581000,
-      "투신": -12536707500
+      "개인": -591299275500,
+      "금융투자": -63943053500,
+      "기타금융": -962310500,
+      "기타법인": 1105982037000,
+      "기타외국인": -3522401500,
+      "보험": 5889874000,
+      "사모": -60974721000,
+      "연기금": -63796694500,
+      "외국인": -268951186000,
+      "은행": -36448000,
+      "투신": -58385820500
     },
     "net_volume": {
-      "개인": -412517,
-      "기관합계": 2290,
-      "기타법인": 637989,
-      "외국인합계": -227762
+      "개인": -335812,
+      "기관합계": -140329,
+      "기타법인": 635526,
+      "외국인합계": -159385
     },
     "net_volume_detail": {
-      "개인": -412517,
-      "금융투자": 15844,
-      "기타금융": -1596,
-      "기타법인": 637989,
-      "기타외국인": -1717,
-      "보험": 1207,
-      "사모": 50,
-      "연기금": -5736,
-      "외국인": -226045,
-      "은행": -15,
-      "투신": -7464
+      "개인": -335812,
+      "금융투자": -36978,
+      "기타금융": -556,
+      "기타법인": 635526,
+      "기타외국인": -1997,
+      "보험": 3351,
+      "사모": -35341,
+      "연기금": -36871,
+      "외국인": -157388,
+      "은행": -21,
+      "투신": -33913
     },
-    "observed_at_kst": "2026-08-27T08:39:04+09:00",
-    "open": 1668000,
-    "volume": 2923810
+    "observed_at_kst": "2026-08-28T13:46:07+09:00",
+    "open": 1776000,
+    "volume": 3264042
   },
   "market": "KRX",
   "name": "SK하이닉스",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-26T23:38:52+00:00",
-    "collected_for_kst_date": "2026-08-27",
+    "collected_at_utc": "2026-08-28T04:45:49+00:00",
+    "collected_for_kst_date": "2026-08-28",
     "source_file": "data/latest_krx.json",
-    "source_sha256": "02c7c86a7346d89895ebd44f657a49186f6b011f3438171d49c6abdc26aeee9b"
+    "source_sha256": "0a684273fb37cceee9fea54ec5b17645582f6f34ba9bc2f516228253778e63ab"
   },
   "status": "ok",
   "symbol": "000660"

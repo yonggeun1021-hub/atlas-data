@@ -3,87 +3,102 @@
   "confirmed_metrics": {
     "history_basis": "confirmed_only",
     "reason": null,
-    "sma20": 729150.0,
+    "sma20": 740900.0,
     "sma20_basis": 20,
-    "sma20_through": "2026-08-26",
+    "sma20_through": "2026-08-27",
     "status": "ok"
   },
   "decision_readiness": {
-    "confirmed_through": "2026-08-26",
+    "confirmed_through": "2026-08-27",
     "same_day_confirmation": "next_day"
   },
   "generation": {
-    "generation_basis_at_utc": "2026-08-26T23:39:14+00:00",
+    "generation_basis_at_utc": "2026-08-28T04:46:18+00:00",
     "generation_contract_version": 1,
-    "generation_id": "2e5b59b8b03e1cbc37cc6b20d96f8a0f56f164c35f3d41e1fbb80ff7dcea6676"
+    "generation_id": "77911b03aff6203fc9dd271457db12f7c0efd76ac90866d56950a7c15c341b02"
   },
   "investor_data_completeness": {
-    "complete": true,
-    "investor_rows_missing": [],
-    "investor_rows_missing_by_source": {},
+    "complete": false,
+    "investor_rows_missing": [
+      "2026-08-28"
+    ],
+    "investor_rows_missing_by_source": {
+      "net_value": [
+        "2026-08-28"
+      ],
+      "net_value_detail": [
+        "2026-08-28"
+      ],
+      "net_volume": [
+        "2026-08-28"
+      ],
+      "net_volume_detail": [
+        "2026-08-28"
+      ]
+    },
     "missing_investors": [],
-    "reason": "no_missing_investor_data",
-    "status": "complete"
+    "reason": "reported_missing_investor_data",
+    "status": "incomplete"
   },
-  "latest_confirmed_day": "2026-08-26",
+  "latest_confirmed_day": "2026-08-27",
   "latest_confirmed_row": {
-    "change_pct": 1.9471488178025034,
-    "close": 733000,
+    "change_pct": 12.005457025920874,
+    "close": 821000,
     "confirm_reason": "prior_session",
     "confirmed": true,
-    "high": 739000,
+    "high": 823000,
     "investor_rows_absent": [],
-    "low": 711000,
+    "low": 770000,
     "net_value": {
-      "개인": -8245331500,
-      "기관합계": 3217676000,
-      "기타법인": -548388500,
-      "외국인합계": 5576044000
+      "개인": -44158637500,
+      "기관합계": 22117343000,
+      "기타법인": -780909500,
+      "외국인합계": 22822204000
     },
     "net_value_detail": {
-      "개인": -8245331500,
-      "금융투자": 6222454500,
-      "기타금융": -5158000,
-      "기타법인": -548388500,
-      "기타외국인": -374019000,
-      "보험": 21196500,
-      "사모": -1080917500,
-      "연기금": -1594844000,
-      "외국인": 5950063000,
-      "은행": 0,
-      "투신": -345055500
+      "개인": -44158637500,
+      "금융투자": -112331500,
+      "기타금융": 34292000,
+      "기타법인": -780909500,
+      "기타외국인": -271432000,
+      "보험": 2009990500,
+      "사모": 7085284500,
+      "연기금": 1785953000,
+      "외국인": 23093636000,
+      "은행": 1578000,
+      "투신": 11312576500
     },
     "net_volume": {
-      "개인": -11321,
-      "기관합계": 4460,
-      "기타법인": -758,
-      "외국인합계": 7619
+      "개인": -55373,
+      "기관합계": 27933,
+      "기타법인": -983,
+      "외국인합계": 28423
     },
     "net_volume_detail": {
-      "개인": -11321,
-      "금융투자": 8550,
-      "기타금융": -7,
-      "기타법인": -758,
-      "기타외국인": -512,
-      "보험": 30,
-      "사모": -1478,
-      "연기금": -2158,
-      "외국인": 8131,
-      "은행": 0,
-      "투신": -477
+      "개인": -55373,
+      "금융투자": 36,
+      "기타금융": 43,
+      "기타법인": -983,
+      "기타외국인": -342,
+      "보험": 2520,
+      "사모": 8902,
+      "연기금": 2265,
+      "외국인": 28765,
+      "은행": 2,
+      "투신": 14165
     },
-    "observed_at_kst": "2026-08-27T08:39:02+09:00",
-    "open": 722000,
-    "volume": 107738
+    "observed_at_kst": "2026-08-28T13:46:03+09:00",
+    "open": 778000,
+    "volume": 226942
   },
   "market": "KRX",
   "name": "HD현대일렉트릭",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-26T23:38:52+00:00",
-    "collected_for_kst_date": "2026-08-27",
+    "collected_at_utc": "2026-08-28T04:45:49+00:00",
+    "collected_for_kst_date": "2026-08-28",
     "source_file": "data/latest_krx.json",
-    "source_sha256": "02c7c86a7346d89895ebd44f657a49186f6b011f3438171d49c6abdc26aeee9b"
+    "source_sha256": "0a684273fb37cceee9fea54ec5b17645582f6f34ba9bc2f516228253778e63ab"
   },
   "status": "ok",
   "symbol": "267260"

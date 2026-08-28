@@ -1,0 +1,45 @@
+{
+  "atlas_observed_available_at_kst": "2026-08-28T13:46:10+09:00",
+  "atlas_observed_available_at_utc": "2026-08-28T04:46:10Z",
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "order_authorized": false,
+    "production_wiring_authorized": false,
+    "regime_score_authorized": false,
+    "risk_feature_calculation_authorized": false,
+    "stage_authorized": false,
+    "stress_classification_authorized": false,
+    "temporal_input_qualified": true,
+    "trading_authorized": false
+  },
+  "availability_semantics": "ATLAS_FIRST_SUCCESSFUL_POST_SESSION_OBSERVATION",
+  "index_identity": "KOSPI::코스피",
+  "latest_collection_date": "2026-08-28",
+  "lineage": {
+    "latest_krx_confirmed_through": "2026-08-27",
+    "latest_krx_path": "data/latest_krx.json",
+    "latest_krx_sha256": "0a684273fb37cceee9fea54ec5b17645582f6f34ba9bc2f516228253778e63ab"
+  },
+  "market": "KOREA",
+  "observation_date": "2026-08-27",
+  "policy_version": "korea_risk_availability/1",
+  "receipt_sha256": "5fd4fd2109b3cb6902983327f562328c4b4abac23cc5edcd617f08f5f9325a6b",
+  "same_day_decision_eligible": false,
+  "schema_version": "korea_risk_availability_receipt/1",
+  "source": {
+    "bas_dd": "20260827",
+    "endpoint_path": "/svc/apis/idx/kospi_dd_trd",
+    "exact_index_row_count": 1,
+    "index_level_retained": false,
+    "index_name": "코스피",
+    "raw_response_retained": false,
+    "response_sha256": "0249c3bc0b484e89f60f396d6f7a7eab5bcfa003b8432deb21fd44e7ac117a03",
+    "row_count": 51,
+    "source_name": "KRX_OPEN_API_KOSPI_INDEX",
+    "usable_row_count": 50
+  },
+  "source_publication_time": null,
+  "source_publication_time_status": "UNKNOWN_NOT_INFERRED",
+  "status": "TEMPORAL_INPUT_QUALIFIED_NEXT_SESSION"
+}

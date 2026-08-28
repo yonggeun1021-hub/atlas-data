@@ -3,87 +3,102 @@
   "confirmed_metrics": {
     "history_basis": "confirmed_only",
     "reason": null,
-    "sma20": 2721700.0,
+    "sma20": 2775350.0,
     "sma20_basis": 20,
-    "sma20_through": "2026-08-26",
+    "sma20_through": "2026-08-27",
     "status": "ok"
   },
   "decision_readiness": {
-    "confirmed_through": "2026-08-26",
+    "confirmed_through": "2026-08-27",
     "same_day_confirmation": "next_day"
   },
   "generation": {
-    "generation_basis_at_utc": "2026-08-26T23:39:14+00:00",
+    "generation_basis_at_utc": "2026-08-28T04:46:18+00:00",
     "generation_contract_version": 1,
-    "generation_id": "2e5b59b8b03e1cbc37cc6b20d96f8a0f56f164c35f3d41e1fbb80ff7dcea6676"
+    "generation_id": "77911b03aff6203fc9dd271457db12f7c0efd76ac90866d56950a7c15c341b02"
   },
   "investor_data_completeness": {
-    "complete": true,
-    "investor_rows_missing": [],
-    "investor_rows_missing_by_source": {},
+    "complete": false,
+    "investor_rows_missing": [
+      "2026-08-28"
+    ],
+    "investor_rows_missing_by_source": {
+      "net_value": [
+        "2026-08-28"
+      ],
+      "net_value_detail": [
+        "2026-08-28"
+      ],
+      "net_volume": [
+        "2026-08-28"
+      ],
+      "net_volume_detail": [
+        "2026-08-28"
+      ]
+    },
     "missing_investors": [],
-    "reason": "no_missing_investor_data",
-    "status": "complete"
+    "reason": "reported_missing_investor_data",
+    "status": "incomplete"
   },
-  "latest_confirmed_day": "2026-08-26",
+  "latest_confirmed_day": "2026-08-27",
   "latest_confirmed_row": {
-    "change_pct": 1.5245009074410165,
-    "close": 2797000,
+    "change_pct": 10.082230961744726,
+    "close": 3079000,
     "confirm_reason": "prior_session",
     "confirmed": true,
-    "high": 2846000,
+    "high": 3079000,
     "investor_rows_absent": [],
-    "low": 2724000,
+    "low": 2914000,
     "net_value": {
-      "개인": -11929146500,
-      "기관합계": 12825321000,
-      "기타법인": -14295000,
-      "외국인합계": -881879500
+      "개인": -89930493000,
+      "기관합계": 43226396500,
+      "기타법인": -1837993500,
+      "외국인합계": 48542090000
     },
     "net_value_detail": {
-      "개인": -11929146500,
-      "금융투자": 13346443500,
-      "기타금융": -2909500,
-      "기타법인": -14295000,
-      "기타외국인": -16907000,
-      "보험": 31099000,
-      "사모": -305034000,
-      "연기금": -1692859500,
-      "외국인": -864972500,
-      "은행": -47612000,
-      "투신": 1496193500
+      "개인": -89930493000,
+      "금융투자": 17598033000,
+      "기타금융": -18561000,
+      "기타법인": -1837993500,
+      "기타외국인": -278161000,
+      "보험": 786477500,
+      "사모": 11648247500,
+      "연기금": 1343200000,
+      "외국인": 48820251000,
+      "은행": 17764000,
+      "투신": 11851235500
     },
     "net_volume": {
-      "개인": -4227,
-      "기관합계": 4576,
-      "기타법인": -5,
-      "외국인합계": -344
+      "개인": -29878,
+      "기관합계": 14415,
+      "기타법인": -610,
+      "외국인합계": 16073
     },
     "net_volume_detail": {
-      "개인": -4227,
-      "금융투자": 4763,
-      "기타금융": -1,
-      "기타법인": -5,
-      "기타외국인": -6,
-      "보험": 11,
-      "사모": -109,
-      "연기금": -605,
-      "외국인": -338,
-      "은행": -17,
-      "투신": 534
+      "개인": -29878,
+      "금융투자": 5881,
+      "기타금융": -6,
+      "기타법인": -610,
+      "기타외국인": -93,
+      "보험": 260,
+      "사모": 3914,
+      "연기금": 429,
+      "외국인": 16166,
+      "은행": 6,
+      "투신": 3931
     },
-    "observed_at_kst": "2026-08-27T08:39:03+09:00",
-    "open": 2780000,
-    "volume": 24266
+    "observed_at_kst": "2026-08-28T13:46:06+09:00",
+    "open": 2960000,
+    "volume": 68873
   },
   "market": "KRX",
   "name": "효성중공업",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-08-26T23:38:52+00:00",
-    "collected_for_kst_date": "2026-08-27",
+    "collected_at_utc": "2026-08-28T04:45:49+00:00",
+    "collected_for_kst_date": "2026-08-28",
     "source_file": "data/latest_krx.json",
-    "source_sha256": "02c7c86a7346d89895ebd44f657a49186f6b011f3438171d49c6abdc26aeee9b"
+    "source_sha256": "0a684273fb37cceee9fea54ec5b17645582f6f34ba9bc2f516228253778e63ab"
   },
   "status": "ok",
   "symbol": "298040"
