@@ -58,15 +58,26 @@ class DartStructuralContentIndexTests(unittest.TestCase):
         source_observations = MODULE.DART_OBSERVATION.build_packet(
             decision_at=DECISION_AT
         )["observations"]
+        raw_source_identities = {
+            (row["subject_id"], row["rcept_no"])
+            for row in source_observations
+            if row["evidence"]["status"]
+            == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+        }
+        indexed_identities = {
+            (row["subject_id"], row["rcept_no"])
+            for row in packet["indexed_filings"]
+        }
         self.assertEqual(
             packet["summary"]["source_observation_count"], len(source_observations)
         )
         self.assertEqual(
-            packet["summary"]["raw_bytes_verified_count"], len(packet["indexed_filings"])
+            packet["summary"]["raw_bytes_verified_count"], len(raw_source_identities)
         )
         self.assertEqual(
             packet["summary"]["indexed_filing_count"], len(packet["indexed_filings"])
         )
+        self.assertEqual(indexed_identities, raw_source_identities)
         self.assertEqual(
             packet["summary"]["indexed_document_count"], len(packet["documents"])
         )
