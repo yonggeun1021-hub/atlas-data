@@ -52,7 +52,7 @@ class NotionProjectionWorkflowTests(unittest.TestCase):
 
     def test_no_schedule_or_action_dependency_was_added(self):
         self.assertEqual(self.text.count("- cron:"), 2)
-        self.assertEqual(self.text.count("uses:"), 2)
+        self.assertEqual(self.text.count("uses:"), 4)
 
 
 if __name__ == "__main__":
