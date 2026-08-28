@@ -42,12 +42,16 @@ https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/<source_commit>/<p
 
 The producer derives hashes and generation metadata from `git show` at that
 exact commit, not from potentially dirty working-tree bytes. Publication is
-deliberately two-phase: phase A commits and pushes the daily briefing plus the
-H-24 locator, producing consumer-ready commit `S`; phase B publishes the
-append-only bootstrap whose `source_commit` is `S`. This avoids the impossible
-self-reference that would result from trying to put a pointer to a commit
-inside that same commit. A concurrent advance causes a bounded fetch-first
-retry; no rebase or force-push is used.
+deliberately ordered: phase A commits and pushes the daily briefing plus the
+H-24 locator, producing consumer-ready commit `S`; phase B immediately
+publishes the append-only bootstrap whose `source_commit` is `S`; downstream
+Decision-lineage, Shadow-readiness, and acceptance sidecars run only after that
+bootstrap exists. A downstream semantic rejection remains fail-closed and
+writes no invalid sidecar, but it cannot erase or suppress a separately valid
+P0-06 retrieval authority. This avoids the impossible self-reference that
+would result from trying to put a pointer to a commit inside that same commit.
+A concurrent advance causes a bounded fetch-first retry; no rebase or
+force-push is used.
 
 The envelope binds not only Step0 and health, but also the H-24 locator and the
 exact index, packet, and rendered briefing bytes named by that locator. Their
@@ -90,12 +94,20 @@ The repository provides the executable consumer contract:
 python3 .github/scripts/consume_scheduled_briefing_authority.py \
   --expected-kst-date YYYY-MM-DD \
   --slot morning \
+  --wait-timeout-seconds 600 \
+  --poll-interval-seconds 15 \
   --output-dir /tmp/atlas-verified-briefing
 ```
 
-It discovers sequential revisions using a fresh request nonce, accepts only an
-explicit 404 as the end of the sequence, validates the closed envelope schema,
-and persists verified immutable bytes atomically. A missing first revision,
+It discovers sequential revisions using a fresh request nonce. For the first
+revision only, the consumer may poll explicit HTTP 404 responses for a bounded
+window (maximum 900 seconds); every attempt gets a fresh nonce. The deadline
+never permits a prior date, alternate slot, floating artifact, or non-404
+transport fallback. After the deadline, a still-missing first revision remains
+`RETRIEVAL_AUTHORITY_UNAVAILABLE`. Once one valid revision exists, the first
+missing next revision is the normal end of sequential discovery and is not
+waited on. The consumer validates the closed envelope schema and persists
+verified immutable bytes atomically. A missing first revision,
 revision gap, non-404 transport error, mixed generation, stale compact, H-24
 hash mismatch, or floating artifact URL all fail closed.
 
@@ -106,9 +118,12 @@ is the only narrow exception to the floating-`main` ban.
 ## Workflow placement
 
 `Atlas Daily Briefing Integration v1` runs at 07:05 and 18:30 KST, before the
-human scheduled briefings.  It re-syncs to the latest main, builds the normal
-briefing and H-24 locator, publishes and validates the P0-06 bootstrap, then
-commits all outputs in one race-sensitive push.
+human scheduled briefings. It re-syncs to the latest main, builds the normal
+briefing and H-24 locator, then publishes and validates the P0-06 bootstrap in
+its own append-only commit. The multi-minute offline regression suite runs in
+a parallel job and therefore cannot consume the short producer-to-consumer
+window. Downstream lineage/Shadow sidecars preserve their own fail-closed
+status without blocking the already-valid retrieval bootstrap.
 
 Natural scheduled-session proof is still required before P0-06 can close.
 Manual workflow dispatch or local tests do not count as that proof.

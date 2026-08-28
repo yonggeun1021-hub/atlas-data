@@ -1919,11 +1919,16 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(WF["permissions"], {"contents": "write"})
         self.assertEqual(WF["concurrency"]["cancel-in-progress"], False)
         steps = WF["jobs"]["briefing"]["steps"]
+        regression_steps = WF["jobs"]["offline-regression"]["steps"]
         regression = next(
-            step for step in steps
+            step for step in regression_steps
             if step.get("name") == "Offline daily orchestrator regression"
         )
         self.assertIn("test_daily_orchestrator.py", regression["run"])
+        self.assertNotIn(
+            "Offline daily orchestrator regression",
+            [step.get("name") for step in steps],
+        )
         publish = next(
             step for step in steps
             if step.get("name") == "Publish provider-free daily briefing packet"
@@ -1938,9 +1943,15 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("decision/decision_change_lineage_operational.py", command)
         self.assertIn("shadow/three_market_shadow_operational_readiness.py", command)
         self.assertLess(
+            command.index("publish_scheduled_briefing_authority.py publish"),
+            command.index("decision/decision_change_lineage_operational.py"),
+        )
+        self.assertLess(
             command.index("decision/decision_change_lineage_operational.py"),
             command.index("shadow/three_market_shadow_operational_readiness.py"),
         )
+        self.assertIn("LINEAGE_STATUS=BLOCKED_FAIL_CLOSED", command)
+        self.assertIn("SHADOW_READINESS_STATUS=BLOCKED_FAIL_CLOSED", command)
         self.assertNotIn('SOURCE_COMMIT=$(git rev-parse HEAD)', command)
         self.assertIn('CONSUMER_READY_COMMIT=$(git rev-parse HEAD)', command)
         self.assertIn('--source-commit "$CONSUMER_READY_COMMIT"', command)
@@ -1962,7 +1973,7 @@ class DailyOrchestratorTest(unittest.TestCase):
         # the single human-reaching write.  The producer may only prepare the
         # immutable consume payload for that later gate.
         self.assertNotIn("GITHUB_STEP_SUMMARY", command)
-        self.assertLess(steps.index(regression), steps.index(publish))
+        self.assertFalse(WF["jobs"]["briefing"].get("needs"))
         # Commit lives in the publish step so a rejected push can discard
         # the entire attempt and regenerate the immutable pointer from a
         # fresh main, never rebasing a pointer built from stale bytes.
@@ -1992,7 +2003,6 @@ class DailyOrchestratorTest(unittest.TestCase):
             if step.get("name") == "Re-sync to the latest main before binding retrieval authority"
         )
         self.assertIn('git reset --hard "origin/$DEFAULT_BRANCH"', resync["run"])
-        self.assertLess(steps.index(resync), steps.index(regression))
         self.assertLess(steps.index(resync), steps.index(publish))
 
     def test_workflow_derives_slot_from_exact_cron_not_wall_clock_hour(self):
