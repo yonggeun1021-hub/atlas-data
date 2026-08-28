@@ -623,20 +623,21 @@ inbox 에서 이미 확립한 계약과 같게 맞췄다 — **change 별 최신
 ⚠ `CONTRACT_VERSION` 은 기대 projection/alert 내용에 포함되므로, **contract 를 올리면 미결 receipt 는 전부 무효**가 된다.
 계약이 바뀌었으니 옳은 동작이며, 현재는 live receipt 가 없어 영향이 없다.
 
-### ⚠ live canary 전에는 post-delivery change 가 non-green 이다 — 의도된 것이다
+### ✅ Notion live canary 완료 · Portal receipt authority 활성화
 
-Notion adapter 코드와 workflow pre-delivery 배선은 추가됐지만
-`implemented = false` · `verified_against_live_api = false` 이므로, Finalization은 아직 어떤 receipt도
-완료 증거로 인정하지 않는다. GitHub Actions identity가 실제 Atlas Briefing SSOT에 write한 뒤 전 필드를
-read-after-write로 대조하고 atomic receipt를 남기는 canary가 끝나야 두 flag를 함께 올린다.
+GitHub Actions run `33132227994`가 `2026-08-28-am`의 canonical SHA-256
+`ca227fb4f1a794dfc9ffb075c8755f3ba2d38e4ef14187f53b6e56b5c2d23066`을 Atlas Briefing SSOT에
+투영하고 전 필드 read-after-write, `NO_CHANGE` 재실행, 동일 receipt 재사용을 검증했다. append-only receipt는
+main commit `bb59b8a`에 게시됐다. 따라서 `implemented = true` · `verified_against_live_api = true`를 함께
+활성화하며, 이후 Portal 실패는 정상 1회 전달보다 앞에서 fail-closed한다.
 
 앞서 세 번(rev 10 machine HOLD · rev 14 liveness · rev 15 PRESENT) 「풀 수 없는 red 는 함정」이라고 판단했지만
 이번은 성격이 다르다:
 
 - rev 10/14 는 **원인이 이미 해소됐는데 해소 신호가 없어서** 걸린 red 였다 → 함정
-- canary 전에는 **Portal write/readback이 증명되지 않은 것이 사실** → red 가 정확한 상태 서술
+- canary 전에는 **Portal write/readback이 증명되지 않은 것이 사실**이었다 → 당시 red 는 정확한 상태 서술
 
-그러므로 이 red 는 함정이 아니라 **「활성화하면 안 된다」는 신호**다.
+그러므로 당시 red 는 함정이 아니라 **「활성화하면 안 된다」는 신호**였고, 현재는 live proof로 해소됐다.
 
 후속 adapter 구현은 `briefing_id`/`post_delivery_change_key` 멱등 upsert, canonical JSON SHA256,
 전 필드 read-after-write, 생성 경쟁 중복 탐지, atomic append-only receipt, change별 latest receipt authority를

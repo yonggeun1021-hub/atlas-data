@@ -226,11 +226,11 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(np.ProjectionError, "SELECT_OPTIONS_MISMATCH"):
             np.verify_schema(schema)
 
-    def test_policy_keeps_both_live_flags_false_until_ci_canary(self):
+    def test_policy_activates_both_flags_only_after_ci_canary(self):
         config = json.loads((Path(__file__).parents[1]
                              / "config/atlas_projection.json").read_text())["portal"]
-        self.assertIs(config["implemented"], False)
-        self.assertIs(config["verified_against_live_api"], False)
+        self.assertIs(config["implemented"], True)
+        self.assertIs(config["verified_against_live_api"], True)
         self.assertEqual(config["receipt_authority"], "LATEST_REVISION_PER_CHANGE")
         self.assertEqual(config["post_delivery_redelivery"], "FORBIDDEN")
 
