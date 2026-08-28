@@ -25,6 +25,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Optional
@@ -40,6 +41,7 @@ STATUS_VALUES = frozenset({
     "READY", "PENDING", "UNKNOWN", "DEGRADED", "POLICY_BLOCKED",
     "DATA_BLOCKED", "UNAVAILABLE",
 })
+MACHINE_REASON_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 
 
 class DailyOrchestratorError(RuntimeError):
@@ -233,6 +235,23 @@ def _degraded_from_exception(component_id: str, exc: Exception) -> dict:
     return component_row(
         component_id, "DEGRADED", f"{type(exc).__name__}:{exc}"
     )
+
+
+def _unavailable_reason(name: str, row: dict) -> str:
+    """Return one contract-safe reason while preserving the diagnostic row.
+
+    Component rows intentionally retain human-readable exception text.  The
+    downstream decision contracts accept only bounded uppercase reason codes,
+    so forwarding an exception class verbatim would turn one unavailable
+    component into a second, avoidable orchestration failure.
+    """
+    reason = row.get("reason")
+    if isinstance(reason, str) and MACHINE_REASON_RE.fullmatch(reason):
+        return reason
+    status = row.get("status")
+    if status not in STATUS_VALUES:
+        status = "UNAVAILABLE"
+    return f"{name}_{status}"
 
 
 def _latest_dated_dir(root: Path) -> Path | None:
@@ -1663,7 +1682,7 @@ def build_unified_decision(
             unavailable_reasons[name] = []
         else:
             components[name] = None
-            unavailable_reasons[name] = [row["reason"] or "UNAVAILABLE"]
+            unavailable_reasons[name] = [_unavailable_reason(name, row)]
     try:
         packet = UNIFIED.build_packet(
             components, unavailable_reasons, decision_date, slot, generated_at
@@ -2326,7 +2345,7 @@ def build_defensive_action_decision(
             unavailable_reasons[name] = []
         else:
             source_packets[name] = None
-            unavailable_reasons[name] = [row["reason"] or f"{name}_UNAVAILABLE"]
+            unavailable_reasons[name] = [_unavailable_reason(name, row)]
     try:
         packet = DEFENSIVE_ACTION_DECISION.build_packet(
             source_packets,
@@ -2379,7 +2398,7 @@ def build_strategic_capital_posture(
             unavailable_reasons[name] = []
         else:
             source_packets[name] = None
-            unavailable_reasons[name] = [row["reason"] or f"{name}_UNAVAILABLE"]
+            unavailable_reasons[name] = [_unavailable_reason(name, row)]
     try:
         packet = STRATEGIC_CAPITAL_POSTURE.build_packet(
             source_packets,

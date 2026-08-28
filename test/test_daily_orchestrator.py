@@ -1416,6 +1416,44 @@ class DailyOrchestratorTest(unittest.TestCase):
         }
         self.assertEqual(step0_by_id["STEP0_READ_MODEL_HEALTH"]["status"], "READY")
 
+    def test_unavailable_exception_reason_does_not_degrade_unified_decision(self):
+        source_ids = (
+            "THREE_MARKET_REGIME_HEADER",
+            "ROTATION_DISCOVERY",
+            "RULE_EVALUATION",
+            "PORTFOLIO_BUCKET",
+            "PORTFOLIO_CURRENCY",
+            "ACTION_BOUNDARY",
+        )
+        rows = {
+            component_id: MODULE.component_row(
+                component_id, "PENDING", "SOURCE_PACKET_NOT_PROVIDED"
+            )
+            for component_id in source_ids
+        }
+        diagnostic = (
+            "RotationDiscoveryBriefingError:"
+            "DYNAMIC_SIGNAL_INPUT_INVALID:REPORT_DECISION_AFTER_BOUNDARY_AS_OF"
+        )
+        rows["ROTATION_DISCOVERY"] = MODULE.component_row(
+            "ROTATION_DISCOVERY", "DEGRADED", diagnostic
+        )
+
+        result = MODULE.build_unified_decision(
+            rows, DECISION_DATE, "morning", MORNING_GENERATED_AT
+        )
+
+        self.assertEqual(result["status"], "PENDING")
+        self.assertTrue(result["validated"])
+        by_name = {
+            row["component"]: row for row in result["packet"]["components"]
+        }
+        self.assertEqual(
+            by_name["ROTATION_DISCOVERY"]["unavailable_reasons"],
+            ["ROTATION_DISCOVERY_DEGRADED"],
+        )
+        self.assertEqual(rows["ROTATION_DISCOVERY"]["reason"], diagnostic)
+
     def test_no_action_order_production_or_trading_authority_is_ever_true(self):
         for slot, generated_at in (
             ("morning", MORNING_GENERATED_AT),
