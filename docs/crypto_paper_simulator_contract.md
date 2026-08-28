@@ -39,6 +39,9 @@ second fill.
   only by replay; mutable cash/position side tables do not exist.
 - Content-addressed ledger snapshots are append-only. Recovery validates every
   snapshot and rejects divergent histories before selecting the longest chain.
+- The publisher rejects the repository root and every descendant before it
+  creates a directory, so virtual account history cannot become tracked public
+  evidence through a caller path mistake.
 
 ### Authority
 

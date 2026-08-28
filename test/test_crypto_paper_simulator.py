@@ -406,6 +406,11 @@ class LedgerIntegrityAndRecoveryTests(unittest.TestCase):
             self.assertEqual(MODULE.canonical_json(recovered), MODULE.canonical_json(latest))
             self.assertEqual(MODULE.canonical_json(account(recovered)), MODULE.canonical_json(account(latest)))
 
+    def test_publisher_forbids_repository_internal_account_state(self):
+        with self.assertRaisesRegex(MODULE.CryptoPaperSimulatorError, "TRACKED_LEDGER_OUTPUT_FORBIDDEN"):
+            MODULE.publish_ledger_snapshot(ROOT / "data" / "paper-ledger", submit())
+        self.assertFalse((ROOT / "data" / "paper-ledger").exists())
+
     def test_recovery_rejects_modified_snapshot_and_divergent_history(self):
         first = submit()
         latest = match(first)
