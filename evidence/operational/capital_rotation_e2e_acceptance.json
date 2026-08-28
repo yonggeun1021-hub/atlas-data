@@ -13,7 +13,6 @@
   "blockers": [
     "THREE_DISTINCT_NATURAL_AM_PM_PAIRS_NOT_MET",
     "THREE_VIEWER_VISIBLE_PROJECTED_PAIRS_NOT_MET",
-    "TRUSTED_PORTAL_RECEIPT_PRODUCER_NOT_IMPLEMENTED",
     "GENUINE_SCHEDULED_FAIL_CLOSED_RECEIPT_MISSING",
     "TRUSTED_FAIL_CLOSED_RECEIPT_PRODUCER_NOT_IMPLEMENTED"
   ],
@@ -22,12 +21,14 @@
     "required_genuine_scheduled_fail_closed_samples": 1,
     "required_viewer_visible_projected_pair_dates": 3
   },
-  "inventory_sha256": "2a5f2e4df595cc608b10c52f92e3e20f8ff25ef065e14da39eb2eb59885cd3a6",
+  "inventory_sha256": "9ff252d3623ad1e7a780dbd2c4550db08487791fee88e98dbf8334f8ecb4663a",
   "observed": {
     "genuine_scheduled_fail_closed_sample_count": 0,
+    "manual_or_non_schedule_portal_receipt_count": 0,
     "manual_or_non_schedule_receipt_count": 0,
     "natural_pair_dates": [],
     "natural_run_receipt_count": 0,
+    "portal_receipt_count": 0,
     "run_receipt_count": 0,
     "superseded_natural_rerun_attempt_count": 0,
     "viewer_visible_projected_pair_dates": []
@@ -35,12 +36,13 @@
   "provenance_rules": {
     "fail_closed_receipt_producer_status": "NOT_IMPLEMENTED_FAIL_CLOSED",
     "filename_or_packet_success_infers_natural": false,
+    "github_attestation_trusted_root_sha256": "65ca537f6ed8a47fd0e560c421baa1f6c1efb8b25fc200d8c5c02c0e92eb2b9c",
     "manual_or_replay_counts_as_natural": false,
-    "portal_receipt_producer_status": "NOT_IMPLEMENTED_FAIL_CLOSED",
+    "portal_receipt_producer_status": "IMPLEMENTED_GITHUB_ATTESTED_IMPORT",
     "portal_receipt_required_for_projection": true,
     "successful_packet_infers_fail_closed_sample": false
   },
-  "schema_version": "capital_rotation_e2e_acceptance/1",
+  "schema_version": "capital_rotation_e2e_acceptance/2",
   "status": "NOT_READY",
   "wbs_item": "P8-15"
 }

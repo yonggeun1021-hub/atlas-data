@@ -1,0 +1,84 @@
+name: Import P8-15 Portal Observation
+
+on:
+  schedule:
+    - cron: "20 23 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  attestations: read
+
+concurrency:
+  group: import-p8-15-portal-observation
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_SCHEDULE: ${{ github.event.schedule }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      WORKFLOW_HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Check out exact Portal main
+        id: portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORTAL_ROOT="$RUNNER_TEMP/atlas-portal"
+          git clone --quiet https://github.com/yonggeun1021-hub/atlas-portal.git "$PORTAL_ROOT"
+          PORTAL_COMMIT=$(git -C "$PORTAL_ROOT" rev-parse HEAD)
+          test "$PORTAL_COMMIT" = "$(git -C "$PORTAL_ROOT" rev-parse origin/main)"
+          echo "root=$PORTAL_ROOT" >> "$GITHUB_OUTPUT"
+          echo "commit=$PORTAL_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Import only GitHub-attested natural Portal observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m acceptance.portal_observation_receipt \
+            --portal-repo-root "${{ steps.portal.outputs.root }}" \
+            --portal-commit "${{ steps.portal.outputs.commit }}" \
+            --portal-root "evidence/capital_rotation_acceptance/portal_receipts" \
+            --event-name "$EVENT_NAME" \
+            --event-schedule "$EVENT_SCHEDULE" \
+            --run-id "$RUN_ID" \
+            --run-attempt "$RUN_ATTEMPT" \
+            --workflow-head-sha "$WORKFLOW_HEAD_SHA"
+
+      - name: Rebuild and validate P8-15 inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m acceptance.capital_rotation_e2e evaluate
+          python3 -m acceptance.capital_rotation_e2e validate-inventory \
+            evidence/operational/capital_rotation_e2e_acceptance.json
+          python3 test/test_capital_rotation_e2e_acceptance.py
+
+      - name: Commit append-only import if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add evidence/capital_rotation_acceptance/portal_receipts \
+            evidence/operational/capital_rotation_e2e_acceptance.json
+          if git diff --cached --quiet; then
+            echo "No new trusted Portal observation"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "import trusted P8-15 Portal observation"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
