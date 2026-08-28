@@ -8,6 +8,8 @@
     "KIS_PAPER_ACCOUNT": {
       "required_verification_status": "BROKER_VERIFIED",
       "allowed_account_scope": "KOREA",
+      "required_currency": "KRW",
+      "required_position_source_name": "kis_paper_domestic_balance",
       "note": "KOREA is already a RATIFIED entry in v1's CANONICAL_ACCOUNT_SCOPE registry (portfolio_risk/portfolio_snapshot.py) -- this contract reuses that existing registry rather than defining a new one."
     }
   },
@@ -27,5 +29,6 @@
     "buy_authorized": false,
     "production_authorized": false,
     "trading_authorized": false
-  }
+  },
+  "order_eligibility_status": "NOT_APPLICABLE_READ_ONLY_FACT"
 }

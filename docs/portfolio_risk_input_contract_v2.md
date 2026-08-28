@@ -49,14 +49,16 @@ A provider may only be used if it is registered in
 (`config/portfolio_risk_input_contract_v2.json`) -- this is a fixed
 registry, never a caller-suppliable pair. As of this contract:
 
-| Provider | Required `verificationStatus` | Account scope |
-|---|---|---|
-| `KIS_PAPER_ACCOUNT` | `BROKER_VERIFIED` | `KOREA` |
+| Provider | Required `verificationStatus` | Account scope | Currency | Position source |
+|---|---|---|---|---|
+| `KIS_PAPER_ACCOUNT` | `BROKER_VERIFIED` | `KOREA` | `KRW` | `kis_paper_domestic_balance` |
 
 `account_scope` must be one of v1's own `CANONICAL_ACCOUNT_SCOPE` values
 (`ALPACA_PAPER_ACCOUNT`, `KOREA`, `CRYPTO`) -- this reuses that
 already-ratified registry rather than defining a new, competing one.
 `KOREA` was already present in that registry before this contract existed.
+The registry binds the entire tuple: a caller cannot pair the registered KIS
+provider with another otherwise-ratified scope, currency, or source name.
 
 ## Real data
 
@@ -68,7 +70,10 @@ state (see that repo's `kis_paper_full_account_snapshot.py`).
 
 ## Authority
 
-Identical structural boundary to v1: `review_only: true`, every other
-authority flag hard-`false`. No code path in this file ever sets any of
-them `true`. This contract supplies facts only -- it computes no risk
-budget, no position size, and grants no order/trading authority.
+Identical structural boundary to v1: every account fact itself carries
+`review_only: true` and every other authority flag hard-`false`; the
+consumer validator rechecks the exact block. `orderEligibilityStatus` is
+fixed to `NOT_APPLICABLE_READ_ONLY_FACT`, not supplied by a caller. No code
+path in this file ever sets authority true. This contract supplies facts
+only -- it computes no risk budget, no position size, and grants no
+order/trading authority.

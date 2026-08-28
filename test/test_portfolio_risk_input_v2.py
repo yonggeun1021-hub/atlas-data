@@ -60,6 +60,11 @@ def _build_fact(*, decision_at=T0, captured_at=T0, positions=None, **overrides):
     return PS2.build_provider_account_fact_v2(**kwargs)
 
 
+def _rehash(fact):
+    fact["factSha256"] = PS2.payload_sha256({k: v for k, v in fact.items() if k != "factSha256"})
+    return fact
+
+
 class ContractShapeTests(unittest.TestCase):
     def test_contract_config_declares_v2_and_kis_provider(self):
         contract = json.loads((ROOT / "config" / "portfolio_risk_input_contract_v2.json").read_text())
@@ -68,6 +73,12 @@ class ContractShapeTests(unittest.TestCase):
         self.assertEqual(
             contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["required_verification_status"],
             "BROKER_VERIFIED",
+        )
+        self.assertEqual(contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["allowed_account_scope"], "KOREA")
+        self.assertEqual(contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["required_currency"], "KRW")
+        self.assertEqual(
+            contract["registered_providers"]["KIS_PAPER_ACCOUNT"]["required_position_source_name"],
+            "kis_paper_domestic_balance",
         )
         self.assertFalse(contract["authority"]["order_authorized"])
         self.assertFalse(contract["authority"]["trading_authorized"])
@@ -87,6 +98,8 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
         self.assertEqual(fact["accountScope"], "KOREA")
         self.assertEqual(fact["verificationStatus"], "BROKER_VERIFIED")
         self.assertEqual(fact["accountIdentityHash"], ACCOUNT_IDENTITY_HASH)
+        self.assertEqual(fact["orderEligibilityStatus"], PS2.ORDER_ELIGIBILITY_NOT_APPLICABLE)
+        self.assertEqual(fact["authority"], PS2.AUTHORITY_ALL_FALSE)
         self.assertEqual(fact["positions"][0]["source_identity_lineage"]["source_pairs"], [
             {"source_name": "kis_paper_domestic_balance", "source_asset_id": "005930"}
         ])
@@ -102,6 +115,16 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "ACCOUNT_SCOPE_NOT_RATIFIED"):
             _build_fact(account_scope="JAPAN")
 
+    def test_registered_provider_cannot_be_relabelled_to_another_ratified_scope(self):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "PROVIDER_ACCOUNT_SCOPE_MISMATCH"):
+            _build_fact(account_scope="CRYPTO")
+
+    def test_registered_provider_has_one_currency_and_read_only_eligibility(self):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "PROVIDER_CURRENCY_MISMATCH"):
+            _build_fact(currency="USD")
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "ORDER_ELIGIBILITY_STATUS_NOT_READ_ONLY"):
+            _build_fact(order_eligibility_status="ORDER_APPROVED")
+
     def test_malformed_account_identity_hash_is_rejected(self):
         with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "ACCOUNT_IDENTITY_HASH_INVALID"):
             _build_fact(account_identity_hash="not-a-hash")
@@ -111,17 +134,20 @@ class BuildProviderAccountFactV2Tests(unittest.TestCase):
             _build_fact(captured_at=T_LATER, decision_at=T0)
 
     def test_negative_cash_is_rejected(self):
-        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "NEGATIVE_NAV_OR_CASH_REJECTED"):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "NEGATIVE_VALUE_REJECTED"):
             _build_fact(cash=-1.0)
 
-    def test_duplicate_source_asset_id_is_rejected(self):
-        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "DUPLICATE_POSITION_SOURCE_ASSET_ID"):
-            _build_fact(positions=[
-                {"symbol": "005930", "quantity": 1, "market_value": 70000.0, "unrealized_pl": 0.0,
-                 "source_name": "kis_paper_domestic_balance", "source_asset_id": "005930"},
-                {"symbol": "005930A", "quantity": 1, "market_value": 70000.0, "unrealized_pl": 0.0,
-                 "source_name": "kis_paper_domestic_balance", "source_asset_id": "005930"},
-            ])
+    def test_position_source_identity_is_exactly_the_kis_pdno(self):
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "POSITION_SYMBOL_SOURCE_ASSET_ID_MISMATCH"):
+            _build_fact(positions=_positions(source_asset_id="000660"))
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "POSITION_SOURCE_NAME_PROVIDER_MISMATCH"):
+            _build_fact(positions=_positions(source_name="caller_alias"))
+
+    def test_kis_holding_quantity_is_a_nonnegative_integer(self):
+        for invalid in (1.5, 10.0, True):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "NONNEGATIVE_INTEGER_REQUIRED"):
+                    _build_fact(positions=_positions(quantity=invalid))
 
     def test_staleness_is_independently_derived_not_trusted(self):
         fact = _build_fact(captured_at=T0, decision_at=T_MUCH_LATER)
@@ -154,6 +180,66 @@ class ValidateProviderAccountFactV2Tests(unittest.TestCase):
         fact = _build_fact()
         fact["factSha256"] = "0" * 64
         with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "FACT_HASH_MISMATCH"):
+            PS2.validate_provider_account_fact_v2(fact, decision_at=T0)
+
+    def test_rehashed_provider_scope_currency_and_authority_tamper_are_rejected(self):
+        cases = [
+            ("accountScope", "CRYPTO", "PROVIDER_ACCOUNT_SCOPE_MISMATCH"),
+            ("currency", "USD", "PROVIDER_CURRENCY_MISMATCH"),
+            ("orderEligibilityStatus", "ORDER_APPROVED", "ORDER_ELIGIBILITY_STATUS_NOT_READ_ONLY"),
+        ]
+        for field, value, code in cases:
+            with self.subTest(field=field):
+                fact = _rehash({**_build_fact(), field: value})
+                with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, code):
+                    PS2.validate_provider_account_fact_v2(fact, decision_at=T0)
+        authority_tamper = copy.deepcopy(_build_fact())
+        authority_tamper["authority"]["order_authorized"] = True
+        _rehash(authority_tamper)
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "ACCOUNT_FACT_AUTHORITY_INVALID"):
+            PS2.validate_provider_account_fact_v2(authority_tamper, decision_at=T0)
+
+    def test_rehashed_position_semantics_are_revalidated_not_only_hashed(self):
+        cases = [
+            ("quantity", "10", "NON_NUMERIC_VALUE"),
+            ("quantity", 10.0, "NONNEGATIVE_INTEGER_REQUIRED"),
+            ("market_value", float("nan"), "NON_FINITE_VALUE"),
+            ("currency", "USD", "POSITION_CURRENCY_PROVIDER_MISMATCH"),
+        ]
+        for field, value, code in cases:
+            with self.subTest(field=field):
+                fact = copy.deepcopy(_build_fact())
+                fact["positions"][0][field] = value
+                _rehash(fact)
+                with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, code):
+                    PS2.validate_provider_account_fact_v2(fact, decision_at=T0)
+
+    def test_rehashed_python_bool_numeric_aliases_are_rejected(self):
+        position_count = copy.deepcopy(_build_fact())
+        position_count["positionCount"] = True  # True == 1 in Python
+        _rehash(position_count)
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "FACT_POSITION_COUNT_INVALID"):
+            PS2.validate_provider_account_fact_v2(position_count, decision_at=T0)
+
+        mismatch = copy.deepcopy(_build_fact())
+        mismatch["navReconciliationMismatchPct"] = False  # False == 0.0
+        _rehash(mismatch)
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "NON_NUMERIC_VALUE"):
+            PS2.validate_provider_account_fact_v2(mismatch, decision_at=T0)
+
+        authority = copy.deepcopy(_build_fact())
+        authority["authority"] = {
+            key: int(value) for key, value in authority["authority"].items()
+        }
+        _rehash(authority)
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "ACCOUNT_FACT_AUTHORITY_INVALID"):
+            PS2.validate_provider_account_fact_v2(authority, decision_at=T0)
+
+    def test_rehashed_source_pair_alias_is_rejected(self):
+        fact = copy.deepcopy(_build_fact())
+        fact["positions"][0]["source_identity_lineage"]["source_pairs"][0]["source_name"] = "caller_alias"
+        _rehash(fact)
+        with self.assertRaisesRegex(PS2.PortfolioAccountFactV2Error, "POSITION_SOURCE_NAME_PROVIDER_MISMATCH"):
             PS2.validate_provider_account_fact_v2(fact, decision_at=T0)
 
     def test_canonical_identity_claim_smuggled_onto_a_position_is_rejected(self):
