@@ -31,22 +31,22 @@ asserts nothing at all about any other pdno:
 3. `source_alias_proposal_000660()` -- same claim for `000660` /
    `KRX:000660:COMMON` / `XKRX:000660`.
 
-Evidence pinning contract: every citation is
-`{repo, commit_sha, file_path, content_sha256}`, verified against the
-real file's actual bytes at proposal-generation time (see
-`_pinned_github_evidence`, called only with citations this module's own
-author has independently fetched and hashed -- never a bare claim). A
-future reviewer can refetch the same `repo`+`commit_sha`+`file_path` and
-confirm the same `content_sha256`, reproducing exactly what was reviewed
-even if the file's current HEAD has since changed.
+Evidence pinning contract: every official-source citation is
+`{repo, commit_sha, file_path, content_sha256}`.  The packet records an
+immutable *claim* about those source bytes; it does not pretend that a
+hash string is proof that the bytes were independently reproduced.
+Accordingly the sibling review module keeps the packet incomplete until
+an external reviewer reproduces the pinned bytes.  Mutable third-party
+links are explicitly marked unpinned and can never complete review.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 
-SCHEMA_VERSION = "kis_provenance_proposal/1"
+SCHEMA_VERSION = "kis_provenance_proposal/2"
 PROPOSAL_STATUS = "PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY"
+PROPOSAL_REVIEW_AS_OF = "2026-08-28T00:00:00Z"
 AUTHORITY_ALL_FALSE = {
     "review_only": True,
     "action_authorized": False,
@@ -97,6 +97,7 @@ def _proposal(*, proposal_id: str, claim: dict, evidence: list) -> dict:
     payload = {
         "schemaVersion": SCHEMA_VERSION,
         "proposalId": proposal_id,
+        "reviewAsOf": PROPOSAL_REVIEW_AS_OF,
         "proposalStatus": PROPOSAL_STATUS,
         "claim": claim,
         "evidenceLineage": evidence,
@@ -113,6 +114,26 @@ def _proposal(*, proposal_id: str, claim: dict, evidence: list) -> dict:
 
 _KIS_OPEN_TRADING_API_REPO = "koreainvestment/open-trading-api"
 _KIS_OPEN_TRADING_API_PINNED_COMMIT = "b4e6249714418aa57833d1cbbbced39cbcc5b125"
+KIS_PINNED_EVIDENCE_MANIFEST = {
+    "backtester/kis_backtest/providers/kis/constants.py":
+        "986cc68c92e889321361ab4e64266749650e4c3f8b8e37f7ee2d9fe9444d2811",
+    "kis_devlp.yaml":
+        "61f036e51e02c4f8b86fb26e361fe98ecb26e0d587160d724f2d62768a60e2a2",
+    "examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py":
+        "5897fd3ce320a8d9683208689727714c037241b2010cc89f4c7e6c63b6255c89",
+    "legacy/Sample01/kis_domstk.py":
+        "d7bc6da85f4b086de3063f110d6e426fbc5751bc340b45e533ccdf9a5d55e575",
+}
+
+
+def _kis_pinned_evidence(*, file_path: str, note: str) -> dict:
+    return _pinned_github_evidence(
+        repo=_KIS_OPEN_TRADING_API_REPO,
+        commit_sha=_KIS_OPEN_TRADING_API_PINNED_COMMIT,
+        file_path=file_path,
+        content_sha256=KIS_PINNED_EVIDENCE_MANIFEST[file_path],
+        note=note,
+    )
 
 
 def provider_authority_proposal() -> dict:
@@ -130,24 +151,18 @@ def provider_authority_proposal() -> dict:
         ),
     }
     evidence = [
-        _pinned_github_evidence(
-            repo=_KIS_OPEN_TRADING_API_REPO, commit_sha=_KIS_OPEN_TRADING_API_PINNED_COMMIT,
+        _kis_pinned_evidence(
             file_path="backtester/kis_backtest/providers/kis/constants.py",
-            content_sha256="986cc68c92e889321361ab4e64266749650e4c3f8b8e37f7ee2d9fe9444d2811",
             note="KIS's own repo: BALANCE_REAL=TTTC8434R, BALANCE_PAPER=VTTC8434R, "
                  "DOMESTIC_BALANCE=/uapi/domestic-stock/v1/trading/inquire-balance.",
         ),
-        _pinned_github_evidence(
-            repo=_KIS_OPEN_TRADING_API_REPO, commit_sha=_KIS_OPEN_TRADING_API_PINNED_COMMIT,
+        _kis_pinned_evidence(
             file_path="kis_devlp.yaml",
-            content_sha256="61f036e51e02c4f8b86fb26e361fe98ecb26e0d587160d724f2d62768a60e2a2",
             note="KIS's own repo: prod=https://openapi.koreainvestment.com:9443, "
                  "vps (모의투자)=https://openapivts.koreainvestment.com:29443.",
         ),
-        _pinned_github_evidence(
-            repo=_KIS_OPEN_TRADING_API_REPO, commit_sha=_KIS_OPEN_TRADING_API_PINNED_COMMIT,
+        _kis_pinned_evidence(
             file_path="examples_llm/domestic_stock/inquire_balance/chk_inquire_balance.py",
-            content_sha256="5897fd3ce320a8d9683208689727714c037241b2010cc89f4c7e6c63b6255c89",
             note="KIS's own repo: field labels pdno=상품번호, hldg_qty=보유수량, "
                  "ord_psbl_qty=주문가능수량 in the balance response.",
         ),
@@ -170,16 +185,18 @@ def source_alias_proposal_005930() -> dict:
         ),
     }
     evidence = [
-        _pinned_github_evidence(
-            repo=_KIS_OPEN_TRADING_API_REPO, commit_sha=_KIS_OPEN_TRADING_API_PINNED_COMMIT,
+        _kis_pinned_evidence(
             file_path="legacy/Sample01/kis_domstk.py",
-            content_sha256="d7bc6da85f4b086de3063f110d6e426fbc5751bc340b45e533ccdf9a5d55e575",
             note="KIS's own repo: PDNO documented as 종목코드(6자리) (ETNs excepted, "
                  "start with Q) -- the general PDNO field shape, not "
                  "instrument-specific by itself.",
         ),
         {
-            "kind": "PUBLIC_THIRD_PARTY_CONFIRMATION", "claim": "005930 denotes Samsung Electronics on KRX",
+            "kind": "MUTABLE_PUBLIC_INSTRUMENT_CONFIRMATION",
+            "pinStatus": "UNPINNED_MUTABLE",
+            "sourceAssetId": "005930", "listingId": "XKRX:005930",
+            "canonicalInstrumentId": "KRX:005930:COMMON",
+            "claim": "005930 denotes Samsung Electronics on KRX",
             "sources": [
                 "https://www.etoday.co.kr/news/view/2032584",
                 "https://www.koreantickers.com/stock/005930",
@@ -187,10 +204,10 @@ def source_alias_proposal_005930() -> dict:
             ],
         },
         {
-            "kind": "EXISTING_RATIFIED_ATLAS_ALIAS",
-            "note": "config/canonical_security_identity.json: krx_open_api_stock_daily "
-                    "+ 005930 -> XKRX:005930, RATIFIED 2026-08-25, "
-                    "evidence/identity/approvals/2026-08-25/alias.samsung-electronics.json.",
+            "kind": "ATLAS_CANONICAL_TARGET_REFERENCE",
+            "sourceName": "krx_open_api_stock_daily", "sourceAssetId": "005930",
+            "market": "KOREA", "listingId": "XKRX:005930",
+            "canonicalInstrumentId": "KRX:005930:COMMON",
         },
     ]
     return _proposal(proposal_id="atlas.identity.alias.kis-samsung-electronics", claim=claim, evidence=evidence)
@@ -207,16 +224,18 @@ def source_alias_proposal_000660() -> dict:
         ),
     }
     evidence = [
-        _pinned_github_evidence(
-            repo=_KIS_OPEN_TRADING_API_REPO, commit_sha=_KIS_OPEN_TRADING_API_PINNED_COMMIT,
+        _kis_pinned_evidence(
             file_path="legacy/Sample01/kis_domstk.py",
-            content_sha256="d7bc6da85f4b086de3063f110d6e426fbc5751bc340b45e533ccdf9a5d55e575",
             note="KIS's own repo: PDNO documented as 종목코드(6자리) (ETNs excepted, "
                  "start with Q) -- the general PDNO field shape, not "
                  "instrument-specific by itself.",
         ),
         {
-            "kind": "PUBLIC_THIRD_PARTY_CONFIRMATION", "claim": "000660 denotes SK hynix on KRX",
+            "kind": "MUTABLE_PUBLIC_INSTRUMENT_CONFIRMATION",
+            "pinStatus": "UNPINNED_MUTABLE",
+            "sourceAssetId": "000660", "listingId": "XKRX:000660",
+            "canonicalInstrumentId": "KRX:000660:COMMON",
+            "claim": "000660 denotes SK hynix on KRX",
             "sources": [
                 "https://www.google.com/finance/beta/quote/000660:KRX",
                 "https://www.tradingview.com/symbols/KRX-000660/",
@@ -225,10 +244,10 @@ def source_alias_proposal_000660() -> dict:
             ],
         },
         {
-            "kind": "EXISTING_RATIFIED_ATLAS_ALIAS",
-            "note": "config/canonical_security_identity.json: krx_open_api_stock_daily "
-                    "+ 000660 -> XKRX:000660, RATIFIED 2026-08-25, "
-                    "evidence/identity/approvals/2026-08-25/alias.sk-hynix.json.",
+            "kind": "ATLAS_CANONICAL_TARGET_REFERENCE",
+            "sourceName": "krx_open_api_stock_daily", "sourceAssetId": "000660",
+            "market": "KOREA", "listingId": "XKRX:000660",
+            "canonicalInstrumentId": "KRX:000660:COMMON",
         },
     ]
     return _proposal(proposal_id="atlas.identity.alias.kis-sk-hynix", claim=claim, evidence=evidence)
