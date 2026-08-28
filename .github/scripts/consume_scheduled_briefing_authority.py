@@ -11,7 +11,7 @@ fallback.
 from __future__ import annotations
 
 import argparse
-from datetime import date as calendar_date
+from datetime import date as calendar_date, timedelta
 import hashlib
 import json
 import math
@@ -58,7 +58,11 @@ def _load_contract(path: Path = CONTRACT_PATH) -> dict:
     }
     if not isinstance(value, dict) or set(value) != required:
         fail("ADAPTER_CONTRACT_FIELDS_MISMATCH")
-    if value["schema_version"] != "scheduled_briefing_retrieval_authority/2":
+    schema_version = value["schema_version"]
+    if schema_version not in {
+        "scheduled_briefing_retrieval_authority/2",
+        "scheduled_briefing_retrieval_authority/3",
+    }:
         fail("ADAPTER_CONTRACT_VERSION_UNSUPPORTED")
     if value["repository"] != "yonggeun1021-hub/atlas-data" or value["branch"] != "main":
         fail("ADAPTER_REPOSITORY_IDENTITY_MISMATCH")
@@ -84,7 +88,13 @@ def _load_contract(path: Path = CONTRACT_PATH) -> dict:
         fail("ADAPTER_IMMUTABLE_URL_MISMATCH")
     if value["bootstrap_policy"] != "UNIQUE_DATE_SLOT_APPEND_ONLY_SEQUENTIAL_REVISIONS":
         fail("ADAPTER_BOOTSTRAP_POLICY_MISMATCH")
-    if value["stale_policy"] != "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED":
+    expected_stale_policy = {
+        "scheduled_briefing_retrieval_authority/2":
+            "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+        "scheduled_briefing_retrieval_authority/3":
+            "EXACT_DATE_OR_WEEKEND_MORNING_PREVIOUS_FRIDAY_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+    }[schema_version]
+    if value["stale_policy"] != expected_stale_policy:
         fail("ADAPTER_STALE_POLICY_MISMATCH")
     if value["unavailable_status"] != "RETRIEVAL_AUTHORITY_UNAVAILABLE":
         fail("ADAPTER_UNAVAILABLE_STATUS_MISMATCH")
@@ -158,6 +168,100 @@ def _validate_record(contract: dict, record: dict, commit: str) -> None:
         fail("FLOATING_OR_WRONG_COMMIT_ARTIFACT_URL", path)
 
 
+def _validate_source_date_binding(binding: dict, expected_date: str, slot: str) -> str:
+    fields = {
+        "mode", "decision_date", "source_evidence_kst_date", "calendar_day_lag",
+        "market_session_semantics", "prior_date_fallback_used",
+        "last_confirmed_evidence_relabelled_as_decision_date",
+    }
+    if not isinstance(binding, dict) or set(binding) != fields:
+        fail("SOURCE_DATE_BINDING_FIELDS_MISMATCH")
+    try:
+        decision_day = calendar_date.fromisoformat(expected_date)
+        source_day = calendar_date.fromisoformat(binding["source_evidence_kst_date"])
+    except (TypeError, ValueError):
+        fail("SOURCE_DATE_BINDING_DATE_INVALID")
+    if (
+        binding.get("decision_date") != expected_date
+        or binding.get("prior_date_fallback_used") is not False
+        or binding.get("last_confirmed_evidence_relabelled_as_decision_date") is not False
+        or binding.get("calendar_day_lag") != (decision_day - source_day).days
+    ):
+        fail("SOURCE_DATE_BINDING_IDENTITY_MISMATCH")
+    if binding.get("mode") == "DECISION_DATE_EXACT":
+        if (
+            source_day != decision_day
+            or binding.get("market_session_semantics") != "MARKET_SESSION_STATE_NOT_INFERRED"
+        ):
+            fail("SOURCE_DATE_BINDING_EXACT_INVALID")
+    elif binding.get("mode") == "WEEKEND_MORNING_PREVIOUS_FRIDAY":
+        lag = {5: 1, 6: 2}.get(decision_day.weekday())
+        if (
+            slot != "morning"
+            or lag is None
+            or source_day != decision_day - timedelta(days=lag)
+            or binding.get("market_session_semantics")
+            != "MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE"
+        ):
+            fail("SOURCE_DATE_BINDING_WEEKEND_INVALID")
+    else:
+        fail("SOURCE_DATE_BINDING_MODE_INVALID")
+    return binding["source_evidence_kst_date"]
+
+
+def _validate_weekend_delivery_semantics(
+    packet: dict, briefing_raw: bytes, source_date_binding: dict | None
+) -> None:
+    if not source_date_binding or source_date_binding.get("mode") != "WEEKEND_MORNING_PREVIOUS_FRIDAY":
+        return
+    components = packet.get("components")
+    if not isinstance(components, list):
+        fail("WEEKEND_DELIVERY_COMPONENTS_INVALID")
+    by_id = {
+        row.get("component_id"): row
+        for row in components
+        if isinstance(row, dict) and isinstance(row.get("component_id"), str)
+    }
+    step0 = by_id.get("STEP0_READ_MODEL_HEALTH")
+    post_close = by_id.get("KRX_POST_CLOSE")
+    if (
+        not isinstance(step0, dict)
+        or step0.get("status") != "DATA_BLOCKED"
+        or not isinstance(step0.get("packet"), dict)
+        or step0["packet"].get("expected_kst_date") != source_date_binding["decision_date"]
+    ):
+        fail("WEEKEND_STEP0_SEMANTICS_INVALID")
+    sources = step0["packet"].get("sources")
+    if not isinstance(sources, dict) or set(sources) != {"krx", "dart", "sec"}:
+        fail("WEEKEND_STEP0_SOURCES_INVALID")
+    if any(
+        not isinstance(value, dict)
+        or value.get("collected_for_kst_date")
+        != source_date_binding["source_evidence_kst_date"]
+        for value in sources.values()
+    ):
+        fail("WEEKEND_STEP0_SOURCE_DATE_MISMATCH")
+    if (
+        not isinstance(post_close, dict)
+        or post_close.get("status") != "PENDING"
+        or post_close.get("reason")
+        != "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE"
+    ):
+        fail("WEEKEND_MARKET_SESSION_SEMANTICS_INVALID")
+    try:
+        briefing = briefing_raw.decode("utf-8")
+    except UnicodeDecodeError:
+        fail("WEEKEND_BRIEFING_UTF8_INVALID")
+    required_lines = (
+        "- market_session: MARKET_CLOSED",
+        "- new_session: NONE",
+        f"- latest_confirmed_evidence_date: {source_date_binding['source_evidence_kst_date']}",
+        "- latest_confirmed_evidence_relabelled_as_today: false",
+    )
+    if any(line not in briefing for line in required_lines):
+        fail("WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING")
+
+
 def validate_envelope(
     envelope: dict,
     contract: dict,
@@ -172,9 +276,15 @@ def validate_envelope(
         "delivery_locator", "delivery_artifacts",
         "compact_immutable_url_templates", "consumer_rules", "authority",
     }
+    schema_version = envelope.get("schema_version")
+    if schema_version == "scheduled_briefing_retrieval_authority/3":
+        fields.add("source_date_binding")
     if not isinstance(envelope, dict) or set(envelope) != fields:
         fail("ENVELOPE_FIELDS_MISMATCH")
-    if envelope.get("schema_version") != contract["schema_version"]:
+    if schema_version not in {
+        "scheduled_briefing_retrieval_authority/2",
+        "scheduled_briefing_retrieval_authority/3",
+    }:
         fail("ENVELOPE_SCHEMA_UNSUPPORTED")
     if envelope.get("slot") != slot or envelope.get("expected_kst_date") != expected_date:
         fail("ENVELOPE_EXPECTED_IDENTITY_MISMATCH")
@@ -212,6 +322,10 @@ def validate_envelope(
     }
     if envelope.get("consumer_rules") != expected_rules:
         fail("ENVELOPE_CONSUMER_RULES_MISMATCH")
+    if schema_version == "scheduled_briefing_retrieval_authority/3":
+        _validate_source_date_binding(
+            envelope.get("source_date_binding"), expected_date, slot
+        )
 
     required_records = envelope.get("required_artifacts")
     if not isinstance(required_records, list) or [row.get("path") for row in required_records] != [
@@ -506,13 +620,22 @@ def consume(
     step_path, health_path = [row["path"] for row in envelope["required_artifacts"]]
     step = _json_object(raw_by_path[step_path], "STEP0_JSON_INVALID")
     health = _json_object(raw_by_path[health_path], "HEALTH_JSON_INVALID")
+    source_evidence_date = expected_date
+    if envelope["schema_version"] == "scheduled_briefing_retrieval_authority/3":
+        source_evidence_date = _validate_source_date_binding(
+            envelope["source_date_binding"], expected_date, slot
+        )
     for value, name in ((step, step_path), (health, health_path)):
-        if value.get("expected_kst_date") != expected_date:
+        if value.get("expected_kst_date") != source_evidence_date:
             fail("IMMUTABLE_ARTIFACT_STALE_DATE", name)
         if (value.get("generation") or {}).get("generation_id") != envelope["generation_id"]:
             fail("IMMUTABLE_ARTIFACT_GENERATION_MISMATCH", name)
     packet = _json_object(raw_by_path[locator["packet_path"]], "DELIVERY_PACKET_JSON_INVALID")
     _validate_pinned_delivery_packet(packet, expected_date, slot)
+    _validate_weekend_delivery_semantics(
+        packet, raw_by_path[locator["briefing_path"]],
+        envelope.get("source_date_binding"),
+    )
     if (
         packet.get("slot") != slot
         or packet.get("decision_date") != expected_date
@@ -533,7 +656,7 @@ def consume(
             if status != 200:
                 fail("IMMUTABLE_ARTIFACT_UNAVAILABLE", path)
             value = _json_object(raw, "COMPACT_JSON_INVALID")
-            if (value.get("source") or {}).get("collected_for_kst_date") != expected_date:
+            if (value.get("source") or {}).get("collected_for_kst_date") != source_evidence_date:
                 fail("IMMUTABLE_ARTIFACT_STALE_DATE", path)
             if (value.get("generation") or {}).get("generation_id") != envelope["generation_id"]:
                 fail("IMMUTABLE_ARTIFACT_GENERATION_MISMATCH", path)

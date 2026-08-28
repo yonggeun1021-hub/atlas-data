@@ -1473,6 +1473,23 @@ class DailyOrchestratorTest(unittest.TestCase):
             "No action, order, Production, or trading authority", rendered
         )
 
+    def test_weekend_morning_discloses_closed_session_without_date_relabelling(self):
+        packet = MODULE.build_packet(
+            "morning", "2026-08-29", "2026-08-28T22:09:34Z"
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        self.assertEqual(
+            by_id["KRX_POST_CLOSE"]["reason"],
+            "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE",
+        )
+        rendered = MODULE.render_markdown(packet)
+        self.assertIn("- market_session: MARKET_CLOSED", rendered)
+        self.assertIn("- new_session: NONE", rendered)
+        self.assertIn("- latest_confirmed_evidence_date: 2026-08-28", rendered)
+        self.assertIn(
+            "- latest_confirmed_evidence_relabelled_as_today: false", rendered
+        )
+
     def test_render_markdown_shows_real_values_not_just_status_and_path(self):
         # The render must be an actual briefing, not a raw JSON dump and not
         # a bare status/path list -- real per-component values that exist

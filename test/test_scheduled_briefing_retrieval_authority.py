@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """P0-06 scheduled-consumer bootstrap authority regression."""
 
+from __future__ import annotations
+
 import copy
 import hashlib
 import importlib.util
@@ -28,9 +30,12 @@ def write_json(path: Path, value) -> None:
 
 
 class AuthorityRepo:
-    def __init__(self):
+    def __init__(self, decision_date: str = DATE, source_date: str | None = None, slot: str = "morning"):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.decision_date = decision_date
+        self.source_date = source_date or decision_date
+        self.slot = slot
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "test"], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "test@example.com"], check=True)
@@ -46,7 +51,8 @@ class AuthorityRepo:
         self.write_delivery()
         self.commit = self.commit_all("consumer-ready-h24")
 
-    def write_generation(self, generation: str, date: str = DATE) -> None:
+    def write_generation(self, generation: str, date: str | None = None) -> None:
+        date = date or self.source_date
         meta = {"generation_id": generation, "generation_contract_version": 1}
         write_json(self.root / "data/briefing/step0_status.json", {
             "schema_version": 2,
@@ -61,20 +67,43 @@ class AuthorityRepo:
 
     def write_delivery(
         self,
-        slot: str = "morning",
+        slot: str | None = None,
         revision: int = 1,
         packet_sha: str = PACKET_SHA,
     ) -> None:
-        base = self.root / f"evidence/daily_briefing/{slot}/{DATE}"
+        slot = slot or self.slot
+        base = self.root / f"evidence/daily_briefing/{slot}/{self.decision_date}"
         index_path = base / "index.json"
         revision_name = f"rev-{revision:03d}"
         packet_path = base / f"{revision_name}/packet.json"
         briefing_path = base / f"{revision_name}/briefing.md"
         packet = {
             "slot": slot,
-            "decision_date": DATE,
+            "decision_date": self.decision_date,
             "packet_sha256": packet_sha,
-            "components": [],
+            "components": [
+                {
+                    "component_id": "STEP0_READ_MODEL_HEALTH",
+                    "status": "DATA_BLOCKED",
+                    "packet": {
+                        "expected_kst_date": self.decision_date,
+                        "sources": {
+                            name: {"collected_for_kst_date": self.source_date}
+                            for name in ("krx", "dart", "sec")
+                        },
+                    },
+                },
+                {
+                    "component_id": "KRX_POST_CLOSE",
+                    "status": "PENDING",
+                    "reason": (
+                        "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_"
+                        "LATEST_CONFIRMED_EVIDENCE"
+                        if slot == "morning" and self.decision_date in {"2026-08-29", "2026-08-30"}
+                        else "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
+                    ),
+                },
+            ],
         }
         prior_revisions = []
         if index_path.exists():
@@ -89,19 +118,27 @@ class AuthorityRepo:
         write_json(index_path, {
             "schema_version": 1,
             "slot": slot,
-            "decision_date": DATE,
+            "decision_date": self.decision_date,
             "latest_revision": revision,
             "revisions": revisions,
         })
         write_json(packet_path, packet)
         briefing_path.parent.mkdir(parents=True, exist_ok=True)
-        briefing_path.write_text(f"# briefing revision {revision}\n", encoding="utf-8")
+        briefing = f"# briefing revision {revision}\n"
+        if slot == "morning" and self.decision_date in {"2026-08-29", "2026-08-30"}:
+            briefing += (
+                "- market_session: MARKET_CLOSED\n"
+                "- new_session: NONE\n"
+                f"- latest_confirmed_evidence_date: {self.source_date}\n"
+                "- latest_confirmed_evidence_relabelled_as_today: false\n"
+            )
+        briefing_path.write_text(briefing, encoding="utf-8")
         relative = lambda path: path.relative_to(self.root).as_posix()
         digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
         write_json(self.root / "data/briefing/daily_briefing_sources.json", {
             "schema_version": "daily_briefing_delivery/1",
             "slot": slot,
-            "decision_date": DATE,
+            "decision_date": self.decision_date,
             "revision": revision,
             "index_path": relative(index_path),
             "index_sha256": digest(index_path),
@@ -138,9 +175,10 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
     def tearDown(self):
         self.repo.close()
 
-    def build(self, slot="morning", date=DATE, commit=None):
+    def build(self, slot="morning", date=None, commit=None):
         return M.build_envelope(
-            self.repo.root, commit or self.repo.commit, slot, date
+            self.repo.root, commit or self.repo.commit, slot,
+            date or self.repo.decision_date,
         )
 
     def test_bootstrap_is_unique_date_slot_and_artifacts_are_commit_pinned(self):
@@ -206,6 +244,91 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         commit = self.repo.commit_all("stale")
         with self.assertRaisesRegex(M.ScheduledAuthorityError, "SOURCE_ARTIFACT_STALE_DATE"):
             self.build(commit=commit)
+
+    def test_saturday_morning_binds_exact_previous_friday_without_fallback(self):
+        repo = AuthorityRepo("2026-08-29", "2026-08-28")
+        try:
+            envelope = M.build_envelope(
+                repo.root, repo.commit, "morning", repo.decision_date
+            )
+            self.assertEqual(envelope["schema_version"], "scheduled_briefing_retrieval_authority/3")
+            self.assertEqual(envelope["source_date_binding"], {
+                "mode": "WEEKEND_MORNING_PREVIOUS_FRIDAY",
+                "decision_date": "2026-08-29",
+                "source_evidence_kst_date": "2026-08-28",
+                "calendar_day_lag": 1,
+                "market_session_semantics":
+                    "MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE",
+                "prior_date_fallback_used": False,
+                "last_confirmed_evidence_relabelled_as_decision_date": False,
+            })
+            self.assertFalse(envelope["consumer_rules"]["prior_date_fallback_allowed"])
+            M.validate_envelope(repo.root, envelope)
+        finally:
+            repo.close()
+
+    def test_sunday_morning_binds_friday_with_two_day_lag(self):
+        repo = AuthorityRepo("2026-08-30", "2026-08-28")
+        try:
+            envelope = M.build_envelope(
+                repo.root, repo.commit, "morning", repo.decision_date
+            )
+            self.assertEqual(envelope["source_date_binding"]["calendar_day_lag"], 2)
+            self.assertEqual(
+                envelope["source_date_binding"]["source_evidence_kst_date"],
+                "2026-08-28",
+            )
+        finally:
+            repo.close()
+
+    def test_weekend_exception_rejects_evening_future_and_non_friday_dates(self):
+        cases = (
+            ("2026-08-29", "2026-08-28", "evening"),
+            ("2026-08-29", "2026-08-27", "morning"),
+            ("2026-08-29", "2026-08-30", "morning"),
+        )
+        for decision_date, source_date, slot in cases:
+            with self.subTest(decision_date=decision_date, source_date=source_date, slot=slot):
+                repo = AuthorityRepo(decision_date, source_date, slot)
+                try:
+                    with self.assertRaisesRegex(
+                        M.ScheduledAuthorityError, "SOURCE_ARTIFACT_STALE_DATE"
+                    ):
+                        M.build_envelope(repo.root, repo.commit, slot, decision_date)
+                finally:
+                    repo.close()
+
+    def test_weekend_mixed_source_dates_are_rejected(self):
+        repo = AuthorityRepo("2026-08-29", "2026-08-28")
+        try:
+            health_path = repo.root / "data/briefing_status.json"
+            health = json.loads(health_path.read_text())
+            health["expected_kst_date"] = "2026-08-27"
+            write_json(health_path, health)
+            commit = repo.commit_all("mixed-weekend-source-dates")
+            with self.assertRaisesRegex(
+                M.ScheduledAuthorityError, "SOURCE_ARTIFACT_DATE_MISMATCH"
+            ):
+                M.build_envelope(repo.root, commit, "morning", repo.decision_date)
+        finally:
+            repo.close()
+
+    def test_weekend_briefing_must_explicitly_disclose_session_context(self):
+        repo = AuthorityRepo("2026-08-29", "2026-08-28")
+        try:
+            locator_path = repo.root / "data/briefing/daily_briefing_sources.json"
+            locator = json.loads(locator_path.read_text())
+            briefing_path = repo.root / locator["briefing_path"]
+            briefing_path.write_text("# missing weekend context\n", encoding="utf-8")
+            locator["briefing_sha256"] = hashlib.sha256(briefing_path.read_bytes()).hexdigest()
+            write_json(locator_path, locator)
+            commit = repo.commit_all("missing-weekend-context")
+            with self.assertRaisesRegex(
+                M.ScheduledAuthorityError, "WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING"
+            ):
+                M.build_envelope(repo.root, commit, "morning", repo.decision_date)
+        finally:
+            repo.close()
 
     def test_health_from_another_generation_is_rejected(self):
         health = json.loads((self.repo.root / "data/briefing_status.json").read_text())

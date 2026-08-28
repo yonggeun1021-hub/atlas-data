@@ -15,7 +15,7 @@ pointer is pinned to one exact commit and one generation.
 from __future__ import annotations
 
 import argparse
-from datetime import date as calendar_date
+from datetime import date as calendar_date, timedelta
 import hashlib
 import json
 import os
@@ -104,7 +104,11 @@ def _validate_adapter_contract(contract: dict) -> dict:
     }
     if set(contract) != expected:
         fail("ADAPTER_CONTRACT_FIELDS_MISMATCH")
-    if contract["schema_version"] != "scheduled_briefing_retrieval_authority/2":
+    schema_version = contract["schema_version"]
+    if schema_version not in {
+        "scheduled_briefing_retrieval_authority/2",
+        "scheduled_briefing_retrieval_authority/3",
+    }:
         fail("ADAPTER_CONTRACT_VERSION_UNSUPPORTED")
     if contract["repository"] != "yonggeun1021-hub/atlas-data" or contract["branch"] != "main":
         fail("ADAPTER_REPOSITORY_IDENTITY_MISMATCH")
@@ -118,7 +122,13 @@ def _validate_adapter_contract(contract: dict) -> dict:
         fail("ADAPTER_BOOTSTRAP_POLICY_MISMATCH")
     if contract["max_revisions_per_slot"] != 99:
         fail("ADAPTER_REVISION_LIMIT_MISMATCH")
-    if contract["stale_policy"] != "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED":
+    expected_stale_policy = {
+        "scheduled_briefing_retrieval_authority/2":
+            "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+        "scheduled_briefing_retrieval_authority/3":
+            "EXACT_DATE_OR_WEEKEND_MORNING_PREVIOUS_FRIDAY_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+    }[schema_version]
+    if contract["stale_policy"] != expected_stale_policy:
         fail("ADAPTER_STALE_POLICY_MISMATCH")
     if contract["unavailable_status"] != "RETRIEVAL_AUTHORITY_UNAVAILABLE":
         fail("ADAPTER_UNAVAILABLE_STATUS_MISMATCH")
@@ -180,6 +190,115 @@ def _artifact_date(path: str, value: dict, required: list[str]) -> str | None:
     return observed if isinstance(observed, str) else None
 
 
+def _source_date_binding(
+    schema_version: str,
+    slot: str,
+    expected_kst_date: str,
+    artifact_dates: dict[str, str | None],
+) -> dict | None:
+    """Bind an intentional weekend prior-date read without creating fallback.
+
+    Schema v2 remains the historical exact-date contract.  Schema v3 permits
+    one narrow exception: Saturday/Sunday morning may bind the previous
+    Friday's one common read-model generation.  The exact prior date is named
+    in the envelope and is never searched for dynamically by the consumer.
+    """
+    observed = set()
+    for path, value in artifact_dates.items():
+        if not isinstance(value, str) or not ISO_DATE.fullmatch(value):
+            fail("SOURCE_ARTIFACT_DATE_INVALID", path)
+        try:
+            calendar_date.fromisoformat(value)
+        except ValueError:
+            fail("SOURCE_ARTIFACT_DATE_INVALID", path)
+        observed.add(value)
+    if len(observed) != 1:
+        fail("SOURCE_ARTIFACT_DATE_MISMATCH")
+    source_date_text = observed.pop()
+    if schema_version == "scheduled_briefing_retrieval_authority/2":
+        if source_date_text != expected_kst_date:
+            fail("SOURCE_ARTIFACT_STALE_DATE")
+        return None
+
+    decision_day = calendar_date.fromisoformat(expected_kst_date)
+    source_day = calendar_date.fromisoformat(source_date_text)
+    if source_day == decision_day:
+        mode = "DECISION_DATE_EXACT"
+        semantics = "MARKET_SESSION_STATE_NOT_INFERRED"
+    else:
+        prior_friday_lag = {5: 1, 6: 2}.get(decision_day.weekday())
+        if (
+            slot != "morning"
+            or prior_friday_lag is None
+            or source_day != decision_day - timedelta(days=prior_friday_lag)
+        ):
+            fail("SOURCE_ARTIFACT_STALE_DATE", source_date_text)
+        mode = "WEEKEND_MORNING_PREVIOUS_FRIDAY"
+        semantics = "MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE"
+    return {
+        "mode": mode,
+        "decision_date": expected_kst_date,
+        "source_evidence_kst_date": source_date_text,
+        "calendar_day_lag": (decision_day - source_day).days,
+        "market_session_semantics": semantics,
+        "prior_date_fallback_used": False,
+        "last_confirmed_evidence_relabelled_as_decision_date": False,
+    }
+
+
+def _validate_weekend_delivery_semantics(
+    packet: dict, briefing_raw: bytes, source_date_binding: dict | None
+) -> None:
+    if not source_date_binding or source_date_binding["mode"] != "WEEKEND_MORNING_PREVIOUS_FRIDAY":
+        return
+    components = packet.get("components")
+    if not isinstance(components, list):
+        fail("WEEKEND_DELIVERY_COMPONENTS_INVALID")
+    by_id = {
+        row.get("component_id"): row
+        for row in components
+        if isinstance(row, dict) and isinstance(row.get("component_id"), str)
+    }
+    step0 = by_id.get("STEP0_READ_MODEL_HEALTH")
+    post_close = by_id.get("KRX_POST_CLOSE")
+    if (
+        not isinstance(step0, dict)
+        or step0.get("status") != "DATA_BLOCKED"
+        or not isinstance(step0.get("packet"), dict)
+        or step0["packet"].get("expected_kst_date") != source_date_binding["decision_date"]
+    ):
+        fail("WEEKEND_STEP0_SEMANTICS_INVALID")
+    sources = step0["packet"].get("sources")
+    if not isinstance(sources, dict) or set(sources) != {"krx", "dart", "sec"}:
+        fail("WEEKEND_STEP0_SOURCES_INVALID")
+    if any(
+        not isinstance(value, dict)
+        or value.get("collected_for_kst_date")
+        != source_date_binding["source_evidence_kst_date"]
+        for value in sources.values()
+    ):
+        fail("WEEKEND_STEP0_SOURCE_DATE_MISMATCH")
+    if (
+        not isinstance(post_close, dict)
+        or post_close.get("status") != "PENDING"
+        or post_close.get("reason")
+        != "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE"
+    ):
+        fail("WEEKEND_MARKET_SESSION_SEMANTICS_INVALID")
+    try:
+        briefing = briefing_raw.decode("utf-8")
+    except UnicodeDecodeError:
+        fail("WEEKEND_BRIEFING_UTF8_INVALID")
+    required_lines = (
+        "- market_session: MARKET_CLOSED",
+        "- new_session: NONE",
+        f"- latest_confirmed_evidence_date: {source_date_binding['source_evidence_kst_date']}",
+        "- latest_confirmed_evidence_relabelled_as_today: false",
+    )
+    if any(line not in briefing for line in required_lines):
+        fail("WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING")
+
+
 def _artifact_record(adapter: dict, source_commit: str, path: str, raw: bytes) -> dict:
     return {
         "path": path,
@@ -197,6 +316,7 @@ def _delivery_records(
     source_commit: str,
     slot: str,
     expected_kst_date: str,
+    source_date_binding: dict | None,
 ) -> tuple[dict, list[dict]]:
     """Bind the H-24 locator and every byte-addressed delivery artifact.
 
@@ -260,6 +380,7 @@ def _delivery_records(
     ):
         fail("DELIVERY_LATEST_REVISION_IDENTITY_MISMATCH")
     records = [_artifact_record(adapter, source_commit, locator_path, locator_raw)]
+    raw_by_field = {}
     for path_field, hash_field in (
         ("index_path", "index_sha256"),
         ("packet_path", "packet_file_sha256"),
@@ -269,6 +390,7 @@ def _delivery_records(
         if not path.startswith(base):
             fail("DELIVERY_ARTIFACT_PATH_IDENTITY_MISMATCH", path)
         raw = git_blob(repo_root, source_commit, path)
+        raw_by_field[path_field] = raw
         if hashlib.sha256(raw).hexdigest() != locator.get(hash_field):
             fail("DELIVERY_ARTIFACT_HASH_MISMATCH", path)
         records.append(_artifact_record(adapter, source_commit, path, raw))
@@ -282,6 +404,9 @@ def _delivery_records(
         or packet.get("packet_sha256") != locator.get("packet_sha256")
     ):
         fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
+    _validate_weekend_delivery_semantics(
+        packet, raw_by_field["briefing_path"], source_date_binding
+    )
     return locator, records
 
 
@@ -313,14 +438,17 @@ def build_envelope(
     revision_text = f"{revision:03d}"
 
     parsed: dict[str, dict] = {}
+    artifact_dates: dict[str, str | None] = {}
     records = []
     for path in source["required_artifacts"]:
         raw = git_blob(repo_root, source_commit, path)
         value = _json_object(raw, "SOURCE_ARTIFACT_JSON_INVALID")
-        if _artifact_date(path, value, source["required_artifacts"]) != expected_kst_date:
-            fail("SOURCE_ARTIFACT_STALE_DATE", path)
+        artifact_dates[path] = _artifact_date(path, value, source["required_artifacts"])
         parsed[path] = value
         records.append(_artifact_record(adapter, source_commit, path, raw))
+    source_date_binding = _source_date_binding(
+        adapter["schema_version"], slot, expected_kst_date, artifact_dates
+    )
 
     step_path, health_path = source["required_artifacts"]
     step_generation = parsed[step_path].get("generation")
@@ -346,9 +474,10 @@ def build_envelope(
         for market, template in sorted(source["compact_path_templates"].items())
     }
     delivery_locator, delivery_records = _delivery_records(
-        repo_root, adapter, source_commit, slot, expected_kst_date
+        repo_root, adapter, source_commit, slot, expected_kst_date,
+        source_date_binding,
     )
-    return {
+    envelope = {
         "schema_version": adapter["schema_version"],
         "slot": slot,
         "expected_kst_date": expected_kst_date,
@@ -374,6 +503,9 @@ def build_envelope(
         },
         "authority": adapter["authority"],
     }
+    if source_date_binding is not None:
+        envelope["source_date_binding"] = source_date_binding
+    return envelope
 
 
 def validate_envelope(repo_root: Path, envelope: dict) -> None:
@@ -385,6 +517,8 @@ def validate_envelope(repo_root: Path, envelope: dict) -> None:
         "stale_detection", "required_artifacts", "compact_immutable_url_templates",
         "delivery_locator", "delivery_artifacts", "consumer_rules", "authority",
     }
+    if envelope.get("schema_version") == "scheduled_briefing_retrieval_authority/3":
+        required.add("source_date_binding")
     if set(envelope) != required:
         fail("ENVELOPE_FIELDS_MISMATCH")
     rebuilt = build_envelope(
@@ -461,18 +595,23 @@ def publish(repo_root: Path, source_commit: str, slot: str, expected_kst_date: s
                 and _artifact_fingerprints(latest["delivery_artifacts"])
                 == _artifact_fingerprints(candidate["delivery_artifacts"])
             )
-            if delivery_unchanged:
+            contract_unchanged = (
+                latest["schema_version"] == candidate["schema_version"]
+                and latest.get("source_date_binding") == candidate.get("source_date_binding")
+            )
+            if delivery_unchanged and contract_unchanged:
                 return existing_paths[-1], False
-            prior_delivery_revision = latest["delivery_locator"].get("revision")
-            candidate_delivery_revision = candidate["delivery_locator"].get("revision")
-            if (
-                not isinstance(prior_delivery_revision, int)
-                or isinstance(prior_delivery_revision, bool)
-                or not isinstance(candidate_delivery_revision, int)
-                or isinstance(candidate_delivery_revision, bool)
-                or candidate_delivery_revision <= prior_delivery_revision
-            ):
-                fail("DELIVERY_REVISION_NOT_FORWARD_APPEND_ONLY")
+            if not delivery_unchanged:
+                prior_delivery_revision = latest["delivery_locator"].get("revision")
+                candidate_delivery_revision = candidate["delivery_locator"].get("revision")
+                if (
+                    not isinstance(prior_delivery_revision, int)
+                    or isinstance(prior_delivery_revision, bool)
+                    or not isinstance(candidate_delivery_revision, int)
+                    or isinstance(candidate_delivery_revision, bool)
+                    or candidate_delivery_revision <= prior_delivery_revision
+                ):
+                    fail("DELIVERY_REVISION_NOT_FORWARD_APPEND_ONLY")
     revision = len(existing_paths) + 1
     if revision > adapter["max_revisions_per_slot"]:
         fail("BOOTSTRAP_REVISION_LIMIT_EXCEEDED")

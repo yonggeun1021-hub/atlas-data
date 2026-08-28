@@ -2563,8 +2563,17 @@ def build_packet(
             _classify_krx_post_close(decision_date, generated_at_dt, krx_post_close_snapshot)
         )
     else:
+        morning_reason = "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
+        if (
+            slot == "morning"
+            and dt.date.fromisoformat(decision_date).weekday() >= 5
+        ):
+            morning_reason = (
+                "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_"
+                "LATEST_CONFIRMED_EVIDENCE"
+            )
         rows["KRX_POST_CLOSE"] = _blocked(
-            "KRX_POST_CLOSE", "PENDING", "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
+            "KRX_POST_CLOSE", "PENDING", morning_reason
         )
 
     dart_snapshot = frozen_sources.get("DART_FILING_CONTENT")
@@ -3293,6 +3302,24 @@ def render_markdown(packet: dict) -> str:
         "briefing. All such fields remain false/null.",
         "",
     ]
+    decision_day = dt.date.fromisoformat(packet["decision_date"])
+    if packet["slot"] == "morning" and decision_day.weekday() >= 5:
+        step0 = by_id.get("STEP0_READ_MODEL_HEALTH") or {}
+        sources = ((step0.get("packet") or {}).get("sources") or {})
+        observed_dates = {
+            value.get("collected_for_kst_date")
+            for value in sources.values()
+            if isinstance(value, dict) and isinstance(value.get("collected_for_kst_date"), str)
+        }
+        latest_confirmed = observed_dates.pop() if len(observed_dates) == 1 else "UNKNOWN"
+        lines.extend([
+            "## Weekend market session context",
+            "- market_session: MARKET_CLOSED",
+            "- new_session: NONE",
+            f"- latest_confirmed_evidence_date: {latest_confirmed}",
+            "- latest_confirmed_evidence_relabelled_as_today: false",
+            "",
+        ])
     for index, section in enumerate(flow_first["sections"], start=1):
         lines.append(f"## {index}. {section['title']}")
         lines.append(f"- status: {section['status']}")
