@@ -2,9 +2,10 @@ name: Atlas Daily Briefing Integration v1
 
 on:
   schedule:
-    # 07:05 KST weekday morning slot -- after the 06:57 P0-02 recovery gate,
-    # confirmed-history only. Sun-Thu UTC == Mon-Fri KST next day.
-    - cron: "5 22 * * 0-4"
+    # 07:05 KST daily morning slot.  Weekends still produce a fail-closed
+    # briefing from the latest confirmed history; "market closed / no new
+    # session" is a valid morning result, not a reason to skip the round.
+    - cron: "5 22 * * *"
     # 18:30 KST weekday evening slot -- after the P0-04 18:00 KRX post-close
     # cutoff. Mon-Fri UTC == Mon-Fri KST same day.
     - cron: "30 9 * * 1-5"
@@ -116,7 +117,7 @@ jobs:
           case "${{ github.event_name }}" in
             schedule)
               case "$EVENT_SCHEDULE" in
-                "5 22 * * 0-4") SLOT="morning" ;;
+                "5 22 * * *") SLOT="morning" ;;
                 "30 9 * * 1-5") SLOT="evening" ;;
                 *) echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2; exit 2 ;;
               esac
@@ -187,7 +188,7 @@ jobs:
             # at -- a large scheduler delay could push a morning run past
             # noon KST and misclassify it as evening if hour were used.
             case "$EVENT_SCHEDULE" in
-              "5 22 * * 0-4") SLOT="morning" ;;
+              "5 22 * * *") SLOT="morning" ;;
               "30 9 * * 1-5") SLOT="evening" ;;
               *)
                 echo "STOP: unrecognized schedule expression: $EVENT_SCHEDULE" >&2

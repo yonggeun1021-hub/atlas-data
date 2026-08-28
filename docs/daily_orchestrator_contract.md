@@ -525,7 +525,10 @@ but are not deliverable under `briefing_finalization/18`.
 ## Scheduling
 
 `.github/workflows/daily-briefing.yml` runs two schedule entries (07:05 KST
-morning, 18:30 KST evening weekdays) plus `workflow_dispatch`. The slot is
+morning every calendar day, 18:30 KST evening weekdays) plus
+`workflow_dispatch`. A weekend morning is not skipped: it produces a
+fail-closed briefing from the latest confirmed evidence and explicitly reports
+market closure or the absence of a new session. The slot is
 determined from the *exact cron expression* GitHub reports fired
 (`github.event.schedule`), not from the KST wall-clock hour the runner
 happens to start at -- a large scheduler delay could otherwise push a
