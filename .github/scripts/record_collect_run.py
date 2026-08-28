@@ -23,6 +23,14 @@ UTC = dt.timezone.utc
 KST = dt.timezone(dt.timedelta(hours=9))
 
 SCHEDULE_SLOTS = {
+    # Current schedule: nominal 60/40/20-minute buffers before the 06:55
+    # checkpoint. GitHub schedule remains best-effort; these are telemetry
+    # identities, not a guarantee that a runner will arrive on time.
+    "55 20 * * 0-4": ("primary_0555_kst", 20, 55),
+    "15 21 * * 0-4": ("backup_0615_kst", 21, 15),
+    "35 21 * * 0-4": ("final_0635_kst", 21, 35),
+    # Historical identities must remain recognized so committed pre-change
+    # telemetry can still be independently rebuilt and validated.
     "5 21 * * 0-4": ("primary_0605_kst", 21, 5),
     "25 21 * * 0-4": ("backup_0625_kst", 21, 25),
     "45 21 * * 0-4": ("final_0645_kst", 21, 45),
