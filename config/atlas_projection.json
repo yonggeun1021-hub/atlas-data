@@ -2,8 +2,8 @@
   "_comment": "What a post-delivery source change must PROVE before it counts as finished. A signed CIO ruling establishes WHETHER the change moves an investment conclusion; it does not establish that the record was corrected or that anyone was told. Those need receipts from real adapters.",
   "portal": {
     "adapter": "notion_cockpit",
-    "implemented": false,
-    "verified_against_live_api": false,
+    "implemented": true,
+    "verified_against_live_api": true,
     "api_version": "2026-03-11",
     "data_source_id": "7207d3d2-8806-4aa9-bfe2-cfddc3ea6869",
     "database_id": "2ede08c3-1288-47fc-a8e4-0fb63713fa83",
@@ -14,7 +14,7 @@
     "receipt_authority": "LATEST_REVISION_PER_CHANGE",
     "normal_delivery_order": "PORTAL_PROJECTION_BEFORE_SINGLE_USER_DELIVERY",
     "post_delivery_redelivery": "FORBIDDEN",
-    "_note": "Adapter code, workflow wiring, and the dedicated Atlas Briefing SSOT data source exist. Keep both flags false until the GitHub Actions identity completes a real write + exact read-after-write canary. The explicit manual canary path is allowed to run while false, but no operational receipt is accepted by Finalization until the verified policy change is committed."
+    "_note": "Activated after GitHub Actions canary run 33132227994 verified the reviewed schema, exact canonical readback, NO_CHANGE replay, receipt reuse, and append-only receipt commit bb59b8a for 2026-08-28-am. Normal projection is now a fail-closed pre-delivery gate."
   },
   "alert": {
     "required_for_capital_impact": ["PRESENT"],

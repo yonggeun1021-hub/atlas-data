@@ -51,9 +51,9 @@ redelivery.
 - `verified_against_live_api`: the GitHub Actions identity has completed a real
   write and exact read-after-write against the reviewed data source.
 
-Both remain `false` until the canary succeeds. The manual-only
-`portal_canary` workflow input allows that one test without prematurely
-activating receipt authority. The canary must demonstrate:
+Both remained `false` until the canary succeeded. The manual-only
+`portal_canary` workflow input allowed the test without prematurely activating
+receipt authority. The canary demonstrated:
 
 - the Actions `NOTION_TOKEN` can retrieve the exact data-source schema;
 - create/update and exact readback succeed;
@@ -65,14 +65,16 @@ The adapter performs that second run inside the same canary invocation and
 fails unless every candidate is read back again without a write and reuses its
 append-only receipt.
 
-After the evidence is reviewed, set both flags to `true` in one reviewed
-commit. `ATLAS_APPROVAL_PUBKEY_FINGERPRINT` remains required for signed
+GitHub Actions run `33132227994` verified all five checks for
+`2026-08-28-am`; receipt commit `bb59b8a` binds canonical SHA-256
+`ca227fb4f1a794dfc9ffb075c8755f3ba2d38e4ef14187f53b6e56b5c2d23066`
+to Notion page `3ca9f2d7-3c84-81f3-9ab9-fbb33486d3c9`. Both flags are now
+`true`. `ATLAS_APPROVAL_PUBKEY_FINGERPRINT` remains required for signed
 post-delivery rulings; it is unrelated to ordinary no-authority projections.
 
 ## Current boundary
 
-Until both flags are true, the workflow step exits as
-`SKIPPED_NOT_LIVE_VERIFIED`, and Finalization continues to report
-`PORTAL_ADAPTER_NOT_IMPLEMENTED`. This is a deliberate activation lock, not a
-successful projection. The user-reaching FULL delivery/capital-alert adapter
-is a later boundary and remains unimplemented.
+Normal workflow runs now treat Portal projection as a fail-closed pre-delivery
+gate. Notion write/readback failure prevents the single user delivery; a retry
+upserts the same identity and reuses valid receipts. The user-reaching FULL
+delivery/capital-alert adapter is a later boundary and remains unimplemented.
