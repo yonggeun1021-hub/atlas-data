@@ -37,7 +37,7 @@ projection; it never calls the human delivery path again.
 
 ## Dispatch and receipt ownership
 
-`dispatch-validated-portal-projection.yml` is manual-only and has no cron. It
+`dispatch-validated-portal-projection.yml` is explicit-caller-only and has no cron. It
 can run only from the repository default branch and checks out only that
 trusted executor. It never checks out or executes `envelope_commit`; the
 envelope, sibling bundle/index, validation artifacts, and exact source refs are
@@ -56,8 +56,12 @@ then is `portal_projection_validated_v2` emitted to atlas-portal. The envelope's
 publication authority for the envelope itself.
 
 atlas-portal exclusively owns `APPLIED | NO_CHANGE | BLOCKED`, the allowlisted
-write, Portal deployment verification, and its receipt. This producer never
-delivers a briefing to a person and never creates an order.
+write, Portal deployment verification, and its receipt. The named Codex #274
+heartbeat may invoke this workflow only after publishing an explicit semantic
+verdict. After independently verifying the target viewer and Notion receipt,
+it records the source-side Portal final receipt and invokes finalization
+`drain`. This producer never delivers a briefing to a person and never creates
+an order.
 
 Required user-managed secret (not needed for local code/tests):
 `ATLAS_PORTAL_DISPATCH_TOKEN` in the **atlas-data repository → Environments →

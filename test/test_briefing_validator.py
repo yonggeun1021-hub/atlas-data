@@ -190,7 +190,7 @@ class MachinePassIsNotFinalPass(Base):
         with self.assertRaises(bf.FinalizationError) as ctx:
             bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"],
                        durability_probe=lambda *_: True)
-        # the gate's verdict slot is still open -- existing fail-open policy owns it
+        # the gate's verdict slot is still open until the semantic validator answers
         self.assertEqual(ctx.exception.code, "FINALIZATION_VALIDATION_PENDING")
         self.assertFalse(bf.already_delivered(self.repo, DATE, SLOT))
 
@@ -478,9 +478,22 @@ class PostDeliveryHandoff(Base):
     def test_change_observations_are_handed_to_the_validator_output(self):
         os.environ["GITHUB_STEP_SUMMARY"] = str(self.repo / "summary.md")
         self.addCleanup(os.environ.pop, "GITHUB_STEP_SUMMARY", None)
-        import datetime as dt
-        later = bf._utcnow() + dt.timedelta(minutes=bf.VALIDATION_TIMEOUT_MIN + 1)
-        bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"], now=later,
+        draft = json.loads(bf._latest(
+            bf.slot_dir(self.repo, DATE, SLOT), "draft").read_text())
+        bf.record_validation(self.repo, DATE, SLOT, {
+            "delivery_payload_sha256": draft["delivery_payload_sha256"],
+            "validation_status": "PASS",
+            "validator_id": "semantic-reviewer",
+            "validated_at_utc": "2026-08-27T09:40:00Z",
+            "corrections": [],
+            "conclusion_diff": {
+                "spec_version": None,
+                "investment_conclusion_changed": False,
+                "money_action_changed": False,
+                "stage_changed": False,
+            },
+        })
+        bf.deliver(self.repo, DATE, SLOT, ["github_step_summary"],
                    durability_probe=lambda *_: True)
         self.consume.write_text(CONSUME + "\naddendum\n", encoding="utf-8")
         self.seal()

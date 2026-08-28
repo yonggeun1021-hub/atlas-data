@@ -19,7 +19,7 @@ class NotionProjectionWorkflowTests(unittest.TestCase):
     def named(cls, name):
         return next(step for step in cls.steps if step.get("name") == name)
 
-    def test_projection_is_a_pre_delivery_gate(self):
+    def test_projection_is_a_drain_only_pre_delivery_gate(self):
         names = [step.get("name") for step in self.steps]
         self.assertLess(names.index("Publish validator verdict"),
                         names.index("Project canonical briefing to Notion SSOT"))
@@ -27,7 +27,11 @@ class NotionProjectionWorkflowTests(unittest.TestCase):
                         names.index("Ingest verdicts and deliver"))
         step = self.named("Project canonical briefing to Notion SSOT")
         self.assertNotIn("continue-on-error", step)
-        self.assertNotIn("if", step)
+        self.assertEqual(step["if"], "steps.resolve.outputs.mode == 'drain'")
+        self.assertEqual(
+            self.named("Ingest verdicts and deliver")["if"],
+            "steps.resolve.outputs.mode == 'drain'",
+        )
 
     def test_projection_uses_ci_secret_and_readback_adapter(self):
         step = self.named("Project canonical briefing to Notion SSOT")

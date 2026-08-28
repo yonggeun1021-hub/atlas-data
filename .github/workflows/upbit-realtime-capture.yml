@@ -1,0 +1,121 @@
+name: P9-06 Upbit Realtime WebSocket Bounded Capture
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"  # every 30 minutes; bounded-run only, never a persistent connection
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Bounded WebSocket capture duration (seconds)"
+        required: false
+        default: "240"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-upbit-realtime-bounded-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Capture Upbit realtime runner start time
+        id: runner_start
+        run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install P9-06 realtime capture dependency (websockets)
+        run: pip install "websockets>=12.0"
+      - name: Offline P9-06 realtime-gate regression (no live connection)
+        run: python3 test/test_upbit_realtime_gate.py
+      - name: Find latest committed P3-12 tradeable-universe classification
+        id: universe
+        run: |
+          set -euo pipefail
+          LATEST=$(ls -1 data/observations/upbit_tradeable_universe 2>/dev/null | sort | tail -n 1 || true)
+          echo "packet_date=${LATEST}" >> "$GITHUB_OUTPUT"
+          if [ -n "$LATEST" ] && [ -f "data/observations/upbit_tradeable_universe/$LATEST/packet.json" ]; then
+            echo "packet_path=data/observations/upbit_tradeable_universe/$LATEST/packet.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "packet_path=" >> "$GITHUB_OUTPUT"
+          fi
+      # Public market-data WebSocket only -- ticker/trade/orderbook/candle.*.
+      # No API key/secret, never myOrder/myAsset, never an order/withdrawal/
+      # private endpoint. See config/upbit_realtime_gate_contract.json and
+      # realtime/upbit_realtime_gate.py::PRIVATE_WS_TYPES_FORBIDDEN /
+      # build_subscription_message (fails closed on any private channel).
+      - name: Bounded-duration public WebSocket capture
+        id: capture
+        env:
+          DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || '240' }}
+        run: |
+          set -euo pipefail
+          SNAPSHOT_DATE=$(date -u +%F)
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          UNIVERSE_ARG=()
+          if [ -n "${{ steps.universe.outputs.packet_path }}" ]; then
+            UNIVERSE_ARG=(--universe-packet "${{ steps.universe.outputs.packet_path }}")
+          fi
+          python3 .github/scripts/upbit_realtime_capture.py \
+            --evidence-root evidence/crypto/upbit/realtime \
+            --snapshot-date "$SNAPSHOT_DATE" \
+            --duration-seconds "$DURATION_SECONDS" \
+            "${UNIVERSE_ARG[@]}"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
+      - name: Record P9-06 realtime scheduler telemetry
+        if: always()
+        env:
+          ATLAS_EVENT_NAME: ${{ github.event_name }}
+          ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_RUN_ID: ${{ github.run_id }}
+          ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
+          ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_REPOSITORY: ${{ github.repository }}
+          ATLAS_SERVER_URL: ${{ github.server_url }}
+        run: |
+          mkdir -p data/operations/upbit_realtime_capture_runs
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          record = {k: os.environ.get(k) for k in os.environ if k.startswith("ATLAS_")}
+          out = Path("data/operations/upbit_realtime_capture_runs")
+          out.mkdir(parents=True, exist_ok=True)
+          run_id = record.get("ATLAS_RUN_ID", "unknown")
+          attempt = record.get("ATLAS_RUN_ATTEMPT", "1")
+          (out / f"{run_id}-{attempt}.json").write_text(
+              json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+      - name: Commit append-only realtime evidence and run telemetry
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/operations/upbit_realtime_capture_runs || true
+          if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
+            git add "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "upbit realtime bounded capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi

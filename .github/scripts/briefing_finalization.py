@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atlas Briefing Finalization Gate -- contract ``briefing_finalization/17``.
+"""Atlas Briefing Finalization Gate -- contract ``briefing_finalization/18``.
 
 Sits between the existing H-24 chain and any human-reaching delivery:
 
@@ -27,6 +27,7 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -43,7 +44,7 @@ import atlas_ed25519 as ed25519  # noqa: E402
 #: rev 12 changed only the interpretation (authority became per-stream) and the
 #: version stayed put, which would have let two incompatible readings share a
 #: label.  A semantics change bumps this even when no field moves.
-CONTRACT_VERSION = "briefing_finalization/17"
+CONTRACT_VERSION = "briefing_finalization/18"
 
 FINALIZATION_ROOT = "data/briefing/finalization"
 LOCATOR_PATH = "data/briefing/daily_briefing_sources.json"
@@ -53,6 +54,7 @@ TRUST_LOG_PATH = "data/briefing/finalization/approval_trust_log.jsonl"
 ACTIVATION_PATH = "config/atlas_finalization_activation.json"
 SEMANTIC_VALIDATOR_PATH = "config/atlas_semantic_validator.json"
 PROJECTION_PATH = "config/atlas_projection.json"
+PORTAL_FINAL_RECEIPT_SCHEMA = "briefing_portal_final_receipt/1"
 
 #: Out-of-band anchor for the approval public key.  A repo writer can edit the
 #: key file; they cannot edit a GitHub secret.  When this is set, the key in the
@@ -77,14 +79,14 @@ MISSED_SLOT_LOOKBACK_DAYS = 5
 VALIDATION_TIMEOUT_MIN = 20
 UNKNOWN = "UNKNOWN"
 
-#: Statuses an external validator may submit.  UNVALIDATED_TIMEOUT is absent on
-#: purpose (P0-4): it asserts elapsed time, so only `deliver` may mint it after
-#: measuring that time itself.
+#: Statuses an external validator may submit.  UNVALIDATED_* is absent on
+#: purpose (P0-4): rev 18 keeps those values readable only for historical audit
+#: compatibility; neither a validator nor the delivery path may create them.
 EXTERNAL_VALIDATION_STATUSES = ("PASS", "PASS_WITH_CORRECTION", "HOLD", "MACHINE_CLEARED")
-#: Both are minted only by `deliver`. TIMEOUT means "a validator was expected
-#: and did not answer in time"; NO_VALIDATOR means "none was expected, so there
-#: was nothing to wait for". Collapsing them would record a wait that never
-#: happened.
+#: Historical rev <=17 audit values.  They remain in the parser so already
+#: committed evidence is readable, but rev 18 never treats them as authority.
+#: ``internal=True`` is reserved for migration/audit tooling and is not used by
+#: the production delivery path.
 INTERNAL_VALIDATION_STATUSES = ("UNVALIDATED_TIMEOUT", "UNVALIDATED_NO_VALIDATOR")
 VALIDATION_STATUSES = EXTERNAL_VALIDATION_STATUSES + INTERNAL_VALIDATION_STATUSES
 
@@ -108,15 +110,18 @@ CAPITAL_IMPACT_VERDICTS = ("NONE", "PRESENT")
 
 #: Withdraws the machine stream's own prior block.  It asserts nothing about
 #: the briefing's content, so on its own it leaves the gate's verdict slot open
-#: and the existing fail-open policy still owns the outcome.
+#: and the explicit semantic validator must still answer.
 MACHINE_CLEARED = "MACHINE_CLEARED"
 
-#: (P0-3) status -> may this ever reach a human?  HOLD never does.
+#: (P0-3) status -> may this ever reach a human?  Only an explicit semantic
+#: PASS (or an explicitly reviewed correction) may do so.  Historical
+#: UNVALIDATED_* records remain readable audit material, but rev 18 never
+#: treats them as delivery authority.
 STATUS_DELIVERABLE = {
     "PASS": True,
     "PASS_WITH_CORRECTION": True,
-    "UNVALIDATED_TIMEOUT": True,
-    "UNVALIDATED_NO_VALIDATOR": True,
+    "UNVALIDATED_TIMEOUT": False,
+    "UNVALIDATED_NO_VALIDATOR": False,
     "MACHINE_CLEARED": True,     # never governs on its own; see resolve_validation
     "HOLD": False,
 }
@@ -124,6 +129,27 @@ STATUS_DELIVERABLE = {
 CORRECTION_CLASSES = ("FACT", "ARITHMETIC", "DATE", "EVIDENCE_GRADE", "WORDING",
                       "SOURCE_REVISION", "SOURCE_CONTENT")
 DELIVERY_MARKER_PREFIX = "atlas-delivery-id:"
+FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+PORTAL_RESULT = ("DEPLOYED", "NO_CHANGE")
+PORTAL_RECEIPT_AUTHORITY = {
+    "read_only": True,
+    "stage_authority": False,
+    "buy_authority": False,
+    "action_authority": False,
+    "order_authority": False,
+    "production_authority": False,
+    "trading_authority": False,
+    "broker_credentials_present": False,
+}
+PORTAL_FINAL_RECEIPT_FIELDS = {
+    "schema_version", "briefing_id", "kst_date", "slot", "projection_id",
+    "envelope_commit", "envelope_path", "envelope_sha256", "source_commit",
+    "portal_result", "portal_run_id", "portal_source_sha", "deployment_url",
+    "notion_receipt_page_id", "viewer_readback_verified",
+    "notion_receipt_readback_verified", "delivery_payload_sha256",
+    "validation_rev", "observed_at_utc", "authority",
+}
 
 EXIT_OK = 0
 EXIT_ERROR = 2
@@ -500,16 +526,16 @@ def record_validation(repo_root: Path, kst_date: str, slot: str, validation: dic
                       internal: bool = False) -> dict:
     """Bind a verdict to the exact sealed payload it examined.
 
-    (P0-4) ``internal`` is the only way UNVALIDATED_TIMEOUT enters the system.
-    An external validator that submits it is refused, because that status is an
-    assertion about elapsed time that only `deliver` is in a position to make.
+    (P0-4) ``internal`` is the only compatibility path for historical
+    UNVALIDATED_* audit records.  An external validator that submits one is
+    refused, and rev 18's production delivery path never creates one.
     """
     status = validation.get("validation_status")
     if not internal and status in INTERNAL_VALIDATION_STATUSES:
         raise FinalizationError(
             "FINALIZATION_STATUS_NOT_EXTERNALLY_SUBMITTABLE",
-            f"{status!r} is minted only by deliver() after measuring elapsed time; "
-            "an external validator cannot assert it",
+            f"{status!r} is historical audit vocabulary only; "
+            "an external validator cannot assert it and it cannot authorize delivery",
         )
     stream = validation.get("authority_stream", DEFAULT_AUTHORITY_STREAM)
     if stream not in AUTHORITY_STREAMS:
@@ -714,7 +740,7 @@ def govern(recorded: list[tuple[int, dict]]) -> dict | None:
                            "UNVALIDATED_TIMEOUT", "UNVALIDATED_NO_VALIDATOR"):
         return semantic
     # Machine cleared (or said nothing) and no semantic verdict exists: the slot
-    # is open and the fail-open timeout policy owns it.
+    # stays sealed until the named semantic validator records an explicit answer.
     return None
 
 
@@ -1381,33 +1407,29 @@ def deliver(repo_root: Path, kst_date: str, slot: str, channels: list[str],
 
     validation, problem = resolve_validation(directory)
     if problem is not None:
-        # Fail-open covers SILENCE, not a broken answer.
+        # Both silence and malformed answers fail closed; malformed evidence is
+        # surfaced separately so it cannot be mistaken for an ordinary wait.
         raise FinalizationError("FINALIZATION_VALIDATION_INVALID", problem, EXIT_VALIDATION_INVALID)
     if validation is None:
         policy = load_semantic_validator_policy(repo_root)
         sealed_at = _parse_iso(draft["sealed_at_utc"], "FINALIZATION_SEAL_TIME_UNREADABLE")
         elapsed_min = (now - sealed_at).total_seconds() / 60.0
-        if policy["expected"]:
-            if elapsed_min < policy["timeout_minutes"]:
-                raise FinalizationError(
-                    "FINALIZATION_VALIDATION_PENDING",
-                    f"sealed {elapsed_min:.1f} min ago; a semantic validator is expected, "
-                    f"waiting until {policy['timeout_minutes']} min",
-                    EXIT_VALIDATION_PENDING)
-            status, reason = "UNVALIDATED_TIMEOUT", "expected validator did not answer in time"
-        else:
-            status, reason = ("UNVALIDATED_NO_VALIDATOR",
-                              "no semantic validator is configured; there was nothing to wait for")
-            # Nothing was waited for, so nothing may be recorded as waited.
-            elapsed_min = 0.0
-        validation = record_validation(repo_root, kst_date, slot, {
-            "validation_status": status, "validator_id": "none",
-            "validated_at_utc": _iso(now), "corrections": [],
-            "conclusion_diff": {"spec_version": None},
-            "delivery_payload_sha256": draft["delivery_payload_sha256"],
-            "semantic_validator_expected": policy["expected"],
-            "semantic_validation_reason": reason,
-            "waited_minutes": round(elapsed_min, 1)}, internal=True)
+        if not policy["expected"]:
+            raise FinalizationError(
+                "FINALIZATION_SEMANTIC_VALIDATOR_REQUIRED",
+                "no semantic validator is configured; unvalidated bytes are never delivered",
+                EXIT_VALIDATION_PENDING)
+        if elapsed_min < policy["timeout_minutes"]:
+            raise FinalizationError(
+                "FINALIZATION_VALIDATION_PENDING",
+                f"sealed {elapsed_min:.1f} min ago; a semantic validator is expected, "
+                f"waiting until {policy['timeout_minutes']} min",
+                EXIT_VALIDATION_PENDING)
+        raise FinalizationError(
+            "FINALIZATION_VALIDATION_TIMEOUT",
+            f"semantic validator did not answer within {policy['timeout_minutes']} min; "
+            "the slot remains sealed and undelivered until an explicit verdict arrives",
+            EXIT_VALIDATION_PENDING)
 
     if validation["delivery_payload_sha256"] != draft["delivery_payload_sha256"]:
         raise FinalizationError("FINALIZATION_VALIDATION_STALE",
@@ -1419,6 +1441,14 @@ def deliver(repo_root: Path, kst_date: str, slot: str, channels: list[str],
             "FINALIZATION_HELD",
             f"validation_status={validation['validation_status']} never reaches a human; "
             "resolve the hold and publish a new verdict", EXIT_HELD)
+
+    # The semantic verdict authorizes a projection candidate, not a user
+    # delivery.  For the activated validation-first epoch, Portal must have
+    # applied (or independently proven NO_CHANGE), its viewer bytes must match,
+    # and its Notion receipt must have been read back before the final Notion
+    # SSOT/user-delivery phase is allowed to start.
+    verify_pre_delivery_portal_receipt(
+        repo_root, kst_date, slot, draft=draft, validation=validation)
 
     approval = check_approval(repo_root, directory, draft, validation) if routing["cio_gate_required"] else None
 
@@ -1530,24 +1560,27 @@ def deliver(repo_root: Path, kst_date: str, slot: str, channels: list[str],
 # -------------------------------------------------- backlog / missed slots
 
 def load_semantic_validator_policy(repo_root: Path) -> dict:
-    """Is anyone going to answer, and how long should the gate hold the slot?
+    """Load the fail-closed semantic validator policy.
 
-    The wait is not a safety property in itself -- it is time granted to a
-    semantic validator.  With none configured the wait only guarantees that a
-    clean round ends red and undelivered: the workflow job stops at 15 minutes
-    and no same-day re-entry is scheduled.  So when nothing is expected, the
-    gate does not pretend to wait; it delivers and stamps the record with the
-    fact that no semantic validation was ever available.
-
-    Nothing else relaxes: HOLD still blocks, corrections still need a signed
-    approval, intent still has to be durable.
+    A timeout is an operational incident, not evidence that the briefing is
+    correct.  Rev 18 therefore keeps the sealed slot pending after timeout and
+    requires a later explicit semantic verdict before any Portal, Notion-final,
+    or user-delivery step can proceed.
     """
     path = repo_root / SEMANTIC_VALIDATOR_PATH
-    policy = {"expected": True, "timeout_minutes": VALIDATION_TIMEOUT_MIN}
+    policy = {"expected": True, "timeout_minutes": VALIDATION_TIMEOUT_MIN,
+              "timeout_action": "HOLD"}
     if path.exists():
         data = _read_json(path, "FINALIZATION_SEMANTIC_POLICY_UNREADABLE")
         policy["expected"] = bool(data.get("expected", True))
         policy["timeout_minutes"] = int(data.get("timeout_minutes", VALIDATION_TIMEOUT_MIN))
+        policy["timeout_action"] = data.get("timeout_action", "HOLD")
+    if not 1 <= policy["timeout_minutes"] <= 1440:
+        raise FinalizationError("FINALIZATION_SEMANTIC_POLICY_INVALID",
+                                "timeout_minutes must be between 1 and 1440")
+    if policy["timeout_action"] != "HOLD":
+        raise FinalizationError("FINALIZATION_SEMANTIC_POLICY_INVALID",
+                                "timeout_action must remain HOLD")
     return policy
 
 
@@ -1568,6 +1601,185 @@ def load_activation(repo_root: Path) -> dict | None:
     return data
 
 
+def _activation_applies(activation: dict | None, kst_date: str, slot: str) -> bool:
+    cutoff = _activation_cutoff(activation)
+    if cutoff is None:
+        return False
+    return (kst_date, SUPPORTED_SLOTS.index(slot)) >= (
+        cutoff[0], SUPPORTED_SLOTS.index(cutoff[1]))
+
+
+def portal_final_receipt_required(repo_root: Path, kst_date: str, slot: str) -> bool:
+    activation = load_activation(repo_root)
+    return bool(
+        activation
+        and activation.get("portal_before_delivery") is True
+        and _activation_applies(activation, kst_date, slot)
+    )
+
+
+def _validate_portal_final_receipt(
+    repo_root: Path, receipt: dict, *, kst_date: str, slot: str,
+    draft: dict, validation: dict,
+) -> None:
+    if set(receipt) != PORTAL_FINAL_RECEIPT_FIELDS:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_FIELDS_MISMATCH",
+                                "Portal final receipt has an unexpected field set")
+    suffix = SLOT_SUFFIX[slot]
+    if (receipt.get("schema_version") != PORTAL_FINAL_RECEIPT_SCHEMA
+            or receipt.get("briefing_id") != briefing_id(kst_date, slot)
+            or receipt.get("kst_date") != kst_date
+            or receipt.get("slot") != slot
+            or receipt.get("delivery_payload_sha256") != draft.get("delivery_payload_sha256")
+            or receipt.get("validation_rev") != validation.get("rev")):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_IDENTITY_MISMATCH",
+                                "Portal receipt is not bound to the governing draft and validation")
+    projection_id = receipt.get("projection_id")
+    if (not isinstance(projection_id, str)
+            or not projection_id.startswith(f"{kst_date}-{'AM' if suffix == 'am' else 'PM'}-")):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_PROJECTION_INVALID",
+                                "projection_id does not match the briefing slot")
+    for field in ("envelope_commit", "source_commit", "portal_source_sha"):
+        if not isinstance(receipt.get(field), str) or FULL_SHA.fullmatch(receipt[field]) is None:
+            raise FinalizationError("PORTAL_FINAL_RECEIPT_SHA_INVALID",
+                                    f"{field} must be an exact 40-character SHA")
+    for field in ("envelope_sha256", "delivery_payload_sha256"):
+        if not isinstance(receipt.get(field), str) or SHA256.fullmatch(receipt[field]) is None:
+            raise FinalizationError("PORTAL_FINAL_RECEIPT_HASH_INVALID",
+                                    f"{field} must be an exact SHA-256")
+    path = receipt.get("envelope_path")
+    if (not isinstance(path, str) or path.startswith("/") or ".." in Path(path).parts
+            or not path.startswith("evidence/validated_briefing_portal/")
+            or not path.endswith("/portal-projection.json")):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_PATH_INVALID",
+                                "envelope_path is outside the immutable projection tree")
+    envelope_path = repo_root / path
+    envelope_bytes = _read_bytes(
+        envelope_path, "PORTAL_FINAL_RECEIPT_ENVELOPE_MISSING")
+    if _sha256(envelope_bytes) != receipt["envelope_sha256"]:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_ENVELOPE_HASH_MISMATCH",
+                                "the committed envelope bytes do not match the receipt")
+    envelope = _read_json(
+        envelope_path, "PORTAL_FINAL_RECEIPT_ENVELOPE_UNREADABLE")
+    expected_slot = "AM" if suffix == "am" else "PM"
+    if (envelope.get("schema_version") != "portal_projection/2"
+            or envelope.get("projection_id") != projection_id
+            or envelope.get("briefing_date") != kst_date
+            or envelope.get("slot") != expected_slot
+            or envelope.get("source_commit") != receipt["source_commit"]
+            or envelope.get("completion_state") != "VALIDATED"
+            or envelope.get("safety_attestation") != PORTAL_RECEIPT_AUTHORITY):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_ENVELOPE_IDENTITY_MISMATCH",
+                                "the envelope does not bind this validated briefing safely")
+
+    # The receipt must point at immutable bytes already present on the source
+    # repository's committed history. A working-tree-only file or a SHA that
+    # names an unrelated commit is not a durable handoff to Portal.
+    try:
+        ancestor = subprocess.run(
+            ["git", "-C", str(repo_root), "merge-base", "--is-ancestor",
+             receipt["envelope_commit"], "HEAD"],
+            capture_output=True, check=False)
+        source_ancestor = subprocess.run(
+            ["git", "-C", str(repo_root), "merge-base", "--is-ancestor",
+             receipt["source_commit"], receipt["envelope_commit"]],
+            capture_output=True, check=False)
+        committed = subprocess.run(
+            ["git", "-C", str(repo_root), "show",
+             f"{receipt['envelope_commit']}:{path}"],
+            capture_output=True, check=False)
+    except OSError as exc:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_GIT_UNAVAILABLE", type(exc).__name__) from exc
+    if (ancestor.returncode != 0 or source_ancestor.returncode != 0
+            or committed.returncode != 0):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_COMMIT_UNVERIFIED",
+                                "source/envelope lineage or committed envelope could not be verified")
+    if committed.stdout != envelope_bytes:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_COMMIT_BYTES_MISMATCH",
+                                "envelope_commit does not contain the verified envelope bytes")
+    if receipt.get("portal_result") not in PORTAL_RESULT:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_RESULT_BLOCKED",
+                                "Portal must be DEPLOYED or a viewer-verified NO_CHANGE")
+    if not str(receipt.get("portal_run_id", "")).isdigit():
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_RUN_INVALID",
+                                "portal_run_id must identify the verified target run")
+    if (not isinstance(receipt.get("deployment_url"), str)
+            or not receipt["deployment_url"].startswith("https://")):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_URL_INVALID",
+                                "deployment_url must be HTTPS")
+    notion_id = str(receipt.get("notion_receipt_page_id", "")).replace("-", "")
+    if re.fullmatch(r"[0-9a-f]{32}", notion_id) is None:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_NOTION_ID_INVALID",
+                                "Notion receipt page id is missing or malformed")
+    if (receipt.get("viewer_readback_verified") is not True
+            or receipt.get("notion_receipt_readback_verified") is not True):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_READBACK_UNVERIFIED",
+                                "Portal viewer and Notion receipt readbacks are both required")
+    if receipt.get("authority") != PORTAL_RECEIPT_AUTHORITY:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_AUTHORITY_FAILED",
+                                "Portal receipt must preserve the all-false authority boundary")
+    try:
+        observed = _dt.datetime.fromisoformat(
+            str(receipt.get("observed_at_utc", "")).replace("Z", "+00:00"))
+    except ValueError:
+        observed = None
+    if observed is None or observed.tzinfo is None:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_TIME_INVALID",
+                                "observed_at_utc must be timezone-aware")
+
+
+def verify_pre_delivery_portal_receipt(
+    repo_root: Path, kst_date: str, slot: str, *, draft: dict, validation: dict,
+) -> dict | None:
+    if not portal_final_receipt_required(repo_root, kst_date, slot):
+        return None
+    directory = slot_dir(repo_root, kst_date, slot)
+    path = _latest(directory, "portal-final-receipt")
+    if path is None:
+        raise FinalizationError(
+            "PORTAL_FINAL_RECEIPT_MISSING",
+            "semantic PASS exists, but Portal deployment/viewer/Notion receipt has not been proven",
+            EXIT_VALIDATION_PENDING)
+    receipt = _read_json(path, "PORTAL_FINAL_RECEIPT_UNREADABLE")
+    _validate_portal_final_receipt(
+        repo_root, receipt, kst_date=kst_date, slot=slot,
+        draft=draft, validation=validation)
+    return receipt
+
+
+def record_portal_final_receipt(
+    repo_root: Path, kst_date: str, slot: str, receipt: dict,
+) -> dict:
+    directory = slot_dir(repo_root, kst_date, slot)
+    draft_path = _latest(directory, "draft")
+    if draft_path is None:
+        raise FinalizationError("FINALIZATION_DRAFT_MISSING",
+                                f"no sealed draft for {kst_date}/{slot}")
+    draft = _read_json(draft_path, "FINALIZATION_DRAFT_UNREADABLE")
+    validation, problem = resolve_validation(directory)
+    if problem is not None or validation is None:
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_VALIDATION_MISSING",
+                                problem or "no governing semantic validation")
+    routing = validation.get("routing") or derive_routing(
+        validation, load_ratified_specs(repo_root))
+    if not routing.get("status_deliverable"):
+        raise FinalizationError("PORTAL_FINAL_RECEIPT_VALIDATION_HELD",
+                                "a held briefing cannot acquire a final Portal receipt")
+    _validate_portal_final_receipt(
+        repo_root, receipt, kst_date=kst_date, slot=slot,
+        draft=draft, validation=validation)
+    prior = _latest(directory, "portal-final-receipt")
+    body = _canonical(receipt) + b"\n"
+    if prior is not None and prior.read_bytes() == body:
+        return {"recorded": False, "reused": True,
+                "path": str(prior.relative_to(repo_root))}
+    rev = _next_rev(directory, "portal-final-receipt")
+    path = directory / f"portal-final-receipt-rev-{rev:03d}.json"
+    _atomic_write(path, body)
+    return {"recorded": True, "reused": False,
+            "path": str(path.relative_to(repo_root)), "rev": rev}
+
+
 def _activation_cutoff(activation: dict | None) -> tuple[str, str] | None:
     if activation is None:
         return None
@@ -1583,9 +1795,12 @@ def expected_slots(now_utc: _dt.datetime, lookback_days: int = MISSED_SLOT_LOOKB
     scheduler never fired produced no draft and therefore looked like nothing
     was owed.  This enumerates what OUGHT to exist instead.
 
-    Weekday-only.  The KRX/holiday calendar is not available to this module, so
-    a public holiday yields a false positive rather than a silent miss; those
-    are reported as `calendar_confidence: "WEEKDAY_ONLY_HOLIDAYS_UNKNOWN"`.
+    Morning is owed every calendar day.  A weekend morning still has a useful
+    fail-closed result (market closed / no new session / latest confirmed
+    evidence), so silently omitting it is not allowed.  Evening remains
+    weekday-only because it is a post-close market round.  The KRX/holiday
+    calendar is not available to this module, so a weekday public holiday can
+    still yield a false positive rather than a silent miss.
     """
     cutoff = _activation_cutoff(activation)
     if cutoff is None:
@@ -1596,9 +1811,9 @@ def expected_slots(now_utc: _dt.datetime, lookback_days: int = MISSED_SLOT_LOOKB
     out = []
     for back in range(lookback_days, -1, -1):
         day = (now_kst - _dt.timedelta(days=back)).date()
-        if day.weekday() >= 5:
-            continue
         for slot in SUPPORTED_SLOTS:
+            if slot == "evening" and day.weekday() >= 5:
+                continue
             hour, minute = SLOT_DUE_KST[slot]
             due = _dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=KST)
             if now_kst < due + _dt.timedelta(minutes=SLOT_DUE_GRACE_MIN):
@@ -1610,7 +1825,8 @@ def expected_slots(now_utc: _dt.datetime, lookback_days: int = MISSED_SLOT_LOOKB
                 continue
             out.append({"kst_date": iso, "slot": slot,
                         "due_kst": due.isoformat(),
-                        "calendar_confidence": "WEEKDAY_ONLY_HOLIDAYS_UNKNOWN"})
+                        "calendar_confidence":
+                            "DAILY_MORNING_WEEKDAY_EVENING_HOLIDAYS_UNKNOWN"})
     return out
 
 
@@ -1855,8 +2071,9 @@ def _emit(obj: Any) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Atlas briefing finalization gate")
-    parser.add_argument("command", choices=["seal", "ingest", "validate", "deliver",
-                                            "drain", "backlog", "correct", "notice", "status"])
+    parser.add_argument("command", choices=["seal", "ingest", "validate", "portal-receipt",
+                                            "deliver", "drain", "backlog", "correct",
+                                            "notice", "status"])
     parser.add_argument("--slot", choices=list(SUPPORTED_SLOTS))
     parser.add_argument("--decision-date")
     parser.add_argument("--repo-root", default=".")
@@ -1872,7 +2089,8 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = Path(args.repo_root).resolve()
     date, slot = args.decision_date, args.slot
-    per_slot = {"seal", "ingest", "validate", "deliver", "correct", "notice", "status"}
+    per_slot = {"seal", "ingest", "validate", "portal-receipt", "deliver", "correct",
+                "notice", "status"}
     if args.command in per_slot and not (slot and date):
         parser.error("--slot and --decision-date are required for this command")
 
@@ -1890,6 +2108,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate":
             _emit(record_validation(repo_root, date, slot,
                                     _read_json(Path(args.input), "FINALIZATION_VALIDATION_UNREADABLE")))
+        elif args.command == "portal-receipt":
+            _emit(record_portal_final_receipt(
+                repo_root, date, slot,
+                _read_json(Path(args.input), "PORTAL_FINAL_RECEIPT_UNREADABLE")))
         elif args.command == "deliver":
             if already_delivered(repo_root, date, slot):
                 _emit({"briefing_id": briefing_id(date, slot), "delivered": False,
