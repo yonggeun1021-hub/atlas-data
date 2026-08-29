@@ -545,6 +545,22 @@ class SyntheticFixtureTest(unittest.TestCase):
                     generated_at="2026-08-29T12:00:00Z",
                 )
 
+    def test_explicit_decision_packet_requires_exact_universe_source_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_path = write_decision_snapshot(
+                tmp / "decision", "2026-08-29", "1136", "4" * 64, [],
+            )
+            with self.assertRaisesRegex(
+                MODULE.CryptoCandidateDetailViewError,
+                "DECISION_UNIVERSE_SOURCE_REF_MISSING",
+            ):
+                MODULE.build_view(
+                    universe_data_root=tmp / "universe",
+                    market_evidence_data_root=tmp / "market_evidence",
+                    decision_packet_path=decision_path,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

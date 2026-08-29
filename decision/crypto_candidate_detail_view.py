@@ -203,6 +203,35 @@ def _market_evidence_packet_for(market: str, market_evidence_entry: dict | None)
     return packet if isinstance(packet, dict) else None
 
 
+def _source_entry_from_decision(decision_record: dict, role: str) -> dict | None:
+    matches = [row for row in decision_record.get("source_refs") or [] if row.get("role") == role]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        _fail("DECISION_SOURCE_ROLE_AMBIGUOUS", role)
+    ref = matches[0]
+    relative = ref.get("path")
+    expected_sha = ref.get("sha256")
+    if not isinstance(relative, str) or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
+        _fail("DECISION_SOURCE_REF_INVALID", role)
+    path = (ROOT / relative).resolve()
+    try:
+        path.relative_to(ROOT.resolve())
+    except ValueError:
+        _fail("DECISION_SOURCE_PATH_ESCAPE", relative)
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha:
+        _fail("DECISION_SOURCE_BYTES_MISMATCH", relative)
+    record = DECISION_SNAPSHOT._read_json(path)
+    date = path.parent.name
+    if role == "upbit_tradeable_universe_packet":
+        packet = record.get("packet") if isinstance(record, dict) else None
+        identity = decision_record.get("upbit_universe_snapshot_identity") or {}
+        if not isinstance(packet, dict) or identity.get("date") != date or identity.get("payload_sha256") != packet.get("payload_sha256"):
+            _fail("DECISION_UNIVERSE_IDENTITY_MISMATCH", relative)
+        return {"date": date, "path": path, "record": record, "packet": packet}
+    return {"date": date, "path": path, "record": record}
+
+
 def _price_fact(market_evidence_packet: dict | None) -> dict:
     """Real, already-finalized daily close from P4-07's own committed
     candle evidence -- never a live/current-candle price. ``None``
@@ -356,22 +385,30 @@ def build_view(
     decision_packet_path: Path | None = None,
     generated_at: str | None = None,
 ) -> dict:
-    universe_entry = DECISION_SNAPSHOT.find_latest_universe_packet(universe_data_root)
-    if universe_entry is None:
-        _fail("UNIVERSE_PACKET_MISSING", str(universe_data_root))
-    universe_packet = universe_entry["packet"]
-    if not isinstance(universe_packet, dict):
-        _fail("UNIVERSE_PACKET_INVALID", universe_entry["date"])
-
-    market_evidence_entry = DECISION_SNAPSHOT.find_latest_market_evidence_packet(
-        market_evidence_data_root
-    )
     decision_entry = (
         _verified_decision_entry(Path(decision_packet_path))
         if decision_packet_path is not None
         else find_latest_decision_snapshot(decision_snapshot_root)
     )
     decision_record = decision_entry["record"] if decision_entry else None
+    bound_universe = (
+        _source_entry_from_decision(decision_record, "upbit_tradeable_universe_packet")
+        if isinstance(decision_record, dict) else None
+    )
+    if decision_packet_path is not None and bound_universe is None:
+        _fail("DECISION_UNIVERSE_SOURCE_REF_MISSING", str(decision_packet_path))
+    universe_entry = bound_universe or DECISION_SNAPSHOT.find_latest_universe_packet(universe_data_root)
+    if universe_entry is None:
+        _fail("UNIVERSE_PACKET_MISSING", str(universe_data_root))
+    universe_packet = universe_entry["packet"]
+    if not isinstance(universe_packet, dict):
+        _fail("UNIVERSE_PACKET_INVALID", universe_entry["date"])
+
+    bound_market_evidence = (
+        _source_entry_from_decision(decision_record, "upbit_market_evidence_packet")
+        if isinstance(decision_record, dict) else None
+    )
+    market_evidence_entry = bound_market_evidence or DECISION_SNAPSHOT.find_latest_market_evidence_packet(market_evidence_data_root)
     decision_by_market: dict[str, dict] = {}
     if isinstance(decision_record, dict):
         for row in decision_record.get("candidates") or []:
