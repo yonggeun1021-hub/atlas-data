@@ -1568,6 +1568,20 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_candidate_promotion.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_buy_eligibility.py",
+    # ★ Crypto PAPER decision snapshot -- pure, read-only composition of
+    #   P1-CR-08 (Regime axis adapter) + P5-08 (Candidate Promotion) +
+    #   P5-09 (PAPER Buy Eligibility), wired onto the tail of the existing
+    #   */30 * * * * upbit-realtime-capture.yml job (not a new schedule).
+    #   Reads already-committed P3-12/P4-07 packets plus this run's own
+    #   just-captured P9-06 realtime evidence (freshness/quote-state only,
+    #   never fed into P5-08/P5-09's own derivation). Regime is UNKNOWN by
+    #   construction today, so every real candidate caps at WATCH with
+    #   paper_ready_count == 0 -- correct, honest current output. Zero
+    #   network/order-endpoint calls; every authority field stays false.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_crypto_paper_buy_eligibility.py above so
+    #      it is not silently hidden from the test-set comparison.
+    "test/test_crypto_paper_decision_snapshot.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
