@@ -10,9 +10,26 @@
     "stage_authorized": false,
     "trading_authorized": false
   },
-  "contract_version": "crypto_recent_reference/v1",
+  "contract_version": "crypto_recent_reference/v2",
   "decision_date": "2026-08-29",
-  "generated_at_utc": "2026-08-29T10:28:44Z",
+  "generated_at_utc": "2026-08-29T11:31:09Z",
+  "leadership_reference": {
+    "composite_code": "NARROW_ALT_LEADERSHIP",
+    "status": "OBSERVED_REFERENCE_ONLY",
+    "window_alignment": "ALIGNED",
+    "windows": {
+      "30d": {
+        "alt_median_above_btc_and_eth": false,
+        "raw_leader": "ALT_EQUAL_WEIGHT",
+        "state": "ALT_NARROW"
+      },
+      "7d": {
+        "alt_median_above_btc_and_eth": false,
+        "raw_leader": "ALT_EQUAL_WEIGHT",
+        "state": "ALT_NARROW"
+      }
+    }
+  },
   "member_returns": [
     {
       "canonical_asset_id": "BTC",
@@ -717,7 +734,7 @@
   ],
   "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
   "price_as_of_date": "2026-08-28",
-  "schema_version": 1,
+  "schema_version": 2,
   "selection": {
     "current_catalog_backfill_for_historical_replay_authorized": false,
     "excluded_before_cutoff_count": 12,
@@ -738,7 +755,7 @@
     "manifest_sha256": "fe52b279660b943a4f8e1e461954e235ab32b853af5c503ec40f370a1ff98fe5",
     "snapshot_date": "2026-08-29",
     "snapshot_path": "evidence/crypto/breadth/raw/2026-08-29",
-    "source_commit": "48c4e7c5303f3ec79b0ebc2d57cae890bfc855fa",
+    "source_commit": "c81b99161c86f76d71b86ba1bc47d92422bf3285",
     "source_name": "kraken_spot_market_data"
   },
   "top_30d_strength": [
