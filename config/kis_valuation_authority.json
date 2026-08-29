@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "kis_valuation_authority/1",
+  "policyVersion": "kis_valuation_authority/v1",
+  "evidenceBasis": "CIO ratification is split into exact KIS valuation semantics and a normative conservative freshness policy. The freshness thresholds are explicitly not empirical estimates; they authorize only read-only portfolio_account_fact/3 data classification. No account-fact production, Portfolio Risk Input, sizing, Stage, Buy, Action, Order, Production, Trading, or REAL authority is granted here.",
+  "valuationSemanticAuthorityRecords": [
+    {
+      "ruleId": "atlas.portfolio-risk.kis-paper-valuation-semantics",
+      "ruleVersion": 1,
+      "authorityKind": "VALUATION_SEMANTIC_MAPPING",
+      "approvalStatus": "RATIFIED",
+      "ratifiedAt": "2026-08-29T03:20:00Z",
+      "firstSeenAt": "2026-08-29T03:20:00Z",
+      "effectiveFrom": "2026-08-29T03:20:00Z",
+      "effectiveTo": null,
+      "approvalEvidenceRef": "evidence/portfolio_risk/approvals/2026-08-29/kis-paper-valuation-semantics.json",
+      "approvalEvidenceSha256": "93f1125bac9337e448620dc9b014ce52da4e24bdadd7d0381575d59a905bd8c4",
+      "businessPayloadSha256": "99ac57472ae3bd7e2b0ba003b2899b1d449512e6e8b22df0b69f4417ba77458c",
+      "providerTuple": {
+        "provider": "KIS_PAPER_ACCOUNT",
+        "accountScope": "KOREA",
+        "currency": "KRW",
+        "positionSourceName": "kis_paper_domestic_balance"
+      },
+      "targetContractVersion": "portfolio_account_fact/3",
+      "proposalSha256": "eb7d54b8e85102b5f44f553e177cd9a700b8485d0ce3243424e585f45e898c3c",
+      "approvedMappings": [
+        {
+          "semanticId": "ACCOUNT_NET_ASSET_KRW",
+          "sourceEndpoint": "inquire_balance.output2",
+          "rawKisField": "nass_amt",
+          "officialKoreanMeaning": "순자산금액",
+          "targetPath": "account.netAssetKrw"
+        },
+        {
+          "semanticId": "ACCOUNT_CASH_DEPOSIT_TOTAL_KRW",
+          "sourceEndpoint": "inquire_balance.output2",
+          "rawKisField": "dnca_tot_amt",
+          "officialKoreanMeaning": "예수금총금액",
+          "targetPath": "account.cashDepositTotalKrw"
+        },
+        {
+          "semanticId": "POSITION_MARKET_VALUE_KRW",
+          "sourceEndpoint": "inquire_balance.output1",
+          "rawKisField": "evlu_amt",
+          "officialKoreanMeaning": "평가금액",
+          "targetPath": "positions[].marketValueKrw"
+        },
+        {
+          "semanticId": "POSITION_UNREALIZED_PL_KRW",
+          "sourceEndpoint": "inquire_balance.output1",
+          "rawKisField": "evlu_pfls_amt",
+          "officialKoreanMeaning": "평가손익금액",
+          "targetPath": "positions[].unrealizedPlKrw"
+        },
+        {
+          "semanticId": "INSTRUMENT_NO_RECEIVABLE_BUY_AMOUNT_KRW",
+          "sourceEndpoint": "inquire_psbl_order.output",
+          "rawKisField": "nrcvb_buy_amt",
+          "officialKoreanMeaning": "미수없는매수금액",
+          "targetPath": "instrumentBuyCapacity[].noReceivableBuyAmountKrw"
+        },
+        {
+          "semanticId": "INSTRUMENT_NO_RECEIVABLE_BUY_QUANTITY",
+          "sourceEndpoint": "inquire_psbl_order.output",
+          "rawKisField": "nrcvb_buy_qty",
+          "officialKoreanMeaning": "미수없는매수수량",
+          "targetPath": "instrumentBuyCapacity[].noReceivableBuyQuantity"
+        },
+        {
+          "semanticId": "INSTRUMENT_CAPACITY_CALCULATION_PRICE_KRW",
+          "sourceEndpoint": "inquire_psbl_order.output",
+          "rawKisField": "psbl_qty_calc_unpr",
+          "officialKoreanMeaning": "가능수량계산단가",
+          "targetPath": "instrumentBuyCapacity[].quantityCalculationPriceKrw"
+        }
+      ],
+      "approvalBasis": "CIO_RATIFIED_EXACT_OFFICIAL_FIELD_MEANINGS_AND_TARGET_PATHS",
+      "empiricalValidationStatus": "OFFICIAL_MEANINGS_AND_PRIVATE_RELATIONSHIPS_REPRODUCED_LIVE_FRESHNESS_NOT_PART_OF_THIS_AUTHORITY",
+      "authority": {
+        "valuationSemanticAuthorized": true,
+        "freshnessPolicyAuthorized": false,
+        "accountFactAuthorized": false,
+        "riskInputAuthorized": false,
+        "stageAuthorized": false,
+        "buyAuthorized": false,
+        "actionAuthorized": false,
+        "orderAuthorized": false,
+        "productionAuthorized": false,
+        "tradingAuthorized": false,
+        "realCapitalAuthorized": false
+      }
+    }
+  ],
+  "freshnessPolicyAuthorityRecords": [
+    {
+      "ruleId": "atlas.portfolio-risk.kis-paper-valuation-freshness",
+      "ruleVersion": 1,
+      "authorityKind": "VALUATION_FRESHNESS_POLICY",
+      "approvalStatus": "RATIFIED",
+      "ratifiedAt": "2026-08-29T03:20:00Z",
+      "firstSeenAt": "2026-08-29T03:20:00Z",
+      "effectiveFrom": "2026-08-29T03:20:00Z",
+      "effectiveTo": null,
+      "approvalEvidenceRef": "evidence/portfolio_risk/approvals/2026-08-29/kis-paper-valuation-freshness.json",
+      "approvalEvidenceSha256": "5e0f081c562aed5f265c110e169b4ac0523a7ce34a1b3ed49e6f3b264c9e990b",
+      "businessPayloadSha256": "862f87c5dbcc46337612553f7d6120b9dcc2c00246a91efd0ee22fa2291bc8de",
+      "providerTuple": {
+        "provider": "KIS_PAPER_ACCOUNT",
+        "accountScope": "KOREA",
+        "currency": "KRW",
+        "positionSourceName": "kis_paper_domestic_balance"
+      },
+      "targetContractVersion": "portfolio_account_fact/3",
+      "proposalSha256": "2e223bffcccbe58785b98ec178351add46f752cbac034f6da686d5f31e4fb0d5",
+      "clockField": "availableAt",
+      "maxSourceAgeSeconds": 300,
+      "maxPairGapSeconds": 120,
+      "comparison": "NONNEGATIVE_AGE_AND_ABSOLUTE_GAP_LESS_THAN_OR_EQUAL",
+      "bothSourcesRequired": true,
+      "callerOverridePermitted": false,
+      "approvalBasis": "CIO_NORMATIVE_CONSERVATIVE_GOVERNANCE_CHOICE_NOT_EMPIRICALLY_DERIVED",
+      "empiricalValidationStatus": "NOT_ESTABLISHED_AT_RATIFICATION_MONITOR_SHADOW_ONLY",
+      "livePairSampleCountAtRatification": 0,
+      "atomicCaptureSessionBindingPresentAtRatification": false,
+      "retroactiveApplicationPermitted": false,
+      "permittedUse": "KIS_PAPER_PORTFOLIO_ACCOUNT_FACT_V3_DATA_FRESHNESS_ONLY_NO_RISK_OR_TRADING_AUTHORITY",
+      "authority": {
+        "valuationSemanticAuthorized": false,
+        "freshnessPolicyAuthorized": true,
+        "accountFactAuthorized": false,
+        "riskInputAuthorized": false,
+        "stageAuthorized": false,
+        "buyAuthorized": false,
+        "actionAuthorized": false,
+        "orderAuthorized": false,
+        "productionAuthorized": false,
+        "tradingAuthorized": false,
+        "realCapitalAuthorized": false
+      }
+    }
+  ]
+}

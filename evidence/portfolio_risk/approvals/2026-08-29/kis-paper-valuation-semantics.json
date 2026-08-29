@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "kis_valuation_authority_approval/1",
+  "approvalStatus": "RATIFIED",
+  "ratifiedAt": "2026-08-29T03:20:00Z",
+  "authorityKind": "VALUATION_SEMANTIC_MAPPING",
+  "ruleId": "atlas.portfolio-risk.kis-paper-valuation-semantics",
+  "ruleVersion": 1,
+  "approvedBusinessPayloadSha256": "99ac57472ae3bd7e2b0ba003b2899b1d449512e6e8b22df0b69f4417ba77458c",
+  "sourceEvidence": [
+    {
+      "path": "portfolio_risk/kis_valuation_semantic_proposal.py",
+      "sha256": "351bc2890cd77df87f9abd21b435fbebe95ea6fd9250a54398be44f382e673b4"
+    },
+    {
+      "path": "portfolio_risk/kis_valuation_semantic_review.py",
+      "sha256": "5bfc9e942622e8a841d6b68faa2fce0fee88b5c29ec2b3b32ef974803fd23f7c"
+    }
+  ],
+  "assertion": {
+    "providerTuple": {
+      "provider": "KIS_PAPER_ACCOUNT",
+      "accountScope": "KOREA",
+      "currency": "KRW",
+      "positionSourceName": "kis_paper_domestic_balance"
+    },
+    "targetContractVersion": "portfolio_account_fact/3",
+    "proposalSha256": "eb7d54b8e85102b5f44f553e177cd9a700b8485d0ce3243424e585f45e898c3c",
+    "approvedScope": "EXACT_OFFICIAL_KIS_FIELD_MEANINGS_AND_LISTED_TARGET_PATHS_ONLY",
+    "freshnessIncluded": false,
+    "accountFactProductionIncluded": false,
+    "portfolioRiskIncluded": false
+  },
+  "decision": {
+    "decisionStatus": "CIO_RATIFIED_SEMANTIC_SUBSET",
+    "basis": "Official KIS pinned bytes and private source relationships independently reproduced the exact field meanings and exclusions. Freshness remains a separate policy authority.",
+    "liveFreshnessEvidenceRequiredForThisSemanticDecision": false
+  },
+  "boundary": "SEMANTIC_MAPPING_ONLY_NO_ACCOUNT_FACT_RISK_STAGE_BUY_ACTION_ORDER_PRODUCTION_TRADING_OR_REAL_AUTHORITY"
+}

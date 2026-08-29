@@ -1397,6 +1397,7 @@ APPROVED_TESTS = [
     # REVIEW_INCOMPLETE until a live pair plus atomic session binding exists;
     # no caller override, retroactivity, or valuation/risk/trading authority.
     "test/test_kis_valuation_freshness_policy_proposal.py",
+    "test/test_kis_valuation_authority.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
