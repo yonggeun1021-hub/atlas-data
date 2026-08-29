@@ -109,6 +109,32 @@ class CryptoLiveComponentRegistryTests(unittest.TestCase):
         ):
             REGISTRY.validate_registry(rehash(tree), expected_generated_at=GENERATED_AT)
 
+    def test_symlinked_observation_source_fails_closed(self):
+        with tempfile.TemporaryDirectory(dir=ROOT, prefix=".registry-symlink-") as tmp:
+            observation_root = Path(tmp)
+            for source in self.record["source_directories"]:
+                source_path = ROOT / source["path"]
+                target_path = observation_root / source["path"]
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source_path, target_path)
+            first_source = self.record["source_directories"][0]["path"]
+            target_file = next(
+                item for item in (observation_root / first_source).iterdir()
+                if item.is_file()
+            )
+            original_file = ROOT / first_source / target_file.name
+            target_file.unlink()
+            target_file.symlink_to(original_file)
+            with self.assertRaisesRegex(
+                REGISTRY.CryptoLiveComponentRegistryError,
+                "SOURCE_SYMLINK_FORBIDDEN",
+            ):
+                REGISTRY.validate_registry(
+                    copy.deepcopy(self.record),
+                    expected_generated_at=GENERATED_AT,
+                    root=observation_root,
+                )
+
     def test_decision_snapshot_accepts_only_validated_registry_and_replays(self):
         record = DECISION.build_snapshot(
             generated_at=GENERATED_AT,

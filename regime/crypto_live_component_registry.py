@@ -141,7 +141,16 @@ def _relative_directory(
 ) -> Path:
     if not isinstance(path_value, str) or Path(path_value).is_absolute():
         raise CryptoLiveComponentRegistryError("SOURCE_PATH_INVALID")
-    path = (root / path_value).resolve()
+    relative = Path(path_value)
+    if ".." in relative.parts:
+        raise CryptoLiveComponentRegistryError("SOURCE_PATH_INVALID")
+    candidate = root / relative
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise CryptoLiveComponentRegistryError("SOURCE_SYMLINK_FORBIDDEN")
+    path = candidate.resolve()
     expected = (root / expected_root / date).resolve()
     if path != expected or not path.is_dir() or path.name != date:
         raise CryptoLiveComponentRegistryError("SOURCE_PATH_INVALID")
@@ -149,7 +158,10 @@ def _relative_directory(
 
 
 def _directory_fingerprint(path: Path) -> dict:
-    files = sorted(item for item in path.rglob("*") if item.is_file())
+    items = sorted(path.rglob("*"))
+    if any(item.is_symlink() for item in items):
+        raise CryptoLiveComponentRegistryError("SOURCE_SYMLINK_FORBIDDEN")
+    files = [item for item in items if item.is_file()]
     if not files:
         raise CryptoLiveComponentRegistryError(f"SOURCE_DIRECTORY_EMPTY:{path}")
     entries = []
