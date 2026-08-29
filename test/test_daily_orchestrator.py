@@ -1321,21 +1321,24 @@ class DailyOrchestratorTest(unittest.TestCase):
             )
         # KRX_PREOPEN_COMPACT correctly reports DATA_BLOCKED (a collector
         # data failure -- the mismatched date -- not a read-model-only
-        # DEGRADED), and ACTION_RISK_PORTFOLIO_SUMMARY cascades to DEGRADED
-        # because its one required source (UNIFIED_DECISION) is unavailable.
+        # DEGRADED).  Builders that independently enforce the generated-date
+        # boundary still fail closed, while STRATEGIC_CAPITAL_POSTURE can
+        # honestly assemble a PENDING packet from unavailable machine-coded
+        # sources instead of cascading a human-readable diagnostic failure.
         self.assertEqual(by_id["KRX_PREOPEN_COMPACT"]["status"], "DATA_BLOCKED")
         self.assertEqual(
             by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]["status"], "DEGRADED"
         )
-        # UNIFIED_DECISION + ACTION_RISK_PORTFOLIO_SUMMARY, always. Plus
-        # DYNAMIC_CLOCK whenever this decision_date (one day before the
-        # dynamic STEP0-ready date) is behind P8-12's real advancing
-        # evidence -- see the identical DYNAMIC_CLOCK note in
+        self.assertEqual(by_id["STRATEGIC_CAPITAL_POSTURE"]["status"], "PENDING")
+        self.assertTrue(by_id["STRATEGIC_CAPITAL_POSTURE"]["validated"])
+        # The three builders with their own date/input failure remain
+        # DEGRADED. Plus DYNAMIC_CLOCK whenever this decision_date (one day
+        # before the dynamic STEP0-ready date) is behind P8-12's real
+        # advancing evidence -- see the identical DYNAMIC_CLOCK note in
         # test_morning_build_against_real_evidence_has_no_degraded_components.
         expected_degraded = {
             "UNIFIED_DECISION",
             "DEFENSIVE_ACTION_DECISION",
-            "STRATEGIC_CAPITAL_POSTURE",
             "ACTION_RISK_PORTFOLIO_SUMMARY",
         }
         if by_id["DYNAMIC_CLOCK"]["status"] == "DEGRADED":
@@ -1416,6 +1419,44 @@ class DailyOrchestratorTest(unittest.TestCase):
         }
         self.assertEqual(step0_by_id["STEP0_READ_MODEL_HEALTH"]["status"], "READY")
 
+    def test_unavailable_exception_reason_does_not_degrade_unified_decision(self):
+        source_ids = (
+            "THREE_MARKET_REGIME_HEADER",
+            "ROTATION_DISCOVERY",
+            "RULE_EVALUATION",
+            "PORTFOLIO_BUCKET",
+            "PORTFOLIO_CURRENCY",
+            "ACTION_BOUNDARY",
+        )
+        rows = {
+            component_id: MODULE.component_row(
+                component_id, "PENDING", "SOURCE_PACKET_NOT_PROVIDED"
+            )
+            for component_id in source_ids
+        }
+        diagnostic = (
+            "RotationDiscoveryBriefingError:"
+            "DYNAMIC_SIGNAL_INPUT_INVALID:REPORT_DECISION_AFTER_BOUNDARY_AS_OF"
+        )
+        rows["ROTATION_DISCOVERY"] = MODULE.component_row(
+            "ROTATION_DISCOVERY", "DEGRADED", diagnostic
+        )
+
+        result = MODULE.build_unified_decision(
+            rows, DECISION_DATE, "morning", MORNING_GENERATED_AT
+        )
+
+        self.assertEqual(result["status"], "PENDING")
+        self.assertTrue(result["validated"])
+        by_name = {
+            row["component"]: row for row in result["packet"]["components"]
+        }
+        self.assertEqual(
+            by_name["ROTATION_DISCOVERY"]["unavailable_reasons"],
+            ["ROTATION_DISCOVERY_DEGRADED"],
+        )
+        self.assertEqual(rows["ROTATION_DISCOVERY"]["reason"], diagnostic)
+
     def test_no_action_order_production_or_trading_authority_is_ever_true(self):
         for slot, generated_at in (
             ("morning", MORNING_GENERATED_AT),
@@ -1471,6 +1512,23 @@ class DailyOrchestratorTest(unittest.TestCase):
                 self.assertIn(row["reason"], rendered)
         self.assertIn(
             "No action, order, Production, or trading authority", rendered
+        )
+
+    def test_weekend_morning_discloses_closed_session_without_date_relabelling(self):
+        packet = MODULE.build_packet(
+            "morning", "2026-08-29", "2026-08-28T22:09:34Z"
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        self.assertEqual(
+            by_id["KRX_POST_CLOSE"]["reason"],
+            "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE",
+        )
+        rendered = MODULE.render_markdown(packet)
+        self.assertIn("- market_session: MARKET_CLOSED", rendered)
+        self.assertIn("- new_session: NONE", rendered)
+        self.assertIn("- latest_confirmed_evidence_date: 2026-08-28", rendered)
+        self.assertIn(
+            "- latest_confirmed_evidence_relabelled_as_today: false", rendered
         )
 
     def test_render_markdown_shows_real_values_not_just_status_and_path(self):

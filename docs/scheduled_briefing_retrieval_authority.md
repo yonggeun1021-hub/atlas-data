@@ -9,7 +9,7 @@ contract therefore existed but could not be adopted by that consumer.
 
 P0-06 publishes only the missing bootstrap: an append-only record containing
 the exact `source_commit`, `generation_id`, expected KST date, stale-detection
-result, and immutable artifact URLs.  It does not copy the read model, make an
+result, an explicit source-date binding, and immutable artifact URLs.  It does not copy the read model, make an
 investment judgment, or confer any trading authority.
 
 ## Bootstrap trust boundary
@@ -72,9 +72,17 @@ KST evening briefing; only `slot` differs.
 3. Require the bootstrap's date and slot to match the requested values,
    `stale_detection=PASS`, a full lowercase commit SHA, one 64-character
    generation ID, and every investment/trading authority flag to remain false.
+   Schema v3 normally binds `source_evidence_kst_date` to the decision date.
+   The only exception is a Saturday/Sunday `morning` round, which may bind
+   exactly the previous Friday and must declare
+   `MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE`. This is an exact
+   immutable binding, not a search or prior-date fallback.
 4. Read Step0, health, and requested compact files only from the exact
-   commit-pinned URLs in the bootstrap. Confirm the expected KST date and the
-   same generation ID across every consumed artifact.
+   commit-pinned URLs in the bootstrap. Confirm the envelope's exact
+   `source_evidence_kst_date` and the same generation ID across every consumed
+   artifact. Weekend delivery bytes must explicitly state market closure, no
+   new session, the previous-Friday evidence date, and that it was not
+   relabelled as the decision date.
 5. If any step fails, report `RETRIEVAL_AUTHORITY_UNAVAILABLE` and do not make
    a new investment judgment from stale or floating data.
 

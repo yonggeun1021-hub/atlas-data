@@ -1,5 +1,5 @@
 {
-  "schema_version": "scheduled_briefing_retrieval_authority/2",
+  "schema_version": "scheduled_briefing_retrieval_authority/3",
   "repository": "yonggeun1021-hub/atlas-data",
   "branch": "main",
   "source_contract_path": "config/read_model_authority_contract.json",
@@ -13,7 +13,7 @@
   "immutable_raw_url_template": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/{source_commit}/{path}",
   "bootstrap_policy": "UNIQUE_DATE_SLOT_APPEND_ONLY_SEQUENTIAL_REVISIONS",
   "max_revisions_per_slot": 99,
-  "stale_policy": "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+  "stale_policy": "EXACT_DATE_OR_WEEKEND_MORNING_PREVIOUS_FRIDAY_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
   "unavailable_status": "RETRIEVAL_AUTHORITY_UNAVAILABLE",
   "authority": {
     "retrieval_pointer_only": true,

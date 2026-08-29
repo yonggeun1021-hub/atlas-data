@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """P0-06 external consumer and H-24 immutable binding regressions."""
 
+from __future__ import annotations
+
 import copy
 import hashlib
 import importlib.util
@@ -48,9 +50,11 @@ def dump(path: Path, value) -> None:
 
 
 class ConsumerFixture:
-    def __init__(self):
+    def __init__(self, decision_date: str = DATE, source_date: str | None = None):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.date = decision_date
+        self.source_date = source_date or decision_date
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "test"], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "test@example.com"], check=True)
@@ -63,25 +67,25 @@ class ConsumerFixture:
             target.write_bytes((ROOT / relative).read_bytes())
         generation = {"generation_id": GENERATION, "generation_contract_version": 1}
         dump(self.root / "data/briefing/step0_status.json", {
-            "schema_version": 2, "expected_kst_date": DATE, "generation": generation,
+            "schema_version": 2, "expected_kst_date": self.source_date, "generation": generation,
         })
         dump(self.root / "data/briefing_status.json", {
-            "schema_version": 2, "expected_kst_date": DATE, "generation": generation,
+            "schema_version": 2, "expected_kst_date": self.source_date, "generation": generation,
         })
         dump(self.root / "data/briefing/krx/005930.json", {
-            "source": {"collected_for_kst_date": DATE}, "generation": generation,
+            "source": {"collected_for_kst_date": self.source_date}, "generation": generation,
         })
         self._write_delivery()
         self.commit = self.commit_all("consumer-ready")
         self.envelope = PUBLISHER.build_envelope(
-            self.root, self.commit, "morning", DATE
+            self.root, self.commit, "morning", self.date
         )
         self.responses = {}
         self._install_envelope(1, self.envelope)
         self._install_commit_artifacts(self.envelope)
 
     def _write_delivery(self):
-        base = self.root / f"evidence/daily_briefing/morning/{DATE}"
+        base = self.root / f"evidence/daily_briefing/morning/{self.date}"
         index = base / "index.json"
         packet = base / "rev-001/packet.json"
         briefing = base / "rev-001/briefing.md"
@@ -90,19 +94,44 @@ class ConsumerFixture:
             "contract_version": "daily_orchestrator/3",
             "output_schema_version": "daily_briefing_packet/1",
             "slot": "morning",
-            "decision_date": DATE,
+            "decision_date": self.date,
             "generated_at": "2026-08-25T23:05:00Z",
             "capture_mode": "provider_free_aggregation_of_persisted_evidence_only",
             "component_status_counts": {
-                "READY": 1, "PENDING": 0, "DATA_BLOCKED": 0,
+                "READY": 1, "PENDING": 1, "DATA_BLOCKED": 1,
                 "POLICY_BLOCKED": 0, "DEGRADED": 0, "UNAVAILABLE": 0,
                 "UNKNOWN": 0,
             },
-            "components": [{
-                "component_id": "TEST_COMPONENT", "status": "READY",
-                "decision_eligible": False, "action_eligible": False,
-                "order_eligible": False,
-            }],
+            "components": [
+                {
+                    "component_id": "TEST_COMPONENT", "status": "READY",
+                    "decision_eligible": False, "action_eligible": False,
+                    "order_eligible": False,
+                },
+                {
+                    "component_id": "STEP0_READ_MODEL_HEALTH", "status": "DATA_BLOCKED",
+                    "decision_eligible": False, "action_eligible": False,
+                    "order_eligible": False,
+                    "packet": {
+                        "expected_kst_date": self.date,
+                        "sources": {
+                            name: {"collected_for_kst_date": self.source_date}
+                            for name in ("krx", "dart", "sec")
+                        },
+                    },
+                },
+                {
+                    "component_id": "KRX_POST_CLOSE", "status": "PENDING",
+                    "reason": (
+                        "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_"
+                        "LATEST_CONFIRMED_EVIDENCE"
+                        if self.date in {"2026-08-29", "2026-08-30"}
+                        else "MORNING_SLOT_USES_CONFIRMED_HISTORY_ONLY"
+                    ),
+                    "decision_eligible": False, "action_eligible": False,
+                    "order_eligible": False,
+                },
+            ],
             "authority": {
                 "aggregation_only": True,
                 "component_build_authorized": True,
@@ -123,7 +152,7 @@ class ConsumerFixture:
         packet_value["packet_sha256"] = payload_sha256(packet_value)
         dump(packet, packet_value)
         dump(index, {
-            "schema_version": 1, "slot": "morning", "decision_date": DATE,
+            "schema_version": 1, "slot": "morning", "decision_date": self.date,
             "latest_revision": 1,
             "revisions": [{
                 "revision": 1, "path": "rev-001",
@@ -131,12 +160,20 @@ class ConsumerFixture:
             }],
         })
         briefing.parent.mkdir(parents=True, exist_ok=True)
-        briefing.write_text("# verified briefing\n", encoding="utf-8")
+        briefing_text = "# verified briefing\n"
+        if self.date in {"2026-08-29", "2026-08-30"}:
+            briefing_text += (
+                "- market_session: MARKET_CLOSED\n"
+                "- new_session: NONE\n"
+                f"- latest_confirmed_evidence_date: {self.source_date}\n"
+                "- latest_confirmed_evidence_relabelled_as_today: false\n"
+            )
+        briefing.write_text(briefing_text, encoding="utf-8")
         rel = lambda path: path.relative_to(self.root).as_posix()
         sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
         dump(self.root / "data/briefing/daily_briefing_sources.json", {
             "schema_version": "daily_briefing_delivery/1",
-            "slot": "morning", "decision_date": DATE, "revision": 1,
+            "slot": "morning", "decision_date": self.date, "revision": 1,
             "index_path": rel(index), "index_sha256": sha(index),
             "packet_path": rel(packet), "packet_file_sha256": sha(packet),
             "packet_sha256": packet_value["packet_sha256"],
@@ -198,7 +235,7 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
 
     def consume(self):
         return CONSUMER.consume(
-            DATE, "morning", {"krx": ["005930"]}, contract=self.contract,
+            self.fixture.date, "morning", {"krx": ["005930"]}, contract=self.contract,
             get=self.fixture.get, nonce_factory=lambda: "unique",
         )
 
@@ -403,6 +440,58 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
         self.fixture.responses[url] = (200, (json.dumps(value) + "\n").encode())
         with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, "GENERATION_MISMATCH"):
             self.consume()
+
+    def test_weekend_consumer_accepts_exact_bound_friday_bytes(self):
+        fixture = ConsumerFixture("2026-08-29", "2026-08-28")
+        try:
+            contract = CONSUMER._load_contract(fixture.root / PUBLISHER.CONTRACT_PATH)
+            raw, envelope = CONSUMER.consume(
+                fixture.date, "morning", {"krx": ["005930"]},
+                contract=contract, get=fixture.get, nonce_factory=lambda: "weekend",
+            )
+            self.assertEqual(
+                envelope["source_date_binding"]["source_evidence_kst_date"],
+                "2026-08-28",
+            )
+            self.assertIn("data/briefing/krx/005930.json", raw)
+        finally:
+            fixture.close()
+
+    def test_weekend_consumer_rejects_tampered_date_binding(self):
+        fixture = ConsumerFixture("2026-08-29", "2026-08-28")
+        try:
+            contract = CONSUMER._load_contract(fixture.root / PUBLISHER.CONTRACT_PATH)
+            envelope = copy.deepcopy(fixture.envelope)
+            envelope["source_date_binding"]["source_evidence_kst_date"] = "2026-08-27"
+            envelope["source_date_binding"]["calendar_day_lag"] = 2
+            fixture._install_envelope(1, envelope)
+            with self.assertRaisesRegex(
+                CONSUMER.ScheduledConsumerError, "SOURCE_DATE_BINDING_WEEKEND_INVALID"
+            ):
+                CONSUMER.consume(
+                    fixture.date, "morning", {"krx": ["005930"]},
+                    contract=contract, get=fixture.get, nonce_factory=lambda: "tamper",
+                )
+        finally:
+            fixture.close()
+
+    def test_weekend_compact_must_match_bound_source_date_not_decision_date(self):
+        fixture = ConsumerFixture("2026-08-29", "2026-08-28")
+        try:
+            contract = CONSUMER._load_contract(fixture.root / PUBLISHER.CONTRACT_PATH)
+            url = fixture.envelope["compact_immutable_url_templates"]["krx"].format(symbol="005930")
+            value = json.loads(fixture.responses[url][1])
+            value["source"]["collected_for_kst_date"] = fixture.date
+            fixture.responses[url] = (200, (json.dumps(value) + "\n").encode())
+            with self.assertRaisesRegex(
+                CONSUMER.ScheduledConsumerError, "IMMUTABLE_ARTIFACT_STALE_DATE"
+            ):
+                CONSUMER.consume(
+                    fixture.date, "morning", {"krx": ["005930"]},
+                    contract=contract, get=fixture.get, nonce_factory=lambda: "wrong-date",
+                )
+        finally:
+            fixture.close()
 
     def test_revision_two_is_selected_only_after_valid_revision_one(self):
         second = copy.deepcopy(self.fixture.envelope)

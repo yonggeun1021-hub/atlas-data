@@ -30,7 +30,25 @@ spec = importlib.util.spec_from_file_location("p10_04_unified_fixture", UNIFIED_
 UNIFIED_FIXTURE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UNIFIED_FIXTURE)
 PACKETS = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
-PACKET = PACKETS[-1]
+
+
+def has_validated_unified_decision(path: Path) -> bool:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    rows = value.get("components")
+    if not isinstance(rows, list):
+        return False
+    matches = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("component_id") == "UNIFIED_DECISION"
+    ]
+    return (
+        len(matches) == 1
+        and matches[0].get("validated") is True
+        and isinstance(matches[0].get("packet"), dict)
+    )
+
+
+PACKET = next(path for path in reversed(PACKETS) if has_validated_unified_decision(path))
 HISTORICAL_RECORDS = sorted(
     (ROOT / "evidence" / "operational" / "decision_change_lineage" / "records")
     .glob("record-*.json")

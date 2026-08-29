@@ -29,7 +29,26 @@ UNIFIED_FIXTURE_PATH = ROOT / "test" / "test_unified_decision_contract.py"
 spec = importlib.util.spec_from_file_location("p10_01_unified_fixture", UNIFIED_FIXTURE_PATH)
 UNIFIED_FIXTURE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UNIFIED_FIXTURE)
-PACKET = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))[-1]
+PACKETS = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
+
+
+def has_validated_unified_decision(path: Path) -> bool:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    rows = value.get("components")
+    if not isinstance(rows, list):
+        return False
+    matches = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("component_id") == "UNIFIED_DECISION"
+    ]
+    return (
+        len(matches) == 1
+        and matches[0].get("validated") is True
+        and isinstance(matches[0].get("packet"), dict)
+    )
+
+
+PACKET = next(path for path in reversed(PACKETS) if has_validated_unified_decision(path))
 
 
 def commit_for(path: Path) -> str:
