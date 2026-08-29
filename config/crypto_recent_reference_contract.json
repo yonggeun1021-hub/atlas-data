@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_recent_reference/v1",
+  "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+  "source_helper": ".github/scripts/crypto_breadth.py",
+  "source_name": "kraken_spot_market_data",
+  "quote_currency": "USD",
+  "selection_rule": "ratified_current_taxonomy_over_trailing_30d_turnover_top_100",
+  "window_calendar_days": [
+    7,
+    30
+  ],
+  "return_semantics": "finalized_close_div_exact_prior_calendar_day_close_minus_one",
+  "alt_summary_method": "equal_weight_simple_return_and_median",
+  "current_candle_policy": "exclude_last_row_always",
+  "top_strength_count": 5,
+  "output_decimal_places": 6,
+  "historical_replay_authorized": false,
+  "regime_classification_authorized": false,
+  "production_wiring_authorized": false,
+  "trading_action_authorized": false
+}
