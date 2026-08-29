@@ -55,6 +55,12 @@ public Regime and realtime-freshness policies remain unratified, so natural
 production data is expected to remain non-eligible and non-matchable until
 those upstream contracts are legitimately resolved.
 
+Pending virtual orders reserve the new-intent lane: the bridge will not create
+another intent until they are filled, cancelled, or expired. If more than one
+candidate is simultaneously eligible, it returns `WAIT_ALLOCATION_POLICY`
+instead of inventing a ranking or letting multiple drafts consume the same
+available risk budget.
+
 ## Sampling gate
 
 Mechanism tests and synthetic BUY→SELL evidence do not start the official

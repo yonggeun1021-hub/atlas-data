@@ -155,6 +155,44 @@ class RuntimeFixture(unittest.TestCase):
             mark_source_sha256="d" * 64,
         )
 
+    def empty_account(self):
+        ledger = SIMULATOR.create_ledger(
+            ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
+            opened_at="2026-08-29T00:59:00Z",
+            idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
+        )
+        return SIMULATOR.build_account_state(
+            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
+            mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
+            mark_source_sha256="d" * 64,
+        )
+
+    def config(self):
+        return BRIDGE.build_runtime_config(
+            approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
+            approved_by="CIO_TEST", approved_at="2026-08-29T01:00:00Z",
+            ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
+            fee_rate="0", queue_fraction="1", order_type="LIMIT",
+            limit_price_source="ENTRY_ZONE_LOW",
+        )
+
+    @staticmethod
+    def eligible_packet(markets):
+        return {
+            "candidates": [{
+                "market": market,
+                "eligibility_state": "PAPER_BUY_ELIGIBLE",
+                "order_draft": {},
+            } for market in markets],
+        }
+
+    @staticmethod
+    def promotion_packet():
+        return {
+            "evaluation_as_of": "2026-08-29T01:31:00Z",
+            "source_packets": {"regime": {"regime": "UNKNOWN"}},
+        }
+
 
 class LatestPublicMessageTests(unittest.TestCase):
     def test_only_an_accepted_message_replaces_the_latest_exact_public_payload(self):
@@ -343,6 +381,57 @@ class BridgeContractTests(RuntimeFixture):
             BRIDGE._normalize_open_position_risk([
                 {"market": "KRW-BTC", "planned_loss_krw": "0"},
             ])
+
+    def test_multiple_eligible_candidates_wait_for_allocation_policy(self):
+        with (
+            mock.patch.object(
+                BRIDGE, "_promotion_packet", return_value=self.promotion_packet(),
+            ),
+            mock.patch.object(
+                BRIDGE.ELIGIBILITY, "build_eligibility_packet",
+                return_value=self.eligible_packet(["KRW-BTC", "KRW-ETH"]),
+            ),
+            mock.patch.object(
+                BRIDGE.ELIGIBILITY, "validate_output", side_effect=lambda value: value,
+            ),
+        ):
+            request = BRIDGE.build_runtime_request(
+                self.decision(), expected_source_commit=SOURCE_COMMIT,
+                account_state=self.empty_account(), open_position_risk=[],
+                runtime_config=self.config(),
+            )
+        self.assertEqual(request["status"], "WAIT_ALLOCATION_POLICY")
+        self.assertEqual(request["requests"], [])
+        self.assertIn(
+            "MULTIPLE_ELIGIBLE_CANDIDATES_REQUIRE_ALLOCATION_POLICY:KRW-BTC,KRW-ETH",
+            request["blockers"],
+        )
+
+    def test_pending_open_order_reserves_capacity_against_new_intent(self):
+        with (
+            mock.patch.object(
+                BRIDGE, "_promotion_packet", return_value=self.promotion_packet(),
+            ),
+            mock.patch.object(
+                BRIDGE.ELIGIBILITY, "build_eligibility_packet",
+                return_value=self.eligible_packet(["KRW-ETH"]),
+            ),
+            mock.patch.object(
+                BRIDGE.ELIGIBILITY, "validate_output", side_effect=lambda value: value,
+            ),
+        ):
+            request = BRIDGE.build_runtime_request(
+                self.decision(), expected_source_commit=SOURCE_COMMIT,
+                account_state=self.account_with_open_order(), open_position_risk=[],
+                runtime_config=self.config(),
+            )
+        self.assertEqual(request["status"], "PAPER_MATCHES_READY")
+        self.assertEqual(request["requests"], [])
+        self.assertIn(
+            "NEW_INTENT_BLOCKED_PENDING_OPEN_ORDERS:"
+            "PAPER.BUY.KRW-BTC.RUNTIME.TEST",
+            request["blockers"],
+        )
 
     def test_runtime_config_requires_explicit_ratification_hash_and_keeps_real_authority_false(self):
         config = BRIDGE.build_runtime_config(

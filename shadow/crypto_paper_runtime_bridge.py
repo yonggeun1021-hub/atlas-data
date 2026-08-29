@@ -578,6 +578,8 @@ def _derive_runtime_request(
     requests = []
     match_snapshots = []
     blockers = []
+    carried_open_order_ids = []
+    new_intent_allocation_blocked = False
 
     # A current run's retained orderbook predates the decision assembled at
     # the tail of that run, so it may support the decision but cannot fill a
@@ -592,6 +594,7 @@ def _derive_runtime_request(
         open_orders_by_market = {}
         for order in checked_account["orders"]:
             if order["status"] in {"OPEN", "PARTIALLY_FILLED"}:
+                carried_open_order_ids.append(order["order_id"])
                 open_orders_by_market.setdefault(order["market"], []).append(order)
         for market, orders in sorted(open_orders_by_market.items()):
             try:
@@ -639,9 +642,25 @@ def _derive_runtime_request(
             known_idempotency_keys=normalized_keys,
         )
         eligibility = ELIGIBILITY.validate_output(eligibility)
-        for row in eligibility["candidates"]:
-            if row["eligibility_state"] != "PAPER_BUY_ELIGIBLE":
-                continue
+        eligible_rows = [
+            row for row in eligibility["candidates"]
+            if row["eligibility_state"] == "PAPER_BUY_ELIGIBLE"
+        ]
+        if eligible_rows and carried_open_order_ids:
+            new_intent_allocation_blocked = True
+            blockers.append(
+                "NEW_INTENT_BLOCKED_PENDING_OPEN_ORDERS:"
+                + ",".join(sorted(carried_open_order_ids))
+            )
+            eligible_rows = []
+        elif len(eligible_rows) > 1:
+            new_intent_allocation_blocked = True
+            blockers.append(
+                "MULTIPLE_ELIGIBLE_CANDIDATES_REQUIRE_ALLOCATION_POLICY:"
+                + ",".join(sorted(row["market"] for row in eligible_rows))
+            )
+            eligible_rows = []
+        for row in eligible_rows:
             draft = row["order_draft"]
             submitted_at = decision["generated_at"]
             if _parse_utc(draft["expires_at"], "ORDER_DRAFT_EXPIRY_INVALID") <= _parse_utc(
@@ -690,6 +709,8 @@ def _derive_runtime_request(
         status = "WAIT_PROMOTION_UNAVAILABLE"
     elif missing:
         status = "WAIT_RUNTIME_INPUTS_MISSING"
+    elif new_intent_allocation_blocked:
+        status = "WAIT_ALLOCATION_POLICY"
     else:
         status = "NO_ELIGIBLE_CANDIDATE"
     packet = {
