@@ -23,6 +23,10 @@ verbatim:
   -- DEFINED/UNDEFINED axis evidence only, never an interpreted RISK_ON/
   NEUTRAL/RISK_OFF/STRESS value (the runtime contract authorizes only
   ``UNKNOWN`` for the aggregate today).
+* ``regime/crypto_live_component_registry.py`` -- exact public natural
+  component rows bound to their retained download cutoff and directory
+  fingerprint. It can define evidence presence only; it cannot interpret an
+  axis or authorize a decision/action.
 * ``universe/crypto_candidate_promotion.py`` (P5-08) and
   ``universe/crypto_paper_buy_eligibility.py`` (P5-09) -- run verbatim,
   unmodified, over the packets above.
@@ -198,6 +202,10 @@ CANDLE_FINALIZATION = _load(
 REALTIME_GATE = _load("crypto_paper_decision_snapshot_realtime_gate", "realtime/upbit_realtime_gate.py")
 REGIME_OUTPUT = _load("crypto_paper_decision_snapshot_regime_output", "regime/output_contract.py")
 LIVE_AXIS = _load("crypto_paper_decision_snapshot_live_axis", "regime/live_axis_adapter.py")
+LIVE_COMPONENT_REGISTRY = _load(
+    "crypto_paper_decision_snapshot_live_component_registry",
+    "regime/crypto_live_component_registry.py",
+)
 
 
 def canonical_json(value) -> str:
@@ -703,14 +711,29 @@ def build_snapshot(
 
     notes: list[str] = []
     source_refs: list[dict] = []
-    component_rows = copy.deepcopy(component_rows or {})
-    # No source registry is wired for live regime component rows at this
-    # boundary yet. Accepting caller-supplied rows would let a caller forge
-    # a regime and then make validate_output() reproduce it from the forged
-    # embedded copy. Keep the contract honest until those rows have exact,
-    # hash-bound source references of their own.
-    if component_rows:
-        raise CryptoPaperDecisionSnapshotError("REGIME_COMPONENT_ROWS_UNWIRED")
+    component_registry = copy.deepcopy(component_rows or {})
+    regime_component_rows = {}
+    if component_registry:
+        try:
+            component_registry = LIVE_COMPONENT_REGISTRY.validate_registry(
+                component_registry,
+                expected_generated_at=generated_at,
+                root=ROOT,
+            )
+        except LIVE_COMPONENT_REGISTRY.CryptoLiveComponentRegistryError as exc:
+            raise CryptoPaperDecisionSnapshotError(
+                f"REGIME_COMPONENT_REGISTRY_INVALID:{exc}"
+            ) from exc
+        regime_component_rows = copy.deepcopy(component_registry["rows"])
+        notes.append(
+            "CRYPTO_LIVE_COMPONENT_REGISTRY_WIRED:"
+            f"{len(regime_component_rows)}_SOURCE_COMPONENTS"
+        )
+        for component_id, row in regime_component_rows.items():
+            if row.get("status") != "READY" and row.get("reason"):
+                notes.append(f"{component_id}:{row['reason']}")
+        for component_id, reason in component_registry["deferred_components"].items():
+            notes.append(f"{component_id}:{reason}")
 
     _validate_universe_entry(universe_entry)
     _validate_market_evidence_entry(market_evidence_entry)
@@ -803,7 +826,7 @@ def build_snapshot(
 
     # -- Regime (P1-CR-08) -- independent of universe/market-evidence
     #    freshness; always computed honestly. ---------------------------
-    regime_payload = build_regime_snapshot(generated_at, component_rows)
+    regime_payload = build_regime_snapshot(generated_at, regime_component_rows)
 
     # -- Funnel: P5-08 then P5-09, reused verbatim ----------------------
     promotion_packet = None
@@ -929,6 +952,15 @@ def build_snapshot(
         ),
         "regime_axis_snapshot_sha256": payload_sha256(regime_payload),
     }
+    if component_registry:
+        # Two source registries that happen to yield the same DEFINED/
+        # UNDEFINED axis surface are still distinct exact input generations.
+        # Bind the registry bytes into the content-addressed decision path so
+        # a changed breadth/stablecoin source can never collide merely because
+        # its policy-neutral axis status stayed the same.
+        generation_basis["regime_component_registry_payload_sha256"] = (
+            component_registry["payload_sha256"]
+        )
     generation_id = payload_sha256(generation_basis)
     if not SHA256_RE.fullmatch(generation_id):
         raise CryptoPaperDecisionSnapshotError("GENERATION_ID_INVALID")
@@ -964,7 +996,7 @@ def build_snapshot(
             market_evidence_entry, used_in_promotion=market_evidence_used,
         ),
         "crypto_regime_five_axis": crypto_regime_five_axis(regime_payload),
-        "source_components": component_rows,
+        "source_components": component_registry,
         "funnel_counts": funnel_counts,
         "candidates": candidates,
         "freshness_status": {
@@ -1114,6 +1146,7 @@ def populate(
     allow_realtime_fallback: bool = False,
     output_root: Path = OUTPUT_ROOT,
     started_at: str | None = None,
+    wire_regime_components: bool = False,
 ) -> dict:
     resolved_source_commit = resolve_source_commit(source_commit)
     universe_entry = find_latest_universe_packet(universe_data_root)
@@ -1133,6 +1166,17 @@ def populate(
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
     previous_entry = find_previous_packet(output_root, capture_date, capture_hhmm)
 
+    component_registry = None
+    if wire_regime_components:
+        try:
+            component_registry = LIVE_COMPONENT_REGISTRY.build_registry(
+                generated_at, root=ROOT
+            )
+        except LIVE_COMPONENT_REGISTRY.CryptoLiveComponentRegistryError as exc:
+            raise PopulationError(
+                f"REGIME_COMPONENT_REGISTRY_BUILD_FAILED:{exc}"
+            ) from exc
+
     record = build_snapshot(
         generated_at=generated_at,
         source_commit=resolved_source_commit,
@@ -1141,6 +1185,7 @@ def populate(
         realtime_entry=realtime_entry,
         previous_entry=previous_entry,
         started_at=started_at,
+        component_rows=component_registry,
     )
     validate_output(
         record,
@@ -1212,6 +1257,13 @@ def run(argv=None) -> int:
         "--allow-realtime-fallback", action="store_true",
         help="Manual diagnostics only: reuse the latest prior realtime run when no exact run path is supplied.",
     )
+    parser.add_argument(
+        "--wire-regime-components", action="store_true",
+        help=(
+            "Bind repository-local public BTC trend/risk, stablecoin and Crypto "
+            "breadth rows through the hash-bound P1-CR-08 registry."
+        ),
+    )
     parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
     args = parser.parse_args(argv)
     try:
@@ -1225,6 +1277,7 @@ def run(argv=None) -> int:
             allow_realtime_fallback=args.allow_realtime_fallback,
             output_root=args.output_root,
             started_at=args.started_at,
+            wire_regime_components=args.wire_regime_components,
         )
     except CryptoPaperDecisionSnapshotError as exc:
         _write_github_output({"outcome": "failed", "reason": str(exc), "path": None, "payload_sha256": None, "generation_id": None})
