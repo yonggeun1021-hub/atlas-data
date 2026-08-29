@@ -62,11 +62,11 @@ ratified-vs-UNKNOWN-by-construction table. Short version:
     DUPLICATE                     MATERIAL_BLOCKER (echoes P5-08 exactly),
                                    OVEREXTENSION (UNKNOWN, echoes P5-08 --
                                    no ratified "과열" definition anywhere),
-                                   STALE (informational only, never gates --
-                                   P4-07's own staleness thresholds are
-                                   PROPOSED_UNRATIFIED), DUPLICATE (PASS/
-                                   FAIL only when a prior-keys ledger is
-                                   supplied by the caller, else UNKNOWN).
+                                   FRESHNESS (UNKNOWN while P4-07's policy
+                                   is unratified; FAIL for any STALE input
+                                   once that policy is ratified), DUPLICATE
+                                   (PASS/FAIL only when a prior-keys ledger
+                                   is supplied by the caller, else UNKNOWN).
   7 ORDER_DRAFT_COMPLETE          PASS/UNKNOWN only (never FAIL) -- whether
                                    entry/invalidation/stop/quantity/fee/
                                    slippage/expiry/duplicate-guard-key are
@@ -76,7 +76,9 @@ ratified-vs-UNKNOWN-by-construction table. Short version:
                                    other criterion has PASSED.
   8 PAPER_RISK_BUDGET             mechanical/PAPER-baseline against a
                                    caller-supplied virtual PAPER account
-                                   snapshot; UNKNOWN when no snapshot is
+                                   snapshot; total exposure uses existing
+                                   portfolio weights, never planned-loss
+                                   fractions; UNKNOWN when no snapshot is
                                    supplied (no NAV is known).
   9 ZERO_ORDER_ENDPOINT_CALLS     constant PASS -- a structural invariant
                                    of this module (no network import
@@ -107,7 +109,10 @@ into a threshold; it stays UNKNOWN.
 Determinism: every function here is a pure function of its arguments -- no
 wall-clock or random value is read inside any derivation. No result-
 shopping: thresholds are fixed in the loaded policy file before evaluation
-and are never adjusted after seeing an outcome.
+and are never adjusted after seeing an outcome. Embedded policies are
+exactly re-pinned to that repository file at every build/validation
+boundary, so changing a threshold and recomputing the packet hash cannot
+create a valid result.
 """
 from __future__ import annotations
 
@@ -148,7 +153,7 @@ CANDLE_FINALIZATION = _load("crypto_paper_buy_eligibility_candle_finalization", 
 
 CONTRACT_PATH = ROOT / "config" / "crypto_paper_buy_eligibility_contract.json"
 POLICY_PATH = ROOT / "config" / "crypto_paper_buy_eligibility_policy.json"
-OUTPUT_SCHEMA_VERSION = "crypto_paper_buy_eligibility_packet/1"
+OUTPUT_SCHEMA_VERSION = "crypto_paper_buy_eligibility_packet/2"
 
 STATE_WATCH = "WATCH"
 STATE_WAIT = "WAIT"
@@ -216,8 +221,8 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     value = _read_json(Path(path))
     if (
         not isinstance(value, dict)
-        or value.get("schema_version") != 1
-        or value.get("contract_version") != "crypto_paper_buy_eligibility_contract/1"
+        or value.get("schema_version") != 2
+        or value.get("contract_version") != "crypto_paper_buy_eligibility_contract/2"
     ):
         raise CryptoPaperBuyEligibilityError("CONTRACT_FIELD_MISMATCH:contract_version")
     if tuple(value.get("criteria", [])) != CRITERIA:
@@ -243,16 +248,33 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise CryptoPaperBuyEligibilityError("POLICY_FIELDS_INVALID")
+    if value.get("schema_version") != 1:
+        raise CryptoPaperBuyEligibilityError("POLICY_SCHEMA_VERSION_INVALID")
+    if value.get("policy_version") != "crypto_paper_buy_eligibility_policy/1":
+        raise CryptoPaperBuyEligibilityError("POLICY_VERSION_INVALID")
     if value.get("baseline_label") != "PROPOSED_PAPER_BASELINE":
         raise CryptoPaperBuyEligibilityError("POLICY_BASELINE_LABEL_INVALID")
+    if value.get("baseline_version") != "v1":
+        raise CryptoPaperBuyEligibilityError("POLICY_BASELINE_VERSION_INVALID")
+    if value.get("approval_status") != "PROPOSED_PAPER_BASELINE_UNRATIFIED":
+        raise CryptoPaperBuyEligibilityError("POLICY_APPROVAL_STATUS_INVALID")
+    if not isinstance(value.get("effective_date"), str) or not _DATE_RE.fullmatch(value["effective_date"]):
+        raise CryptoPaperBuyEligibilityError("POLICY_EFFECTIVE_DATE_INVALID")
     if value.get("not_a_live_capital_limit") is not True:
         raise CryptoPaperBuyEligibilityError("POLICY_LIVE_CAPITAL_INVARIANT_VIOLATED")
+    if not isinstance(value.get("source_reference"), str) or not value["source_reference"].strip():
+        raise CryptoPaperBuyEligibilityError("POLICY_SOURCE_REFERENCE_INVALID")
+    if not isinstance(value.get("decimal_scale"), int) or not 0 <= value["decimal_scale"] <= 36:
+        raise CryptoPaperBuyEligibilityError("POLICY_DECIMAL_SCALE_INVALID")
     trend = value["trend"]
     if not isinstance(trend, dict) or set(trend) != {"ema_period"} or trend["ema_period"] != 20:
         raise CryptoPaperBuyEligibilityError("POLICY_TREND_FIELDS_INVALID")
     breakout = value["breakout"]
     if not isinstance(breakout, dict) or set(breakout) != {"lookback_bars", "volume_ratio_min"}:
         raise CryptoPaperBuyEligibilityError("POLICY_BREAKOUT_FIELDS_INVALID")
+    if not isinstance(breakout["lookback_bars"], int) or breakout["lookback_bars"] < 2:
+        raise CryptoPaperBuyEligibilityError("POLICY_BREAKOUT_LOOKBACK_INVALID")
+    _decimal(breakout["volume_ratio_min"], "POLICY_VOLUME_RATIO_INVALID", positive=True)
     risk = value["risk"]
     required_risk = {
         "per_trade_planned_loss_nav_fraction", "total_crypto_paper_exposure_nav_fraction",
@@ -260,7 +282,29 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     }
     if not isinstance(risk, dict) or set(risk) != required_risk:
         raise CryptoPaperBuyEligibilityError("POLICY_RISK_FIELDS_INVALID")
+    for key in (
+        "per_trade_planned_loss_nav_fraction",
+        "total_crypto_paper_exposure_nav_fraction",
+        "single_asset_paper_exposure_nav_fraction",
+    ):
+        _decimal(risk[key], f"POLICY_RISK_VALUE_INVALID:{key}", positive=True, maximum=Decimal("1"))
+    if not isinstance(risk["max_concurrent_paper_positions"], int) or risk["max_concurrent_paper_positions"] < 1:
+        raise CryptoPaperBuyEligibilityError("POLICY_MAX_POSITIONS_INVALID")
     return copy.deepcopy(value)
+
+
+def _require_repository_policy(policy: dict) -> dict:
+    """Pin every consumer to the repository baseline.
+
+    Embedding a policy inside a packet is not authority to replace the
+    repository policy.  Without this exact comparison, a caller could alter
+    thresholds, rebuild the packet hash, and have ``validate_output``
+    reproduce the forged derivation successfully.
+    """
+    canonical = load_policy(POLICY_PATH)
+    if canonical_json(policy) != canonical_json(canonical):
+        raise CryptoPaperBuyEligibilityError("POLICY_REPOSITORY_PIN_MISMATCH")
+    return copy.deepcopy(canonical)
 
 
 def _decimal(value, code: str, *, positive: bool = False, maximum: Decimal | None = None) -> Decimal:
@@ -377,34 +421,50 @@ def _finalized(market_evidence_packet: dict | None, timeframe: str) -> list | No
 def evaluate_trigger_timeframe_alignment(market_evidence_packet: dict | None) -> dict:
     if market_evidence_packet is None:
         return _criterion("UNKNOWN", "MARKET_EVIDENCE_PACKET_MISSING")
+    fifteen_minute = _finalized(market_evidence_packet, "15m")
     trigger = _finalized(market_evidence_packet, TRIGGER_TIMEFRAME)
     four_hour = _finalized(market_evidence_packet, "4h")
     daily = _finalized(market_evidence_packet, "1d")
+    fifteen_minute_direction = PROMOTION._direction(fifteen_minute) if fifteen_minute is not None else None
     trigger_direction = PROMOTION._direction(trigger) if trigger is not None else None
     four_hour_direction = PROMOTION._direction(four_hour) if four_hour is not None else None
     daily_direction = PROMOTION._direction(daily) if daily is not None else None
-    if trigger_direction is None or four_hour_direction is None or daily_direction is None:
+    if (
+        fifteen_minute_direction is None
+        or trigger_direction is None
+        or four_hour_direction is None
+        or daily_direction is None
+    ):
         return _criterion(
             "UNKNOWN", "INSUFFICIENT_FINALIZED_CANDLES_FOR_TRIGGER",
+            fifteen_minute_direction=fifteen_minute_direction,
             trigger_direction=trigger_direction,
             four_hour_direction=four_hour_direction,
             daily_direction=daily_direction,
         )
-    if trigger_direction == "FLAT":
+    if fifteen_minute_direction == "FLAT" or trigger_direction == "FLAT":
         return _criterion(
             "UNKNOWN", "TRIGGER_DIRECTION_FLAT_NO_CONVICTION",
+            fifteen_minute_direction=fifteen_minute_direction,
             trigger_direction=trigger_direction,
         )
-    conflict = four_hour_direction == "DOWN" or daily_direction == "DOWN"
+    conflict = (
+        fifteen_minute_direction != "UP"
+        or trigger_direction != "UP"
+        or four_hour_direction == "DOWN"
+        or daily_direction == "DOWN"
+    )
     if conflict:
         return _criterion(
             "FAIL", "DIRECTION_CONFLICT_WITH_HIGHER_TIMEFRAME",
+            fifteen_minute_direction=fifteen_minute_direction,
             trigger_direction=trigger_direction,
             four_hour_direction=four_hour_direction,
             daily_direction=daily_direction,
         )
     return _criterion(
         "PASS", "TRIGGER_CONFIRMED_NO_HIGHER_TIMEFRAME_CONFLICT",
+        fifteen_minute_direction=fifteen_minute_direction,
         trigger_direction=trigger_direction,
         four_hour_direction=four_hour_direction,
         daily_direction=daily_direction,
@@ -487,27 +547,60 @@ def evaluate_independent_price_volume_evidence(market_evidence_packet: dict | No
 # Criterion 6 -- composite blocker/stale/overheat/duplicate
 # ---------------------------------------------------------------------------
 
+def evaluate_current_evidence_freshness(market_evidence_packet: dict | None) -> dict:
+    if market_evidence_packet is None:
+        return _criterion("UNKNOWN", "MARKET_EVIDENCE_PACKET_MISSING")
+    if market_evidence_packet.get("policy_ratified") is not True:
+        return _criterion("UNKNOWN", "MARKET_EVIDENCE_FRESHNESS_POLICY_UNRATIFIED")
+    components = {
+        **{
+            f"candle_{timeframe}": ((market_evidence_packet.get("candles") or {}).get(timeframe) or {}).get("freshness", {}).get("status")
+            for timeframe in ("15m", "1h", "4h", "1d")
+        },
+        "trades": (market_evidence_packet.get("trades") or {}).get("freshness", {}).get("status"),
+        "orderbook": (market_evidence_packet.get("orderbook") or {}).get("freshness", {}).get("status"),
+    }
+    invalid = sorted(name for name, status in components.items() if status not in ("FRESH", "STALE", "UNKNOWN"))
+    if invalid:
+        return _criterion("UNKNOWN", "FRESHNESS_STATUS_MISSING_OR_INVALID:" + ",".join(invalid), components=components)
+    stale = sorted(name for name, status in components.items() if status == "STALE")
+    if stale:
+        return _criterion("FAIL", "CURRENT_EVIDENCE_STALE:" + ",".join(stale), components=components)
+    unknown = sorted(name for name, status in components.items() if status == "UNKNOWN")
+    if unknown:
+        return _criterion("UNKNOWN", "CURRENT_EVIDENCE_FRESHNESS_UNKNOWN:" + ",".join(unknown), components=components)
+    return _criterion("PASS", "ALL_REQUIRED_EVIDENCE_FRESH", components=components)
+
+
 def evaluate_no_blocker_stale_overheat_duplicate(
-    universe_row: dict, duplicate_guard_key: str, known_idempotency_keys,
+    universe_row: dict,
+    market_evidence_packet: dict | None,
+    duplicate_guard_key: str,
+    known_idempotency_keys,
 ) -> dict:
     material_blocker = PROMOTION.evaluate_material_blocker(universe_row)
     overheat = PROMOTION.evaluate_overextension()
+    freshness = evaluate_current_evidence_freshness(market_evidence_packet)
     if known_idempotency_keys is None:
         duplicate = _criterion("UNKNOWN", "DUPLICATE_GUARD_LEDGER_NOT_SUPPLIED")
     elif duplicate_guard_key in known_idempotency_keys:
         duplicate = _criterion("FAIL", "DUPLICATE_GUARD_KEY_ALREADY_PRESENT")
     else:
         duplicate = _criterion("PASS", "DUPLICATE_GUARD_KEY_NOVEL")
-    overall = _worst_of([material_blocker["status"], overheat["status"], duplicate["status"]])
+    overall = _worst_of([
+        material_blocker["status"], overheat["status"], freshness["status"], duplicate["status"],
+    ])
     return _criterion(
         overall,
         "COMPOSITE:" + ",".join([
             f"MATERIAL_BLOCKER={material_blocker['status']}",
             f"OVEREXTENSION={overheat['status']}",
+            f"FRESHNESS={freshness['status']}",
             f"DUPLICATE={duplicate['status']}",
         ]),
         material_blocker=material_blocker,
         overextension=overheat,
+        freshness=freshness,
         duplicate=duplicate,
     )
 
@@ -579,8 +672,14 @@ def _paper_risk(
         return None
     total_nav = _decimal(paper_account_state["total_nav_krw"], "PAPER_NAV_INVALID", positive=True)
     open_positions = paper_account_state["open_positions"]
+    if not isinstance(open_positions, list):
+        raise CryptoPaperBuyEligibilityError("PAPER_OPEN_POSITIONS_INVALID")
     existing_total_loss = sum(
         (_decimal(row["planned_loss_nav_fraction"], "PAPER_POSITION_LOSS_INVALID") for row in open_positions),
+        Decimal("0"),
+    )
+    existing_total_exposure = sum(
+        (_decimal(row["portfolio_weight_nav_fraction"], "PAPER_POSITION_EXPOSURE_INVALID") for row in open_positions),
         Decimal("0"),
     )
     per_trade_fraction = _decimal(
@@ -601,9 +700,10 @@ def _paper_risk(
     position_weight = position_notional / total_nav
 
     projected_total_loss = existing_total_loss + per_trade_fraction
+    projected_total_exposure = existing_total_exposure + position_weight
     projected_position_count = len(open_positions) + 1
     breaches = []
-    if projected_total_loss > total_cap:
+    if projected_total_exposure > total_cap:
         breaches.append("TOTAL_CRYPTO_PAPER_EXPOSURE_CAP")
     if position_weight > single_cap:
         breaches.append("SINGLE_ASSET_PAPER_EXPOSURE_CAP")
@@ -614,6 +714,7 @@ def _paper_risk(
         "planned_loss_krw": planned_loss_krw,
         "position_weight_nav_fraction": position_weight,
         "projected_total_planned_loss_nav_fraction": projected_total_loss,
+        "projected_total_crypto_exposure_nav_fraction": projected_total_exposure,
         "projected_open_position_count": projected_position_count,
         "breaches": breaches,
     }
@@ -635,6 +736,7 @@ def evaluate_paper_risk_budget(
     return _criterion(
         "PASS", "PAPER_RISK_BUDGET_WITHIN_PROPOSED_PAPER_BASELINE",
         projected_total_planned_loss_nav_fraction=_format_decimal(risk["projected_total_planned_loss_nav_fraction"]),
+        projected_total_crypto_exposure_nav_fraction=_format_decimal(risk["projected_total_crypto_exposure_nav_fraction"]),
         projected_open_position_count=risk["projected_open_position_count"],
     )
 
@@ -648,6 +750,7 @@ def build_order_draft(
     rather than raising -- the caller (``evaluate_candidate``) reads
     completeness off this dict, it never guesses a substitute value.
     """
+    policy = _require_repository_policy(policy)
     decimal_scale = policy["decimal_scale"]
     entry_invalidation = _entry_and_invalidation(market_evidence_packet, policy, universe_policy)
     if entry_invalidation is None:
@@ -771,7 +874,7 @@ def evaluate_candidate(
         "BREAKOUT_OR_PULLBACK": evaluate_breakout_or_pullback(market_evidence_packet, policy),
         "INDEPENDENT_PRICE_VOLUME_EVIDENCE": evaluate_independent_price_volume_evidence(market_evidence_packet),
         "NO_BLOCKER_STALE_OVERHEAT_DUPLICATE": evaluate_no_blocker_stale_overheat_duplicate(
-            universe_row, duplicate_guard_key, known_idempotency_keys,
+            universe_row, market_evidence_packet, duplicate_guard_key, known_idempotency_keys,
         ),
         "ORDER_DRAFT_COMPLETE": evaluate_order_draft_complete(order_draft),
         "PAPER_RISK_BUDGET": evaluate_paper_risk_budget(
@@ -817,7 +920,7 @@ def build_eligibility_packet(
     """
     if not _DATE_RE.fullmatch(evaluation_as_of):
         raise CryptoPaperBuyEligibilityError("EVALUATION_AS_OF_INVALID")
-    policy = load_policy() if policy is None else policy
+    policy = _require_repository_policy(load_policy() if policy is None else policy)
     validated_promotion = PROMOTION.validate_output(promotion_packet)
     if validated_promotion["evaluation_as_of"] != evaluation_as_of:
         raise CryptoPaperBuyEligibilityError("EVALUATION_AS_OF_MISMATCH")
