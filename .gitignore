@@ -3,3 +3,8 @@ __pycache__/
 atlas_derived/fred_s2/
 s2_noraw_run_*.log
 s2_noraw_summary_*.txt
+
+# services/upbit-realtime-observation needs no secrets, but the operator's
+# own edited runtime config (.env, copied from .env.example) should never
+# be committed regardless.
+services/*/.env
