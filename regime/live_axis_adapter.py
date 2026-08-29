@@ -21,11 +21,14 @@ Only direct semantic bindings are supported:
                        which input "means" more liquidity.
 * CRYPTO/BREADTH    <- CRYPTO_BREADTH (P1-CR-06)
 * CRYPTO/LEADERSHIP <- CRYPTO_LEADERSHIP (P1-CR-07), derived from CR-06
-                       breadth snapshots; UNDEFINED today whenever the
-                       component row is absent (no daily_orchestrator.py
-                       capture wiring exists yet for this component -- see
-                       docs/regime_live_axis_adapter_contract.md) or the underlying
-                       dual-window history is incomplete.
+                       breadth snapshots. daily_orchestrator.py's
+                       build_packet() has produced this component row since
+                       P1-CR-08's Breadth/Leadership axis wiring PR; the
+                       binding still fails closed to UNDEFINED whenever the
+                       row is absent (no capture yet for the decision date)
+                       or the underlying dual-window (7d/30d) natural
+                       history is incomplete -- see
+                       docs/regime_live_axis_adapter_contract.md.
 
 P1-CR-08 note: every binding above proves only evidence PRESENCE
 (DEFINED/UNDEFINED). It intentionally does NOT compute or emit any of the
@@ -460,6 +463,62 @@ def _crypto_liquidity(rows: dict, generated_at: str, binding: dict) -> dict:
     )
 
 
+def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
+    """Mirrors briefing/daily_orchestrator.py's own helper of the same
+    name exactly -- duplicated, not imported, because daily_orchestrator.py
+    already imports this module and a reverse import would cycle. Both
+    copies only ever pass through crypto_breadth.py's own already-computed
+    ``universe`` diagnostics; neither invents a number. Kept in lock-step
+    intentionally: this function's output is exactly what
+    ``_classify_crypto_breadth`` in daily_orchestrator.py wrote into the
+    row it is independently re-deriving here, so the two must match or
+    COMPONENT_REDERIVATION_MISMATCH correctly fails closed."""
+    universe = packet.get("universe")
+    if not isinstance(universe, dict):
+        return {
+            "selected_asset_count": None,
+            "target_asset_count": None,
+            "known_eligible_count_so_far": None,
+            "resolved_cutoff_slot_count": None,
+            "taxonomy_unknown_before_cutoff_count": None,
+            "taxonomy_unknown_before_cutoff_assets": None,
+            "coverage_ratio_bps": None,
+        }
+    target = universe.get("target_asset_count")
+    known_so_far = universe.get("known_eligible_count_so_far")
+    selected = universe.get("selected_asset_count")
+    unknown_before_cutoff = universe.get("taxonomy_unknown_before_cutoff")
+    unknown_assets = None
+    if isinstance(unknown_before_cutoff, list):
+        unknown_assets = sorted(
+            item["canonical_asset_id"]
+            for item in unknown_before_cutoff
+            if isinstance(item, dict) and isinstance(item.get("canonical_asset_id"), str)
+        )
+    resolved_slots = None
+    coverage_ratio_bps = None
+    if isinstance(target, int) and target > 0:
+        if isinstance(unknown_before_cutoff, list):
+            resolved_slots = max(target - len(unknown_before_cutoff), 0)
+        elif isinstance(selected, int):
+            resolved_slots = min(max(selected, 0), target)
+        if resolved_slots is not None:
+            coverage_ratio_bps = (resolved_slots * 10000) // target
+    return {
+        "selected_asset_count": selected,
+        "target_asset_count": target,
+        "known_eligible_count_so_far": known_so_far,
+        "resolved_cutoff_slot_count": resolved_slots,
+        "taxonomy_unknown_before_cutoff_count": (
+            len(unknown_before_cutoff)
+            if isinstance(unknown_before_cutoff, list)
+            else None
+        ),
+        "taxonomy_unknown_before_cutoff_assets": unknown_assets,
+        "coverage_ratio_bps": coverage_ratio_bps,
+    }
+
+
 def _crypto_breadth(rows: dict, generated_at: str, binding: dict) -> dict:
     row = _row(rows, "CRYPTO_BREADTH", generated_at)
     path = _source_dir(row, "evidence/crypto/breadth/raw/")
@@ -468,8 +527,7 @@ def _crypto_breadth(rows: dict, generated_at: str, binding: dict) -> dict:
         fail("COMPONENT_NOT_OBSERVED", "CRYPTO_BREADTH")
     expected = {
         "status": packet.get("status"),
-        "selected_asset_count": packet.get("selected_asset_count"),
-    }
+    } | _crypto_breadth_coverage_diagnostics(packet)
     if (
         packet.get("transform_version") != binding["source_transform_version"]
         or row.get("packet") != expected
@@ -491,11 +549,15 @@ def _crypto_breadth(rows: dict, generated_at: str, binding: dict) -> dict:
 def _crypto_leadership(rows: dict, generated_at: str, binding: dict) -> dict:
     """Derived, not directly captured: CRYPTO_LEADERSHIP re-derives from the
     same evidence/crypto/breadth/raw CR-06 snapshots CRYPTO_BREADTH reads,
-    independently, for the row's own as_of_date end-of-window date. No
-    daily_orchestrator.py component-row producer exists yet for
-    CRYPTO_LEADERSHIP (see docs/regime_live_axis_adapter_contract.md) -- until one is
-    added, this binding fails closed to UNDEFINED (COMPONENT_MISSING) in
-    every production run, exactly like every other absent component row.
+    independently, for the row's own as_of_date end-of-window date.
+    daily_orchestrator.py's build_packet() now produces this component row
+    (see briefing/daily_orchestrator.py's build_crypto_leadership()) -- a
+    row absent from ``rows`` (e.g. no capture yet for the decision date)
+    still fails closed to UNDEFINED (COMPONENT_MISSING), and a present row
+    whose own underlying dual-window (pilot_7d/primary_30d) natural history
+    is not yet ``OBSERVED_UNCLASSIFIED`` on both windows fails closed the
+    same way (COMPONENT_NOT_OBSERVED) -- see
+    docs/regime_live_axis_adapter_contract.md.
     """
     row = _row(rows, "CRYPTO_LEADERSHIP", generated_at)
     path = _source_dir(row, "evidence/crypto/breadth/raw")

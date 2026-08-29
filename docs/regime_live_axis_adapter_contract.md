@@ -56,38 +56,76 @@ carries `approval_status: "PROPOSED_UNRATIFIED"`, and no
 yet. `CRYPTO/LIQUIDITY` therefore currently resolves via the stablecoin path
 alone, exactly as it did before this PR -- fully backward compatible.
 
-### Known blocker: `CRYPTO/LEADERSHIP` and Upbit-liquidity have no
-### `daily_orchestrator.py` component-row producer yet
+### `CRYPTO/BREADTH` coverage-ratio diagnostics (observability only, not a new gate)
+
+`CRYPTO/BREADTH`'s `DEFINED`/`UNDEFINED` pass/fail semantics are unchanged:
+it is `DEFINED` only when `crypto_breadth.py::build_transform()["status"]`
+is exactly `"OBSERVED_UNCLASSIFIED"`, exactly as before. What changed is
+that `CRYPTO_BREADTH`'s component row now also carries real, already-computed
+taxonomy-coverage diagnostics from `qualified_members()`'s own `universe`
+block -- `target_asset_count`, `known_eligible_count_so_far`,
+`resolved_cutoff_slot_count`,
+`taxonomy_unknown_before_cutoff_count`/`_assets`, and a derived
+`coverage_ratio_bps` (resolved cutoff slots divided by target slots). An
+unresolved above-cutoff asset therefore keeps the ratio below 100% even when
+the already-known eligible population equals the target count -- so a reviewer or portal can
+see *how close* an `UNKNOWN`/`TAXONOMY_COVERAGE_UNKNOWN` day is to clearing
+the gate, and exactly which asset(s) are blocking it, without weakening the
+existing all-or-nothing gate in `qualified_members()` (that gate is
+deliberately strict: an unresolved candidate ranked above the selection
+cutoff could in principle displace an already-selected member, so it must
+never be treated as "close enough"; see that function's own docstring). No
+new pass path was added -- the gate already reaches `DEFINED` with real
+committed evidence whenever real coverage is complete (see
+`test_crypto_breadth_defined_with_real_evidence_on_taxonomy_complete_day` in
+`test/test_regime_live_axis_adapter.py`, which predates this change and uses
+real `2026-08-28` evidence). `regime/live_axis_adapter.py::_crypto_breadth()`
+independently re-derives the same diagnostics from a fresh
+`crypto_breadth.py` rebuild and requires an exact match
+(`COMPONENT_REDERIVATION_MISMATCH` otherwise), so a tampered or stale
+diagnostic value cannot silently ride along with a real axis result.
+
+### `CRYPTO/LEADERSHIP` row wiring (resolved) and its remaining natural-history blocker
 
 `regime/live_axis_adapter.py`'s bindings only ever *consume* a `component_id`
 row handed to `build_axis_factors()`; they never fetch or capture evidence
-themselves. `briefing/daily_orchestrator.py` already produces a
-`CRYPTO_BREADTH` row (added by P1-CR-06, before this PR), so `CRYPTO/BREADTH`
-activates immediately in production with no further wiring.
+themselves. `briefing/daily_orchestrator.py` produces a `CRYPTO_BREADTH` row
+(added by P1-CR-06) and, since the Breadth/Leadership axis-wiring follow-up to
+P1-CR-08, also produces a `CRYPTO_LEADERSHIP` row -- `build_packet()` now
+calls `build_crypto_leadership()`/`_classify_crypto_leadership()` the same way
+it already called `build_crypto_breadth()`/`_classify_crypto_breadth()`, and
+`CRYPTO_LEADERSHIP` is a `FROZEN_SOURCE_COMPONENTS` member sharing
+`CRYPTO_BREADTH`'s `evidence/crypto/breadth/raw` source root (mirroring how
+`BTC_TREND`/`BTC_RISK` independently freeze the same `evidence/crypto/btc/raw`
+directory). `build_crypto_leadership()`/`_classify_crypto_leadership()`
+themselves were not new -- P1-CR-08 already added them for
+`regime/crypto_live_component_registry.py`'s independent rebuild path -- what
+was missing, and is now fixed, was the call from the main daily briefing
+`rows` dict that `build_regime_outputs()`/`build_axis_factors()` actually
+reads.
 
-Neither a `CRYPTO_LEADERSHIP` row nor an `UPBIT_MARKET_EVIDENCE` row is
-produced by `daily_orchestrator.py` today. Until a future PR adds that
-capture/classification wiring (mirroring `_classify_crypto_breadth` /
-`build_crypto_breadth`), both bindings fail closed to `UNDEFINED`
-(`COMPONENT_MISSING` -> `LIVE_AXIS_EVIDENCE_UNAVAILABLE`) in every real daily
-run, even though the binding logic itself is implemented, tested, and ready.
-This is a genuine, expected, and intentionally scoped-out limitation of this
-PR, not a bug: P1-CR-08's Step 1 explicitly asked only to wire the adapter
-side against the source scripts that already exist, and both
-`crypto_leadership.py` and `microstructure/upbit_market_evidence.py` are
-purely derivation modules with no `daily_orchestrator.py` capture step of
-their own yet.
+`UPBIT_MARKET_EVIDENCE` remains genuinely unwired into `daily_orchestrator.py`
+-- that is unchanged and out of scope for this update; see P4-07/Upbit
+liquidity follow-up work.
 
-Independently of that wiring gap, `CRYPTO_LEADERSHIP`'s own dual-window
+Independently of the row-wiring, `CRYPTO_LEADERSHIP`'s own dual-window
 methodology (a 7-day pilot window and a 30-day primary window, both built
 from the same CR-06 Crypto Breadth snapshots) needs a real, unbroken run of
-history to observe: as of this PR's evidence, `evidence/crypto/breadth/raw/`
-holds roughly nine days of committed snapshots, short of even the 7-day pilot
-window's `SOURCE_POINT_UNKNOWN` requirement in the earliest days of that
-history and well short of the 30-day primary window. `CRYPTO/LEADERSHIP`
-would therefore report `UNDEFINED` today even if the component-row wiring
-existed -- a second, independent, and equally genuine reason it is not yet
-observable in production, on top of (not instead of) the missing row.
+history to observe. `config/crypto_leadership_policy.json`'s
+`effective_from` is `2026-08-19`; the 30-day primary window cannot complete
+until 30 real contiguous days of `evidence/crypto/breadth/raw/` snapshots
+exist on/after that date (around `2026-09-17`/`2026-09-18`, assuming the
+daily capture workflow keeps running without a gap). Even the shorter 7-day
+pilot window requires every one of its seven days' own independent
+`crypto_breadth.py` transform to resolve `OBSERVED_UNCLASSIFIED` (not just
+be present) -- a single day inside the window failing its own taxonomy-
+coverage or 90%-observation gate (see the `CRYPTO/BREADTH` coverage-ratio
+section above) fails the whole window closed
+(`SOURCE_POINT_UNKNOWN`). `CRYPTO/LEADERSHIP` therefore correctly continues
+to report `UNDEFINED` today even though the row now exists -- this is a
+second, independent, and equally genuine reason, on top of (not instead of)
+the row-wiring that this update resolves. Nothing in this update forces,
+backfills, or shortcuts that natural-history requirement.
 
 ## Known, user-acknowledged scope decision: evidence-presence only, not the Notion "5축 판정" interpreted values
 

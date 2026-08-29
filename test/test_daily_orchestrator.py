@@ -538,8 +538,9 @@ class DailyOrchestratorTest(unittest.TestCase):
             frozenset({
                 "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
                 "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
-                "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
-                "FREE_MARKET_DATA", "KOREA_ROTATION", "KOREA_MARKET_SIGNALS",
+                "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
+                "KRX_POST_CLOSE", "FREE_MARKET_DATA", "KOREA_ROTATION",
+                "KOREA_MARKET_SIGNALS",
             }),
         )
         # Built late in the KST day, on the evening slot (so KRX_POST_CLOSE
@@ -1047,6 +1048,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             "BTC_RISK": {"kind": "absent"},
             "STABLECOIN_NET_ISSUANCE": {"kind": "absent"},
             "CRYPTO_BREADTH": {"kind": "absent"},
+            "CRYPTO_LEADERSHIP": {"kind": "absent"},
             "KRX_POST_CLOSE": {"kind": "absent"},
             "FREE_MARKET_DATA": {"kind": "missing"},
             "KOREA_ROTATION": {"kind": "missing", "value": None},

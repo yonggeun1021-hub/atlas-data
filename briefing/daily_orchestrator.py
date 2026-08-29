@@ -1409,6 +1409,64 @@ def build_stablecoin(decision_date: str, snapshot: dict | None = None) -> dict:
     return _classify_stablecoin(snapshot)
 
 
+def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
+    """Surface crypto_breadth.py's own already-computed taxonomy-coverage
+    diagnostics (qualified_members()'s ``diagnostics``/``universe`` block),
+    unmodified and never re-derived here.  This is presence/ratio reporting
+    only -- it does not gate READY/POLICY_BLOCKED, which stays exactly
+    ``packet["status"]`` as before. ``coverage_ratio_bps`` reports resolved
+    cutoff slots (target minus unresolved-before-cutoff), so it can never
+    display 100% while an above-cutoff taxonomy blocker still exists; every other field is
+    a direct passthrough. A count that ``qualified_members()`` never reached
+    (e.g. ``known_eligible_count_so_far`` outside the TAXONOMY_COVERAGE_
+    UNKNOWN branch) stays ``None`` rather than being defaulted or guessed.
+    """
+    universe = packet.get("universe")
+    if not isinstance(universe, dict):
+        return {
+            "selected_asset_count": None,
+            "target_asset_count": None,
+            "known_eligible_count_so_far": None,
+            "resolved_cutoff_slot_count": None,
+            "taxonomy_unknown_before_cutoff_count": None,
+            "taxonomy_unknown_before_cutoff_assets": None,
+            "coverage_ratio_bps": None,
+        }
+    target = universe.get("target_asset_count")
+    known_so_far = universe.get("known_eligible_count_so_far")
+    selected = universe.get("selected_asset_count")
+    unknown_before_cutoff = universe.get("taxonomy_unknown_before_cutoff")
+    unknown_assets = None
+    if isinstance(unknown_before_cutoff, list):
+        unknown_assets = sorted(
+            item["canonical_asset_id"]
+            for item in unknown_before_cutoff
+            if isinstance(item, dict) and isinstance(item.get("canonical_asset_id"), str)
+        )
+    resolved_slots = None
+    coverage_ratio_bps = None
+    if isinstance(target, int) and target > 0:
+        if isinstance(unknown_before_cutoff, list):
+            resolved_slots = max(target - len(unknown_before_cutoff), 0)
+        elif isinstance(selected, int):
+            resolved_slots = min(max(selected, 0), target)
+        if resolved_slots is not None:
+            coverage_ratio_bps = (resolved_slots * 10000) // target
+    return {
+        "selected_asset_count": selected,
+        "target_asset_count": target,
+        "known_eligible_count_so_far": known_so_far,
+        "resolved_cutoff_slot_count": resolved_slots,
+        "taxonomy_unknown_before_cutoff_count": (
+            len(unknown_before_cutoff)
+            if isinstance(unknown_before_cutoff, list)
+            else None
+        ),
+        "taxonomy_unknown_before_cutoff_assets": unknown_assets,
+        "coverage_ratio_bps": coverage_ratio_bps,
+    }
+
+
 def _classify_crypto_breadth(snapshot: dict) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("CRYPTO_BREADTH", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
@@ -1434,7 +1492,7 @@ def _classify_crypto_breadth(snapshot: dict) -> dict:
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
         validated=True,
-        packet={"status": status, "selected_asset_count": packet.get("selected_asset_count")},
+        packet={"status": status} | _crypto_breadth_coverage_diagnostics(packet),
     )
 
 
@@ -2647,8 +2705,9 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
 FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
     "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
-    "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
-    "FREE_MARKET_DATA", "KOREA_ROTATION", "KOREA_MARKET_SIGNALS",
+    "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
+    "KRX_POST_CLOSE", "FREE_MARKET_DATA", "KOREA_ROTATION",
+    "KOREA_MARKET_SIGNALS",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
@@ -2787,6 +2846,22 @@ def build_packet(
             ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
         )
     rows["CRYPTO_BREADTH"] = _boundary(_classify_crypto_breadth(crypto_breadth_snapshot))
+
+    # CRYPTO_LEADERSHIP reads the exact same CR-06 archive as CRYPTO_BREADTH
+    # (same source_roots entry in regime/crypto_live_component_registry.py)
+    # but is frozen independently -- same pattern as BTC_TREND/BTC_RISK
+    # sharing evidence/crypto/btc/raw above. build_crypto_leadership() and
+    # _classify_crypto_leadership() already existed (P1-CR-08) for
+    # regime/crypto_live_component_registry.py's own direct rebuild path;
+    # this is the first time either is called from the main daily packet.
+    crypto_leadership_snapshot = frozen_sources.get("CRYPTO_LEADERSHIP")
+    if crypto_leadership_snapshot is None:
+        crypto_leadership_snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
+        )
+    rows["CRYPTO_LEADERSHIP"] = _boundary(
+        _classify_crypto_leadership(crypto_leadership_snapshot)
+    )
 
     korea_market_signals_snapshot = frozen_sources.get("KOREA_MARKET_SIGNALS")
     if korea_market_signals_snapshot is None:
@@ -2946,6 +3021,7 @@ def build_packet(
             "BTC_RISK": btc_risk_snapshot,
             "STABLECOIN_NET_ISSUANCE": stablecoin_snapshot,
             "CRYPTO_BREADTH": crypto_breadth_snapshot,
+            "CRYPTO_LEADERSHIP": crypto_leadership_snapshot,
             "KOREA_MARKET_SIGNALS": korea_market_signals_snapshot,
             "KOREA_ROTATION": korea_rotation_snapshot,
             # Only present for the evening slot, where KRX_POST_CLOSE is
@@ -3035,7 +3111,8 @@ _SECTION_GROUPS = [
     ("Filing & source evidence", ["DART_FILING_CONTENT", "SEC_FILING_CONTENT", "KOFIA_FIRST_SEEN"]),
     ("Sensors", [
         "US_BREADTH_MEMBERSHIP", "FREE_MARKET_DATA", "BTC_TREND", "BTC_RISK",
-        "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KOREA_MARKET_SIGNALS",
+        "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
+        "KOREA_MARKET_SIGNALS",
     ]),
     ("3-Market Regime", ["THREE_MARKET_REGIME_HEADER"]),
     ("Rotation / Theme", ["ROTATION_DISCOVERY", "KOREA_ROTATION"]),
@@ -3158,6 +3235,18 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"    - status={packet.get('status')} "
                 f"selected_assets={packet.get('selected_asset_count')}"
             )
+            if packet.get("target_asset_count") is not None:
+                lines.append(
+                    "    - taxonomy_coverage: "
+                    f"known_eligible={packet.get('known_eligible_count_so_far')} "
+                    f"resolved_cutoff_slots={packet.get('resolved_cutoff_slot_count')} "
+                    f"target={packet.get('target_asset_count')} "
+                    f"coverage_ratio_bps={packet.get('coverage_ratio_bps')} "
+                    f"unresolved_before_cutoff="
+                    f"{packet.get('taxonomy_unknown_before_cutoff_assets')}"
+                )
+        elif cid == "CRYPTO_LEADERSHIP":
+            lines.append(f"    - status={packet.get('status')}")
         elif cid == "KOREA_MARKET_SIGNALS":
             axes = packet.get("axes", {})
             trend = axes.get("TREND", {}).get("measurement", {}).get("benchmarks", {})
