@@ -1,8 +1,9 @@
 # Upbit realtime observation service
 
 A standalone, observation-only, 24/7 process that streams Upbit's **public**
-market-data WebSocket and exposes the latest price/change/volume/bid-ask
-state over a local read-only HTTP API. It is designed to run persistently on
+market-data WebSocket, discovers the current KRW spot catalog from public
+REST, and gradually derives completed-candle trend/relative-strength
+references. It exposes the latest state over a local read-only HTTP API. It is designed to run persistently on
 the user's own Ubuntu server, separate from this repository's GitHub Actions
 automation (`.github/workflows/upbit-realtime-capture.yml`, P9-06's bounded
 cron capture) -- see [`docs/upbit_realtime_observation_service_contract.md`](../../docs/upbit_realtime_observation_service_contract.md)
@@ -42,14 +43,15 @@ code, unconditionally: `decision_eligible`, `entry_eligibility_authorized`,
 
 - No API key/secret anywhere in this service -- Upbit's public
   `wss://api.upbit.com/websocket/v1` requires no authentication.
-- Only `ticker`/`orderbook` are ever subscribed to or handled.
+- Only public `ticker`/`orderbook` are subscribed to or handled by the
+  WebSocket. Every KRW market receives ticker; the configured deep tier alone
+  receives the higher-volume orderbook stream.
   `PRIVATE_WS_TYPES_FORBIDDEN` (`myOrder`, `myAsset`) is enforced by
   `realtime/upbit_realtime_gate.py::parse_message` and its private-channel
   deny-list. The local subscription builder narrows the public request to
   exactly `ticker` and `orderbook`.
-- No order/withdrawal/private REST endpoint is ever called -- there is no
-  HTTP client to Upbit's REST API anywhere in this service, only the
-  WebSocket.
+- Public REST is limited to market discovery and candle reads. No
+  order/withdrawal/private REST endpoint is called.
 - The local HTTP API is read-only: every non-`GET` method returns
   `405 READ_ONLY_SERVICE`.
 - Stale, disconnected, or never-seen data is never silently reported as
@@ -122,8 +124,9 @@ credential is required.
 
 ## Configuration
 
-See `.env.example` for the full list (market set, bind host/port, backoff,
-per-channel staleness thresholds). Upbit credentials are never required or
+See `.env.example` for the full list (all-KRW discovery, staged orderbook
+set, completed-candle refresh, bind host/port, backoff and freshness).
+Upbit credentials are never required or
 accepted. Portal delivery uses the operator's existing mounted signing key
 and Sites bypass environment file; neither value is stored in this repo.
 

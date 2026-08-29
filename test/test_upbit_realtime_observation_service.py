@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVICE_DIR = ROOT / "services" / "upbit-realtime-observation"
 GATE_MODULE_PATH = SERVICE_DIR / "observation_gate.py"
 SERVICE_MODULE_PATH = SERVICE_DIR / "service.py"
+INTELLIGENCE_MODULE_PATH = SERVICE_DIR / "public_market_intelligence.py"
 REALTIME_GATE_MODULE_PATH = ROOT / "realtime" / "upbit_realtime_gate.py"
 DOCKERFILE_PATH = SERVICE_DIR / "Dockerfile"
 COMPOSE_PATH = SERVICE_DIR / "compose.yaml"
@@ -44,6 +45,7 @@ def load_module(name: str, path: Path):
 
 
 OG = load_module("upbit_realtime_observation_gate", GATE_MODULE_PATH)
+PMI = load_module("upbit_public_market_intelligence", INTELLIGENCE_MODULE_PATH)
 UTC = dt.timezone.utc
 
 
@@ -109,6 +111,15 @@ class MarketListParsingTests(unittest.TestCase):
     def test_non_string_fails_closed(self):
         with self.assertRaises(OG.ObservationServiceError):
             OG.parse_market_list(None)
+
+    def test_public_catalog_keeps_all_krw_markets_and_warning_metadata(self):
+        markets, metadata = PMI.parse_krw_market_catalog([
+            {"market": "KRW-BTC", "korean_name": "비트코인", "market_warning": "NONE"},
+            {"market": "BTC-ETH", "korean_name": "이더리움", "market_warning": "NONE"},
+            {"market": "KRW-ABC", "korean_name": "경고", "market_warning": "CAUTION"},
+        ])
+        self.assertEqual(markets, ["KRW-ABC", "KRW-BTC"])
+        self.assertEqual(metadata["KRW-ABC"]["market_warning"], "CAUTION")
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +363,47 @@ class SnapshotShapeTests(unittest.TestCase):
         self.assertIsInstance(encoded, str)
         self.assertIn("payload_sha256", snapshot)
 
+    def test_staged_depth_does_not_mark_ticker_only_market_no_data(self):
+        gate = new_gate(markets=("KRW-BTC", "KRW-ETH"), orderbook_markets=("KRW-BTC",))
+        gate.on_connected(T0)
+        gate.handle_message(make_ticker(code="KRW-BTC"), received_at=T0)
+        gate.handle_message(make_orderbook(code="KRW-BTC"), received_at=T0)
+        gate.handle_message(make_ticker(code="KRW-ETH"), received_at=T0)
+        snapshot = gate.status_snapshot(T0)
+        self.assertEqual(snapshot["markets"]["KRW-ETH"]["freshness"], OG.FRESH)
+        self.assertEqual(snapshot["markets"]["KRW-ETH"]["observation_tier"], "FULL_KRW_TICKER")
+        self.assertEqual(snapshot["coverage"]["ticker_market_count"], 2)
+        self.assertEqual(snapshot["coverage"]["orderbook_market_count"], 1)
+
+    def test_finalized_candle_intelligence_is_reference_only(self):
+        def rows(count, hours, first=100.0):
+            start = T0 - dt.timedelta(hours=hours * count)
+            return [
+                {
+                    "candle_date_time_utc": (start + dt.timedelta(hours=hours * i)).replace(tzinfo=None).isoformat(),
+                    "trade_price": first + i,
+                }
+                for i in range(count + 1)
+            ]
+
+        analyzed = PMI.analyze_finalized_candles(
+            "KRW-BTC", day_rows=rows(25, 24), h4_rows=rows(25, 4),
+            h1_rows=rows(3, 1), m15_rows=rows(3, 0.25), now=T0,
+        )
+        self.assertTrue(analyzed["reference_only"])
+        self.assertEqual(analyzed["trend"]["status"], "POSITIVE")
+        self.assertIsNotNone(analyzed["relative_strength"]["return_20d_pct"])
+        self.assertNotEqual(analyzed["finalized_candles"]["1d"]["close"], 125.0)
+
+    def test_cross_section_relative_strength_uses_btc_and_peer_median(self):
+        rows = {
+            market: {"relative_strength": {"status": "PENDING_CROSS_SECTION", "return_20d_pct": value}}
+            for market, value in {"KRW-BTC": 10.0, "KRW-ETH": 15.0, "KRW-XRP": 5.0}.items()
+        }
+        completed = PMI.complete_cross_section_relative_strength(rows)
+        self.assertEqual(completed["KRW-ETH"]["relative_strength"]["vs_btc_20d_pct"], 5.0)
+        self.assertEqual(completed["KRW-XRP"]["relative_strength"]["vs_peer_median_20d_pct"], -5.0)
+
 
 class AuthorityTests(unittest.TestCase):
     def test_authority_all_false_and_observation_only_true(self):
@@ -380,6 +432,14 @@ class AuthorityTests(unittest.TestCase):
         emitted_types = [entry["type"] for entry in message if "type" in entry]
         self.assertFalse(any(t.startswith("candle.") for t in emitted_types))
 
+    def test_subscription_can_stage_orderbook_to_a_deep_subset(self):
+        message = OG.build_subscription_message(
+            ["KRW-BTC", "KRW-ETH", "KRW-XRP"],
+            orderbook_markets=["KRW-BTC"], ticket="atlas-obs-stage",
+        )
+        self.assertEqual(message[1], {"type": "ticker", "codes": ["KRW-BTC", "KRW-ETH", "KRW-XRP"]})
+        self.assertEqual(message[2], {"type": "orderbook", "codes": ["KRW-BTC"]})
+
 
 # ---------------------------------------------------------------------------
 # Source-level boundary proofs -- mirrors this session's established
@@ -394,7 +454,7 @@ class SourceBoundaryTests(unittest.TestCase):
         self.assertNotIn("import socket", source)
 
     def test_observation_gate_never_calls_an_order_withdrawal_or_deposit_endpoint(self):
-        for path in (GATE_MODULE_PATH, SERVICE_MODULE_PATH):
+        for path in (GATE_MODULE_PATH, SERVICE_MODULE_PATH, INTELLIGENCE_MODULE_PATH):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("api.upbit.com/v1/orders", source)
             self.assertNotIn("api.upbit.com/v1/withdraws", source)
@@ -422,7 +482,7 @@ class SourceBoundaryTests(unittest.TestCase):
         # *import statement* referencing it, or a dynamic-load call (the
         # importlib.util.spec_from_file_location(...) pattern this repo uses
         # elsewhere) with that path as a literal argument.
-        for path in (GATE_MODULE_PATH, SERVICE_MODULE_PATH):
+        for path in (GATE_MODULE_PATH, SERVICE_MODULE_PATH, INTELLIGENCE_MODULE_PATH):
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source)
             for node in ast.walk(tree):
@@ -438,7 +498,7 @@ class SourceBoundaryTests(unittest.TestCase):
                             self.assertNotIn("universe/", arg.value)
 
     def test_neither_module_writes_to_the_repo_evidence_or_data_directories(self):
-        for path in (GATE_MODULE_PATH, SERVICE_MODULE_PATH):
+        for path in (GATE_MODULE_PATH, SERVICE_MODULE_PATH, INTELLIGENCE_MODULE_PATH):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn('"evidence/', source)
             self.assertNotIn("'evidence/", source)
@@ -546,7 +606,7 @@ class HttpApiTests(unittest.TestCase):
     def test_snapshot_returns_full_contract_shape(self):
         status, body = self._get("/snapshot")
         self.assertEqual(status, 200)
-        self.assertEqual(body["schema_version"], "upbit_realtime_observation_snapshot/1")
+        self.assertEqual(body["schema_version"], "upbit_realtime_observation_snapshot/2")
         self.assertIn("KRW-BTC", body["markets"])
 
     def test_unknown_path_is_404(self):
@@ -580,6 +640,8 @@ class ServiceConfigTests(unittest.TestCase):
         config = self.S.load_config_from_env()
         self.assertEqual(config["bind"], "127.0.0.1")
         self.assertEqual(set(config["markets"]), set(self.S.OG.DEFAULT_MARKETS))
+        self.assertTrue(config["discover_all_krw"])
+        self.assertTrue(config["candle_intelligence_enabled"])
 
     def test_non_loopback_bind_fails_closed_without_explicit_override(self):
         os.environ["ATLAS_UPBIT_OBS_BIND"] = "0.0.0.0"

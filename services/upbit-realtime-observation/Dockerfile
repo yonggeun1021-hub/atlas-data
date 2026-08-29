@@ -14,6 +14,7 @@ COPY microstructure/__init__.py /app/microstructure/__init__.py
 COPY microstructure/upbit_candle_finalization.py /app/microstructure/upbit_candle_finalization.py
 COPY execution/intraday_freshness.py /app/execution/intraday_freshness.py
 COPY services/upbit-realtime-observation/observation_gate.py /app/services/upbit-realtime-observation/observation_gate.py
+COPY services/upbit-realtime-observation/public_market_intelligence.py /app/services/upbit-realtime-observation/public_market_intelligence.py
 COPY services/upbit-realtime-observation/service.py /app/services/upbit-realtime-observation/service.py
 
 RUN pip install --no-cache-dir "websockets>=12.0,<16" "cryptography>=43,<46" \

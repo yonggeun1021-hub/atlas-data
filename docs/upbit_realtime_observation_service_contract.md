@@ -92,7 +92,7 @@ observed before the outage.
 
 ```json
 {
-  "schema_version": "upbit_realtime_observation_snapshot/1",
+  "schema_version": "upbit_realtime_observation_snapshot/2",
   "service": "upbit-realtime-observation",
   "generated_at_utc": "2026-08-29T12:00:00.000Z",
   "generated_at_kst": "2026-08-29T21:00:00.000+09:00",
@@ -101,9 +101,19 @@ observed before the outage.
   "consecutive_failures": 0,
   "last_disconnect_reason": null,
   "overall_freshness": "FRESH",
+  "coverage": {
+    "mode": "FULL_KRW_TICKER_STAGED_DEPTH",
+    "market_source": "UPBIT_PUBLIC_REST_STARTUP_DISCOVERY",
+    "ticker_market_count": 282,
+    "orderbook_market_count": 10,
+    "candle_intelligence_market_count": 282,
+    "reference_only": true
+  },
   "markets": {
     "KRW-BTC": {
       "market": "KRW-BTC",
+      "observation_tier": "DEEP_ORDERBOOK",
+      "subscribed_channels": ["ticker", "orderbook"],
       "freshness": "FRESH",
       "ticker_freshness": {"status": "FRESH", "age_seconds": 2},
       "orderbook_freshness": {"status": "FRESH", "age_seconds": 1},
@@ -120,7 +130,13 @@ observed before the outage.
       "received_at_utc": "2026-08-29T12:00:00.050Z",
       "received_at_kst": "2026-08-29T21:00:00.050+09:00",
       "orderbook_received_at_utc": "2026-08-29T12:00:01.030Z",
-      "orderbook_received_at_kst": "2026-08-29T21:00:01.030+09:00"
+      "orderbook_received_at_kst": "2026-08-29T21:00:01.030+09:00",
+      "candle_intelligence": {
+        "reference_only": true,
+        "trend": {"status": "POSITIVE", "reason": "DAILY_ABOVE_EMA20_AND_H4_EMA20_RISING"},
+        "relative_strength": {"status": "AVAILABLE", "vs_btc_20d_pct": 3.2},
+        "finalized_candles": {"15m": {}, "1h": {}, "4h": {}, "1d": {}}
+      }
     }
   },
   "counts": {
@@ -170,10 +186,12 @@ Field notes for a future consumer (e.g. the `atlas-portal` PR referenced as
 - Any field can be `null` when that market/kind has never been observed
   (`NO_DATA`) -- check the corresponding `*_freshness.status` before trusting
   a value, never assume a non-`FRESH` value is still meaningful.
-- `markets` only contains the fixed, configured observation set (see
-  `services/upbit-realtime-observation/.env.example`,
-  `ATLAS_UPBIT_OBS_MARKETS`) -- it is never the full Upbit market list and
-  never P3-12's `TRADEABLE_UNIVERSE`/`PAPER_ELIGIBLE` set.
+- `markets` contains all KRW spot markets discovered at process startup when
+  public discovery succeeds. Discovery failure falls back to the configured
+  baseline. This is still observation coverage, never P3-12's
+  `TRADEABLE_UNIVERSE`/`PAPER_ELIGIBLE` set.
+- `candle_intelligence` uses completed 15m/1h/4h/1d candles only. It is
+  `reference_only` and cannot promote a candidate or generate an order.
 - `payload_sha256` is computed the same way as every other `atlas-data`
   evidence artifact (`sha256` over canonical JSON with the hash field itself
   omitted) for consistency, even though this snapshot is never persisted as
