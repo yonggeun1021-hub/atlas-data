@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,13 @@ class RuntimeFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix=".crypto_runtime_test_", dir=ROOT))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        policy_patch = mock.patch.object(
+            DECISION.REALTIME_GATE,
+            "load_freshness_policy_proposal",
+            return_value={"approval_status": "RATIFIED"},
+        )
+        policy_patch.start()
+        self.addCleanup(policy_patch.stop)
 
     def decision(self, *, received_at="2026-08-29T01:30:30.000000Z"):
         latest = {}
@@ -65,25 +73,49 @@ class RuntimeFixture(unittest.TestCase):
                 result={"action": "ACCEPTED", "market": parsed["market"], "kind": parsed["kind"]},
                 received_at=received,
             )
+        status = {
+            "schema_version": "upbit_realtime_gate_status/1",
+            "generated_at": "2026-08-29T01:30:31Z",
+            "connection_state": "CONNECTED",
+            "reconnect_count": 0,
+            "last_disconnect_reason": None,
+            "overall_status": "FRESH",
+            "counts": {"accepted": 2},
+            "markets": [{
+                "market": "KRW-BTC",
+                "freshness_by_kind": {
+                    "ticker": {"status": "FRESH"},
+                    "orderbook": {"status": "FRESH"},
+                },
+            }],
+            "pending_connection_gap_windows": [],
+            "duplicate_guard_size": 2,
+            "authority": dict(DECISION.REALTIME_GATE._GATE_AUTHORITY),
+        }
+        status["payload_sha256"] = BRIDGE.payload_sha256(status)
         run = {
-            "status": {
-                "overall_status": "FRESH",
-                "markets": [{
-                    "market": "KRW-BTC",
-                    "freshness_by_kind": {
-                        "ticker": {"status": "FRESH"},
-                        "orderbook": {"status": "FRESH"},
-                    },
-                }],
-            },
+            "started_at": "2026-08-29T01:30:00Z",
+            "ended_at": "2026-08-29T01:30:31Z",
+            "requested_duration_seconds": 31,
+            "markets": ["KRW-BTC"],
+            "message_log": [{
+                "received_at": received_at,
+                "result": {"action": "ACCEPTED", "market": "KRW-BTC"},
+            }],
+            "status": status,
+            "candle_ledger": {},
             "latest_public_messages_schema_version": CAPTURE.LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
             "latest_public_messages": latest,
         }
         record = {
             "schema_version": "upbit_realtime_capture_run/1",
-            "source_sha256": BRIDGE.payload_sha256(run),
+            "transform_version": "upbit_realtime_gate/1",
+            "auth_required": False,
+            "order_or_withdrawal_endpoints_called": False,
+            "private_channel_subscribed": False,
             "run": run,
         }
+        record["source_sha256"] = BRIDGE.payload_sha256(run)
         directory = self.tmp / "realtime" / "2026-08-29"
         directory.mkdir(parents=True)
         path = directory / "run_001.json"
@@ -95,6 +127,32 @@ class RuntimeFixture(unittest.TestCase):
             universe_entry=None,
             market_evidence_entry=None,
             realtime_entry=entry,
+        )
+
+    def account_with_open_order(
+        self, *, submitted_at="2026-08-29T01:00:00Z",
+        expires_at="2026-08-29T02:00:00Z",
+    ):
+        ledger = SIMULATOR.create_ledger(
+            ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
+            opened_at="2026-08-29T00:59:00Z",
+            idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
+        )
+        intent = SIMULATOR.build_intent(
+            order_id="PAPER.BUY.KRW-BTC.RUNTIME.TEST",
+            idempotency_key="PAPER.SUBMIT.KRW-BTC.RUNTIME.TEST",
+            market="KRW-BTC", side="BUY", order_type="LIMIT", quantity="1",
+            limit_price="100", fee_rate="0", queue_fraction="1",
+            submitted_at=submitted_at, expires_at=expires_at,
+            market_regime_status="UNKNOWN", source_plan_ref="test://plan/runtime",
+            source_plan_sha256="b" * 64, source_evidence_ref="test://book/runtime",
+            source_evidence_sha256="c" * 64,
+        )
+        ledger = SIMULATOR.submit_order(ledger, intent)
+        return SIMULATOR.build_account_state(
+            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
+            mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
+            mark_source_sha256="d" * 64,
         )
 
 
@@ -120,8 +178,42 @@ class LatestPublicMessageTests(unittest.TestCase):
         )
         self.assertEqual(latest["orderbook|-|KRW-BTC"]["raw"], first)
 
+    def test_public_bridge_has_no_network_or_execution_endpoint(self):
+        source = (ROOT / "shadow" / "crypto_paper_runtime_bridge.py").read_text(
+            encoding="utf-8"
+        )
+        for forbidden in (
+            "import requests", "from requests", "urllib.request", "websockets",
+            "import socket", "socket.socket(",
+            "requests.get(", "requests.post(", "requests.request(",
+            "/v1/orders", "/v1/withdraws", "API_KEY", "SECRET_KEY",
+        ):
+            self.assertNotIn(forbidden, source)
+
 
 class BridgeContractTests(RuntimeFixture):
+    def test_first_natural_post_merge_decision_packet_validates_and_waits(self):
+        paths = sorted((ROOT / "evidence" / "crypto_paper_decision" / "2026-08-29" / "0504").glob(
+            "*/packet.json"
+        ))
+        self.assertEqual(len(paths), 1)
+        decision = BRIDGE.load_and_validate_decision_snapshot(
+            paths[0],
+            expected_source_commit="ba11308e96fa926395e87d37ded8b726d46a3872",
+        )
+        request = BRIDGE.build_runtime_request(
+            decision,
+            expected_source_commit=decision["source_commit"],
+            public_code_commit_sha="608ab37cf9e7fad139f5f857d655ad6c1a19d1b8",
+            account_state=None,
+            open_position_risk=None,
+            runtime_config=None,
+        )
+        self.assertEqual(decision["freshness_status"]["overall"], "MISSING")
+        self.assertEqual(request["status"], "WAIT_RUNTIME_INPUTS_MISSING")
+        self.assertEqual(request["requests"], [])
+        self.assertEqual(request["match_snapshots"], [])
+
     def test_decision_is_rederived_and_exact_public_orderbook_becomes_p10_snapshot(self):
         decision = self.decision()
         self.assertEqual(
@@ -145,29 +237,10 @@ class BridgeContractTests(RuntimeFixture):
         self.assertFalse(request["authority"]["exchange_order_authorized"])
 
     def test_prior_open_order_gets_current_snapshot_while_new_same_run_order_never_can(self):
-        ledger = SIMULATOR.create_ledger(
-            ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
-            opened_at="2026-08-29T00:59:00Z", idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
-        )
-        intent = SIMULATOR.build_intent(
-            order_id="PAPER.BUY.KRW-BTC.RUNTIME.TEST",
-            idempotency_key="PAPER.SUBMIT.KRW-BTC.RUNTIME.TEST",
-            market="KRW-BTC", side="BUY", order_type="LIMIT", quantity="1",
-            limit_price="100", fee_rate="0", queue_fraction="1",
-            submitted_at="2026-08-29T01:00:00Z", expires_at="2026-08-29T02:00:00Z",
-            market_regime_status="UNKNOWN", source_plan_ref="test://plan/runtime",
-            source_plan_sha256="b" * 64, source_evidence_ref="test://book/runtime",
-            source_evidence_sha256="c" * 64,
-        )
-        ledger = SIMULATOR.submit_order(ledger, intent)
-        account = SIMULATOR.build_account_state(
-            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
-            mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
-            mark_source_sha256="d" * 64,
-        )
         request = BRIDGE.build_runtime_request(
             self.decision(), expected_source_commit=SOURCE_COMMIT,
-            account_state=account, open_position_risk=None, runtime_config=None,
+            account_state=self.account_with_open_order(),
+            open_position_risk=None, runtime_config=None,
         )
         self.assertEqual(request["status"], "PAPER_MATCHES_READY")
         self.assertEqual(
@@ -175,6 +248,101 @@ class BridgeContractTests(RuntimeFixture):
             ["PAPER.BUY.KRW-BTC.RUNTIME.TEST"],
         )
         self.assertEqual(request["requests"], [])
+
+    def test_equal_timestamp_is_not_a_later_match_snapshot(self):
+        request = BRIDGE.build_runtime_request(
+            self.decision(received_at="2026-08-29T01:30:30.000000Z"),
+            expected_source_commit=SOURCE_COMMIT,
+            account_state=self.account_with_open_order(
+                submitted_at="2026-08-29T01:30:30Z",
+            ),
+            open_position_risk=None,
+            runtime_config=None,
+        )
+        self.assertEqual(request["match_snapshots"], [])
+        self.assertIn(
+            "MATCH_SNAPSHOT_NOT_AFTER_OPEN_ORDER:PAPER.BUY.KRW-BTC.RUNTIME.TEST",
+            request["blockers"],
+        )
+
+    def test_unratified_realtime_freshness_cannot_match_virtual_order(self):
+        with mock.patch.object(
+            DECISION.REALTIME_GATE,
+            "load_freshness_policy_proposal",
+            return_value={"approval_status": "PROPOSED_UNRATIFIED"},
+        ):
+            decision = self.decision()
+            self.assertEqual(decision["freshness_status"]["realtime"], "UNKNOWN")
+            request = BRIDGE.build_runtime_request(
+                decision,
+                expected_source_commit=SOURCE_COMMIT,
+                account_state=self.account_with_open_order(),
+                open_position_risk=None,
+                runtime_config=None,
+            )
+        self.assertEqual(request["match_snapshots"], [])
+        self.assertTrue(any(
+            "DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH" in blocker
+            for blocker in request["blockers"]
+        ))
+
+    def test_rehashed_runtime_request_tamper_fails_full_rederivation(self):
+        request = BRIDGE.build_runtime_request(
+            self.decision(), expected_source_commit=SOURCE_COMMIT,
+            account_state=None, open_position_risk=None, runtime_config=None,
+        )
+        forged = copy.deepcopy(request)
+        forged["status"] = "PAPER_MATCHES_READY"
+        forged["match_snapshots"] = [{
+            "market": "KRW-BTC",
+            "order_ids": ["FORGED.ORDER"],
+            "snapshot": BRIDGE.orderbook_snapshot(
+                forged["source_inputs"]["decision"], market="KRW-BTC",
+            ),
+        }]
+        forged["packet_sha256"] = BRIDGE.payload_sha256(
+            {key: value for key, value in forged.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "RUNTIME_REQUEST_DERIVATION_MISMATCH",
+        ):
+            BRIDGE.validate_runtime_request(forged)
+
+    def test_future_runtime_ratification_cannot_apply_to_past_decision(self):
+        config = BRIDGE.build_runtime_config(
+            approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
+            approved_by="CIO_TEST", approved_at="2026-08-29T01:32:00Z",
+            ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
+            fee_rate="0", queue_fraction="1", order_type="LIMIT",
+            limit_price_source="ENTRY_ZONE_LOW",
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "RUNTIME_CONFIG_APPROVED_AFTER_DECISION",
+        ):
+            BRIDGE.build_runtime_request(
+                self.decision(), expected_source_commit=SOURCE_COMMIT,
+                account_state=None, open_position_risk=None,
+                runtime_config=config,
+            )
+
+    def test_future_retained_public_message_cannot_be_used_as_decision_evidence(self):
+        decision = self.decision(received_at="2026-08-29T01:31:01.000000Z")
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "REALTIME_ORDERBOOK_FUTURE_DATED:KRW-BTC",
+        ):
+            BRIDGE.orderbook_snapshot(decision, market="KRW-BTC")
+
+    def test_open_position_planned_loss_must_be_strictly_positive(self):
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "OPEN_POSITION_PLANNED_LOSS_INVALID",
+        ):
+            BRIDGE._normalize_open_position_risk([
+                {"market": "KRW-BTC", "planned_loss_krw": "0"},
+            ])
 
     def test_runtime_config_requires_explicit_ratification_hash_and_keeps_real_authority_false(self):
         config = BRIDGE.build_runtime_config(
@@ -197,7 +365,10 @@ class BridgeContractTests(RuntimeFixture):
         record = json.loads(source.read_text(encoding="utf-8"))
         record["run"]["latest_public_messages"]["orderbook|-|KRW-BTC"]["raw"]["orderbook_units"][0]["ask_price"] = 999
         source.write_text(json.dumps(record), encoding="utf-8")
-        with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "DECISION_SOURCE_SHA_MISMATCH"):
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "DECISION_REDERIVATION_FAILED:SOURCE_REF_HASH_MISMATCH",
+        ):
             BRIDGE.validate_decision_snapshot(decision, expected_source_commit=SOURCE_COMMIT)
 
 

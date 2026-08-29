@@ -8,9 +8,12 @@ It cannot connect to an exchange, read credentials, submit a broker order, or
 authorize real capital. Every real-order authority remains `false`.
 
 The bridge independently rehashes every referenced public source file and
-rebuilds the complete decision packet before it will produce a private-runtime
-request. Value-bearing account state, economic assumptions, and requests must
-remain outside the public repository.
+consumes the decision packet's canonical `validate_output()` full-rederivation
+boundary before it will produce a private-runtime request. The request embeds
+its exact decision, runtime config, account state, planned-risk rows, and
+idempotency inputs so a consumer can fully reproduce it; changing and rehashing
+an intent, match order ID, status, or blocker is rejected. Value-bearing inputs
+and requests must remain outside the public repository.
 
 ## Time-ordered lifecycle
 
@@ -22,8 +25,10 @@ remain outside the public repository.
    used as a fill because it predates the intent.
 3. The private runtime submits an eligible new PAPER intent to the append-only
    virtual ledger only.
-4. A later P9 run supplies a newer orderbook snapshot. Only then may P10-11
-   deterministically match a carried `OPEN` or `PARTIALLY_FILLED` PAPER order.
+4. A strictly later P9 run supplies a newer orderbook snapshot. Equal
+   timestamps do not count. Only a decision whose P9 realtime freshness is
+   ratified `FRESH` may deterministically match a carried `OPEN` or
+   `PARTIALLY_FILLED` PAPER order.
 5. The private runtime persists a content-addressed ledger snapshot and proves
    exact restart readback before emitting a redacted continuity receipt.
 6. A filled position may enter P7-13 exit review. That review remains
@@ -44,9 +49,11 @@ hash-bound `crypto_paper_runtime_config/1` packet whose approval status is
 - for a limit simulation, the approved entry-zone price source.
 
 Missing or invalid configuration produces a `WAIT_*` result, never an inferred
-value. The current public Regime contract still returns `UNKNOWN`, so natural
-production data is expected to remain non-eligible until that upstream
-contract is legitimately resolved.
+value. Future-dated approval cannot authorize an earlier observation, and each
+open position must carry a strictly positive planned-loss amount. The current
+public Regime and realtime-freshness policies remain unratified, so natural
+production data is expected to remain non-eligible and non-matchable until
+those upstream contracts are legitimately resolved.
 
 ## Sampling gate
 

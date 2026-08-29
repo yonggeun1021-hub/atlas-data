@@ -212,53 +212,20 @@ def _entries(packet: dict) -> dict:
 def validate_decision_snapshot(
     value: object, *, expected_source_commit: str | None = None,
 ) -> dict:
-    """Independently rederive a committed PR-#441 decision snapshot."""
-    expected_fields = {
-        "schema_version", "generated_at", "capture_date", "capture_hhmm",
-        "source_commit", "generation_id", "duplicate_guard_key", "source_refs",
-        "upbit_universe_snapshot_identity", "finalized_candle_attestation",
-        "crypto_regime_five_axis", "funnel_counts", "candidates",
-        "freshness_status", "authority", "previous_state_reference",
-        "derivation_notes", "payload_sha256",
-    }
-    if not isinstance(value, dict) or set(value) != expected_fields:
+    """Consume PR #441's canonical full-rederivation boundary."""
+    if not isinstance(value, dict):
         raise CryptoPaperRuntimeBridgeError("DECISION_FIELDS_INVALID")
-    if value.get("schema_version") != DECISION.OUTPUT_SCHEMA_VERSION:
-        raise CryptoPaperRuntimeBridgeError("DECISION_SCHEMA_VERSION_INVALID")
-    source_commit = _require_sha40(value.get("source_commit"), "DECISION_SOURCE_COMMIT_INVALID")
+    source_commit = _require_sha40(
+        value.get("source_commit"), "DECISION_SOURCE_COMMIT_INVALID",
+    )
     if expected_source_commit is not None and source_commit != _require_sha40(
         expected_source_commit, "EXPECTED_SOURCE_COMMIT_INVALID"
     ):
         raise CryptoPaperRuntimeBridgeError("DECISION_SOURCE_COMMIT_MISMATCH")
-    digest = _require_sha256(value.get("payload_sha256"), "DECISION_PAYLOAD_SHA_INVALID")
-    unsigned = copy.deepcopy(value)
-    unsigned.pop("payload_sha256")
-    if payload_sha256(unsigned) != digest:
-        raise CryptoPaperRuntimeBridgeError("DECISION_PAYLOAD_SHA_MISMATCH")
-    _assert_all_false_authority(value.get("authority"), "DECISION_AUTHORITY_INVALID")
-    candidates = value.get("candidates")
-    if not isinstance(candidates, list):
-        raise CryptoPaperRuntimeBridgeError("DECISION_CANDIDATES_INVALID")
-    for index, row in enumerate(candidates):
-        if not isinstance(row, dict):
-            raise CryptoPaperRuntimeBridgeError(f"DECISION_CANDIDATE_INVALID:{index}")
-        _assert_all_false_authority(
-            row.get("authority"), f"DECISION_CANDIDATE_AUTHORITY_INVALID:{index}"
-        )
-
-    entries = _entries(value)
-    rebuilt = DECISION.build_snapshot(
-        generated_at=value["generated_at"],
-        source_commit=source_commit,
-        universe_entry=entries["universe"],
-        market_evidence_entry=entries["market_evidence"],
-        realtime_entry=entries["realtime"],
-        previous_entry=value["previous_state_reference"],
-        component_rows=None,
-    )
-    if DECISION.canonical_json(rebuilt) != DECISION.canonical_json(value):
-        raise CryptoPaperRuntimeBridgeError("DECISION_REDERIVATION_MISMATCH")
-    return copy.deepcopy(value)
+    try:
+        return DECISION.validate_output(value)
+    except DECISION.CryptoPaperDecisionSnapshotError as exc:
+        raise CryptoPaperRuntimeBridgeError(f"DECISION_REDERIVATION_FAILED:{exc}") from exc
 
 
 def load_and_validate_decision_snapshot(
@@ -340,6 +307,45 @@ def build_runtime_config(**kwargs) -> dict:
     return validate_runtime_config(value)
 
 
+def _normalize_open_position_risk(value: object) -> list[dict] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise CryptoPaperRuntimeBridgeError("OPEN_POSITION_RISK_INVALID")
+    normalized = []
+    seen = set()
+    for row in value:
+        if not isinstance(row, dict) or set(row) != {"market", "planned_loss_krw"}:
+            raise CryptoPaperRuntimeBridgeError("OPEN_POSITION_RISK_FIELDS_INVALID")
+        market = row.get("market")
+        if (
+            not isinstance(market, str)
+            or MARKET_RE.fullmatch(market) is None
+            or market in seen
+        ):
+            raise CryptoPaperRuntimeBridgeError("OPEN_POSITION_RISK_MARKET_INVALID")
+        seen.add(market)
+        normalized.append({
+            "market": market,
+            "planned_loss_krw": _format_decimal(
+                row.get("planned_loss_krw"),
+                "OPEN_POSITION_PLANNED_LOSS_INVALID",
+                positive=True,
+            ),
+        })
+    return sorted(normalized, key=lambda row: row["market"])
+
+
+def _normalize_known_idempotency_keys(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        raise CryptoPaperRuntimeBridgeError("KNOWN_IDEMPOTENCY_KEYS_INVALID")
+    if not all(isinstance(row, str) and row for row in value):
+        raise CryptoPaperRuntimeBridgeError("KNOWN_IDEMPOTENCY_KEY_INVALID")
+    return sorted(set(value))
+
+
 def paper_account_state_from_ledger(
     account_state: dict, *, open_position_risk: list[dict],
 ) -> dict:
@@ -347,7 +353,8 @@ def paper_account_state_from_ledger(
     total_nav = Decimal(checked["total_nav"])
     if total_nav <= 0:
         raise CryptoPaperRuntimeBridgeError("PAPER_ACCOUNT_NAV_NOT_POSITIVE")
-    if not isinstance(open_position_risk, list):
+    open_position_risk = _normalize_open_position_risk(open_position_risk)
+    if open_position_risk is None:
         raise CryptoPaperRuntimeBridgeError("OPEN_POSITION_RISK_INVALID")
     risk_by_market = {}
     for row in open_position_risk:
@@ -357,7 +364,11 @@ def paper_account_state_from_ledger(
         if not isinstance(market, str) or MARKET_RE.fullmatch(market) is None or market in risk_by_market:
             raise CryptoPaperRuntimeBridgeError("OPEN_POSITION_RISK_MARKET_INVALID")
         risk_by_market[market] = Decimal(
-            _format_decimal(row.get("planned_loss_krw"), "OPEN_POSITION_PLANNED_LOSS_INVALID")
+            _format_decimal(
+                row.get("planned_loss_krw"),
+                "OPEN_POSITION_PLANNED_LOSS_INVALID",
+                positive=True,
+            )
         )
     positions = []
     for position in checked["positions"]:
@@ -411,6 +422,8 @@ def _realtime_source(decision: dict) -> tuple[Path, dict]:
 
 
 def _latest_public_message(decision: dict, *, market: str, kind: str) -> tuple[dict, Path, dict]:
+    if (decision.get("freshness_status") or {}).get("realtime") != DECISION.FRESH:
+        raise CryptoPaperRuntimeBridgeError("DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH")
     path, record = _realtime_source(decision)
     run = record["run"]
     key = f"{kind}|-|{market}"
@@ -428,6 +441,20 @@ def _latest_public_message(decision: dict, *, market: str, kind: str) -> tuple[d
         or parsed["payload_sha256"] != row["source_sha256"]
     ):
         raise CryptoPaperRuntimeBridgeError(f"REALTIME_{kind.upper()}_SHA_MISMATCH:{market}")
+    try:
+        received_at = dt.datetime.strptime(
+            row["received_at"], "%Y-%m-%dT%H:%M:%S.%fZ",
+        ).replace(tzinfo=dt.timezone.utc)
+    except (TypeError, ValueError) as exc:
+        raise CryptoPaperRuntimeBridgeError(
+            f"REALTIME_{kind.upper()}_RECEIVED_AT_INVALID:{market}"
+        ) from exc
+    if received_at > _parse_utc(
+        decision.get("generated_at"), "DECISION_GENERATED_AT_INVALID",
+    ):
+        raise CryptoPaperRuntimeBridgeError(
+            f"REALTIME_{kind.upper()}_FUTURE_DATED:{market}"
+        )
     status = run.get("status") or {}
     if status.get("overall_status") != "FRESH":
         raise CryptoPaperRuntimeBridgeError("REALTIME_STATUS_NOT_FRESH")
@@ -510,7 +537,7 @@ def _promotion_packet(decision: dict) -> dict | None:
         return None
 
 
-def build_runtime_request(
+def _derive_runtime_request(
     decision: dict,
     *,
     expected_source_commit: str,
@@ -528,10 +555,20 @@ def build_runtime_request(
         "PUBLIC_CODE_COMMIT_INVALID",
     )
     config = validate_runtime_config(runtime_config) if runtime_config is not None else None
+    if config is not None and _parse_utc(
+        config["approved_at"], "RUNTIME_CONFIG_APPROVED_AT_INVALID",
+    ) > _parse_utc(decision["generated_at"], "DECISION_GENERATED_AT_INVALID"):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_CONFIG_APPROVED_AFTER_DECISION")
+    checked_account = (
+        SIMULATOR.validate_account_state(account_state)
+        if account_state is not None else None
+    )
+    normalized_risk = _normalize_open_position_risk(open_position_risk)
+    normalized_keys = _normalize_known_idempotency_keys(known_idempotency_keys)
     missing = []
-    if account_state is None:
+    if checked_account is None:
         missing.append("PAPER_ACCOUNT_STATE")
-    if open_position_risk is None:
+    if normalized_risk is None:
         missing.append("OPEN_POSITION_RISK")
     if config is None:
         missing.append("USER_RATIFIED_RUNTIME_CONFIG")
@@ -546,8 +583,7 @@ def build_runtime_request(
     # the tail of that run, so it may support the decision but cannot fill a
     # newly submitted order.  It can only match orders carried from a prior
     # ledger state.  New intents wait for a later capture.
-    if account_state is not None:
-        checked_account = SIMULATOR.validate_account_state(account_state)
+    if checked_account is not None:
         intent_by_order_id = {
             event["order_id"]: event["payload"]["intent"]
             for event in checked_account["source_ledger"]["events"]
@@ -575,8 +611,8 @@ def build_runtime_request(
                     intent["submitted_at"], "OPEN_ORDER_SUBMITTED_AT_INVALID"
                 )
                 expires = _parse_utc(intent["expires_at"], "OPEN_ORDER_EXPIRY_INVALID")
-                if captured < submitted:
-                    blockers.append(f"MATCH_SNAPSHOT_PRECEDES_OPEN_ORDER:{order['order_id']}")
+                if captured <= submitted:
+                    blockers.append(f"MATCH_SNAPSHOT_NOT_AFTER_OPEN_ORDER:{order['order_id']}")
                 elif captured >= expires:
                     blockers.append(f"OPEN_ORDER_EXPIRY_REACHED:{order['order_id']}")
                 else:
@@ -593,14 +629,14 @@ def build_runtime_request(
         blockers.extend("RUNTIME_INPUT_MISSING:" + item for item in missing)
     else:
         paper_account = paper_account_state_from_ledger(
-            account_state, open_position_risk=open_position_risk or [],
+            checked_account, open_position_risk=normalized_risk or [],
         )
         eligibility = ELIGIBILITY.build_eligibility_packet(
             promotion,
             evaluation_as_of=promotion["evaluation_as_of"],
             paper_account_state=paper_account,
             fee_rate=config["fee_rate"],
-            known_idempotency_keys=known_idempotency_keys,
+            known_idempotency_keys=normalized_keys,
         )
         eligibility = ELIGIBILITY.validate_output(eligibility)
         for row in eligibility["candidates"]:
@@ -671,18 +707,54 @@ def build_runtime_request(
         "match_snapshots": match_snapshots,
         "blockers": sorted(blockers),
         "authority": copy.deepcopy(AUTHORITY),
+        "source_inputs": {
+            "decision": copy.deepcopy(decision),
+            "public_code_commit_sha": code_commit,
+            "account_state": copy.deepcopy(checked_account),
+            "open_position_risk": copy.deepcopy(normalized_risk),
+            "runtime_config": copy.deepcopy(config),
+            "known_idempotency_keys": normalized_keys,
+        },
     }
     packet["packet_sha256"] = payload_sha256(packet)
-    return validate_runtime_request(packet)
+    return packet
 
 
-def validate_runtime_request(value: object) -> dict:
+def build_runtime_request(
+    decision: dict,
+    *,
+    expected_source_commit: str,
+    public_code_commit_sha: str | None = None,
+    account_state: dict | None,
+    open_position_risk: list[dict] | None,
+    runtime_config: dict | None,
+    known_idempotency_keys=None,
+) -> dict:
+    packet = _derive_runtime_request(
+        decision,
+        expected_source_commit=expected_source_commit,
+        public_code_commit_sha=public_code_commit_sha,
+        account_state=account_state,
+        open_position_risk=open_position_risk,
+        runtime_config=runtime_config,
+        known_idempotency_keys=known_idempotency_keys,
+    )
+    return validate_runtime_request(
+        packet,
+        expected_public_code_commit_sha=packet["public_code_commit_sha"],
+    )
+
+
+def validate_runtime_request(
+    value: object, *, expected_public_code_commit_sha: str | None = None,
+) -> dict:
     fields = {
         "schema_version", "mode", "status", "observed_at",
         "decision_generation_id", "decision_payload_sha256",
         "decision_source_commit_sha", "public_code_commit_sha",
         "runtime_config_sha256", "eligibility",
-        "requests", "match_snapshots", "blockers", "authority", "packet_sha256",
+        "requests", "match_snapshots", "blockers", "authority", "source_inputs",
+        "packet_sha256",
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_FIELDS_INVALID")
@@ -696,7 +768,13 @@ def validate_runtime_request(value: object) -> dict:
     _require_sha256(value.get("decision_generation_id"), "RUNTIME_REQUEST_GENERATION_INVALID")
     _require_sha256(value.get("decision_payload_sha256"), "RUNTIME_REQUEST_DECISION_SHA_INVALID")
     _require_sha40(value.get("decision_source_commit_sha"), "RUNTIME_REQUEST_DECISION_COMMIT_INVALID")
-    _require_sha40(value.get("public_code_commit_sha"), "RUNTIME_REQUEST_PUBLIC_COMMIT_INVALID")
+    public_commit = _require_sha40(
+        value.get("public_code_commit_sha"), "RUNTIME_REQUEST_PUBLIC_COMMIT_INVALID",
+    )
+    if expected_public_code_commit_sha is not None and public_commit != _require_sha40(
+        expected_public_code_commit_sha, "EXPECTED_PUBLIC_CODE_COMMIT_INVALID",
+    ):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_PUBLIC_COMMIT_MISMATCH")
     if value.get("runtime_config_sha256") is not None:
         _require_sha256(value["runtime_config_sha256"], "RUNTIME_REQUEST_CONFIG_SHA_INVALID")
     eligibility = value.get("eligibility")
@@ -754,4 +832,26 @@ def validate_runtime_request(value: object) -> dict:
     unsigned.pop("packet_sha256")
     if payload_sha256(unsigned) != digest:
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SHA_MISMATCH")
+    source_inputs = value.get("source_inputs")
+    if not isinstance(source_inputs, dict) or set(source_inputs) != {
+        "decision", "public_code_commit_sha", "account_state",
+        "open_position_risk", "runtime_config", "known_idempotency_keys",
+    }:
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SOURCE_INPUTS_INVALID")
+    if source_inputs["public_code_commit_sha"] != public_commit:
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SOURCE_COMMIT_MISMATCH")
+    decision = source_inputs["decision"]
+    if not isinstance(decision, dict):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SOURCE_DECISION_INVALID")
+    rebuilt = _derive_runtime_request(
+        decision,
+        expected_source_commit=decision.get("source_commit"),
+        public_code_commit_sha=public_commit,
+        account_state=source_inputs["account_state"],
+        open_position_risk=source_inputs["open_position_risk"],
+        runtime_config=source_inputs["runtime_config"],
+        known_idempotency_keys=source_inputs["known_idempotency_keys"],
+    )
+    if canonical_json(rebuilt) != canonical_json(value):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_DERIVATION_MISMATCH")
     return copy.deepcopy(value)
