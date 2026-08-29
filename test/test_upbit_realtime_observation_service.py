@@ -460,6 +460,10 @@ class SourceBoundaryTests(unittest.TestCase):
     def test_compose_binds_loopback_by_default_and_has_restart_policy(self):
         source = COMPOSE_PATH.read_text(encoding="utf-8")
         self.assertIn("restart: unless-stopped", source)
+        # /etc/atlas/realtime-signing.pem is root:10001 mode 0640 on the
+        # operator host. Pinning the container GID prevents Debian's dynamic
+        # system-group allocation from making that read-only mount unreadable.
+        self.assertIn('user: "10001:10001"', source)
         self.assertIn("127.0.0.1", source)
         self.assertIn("/health", source)
 

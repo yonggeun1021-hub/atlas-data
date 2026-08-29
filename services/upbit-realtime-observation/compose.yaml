@@ -6,6 +6,11 @@ services:
     image: atlas-upbit-realtime-observation:local
     container_name: atlas-upbit-realtime-observation
     restart: unless-stopped
+    # The operator signing key is deliberately root-owned and group-readable
+    # by numeric GID 10001. Pin both IDs here because Debian's system-user
+    # allocation does not guarantee that `atlas` receives GID 10001 even
+    # though its UID is fixed to 10001 in the image.
+    user: "10001:10001"
     env_file:
       - ./.env
       - /etc/atlas/atlas-site-bypass.env
