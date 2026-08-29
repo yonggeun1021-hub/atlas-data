@@ -2,6 +2,7 @@
 """P10-01 committed Daily Briefing to Shadow readiness regressions."""
 import ast
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -32,23 +33,44 @@ spec.loader.exec_module(UNIFIED_FIXTURE)
 PACKETS = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
 
 
-def has_validated_unified_decision(path: Path) -> bool:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    rows = value.get("components")
-    if not isinstance(rows, list):
-        return False
-    matches = [
-        row for row in rows
+def validated_unified_generated_at(path: Path):
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    rows = [
+        row for row in value.get("components", [])
         if isinstance(row, dict) and row.get("component_id") == "UNIFIED_DECISION"
     ]
-    return (
-        len(matches) == 1
-        and matches[0].get("validated") is True
-        and isinstance(matches[0].get("packet"), dict)
-    )
+    if (
+        len(rows) != 1
+        or rows[0].get("validated") is not True
+        or not isinstance(rows[0].get("packet"), dict)
+    ):
+        return None
+    generated_at = value.get("generated_at")
+    if rows[0]["packet"].get("generated_at") != generated_at:
+        return None
+    try:
+        return dt.datetime.strptime(generated_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=dt.timezone.utc
+        )
+    except (TypeError, ValueError):
+        return None
 
 
-PACKET = next(path for path in reversed(PACKETS) if has_validated_unified_decision(path))
+def latest_validated_packet(paths):
+    candidates = [
+        (generated_at, path)
+        for path in paths
+        if (generated_at := validated_unified_generated_at(path)) is not None
+    ]
+    if not candidates:
+        raise RuntimeError("VALIDATED_UNIFIED_DECISION_DAILY_FIXTURE_MISSING")
+    return max(candidates, key=lambda item: (item[0], item[1].as_posix()))[1]
+
+
+PACKET = latest_validated_packet(PACKETS)
 
 
 def commit_for(path: Path) -> str:
@@ -60,7 +82,9 @@ def commit_for(path: Path) -> str:
 
 
 SOURCE_COMMIT = commit_for(PACKET)
-RECORDED_AT = "2026-08-27T00:00:01Z"
+RECORDED_AT = (
+    validated_unified_generated_at(PACKET) + dt.timedelta(seconds=1)
+).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def current_unified():
@@ -98,6 +122,28 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
         )
         with patcher:
             return MODULE.build_packet(PACKET, SOURCE_COMMIT, recorded_at)
+
+    def test_latest_validated_fixture_is_selected_by_generated_at(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lexical_last_but_old = root / "z-old.json"
+            chronological_latest = root / "a-new.json"
+            for path, generated_at in (
+                (lexical_last_but_old, "2026-08-28T13:41:45Z"),
+                (chronological_latest, "2026-08-29T00:39:03Z"),
+            ):
+                path.write_text(json.dumps({
+                    "generated_at": generated_at,
+                    "components": [{
+                        "component_id": "UNIFIED_DECISION",
+                        "validated": True,
+                        "packet": {"generated_at": generated_at},
+                    }],
+                }), encoding="utf-8")
+            self.assertEqual(
+                latest_validated_packet(sorted(root.glob("*.json"))),
+                chronological_latest,
+            )
 
     def test_real_committed_source_reports_exact_missing_p9_boundary(self):
         # No mocked validator: exercise the exact historical commit archive.
