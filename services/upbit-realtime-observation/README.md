@@ -102,6 +102,13 @@ also never permanently gives up on a WebSocket reconnect (see
 `observation_gate.PersistentConnectionState`) -- the two together are the
 "24/7" guarantee.
 
+The compose service is pinned to numeric user/group `10001:10001`. The
+operator signing key remains root-owned and must be group-readable only by
+GID 10001 (for example `root:10001` with mode `0640`); do not make the key
+world-readable. Pinning the numeric GID avoids distribution-dependent system
+group allocation inside the image while keeping the long-running process
+non-root.
+
 To stop: `docker compose down` (from this directory). To view logs:
 `docker compose logs -f upbit-realtime-observation`.
 
