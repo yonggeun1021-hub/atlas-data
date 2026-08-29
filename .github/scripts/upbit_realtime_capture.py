@@ -9,6 +9,14 @@ reconnect-with-backoff within that window), writes an append-only evidence
 snapshot, and exits cleanly. Public market data only -- no API key/secret,
 never ``myOrder``/``myAsset``, never an order/withdrawal/private endpoint.
 
+An explicit ``PUBLIC_TRANSPORT_VALIDATION_ONLY`` mode may instead read the
+fixed reference markets in
+``config/upbit_public_validation_anchor_contract.json``.  Those observations
+are written under a separate evidence root and
+are forbidden from entering P3/P5/P8 or any order/decision path.  The mode
+exists only to prove the public WebSocket transport and parsers with natural
+bytes while the P3-12 eligibility authority remains unratified/empty.
+
 Architecture note -- why bounded-run, not a persistent daemon: this repo's
 existing automation is GitHub Actions cron jobs that run, capture, commit,
 and exit; there is no long-running-process infrastructure here for a
@@ -49,6 +57,8 @@ UTC = dt.timezone.utc
 WS_ENDPOINT = "wss://api.upbit.com/websocket/v1"
 CANDLE_TIMEFRAMES = ("15m", "1h", "4h")
 LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION = "upbit_realtime_latest_public_messages/1"
+ELIGIBLE_UNIVERSE_MODE = "P3_ELIGIBLE_UNIVERSE"
+PUBLIC_VALIDATION_MODE = "PUBLIC_TRANSPORT_VALIDATION_ONLY"
 
 
 def _load_module(name: str, relative_path: str):
@@ -76,6 +86,58 @@ def canonical_json(value) -> str:
 
 def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def load_validation_anchor_contract(path: Path) -> dict:
+    """Load a non-strategic, public-transport-only market anchor set.
+
+    This loader is deliberately local to the I/O wrapper.  The realtime
+    decision gate never imports the anchor contract, so reference markets
+    cannot silently expand the P3-12 eligible universe.
+    """
+    try:
+        contract = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RealtimeCaptureError(f"VALIDATION_ANCHOR_CONTRACT_UNREADABLE:{exc}") from exc
+    if contract.get("contract_version") != "upbit_public_validation_anchor_contract/1":
+        raise RealtimeCaptureError("VALIDATION_ANCHOR_CONTRACT_VERSION_INVALID")
+    if contract.get("capture_mode") != PUBLIC_VALIDATION_MODE:
+        raise RealtimeCaptureError("VALIDATION_ANCHOR_MODE_INVALID")
+    markets = contract.get("markets")
+    if (
+        not isinstance(markets, list)
+        or not markets
+        or markets != sorted(set(markets))
+        or any(not isinstance(market, str) or not market.startswith("KRW-") for market in markets)
+    ):
+        raise RealtimeCaptureError("VALIDATION_ANCHOR_MARKETS_INVALID")
+    required_false = (
+        "feeds_tradeable_universe",
+        "feeds_candidate_promotion",
+        "feeds_buy_decision",
+        "feeds_briefing_decision",
+        "entry_eligibility_authorized",
+        "action_generation_authorized",
+        "order_authorized",
+        "production_authorized",
+        "trading_authorized",
+        "private_channel_subscribed",
+        "order_or_withdrawal_endpoints_called",
+    )
+    if any(contract.get(field) is not False for field in required_false):
+        raise RealtimeCaptureError("VALIDATION_ANCHOR_AUTHORITY_INVALID")
+    if contract.get("auth_required") is not False:
+        raise RealtimeCaptureError("VALIDATION_ANCHOR_AUTH_INVALID")
+    return contract
+
+
+def validate_evidence_root(capture_mode: str, evidence_root: Path) -> None:
+    """Prevent validation-only bytes and decision-source bytes from mixing."""
+    is_validation_root = Path(evidence_root).name == "realtime_validation"
+    if capture_mode == PUBLIC_VALIDATION_MODE and not is_validation_root:
+        raise RealtimeCaptureError("VALIDATION_EVIDENCE_ROOT_NOT_ISOLATED")
+    if capture_mode == ELIGIBLE_UNIVERSE_MODE and is_validation_root:
+        raise RealtimeCaptureError("ELIGIBLE_UNIVERSE_EVIDENCE_ROOT_INVALID")
 
 
 def build_gate(markets: list, contract: dict) -> "GATE.RealtimeGate":
@@ -121,6 +183,34 @@ def retain_latest_public_message(
         "received_at": received_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "source_sha256": parsed["payload_sha256"],
         "raw": raw,
+    }
+
+
+def public_transport_validation_summary(markets: list, latest_public_messages: dict) -> dict:
+    """Report exact public-channel observation coverage, with no policy use."""
+    expected_keys = []
+    for market in markets:
+        expected_keys.extend(
+            [
+                f"ticker|-|{market}",
+                f"trade|-|{market}",
+                f"orderbook|-|{market}",
+                *(f"candle|{timeframe}|{market}" for timeframe in CANDLE_TIMEFRAMES),
+            ]
+        )
+    observed_keys = sorted(set(latest_public_messages).intersection(expected_keys))
+    missing_keys = sorted(set(expected_keys).difference(observed_keys))
+    return {
+        "status": "COMPLETE" if not missing_keys else "INCOMPLETE",
+        "expected_public_channel_keys": sorted(expected_keys),
+        "observed_public_channel_keys": observed_keys,
+        "missing_public_channel_keys": missing_keys,
+        "decision_eligible": False,
+        "entry_eligibility_authorized": False,
+        "action_generation_authorized": False,
+        "order_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
     }
 
 
@@ -194,7 +284,12 @@ async def _connect_and_stream(
 
 async def run_capture_async(
     markets: list, contract: dict, *, duration_seconds: float,
+    capture_mode: str = ELIGIBLE_UNIVERSE_MODE,
 ) -> dict:
+    if capture_mode not in (ELIGIBLE_UNIVERSE_MODE, PUBLIC_VALIDATION_MODE):
+        raise RealtimeCaptureError("CAPTURE_MODE_INVALID")
+    if capture_mode == PUBLIC_VALIDATION_MODE and not markets:
+        raise RealtimeCaptureError("VALIDATION_ANCHOR_MARKETS_EMPTY")
     gate = build_gate(markets, contract)
     stop_event = asyncio.Event()
 
@@ -230,7 +325,8 @@ async def run_capture_async(
             loop.remove_signal_handler(sig)
 
     status = gate.status_snapshot(utc_now())
-    return {
+    run_record = {
+        "capture_mode": capture_mode,
         "started_at": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "ended_at": utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "requested_duration_seconds": duration_seconds,
@@ -248,6 +344,12 @@ async def run_capture_async(
             )
         },
     }
+    if capture_mode == PUBLIC_VALIDATION_MODE:
+        run_record["transport_validation"] = public_transport_validation_summary(
+            markets,
+            streamed["latest_public_messages"],
+        )
+    return run_record
 
 
 def write_evidence_snapshot(evidence_root: Path, snapshot_date: dt.date, run_record: dict) -> Path:
@@ -294,20 +396,41 @@ def write_evidence_snapshot(evidence_root: Path, snapshot_date: dt.date, run_rec
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence-root", type=Path, required=True)
-    parser.add_argument("--universe-packet", type=Path, help="P3-12 classification packet.json")
+    market_source = parser.add_mutually_exclusive_group()
+    market_source.add_argument("--universe-packet", type=Path, help="P3-12 classification packet.json")
+    market_source.add_argument(
+        "--validation-anchor-contract",
+        type=Path,
+        help="PUBLIC_TRANSPORT_VALIDATION_ONLY reference-market contract",
+    )
     parser.add_argument("--duration-seconds", type=float, default=None)
     parser.add_argument("--snapshot-date", type=dt.date.fromisoformat, default=None)
     args = parser.parse_args(argv)
 
     contract = GATE.load_contract()
     duration = args.duration_seconds or contract["bounded_run_default_duration_seconds"]
-    markets = GATE.eligible_markets_from_universe_packet(args.universe_packet)
+    if args.validation_anchor_contract is not None:
+        anchor_contract = load_validation_anchor_contract(args.validation_anchor_contract)
+        capture_mode = PUBLIC_VALIDATION_MODE
+        markets = anchor_contract["markets"]
+    else:
+        capture_mode = ELIGIBLE_UNIVERSE_MODE
+        markets = GATE.eligible_markets_from_universe_packet(args.universe_packet)
+    validate_evidence_root(capture_mode, args.evidence_root)
     snapshot_date = args.snapshot_date or utc_now().date()
 
-    run_record = asyncio.run(run_capture_async(markets, contract, duration_seconds=duration))
+    run_record = asyncio.run(
+        run_capture_async(
+            markets,
+            contract,
+            duration_seconds=duration,
+            capture_mode=capture_mode,
+        )
+    )
     target = write_evidence_snapshot(args.evidence_root, snapshot_date, run_record)
     print(json.dumps({
         "path": str(target),
+        "capture_mode": capture_mode,
         "market_count": len(markets),
         "overall_status": run_record["status"]["overall_status"],
         "accepted": run_record["status"]["counts"]["accepted"],
