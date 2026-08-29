@@ -150,6 +150,23 @@ class KoreaMarketSignalsTest(unittest.TestCase):
         )
         self.assertEqual(MODULE.validate_packet(packet), packet)
 
+    def test_index_parser_ignores_blank_non_series_rows(self):
+        payload = {"OutBlock_1": [
+            {"BAS_DD": "20260828", "IDX_NM": "분류", "CLSPRC_IDX": ""},
+            {"BAS_DD": "20260828", "IDX_NM": "", "CLSPRC_IDX": "123.45"},
+            index_row("20260828", "코스피", 3210.5),
+        ]}
+        parsed = MODULE._index_snapshot(payload, "20260828", "kospi")
+        self.assertEqual(set(parsed["indices"]), {"코스피"})
+        self.assertEqual(parsed["indices"]["코스피"], MODULE.Decimal("3210.5"))
+
+        with self.assertRaisesRegex(MODULE.KoreaMarketSignalsError, "KRX_RESPONSE_EMPTY"):
+            MODULE._index_snapshot(
+                {"OutBlock_1": [{"BAS_DD": "20260828", "IDX_NM": "분류", "CLSPRC_IDX": ""}]},
+                "20260828",
+                "kospi",
+            )
+
     def test_no_secret_raw_price_or_per_symbol_identity_is_persisted(self):
         opener = FakeOpener(fixtures())
         packet = MODULE.build_packet(
