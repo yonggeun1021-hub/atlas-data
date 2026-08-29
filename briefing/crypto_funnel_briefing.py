@@ -37,6 +37,10 @@ if str(ROOT) not in sys.path:
 CONTRACT_PATH = ROOT / "config" / "crypto_funnel_briefing_contract.json"
 OUTPUT_ROOT = ROOT / "evidence" / "crypto_funnel_briefing"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+REQUIRED_TIME_BASIS_FIELDS = {
+    "captured_at_utc", "captured_at_kst", "operational_date_kst",
+    "path_time_basis", "scheduled_for", "started_at", "completed_at",
+}
 
 
 class CryptoFunnelBriefingError(ValueError):
@@ -147,6 +151,11 @@ def _axis_rows(source: dict, contract: dict) -> list[dict]:
     return [{"axis": axis, **copy.deepcopy(factors[axis])} for axis in contract["axis_order"]]
 
 
+def _require_explicit_time_basis(source: dict) -> None:
+    if not REQUIRED_TIME_BASIS_FIELDS.issubset(source):
+        raise CryptoFunnelBriefingError("SOURCE_EXPLICIT_TIME_BASIS_REQUIRED")
+
+
 def _candidate_rows(source: dict) -> list[dict]:
     rows = []
     for item in source["candidates"]:
@@ -226,6 +235,7 @@ def _render_markdown(packet: dict) -> str:
 
 
 def _assemble(source: dict, source_path: str, source_file_sha256: str, contract: dict) -> dict:
+    _require_explicit_time_basis(source)
     axes = _axis_rows(source, contract)
     candidates = _candidate_rows(source)
     counts = source["funnel_counts"]

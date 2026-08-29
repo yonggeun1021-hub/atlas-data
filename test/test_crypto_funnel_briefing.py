@@ -175,9 +175,14 @@ class CryptoFunnelBriefingTests(unittest.TestCase):
             "path_time_basis", "scheduled_for", "started_at", "completed_at",
         ):
             source.pop(key)
+        source.pop("payload_sha256")
+        source["payload_sha256"] = DECISION.payload_sha256(source)
         with tempfile.TemporaryDirectory() as tmp:
             path = write_source(Path(tmp), source)
-            with self.assertRaisesRegex(MODULE.CryptoFunnelBriefingError, "SOURCE_DECISION_INVALID"):
+            with self.assertRaisesRegex(
+                MODULE.CryptoFunnelBriefingError,
+                "SOURCE_EXPLICIT_TIME_BASIS_REQUIRED",
+            ):
                 build_from_path(path, source)
 
     def test_populate_is_content_addressed_and_idempotent(self):
