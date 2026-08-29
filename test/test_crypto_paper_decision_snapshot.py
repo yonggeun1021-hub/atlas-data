@@ -19,6 +19,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "decision" / "crypto_paper_decision_snapshot.py"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "upbit-realtime-capture.yml"
 SPEC = importlib.util.spec_from_file_location("crypto_paper_decision_snapshot", MODULE_PATH)
 CPDS = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -83,7 +84,8 @@ def universe_packet(rows, *, available_at=EVAL_AS_OF + "T00:40:00Z", evaluation_
 def write_universe_entry(tmp_dir: Path, packet: dict, *, date=EVAL_AS_OF):
     directory = tmp_dir / "universe" / date
     directory.mkdir(parents=True, exist_ok=True)
-    record = {"schema_version": "upbit_universe_population/1", "snapshot_date": date, "packet": packet, "payload_sha256": "z" * 64}
+    record = {"schema_version": "upbit_universe_population/1", "snapshot_date": date, "packet": packet}
+    record["payload_sha256"] = CPDS.payload_sha256(record)
     path = directory / "packet.json"
     path.write_text(json.dumps(record), encoding="utf-8")
     return {"date": date, "path": path, "record": record, "packet": packet}
@@ -97,7 +99,17 @@ def valid_market_evidence_packet(market="KRW-BTC"):
         "opening_price": 1000, "high_price": 1010, "low_price": 990, "trade_price": 1005,
         "candle_acc_trade_price": 123456, "candle_acc_trade_volume": 12.3,
     }
-    candles = {timeframe: [copy.deepcopy(raw_candle)] for timeframe in MARKET_EV.finalization.TIMEFRAMES}
+    open_time_by_timeframe = {
+        "15m": "2026-08-29T00:45:00",
+        "1h": "2026-08-29T00:00:00",
+        "4h": "2026-08-28T20:00:00",
+        "1d": "2026-08-28T00:00:00",
+    }
+    candles = {}
+    for timeframe, open_time in open_time_by_timeframe.items():
+        row = copy.deepcopy(raw_candle)
+        row["candle_date_time_utc"] = open_time
+        candles[timeframe] = [row]
     timestamp_ms = int(as_of.timestamp() * 1000)
     trades = [{"market": market, "trade_price": 1000, "trade_volume": 1, "timestamp": timestamp_ms, "ask_bid": "BID"}]
     orderbook = {
@@ -115,21 +127,63 @@ def write_market_evidence_entry(tmp_dir: Path, packets_by_market: dict, *, date=
     directory.mkdir(parents=True, exist_ok=True)
     record = {
         "schema_version": "upbit_microstructure_population/1", "snapshot_date": date,
-        "packets": packets_by_market, "payload_sha256": "w" * 64,
+        "generated_at": date + "T01:05:00Z",
+        "policy_ratified": all(packet.get("policy_ratified") is True for packet in packets_by_market.values()),
+        "summary": {
+            "market_count": len(packets_by_market),
+            "packet_count": len(packets_by_market),
+            "error_count": 0,
+        },
+        "errors": {},
+        "packets": packets_by_market,
     }
+    record["payload_sha256"] = CPDS.payload_sha256(record)
     path = directory / "packet.json"
     path.write_text(json.dumps(record, default=str), encoding="utf-8")
     return {"date": date, "path": path, "record": json.loads(path.read_text())}
 
 
-def write_realtime_entry(tmp_dir: Path, *, date=EVAL_AS_OF, run_index=1, overall_status="FRESH"):
+def write_realtime_entry(
+    tmp_dir: Path, *, date=EVAL_AS_OF, run_index=1, overall_status="FRESH",
+    with_observations=True,
+):
     directory = tmp_dir / "realtime" / date
     directory.mkdir(parents=True, exist_ok=True)
+    status = {
+        "schema_version": "upbit_realtime_gate_status/1",
+        "generated_at": date + "T09:00:00Z",
+        "connection_state": "CONNECTED" if with_observations else "CONNECTING",
+        "reconnect_count": 0,
+        "last_disconnect_reason": None,
+        "overall_status": overall_status,
+        "counts": {"accepted": 1},
+        "markets": [{"market": "KRW-BTC", "freshness_by_kind": {}}] if with_observations else [],
+        "pending_connection_gap_windows": [],
+        "duplicate_guard_size": 1,
+        "authority": dict(CPDS.REALTIME_GATE._GATE_AUTHORITY),
+    }
+    status["payload_sha256"] = CPDS.payload_sha256(status)
+    run = {
+        "started_at": date + "T08:59:00Z",
+        "ended_at": date + "T09:00:00Z",
+        "requested_duration_seconds": 60,
+        "markets": ["KRW-BTC"] if with_observations else [],
+        "message_log": (
+            [{"received_at": date + "T08:59:30Z", "result": {"action": "ACCEPTED"}}]
+            if with_observations else []
+        ),
+        "status": status,
+        "candle_ledger": {},
+    }
     record = {
         "schema_version": "upbit_realtime_capture_run/1",
-        "source_sha256": "b" * 64,
-        "run": {"status": {"overall_status": overall_status}, "markets": []},
+        "transform_version": "upbit_realtime_gate/1",
+        "auth_required": False,
+        "order_or_withdrawal_endpoints_called": False,
+        "private_channel_subscribed": False,
+        "run": run,
     }
+    record["source_sha256"] = CPDS.payload_sha256(run)
     path = directory / f"run_{run_index:03d}.json"
     path.write_text(json.dumps(record), encoding="utf-8")
     return {"date": date, "path": path, "record": record}
@@ -157,6 +211,17 @@ def ratified_policy_patches():
     for target in targets:
         patchers.append(mock.patch.object(target, "load_policy", return_value=policy))
         patchers.append(mock.patch.object(target, "load_taxonomy", return_value=taxonomy))
+    market_policy = copy.deepcopy(CPDS.MARKET_EVIDENCE.load_policy())
+    market_policy["approval_status"] = "RATIFIED"
+    patchers.append(mock.patch.object(CPDS.MARKET_EVIDENCE, "load_policy", return_value=market_policy))
+    patchers.append(mock.patch.object(CPDS.PROMOTION.MARKET_EVIDENCE, "load_policy", return_value=market_policy))
+    patchers.append(mock.patch.object(
+        CPDS.ELIGIBILITY.PROMOTION.MARKET_EVIDENCE, "load_policy", return_value=market_policy,
+    ))
+    patchers.append(mock.patch.object(
+        CPDS.REALTIME_GATE, "load_freshness_policy_proposal",
+        return_value={"approval_status": "RATIFIED"},
+    ))
     return patchers
 
 
@@ -216,6 +281,41 @@ class NormalCompleteInputTests(TempDirMixin, unittest.TestCase):
         )
         self.assertIn("KRW-BTC", record["finalized_candle_attestation"]["markets"])
         self.assertTrue(record["finalized_candle_attestation"]["used_in_promotion"])
+        self.assertEqual(CPDS.validate_output(record, allow_external_sources=True), record)
+
+    def test_rehashed_candidate_state_tamper_is_rejected_by_full_rederivation(self):
+        packet = universe_packet([universe_row(market="KRW-BTC", state=UNI.STATE_PAPER_ELIGIBLE)])
+        record = CPDS.build_snapshot(
+            generated_at=GENERATED_AT,
+            source_commit=SOURCE_COMMIT,
+            universe_entry=write_universe_entry(self.tmp, packet),
+            market_evidence_entry=write_market_evidence_entry(
+                self.tmp, {"KRW-BTC": valid_market_evidence_packet("KRW-BTC")},
+            ),
+            realtime_entry=write_realtime_entry(self.tmp),
+        )
+        forged = copy.deepcopy(record)
+        forged["candidates"][0]["state"] = "PAPER_BUY_ELIGIBLE"
+        forged["funnel_counts"]["paper_ready_count"] = 1
+        forged["payload_sha256"] = CPDS.payload_sha256(
+            {key: value for key, value in forged.items() if key != "payload_sha256"}
+        )
+        with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "OUTPUT_DERIVATION_MISMATCH"):
+            CPDS.validate_output(forged, allow_external_sources=True)
+
+    def test_unwired_regime_component_rows_are_rejected(self):
+        with self.assertRaisesRegex(
+            CPDS.CryptoPaperDecisionSnapshotError,
+            "REGIME_COMPONENT_ROWS_UNWIRED",
+        ):
+            CPDS.build_snapshot(
+                generated_at=GENERATED_AT,
+                source_commit=SOURCE_COMMIT,
+                universe_entry=None,
+                market_evidence_entry=None,
+                realtime_entry=None,
+                component_rows={"CRYPTO": {"TREND": {"status": "DEFINED"}}},
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -241,11 +341,94 @@ class UniverseMissingTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(record["schema_version"], CPDS.OUTPUT_SCHEMA_VERSION)
 
 
+class EmptyAndUnratifiedEvidenceTests(TempDirMixin, unittest.TestCase):
+    def test_empty_market_evidence_is_missing_never_fresh(self):
+        entry = write_market_evidence_entry(self.tmp, {})
+        record = CPDS.build_snapshot(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=entry, realtime_entry=None,
+        )
+        self.assertEqual(record["freshness_status"]["market_evidence"], CPDS.MISSING)
+        self.assertIn("UPBIT_MARKET_EVIDENCE_PACKETS_EMPTY", record["derivation_notes"])
+
+    def test_empty_realtime_capture_is_missing_never_fresh(self):
+        entry = write_realtime_entry(self.tmp, with_observations=False, overall_status="UNKNOWN")
+        record = CPDS.build_snapshot(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=None, realtime_entry=entry,
+        )
+        self.assertEqual(record["freshness_status"]["realtime"], CPDS.MISSING)
+        self.assertIn("UPBIT_REALTIME_OBSERVATIONS_EMPTY", record["derivation_notes"])
+
+    def test_unratified_market_and_realtime_freshness_are_unknown(self):
+        market_entry = write_market_evidence_entry(
+            self.tmp, {"KRW-BTC": valid_market_evidence_packet("KRW-BTC")},
+        )
+        realtime_entry = write_realtime_entry(self.tmp)
+        record = CPDS.build_snapshot(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=market_entry,
+            realtime_entry=realtime_entry,
+        )
+        self.assertEqual(record["freshness_status"]["market_evidence"], CPDS.UNKNOWN)
+        self.assertEqual(record["freshness_status"]["realtime"], CPDS.UNKNOWN)
+
+
+class SourceIntegrityTests(TempDirMixin, unittest.TestCase):
+    def test_rehashed_outer_market_record_tamper_is_rejected(self):
+        entry = write_market_evidence_entry(self.tmp, {})
+        entry["record"]["summary"]["packet_count"] = 1
+        entry["record"]["payload_sha256"] = CPDS.payload_sha256(
+            {key: value for key, value in entry["record"].items() if key != "payload_sha256"}
+        )
+        with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "SUMMARY_INVALID"):
+            CPDS.build_snapshot(
+                generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+                universe_entry=None, market_evidence_entry=entry, realtime_entry=None,
+            )
+
+    def test_realtime_run_tamper_with_stale_source_hash_is_rejected(self):
+        entry = write_realtime_entry(self.tmp)
+        entry["record"]["run"]["message_log"].append({"result": {"action": "FORGED"}})
+        with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "REALTIME_SOURCE_HASH_MISMATCH"):
+            CPDS.build_snapshot(
+                generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+                universe_entry=None, market_evidence_entry=None, realtime_entry=entry,
+            )
+
+    def test_generation_id_binds_exact_source_file_bytes(self):
+        entry = write_market_evidence_entry(self.tmp, {})
+        first = CPDS.build_snapshot(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=entry, realtime_entry=None,
+        )
+        entry["path"].write_text(entry["path"].read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        second = CPDS.build_snapshot(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=entry, realtime_entry=None,
+        )
+        self.assertNotEqual(first["generation_id"], second["generation_id"])
+
+    def test_future_realtime_evidence_is_rejected(self):
+        entry = write_realtime_entry(self.tmp)
+        entry["record"]["run"]["ended_at"] = "2026-08-29T09:00:01Z"
+        entry["record"]["source_sha256"] = CPDS.payload_sha256(entry["record"]["run"])
+        with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "FUTURE_DATED"):
+            CPDS.build_snapshot(
+                generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+                universe_entry=None, market_evidence_entry=None, realtime_entry=entry,
+            )
+
+
 # ---------------------------------------------------------------------------
 # 3. P3-12 packet stale
 # ---------------------------------------------------------------------------
 
 class UniverseStaleTests(TempDirMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.start_ratified_patches()
+
     def test_stale_universe_beyond_reused_max_capture_age_hours(self):
         policy = UNI.load_policy()
         max_age = int(policy["max_capture_age_hours"])
@@ -261,7 +444,9 @@ class UniverseStaleTests(TempDirMixin, unittest.TestCase):
         # market_evidence/realtime are FRESH (present, matching date) so
         # the assertion isolates the universe's own STALE status as the
         # single worst input -- MISSING would otherwise dominate worst-of.
-        market_evidence_entry = write_market_evidence_entry(self.tmp, {})
+        market_evidence_entry = write_market_evidence_entry(
+            self.tmp, {"KRW-BTC": valid_market_evidence_packet("KRW-BTC")},
+        )
         realtime_entry = write_realtime_entry(self.tmp)
         record = CPDS.build_snapshot(
             generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
@@ -278,6 +463,10 @@ class UniverseStaleTests(TempDirMixin, unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class MixedGenerationTests(TempDirMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.start_ratified_patches()
+
     def test_market_evidence_date_mismatch_is_mixed_generation_and_excluded(self):
         packet = universe_packet([universe_row(state=UNI.STATE_OBSERVATION_POOL, canonical_asset_id=None)])
         universe_entry = write_universe_entry(self.tmp, packet, date=EVAL_AS_OF)
@@ -298,7 +487,9 @@ class MixedGenerationTests(TempDirMixin, unittest.TestCase):
         packet = universe_packet([universe_row(state=UNI.STATE_OBSERVATION_POOL, canonical_asset_id=None)])
         universe_entry = write_universe_entry(self.tmp, packet, date=EVAL_AS_OF)
         realtime_entry = write_realtime_entry(self.tmp, date="2026-08-27")
-        market_evidence_entry = write_market_evidence_entry(self.tmp, {})
+        market_evidence_entry = write_market_evidence_entry(
+            self.tmp, {"KRW-BTC": valid_market_evidence_packet("KRW-BTC")},
+        )
         record = CPDS.build_snapshot(
             generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
             universe_entry=universe_entry, market_evidence_entry=market_evidence_entry,
@@ -436,6 +627,18 @@ class PopulateIdempotencyTests(TempDirMixin, unittest.TestCase):
         written = list(output_root.rglob("packet.json"))
         self.assertEqual(len(written), 1)
 
+    def test_prior_realtime_run_is_not_reused_without_explicit_opt_in(self):
+        write_realtime_entry(self.tmp)
+        result = CPDS.populate(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_data_root=self.tmp / "no_universe",
+            market_evidence_data_root=self.tmp / "no_market_evidence",
+            realtime_evidence_root=self.tmp / "realtime",
+            output_root=self.tmp / "out-no-fallback",
+        )
+        self.assertEqual(result["record"]["freshness_status"]["realtime"], CPDS.MISSING)
+        self.assertFalse(any(ref["role"] == "upbit_realtime_capture_run" for ref in result["record"]["source_refs"]))
+
 
 # ---------------------------------------------------------------------------
 # 8. Authority fields all false
@@ -503,6 +706,17 @@ class ZeroNetworkOrderCallsTests(unittest.TestCase):
             self.assertIn('"git"', call)
             self.assertIn("rev-parse", call)
 
+    def test_workflow_uses_post_capture_clock_and_no_implicit_realtime_fallback(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        snapshot_step = workflow.split("- name: Crypto PAPER decision snapshot", 1)[1].split(
+            "- name: Record P9-06 realtime scheduler telemetry", 1,
+        )[0]
+        self.assertIn("GENERATED_AT=\"$(date -u", snapshot_step)
+        self.assertIn('SOURCE_COMMIT="$(git rev-parse HEAD)"', snapshot_step)
+        self.assertNotIn("github.sha", snapshot_step)
+        self.assertNotIn("steps.runner_start.outputs.observed_started_at_utc", snapshot_step)
+        self.assertNotIn("--allow-realtime-fallback", snapshot_step)
+
 
 # ---------------------------------------------------------------------------
 # 11. previous_state_reference
@@ -555,7 +769,8 @@ class PacketShapeTests(TempDirMixin, unittest.TestCase):
         required = {
             "schema_version", "generated_at", "capture_date", "capture_hhmm", "source_commit",
             "generation_id", "duplicate_guard_key", "source_refs", "upbit_universe_snapshot_identity",
-            "finalized_candle_attestation", "crypto_regime_five_axis", "funnel_counts", "candidates",
+            "finalized_candle_attestation", "crypto_regime_five_axis", "source_components",
+            "funnel_counts", "candidates",
             "freshness_status", "authority", "previous_state_reference", "derivation_notes", "payload_sha256",
         }
         self.assertTrue(required.issubset(record))

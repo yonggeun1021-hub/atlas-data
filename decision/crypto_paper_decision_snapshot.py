@@ -51,6 +51,13 @@ one), and any candidate state that would otherwise be actionable
 module's own belt-and-suspenders safety net on top of the upstream modules'
 own gates, never a relaxation of them.
 
+An existing file is not automatically fresh. Empty P4-07 packet maps and
+empty P9-06 subscriptions/messages are MISSING; unratified freshness
+policies remain UNKNOWN; per-component STALE remains STALE. Every retained
+source's content hash and semantic summary are verified before use. The
+workflow supplies the decision timestamp after bounded capture ends, and a
+failed current capture never silently falls back to an earlier run.
+
 Regime authority today: ``regime/output_contract.py``'s runtime contract
 authorizes only ``regime: "UNKNOWN"`` for every market
 (``runtime_authorized_regimes == ["UNKNOWN"]``). P5-08's own ``evaluate_regime``
@@ -63,7 +70,7 @@ route around.
 Determinism: ``generation_id`` and every derivation field are pure functions
 of already-committed input bytes (source commit, upstream payload hashes) --
 never of wall-clock. ``generated_at``/``capture_date``/``capture_hhmm`` DO
-carry this run's observed wall-clock capture instant, but only as *recorded
+carry this run's post-capture decision-snapshot instant, but only as *recorded
 evidence of what inputs happened to exist at build time* -- they are never
 folded into ``generation_id``. Duplicate-packet guard: mirrors
 ``.github/scripts/upbit_universe_populate.py::populate``'s exact
@@ -133,6 +140,7 @@ MARKET_EVIDENCE = _load("crypto_paper_decision_snapshot_market_evidence", "micro
 CANDLE_FINALIZATION = _load(
     "crypto_paper_decision_snapshot_candle_finalization", "microstructure/upbit_candle_finalization.py"
 )
+REALTIME_GATE = _load("crypto_paper_decision_snapshot_realtime_gate", "realtime/upbit_realtime_gate.py")
 REGIME_OUTPUT = _load("crypto_paper_decision_snapshot_regime_output", "regime/output_contract.py")
 LIVE_AXIS = _load("crypto_paper_decision_snapshot_live_axis", "regime/live_axis_adapter.py")
 
@@ -172,6 +180,93 @@ def _parse_utc(value: object, label: str) -> dt.datetime:
     return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
 
 
+def _validate_embedded_hash(record: dict, field: str, label: str) -> None:
+    if not isinstance(record, dict):
+        raise CryptoPaperDecisionSnapshotError(f"SOURCE_RECORD_INVALID:{label}")
+    claimed = record.get(field)
+    if not isinstance(claimed, str) or not SHA256_RE.fullmatch(claimed):
+        raise CryptoPaperDecisionSnapshotError(f"SOURCE_HASH_INVALID:{label}")
+    unsigned = copy.deepcopy(record)
+    unsigned.pop(field)
+    if payload_sha256(unsigned) != claimed:
+        raise CryptoPaperDecisionSnapshotError(f"SOURCE_HASH_MISMATCH:{label}")
+
+
+def _validate_universe_entry(entry: dict | None) -> None:
+    if entry is None:
+        return
+    record = entry.get("record")
+    if (
+        not isinstance(record, dict)
+        or record.get("schema_version") != "upbit_universe_population/1"
+        or record.get("snapshot_date") != entry.get("date")
+        or record.get("packet") != entry.get("packet")
+    ):
+        raise CryptoPaperDecisionSnapshotError("UNIVERSE_SOURCE_RECORD_INVALID")
+    _validate_embedded_hash(record, "payload_sha256", "upbit_universe_population")
+
+
+def _validate_market_evidence_entry(entry: dict | None) -> None:
+    if entry is None:
+        return
+    record = entry.get("record")
+    if (
+        not isinstance(record, dict)
+        or record.get("schema_version") != "upbit_microstructure_population/1"
+        or record.get("snapshot_date") != entry.get("date")
+        or not isinstance(record.get("packets"), dict)
+    ):
+        raise CryptoPaperDecisionSnapshotError("MARKET_EVIDENCE_SOURCE_RECORD_INVALID")
+    _validate_embedded_hash(record, "payload_sha256", "upbit_microstructure_population")
+    summary = record.get("summary") or {}
+    errors = record.get("errors")
+    if (
+        summary.get("packet_count") != len(record["packets"])
+        or not isinstance(errors, dict)
+        or summary.get("error_count") != len(errors)
+    ):
+        raise CryptoPaperDecisionSnapshotError("MARKET_EVIDENCE_SUMMARY_INVALID")
+
+
+def _validate_realtime_entry(entry: dict | None) -> None:
+    if entry is None:
+        return
+    record = entry.get("record")
+    if not isinstance(record, dict) or set(record) != {
+        "schema_version", "transform_version", "auth_required",
+        "order_or_withdrawal_endpoints_called", "private_channel_subscribed",
+        "run", "source_sha256",
+    }:
+        raise CryptoPaperDecisionSnapshotError("REALTIME_SOURCE_RECORD_INVALID")
+    if (
+        record["schema_version"] != "upbit_realtime_capture_run/1"
+        or record["transform_version"] != "upbit_realtime_gate/1"
+        or record["auth_required"] is not False
+        or record["order_or_withdrawal_endpoints_called"] is not False
+        or record["private_channel_subscribed"] is not False
+    ):
+        raise CryptoPaperDecisionSnapshotError("REALTIME_SOURCE_SAFETY_INVALID")
+    claimed = record["source_sha256"]
+    if not isinstance(claimed, str) or not SHA256_RE.fullmatch(claimed):
+        raise CryptoPaperDecisionSnapshotError("REALTIME_SOURCE_HASH_INVALID")
+    if payload_sha256(record["run"]) != claimed:
+        raise CryptoPaperDecisionSnapshotError("REALTIME_SOURCE_HASH_MISMATCH")
+    run = record["run"]
+    status = run.get("status") if isinstance(run, dict) else None
+    if (
+        not isinstance(run, dict)
+        or not isinstance(run.get("markets"), list)
+        or not isinstance(run.get("message_log"), list)
+        or not isinstance(status, dict)
+    ):
+        raise CryptoPaperDecisionSnapshotError("REALTIME_RUN_INVALID")
+    _validate_embedded_hash(status, "payload_sha256", "upbit_realtime_gate_status")
+    if status.get("schema_version") != "upbit_realtime_gate_status/1":
+        raise CryptoPaperDecisionSnapshotError("REALTIME_STATUS_SCHEMA_INVALID")
+    if any(value is not False for value in (status.get("authority") or {}).values()):
+        raise CryptoPaperDecisionSnapshotError("REALTIME_STATUS_AUTHORITY_INVALID")
+
+
 # ---------------------------------------------------------------------------
 # Freshness vocabulary -- worst-of aggregation, same discipline as
 # universe/crypto_paper_buy_eligibility.py::_worst_of.
@@ -179,10 +274,11 @@ def _parse_utc(value: object, label: str) -> dt.datetime:
 
 FRESH = "FRESH"
 STALE = "STALE"
+UNKNOWN = "UNKNOWN"
 MISSING = "MISSING"
 MIXED_GENERATION = "MIXED_GENERATION"
-FRESHNESS_STATUSES = (FRESH, STALE, MISSING, MIXED_GENERATION)
-_FRESHNESS_SEVERITY = {FRESH: 0, STALE: 1, MIXED_GENERATION: 2, MISSING: 3}
+FRESHNESS_STATUSES = (FRESH, STALE, UNKNOWN, MISSING, MIXED_GENERATION)
+_FRESHNESS_SEVERITY = {FRESH: 0, STALE: 1, UNKNOWN: 2, MIXED_GENERATION: 3, MISSING: 4}
 
 
 def _worst_freshness(statuses) -> str:
@@ -203,6 +299,53 @@ def cap_state_for_freshness(state: str, reason: str, overall_freshness: str) -> 
         cap_reason = f"OVERALL_FRESHNESS_NOT_FRESH:{overall_freshness}"
         return {"state": "WAIT", "reason": cap_reason, "capped": True, "cap_reason": cap_reason}
     return {"state": state, "reason": reason, "capped": False, "cap_reason": None}
+
+
+def _market_evidence_freshness(record: dict) -> tuple[str, str | None]:
+    packets = record["packets"]
+    if not packets:
+        return MISSING, "UPBIT_MARKET_EVIDENCE_PACKETS_EMPTY"
+    if record.get("policy_ratified") is not True:
+        return UNKNOWN, "UPBIT_MARKET_EVIDENCE_FRESHNESS_POLICY_UNRATIFIED"
+    if record.get("errors"):
+        return UNKNOWN, "UPBIT_MARKET_EVIDENCE_PARTIAL_ERRORS"
+    statuses = []
+    for packet in packets.values():
+        statuses.extend(
+            ((packet.get("candles") or {}).get(timeframe) or {}).get("freshness", {}).get("status")
+            for timeframe in CANDLE_FINALIZATION.TIMEFRAMES
+        )
+        statuses.append((packet.get("trades") or {}).get("freshness", {}).get("status"))
+        statuses.append((packet.get("orderbook") or {}).get("freshness", {}).get("status"))
+    if any(status not in (FRESH, STALE, UNKNOWN) for status in statuses):
+        return UNKNOWN, "UPBIT_MARKET_EVIDENCE_FRESHNESS_MISSING_OR_INVALID"
+    if STALE in statuses:
+        return STALE, "UPBIT_MARKET_EVIDENCE_COMPONENT_STALE"
+    if UNKNOWN in statuses:
+        return UNKNOWN, "UPBIT_MARKET_EVIDENCE_COMPONENT_UNKNOWN"
+    return FRESH, None
+
+
+def _realtime_freshness(record: dict) -> tuple[str, str | None]:
+    run = record["run"]
+    status = run["status"]
+    if not run["markets"] or not run["message_log"] or not status.get("markets"):
+        return MISSING, "UPBIT_REALTIME_OBSERVATIONS_EMPTY"
+    if status.get("connection_state") != "CONNECTED":
+        return UNKNOWN, f"UPBIT_REALTIME_CONNECTION_NOT_CONNECTED:{status.get('connection_state')}"
+    # The repository currently ships only a proposal for these age bounds;
+    # the real P9-01 freshness guard has no ratified CRYPTO policy packet.
+    # Preserve the gate's observed label diagnostically, but do not promote
+    # it to an actionable FRESH fact.
+    proposal = REALTIME_GATE.load_freshness_policy_proposal()
+    if proposal.get("approval_status") != "RATIFIED":
+        return UNKNOWN, "UPBIT_REALTIME_FRESHNESS_POLICY_UNRATIFIED"
+    gate_status = status.get("overall_status")
+    if gate_status == FRESH:
+        return FRESH, None
+    if gate_status == STALE:
+        return STALE, "UPBIT_REALTIME_GATE_STATUS_STALE"
+    return UNKNOWN, f"UPBIT_REALTIME_GATE_STATUS_NOT_FRESH:{gate_status}"
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +571,32 @@ def build_snapshot(
 
     notes: list[str] = []
     source_refs: list[dict] = []
+    component_rows = copy.deepcopy(component_rows or {})
+    # No source registry is wired for live regime component rows at this
+    # boundary yet. Accepting caller-supplied rows would let a caller forge
+    # a regime and then make validate_output() reproduce it from the forged
+    # embedded copy. Keep the contract honest until those rows have exact,
+    # hash-bound source references of their own.
+    if component_rows:
+        raise CryptoPaperDecisionSnapshotError("REGIME_COMPONENT_ROWS_UNWIRED")
+
+    _validate_universe_entry(universe_entry)
+    _validate_market_evidence_entry(market_evidence_entry)
+    _validate_realtime_entry(realtime_entry)
+    if market_evidence_entry is not None:
+        market_generated = _parse_utc(
+            market_evidence_entry["record"].get("generated_at"), "market_evidence.generated_at",
+        )
+        if market_generated > generated_dt:
+            raise CryptoPaperDecisionSnapshotError("MARKET_EVIDENCE_FUTURE_DATED")
+        for market, source_packet in market_evidence_entry["record"]["packets"].items():
+            captured_at = _parse_utc(source_packet.get("captured_at"), f"market_evidence.{market}.captured_at")
+            if captured_at > generated_dt:
+                raise CryptoPaperDecisionSnapshotError(f"MARKET_EVIDENCE_PACKET_FUTURE_DATED:{market}")
+    if realtime_entry is not None:
+        ended_at = _parse_utc(realtime_entry["record"]["run"].get("ended_at"), "realtime.ended_at")
+        if ended_at > generated_dt:
+            raise CryptoPaperDecisionSnapshotError("REALTIME_EVIDENCE_FUTURE_DATED")
 
     # -- P3-12 universe freshness -------------------------------------
     universe_policy = UNIVERSE.load_policy()
@@ -447,7 +616,10 @@ def build_snapshot(
         if available_at > generated_dt:
             raise CryptoPaperDecisionSnapshotError("UNIVERSE_AVAILABLE_AT_FUTURE_DATED")
         age_hours = Decimal(str((generated_dt - available_at).total_seconds())) / Decimal("3600")
-        if age_hours > max_age_hours:
+        if universe_packet.get("policy_ratified") is not True or universe_packet.get("taxonomy_ratified") is not True:
+            universe_status = UNKNOWN
+            notes.append("UPBIT_UNIVERSE_POLICY_OR_TAXONOMY_UNRATIFIED")
+        elif age_hours > max_age_hours:
             universe_status = STALE
             notes.append(f"UPBIT_UNIVERSE_PACKET_STALE:age_hours={age_hours}:max={max_age_hours}")
         else:
@@ -469,7 +641,11 @@ def build_snapshot(
             f"market_evidence={market_evidence_entry['date']}"
         )
     else:
-        market_evidence_status = FRESH
+        market_evidence_status, market_evidence_reason = _market_evidence_freshness(
+            market_evidence_entry["record"]
+        )
+        if market_evidence_reason:
+            notes.append(market_evidence_reason)
 
     # -- P9-06 realtime evidence freshness (metadata only -- never an
     #    argument to P5-08/P5-09's own derivation) ----------------------
@@ -487,10 +663,9 @@ def build_snapshot(
             f"UPBIT_REALTIME_RUN_DATE_MISMATCH:universe={universe_date}:realtime={realtime_entry['date']}"
         )
     else:
-        gate_status = ((realtime_entry["record"].get("run") or {}).get("status") or {}).get("overall_status")
-        realtime_status = FRESH if gate_status == "FRESH" else STALE
-        if realtime_status == STALE:
-            notes.append(f"UPBIT_REALTIME_RUN_GATE_STATUS_NOT_FRESH:{gate_status}")
+        realtime_status, realtime_reason = _realtime_freshness(realtime_entry["record"])
+        if realtime_reason:
+            notes.append(realtime_reason)
 
     overall_freshness = _worst_freshness([universe_status, market_evidence_status, realtime_status])
 
@@ -597,17 +772,26 @@ def build_snapshot(
     generation_basis = {
         "source_commit": source_commit,
         "universe": (
-            {"date": universe_entry["date"], "payload_sha256": universe_packet.get("payload_sha256")}
+            {
+                "date": universe_entry["date"],
+                "payload_sha256": universe_packet.get("payload_sha256"),
+                "file_sha256": _file_sha256(universe_entry["path"]),
+            }
             if universe_entry else None
         ),
         "market_evidence": (
-            {"date": market_evidence_entry["date"], "payload_sha256": market_evidence_entry["record"].get("payload_sha256")}
+            {
+                "date": market_evidence_entry["date"],
+                "payload_sha256": market_evidence_entry["record"].get("payload_sha256"),
+                "file_sha256": _file_sha256(market_evidence_entry["path"]),
+            }
             if market_evidence_entry else None
         ),
         "realtime": (
             {
                 "date": realtime_entry["date"],
                 "source_sha256": realtime_entry["record"].get("source_sha256"),
+                "file_sha256": _file_sha256(realtime_entry["path"]),
             }
             if realtime_entry else None
         ),
@@ -641,6 +825,7 @@ def build_snapshot(
             market_evidence_entry, used_in_promotion=market_evidence_used,
         ),
         "crypto_regime_five_axis": crypto_regime_five_axis(regime_payload),
+        "source_components": component_rows,
         "funnel_counts": funnel_counts,
         "candidates": candidates,
         "freshness_status": {
@@ -655,6 +840,103 @@ def build_snapshot(
     }
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
+
+
+def _resolve_source_path(path_value: object, *, allow_external_sources: bool) -> Path:
+    if not isinstance(path_value, str) or not path_value:
+        raise CryptoPaperDecisionSnapshotError("SOURCE_REF_PATH_INVALID")
+    path = Path(path_value)
+    if path.is_absolute():
+        if not allow_external_sources:
+            raise CryptoPaperDecisionSnapshotError("SOURCE_REF_ABSOLUTE_PATH_FORBIDDEN")
+        return path
+    resolved = (ROOT / path).resolve()
+    try:
+        resolved.relative_to(ROOT.resolve())
+    except ValueError as exc:
+        raise CryptoPaperDecisionSnapshotError("SOURCE_REF_PATH_ESCAPE") from exc
+    return resolved
+
+
+def validate_output(packet: dict, *, allow_external_sources: bool = False) -> dict:
+    """Re-read every retained source and reproduce the complete snapshot.
+
+    A caller cannot change a candidate state, freshness label, funnel count,
+    policy result, or source reference and make it valid merely by
+    recomputing the outer hash.
+    """
+    expected_keys = {
+        "schema_version", "generated_at", "capture_date", "capture_hhmm", "source_commit",
+        "generation_id", "duplicate_guard_key", "source_refs", "upbit_universe_snapshot_identity",
+        "finalized_candle_attestation", "crypto_regime_five_axis", "source_components",
+        "funnel_counts", "candidates", "freshness_status", "authority",
+        "previous_state_reference", "derivation_notes", "payload_sha256",
+    }
+    if not isinstance(packet, dict) or set(packet) != expected_keys:
+        raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
+    if packet.get("schema_version") != OUTPUT_SCHEMA_VERSION:
+        raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_VERSION_MISMATCH")
+    _validate_embedded_hash(packet, "payload_sha256", "crypto_paper_decision_snapshot")
+    _require_all_false(packet.get("authority") or {})
+    for row in packet.get("candidates") or []:
+        _require_all_false(row.get("authority") or {})
+
+    refs = packet.get("source_refs")
+    if not isinstance(refs, list):
+        raise CryptoPaperDecisionSnapshotError("SOURCE_REFS_INVALID")
+    by_role = {}
+    for ref in refs:
+        if not isinstance(ref, dict) or set(ref) != {"role", "path", "sha256"}:
+            raise CryptoPaperDecisionSnapshotError("SOURCE_REF_SCHEMA_INVALID")
+        role = ref["role"]
+        if role in by_role or role not in {
+            "upbit_tradeable_universe_packet", "upbit_market_evidence_packet",
+            "upbit_realtime_capture_run",
+        }:
+            raise CryptoPaperDecisionSnapshotError("SOURCE_REF_ROLE_INVALID")
+        path = _resolve_source_path(ref["path"], allow_external_sources=allow_external_sources)
+        if _file_sha256(path) != ref["sha256"]:
+            raise CryptoPaperDecisionSnapshotError(f"SOURCE_REF_HASH_MISMATCH:{role}")
+        by_role[role] = {"path": path, "record": _read_json(path)}
+
+    universe_entry = None
+    if "upbit_tradeable_universe_packet" in by_role:
+        value = by_role["upbit_tradeable_universe_packet"]
+        universe_entry = {
+            "date": value["path"].parent.name,
+            "path": value["path"],
+            "record": value["record"],
+            "packet": value["record"].get("packet"),
+        }
+    market_entry = None
+    if "upbit_market_evidence_packet" in by_role:
+        value = by_role["upbit_market_evidence_packet"]
+        market_entry = {
+            "date": value["path"].parent.name,
+            "path": value["path"],
+            "record": value["record"],
+        }
+    realtime_entry = None
+    if "upbit_realtime_capture_run" in by_role:
+        value = by_role["upbit_realtime_capture_run"]
+        realtime_entry = {
+            "date": value["path"].parent.name,
+            "path": value["path"],
+            "record": value["record"],
+        }
+
+    rebuilt = build_snapshot(
+        generated_at=packet["generated_at"],
+        source_commit=packet["source_commit"],
+        universe_entry=universe_entry,
+        market_evidence_entry=market_entry,
+        realtime_entry=realtime_entry,
+        previous_entry=packet["previous_state_reference"],
+        component_rows=packet["source_components"],
+    )
+    if canonical_json(rebuilt) != canonical_json(packet):
+        raise CryptoPaperDecisionSnapshotError("OUTPUT_DERIVATION_MISMATCH")
+    return copy.deepcopy(packet)
 
 
 # ---------------------------------------------------------------------------
@@ -678,6 +960,7 @@ def populate(
     market_evidence_data_root: Path = MARKET_EVIDENCE_DATA_ROOT,
     realtime_evidence_root: Path = REALTIME_EVIDENCE_ROOT,
     realtime_run_path: Path | None = None,
+    allow_realtime_fallback: bool = False,
     output_root: Path = OUTPUT_ROOT,
 ) -> dict:
     resolved_source_commit = resolve_source_commit(source_commit)
@@ -689,8 +972,10 @@ def populate(
             {"date": realtime_run_path.parent.name, "path": realtime_run_path, "record": _read_json(realtime_run_path)}
             if realtime_run_path.is_file() else None
         )
-    else:
+    elif allow_realtime_fallback:
         realtime_entry = find_latest_realtime_run(realtime_evidence_root)
+    else:
+        realtime_entry = None
 
     capture_date = generated_at[:10]
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
@@ -703,6 +988,10 @@ def populate(
         market_evidence_entry=market_evidence_entry,
         realtime_entry=realtime_entry,
         previous_entry=previous_entry,
+    )
+    validate_output(
+        record,
+        allow_external_sources=any(Path(ref["path"]).is_absolute() for ref in record["source_refs"]),
     )
 
     target = output_path(record["capture_date"], record["capture_hhmm"], record["generation_id"], output_root)
@@ -758,6 +1047,10 @@ def run(argv=None) -> int:
     parser.add_argument("--market-evidence-data-root", type=Path, default=MARKET_EVIDENCE_DATA_ROOT)
     parser.add_argument("--realtime-evidence-root", type=Path, default=REALTIME_EVIDENCE_ROOT)
     parser.add_argument("--realtime-run-path", type=Path, default=None)
+    parser.add_argument(
+        "--allow-realtime-fallback", action="store_true",
+        help="Manual diagnostics only: reuse the latest prior realtime run when no exact run path is supplied.",
+    )
     parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
     args = parser.parse_args(argv)
     try:
@@ -768,6 +1061,7 @@ def run(argv=None) -> int:
             market_evidence_data_root=args.market_evidence_data_root,
             realtime_evidence_root=args.realtime_evidence_root,
             realtime_run_path=args.realtime_run_path,
+            allow_realtime_fallback=args.allow_realtime_fallback,
             output_root=args.output_root,
         )
     except CryptoPaperDecisionSnapshotError as exc:

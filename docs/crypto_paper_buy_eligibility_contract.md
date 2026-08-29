@@ -48,6 +48,16 @@ anything out of it. Only rows whose (revalidated) `promotion_state ==
 module's own nine criteria ever run. A caller cannot fabricate a
 `FOCUSED_REVIEW` row by hand-editing a cached P5-08 packet.
 
+The embedded P5-09 policy is also compared byte-semantically with the
+repository policy on every build and validation. Replacing a threshold,
+rebuilding the output, and recomputing its hash is rejected with
+`POLICY_REPOSITORY_PIN_MISMATCH`.
+
+These corrections are published as
+`crypto_paper_buy_eligibility_packet/2` with
+`crypto_paper_buy_eligibility_contract/2`; cached v1 output is not silently
+reinterpreted under the stronger semantics.
+
 Two additional, clearly-optional inputs widen what P5-09 can compute
 without ever becoming required for a valid packet:
 
@@ -68,12 +78,12 @@ without ever becoming required for a valid packet:
 |---|---|---|
 | 1 | `FOCUSED_REVIEW_UPSTREAM` | Ratified/deterministic. Echoes P5-08's already-revalidated `promotion_state`. Raises (never guesses) if a non-`FOCUSED_REVIEW` row is ever handed to the per-candidate evaluator directly. |
 | 2 | `REGIME_PERMITS_ENTRY` | UNKNOWN by construction. Delegates directly to `crypto_candidate_promotion.evaluate_regime()`; the Regime aggregate authorizes only `"UNKNOWN"` today (P1-CR-08), so this can never be PASS via real evaluation until P1-COM-05 ratifies. |
-| 3 | `TRIGGER_TIMEFRAME_ALIGNMENT` | Mechanical, PAPER-baseline. Needs finalized 15m+1h candles for the trigger and non-conflicting 4h/1d direction (two-close comparison, same primitive P5-08 already established as mechanical). UNKNOWN when 15m/1h evidence is missing — structurally true in production today because P3-12's universe is empty, so P4-07 never captures microstructure for any market. |
+| 3 | `TRIGGER_TIMEFRAME_ALIGNMENT` | Mechanical, PAPER-baseline. Requires finalized 15m and 1h directions to confirm upward together, with no conflicting 4h/1d direction (two-close comparison, same primitive P5-08 already established as mechanical). Missing/flat input is UNKNOWN; a downward 15m/1h leg or downward 4h/1d direction is FAIL. |
 | 4 | `BREAKOUT_OR_PULLBACK` | Mechanical, PAPER-baseline for Breakout only (20x 1h-bar high broken + volume ≥ 1.5x the lookback median, per `PROPOSED_PAPER_BASELINE`). Pullback stays UNKNOWN forever — the policy doc's "EMA20 부근" (near EMA20) has no numeric proximity tolerance anywhere, ratified or proposed, so it is never fabricated. A disjunctive criterion with one undecidable leg resolves UNKNOWN, not FAIL, when the decidable leg (Breakout) does not itself PASS. |
 | 5 | `INDEPENDENT_PRICE_VOLUME_EVIDENCE` | Ratified/deterministic. Structural presence only — candle family present across all four timeframes AND orderbook+trades family present — same discipline as P5-08's `VOLUME_LIQUIDITY`. |
-| 6 | `NO_BLOCKER_STALE_OVERHEAT_DUPLICATE` | Composite worst-of four sub-checks. `MATERIAL_BLOCKER` echoes P5-08 exactly (FAIL only on active Upbit caution, else UNKNOWN — no coverage). `OVEREXTENSION` echoes P5-08 exactly (UNKNOWN — no ratified "과열" definition anywhere, including the PAPER baseline text). `STALE` is informational only and never gates — P4-07's own staleness thresholds are `PROPOSED_UNRATIFIED`. `DUPLICATE` is PASS/FAIL only when a prior-keys ledger is supplied by the caller, else UNKNOWN. Because the `OVEREXTENSION` leg can never be PASS, this composite can never be PASS via real evaluation either. |
+| 6 | `NO_BLOCKER_STALE_OVERHEAT_DUPLICATE` | Composite worst-of four sub-checks. `MATERIAL_BLOCKER` echoes P5-08 exactly (FAIL only on active Upbit caution, else UNKNOWN — no coverage). `OVEREXTENSION` echoes P5-08 exactly (UNKNOWN — no ratified "과열" definition anywhere). `FRESHNESS` covers 15m/1h/4h/1d candles, trades, and orderbook: it is UNKNOWN while P4-07's freshness policy is unratified, FAIL when a ratified input is STALE, and PASS only when every required component is FRESH. `DUPLICATE` is PASS/FAIL only when a prior-keys ledger is supplied by the caller, else UNKNOWN. |
 | 7 | `ORDER_DRAFT_COMPLETE` | PASS/UNKNOWN only (never FAIL). Whether entry zone, invalidation price, planned stop, quantity, fee rate/amount, assumed slippage, planned loss, expiry, next-review time, and duplicate-guard key are ALL non-null. Does not participate in the BLOCKED/WATCH gate. |
-| 8 | `PAPER_RISK_BUDGET` | Mechanical, PAPER-baseline, against a caller-supplied virtual PAPER account snapshot. Checks projected total/single-asset PAPER exposure and concurrent-position count against `PROPOSED_PAPER_BASELINE`'s 5%/2%/3-position caps. UNKNOWN when no snapshot is supplied — no NAV is known. |
+| 8 | `PAPER_RISK_BUDGET` | Mechanical, PAPER-baseline, against a caller-supplied virtual PAPER account snapshot. Checks projected total/single-asset PAPER exposure and concurrent-position count against `PROPOSED_PAPER_BASELINE`'s 5%/2%/3-position caps. Existing total exposure is the sum of `portfolio_weight_nav_fraction`, not planned-loss fractions. UNKNOWN when no snapshot is supplied — no NAV is known. |
 | 9 | `ZERO_ORDER_ENDPOINT_CALLS` | Constant PASS. A structural invariant of this module (no network import anywhere in `universe/crypto_paper_buy_eligibility.py`), not a per-candidate fact; verified by `test_module_source_has_no_network_import`. |
 
 These are conjunctive gates (criteria 1-6, 8, 9); criterion 7 only selects
@@ -96,7 +106,8 @@ for PAPER-simulation-only arithmetic never grants investment, entry, Stage,
 order, Production, or Trading authority. A criterion with genuinely no
 numeric source anywhere (`OVEREXTENSION`, the Pullback leg's EMA20
 proximity tolerance, P4-07's own staleness policy) is never guessed into a
-threshold — it stays UNKNOWN.
+threshold — it stays UNKNOWN. In particular, an unratified P4-07 policy can
+never turn an observed freshness label into PASS.
 
 ## Why `PAPER_BUY_ELIGIBLE` is unreachable now
 
@@ -131,6 +142,9 @@ adjusted after seeing an outcome. The module makes zero network,
 credential, order, or withdrawal calls — it never imports `urllib`,
 `requests`, `socket`, or any HTTP client, verified by
 `test_module_source_has_no_network_import`.
+The complete policy object is exact-pinned to the repository copy on both
+build and consumer validation, so a rehashed embedded-policy substitution
+is rejected.
 
 ## Wiring shape toward P10-11 / P7-13
 

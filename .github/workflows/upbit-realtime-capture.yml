@@ -87,12 +87,12 @@ jobs:
         id: crypto_paper_decision
         if: always()
         env:
-          GENERATED_AT: ${{ steps.runner_start.outputs.observed_started_at_utc }}
-          SOURCE_COMMIT: ${{ github.sha }}
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
         run: |
           set -euo pipefail
+          GENERATED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
           ARGS=(--generated-at "$GENERATED_AT" --source-commit "$SOURCE_COMMIT")
           if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
             RUN_PATH=$(ls -1 "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"/run_*.json 2>/dev/null | sort | tail -n 1 || true)

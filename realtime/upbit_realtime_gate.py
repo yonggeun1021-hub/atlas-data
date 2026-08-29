@@ -721,7 +721,11 @@ class RealtimeGate:
         # but at least legible signal), which outranks FRESH -- never
         # silently averaged or defaulted to the best-looking status.
         severity = {FRESH: 0, STALE: 1, UNKNOWN: 2}
-        worst = FRESH
+        # Empty scope is a valid operational state while P3-12 is not
+        # ratified, but it is not a freshness observation.  Starting the
+        # reduction at FRESH would turn "nothing was subscribed or seen"
+        # into a successful market-data result.
+        worst = UNKNOWN if not self.markets else FRESH
         for market in self.markets:
             row = {"market": market, "freshness_by_kind": {}}
             for kind in PUBLIC_MESSAGE_TYPES:

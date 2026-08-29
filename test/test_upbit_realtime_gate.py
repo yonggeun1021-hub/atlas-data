@@ -398,6 +398,12 @@ class FreshnessTests(unittest.TestCase):
                 self.assertEqual(freshness["status"], G.UNKNOWN)
         self.assertEqual(status["overall_status"], G.UNKNOWN)
 
+    def test_empty_market_scope_is_unknown_never_fresh(self):
+        gate = new_gate(markets=())
+        status = gate.status_snapshot(dt.datetime(2026, 8, 28, 0, 0, tzinfo=UTC))
+        self.assertEqual(status["markets"], [])
+        self.assertEqual(status["overall_status"], G.UNKNOWN)
+
     def test_intraday_freshness_guard_reused_and_fails_closed_without_ratified_policy(self):
         now = dt.datetime(2026, 8, 28, 0, 5, tzinfo=UTC)
         parsed = G.parse_message(make_ticker(ts=int(now.timestamp() * 1000)))
