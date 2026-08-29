@@ -39,9 +39,7 @@ pieces are deliberately *not* reused verbatim
 
 Imported and used **unchanged** from ``realtime/upbit_realtime_gate.py``
 (``GATE`` below): ``parse_message`` (fail-closed structural validation +
-``PRIVATE_WS_TYPES_FORBIDDEN`` enforcement), ``build_subscription_message``
-(the exact tested public-only subscribe payload, including its
-private-channel-forbidden guard), ``MARKET_CODE_RE``, ``PUBLIC_MESSAGE_TYPES``,
+``PRIVATE_WS_TYPES_FORBIDDEN`` enforcement), ``MARKET_CODE_RE``, ``PUBLIC_MESSAGE_TYPES``,
 ``PRIVATE_WS_TYPES_FORBIDDEN``, ``SequenceTracker`` (out-of-order detection --
 its internal state is bounded by subscribed-market count, not message count,
 so it is safe to reuse verbatim for a long-running process), and
@@ -148,11 +146,9 @@ RECONNECTING = "RECONNECTING"
 STOPPED = "STOPPED"
 CONNECTION_STATES = (CONNECTING, CONNECTED, RECONNECTING, STOPPED)
 
-# This service tracks a deliberately narrower message-type set than P9-06 --
-# see module docstring "Scope and boundary". ``trade``/``candle.*`` remain
-# subscribed at the transport level (via GATE.build_subscription_message,
-# reused unchanged) but are explicitly REJECTED_UNSUPPORTED_KIND here, never
-# silently dropped and never used.
+# This service tracks and subscribes to a deliberately narrower message-type
+# set than P9-06. ``trade``/``candle.*`` are still rejected fail-closed if
+# delivered unexpectedly, but they are not requested in the first place.
 OBSERVATION_MESSAGE_TYPES = ("ticker", "orderbook")
 
 DEFAULT_MAX_STALENESS_SECONDS_BY_KIND = {"ticker": 30, "orderbook": 15}
@@ -517,8 +513,20 @@ class ObservationGate:
 
 
 def build_subscription_message(markets: list, *, ticket: str) -> list:
-    """Thin pass-through to ``GATE.build_subscription_message`` -- reused
-    unchanged, including its private-channel-forbidden guard. No candle
-    timeframes are ever requested here (``candle_timeframes=()``); see
-    module docstring "Scope and boundary"."""
-    return GATE.build_subscription_message(markets, ticket=ticket, candle_timeframes=())
+    """Build the exact Upbit payload for ticker/orderbook observation only."""
+    if not markets:
+        raise GATE.RealtimeGateError("SUBSCRIPTION_MARKETS_EMPTY")
+    if not isinstance(ticket, str) or not ticket:
+        raise GATE.RealtimeGateError("SUBSCRIPTION_TICKET_INVALID")
+    codes = sorted(set(markets))
+    for code in codes:
+        if not GATE.MARKET_CODE_RE.fullmatch(code):
+            raise GATE.RealtimeGateError(f"SUBSCRIPTION_MARKET_INVALID:{code}")
+    for message_type in OBSERVATION_MESSAGE_TYPES:
+        if message_type in GATE.PRIVATE_WS_TYPES_FORBIDDEN:
+            raise GATE.RealtimeGateError(f"PRIVATE_CHANNEL_FORBIDDEN:{message_type}")
+    return [
+        {"ticket": ticket},
+        *({"type": message_type, "codes": codes} for message_type in OBSERVATION_MESSAGE_TYPES),
+        {"format": "DEFAULT"},
+    ]

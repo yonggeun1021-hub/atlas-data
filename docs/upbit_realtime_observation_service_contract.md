@@ -191,9 +191,9 @@ operator's own Ubuntu host, started with `docker compose up -d --build`,
 repository's GitHub Actions cron automation
 (`.github/workflows/upbit-realtime-capture.yml` and siblings) -- neither
 reads from nor writes to the other. See
-`services/upbit-realtime-observation/README.md` "Network exposure" for the
-open question of how a future portal-side consumer reaches this API over
-the network; that decision is explicitly out of scope for this PR.
+`services/upbit-realtime-observation/README.md` "Outbound-only Portal
+delivery" for the signed Ubuntu-to-Sites path. The local API remains bound
+to `127.0.0.1:8792`; the Ubuntu host needs outbound HTTPS only.
 
 This PR does not deploy the service. Bringing it up on the operator's actual
 Ubuntu host, and any resulting live-traffic observation, is a separate,

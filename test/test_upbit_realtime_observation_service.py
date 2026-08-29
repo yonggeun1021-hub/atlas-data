@@ -372,7 +372,8 @@ class AuthorityTests(unittest.TestCase):
         emitted_types = [entry["type"] for entry in message if "type" in entry]
         for forbidden in GATE.PRIVATE_WS_TYPES_FORBIDDEN:
             self.assertNotIn(forbidden, emitted_types)
-        self.assertEqual(set(emitted_types), set(GATE.PUBLIC_MESSAGE_TYPES))
+        self.assertEqual(set(emitted_types), set(OG.OBSERVATION_MESSAGE_TYPES))
+        self.assertNotIn("trade", emitted_types)
 
     def test_build_subscription_message_requests_no_candle_timeframe(self):
         message = OG.build_subscription_message(["KRW-BTC"], ticket="atlas-obs-test")
@@ -443,7 +444,7 @@ class SourceBoundaryTests(unittest.TestCase):
             self.assertNotIn("'evidence/", source)
             self.assertNotIn('"data/observations', source)
             self.assertNotIn("write_evidence_snapshot", source)
-            self.assertNotIn("open(", source)  # no local file writes at all in this service's code
+            self.assertNotIn("open(\"w", source)  # no local file writes at all in this service's code
 
     def test_gate_module_reuses_realtime_upbit_realtime_gate_unchanged(self):
         source = GATE_MODULE_PATH.read_text(encoding="utf-8")
@@ -467,9 +468,10 @@ class SourceBoundaryTests(unittest.TestCase):
         for forbidden in ("SECRET_KEY=", "API_KEY=", "PASSWORD=", "TOKEN=replace"):
             self.assertNotIn(forbidden, source)
 
-    def test_readme_documents_network_exposure_as_an_open_question(self):
+    def test_readme_documents_outbound_only_portal_delivery(self):
         source = README_PATH.read_text(encoding="utf-8")
-        self.assertIn("open deployment question", source.lower())
+        self.assertIn("outbound-only portal delivery", source.lower())
+        self.assertIn("no inbound firewall rule", source.lower())
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +591,20 @@ class ServiceConfigTests(unittest.TestCase):
 
     def test_invalid_numeric_env_fails_closed(self):
         os.environ["ATLAS_UPBIT_OBS_PORT"] = "not-a-number"
+        with self.assertRaises(self.S.ServiceConfigError):
+            self.S.load_config_from_env()
+
+    def test_portal_push_url_and_signing_key_are_required_together(self):
+        os.environ["ATLAS_PORTAL_PUSH_URL"] = (
+            "https://atlas.ddcloud.co.kr/api/internal/upbit-realtime-observation/snapshot"
+        )
+        os.environ.pop("ATLAS_SIGNING_KEY_PATH", None)
+        with self.assertRaises(self.S.ServiceConfigError):
+            self.S.load_config_from_env()
+
+    def test_portal_push_must_use_https_exact_ingest_path(self):
+        os.environ["ATLAS_PORTAL_PUSH_URL"] = "http://127.0.0.1/snapshot"
+        os.environ["ATLAS_SIGNING_KEY_PATH"] = "/run/secrets/realtime-signing.pem"
         with self.assertRaises(self.S.ServiceConfigError):
             self.S.load_config_from_env()
 

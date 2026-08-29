@@ -14,10 +14,9 @@ No API key or secret is used or needed -- Upbit's public market-data
 WebSocket requires no authentication. This file never imports, builds, or
 sends anything referencing ``myOrder``/``myAsset`` (Upbit's private/order
 channels) and never calls any order/cancel/withdrawal endpoint of any kind.
-Subscription-message construction is delegated unchanged to
-``observation_gate.build_subscription_message``, which itself delegates to
-``realtime.upbit_realtime_gate.build_subscription_message`` -- the same
-tested function P9-06 uses, including its private-channel-forbidden guard.
+Subscription-message construction is isolated in
+``observation_gate.build_subscription_message`` and requests only the two
+channels this service actually consumes (``ticker`` and ``orderbook``).
 
 This process holds state in memory only. It never writes to ``atlas-data``'s
 ``evidence/`` or ``data/`` directories and is not a GitHub Actions capture
@@ -32,6 +31,7 @@ only -- never at module import time -- mirroring
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -40,6 +40,8 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 SERVICE_DIR = Path(__file__).resolve().parent
 if str(SERVICE_DIR) not in sys.path:
@@ -90,17 +92,91 @@ def load_config_from_env() -> dict:
             "ATLAS_UPBIT_OBS_BIND_MUST_BE_LOOPBACK: set "
             "ATLAS_UPBIT_OBS_ALLOW_NON_LOOPBACK_BIND=true to override deliberately"
         )
+    portal_push_url = os.getenv("ATLAS_PORTAL_PUSH_URL", "").strip() or None
+    signing_key_path_raw = os.getenv("ATLAS_SIGNING_KEY_PATH", "").strip() or None
+    site_bypass_token = os.getenv("ATLAS_SITE_BYPASS_TOKEN", "").strip() or None
+    if bool(portal_push_url) != bool(signing_key_path_raw):
+        raise ServiceConfigError("ATLAS_PORTAL_PUSH_URL_AND_SIGNING_KEY_PATH_REQUIRED_TOGETHER")
+    if portal_push_url:
+        parsed = urlparse(portal_push_url)
+        if parsed.scheme != "https" or parsed.path != "/api/internal/upbit-realtime-observation/snapshot":
+            raise ServiceConfigError("ATLAS_PORTAL_PUSH_URL_INVALID")
+        if site_bypass_token and parsed.hostname != "atlas.ddcloud.co.kr":
+            raise ServiceConfigError("ATLAS_SITE_BYPASS_TOKEN_HOST_INVALID")
     return {
         "markets": markets,
         "bind": bind,
-        "port": _env_int("ATLAS_UPBIT_OBS_PORT", 8791),
+        "port": _env_int("ATLAS_UPBIT_OBS_PORT", 8792),
         "base_backoff_seconds": _env_float("ATLAS_UPBIT_OBS_BASE_BACKOFF_SECONDS", 1.0),
         "max_backoff_seconds": _env_float("ATLAS_UPBIT_OBS_MAX_BACKOFF_SECONDS", 30.0),
         "max_staleness_seconds_by_kind": {
             "ticker": _env_int("ATLAS_UPBIT_OBS_TICKER_MAX_STALENESS_SECONDS", 30),
             "orderbook": _env_int("ATLAS_UPBIT_OBS_ORDERBOOK_MAX_STALENESS_SECONDS", 15),
         },
+        "portal_push_url": portal_push_url,
+        "signing_key_path": Path(signing_key_path_raw) if signing_key_path_raw else None,
+        "site_bypass_token": site_bypass_token,
+        "push_interval_seconds": min(max(_env_int("ATLAS_PUSH_INTERVAL_SECONDS", 5), 3), 60),
     }
+
+
+class PortalPushState:
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self.last_push_at = None
+        self.last_push_error = None
+
+
+def _load_signing_key(path: Path):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    value = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    if not isinstance(value, Ed25519PrivateKey):
+        raise ServiceConfigError("ATLAS_SIGNING_KEY_MUST_BE_ED25519")
+    return value
+
+
+def _push_snapshot(url: str, private_key, site_bypass_token: str | None, snapshot: dict) -> None:
+    body = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    sent_at = snapshot["generated_at_utc"]
+    signature = private_key.sign(sent_at.encode("utf-8") + b"\n" + body)
+    headers = {
+        "content-type": "application/json",
+        "x-atlas-key-id": "atlas-server-1",
+        "x-atlas-sent-at": sent_at,
+        "x-atlas-signature": base64.b64encode(signature).decode("ascii"),
+    }
+    if site_bypass_token:
+        headers["OAI-Sites-Authorization"] = f"Bearer {site_bypass_token}"
+    request = Request(url, data=body, headers=headers, method="POST")
+    with urlopen(request, timeout=15) as response:
+        if response.status != 202:
+            raise RuntimeError(f"PORTAL_PUSH_HTTP_{response.status}")
+
+
+async def _push_forever(gate: "OG.ObservationGate", config: dict, state: PortalPushState, stop_event: "asyncio.Event") -> None:
+    if not config["portal_push_url"]:
+        return
+    private_key = _load_signing_key(config["signing_key_path"])
+    while not stop_event.is_set():
+        snapshot = gate.status_snapshot()
+        try:
+            await asyncio.to_thread(
+                _push_snapshot, config["portal_push_url"], private_key,
+                config["site_bypass_token"], snapshot,
+            )
+            state.last_push_at = snapshot["generated_at_utc"]
+            state.last_push_error = None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            state.last_push_error = f"{type(exc).__name__}:{exc}"
+            LOG.warning("portal snapshot push failed: %s", state.last_push_error)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=config["push_interval_seconds"])
+        except asyncio.TimeoutError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +220,7 @@ async def _stream_forever(gate: "OG.ObservationGate", markets: list, stop_event:
             await asyncio.sleep(attempt["backoff_seconds"])
 
 
-async def _run_async(gate: "OG.ObservationGate", markets: list) -> None:
+async def _run_async(gate: "OG.ObservationGate", markets: list, config: dict, push_state: PortalPushState) -> None:
     stop_event = asyncio.Event()
     loop = asyncio.get_event_loop()
 
@@ -164,7 +240,10 @@ async def _run_async(gate: "OG.ObservationGate", markets: list) -> None:
         except (NotImplementedError, RuntimeError):
             pass  # platform without loop signal-handler support -- degrade, not fatal
     try:
-        await _stream_forever(gate, markets, stop_event)
+        await asyncio.gather(
+            _stream_forever(gate, markets, stop_event),
+            _push_forever(gate, config, push_state, stop_event),
+        )
     finally:
         for sig in installed:
             loop.remove_signal_handler(sig)
@@ -174,7 +253,8 @@ async def _run_async(gate: "OG.ObservationGate", markets: list) -> None:
 # HTTP API -- local, read-only, no write methods
 # ---------------------------------------------------------------------------
 
-def _make_handler(gate: "OG.ObservationGate", started_at_utc: str):
+def _make_handler(gate: "OG.ObservationGate", started_at_utc: str, push_state: PortalPushState | None = None):
+    push_state = push_state or PortalPushState(False)
     class Handler(BaseHTTPRequestHandler):
         server_version = "AtlasUpbitRealtimeObservation/1"
 
@@ -207,6 +287,9 @@ def _make_handler(gate: "OG.ObservationGate", started_at_utc: str):
                     "connectionState": snapshot["connection_state"],
                     "overallFreshness": snapshot["overall_freshness"],
                     "startedAtUtc": started_at_utc,
+                    "portalPushEnabled": push_state.enabled,
+                    "lastPushAt": push_state.last_push_at,
+                    "lastPushError": push_state.last_push_error,
                 })
                 return
             if self.path == "/snapshot":
@@ -242,8 +325,9 @@ def main() -> int:
         max_backoff_seconds=config["max_backoff_seconds"],
     )
     started_at_utc = OG._iso_utc(OG.utc_now())
+    push_state = PortalPushState(config["portal_push_url"] is not None)
 
-    server = ThreadingHTTPServer((config["bind"], config["port"]), _make_handler(gate, started_at_utc))
+    server = ThreadingHTTPServer((config["bind"], config["port"]), _make_handler(gate, started_at_utc, push_state))
     http_thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True)
     http_thread.start()
     LOG.info(
@@ -251,7 +335,7 @@ def main() -> int:
     )
 
     try:
-        asyncio.run(_run_async(gate, config["markets"]))
+        asyncio.run(_run_async(gate, config["markets"], config, push_state))
     finally:
         server.shutdown()
         server.server_close()

@@ -44,9 +44,9 @@ code, unconditionally: `decision_eligible`, `entry_eligibility_authorized`,
   `wss://api.upbit.com/websocket/v1` requires no authentication.
 - Only `ticker`/`orderbook` are ever subscribed to or handled.
   `PRIVATE_WS_TYPES_FORBIDDEN` (`myOrder`, `myAsset`) is enforced by
-  `realtime/upbit_realtime_gate.py::build_subscription_message`/
-  `parse_message`, reused **unchanged** here -- see
-  `observation_gate.build_subscription_message`.
+  `realtime/upbit_realtime_gate.py::parse_message` and its private-channel
+  deny-list. The local subscription builder narrows the public request to
+  exactly `ticker` and `orderbook`.
 - No order/withdrawal/private REST endpoint is ever called -- there is no
   HTTP client to Upbit's REST API anywhere in this service, only the
   WebSocket.
@@ -89,11 +89,11 @@ version`).
 ```bash
 git clone https://github.com/yonggeun1021-hub/atlas-data.git
 cd atlas-data/services/upbit-realtime-observation
-cp .env.example .env       # edit market list / port if desired -- no secrets required
+cp .env.example .env       # edit market list / Portal URL if desired
 docker compose up -d --build
-curl -sS http://127.0.0.1:8791/health
-curl -sS http://127.0.0.1:8791/ready
-curl -sS http://127.0.0.1:8791/snapshot | head -c 500
+curl -sS http://127.0.0.1:8792/health
+curl -sS http://127.0.0.1:8792/ready
+curl -sS http://127.0.0.1:8792/snapshot | head -c 500
 ```
 
 `restart: unless-stopped` in `compose.yaml` means the container restarts
@@ -105,41 +105,25 @@ also never permanently gives up on a WebSocket reconnect (see
 To stop: `docker compose down` (from this directory). To view logs:
 `docker compose logs -f upbit-realtime-observation`.
 
-## Network exposure -- open deployment question, out of scope for this PR
+## Outbound-only Portal delivery
 
-`compose.yaml` binds the HTTP API to `127.0.0.1` on the host's network
-namespace (`network_mode: host`) by default -- it is reachable only from
-processes on the same machine. The CIO task that produced this service notes
-a fixed public IP is already provisioned on the operator's Ubuntu host for
-other purposes; **this service does not itself require that public IP to be
-exposed**, and this PR makes no decision about whether/how a future
-portal-side consumer (a separate `atlas-portal` PR, "item 2" of the same CIO
-task) reaches this API over the network. Exposing `HOST_IP:8791` (or a
-reverse-proxied HTTPS path) publicly is the operator's own firewall/DNS/TLS
-decision and is explicitly left open here rather than assumed. Options that
-would need a deliberate, separate decision later:
-
-- A reverse proxy (e.g. nginx/Caddy) on the same host terminating TLS and
-  forwarding to `127.0.0.1:8791`, only exposing the proxy's port publicly.
-- An SSH tunnel or VPN from the portal's own infrastructure into this host,
-  never exposing `8791` publicly at all.
-- Some other network topology the portal's implementer (item 2) determines
-  once its own connectivity constraints are known.
-
-This service's only stance is: it is safe to bind non-loopback if an
-operator deliberately sets `ATLAS_UPBIT_OBS_ALLOW_NON_LOOPBACK_BIND=true`
-and `ATLAS_UPBIT_OBS_BIND`; by default it fails closed to loopback-only.
+`compose.yaml` keeps the HTTP API on `127.0.0.1:8792`. When
+`ATLAS_PORTAL_PUSH_URL` is configured, the daemon signs each snapshot with
+the existing operator Ed25519 key and sends it to Sites over outbound HTTPS.
+No inbound firewall rule, public host port, reverse proxy, or exchange
+credential is required.
 
 ## Configuration
 
 See `.env.example` for the full list (market set, bind host/port, backoff,
-per-channel staleness thresholds). No secrets are required or accepted by
-this service.
+per-channel staleness thresholds). Upbit credentials are never required or
+accepted. Portal delivery uses the operator's existing mounted signing key
+and Sites bypass environment file; neither value is stored in this repo.
 
 ## Local (non-Docker) run, for development
 
 ```bash
-pip install "websockets>=12.0"
+pip install "websockets>=12.0,<16" "cryptography>=43,<46"
 ATLAS_UPBIT_OBS_MARKETS=KRW-BTC,KRW-ETH python3 service.py
 ```
 

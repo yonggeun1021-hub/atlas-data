@@ -16,10 +16,10 @@ COPY execution/intraday_freshness.py /app/execution/intraday_freshness.py
 COPY services/upbit-realtime-observation/observation_gate.py /app/services/upbit-realtime-observation/observation_gate.py
 COPY services/upbit-realtime-observation/service.py /app/services/upbit-realtime-observation/service.py
 
-RUN pip install --no-cache-dir "websockets>=12.0" \
+RUN pip install --no-cache-dir "websockets>=12.0,<16" "cryptography>=43,<46" \
  && useradd --system --uid 10001 --home /nonexistent --shell /usr/sbin/nologin atlas
 USER atlas
 
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8791
+EXPOSE 8792
 CMD ["python", "/app/services/upbit-realtime-observation/service.py"]
