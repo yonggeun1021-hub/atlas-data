@@ -672,6 +672,11 @@ APPROVED_TESTS = [
     #   Leadership/Regime/action/order authority are explicitly not inferred.
     #   ⛔ network/tracked data 없음 — synthetic ZIP + temp replay output only.
     "test/test_crypto_historical_ohlcvt_import.py",
+    # ★ P1-CR-07 사용자용 현재 참고 판정 — 최신 확정 Kraken 일봉과
+    #   결정시점 taxonomy로 7d/30d raw 비교만 제공한다. historical PIT,
+    #   Regime/Production/Stage/Buy/Action/Order/Trading 권한은 전부 false.
+    #   ⛔ live Kraken 없음 — committed hash-bound snapshot only.
+    "test/test_crypto_recent_reference.py",
     # ★ P0-04 — KRX post-close observation / PM briefing freshness.
     #   morning archive/latest와 분리된 exact-date bundle, observed_unconfirmed,
     #   decision_eligible=false, partial-response incident 경계를 검증한다.

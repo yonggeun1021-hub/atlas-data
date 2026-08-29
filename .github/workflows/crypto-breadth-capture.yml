@@ -89,6 +89,22 @@ jobs:
           name: p1-cr-06-live-transform-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/crypto-breadth-live-transform.json
           if-no-files-found: error
+      - name: Build current Crypto 7d/30d user reference
+        id: recent_reference
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          set -euo pipefail
+          OUTPUT="data/observations/crypto_recent_reference/$SNAPSHOT_DATE/packet.json"
+          python3 .github/scripts/crypto_recent_reference.py \
+            "evidence/crypto/breadth/raw/$SNAPSHOT_DATE" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --source-commit "$(git rev-parse HEAD)" \
+            --out "$OUTPUT"
+          echo "path=$OUTPUT" >> "$GITHUB_OUTPUT"
       - name: P1-CR-07 transient live replay
         id: leadership_validation
         if: >-
@@ -180,6 +196,9 @@ jobs:
           git add data/operations/crypto_breadth_capture_runs || true
           if [ "$CAPTURE_RESULT" = "captured" ]; then
             git add "evidence/crypto/breadth/raw/$SNAPSHOT_DATE"
+          fi
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/crypto_recent_reference/$SNAPSHOT_DATE" ]; then
+            git add "data/observations/crypto_recent_reference/$SNAPSHOT_DATE"
           fi
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
