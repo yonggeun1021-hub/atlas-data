@@ -7,17 +7,17 @@
     "BTC_TREND",
     "BTC_RISK",
     "STABLECOIN_NET_ISSUANCE",
-    "CRYPTO_BREADTH"
+    "CRYPTO_BREADTH",
+    "CRYPTO_LEADERSHIP"
   ],
   "source_roots": {
     "BTC_TREND": "evidence/crypto/btc/raw",
     "BTC_RISK": "evidence/crypto/btc/raw",
     "STABLECOIN_NET_ISSUANCE": "evidence/stablecoin/raw",
-    "CRYPTO_BREADTH": "evidence/crypto/breadth/raw"
+    "CRYPTO_BREADTH": "evidence/crypto/breadth/raw",
+    "CRYPTO_LEADERSHIP": "evidence/crypto/breadth/raw"
   },
-  "deferred_components": {
-    "CRYPTO_LEADERSHIP": "DAILY_COMPONENT_ROW_PRODUCER_AND_DUAL_WINDOW_HISTORY_UNAVAILABLE"
-  },
+  "deferred_components": {},
   "authority": {
     "evidence_registry_only": true,
     "regime_interpretation_authorized": false,

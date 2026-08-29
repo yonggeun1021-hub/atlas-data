@@ -56,9 +56,20 @@ class CryptoLiveComponentRegistryTests(unittest.TestCase):
         record = copy.deepcopy(self.record)
         self.assertEqual(
             list(record["rows"]),
-            ["BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH"],
+            [
+                "BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE",
+                "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
+            ],
         )
-        self.assertEqual(len(record["source_directories"]), 3)
+        self.assertGreaterEqual(len(record["source_directories"]), 3)
+        self.assertEqual(record["rows"]["CRYPTO_LEADERSHIP"]["status"], "POLICY_BLOCKED")
+        self.assertIn(
+            record["rows"]["CRYPTO_LEADERSHIP"]["reason"],
+            {
+                "DUAL_WINDOW_NATURAL_HISTORY_INCOMPLETE",
+                "DUAL_WINDOW_SOURCE_POINT_UNKNOWN",
+            },
+        )
         factors = AXIS.build_axis_factors(record["rows"], GENERATED_AT)["CRYPTO"]
         self.assertEqual(
             {axis for axis, row in factors.items() if row["status"] == "DEFINED"},
@@ -81,7 +92,8 @@ class CryptoLiveComponentRegistryTests(unittest.TestCase):
         record = REGISTRY.build_registry(before_stablecoin)
         self.assertNotIn("STABLECOIN_NET_ISSUANCE", record["rows"])
         self.assertEqual(
-            set(record["rows"]), {"BTC_TREND", "BTC_RISK", "CRYPTO_BREADTH"}
+            set(record["rows"]),
+            {"BTC_TREND", "BTC_RISK", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP"},
         )
         self.assertEqual(
             REGISTRY.validate_registry(
@@ -163,9 +175,8 @@ class CryptoLiveComponentRegistryTests(unittest.TestCase):
             record["derivation_notes"],
         )
         self.assertIn(
-            "CRYPTO_LEADERSHIP:"
-            "DAILY_COMPONENT_ROW_PRODUCER_AND_DUAL_WINDOW_HISTORY_UNAVAILABLE",
-            record["derivation_notes"],
+            "CRYPTO_LEADERSHIP:DUAL_WINDOW_",
+            "\n".join(record["derivation_notes"]),
         )
         self.assertEqual(
             DECISION.validate_output(copy.deepcopy(record), allow_external_sources=True),
@@ -218,9 +229,8 @@ class CryptoLiveComponentRegistryTests(unittest.TestCase):
             "CRYPTO_BREADTH:TAXONOMY_COVERAGE_UNKNOWN", briefing["reasons"]
         )
         self.assertIn(
-            "CRYPTO_LEADERSHIP:"
-            "DAILY_COMPONENT_ROW_PRODUCER_AND_DUAL_WINDOW_HISTORY_UNAVAILABLE",
-            briefing["reasons"],
+            "CRYPTO_LEADERSHIP:DUAL_WINDOW_",
+            "\n".join(briefing["reasons"]),
         )
         self.assertFalse(briefing["authority"]["paper_order_authorized"])
         self.assertFalse(briefing["authority"]["exchange_order_authorized"])

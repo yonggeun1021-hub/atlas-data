@@ -186,6 +186,9 @@ BTC_RISK = _load("atlas_daily_btc_risk", ".github/scripts/btc_risk.py")
 STABLECOIN = _load("atlas_daily_stablecoin", ".github/scripts/stablecoin_net_issuance.py")
 US_BREADTH = _load("atlas_daily_us_breadth", ".github/scripts/us_breadth_forward.py")
 CRYPTO_BREADTH = _load("atlas_daily_crypto_breadth", ".github/scripts/crypto_breadth.py")
+CRYPTO_LEADERSHIP = _load(
+    "atlas_daily_crypto_leadership", ".github/scripts/crypto_leadership.py"
+)
 KOFIA = _load("atlas_daily_kofia", ".github/scripts/kofia_first_seen.py")
 
 
@@ -1441,6 +1444,71 @@ def build_crypto_breadth(decision_date: str, snapshot: dict | None = None) -> di
             ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
         )
     return _classify_crypto_breadth(snapshot)
+
+
+def _classify_crypto_leadership(snapshot: dict) -> dict:
+    if snapshot["kind"] == "absent":
+        return _blocked(
+            "CRYPTO_LEADERSHIP", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
+        )
+    guard = _downloaded_at_guard("CRYPTO_LEADERSHIP", snapshot)
+    if guard is not None:
+        return guard
+    resolved = ROOT / snapshot["resolved_dir"]
+    try:
+        vintage = dt.date.fromisoformat(resolved.name)
+    except ValueError:
+        return _blocked(
+            "CRYPTO_LEADERSHIP", "DATA_BLOCKED", "SOURCE_VINTAGE_DATE_INVALID"
+        )
+    archive_root = resolved.parent
+    end_date = (vintage - dt.timedelta(days=1)).isoformat()
+    try:
+        packet = CRYPTO_LEADERSHIP.build_transform(
+            archive_root, end_date=end_date
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("CRYPTO_LEADERSHIP", exc)
+    status = packet.get("status")
+    if status == "OBSERVED_UNCLASSIFIED":
+        result_status, reason = "READY", None
+    else:
+        window_reasons = {
+            window.get("unknown_reason")
+            for window in packet.get("windows", [])
+            if window.get("status") != "OBSERVED_UNCLASSIFIED"
+        }
+        if "INSUFFICIENT_CONTIGUOUS_HISTORY" in window_reasons:
+            reason = "DUAL_WINDOW_NATURAL_HISTORY_INCOMPLETE"
+        elif "SOURCE_POINT_UNKNOWN" in window_reasons:
+            reason = "DUAL_WINDOW_SOURCE_POINT_UNKNOWN"
+        else:
+            reason = "DUAL_WINDOW_NOT_OBSERVED"
+        result_status = "POLICY_BLOCKED"
+    return component_row(
+        "CRYPTO_LEADERSHIP",
+        result_status,
+        reason,
+        # The axis adapter deliberately interprets this as the capture
+        # vintage and subtracts one day to reproduce the Leadership end date.
+        as_of_date=resolved.name,
+        generated_at=snapshot["downloaded_at"],
+        source_packet_path=str(archive_root.relative_to(ROOT)),
+        validated=True,
+        authority={k: v for k, v in packet.items() if k.endswith("_authorized")},
+        contract_version=packet.get("contract_version"),
+        packet={"status": status},
+    )
+
+
+def build_crypto_leadership(
+    decision_date: str, snapshot: dict | None = None
+) -> dict:
+    if snapshot is None:
+        snapshot = _fetch_dated_evidence_snapshot(
+            ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
+        )
+    return _classify_crypto_leadership(snapshot)
 
 
 # ---------------------------------------------------------------------------

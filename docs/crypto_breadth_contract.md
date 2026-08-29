@@ -191,6 +191,27 @@ or trading judgment. `target_asset_count=100` and
 `minimum_observation_coverage_bps=9000` are unchanged, as are all false
 classification/threshold/Regime/Production/trading authority flags.
 
+### Effective-dated BTR cutoff slice (2026-08-29)
+
+The natural 2026-08-29 review inventory reduced the cutoff-relevant taxonomy
+gap to one asset, `BTR/USD` at rank 91.  The retained Kraken Assets catalog
+marks `BTR` enabled and its AssetPairs catalog marks `BTR/USD` online.  Kraken's
+official [listing notice](https://blog.kraken.com/product/asset-listings/btr-is-available-for-trading)
+identifies the pair as Bitlayer, and Bitlayer's official
+[BTR token documentation](https://docs.bitlayer.org/docs/Learn/Introduction/BTRToken/en/)
+independently identifies BTR as the ecosystem governance token.  The exact
+record is therefore source-identity classified `eligible_crypto` effective
+2026-08-29.
+
+The retained snapshot evaluates at 2026-08-28, so it remains byte-for-byte and
+semantically blocked by `TAXONOMY_COVERAGE_UNKNOWN`; the new record is not
+backdated.  A test-only replay that changes only the temporary effective date
+shows the existing algorithm would select and observe 100/100 with zero
+cutoff-relevant unknowns.  That counterfactual is not natural evidence.  The
+next capture whose own `as_of_date` is on or after 2026-08-29 must prove the
+result independently.  Top-100, 90% coverage, investability, Regime,
+Production, and trading rules and authorities are unchanged.
+
 The retained 2026-08-27 capture has `as_of_date=2026-08-26`, so replaying it
 with the production policy still returns the original
 `TAXONOMY_COVERAGE_UNKNOWN` (87 known eligible assets, 515 unknown rows). This

@@ -20,8 +20,10 @@ its semantics:
 - Stablecoin evidence can define `LIQUIDITY` evidence presence.
 - Crypto breadth defines `BREADTH` only when its existing taxonomy gate is
   already satisfied.
-- `LEADERSHIP` remains `UNDEFINED` until the existing dual-window transform has
-  sufficient natural history and a daily component-row producer.
+- Crypto leadership is rebuilt by a daily component-row producer from the
+  existing 7-day and 30-day windows. Every retained daily source directory
+  used by the transform is hash-bound. `LEADERSHIP` remains `UNDEFINED` while
+  either natural window is incomplete or contains an UNKNOWN source point.
 
 `DEFINED` means qualified evidence exists. It is not a positive/negative axis
 reading and grants no Regime, strategy, candidate, PAPER order, exchange

@@ -8,6 +8,7 @@ component rows used by ``briefing/daily_orchestrator.py``:
 * BTC_RISK
 * STABLECOIN_NET_ISSUANCE
 * CRYPTO_BREADTH
+* CRYPTO_LEADERSHIP
 
 It invents no axis value, threshold, weight, direction, candidate rule, or
 authority.  A source is eligible for a decision generation only when its own
@@ -19,10 +20,12 @@ digests, and every component row is rebuilt through the existing daily
 builder during validation.  Omitting a source that was already available,
 substituting a row, or changing retained bytes therefore fails closed.
 
-CRYPTO_LEADERSHIP remains deliberately absent until the existing leadership
-transform has both a daily component-row producer and its required dual-window
-natural history.  CRYPTO_BREADTH remains whatever its existing taxonomy gate
-reports.  The registry never converts either gap into a synthetic value.
+CRYPTO_LEADERSHIP is rebuilt by its daily component-row producer from the
+exact retained CR-06 archive dates required by the existing dual-window
+policy.  Those source directories are fingerprinted individually.  Until both
+windows have natural history, the row stays POLICY_BLOCKED. CRYPTO_BREADTH
+remains whatever its existing taxonomy gate reports. The registry never
+converts either gap into a synthetic value.
 """
 from __future__ import annotations
 
@@ -84,19 +87,17 @@ def _expected_contract() -> dict:
         "output_schema_version": "crypto_live_component_registry/1",
         "mode": "PUBLIC_EVIDENCE_ONLY_NO_INTERPRETATION",
         "component_order": [
-            "BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
+            "BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE",
+            "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
         ],
         "source_roots": {
             "BTC_TREND": "evidence/crypto/btc/raw",
             "BTC_RISK": "evidence/crypto/btc/raw",
             "STABLECOIN_NET_ISSUANCE": "evidence/stablecoin/raw",
             "CRYPTO_BREADTH": "evidence/crypto/breadth/raw",
+            "CRYPTO_LEADERSHIP": "evidence/crypto/breadth/raw",
         },
-        "deferred_components": {
-            "CRYPTO_LEADERSHIP": (
-                "DAILY_COMPONENT_ROW_PRODUCER_AND_DUAL_WINDOW_HISTORY_UNAVAILABLE"
-            ),
-        },
+        "deferred_components": {},
         "authority": {
             "evidence_registry_only": True,
             "regime_interpretation_authorized": False,
@@ -157,6 +158,23 @@ def _relative_directory(
     return path
 
 
+def _relative_archive(path_value: object, expected_root: str, *, root: Path) -> Path:
+    if not isinstance(path_value, str) or Path(path_value).is_absolute():
+        raise CryptoLiveComponentRegistryError("SOURCE_PATH_INVALID")
+    relative = Path(path_value)
+    if ".." in relative.parts or relative.as_posix() != expected_root:
+        raise CryptoLiveComponentRegistryError("SOURCE_PATH_INVALID")
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise CryptoLiveComponentRegistryError("SOURCE_SYMLINK_FORBIDDEN")
+    resolved = current.resolve()
+    if resolved != (root / expected_root).resolve() or not resolved.is_dir():
+        raise CryptoLiveComponentRegistryError("SOURCE_PATH_INVALID")
+    return resolved
+
+
 def _directory_fingerprint(path: Path) -> dict:
     items = sorted(path.rglob("*"))
     if any(item.is_symlink() for item in items):
@@ -183,6 +201,15 @@ def _directory_fingerprint(path: Path) -> dict:
     }
 
 
+def _reject_source_tree_symlinks(contract: dict, *, root: Path) -> None:
+    for relative in sorted(set(contract["source_roots"].values())):
+        base = root / relative
+        if not base.exists():
+            continue
+        if base.is_symlink() or any(item.is_symlink() for item in base.rglob("*")):
+            raise CryptoLiveComponentRegistryError("SOURCE_SYMLINK_FORBIDDEN")
+
+
 def _daily_module(root: Path):
     daily = _load(
         "crypto_live_component_registry_daily_orchestrator",
@@ -202,7 +229,88 @@ def _builders(daily) -> dict:
         "BTC_RISK": daily.build_btc_risk,
         "STABLECOIN_NET_ISSUANCE": daily.build_stablecoin,
         "CRYPTO_BREADTH": daily.build_crypto_breadth,
+        "CRYPTO_LEADERSHIP": daily.build_crypto_leadership,
     }
+
+
+def _leadership_source_directories(row: dict, archive: Path, daily) -> list[Path]:
+    vintage_text = row.get("as_of_date")
+    if not isinstance(vintage_text, str) or not DATE_RE.fullmatch(vintage_text):
+        raise CryptoLiveComponentRegistryError("LEADERSHIP_VINTAGE_INVALID")
+    try:
+        vintage = dt.date.fromisoformat(vintage_text)
+    except ValueError as exc:
+        raise CryptoLiveComponentRegistryError("LEADERSHIP_VINTAGE_INVALID") from exc
+    end_date = (vintage - dt.timedelta(days=1)).isoformat()
+    try:
+        packet = daily.CRYPTO_LEADERSHIP.build_transform(
+            archive, end_date=end_date
+        )
+    except Exception as exc:  # noqa: BLE001 - normalized registry boundary
+        raise CryptoLiveComponentRegistryError(
+            f"LEADERSHIP_REBUILD_FAILED:{type(exc).__name__}:{exc}"
+        ) from exc
+    if row.get("packet") != {"status": packet.get("status")}:
+        raise CryptoLiveComponentRegistryError("LEADERSHIP_ROW_REBUILD_MISMATCH")
+    vintage_dates = {vintage_text}
+    window_dates = []
+    for window in packet.get("windows", []):
+        descriptor = window.get("window", {})
+        try:
+            start = dt.date.fromisoformat(descriptor.get("start_date"))
+            end = dt.date.fromisoformat(descriptor.get("end_date"))
+        except (TypeError, ValueError) as exc:
+            raise CryptoLiveComponentRegistryError(
+                "LEADERSHIP_WINDOW_DATE_INVALID"
+            ) from exc
+        window_dates.append((start, end))
+    if not window_dates:
+        raise CryptoLiveComponentRegistryError("LEADERSHIP_WINDOWS_MISSING")
+    earliest = min(start for start, _ in window_dates)
+    latest = max(end for _, end in window_dates)
+    # A blocked window's canonical transform intentionally leaves its lineage
+    # list empty.  Absence/presence inside that window still determines the
+    # exact blocker, so bind every retained source directory in the window,
+    # not only the directories an observed window happened to expose.
+    for child in archive.iterdir():
+        if not child.is_dir():
+            continue
+        try:
+            source_as_of = dt.date.fromisoformat(child.name) - dt.timedelta(days=1)
+        except ValueError:
+            continue
+        if earliest <= source_as_of <= latest:
+            vintage_dates.add(child.name)
+    for entry in packet.get("lineage", {}).get("manifest_sha256_by_date", []):
+        as_of = entry.get("as_of_date")
+        try:
+            vintage_dates.add(
+                (dt.date.fromisoformat(as_of) + dt.timedelta(days=1)).isoformat()
+            )
+        except (TypeError, ValueError) as exc:
+            raise CryptoLiveComponentRegistryError(
+                "LEADERSHIP_LINEAGE_DATE_INVALID"
+            ) from exc
+    for window in packet.get("windows", []):
+        for point in window.get("source_unknown_points", []):
+            as_of = point.get("as_of_date")
+            try:
+                vintage_dates.add(
+                    (dt.date.fromisoformat(as_of) + dt.timedelta(days=1)).isoformat()
+                )
+            except (TypeError, ValueError) as exc:
+                raise CryptoLiveComponentRegistryError(
+                    "LEADERSHIP_LINEAGE_DATE_INVALID"
+                ) from exc
+    directories = []
+    for date in sorted(vintage_dates):
+        candidate = archive / date
+        if candidate.is_symlink() or not candidate.is_dir():
+            raise CryptoLiveComponentRegistryError(
+                f"LEADERSHIP_SOURCE_DIRECTORY_MISSING:{date}"
+            )
+        directories.append(candidate.resolve())
+    return directories
 
 
 def _authority_is_safe(row: dict) -> bool:
@@ -234,6 +342,7 @@ def _assemble(generated_at: str, contract: dict, *, root: Path) -> dict:
     if not DATE_RE.fullmatch(operational_date):
         raise CryptoLiveComponentRegistryError("OPERATIONAL_DATE_INVALID")
 
+    _reject_source_tree_symlinks(contract, root=root)
     daily = _daily_module(root)
     builders = _builders(daily)
     rows = {}
@@ -254,18 +363,27 @@ def _assemble(generated_at: str, contract: dict, *, root: Path) -> dict:
         available_dt = _parse_utc(available_value, f"{component_id}.available_at")
         if available_dt > generated_dt:
             continue
-        path = _relative_directory(
-            path_value,
-            contract["source_roots"][component_id],
-            operational_date,
-            root=root,
-        )
+        if component_id == "CRYPTO_LEADERSHIP":
+            archive = _relative_archive(
+                path_value, contract["source_roots"][component_id], root=root
+            )
+            source_paths = _leadership_source_directories(row, archive, daily)
+        else:
+            source_paths = [_relative_directory(
+                path_value,
+                contract["source_roots"][component_id],
+                operational_date,
+                root=root,
+            )]
         if row.get("validated") is not True or not _authority_is_safe(row):
             raise CryptoLiveComponentRegistryError(
                 f"COMPONENT_ROW_AUTHORITY_INVALID:{component_id}"
             )
         rows[component_id] = copy.deepcopy(row)
-        components_by_path.setdefault(str(path.relative_to(root)), []).append(component_id)
+        for path in source_paths:
+            components_by_path.setdefault(
+                str(path.relative_to(root)), []
+            ).append(component_id)
 
     source_directories = []
     for path_value, component_ids in sorted(components_by_path.items()):

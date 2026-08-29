@@ -645,6 +645,7 @@ APPROVED_TESTS = [
     #   기존 Top-100/90% gate가 임계값 완화 없이 닫힐 충분조건만 검증한다.
     #   ⛔ investability/Regime/Production/trading 권한 없음.
     "test/test_crypto_taxonomy_cutoff_slice_20260827.py",
+    "test/test_crypto_taxonomy_btr_slice_20260829.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
