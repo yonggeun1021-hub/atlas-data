@@ -148,6 +148,17 @@ jobs:
           set -euo pipefail
           test -n "$DECISION_PATH"
           python3 briefing/crypto_funnel_briefing.py --decision-packet "$DECISION_PATH"
+      - name: Crypto candidate detail projection (read-only)
+        id: crypto_candidate_detail
+        if: steps.crypto_paper_decision.outcome == 'success'
+        env:
+          DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: |
+          set -euo pipefail
+          test -n "$DECISION_PATH"
+          python3 decision/crypto_candidate_detail_view.py \
+            --decision-packet "$DECISION_PATH" \
+            --output-root evidence/crypto_candidate_detail
       - name: Record P9-06 realtime scheduler telemetry
         if: always()
         env:
@@ -170,6 +181,7 @@ jobs:
           ATLAS_CRYPTO_FUNNEL_BRIEFING_PATH: ${{ steps.crypto_funnel_briefing.outputs.path }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_GENERATION_ID: ${{ steps.crypto_funnel_briefing.outputs.generation_id }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_SHA256: ${{ steps.crypto_funnel_briefing.outputs.packet_sha256 }}
+          ATLAS_CRYPTO_CANDIDATE_DETAIL_STEP_OUTCOME: ${{ steps.crypto_candidate_detail.outcome }}
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: |
@@ -213,6 +225,7 @@ jobs:
           # P8-16 is the read-only API/briefing projection of that exact
           # decision generation. Private P10/P7 state is never copied here.
           git add evidence/crypto_funnel_briefing || true
+          git add evidence/crypto_candidate_detail || true
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
           else
