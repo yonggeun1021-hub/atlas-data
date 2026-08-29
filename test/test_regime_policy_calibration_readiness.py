@@ -31,9 +31,15 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
 
     def test_actual_retained_evidence_reproduces_three_market_readiness(self):
         markets = {row["market"]: row for row in self.packet["markets"]}
-        self.assertEqual(self.packet["status"], "NOT_READY_AXIS_COVERAGE")
+        korea_retained = (
+            ROOT / "data" / "observations" / "korea_market_signals"
+        ).is_dir()
+        self.assertEqual(
+            self.packet["status"],
+            "NOT_READY_POLICY_CANDIDATE" if korea_retained else "NOT_READY_AXIS_COVERAGE",
+        )
         self.assertEqual(markets["US"]["coverage"]["ratio"], "1/5")
-        self.assertEqual(markets["KR"]["coverage"]["ratio"], "0/5")
+        self.assertEqual(markets["KR"]["coverage"]["ratio"], "5/5" if korea_retained else "0/5")
         self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], "4/5")
         self.assertEqual(markets["US"]["coverage"]["defined_axes"], ["RISK_VOL"])
         self.assertEqual(
@@ -42,7 +48,7 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         )
         self.assertEqual(
             self.packet["summary"]["current_readiness_order_not_market_ranking"],
-            ["CRYPTO", "US", "KR"],
+            ["KR", "CRYPTO", "US"] if korea_retained else ["CRYPTO", "US", "KR"],
         )
 
     def test_histories_are_independently_replayed_from_retained_raw_bytes(self):
@@ -64,6 +70,14 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
                 self.assertTrue(
                     record["evidence_uri"].startswith("atlas-raw-response://")
                 )
+        if (ROOT / "data/observations/korea_market_signals").is_dir():
+            for axis in ("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"):
+                history = axes[f"KR/{axis}"]["history"]
+                self.assertEqual(history["status"], "VALIDATED_RETAINED")
+                self.assertTrue(all(
+                    row["evidence_uri"].startswith("atlas-observation://")
+                    for row in history["records"]
+                ))
 
     def test_missing_axes_preserve_source_specific_blockers(self):
         axes = {
@@ -72,7 +86,9 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         }
         self.assertEqual(
             axes["KR/BREADTH"]["blocker"],
-            "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED",
+            None
+            if (ROOT / "data/observations/korea_market_signals").is_dir()
+            else "VALIDATED_RETAINED_EVIDENCE_MISSING",
         )
         self.assertEqual(
             axes["US/BREADTH"]["blocker"], "NO_RATIFIED_LIVE_AXIS_BINDING"
@@ -112,6 +128,45 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
             MODULE._overall_status(["CRYPTO"], "CANDIDATE_READY"),
             "READY_FOR_SEPARATE_SHADOW_CASE_DESIGN",
         )
+
+    def test_korea_combined_packet_is_replayed_for_each_axis_without_classification(self):
+        source = MODULE.LIVE_AXIS.KOREA_MARKET_SIGNALS
+        contract = source.load_contract()
+        packet = {
+            "schema_version": source.SCHEMA_VERSION,
+            "contract_version": contract["contract_version"],
+            "status": "OBSERVED_UNCLASSIFIED",
+            "market": "KOREA",
+            "market_timezone": "Asia/Seoul",
+            "previous_date": "2026-08-27",
+            "as_of_date": "2026-08-28",
+            "generated_at": "2026-08-28T09:20:00Z",
+            "available_at": "2026-08-28T09:20:00Z",
+            "source": {"raw_persistence": 0, "per_symbol_persistence": 0},
+            "axes": {
+                axis: {"status": "OBSERVED", "measurement": {"fixture": axis}}
+                for axis in contract["required_axes"]
+            },
+            "coverage": {
+                "required_axes": list(contract["required_axes"]),
+                "observed_axes": list(contract["required_axes"]),
+                "observed_count": 5,
+                "required_count": 5,
+                "ratio": "5/5",
+            },
+            "authority": contract["authority"],
+        }
+        packet["payload_sha256"] = source.payload_sha256(packet)
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "data/observations/korea_market_signals/2026-08-28/packet.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
+            for axis in contract["required_axes"]:
+                records = MODULE._scan_korea_market_signals(Path(raw), axis)
+                self.assertEqual(len(records), 1)
+                self.assertEqual(records[0]["observation_date"], "2026-08-28")
+                self.assertTrue(records[0]["evidence_uri"].startswith("atlas-observation://"))
+                self.assertEqual(records[0]["evidence_sha256"], packet["payload_sha256"])
 
     def test_authority_is_inventory_only_and_all_downstream_false(self):
         authority = self.packet["authority"]

@@ -7,6 +7,10 @@ direction, applies a threshold, ranks a market, or authorizes an action.
 
 Only direct semantic bindings are supported:
 
+* KR/TREND, BREADTH, RISK_VOL, LIQUIDITY, LEADERSHIP
+                    <- one official KRX five-signal aggregate observation.
+                       The five measurements are presence evidence only; no
+                       threshold or Regime interpretation is applied here.
 * US/RISK_VOL       <- independently replayed FRED VIXCLS raw evidence
 * CRYPTO/TREND      <- BTC_TREND
 * CRYPTO/RISK_VOL   <- BTC_RISK
@@ -33,9 +37,8 @@ implementation oversight -- see docs/regime_live_axis_adapter_contract.md.
 
 The Korea seven-name post-close watchlist, Korea Breadth lineage-only receipts,
 the three-name IEX sample, and the US membership roster are deliberately not
-promoted into market-wide axes.  A sanitized Korea Breadth replay attestation
-can close the raw-source replay blocker, but it cannot define the axis until a
-separate scoring policy is ratified.
+promoted into market-wide axes. Korea axes require the combined official KRX
+five-signal packet; the older Breadth receipt alone remains non-promotable.
 FRED is eligible only after the append-only raw response is independently
 replayed.  A self-hashed derived pointer is not sufficient evidence.
 """
@@ -53,7 +56,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v5"
+CONTRACT_VERSION = "regime_live_axis_adapter/v6"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -71,6 +74,16 @@ def _expected_contract() -> dict:
         "contract_version": CONTRACT_VERSION,
         "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
         "bindings": {
+            **{
+                f"KR/{axis}": {
+                    "source_component": "KOREA_MARKET_SIGNALS",
+                    "source_transform_version": "korea_market_signals/1",
+                    "axis_transform_version": "regime_live_axis_korea_market_signals/v1",
+                }
+                for axis in (
+                    "TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"
+                )
+            },
             "US/RISK_VOL": {
                 "source_component": "FREE_MARKET_DATA",
                 "source_transform_version": "free_market_data/2",
@@ -105,18 +118,12 @@ def _expected_contract() -> dict:
                 "axis_transform_version": "regime_live_axis_crypto_leadership/v1",
             },
         },
-        "deferred_axes": {
-            "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
-            "KR/BREADTH": "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED",
-            "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
-            "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
-            "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED",
-        },
+        "deferred_axes": {},
         "non_promotable_evidence": [
             "IEX_THREE_SYMBOL_SAMPLE",
             "KRX_SEVEN_SYMBOL_WATCHLIST",
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
-            "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_RATIFIED_SCORING_POLICY",
+            "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_FIVE_SIGNAL_PACKET",
             "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES",
         ],
         "authority": {
@@ -173,9 +180,9 @@ UPBIT_MARKET_EVIDENCE = _load(
 FRED_VIX = _load(
     "atlas_regime_axis_fred_vix", "collectors/fred_vix_provenance.py"
 )
-KOREA_BREADTH_REPLAY = _load(
-    "atlas_korea_breadth_replay_attestation",
-    "regime/korea_breadth_replay_attestation.py",
+KOREA_MARKET_SIGNALS = _load(
+    "atlas_korea_market_signals",
+    ".github/scripts/korea_market_signals.py",
 )
 
 
@@ -602,15 +609,45 @@ def _attempt(builder, rows: dict, generated_at: str, binding: dict) -> dict:
         return _undefined("LIVE_AXIS_EVIDENCE_UNAVAILABLE")
 
 
-def _korea_breadth_deferred_reason(approved_reason: str) -> str:
-    expected = "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED"
-    if approved_reason != expected:
-        fail("CONTRACT_INVALID", "KR/BREADTH replay boundary")
+def _korea_market_signal(
+    rows: dict, generated_at: str, binding: dict, axis: str
+) -> dict:
+    component_id = "KOREA_MARKET_SIGNALS"
+    row = _row(rows, component_id, generated_at)
+    if row.get("contract_version") != binding["source_transform_version"]:
+        fail("COMPONENT_CONTRACT_MISMATCH", component_id)
+    source_dir = _source_dir(
+        row, "data/observations/korea_market_signals/"
+    )
+    packet_path = source_dir / "packet.json"
     try:
-        KOREA_BREADTH_REPLAY.load_approved_attestation()
-    except Exception:
-        return "KOREA_BREADTH_REPLAY_ATTESTATION_UNAVAILABLE"
-    return expected
+        packet = json.loads(packet_path.read_text(encoding="utf-8"))
+        packet = KOREA_MARKET_SIGNALS.validate_packet(packet)
+    except Exception as exc:
+        raise LiveAxisAdapterError(
+            f"SOURCE_EVIDENCE_INVALID:{component_id}"
+        ) from exc
+    expected_packet = row.get("packet")
+    if (
+        not isinstance(expected_packet, dict)
+        or expected_packet != packet
+        or row.get("as_of_date") != packet.get("as_of_date")
+        or row.get("generated_at") != packet.get("generated_at")
+        or row.get("available_at") != packet.get("available_at")
+        or row.get("source_packet_sha256") != packet.get("payload_sha256")
+        or packet.get("status") != "OBSERVED_UNCLASSIFIED"
+        or packet.get("axes", {}).get(axis, {}).get("status") != "OBSERVED"
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", component_id)
+    return _defined(
+        row,
+        packet["as_of_date"],
+        packet["available_at"],
+        binding["axis_transform_version"],
+        f"atlas-observation://{packet_path.relative_to(ROOT.resolve()).as_posix()}",
+        packet["payload_sha256"],
+        ["REGIME_INTERPRETATION_UNAUTHORIZED"],
+    )
 
 
 def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dict]:
@@ -621,6 +658,15 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
     contract = load_contract()
     bindings = contract["bindings"]
     result = {market: {} for market in MARKETS}
+    for axis in ("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"):
+        result["KR"][axis] = _attempt(
+            lambda rows, generated_at, binding, axis=axis: _korea_market_signal(
+                rows, generated_at, binding, axis
+            ),
+            component_rows,
+            generated_at,
+            bindings[f"KR/{axis}"],
+        )
     result["US"]["RISK_VOL"] = _attempt(
         _fred_vix, component_rows, generated_at, bindings["US/RISK_VOL"]
     )
@@ -649,7 +695,5 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
                 "CONTRACT_INVALID",
                 f"deferred axis conflicts with binding: {qualified_axis}",
             )
-        if qualified_axis == "KR/BREADTH":
-            reason = _korea_breadth_deferred_reason(reason)
         result[market][axis] = _undefined(reason)
     return result

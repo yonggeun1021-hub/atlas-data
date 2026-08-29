@@ -39,7 +39,7 @@ def component(component_id, packet, *, as_of="2026-08-26", generated="2026-08-26
 def daily_packet():
     packet = {
         "schema_version": 1,
-        "contract_version": "daily_orchestrator/5",
+        "contract_version": "daily_orchestrator/6",
         "output_schema_version": "daily_briefing_packet/1",
         "decision_date": "2026-08-26",
         "slot": "evening",

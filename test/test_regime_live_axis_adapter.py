@@ -97,6 +97,55 @@ def all_authorities_false(value) -> bool:
     return True
 
 
+def korea_market_signal_row(root: Path) -> tuple[dict, dict]:
+    source = MODULE.LIVE_AXIS_ADAPTER.KOREA_MARKET_SIGNALS
+    contract = source.load_contract()
+    packet = {
+        "schema_version": source.SCHEMA_VERSION,
+        "contract_version": contract["contract_version"],
+        "status": "OBSERVED_UNCLASSIFIED",
+        "market": "KOREA",
+        "market_timezone": "Asia/Seoul",
+        "previous_date": "2026-08-25",
+        "as_of_date": "2026-08-26",
+        "generated_at": "2026-08-26T09:20:00Z",
+        "available_at": "2026-08-26T09:20:00Z",
+        "source": {"name": "KRX", "raw_persistence": 0, "per_symbol_persistence": 0},
+        "axes": {
+            axis: {"status": "OBSERVED", "measurement": {"test_fixture": axis}}
+            for axis in contract["required_axes"]
+        },
+        "coverage": {
+            "required_axes": list(contract["required_axes"]),
+            "observed_axes": list(contract["required_axes"]),
+            "observed_count": 5,
+            "required_count": 5,
+            "ratio": "5/5",
+        },
+        "authority": contract["authority"],
+    }
+    packet["payload_sha256"] = source.payload_sha256(packet)
+    relative = Path("data/observations/korea_market_signals/2026-08-26")
+    path = root / relative / "packet.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
+    row = MODULE.component_row(
+        "KOREA_MARKET_SIGNALS",
+        "READY",
+        None,
+        as_of_date=packet["as_of_date"],
+        generated_at=packet["generated_at"],
+        available_at=packet["available_at"],
+        source_packet_path=relative.as_posix(),
+        source_packet_sha256=packet["payload_sha256"],
+        validated=True,
+        authority=packet["authority"],
+        contract_version=packet["contract_version"],
+        packet=packet,
+    )
+    return row, packet
+
+
 def v4_free_market_row(root: Path) -> tuple[dict, dict]:
     captured = dt.datetime(2026, 8, 27, 1, 2, 3, tzinfo=dt.timezone.utc)
     raw = json.dumps({"observations": [{
@@ -139,7 +188,7 @@ def v4_free_market_row(root: Path) -> tuple[dict, dict]:
 class RegimeLiveAxisAdapterTest(unittest.TestCase):
     def test_adapter_contract_is_versioned_and_all_authority_is_false(self):
         contract = MODULE.LIVE_AXIS_ADAPTER.load_contract()
-        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v5")
+        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v6")
         self.assertEqual(contract["mode"], "EVIDENCE_ONLY_NO_INTERPRETATION")
         self.assertTrue(all_authorities_false(contract))
         self.assertEqual(
@@ -158,9 +207,10 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
             set(contract["bindings"]["CRYPTO/LIQUIDITY"]["source_components"]),
             {"STABLECOIN_NET_ISSUANCE", "UPBIT_MARKET_EVIDENCE"},
         )
+        self.assertEqual(contract["deferred_axes"], {})
         self.assertEqual(
-            contract["deferred_axes"]["KR/BREADTH"],
-            "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED",
+            contract["bindings"]["KR/BREADTH"]["source_component"],
+            "KOREA_MARKET_SIGNALS",
         )
         self.assertIn(
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
@@ -179,22 +229,33 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
             ):
                 MODULE.LIVE_AXIS_ADAPTER.load_contract(path)
 
-    def test_missing_replay_attestation_fails_closed_without_defining_breadth(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(
-                MODULE.LIVE_AXIS_ADAPTER.KOREA_BREADTH_REPLAY,
-                "ROOT",
-                Path(tmp),
-            ):
-                outputs = MODULE.build_regime_outputs(GENERATED_AT, crypto_rows())
+    def test_missing_combined_korea_packet_fails_closed_without_defining_axes(self):
+        outputs = MODULE.build_regime_outputs(GENERATED_AT, crypto_rows())
         breadth = outputs["KR"]["factor_results"]["BREADTH"]
         self.assertEqual(breadth["status"], "UNDEFINED")
-        self.assertEqual(
-            breadth["warnings"],
-            ["KOREA_BREADTH_REPLAY_ATTESTATION_UNAVAILABLE"],
-        )
+        self.assertEqual(breadth["warnings"], ["LIVE_AXIS_EVIDENCE_UNAVAILABLE"])
         self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")
         self.assertTrue(all_authorities_false(outputs["KR"]))
+
+    def test_combined_korea_packet_defines_all_five_axes_without_regime_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row, packet = korea_market_signal_row(root)
+            with mock.patch.object(MODULE.LIVE_AXIS_ADAPTER, "ROOT", root):
+                outputs = MODULE.build_regime_outputs(
+                    GENERATED_AT, {"KOREA_MARKET_SIGNALS": row}
+                )
+        korea = outputs["KR"]
+        self.assertEqual(korea["coverage"]["ratio"], "5/5")
+        self.assertEqual(korea["regime"], "UNKNOWN")
+        self.assertEqual(korea["direction"], "UNKNOWN")
+        self.assertIsNone(korea["confidence"])
+        for axis in packet["axes"]:
+            factor = korea["factor_results"][axis]
+            self.assertEqual(factor["status"], "DEFINED")
+            self.assertEqual(factor["evidence"]["sha256"], packet["payload_sha256"])
+            self.assertEqual(factor["warnings"], ["REGIME_INTERPRETATION_UNAUTHORIZED"])
+        self.assertTrue(all_authorities_false(korea))
 
     def test_real_crypto_archives_define_three_evidence_axes_with_breadth_correctly_blocked(
         self,
@@ -251,13 +312,9 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
                 axis: outputs["KR"]["factor_results"][axis]["warnings"]
                 for axis in ("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP")
             },
-            {
-                "TREND": ["MARKET_WIDE_SOURCE_MISSING"],
-                "BREADTH": ["SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED"],
-                "RISK_VOL": ["MARKET_WIDE_SOURCE_MISSING"],
-                "LIQUIDITY": ["SOURCE_POLICY_UNRATIFIED"],
-                "LEADERSHIP": ["SOURCE_POLICY_UNRATIFIED"],
-            },
+            {axis: ["LIVE_AXIS_EVIDENCE_UNAVAILABLE"] for axis in (
+                "TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"
+            )},
         )
         self.assertTrue(all_authorities_false(outputs))
         assert_no_interpreted_axis_values(self, crypto["factor_results"])
@@ -468,10 +525,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
 
         breadth = outputs["KR"]["factor_results"]["BREADTH"]
         self.assertEqual(breadth["status"], "UNDEFINED")
-        self.assertEqual(
-            breadth["warnings"],
-            ["SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED"],
-        )
+        self.assertEqual(breadth["warnings"], ["LIVE_AXIS_EVIDENCE_UNAVAILABLE"])
         self.assertIsNone(breadth["evidence"])
         self.assertEqual(outputs["KR"]["coverage"]["ratio"], "0/5")
         self.assertTrue(all_authorities_false(outputs["KR"]))

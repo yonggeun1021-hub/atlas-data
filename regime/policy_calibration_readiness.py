@@ -24,7 +24,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_policy_calibration_readiness_contract.json"
-SCHEMA_VERSION = "regime_policy_calibration_readiness/v1"
+SCHEMA_VERSION = "regime_policy_calibration_readiness/v2"
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -116,8 +116,8 @@ def _expected_contract() -> dict:
         "bound_contracts": {
             "live_axis_adapter": {
                 "path": "config/regime_live_axis_adapter_contract.json",
-                "sha256": "16cbfc40487803513cd422a0be943b8af8fb6d773a59549a9920fc100e2a5bde",
-                "contract_version": "regime_live_axis_adapter/v5",
+                "sha256": "2028a4db0c218b6cac20e1825c0ba13870ad28fff0d2d22a4acb6487e5954e63",
+                "contract_version": "regime_live_axis_adapter/v6",
             },
             "minimum_coverage": {
                 "path": "config/regime_minimum_coverage_policy.json",
@@ -422,7 +422,38 @@ def _scan_crypto_leadership(root: Path) -> list[dict]:
     return records
 
 
+def _scan_korea_market_signals(root: Path, axis: str) -> list[dict]:
+    records = []
+    for path in _date_directories(root, "data/observations/korea_market_signals"):
+        packet_path = path / "packet.json"
+        try:
+            packet = LIVE_AXIS.KOREA_MARKET_SIGNALS.validate_packet(
+                _read_json(packet_path, "SOURCE_EVIDENCE_INVALID")
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise PolicyCalibrationReadinessError(
+                f"SOURCE_EVIDENCE_INVALID:KR/{axis}:{path.name}"
+            ) from exc
+        if not _all_authorized_false(packet):
+            fail("SOURCE_AUTHORITY_INVALID", f"KR/{axis}:{path.name}")
+        if packet.get("axes", {}).get(axis, {}).get("status") != "OBSERVED":
+            continue
+        records.append(_record(
+            observation_date=packet["as_of_date"],
+            available_at=packet["available_at"],
+            uri=(
+                "atlas-observation://"
+                f"{packet_path.relative_to(root.resolve()).as_posix()}"
+            ),
+            evidence_sha256=packet["payload_sha256"],
+            source_revision_id=f"{path.name}:{packet['payload_sha256']}",
+        ))
+    return records
+
+
 def _scan_source_history(root: Path, qualified_axis: str) -> list[dict]:
+    if qualified_axis.startswith("KR/"):
+        return _scan_korea_market_signals(root, qualified_axis.split("/", 1)[1])
     if qualified_axis == "US/RISK_VOL":
         return _scan_fred(root)
     if qualified_axis == "CRYPTO/TREND":
@@ -510,8 +541,10 @@ def build_readiness(root: Path = ROOT) -> dict:
     ]["contract_version"]:
         fail("BOUND_CONTRACT_VERSION_MISMATCH", "policy_candidate_population")
     if list(live_contract["bindings"]) != [
-        "US/RISK_VOL", "CRYPTO/TREND", "CRYPTO/RISK_VOL", "CRYPTO/LIQUIDITY",
-        "CRYPTO/BREADTH", "CRYPTO/LEADERSHIP",
+        "KR/TREND", "KR/BREADTH", "KR/RISK_VOL", "KR/LIQUIDITY",
+        "KR/LEADERSHIP", "US/RISK_VOL", "CRYPTO/TREND",
+        "CRYPTO/RISK_VOL", "CRYPTO/LIQUIDITY", "CRYPTO/BREADTH",
+        "CRYPTO/LEADERSHIP",
     ]:
         fail("LIVE_BINDING_SET_MISMATCH")
 

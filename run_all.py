@@ -479,6 +479,11 @@ APPROVED_TESTS = [
     #   Regime/Production/trading 권한을 계속 차단한다.
     #   ⛔ live KRX 호출 없음 — fixture response + workflow contract only.
     "test/test_korea_breadth.py",
+    # ★ P1-COM-05 Korea five-axis official-KRX observation. One append-only
+    #   aggregate packet binds Trend/Breadth/Risk/Liquidity/Leadership while
+    #   retaining no raw response or per-symbol row and opening no Regime,
+    #   Stage, Buy, Action, Order, Production, or trading authority.
+    "test/test_korea_market_signals.py",
     # ★ P1-KR-05 shared-fetch derived outputs — 같은 manual live fetch에서
     #   non-reconstructive Korea Breadth observation packet(시장×scope별,
     #   available_at=null/decision_eligible=false)과 P3-03 KOSPI/KOSDAQ

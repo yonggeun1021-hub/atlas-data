@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_market_signals/1",
+  "source_name": "KRX_OPEN_API_STOCK_AND_INDEX_DAILY",
+  "source_tier": "Official",
+  "market_timezone": "Asia/Seoul",
+  "stock_endpoints": {
+    "kospi": "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd",
+    "kosdaq": "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd"
+  },
+  "index_endpoints": {
+    "kospi": "https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd",
+    "kosdaq": "https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd"
+  },
+  "benchmark_names": {
+    "kospi": "코스피",
+    "kosdaq": "코스닥"
+  },
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "maximum_session_search_calendar_days": 10,
+  "output_decimal_places": 6,
+  "raw_persistence": 0,
+  "per_symbol_persistence": 0,
+  "authority": {
+    "observation_only": true,
+    "axis_evidence_binding_only": true,
+    "regime_interpretation_authorized": false,
+    "direction_authorized": false,
+    "confidence_authorized": false,
+    "threshold_authorized": false,
+    "weight_authorized": false,
+    "market_ranking_authorized": false,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

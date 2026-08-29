@@ -1,4 +1,4 @@
-# Regime Policy Calibration Readiness v1
+# Regime Policy Calibration Readiness v2
 
 `regime/policy_calibration_readiness.py` implements the user-ratified
 P1-COM-05 process boundary: evidence and replay methodology first (B), followed
@@ -8,7 +8,7 @@ five-of-five coverage (C).
 ## What the packet proves
 
 The command independently replays every retained raw source currently bound by
-`regime_live_axis_adapter/v5`:
+`regime_live_axis_adapter/v6`:
 
 - FRED VIX append-only evidence for `US/RISK_VOL`
 - Kraken BTC append-only snapshots for `CRYPTO/TREND` and
@@ -21,6 +21,9 @@ The command independently replays every retained raw source currently bound by
 - Crypto Breadth-derived dual-window relative-strength history for
   `CRYPTO/LEADERSHIP` (CR-07); this is real-evidence-backed but currently
   short of the 30-day primary window, so it retains no history yet
+- Official KRX combined market observations for all five Korea axes. One
+  validated packet contributes one retained observation to each axis without
+  creating a Regime label.
 
 Each source is checked by its existing production validator. The packet records
 the exact raw URI, hash, observation date, Atlas availability time, revision
@@ -34,10 +37,12 @@ or lineage-only receipt is promoted to a market-wide axis.
 
 ## Current expected result
 
-As of `regime_live_axis_adapter/v5` (P1-CR-08), the repository replays:
+Before the first `korea_market_signals/1` packet is retained, the repository
+replays:
 
 - US: `1/5` (`RISK_VOL`)
-- Korea: `0/5`
+- Korea: `0/5`; it becomes `5/5` evidence coverage when the first combined
+  official-KRX packet is retained, while classification remains unratified
 - Crypto: `4/5` (`TREND`, `BREADTH`, `RISK_VOL`, `LIQUIDITY`) -- `BREADTH` newly
   retains history from this PR (one validated 2026-08-28 observation to
   date; earlier committed days are real, genuine

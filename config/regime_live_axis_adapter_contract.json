@@ -1,8 +1,33 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_live_axis_adapter/v5",
+  "contract_version": "regime_live_axis_adapter/v6",
   "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
   "bindings": {
+    "KR/TREND": {
+      "source_component": "KOREA_MARKET_SIGNALS",
+      "source_transform_version": "korea_market_signals/1",
+      "axis_transform_version": "regime_live_axis_korea_market_signals/v1"
+    },
+    "KR/BREADTH": {
+      "source_component": "KOREA_MARKET_SIGNALS",
+      "source_transform_version": "korea_market_signals/1",
+      "axis_transform_version": "regime_live_axis_korea_market_signals/v1"
+    },
+    "KR/RISK_VOL": {
+      "source_component": "KOREA_MARKET_SIGNALS",
+      "source_transform_version": "korea_market_signals/1",
+      "axis_transform_version": "regime_live_axis_korea_market_signals/v1"
+    },
+    "KR/LIQUIDITY": {
+      "source_component": "KOREA_MARKET_SIGNALS",
+      "source_transform_version": "korea_market_signals/1",
+      "axis_transform_version": "regime_live_axis_korea_market_signals/v1"
+    },
+    "KR/LEADERSHIP": {
+      "source_component": "KOREA_MARKET_SIGNALS",
+      "source_transform_version": "korea_market_signals/1",
+      "axis_transform_version": "regime_live_axis_korea_market_signals/v1"
+    },
     "US/RISK_VOL": {
       "source_component": "FREE_MARKET_DATA",
       "source_transform_version": "free_market_data/2",
@@ -37,18 +62,12 @@
       "axis_transform_version": "regime_live_axis_crypto_leadership/v1"
     }
   },
-  "deferred_axes": {
-    "KR/TREND": "MARKET_WIDE_SOURCE_MISSING",
-    "KR/BREADTH": "SOURCE_REPLAY_PROVEN_SCORING_POLICY_UNRATIFIED",
-    "KR/RISK_VOL": "MARKET_WIDE_SOURCE_MISSING",
-    "KR/LIQUIDITY": "SOURCE_POLICY_UNRATIFIED",
-    "KR/LEADERSHIP": "SOURCE_POLICY_UNRATIFIED"
-  },
+  "deferred_axes": {},
   "non_promotable_evidence": [
     "IEX_THREE_SYMBOL_SAMPLE",
     "KRX_SEVEN_SYMBOL_WATCHLIST",
     "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
-    "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_RATIFIED_SCORING_POLICY",
+    "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_FIVE_SIGNAL_PACKET",
     "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES"
   ],
   "authority": {
