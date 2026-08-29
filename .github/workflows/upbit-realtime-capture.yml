@@ -37,6 +37,8 @@ jobs:
         run: pip install "websockets>=12.0"
       - name: Offline P9-06 realtime-gate regression (no live connection)
         run: python3 test/test_upbit_realtime_gate.py
+      - name: Offline crypto PAPER decision snapshot regression (P1-CR-08 + P5-08 + P5-09 composition)
+        run: python3 test/test_crypto_paper_decision_snapshot.py
       - name: Find latest committed P3-12 tradeable-universe classification
         id: universe
         run: |
@@ -71,6 +73,34 @@ jobs:
             --duration-seconds "$DURATION_SECONDS" \
             "${UNIVERSE_ARG[@]}"
           echo "result=captured" >> "$GITHUB_OUTPUT"
+      # P1-CR-08 (Regime) + P5-08 (Candidate Promotion) + P5-09 (PAPER Buy
+      # Eligibility) composition, tacked onto the tail of this existing
+      # 30-minute job -- NOT a new schedule. Pure read-only derivation over
+      # already-committed evidence (this run's just-captured P9-06 evidence
+      # included); zero network/order calls -- see
+      # decision/crypto_paper_decision_snapshot.py's own module docstring
+      # for the full scope boundary (Continuous Briefing/alerting stays
+      # UNDEFINED/out of scope). Runs unconditionally: it degrades honestly
+      # (MISSING/STALE/WAIT) rather than skipping when upstream evidence is
+      # absent, exactly like the P3-12 classification step above.
+      - name: Crypto PAPER decision snapshot (P1-CR-08 + P5-08 + P5-09 composition, read-only)
+        id: crypto_paper_decision
+        if: always()
+        env:
+          GENERATED_AT: ${{ steps.runner_start.outputs.observed_started_at_utc }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: |
+          set -euo pipefail
+          ARGS=(--generated-at "$GENERATED_AT" --source-commit "$SOURCE_COMMIT")
+          if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
+            RUN_PATH=$(ls -1 "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"/run_*.json 2>/dev/null | sort | tail -n 1 || true)
+            if [ -n "$RUN_PATH" ]; then
+              ARGS+=(--realtime-run-path "$RUN_PATH")
+            fi
+          fi
+          python3 decision/crypto_paper_decision_snapshot.py "${ARGS[@]}"
       - name: Record P9-06 realtime scheduler telemetry
         if: always()
         env:
@@ -81,6 +111,11 @@ jobs:
           ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
           ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
           ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_CRYPTO_PAPER_DECISION_STEP_OUTCOME: ${{ steps.crypto_paper_decision.outcome }}
+          ATLAS_CRYPTO_PAPER_DECISION_OUTCOME: ${{ steps.crypto_paper_decision.outputs.outcome }}
+          ATLAS_CRYPTO_PAPER_DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+          ATLAS_CRYPTO_PAPER_DECISION_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.generation_id }}
+          ATLAS_CRYPTO_PAPER_DECISION_SHA256: ${{ steps.crypto_paper_decision.outputs.payload_sha256 }}
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: |
@@ -112,6 +147,10 @@ jobs:
           if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
             git add "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"
           fi
+          # Crypto PAPER decision snapshot (P1-CR-08 + P5-08 + P5-09) --
+          # new, separate evidence path; committed in the same run/commit as
+          # the realtime evidence above, never reusing an existing path.
+          git add evidence/crypto_paper_decision || true
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
           else
