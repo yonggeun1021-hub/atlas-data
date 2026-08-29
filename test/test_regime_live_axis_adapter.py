@@ -185,10 +185,95 @@ def v4_free_market_row(root: Path) -> tuple[dict, dict]:
     return row, bundle
 
 
+def v5_free_market_row(root: Path) -> tuple[dict, dict]:
+    capture = MODULE.FREE_MARKET_DATA_CAPTURE
+    captured = dt.datetime(2026, 8, 29, 1, 2, 3, tzinfo=dt.timezone.utc)
+    fred_raw = json.dumps({"observations": [{
+        "date": "2026-08-28", "value": "16.25",
+        "realtime_start": "2026-08-29", "realtime_end": "2026-08-29",
+    }]}, sort_keys=True).encode()
+    fred = {
+        "series_id": "VIXCLS", "observation_date": "2026-08-28",
+        "value": "16.25", "realtime_start": "2026-08-29",
+        "realtime_end": "2026-08-29",
+    }
+    bundle = MODULE.FRED_VIX_PROVENANCE.build_evidence_bundle(captured, fred_raw)
+    contract = json.loads((ROOT / "config/free_market_data_contract.json").read_text())
+    bars = []
+    daily_bars = []
+    responses = {}
+    start = dt.date(2026, 6, 29)
+    for symbol in contract["alpaca"]["symbols"]:
+        bars.append({
+            "symbol": symbol, "close": "160", "volume": "1000",
+            "provider_timestamp": "2026-08-28T20:00:00Z",
+        })
+        response_bars = []
+        for index in range(61):
+            day = (start + dt.timedelta(days=index)).isoformat()
+            source = {
+                "o": 100 + index, "h": 101 + index, "l": 99 + index,
+                "c": 100 + index, "v": 1000 + index,
+                "t": f"{day}T20:00:00Z",
+            }
+            response_bars.append(source)
+            daily_bars.append({
+                "symbol": symbol, "opened_at": source["t"],
+                "open": str(source["o"]), "high": str(source["h"]),
+                "low": str(source["l"]), "close": str(source["c"]),
+                "volume": str(source["v"]),
+            })
+        responses[symbol] = {"bars": response_bars}
+    alpaca_raw = json.dumps({"bars": {}}, sort_keys=True).encode()
+    daily_raw = capture.canonical_bytes({"responses": responses})
+    liquidity_rows = [
+        {
+            "series_id": series_id, "title": series_id, "frequency": "Weekly",
+            "source_unit": "Millions of U.S. Dollars",
+            "normalized_unit": "Millions of U.S. Dollars",
+            "normalization_factor": "1", "observation_date": "2026-08-26",
+            "value": "100", "previous_observation_date": "2026-08-19",
+            "previous_value": "99", "change": "1",
+            "realtime_start": "2026-08-29", "realtime_end": "2026-08-29",
+            "metadata_response_sha256": "a" * 64,
+            "observations_response_sha256": "b" * 64,
+        }
+        for series_id in ("WRESBAL", "TOTBKCR")
+    ]
+    liquidity = {
+        "status": "READY", "derivation_version": "fred_liquidity_current/v1",
+        "source_scope": "FRED_OFFICIAL_SERIES_API",
+        "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+        "captured_at_utc": "2026-08-29T01:02:03Z", "series": liquidity_rows,
+        "response_hashes": {},
+        "derived_payload_sha256": capture.sha256_bytes(capture.canonical_bytes(liquidity_rows)),
+        "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+    }
+    packet = capture.build_capture(
+        captured, fred_raw, fred, contract, fred_evidence=bundle["pointer"],
+        fred_liquidity=liquidity, alpaca_status="READY",
+        alpaca_raw=alpaca_raw, bars=bars, daily_raw=daily_raw,
+        daily_bars=daily_bars,
+    )
+    (root / "config").mkdir(parents=True)
+    (root / "config/free_market_data_contract.json").write_text(
+        json.dumps(contract), encoding="utf-8"
+    )
+    capture.publish(
+        root, captured, packet, fred_bundle=bundle,
+        alpaca_raw=alpaca_raw, daily_raw=daily_raw,
+    )
+    with mock.patch.object(MODULE, "ROOT", root):
+        row = MODULE._classify_free_market_data(
+            {"kind": "ready", "value": packet}, "2026-08-30"
+        )
+    return row, packet
+
+
 class RegimeLiveAxisAdapterTest(unittest.TestCase):
     def test_adapter_contract_is_versioned_and_all_authority_is_false(self):
         contract = MODULE.LIVE_AXIS_ADAPTER.load_contract()
-        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v6")
+        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v7")
         self.assertEqual(contract["mode"], "EVIDENCE_ONLY_NO_INTERPRETATION")
         self.assertTrue(all_authorities_false(contract))
         self.assertEqual(
@@ -355,6 +440,30 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
             bundle["pointer"]["raw_response_sha256"],
         )
         self.assertTrue(all_authorities_false(us))
+
+    def test_weekend_latest_completed_us_session_defines_three_evidence_axes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row, packet = v5_free_market_row(root)
+            self.assertEqual(row["status"], "READY")
+            self.assertEqual(
+                row["packet"]["us_market_reference"]["as_of_session_date"],
+                "2026-08-28",
+            )
+            with mock.patch.object(MODULE.LIVE_AXIS_ADAPTER, "ROOT", root):
+                outputs = MODULE.build_regime_outputs(
+                    "2026-08-30T09:00:00Z", {"FREE_MARKET_DATA": row}
+                )
+        us = outputs["US"]
+        self.assertEqual(us["coverage"]["defined_axes"], ["TREND", "RISK_VOL", "LIQUIDITY"])
+        self.assertEqual(us["coverage"]["ratio"], "3/5")
+        self.assertEqual(us["regime"], "UNKNOWN")
+        self.assertEqual(us["direction"], "UNKNOWN")
+        self.assertTrue(all_authorities_false(us))
+        self.assertIn(
+            "NOT_CANONICAL_US_LEADERSHIP",
+            packet["us_market_reference"]["warnings"],
+        )
 
     def test_vix_raw_tamper_fails_closed_per_axis(self):
         with tempfile.TemporaryDirectory() as tmp:

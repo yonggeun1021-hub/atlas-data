@@ -237,7 +237,7 @@ class UsEquityEvidenceTests(unittest.TestCase):
         self.assertEqual(pe._us_return_window_label(180), "6m")
         self.assertIsNone(pe._us_return_window_label(45))
 
-    def test_v3_and_v4_derived_manifests_are_consumed_without_chart_history_escalation(self):
+    def test_v3_v4_and_v5_derived_manifests_are_consumed_without_chart_history_escalation(self):
         authority = {
             "evidence_capture_only": True,
             "us_breadth_authorized": False,
@@ -252,9 +252,9 @@ class UsEquityEvidenceTests(unittest.TestCase):
             derived_dir = root / "derived/2026-08-26"
             derived_dir.mkdir(parents=True)
             for index, schema_version in enumerate(
-                ("free_market_data_capture/3", "free_market_data_capture/4")
+                ("free_market_data_capture/3", "free_market_data_capture/4", "free_market_data_capture/5")
             ):
-                target = derived_dir if index == 0 else root / "derived/2026-08-27"
+                target = root / f"derived/2026-08-{26 + index}"
                 target.mkdir(parents=True, exist_ok=True)
                 (target / "manifest.json").write_text(json.dumps({
                     "schema_version": schema_version,
@@ -274,11 +274,12 @@ class UsEquityEvidenceTests(unittest.TestCase):
                     "authority": authority,
                 }), encoding="utf-8")
             points = pe._us_price_points("TSM", raw_dir, root / "derived")
-        self.assertEqual(len(points), 2)
+        self.assertEqual(len(points), 3)
         self.assertEqual(points[0]["provider_timestamp"], "2026-08-25T19:59:00Z")
         self.assertEqual(points[0]["close"], Decimal("417.34"))
         self.assertEqual(points[0]["capture_date"], "2026-08-26")
         self.assertEqual(points[1]["provider_timestamp"], "2026-08-26T19:59:00Z")
+        self.assertEqual(points[2]["provider_timestamp"], "2026-08-27T19:59:00Z")
 
     def test_current_v3_manifest_advances_latest_tsm_point(self):
         ev = pe.assemble_us_equity_evidence("TSM", "2026-08-26")

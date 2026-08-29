@@ -36,10 +36,13 @@ class FreeMarketDataTests(unittest.TestCase):
 
     def test_contract_is_iex_shadow_only(self):
         c = M.load_contract()
+        self.assertEqual(c["contract_version"], "free_market_data/3")
         self.assertEqual(c["alpaca"]["feed"], "iex")
         self.assertEqual(c["fred"]["raw_retention"], "APPEND_ONLY_CONTENT_ADDRESSED")
         self.assertTrue(c["fred"]["partial_publish_authorized"])
         self.assertEqual(c["alpaca"]["credential_scope"], "DEDICATED_MARKET_DATA_ONLY")
+        self.assertEqual(c["alpaca"]["trend_symbols"], ["SPY", "QQQ", "IWM"])
+        self.assertEqual(c["fred"]["liquidity_series"], ["WRESBAL", "TOTBKCR"])
         self.assertTrue(c["authority"]["evidence_capture_only"])
         self.assertFalse(c["authority"]["us_breadth_authorized"])
         self.assertFalse(c["authority"]["order_authorized"])
@@ -54,13 +57,26 @@ class FreeMarketDataTests(unittest.TestCase):
         alpaca_got, bars = M.fetch_alpaca("k", "s", ["MSFT"], getter=lambda *_: alpaca_raw)
         daily_got, daily_bars = M.fetch_alpaca_daily_bars("k", "s", ["MSFT"], now, getter=lambda *_: daily_raw)
         fred_bundle = M.FRED_PROVENANCE.build_evidence_bundle(now, fred_raw)
+        contract = M.load_contract()
+        contract["alpaca"]["trend_symbols"] = ["MSFT"]
+        contract["alpaca"]["sector_reference_symbols"] = []
+        contract["alpaca"]["return_windows_sessions"] = [0]
+        liquidity = {
+            "status": "READY", "derivation_version": "fred_liquidity_current/v1",
+            "source_scope": "FRED_OFFICIAL_SERIES_API",
+            "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+            "captured_at_utc": "2026-08-22T01:02:03Z", "series": [],
+            "response_hashes": {}, "derived_payload_sha256": M.sha256_bytes(M.canonical_bytes([])),
+            "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+        }
         packet = M.build_capture(
-            now, fred_got, fred, M.load_contract(), alpaca_status="READY",
+            now, fred_got, fred, contract, alpaca_status="READY",
             fred_evidence=fred_bundle["pointer"],
+            fred_liquidity=liquidity,
             alpaca_raw=alpaca_got, bars=bars, daily_raw=daily_got,
             daily_bars=daily_bars,
         )
-        self.assertEqual(packet["schema_version"], "free_market_data_capture/4")
+        self.assertEqual(packet["schema_version"], "free_market_data_capture/5")
         self.assertEqual(packet["fred"]["response_sha256"], M.sha256_bytes(fred_raw))
         self.assertEqual(packet["fred"]["raw_retention"], "APPEND_ONLY_CONTENT_ADDRESSED")
         self.assertEqual(packet["alpaca"]["source_scope"], "IEX_ONLY_PARTIAL_US_MARKET")
@@ -86,6 +102,15 @@ class FreeMarketDataTests(unittest.TestCase):
         packet = M.build_capture(
             now, fred_raw, fred, M.load_contract(),
             fred_evidence=fred_bundle["pointer"],
+            fred_liquidity={
+                "status": "FRED_LIQUIDITY_CAPTURE_FAILED:TEST",
+                "derivation_version": "fred_liquidity_current/v1",
+                "source_scope": "FRED_OFFICIAL_SERIES_API",
+                "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+                "captured_at_utc": "2026-08-22T01:02:03Z", "series": [],
+                "response_hashes": {}, "derived_payload_sha256": M.sha256_bytes(M.canonical_bytes([])),
+                "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+            },
             alpaca_status="BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL",
         )
         self.assertEqual(packet["fred"]["status"], "READY")
@@ -104,6 +129,46 @@ class FreeMarketDataTests(unittest.TestCase):
         with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_NO_SYMBOLS_RETURNED"):
             M.fetch_alpaca("k", "s", ["MSFT"], getter=lambda *_: b'{"bars":{}}')
 
+    def test_liquidity_normalizes_units_and_discards_raw_bodies(self):
+        now = dt.datetime(2026, 8, 28, 1, 2, 3, tzinfo=dt.timezone.utc)
+        responses = {
+            "series": json.dumps({"seriess": [{
+                "title": "Reserve Balances", "frequency": "Weekly",
+                "units": "Billions of U.S. Dollars",
+            }]}).encode(),
+            "observations": json.dumps({"observations": [
+                {"date": "2026-08-19", "value": "3.1"},
+                {"date": "2026-08-26", "value": "3.2"},
+            ]}).encode(),
+        }
+        def getter(url, *_):
+            return responses["observations" if "observations" in url else "series"]
+        result = M.fetch_fred_liquidity("x", now, ["WRESBAL"], getter=getter)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["series"][0]["value"], "3200")
+        self.assertEqual(result["series"][0]["change"], "100")
+        self.assertNotIn("raw", json.dumps(result).lower().replace("raw_retention", ""))
+
+    def test_us_market_reference_reports_returns_without_interpreting_regime(self):
+        contract = M.load_contract()
+        symbols = contract["alpaca"]["trend_symbols"] + contract["alpaca"]["sector_reference_symbols"]
+        bars = []
+        for symbol in symbols:
+            for index in range(61):
+                bars.append({
+                    "symbol": symbol,
+                    "opened_at": f"2026-06-{(index % 28) + 1:02d}T00:00:00Z-{index:03d}",
+                    "open": str(100 + index), "high": str(101 + index),
+                    "low": str(99 + index), "close": str(100 + index),
+                    "volume": "1000",
+                })
+        result = M.derive_us_market_reference(bars, contract)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual([row["symbol"] for row in result["trend_etfs"]], ["SPY", "QQQ", "IWM"])
+        self.assertEqual(len(result["sector_etfs"]), 12)
+        self.assertEqual(result["interpretation"], "OBSERVED_UNCLASSIFIED")
+        self.assertNotIn("RISK_ON", json.dumps(result))
+
 
 class DedicatedMarketDataCredentialTests(unittest.TestCase):
     """★ 2026-08-23 cutover: ALPACA_API_KEY/ALPACA_API_SECRET (the account/
@@ -121,7 +186,15 @@ class DedicatedMarketDataCredentialTests(unittest.TestCase):
              mock.patch.dict(os.environ, {"FRED_API_KEY": "x"}, clear=True), \
              mock.patch("sys.argv", ["free_market_data.py", "--root", tmp]), \
              mock.patch.object(M, "load_contract", return_value=contract), \
-             mock.patch.object(M, "fetch_fred", return_value=(fred_raw, fred)):
+             mock.patch.object(M, "fetch_fred", return_value=(fred_raw, fred)), \
+             mock.patch.object(M, "fetch_fred_liquidity", return_value={
+                 "status": "READY", "derivation_version": "fred_liquidity_current/v1",
+                 "source_scope": "FRED_OFFICIAL_SERIES_API",
+                 "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+                 "captured_at_utc": "2026-08-22T01:02:03Z", "series": [],
+                 "response_hashes": {}, "derived_payload_sha256": M.sha256_bytes(M.canonical_bytes([])),
+                 "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+             }):
             self.assertEqual(M.main(), 0)
             packet = json.loads((Path(tmp)/"data/latest_free_market_data.json").read_text())
             self.assertEqual(packet["fred"]["status"], "READY")
@@ -154,6 +227,14 @@ class DedicatedMarketDataCredentialTests(unittest.TestCase):
              mock.patch("sys.argv", ["free_market_data.py", "--root", tmp]), \
              mock.patch.object(M, "load_contract", return_value=contract), \
              mock.patch.object(M, "fetch_fred", return_value=(fred_raw, fred)), \
+             mock.patch.object(M, "fetch_fred_liquidity", return_value={
+                 "status": "READY", "derivation_version": "fred_liquidity_current/v1",
+                 "source_scope": "FRED_OFFICIAL_SERIES_API",
+                 "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+                 "captured_at_utc": "2026-08-25T01:02:03Z", "series": [],
+                 "response_hashes": {}, "derived_payload_sha256": M.sha256_bytes(M.canonical_bytes([])),
+                 "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+             }), \
              mock.patch.object(M, "fetch_alpaca", side_effect=M.FreeMarketDataError("HTTP_ERROR:401")):
             self.assertEqual(M.main(), 0)
             packet = json.loads((Path(tmp)/"data/latest_free_market_data.json").read_text())

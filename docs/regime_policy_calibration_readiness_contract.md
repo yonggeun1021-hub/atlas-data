@@ -8,9 +8,14 @@ five-of-five coverage (C).
 ## What the packet proves
 
 The command independently replays every retained raw source currently bound by
-`regime_live_axis_adapter/v6`:
+`regime_live_axis_adapter/v7`:
 
 - FRED VIX append-only evidence for `US/RISK_VOL`
+- Alpaca IEX SPY/QQQ/IWM daily evidence for `US/TREND` once the first v5
+  capture is retained
+- FRED WRESBAL/TOTBKCR no-raw derived evidence for `US/LIQUIDITY` once the
+  first v5 capture is retained; its URI is `atlas-derived://`, not falsely
+  labelled as retained raw response evidence
 - Kraken BTC append-only snapshots for `CRYPTO/TREND` and
   `CRYPTO/RISK_VOL`
 - DefiLlama stablecoin append-only snapshots for `CRYPTO/LIQUIDITY`
@@ -40,7 +45,8 @@ or lineage-only receipt is promoted to a market-wide axis.
 Before the first `korea_market_signals/1` packet is retained, the repository
 replays:
 
-- US: `1/5` (`RISK_VOL`)
+- US: `1/5` (`RISK_VOL`) in the pre-v5 retained archive; `3/5`
+  (`TREND`, `RISK_VOL`, `LIQUIDITY`) after the first validated v5 capture
 - Korea: `0/5`; it becomes `5/5` evidence coverage when the first combined
   official-KRX packet is retained, while classification remains unratified
 - Crypto: `4/5` (`TREND`, `BREADTH`, `RISK_VOL`, `LIQUIDITY`) -- `BREADTH` newly

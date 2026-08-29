@@ -101,7 +101,9 @@ class FredVixProvenanceTests(unittest.TestCase):
         pointer = json.loads(
             (ROOT / "data/latest_free_market_data.json").read_text(encoding="utf-8")
         )
-        if pointer.get("schema_version") != "free_market_data_capture/4":
+        if pointer.get("schema_version") not in {
+            "free_market_data_capture/4", "free_market_data_capture/5"
+        }:
             self.skipTest("append-only FRED pointer not present in this revision")
         replay = M.validate_evidence(ROOT, pointer["fred"]["evidence"])
         self.assertEqual(

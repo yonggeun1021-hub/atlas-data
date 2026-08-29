@@ -2,7 +2,9 @@ name: Atlas Free Market Data Evidence
 
 on:
   schedule:
-    - cron: '35 21 * * 0-4'
+    # 06:35 KST Mon-Sat. Friday's US close is therefore captured for the
+    # Saturday/Sunday briefing instead of waiting until Monday morning.
+    - cron: '35 21 * * 0-5'
   workflow_dispatch:
 
 permissions:
@@ -39,7 +41,7 @@ jobs:
       #   2026-08-26. If either secret is missing or invalid later, only the
       #   Alpaca component is explicitly BLOCKED/PARTIAL; valid FRED derived
       #   evidence remains independently publishable.
-      - name: Capture FRED VIX and Alpaca IEX evidence
+      - name: Capture FRED risk/liquidity and Alpaca IEX evidence
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
