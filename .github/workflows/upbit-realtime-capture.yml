@@ -89,11 +89,15 @@ jobs:
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          OBSERVED_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
         run: |
           set -euo pipefail
           GENERATED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           SOURCE_COMMIT="$(git rev-parse HEAD)"
           ARGS=(--generated-at "$GENERATED_AT" --source-commit "$SOURCE_COMMIT")
+          if [ -n "${OBSERVED_STARTED_AT_UTC:-}" ]; then
+            ARGS+=(--started-at "$OBSERVED_STARTED_AT_UTC")
+          fi
           if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
             RUN_PATH=$(ls -1 "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"/run_*.json 2>/dev/null | sort | tail -n 1 || true)
             if [ -n "$RUN_PATH" ]; then

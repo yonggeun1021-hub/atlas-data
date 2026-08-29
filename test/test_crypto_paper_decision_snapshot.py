@@ -714,8 +714,19 @@ class ZeroNetworkOrderCallsTests(unittest.TestCase):
         self.assertIn("GENERATED_AT=\"$(date -u", snapshot_step)
         self.assertIn('SOURCE_COMMIT="$(git rev-parse HEAD)"', snapshot_step)
         self.assertNotIn("github.sha", snapshot_step)
-        self.assertNotIn("steps.runner_start.outputs.observed_started_at_utc", snapshot_step)
         self.assertNotIn("--allow-realtime-fallback", snapshot_step)
+
+    def test_workflow_threads_runner_start_time_into_started_at_arg(self):
+        # Hardening fix: the CIO-flagged explicit-time-basis correction adds
+        # a --started-at CLI arg fed from the runner-start step's own
+        # already-existing observed_started_at_utc output (previously
+        # captured but never passed into this step).
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        snapshot_step = workflow.split("- name: Crypto PAPER decision snapshot", 1)[1].split(
+            "- name: Record P9-06 realtime scheduler telemetry", 1,
+        )[0]
+        self.assertIn("steps.runner_start.outputs.observed_started_at_utc", snapshot_step)
+        self.assertIn("--started-at", snapshot_step)
 
 
 # ---------------------------------------------------------------------------
@@ -777,6 +788,189 @@ class PacketShapeTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(set(record["crypto_regime_five_axis"]), {"TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"})
         for axis_result in record["crypto_regime_five_axis"].values():
             self.assertIn(axis_result["status"], ("DEFINED", "UNDEFINED"))
+
+
+# ---------------------------------------------------------------------------
+# 12. Explicit time-basis fields -- CIO-directed hardening: someone reading
+# the evidence path alone (e.g. .../2026-08-29/0504/...) cannot tell from
+# the path or packet alone that "0504" is UTC, not KST. These fields make
+# that explicit and self-documenting inside the packet itself.
+# ---------------------------------------------------------------------------
+
+class TimeBasisFieldsTests(TempDirMixin, unittest.TestCase):
+    def test_new_fields_present_and_correctly_computed(self):
+        generated_at = "2026-08-29T05:04:59Z"
+        started_at = "2026-08-29T05:00:12Z"
+        record = CPDS.build_snapshot(
+            generated_at=generated_at, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=None, realtime_entry=None,
+            started_at=started_at,
+        )
+        self.assertEqual(record["captured_at_utc"], generated_at)
+        self.assertEqual(record["captured_at_kst"], "2026-08-29T14:04:59+09:00")
+        self.assertEqual(record["operational_date_kst"], "2026-08-29")
+        self.assertEqual(
+            record["path_time_basis"],
+            "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST",
+        )
+        self.assertEqual(record["started_at"], started_at)
+        self.assertEqual(record["scheduled_for"], "2026-08-29T05:00:00Z")
+        self.assertEqual(record["completed_at"], generated_at)
+        self.assertEqual(CPDS.validate_output(record, allow_external_sources=True), record)
+
+    def test_kst_date_boundary_crossing(self):
+        # 20:00 UTC on 2026-08-29 is already 05:00 KST on 2026-08-30 --
+        # operational_date_kst must roll over even though capture_date (the
+        # UTC-based evidence path component) stays on the 29th.
+        generated_at = "2026-08-29T20:00:00Z"
+        record = CPDS.build_snapshot(
+            generated_at=generated_at, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=None, realtime_entry=None,
+        )
+        self.assertEqual(record["capture_date"], "2026-08-29")
+        self.assertEqual(record["operational_date_kst"], "2026-08-30")
+        self.assertEqual(record["captured_at_kst"], "2026-08-30T05:00:00+09:00")
+
+    def test_started_at_defaults_to_generated_at_and_is_replay_identical(self):
+        generated_at = "2026-08-29T05:04:59Z"
+        explicit = CPDS.build_snapshot(
+            generated_at=generated_at, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=None, realtime_entry=None,
+            started_at=generated_at,
+        )
+        implicit = CPDS.build_snapshot(
+            generated_at=generated_at, source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=None, realtime_entry=None,
+        )
+        self.assertEqual(json.dumps(explicit, sort_keys=True), json.dumps(implicit, sort_keys=True))
+        self.assertEqual(implicit["started_at"], generated_at)
+
+    def test_started_at_future_dated_is_rejected(self):
+        with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "STARTED_AT_FUTURE_DATED"):
+            CPDS.build_snapshot(
+                generated_at="2026-08-29T05:00:00Z", source_commit=SOURCE_COMMIT,
+                universe_entry=None, market_evidence_entry=None, realtime_entry=None,
+                started_at="2026-08-29T05:00:01Z",
+            )
+
+    def test_scheduled_for_floors_to_thirty_minute_boundary(self):
+        record = CPDS.build_snapshot(
+            generated_at="2026-08-29T05:35:00Z", source_commit=SOURCE_COMMIT,
+            universe_entry=None, market_evidence_entry=None, realtime_entry=None,
+            started_at="2026-08-29T05:29:59Z",
+        )
+        self.assertEqual(record["scheduled_for"], "2026-08-29T05:00:00Z")
+
+
+# ---------------------------------------------------------------------------
+# 13. find_previous_packet -- genuine chronological selection + tamper/drift
+# detection. Fixed to read each candidate's own internal captured_at_utc
+# (falling back to generated_at for pre-existing packets) instead of
+# trusting directory-name string comparison.
+# ---------------------------------------------------------------------------
+
+def _write_previous_packet(output_root, *, date, hhmm, generation_id, captured_at_utc=None, generated_at=None):
+    payload = {
+        "generation_id": generation_id,
+        "payload_sha256": "0" * 64,
+        "funnel_counts": {"observation_pool_count": 0},
+    }
+    if captured_at_utc is not None:
+        payload["captured_at_utc"] = captured_at_utc
+    if generated_at is not None:
+        payload["generated_at"] = generated_at
+    directory = Path(output_root) / date / hhmm / generation_id
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "packet.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+class FindPreviousPacketTests(TempDirMixin, unittest.TestCase):
+    def test_finds_true_most_recent_prior_packet_by_internal_timestamp_not_generation_id_string_order(self):
+        output_root = self.tmp / "out"
+        # Both packets genuinely belong to the same UTC minute-directory
+        # (2026-08-29/0500) -- a legitimate same-slot scenario, not
+        # tamper/drift (each packet's own internal captured_at_utc really
+        # does fall in that same minute; only the seconds differ). The OLD
+        # code's tie-break for same-(date,hhmm) candidates was sorting by
+        # generation_id *string*, which carries no chronological meaning:
+        # "zzzzzzzz9999" sorts last lexicographically and would have been
+        # (wrongly) picked as "most recent", even though it is actually the
+        # EARLIER packet at :10s vs. "aaaaaaaa1111"'s :45s. The fix must
+        # instead compare each candidate's real internal timestamp and pick
+        # the genuinely later one.
+        _write_previous_packet(
+            output_root, date="2026-08-29", hhmm="0500", generation_id="aaaaaaaa1111",
+            captured_at_utc="2026-08-29T05:00:45Z",
+        )
+        _write_previous_packet(
+            output_root, date="2026-08-29", hhmm="0500", generation_id="zzzzzzzz9999",
+            captured_at_utc="2026-08-29T05:00:10Z",
+        )
+        result = CPDS.find_previous_packet(output_root, "2026-08-29", "0600")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["generation_id"], "aaaaaaaa1111")
+
+    def test_tampered_directory_name_is_excluded_not_trusted(self):
+        output_root = self.tmp / "out"
+        # This packet's directory name claims 09:00, but its own internal
+        # captured_at_utc says 03:00 -- a TAMPER_OR_DRIFT condition. It must
+        # never be selected on the strength of an unverified directory name.
+        _write_previous_packet(
+            output_root, date="2026-08-29", hhmm="0900", generation_id="tampered1",
+            captured_at_utc="2026-08-29T03:00:00Z",
+        )
+        result = CPDS.find_previous_packet(output_root, "2026-08-29", "1000")
+        self.assertIsNone(result)
+
+    def test_tampered_packet_excluded_even_when_a_genuine_prior_packet_exists(self):
+        output_root = self.tmp / "out"
+        _write_previous_packet(
+            output_root, date="2026-08-29", hhmm="0400", generation_id="genuine1",
+            captured_at_utc="2026-08-29T04:00:00Z",
+        )
+        _write_previous_packet(
+            output_root, date="2026-08-29", hhmm="0900", generation_id="tampered2",
+            captured_at_utc="2026-08-29T03:00:00Z",  # mismatched dir vs internal
+        )
+        result = CPDS.find_previous_packet(output_root, "2026-08-29", "1000")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["generation_id"], "genuine1")
+
+    def test_malformed_internal_timestamp_is_excluded_not_crashed_on(self):
+        output_root = self.tmp / "out"
+        _write_previous_packet(
+            output_root, date="2026-08-29", hhmm="0400", generation_id="malformed1",
+            captured_at_utc="not-a-timestamp",
+        )
+        result = CPDS.find_previous_packet(output_root, "2026-08-29", "1000")
+        self.assertIsNone(result)
+
+    def test_backward_compatible_with_pre_existing_committed_packet_missing_new_fields(self):
+        # evidence/crypto_paper_decision/2026-08-29/0504/<gen>/packet.json is
+        # the one real packet already committed to main -- built before this
+        # PR's new fields existed, so it has no captured_at_utc. It must
+        # still be found/read without crashing, falling back to its own
+        # generated_at.
+        real_packet_path = (
+            ROOT / "evidence" / "crypto_paper_decision" / "2026-08-29" / "0504"
+            / "07def23c61fe1cb7608da7cacc20e54b2fc32d3caad8cf5b6762b0a2c74851d4"
+            / "packet.json"
+        )
+        real_packet = json.loads(real_packet_path.read_text(encoding="utf-8"))
+        self.assertNotIn("captured_at_utc", real_packet)
+        output_root = self.tmp / "out"
+        directory = (
+            output_root / real_packet["capture_date"] / real_packet["capture_hhmm"] / real_packet["generation_id"]
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "packet.json").write_text(json.dumps(real_packet), encoding="utf-8")
+
+        result = CPDS.find_previous_packet(output_root, "2026-08-29", "2359")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["generation_id"], real_packet["generation_id"])
+        self.assertEqual(result["payload_sha256"], real_packet["payload_sha256"])
+        self.assertEqual(result["funnel_counts"], real_packet["funnel_counts"])
 
 
 if __name__ == "__main__":

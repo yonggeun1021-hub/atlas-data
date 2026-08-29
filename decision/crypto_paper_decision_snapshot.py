@@ -79,6 +79,25 @@ is itself content-addressed by ``generation_id``, so a second build of the
 same slot with the exact same input bytes verifies-not-duplicates; a second
 build of the same slot with genuinely different input bytes lands under a
 different ``generation_id`` subdirectory, never silently overwriting.
+
+Explicit time basis (CIO-directed hardening, additive/backward-compatible):
+``capture_date``/``capture_hhmm`` -- and therefore the
+``evidence/crypto_paper_decision/<capture_date>/<capture_hhmm>/...`` storage
+path they name -- are UTC, not KST. A reader looking only at the path or the
+packet (never the source) cannot be expected to know this, so every packet
+also carries ``captured_at_utc`` (an explicit alias of ``generated_at``),
+``captured_at_kst``/``operational_date_kst`` (the same instant read as a
+Korean investor would), a literal ``path_time_basis`` string documenting the
+UTC-not-KST fact in-band, ``scheduled_for`` (the ``*/30``-minute UTC cron
+slot this run was triggered for), ``started_at`` (the workflow runner's
+observed start instant), and ``completed_at`` (an explicitly-named alias of
+``generated_at`` -- this module's build-wall-clock instant is definitionally
+the same value). None of these six fields are folded into ``generation_id``
+either, for the same "never wall-clock" reason as ``generated_at`` itself.
+These fields are purely additive: older committed packets (e.g.
+``evidence/crypto_paper_decision/2026-08-29/0504/...``) that predate them
+remain readable via ``find_previous_packet``'s ``captured_at_utc`` ->
+``generated_at`` fallback.
 """
 from __future__ import annotations
 
@@ -117,6 +136,38 @@ HHMM_RE = re.compile(r"^\d{4}$")
 # (P9-04) and universe/crypto_paper_buy_eligibility.py::compute_duplicate_guard_key
 # (P5-09) -- reused verbatim, not reinvented.
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
+
+# Same fixed +09:00 KST tzinfo construction already used elsewhere in this
+# repository (collectors/krx.py::KST, identity/candidate_identity_authority_
+# proposal.py, portfolio_risk/kis_valuation_semantic_review.py) -- reused
+# verbatim, not reinvented. Korea has no daylight-saving offset, so a fixed
+# +09:00 offset (not a ZoneInfo/DST-aware zone) is this repo's own existing
+# convention for this exact purpose.
+KST = dt.timezone(dt.timedelta(hours=9))
+
+# Explicit, self-documenting contract note embedded in every packet: a
+# reader who only has this JSON (no source access) must not have to guess
+# that capture_date/capture_hhmm -- and therefore the evidence storage path
+# they name -- are UTC, not KST. See captured_at_kst/operational_date_kst
+# below for the KST-side values a Korean-investor-facing reader actually
+# wants.
+PATH_TIME_BASIS = (
+    "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST"
+)
+
+# Matches this workflow's own currently-committed schedule --
+# .github/workflows/upbit-realtime-capture.yml's `cron: "*/30 * * * *"` --
+# reused here, not reinvented (same discipline as every other "reused
+# verbatim" constant in this module's docstring). This module does not
+# attempt general cron parsing; if the workflow's own cron interval ever
+# changes, this constant must change with it in the same PR.
+SCHEDULED_SLOT_MINUTES = 30
+
+
+def _floor_to_schedule_slot(observed_dt: dt.datetime, slot_minutes: int = SCHEDULED_SLOT_MINUTES) -> dt.datetime:
+    """The nearest ``*/slot_minutes`` UTC boundary at or before ``observed_dt``."""
+    floored_minute = (observed_dt.minute // slot_minutes) * slot_minutes
+    return observed_dt.replace(minute=floored_minute, second=0, microsecond=0)
 
 
 def _load(name: str, relative_path: str):
@@ -408,14 +459,34 @@ def find_latest_realtime_run(evidence_root: Path = REALTIME_EVIDENCE_ROOT):
 
 
 def find_previous_packet(output_root: Path, before_date: str, before_hhmm: str):
-    """The immediately-prior committed packet under ``output_root`` whose
-    ``(capture_date, capture_hhmm)`` sorts strictly before
-    ``(before_date, before_hhmm)`` -- an honest audit-trail pointer, never a
-    threshold/severity/alert judgment (see module docstring).
+    """The immediately-prior committed packet under ``output_root`` whose own
+    internal capture instant genuinely precedes ``(before_date, before_hhmm)``
+    -- an honest audit-trail pointer, never a threshold/severity/alert
+    judgment (see module docstring).
+
+    Selection is by each candidate packet's own internal
+    ``captured_at_utc`` (falling back to ``generated_at`` for older packets
+    committed before ``captured_at_utc`` existed as a field -- e.g.
+    ``evidence/crypto_paper_decision/2026-08-29/0504/...`` remains readable)
+    parsed as a real UTC ``datetime`` and compared chronologically -- never
+    by directory-name string comparison alone. A
+    candidate whose directory-name-derived ``(date, hhmm)`` disagrees with
+    its own internal timestamp-derived ``(date, hhmm)`` is a
+    ``TAMPER_OR_DRIFT`` condition: this function never silently trusts the
+    directory name in that case. It fails closed on that single candidate by
+    excluding it from selection (never promoting an unverified directory
+    name to "this is the previous packet"), the same per-row fail-closed
+    discipline ``universe/upbit_tradeable_universe.py`` uses for its own
+    ``STATE_BLOCKED``/``"IDENTITY_COLLISION"`` rows: the compromised item is
+    dropped, evaluation of the remaining candidates continues, and the
+    condition is logged rather than raised (this is a read-only audit-trail
+    lookup, not the packet's own write path -- an unrelated tampered/drifted
+    sibling packet must not block today's honest build).
     """
     output_root = Path(output_root)
     if not output_root.is_dir():
         return None
+    before_dt = dt.datetime.strptime(before_date + before_hhmm, "%Y-%m-%d%H%M").replace(tzinfo=dt.timezone.utc)
     candidates = []
     for date_dir in output_root.iterdir():
         if not date_dir.is_dir() or not DATE_RE.fullmatch(date_dir.name):
@@ -423,17 +494,36 @@ def find_previous_packet(output_root: Path, before_date: str, before_hhmm: str):
         for hhmm_dir in date_dir.iterdir():
             if not hhmm_dir.is_dir() or not HHMM_RE.fullmatch(hhmm_dir.name):
                 continue
-            if (date_dir.name, hhmm_dir.name) >= (before_date, before_hhmm):
-                continue
             for gen_dir in sorted(hhmm_dir.iterdir()):
                 packet_path = gen_dir / "packet.json"
-                if packet_path.is_file():
-                    candidates.append((date_dir.name, hhmm_dir.name, gen_dir.name, packet_path))
+                if not packet_path.is_file():
+                    continue
+                packet = _read_json(packet_path)
+                internal_generated_at = packet.get("captured_at_utc") or packet.get("generated_at")
+                if not isinstance(internal_generated_at, str) or not UTC_RE.fullmatch(internal_generated_at):
+                    print(
+                        f"TAMPER_OR_DRIFT:MALFORMED_INTERNAL_TIMESTAMP:{packet_path}",
+                        file=sys.stderr,
+                    )
+                    continue
+                internal_date = internal_generated_at[:10]
+                internal_hhmm = internal_generated_at[11:13] + internal_generated_at[14:16]
+                if (internal_date, internal_hhmm) != (date_dir.name, hhmm_dir.name):
+                    print(
+                        f"TAMPER_OR_DRIFT:DIRECTORY_NAME_INTERNAL_TIMESTAMP_MISMATCH:"
+                        f"path={packet_path}:directory=({date_dir.name},{hhmm_dir.name}):"
+                        f"internal=({internal_date},{internal_hhmm})",
+                        file=sys.stderr,
+                    )
+                    continue
+                parsed_dt = _parse_utc(internal_generated_at, "previous_packet.captured_at_utc")
+                if parsed_dt >= before_dt:
+                    continue
+                candidates.append((parsed_dt, packet_path, packet))
     if not candidates:
         return None
-    candidates.sort()
-    _, _, _, packet_path = candidates[-1]
-    packet = _read_json(packet_path)
+    candidates.sort(key=lambda item: item[0])
+    _, _, packet = candidates[-1]
     return {
         "generation_id": packet.get("generation_id"),
         "payload_sha256": packet.get("payload_sha256"),
@@ -562,12 +652,50 @@ def build_snapshot(
     realtime_entry: dict | None,
     previous_entry: dict | None = None,
     component_rows: dict | None = None,
+    started_at: str | None = None,
 ) -> dict:
     generated_dt = _parse_utc(generated_at, "generated_at")
     if not FULL_SHA_RE.fullmatch(source_commit):
         raise CryptoPaperDecisionSnapshotError(f"SOURCE_COMMIT_INVALID:{source_commit}")
     capture_date = generated_at[:10]
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
+
+    # -- Explicit time-basis fields ------------------------------------
+    # capture_date/capture_hhmm (and the evidence path they name) are UTC.
+    # These additional fields make that fact, and the KST-side reading a
+    # Korean-investor-facing consumer actually wants, explicit and
+    # self-documenting inside the packet itself -- a reader must never have
+    # to open this module's source to learn that "0504" in the storage path
+    # means 05:04 UTC (14:04 KST), not 05:04 KST.
+    captured_at_utc = generated_at
+    captured_at_kst_dt = generated_dt.astimezone(KST)
+    captured_at_kst = captured_at_kst_dt.isoformat()
+    operational_date_kst = captured_at_kst_dt.date().isoformat()
+
+    # started_at is optional (older/manual callers, and every existing test
+    # fixture in this file, do not supply it): when absent this quietly (no
+    # derivation-notes marker -- see the note on determinism below) falls
+    # back to generated_at, the best honestly-available proxy for "when this
+    # run began". This fallback is a pure function of already-known inputs
+    # (never wall-clock), so build_snapshot(started_at=None) and
+    # build_snapshot(started_at=<that same generated_at value>) are
+    # byte-identical -- required for validate_output's full-rederivation
+    # replay to reproduce a packet that was originally built with
+    # started_at omitted.
+    resolved_started_at = generated_at if started_at is None else started_at
+    started_dt = _parse_utc(resolved_started_at, "started_at")
+    if started_dt > generated_dt:
+        raise CryptoPaperDecisionSnapshotError("STARTED_AT_FUTURE_DATED")
+
+    scheduled_for = _floor_to_schedule_slot(started_dt).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # completed_at: this module's generated_at IS the build-wall-clock
+    # instant (the workflow captures it immediately before invoking this
+    # script -- see module docstring's "Determinism" section) -- there is no
+    # separate later "write" instant to record. Still emitted as its own
+    # explicitly-named field rather than making a reader infer that
+    # equivalence from generated_at alone.
+    completed_at = generated_at
 
     notes: list[str] = []
     source_refs: list[dict] = []
@@ -813,6 +941,13 @@ def build_snapshot(
         "generated_at": generated_at,
         "capture_date": capture_date,
         "capture_hhmm": capture_hhmm,
+        "captured_at_utc": captured_at_utc,
+        "captured_at_kst": captured_at_kst,
+        "operational_date_kst": operational_date_kst,
+        "path_time_basis": PATH_TIME_BASIS,
+        "scheduled_for": scheduled_for,
+        "started_at": resolved_started_at,
+        "completed_at": completed_at,
         "source_commit": source_commit,
         "generation_id": generation_id,
         "duplicate_guard_key": duplicate_guard_key,
@@ -866,7 +1001,9 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
     recomputing the outer hash.
     """
     expected_keys = {
-        "schema_version", "generated_at", "capture_date", "capture_hhmm", "source_commit",
+        "schema_version", "generated_at", "capture_date", "capture_hhmm",
+        "captured_at_utc", "captured_at_kst", "operational_date_kst", "path_time_basis",
+        "scheduled_for", "started_at", "completed_at", "source_commit",
         "generation_id", "duplicate_guard_key", "source_refs", "upbit_universe_snapshot_identity",
         "finalized_candle_attestation", "crypto_regime_five_axis", "source_components",
         "funnel_counts", "candidates", "freshness_status", "authority",
@@ -933,6 +1070,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         realtime_entry=realtime_entry,
         previous_entry=packet["previous_state_reference"],
         component_rows=packet["source_components"],
+        started_at=packet["started_at"],
     )
     if canonical_json(rebuilt) != canonical_json(packet):
         raise CryptoPaperDecisionSnapshotError("OUTPUT_DERIVATION_MISMATCH")
@@ -962,6 +1100,7 @@ def populate(
     realtime_run_path: Path | None = None,
     allow_realtime_fallback: bool = False,
     output_root: Path = OUTPUT_ROOT,
+    started_at: str | None = None,
 ) -> dict:
     resolved_source_commit = resolve_source_commit(source_commit)
     universe_entry = find_latest_universe_packet(universe_data_root)
@@ -988,6 +1127,7 @@ def populate(
         market_evidence_entry=market_evidence_entry,
         realtime_entry=realtime_entry,
         previous_entry=previous_entry,
+        started_at=started_at,
     )
     validate_output(
         record,
@@ -1043,6 +1183,14 @@ def run(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generated-at", required=True, help="This workflow run's observed UTC capture instant")
     parser.add_argument("--source-commit", default=None, help="Full 40-char git SHA (default: git rev-parse HEAD)")
+    parser.add_argument(
+        "--started-at", default=None,
+        help=(
+            "This workflow run's observed UTC runner-start instant "
+            "(steps.runner_start.outputs.observed_started_at_utc). "
+            "Default: falls back to --generated-at when omitted."
+        ),
+    )
     parser.add_argument("--universe-data-root", type=Path, default=UNIVERSE_DATA_ROOT)
     parser.add_argument("--market-evidence-data-root", type=Path, default=MARKET_EVIDENCE_DATA_ROOT)
     parser.add_argument("--realtime-evidence-root", type=Path, default=REALTIME_EVIDENCE_ROOT)
@@ -1063,6 +1211,7 @@ def run(argv=None) -> int:
             realtime_run_path=args.realtime_run_path,
             allow_realtime_fallback=args.allow_realtime_fallback,
             output_root=args.output_root,
+            started_at=args.started_at,
         )
     except CryptoPaperDecisionSnapshotError as exc:
         _write_github_output({"outcome": "failed", "reason": str(exc), "path": None, "payload_sha256": None, "generation_id": None})
