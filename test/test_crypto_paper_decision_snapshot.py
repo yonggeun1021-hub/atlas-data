@@ -712,6 +712,8 @@ class ZeroNetworkOrderCallsTests(unittest.TestCase):
             "- name: Record P9-06 realtime scheduler telemetry", 1,
         )[0]
         self.assertIn("GENERATED_AT=\"$(date -u", snapshot_step)
+        self.assertIn('SOURCE_COMMIT="$(git rev-parse HEAD)"', snapshot_step)
+        self.assertNotIn("github.sha", snapshot_step)
         self.assertNotIn("steps.runner_start.outputs.observed_started_at_utc", snapshot_step)
         self.assertNotIn("--allow-realtime-fallback", snapshot_step)
 
