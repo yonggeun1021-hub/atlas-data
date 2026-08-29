@@ -42,8 +42,12 @@ class RealEvidenceTests(unittest.TestCase):
         result = BRIDGE.build_bridge(packet)
         self.assertEqual(BRIDGE.validate_output(result), result)
         self.assertEqual(result["five_axis"]["required_count"], 5)
-        self.assertLess(result["five_axis"]["defined_count"], 5)
-        self.assertFalse(result["five_axis"]["all_defined"])
+        expected_defined = sum(
+            row["status"] == "DEFINED"
+            for row in packet["crypto_regime_five_axis"].values()
+        )
+        self.assertEqual(result["five_axis"]["defined_count"], expected_defined)
+        self.assertEqual(result["five_axis"]["all_defined"], expected_defined == 5)
         self.assertEqual(result["aggregate_policy"]["status"], "UNRATIFIED")
         self.assertEqual(result["aggregate_policy"]["regime"], "UNKNOWN")
         self.assertEqual(result["summary"]["automatic_entry_count"], 0)
