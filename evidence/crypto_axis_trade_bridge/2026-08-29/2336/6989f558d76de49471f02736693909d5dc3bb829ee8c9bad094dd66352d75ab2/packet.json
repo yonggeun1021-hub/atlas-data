@@ -1,0 +1,378 @@
+{
+  "aggregate_policy": {
+    "authorized_regimes": [
+      "UNKNOWN"
+    ],
+    "regime": "UNKNOWN",
+    "status": "UNRATIFIED"
+  },
+  "authority": {
+    "broker_submission_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exchange_order_authorized": false,
+    "exit_action_authorized": false,
+    "market_judgment_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "crypto_axis_trade_bridge/1",
+  "five_axis": {
+    "all_defined": false,
+    "axes": {
+      "BREADTH": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "LEADERSHIP": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-08_RELATIVE_STRENGTH",
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "LIQUIDITY": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-08_LIQUIDITY",
+            "P5-09_BLOCKER_FRESHNESS"
+          ],
+          "exit_consumers": [
+            "P7-13_SECURITY_LIQUIDITY"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "RISK_VOL": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-09_REGIME_RISK_CONTEXT"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "TREND": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-08_TREND"
+          ],
+          "exit_consumers": [
+            "P7-13_TREND"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      }
+    },
+    "defined_count": 0,
+    "missing_axes": [
+      "TREND",
+      "RISK_VOL",
+      "LIQUIDITY",
+      "BREADTH",
+      "LEADERSHIP"
+    ],
+    "required_count": 5
+  },
+  "generated_at": "2026-08-29T23:36:04Z",
+  "mode": "PAPER_REVIEW_ONLY",
+  "operational_date_kst": "2026-08-30",
+  "packet_sha256": "eb35655562088e362a912b1b96839353fc46649ae61549df0c0c0ab057dcfcb5",
+  "schema_version": "crypto_axis_trade_bridge_packet/1",
+  "source": {
+    "contract": {
+      "aggregate_policy_status": "UNRATIFIED",
+      "aggregate_regimes_currently_authorized": [
+        "UNKNOWN"
+      ],
+      "authority": {
+        "broker_submission_authorized": false,
+        "entry_eligibility_authorized": false,
+        "exchange_order_authorized": false,
+        "exit_action_authorized": false,
+        "market_judgment_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "real_capital_authorized": false,
+        "trading_authorized": false
+      },
+      "axis_bindings": {
+        "BREADTH": {
+          "entry_consumers": [
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "LEADERSHIP": {
+          "entry_consumers": [
+            "P5-08_RELATIVE_STRENGTH",
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "LIQUIDITY": {
+          "entry_consumers": [
+            "P5-08_LIQUIDITY",
+            "P5-09_BLOCKER_FRESHNESS"
+          ],
+          "exit_consumers": [
+            "P7-13_SECURITY_LIQUIDITY"
+          ]
+        },
+        "RISK_VOL": {
+          "entry_consumers": [
+            "P5-09_REGIME_RISK_CONTEXT"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "TREND": {
+          "entry_consumers": [
+            "P5-08_TREND"
+          ],
+          "exit_consumers": [
+            "P7-13_TREND"
+          ]
+        }
+      },
+      "contract_version": "crypto_axis_trade_bridge/1",
+      "entry_policy": {
+        "missing_axis_state": "WAIT",
+        "publish_order_draft": false,
+        "unratified_aggregate_state": "WAIT",
+        "upstream_blocked_state": "BLOCKED"
+      },
+      "exit_policy": {
+        "aggregate_signal_when_unratified": "UNKNOWN",
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "pre_fill_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "trend_signal_when_interpretation_unauthorized": "UNKNOWN"
+      },
+      "mode": "PAPER_REVIEW_ONLY",
+      "output_schema_version": "crypto_axis_trade_bridge_packet/1",
+      "required_axes": [
+        "TREND",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "BREADTH",
+        "LEADERSHIP"
+      ],
+      "schema_version": 1
+    },
+    "decision_snapshot": {
+      "authority": {
+        "entry_authorized": false,
+        "exchange_order_authorized": false,
+        "focused_review_authorized": false,
+        "investable_eligible": false,
+        "order_authorized": false,
+        "order_write_authorized": false,
+        "paper_buy_eligible_authorized": false,
+        "paper_eligible": false,
+        "production_authorized": false,
+        "real_authority": false,
+        "stage_authorized": false,
+        "trading_authorized": false
+      },
+      "candidates": [],
+      "capture_date": "2026-08-29",
+      "capture_hhmm": "2336",
+      "captured_at_kst": "2026-08-30T08:36:04+09:00",
+      "captured_at_utc": "2026-08-29T23:36:04Z",
+      "completed_at": "2026-08-29T23:36:04Z",
+      "crypto_regime_five_axis": {
+        "BREADTH": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "LEADERSHIP": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "LIQUIDITY": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "RISK_VOL": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "TREND": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        }
+      },
+      "derivation_notes": [
+        "CRYPTO_LIVE_COMPONENT_REGISTRY_WIRED:0_SOURCE_COMPONENTS",
+        "UPBIT_UNIVERSE_POLICY_OR_TAXONOMY_UNRATIFIED",
+        "UPBIT_MARKET_EVIDENCE_PACKETS_EMPTY",
+        "UPBIT_REALTIME_OBSERVATIONS_EMPTY"
+      ],
+      "duplicate_guard_key": "CRYPTO-PAPER-DECISION-20260829-2336-6989F558D76DE49471F02736",
+      "finalized_candle_attestation": {
+        "market_evidence_snapshot_date": "2026-08-29",
+        "markets": {},
+        "used_in_promotion": false
+      },
+      "freshness_status": {
+        "market_evidence": "MISSING",
+        "overall": "MISSING",
+        "realtime": "MISSING",
+        "upbit_universe": "UNKNOWN"
+      },
+      "funnel_counts": {
+        "focused_review_count": 0,
+        "observation_pool_count": 282,
+        "paper_ready_count": 0,
+        "tradeable_universe_count": 0
+      },
+      "generated_at": "2026-08-29T23:36:04Z",
+      "generation_id": "6989f558d76de49471f02736693909d5dc3bb829ee8c9bad094dd66352d75ab2",
+      "operational_date_kst": "2026-08-30",
+      "path_time_basis": "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST",
+      "payload_sha256": "6b5ae51696db3070e53ec7993d0fd93112b56aac804481a9136561b2341c5c51",
+      "previous_state_reference": {
+        "funnel_counts": {
+          "focused_review_count": 0,
+          "observation_pool_count": 282,
+          "paper_ready_count": 0,
+          "tradeable_universe_count": 0
+        },
+        "generation_id": "553e03ad385da22b6b0731f6aa4022460f6949a9b867edd1121a25ae5a2a83b2",
+        "payload_sha256": "1bfe16bb8532d3abc9d9968cb5606f7d9db6753ab58766d2d4661a335a06383a"
+      },
+      "scheduled_for": "2026-08-29T23:30:00Z",
+      "schema_version": "crypto_paper_decision_snapshot_packet/1",
+      "source_commit": "aab54320d65559e4f77cd4e428315847f06a10da",
+      "source_components": {
+        "authority": {
+          "action_authorized": false,
+          "evidence_registry_only": true,
+          "exchange_order_authorized": false,
+          "paper_order_authorized": false,
+          "production_authorized": false,
+          "real_capital_authorized": false,
+          "regime_interpretation_authorized": false,
+          "strategy_authorized": false,
+          "threshold_authorized": false,
+          "trading_authorized": false,
+          "withdrawal_authorized": false
+        },
+        "contract_version": "crypto_live_component_registry_contract/1",
+        "deferred_components": {},
+        "generated_at": "2026-08-29T23:36:04Z",
+        "mode": "PUBLIC_EVIDENCE_ONLY_NO_INTERPRETATION",
+        "operational_date_kst": "2026-08-30",
+        "payload_sha256": "7259c3b86018895e33e632276d1cccf19e49edbc75938665f4b732bcf6b80a98",
+        "rows": {},
+        "schema_version": "crypto_live_component_registry/1",
+        "source_directories": []
+      },
+      "source_refs": [
+        {
+          "path": "data/observations/upbit_tradeable_universe/2026-08-29/packet.json",
+          "role": "upbit_tradeable_universe_packet",
+          "sha256": "19ebf7c7d56fecff7b9eda74f973708b5e650c873de2c837cf3d66a7b4a4e5ec"
+        },
+        {
+          "path": "data/observations/upbit_market_evidence/2026-08-29/packet.json",
+          "role": "upbit_market_evidence_packet",
+          "sha256": "cd164ca3cb237ff61f18315f32754b19581b31e01a146f489ad209a39ff0aeba"
+        },
+        {
+          "path": "evidence/crypto/upbit/realtime/2026-08-29/run_051.json",
+          "role": "upbit_realtime_capture_run",
+          "sha256": "b3cb13392ba9d4687250c7f9c6656c3ec01205f540fd6f0ad8f5c49c0da7cdaa"
+        }
+      ],
+      "started_at": "2026-08-29T23:34:48Z",
+      "upbit_universe_snapshot_identity": {
+        "date": "2026-08-29",
+        "payload_sha256": "36a1c421b7c9bfe8c450de8674960d6e2cf06cacb2b59bdeeeec51475dfd9572"
+      }
+    }
+  },
+  "source_decision_sha256": "6b5ae51696db3070e53ec7993d0fd93112b56aac804481a9136561b2341c5c51",
+  "source_generation_id": "6989f558d76de49471f02736693909d5dc3bb829ee8c9bad094dd66352d75ab2",
+  "summary": {
+    "automatic_entry_count": 0,
+    "automatic_exit_count": 0,
+    "entry_blocked_count": 0,
+    "entry_wait_count": 0,
+    "symbol_count": 0
+  },
+  "symbol_rules": []
+}
