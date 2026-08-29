@@ -1,0 +1,31 @@
+services:
+  upbit-realtime-observation:
+    build:
+      context: ../..
+      dockerfile: services/upbit-realtime-observation/Dockerfile
+    image: atlas-upbit-realtime-observation:local
+    container_name: atlas-upbit-realtime-observation
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - /etc/atlas/atlas-site-bypass.env
+    environment:
+      ATLAS_UPBIT_OBS_BIND: 127.0.0.1
+      ATLAS_UPBIT_OBS_PORT: "8792"
+      ATLAS_SIGNING_KEY_PATH: /run/secrets/realtime-signing.pem
+    network_mode: host
+    volumes:
+      - /etc/atlas/realtime-signing.pem:/run/secrets/realtime-signing.pem:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8792/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

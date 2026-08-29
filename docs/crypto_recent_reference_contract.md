@@ -16,6 +16,11 @@ point-in-time 이력, Regime 판정, 투자 후보 승격, 주문 또는 자동�
   BTC 수익률을 넘은 종목 수, 30일 수익률 상위 5개
 - 해석: 가장 높은 BTC/ETH/알트 동일가중 원시 수익률 그룹만 표시하며 별도
   임계값이나 점수는 만들지 않는다.
+- 주도자금 참고값: 7일·30일 각각 BTC·ETH·알트 동일가중 중 원시 수익률
+  선두를 찾는다. 알트 평균이 선두여도 알트 중앙값이 BTC와 ETH를 모두
+  넘지 못하면 `ALT_NARROW`로 분리하여 소수 급등 종목의 평균 왜곡을
+  `ALT_BROAD`로 오인하지 않는다. 두 기간의 상태가 다르면
+  `MIXED_WINDOW_LEADERSHIP`로 표시한다.
 
 ## 엄격한 경계
 
@@ -24,3 +29,7 @@ point-in-time 이력, Regime 판정, 투자 후보 승격, 주문 또는 자동�
 발행되며 Regime·Production·Stage·Buy·Action·Order·Trading 권한은 전부
 `false`다. 데이터나 taxonomy가 부족하면 숫자를 추정하지 않고 생성에
 실패한다.
+
+`leadership_reference`는 사용자가 지금 어느 묶음이 가격상 앞서는지
+이해하기 위한 다섯 번째 참고 항목이다. CR-07 자연 PIT 이력과 공식
+`CRYPTO/LEADERSHIP` 축을 대체하거나 승격하지 않는다.

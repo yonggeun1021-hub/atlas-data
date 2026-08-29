@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "contract_version": "crypto_recent_reference/v1",
+  "schema_version": 2,
+  "contract_version": "crypto_recent_reference/v2",
   "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
   "source_helper": ".github/scripts/crypto_breadth.py",
   "source_name": "kraken_spot_market_data",
@@ -12,6 +12,8 @@
   ],
   "return_semantics": "finalized_close_div_exact_prior_calendar_day_close_minus_one",
   "alt_summary_method": "equal_weight_simple_return_and_median",
+  "leadership_reference_method": "raw_bucket_leader_with_alt_median_confirmation",
+  "leadership_composite_method": "aligned_7d_30d_state_else_mixed",
   "current_candle_policy": "exclude_last_row_always",
   "top_strength_count": 5,
   "output_decimal_places": 6,

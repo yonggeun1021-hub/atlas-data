@@ -256,6 +256,30 @@ APPROVED_TESTS = [
     #   (``PRIVATE_WS_TYPES_FORBIDDEN``), never merely policy-forbidden.
     #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
     "test/test_upbit_realtime_gate.py",
+    # ★ Standalone 24/7 Upbit public-market realtime OBSERVATION service
+    #   (services/upbit-realtime-observation/) -- new infrastructure meant to
+    #   run persistently on the operator's own Ubuntu host via Docker
+    #   Compose, separate from this repo's GitHub Actions automation. Never
+    #   deployed by this repo's CI; this test only proves the pure state
+    #   machine (observation_gate.py, no socket/websockets/asyncio import)
+    #   and the local read-only HTTP API (service.py, loopback only) are
+    #   correct offline. Reuses realtime/upbit_realtime_gate.py's
+    #   parse_message/build_subscription_message/SequenceTracker/
+    #   next_backoff_seconds unchanged; adapts (does not copy verbatim) its
+    #   DuplicateGuard and ConnectionStateMachine for continuous 24/7
+    #   operation instead of P9-06's ~240s bounded cron run -- see
+    #   observation_gate.py's module docstring "Reuse vs. adapt" and
+    #   docs/upbit_realtime_observation_service_contract.md. Only
+    #   ticker/orderbook are tracked; myOrder/myAsset and every
+    #   order/withdrawal/private REST endpoint are hard-forbidden (proven by
+    #   source-grep tests here, mirroring this session's established
+    #   pattern). Never reads/imports/writes P3-12
+    #   universe/upbit_tradeable_universe.py state, never writes to
+    #   evidence/ or data/ -- fixed independent observation market list only.
+    #   Every authority/promotion flag hardcoded false.
+    #   ⛔ decision/entry/action/order/production/trading/candidate-promotion
+    #   권한 없음 -- observation only, never deployed by this PR.
+    "test/test_upbit_realtime_observation_service.py",
     # P9-06 observation-only natural public transport anchors are isolated
     # from P3/P5/P8 and retain zero decision/order authority.
     "test/test_upbit_public_validation_capture.py",

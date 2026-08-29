@@ -60,6 +60,25 @@ class CryptoRecentReferenceTest(unittest.TestCase):
         self.assertIn("ETH", members)
         self.assertEqual(len(self.payload["top_30d_strength"]), 5)
 
+    def test_leadership_reference_separates_narrow_alt_strength(self):
+        leadership = self.payload["leadership_reference"]
+        self.assertEqual(leadership["status"], "OBSERVED_REFERENCE_ONLY")
+        self.assertEqual(leadership["composite_code"], "NARROW_ALT_LEADERSHIP")
+        self.assertEqual(leadership["window_alignment"], "ALIGNED")
+        for window_id in ("7d", "30d"):
+            self.assertEqual(
+                leadership["windows"][window_id]["raw_leader"],
+                "ALT_EQUAL_WEIGHT",
+            )
+            self.assertEqual(
+                leadership["windows"][window_id]["state"], "ALT_NARROW"
+            )
+            self.assertFalse(
+                leadership["windows"][window_id][
+                    "alt_median_above_btc_and_eth"
+                ]
+            )
+
     def test_generated_before_capture_fails_closed(self):
         with self.assertRaisesRegex(Exception, "GENERATED_BEFORE_CAPTURE"):
             MODULE.build_reference(
