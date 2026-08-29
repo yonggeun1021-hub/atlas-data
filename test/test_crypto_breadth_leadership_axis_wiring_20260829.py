@@ -73,10 +73,10 @@ class CryptoBreadthCoverageDiagnosticsTest(unittest.TestCase):
         # OBSERVED_UNCLASSIFIED day never reaches that branch, so this must
         # stay None (not defaulted to 0 or to selected_asset_count).
         self.assertIsNone(packet["known_eligible_count_so_far"])
+        self.assertEqual(packet["resolved_cutoff_slot_count"], 100)
         self.assertEqual(packet["taxonomy_unknown_before_cutoff_count"], 0)
         self.assertEqual(packet["taxonomy_unknown_before_cutoff_assets"], [])
-        # coverage_ratio_bps falls back to selected_asset_count when
-        # known_eligible_count_so_far is None -- 100/100 -> 10000 bps.
+        # No unresolved above-cutoff asset: every target slot is resolved.
         self.assertEqual(packet["coverage_ratio_bps"], 10000)
 
     def test_partial_coverage_real_evidence_stays_undefined_with_real_blocker(self):
@@ -98,18 +98,14 @@ class CryptoBreadthCoverageDiagnosticsTest(unittest.TestCase):
         self.assertLessEqual(packet["known_eligible_count_so_far"], 100)
         self.assertGreaterEqual(packet["taxonomy_unknown_before_cutoff_count"], 1)
         self.assertIn("BTR", packet["taxonomy_unknown_before_cutoff_assets"])
-        # Pure arithmetic over the two real counts above, never a guess.
-        expected_ratio = (
-            packet["known_eligible_count_so_far"] * 10000
-        ) // packet["target_asset_count"]
+        expected_resolved = packet["target_asset_count"] - packet["taxonomy_unknown_before_cutoff_count"]
+        self.assertEqual(packet["resolved_cutoff_slot_count"], expected_resolved)
+        expected_ratio = (expected_resolved * 10000) // packet["target_asset_count"]
         self.assertEqual(packet["coverage_ratio_bps"], expected_ratio)
-        # Real coverage_ratio_bps can be 10000 here even while the gate
-        # stays UNKNOWN -- see the comment above. The genuine, real signal
-        # this UNKNOWN row exposes is taxonomy_unknown_before_cutoff_assets
-        # (which specific asset(s) still block a final, PIT-safe answer),
-        # not the ratio alone.
+        # An unresolved above-cutoff asset can no longer be displayed as
+        # misleading 100% coverage.
         self.assertGreaterEqual(packet["coverage_ratio_bps"], 0)
-        self.assertLessEqual(packet["coverage_ratio_bps"], 10000)
+        self.assertLess(packet["coverage_ratio_bps"], 10000)
 
     def test_gate_pass_fail_semantics_are_unchanged_by_the_diagnostics(self):
         """The diagnostics are additive-only. Confirms this by independently
@@ -136,6 +132,7 @@ class CryptoBreadthCoverageDiagnosticsTest(unittest.TestCase):
                 "selected_asset_count": None,
                 "target_asset_count": None,
                 "known_eligible_count_so_far": None,
+                "resolved_cutoff_slot_count": None,
                 "taxonomy_unknown_before_cutoff_count": None,
                 "taxonomy_unknown_before_cutoff_assets": None,
                 "coverage_ratio_bps": None,

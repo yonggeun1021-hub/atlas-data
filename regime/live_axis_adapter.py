@@ -479,6 +479,7 @@ def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
             "selected_asset_count": None,
             "target_asset_count": None,
             "known_eligible_count_so_far": None,
+            "resolved_cutoff_slot_count": None,
             "taxonomy_unknown_before_cutoff_count": None,
             "taxonomy_unknown_before_cutoff_assets": None,
             "coverage_ratio_bps": None,
@@ -494,14 +495,20 @@ def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
             for item in unknown_before_cutoff
             if isinstance(item, dict) and isinstance(item.get("canonical_asset_id"), str)
         )
+    resolved_slots = None
     coverage_ratio_bps = None
-    numerator = known_so_far if known_so_far is not None else selected
-    if isinstance(numerator, int) and isinstance(target, int) and target > 0:
-        coverage_ratio_bps = (numerator * 10000) // target
+    if isinstance(target, int) and target > 0:
+        if isinstance(unknown_before_cutoff, list):
+            resolved_slots = max(target - len(unknown_before_cutoff), 0)
+        elif isinstance(selected, int):
+            resolved_slots = min(max(selected, 0), target)
+        if resolved_slots is not None:
+            coverage_ratio_bps = (resolved_slots * 10000) // target
     return {
         "selected_asset_count": selected,
         "target_asset_count": target,
         "known_eligible_count_so_far": known_so_far,
+        "resolved_cutoff_slot_count": resolved_slots,
         "taxonomy_unknown_before_cutoff_count": (
             len(unknown_before_cutoff)
             if isinstance(unknown_before_cutoff, list)

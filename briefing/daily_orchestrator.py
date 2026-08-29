@@ -1414,8 +1414,9 @@ def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
     diagnostics (qualified_members()'s ``diagnostics``/``universe`` block),
     unmodified and never re-derived here.  This is presence/ratio reporting
     only -- it does not gate READY/POLICY_BLOCKED, which stays exactly
-    ``packet["status"]`` as before.  ``coverage_ratio_bps`` is pure integer
-    arithmetic over two real, already-committed counts; every other field is
+    ``packet["status"]`` as before. ``coverage_ratio_bps`` reports resolved
+    cutoff slots (target minus unresolved-before-cutoff), so it can never
+    display 100% while an above-cutoff taxonomy blocker still exists; every other field is
     a direct passthrough. A count that ``qualified_members()`` never reached
     (e.g. ``known_eligible_count_so_far`` outside the TAXONOMY_COVERAGE_
     UNKNOWN branch) stays ``None`` rather than being defaulted or guessed.
@@ -1426,6 +1427,7 @@ def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
             "selected_asset_count": None,
             "target_asset_count": None,
             "known_eligible_count_so_far": None,
+            "resolved_cutoff_slot_count": None,
             "taxonomy_unknown_before_cutoff_count": None,
             "taxonomy_unknown_before_cutoff_assets": None,
             "coverage_ratio_bps": None,
@@ -1441,14 +1443,20 @@ def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
             for item in unknown_before_cutoff
             if isinstance(item, dict) and isinstance(item.get("canonical_asset_id"), str)
         )
+    resolved_slots = None
     coverage_ratio_bps = None
-    numerator = known_so_far if known_so_far is not None else selected
-    if isinstance(numerator, int) and isinstance(target, int) and target > 0:
-        coverage_ratio_bps = (numerator * 10000) // target
+    if isinstance(target, int) and target > 0:
+        if isinstance(unknown_before_cutoff, list):
+            resolved_slots = max(target - len(unknown_before_cutoff), 0)
+        elif isinstance(selected, int):
+            resolved_slots = min(max(selected, 0), target)
+        if resolved_slots is not None:
+            coverage_ratio_bps = (resolved_slots * 10000) // target
     return {
         "selected_asset_count": selected,
         "target_asset_count": target,
         "known_eligible_count_so_far": known_so_far,
+        "resolved_cutoff_slot_count": resolved_slots,
         "taxonomy_unknown_before_cutoff_count": (
             len(unknown_before_cutoff)
             if isinstance(unknown_before_cutoff, list)
@@ -3231,6 +3239,7 @@ def _format_component_detail(row: dict) -> list[str]:
                 lines.append(
                     "    - taxonomy_coverage: "
                     f"known_eligible={packet.get('known_eligible_count_so_far')} "
+                    f"resolved_cutoff_slots={packet.get('resolved_cutoff_slot_count')} "
                     f"target={packet.get('target_asset_count')} "
                     f"coverage_ratio_bps={packet.get('coverage_ratio_bps')} "
                     f"unresolved_before_cutoff="

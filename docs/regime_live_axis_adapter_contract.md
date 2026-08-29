@@ -64,9 +64,11 @@ is exactly `"OBSERVED_UNCLASSIFIED"`, exactly as before. What changed is
 that `CRYPTO_BREADTH`'s component row now also carries real, already-computed
 taxonomy-coverage diagnostics from `qualified_members()`'s own `universe`
 block -- `target_asset_count`, `known_eligible_count_so_far`,
+`resolved_cutoff_slot_count`,
 `taxonomy_unknown_before_cutoff_count`/`_assets`, and a derived
-`coverage_ratio_bps` (pure integer arithmetic over those two real counts,
-`None` whenever either input itself is `None`) -- so a reviewer or portal can
+`coverage_ratio_bps` (resolved cutoff slots divided by target slots). An
+unresolved above-cutoff asset therefore keeps the ratio below 100% even when
+the already-known eligible population equals the target count -- so a reviewer or portal can
 see *how close* an `UNKNOWN`/`TAXONOMY_COVERAGE_UNKNOWN` day is to clearing
 the gate, and exactly which asset(s) are blocking it, without weakening the
 existing all-or-nothing gate in `qualified_members()` (that gate is
