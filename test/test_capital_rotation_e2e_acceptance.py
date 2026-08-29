@@ -229,6 +229,38 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         self.assertEqual(validated["source_commit"], self.evening_envelope["source_commit"])
         self.assertEqual(validated["generation_id"], self.evening_envelope["generation_id"])
 
+    def test_every_calendar_day_morning_schedule_is_natural(self):
+        receipt = self.receipt("morning", 108)
+        self.assertEqual(receipt["github"]["event_schedule"], "5 22 * * *")
+        self.assertEqual(receipt["sample_qualification"], "NATURAL_SCHEDULED_RUN")
+        acceptance.validate_run_receipt(ROOT, receipt)
+
+    def test_historical_weekday_morning_schedule_remains_natural(self):
+        receipt = self.receipt("morning", 109, schedule="5 22 * * 0-4")
+        self.assertEqual(receipt["sample_qualification"], "NATURAL_SCHEDULED_RUN")
+        acceptance.validate_run_receipt(ROOT, receipt)
+
+    def test_legacy_natural_underclaim_remains_valid_but_excluded(self):
+        receipt = self.receipt("morning", 110)
+        receipt["sample_qualification"] = "NATURAL_PROVENANCE_NOT_COMPUTABLE"
+        receipt["receipt_sha256"] = acceptance.payload_sha256(
+            receipt, "receipt_sha256"
+        )
+        acceptance.validate_run_receipt(ROOT, receipt)
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            self.write_run(base / "runs", receipt)
+            inventory = acceptance.build_inventory(
+                ROOT,
+                run_root=base / "runs",
+                portal_root=base / "portal",
+                fail_root=base / "fail",
+            )
+        self.assertEqual(inventory["observed"]["natural_run_receipt_count"], 0)
+        self.assertEqual(
+            inventory["observed"]["manual_or_non_schedule_receipt_count"], 1
+        )
+
     def test_manual_dispatch_is_visible_but_excluded(self):
         receipt = self.receipt("evening", 102, "workflow_dispatch", "")
         self.assertEqual(receipt["sample_qualification"], "MANUAL_DIAGNOSTIC_EXCLUDED")

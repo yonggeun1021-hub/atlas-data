@@ -45,8 +45,15 @@ DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 RUN_FILE = re.compile(r"^run-(\d+)-attempt-(\d+)\.json$")
 SLOTS = {"morning", "evening"}
 SCHEDULES = {
-    "morning": "5 22 * * 0-4",
+    "morning": "5 22 * * *",
     "evening": "30 9 * * 1-5",
+}
+NATURAL_SCHEDULES = {
+    # Morning changed from weekday-only to every calendar day on 2026-08-29.
+    # Keep the former expression valid for immutable historical receipts while
+    # publishing all new receipts against the current workflow schedule.
+    "morning": {"5 22 * * 0-4", SCHEDULES["morning"]},
+    "evening": {SCHEDULES["evening"]},
 }
 AUTHORITY = {
     "evidence_inventory_only": True,
@@ -213,7 +220,7 @@ def _qualification(event_name: str, event_schedule: str | None, slot: str) -> st
         return "MANUAL_DIAGNOSTIC_EXCLUDED"
     if event_name != "schedule":
         return "NON_SCHEDULE_EVENT_EXCLUDED"
-    if event_schedule != SCHEDULES[slot]:
+    if event_schedule not in NATURAL_SCHEDULES[slot]:
         return "NATURAL_PROVENANCE_NOT_COMPUTABLE"
     return "NATURAL_SCHEDULED_RUN"
 
@@ -353,7 +360,15 @@ def validate_run_receipt(
     expected_qualification = _qualification(
         github.get("event_name"), github.get("event_schedule"), value["slot"]
     )
-    if value.get("sample_qualification") != expected_qualification:
+    actual_qualification = value.get("sample_qualification")
+    qualification_is_safe_legacy_underclaim = (
+        expected_qualification == "NATURAL_SCHEDULED_RUN"
+        and actual_qualification == "NATURAL_PROVENANCE_NOT_COMPUTABLE"
+    )
+    if (
+        actual_qualification != expected_qualification
+        and not qualification_is_safe_legacy_underclaim
+    ):
         fail("RUN_RECEIPT_QUALIFICATION_TAMPERED")
     if value.get("completion_state") != "RETRIEVAL_AND_DELIVERY_VALIDATED" or value.get("authority") != AUTHORITY:
         fail("RUN_RECEIPT_AUTHORITY_INVALID")
