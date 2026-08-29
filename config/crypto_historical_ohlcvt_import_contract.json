@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_historical_ohlcvt_import/1",
+  "source_name": "kraken_official_downloadable_ohlcvt",
+  "source_archive_kind": "complete_zip",
+  "archive_entry_pattern": "^master_q4/([A-Z0-9]+)USD_1440\\.csv$",
+  "quote_currency": "USD",
+  "interval_minutes": 1440,
+  "market_timezone": "UTC",
+  "csv_fields": [
+    "timestamp",
+    "open",
+    "high",
+    "low",
+    "close",
+    "base_volume",
+    "trade_count"
+  ],
+  "output_order": "source_pair_id_then_date",
+  "missing_interval_policy": "preserve_absence_no_synthesis",
+  "duplicate_timestamp_policy": "dedupe_exact_exclude_pair_on_conflict",
+  "turnover_policy": "no_turnover_metric_derived",
+  "identity_policy": "source_alias_preserved_no_historical_canonical_backfill",
+  "replay_use": "research_only_not_live_evidence",
+  "output_decimal_policy": "plain_decimal_no_exponent_trim_trailing_zero",
+  "output_files": [
+    "SHA256SUMS",
+    "daily_usd_1440.ndjson.gz",
+    "manifest.json",
+    "pair_inventory.json"
+  ]
+}
