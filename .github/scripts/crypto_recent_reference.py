@@ -82,8 +82,8 @@ def parse_timestamp(value: str) -> dt.datetime:
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     contract = read_json(path, "CONTRACT_INVALID")
     pinned = {
-        "schema_version": 1,
-        "contract_version": "crypto_recent_reference/v1",
+        "schema_version": 2,
+        "contract_version": "crypto_recent_reference/v2",
         "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
         "source_helper": ".github/scripts/crypto_breadth.py",
         "source_name": "kraken_spot_market_data",
@@ -96,6 +96,10 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
             "finalized_close_div_exact_prior_calendar_day_close_minus_one"
         ),
         "alt_summary_method": "equal_weight_simple_return_and_median",
+        "leadership_reference_method": (
+            "raw_bucket_leader_with_alt_median_confirmation"
+        ),
+        "leadership_composite_method": "aligned_7d_30d_state_else_mixed",
         "current_candle_policy": "exclude_last_row_always",
         "top_strength_count": 5,
         "output_decimal_places": 6,
@@ -360,6 +364,55 @@ def window_summary(
     return summary, returns
 
 
+def leadership_reference(windows: dict[str, dict]) -> dict:
+    """Describe current 7d/30d leadership without opening Regime authority.
+
+    An ALT equal-weight average can be dominated by a few extreme winners.  We
+    therefore call ALT leadership broad only when the ALT median also beats
+    both BTC and ETH.  No threshold, score, or investment direction is added.
+    """
+
+    window_states = {}
+    for window_id in ("7d", "30d"):
+        row = windows[window_id]
+        raw_leader = row["leading_bucket_by_raw_return"]
+        alt_median = Decimal(row["alt_median_return_pct"])
+        btc_return = Decimal(row["btc_return_pct"])
+        eth_return = Decimal(row["eth_return_pct"])
+        broad_alt = alt_median > btc_return and alt_median > eth_return
+        if raw_leader == "ALT_EQUAL_WEIGHT":
+            state = "ALT_BROAD" if broad_alt else "ALT_NARROW"
+        elif raw_leader == "BTC":
+            state = "BTC"
+        elif raw_leader == "ETH":
+            state = "ETH"
+        else:  # load_contract/window_summary should make this unreachable.
+            fail("LEADERSHIP_REFERENCE_INVALID", raw_leader)
+        window_states[window_id] = {
+            "raw_leader": raw_leader,
+            "state": state,
+            "alt_median_above_btc_and_eth": broad_alt,
+        }
+
+    states = [window_states[window_id]["state"] for window_id in ("7d", "30d")]
+    aligned = states[0] == states[1]
+    if aligned:
+        composite_code = {
+            "ALT_BROAD": "BROAD_ALT_LEADERSHIP",
+            "ALT_NARROW": "NARROW_ALT_LEADERSHIP",
+            "BTC": "BTC_LEADERSHIP",
+            "ETH": "ETH_LEADERSHIP",
+        }[states[0]]
+    else:
+        composite_code = "MIXED_WINDOW_LEADERSHIP"
+    return {
+        "status": "OBSERVED_REFERENCE_ONLY",
+        "composite_code": composite_code,
+        "window_alignment": "ALIGNED" if aligned else "MIXED",
+        "windows": window_states,
+    }
+
+
 def build_reference(
     snapshot_dir: Path,
     generated_at: str,
@@ -467,6 +520,7 @@ def build_reference(
             "current_catalog_backfill_for_historical_replay_authorized": False,
         },
         "windows": windows,
+        "leadership_reference": leadership_reference(windows),
         "top_30d_strength": [
             {
                 "canonical_asset_id": item["canonical_asset_id"],
