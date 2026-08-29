@@ -1391,6 +1391,11 @@ APPROVED_TESTS = [
     # authority, and instrument-specific buy capacity cannot be relabelled
     # as a generic account-wide buyingPower value.
     "test/test_kis_valuation_semantic_proposal.py",
+    # KIS PAPER valuation source freshness remains proposal-only. The exact
+    # 300s/120s candidate keeps its cross-domain pair-gap heuristic explicitly
+    # REVIEW_INCOMPLETE until a live pair plus atomic session binding exists;
+    # no caller override, retroactivity, or valuation/risk/trading authority.
+    "test/test_kis_valuation_freshness_policy_proposal.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
