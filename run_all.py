@@ -1592,6 +1592,14 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_paper_buy_eligibility.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_decision_snapshot.py",
+    # ★ P8-16 Crypto funnel briefing -- full-revalidation, read-only
+    #   projection of one exact crypto_paper_decision_snapshot generation.
+    #   JSON/API and deterministic Markdown share counts/reasons/freshness.
+    #   Missing private P10/P7 position state is UNKNOWN/null, never a false
+    #   zero and never private quantities/money copied to this public repo.
+    #   All PAPER order/exchange/withdrawal/Production/Trading/REAL authority
+    #   remains false.
+    "test/test_crypto_funnel_briefing.py",
     # ★ P10-11 runtime bridge -- P9 retains only the latest accepted exact
     #   public ticker/orderbook bytes; a private runtime independently
     #   rederives the P5 decision before building any P10 request. A current
