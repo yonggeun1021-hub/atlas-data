@@ -1,0 +1,264 @@
+{
+  "as_of": {
+    "captured_at_kst": "2026-08-29T19:05:14+09:00",
+    "captured_at_utc": "2026-08-29T10:05:14Z",
+    "completed_at": "2026-08-29T10:05:14Z",
+    "operational_date_kst": "2026-08-29",
+    "path_time_basis": "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST",
+    "scheduled_for": "2026-08-29T10:00:00Z",
+    "started_at": "2026-08-29T10:05:07Z"
+  },
+  "authority": {
+    "briefing_read_model_only": true,
+    "exchange_order_authorized": false,
+    "paper_order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false,
+    "withdrawal_authorized": false
+  },
+  "candidates": [],
+  "contract_version": "crypto_funnel_briefing_contract/1",
+  "finalized_candle": {
+    "market_evidence_snapshot_date": "2026-08-29",
+    "markets": {},
+    "used_in_promotion": false
+  },
+  "freshness": {
+    "market_evidence": "MISSING",
+    "overall": "MISSING",
+    "realtime": "MISSING",
+    "upbit_universe": "UNKNOWN"
+  },
+  "funnel": {
+    "candidate_state_counts": {},
+    "order_draft_count": 0,
+    "stages": [
+      {
+        "count": 282,
+        "reason": null,
+        "stage": "OBSERVATION_POOL"
+      },
+      {
+        "count": 0,
+        "reason": null,
+        "stage": "TRADEABLE_UNIVERSE"
+      },
+      {
+        "count": 0,
+        "reason": null,
+        "stage": "FOCUSED_REVIEW"
+      },
+      {
+        "count": 0,
+        "reason": null,
+        "stage": "PAPER_READY"
+      },
+      {
+        "count": null,
+        "reason": "P10_P7_REDACTED_POSITION_SUMMARY_NOT_WIRED",
+        "stage": "PAPER_POSITION"
+      }
+    ]
+  },
+  "packet_sha256": "169dab0b9f3ff1360a71e2573c97443b026a7e6d95b0375b1798ba1200c60d06",
+  "realtime_quote_orderbook_status": "MISSING",
+  "reasons": [
+    "P10_P7_REDACTED_POSITION_SUMMARY_NOT_WIRED",
+    "UPBIT_MARKET_EVIDENCE_PACKETS_EMPTY",
+    "UPBIT_REALTIME_OBSERVATIONS_EMPTY",
+    "UPBIT_UNIVERSE_POLICY_OR_TAXONOMY_UNRATIFIED"
+  ],
+  "regime": {
+    "aggregate": "UNKNOWN",
+    "aggregate_authorized": false,
+    "axes": [
+      {
+        "available_at": null,
+        "axis": "TREND",
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      {
+        "available_at": null,
+        "axis": "BREADTH",
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      {
+        "available_at": null,
+        "axis": "RISK_VOL",
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      {
+        "available_at": null,
+        "axis": "LIQUIDITY",
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      {
+        "available_at": null,
+        "axis": "LEADERSHIP",
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      }
+    ],
+    "defined_axis_count": 0,
+    "required_axis_count": 5
+  },
+  "rendered_markdown": "# Crypto PAPER 브리핑\n\n- 기준 시각: `2026-08-29T19:05:14+09:00` (KST)\n- source generation: `fb34c882c86d17ac0610c680ddd3dc055c8fcd4f8cf5f3843795f2bf867813c7`\n- 모드: `PAPER · READ_MODEL_ONLY`\n\n## 시장판정 5축\n\n- TREND: `UNDEFINED` — LIVE_AXIS_EVIDENCE_UNAVAILABLE\n- BREADTH: `UNDEFINED` — LIVE_AXIS_EVIDENCE_UNAVAILABLE\n- RISK_VOL: `UNDEFINED` — LIVE_AXIS_EVIDENCE_UNAVAILABLE\n- LIQUIDITY: `UNDEFINED` — LIVE_AXIS_EVIDENCE_UNAVAILABLE\n- LEADERSHIP: `UNDEFINED` — LIVE_AXIS_EVIDENCE_UNAVAILABLE\n\n## Funnel\n\n- OBSERVATION_POOL: `282`\n- TRADEABLE_UNIVERSE: `0`\n- FOCUSED_REVIEW: `0`\n- PAPER_READY: `0`\n- PAPER_POSITION: `UNKNOWN` — P10_P7_REDACTED_POSITION_SUMMARY_NOT_WIRED\n\n## 데이터 freshness\n\n- upbit_universe: `UNKNOWN`\n- market_evidence: `MISSING`\n- realtime: `MISSING`\n- overall: `MISSING`\n\n## 후보\n\n- 없음\n\n## WAIT / BLOCKED 근거\n\n- `P10_P7_REDACTED_POSITION_SUMMARY_NOT_WIRED`\n- `UPBIT_MARKET_EVIDENCE_PACKETS_EMPTY`\n- `UPBIT_REALTIME_OBSERVATIONS_EMPTY`\n- `UPBIT_UNIVERSE_POLICY_OR_TAXONOMY_UNRATIFIED`\n\n## 권한\n\n- 브리핑 읽기 전용: `true`\n- PAPER 주문 권한: `false`\n- Upbit 실제 주문·출금·REAL·Production·Trading 권한: `false`\n",
+  "schema_version": "crypto_funnel_briefing/1",
+  "source_packet": {
+    "authority": {
+      "entry_authorized": false,
+      "exchange_order_authorized": false,
+      "focused_review_authorized": false,
+      "investable_eligible": false,
+      "order_authorized": false,
+      "order_write_authorized": false,
+      "paper_buy_eligible_authorized": false,
+      "paper_eligible": false,
+      "production_authorized": false,
+      "real_authority": false,
+      "stage_authorized": false,
+      "trading_authorized": false
+    },
+    "candidates": [],
+    "capture_date": "2026-08-29",
+    "capture_hhmm": "1005",
+    "captured_at_kst": "2026-08-29T19:05:14+09:00",
+    "captured_at_utc": "2026-08-29T10:05:14Z",
+    "completed_at": "2026-08-29T10:05:14Z",
+    "crypto_regime_five_axis": {
+      "BREADTH": {
+        "available_at": null,
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "LEADERSHIP": {
+        "available_at": null,
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "LIQUIDITY": {
+        "available_at": null,
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "RISK_VOL": {
+        "available_at": null,
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "TREND": {
+        "available_at": null,
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      }
+    },
+    "derivation_notes": [
+      "UPBIT_UNIVERSE_POLICY_OR_TAXONOMY_UNRATIFIED",
+      "UPBIT_MARKET_EVIDENCE_PACKETS_EMPTY",
+      "UPBIT_REALTIME_OBSERVATIONS_EMPTY"
+    ],
+    "duplicate_guard_key": "CRYPTO-PAPER-DECISION-20260829-1005-FB34C882C86D17AC0610C680",
+    "finalized_candle_attestation": {
+      "market_evidence_snapshot_date": "2026-08-29",
+      "markets": {},
+      "used_in_promotion": false
+    },
+    "freshness_status": {
+      "market_evidence": "MISSING",
+      "overall": "MISSING",
+      "realtime": "MISSING",
+      "upbit_universe": "UNKNOWN"
+    },
+    "funnel_counts": {
+      "focused_review_count": 0,
+      "observation_pool_count": 282,
+      "paper_ready_count": 0,
+      "tradeable_universe_count": 0
+    },
+    "generated_at": "2026-08-29T10:05:14Z",
+    "generation_id": "fb34c882c86d17ac0610c680ddd3dc055c8fcd4f8cf5f3843795f2bf867813c7",
+    "operational_date_kst": "2026-08-29",
+    "path_time_basis": "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST",
+    "payload_sha256": "e7ff03cf1d4ab639e7994e048bd4fdc9293251595e8fc5adfca1bfb5b1b3fbdc",
+    "previous_state_reference": {
+      "funnel_counts": {
+        "focused_review_count": 0,
+        "observation_pool_count": 282,
+        "paper_ready_count": 0,
+        "tradeable_universe_count": 0
+      },
+      "generation_id": "185e5f5e2628b7538ceac693171302f6848e05969b94a3a5a5a1f9dab6e54e41",
+      "payload_sha256": "f5ad1f4fbafd2e0cb1dbdb0ffe0feafa8522f7fd4853fa9f693e02e49d6da907"
+    },
+    "scheduled_for": "2026-08-29T10:00:00Z",
+    "schema_version": "crypto_paper_decision_snapshot_packet/1",
+    "source_commit": "16445babeb2cdcdccd2ec31761b7042b89cb95a6",
+    "source_components": {},
+    "source_refs": [
+      {
+        "path": "data/observations/upbit_tradeable_universe/2026-08-29/packet.json",
+        "role": "upbit_tradeable_universe_packet",
+        "sha256": "19ebf7c7d56fecff7b9eda74f973708b5e650c873de2c837cf3d66a7b4a4e5ec"
+      },
+      {
+        "path": "data/observations/upbit_market_evidence/2026-08-29/packet.json",
+        "role": "upbit_market_evidence_packet",
+        "sha256": "cd164ca3cb237ff61f18315f32754b19581b31e01a146f489ad209a39ff0aeba"
+      },
+      {
+        "path": "evidence/crypto/upbit/realtime/2026-08-29/run_022.json",
+        "role": "upbit_realtime_capture_run",
+        "sha256": "0333617d9d6f663c9a92578a794df22e242b9de15beed4a59343d6cd47105213"
+      }
+    ],
+    "started_at": "2026-08-29T10:05:07Z",
+    "upbit_universe_snapshot_identity": {
+      "date": "2026-08-29",
+      "payload_sha256": "36a1c421b7c9bfe8c450de8674960d6e2cf06cacb2b59bdeeeec51475dfd9572"
+    }
+  },
+  "source_ref": {
+    "file_sha256": "cba8df70b1d258b304526413f5b832c63397cb9f7678b483a2202a07a940bd3c",
+    "generation_id": "fb34c882c86d17ac0610c680ddd3dc055c8fcd4f8cf5f3843795f2bf867813c7",
+    "path": "evidence/crypto_paper_decision/2026-08-29/1005/fb34c882c86d17ac0610c680ddd3dc055c8fcd4f8cf5f3843795f2bf867813c7/packet.json",
+    "payload_sha256": "e7ff03cf1d4ab639e7994e048bd4fdc9293251595e8fc5adfca1bfb5b1b3fbdc",
+    "role": "crypto_paper_decision_snapshot",
+    "source_commit": "16445babeb2cdcdccd2ec31761b7042b89cb95a6"
+  },
+  "status": "READ_MODEL_ONLY"
+}
