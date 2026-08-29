@@ -1620,6 +1620,14 @@ APPROVED_TESTS = [
     #   presence only; no axis interpretation, threshold, strategy, action,
     #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
     "test/test_crypto_live_component_registry.py",
+    # ★ CIO item 4 (2026-08-29): portal-consumable Crypto candidate detail
+    #   view -- pure composition over already-committed P3-12/P4-07/P5-08/
+    #   P5-09 evidence (decision/crypto_paper_decision_snapshot.py's own
+    #   committed packet, reused verbatim, plus P3-12/P4-07's own committed
+    #   packets for markets it never reached). No new capture, no new
+    #   threshold/trigger/invalidation price; a blocker_summary aggregation
+    #   proven against a real committed packet and hand-built fixtures.
+    "test/test_crypto_candidate_detail_view.py",
     # ★ P8-16 Crypto funnel briefing -- full-revalidation, read-only
     #   projection of one exact crypto_paper_decision_snapshot generation.
     #   JSON/API and deterministic Markdown share counts/reasons/freshness.
