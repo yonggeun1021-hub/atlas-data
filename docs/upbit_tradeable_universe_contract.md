@@ -8,6 +8,14 @@ therefore currently classifies as `OBSERVATION_POOL`. This is the expected,
 correct current state, not a bug: a separate, later, human/CIO-ratified
 change to these config files is required before any market can advance.
 
+The daily classification packet retains proposal counts/findings so its
+decision surface stays compact. The full proposal bodies are independently
+reconstructed from the same retained `market/all` bytes by
+`.github/scripts/upbit_identity_review_bundle.py` and stored at
+`data/observations/upbit_identity_review/<date>/packet.json`. That bundle is
+append-only, source/hash-bound, and review-only; it cannot mutate the
+taxonomy/identity/policy configs or promote a market.
+
 ## Kraken rank is not Upbit tradeability
 
 `universe/upbit_tradeable_universe.py` never imports Kraken breadth or

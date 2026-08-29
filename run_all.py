@@ -262,6 +262,10 @@ APPROVED_TESTS = [
     # Immutable 2026-08-29 Upbit natural public-channel sample: BTC/ETH
     # ticker/trade/orderbook/15m/1h/4h coverage, hash-bound and zero authority.
     "test/test_upbit_public_validation_natural_20260829.py",
+    # P3-12 full 282-row identity proposal review bundle, rebuilt from the
+    # retained Upbit market/all bytes. Review-only; broad canonical registry
+    # remains absent and every ratification/promotion/order authority is false.
+    "test/test_upbit_identity_review_bundle.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached

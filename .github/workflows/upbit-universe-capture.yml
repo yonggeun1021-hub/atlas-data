@@ -33,6 +33,7 @@ jobs:
           python3 test/test_upbit_market_capture.py
           python3 test/test_upbit_market_identity_proposal.py
           python3 test/test_upbit_tradeable_universe.py
+          python3 test/test_upbit_identity_review_bundle.py
       - name: Capture complete append-only Upbit KRW market snapshot
         id: capture
         run: |
@@ -67,6 +68,14 @@ jobs:
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
         run: python3 .github/scripts/upbit_universe_populate.py "$SNAPSHOT_DATE"
+      - name: P3-12 full identity proposal review bundle (unratified, read-only)
+        id: identity_review
+        if: >-
+          always() && (steps.capture.outputs.result == 'captured' ||
+          steps.capture.outputs.result == 'skipped_existing')
+        env:
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+        run: python3 .github/scripts/upbit_identity_review_bundle.py "$SNAPSHOT_DATE"
       - name: Record P3-12 Upbit universe scheduler telemetry
         if: always()
         env:
@@ -82,6 +91,10 @@ jobs:
           ATLAS_P3_12_REASON: ${{ steps.p3_12.outputs.reason }}
           ATLAS_P3_12_PATH: ${{ steps.p3_12.outputs.path }}
           ATLAS_P3_12_SHA256: ${{ steps.p3_12.outputs.payload_sha256 }}
+          ATLAS_IDENTITY_REVIEW_STEP_OUTCOME: ${{ steps.identity_review.outcome }}
+          ATLAS_IDENTITY_REVIEW_OUTCOME: ${{ steps.identity_review.outputs.outcome }}
+          ATLAS_IDENTITY_REVIEW_PATH: ${{ steps.identity_review.outputs.path }}
+          ATLAS_IDENTITY_REVIEW_SHA256: ${{ steps.identity_review.outputs.payload_sha256 }}
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: python3 .github/scripts/record_upbit_universe_run.py
@@ -124,6 +137,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/upbit_tradeable_universe/$SNAPSHOT_DATE" ]; then
             git add "data/observations/upbit_tradeable_universe/$SNAPSHOT_DATE"
+          fi
+          if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/upbit_identity_review/$SNAPSHOT_DATE" ]; then
+            git add "data/observations/upbit_identity_review/$SNAPSHOT_DATE"
           fi
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
