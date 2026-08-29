@@ -296,6 +296,13 @@ APPROVED_TESTS = [
     # build_classification() to report the CIO funnel/manual-review/taxonomy-
     # audit evidence. Review-only; every authority field hardcoded false.
     "test/test_upbit_shadow_validation_harness.py",
+    # P3-12-TAX-01 taxonomy schema & eligible-content candidate builder:
+    # drafts new config/upbit_exclusion_taxonomy.json records ONLY where an
+    # independently RATIFIED registry (config/crypto_breadth_exclusion_taxonomy.json)
+    # already corroborates the exact canonical id, active as of
+    # evaluation_as_of; never from a name pattern alone. approval_status is
+    # never changed. Review-only; every authority field hardcoded false.
+    "test/test_upbit_taxonomy_schema_eligible_candidate.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached

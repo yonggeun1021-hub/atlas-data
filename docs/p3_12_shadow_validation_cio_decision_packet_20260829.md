@@ -14,6 +14,16 @@ source: `universe/upbit_shadow_validation_harness.py` +
 `docs/upbit_shadow_validation_harness_contract.md`. Code commit SHA is
 recorded inside the packet itself (`code_commit_sha`).
 
+**Follow-up (2026-08-30, P3-12-TAX-01):** the single bottleneck this
+document identified -- zero `eligible_category` records in
+`config/upbit_exclusion_taxonomy.json` -- now has a drafted (still
+`PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY`, still-unmerged draft PR) fix. See
+`docs/p3_12_tax_01_taxonomy_candidate_cio_decision_packet_20260830.md`.
+The evidence packet path above has been regenerated against that draft
+content; the numbers in this document's §2 below describe the *prior*
+(pre-P3-12-TAX-01) state and are kept as the historical record CIO already
+reviewed and approved via PR #459.
+
 **Revision note (2026-08-29, post-CIO-review on PR #459):** this revision
 fixes an existing-packet self-hash tamper gap, replaces the Kraken breadth
 taxonomy loader with the shared, already-tested fail-closed contract from
