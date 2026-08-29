@@ -290,6 +290,12 @@ APPROVED_TESTS = [
     # retained Upbit market/all bytes. Review-only; broad canonical registry
     # remains absent and every ratification/promotion/order authority is false.
     "test/test_upbit_identity_review_bundle.py",
+    # P3-12 pre-ratification Shadow Validation Harness: shadow-applies
+    # today's PROPOSED_UNRATIFIED policy/taxonomy/identity in-memory only
+    # (never mutating any canonical config file) through the real, unchanged
+    # build_classification() to report the CIO funnel/manual-review/taxonomy-
+    # audit evidence. Review-only; every authority field hardcoded false.
+    "test/test_upbit_shadow_validation_harness.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached
