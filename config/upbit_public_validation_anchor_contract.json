@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "contract_version": "upbit_public_validation_anchor_contract/1",
+  "capture_mode": "PUBLIC_TRANSPORT_VALIDATION_ONLY",
+  "purpose": "Validate Upbit public ticker, trade, orderbook, and WebSocket candle transport with natural bytes while P3-12 eligibility remains unratified.",
+  "market_selection_basis": "Existing P9-06 regression reference markets that are already present in the P3-12 observation pool; not a strategy, ranking, recommendation, eligibility, or threshold.",
+  "markets": [
+    "KRW-BTC",
+    "KRW-ETH"
+  ],
+  "evidence_root": "evidence/crypto/upbit/realtime_validation",
+  "feeds_tradeable_universe": false,
+  "feeds_candidate_promotion": false,
+  "feeds_buy_decision": false,
+  "feeds_briefing_decision": false,
+  "entry_eligibility_authorized": false,
+  "action_generation_authorized": false,
+  "order_authorized": false,
+  "production_authorized": false,
+  "trading_authorized": false,
+  "auth_required": false,
+  "private_channel_subscribed": false,
+  "order_or_withdrawal_endpoints_called": false
+}

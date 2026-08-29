@@ -9,6 +9,10 @@ on:
         description: "Bounded WebSocket capture duration (seconds)"
         required: false
         default: "240"
+      validation_duration_seconds:
+        description: "Public transport validation-only capture duration (seconds)"
+        required: false
+        default: "30"
 
 permissions:
   contents: write
@@ -36,7 +40,9 @@ jobs:
       - name: Install P9-06 realtime capture dependency (websockets)
         run: pip install "websockets>=12.0"
       - name: Offline P9-06 realtime-gate regression (no live connection)
-        run: python3 test/test_upbit_realtime_gate.py
+        run: |
+          python3 test/test_upbit_realtime_gate.py
+          python3 test/test_upbit_public_validation_capture.py
       - name: Offline crypto PAPER decision snapshot regression (P1-CR-08 + P5-08 + P5-09 composition)
         run: python3 test/test_crypto_paper_decision_snapshot.py
       - name: Offline P8-16 Crypto funnel briefing regression
@@ -74,6 +80,24 @@ jobs:
             --snapshot-date "$SNAPSHOT_DATE" \
             --duration-seconds "$DURATION_SECONDS" \
             "${UNIVERSE_ARG[@]}"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
+      # Observation-only reference markets prove the public ticker/trade/
+      # orderbook/candle transport even while P3-12 has zero approved
+      # subscription markets.  This separate root is never passed to the
+      # P3/P5/P8 decision chain and carries zero strategy/order authority.
+      - name: Public WebSocket natural transport validation (decision-isolated)
+        id: validation_capture
+        env:
+          DURATION_SECONDS: ${{ github.event.inputs.validation_duration_seconds || '30' }}
+        run: |
+          set -euo pipefail
+          SNAPSHOT_DATE=$(date -u +%F)
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/upbit_realtime_capture.py \
+            --evidence-root evidence/crypto/upbit/realtime_validation \
+            --validation-anchor-contract config/upbit_public_validation_anchor_contract.json \
+            --snapshot-date "$SNAPSHOT_DATE" \
+            --duration-seconds "$DURATION_SECONDS"
           echo "result=captured" >> "$GITHUB_OUTPUT"
       # P1-CR-08 (Regime) + P5-08 (Candidate Promotion) + P5-09 (PAPER Buy
       # Eligibility) composition, tacked onto the tail of this existing
@@ -129,6 +153,8 @@ jobs:
           ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}
           ATLAS_CAPTURE_STEP_OUTCOME: ${{ steps.capture.outcome }}
           ATLAS_CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          ATLAS_VALIDATION_CAPTURE_STEP_OUTCOME: ${{ steps.validation_capture.outcome }}
+          ATLAS_VALIDATION_CAPTURE_RESULT: ${{ steps.validation_capture.outputs.result }}
           ATLAS_CRYPTO_PAPER_DECISION_STEP_OUTCOME: ${{ steps.crypto_paper_decision.outcome }}
           ATLAS_CRYPTO_PAPER_DECISION_OUTCOME: ${{ steps.crypto_paper_decision.outputs.outcome }}
           ATLAS_CRYPTO_PAPER_DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
@@ -160,6 +186,8 @@ jobs:
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          VALIDATION_CAPTURE_RESULT: ${{ steps.validation_capture.outputs.result }}
+          VALIDATION_SNAPSHOT_DATE: ${{ steps.validation_capture.outputs.snapshot_date }}
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -169,6 +197,9 @@ jobs:
           git add data/operations/upbit_realtime_capture_runs || true
           if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
             git add "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"
+          fi
+          if [ "$VALIDATION_CAPTURE_RESULT" = "captured" ] && [ -n "$VALIDATION_SNAPSHOT_DATE" ]; then
+            git add "evidence/crypto/upbit/realtime_validation/$VALIDATION_SNAPSHOT_DATE"
           fi
           # Crypto PAPER decision snapshot (P1-CR-08 + P5-08 + P5-09) --
           # new, separate evidence path; committed in the same run/commit as

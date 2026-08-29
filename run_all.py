@@ -256,6 +256,12 @@ APPROVED_TESTS = [
     #   (``PRIVATE_WS_TYPES_FORBIDDEN``), never merely policy-forbidden.
     #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
     "test/test_upbit_realtime_gate.py",
+    # P9-06 observation-only natural public transport anchors are isolated
+    # from P3/P5/P8 and retain zero decision/order authority.
+    "test/test_upbit_public_validation_capture.py",
+    # Immutable 2026-08-29 Upbit natural public-channel sample: BTC/ETH
+    # ticker/trade/orderbook/15m/1h/4h coverage, hash-bound and zero authority.
+    "test/test_upbit_public_validation_natural_20260829.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached

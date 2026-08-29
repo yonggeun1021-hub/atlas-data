@@ -207,16 +207,49 @@ invariants as P4-07's manifest, a `source_sha256` over the run payload, the
 full accepted/rejected/duplicate/out-of-order message log, the final
 `RealtimeGate.status_snapshot()`, and the finalized-candle ledger.
 
+### Public natural-data validation without eligibility expansion
+
+P3-12 currently has no ratified eligibility authority, so the normal
+`P3_ELIGIBLE_UNIVERSE` capture correctly subscribes to zero markets.  That
+must not be bypassed for decision production.  A separate
+`PUBLIC_TRANSPORT_VALIDATION_ONLY` mode therefore reads the exact reference
+markets in `config/upbit_public_validation_anchor_contract.json` and writes
+only to `evidence/crypto/upbit/realtime_validation/<date>/run_NNN.json`.
+
+The reference set (`KRW-BTC`, `KRW-ETH`) is the existing P9-06 regression
+fixture pair and is already present in P3-12's observation pool.  It is not
+a ranking, recommendation, strategy threshold, or eligibility decision.
+The contract hardcodes every P3/P5/P8 feed flag and every entry/action/order/
+production/trading authority to `false`; the loader rejects any expansion.
+The production decision step still reads only
+`evidence/crypto/upbit/realtime`, and regression tests prove that the
+validation root is absent from its source boundary.
+
+Each validation run records an exact coverage matrix for `ticker`, `trade`,
+`orderbook`, and `candle.{15m,60m,240m}` per reference market.  It reports
+`COMPLETE` only when all twelve public channel/market keys were naturally
+observed; otherwise it records the precise missing keys as `INCOMPLETE`.
+This is transport/parser evidence only.  It never changes the P9 freshness
+policy, P3 identity/taxonomy status, candidate promotion, PAPER eligibility,
+or briefing decision.
+
 ## Offline commands
 
 ```bash
 python3 test/test_upbit_realtime_gate.py
+python3 test/test_upbit_public_validation_capture.py
 
 # Bounded-duration run (needs `pip install websockets` and live network;
 # never part of run_all.py's offline regression):
 python3 .github/scripts/upbit_realtime_capture.py \
   --evidence-root /tmp/upbit-realtime/evidence --duration-seconds 30 \
   --universe-packet data/observations/upbit_tradeable_universe/2026-08-29/packet.json
+
+# Separate observation-only natural transport validation (no P3/P5/P8 use):
+python3 .github/scripts/upbit_realtime_capture.py \
+  --evidence-root /tmp/upbit/realtime_validation \
+  --validation-anchor-contract config/upbit_public_validation_anchor_contract.json \
+  --duration-seconds 30
 ```
 
 Neither command calls a network provider outside the public
