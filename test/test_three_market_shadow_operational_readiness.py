@@ -60,7 +60,34 @@ def commit_for(path: Path) -> str:
 
 
 SOURCE_COMMIT = commit_for(PACKET)
-RECORDED_AT = "2026-08-27T00:00:01Z"
+
+
+def _one_second_after(timestamp: str) -> str:
+    import datetime as _dt
+
+    parsed = _dt.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+    return (parsed + _dt.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _real_unified_generated_at(packet_path: Path) -> str:
+    value = json.loads(packet_path.read_text(encoding="utf-8"))
+    row = next(
+        row for row in value["components"]
+        if row.get("component_id") == "UNIFIED_DECISION"
+    )
+    return row["packet"]["generated_at"]
+
+
+# RECORDED_AT must be strictly after the real, committed PACKET's own
+# UNIFIED_DECISION.generated_at -- the daily briefing pipeline advances this
+# every run, so a hardcoded literal here goes stale (and starts tripping the
+# validator's own UNIFIED_DECISION_FROM_FUTURE fail-close) as soon as a new
+# validated packet lands. Deriving it from PACKET itself keeps this test
+# correct regardless of when it runs, without loosening the future-check
+# itself. The synthetic fixture used elsewhere in this file (current_unified(),
+# generated_at="2026-08-27T00:00:00Z") stays safely before this by
+# construction, since real evidence only ever advances forward from there.
+RECORDED_AT = _one_second_after(_real_unified_generated_at(PACKET))
 
 
 def current_unified():
