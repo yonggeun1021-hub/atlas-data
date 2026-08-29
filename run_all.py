@@ -1201,6 +1201,20 @@ APPROVED_TESTS = [
     #   P10-11 simulator. Human review remains required and every live exit,
     #   quantity/action/exchange/broker/Production/Trading/REAL authority false.
     "test/test_crypto_paper_exit_manager.py",
+    # ★ P5-08 — Crypto Candidate Promotion Rule. Per-market
+    #   OBSERVATION_POOL→TRADEABLE_UNIVERSE→FOCUSED_REVIEW→PAPER_READY state
+    #   machine with no stage skipping. Consumes (never re-derives) P3-12
+    #   universe classification and P4-07 market evidence; reads P1-CR-08
+    #   Regime output verbatim under PRE_SCORE_UNKNOWN_ONLY (natural Regime
+    #   is always the literal string UNKNOWN, so natural output caps at
+    #   TRADEABLE_UNIVERSE/WATCH — this is correct, not a bug). Every
+    #   upstream packet is re-hashed at the door and any mismatch force-fails
+    #   closed. Trend/relative-strength/breakout/pullback/volume thresholds
+    #   are copied verbatim from the canonical v1 PROPOSED_PAPER_BASELINE
+    #   table; "overextension" has no ratified numeric definition yet and is
+    #   therefore a permanent UNKNOWN gate (not a silent PASS) until
+    #   ratified. All authority stays false; this module classifies only.
+    "test/test_crypto_candidate_promotion.py",
     # ★ P8-11 stage 2 — real Pilot evidence intake (TSM/298040.KS/267260.KS/
     #   034020.KS). 저장소에 이미 커밋된 real evidence file만 읽어 forward_thesis/
     #   expectations_gap/price_reflection input을 조립한다. TSM의 5개 6-K 중
