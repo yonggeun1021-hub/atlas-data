@@ -1398,6 +1398,10 @@ APPROVED_TESTS = [
     # no caller override, retroactivity, or valuation/risk/trading authority.
     "test/test_kis_valuation_freshness_policy_proposal.py",
     "test/test_kis_valuation_authority.py",
+    # KIS PAPER v3 closed source-bundle/readiness contract.  Semantic and
+    # freshness prerequisites can resolve, but accountFact stays null until
+    # a separate account-fact authority is ratified.
+    "test/test_portfolio_account_fact_v3.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
