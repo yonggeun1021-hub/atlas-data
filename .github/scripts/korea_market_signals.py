@@ -217,9 +217,18 @@ def _index_snapshot(payload: dict, bas_dd: str, market: str) -> dict:
         if str(row.get("BAS_DD")) != bas_dd:
             fail("KRX_DATE_MISMATCH", f"index:{market}")
         name = str(row.get("IDX_NM") or "").strip()
-        if not name or name in indices:
+        close = row.get("CLSPRC_IDX")
+        # KRX may include non-series/category rows in OutBlock_1. Those rows
+        # have the requested date but no usable index close and must not make
+        # the complete market response fail. A named numeric series remains
+        # strict and duplicate identities still fail closed.
+        if not name or close is None or not str(close).strip():
+            continue
+        if name in indices:
             fail("KRX_INDEX_IDENTITY_INVALID", f"index:{market}")
-        indices[name] = _decimal(row.get("CLSPRC_IDX"), "CLSPRC_IDX")
+        indices[name] = _decimal(close, "CLSPRC_IDX")
+    if not indices:
+        fail("KRX_RESPONSE_EMPTY", f"index:{market}:{bas_dd}:usable_series")
     return {"market": market, "date": bas_dd, "indices": indices}
 
 
