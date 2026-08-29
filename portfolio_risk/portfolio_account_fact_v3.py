@@ -251,10 +251,14 @@ def _validate_capacity(value: object) -> None:
     if not isinstance(capacity, dict) or set(capacity) != _INSTRUMENT_CAPACITY_FIELDS:
         raise PortfolioAccountFactV3Error("BUY_CAPACITY_FIELDS_INVALID")
     for name, raw_field in _INSTRUMENT_CAPACITY_KIS_FIELDS.items():
-        _entry(
+        parsed = _entry(
             capacity[name], expected_field=raw_field,
             code=f"BUY_CAPACITY_{name.upper()}", nonnegative=True,
         )
+        if name == "quantityCalculationPriceKrw" and parsed <= 0:
+            raise PortfolioAccountFactV3Error(
+                "BUY_CAPACITY_QUANTITY_CALCULATION_PRICE_NOT_POSITIVE"
+            )
 
 
 def _validate_relationships(bundle: dict) -> None:

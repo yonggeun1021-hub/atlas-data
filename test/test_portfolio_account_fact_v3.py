@@ -267,6 +267,18 @@ class PortfolioAccountFactV3ReadinessTests(unittest.TestCase):
         ):
             self.evaluate(bundle)
 
+    def test_quantity_calculation_price_must_be_positive(self):
+        bundle = _bundle()
+        bundle["instrumentBuyCapacityObservation"]["capacity"][
+            "quantityCalculationPriceKrw"
+        ]["value"] = 0
+        _rehash(bundle)
+        with self.assertRaisesRegex(
+            fact_v3.PortfolioAccountFactV3Error,
+            "BUY_CAPACITY_QUANTITY_CALCULATION_PRICE_NOT_POSITIVE",
+        ):
+            self.evaluate(bundle)
+
     def test_caller_cannot_inject_account_fact_authority(self):
         bundle = _bundle()
         bundle["accountFactAuthorized"] = True
