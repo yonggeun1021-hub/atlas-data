@@ -1638,6 +1638,13 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_paper_buy_eligibility.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_decision_snapshot.py",
+    # ★ P5-10 Crypto 5-axis entry/exit bridge -- the exact revalidated
+    #   decision generation is projected into per-symbol entry and exit
+    #   contexts. Missing axes or the unratified aggregate policy cap every
+    #   new entry at WAIT (upstream BLOCKED stays BLOCKED); P7-13 hard-exit
+    #   priority remains verbatim. No numeric threshold, order draft,
+    #   network/exchange call, Production/Trading/REAL authority is added.
+    "test/test_crypto_axis_trade_bridge.py",
     # ★ P1-CR-08 Crypto live-component registry -- exact public natural
     #   BTC trend/risk, stablecoin and breadth rows, bound by point-in-time
     #   retained download cutoff plus full directory fingerprint. Evidence
