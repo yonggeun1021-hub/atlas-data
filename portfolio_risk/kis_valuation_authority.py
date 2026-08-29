@@ -46,6 +46,8 @@ NOT_COMPUTABLE_DOCUMENT_PROVENANCE_UNVERIFIED = (
 NOT_COMPUTABLE_DOCUMENT_TAMPERED = "NOT_COMPUTABLE_DOCUMENT_TAMPERED"
 SEMANTIC_KIND = "VALUATION_SEMANTIC_MAPPING"
 FRESHNESS_KIND = "VALUATION_FRESHNESS_POLICY"
+SEMANTIC_RULE_ID = "atlas.portfolio-risk.kis-paper-valuation-semantics"
+FRESHNESS_RULE_ID = "atlas.portfolio-risk.kis-paper-valuation-freshness"
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _FULL_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
@@ -169,7 +171,14 @@ def _validate_common_row(row: object, expected_kind: str) -> dict:
         raise KisValuationAuthorityError("AUTHORITY_ROW_KIND_INVALID")
     if row.get("approvalStatus") != RATIFIED:
         raise KisValuationAuthorityError("AUTHORITY_ROW_NOT_RATIFIED")
-    if row.get("ruleVersion") != 1 or not isinstance(row.get("ruleId"), str):
+    expected_rule_id = (
+        SEMANTIC_RULE_ID if expected_kind == SEMANTIC_KIND else FRESHNESS_RULE_ID
+    )
+    if (
+        type(row.get("ruleVersion")) is not int
+        or row.get("ruleVersion") != 1
+        or row.get("ruleId") != expected_rule_id
+    ):
         raise KisValuationAuthorityError("AUTHORITY_RULE_ID_VERSION_INVALID")
     ratified = _parse_utc(row.get("ratifiedAt"), "AUTHORITY_RATIFIED_AT_INVALID")
     first_seen = _parse_utc(
@@ -261,11 +270,14 @@ def _validate_freshness_row(row: object) -> dict:
         ),
     }
     for field, expected_value in expected.items():
-        if value.get(field) != expected_value or (
-            isinstance(expected_value, int)
-            and not isinstance(expected_value, bool)
-            and isinstance(value.get(field), bool)
-        ):
+        actual = value.get(field)
+        if type(expected_value) is bool:
+            exact = type(actual) is bool and actual is expected_value
+        elif type(expected_value) is int:
+            exact = type(actual) is int and actual == expected_value
+        else:
+            exact = actual == expected_value
+        if not exact:
             raise KisValuationAuthorityError(
                 f"FRESHNESS_POLICY_FIELD_INVALID:{field}"
             )
@@ -431,6 +443,7 @@ def _verify_approval(
         raise KisValuationAuthorityError("AUTHORITY_APPROVAL_JSON_INVALID") from None
     if not isinstance(approval, dict) or set(approval) != _APPROVAL_FIELDS:
         raise KisValuationAuthorityError("AUTHORITY_APPROVAL_FIELDS_INVALID")
+    _validate_approval_scalar_types(approval, row)
     if (
         approval.get("schemaVersion") != "kis_valuation_authority_approval/1"
         or approval.get("approvalStatus") != RATIFIED
@@ -539,6 +552,51 @@ def _verify_approval(
     if approval.get("boundary") != expected_boundary:
         raise KisValuationAuthorityError("AUTHORITY_APPROVAL_BOUNDARY_INVALID")
     return _approval_first_seen(repo, commit, relative, disk), approval
+
+
+def _validate_approval_scalar_types(approval: dict, row: dict) -> None:
+    """Close Python's bool/int equality alias at the approval boundary."""
+    if type(approval.get("ruleVersion")) is not int:
+        raise KisValuationAuthorityError("AUTHORITY_APPROVAL_RULE_VERSION_TYPE_INVALID")
+    assertion = approval.get("assertion")
+    decision = approval.get("decision")
+    if not isinstance(assertion, dict) or not isinstance(decision, dict):
+        raise KisValuationAuthorityError("AUTHORITY_APPROVAL_DECISION_SHAPE_INVALID")
+    if row.get("authorityKind") == SEMANTIC_KIND:
+        for field in (
+            "freshnessIncluded", "accountFactProductionIncluded",
+            "portfolioRiskIncluded",
+        ):
+            if type(assertion.get(field)) is not bool:
+                raise KisValuationAuthorityError(
+                    f"AUTHORITY_APPROVAL_BOOLEAN_TYPE_INVALID:{field}"
+                )
+        if type(decision.get("liveFreshnessEvidenceRequiredForThisSemanticDecision")) is not bool:
+            raise KisValuationAuthorityError(
+                "AUTHORITY_APPROVAL_BOOLEAN_TYPE_INVALID:"
+                "liveFreshnessEvidenceRequiredForThisSemanticDecision"
+            )
+    elif row.get("authorityKind") == FRESHNESS_KIND:
+        for field in (
+            "maxSourceAgeSeconds", "maxPairGapSeconds",
+            "livePairSampleCountAtRatification",
+        ):
+            if type(assertion.get(field)) is not int:
+                raise KisValuationAuthorityError(
+                    f"AUTHORITY_APPROVAL_INTEGER_TYPE_INVALID:{field}"
+                )
+        if type(assertion.get("atomicCaptureSessionBindingPresentAtRatification")) is not bool:
+            raise KisValuationAuthorityError(
+                "AUTHORITY_APPROVAL_BOOLEAN_TYPE_INVALID:"
+                "atomicCaptureSessionBindingPresentAtRatification"
+            )
+        for field in ("empiricalEvidenceClaimed", "retroactiveUsePermitted"):
+            if type(decision.get(field)) is not bool:
+                raise KisValuationAuthorityError(
+                    f"AUTHORITY_APPROVAL_BOOLEAN_TYPE_INVALID:{field}"
+                )
+    else:
+        raise KisValuationAuthorityError("AUTHORITY_APPROVAL_KIND_INVALID")
 
 
 def _resolve_row(

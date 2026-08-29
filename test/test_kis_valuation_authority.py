@@ -201,6 +201,98 @@ class KisValuationAuthorityCounterExamples(unittest.TestCase):
                 ):
                     authority_module.validate_authority_document(value)
 
+    def test_numeric_boolean_aliases_in_rows_are_rejected(self):
+        mutations = (
+            ("valuationSemanticAuthorityRecords", "ruleVersion", True),
+            ("freshnessPolicyAuthorityRecords", "ruleVersion", True),
+            ("freshnessPolicyAuthorityRecords", "bothSourcesRequired", 1),
+            ("freshnessPolicyAuthorityRecords", "callerOverridePermitted", 0),
+            (
+                "freshnessPolicyAuthorityRecords",
+                "atomicCaptureSessionBindingPresentAtRatification", 0,
+            ),
+            (
+                "freshnessPolicyAuthorityRecords",
+                "retroactiveApplicationPermitted", 0,
+            ),
+            (
+                "freshnessPolicyAuthorityRecords",
+                "livePairSampleCountAtRatification", False,
+            ),
+            ("freshnessPolicyAuthorityRecords", "maxSourceAgeSeconds", True),
+        )
+        for collection, field, altered in mutations:
+            with self.subTest(collection=collection, field=field):
+                value = copy.deepcopy(self.authority)
+                value.pop("_sourcePath")
+                row = value[collection][0]
+                row[field] = altered
+                row["businessPayloadSha256"] = authority_module.payload_sha256(
+                    authority_module._business_payload(row)
+                )
+                with self.assertRaises(authority_module.KisValuationAuthorityError):
+                    authority_module.validate_authority_document(value)
+
+    def test_noncanonical_rule_ids_are_rejected(self):
+        for collection, altered in (
+            ("valuationSemanticAuthorityRecords", "attacker.semantic"),
+            ("freshnessPolicyAuthorityRecords", "attacker.freshness"),
+        ):
+            with self.subTest(collection=collection):
+                value = copy.deepcopy(self.authority)
+                value.pop("_sourcePath")
+                row = value[collection][0]
+                row["ruleId"] = altered
+                with self.assertRaisesRegex(
+                    authority_module.KisValuationAuthorityError,
+                    "AUTHORITY_RULE_ID_VERSION_INVALID",
+                ):
+                    authority_module.validate_authority_document(value)
+
+    def test_numeric_boolean_aliases_in_approval_packets_are_rejected(self):
+        semantic_row = self.authority["valuationSemanticAuthorityRecords"][0]
+        freshness_row = self.authority["freshnessPolicyAuthorityRecords"][0]
+        semantic_packet = json.loads(
+            (ROOT / semantic_row["approvalEvidenceRef"]).read_text()
+        )
+        freshness_packet = json.loads(
+            (ROOT / freshness_row["approvalEvidenceRef"]).read_text()
+        )
+        cases = []
+        changed = copy.deepcopy(semantic_packet)
+        changed["ruleVersion"] = True
+        cases.append((changed, semantic_row))
+        for section, field, altered in (
+            ("assertion", "freshnessIncluded", 0),
+            (
+                "decision",
+                "liveFreshnessEvidenceRequiredForThisSemanticDecision", 0,
+            ),
+        ):
+            changed = copy.deepcopy(semantic_packet)
+            changed[section][field] = altered
+            cases.append((changed, semantic_row))
+        changed = copy.deepcopy(freshness_packet)
+        changed["ruleVersion"] = True
+        cases.append((changed, freshness_row))
+        for section, field, altered in (
+            ("assertion", "maxSourceAgeSeconds", True),
+            ("assertion", "livePairSampleCountAtRatification", False),
+            (
+                "assertion",
+                "atomicCaptureSessionBindingPresentAtRatification", 0,
+            ),
+            ("decision", "empiricalEvidenceClaimed", 0),
+            ("decision", "retroactiveUsePermitted", 0),
+        ):
+            changed = copy.deepcopy(freshness_packet)
+            changed[section][field] = altered
+            cases.append((changed, freshness_row))
+        for packet, row in cases:
+            with self.subTest(kind=row["authorityKind"], packet=packet):
+                with self.assertRaises(authority_module.KisValuationAuthorityError):
+                    authority_module._validate_approval_scalar_types(packet, row)
+
     def test_account_fact_risk_or_trading_authority_injection_is_rejected(self):
         for collection in (
             "valuationSemanticAuthorityRecords", "freshnessPolicyAuthorityRecords"
