@@ -21,8 +21,8 @@ I/O wrapper that actually opens the WebSocket and runs this gate forever.
   this file.
 * This module never reads, imports, or references
   ``universe/upbit_tradeable_universe.py`` (P3-12) or any candidate/PAPER
-  eligibility state. The market list is a fixed, independently-configured
-  observation set (see ``DEFAULT_MARKETS`` / ``parse_market_list``), never
+  eligibility state. The caller supplies an independently discovered or
+  configured observation set, never
   derived from ``TRADEABLE_UNIVERSE``/``PAPER_ELIGIBLE``, and this module
   never writes to any of those states. See ``_OBSERVATION_AUTHORITY`` below
   -- every authority/promotion flag is hardcoded ``False``.
@@ -109,6 +109,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import threading
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -131,7 +132,7 @@ GATE = _load_gate_module()
 UTC = dt.timezone.utc
 KST = dt.timezone(dt.timedelta(hours=9), name="KST")
 
-SCHEMA_VERSION = "upbit_realtime_observation_snapshot/1"
+SCHEMA_VERSION = "upbit_realtime_observation_snapshot/2"
 
 FRESH = "FRESH"
 STALE = "STALE"
@@ -312,7 +313,7 @@ class PersistentConnectionState:
 # ---------------------------------------------------------------------------
 
 class ObservationGate:
-    """The persistent-daemon orchestrator: fixed market list, duplicate
+    """The persistent-daemon orchestrator: independent observation coverage, duplicate
     guard, out-of-order tracker, connection state, and a
     ``status_snapshot`` producing this service's documented JSON contract.
     Every method is deterministic given its explicit inputs -- no network,
@@ -321,7 +322,9 @@ class ObservationGate:
     """
 
     def __init__(
-        self, *, markets, max_staleness_seconds_by_kind: dict = None,
+        self, *, markets, orderbook_markets=None, market_metadata=None,
+        market_source: str = "CONFIGURED_BASELINE",
+        max_staleness_seconds_by_kind: dict = None,
         base_backoff_seconds: float = 1.0, max_backoff_seconds: float = 30.0,
     ):
         if not markets:
@@ -331,6 +334,13 @@ class ObservationGate:
         if bad:
             raise ObservationServiceError(f"OBSERVATION_MARKET_INVALID:{bad}")
         self.markets = markets
+        self.orderbook_markets = sorted(set(markets if orderbook_markets is None else orderbook_markets))
+        if any(market not in self.markets for market in self.orderbook_markets):
+            raise ObservationServiceError("ORDERBOOK_MARKET_OUTSIDE_TICKER_COVERAGE")
+        self.market_metadata = dict(market_metadata or {})
+        self.market_source = market_source
+        self._candle_intelligence: dict = {}
+        self._state_lock = threading.RLock()
         self.max_staleness_seconds_by_kind = dict(
             max_staleness_seconds_by_kind or DEFAULT_MAX_STALENESS_SECONDS_BY_KIND
         )
@@ -410,7 +420,18 @@ class ObservationGate:
                 "best_ask_size": best.get("ask_size"),
                 "orderbook_unit_count": len(units) if isinstance(units, list) else 0,
             })
-        self._latest.setdefault(market, {})[parsed["kind"]] = entry
+        with self._state_lock:
+            self._latest.setdefault(market, {})[parsed["kind"]] = entry
+
+    def set_candle_intelligence_batch(self, rows: dict) -> None:
+        """Atomically publish one completed public-REST reference cycle."""
+        if not isinstance(rows, dict):
+            raise ObservationServiceError("CANDLE_INTELLIGENCE_NOT_OBJECT")
+        outside = [market for market in rows if market not in self.markets]
+        if outside:
+            raise ObservationServiceError(f"CANDLE_INTELLIGENCE_OUT_OF_SCOPE:{outside[:3]}")
+        with self._state_lock:
+            self._candle_intelligence = {market: dict(row) for market, row in rows.items()}
 
     # -- connection lifecycle -------------------------------------------------
 
@@ -442,20 +463,27 @@ class ObservationGate:
         now = utc_now() if now is None else _require_aware(now, "OBSERVATION_SNAPSHOT_NOW_NAIVE")
         markets_out = {}
         overall = FRESH
+        with self._state_lock:
+            latest = {market: dict(bucket) for market, bucket in self._latest.items()}
+            intelligence = {market: dict(row) for market, row in self._candle_intelligence.items()}
         for market in self.markets:
-            bucket = self._latest.get(market, {})
+            bucket = latest.get(market, {})
             ticker_entry = bucket.get("ticker")
             orderbook_entry = bucket.get("orderbook")
             ticker_fresh = self._freshness_for(ticker_entry, "ticker", now=now)
             orderbook_fresh = self._freshness_for(orderbook_entry, "orderbook", now=now)
-            market_status = max(
-                (ticker_fresh["status"], orderbook_fresh["status"]),
-                key=lambda status: _FRESHNESS_SEVERITY[status],
-            )
+            orderbook_subscribed = market in self.orderbook_markets
+            required_statuses = [ticker_fresh["status"]]
+            if orderbook_subscribed:
+                required_statuses.append(orderbook_fresh["status"])
+            market_status = max(required_statuses, key=lambda status: _FRESHNESS_SEVERITY[status])
             if _FRESHNESS_SEVERITY[market_status] > _FRESHNESS_SEVERITY[overall]:
                 overall = market_status
             markets_out[market] = {
                 "market": market,
+                "observation_tier": "DEEP_ORDERBOOK" if orderbook_subscribed else "FULL_KRW_TICKER",
+                "subscribed_channels": ["ticker", "orderbook"] if orderbook_subscribed else ["ticker"],
+                "market_metadata": dict(self.market_metadata.get(market) or {}),
                 "freshness": market_status,
                 "ticker_freshness": ticker_fresh,
                 "orderbook_freshness": orderbook_fresh,
@@ -487,6 +515,7 @@ class ObservationGate:
                 "orderbook_received_at_kst": (
                     None if orderbook_entry is None else _iso_kst(orderbook_entry["received_at"])
                 ),
+                "candle_intelligence": intelligence.get(market),
             }
         snapshot = {
             "schema_version": SCHEMA_VERSION,
@@ -498,6 +527,14 @@ class ObservationGate:
             "consecutive_failures": self.connection.consecutive_failures,
             "last_disconnect_reason": self.connection.last_disconnect_reason,
             "overall_freshness": overall,
+            "coverage": {
+                "mode": "FULL_KRW_TICKER_STAGED_DEPTH",
+                "market_source": self.market_source,
+                "ticker_market_count": len(self.markets),
+                "orderbook_market_count": len(self.orderbook_markets),
+                "candle_intelligence_market_count": len(intelligence),
+                "reference_only": True,
+            },
             "markets": markets_out,
             "counts": dict(self.counts),
             "duplicate_guard_size": len(self.duplicate_guard),
@@ -512,8 +549,8 @@ class ObservationGate:
         return snapshot
 
 
-def build_subscription_message(markets: list, *, ticket: str) -> list:
-    """Build the exact Upbit payload for ticker/orderbook observation only."""
+def build_subscription_message(markets: list, *, ticket: str, orderbook_markets=None) -> list:
+    """Build a full-KRW ticker + staged-depth public subscription payload."""
     if not markets:
         raise GATE.RealtimeGateError("SUBSCRIPTION_MARKETS_EMPTY")
     if not isinstance(ticket, str) or not ticket:
@@ -522,11 +559,15 @@ def build_subscription_message(markets: list, *, ticket: str) -> list:
     for code in codes:
         if not GATE.MARKET_CODE_RE.fullmatch(code):
             raise GATE.RealtimeGateError(f"SUBSCRIPTION_MARKET_INVALID:{code}")
+    orderbook_codes = codes if orderbook_markets is None else sorted(set(orderbook_markets))
+    if any(code not in codes for code in orderbook_codes):
+        raise GATE.RealtimeGateError("ORDERBOOK_MARKET_OUTSIDE_TICKER_COVERAGE")
     for message_type in OBSERVATION_MESSAGE_TYPES:
         if message_type in GATE.PRIVATE_WS_TYPES_FORBIDDEN:
             raise GATE.RealtimeGateError(f"PRIVATE_CHANNEL_FORBIDDEN:{message_type}")
     return [
         {"ticket": ticket},
-        *({"type": message_type, "codes": codes} for message_type in OBSERVATION_MESSAGE_TYPES),
+        {"type": "ticker", "codes": codes},
+        *([{"type": "orderbook", "codes": orderbook_codes}] if orderbook_codes else []),
         {"format": "DEFAULT"},
     ]
