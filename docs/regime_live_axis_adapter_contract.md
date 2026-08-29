@@ -1,4 +1,4 @@
-# Regime Live Axis Adapter (`regime_live_axis_adapter/v6`)
+# Regime Live Axis Adapter (`regime_live_axis_adapter/v7`)
 
 `regime/live_axis_adapter.py` proves, for each of the fifteen `market/axis`
 combinations in the P1-COM-01 envelope, whether qualified point-in-time
@@ -13,11 +13,28 @@ action value. All `*_authorized` fields stay `false`.
 
 ## Korea five-axis evidence coverage
 
-`regime_live_axis_adapter/v6` binds `KR/TREND`, `KR/BREADTH`, `KR/RISK_VOL`,
+`regime_live_axis_adapter/v7` binds `KR/TREND`, `KR/BREADTH`, `KR/RISK_VOL`,
 `KR/LIQUIDITY`, and `KR/LEADERSHIP` to the same validated official-KRX
 `korea_market_signals/1` aggregate packet. `DEFINED` means only that the
 measurement exists with point-in-time lineage. It is not a Korea
 `RISK_ON`/`RISK_OFF` interpretation.
+
+## US current free-data evidence coverage
+
+`v7` binds three US axes without creating a market label:
+
+| Axis | Qualified evidence | Boundary |
+| --- | --- | --- |
+| `US/TREND` | replayed SPY/QQQ/IWM IEX daily bars | presence only; IEX is partial |
+| `US/RISK_VOL` | replayed FRED VIXCLS response | presence only; no risk threshold |
+| `US/LIQUIDITY` | FRED WRESBAL/TOTBKCR current no-raw snapshot | response-hash attested; no historical PIT claim |
+
+Sector ETF returns versus SPY are retained for the user-facing market screen,
+but remain reference observations and cannot define `US/LEADERSHIP`.
+`US/BREADTH` also stays `UNDEFINED`: the forward membership roster still has
+no qualified advance/decline price population. Therefore `3/5` means only
+that three inputs are observable; it is not a `RISK_ON`, `RISK_OFF`, or trade
+decision.
 
 ## P1-CR-08: Crypto axis coverage
 

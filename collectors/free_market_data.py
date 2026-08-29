@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from decimal import Decimal, InvalidOperation
 import gzip
 import hashlib
 import importlib.util
@@ -48,16 +49,26 @@ def sha256_bytes(value: bytes) -> str:
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     value = json.loads(Path(path).read_text(encoding="utf-8"))
-    if value.get("contract_version") != "free_market_data/2":
+    if value.get("contract_version") != "free_market_data/3":
         raise FreeMarketDataError("CONTRACT_VERSION_INVALID")
     if value.get("alpaca", {}).get("feed") != "iex":
         raise FreeMarketDataError("ALPACA_FEED_MUST_BE_IEX")
     if value.get("fred", {}).get("raw_retention") != FRED_PROVENANCE.RAW_RETENTION:
         raise FreeMarketDataError("FRED_RAW_RETENTION_INVALID")
+    if value.get("fred", {}).get("liquidity_raw_retention") != "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED":
+        raise FreeMarketDataError("FRED_LIQUIDITY_RAW_RETENTION_INVALID")
+    if value.get("fred", {}).get("risk_series") != ["VIXCLS"]:
+        raise FreeMarketDataError("FRED_RISK_SERIES_INVALID")
+    if value.get("fred", {}).get("liquidity_series") != ["WRESBAL", "TOTBKCR"]:
+        raise FreeMarketDataError("FRED_LIQUIDITY_SERIES_INVALID")
     if value.get("fred", {}).get("partial_publish_authorized") is not True:
         raise FreeMarketDataError("FRED_PARTIAL_PUBLISH_NOT_AUTHORIZED")
     if value.get("alpaca", {}).get("credential_scope") != "DEDICATED_MARKET_DATA_ONLY":
         raise FreeMarketDataError("ALPACA_CREDENTIAL_SCOPE_INVALID")
+    if value.get("alpaca", {}).get("trend_symbols") != ["SPY", "QQQ", "IWM"]:
+        raise FreeMarketDataError("ALPACA_TREND_SYMBOLS_INVALID")
+    if value.get("alpaca", {}).get("return_windows_sessions") != [5, 20, 60]:
+        raise FreeMarketDataError("ALPACA_RETURN_WINDOWS_INVALID")
     authority = value.get("authority")
     if authority != {
         "evidence_capture_only": True,
@@ -115,6 +126,131 @@ def fetch_fred(api_key: str, observed_at: dt.datetime, getter=_get) -> tuple[byt
         "series_id": "VIXCLS", "observation_date": latest["date"],
         "value": latest["value"], "realtime_start": latest.get("realtime_start"),
         "realtime_end": latest.get("realtime_end"),
+    }
+
+
+FRED_LIQUIDITY_UNITS = {
+    "Millions of Dollars": ("Millions of U.S. Dollars", Decimal("1")),
+    "Millions of U.S. Dollars": ("Millions of U.S. Dollars", Decimal("1")),
+    "Billions of Dollars": ("Millions of U.S. Dollars", Decimal("1000")),
+    "Billions of U.S. Dollars": ("Millions of U.S. Dollars", Decimal("1000")),
+}
+
+
+def _decimal(value: object, code: str) -> Decimal:
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise FreeMarketDataError(code) from exc
+    if not parsed.is_finite():
+        raise FreeMarketDataError(code)
+    return parsed
+
+
+def _decimal_text(value: Decimal) -> str:
+    rendered = format(value, "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
+    return rendered or "0"
+
+
+def fetch_fred_liquidity(
+    api_key: str,
+    observed_at: dt.datetime,
+    series_ids: list[str],
+    getter=_get,
+) -> dict:
+    """Fetch current official liquidity observations without retaining raw bytes.
+
+    Response hashes and minimum source metadata remain in the derived packet;
+    the response bodies are discarded after deterministic normalization.
+    """
+    start = (observed_at.date() - dt.timedelta(days=180)).isoformat()
+    rows = []
+    response_hashes = {}
+    for series_id in series_ids:
+        metadata_query = urllib.parse.urlencode({
+            "series_id": series_id, "api_key": api_key, "file_type": "json",
+        })
+        observations_query = urllib.parse.urlencode({
+            "series_id": series_id, "api_key": api_key, "file_type": "json",
+            "observation_start": start,
+        })
+        metadata_raw = getter(
+            "https://api.stlouisfed.org/fred/series?" + metadata_query
+        )
+        observations_raw = getter(
+            "https://api.stlouisfed.org/fred/series/observations?" + observations_query
+        )
+        try:
+            metadata_body = json.loads(metadata_raw)
+            observations_body = json.loads(observations_raw)
+        except json.JSONDecodeError as exc:
+            raise FreeMarketDataError(
+                f"FRED_LIQUIDITY_JSON_INVALID:{series_id}"
+            ) from exc
+        metadata_rows = metadata_body.get("seriess")
+        observations = observations_body.get("observations")
+        if not isinstance(metadata_rows, list) or len(metadata_rows) != 1:
+            raise FreeMarketDataError(
+                f"FRED_LIQUIDITY_METADATA_INVALID:{series_id}"
+            )
+        if not isinstance(observations, list):
+            raise FreeMarketDataError(
+                f"FRED_LIQUIDITY_OBSERVATIONS_INVALID:{series_id}"
+            )
+        metadata = metadata_rows[0]
+        units = metadata.get("units")
+        unit_base = units.split(",", 1)[0].strip() if isinstance(units, str) else None
+        if unit_base not in FRED_LIQUIDITY_UNITS:
+            raise FreeMarketDataError(
+                f"FRED_LIQUIDITY_UNITS_INVALID:{series_id}"
+            )
+        normalized_unit, factor = FRED_LIQUIDITY_UNITS[unit_base]
+        valid = [
+            row for row in observations
+            if isinstance(row, dict) and row.get("value") not in (None, ".")
+        ]
+        if len(valid) < 2:
+            raise FreeMarketDataError(
+                f"FRED_LIQUIDITY_HISTORY_INSUFFICIENT:{series_id}"
+            )
+        previous, latest = valid[-2], valid[-1]
+        previous_value = _decimal(previous["value"], "FRED_LIQUIDITY_VALUE_INVALID") * factor
+        latest_value = _decimal(latest["value"], "FRED_LIQUIDITY_VALUE_INVALID") * factor
+        metadata_sha = sha256_bytes(metadata_raw)
+        observations_sha = sha256_bytes(observations_raw)
+        response_hashes[series_id] = {
+            "metadata_response_sha256": metadata_sha,
+            "observations_response_sha256": observations_sha,
+        }
+        rows.append({
+            "series_id": series_id,
+            "title": metadata.get("title"),
+            "frequency": metadata.get("frequency"),
+            "source_unit": units,
+            "normalized_unit": normalized_unit,
+            "normalization_factor": _decimal_text(factor),
+            "observation_date": latest.get("date"),
+            "value": _decimal_text(latest_value),
+            "previous_observation_date": previous.get("date"),
+            "previous_value": _decimal_text(previous_value),
+            "change": _decimal_text(latest_value - previous_value),
+            "realtime_start": latest.get("realtime_start"),
+            "realtime_end": latest.get("realtime_end"),
+            "metadata_response_sha256": metadata_sha,
+            "observations_response_sha256": observations_sha,
+        })
+    return {
+        "status": "READY",
+        "derivation_version": "fred_liquidity_current/v1",
+        "source_scope": "FRED_OFFICIAL_SERIES_API",
+        "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+        "captured_at_utc": observed_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "series": rows,
+        "response_hashes": response_hashes,
+        "derived_payload_sha256": sha256_bytes(canonical_bytes(rows)),
+        "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
     }
 
 
@@ -185,6 +321,156 @@ def fetch_alpaca_daily_bars(key: str, secret: str, symbols: list[str], observed_
     return canonical_bytes({"responses": responses}), normalized
 
 
+def _session_return(closes: list[Decimal], sessions: int) -> str:
+    if len(closes) <= sessions or closes[-(sessions + 1)] == 0:
+        raise FreeMarketDataError(f"ALPACA_RETURN_HISTORY_INSUFFICIENT:{sessions}")
+    value = ((closes[-1] / closes[-(sessions + 1)]) - Decimal("1")) * Decimal("100")
+    return _decimal_text(value.quantize(Decimal("0.0001")))
+
+
+def derive_us_market_reference(daily_bars: list[dict], contract: dict) -> dict:
+    """Derive objective ETF returns only; never emit a market label."""
+    grouped: dict[str, list[dict]] = {}
+    for row in daily_bars:
+        if not isinstance(row, dict) or not isinstance(row.get("symbol"), str):
+            raise FreeMarketDataError("ALPACA_DAILY_NORMALIZED_INVALID")
+        grouped.setdefault(row["symbol"], []).append(row)
+    for rows in grouped.values():
+        rows.sort(key=lambda row: row.get("opened_at", ""))
+
+    windows = contract["alpaca"]["return_windows_sessions"]
+    required = sorted(set(
+        contract["alpaca"]["trend_symbols"]
+        + contract["alpaca"]["sector_reference_symbols"]
+    ))
+    observations = {}
+    missing = []
+    for symbol in required:
+        rows = grouped.get(symbol, [])
+        try:
+            closes = [_decimal(row["close"], "ALPACA_CLOSE_INVALID") for row in rows]
+            returns = {
+                f"{window}_session_pct": _session_return(closes, window)
+                for window in windows
+            }
+        except (KeyError, FreeMarketDataError):
+            missing.append(symbol)
+            continue
+        observations[symbol] = {
+            "symbol": symbol,
+            "as_of_session_date": str(rows[-1]["opened_at"])[:10],
+            "close": _decimal_text(closes[-1]),
+            "available_session_count": len(rows),
+            "returns": returns,
+        }
+
+    spy = observations.get("SPY")
+    sectors = []
+    for symbol in contract["alpaca"]["sector_reference_symbols"]:
+        row = observations.get(symbol)
+        if row is None or spy is None:
+            continue
+        relative = {}
+        for window in windows:
+            key = f"{window}_session_pct"
+            relative[key] = _decimal_text(
+                (_decimal(row["returns"][key], "ALPACA_RETURN_INVALID")
+                 - _decimal(spy["returns"][key], "ALPACA_RETURN_INVALID"))
+                .quantize(Decimal("0.0001"))
+            )
+        sectors.append({**row, "relative_to_spy_pct": relative})
+
+    trend = [
+        observations[symbol]
+        for symbol in contract["alpaca"]["trend_symbols"]
+        if symbol in observations
+    ]
+    status = "READY" if not missing else "PARTIAL"
+    as_of_dates = sorted({row["as_of_session_date"] for row in trend})
+    result = {
+        "schema_version": "us_market_reference/v1",
+        "status": status,
+        "as_of_session_date": as_of_dates[-1] if len(as_of_dates) == 1 else None,
+        "trend_etfs": trend,
+        "sector_etfs": sectors,
+        "coverage": {
+            "required_symbols": required,
+            "observed_symbols": sorted(observations),
+            "missing_symbols": missing,
+            "ratio": f"{len(observations)}/{len(required)}",
+        },
+        "source_scope": "ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE",
+        "interpretation": "OBSERVED_UNCLASSIFIED",
+        "warnings": [
+            "NOT_US_BREADTH",
+            "NOT_CANONICAL_US_LEADERSHIP",
+            "REGIME_INTERPRETATION_UNAUTHORIZED",
+        ],
+    }
+    result["payload_sha256"] = sha256_bytes(canonical_bytes(result))
+    return result
+
+
+def validate_alpaca_daily_evidence(root: Path, packet: dict) -> dict:
+    """Replay the retained daily response and reproduce the US ETF reference."""
+    observed = packet.get("observed_at_utc")
+    if not isinstance(observed, str) or len(observed) < 10:
+        raise FreeMarketDataError("CAPTURE_TIME_INVALID")
+    day = observed[:10]
+    relative = Path("evidence/free_market_data/raw") / day / "alpaca_iex_daily_bars.json.gz"
+    path = (Path(root).resolve() / relative).resolve()
+    try:
+        path.relative_to(Path(root).resolve())
+        compressed = path.read_bytes()
+        raw = gzip.decompress(compressed)
+    except (OSError, ValueError, gzip.BadGzipFile) as exc:
+        raise FreeMarketDataError("ALPACA_DAILY_RAW_INVALID") from exc
+    if sha256_bytes(raw) != packet.get("alpaca", {}).get("daily_raw_sha256"):
+        raise FreeMarketDataError("ALPACA_DAILY_RAW_HASH_MISMATCH")
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise FreeMarketDataError("ALPACA_DAILY_RAW_JSON_INVALID") from exc
+    responses = body.get("responses")
+    if not isinstance(responses, dict):
+        raise FreeMarketDataError("ALPACA_DAILY_RAW_RESPONSES_INVALID")
+    normalized = []
+    for symbol, response in responses.items():
+        bars = response.get("bars") if isinstance(response, dict) else None
+        if not isinstance(bars, list):
+            raise FreeMarketDataError(f"ALPACA_DAILY_RAW_BARS_INVALID:{symbol}")
+        for bar in bars:
+            if not isinstance(bar, dict) or not all(
+                key in bar for key in ("o", "h", "l", "c", "v", "t")
+            ):
+                raise FreeMarketDataError(f"ALPACA_DAILY_RAW_FIELDS_INVALID:{symbol}")
+            normalized.append({
+                "symbol": symbol,
+                "opened_at": bar["t"],
+                "open": str(bar["o"]),
+                "high": str(bar["h"]),
+                "low": str(bar["l"]),
+                "close": str(bar["c"]),
+                "volume": str(bar["v"]),
+            })
+    expected_daily = packet.get("alpaca", {}).get("daily_bars")
+    if not isinstance(expected_daily, list) or sorted(
+        normalized, key=lambda row: (row["symbol"], row["opened_at"])
+    ) != sorted(
+        expected_daily, key=lambda row: (row.get("symbol", ""), row.get("opened_at", ""))
+    ):
+        raise FreeMarketDataError("ALPACA_DAILY_REDERIVATION_MISMATCH")
+    contract = load_contract(Path(root) / "config/free_market_data_contract.json")
+    reference = derive_us_market_reference(normalized, contract)
+    if reference != packet.get("us_market_reference"):
+        raise FreeMarketDataError("US_MARKET_REFERENCE_REDERIVATION_MISMATCH")
+    return {
+        "reference": reference,
+        "raw_path": relative.as_posix(),
+        "raw_response_sha256": sha256_bytes(raw),
+    }
+
+
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
@@ -200,6 +486,7 @@ def build_capture(
     contract: dict,
     *,
     fred_evidence: dict,
+    fred_liquidity: dict,
     alpaca_status: str,
     alpaca_raw: bytes | None = None,
     bars: list[dict] | None = None,
@@ -214,8 +501,34 @@ def build_capture(
             raise FreeMarketDataError("ALPACA_READY_EVIDENCE_INCOMPLETE")
     elif alpaca_raw is not None or daily_raw is not None or bars or daily_bars:
         raise FreeMarketDataError("ALPACA_BLOCKED_MUST_NOT_CARRY_EVIDENCE")
+    us_market_reference = (
+        derive_us_market_reference(daily_bars, contract)
+        if alpaca_status == "READY"
+        else {
+            "schema_version": "us_market_reference/v1",
+            "status": "BLOCKED",
+            "reason": alpaca_status,
+            "trend_etfs": [],
+            "sector_etfs": [],
+            "coverage": {
+                "required_symbols": sorted(set(
+                    contract["alpaca"]["trend_symbols"]
+                    + contract["alpaca"]["sector_reference_symbols"]
+                )),
+                "observed_symbols": [],
+                "missing_symbols": sorted(set(
+                    contract["alpaca"]["trend_symbols"]
+                    + contract["alpaca"]["sector_reference_symbols"]
+                )),
+                "ratio": "0/15",
+            },
+            "source_scope": "ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE",
+            "interpretation": "OBSERVED_UNCLASSIFIED",
+            "warnings": ["REGIME_INTERPRETATION_UNAUTHORIZED"],
+        }
+    )
     packet = {
-        "schema_version": "free_market_data_capture/4",
+        "schema_version": "free_market_data_capture/5",
         "contract_version": contract["contract_version"],
         "observed_at_utc": observed,
         "fred": {
@@ -226,6 +539,7 @@ def build_capture(
             "raw_retention": contract["fred"]["raw_retention"],
             "evidence": fred_evidence,
         },
+        "fred_liquidity": fred_liquidity,
         "alpaca": {
             "status": alpaca_status,
             "feed": "iex",
@@ -237,6 +551,7 @@ def build_capture(
             "daily_timeframe": "1Day",
             "daily_adjustment": "raw",
         },
+        "us_market_reference": us_market_reference,
         "authority": contract["authority"],
     }
     packet["packet_sha256"] = sha256_bytes(canonical_bytes(packet))
@@ -295,6 +610,24 @@ def main() -> int:
     }
     if fred_bundle["manifest"]["observation"] != normalized_fred:
         raise FreeMarketDataError("FRED_DERIVATION_MISMATCH")
+    try:
+        fred_liquidity = fetch_fred_liquidity(
+            fred_key,
+            observed_at,
+            contract["fred"]["liquidity_series"],
+        )
+    except FreeMarketDataError as exc:
+        fred_liquidity = {
+            "status": f"FRED_LIQUIDITY_CAPTURE_FAILED:{exc}",
+            "derivation_version": "fred_liquidity_current/v1",
+            "source_scope": "FRED_OFFICIAL_SERIES_API",
+            "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+            "captured_at_utc": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "series": [],
+            "response_hashes": {},
+            "derived_payload_sha256": sha256_bytes(canonical_bytes([])),
+            "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+        }
     alpaca_raw = daily_raw = None
     bars: list[dict] = []
     daily_bars: list[dict] = []
@@ -327,6 +660,7 @@ def main() -> int:
         fred,
         contract,
         fred_evidence=fred_bundle["pointer"],
+        fred_liquidity=fred_liquidity,
         alpaca_status=alpaca_status,
         alpaca_raw=alpaca_raw,
         bars=bars,

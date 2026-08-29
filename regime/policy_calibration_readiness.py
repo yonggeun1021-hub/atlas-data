@@ -116,8 +116,8 @@ def _expected_contract() -> dict:
         "bound_contracts": {
             "live_axis_adapter": {
                 "path": "config/regime_live_axis_adapter_contract.json",
-                "sha256": "2028a4db0c218b6cac20e1825c0ba13870ad28fff0d2d22a4acb6487e5954e63",
-                "contract_version": "regime_live_axis_adapter/v6",
+                "sha256": "f32e88f493a8aaf62ce30ec62a33aadedb635f021cb6bfe30812a7caa5f52ff1",
+                "contract_version": "regime_live_axis_adapter/v7",
             },
             "minimum_coverage": {
                 "path": "config/regime_minimum_coverage_policy.json",
@@ -353,6 +353,62 @@ def _scan_fred(root: Path) -> list[dict]:
     return records
 
 
+def _scan_us_current_reference(root: Path, axis: str) -> list[dict]:
+    records = []
+    for path in _date_directories(root, "evidence/free_market_data/derived"):
+        manifest_path = path / "manifest.json"
+        packet = _read_json(manifest_path, "SOURCE_EVIDENCE_INVALID")
+        if packet.get("schema_version") != "free_market_data_capture/5":
+            continue
+        unsigned = copy.deepcopy(packet)
+        claimed = unsigned.pop("packet_sha256", None)
+        if claimed != payload_sha256(unsigned):
+            fail("SOURCE_EVIDENCE_INVALID", f"US/{axis}:{path.name}")
+        if axis == "TREND":
+            try:
+                replay = LIVE_AXIS.FREE_MARKET_DATA.validate_alpaca_daily_evidence(
+                    root, packet
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise PolicyCalibrationReadinessError(
+                    f"SOURCE_EVIDENCE_INVALID:US/TREND:{path.name}"
+                ) from exc
+            reference = replay["reference"]
+            if reference.get("status") != "READY":
+                continue
+            records.append(_record(
+                observation_date=reference["as_of_session_date"],
+                available_at=packet["observed_at_utc"],
+                uri=f"atlas-raw-response://{replay['raw_path']}",
+                evidence_sha256=replay["raw_response_sha256"],
+                source_revision_id=f"{path.name}:{replay['raw_response_sha256']}",
+            ))
+            continue
+        liquidity = packet.get("fred_liquidity")
+        series = liquidity.get("series") if isinstance(liquidity, dict) else None
+        if (
+            not isinstance(liquidity, dict)
+            or liquidity.get("status") != "READY"
+            or not isinstance(series, list)
+            or {row.get("series_id") for row in series if isinstance(row, dict)}
+            != {"WRESBAL", "TOTBKCR"}
+            or liquidity.get("derived_payload_sha256") != payload_sha256(series)
+        ):
+            continue
+        evidence_sha = liquidity["derived_payload_sha256"]
+        records.append(_record(
+            observation_date=max(row["observation_date"] for row in series),
+            available_at=packet["observed_at_utc"],
+            uri=(
+                "atlas-derived://"
+                f"{manifest_path.relative_to(root).as_posix()}#fred_liquidity"
+            ),
+            evidence_sha256=evidence_sha,
+            source_revision_id=f"{path.name}:{evidence_sha}",
+        ))
+    return records
+
+
 def _scan_crypto_breadth(root: Path) -> list[dict]:
     records = []
     for path in _date_directories(root, "evidence/crypto/breadth/raw"):
@@ -456,6 +512,10 @@ def _scan_source_history(root: Path, qualified_axis: str) -> list[dict]:
         return _scan_korea_market_signals(root, qualified_axis.split("/", 1)[1])
     if qualified_axis == "US/RISK_VOL":
         return _scan_fred(root)
+    if qualified_axis == "US/TREND":
+        return _scan_us_current_reference(root, "TREND")
+    if qualified_axis == "US/LIQUIDITY":
+        return _scan_us_current_reference(root, "LIQUIDITY")
     if qualified_axis == "CRYPTO/TREND":
         return _scan_btc(root, "TREND")
     if qualified_axis == "CRYPTO/RISK_VOL":
@@ -542,7 +602,7 @@ def build_readiness(root: Path = ROOT) -> dict:
         fail("BOUND_CONTRACT_VERSION_MISMATCH", "policy_candidate_population")
     if list(live_contract["bindings"]) != [
         "KR/TREND", "KR/BREADTH", "KR/RISK_VOL", "KR/LIQUIDITY",
-        "KR/LEADERSHIP", "US/RISK_VOL", "CRYPTO/TREND",
+        "KR/LEADERSHIP", "US/TREND", "US/RISK_VOL", "US/LIQUIDITY", "CRYPTO/TREND",
         "CRYPTO/RISK_VOL", "CRYPTO/LIQUIDITY", "CRYPTO/BREADTH",
         "CRYPTO/LEADERSHIP",
     ]:

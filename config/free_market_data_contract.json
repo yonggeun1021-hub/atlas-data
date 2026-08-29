@@ -1,20 +1,35 @@
 {
   "schema_version": 1,
-  "contract_version": "free_market_data/2",
+  "contract_version": "free_market_data/3",
   "fred": {
-    "series": ["VIXCLS"],
+    "series": ["VIXCLS", "WRESBAL", "TOTBKCR"],
+    "risk_series": ["VIXCLS"],
+    "liquidity_series": ["WRESBAL", "TOTBKCR"],
     "source_scope": "FRED_OFFICIAL_SERIES_API",
     "output_type": 1,
     "raw_retention": "APPEND_ONLY_CONTENT_ADDRESSED",
+    "liquidity_raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
     "partial_publish_authorized": true
   },
   "alpaca": {
-    "symbols": ["MSFT", "NVDA", "TSM"],
+    "symbols": [
+      "MSFT", "NVDA", "TSM",
+      "SPY", "QQQ", "IWM",
+      "XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC", "SMH"
+    ],
+    "trend_symbols": ["SPY", "QQQ", "IWM"],
+    "sector_reference_symbols": ["XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC", "SMH"],
+    "return_windows_sessions": [5, 20, 60],
     "feed": "iex",
     "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
     "credential_scope": "DEDICATED_MARKET_DATA_ONLY",
     "missing_credential_policy": "EXPLICIT_COMPONENT_BLOCK_WITH_FRED_DERIVED_PUBLISH"
   },
+  "evidence_scopes": [
+    "US_TREND_PRESENCE",
+    "US_LIQUIDITY_PRESENCE",
+    "US_SECTOR_ETF_REFERENCE"
+  ],
   "authority": {
     "evidence_capture_only": true,
     "us_breadth_authorized": false,

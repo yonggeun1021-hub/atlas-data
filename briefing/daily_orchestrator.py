@@ -107,6 +107,9 @@ LIVE_AXIS_ADAPTER = _load(
 FRED_VIX_PROVENANCE = _load(
     "atlas_daily_fred_vix_provenance", "collectors/fred_vix_provenance.py"
 )
+FREE_MARKET_DATA_CAPTURE = _load(
+    "atlas_daily_free_market_data_capture", "collectors/free_market_data.py"
+)
 HEADER = _load("atlas_daily_header", "briefing/three_market_regime_header.py")
 LEDGER = _load("atlas_daily_ledger", "rotation/rotation_state_ledger.py")
 DISCOVERY = _load("atlas_daily_discovery", "discovery/event_case.py")
@@ -1166,6 +1169,7 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
             "free_market_data_capture/2",
             "free_market_data_capture/3",
             "free_market_data_capture/4",
+            "free_market_data_capture/5",
         }
         or not isinstance(authority, dict)
         or authority.get("evidence_capture_only") is not True
@@ -1179,7 +1183,7 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
     # existed. Enforcing it only for v3 preserves byte-identical rebuilds of
     # already-published v1/v2 briefing packets while preventing a newly
     # generated briefing from presenting a prior KST day's pointer as READY.
-    if schema_version in {"free_market_data_capture/3", "free_market_data_capture/4"} and decision_date is not None:
+    if schema_version in {"free_market_data_capture/3", "free_market_data_capture/4", "free_market_data_capture/5"} and decision_date is not None:
         try:
             expected_date = dt.date.fromisoformat(decision_date)
             observed_at = payload.get("observed_at_utc")
@@ -1193,15 +1197,18 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
         except (TypeError, ValueError):
             return component_row("FREE_MARKET_DATA", "DEGRADED", "CAPTURE_TIME_INVALID")
         if capture_date < expected_date:
-            return component_row(
-                "FREE_MARKET_DATA", "DATA_BLOCKED", "CAPTURE_STALE_FOR_DECISION_DATE"
-            )
+            if schema_version != "free_market_data_capture/5" or (
+                expected_date - capture_date
+            ).days > 4:
+                return component_row(
+                    "FREE_MARKET_DATA", "DATA_BLOCKED", "CAPTURE_STALE_FOR_DECISION_DATE"
+                )
         if capture_date > expected_date:
             return component_row(
                 "FREE_MARKET_DATA", "DATA_BLOCKED", "CAPTURE_FUTURE_FOR_DECISION_DATE"
             )
     alpaca_status = alpaca.get("status", "READY")
-    if schema_version in {"free_market_data_capture/3", "free_market_data_capture/4"}:
+    if schema_version in {"free_market_data_capture/3", "free_market_data_capture/4", "free_market_data_capture/5"}:
         expected_retention = (
             "TRANSIENT_NOT_PERSISTED"
             if schema_version == "free_market_data_capture/3"
@@ -1214,8 +1221,13 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
             or len(fred["response_sha256"]) != 64
         ):
             return component_row("FREE_MARKET_DATA", "DEGRADED", "FRED_DERIVED_CONTRACT_INVALID")
-        if schema_version == "free_market_data_capture/4":
-            if payload.get("contract_version") != "free_market_data/2":
+        if schema_version in {"free_market_data_capture/4", "free_market_data_capture/5"}:
+            expected_contract = (
+                "free_market_data/2"
+                if schema_version == "free_market_data_capture/4"
+                else "free_market_data/3"
+            )
+            if payload.get("contract_version") != expected_contract:
                 return component_row(
                     "FREE_MARKET_DATA", "DEGRADED", "CAPTURE_CONTRACT_INVALID"
                 )
@@ -1246,9 +1258,67 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
                 return component_row(
                     "FREE_MARKET_DATA", "DEGRADED", "FRED_APPEND_ONLY_REDERIVATION_MISMATCH"
                 )
+            if schema_version == "free_market_data_capture/5":
+                liquidity = payload.get("fred_liquidity")
+                if not isinstance(liquidity, dict):
+                    return component_row(
+                        "FREE_MARKET_DATA", "DEGRADED", "FRED_LIQUIDITY_COMPONENT_INVALID"
+                    )
+                liquidity_status = liquidity.get("status")
+                liquidity_rows = liquidity.get("series")
+                if liquidity_status == "READY":
+                    if (
+                        liquidity.get("derivation_version") != "fred_liquidity_current/v1"
+                        or liquidity.get("raw_retention")
+                        != "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED"
+                        or not isinstance(liquidity_rows, list)
+                        or {row.get("series_id") for row in liquidity_rows if isinstance(row, dict)}
+                        != {"WRESBAL", "TOTBKCR"}
+                        or liquidity.get("derived_payload_sha256")
+                        != payload_sha256(liquidity_rows)
+                    ):
+                        return component_row(
+                            "FREE_MARKET_DATA", "DEGRADED", "FRED_LIQUIDITY_DERIVATION_INVALID"
+                        )
+                elif not (
+                    isinstance(liquidity_status, str)
+                    and liquidity_status.startswith("FRED_LIQUIDITY_CAPTURE_FAILED:")
+                    and liquidity_rows == []
+                ):
+                    return component_row(
+                        "FREE_MARKET_DATA", "DEGRADED", "FRED_LIQUIDITY_COMPONENT_INVALID"
+                    )
         if alpaca_status == "READY":
             if not bars or not alpaca.get("daily_bars"):
                 return component_row("FREE_MARKET_DATA", "DEGRADED", "ALPACA_READY_EVIDENCE_INCOMPLETE")
+            if schema_version == "free_market_data_capture/5":
+                try:
+                    replay = FREE_MARKET_DATA_CAPTURE.validate_alpaca_daily_evidence(
+                        ROOT, payload
+                    )
+                except Exception:
+                    return component_row(
+                        "FREE_MARKET_DATA", "DEGRADED", "ALPACA_DAILY_EVIDENCE_INVALID"
+                    )
+                if decision_date is not None:
+                    reference = replay["reference"]
+                    try:
+                        session_date = dt.date.fromisoformat(
+                            reference["as_of_session_date"]
+                        )
+                        expected_date = dt.date.fromisoformat(decision_date)
+                    except (KeyError, TypeError, ValueError):
+                        return component_row(
+                            "FREE_MARKET_DATA", "DEGRADED", "US_MARKET_SESSION_DATE_INVALID"
+                        )
+                    if session_date > expected_date:
+                        return component_row(
+                            "FREE_MARKET_DATA", "DATA_BLOCKED", "US_MARKET_SESSION_FROM_FUTURE"
+                        )
+                    if (expected_date - session_date).days > 4:
+                        return component_row(
+                            "FREE_MARKET_DATA", "DATA_BLOCKED", "US_MARKET_SESSION_STALE"
+                        )
         elif not (
             isinstance(alpaca_status, str)
             and (
@@ -1277,7 +1347,15 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
         contract_version=payload.get("contract_version"),
         packet={
             "vixcls": {"date": fred.get("observation_date"), "value": fred.get("value")},
-            **({"fred_evidence": fred.get("evidence")} if schema_version == "free_market_data_capture/4" else {}),
+            **({"fred_evidence": fred.get("evidence")} if schema_version in {"free_market_data_capture/4", "free_market_data_capture/5"} else {}),
+            **({
+                "fred_liquidity": payload.get("fred_liquidity"),
+                "us_market_reference": payload.get("us_market_reference"),
+                "alpaca_daily_evidence": {
+                    "raw_path": replay["raw_path"],
+                    "raw_response_sha256": replay["raw_response_sha256"],
+                } if alpaca_status == "READY" else None,
+            } if schema_version == "free_market_data_capture/5" else {}),
             "alpaca_iex_bars": bars,
             "alpaca_status": alpaca_status,
             "source_scope": alpaca.get("source_scope"),

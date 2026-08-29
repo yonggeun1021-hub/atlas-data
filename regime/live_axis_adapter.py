@@ -11,7 +11,9 @@ Only direct semantic bindings are supported:
                     <- one official KRX five-signal aggregate observation.
                        The five measurements are presence evidence only; no
                        threshold or Regime interpretation is applied here.
+* US/TREND          <- independently replayed SPY/QQQ/IWM Alpaca IEX daily bars
 * US/RISK_VOL       <- independently replayed FRED VIXCLS raw evidence
+* US/LIQUIDITY      <- current FRED WRESBAL/TOTBKCR no-raw derived observation
 * CRYPTO/TREND      <- BTC_TREND
 * CRYPTO/RISK_VOL   <- BTC_RISK
 * CRYPTO/LIQUIDITY  <- STABLECOIN_NET_ISSUANCE, and/or Upbit microstructure
@@ -59,7 +61,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v6"
+CONTRACT_VERSION = "regime_live_axis_adapter/v7"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -87,10 +89,23 @@ def _expected_contract() -> dict:
                     "TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"
                 )
             },
+            "US/TREND": {
+                "source_component": "FREE_MARKET_DATA",
+                "source_transform_version": "free_market_data/3",
+                "axis_transform_version": "regime_live_axis_us_etf_trend/v1",
+            },
             "US/RISK_VOL": {
                 "source_component": "FREE_MARKET_DATA",
-                "source_transform_version": "free_market_data/2",
+                "source_transform_version": "free_market_data/3",
+                "compatible_source_transform_versions": [
+                    "free_market_data/2", "free_market_data/3"
+                ],
                 "axis_transform_version": "regime_live_axis_fred_vix/v1",
+            },
+            "US/LIQUIDITY": {
+                "source_component": "FREE_MARKET_DATA",
+                "source_transform_version": "free_market_data/3",
+                "axis_transform_version": "regime_live_axis_fred_liquidity/v1",
             },
             "CRYPTO/TREND": {
                 "source_component": "BTC_TREND",
@@ -123,7 +138,7 @@ def _expected_contract() -> dict:
         },
         "deferred_axes": {},
         "non_promotable_evidence": [
-            "IEX_THREE_SYMBOL_SAMPLE",
+            "IEX_PARTIAL_EXCHANGE_SECTOR_REFERENCE_NOT_CANONICAL_LEADERSHIP",
             "KRX_SEVEN_SYMBOL_WATCHLIST",
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
             "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_FIVE_SIGNAL_PACKET",
@@ -182,6 +197,9 @@ UPBIT_MARKET_EVIDENCE = _load(
 )
 FRED_VIX = _load(
     "atlas_regime_axis_fred_vix", "collectors/fred_vix_provenance.py"
+)
+FREE_MARKET_DATA = _load(
+    "atlas_regime_axis_free_market_data", "collectors/free_market_data.py"
 )
 KOREA_MARKET_SIGNALS = _load(
     "atlas_korea_market_signals",
@@ -643,7 +661,10 @@ def _fred_vix(rows: dict, generated_at: str, binding: dict) -> dict:
     )
     observation = replay["observation"]
     if (
-        row.get("contract_version") != binding["source_transform_version"]
+        row.get("contract_version") not in binding.get(
+            "compatible_source_transform_versions",
+            [binding["source_transform_version"]],
+        )
         or packet.get("vixcls") != {
             "date": observation.get("observation_date"),
             "value": observation.get("value"),
@@ -661,6 +682,117 @@ def _fred_vix(rows: dict, generated_at: str, binding: dict) -> dict:
         f"atlas-raw-response://{replay['pointer']['raw_path']}",
         replay["pointer"]["raw_response_sha256"],
         ["REGIME_INTERPRETATION_UNAUTHORIZED"],
+    )
+
+
+def _free_market_capture(rows: dict, generated_at: str, binding: dict) -> tuple[dict, dict]:
+    component_id = "FREE_MARKET_DATA"
+    row = rows.get(component_id)
+    if not isinstance(row, dict) or row.get("component_id") != component_id:
+        fail("COMPONENT_MISSING", component_id)
+    if row.get("status") not in {"READY", "DEGRADED"} or row.get("validated") is not True:
+        fail("COMPONENT_NOT_READY", component_id)
+    if any(row.get(key) is not False for key in (
+        "decision_eligible", "action_eligible", "order_eligible"
+    )) or not _authority_false(row):
+        fail("COMPONENT_AUTHORITY_INVALID", component_id)
+    if row.get("contract_version") != binding["source_transform_version"]:
+        fail("COMPONENT_CONTRACT_MISMATCH", component_id)
+    generated = _parse_utc(generated_at, "generated_at")
+    available_at = row.get("available_at") or row.get("generated_at")
+    if _parse_utc(available_at, f"{component_id}.available_at") > generated:
+        fail("COMPONENT_FROM_FUTURE", component_id)
+    if row.get("source_packet_path") != "data/latest_free_market_data.json":
+        fail("SOURCE_PATH_INVALID", component_id)
+    path = (ROOT / row["source_packet_path"]).resolve()
+    try:
+        path.relative_to(ROOT.resolve())
+        capture = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise LiveAxisAdapterError(
+            f"SOURCE_EVIDENCE_INVALID:{component_id}"
+        ) from exc
+    unsigned = copy.deepcopy(capture)
+    claimed = unsigned.pop("packet_sha256", None)
+    actual = FREE_MARKET_DATA.sha256_bytes(FREE_MARKET_DATA.canonical_bytes(unsigned))
+    if (
+        capture.get("schema_version") != "free_market_data_capture/5"
+        or capture.get("contract_version") != binding["source_transform_version"]
+        or claimed != actual
+        or row.get("source_packet_sha256") != claimed
+        or row.get("generated_at") != capture.get("observed_at_utc")
+        or row.get("available_at") != capture.get("observed_at_utc")
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", component_id)
+    return row, capture
+
+
+def _us_trend(rows: dict, generated_at: str, binding: dict) -> dict:
+    row, capture = _free_market_capture(rows, generated_at, binding)
+    try:
+        replay = FREE_MARKET_DATA.validate_alpaca_daily_evidence(ROOT, capture)
+    except Exception as exc:
+        raise LiveAxisAdapterError(
+            "SOURCE_EVIDENCE_INVALID:US/TREND"
+        ) from exc
+    reference = replay["reference"]
+    if (
+        reference.get("status") != "READY"
+        or row.get("packet", {}).get("us_market_reference") != reference
+        or row.get("packet", {}).get("alpaca_daily_evidence") != {
+            "raw_path": replay["raw_path"],
+            "raw_response_sha256": replay["raw_response_sha256"],
+        }
+        or [item.get("symbol") for item in reference.get("trend_etfs", [])]
+        != ["SPY", "QQQ", "IWM"]
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", "US/TREND")
+    return _defined(
+        row,
+        reference["as_of_session_date"],
+        capture["observed_at_utc"],
+        binding["axis_transform_version"],
+        f"atlas-raw-response://{replay['raw_path']}",
+        replay["raw_response_sha256"],
+        [
+            "IEX_PARTIAL_EXCHANGE_REFERENCE",
+            "REGIME_INTERPRETATION_UNAUTHORIZED",
+        ],
+    )
+
+
+def _us_liquidity(rows: dict, generated_at: str, binding: dict) -> dict:
+    row, capture = _free_market_capture(rows, generated_at, binding)
+    liquidity = capture.get("fred_liquidity")
+    row_liquidity = row.get("packet", {}).get("fred_liquidity")
+    series = liquidity.get("series") if isinstance(liquidity, dict) else None
+    if (
+        not isinstance(liquidity, dict)
+        or liquidity.get("status") != "READY"
+        or liquidity.get("derivation_version") != "fred_liquidity_current/v1"
+        or liquidity.get("raw_retention")
+        != "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED"
+        or not isinstance(series, list)
+        or {item.get("series_id") for item in series if isinstance(item, dict)}
+        != {"WRESBAL", "TOTBKCR"}
+        or liquidity.get("derived_payload_sha256")
+        != FREE_MARKET_DATA.sha256_bytes(FREE_MARKET_DATA.canonical_bytes(series))
+        or row_liquidity != liquidity
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", "US/LIQUIDITY")
+    observation_date = max(item["observation_date"] for item in series)
+    return _defined(
+        row,
+        observation_date,
+        capture["observed_at_utc"],
+        binding["axis_transform_version"],
+        "atlas-derived://data/latest_free_market_data.json#fred_liquidity",
+        liquidity["derived_payload_sha256"],
+        [
+            "CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY",
+            "TRANSIENT_HASH_ATTESTED_NO_RAW_REPLAY",
+            "REGIME_INTERPRETATION_UNAUTHORIZED",
+        ],
     )
 
 
@@ -729,8 +861,14 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
             generated_at,
             bindings[f"KR/{axis}"],
         )
+    result["US"]["TREND"] = _attempt(
+        _us_trend, component_rows, generated_at, bindings["US/TREND"]
+    )
     result["US"]["RISK_VOL"] = _attempt(
         _fred_vix, component_rows, generated_at, bindings["US/RISK_VOL"]
+    )
+    result["US"]["LIQUIDITY"] = _attempt(
+        _us_liquidity, component_rows, generated_at, bindings["US/LIQUIDITY"]
     )
     result["CRYPTO"]["TREND"] = _attempt(
         _btc_trend, component_rows, generated_at, bindings["CRYPTO/TREND"]
