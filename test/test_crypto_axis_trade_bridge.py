@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from functools import lru_cache
 import importlib.util
 import json
 from pathlib import Path
@@ -25,6 +26,26 @@ def latest_committed_packet() -> dict:
     return json.loads(paths[-1].read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=1)
+def current_contract_packet() -> dict:
+    """Rebuild from real committed inputs under the checked-out contracts.
+
+    A live-axis contract change intentionally makes older decision packets fail
+    byte-exact validation.  The scheduled workflow creates a fresh decision
+    packet before invoking this bridge, so this fixture mirrors that ordering
+    instead of treating a pre-change committed packet as current authority.
+    """
+    prior = latest_committed_packet()
+    with tempfile.TemporaryDirectory(prefix="axis_bridge_source_") as tmp:
+        result = BRIDGE.DECISION.populate(
+            generated_at=prior["generated_at"],
+            allow_realtime_fallback=True,
+            output_root=Path(tmp) / "decision",
+            wire_regime_components=True,
+        )
+    return result["record"]
+
+
 class ContractTests(unittest.TestCase):
     def test_contract_pins_existing_exit_priority_and_all_authority_false(self):
         contract = BRIDGE.load_contract()
@@ -37,8 +58,8 @@ class ContractTests(unittest.TestCase):
 
 
 class RealEvidenceTests(unittest.TestCase):
-    def test_latest_committed_packet_builds_honest_fail_closed_bridge(self):
-        packet = latest_committed_packet()
+    def test_current_contract_packet_builds_honest_fail_closed_bridge(self):
+        packet = current_contract_packet()
         result = BRIDGE.build_bridge(packet)
         self.assertEqual(BRIDGE.validate_output(result), result)
         self.assertEqual(result["five_axis"]["required_count"], 5)
@@ -55,7 +76,7 @@ class RealEvidenceTests(unittest.TestCase):
         self.assertTrue(all(value is False for value in result["authority"].values()))
 
     def test_source_axis_tamper_cannot_be_hidden_by_rehashing(self):
-        packet = latest_committed_packet()
+        packet = current_contract_packet()
         tampered = copy.deepcopy(packet)
         tampered["crypto_regime_five_axis"]["BREADTH"]["status"] = "DEFINED"
         tampered["payload_sha256"] = BRIDGE.DECISION.payload_sha256(tampered)
@@ -63,7 +84,7 @@ class RealEvidenceTests(unittest.TestCase):
             BRIDGE.build_bridge(tampered)
 
     def test_populate_is_idempotent_and_byte_stable(self):
-        packet = latest_committed_packet()
+        packet = current_contract_packet()
         with tempfile.TemporaryDirectory(prefix="axis_bridge_") as tmp:
             source = Path(tmp) / "decision.json"
             source.write_text(json.dumps(packet), encoding="utf-8")
