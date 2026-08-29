@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_paper_buy_eligibility_contract/1",
+  "input_promotion_state": "FOCUSED_REVIEW",
+  "criteria": [
+    "FOCUSED_REVIEW_UPSTREAM",
+    "REGIME_PERMITS_ENTRY",
+    "TRIGGER_TIMEFRAME_ALIGNMENT",
+    "BREAKOUT_OR_PULLBACK",
+    "INDEPENDENT_PRICE_VOLUME_EVIDENCE",
+    "NO_BLOCKER_STALE_OVERHEAT_DUPLICATE",
+    "ORDER_DRAFT_COMPLETE",
+    "PAPER_RISK_BUDGET",
+    "ZERO_ORDER_ENDPOINT_CALLS"
+  ],
+  "criterion_statuses": ["PASS", "FAIL", "UNKNOWN"],
+  "eligibility_states": ["WATCH", "WAIT", "BLOCKED", "PAPER_BUY_ELIGIBLE"],
+  "authority": {
+    "investable_eligible": false,
+    "paper_eligible": false,
+    "paper_buy_eligible_authorized": false,
+    "entry_authorized": false,
+    "stage_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false,
+    "exchange_order_authorized": false
+  }
+}

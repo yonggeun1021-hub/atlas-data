@@ -1549,6 +1549,19 @@ APPROVED_TESTS = [
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
+    # ★ P5-09 — Crypto PAPER Buy Eligibility: FOCUSED_REVIEW (P5-08) ->
+    #   WATCH/WAIT/BLOCKED/PAPER_BUY_ELIGIBLE. Pure derivation over an
+    #   already-revalidated P5-08 promotion packet only. REGIME_PERMITS_
+    #   ENTRY and the OVEREXTENSION leg of NO_BLOCKER_STALE_OVERHEAT_
+    #   DUPLICATE echo already-published P1-CR-08/P5-08 UNKNOWN-by-
+    #   construction boundaries, so a real evaluation cannot reach
+    #   PAPER_BUY_ELIGIBLE today; only the synthetic/mocked reachability
+    #   tests do. No new capture/network/order call. Every authority field
+    #   stays false.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_crypto_candidate_promotion.py above so
+    #      it is not silently hidden from the test-set comparison.
+    "test/test_crypto_paper_buy_eligibility.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
