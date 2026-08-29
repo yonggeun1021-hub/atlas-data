@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "kis_valuation_authority_approval/1",
+  "approvalStatus": "RATIFIED",
+  "ratifiedAt": "2026-08-29T03:20:00Z",
+  "authorityKind": "VALUATION_FRESHNESS_POLICY",
+  "ruleId": "atlas.portfolio-risk.kis-paper-valuation-freshness",
+  "ruleVersion": 1,
+  "approvedBusinessPayloadSha256": "862f87c5dbcc46337612553f7d6120b9dcc2c00246a91efd0ee22fa2291bc8de",
+  "sourceEvidence": [
+    {
+      "path": "portfolio_risk/kis_valuation_freshness_policy_proposal.py",
+      "sha256": "97e95fa6d6f97dc81675d59367faf82a252b46e26f4c216b0e1bece860beab65"
+    },
+    {
+      "path": "portfolio_risk/kis_valuation_freshness_policy_review.py",
+      "sha256": "5e5bb6aae7f8828c042a6411ac6ab29f3bfe812a8cf99aac24d7fc6c19f1f5b7"
+    }
+  ],
+  "assertion": {
+    "providerTuple": {
+      "provider": "KIS_PAPER_ACCOUNT",
+      "accountScope": "KOREA",
+      "currency": "KRW",
+      "positionSourceName": "kis_paper_domestic_balance"
+    },
+    "targetContractVersion": "portfolio_account_fact/3",
+    "proposalSha256": "2e223bffcccbe58785b98ec178351add46f752cbac034f6da686d5f31e4fb0d5",
+    "maxSourceAgeSeconds": 300,
+    "maxPairGapSeconds": 120,
+    "comparison": "NONNEGATIVE_AGE_AND_ABSOLUTE_GAP_LESS_THAN_OR_EQUAL",
+    "livePairSampleCountAtRatification": 0,
+    "atomicCaptureSessionBindingPresentAtRatification": false,
+    "empiricalValidationStatus": "NOT_ESTABLISHED_AT_RATIFICATION_MONITOR_SHADOW_ONLY"
+  },
+  "decision": {
+    "decisionStatus": "CIO_NORMATIVE_CONSERVATIVE_POLICY_RATIFICATION",
+    "basis": "The limits are an explicit conservative governance choice for read-only KIS PAPER accountFact/3 freshness, not a claim derived from valuation pair observations.",
+    "proposalReviewBlockerAcknowledged": "VALUATION_PAIR_GAP_EVIDENCE_UNVALIDATED_NO_LIVE_PAIR_SAMPLE",
+    "empiricalEvidenceClaimed": false,
+    "retroactiveUsePermitted": false
+  },
+  "boundary": "DATA_FRESHNESS_ONLY_NO_ACCOUNT_FACT_RISK_STAGE_BUY_ACTION_ORDER_PRODUCTION_TRADING_OR_REAL_AUTHORITY"
+}
