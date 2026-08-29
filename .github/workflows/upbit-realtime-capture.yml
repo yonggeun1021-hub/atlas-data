@@ -43,6 +43,7 @@ jobs:
         run: |
           python3 test/test_upbit_realtime_gate.py
           python3 test/test_upbit_public_validation_capture.py
+          python3 test/test_upbit_public_validation_natural_20260829.py
       - name: Offline crypto PAPER decision snapshot regression (P1-CR-08 + P5-08 + P5-09 composition)
         run: python3 test/test_crypto_paper_decision_snapshot.py
       - name: Offline P1-CR-08 hash-bound live component registry regression
