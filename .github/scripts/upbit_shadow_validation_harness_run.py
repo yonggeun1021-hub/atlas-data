@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +52,24 @@ def populate(snapshot_date: str, *, raw_root: Path = HARNESS.RAW_ROOT, data_root
             existing = json.loads(target.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise HARNESS.ShadowValidationHarnessError(f"EXISTING_PACKET_UNREADABLE:{snapshot_date}:{exc}") from exc
+        # CIO review (2026-08-29, PR #459): verify the EXISTING file's own
+        # declared payload_sha256 is self-consistent BEFORE trusting it for
+        # anything else. Comparing only "content minus hash fields" (below)
+        # cannot catch a file whose payload_sha256 was mutated in isolation
+        # (e.g. tampered to an arbitrary value) while its body stayed
+        # byte-identical to what this run would produce -- that previously
+        # passed silently as "verified_existing". Missing, malformed, or
+        # merely mismatched all fail closed the same way.
+        existing_hash = existing.get("payload_sha256")
+        if not isinstance(existing_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", existing_hash):
+            raise HARNESS.ShadowValidationHarnessError(
+                f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}:missing_or_malformed_payload_sha256"
+            )
+        recomputed_existing_hash = HARNESS.payload_sha256({k: v for k, v in existing.items() if k != "payload_sha256"})
+        if recomputed_existing_hash != existing_hash:
+            raise HARNESS.ShadowValidationHarnessError(
+                f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}:self_hash_mismatch"
+            )
         # code_commit_sha legitimately changes on every later re-run (new
         # commits keep landing on this fast-moving repo); every other field
         # must be byte-identical for the same snapshot_date and same

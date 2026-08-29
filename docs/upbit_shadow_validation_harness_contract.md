@@ -68,6 +68,24 @@ mutates on disk.
 
 This is reported as `funnel.after_shadow_if_ratified_as_currently_proposed`.
 
+### "Before" baseline label (CIO review, PR #459, P2)
+
+`funnel.before_current_production_mechanical_collision_included` is built
+from `ratified_identity_registry={}` (matching real production -- no
+ratified registry exists) **plus** `blocked_markets` computed from today's
+own identity proposals. This is a deliberate, exact reproduction of what
+`.github/scripts/upbit_universe_populate.py::rebuild()` does in real
+production today: it always passes today's mechanical
+`DUPLICATE_CANONICAL_TARGET` collision set into `build_classification()`,
+regardless of ratification status, because collision detection needs no
+ratification to be safe to enforce. The field name says so explicitly, and
+`packet["funnel_definitions"]` documents it in full, so this baseline is
+never mistaken for an idealized zero-collision "before ratification"
+picture -- today's real collision count is 0 (no numeric effect), but
+`test_upbit_shadow_validation_harness.py::test_before_baseline_includes_todays_mechanical_collision_hold_like_real_production`
+proves a collision fixture shows up in this baseline too, not only in the
+shadow scenario.
+
 ### 2. Supplemental hypothetical scenario -- clearly separate, exploratory only
 
 `config/upbit_exclusion_taxonomy.json` today ships **zero
@@ -87,6 +105,40 @@ is that external ratification, verbatim). This is reported separately under
 numbers, and is not a ratification proposal -- adding real eligible_crypto
 records to `config/upbit_exclusion_taxonomy.json` is a separate, later,
 human-ratified change, same discipline as everything else in P3-12.
+
+## Kraken breadth taxonomy loading (fail-closed, shared contract)
+
+`load_kraken_breadth_taxonomy()` does not maintain its own validator.
+Following CIO review feedback on PR #459, it delegates entirely to
+`identity/candidate_identity_gap_inventory.py::_load_taxonomy()` -- the same
+contract already exercised elsewhere in this repository -- which enforces,
+fail-closed:
+
+* `approval_status == "RATIFIED"` (a fixture or file merely shaped like a
+  ratified document, but not actually marked `RATIFIED`, is rejected, not
+  silently treated as trustworthy);
+* an exact `policy_version` pin (`crypto_breadth_exclusion_taxonomy/v2`) --
+  a schema change to that file must be a deliberate, reviewed harness change,
+  never silently absorbed;
+* `eligible_category`/`excluded_categories` are present and correctly
+  shaped, and every record's `category` is a member of that vocabulary;
+* no two records share a `canonical_asset_id` (Kraken's breadth taxonomy has
+  exactly one record per asset, ever -- unlike Upbit's own taxonomy, it does
+  not use multiple effective-dated records per asset, so any second record
+  for the same id is rejected outright, not merged/overwritten);
+* every `effective_from`/`effective_to` is a valid ISO date and
+  `effective_to` is never before `effective_from`.
+
+`load_kraken_breadth_taxonomy()` returns `(doc, records_by_canonical_id)`;
+resolving whether that record is *active* as of a given `evaluation_as_of`
+is a separate step, `_active_kraken_record()`, mirroring
+`candidate_identity_gap_inventory.py::_taxonomy_diagnostic()`'s own
+not-yet-effective/expired handling -- both resolve to "absent", never an
+error, since that is normal effective-dated-registry shape, not a fault.
+Both `kraken_cross_reference_signal()` and `taxonomy_audit()` consume Kraken
+corroboration exclusively through `_active_kraken_record()`, so a
+not-yet-effective or expired Kraken record can never corroborate this
+harness's supplemental hypothetical scenario or manual-review queue.
 
 ## Cross-reference signal (identity)
 
@@ -155,10 +207,24 @@ entry point: it resolves `git rev-parse HEAD` (fails closed, never a
 swallowed exception -- `universe/upbit_shadow_validation_harness.py::git_commit_sha()`)
 and persists one append-only, tamper-checked packet per `snapshot_date`
 under `data/observations/upbit_p3_12_shadow_validation/<date>/packet.json`.
-A rerun with identical evidence/config inputs re-verifies the existing
-packet byte-for-byte (except `code_commit_sha`, which legitimately advances
-as new commits land); any other drift raises
-`EXISTING_PACKET_DRIFT_OR_TAMPER`.
+
+A rerun against an existing packet performs two independent checks, in
+order, both fail-closed:
+
+1. **Self-hash verification** -- the existing file's own declared
+   `payload_sha256` is recomputed from its own body (everything except that
+   field) and compared. A missing, malformed (not 64 lowercase hex
+   characters), or mismatched value raises `EXISTING_PACKET_HASH_INVALID`
+   immediately. This exists because comparing only "content minus
+   `code_commit_sha`/`payload_sha256`" (step 2) cannot by itself catch a
+   file whose `payload_sha256` field alone was tampered with while its body
+   stayed byte-identical -- that previously passed silently as
+   `verified_existing` (CIO review, PR #459, P1).
+2. **Content-drift check** -- with the existing file now known to be
+   internally self-consistent, its content (again excluding
+   `code_commit_sha`, which legitimately advances as new commits land) must
+   still exactly match a freshly recomputed packet for the same
+   `snapshot_date`, or `EXISTING_PACKET_DRIFT_OR_TAMPER` is raised.
 
 ## Offline commands
 

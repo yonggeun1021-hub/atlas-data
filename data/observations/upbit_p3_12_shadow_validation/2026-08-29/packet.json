@@ -13,7 +13,7 @@
     "tradeable_universe_promotion_authorized": false,
     "trading_authorized": false
   },
-  "code_commit_sha": "71a36a70bcc0ab0e44285cfe13865b5ebd747b6b",
+  "code_commit_sha": "31e64933b95edbaa0a01dd0def90044fe3ed33b2",
   "evaluation_as_of": "2026-08-29",
   "funnel": {
     "after_shadow_if_ratified_as_currently_proposed": {
@@ -23,13 +23,17 @@
       "paper_eligible_count": 0,
       "tradeable_universe_count": 0
     },
-    "before_current_production": {
+    "before_current_production_mechanical_collision_included": {
       "blocked_count": 0,
       "market_count": 282,
       "observation_pool_count": 282,
       "paper_eligible_count": 0,
       "tradeable_universe_count": 0
     }
+  },
+  "funnel_definitions": {
+    "after_shadow_if_ratified_as_currently_proposed": "In-memory-only RATIFIED policy/taxonomy copies (every threshold and category unchanged) plus the shadow identity registry built from today's non-colliding proposals -- see shadow_apply_boundary.",
+    "before_current_production_mechanical_collision_included": "Exact reproduction of today's real production output (.github/scripts/upbit_universe_populate.py::rebuild()): ratified_identity_registry={} (no ratified registry exists), but blocked_markets IS populated from today's mechanical, ratification-independent DUPLICATE_CANONICAL_TARGET collision check -- production applies this collision hold today regardless of ratification status, so this baseline must too, to stay a faithful 'before' reproduction rather than an idealized zero-collision one. Today's real collision count is 0, so this has no numeric effect on today's packet, but an identity-collision fixture would show up in this baseline too, not only in the shadow scenario below."
   },
   "funnel_supplemental_hypothetical": {
     "after_with_kraken_corroborated_eligible_records": {
@@ -5707,7 +5711,7 @@
       "trailing_30d_krw_turnover": "5298061754.76636071"
     }
   ],
-  "payload_sha256": "511ac63b4c3e6d7e7afa12d3d68da47f5ff118e39618c74861f276401826c9ca",
+  "payload_sha256": "e2a88b5b98c40af40f73db4dcf50cb54d37b1f3e475427e37f9ced72690417b9",
   "reason_distribution": {
     "after": {
       "INVESTMENT_WARNING_ACTIVE": 8,
@@ -5724,7 +5728,7 @@
       "TAXONOMY_UNKNOWN": 197,
       "TURNOVER_BELOW_THRESHOLD": 2
     },
-    "before": {
+    "before_current_production_mechanical_collision_included": {
       "IDENTITY_UNRATIFIED": 274,
       "INVESTMENT_WARNING_ACTIVE": 8
     }

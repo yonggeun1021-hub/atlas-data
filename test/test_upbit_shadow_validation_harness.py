@@ -107,20 +107,51 @@ def real_taxonomy(**overrides):
     return taxonomy
 
 
-def kraken_taxonomy(**overrides):
-    doc = {
-        "approval_status": "RATIFIED",
-        "eligible_category": "eligible_crypto",
-        "records": [
-            {"canonical_asset_id": "BTC", "category": "eligible_crypto", "reason": "native crypto asset"},
-            {"canonical_asset_id": "ETH", "category": "eligible_crypto", "reason": "native crypto asset"},
-            {"canonical_asset_id": "SOL", "category": "eligible_crypto", "reason": "native crypto asset"},
-            {"canonical_asset_id": "RE", "category": "unverified_identity", "reason": "ticker collision"},
-            {"canonical_asset_id": "XAUT", "category": "commodity_linked", "reason": "gold-linked token"},
-        ],
+KRAKEN_POLICY_VERSION = "crypto_breadth_exclusion_taxonomy/v2"
+KRAKEN_EXCLUDED_CATEGORIES = ("commodity_linked", "fiat", "stablecoin", "staked", "unverified_identity", "wrapped")
+
+
+def kraken_record(canonical_id, category, *, effective_from="2026-08-01", effective_to=None, reason="reason"):
+    return {
+        "canonical_asset_id": canonical_id, "category": category,
+        "effective_from": effective_from, "effective_to": effective_to, "reason": reason,
     }
-    doc.update(overrides)
-    return doc
+
+
+def kraken_records(*rows) -> dict:
+    """The ``{canonical_id: row}`` shape ``build_shadow_packet`` /
+    ``kraken_cross_reference_signal`` / ``taxonomy_audit`` consume directly --
+    i.e. already past ``load_kraken_breadth_taxonomy()``'s own validation.
+    """
+    if not rows:
+        rows = (
+            kraken_record("BTC", "eligible_crypto", reason="native crypto asset"),
+            kraken_record("ETH", "eligible_crypto", reason="native crypto asset"),
+            kraken_record("SOL", "eligible_crypto", reason="native crypto asset"),
+            kraken_record("RE", "unverified_identity", reason="ticker collision"),
+            kraken_record("XAUT", "commodity_linked", reason="gold-linked token"),
+        )
+    return {row["canonical_asset_id"]: row for row in rows}
+
+
+def kraken_taxonomy_doc(*, approval_status="RATIFIED", policy_version=KRAKEN_POLICY_VERSION,
+                         eligible_category="eligible_crypto", excluded_categories=KRAKEN_EXCLUDED_CATEGORIES,
+                         records=None):
+    """The full on-disk JSON shape, for exercising ``load_kraken_breadth_taxonomy()``
+    (i.e. ``identity/candidate_identity_gap_inventory.py::_load_taxonomy()``) itself."""
+    if records is None:
+        records = [kraken_record("BTC", "eligible_crypto"), kraken_record("ETH", "eligible_crypto")]
+    return {
+        "approval_status": approval_status, "policy_version": policy_version,
+        "eligible_category": eligible_category, "excluded_categories": list(excluded_categories),
+        "records": records,
+    }
+
+
+def write_kraken_taxonomy_doc(tmp_dir: Path, doc: dict) -> Path:
+    path = Path(tmp_dir) / "kraken_taxonomy.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
 
 
 class ShadowIdentityRegistryTests(unittest.TestCase):
@@ -142,12 +173,10 @@ class BuildShadowPacketTests(unittest.TestCase):
     def _run(self, markets: dict, *, policy=None, taxonomy=None, kraken=None,
               evaluation_as_of="2026-08-28", exceptions_doc=None):
         core = base_core(markets)
-        proposals = H.build_identity_proposals(core, CAPTURE_CONTRACT, review_as_of="2026-08-28", exceptions_doc=exceptions_doc)
-        findings = IDP.identity_review_findings(proposals)
         return H.build_shadow_packet(
             core=core, capture_contract=CAPTURE_CONTRACT,
             real_policy=policy or real_policy(), real_taxonomy=taxonomy or real_taxonomy(),
-            exceptions_doc=exceptions_doc, kraken_taxonomy=kraken or kraken_taxonomy(),
+            exceptions_doc=exceptions_doc, kraken_records_by_id=kraken if kraken is not None else kraken_records(),
             evaluation_as_of=evaluation_as_of, code_commit_sha="a" * 40,
             file_hashes={"universe_policy_file_sha256": "b" * 64, "taxonomy_file_sha256": "c" * 64},
         )
@@ -165,7 +194,9 @@ class BuildShadowPacketTests(unittest.TestCase):
 
     def test_shadow_apply_promotes_a_clean_market_to_paper_eligible(self):
         packet = self._run({"KRW-BTC": market_row()})
-        self.assertEqual(packet["funnel"]["before_current_production"]["paper_eligible_count"], 0)
+        self.assertEqual(
+            packet["funnel"]["before_current_production_mechanical_collision_included"]["paper_eligible_count"], 0
+        )
         self.assertEqual(packet["funnel"]["after_shadow_if_ratified_as_currently_proposed"]["paper_eligible_count"], 1)
         row = packet["markets_after_shadow_apply"][0]
         self.assertEqual(row["state"], UNI.STATE_PAPER_ELIGIBLE)
@@ -187,7 +218,7 @@ class BuildShadowPacketTests(unittest.TestCase):
         findings = IDP.identity_review_findings(proposals)
         packet = H.build_shadow_packet(
             core=core, capture_contract=CAPTURE_CONTRACT, real_policy=real_policy(), real_taxonomy=real_taxonomy(),
-            exceptions_doc=None, kraken_taxonomy=kraken_taxonomy(), evaluation_as_of="2026-08-28",
+            exceptions_doc=None, kraken_records_by_id=kraken_records(), evaluation_as_of="2026-08-28",
             code_commit_sha="a" * 40, file_hashes={},
         )
         # (packet above used the harness's own internal proposal-building, so
@@ -196,7 +227,8 @@ class BuildShadowPacketTests(unittest.TestCase):
         # registry/queue functions directly against the forced collision.)
         registry = H.shadow_identity_registry(proposals, findings)
         self.assertEqual(registry, {})
-        queue = H.identity_manual_review_queue(proposals, findings, H.kraken_cross_reference_signal(proposals, kraken_taxonomy()))
+        cross_ref = H.kraken_cross_reference_signal(proposals, kraken_records(), as_of="2026-08-28")
+        queue = H.identity_manual_review_queue(proposals, findings, cross_ref)
         markets_in_queue = {row["market"] for row in queue}
         self.assertIn("KRW-BTC", markets_in_queue)
         self.assertIn("KRW-BTC2", markets_in_queue)
@@ -218,7 +250,7 @@ class BuildShadowPacketTests(unittest.TestCase):
         findings = IDP.identity_review_findings(proposals)
         stale_packet = H.build_shadow_packet(
             core=core, capture_contract=CAPTURE_CONTRACT, real_policy=real_policy(), real_taxonomy=real_taxonomy(),
-            exceptions_doc=None, kraken_taxonomy=kraken_taxonomy(), evaluation_as_of="2026-08-28",
+            exceptions_doc=None, kraken_records_by_id=kraken_records(), evaluation_as_of="2026-08-28",
             code_commit_sha="a" * 40, file_hashes={},
         )
         row = stale_packet["markets_after_shadow_apply"][0]
@@ -279,7 +311,9 @@ class BuildShadowPacketTests(unittest.TestCase):
 
     def test_empty_input_produces_zero_funnel_without_crashing(self):
         packet = self._run({})
-        self.assertEqual(packet["funnel"]["before_current_production"]["market_count"], 0)
+        self.assertEqual(
+            packet["funnel"]["before_current_production_mechanical_collision_included"]["market_count"], 0
+        )
         self.assertEqual(packet["funnel"]["after_shadow_if_ratified_as_currently_proposed"]["market_count"], 0)
         self.assertEqual(packet["taxonomy_audit"]["candidates"], [])
         self.assertEqual(packet["identity_review"]["manual_review_queue"], [])
@@ -323,6 +357,46 @@ class BuildShadowPacketTests(unittest.TestCase):
         self._run({"KRW-SOL": market_row(korean_name="솔라나", english_name="Solana")}, taxonomy=real_tax)
         self.assertEqual(len(real_tax["records"]), original_record_count)
 
+    def test_before_baseline_includes_todays_mechanical_collision_hold_like_real_production(self):
+        # CIO review (PR #459): before_current_production_mechanical_collision_included
+        # must inject today's mechanical DUPLICATE_CANONICAL_TARGET collision
+        # set, exactly like .github/scripts/upbit_universe_populate.py's real
+        # production rebuild() does today -- proven end-to-end through the
+        # public build_shadow_packet() API (not by poking internals) using an
+        # identity exception that forces two distinct markets to the same
+        # candidate canonical id. Today's real snapshot has 0 collisions, so
+        # this can't be proven against the natural packet alone.
+        exceptions_doc = {
+            "records": [
+                {"source_asset_id": "BTC", "canonical_asset_id": "SHARED"},
+                {"source_asset_id": "ETH", "canonical_asset_id": "SHARED"},
+            ]
+        }
+        packet = self._run(
+            {"KRW-BTC": market_row(), "KRW-ETH": market_row()},
+            exceptions_doc=exceptions_doc,
+        )
+        self.assertEqual(packet["identity_review"]["blocked_market_count"], 2)
+        before = packet["funnel"]["before_current_production_mechanical_collision_included"]
+        self.assertEqual(before["blocked_count"], 2)
+        rows = {row["market"]: row for row in packet["markets_after_shadow_apply"]}
+        # the shadow ("after") packet is blocked too, but the whole point of
+        # this test is that the BEFORE baseline is *also* blocked, not
+        # promoted to a falsely-clean 0-collision current-production picture
+        self.assertEqual(rows["KRW-BTC"]["state"], UNI.STATE_BLOCKED)
+        self.assertEqual(rows["KRW-ETH"]["state"], UNI.STATE_BLOCKED)
+
+    def test_funnel_definitions_document_the_before_baseline_precisely(self):
+        packet = self._run({"KRW-BTC": market_row()})
+        definitions = packet["funnel_definitions"]
+        self.assertIn(
+            "before_current_production_mechanical_collision_included", definitions,
+        )
+        self.assertIn("mechanical", definitions["before_current_production_mechanical_collision_included"])
+        self.assertIn(
+            "before_current_production_mechanical_collision_included", packet["funnel"],
+        )
+
     def test_gate_pass_fail_distribution_buckets_reasons_correctly(self):
         packet = self._run({
             "KRW-BTC": market_row(),  # passes everything
@@ -333,6 +407,146 @@ class BuildShadowPacketTests(unittest.TestCase):
         self.assertEqual(dist["liquidity"]["fail"], 1)
         self.assertEqual(dist["spread"]["fail"], 0)
         self.assertEqual(dist["slippage"]["fail"], 0)
+
+
+class KrakenTaxonomyLoaderTests(unittest.TestCase):
+    """load_kraken_breadth_taxonomy() delegates to the shared, already-tested
+    identity/candidate_identity_gap_inventory.py::_load_taxonomy() contract --
+    these tests prove that delegation actually enforces every fail-closed
+    check the CIO review asked for, using a temp file (never the real
+    committed config).
+    """
+
+    def test_real_committed_kraken_taxonomy_loads_ratified_v2_with_no_duplicates(self):
+        doc, records_by_id = H.load_kraken_breadth_taxonomy()
+        self.assertEqual(doc["approval_status"], "RATIFIED")
+        self.assertEqual(doc["policy_version"], KRAKEN_POLICY_VERSION)
+        self.assertEqual(len(records_by_id), len(doc["records"]))  # no duplicates silently dropped/merged
+
+    def test_unratified_kraken_taxonomy_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(approval_status="PROPOSED_UNRATIFIED"))
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_wrong_policy_version_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(policy_version="crypto_breadth_exclusion_taxonomy/v1"))
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_invalid_category_vocabulary_shape_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(excluded_categories=[]))
+            doc = json.loads(path.read_text())
+            doc["eligible_category"] = None  # not a string
+            path.write_text(json.dumps(doc), encoding="utf-8")
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_record_with_category_outside_vocabulary_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(
+                records=[kraken_record("ZZZ", "not_a_real_category")]
+            ))
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_duplicate_canonical_asset_id_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(records=[
+                kraken_record("BTC", "eligible_crypto"),
+                kraken_record("BTC", "eligible_crypto", effective_from="2026-08-15"),
+            ]))
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_malformed_effective_from_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(records=[
+                kraken_record("BTC", "eligible_crypto", effective_from="not-a-date")
+            ]))
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_reversed_effective_interval_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_kraken_taxonomy_doc(tmp, kraken_taxonomy_doc(records=[
+                kraken_record("BTC", "eligible_crypto", effective_from="2026-08-20", effective_to="2026-08-01")
+            ]))
+            with self.assertRaises(H.ShadowValidationHarnessError):
+                H.load_kraken_breadth_taxonomy(path)
+
+    def test_future_dated_record_is_inactive_not_an_error(self):
+        # A record that is merely not yet effective is normal, expected
+        # registry shape -- it must resolve to "absent" for consumption
+        # purposes, not raise.
+        records = kraken_records(kraken_record("ZOOM", "eligible_crypto", effective_from="2099-01-01"))
+        self.assertIsNone(H._active_kraken_record("ZOOM", "2026-08-29", records))
+
+    def test_expired_record_is_inactive_not_an_error(self):
+        records = kraken_records(
+            kraken_record("OLDCOIN", "eligible_crypto", effective_from="2020-01-01", effective_to="2021-01-01")
+        )
+        self.assertIsNone(H._active_kraken_record("OLDCOIN", "2026-08-29", records))
+
+    def test_active_record_resolves_on_its_effective_date(self):
+        records = kraken_records(
+            kraken_record("MIDCOIN", "eligible_crypto", effective_from="2026-08-01", effective_to="2026-12-31")
+        )
+        row = H._active_kraken_record("MIDCOIN", "2026-08-29", records)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["category"], "eligible_crypto")
+
+
+class KrakenActiveRecordConsumptionTests(unittest.TestCase):
+    """evaluation_as_of-aware consumption of Kraken corroboration, exercised
+    through the full build_shadow_packet() pipeline.
+    """
+
+    def _run(self, markets: dict, *, kraken=None, evaluation_as_of="2026-08-28"):
+        core = base_core(markets)
+        return H.build_shadow_packet(
+            core=core, capture_contract=CAPTURE_CONTRACT,
+            real_policy=real_policy(), real_taxonomy=real_taxonomy(),
+            exceptions_doc=None, kraken_records_by_id=kraken if kraken is not None else kraken_records(),
+            evaluation_as_of=evaluation_as_of, code_commit_sha="a" * 40,
+            file_hashes={},
+        )
+
+    def test_not_yet_effective_kraken_record_never_corroborates_supplemental_scenario(self):
+        records = kraken_records(
+            kraken_record("FUTURECOIN", "eligible_crypto", effective_from="2099-01-01"),
+        )
+        packet = self._run(
+            {"KRW-FUTURECOIN": market_row(korean_name="퓨처코인", english_name="FutureCoin")},
+            kraken=records,
+        )
+        self.assertEqual(packet["taxonomy_audit"]["corroborated_eligible_count"], 0)
+        self.assertEqual(packet["funnel_supplemental_hypothetical"]["hypothetical_records_added"], 0)
+        self.assertEqual(packet["identity_review"]["cross_reference"]["present_in_registry_count"], 0)
+
+    def test_expired_kraken_record_never_corroborates_supplemental_scenario(self):
+        records = kraken_records(
+            kraken_record("OLDCOIN", "eligible_crypto", effective_from="2020-01-01", effective_to="2021-01-01"),
+        )
+        packet = self._run(
+            {"KRW-OLDCOIN": market_row(korean_name="올드코인", english_name="OldCoin")},
+            kraken=records,
+        )
+        self.assertEqual(packet["taxonomy_audit"]["corroborated_eligible_count"], 0)
+        self.assertEqual(packet["funnel_supplemental_hypothetical"]["hypothetical_records_added"], 0)
+
+    def test_active_kraken_record_does_corroborate_supplemental_scenario(self):
+        records = kraken_records(
+            kraken_record("ACTIVECOIN", "eligible_crypto", effective_from="2026-01-01"),
+        )
+        packet = self._run(
+            {"KRW-ACTIVECOIN": market_row(korean_name="액티브코인", english_name="ActiveCoin")},
+            kraken=records,
+        )
+        self.assertEqual(packet["taxonomy_audit"]["corroborated_eligible_count"], 1)
+        self.assertEqual(packet["funnel_supplemental_hypothetical"]["hypothetical_records_added"], 1)
 
 
 class GitCommitShaTests(unittest.TestCase):
@@ -384,13 +598,54 @@ class NaturalPacketTests(unittest.TestCase):
             with self.assertRaises(run_module.HARNESS.ShadowValidationHarnessError):
                 run_module.populate("2026-08-29", data_root=output)
 
+    def test_run_script_rejects_existing_packet_whose_declared_hash_is_self_inconsistent(self):
+        # CIO review (PR #459), P1: previously, mutating ONLY payload_sha256
+        # in an existing packet (body left byte-identical) passed silently as
+        # "verified_existing" because the drift check excluded that field
+        # from comparison on both sides. The self-hash check must catch this
+        # BEFORE that content-diff check ever runs.
+        run_module = _load_run_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            first = run_module.populate("2026-08-29", data_root=output)
+            self.assertEqual(first["outcome"], "populated")
+            target = Path(first["path"])
+            packet = json.loads(target.read_text(encoding="utf-8"))
+            packet["payload_sha256"] = "f" * 64  # well-formed hex, but no longer self-consistent
+            target.write_text(json.dumps(packet), encoding="utf-8")
+            with self.assertRaisesRegex(run_module.HARNESS.ShadowValidationHarnessError, "EXISTING_PACKET_HASH_INVALID"):
+                run_module.populate("2026-08-29", data_root=output)
+
+    def test_run_script_rejects_existing_packet_with_missing_or_malformed_hash_field(self):
+        run_module = _load_run_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            first = run_module.populate("2026-08-29", data_root=output)
+            target = Path(first["path"])
+            packet = json.loads(target.read_text(encoding="utf-8"))
+            del packet["payload_sha256"]
+            target.write_text(json.dumps(packet), encoding="utf-8")
+            with self.assertRaisesRegex(run_module.HARNESS.ShadowValidationHarnessError, "EXISTING_PACKET_HASH_INVALID"):
+                run_module.populate("2026-08-29", data_root=output)
+
+            packet["payload_sha256"] = "not-hex"
+            target.write_text(json.dumps(packet), encoding="utf-8")
+            with self.assertRaisesRegex(run_module.HARNESS.ShadowValidationHarnessError, "EXISTING_PACKET_HASH_INVALID"):
+                run_module.populate("2026-08-29", data_root=output)
+
     def test_run_script_never_writes_to_any_canonical_config_path(self):
         source = RUN_SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn('"approval_status": "RATIFIED"', source)
         harness_source = MODULE_PATH.read_text(encoding="utf-8")
-        # the only "RATIFIED" string literal in the harness itself is inside
-        # shadow_ratify()'s in-memory override and its own explanatory note
-        self.assertEqual(harness_source.count('"RATIFIED"'), 1)
+        # No JSON-literal '"approval_status": "RATIFIED"' is ever hardcoded
+        # in the harness source itself either -- the only place the string
+        # "RATIFIED" appears at all is (a) shadow_ratify()'s in-memory
+        # Python assignment (`shadow["approval_status"] = "RATIFIED"`, never
+        # written to disk) and (b) a docstring describing the read-only
+        # comparison load_kraken_breadth_taxonomy() performs against the
+        # already-committed, already-RATIFIED Kraken file.
+        self.assertNotIn('"approval_status": "RATIFIED"', harness_source)
+        self.assertEqual(harness_source.count('"RATIFIED"'), 2)
 
 
 if __name__ == "__main__":

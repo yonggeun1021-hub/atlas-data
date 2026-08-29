@@ -64,6 +64,13 @@ def _load_module(name: str, relative_path: str):
 
 UNI = _load_module("upbit_tradeable_universe_for_shadow_harness", "universe/upbit_tradeable_universe.py")
 IDP = _load_module("upbit_market_identity_proposal_for_shadow_harness", "identity/upbit_market_identity_proposal.py")
+# CIO review (2026-08-29, PR #459): reuse the already-tested Kraken breadth
+# taxonomy fail-closed contract (RATIFIED status, exact policy_version pin,
+# category vocabulary, canonical-id duplicate rejection, effective-interval
+# validation) instead of maintaining a parallel, looser validator here.
+GAP_INVENTORY = _load_module(
+    "candidate_identity_gap_inventory_for_shadow_harness", "identity/candidate_identity_gap_inventory.py",
+)
 
 RAW_ROOT = ROOT / "evidence" / "crypto" / "upbit" / "raw"
 POLICY_PATH = UNI.POLICY_PATH
@@ -159,14 +166,50 @@ def git_commit_sha(root: Path = ROOT) -> str:
     return sha
 
 
-def load_kraken_breadth_taxonomy(path: Path = KRAKEN_BREADTH_TAXONOMY_PATH) -> dict:
+def load_kraken_breadth_taxonomy(path: Path = KRAKEN_BREADTH_TAXONOMY_PATH) -> tuple:
+    """Load + fail-closed validate the Kraken breadth exclusion taxonomy by
+    delegating to the shared, already-tested contract
+    ``identity/candidate_identity_gap_inventory.py::_load_taxonomy()``:
+    ``approval_status == "RATIFIED"``, exact ``policy_version`` pin
+    (``crypto_breadth_exclusion_taxonomy/v2``), eligible/excluded category
+    vocabulary shape, every record's category is a member of that
+    vocabulary, canonical-id duplicates rejected, and every
+    effective_from/effective_to is a valid, non-reversed ISO date interval.
+    No parallel/looser validator is maintained here.
+
+    Returns ``(doc, records_by_canonical_id)``. ``records_by_canonical_id``
+    has exactly one row per canonical id (duplicates already rejected) --
+    whether that single row is *active* as of a given evaluation date is a
+    separate, later check (see ``_active_kraken_record``), mirroring
+    ``candidate_identity_gap_inventory.py``'s own ``_taxonomy_diagnostic``.
+    """
     try:
-        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        doc, records_by_id = GAP_INVENTORY._load_taxonomy(Path(path))
     except (OSError, json.JSONDecodeError) as exc:
         raise ShadowValidationHarnessError(f"KRAKEN_BREADTH_TAXONOMY_READ_FAILED:{exc}") from exc
-    if not isinstance(doc, dict) or not {"approval_status", "records"}.issubset(doc):
-        raise ShadowValidationHarnessError("KRAKEN_BREADTH_TAXONOMY_FIELDS_INVALID")
-    return doc
+    except GAP_INVENTORY.CandidateIdentityGapInventoryError as exc:
+        raise ShadowValidationHarnessError(f"KRAKEN_BREADTH_TAXONOMY_INVALID:{exc}") from exc
+    return doc, records_by_id
+
+
+def _active_kraken_record(canonical_id: str, as_of: str, kraken_records_by_id: dict) -> dict | None:
+    """The single Kraken breadth-taxonomy record for ``canonical_id`` if (and
+    only if) it is effective-dated *active* as of ``as_of`` -- not yet
+    effective, or already expired, both resolve to ``None``, mirroring
+    ``candidate_identity_gap_inventory.py::_taxonomy_diagnostic``'s own
+    ``NO_RECORD`` handling. Never raises on a future/expired record; that is
+    the normal, expected shape of an effective-dated registry, not a fault.
+    """
+    row = kraken_records_by_id.get(canonical_id)
+    if row is None:
+        return None
+    effective_from = row.get("effective_from")
+    effective_to = row.get("effective_to")
+    if not isinstance(effective_from, str) or effective_from > as_of:
+        return None
+    if effective_to is not None and effective_to < as_of:
+        return None
+    return row
 
 
 def load_identity_exceptions(path: Path = IDENTITY_EXCEPTIONS_PATH) -> dict | None:
@@ -214,24 +257,25 @@ def shadow_identity_registry(proposals: list, findings: list) -> dict:
     }
 
 
-def kraken_cross_reference_signal(proposals: list, kraken_taxonomy: dict) -> dict:
+def kraken_cross_reference_signal(proposals: list, kraken_records_by_id: dict, *, as_of: str) -> dict:
     """Per-market informational signal only: does an independent, already
     RATIFIED registry (Kraken breadth exclusion taxonomy) know this candidate
-    canonical asset id at all, and if so does it flag the id itself as
-    ticker-collision ``unverified_identity``? Never fed into
-    ``build_classification`` -- production's own
+    canonical asset id, *active as of ``as_of``*, at all, and if so does it
+    flag the id itself as ticker-collision ``unverified_identity``? A record
+    that exists but is not yet effective or has already expired as of
+    ``as_of`` is treated as absent, never as a stale-but-still-counted match.
+    Never fed into ``build_classification`` -- production's own
     ``.github/scripts/upbit_universe_populate.py`` deliberately omits this
     exact cross-reference for the documented reason that Kraken's universe
     scope does not cover most legitimate Upbit-only assets (see that
     module's docstring). This harness surfaces it anyway, but strictly as a
     manual-review priority signal, never as a promotion/exclusion input.
     """
-    by_id = {row["canonical_asset_id"]: row for row in kraken_taxonomy.get("records", [])}
     signal = {}
     for proposal in proposals:
         market = proposal["claim"]["upbitMarket"]
         candidate = proposal["claim"]["candidateCanonicalAssetId"]
-        record = by_id.get(candidate)
+        record = _active_kraken_record(candidate, as_of, kraken_records_by_id)
         signal[market] = {
             "candidate_canonical_asset_id": candidate,
             "present_in_kraken_ratified_registry": record is not None,
@@ -365,8 +409,7 @@ def taxonomy_pattern_flags(korean_name, english_name) -> list:
     return flags
 
 
-def taxonomy_audit(core: dict, proposals: list, taxonomy: dict, kraken_taxonomy: dict, *, as_of: str) -> dict:
-    kraken_by_id = {row["canonical_asset_id"]: row for row in kraken_taxonomy.get("records", [])}
+def taxonomy_audit(core: dict, proposals: list, taxonomy: dict, kraken_records_by_id: dict, *, as_of: str) -> dict:
     already_recorded = []
     candidates = []
     schema_gaps = []
@@ -386,7 +429,10 @@ def taxonomy_audit(core: dict, proposals: list, taxonomy: dict, kraken_taxonomy:
             continue
 
         flags = taxonomy_pattern_flags(entry.get("korean_name"), entry.get("english_name"))
-        kraken_record = kraken_by_id.get(candidate_id)
+        # Only an effective-dated-active Kraken record is usable evidence --
+        # a not-yet-effective or already-expired record is treated the same
+        # as absent (see _active_kraken_record).
+        kraken_record = _active_kraken_record(candidate_id, as_of, kraken_records_by_id)
 
         basis = []
         suggested_categories = {_FLAG_TO_CATEGORY[flag] for flag in flags}
@@ -540,7 +586,7 @@ def slippage_curve(core: dict, shadow_packet: dict, policy: dict, *, multiples=(
 
 def build_shadow_packet(
     *, core: dict, capture_contract: dict, real_policy: dict, real_taxonomy: dict,
-    exceptions_doc: dict | None, kraken_taxonomy: dict, evaluation_as_of: str,
+    exceptions_doc: dict | None, kraken_records_by_id: dict, evaluation_as_of: str,
     code_commit_sha: str, file_hashes: dict,
 ) -> dict:
     review_as_of = core["snapshot_date"]
@@ -548,8 +594,17 @@ def build_shadow_packet(
     findings = IDP.identity_review_findings(proposals, known_canonical_ids=None)
     blocked = IDP.blocked_markets(findings)
     registry = shadow_identity_registry(proposals, findings)
-    cross_reference = kraken_cross_reference_signal(proposals, kraken_taxonomy)
+    cross_reference = kraken_cross_reference_signal(proposals, kraken_records_by_id, as_of=evaluation_as_of)
 
+    # NOTE (CIO review, PR #459): this "before" baseline deliberately injects
+    # `blocked_markets` computed from today's identity proposals, exactly as
+    # real production does today (`.github/scripts/upbit_universe_populate.py
+    # ::rebuild()` always passes today's mechanical DUPLICATE_CANONICAL_TARGET
+    # collision set into build_classification, regardless of ratification
+    # status -- collision detection needs no ratification to be safe to
+    # enforce). This is why the field below is named to say so explicitly:
+    # it is a faithful reproduction of today's real production output, not a
+    # "ratification-free" hypothetical -- see funnel_definitions below.
     before_packet = UNI.build_classification(
         core, evaluation_as_of=evaluation_as_of, policy=real_policy, taxonomy=real_taxonomy,
         ratified_identity_registry={}, blocked_markets=blocked,
@@ -561,7 +616,7 @@ def build_shadow_packet(
         ratified_identity_registry=registry, blocked_markets=blocked,
     )
 
-    audit = taxonomy_audit(core, proposals, real_taxonomy, kraken_taxonomy, as_of=evaluation_as_of)
+    audit = taxonomy_audit(core, proposals, real_taxonomy, kraken_records_by_id, as_of=evaluation_as_of)
     review_queue = identity_manual_review_queue(proposals, findings, cross_reference)
     present_count = sum(1 for row in cross_reference.values() if row["present_in_kraken_ratified_registry"])
 
@@ -623,8 +678,28 @@ def build_shadow_packet(
         },
         "taxonomy_audit": audit,
         "funnel": {
-            "before_current_production": before_packet["summary"],
+            "before_current_production_mechanical_collision_included": before_packet["summary"],
             "after_shadow_if_ratified_as_currently_proposed": after_packet["summary"],
+        },
+        "funnel_definitions": {
+            "before_current_production_mechanical_collision_included": (
+                "Exact reproduction of today's real production output "
+                "(.github/scripts/upbit_universe_populate.py::rebuild()): "
+                "ratified_identity_registry={} (no ratified registry exists), but "
+                "blocked_markets IS populated from today's mechanical, "
+                "ratification-independent DUPLICATE_CANONICAL_TARGET collision check "
+                "-- production applies this collision hold today regardless of "
+                "ratification status, so this baseline must too, to stay a faithful "
+                "'before' reproduction rather than an idealized zero-collision one. "
+                "Today's real collision count is 0, so this has no numeric effect on "
+                "today's packet, but an identity-collision fixture would show up in "
+                "this baseline too, not only in the shadow scenario below."
+            ),
+            "after_shadow_if_ratified_as_currently_proposed": (
+                "In-memory-only RATIFIED policy/taxonomy copies (every threshold and "
+                "category unchanged) plus the shadow identity registry built from "
+                "today's non-colliding proposals -- see shadow_apply_boundary."
+            ),
         },
         "funnel_supplemental_hypothetical": {
             "note": (
@@ -641,7 +716,7 @@ def build_shadow_packet(
             "slippage_curve_sample": supplemental_curve,
         },
         "reason_distribution": {
-            "before": _reason_distribution(before_packet),
+            "before_current_production_mechanical_collision_included": _reason_distribution(before_packet),
             "after": _reason_distribution(after_packet),
             "after_with_kraken_corroborated_eligible_records_hypothetical": _reason_distribution(supplemental_after_packet),
         },
@@ -686,7 +761,7 @@ def evaluate(snapshot_date: str, *, raw_root: Path = RAW_ROOT, evaluation_as_of:
     real_policy = UNI.load_policy()
     real_taxonomy = UNI.load_taxonomy()
     exceptions_doc = load_identity_exceptions()
-    kraken_taxonomy = load_kraken_breadth_taxonomy()
+    _kraken_doc, kraken_records_by_id = load_kraken_breadth_taxonomy()
     resolved_commit = code_commit_sha or git_commit_sha()
 
     file_hashes = {
@@ -703,7 +778,7 @@ def evaluate(snapshot_date: str, *, raw_root: Path = RAW_ROOT, evaluation_as_of:
 
     return build_shadow_packet(
         core=core, capture_contract=capture_contract, real_policy=real_policy, real_taxonomy=real_taxonomy,
-        exceptions_doc=exceptions_doc, kraken_taxonomy=kraken_taxonomy,
+        exceptions_doc=exceptions_doc, kraken_records_by_id=kraken_records_by_id,
         evaluation_as_of=evaluation_as_of or snapshot_date, code_commit_sha=resolved_commit,
         file_hashes=file_hashes,
     )

@@ -14,12 +14,23 @@ source: `universe/upbit_shadow_validation_harness.py` +
 `docs/upbit_shadow_validation_harness_contract.md`. Code commit SHA is
 recorded inside the packet itself (`code_commit_sha`).
 
+**Revision note (2026-08-29, post-CIO-review on PR #459):** this revision
+fixes an existing-packet self-hash tamper gap, replaces the Kraken breadth
+taxonomy loader with the shared, already-tested fail-closed contract from
+`identity/candidate_identity_gap_inventory.py`, makes all Kraken
+corroboration `evaluation_as_of`-active-record-aware, and renames the
+"before" baseline field to state precisely what it includes. None of these
+fixes changed today's reported funnel numbers (see §2) -- they close
+regression gaps that would only have mattered under future config drift or
+a tampered existing packet. Full detail:
+`docs/upbit_shadow_validation_harness_contract.md`.
+
 ## 1. The bottleneck this closes
 
 Today, in production: **282 Upbit KRW markets, 282 `OBSERVATION_POOL`, 0
 `TRADEABLE_UNIVERSE`, 0 `PAPER_ELIGIBLE`** -- confirmed by both this
-harness's own recomputed `before_current_production` funnel and the
-existing natural evidence at
+harness's own recomputed `before_current_production_mechanical_collision_included`
+funnel and the existing natural evidence at
 `data/observations/upbit_tradeable_universe/2026-08-29/packet.json`. That
 is the correct, intentional current state (policy/taxonomy/identity all
 `PROPOSED_UNRATIFIED`), not a bug -- but it is also why realtime
@@ -30,9 +41,9 @@ candidates.
 
 | Scenario | market_count | OBSERVATION_POOL | TRADEABLE_UNIVERSE | PAPER_ELIGIBLE | BLOCKED |
 |---|---|---|---|---|---|
-| **Before** (current production; policy/taxonomy/identity all unratified) | 282 | 282 | 0 | 0 | 0 |
+| **Before** (current production; policy/taxonomy/identity all unratified; today's mechanical identity-collision hold included, exactly as real production applies it -- see packet's `funnel_definitions`) | 282 | 282 | 0 | 0 | 0 |
 | **After -- ratify policy + taxonomy + identity exactly as currently written** | 282 | 282 | 0 | 0 | 0 |
-| **Supplemental, hypothetical only -- after, PLUS also add one `eligible_crypto` taxonomy record per Kraken-corroborated asset** | 282 | 253 | 1 | **28** | 0 |
+| **Supplemental, hypothetical only -- after, PLUS also add one `eligible_crypto` taxonomy record per Kraken-corroborated asset (active as of 2026-08-29)** | 282 | 253 | 1 | **28** | 0 |
 
 **Read this carefully: ratifying today's committed policy and taxonomy
 files exactly as written does NOT connect the funnel by itself.**
