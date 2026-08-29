@@ -1540,10 +1540,10 @@ APPROVED_TESTS = [
     "test/test_candidate_identity_authority_review_inventory.py",
     # ★ P5-08 — Crypto Candidate Promotion Rule: TRADEABLE_UNIVERSE/
     #   PAPER_ELIGIBLE (P3-12) -> WATCH/FOCUSED_REVIEW/BLOCKED. Pure
-    #   derivation over already-built P3-12/P1-CR-08/P4-07/P1-CR-07 packets;
-    #   REGIME is UNKNOWN-by-construction (P1-CR-08 boundary) so a real
-    #   evaluation can never reach FOCUSED_REVIEW today -- only the
-    #   synthetic all-PASS unit test on the transition rule itself does.
+    #   derivation over embedded, consumer-revalidated P3-12/P1-CR-08/
+    #   P4-07/P1-CR-07 packets. Missing ratification or a missing required
+    #   evidence leg remains UNKNOWN, so a real evaluation cannot reach
+    #   FOCUSED_REVIEW today; only the pure transition-rule test does.
     #   No new capture/network call. Every authority field stays false.
     #   ⛔ CIO has not approved this file itself yet -- registered per the
     #      same convention as test_capture_azure_fixture.py above so it is
