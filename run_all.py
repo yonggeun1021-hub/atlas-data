@@ -1587,6 +1587,13 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_paper_buy_eligibility.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_decision_snapshot.py",
+    # ★ P10-11 runtime bridge -- P9 retains only the latest accepted exact
+    #   public ticker/orderbook bytes; a private runtime independently
+    #   rederives the P5 decision before building any P10 request. A current
+    #   book may support a new intent but only a later capture may match it.
+    #   User-ratified economic inputs have no defaults. No credentials,
+    #   exchange endpoints, or REAL authority are introduced.
+    "test/test_crypto_paper_runtime_bridge.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

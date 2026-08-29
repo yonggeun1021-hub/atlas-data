@@ -48,6 +48,7 @@ if str(ROOT) not in sys.path:
 UTC = dt.timezone.utc
 WS_ENDPOINT = "wss://api.upbit.com/websocket/v1"
 CANDLE_TIMEFRAMES = ("15m", "1h", "4h")
+LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION = "upbit_realtime_latest_public_messages/1"
 
 
 def _load_module(name: str, relative_path: str):
@@ -88,6 +89,41 @@ def build_gate(markets: list, contract: dict) -> "GATE.RealtimeGate":
     )
 
 
+def retain_latest_public_message(
+    latest: dict, *, raw: dict, result: dict, received_at: dt.datetime,
+) -> None:
+    """Retain one exact latest accepted public message per market/kind.
+
+    P9-06 previously persisted only the gate result (``ACCEPTED`` plus the
+    market/kind labels).  That proves transport health but discards the
+    public orderbook bytes P10-11 needs for deterministic PAPER fill replay.
+    This helper keeps only the latest accepted public message for each
+    ``(kind, timeframe, market)`` tuple, avoiding an unbounded raw-message
+    archive while preserving the exact hash-bound orderbook/ticker snapshot.
+    Rejected, duplicate, and out-of-order messages never replace the retained
+    latest value.
+    """
+    if not isinstance(latest, dict):
+        raise RealtimeCaptureError("LATEST_PUBLIC_MESSAGES_INVALID")
+    if not isinstance(result, dict) or result.get("action") != "ACCEPTED":
+        return
+    if not isinstance(received_at, dt.datetime) or received_at.tzinfo is None:
+        raise RealtimeCaptureError("LATEST_PUBLIC_MESSAGE_RECEIVED_AT_INVALID")
+    parsed = GATE.parse_message(raw)
+    if parsed["market"] != result.get("market") or parsed["kind"] != result.get("kind"):
+        raise RealtimeCaptureError("LATEST_PUBLIC_MESSAGE_RESULT_MISMATCH")
+    timeframe = parsed["timeframe"] or "-"
+    key = f"{parsed['kind']}|{timeframe}|{parsed['market']}"
+    latest[key] = {
+        "kind": parsed["kind"],
+        "timeframe": parsed["timeframe"],
+        "market": parsed["market"],
+        "received_at": received_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "source_sha256": parsed["payload_sha256"],
+        "raw": raw,
+    }
+
+
 async def _connect_and_stream(
     gate: "GATE.RealtimeGate", markets: list, *, deadline: dt.datetime, stop_event: "asyncio.Event",
 ) -> dict:
@@ -101,6 +137,7 @@ async def _connect_and_stream(
     import websockets  # lazy import -- see module docstring
 
     message_log: list = []
+    latest_public_messages: dict = {}
     ticket = f"atlas-p9-06-{utc_now().strftime('%Y%m%dT%H%M%SZ')}"
     subscribe_message = GATE.build_subscription_message(
         markets, ticket=ticket, candle_timeframes=CANDLE_TIMEFRAMES,
@@ -130,6 +167,12 @@ async def _connect_and_stream(
                         })
                         continue
                     result = gate.handle_message(parsed_raw, received_at=received_at)
+                    retain_latest_public_message(
+                        latest_public_messages,
+                        raw=parsed_raw,
+                        result=result,
+                        received_at=received_at,
+                    )
                     message_log.append({
                         "received_at": received_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                         "result": result,
@@ -142,7 +185,11 @@ async def _connect_and_stream(
             if stop_event.is_set() or utc_now() >= deadline:
                 break
             await asyncio.sleep(min(attempt["backoff_seconds"], max((deadline - utc_now()).total_seconds(), 0)))
-    return {"message_log": message_log}
+    return {
+        "message_log": message_log,
+        "latest_public_messages_schema_version": LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
+        "latest_public_messages": latest_public_messages,
+    }
 
 
 async def run_capture_async(
@@ -173,7 +220,11 @@ async def run_capture_async(
         if markets:
             streamed = await _connect_and_stream(gate, markets, deadline=deadline, stop_event=stop_event)
         else:
-            streamed = {"message_log": []}
+            streamed = {
+                "message_log": [],
+                "latest_public_messages_schema_version": LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
+                "latest_public_messages": {},
+            }
     finally:
         for sig in installed_handlers:
             loop.remove_signal_handler(sig)
@@ -185,6 +236,10 @@ async def run_capture_async(
         "requested_duration_seconds": duration_seconds,
         "markets": markets,
         "message_log": streamed["message_log"],
+        "latest_public_messages_schema_version": streamed[
+            "latest_public_messages_schema_version"
+        ],
+        "latest_public_messages": streamed["latest_public_messages"],
         "status": status,
         "candle_ledger": {
             f"{market}|{timeframe}": sorted(t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in open_times)
