@@ -656,6 +656,12 @@ APPROVED_TESTS = [
     #   판정하고 taxonomy 부재는 sector/chain 층에만 UNKNOWN으로 격리한다.
     #   ⛔ live Kraken/workflow/tracked factor 없음 — temp policy/snapshot fixtures only.
     "test/test_crypto_leadership.py",
+    # ★ P1-CR-07 replay input — Kraken official bulk OHLCVT ZIP importer.
+    #   daily USD rows only, exact archive/output hashes, source aliases and
+    #   missing intervals preserved. Historical catalog/identity, VWAP turnover,
+    #   Leadership/Regime/action/order authority are explicitly not inferred.
+    #   ⛔ network/tracked data 없음 — synthetic ZIP + temp replay output only.
+    "test/test_crypto_historical_ohlcvt_import.py",
     # ★ P0-04 — KRX post-close observation / PM briefing freshness.
     #   morning archive/latest와 분리된 exact-date bundle, observed_unconfirmed,
     #   decision_eligible=false, partial-response incident 경계를 검증한다.
