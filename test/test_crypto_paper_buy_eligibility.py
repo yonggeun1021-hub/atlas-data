@@ -144,16 +144,17 @@ def daily_candles(direction="UP"):
     ]
 
 
-def fifteen_minute_candles():
+def fifteen_minute_candles(direction="UP"):
+    a, b = ("100", "101") if direction == "UP" else ("101", "100")
     return [
         {
             "open_time": "2026-08-28T23:30:00Z", "close_time": "2026-08-28T23:45:00Z",
-            "opening_price": "100", "high_price": "101", "low_price": "99", "trade_price": "100",
+            "opening_price": a, "high_price": "102", "low_price": "99", "trade_price": a,
             "candle_acc_trade_price": "1", "candle_acc_trade_volume": "1",
         },
         {
             "open_time": "2026-08-28T23:45:00Z", "close_time": "2026-08-29T00:00:00Z",
-            "opening_price": "100", "high_price": "102", "low_price": "99", "trade_price": "101",
+            "opening_price": b, "high_price": "102", "low_price": "99", "trade_price": b,
             "candle_acc_trade_price": "1", "candle_acc_trade_volume": "1",
         },
     ]
@@ -161,7 +162,8 @@ def fifteen_minute_candles():
 
 def market_evidence_packet(
     *, market="KRW-ETH", breakout=True, four_hour_direction="UP", daily_direction="UP",
-    include_15m=True, include_orderbook=True, include_trades=True,
+    fifteen_minute_direction="UP", include_15m=True, include_orderbook=True,
+    include_trades=True, freshness_status="FRESH", policy_ratified=True,
 ):
     candles = {
         "1h": {
@@ -177,13 +179,25 @@ def market_evidence_packet(
             "finalized_candles": daily_candles(daily_direction),
         },
         "15m": {
-            "finalized_candle_count": len(fifteen_minute_candles()) if include_15m else 0,
-            "finalized_candles": fifteen_minute_candles() if include_15m else [],
+            "finalized_candle_count": len(fifteen_minute_candles(fifteen_minute_direction)) if include_15m else 0,
+            "finalized_candles": fifteen_minute_candles(fifteen_minute_direction) if include_15m else [],
         },
     }
-    orderbook = {"best_bid": "104900", "best_ask": "105100"} if include_orderbook else {}
-    trades = {"trade_count": 12} if include_trades else {"trade_count": 0}
-    return {"market": market, "candles": candles, "orderbook": orderbook, "trades": trades}
+    for value in candles.values():
+        value["freshness"] = {"status": freshness_status}
+    orderbook = {
+        "best_bid": "104900", "best_ask": "105100", "freshness": {"status": freshness_status},
+    } if include_orderbook else {}
+    trades = {
+        "trade_count": 12 if include_trades else 0, "freshness": {"status": freshness_status},
+    }
+    return {
+        "market": market,
+        "policy_ratified": policy_ratified,
+        "candles": candles,
+        "orderbook": orderbook,
+        "trades": trades,
+    }
 
 
 def paper_account_state(*, total_nav_krw="100000000", open_positions=None) -> dict:
@@ -278,6 +292,12 @@ class TriggerTimeframeAlignmentTests(unittest.TestCase):
         result = P59.evaluate_trigger_timeframe_alignment(packet)
         self.assertEqual(result["status"], "FAIL")
 
+    def test_fail_when_fifteen_minute_trigger_conflicts(self):
+        packet = market_evidence_packet(fifteen_minute_direction="DOWN")
+        result = P59.evaluate_trigger_timeframe_alignment(packet)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["fifteen_minute_direction"], "DOWN")
+
     def test_unknown_when_evidence_missing(self):
         result = P59.evaluate_trigger_timeframe_alignment(None)
         self.assertEqual(result["status"], "UNKNOWN")
@@ -335,17 +355,23 @@ class IndependentPriceVolumeEvidenceTests(unittest.TestCase):
 class NoBlockerStaleOverheatDuplicateTests(unittest.TestCase):
     def test_fail_when_caution_active(self):
         row = universe_row(caution_any=True)
-        result = P59.evaluate_no_blocker_stale_overheat_duplicate(row, "KEY-1", set())
+        result = P59.evaluate_no_blocker_stale_overheat_duplicate(
+            row, market_evidence_packet(), "KEY-1", set(),
+        )
         self.assertEqual(result["status"], "FAIL")
 
     def test_unknown_when_no_ledger_supplied(self):
         row = universe_row(caution_any=False)
-        result = P59.evaluate_no_blocker_stale_overheat_duplicate(row, "KEY-1", None)
+        result = P59.evaluate_no_blocker_stale_overheat_duplicate(
+            row, market_evidence_packet(), "KEY-1", None,
+        )
         self.assertEqual(result["status"], "UNKNOWN")
 
     def test_fail_when_duplicate_key_present(self):
         row = universe_row(caution_any=False)
-        result = P59.evaluate_no_blocker_stale_overheat_duplicate(row, "KEY-1", {"KEY-1"})
+        result = P59.evaluate_no_blocker_stale_overheat_duplicate(
+            row, market_evidence_packet(), "KEY-1", {"KEY-1"},
+        )
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(result["duplicate"]["status"], "FAIL")
 
@@ -355,9 +381,26 @@ class NoBlockerStaleOverheatDuplicateTests(unittest.TestCase):
         stays capped at UNKNOWN even with a novel duplicate key and no
         active caution, exactly like P5-08's own OVEREXTENSION criterion."""
         row = universe_row(caution_any=False)
-        result = P59.evaluate_no_blocker_stale_overheat_duplicate(row, "KEY-1", set())
+        result = P59.evaluate_no_blocker_stale_overheat_duplicate(
+            row, market_evidence_packet(), "KEY-1", set(),
+        )
         self.assertEqual(result["status"], "UNKNOWN")
         self.assertEqual(result["overextension"]["status"], "UNKNOWN")
+
+    def test_stale_current_evidence_is_a_hard_gate(self):
+        row = universe_row(caution_any=False)
+        result = P59.evaluate_no_blocker_stale_overheat_duplicate(
+            row, market_evidence_packet(freshness_status="STALE"), "KEY-1", set(),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["freshness"]["status"], "FAIL")
+
+    def test_unratified_freshness_policy_never_counts_as_fresh(self):
+        result = P59.evaluate_current_evidence_freshness(
+            market_evidence_packet(policy_ratified=False),
+        )
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertEqual(result["reason"], "MARKET_EVIDENCE_FRESHNESS_POLICY_UNRATIFIED")
 
 
 class DuplicateGuardKeyTests(unittest.TestCase):
@@ -493,6 +536,22 @@ class PaperRiskBudgetTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("MAX_CONCURRENT_PAPER_POSITIONS", result["reason"])
+
+    def test_total_crypto_cap_uses_exposure_not_planned_loss(self):
+        existing = [
+            {
+                "asset_id": f"X{i}",
+                "planned_loss_nav_fraction": "0.0001",
+                "portfolio_weight_nav_fraction": "0.02",
+            }
+            for i in range(2)
+        ]
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy,
+            paper_account_state(open_positions=existing), 18,
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("TOTAL_CRYPTO_PAPER_EXPOSURE_CAP", result["reason"])
 
 
 class ZeroOrderEndpointCallsTests(unittest.TestCase):
@@ -668,6 +727,19 @@ class ProductionEmptyTests(unittest.TestCase):
         result = P59.build_eligibility_packet(promotion_packet, evaluation_as_of=EVAL_AS_OF)
         self.assertEqual(P59.validate_output(result), result)
 
+    def test_rehashed_embedded_policy_substitution_is_rejected(self):
+        promotion_packet = self._promotion_packet()
+        result = P59.build_eligibility_packet(promotion_packet, evaluation_as_of=EVAL_AS_OF)
+        forged = copy.deepcopy(result)
+        forged["source"]["policy"]["breakout"]["volume_ratio_min"] = "0.1"
+        forged["payload_sha256"] = P59.payload_sha256(
+            {key: value for key, value in forged.items() if key != "payload_sha256"}
+        )
+        with self.assertRaisesRegex(
+            P59.CryptoPaperBuyEligibilityError, "POLICY_REPOSITORY_PIN_MISMATCH",
+        ):
+            P59.validate_output(forged)
+
 
 class DeterminismTests(unittest.TestCase):
     def setUp(self):
@@ -740,7 +812,8 @@ class AuthorityTests(unittest.TestCase):
 class ContractAndPolicyTests(unittest.TestCase):
     def test_load_contract_pinned(self):
         contract = P59.load_contract()
-        self.assertEqual(contract["contract_version"], "crypto_paper_buy_eligibility_contract/1")
+        self.assertEqual(contract["contract_version"], "crypto_paper_buy_eligibility_contract/2")
+        self.assertEqual(P59.OUTPUT_SCHEMA_VERSION, "crypto_paper_buy_eligibility_packet/2")
         self.assertTrue(all(v is False for v in contract["authority"].values()))
 
     def test_load_policy_pinned(self):
