@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_axis_trade_bridge/1",
+  "output_schema_version": "crypto_axis_trade_bridge_packet/1",
+  "mode": "PAPER_REVIEW_ONLY",
+  "required_axes": [
+    "TREND",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "BREADTH",
+    "LEADERSHIP"
+  ],
+  "aggregate_policy_status": "UNRATIFIED",
+  "aggregate_regimes_currently_authorized": [
+    "UNKNOWN"
+  ],
+  "entry_policy": {
+    "missing_axis_state": "WAIT",
+    "unratified_aggregate_state": "WAIT",
+    "upstream_blocked_state": "BLOCKED",
+    "publish_order_draft": false
+  },
+  "exit_policy": {
+    "pre_fill_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+    "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+    "aggregate_signal_when_unratified": "UNKNOWN",
+    "trend_signal_when_interpretation_unauthorized": "UNKNOWN",
+    "priority_categories": [
+      "HARD_EXIT",
+      "SECURITY_LIQUIDITY",
+      "RISK_REGIME",
+      "TREND",
+      "PROFIT_TRAIL",
+      "TIME_REVIEW"
+    ]
+  },
+  "axis_bindings": {
+    "TREND": {
+      "entry_consumers": [
+        "P5-08_TREND"
+      ],
+      "exit_consumers": [
+        "P7-13_TREND"
+      ]
+    },
+    "RISK_VOL": {
+      "entry_consumers": [
+        "P5-09_REGIME_RISK_CONTEXT"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ]
+    },
+    "LIQUIDITY": {
+      "entry_consumers": [
+        "P5-08_LIQUIDITY",
+        "P5-09_BLOCKER_FRESHNESS"
+      ],
+      "exit_consumers": [
+        "P7-13_SECURITY_LIQUIDITY"
+      ]
+    },
+    "BREADTH": {
+      "entry_consumers": [
+        "P1-CR-08_AGGREGATE_REGIME"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ]
+    },
+    "LEADERSHIP": {
+      "entry_consumers": [
+        "P5-08_RELATIVE_STRENGTH",
+        "P1-CR-08_AGGREGATE_REGIME"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ]
+    }
+  },
+  "authority": {
+    "market_judgment_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exit_action_authorized": false,
+    "order_authorized": false,
+    "exchange_order_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

@@ -46,6 +46,8 @@ jobs:
           python3 test/test_upbit_public_validation_natural_20260829.py
       - name: Offline crypto PAPER decision snapshot regression (P1-CR-08 + P5-08 + P5-09 composition)
         run: python3 test/test_crypto_paper_decision_snapshot.py
+      - name: Offline P5-10 Crypto five-axis entry and exit bridge regression
+        run: python3 test/test_crypto_axis_trade_bridge.py
       - name: Offline P1-CR-08 hash-bound live component registry regression
         run: python3 test/test_crypto_live_component_registry.py
       - name: Offline P8-16 Crypto funnel briefing regression
@@ -136,6 +138,20 @@ jobs:
           python3 decision/crypto_paper_decision_snapshot.py \
             --wire-regime-components \
             "${ARGS[@]}"
+      # P5-10 consumes only the exact decision packet above. It adds no
+      # threshold or aggregate Regime interpretation: missing axes or the
+      # unratified aggregate policy cap entry at WAIT, while P7-13 hard-exit
+      # priority is preserved verbatim. No private position/account bytes or
+      # order endpoint are read.
+      - name: P5-10 Crypto five-axis per-symbol entry and exit bridge (read-only)
+        id: crypto_axis_trade_bridge
+        if: steps.crypto_paper_decision.outcome == 'success'
+        env:
+          DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: |
+          set -euo pipefail
+          test -n "$DECISION_PATH"
+          python3 decision/crypto_axis_trade_bridge.py --decision-packet "$DECISION_PATH"
       # P8-16 consumes only the exact decision packet created immediately
       # above. It performs no fallback, network call, threshold evaluation,
       # candidate promotion, PAPER execution, or private-ledger read.
@@ -176,6 +192,11 @@ jobs:
           ATLAS_CRYPTO_PAPER_DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
           ATLAS_CRYPTO_PAPER_DECISION_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.generation_id }}
           ATLAS_CRYPTO_PAPER_DECISION_SHA256: ${{ steps.crypto_paper_decision.outputs.payload_sha256 }}
+          ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_STEP_OUTCOME: ${{ steps.crypto_axis_trade_bridge.outcome }}
+          ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_OUTCOME: ${{ steps.crypto_axis_trade_bridge.outputs.outcome }}
+          ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_PATH: ${{ steps.crypto_axis_trade_bridge.outputs.path }}
+          ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_SOURCE_GENERATION_ID: ${{ steps.crypto_axis_trade_bridge.outputs.source_generation_id }}
+          ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_SHA256: ${{ steps.crypto_axis_trade_bridge.outputs.packet_sha256 }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_STEP_OUTCOME: ${{ steps.crypto_funnel_briefing.outcome }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_OUTCOME: ${{ steps.crypto_funnel_briefing.outputs.outcome }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_PATH: ${{ steps.crypto_funnel_briefing.outputs.path }}
@@ -222,6 +243,9 @@ jobs:
           # new, separate evidence path; committed in the same run/commit as
           # the realtime evidence above, never reusing an existing path.
           git add evidence/crypto_paper_decision || true
+          # P5-10 read-only, per-symbol five-axis entry/exit policy bridge.
+          # It contains no private position/account bytes and no authority.
+          git add evidence/crypto_axis_trade_bridge || true
           # P8-16 is the read-only API/briefing projection of that exact
           # decision generation. Private P10/P7 state is never copied here.
           git add evidence/crypto_funnel_briefing || true
