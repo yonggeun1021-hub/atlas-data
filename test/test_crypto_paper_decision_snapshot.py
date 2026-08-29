@@ -303,6 +303,20 @@ class NormalCompleteInputTests(TempDirMixin, unittest.TestCase):
         with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "OUTPUT_DERIVATION_MISMATCH"):
             CPDS.validate_output(forged, allow_external_sources=True)
 
+    def test_unwired_regime_component_rows_are_rejected(self):
+        with self.assertRaisesRegex(
+            CPDS.CryptoPaperDecisionSnapshotError,
+            "REGIME_COMPONENT_ROWS_UNWIRED",
+        ):
+            CPDS.build_snapshot(
+                generated_at=GENERATED_AT,
+                source_commit=SOURCE_COMMIT,
+                universe_entry=None,
+                market_evidence_entry=None,
+                realtime_entry=None,
+                component_rows={"CRYPTO": {"TREND": {"status": "DEFINED"}}},
+            )
+
 
 # ---------------------------------------------------------------------------
 # 2. P3-12 packet missing

@@ -572,6 +572,13 @@ def build_snapshot(
     notes: list[str] = []
     source_refs: list[dict] = []
     component_rows = copy.deepcopy(component_rows or {})
+    # No source registry is wired for live regime component rows at this
+    # boundary yet. Accepting caller-supplied rows would let a caller forge
+    # a regime and then make validate_output() reproduce it from the forged
+    # embedded copy. Keep the contract honest until those rows have exact,
+    # hash-bound source references of their own.
+    if component_rows:
+        raise CryptoPaperDecisionSnapshotError("REGIME_COMPONENT_ROWS_UNWIRED")
 
     _validate_universe_entry(universe_entry)
     _validate_market_evidence_entry(market_evidence_entry)
