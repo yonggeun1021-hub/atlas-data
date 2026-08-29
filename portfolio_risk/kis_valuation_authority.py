@@ -385,7 +385,9 @@ def _row_first_seen(repo: Path, commit: str, relative: str, row: dict) -> dt.dat
         ) if isinstance(value, dict) else []
         if any(candidate_row == row for candidate_row in records):
             timestamp = _git(repo, "show", "-s", "--format=%cI", candidate).decode().strip()
-            parsed = dt.datetime.fromisoformat(timestamp).astimezone(dt.timezone.utc)
+            parsed = dt.datetime.fromisoformat(
+                timestamp.replace("Z", "+00:00")
+            ).astimezone(dt.timezone.utc)
             return parsed.replace(microsecond=0)
     raise KisValuationAuthorityError("AUTHORITY_ROW_FIRST_SEEN_NOT_VERIFIED")
 
@@ -400,7 +402,9 @@ def _approval_first_seen(
             continue
         if value == expected_bytes:
             timestamp = _git(repo, "show", "-s", "--format=%cI", candidate).decode().strip()
-            return dt.datetime.fromisoformat(timestamp).astimezone(
+            return dt.datetime.fromisoformat(
+                timestamp.replace("Z", "+00:00")
+            ).astimezone(
                 dt.timezone.utc
             ).replace(microsecond=0)
     raise KisValuationAuthorityError("AUTHORITY_APPROVAL_FIRST_SEEN_NOT_VERIFIED")

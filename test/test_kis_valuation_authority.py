@@ -128,6 +128,12 @@ class KisValuationAuthorityRatifiedStateTests(unittest.TestCase):
             self.assertFalse(result["authority"]["riskInputAuthorized"])
             self.assertFalse(result["authority"]["orderAuthorized"])
 
+    def test_git_utc_z_committer_timestamp_is_reproduced_exactly(self):
+        semantic = authority_module.resolve_semantic_authority(
+            decision_at="2026-08-29T03:20:00Z", authority=self.authority
+        )
+        self.assertEqual(semantic["realUsableFrom"], "2026-08-29T03:20:00Z")
+
     def test_wrong_provider_tuple_or_target_never_borrows_authority(self):
         wrong_tuple = {**authority_module.PROVIDER_TUPLE, "currency": "USD"}
         for resolver in (
