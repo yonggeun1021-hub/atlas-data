@@ -176,6 +176,19 @@ class RuntimeFixture(unittest.TestCase):
             limit_price_source="ENTRY_ZONE_LOW",
         )
 
+    def separate_observation(self, decision):
+        root = Path(tempfile.mkdtemp(prefix="crypto_runtime_observation_"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        for ref in decision["source_refs"]:
+            source = ROOT / ref["path"]
+            target = root / ref["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        packet_path = root / "evidence" / "crypto_paper_decision" / "packet.json"
+        packet_path.parent.mkdir(parents=True, exist_ok=True)
+        packet_path.write_text(json.dumps(decision), encoding="utf-8")
+        return root, packet_path
+
     @staticmethod
     def eligible_packet(markets):
         return {
@@ -230,6 +243,155 @@ class LatestPublicMessageTests(unittest.TestCase):
 
 
 class BridgeContractTests(RuntimeFixture):
+    def test_approved_code_rederives_a_later_separate_observation_checkout(self):
+        decision = self.decision()
+        observation_root, packet_path = self.separate_observation(decision)
+        shutil.rmtree(self.tmp / "realtime")
+
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "DECISION_REDERIVATION_FAILED:SOURCE_REF_FILE_INVALID",
+        ):
+            BRIDGE.validate_decision_snapshot(decision)
+
+        checked = BRIDGE.load_and_validate_decision_snapshot(
+            packet_path,
+            expected_source_commit=SOURCE_COMMIT,
+            observation_root=observation_root,
+        )
+        self.assertEqual(checked, decision)
+        request = BRIDGE.build_runtime_request(
+            checked,
+            expected_source_commit=SOURCE_COMMIT,
+            public_code_commit_sha="b" * 40,
+            observation_root=observation_root,
+            observation_commit_sha="c" * 40,
+            account_state=None,
+            open_position_risk=None,
+            runtime_config=None,
+        )
+        self.assertEqual(request["observation_commit_sha"], "c" * 40)
+        self.assertEqual(
+            request["source_inputs"]["observation_root"],
+            str(observation_root.resolve()),
+        )
+        self.assertEqual(
+            BRIDGE.validate_runtime_request(
+                request,
+                expected_public_code_commit_sha="b" * 40,
+                expected_observation_root=observation_root,
+                expected_observation_commit_sha="c" * 40,
+            ),
+            request,
+        )
+
+    def test_observation_root_or_commit_rewrite_is_rejected(self):
+        decision = self.decision()
+        observation_root, _packet_path = self.separate_observation(decision)
+        request = BRIDGE.build_runtime_request(
+            decision,
+            expected_source_commit=SOURCE_COMMIT,
+            public_code_commit_sha="b" * 40,
+            observation_root=observation_root,
+            observation_commit_sha="c" * 40,
+            account_state=None,
+            open_position_risk=None,
+            runtime_config=None,
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "RUNTIME_REQUEST_OBSERVATION_COMMIT_MISMATCH",
+        ):
+            BRIDGE.validate_runtime_request(
+                request, expected_observation_commit_sha="d" * 40,
+            )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "RUNTIME_REQUEST_OBSERVATION_ROOT_MISMATCH",
+        ):
+            BRIDGE.validate_runtime_request(
+                request, expected_observation_root=ROOT,
+            )
+
+    def test_symlinked_observation_root_is_rejected(self):
+        decision = self.decision()
+        observation_root, _packet_path = self.separate_observation(decision)
+        link = observation_root.parent / (observation_root.name + "_link")
+        link.symlink_to(observation_root, target_is_directory=True)
+        self.addCleanup(link.unlink, missing_ok=True)
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "OBSERVATION_ROOT_INVALID",
+        ):
+            BRIDGE.validate_decision_snapshot(decision, observation_root=link)
+
+    def test_symlinked_observation_source_or_decision_packet_is_rejected(self):
+        decision = self.decision()
+        observation_root, packet_path = self.separate_observation(decision)
+        source_path = observation_root / decision["source_refs"][0]["path"]
+        source_copy = source_path.with_suffix(".real.json")
+        source_path.rename(source_copy)
+        source_path.symlink_to(source_copy)
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "DECISION_REDERIVATION_FAILED:SOURCE_REF_FILE_INVALID",
+        ):
+            BRIDGE.validate_decision_snapshot(
+                decision, observation_root=observation_root,
+            )
+
+        source_path.unlink()
+        source_copy.rename(source_path)
+        packet_copy = packet_path.with_suffix(".real.json")
+        packet_path.rename(packet_copy)
+        packet_path.symlink_to(packet_copy)
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError, "DECISION_PATH_INVALID",
+        ):
+            BRIDGE.load_and_validate_decision_snapshot(
+                packet_path, observation_root=observation_root,
+            )
+
+    def test_observation_source_path_escape_is_rejected(self):
+        decision = self.decision()
+        observation_root, _packet_path = self.separate_observation(decision)
+        forged = copy.deepcopy(decision)
+        forged["source_refs"][0]["path"] = "../outside.json"
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "DECISION_REDERIVATION_FAILED:SOURCE_REF_PATH_ESCAPE",
+        ):
+            BRIDGE.validate_decision_snapshot(
+                forged, observation_root=observation_root,
+            )
+
+    def test_rehashed_observation_lineage_tamper_needs_exact_external_identity(self):
+        decision = self.decision()
+        observation_root, _packet_path = self.separate_observation(decision)
+        request = BRIDGE.build_runtime_request(
+            decision,
+            expected_source_commit=SOURCE_COMMIT,
+            public_code_commit_sha="b" * 40,
+            observation_root=observation_root,
+            observation_commit_sha="c" * 40,
+            account_state=None,
+            open_position_risk=None,
+            runtime_config=None,
+        )
+        forged = copy.deepcopy(request)
+        forged["observation_commit_sha"] = "d" * 40
+        forged["source_inputs"]["observation_commit_sha"] = "d" * 40
+        forged["packet_sha256"] = BRIDGE.payload_sha256(
+            {key: value for key, value in forged.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "RUNTIME_REQUEST_OBSERVATION_COMMIT_MISMATCH",
+        ):
+            BRIDGE.validate_runtime_request(
+                forged, expected_observation_commit_sha="c" * 40,
+            )
+
     def test_first_natural_post_merge_decision_packet_validates_and_waits(self):
         paths = sorted((ROOT / "evidence" / "crypto_paper_decision" / "2026-08-29" / "0504").glob(
             "*/packet.json"

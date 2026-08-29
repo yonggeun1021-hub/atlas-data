@@ -15,6 +15,17 @@ idempotency inputs so a consumer can fully reproduce it; changing and rehashing
 an intent, match order ID, status, or blocker is rejected. Value-bearing inputs
 and requests must remain outside the public repository.
 
+`crypto_paper_runtime_request/2` separates approved code and rolling
+observations as immutable inputs. The code
+checkout supplies every executable module and policy. A separately verified
+observation checkout supplies only the packet's relative source files. The
+bridge loads an isolated copy of the approved decision validator, reuses the
+approved imported transforms, and redirects only relative evidence resolution
+to that observation root. It never imports or executes Python from the rolling
+observation checkout. The private request binds both the approved public-code
+commit and the exact observation commit plus its absolute host root so restart
+validation cannot silently switch either input.
+
 ## Time-ordered lifecycle
 
 1. P9 retains the exact latest **accepted** public ticker and orderbook message
@@ -36,6 +47,13 @@ and requests must remain outside the public repository.
 
 This ordering prevents look-ahead fills and makes each observation reproducible
 from immutable inputs.
+
+The host must independently prove that the observation checkout is a clean,
+non-symlink Git root at the exact supplied commit, that the approved code commit
+and packet `source_commit` are ancestors of it, and that the decision packet is
+inside it. Public bridge code validates path containment, hashes, complete
+rederivation, and the bound commit identity; private host code owns the Git
+ancestry and clean-checkout proof.
 
 ## Required private runtime configuration
 

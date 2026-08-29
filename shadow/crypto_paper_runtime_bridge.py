@@ -33,7 +33,7 @@ DECISION_PATH = ROOT / "decision" / "crypto_paper_decision_snapshot.py"
 SIMULATOR_PATH = ROOT / "shadow" / "crypto_paper_simulator.py"
 REALTIME_GATE_PATH = ROOT / "realtime" / "upbit_realtime_gate.py"
 
-REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/1"
+REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/2"
 RUNTIME_CONFIG_SCHEMA_VERSION = "crypto_paper_runtime_config/1"
 RUNTIME_CONFIG_APPROVAL = "USER_RATIFIED_PAPER_RUNTIME"
 LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION = "upbit_realtime_latest_public_messages/1"
@@ -101,13 +101,56 @@ def _file_sha256(path: Path) -> str:
         raise CryptoPaperRuntimeBridgeError(f"FILE_HASH_FAILED:{path}:{exc}") from exc
 
 
-def _safe_repo_path(relative: object) -> Path:
+def _safe_observation_root(value: object | None) -> Path:
+    if value is not None and not isinstance(value, (str, Path)):
+        raise CryptoPaperRuntimeBridgeError("OBSERVATION_ROOT_INVALID")
+    root = ROOT if value is None else Path(value)
+    if not root.is_absolute():
+        raise CryptoPaperRuntimeBridgeError("OBSERVATION_ROOT_NOT_ABSOLUTE")
+    if root.is_symlink() or not root.is_dir():
+        raise CryptoPaperRuntimeBridgeError("OBSERVATION_ROOT_INVALID")
+    return root.resolve()
+
+
+def _decision_validator(observation_root: Path):
+    """Load approved code in isolation while resolving evidence elsewhere."""
+    if observation_root == ROOT.resolve():
+        return DECISION
+    name = "crypto_paper_runtime_decision_observation_" + hashlib.sha256(
+        str(observation_root).encode("utf-8")
+    ).hexdigest()[:16]
+    validator = _load(name, DECISION_PATH)
+    for dependency in (
+        "UNIVERSE", "PROMOTION", "ELIGIBILITY", "MARKET_EVIDENCE",
+        "CANDLE_FINALIZATION", "REALTIME_GATE", "REGIME_OUTPUT", "LIVE_AXIS",
+    ):
+        setattr(validator, dependency, getattr(DECISION, dependency))
+    # The module and every imported policy/transform came from the approved
+    # code checkout. Only its relative evidence-path root is redirected to the
+    # separately verified, read-only observation checkout.
+    validator.ROOT = observation_root
+    return validator
+
+
+def _safe_repo_path(relative: object, *, observation_root: Path | None = None) -> Path:
     if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
         raise CryptoPaperRuntimeBridgeError("SOURCE_REF_PATH_INVALID")
-    target = (ROOT / relative).resolve()
-    if ROOT.resolve() not in target.parents:
+    root = _safe_observation_root(observation_root)
+    relative_path = Path(relative)
+    if ".." in relative_path.parts:
         raise CryptoPaperRuntimeBridgeError("SOURCE_REF_PATH_ESCAPE")
-    if target.is_symlink() or not target.is_file():
+    candidate = root / relative_path
+    current = root
+    for part in relative_path.parts:
+        current /= part
+        if current.is_symlink():
+            raise CryptoPaperRuntimeBridgeError(
+                f"SOURCE_REF_FILE_INVALID:{relative}"
+            )
+    target = candidate.resolve()
+    if root not in target.parents:
+        raise CryptoPaperRuntimeBridgeError("SOURCE_REF_PATH_ESCAPE")
+    if not target.is_file():
         raise CryptoPaperRuntimeBridgeError(f"SOURCE_REF_FILE_INVALID:{relative}")
     return target
 
@@ -154,7 +197,9 @@ def _assert_all_false_authority(block: object, code: str) -> None:
         raise CryptoPaperRuntimeBridgeError(code)
 
 
-def _source_refs(packet: dict) -> dict[str, dict]:
+def _source_refs(
+    packet: dict, *, observation_root: Path | None = None,
+) -> dict[str, dict]:
     refs = packet.get("source_refs")
     if not isinstance(refs, list):
         raise CryptoPaperRuntimeBridgeError("DECISION_SOURCE_REFS_INVALID")
@@ -165,7 +210,7 @@ def _source_refs(packet: dict) -> dict[str, dict]:
         role = row.get("role")
         if role in by_role:
             raise CryptoPaperRuntimeBridgeError(f"DECISION_SOURCE_ROLE_DUPLICATE:{role}")
-        path = _safe_repo_path(row.get("path"))
+        path = _safe_repo_path(row.get("path"), observation_root=observation_root)
         expected = _require_sha256(row.get("sha256"), "DECISION_SOURCE_SHA_INVALID")
         if _file_sha256(path) != expected:
             raise CryptoPaperRuntimeBridgeError(f"DECISION_SOURCE_SHA_MISMATCH:{role}")
@@ -173,8 +218,23 @@ def _source_refs(packet: dict) -> dict[str, dict]:
     return by_role
 
 
-def _entries(packet: dict) -> dict:
-    refs = _source_refs(packet)
+def _preflight_source_paths(packet: dict, *, observation_root: Path) -> None:
+    refs = packet.get("source_refs")
+    if not isinstance(refs, list):
+        return
+    for row in refs:
+        if not isinstance(row, dict):
+            continue
+        try:
+            _safe_repo_path(row.get("path"), observation_root=observation_root)
+        except CryptoPaperRuntimeBridgeError as exc:
+            raise CryptoPaperRuntimeBridgeError(
+                f"DECISION_REDERIVATION_FAILED:{exc}"
+            ) from exc
+
+
+def _entries(packet: dict, *, observation_root: Path | None = None) -> dict:
+    refs = _source_refs(packet, observation_root=observation_root)
     universe_ref = refs.get("upbit_tradeable_universe_packet")
     market_ref = refs.get("upbit_market_evidence_packet")
     realtime_ref = refs.get("upbit_realtime_capture_run")
@@ -211,6 +271,7 @@ def _entries(packet: dict) -> dict:
 
 def validate_decision_snapshot(
     value: object, *, expected_source_commit: str | None = None,
+    observation_root: Path | None = None,
 ) -> dict:
     """Consume PR #441's canonical full-rederivation boundary."""
     if not isinstance(value, dict):
@@ -222,20 +283,35 @@ def validate_decision_snapshot(
         expected_source_commit, "EXPECTED_SOURCE_COMMIT_INVALID"
     ):
         raise CryptoPaperRuntimeBridgeError("DECISION_SOURCE_COMMIT_MISMATCH")
+    root = _safe_observation_root(observation_root)
+    _preflight_source_paths(value, observation_root=root)
+    validator = _decision_validator(root)
     try:
-        return DECISION.validate_output(value)
-    except DECISION.CryptoPaperDecisionSnapshotError as exc:
+        return validator.validate_output(value)
+    except validator.CryptoPaperDecisionSnapshotError as exc:
         raise CryptoPaperRuntimeBridgeError(f"DECISION_REDERIVATION_FAILED:{exc}") from exc
 
 
 def load_and_validate_decision_snapshot(
     path: Path, *, expected_source_commit: str | None = None,
+    observation_root: Path | None = None,
 ) -> dict:
-    path = Path(path).resolve()
-    if ROOT.resolve() not in path.parents or path.is_symlink() or not path.is_file():
+    root = _safe_observation_root(observation_root)
+    raw_path = Path(path)
+    if not raw_path.is_absolute():
+        raw_path = root / raw_path
+    if raw_path.is_symlink():
+        raise CryptoPaperRuntimeBridgeError("DECISION_PATH_INVALID")
+    try:
+        relative = raw_path.resolve().relative_to(root)
+        checked_path = _safe_repo_path(str(relative), observation_root=root)
+    except (ValueError, CryptoPaperRuntimeBridgeError) as exc:
+        if isinstance(exc, CryptoPaperRuntimeBridgeError):
+            raise CryptoPaperRuntimeBridgeError("DECISION_PATH_INVALID") from exc
         raise CryptoPaperRuntimeBridgeError("DECISION_PATH_INVALID")
     return validate_decision_snapshot(
-        _read_json(path), expected_source_commit=expected_source_commit,
+        _read_json(checked_path), expected_source_commit=expected_source_commit,
+        observation_root=root,
     )
 
 
@@ -403,8 +479,10 @@ def position_markets_from_ledger(ledger: dict) -> list[str]:
     )
 
 
-def _realtime_source(decision: dict) -> tuple[Path, dict]:
-    refs = _source_refs(decision)
+def _realtime_source(
+    decision: dict, *, observation_root: Path | None = None,
+) -> tuple[Path, dict]:
+    refs = _source_refs(decision, observation_root=observation_root)
     entry = refs.get("upbit_realtime_capture_run")
     if entry is None:
         raise CryptoPaperRuntimeBridgeError("REALTIME_SOURCE_MISSING")
@@ -421,10 +499,13 @@ def _realtime_source(decision: dict) -> tuple[Path, dict]:
     return entry["path"], record
 
 
-def _latest_public_message(decision: dict, *, market: str, kind: str) -> tuple[dict, Path, dict]:
+def _latest_public_message(
+    decision: dict, *, market: str, kind: str,
+    observation_root: Path | None = None,
+) -> tuple[dict, Path, dict]:
     if (decision.get("freshness_status") or {}).get("realtime") != DECISION.FRESH:
         raise CryptoPaperRuntimeBridgeError("DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH")
-    path, record = _realtime_source(decision)
+    path, record = _realtime_source(decision, observation_root=observation_root)
     run = record["run"]
     key = f"{kind}|-|{market}"
     row = run["latest_public_messages"].get(key)
@@ -466,18 +547,28 @@ def _latest_public_message(decision: dict, *, market: str, kind: str) -> tuple[d
     return row, path, record
 
 
-def latest_mark_prices(decision: dict, markets: list[str]) -> tuple[dict[str, str], str, str]:
+def latest_mark_prices(
+    decision: dict, markets: list[str], *, observation_root: Path | None = None,
+) -> tuple[dict[str, str], str, str]:
+    root = _safe_observation_root(observation_root)
     marks = {}
     source_rows = []
     for market in sorted(set(markets)):
-        row, path, _record = _latest_public_message(decision, market=market, kind="ticker")
+        row, path, _record = _latest_public_message(
+            decision, market=market, kind="ticker", observation_root=root,
+        )
         marks[market] = _format_decimal(row["raw"].get("trade_price"), "TICKER_PRICE_INVALID", positive=True)
-        source_rows.append({"path": str(path.relative_to(ROOT)), "sha256": row["source_sha256"]})
+        source_rows.append({"path": str(path.relative_to(root)), "sha256": row["source_sha256"]})
     return marks, "public://upbit/realtime/latest-ticker", payload_sha256(source_rows)
 
 
-def orderbook_snapshot(decision: dict, *, market: str) -> dict:
-    row, path, _record = _latest_public_message(decision, market=market, kind="orderbook")
+def orderbook_snapshot(
+    decision: dict, *, market: str, observation_root: Path | None = None,
+) -> dict:
+    root = _safe_observation_root(observation_root)
+    row, path, _record = _latest_public_message(
+        decision, market=market, kind="orderbook", observation_root=root,
+    )
     raw = row["raw"]
     units = raw.get("orderbook_units")
     if not isinstance(units, list) or not units:
@@ -509,13 +600,15 @@ def orderbook_snapshot(decision: dict, *, market: str) -> dict:
         freshness_status="FRESH",
         ask_levels=asks,
         bid_levels=bids,
-        source_ref=f"{path.relative_to(ROOT)}#latest_public_messages/{market}/orderbook",
+        source_ref=f"{path.relative_to(root)}#latest_public_messages/{market}/orderbook",
         source_sha256=row["source_sha256"],
     )
 
 
-def _promotion_packet(decision: dict) -> dict | None:
-    entries = _entries(decision)
+def _promotion_packet(
+    decision: dict, *, observation_root: Path | None = None,
+) -> dict | None:
+    entries = _entries(decision, observation_root=observation_root)
     universe_entry = entries["universe"]
     market_entry = entries["market_evidence"]
     if universe_entry is None or universe_entry["packet"] is None:
@@ -542,17 +635,25 @@ def _derive_runtime_request(
     *,
     expected_source_commit: str,
     public_code_commit_sha: str | None = None,
+    observation_root: Path | None = None,
+    observation_commit_sha: str | None = None,
     account_state: dict | None,
     open_position_risk: list[dict] | None,
     runtime_config: dict | None,
     known_idempotency_keys=None,
 ) -> dict:
+    source_root = _safe_observation_root(observation_root)
     decision = validate_decision_snapshot(
         decision, expected_source_commit=expected_source_commit,
+        observation_root=source_root,
     )
     code_commit = _require_sha40(
         public_code_commit_sha or expected_source_commit,
         "PUBLIC_CODE_COMMIT_INVALID",
+    )
+    observation_commit = _require_sha40(
+        observation_commit_sha or code_commit,
+        "OBSERVATION_COMMIT_INVALID",
     )
     config = validate_runtime_config(runtime_config) if runtime_config is not None else None
     if config is not None and _parse_utc(
@@ -573,7 +674,7 @@ def _derive_runtime_request(
     if config is None:
         missing.append("USER_RATIFIED_RUNTIME_CONFIG")
 
-    promotion = _promotion_packet(decision)
+    promotion = _promotion_packet(decision, observation_root=source_root)
     eligibility = None
     requests = []
     match_snapshots = []
@@ -598,7 +699,9 @@ def _derive_runtime_request(
                 open_orders_by_market.setdefault(order["market"], []).append(order)
         for market, orders in sorted(open_orders_by_market.items()):
             try:
-                snapshot = orderbook_snapshot(decision, market=market)
+                snapshot = orderbook_snapshot(
+                    decision, market=market, observation_root=source_root,
+                )
             except CryptoPaperRuntimeBridgeError as exc:
                 blockers.append(f"MATCH_SNAPSHOT_UNAVAILABLE:{market}:{exc}")
                 continue
@@ -668,7 +771,9 @@ def _derive_runtime_request(
             ):
                 blockers.append(f"ORDER_DRAFT_EXPIRED:{row['market']}")
                 continue
-            snapshot = orderbook_snapshot(decision, market=row["market"])
+            snapshot = orderbook_snapshot(
+                decision, market=row["market"], observation_root=source_root,
+            )
             limit_price = None
             if config["order_type"] == "LIMIT":
                 key = "low" if config["limit_price_source"] == "ENTRY_ZONE_LOW" else "high"
@@ -722,6 +827,7 @@ def _derive_runtime_request(
         "decision_payload_sha256": decision["payload_sha256"],
         "decision_source_commit_sha": decision["source_commit"],
         "public_code_commit_sha": code_commit,
+        "observation_commit_sha": observation_commit,
         "runtime_config_sha256": config["packet_sha256"] if config is not None else None,
         "eligibility": eligibility,
         "requests": requests,
@@ -731,6 +837,8 @@ def _derive_runtime_request(
         "source_inputs": {
             "decision": copy.deepcopy(decision),
             "public_code_commit_sha": code_commit,
+            "observation_root": str(source_root),
+            "observation_commit_sha": observation_commit,
             "account_state": copy.deepcopy(checked_account),
             "open_position_risk": copy.deepcopy(normalized_risk),
             "runtime_config": copy.deepcopy(config),
@@ -746,6 +854,8 @@ def build_runtime_request(
     *,
     expected_source_commit: str,
     public_code_commit_sha: str | None = None,
+    observation_root: Path | None = None,
+    observation_commit_sha: str | None = None,
     account_state: dict | None,
     open_position_risk: list[dict] | None,
     runtime_config: dict | None,
@@ -755,6 +865,8 @@ def build_runtime_request(
         decision,
         expected_source_commit=expected_source_commit,
         public_code_commit_sha=public_code_commit_sha,
+        observation_root=observation_root,
+        observation_commit_sha=observation_commit_sha,
         account_state=account_state,
         open_position_risk=open_position_risk,
         runtime_config=runtime_config,
@@ -763,16 +875,21 @@ def build_runtime_request(
     return validate_runtime_request(
         packet,
         expected_public_code_commit_sha=packet["public_code_commit_sha"],
+        expected_observation_root=observation_root,
+        expected_observation_commit_sha=packet["observation_commit_sha"],
     )
 
 
 def validate_runtime_request(
     value: object, *, expected_public_code_commit_sha: str | None = None,
+    expected_observation_root: Path | None = None,
+    expected_observation_commit_sha: str | None = None,
 ) -> dict:
     fields = {
         "schema_version", "mode", "status", "observed_at",
         "decision_generation_id", "decision_payload_sha256",
         "decision_source_commit_sha", "public_code_commit_sha",
+        "observation_commit_sha",
         "runtime_config_sha256", "eligibility",
         "requests", "match_snapshots", "blockers", "authority", "source_inputs",
         "packet_sha256",
@@ -796,6 +913,17 @@ def validate_runtime_request(
         expected_public_code_commit_sha, "EXPECTED_PUBLIC_CODE_COMMIT_INVALID",
     ):
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_PUBLIC_COMMIT_MISMATCH")
+    observation_commit = _require_sha40(
+        value.get("observation_commit_sha"), "RUNTIME_REQUEST_OBSERVATION_COMMIT_INVALID",
+    )
+    if (
+        expected_observation_commit_sha is not None
+        and observation_commit != _require_sha40(
+            expected_observation_commit_sha,
+            "EXPECTED_OBSERVATION_COMMIT_INVALID",
+        )
+    ):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_OBSERVATION_COMMIT_MISMATCH")
     if value.get("runtime_config_sha256") is not None:
         _require_sha256(value["runtime_config_sha256"], "RUNTIME_REQUEST_CONFIG_SHA_INVALID")
     eligibility = value.get("eligibility")
@@ -855,12 +983,21 @@ def validate_runtime_request(
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SHA_MISMATCH")
     source_inputs = value.get("source_inputs")
     if not isinstance(source_inputs, dict) or set(source_inputs) != {
-        "decision", "public_code_commit_sha", "account_state",
+        "decision", "public_code_commit_sha", "observation_root",
+        "observation_commit_sha", "account_state",
         "open_position_risk", "runtime_config", "known_idempotency_keys",
     }:
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SOURCE_INPUTS_INVALID")
     if source_inputs["public_code_commit_sha"] != public_commit:
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SOURCE_COMMIT_MISMATCH")
+    if source_inputs["observation_commit_sha"] != observation_commit:
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_OBSERVATION_SOURCE_COMMIT_MISMATCH")
+    source_root = _safe_observation_root(Path(source_inputs["observation_root"]))
+    if (
+        expected_observation_root is not None
+        and source_root != _safe_observation_root(expected_observation_root)
+    ):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_OBSERVATION_ROOT_MISMATCH")
     decision = source_inputs["decision"]
     if not isinstance(decision, dict):
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SOURCE_DECISION_INVALID")
@@ -868,6 +1005,8 @@ def validate_runtime_request(
         decision,
         expected_source_commit=decision.get("source_commit"),
         public_code_commit_sha=public_commit,
+        observation_root=source_root,
+        observation_commit_sha=observation_commit,
         account_state=source_inputs["account_state"],
         open_position_risk=source_inputs["open_position_risk"],
         runtime_config=source_inputs["runtime_config"],
