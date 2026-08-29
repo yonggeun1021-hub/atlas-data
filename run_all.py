@@ -1538,6 +1538,17 @@ APPROVED_TESTS = [
     # ★ P5-06/P7-08 — cross-row audit of unratified identity proposals.
     #   Coherence is review material only and never creates authority.
     "test/test_candidate_identity_authority_review_inventory.py",
+    # ★ P5-08 — Crypto Candidate Promotion Rule: TRADEABLE_UNIVERSE/
+    #   PAPER_ELIGIBLE (P3-12) -> WATCH/FOCUSED_REVIEW/BLOCKED. Pure
+    #   derivation over embedded, consumer-revalidated P3-12/P1-CR-08/
+    #   P4-07/P1-CR-07 packets. Missing ratification or a missing required
+    #   evidence leg remains UNKNOWN, so a real evaluation cannot reach
+    #   FOCUSED_REVIEW today; only the pure transition-rule test does.
+    #   No new capture/network call. Every authority field stays false.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_crypto_candidate_promotion.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
