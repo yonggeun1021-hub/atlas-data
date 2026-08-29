@@ -958,6 +958,7 @@ class FindPreviousPacketTests(TempDirMixin, unittest.TestCase):
         )
         real_packet = json.loads(real_packet_path.read_text(encoding="utf-8"))
         self.assertNotIn("captured_at_utc", real_packet)
+        self.assertEqual(CPDS.validate_output(real_packet), real_packet)
         output_root = self.tmp / "out"
         directory = (
             output_root / real_packet["capture_date"] / real_packet["capture_hhmm"] / real_packet["generation_id"]

@@ -154,6 +154,10 @@ KST = dt.timezone(dt.timedelta(hours=9))
 PATH_TIME_BASIS = (
     "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST"
 )
+TIME_BASIS_FIELDS = {
+    "captured_at_utc", "captured_at_kst", "operational_date_kst",
+    "path_time_basis", "scheduled_for", "started_at", "completed_at",
+}
 
 # Matches this workflow's own currently-committed schedule --
 # .github/workflows/upbit-realtime-capture.yml's `cron: "*/30 * * * *"` --
@@ -1009,8 +1013,12 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         "funnel_counts", "candidates", "freshness_status", "authority",
         "previous_state_reference", "derivation_notes", "payload_sha256",
     }
-    if not isinstance(packet, dict) or set(packet) != expected_keys:
+    legacy_expected_keys = expected_keys - TIME_BASIS_FIELDS
+    if not isinstance(packet, dict) or set(packet) not in {
+        frozenset(expected_keys), frozenset(legacy_expected_keys),
+    }:
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
+    is_legacy_packet = set(packet) == legacy_expected_keys
     if packet.get("schema_version") != OUTPUT_SCHEMA_VERSION:
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_VERSION_MISMATCH")
     _validate_embedded_hash(packet, "payload_sha256", "crypto_paper_decision_snapshot")
@@ -1070,8 +1078,13 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         realtime_entry=realtime_entry,
         previous_entry=packet["previous_state_reference"],
         component_rows=packet["source_components"],
-        started_at=packet["started_at"],
+        started_at=packet.get("started_at"),
     )
+    if is_legacy_packet:
+        rebuilt.pop("payload_sha256")
+        for field in TIME_BASIS_FIELDS:
+            rebuilt.pop(field)
+        rebuilt["payload_sha256"] = payload_sha256(rebuilt)
     if canonical_json(rebuilt) != canonical_json(packet):
         raise CryptoPaperDecisionSnapshotError("OUTPUT_DERIVATION_MISMATCH")
     return copy.deepcopy(packet)
