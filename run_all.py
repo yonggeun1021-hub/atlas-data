@@ -1620,6 +1620,11 @@ APPROVED_TESTS = [
     #   presence only; no axis interpretation, threshold, strategy, action,
     #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
     "test/test_crypto_live_component_registry.py",
+    # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
+    #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
+    #   daily_orchestrator.py component-row wiring into build_packet(),
+    #   proven against real committed evidence/crypto/breadth/raw dates.
+    "test/test_crypto_breadth_leadership_axis_wiring_20260829.py",
     # ★ P8-16 Crypto funnel briefing -- full-revalidation, read-only
     #   projection of one exact crypto_paper_decision_snapshot generation.
     #   JSON/API and deterministic Markdown share counts/reasons/freshness.
