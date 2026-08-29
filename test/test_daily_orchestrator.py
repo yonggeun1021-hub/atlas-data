@@ -622,7 +622,21 @@ class DailyOrchestratorTest(unittest.TestCase):
                 self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
                 continue
             if component_id == "KOREA_MARKET_SIGNALS":
-                self.assertEqual(by_id[component_id]["status"], "PENDING")
+                # Same root cause as FREE_MARKET_DATA/US_BREADTH_MEMBERSHIP
+                # above: _classify_korea_market_signals reads the live
+                # rolling pointer data/latest_korea_market_signals.json
+                # (not point-in-time frozen evidence), and that pointer's
+                # as_of_date has since advanced past DECISION_DATE
+                # (2026-08-21). The row's own internal FROM_FUTURE check
+                # would have set validated=True, but the generic, common
+                # _enforce_temporal_boundary wrapper (applied to every row
+                # regardless of builder) independently re-checks
+                # as_of_date > decision_date and unconditionally rebuilds
+                # the row as DATA_BLOCKED/AS_OF_DATE_AFTER_DECISION_DATE
+                # with validated defaulting to False -- this outer,
+                # defense-in-depth downgrade is what actually reaches this
+                # packet, per _enforce_temporal_boundary's own docstring.
+                self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
                 self.assertFalse(by_id[component_id]["validated"])
                 continue
             if component_id == "KOREA_ROTATION":
