@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_funnel_briefing_contract/1",
+  "output_schema_version": "crypto_funnel_briefing/1",
+  "source_schema_version": "crypto_paper_decision_snapshot_packet/1",
+  "status": "READ_MODEL_ONLY",
+  "axis_order": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "funnel_order": [
+    "OBSERVATION_POOL",
+    "TRADEABLE_UNIVERSE",
+    "FOCUSED_REVIEW",
+    "PAPER_READY",
+    "PAPER_POSITION"
+  ],
+  "missing_position_policy": "UNKNOWN_NULL_NOT_ZERO",
+  "authority": {
+    "briefing_read_model_only": true,
+    "paper_order_authorized": false,
+    "exchange_order_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

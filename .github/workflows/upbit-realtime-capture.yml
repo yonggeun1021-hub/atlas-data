@@ -39,6 +39,8 @@ jobs:
         run: python3 test/test_upbit_realtime_gate.py
       - name: Offline crypto PAPER decision snapshot regression (P1-CR-08 + P5-08 + P5-09 composition)
         run: python3 test/test_crypto_paper_decision_snapshot.py
+      - name: Offline P8-16 Crypto funnel briefing regression
+        run: python3 test/test_crypto_funnel_briefing.py
       - name: Find latest committed P3-12 tradeable-universe classification
         id: universe
         run: |
@@ -105,6 +107,18 @@ jobs:
             fi
           fi
           python3 decision/crypto_paper_decision_snapshot.py "${ARGS[@]}"
+      # P8-16 consumes only the exact decision packet created immediately
+      # above. It performs no fallback, network call, threshold evaluation,
+      # candidate promotion, PAPER execution, or private-ledger read.
+      - name: P8-16 Crypto funnel and PAPER decision briefing (read-only)
+        id: crypto_funnel_briefing
+        if: steps.crypto_paper_decision.outcome == 'success'
+        env:
+          DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: |
+          set -euo pipefail
+          test -n "$DECISION_PATH"
+          python3 briefing/crypto_funnel_briefing.py --decision-packet "$DECISION_PATH"
       - name: Record P9-06 realtime scheduler telemetry
         if: always()
         env:
@@ -120,6 +134,11 @@ jobs:
           ATLAS_CRYPTO_PAPER_DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
           ATLAS_CRYPTO_PAPER_DECISION_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.generation_id }}
           ATLAS_CRYPTO_PAPER_DECISION_SHA256: ${{ steps.crypto_paper_decision.outputs.payload_sha256 }}
+          ATLAS_CRYPTO_FUNNEL_BRIEFING_STEP_OUTCOME: ${{ steps.crypto_funnel_briefing.outcome }}
+          ATLAS_CRYPTO_FUNNEL_BRIEFING_OUTCOME: ${{ steps.crypto_funnel_briefing.outputs.outcome }}
+          ATLAS_CRYPTO_FUNNEL_BRIEFING_PATH: ${{ steps.crypto_funnel_briefing.outputs.path }}
+          ATLAS_CRYPTO_FUNNEL_BRIEFING_GENERATION_ID: ${{ steps.crypto_funnel_briefing.outputs.generation_id }}
+          ATLAS_CRYPTO_FUNNEL_BRIEFING_SHA256: ${{ steps.crypto_funnel_briefing.outputs.packet_sha256 }}
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: |
@@ -155,6 +174,9 @@ jobs:
           # new, separate evidence path; committed in the same run/commit as
           # the realtime evidence above, never reusing an existing path.
           git add evidence/crypto_paper_decision || true
+          # P8-16 is the read-only API/briefing projection of that exact
+          # decision generation. Private P10/P7 state is never copied here.
+          git add evidence/crypto_funnel_briefing || true
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
           else
