@@ -77,6 +77,13 @@ STATE_BLOCKED = "BLOCKED"
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# P3-12's declared scope is Upbit KRW spot only ("Upbit KRW 현물 시장 식별").
+# GET /v1/market/all returns every quote currency Upbit lists (KRW-*, BTC-*,
+# USDT-*) in one response; BTC-/USDT-quoted pairs are out of scope and must
+# never reach classification or identity review. Matches
+# identity/upbit_market_identity_proposal.py's own _MARKET_RE.
+_KRW_MARKET_RE = re.compile(r"^KRW-[A-Z0-9]{2,20}$")
+
 # Hardcoded, not policy-driven: never read, set, or made overridable by any
 # config value in this module.
 _ROW_AUTHORITY = {
@@ -235,8 +242,18 @@ def load_snapshot_core(snapshot_dir: Path, contract: dict | None = None) -> dict
         candles_by_market[market] = json.loads(body, parse_float=Decimal, parse_int=int)
 
     lookback_days = contract.get("turnover_lookback_finalized_days", 30)
+    all_codes = set(market_all_rows) | set(manifest.get("markets", []))
+    # manifest["markets"] is already KRW-only (the capture script's own
+    # krw_markets() filter). market_all_rows is the raw, unfiltered
+    # GET /v1/market/all archive and legitimately includes BTC-/USDT-quoted
+    # pairs (e.g. a real market like "BTC-0G") -- those are out of P3-12's
+    # declared "Upbit KRW 현물" scope and must never reach classification or
+    # identity review (identity/upbit_market_identity_proposal.py's
+    # default_candidate_canonical_asset_id() requires a KRW- prefix and
+    # raises for anything else). Exclude them here, once, at the source.
+    non_krw_excluded = sorted(code for code in all_codes if not _KRW_MARKET_RE.fullmatch(code))
     markets: dict = {}
-    for market in sorted(set(market_all_rows) | set(manifest.get("markets", []))):
+    for market in sorted(all_codes - set(non_krw_excluded)):
         row = market_all_rows.get(market)
         entry: dict = {"market": market}
         if row is None:
@@ -287,6 +304,7 @@ def load_snapshot_core(snapshot_dir: Path, contract: dict | None = None) -> dict
             "market_all": market_all_dupes, "ticker": ticker_dupes,
             "orderbook": orderbook_dupes, "candles": candle_dupes,
         },
+        "non_krw_market_codes_excluded": non_krw_excluded,
         "component_hashes": manifest["checksums"],
     }
 
