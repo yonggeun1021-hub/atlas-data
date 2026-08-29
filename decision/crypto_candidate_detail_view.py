@@ -62,6 +62,9 @@ UNIVERSE_DATA_ROOT = ROOT / "data" / "observations" / "upbit_tradeable_universe"
 MARKET_EVIDENCE_DATA_ROOT = ROOT / "data" / "observations" / "upbit_market_evidence"
 DECISION_SNAPSHOT_ROOT = ROOT / "evidence" / "crypto_paper_decision"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+HHMM_RE = re.compile(r"^\d{4}$")
+UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SCHEMA_VERSION = 1
 CONTRACT_VERSION = "crypto_candidate_detail_view/v1"
 FUNNEL_STAGES = (
@@ -127,34 +130,64 @@ def _authority_block() -> dict:
     }
 
 
+def _verified_decision_entry(candidate: Path) -> dict:
+    try:
+        generation_dir, hhmm_dir, date_dir = candidate.parent, candidate.parent.parent, candidate.parent.parent.parent
+        if not DATE_RE.fullmatch(date_dir.name) or not HHMM_RE.fullmatch(hhmm_dir.name):
+            _fail("DECISION_PATH_TIME_BASIS_INVALID", str(candidate))
+        if not SHA256_RE.fullmatch(generation_dir.name):
+            _fail("DECISION_PATH_GENERATION_INVALID", str(candidate))
+        record = DECISION_SNAPSHOT._read_json(candidate)
+        internal = record.get("captured_at_utc") or record.get("generated_at")
+        if not isinstance(internal, str) or not UTC_RE.fullmatch(internal):
+            _fail("DECISION_INTERNAL_TIMESTAMP_INVALID", str(candidate))
+        internal_date, internal_hhmm = internal[:10], internal[11:13] + internal[14:16]
+        if (internal_date, internal_hhmm) != (date_dir.name, hhmm_dir.name):
+            _fail("DECISION_PATH_INTERNAL_TIMESTAMP_MISMATCH", str(candidate))
+        if record.get("generation_id") != generation_dir.name:
+            _fail("DECISION_GENERATION_ID_MISMATCH", str(candidate))
+        unsigned = dict(record)
+        expected = unsigned.pop("payload_sha256", None)
+        if not isinstance(expected, str) or payload_sha256(unsigned) != expected:
+            _fail("DECISION_PAYLOAD_SHA256_MISMATCH", str(candidate))
+        parsed = dt.datetime.strptime(internal, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        return {
+            "date": date_dir.name,
+            "hhmm": hhmm_dir.name,
+            "generation_id": generation_dir.name,
+            "path": candidate,
+            "record": record,
+            "captured_at": parsed,
+        }
+    except CryptoCandidateDetailViewError:
+        raise
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        _fail("DECISION_PACKET_INVALID", f"{candidate}:{exc}")
+
+
 def find_latest_decision_snapshot(root: Path = DECISION_SNAPSHOT_ROOT) -> dict | None:
-    """Latest committed ``decision/crypto_paper_decision_snapshot.py``
-    packet under ``evidence/crypto_paper_decision/<date>/<hhmm>/
-    <generation_id>/packet.json``, or ``None`` if none is committed yet.
-    Mirrors ``find_latest_universe_packet``'s own lexicographic-latest
-    discovery pattern one level deeper (date, then hhmm, then
-    generation_id)."""
+    """Latest verified decision packet by its internal UTC timestamp.
+
+    Directory names are checked against the signed-in-payload time basis and
+    never used as the selection authority.
+    """
     root = Path(root)
     if not root.is_dir():
         return None
-    dates = sorted(p.name for p in root.iterdir() if p.is_dir() and DATE_RE.fullmatch(p.name))
-    for date in reversed(dates):
-        date_dir = root / date
-        hhmms = sorted(p.name for p in date_dir.iterdir() if p.is_dir())
-        for hhmm in reversed(hhmms):
-            hhmm_dir = date_dir / hhmm
-            generation_dirs = sorted(p for p in hhmm_dir.iterdir() if p.is_dir())
-            for generation_dir in reversed(generation_dirs):
-                candidate = generation_dir / "packet.json"
-                if candidate.is_file():
-                    return {
-                        "date": date,
-                        "hhmm": hhmm,
-                        "generation_id": generation_dir.name,
-                        "path": candidate,
-                        "record": DECISION_SNAPSHOT._read_json(candidate),
-                    }
-    return None
+    candidates = []
+    for candidate in root.glob("*/*/*/packet.json"):
+        try:
+            candidates.append(_verified_decision_entry(candidate))
+        except CryptoCandidateDetailViewError as exc:
+            print(f"TAMPER_OR_DRIFT:{exc}", file=__import__("sys").stderr)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: row["captured_at"])
+    latest_at = candidates[-1]["captured_at"]
+    latest = [row for row in candidates if row["captured_at"] == latest_at]
+    if len({row["generation_id"] for row in latest}) != 1:
+        _fail("DECISION_LATEST_TIMESTAMP_AMBIGUOUS", latest_at.isoformat())
+    return latest[-1]
 
 
 def _market_evidence_packet_for(market: str, market_evidence_entry: dict | None) -> dict | None:
@@ -320,6 +353,7 @@ def build_view(
     universe_data_root: Path = UNIVERSE_DATA_ROOT,
     market_evidence_data_root: Path = MARKET_EVIDENCE_DATA_ROOT,
     decision_snapshot_root: Path = DECISION_SNAPSHOT_ROOT,
+    decision_packet_path: Path | None = None,
     generated_at: str | None = None,
 ) -> dict:
     universe_entry = DECISION_SNAPSHOT.find_latest_universe_packet(universe_data_root)
@@ -332,7 +366,11 @@ def build_view(
     market_evidence_entry = DECISION_SNAPSHOT.find_latest_market_evidence_packet(
         market_evidence_data_root
     )
-    decision_entry = find_latest_decision_snapshot(decision_snapshot_root)
+    decision_entry = (
+        _verified_decision_entry(Path(decision_packet_path))
+        if decision_packet_path is not None
+        else find_latest_decision_snapshot(decision_snapshot_root)
+    )
     decision_record = decision_entry["record"] if decision_entry else None
     decision_by_market: dict[str, dict] = {}
     if isinstance(decision_record, dict):
@@ -368,7 +406,11 @@ def build_view(
         }
 
     if generated_at is None:
-        generated_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        generated_at = (
+            (decision_entry["record"].get("captured_at_utc") or decision_entry["record"].get("generated_at"))
+            if decision_entry
+            else dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
 
     packet = {
         "schema_version": SCHEMA_VERSION,
@@ -403,23 +445,37 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--output-root", type=Path)
+    parser.add_argument("--decision-packet", type=Path)
     parser.add_argument("--generated-at")
     args = parser.parse_args(argv)
     try:
-        result = build_view(generated_at=args.generated_at)
+        result = build_view(generated_at=args.generated_at, decision_packet_path=args.decision_packet)
     except CryptoCandidateDetailViewError as exc:
         import sys
 
         print(exc, file=sys.stderr)
         return 1
+    if args.out is not None and args.output_root is not None:
+        parser.error("--out and --output-root are mutually exclusive")
+    if args.output_root is not None:
+        decision = result.get("decision_snapshot")
+        if not isinstance(decision, dict):
+            print("DECISION_PACKET_REQUIRED_FOR_APPEND_ONLY_OUTPUT", file=__import__("sys").stderr)
+            return 1
+        args.out = (
+            args.output_root / decision["date"] / decision["hhmm"] /
+            decision["generation_id"] / "packet.json"
+        )
     if args.out is None:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     else:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(
-            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        rendered = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        if args.out.exists() and args.out.read_text(encoding="utf-8") != rendered:
+            print(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{args.out}", file=__import__("sys").stderr)
+            return 1
+        args.out.write_text(rendered, encoding="utf-8")
         print(str(args.out))
     return 0
 

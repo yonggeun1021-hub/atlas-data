@@ -193,8 +193,8 @@ def write_decision_snapshot(root: Path, date: str, hhmm: str, generation_id: str
         },
         "candidates": candidates,
         "authority": {},
-        "payload_sha256": "f" * 64,
     }
+    record["payload_sha256"] = MODULE.payload_sha256(record)
     return write_json(root / date / hhmm / generation_id / "packet.json", record)
 
 
@@ -374,7 +374,7 @@ class SyntheticFixtureTest(unittest.TestCase):
             rs_criterion = {"status": "UNKNOWN", "reason": "PEER_GROUP_UNRATIFIED"}
             decision_root = tmp / "decision"
             write_decision_snapshot(
-                decision_root, "2026-08-29", "1136", "g" * 64,
+                decision_root, "2026-08-29", "1136", "1" * 64,
                 [
                     decision_candidate_row(
                         "KRW-ETH", canonical_asset_id="ETH",
@@ -425,7 +425,7 @@ class SyntheticFixtureTest(unittest.TestCase):
             order_draft_criterion = {"status": "PASS", "reason": "ORDER_DRAFT_COMPLETE_NO_NULL_FIELDS"}
             decision_root = tmp / "decision"
             write_decision_snapshot(
-                decision_root, "2026-08-29", "1136", "h" * 64,
+                decision_root, "2026-08-29", "1136", "2" * 64,
                 [
                     decision_candidate_row(
                         "KRW-SOL", canonical_asset_id="SOL",
@@ -480,7 +480,7 @@ class SyntheticFixtureTest(unittest.TestCase):
             )}
             decision_root = tmp / "decision"
             write_decision_snapshot(
-                decision_root, "2026-08-29", "1136", "i" * 64,
+                decision_root, "2026-08-29", "1136", "3" * 64,
                 [
                     decision_candidate_row(
                         "KRW-DOGE", canonical_asset_id="DOGE",
