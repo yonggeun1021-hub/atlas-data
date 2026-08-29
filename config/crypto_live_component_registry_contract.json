@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_live_component_registry_contract/1",
+  "output_schema_version": "crypto_live_component_registry/1",
+  "mode": "PUBLIC_EVIDENCE_ONLY_NO_INTERPRETATION",
+  "component_order": [
+    "BTC_TREND",
+    "BTC_RISK",
+    "STABLECOIN_NET_ISSUANCE",
+    "CRYPTO_BREADTH"
+  ],
+  "source_roots": {
+    "BTC_TREND": "evidence/crypto/btc/raw",
+    "BTC_RISK": "evidence/crypto/btc/raw",
+    "STABLECOIN_NET_ISSUANCE": "evidence/stablecoin/raw",
+    "CRYPTO_BREADTH": "evidence/crypto/breadth/raw"
+  },
+  "deferred_components": {
+    "CRYPTO_LEADERSHIP": "DAILY_COMPONENT_ROW_PRODUCER_AND_DUAL_WINDOW_HISTORY_UNAVAILABLE"
+  },
+  "authority": {
+    "evidence_registry_only": true,
+    "regime_interpretation_authorized": false,
+    "threshold_authorized": false,
+    "strategy_authorized": false,
+    "action_authorized": false,
+    "paper_order_authorized": false,
+    "exchange_order_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

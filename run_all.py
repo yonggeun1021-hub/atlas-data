@@ -1592,6 +1592,12 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_paper_buy_eligibility.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_decision_snapshot.py",
+    # ★ P1-CR-08 Crypto live-component registry -- exact public natural
+    #   BTC trend/risk, stablecoin and breadth rows, bound by point-in-time
+    #   retained download cutoff plus full directory fingerprint. Evidence
+    #   presence only; no axis interpretation, threshold, strategy, action,
+    #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
+    "test/test_crypto_live_component_registry.py",
     # ★ P8-16 Crypto funnel briefing -- full-revalidation, read-only
     #   projection of one exact crypto_paper_decision_snapshot generation.
     #   JSON/API and deterministic Markdown share counts/reasons/freshness.

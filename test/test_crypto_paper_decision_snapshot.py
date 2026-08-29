@@ -303,10 +303,10 @@ class NormalCompleteInputTests(TempDirMixin, unittest.TestCase):
         with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "OUTPUT_DERIVATION_MISMATCH"):
             CPDS.validate_output(forged, allow_external_sources=True)
 
-    def test_unwired_regime_component_rows_are_rejected(self):
+    def test_unregistered_regime_component_rows_are_rejected(self):
         with self.assertRaisesRegex(
             CPDS.CryptoPaperDecisionSnapshotError,
-            "REGIME_COMPONENT_ROWS_UNWIRED",
+            "REGIME_COMPONENT_REGISTRY_INVALID",
         ):
             CPDS.build_snapshot(
                 generated_at=GENERATED_AT,
