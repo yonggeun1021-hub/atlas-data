@@ -29,8 +29,50 @@ UNIFIED_FIXTURE_PATH = ROOT / "test" / "test_unified_decision_contract.py"
 spec = importlib.util.spec_from_file_location("p10_04_unified_fixture", UNIFIED_FIXTURE_PATH)
 UNIFIED_FIXTURE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UNIFIED_FIXTURE)
+def _has_validated_unified_decision(path: Path) -> bool:
+    """True only if `path` is a committed daily packet whose UNIFIED_DECISION
+    component is itself validated=True with a packet payload attached.
+
+    The daily briefing pipeline commits `packet.json` incrementally as each
+    slot's evidence resolves; the very latest committed packet can legitimately
+    still have `UNIFIED_DECISION` unvalidated (e.g. the first run of a newly
+    activated slot). This regression exercises the accept-path of the P10-04
+    lineage validator, which requires a genuinely validated Unified Decision --
+    picking an in-flight, not-yet-validated packet is a fixture-selection bug,
+    not evidence that the validator itself is broken (it fails closed exactly
+    as designed against an unvalidated component).
+    """
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    rows = payload.get("components")
+    if not isinstance(rows, list):
+        return False
+    matches = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("component_id") == "UNIFIED_DECISION"
+    ]
+    return (
+        len(matches) == 1
+        and matches[0].get("validated") is True
+        and isinstance(matches[0].get("packet"), dict)
+    )
+
+
+def _latest_packet_with_validated_unified_decision(candidates):
+    for candidate in reversed(candidates):
+        if _has_validated_unified_decision(candidate):
+            return candidate
+    raise AssertionError(
+        "No committed evidence/daily_briefing/**/packet.json has a validated "
+        "UNIFIED_DECISION component yet -- this P10-04 lineage regression needs "
+        "at least one fully-validated daily packet to exercise the accept path."
+    )
+
+
 PACKETS = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
-PACKET = PACKETS[-1]
+PACKET = _latest_packet_with_validated_unified_decision(PACKETS)
 HISTORICAL_RECORDS = sorted(
     (ROOT / "evidence" / "operational" / "decision_change_lineage" / "records")
     .glob("record-*.json")

@@ -29,7 +29,47 @@ UNIFIED_FIXTURE_PATH = ROOT / "test" / "test_unified_decision_contract.py"
 spec = importlib.util.spec_from_file_location("p10_01_unified_fixture", UNIFIED_FIXTURE_PATH)
 UNIFIED_FIXTURE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UNIFIED_FIXTURE)
-PACKET = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))[-1]
+def _has_validated_unified_decision(path: Path) -> bool:
+    """True only if `path`'s UNIFIED_DECISION component is validated=True.
+
+    The daily briefing pipeline commits `packet.json` incrementally; the very
+    latest committed packet can legitimately still have UNIFIED_DECISION
+    unvalidated (e.g. the first run of a newly activated slot). This
+    regression needs a genuinely validated packet to exercise the accept
+    path -- see the identical helper in test_decision_change_lineage_operational.py.
+    """
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    rows = payload.get("components")
+    if not isinstance(rows, list):
+        return False
+    matches = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("component_id") == "UNIFIED_DECISION"
+    ]
+    return (
+        len(matches) == 1
+        and matches[0].get("validated") is True
+        and isinstance(matches[0].get("packet"), dict)
+    )
+
+
+def _latest_packet_with_validated_unified_decision(candidates):
+    for candidate in reversed(candidates):
+        if _has_validated_unified_decision(candidate):
+            return candidate
+    raise AssertionError(
+        "No committed evidence/daily_briefing/**/packet.json has a validated "
+        "UNIFIED_DECISION component yet -- this P10-01 shadow readiness "
+        "regression needs at least one fully-validated daily packet."
+    )
+
+
+PACKET = _latest_packet_with_validated_unified_decision(
+    sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
+)
 
 
 def commit_for(path: Path) -> str:
