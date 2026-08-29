@@ -399,6 +399,50 @@ class SnapshotPipelineTests(unittest.TestCase):
             self.assertEqual(len(core["markets"]), 1)
             self.assertEqual(core["duplicate_market_codes"]["market_all"].get("KRW-BTC"), 2)
 
+    def test_non_krw_quoted_market_in_raw_market_all_is_excluded_not_crashed(self):
+        # Reproduces a real production incident: Upbit's GET /v1/market/all
+        # legitimately returns BTC-/USDT-quoted pairs (e.g. a real market
+        # like "BTC-0G") alongside KRW-* ones. The capture script's own
+        # markets list (manifest["markets"]) is already KRW-only, but the
+        # raw market_all archive is deliberately unfiltered for audit
+        # completeness. Before this fix, that raw row reached
+        # classification/identity review unfiltered and crashed the entire
+        # run (MARKET_CODE_INVALID) instead of being excluded as
+        # out-of-scope.
+        with tempfile.TemporaryDirectory() as tmp:
+            target, contract = self._capture(Path(tmp), ["KRW-BTC"])
+            import gzip
+            raw = json.loads(gzip.open(target / contract["market_all_raw_file"], "rb").read())
+            raw.append({
+                "market": "BTC-0G",
+                "korean_name": "제로지",
+                "english_name": "0G",
+            })
+            new_raw_bytes = json.dumps(raw).encode()
+            (target / contract["market_all_raw_file"]).write_bytes(gzip.compress(new_raw_bytes))
+            manifest_path = target / "_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            import hashlib
+            manifest["checksums"][contract["market_all_raw_file"]] = hashlib.sha256(new_raw_bytes).hexdigest()
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+
+            core = UNI.load_snapshot_core(target, contract)  # must not raise
+            self.assertEqual(set(core["markets"]), {"KRW-BTC"})
+            self.assertEqual(core["non_krw_market_codes_excluded"], ["BTC-0G"])
+
+            # The exact downstream crash site: identity proposal building
+            # must never see the excluded market either.
+            identity_spec = importlib.util.spec_from_file_location(
+                "upbit_market_identity_proposal_regression",
+                ROOT / "identity" / "upbit_market_identity_proposal.py",
+            )
+            identity_module = importlib.util.module_from_spec(identity_spec)
+            identity_spec.loader.exec_module(identity_module)
+            for market in core["markets"]:
+                identity_module.default_candidate_canonical_asset_id(market)  # must not raise
+            with self.assertRaises(identity_module.UpbitMarketIdentityProposalError):
+                identity_module.default_candidate_canonical_asset_id("BTC-0G")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
