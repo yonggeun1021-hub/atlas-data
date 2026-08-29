@@ -64,6 +64,14 @@ false. Their producer validators run again when P8-06 consumes them. A producer
 failure therefore degrades only the dependent component chain instead of
 allowing a self-rehashed semantic mutation into the briefing.
 
+## Korea market-wide five-signal observation
+
+`daily_orchestrator/6` adds `KOREA_MARKET_SIGNALS` before the three-market
+header. The component freezes and independently revalidates one official-KRX
+`korea_market_signals/1` packet, then exposes all five Korea axes as evidence
+presence. The Regime label, direction, confidence, action, order, Production
+and trading authorities remain closed.
+
 Status: provider-free daily orchestrator implemented and scheduled; most
 downstream components remain PENDING/POLICY_BLOCKED/DATA_BLOCKED/UNAVAILABLE
 because their own upstream policies are unratified or their own upstream

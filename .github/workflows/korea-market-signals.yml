@@ -1,0 +1,87 @@
+name: Korea Market Five Signals
+
+on:
+  workflow_dispatch:
+    inputs:
+      previous_date:
+        description: "Optional previous completed KRX session (YYYYMMDD; supply both dates or neither)"
+        required: false
+      current_date:
+        description: "Optional current completed KRX session (YYYYMMDD; supply both dates or neither)"
+        required: false
+  schedule:
+    # 18:10 and 18:25 KST on weekdays. The second slot is an idempotent
+    # recovery chance when KRX has not published every required family at
+    # the first slot; same-date committed evidence is validated and reused.
+    - cron: "10 9 * * 1-5"
+    - cron: "25 9 * * 1-5"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: korea-market-five-signals
+  cancel-in-progress: false
+
+jobs:
+  collect-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline five-signal regression
+        run: python3 test/test_korea_market_signals.py
+      - name: Re-sync append-only source branch
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+      - name: Collect official KRX market signals
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          PREVIOUS_DATE: ${{ inputs.previous_date }}
+          CURRENT_DATE: ${{ inputs.current_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          if test -n "$PREVIOUS_DATE" || test -n "$CURRENT_DATE"; then
+            test -n "$PREVIOUS_DATE" -a -n "$CURRENT_DATE" || {
+              echo "STOP: previous_date and current_date must be supplied together"
+              exit 2
+            }
+            python3 .github/scripts/korea_market_signals.py \
+              --previous-date "$PREVIOUS_DATE" \
+              --current-date "$CURRENT_DATE"
+          else
+            python3 .github/scripts/korea_market_signals.py
+          fi
+      - name: Verify tracked output and authority boundary
+        run: |
+          python3 .github/scripts/korea_market_signals.py \
+            --verify data/latest_korea_market_signals.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          packet = json.loads(Path("data/latest_korea_market_signals.json").read_text())
+          assert packet["status"] == "OBSERVED_UNCLASSIFIED"
+          assert packet["coverage"]["ratio"] == "5/5"
+          assert packet["source"]["raw_persistence"] == 0
+          assert packet["source"]["per_symbol_persistence"] == 0
+          for key, value in packet["authority"].items():
+              if key.endswith("_authorized"):
+                  assert value is False, key
+          PY
+      - name: Commit append-only observation and latest pointer
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/observations/korea_market_signals data/latest_korea_market_signals.json
+          if git diff --cached --quiet; then
+            echo "no change (same-date packet verified and reused)"
+          else
+            git commit -m "data: Korea market five-signal observation $(TZ=Asia/Seoul date +%Y-%m-%d)"
+            git push origin HEAD:main
+          fi

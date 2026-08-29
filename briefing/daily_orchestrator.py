@@ -891,6 +891,71 @@ def build_korea_rotation(decision_date: str, snapshot: dict | None = None) -> di
 
 
 # ---------------------------------------------------------------------------
+# Korea market-wide five-signal observation (official KRX, policy-neutral)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_korea_market_signals_snapshot() -> dict:
+    return _fetch_filing_snapshot("data/latest_korea_market_signals.json")
+
+
+def _classify_korea_market_signals(decision_date: str, snapshot: dict) -> dict:
+    component_id = "KOREA_MARKET_SIGNALS"
+    if snapshot["kind"] == "missing":
+        return _blocked(component_id, "PENDING", "NO_KOREA_MARKET_SIGNALS_PUBLISHED")
+    if snapshot["kind"] == "error":
+        return component_row(component_id, "DEGRADED", snapshot["value"])
+    payload = snapshot["value"]
+    try:
+        validated = LIVE_AXIS_ADAPTER.KOREA_MARKET_SIGNALS.validate_packet(payload)
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception(component_id, exc)
+    if validated["as_of_date"] > decision_date:
+        return component_row(
+            component_id,
+            "DATA_BLOCKED",
+            "KOREA_MARKET_SIGNALS_FROM_FUTURE",
+            as_of_date=validated["as_of_date"],
+            generated_at=validated["generated_at"],
+            available_at=validated["available_at"],
+            validated=True,
+        )
+    if validated.get("coverage", {}).get("ratio") != "5/5":
+        return component_row(
+            component_id,
+            "DATA_BLOCKED",
+            "KOREA_MARKET_SIGNALS_COVERAGE_INCOMPLETE",
+            as_of_date=validated["as_of_date"],
+            generated_at=validated["generated_at"],
+            available_at=validated["available_at"],
+            validated=True,
+        )
+    return component_row(
+        component_id,
+        "READY",
+        None,
+        as_of_date=validated["as_of_date"],
+        generated_at=validated["generated_at"],
+        available_at=validated["available_at"],
+        source_packet_path=(
+            "data/observations/korea_market_signals/"
+            f"{validated['as_of_date']}"
+        ),
+        source_packet_sha256=validated["payload_sha256"],
+        validated=True,
+        authority=validated["authority"],
+        contract_version=validated["contract_version"],
+        packet=validated,
+    )
+
+
+def build_korea_market_signals(snapshot: dict | None = None) -> dict:
+    if snapshot is None:
+        snapshot = _fetch_korea_market_signals_snapshot()
+    return _classify_korea_market_signals("9999-12-31", snapshot)
+
+
+# ---------------------------------------------------------------------------
 # KOFIA first-seen (persisted evidence only; no provider call)
 # ---------------------------------------------------------------------------
 
@@ -2515,7 +2580,7 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
     "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
     "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
-    "FREE_MARKET_DATA", "KOREA_ROTATION",
+    "FREE_MARKET_DATA", "KOREA_ROTATION", "KOREA_MARKET_SIGNALS",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
@@ -2654,6 +2719,13 @@ def build_packet(
             ROOT / "evidence" / "crypto" / "breadth" / "raw", decision_date
         )
     rows["CRYPTO_BREADTH"] = _boundary(_classify_crypto_breadth(crypto_breadth_snapshot))
+
+    korea_market_signals_snapshot = frozen_sources.get("KOREA_MARKET_SIGNALS")
+    if korea_market_signals_snapshot is None:
+        korea_market_signals_snapshot = _fetch_korea_market_signals_snapshot()
+    rows["KOREA_MARKET_SIGNALS"] = _boundary(
+        _classify_korea_market_signals(decision_date, korea_market_signals_snapshot)
+    )
 
     # Dynamic Clock is computed once and shared by P8-05 presentation,
     # P8-03 signal boundary, and the Dynamic Clock component.  This prevents
@@ -2806,6 +2878,7 @@ def build_packet(
             "BTC_RISK": btc_risk_snapshot,
             "STABLECOIN_NET_ISSUANCE": stablecoin_snapshot,
             "CRYPTO_BREADTH": crypto_breadth_snapshot,
+            "KOREA_MARKET_SIGNALS": korea_market_signals_snapshot,
             "KOREA_ROTATION": korea_rotation_snapshot,
             # Only present for the evening slot, where KRX_POST_CLOSE is
             # actually fetched -- the morning slot's static PENDING row has
@@ -2817,7 +2890,7 @@ def build_packet(
             ),
         },
         "unresolved_boundaries": [
-            "REGIME_AXIS_LIVE_ADAPTER_NOT_WIRED",
+            "REGIME_POLICY_VALUES_UNRATIFIED",
             "ROTATION_AND_DISCOVERY_POLICY_UNRATIFIED",
             "RULE_REGISTRY_NOT_CONSUMABLE",
             "PORTFOLIO_CONSTITUTION_NOT_RATIFIED",
@@ -2894,7 +2967,7 @@ _SECTION_GROUPS = [
     ("Filing & source evidence", ["DART_FILING_CONTENT", "SEC_FILING_CONTENT", "KOFIA_FIRST_SEEN"]),
     ("Sensors", [
         "US_BREADTH_MEMBERSHIP", "FREE_MARKET_DATA", "BTC_TREND", "BTC_RISK",
-        "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH",
+        "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KOREA_MARKET_SIGNALS",
     ]),
     ("3-Market Regime", ["THREE_MARKET_REGIME_HEADER"]),
     ("Rotation / Theme", ["ROTATION_DISCOVERY", "KOREA_ROTATION"]),
@@ -3017,6 +3090,37 @@ def _format_component_detail(row: dict) -> list[str]:
                 f"    - status={packet.get('status')} "
                 f"selected_assets={packet.get('selected_asset_count')}"
             )
+        elif cid == "KOREA_MARKET_SIGNALS":
+            axes = packet.get("axes", {})
+            trend = axes.get("TREND", {}).get("measurement", {}).get("benchmarks", {})
+            breadth = axes.get("BREADTH", {}).get("measurement", {}).get("combined", {})
+            liquidity = axes.get("LIQUIDITY", {}).get("measurement", {}).get("combined", {})
+            leaders = (
+                axes.get("LEADERSHIP", {})
+                .get("measurement", {})
+                .get("largest_relative_returns", [])[:3]
+            )
+            lines.append(
+                f"    - 기준일={packet.get('as_of_date')} "
+                f"코스피={trend.get('KOSPI', {}).get('one_session_return_pct')}% "
+                f"코스닥={trend.get('KOSDAQ', {}).get('one_session_return_pct')}%"
+            )
+            lines.append(
+                f"    - 상승={breadth.get('advancing_count')} "
+                f"하락={breadth.get('declining_count')} "
+                f"보합={breadth.get('unchanged_count')} "
+                f"거래대금변화={liquidity.get('trading_value_change_pct')}%"
+            )
+            if leaders:
+                lines.append(
+                    "    - 상대강도 상위 관측: "
+                    + ", ".join(
+                        f"{item.get('market')} {item.get('sector_name')} "
+                        f"{item.get('relative_return_vs_benchmark_pct')}%p"
+                        for item in leaders
+                    )
+                    + " (투자순위 아님)"
+                )
         elif cid == "THREE_MARKET_REGIME_HEADER":
             for market in packet.get("markets", []):
                 coverage = market.get("coverage", {})

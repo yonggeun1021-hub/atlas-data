@@ -1,4 +1,4 @@
-# Regime Live Axis Adapter (`regime_live_axis_adapter/v5`)
+# Regime Live Axis Adapter (`regime_live_axis_adapter/v6`)
 
 `regime/live_axis_adapter.py` proves, for each of the fifteen `market/axis`
 combinations in the P1-COM-01 envelope, whether qualified point-in-time
@@ -10,6 +10,14 @@ policy-unratified, or PIT-inconsistent). No axis or aggregate output from this
 module, or from anything downstream that consumes it (`regime/output_contract.py`),
 ever carries a Regime, direction, confidence, threshold, weight, ranking, or
 action value. All `*_authorized` fields stay `false`.
+
+## Korea five-axis evidence coverage
+
+`regime_live_axis_adapter/v6` binds `KR/TREND`, `KR/BREADTH`, `KR/RISK_VOL`,
+`KR/LIQUIDITY`, and `KR/LEADERSHIP` to the same validated official-KRX
+`korea_market_signals/1` aggregate packet. `DEFINED` means only that the
+measurement exists with point-in-time lineage. It is not a Korea
+`RISK_ON`/`RISK_OFF` interpretation.
 
 ## P1-CR-08: Crypto axis coverage
 

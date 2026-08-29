@@ -539,7 +539,7 @@ class DailyOrchestratorTest(unittest.TestCase):
                 "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
                 "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
                 "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "KRX_POST_CLOSE",
-                "FREE_MARKET_DATA", "KOREA_ROTATION",
+                "FREE_MARKET_DATA", "KOREA_ROTATION", "KOREA_MARKET_SIGNALS",
             }),
         )
         # Built late in the KST day, on the evening slot (so KRX_POST_CLOSE
@@ -620,6 +620,10 @@ class DailyOrchestratorTest(unittest.TestCase):
                 # too. The tamper-detection loop below still exercises its
                 # frozen_sources re-derivability regardless of status.
                 self.assertEqual(by_id[component_id]["status"], "DATA_BLOCKED")
+                continue
+            if component_id == "KOREA_MARKET_SIGNALS":
+                self.assertEqual(by_id[component_id]["status"], "PENDING")
+                self.assertFalse(by_id[component_id]["validated"])
                 continue
             if component_id == "KOREA_ROTATION":
                 # Different root cause from the DATA_BLOCKED cases above:
@@ -1032,6 +1036,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             "KRX_POST_CLOSE": {"kind": "absent"},
             "FREE_MARKET_DATA": {"kind": "missing"},
             "KOREA_ROTATION": {"kind": "missing", "value": None},
+            "KOREA_MARKET_SIGNALS": {"kind": "error", "value": "TAMPERED"},
         }
         self.assertEqual(set(no_evidence_shape), MODULE.FROZEN_SOURCE_COMPONENTS)
 
