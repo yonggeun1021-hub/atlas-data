@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "policy_version": "crypto_paper_buy_eligibility_policy/1",
+  "baseline_label": "PROPOSED_PAPER_BASELINE",
+  "baseline_version": "v1",
+  "approval_status": "PROPOSED_PAPER_BASELINE_UNRATIFIED",
+  "effective_date": "2026-08-29",
+  "not_a_live_capital_limit": true,
+  "source_reference": "Canonical Crypto policy Notion doc, section 'PAPER 전용 초기 비교 기준 (PROPOSED_PAPER_BASELINE, v1)' -- PAPER-only comparison baseline, explicitly not a live-capital trading limit ('이 숫자들은 PAPER 비교용이지 실거래 한도가 아니다').",
+  "decimal_scale": 18,
+  "trend": {
+    "ema_period": 20
+  },
+  "breakout": {
+    "lookback_bars": 20,
+    "volume_ratio_min": "1.5"
+  },
+  "risk": {
+    "per_trade_planned_loss_nav_fraction": "0.0025",
+    "total_crypto_paper_exposure_nav_fraction": "0.05",
+    "single_asset_paper_exposure_nav_fraction": "0.02",
+    "max_concurrent_paper_positions": 3
+  }
+}
