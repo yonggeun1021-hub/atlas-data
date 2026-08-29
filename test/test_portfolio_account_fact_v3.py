@@ -36,10 +36,12 @@ def _bundle() -> dict:
             "account": {
                 "netAssetKrw": _entry("nass_amt", 1_000_000),
                 "cashDepositTotalKrw": _entry("dnca_tot_amt", 300_000),
-                "securitiesValuationKrw": _entry("scts_evlu_amt", 700_000),
-                "totalValuationKrw": _entry("tot_evlu_amt", 1_000_000),
-                "valuationSumKrw": _entry("evlu_amt_smtl_amt", 700_000),
-                "unrealizedPlSumKrw": _entry("evlu_pfls_smtl_amt", -5_000),
+            },
+            "rawReconciliation": {
+                "scts_evlu_amt": 700_000,
+                "tot_evlu_amt": 1_000_000,
+                "evlu_amt_smtl_amt": 700_000,
+                "evlu_pfls_smtl_amt": -5_000,
             },
             "positions": [{
                 "sourceName": "kis_paper_domestic_balance",
@@ -221,6 +223,46 @@ class PortfolioAccountFactV3ReadinessTests(unittest.TestCase):
         ):
             self.evaluate(bundle)
 
+    def test_implemented_mapping_surface_matches_exact_ratified_seven(self):
+        approved = tuple(sorted(
+            (row["rawKisField"], row["targetPath"])
+            for row in self.valuation_authority[
+                "valuationSemanticAuthorityRecords"
+            ][0]["approvedMappings"]
+        ))
+        self.assertEqual(fact_v3._implemented_semantic_mapping_pairs(), approved)
+        self.assertEqual(len(approved), 7)
+        implemented_targets = {target for _, target in approved}
+        for unapproved_target in (
+            "account.securitiesValuationKrw", "account.totalValuationKrw",
+            "account.valuationSumKrw", "account.unrealizedPlSumKrw",
+        ):
+            self.assertNotIn(unapproved_target, implemented_targets)
+
+    def test_rehashed_structural_mapping_mutation_is_semantic_blocked(self):
+        bundle = _bundle()
+        original = fact_v3._ACCOUNT_MAPPED_KIS_FIELDS["netAssetKrw"]
+        try:
+            fact_v3._ACCOUNT_MAPPED_KIS_FIELDS["netAssetKrw"] = "attacker_net"
+            bundle["balanceObservation"]["account"]["netAssetKrw"][
+                "rawKisField"
+            ] = "attacker_net"
+            _rehash(bundle)
+            result = self.evaluate(bundle)
+        finally:
+            fact_v3._ACCOUNT_MAPPED_KIS_FIELDS["netAssetKrw"] = original
+        self.assertEqual(
+            result["status"], fact_v3.NOT_COMPUTABLE_VALUATION_SEMANTIC_AUTHORITY
+        )
+        self.assertEqual(
+            result["semanticAuthorityStatus"],
+            "IMPLEMENTATION_MAPPING_MANIFEST_MISMATCH",
+        )
+        self.assertIsNone(result["accountFact"])
+        self.assertEqual(
+            result["authority"], fact_v3.CONSUMPTION_AUTHORITY_ALL_FALSE
+        )
+
     def test_raw_semantic_field_substitution_is_rejected(self):
         bundle = _bundle()
         bundle["balanceObservation"]["account"]["netAssetKrw"][
@@ -325,6 +367,21 @@ class PortfolioAccountFactV3ReadinessTests(unittest.TestCase):
             "SOURCE_BUNDLE_PROVIDER_TUPLE_INVALID",
         ):
             self.evaluate(bundle)
+
+    def test_caller_supplied_non_file_backed_authority_is_rejected(self):
+        provider = copy.deepcopy(self.provider_authority)
+        provider.pop("_source_path")
+        with self.assertRaisesRegex(
+            fact_v3.PortfolioAccountFactV3Error,
+            "PROVIDER_AUTHORITY_FILE_PROVENANCE_REQUIRED",
+        ):
+            fact_v3.evaluate_kis_portfolio_account_fact_v3_readiness(
+                bundle=_bundle(), decision_at=DECISION_AT,
+                provider_authority=provider,
+                security_identity=self.security_identity,
+                valuation_authority_document=self.valuation_authority,
+                trusted_commit=self.trusted_commit,
+            )
 
     def test_source_binding_requires_real_sha_shape_not_boolean_alias(self):
         bundle = _bundle()

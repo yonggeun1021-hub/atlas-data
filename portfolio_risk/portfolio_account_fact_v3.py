@@ -75,7 +75,7 @@ _BUNDLE_FIELDS = {
 }
 _BALANCE_FIELDS = {
     "sourceContractVersion", "sourceRecordSha256", "accountIdentityHash",
-    "capturedAt", "availableAt", "account", "positions",
+    "capturedAt", "availableAt", "account", "rawReconciliation", "positions",
 }
 _CAPACITY_FIELDS = {
     "sourceContractVersion", "sourceRecordSha256", "accountIdentityHash",
@@ -85,17 +85,14 @@ _SOURCE_BINDING_FIELDS = {
     "fullAccountRecordSha256", "buyCapacityRecordSha256",
     "pairBindingRecordSha256", "lockedRuntimeReceiptSha256",
 }
-_ACCOUNT_FIELDS = {
-    "netAssetKrw", "cashDepositTotalKrw", "securitiesValuationKrw",
-    "totalValuationKrw", "valuationSumKrw", "unrealizedPlSumKrw",
-}
-_ACCOUNT_KIS_FIELDS = {
+_ACCOUNT_FIELDS = {"netAssetKrw", "cashDepositTotalKrw"}
+_ACCOUNT_MAPPED_KIS_FIELDS = {
     "netAssetKrw": "nass_amt",
     "cashDepositTotalKrw": "dnca_tot_amt",
-    "securitiesValuationKrw": "scts_evlu_amt",
-    "totalValuationKrw": "tot_evlu_amt",
-    "valuationSumKrw": "evlu_amt_smtl_amt",
-    "unrealizedPlSumKrw": "evlu_pfls_smtl_amt",
+}
+_RAW_RECONCILIATION_FIELDS = {
+    "scts_evlu_amt", "tot_evlu_amt", "evlu_amt_smtl_amt",
+    "evlu_pfls_smtl_amt",
 }
 _POSITION_FIELDS = {
     "sourceName", "sourceAssetId", "holdingQuantity", "orderableQuantity",
@@ -115,6 +112,29 @@ _INSTRUMENT_CAPACITY_KIS_FIELDS = {
     "noReceivableBuyQuantity": "nrcvb_buy_qty",
     "quantityCalculationPriceKrw": "psbl_qty_calc_unpr",
 }
+
+
+def _implemented_semantic_mapping_pairs() -> tuple[tuple[str, str], ...]:
+    """Derive the ACTUAL raw-field/target-path surface from live constants.
+
+    This is intentionally computed at review time instead of stored as a
+    second self-asserted manifest.  A runtime/code mutation of any structural
+    mapping constant must therefore change this result and fail comparison
+    with the exact RATIFIED ``approvedMappings`` payload.
+    """
+    pairs = [
+        (raw_field, f"account.{target}")
+        for target, raw_field in _ACCOUNT_MAPPED_KIS_FIELDS.items()
+    ]
+    pairs.extend(
+        (raw_field, f"positions[].{target}")
+        for target, raw_field in _POSITION_KIS_FIELDS.items()
+    )
+    pairs.extend(
+        (raw_field, f"instrumentBuyCapacity[].{target}")
+        for target, raw_field in _INSTRUMENT_CAPACITY_KIS_FIELDS.items()
+    )
+    return tuple(sorted(pairs))
 
 
 class PortfolioAccountFactV3Error(ValueError):
@@ -186,11 +206,25 @@ def _validate_balance(value: object) -> None:
     account = value.get("account")
     if not isinstance(account, dict) or set(account) != _ACCOUNT_FIELDS:
         raise PortfolioAccountFactV3Error("BALANCE_ACCOUNT_FIELDS_INVALID")
-    for name, raw_field in _ACCOUNT_KIS_FIELDS.items():
+    for name, raw_field in _ACCOUNT_MAPPED_KIS_FIELDS.items():
         _entry(
             account[name], expected_field=raw_field,
             code=f"BALANCE_ACCOUNT_{name.upper()}",
-            nonnegative=name != "unrealizedPlSumKrw",
+            nonnegative=True,
+        )
+    raw_reconciliation = value.get("rawReconciliation")
+    if (
+        not isinstance(raw_reconciliation, dict)
+        or set(raw_reconciliation) != _RAW_RECONCILIATION_FIELDS
+    ):
+        raise PortfolioAccountFactV3Error(
+            "BALANCE_RAW_RECONCILIATION_FIELDS_INVALID"
+        )
+    for raw_field in _RAW_RECONCILIATION_FIELDS:
+        _strict_int(
+            raw_reconciliation.get(raw_field),
+            f"BALANCE_RAW_RECONCILIATION_VALUE_INVALID:{raw_field}",
+            nonnegative=raw_field != "evlu_pfls_smtl_amt",
         )
 
     positions = value.get("positions")
@@ -267,17 +301,18 @@ def _validate_relationships(bundle: dict) -> None:
     if balance["accountIdentityHash"] != capacity["accountIdentityHash"]:
         raise PortfolioAccountFactV3Error("SOURCE_ACCOUNT_BINDING_MISMATCH")
     account = balance["account"]
+    raw = balance["rawReconciliation"]
     positions = balance["positions"]
     market_sum = sum(position["marketValueKrw"]["value"] for position in positions)
     pl_sum = sum(position["unrealizedPlKrw"]["value"] for position in positions)
     cash = account["cashDepositTotalKrw"]["value"]
-    if market_sum != account["valuationSumKrw"]["value"]:
+    if market_sum != raw["evlu_amt_smtl_amt"]:
         raise PortfolioAccountFactV3Error("POSITION_MARKET_VALUE_SUM_MISMATCH")
-    if market_sum != account["securitiesValuationKrw"]["value"]:
+    if market_sum != raw["scts_evlu_amt"]:
         raise PortfolioAccountFactV3Error("SECURITIES_VALUATION_SUM_MISMATCH")
-    if pl_sum != account["unrealizedPlSumKrw"]["value"]:
+    if pl_sum != raw["evlu_pfls_smtl_amt"]:
         raise PortfolioAccountFactV3Error("POSITION_UNREALIZED_PL_SUM_MISMATCH")
-    if cash + market_sum != account["totalValuationKrw"]["value"]:
+    if cash + market_sum != raw["tot_evlu_amt"]:
         raise PortfolioAccountFactV3Error("TOTAL_VALUATION_RELATIONSHIP_MISMATCH")
     if cash + market_sum != account["netAssetKrw"]["value"]:
         raise PortfolioAccountFactV3Error("NET_ASSET_RELATIONSHIP_MISMATCH")
@@ -345,6 +380,24 @@ def evaluate_kis_portfolio_account_fact_v3_readiness(
     bundle = validate_source_bundle(bundle)
     decision = _parse_utc(decision_at, "DECISION_AT_INVALID")
     bundle_sha = bundle["bundleSha256"]
+    if not isinstance(provider_authority, dict) or not provider_authority.get(
+        "_source_path"
+    ):
+        raise PortfolioAccountFactV3Error(
+            "PROVIDER_AUTHORITY_FILE_PROVENANCE_REQUIRED"
+        )
+    if not isinstance(security_identity, dict) or not security_identity.get(
+        "_source_path"
+    ):
+        raise PortfolioAccountFactV3Error(
+            "SECURITY_IDENTITY_FILE_PROVENANCE_REQUIRED"
+        )
+    if not isinstance(valuation_authority_document, dict) or not (
+        valuation_authority_document.get("_sourcePath")
+    ):
+        raise PortfolioAccountFactV3Error(
+            "VALUATION_AUTHORITY_FILE_PROVENANCE_REQUIRED"
+        )
 
     provider = canonical_identity.resolve_provider_authority(
         provider=PROVIDER_TUPLE["provider"],
@@ -407,6 +460,29 @@ def evaluate_kis_portfolio_account_fact_v3_readiness(
         return _blocked(
             NOT_COMPUTABLE_VALUATION_SEMANTIC_AUTHORITY, bundle_sha,
             semanticAuthorityStatus=semantic.get("status"),
+        )
+    semantic_rows = valuation_authority_document.get(
+        "valuationSemanticAuthorityRecords", []
+    )
+    if len(semantic_rows) != 1:
+        return _blocked(
+            NOT_COMPUTABLE_VALUATION_SEMANTIC_AUTHORITY, bundle_sha,
+            semanticAuthorityStatus="APPROVED_MAPPING_RECORD_NOT_SINGLETON",
+        )
+    semantic_row = semantic_rows[0]
+    approved_pairs = tuple(sorted(
+        (mapping.get("rawKisField"), mapping.get("targetPath"))
+        for mapping in semantic_row.get("approvedMappings", [])
+        if isinstance(mapping, dict)
+    ))
+    if (
+        approved_pairs != _implemented_semantic_mapping_pairs()
+        or semantic.get("businessPayloadSha256")
+        != semantic_row.get("businessPayloadSha256")
+    ):
+        return _blocked(
+            NOT_COMPUTABLE_VALUATION_SEMANTIC_AUTHORITY, bundle_sha,
+            semanticAuthorityStatus="IMPLEMENTATION_MAPPING_MANIFEST_MISMATCH",
         )
 
     freshness = valuation_authority.resolve_freshness_authority(
