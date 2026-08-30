@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""P3-12-GOV-05: governance/upbit_exact_release_binding.py.
+"""P3-12-GOV-05 (v2 design): governance/upbit_exact_release_binding.py.
 
-An ALLOWLIST binding: a document is effective only if its entire exact-hash
-provenance chain -- approval evidence, candidate packet, consumer file,
-freeze cross-reference -- resolves to the ONE approval-evidence file this
-test's own synthetic contract allowlists. Never a denylist of specific bad
-historical hashes -- any deviation from the one allowlisted chain fails,
-including brand-new tampers this module has never seen before.
+Two independent, one-way chains rooted entirely in fields the identity
+registry / taxonomy documents carry on themselves -- no separate mutable
+allowlist file. The content chain is the pre-existing
+approval_evidence_ref/source_candidate_packet pointer these documents
+already had; the code chain is the new code_approval_evidence_ref pointer,
+absent from every real document on this branch, which is exactly what
+keeps this PENDING without any external list needing to be pre-populated.
 """
 from __future__ import annotations
 
@@ -53,306 +54,330 @@ def _write(path: Path, obj) -> Path:
     return path
 
 
-def _registry_records(mappings):
-    return {
-        "eligible_category": "eligible_crypto",
-        "excluded_categories": ["stablecoin"],
-        "unknown_asset_policy": "fail_closed_unknown",
-        "scope": "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY",
-        "records": [
-            {"canonical_asset_id": asset, "category": "eligible_crypto",
-             "effective_from": "2026-08-30", "effective_to": None, "reason": "synthetic fixture"}
-            for asset in mappings.values()
-        ],
-    }
-
-
-def build_valid_chain(tmp: Path, *, mappings=None):
-    """A fully self-consistent, valid exact-hash chain under ``tmp`` --
-    returns (registry_doc, taxonomy_doc, artifact_paths). Caller may
-    corrupt exactly one artifact/field after this returns to build a
-    negative-test scenario; every artifact is content-addressed so any
-    single mutation without a matching re-sign breaks the chain somewhere.
+def build_full_chain(tmp: Path, *, mappings=None):
+    """A fully self-consistent chain (content approval + candidate,
+    consumer/validator/policy-contract code, code approval + successor
+    candidate) under ``tmp``. Returns (registry_doc, taxonomy_doc,
+    artifact paths dict). ``registry_doc``/``taxonomy_doc`` do NOT yet
+    carry ``code_approval_evidence_ref`` -- call ``activate(...)`` to add
+    it, mirroring how a real future approval would populate that field
+    once, by hand.
     """
     mappings = mappings if mappings is not None else dict(MARKETS_TO_IDS)
+
+    # -- immutable policy contract --
+    policy_contract = {
+        "schema_version": ERB.SCHEMA_VERSION,
+        "content_approval_schema_version": "upbit_paper_identity_exact_hash_approval/1",
+        "code_approval_schema_version": "upbit_exact_release_binding_code_approval/1",
+        "successor_candidate_schema_version": "upbit_exact_release_binding_successor_candidate/2",
+        "paper_scope_keys": sorted(_SCOPE_TRUE),
+        "forbidden_authority_keys": sorted(_FORBIDDEN_AUTHORITY_FALSE),
+        "authority": dict(_AUTHORITY_FALSE),
+    }
+    policy_contract["payload_sha256"] = ERB.payload_sha256(
+        {k: v for k, v in policy_contract.items() if k != "payload_sha256"}
+    )
+    policy_contract_path = _write(tmp / "config" / "upbit_exact_release_binding_policy_contract.json", policy_contract)
+
+    # -- code under test (placeholders; real bytes don't matter here) --
     consumer_path = tmp / "universe" / "upbit_tradeable_universe.py"
     consumer_path.parent.mkdir(parents=True, exist_ok=True)
     consumer_path.write_text("# synthetic consumer placeholder\n", encoding="utf-8")
-    consumer_hash = ERB.file_sha256(consumer_path)
+    validator_path = tmp / "governance" / "upbit_exact_release_binding.py"
+    validator_path.parent.mkdir(parents=True, exist_ok=True)
+    validator_path.write_text("# synthetic validator placeholder\n", encoding="utf-8")
 
-    builder_path = tmp / "identity" / "upbit_paper_identity_hardening_candidate.py"
-    builder_path.parent.mkdir(parents=True, exist_ok=True)
-    builder_path.write_text("# synthetic candidate builder placeholder\n", encoding="utf-8")
-
-    contract_ref_path = tmp / "config" / "upbit_paper_identity_hardening_contract.json"
-    _write(contract_ref_path, {"scope": "synthetic"})
-
-    proposed_registry = {
-        "schema_version": 1, "registry_version": "upbit_asset_identity_registry/v1",
-        "scope": "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY",
-        "unknown_market_policy": "fail_closed_unratified_identity",
-        "mappings": dict(mappings),
-        "authority": dict(_AUTHORITY_FALSE),
-    }
+    # -- content: base candidate + content approval --
+    proposed_registry = {"mappings": dict(mappings), "authority": dict(_AUTHORITY_FALSE)}
     proposed_taxonomy = {
-        "schema_version": 1, "policy_version": "upbit_exclusion_taxonomy/v1",
-        **_registry_records(mappings),
+        "records": [
+            {"canonical_asset_id": asset, "category": "eligible_crypto", "effective_from": "2026-08-30"}
+            for asset in mappings.values()
+        ],
         "authority": dict(_AUTHORITY_FALSE),
     }
-    proposed_registry_payload_sha256 = ERB.payload_sha256(proposed_registry)
-    proposed_taxonomy_payload_sha256 = ERB.payload_sha256(proposed_taxonomy)
-
-    candidate = {
-        "schema_version": "upbit_paper_identity_hardening_candidate/2",
-        "generated_at": "2026-08-30T11:11:17Z", "evaluation_as_of": "2026-08-30",
+    base_candidate = {
         "proposed_registry": proposed_registry,
-        "proposed_registry_payload_sha256": proposed_registry_payload_sha256,
+        "proposed_registry_payload_sha256": ERB.payload_sha256(proposed_registry),
         "proposed_taxonomy": proposed_taxonomy,
-        "proposed_taxonomy_payload_sha256": proposed_taxonomy_payload_sha256,
-        "consumer_file_sha256": consumer_hash,
-        "candidate_builder_file_sha256": ERB.file_sha256(builder_path),
-        "consumer_contract_sha256": ERB.file_sha256(contract_ref_path),
-        "release_ready": False, "exact_hash_cio_approval_present": False,
+        "proposed_taxonomy_payload_sha256": ERB.payload_sha256(proposed_taxonomy),
         "authority": dict(_AUTHORITY_FALSE),
     }
-    candidate["payload_sha256"] = ERB.payload_sha256(candidate)
-    candidate_path = tmp / "data" / "candidate" / "packet.json"
-    _write(candidate_path, candidate)
-    candidate_relative = str(candidate_path.relative_to(tmp))
+    base_candidate["payload_sha256"] = ERB.payload_sha256(base_candidate)
+    base_candidate_path = _write(tmp / "base_candidate.json", base_candidate)
+    base_candidate_relative = str(base_candidate_path.relative_to(tmp))
 
-    approval = {
+    content_approval = {
         "schema_version": "upbit_paper_identity_exact_hash_approval/1",
         "approval_status": "RATIFIED", "ratified_by": "CIO_USER",
-        "ratified_at_utc": "2026-08-30T11:17:37Z",
         "candidate": {
-            "path": candidate_relative,
-            "file_sha256": ERB.file_sha256(candidate_path),
-            "payload_sha256": candidate["payload_sha256"],
-            "registry_payload_sha256": proposed_registry_payload_sha256,
-            "taxonomy_payload_sha256": proposed_taxonomy_payload_sha256,
-            "consumer_file_sha256": consumer_hash,
+            "path": base_candidate_relative,
+            "file_sha256": ERB.file_sha256(base_candidate_path),
+            "payload_sha256": base_candidate["payload_sha256"],
+            "registry_payload_sha256": base_candidate["proposed_registry_payload_sha256"],
+            "taxonomy_payload_sha256": base_candidate["proposed_taxonomy_payload_sha256"],
         },
         "approved_scope": dict(_SCOPE_TRUE),
         "authority": dict(_FORBIDDEN_AUTHORITY_FALSE),
     }
-    approval_path = tmp / "evidence" / "approval.json"
-    _write(approval_path, approval)
-    approval_relative = str(approval_path.relative_to(tmp))
-    approval_hash = ERB.file_sha256(approval_path)
+    content_approval_path = _write(tmp / "content_approval.json", content_approval)
+    content_approval_relative = str(content_approval_path.relative_to(tmp))
+    content_approval_hash = ERB.file_sha256(content_approval_path)
 
-    contract = {
-        "schema_version": ERB.SCHEMA_VERSION,
-        "resolution_status": "RATIFIED_BY_EXPLICIT_CIO_DECISION",
-        "reason": "synthetic fixture",
-        "allowed_approval_evidence": [{"path": approval_relative, "file_sha256": approval_hash}],
-        "authority": dict(_AUTHORITY_FALSE),
-    }
-    contract["payload_sha256"] = ERB.payload_sha256({k: v for k, v in contract.items() if k != "payload_sha256"})
-    contract_path = tmp / "config" / "upbit_exact_release_binding_contract.json"
-    _write(contract_path, contract)
-
-    registry_doc = {
-        "approval_status": "RATIFIED",
-        "approval_evidence_ref": approval_relative,
-        "approval_evidence_sha256": approval_hash,
-        "approved_candidate_payload_sha256": proposed_registry_payload_sha256,
-        "source_candidate_packet": {
-            "path": candidate_relative,
-            "file_sha256": ERB.file_sha256(candidate_path),
-            "payload_sha256": candidate["payload_sha256"],
+    # -- code: successor candidate + code approval --
+    successor = {
+        "schema_version": "upbit_exact_release_binding_successor_candidate/2",
+        "base_candidate": {
+            "path": base_candidate_relative,
+            "file_sha256": ERB.file_sha256(base_candidate_path),
+            "payload_sha256": base_candidate["payload_sha256"],
         },
-        "mappings": dict(mappings),
-        "authority": dict(_AUTHORITY_FALSE),
-    }
-    taxonomy_doc = {
-        "approval_status": "RATIFIED",
-        "approval_evidence_ref": approval_relative,
-        "approval_evidence_sha256": approval_hash,
-        "approved_candidate_payload_sha256": proposed_taxonomy_payload_sha256,
-        "source_candidate_packet": {
-            "path": candidate_relative,
-            "file_sha256": ERB.file_sha256(candidate_path),
-            "payload_sha256": candidate["payload_sha256"],
+        "code_binding": {
+            "consumer_file": {"path": "universe/upbit_tradeable_universe.py", "sha256": ERB.file_sha256(consumer_path)},
+            "validator_file": {"path": "governance/upbit_exact_release_binding.py", "sha256": ERB.file_sha256(validator_path)},
+            "policy_contract": {"path": "config/upbit_exact_release_binding_policy_contract.json", "sha256": ERB.file_sha256(policy_contract_path)},
         },
-        "records": copy.deepcopy(proposed_taxonomy["records"]),
+        "release_ready": False,
+        "exact_hash_cio_approval_present": False,
         "authority": dict(_AUTHORITY_FALSE),
     }
+    successor["payload_sha256"] = ERB.payload_sha256(successor)
+    successor_path = _write(tmp / "successor_candidate.json", successor)
+    successor_relative = str(successor_path.relative_to(tmp))
 
+    code_approval = {
+        "schema_version": "upbit_exact_release_binding_code_approval/1",
+        "approval_status": "RATIFIED", "ratified_by": "CIO_USER",
+        "successor_candidate": {
+            "path": successor_relative,
+            "file_sha256": ERB.file_sha256(successor_path),
+            "payload_sha256": successor["payload_sha256"],
+        },
+        "authority": dict(_AUTHORITY_FALSE),
+    }
+    code_approval_path = _write(tmp / "code_approval.json", code_approval)
+    code_approval_relative = str(code_approval_path.relative_to(tmp))
+    code_approval_hash = ERB.file_sha256(code_approval_path)
+
+    # -- freeze cross-reference --
     freeze = {
         "approval_resolution": {
-            "candidate_packet_path": candidate_relative,
-            "candidate_packet_file_sha256": ERB.file_sha256(candidate_path),
-            "candidate_packet_payload_sha256": candidate["payload_sha256"],
-            "registry_candidate_payload_sha256": proposed_registry_payload_sha256,
-            "taxonomy_candidate_payload_sha256": proposed_taxonomy_payload_sha256,
-            "consumer_file_sha256": consumer_hash,
+            "candidate_packet_path": base_candidate_relative,
+            "candidate_packet_file_sha256": ERB.file_sha256(base_candidate_path),
+            "candidate_packet_payload_sha256": base_candidate["payload_sha256"],
+            "registry_candidate_payload_sha256": base_candidate["proposed_registry_payload_sha256"],
+            "taxonomy_candidate_payload_sha256": base_candidate["proposed_taxonomy_payload_sha256"],
         },
         "released_paper_markets": sorted(mappings),
     }
     _write(tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json", freeze)
 
-    return registry_doc, taxonomy_doc, {
-        "approval_path": approval_path, "candidate_path": candidate_path,
-        "contract_path": contract_path, "consumer_path": consumer_path,
+    def _document(content_field):
+        return {
+            "approval_status": "RATIFIED",
+            "approval_evidence_ref": content_approval_relative,
+            "approval_evidence_sha256": content_approval_hash,
+            "approved_candidate_payload_sha256": (
+                base_candidate["proposed_registry_payload_sha256"] if content_field == "mappings"
+                else base_candidate["proposed_taxonomy_payload_sha256"]
+            ),
+            "source_candidate_packet": {
+                "path": base_candidate_relative,
+                "file_sha256": ERB.file_sha256(base_candidate_path),
+                "payload_sha256": base_candidate["payload_sha256"],
+            },
+            content_field: (
+                dict(mappings) if content_field == "mappings" else copy.deepcopy(proposed_taxonomy["records"])
+            ),
+            "authority": dict(_AUTHORITY_FALSE),
+        }
+
+    registry_doc = _document("mappings")
+    taxonomy_doc = _document("records")
+
+    def activate(document):
+        activated = copy.deepcopy(document)
+        activated["code_approval_evidence_ref"] = code_approval_relative
+        activated["code_approval_evidence_sha256"] = code_approval_hash
+        return activated
+
+    artifacts = {
+        "policy_contract_path": policy_contract_path,
+        "consumer_path": consumer_path,
+        "validator_path": validator_path,
+        "base_candidate_path": base_candidate_path,
+        "content_approval_path": content_approval_path,
+        "successor_path": successor_path,
+        "code_approval_path": code_approval_path,
+        "activate": activate,
     }
+    return registry_doc, taxonomy_doc, artifacts
 
 
-class SyntheticValidChainTests(unittest.TestCase):
-    """G: 'current exact eight verified ONLY via a synthetic approved
-    fixture' -- the mechanism itself, proven correct end to end."""
+class ActivatedChainTests(unittest.TestCase):
+    """Both chains present and consistent -> effective."""
 
-    def test_valid_chain_validates_true_for_both_documents(self):
+    def test_activated_registry_and_taxonomy_validate_true(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, taxonomy, _ = build_valid_chain(tmp)
-            self.assertTrue(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
-            self.assertTrue(ERB.validate_exact_release(taxonomy, content_field="records", repo_root=tmp))
+            registry, taxonomy, artifacts = build_full_chain(tmp)
+            self.assertTrue(ERB.validate_exact_release(artifacts["activate"](registry), content_field="mappings", repo_root=tmp))
+            self.assertTrue(ERB.validate_exact_release(artifacts["activate"](taxonomy), content_field="records", repo_root=tmp))
 
-    def test_valid_chain_is_exactly_the_eight_approved_markets(self):
+    def test_activated_registry_is_exactly_the_eight_approved_markets(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, _ = build_valid_chain(tmp)
-            self.assertTrue(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
-            self.assertEqual(registry["mappings"], MARKETS_TO_IDS)
-            self.assertEqual(len(registry["mappings"]), 8)
+            registry, _, artifacts = build_full_chain(tmp)
+            activated = artifacts["activate"](registry)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertEqual(activated["mappings"], MARKETS_TO_IDS)
+            self.assertEqual(len(activated["mappings"]), 8)
 
 
-class RealRepoNotYetApprovedTests(unittest.TestCase):
-    """Section G/positive: main's real, currently-RATIFIED v2 release is
-    NOT pretended valid on this branch before a fresh re-approval."""
+class UnactivatedIsPendingTests(unittest.TestCase):
+    """Content chain alone (no code_approval_evidence_ref) is NOT enough --
+    this is the exact shape every real committed document has right now."""
 
-    def test_real_committed_registry_is_not_valid_here(self):
+    def test_content_chain_alone_without_code_approval_stays_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, taxonomy, _ = build_full_chain(tmp)
+            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records", repo_root=tmp))
+
+    def test_explicit_null_code_approval_ref_stays_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, _ = build_full_chain(tmp)
+            registry["code_approval_evidence_ref"] = None
+            registry["code_approval_evidence_sha256"] = None
+            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+
+
+class RealRepoStaysPendingTests(unittest.TestCase):
+    def test_real_committed_registry_has_no_code_approval_ref(self):
         registry = json.loads((ROOT / "config" / "upbit_asset_identity_registry.json").read_text(encoding="utf-8"))
+        self.assertNotIn("code_approval_evidence_ref", registry)
         self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings"))
 
-    def test_real_committed_taxonomy_is_not_valid_here(self):
+    def test_real_committed_taxonomy_has_no_code_approval_ref(self):
         taxonomy = json.loads((ROOT / "config" / "upbit_exclusion_taxonomy.json").read_text(encoding="utf-8"))
+        self.assertNotIn("code_approval_evidence_ref", taxonomy)
         self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records"))
-
-    def test_real_committed_contract_allowlist_is_empty(self):
-        contract = ERB.load_binding_contract()
-        self.assertEqual(contract["allowed_approval_evidence"], [])
-        self.assertEqual(contract["resolution_status"], ERB.PENDING_STATUS)
-        self.assertFalse(ERB.is_released(contract))
 
 
 class NegativeTests(unittest.TestCase):
-    """Every scenario the CIO's negative-test list names -- all must land
-    on False (fail-closed / empty effective mapping), never True."""
+    """Any single-byte tamper anywhere in either chain -> False again."""
 
-    def test_old_fifty_five_mapping_style_document_missing_provenance_fails(self):
-        # The pre-v2 registry schema never had approval_evidence_ref/
-        # source_candidate_packet at all -- this is what an old-schema
-        # RATIFIED document looks like structurally.
-        old_style = {
-            "approval_status": "RATIFIED",
-            "mappings": {f"KRW-{i}": f"ASSET{i}" for i in range(55)},
-            "authority": dict(_AUTHORITY_FALSE),
-        }
-        self.assertFalse(ERB.validate_exact_release(old_style, content_field="mappings"))
+    def _activated(self, tmp, content_field="mappings"):
+        registry, taxonomy, artifacts = build_full_chain(tmp)
+        document = registry if content_field == "mappings" else taxonomy
+        return artifacts["activate"](document), artifacts
 
-    def test_old_282_record_taxonomy_style_document_missing_provenance_fails(self):
-        old_style = {
-            "approval_status": "RATIFIED",
-            "records": [{"canonical_asset_id": "LIT", "category": "eligible_crypto"}],
-            "authority": dict(_AUTHORITY_FALSE),
-        }
-        self.assertFalse(ERB.validate_exact_release(old_style, content_field="records"))
-
-    def test_arbitrary_ninth_market_added_fails(self):
+    def test_ninth_market_added_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, _ = build_valid_chain(tmp)
-            tampered = copy.deepcopy(registry)
-            tampered["mappings"]["KRW-DOGE"] = "DOGE"
-            self.assertFalse(ERB.validate_exact_release(tampered, content_field="mappings", repo_root=tmp))
+            activated, _ = self._activated(tmp)
+            activated["mappings"]["KRW-DOGE"] = "DOGE"
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_one_canonical_id_changed_fails(self):
+    def test_consumer_file_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, _ = build_valid_chain(tmp)
-            tampered = copy.deepcopy(registry)
-            tampered["mappings"]["KRW-BTC"] = "NOTBTC"
-            self.assertFalse(ERB.validate_exact_release(tampered, content_field="mappings", repo_root=tmp))
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            artifacts["consumer_path"].write_text("# tampered\n", encoding="utf-8")
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_one_taxonomy_field_tampered_fails(self):
+    def test_validator_file_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            _, taxonomy, _ = build_valid_chain(tmp)
-            tampered = copy.deepcopy(taxonomy)
-            tampered["records"][0]["reason"] = "tampered"
-            self.assertFalse(ERB.validate_exact_release(tampered, content_field="records", repo_root=tmp))
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            artifacts["validator_path"].write_text("# tampered\n", encoding="utf-8")
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_candidate_file_tampered_fails(self):
+    def test_base_candidate_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, artifacts = build_valid_chain(tmp)
-            candidate = json.loads(artifacts["candidate_path"].read_text(encoding="utf-8"))
-            candidate["evaluation_as_of"] = "2026-09-01"  # payload_sha256 no longer matches
-            _write(artifacts["candidate_path"], candidate)
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            candidate = json.loads(artifacts["base_candidate_path"].read_text(encoding="utf-8"))
+            candidate["proposed_registry"]["mappings"]["KRW-BTC"] = "TAMPERED"
+            _write(artifacts["base_candidate_path"], candidate)
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_approval_evidence_tampered_fails(self):
+    def test_content_approval_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, artifacts = build_valid_chain(tmp)
-            approval = json.loads(artifacts["approval_path"].read_text(encoding="utf-8"))
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            approval = json.loads(artifacts["content_approval_path"].read_text(encoding="utf-8"))
             approval["ratified_by"] = "SOMEONE_ELSE"
-            _write(artifacts["approval_path"], approval)
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            _write(artifacts["content_approval_path"], approval)
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_file_removed_then_restored_to_old_bytes_still_fails(self):
+    def test_code_approval_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, artifacts = build_valid_chain(tmp)
-            self.assertTrue(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
-            original_bytes = artifacts["candidate_path"].read_bytes()
-            artifacts["candidate_path"].write_bytes(b'{"tampered": true}')
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
-            # Restore the file to its ORIGINAL (once-valid) bytes -- the
-            # tampered registry document itself (still referencing the
-            # OLD mappings snapshot the caller holds) must not silently
-            # revalidate just because raw bytes came back; here we use a
-            # DIFFERENT registry snapshot (post-tamper mapping) to prove
-            # statelessness cuts both ways -- restoring good bytes with a
-            # bad document still fails on the document's own mismatch.
-            artifacts["candidate_path"].write_bytes(original_bytes)
-            tampered_doc = copy.deepcopy(registry)
-            tampered_doc["mappings"]["KRW-BTC"] = "WRONG"
-            self.assertFalse(ERB.validate_exact_release(tampered_doc, content_field="mappings", repo_root=tmp))
-            self.assertTrue(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            approval = json.loads(artifacts["code_approval_path"].read_text(encoding="utf-8"))
+            approval["authority"]["order_authorized"] = True
+            approval_bytes = json.dumps(approval, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+            artifacts["code_approval_path"].write_text(approval_bytes, encoding="utf-8")
+            # sha256 pin in `activated` now stale -> mismatch, fails closed.
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_consumer_hash_mismatch_fails(self):
+    def test_successor_candidate_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, artifacts = build_valid_chain(tmp)
-            artifacts["consumer_path"].write_text("# different bytes now\n", encoding="utf-8")
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            successor = json.loads(artifacts["successor_path"].read_text(encoding="utf-8"))
+            successor["exact_hash_cio_approval_present"] = True
+            _write(artifacts["successor_path"], successor)
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_forged_self_consistent_chain_not_in_allowlist_fails(self):
-        # A second, entirely separate but internally self-consistent chain
-        # that was never added to the contract's allowlist -- proves this
-        # is a real allowlist, not "any self-consistent chain passes."
+    def test_freeze_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, artifacts = build_valid_chain(tmp)
-            contract = json.loads(artifacts["contract_path"].read_text(encoding="utf-8"))
-            contract["allowed_approval_evidence"] = []
-            contract["payload_sha256"] = ERB.payload_sha256(
-                {k: v for k, v in contract.items() if k != "payload_sha256"}
-            )
-            _write(artifacts["contract_path"], contract)
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            activated, _ = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            freeze_path = tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"
+            freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+            freeze["released_paper_markets"] = ["KRW-BTC"]
+            _write(freeze_path, freeze)
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
 
-    def test_malformed_contract_fails_closed_by_raising(self):
+    def test_bytes_removed_then_restored_still_reflects_current_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry, _, artifacts = build_valid_chain(tmp)
-            contract = json.loads(artifacts["contract_path"].read_text(encoding="utf-8"))
-            contract["reason"] = "tampered without re-signing"
-            _write(artifacts["contract_path"], contract)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            original = artifacts["consumer_path"].read_bytes()
+            artifacts["consumer_path"].write_bytes(b"# different\n")
+            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            artifacts["consumer_path"].write_bytes(original)
+            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+
+    def test_malformed_policy_contract_fails_closed_by_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            contract = json.loads(artifacts["policy_contract_path"].read_text(encoding="utf-8"))
+            contract["paper_scope_keys"] = []
+            _write(artifacts["policy_contract_path"], contract)
             with self.assertRaises(ERB.ExactReleaseBindingError):
-                ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp)
+                ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp)
+
+    def test_approval_status_tamper_alone_does_not_help_a_broken_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, _ = build_full_chain(tmp)
+            registry["approval_status"] = "RATIFIED"  # already RATIFIED; no code chain exists
+            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
 
 
 if __name__ == "__main__":

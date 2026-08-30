@@ -625,8 +625,8 @@ class BuildPromotionPacketTests(unittest.TestCase):
     def test_unratified_universe_policy_cannot_be_bypassed_by_fabricated_in_scope_row(self):
         packet, regime, evidence, leadership = self._full_watch_inputs()
         packet["policy_ratified"] = False
-        packet["taxonomy_ratified"] = UNI._approval_effective(
-            self.actual_taxonomy, EVAL_AS_OF, date_field="effective_from",
+        packet["taxonomy_ratified"] = UNI._identity_taxonomy_exact_bound_effective(
+            self.actual_taxonomy, EVAL_AS_OF, date_field="effective_from", content_field="records",
         )
         packet["payload_sha256"] = UNI.payload_sha256({
             key: value for key, value in packet.items() if key != "payload_sha256"

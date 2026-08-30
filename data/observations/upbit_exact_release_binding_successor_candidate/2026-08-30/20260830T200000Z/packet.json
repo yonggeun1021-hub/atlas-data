@@ -1,0 +1,52 @@
+{
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
+  "base_approval_evidence": {
+    "file_sha256": "b13ca0152c1382bb56df045d11bf2b54c7010ec0b59b8a66d15f288cc012da54",
+    "path": "evidence/crypto/upbit/identity/approvals/2026-08-30/p3-12-paper-eight-exact-hash-v2.json"
+  },
+  "base_candidate": {
+    "file_sha256": "770c722ffa3d9c185ad7629396037cdec1154bad38624cc9d887af3878bcd186",
+    "path": "data/observations/upbit_paper_identity_hardening_candidate/2026-08-30/20260830T111117Z/packet.json",
+    "payload_sha256": "bbc73029ec00dc4b6e3762d69d96f18efa4b2fbd611830c2bd71c976ef405abd"
+  },
+  "code_binding": {
+    "consumer_file": {
+      "path": "universe/upbit_tradeable_universe.py",
+      "sha256": "00be08f679498669c5aba5c31231366edf3cb5911eaccc76c9507a9ca2cce27a"
+    },
+    "policy_contract": {
+      "path": "config/upbit_exact_release_binding_policy_contract.json",
+      "sha256": "49cc4a1bd3d49200bc63411d1ff1c250887eccded441287cfd2e11e1343fd40b"
+    },
+    "validator_file": {
+      "path": "governance/upbit_exact_release_binding.py",
+      "sha256": "89841ef9b8f44e408c5a8dc9e9191886cf1f3268c9c5b684fb8668d26f3a90f5"
+    }
+  },
+  "exact_hash_cio_approval_present": false,
+  "first_party_evidence_reference": {
+    "note": "Referenced, not re-captured -- see base_candidate for the original capture.",
+    "path": "evidence/crypto/upbit/identity/first_party/2026-08-30/20260830T111117Z"
+  },
+  "generated_at": "2026-08-30T20:00:00Z",
+  "payload_sha256": "ec3141d4bff641fe6ceb1a19ebb07f74e9ab6425817c63d734c04171a282abc5",
+  "release_ready": false,
+  "review_status": "PENDING_EXACT_HASH_REAPPROVAL",
+  "schema_version": "upbit_exact_release_binding_successor_candidate/2",
+  "scope": "P3_12_GOV_05_RUNTIME_EXACT_APPROVAL_BINDING",
+  "this_successor_candidate_builder": {
+    "file_sha256": "71e7585a48e565691b7c913fd44c51dcd21dc2a4630a863140ca847c96f56371",
+    "path": "identity/upbit_exact_release_binding_successor_candidate.py"
+  }
+}

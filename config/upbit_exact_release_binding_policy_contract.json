@@ -1,0 +1,61 @@
+{
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
+  "code_approval_schema_version": "upbit_exact_release_binding_code_approval/1",
+  "content_approval_schema_version": "upbit_paper_identity_exact_hash_approval/1",
+  "forbidden_authority_keys": [
+    "upbit_exchange_order_authorized",
+    "upbit_withdrawal_authorized",
+    "production_authorized",
+    "real_capital_authorized",
+    "trading_authorized"
+  ],
+  "paper_scope_keys": [
+    "atlas_internal_paper_virtual_buy",
+    "atlas_internal_paper_virtual_hold",
+    "atlas_internal_paper_virtual_stop_loss",
+    "atlas_internal_paper_virtual_take_profit",
+    "atlas_internal_paper_virtual_sell",
+    "atlas_internal_paper_ledger"
+  ],
+  "payload_sha256": "ab1b4f643396cd34d68edd882c1b19144ef4f378fb233a1347cf3c7f0a5a4547",
+  "purpose": "Immutable structural/schema contract for P3-12-GOV-05's runtime exact-approval binding. This file declares invariant field/schema requirements only -- it never names a specific approved hash and is never edited to record an approval. A real approval event never touches this file; it is recorded entirely in the identity registry / taxonomy documents' own code_approval_evidence_ref field and the code-approval evidence file that names, plus a successor candidate that names the exact consumer/validator/this-contract file hashes.",
+  "required_code_approval_fields": [
+    "schema_version",
+    "approval_status",
+    "ratified_by",
+    "ratified_at_utc",
+    "successor_candidate",
+    "authority"
+  ],
+  "required_content_approval_fields": [
+    "schema_version",
+    "approval_status",
+    "ratified_by",
+    "ratified_at_utc",
+    "candidate",
+    "approved_scope",
+    "authority"
+  ],
+  "required_successor_candidate_fields": [
+    "schema_version",
+    "generated_at",
+    "base_candidate",
+    "code_binding",
+    "release_ready",
+    "exact_hash_cio_approval_present",
+    "authority"
+  ],
+  "schema_version": "upbit_exact_release_binding_policy_contract/1",
+  "successor_candidate_schema_version": "upbit_exact_release_binding_successor_candidate/2"
+}

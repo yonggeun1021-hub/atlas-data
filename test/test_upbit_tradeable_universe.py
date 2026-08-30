@@ -366,13 +366,13 @@ class ShippedRepoConfigExactReleaseBindingTests(unittest.TestCase):
         self.assertEqual(taxonomy["approval_status"], "RATIFIED")
         self.assertEqual(registry["approval_status"], "RATIFIED")
         self.assertEqual(len(registry["mappings"]), 8)
-        # approval_status alone still reads RATIFIED, but the exact-hash
-        # chain is not (yet) allowlisted here -- effective authority stays
+        # approval_status alone still reads RATIFIED, but no
+        # code_approval_evidence_ref exists on this document yet -- the
+        # code chain has nothing to resolve, so effective authority stays
         # empty regardless.
         self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-30"), {})
-        self.assertFalse(UNI._approval_effective(
-            taxonomy, "2026-08-30", date_field="effective_from",
-            require_exact_release_binding=True, content_field="records",
+        self.assertFalse(UNI._identity_taxonomy_exact_bound_effective(
+            taxonomy, "2026-08-30", date_field="effective_from", content_field="records",
         ))
         core = base_core(
             {"KRW-BTC": market_entry(best_bid="99900", best_ask="100000")},
@@ -535,105 +535,98 @@ class SnapshotPipelineTests(unittest.TestCase):
                 identity_module.default_candidate_canonical_asset_id("BTC-0G")
 
 
+_EXACT_RELEASE_BINDING_TEST_SPEC = importlib.util.spec_from_file_location(
+    "upbit_exact_release_binding_fixtures_for_universe_test",
+    ROOT / "test" / "test_upbit_exact_release_binding.py",
+)
+_EXACT_RELEASE_BINDING_TEST = importlib.util.module_from_spec(_EXACT_RELEASE_BINDING_TEST_SPEC)
+_EXACT_RELEASE_BINDING_TEST_SPEC.loader.exec_module(_EXACT_RELEASE_BINDING_TEST)
+
+
 class ExactReleaseBindingIntegrationTests(unittest.TestCase):
-    """P3-12-GOV-05: proves the WIRING at the ``universe/`` module level,
-    not the validator's own internals (fully covered by
-    test_upbit_exact_release_binding.py's 16 tests) -- a synthetic, fully
-    valid chain routed through ``EXACT_RELEASE_BINDING`` with its path
-    constants pointed at an isolated tempdir, exercised via
-    ``UNI.effective_identity_mapping()``/``UNI._approval_effective()``
+    """P3-12-GOV-05 (v2, two-chain design): proves the WIRING at the
+    ``universe/`` module level, not the validator's own internals (fully
+    covered by test_upbit_exact_release_binding.py's 17 no-mock tests) --
+    the SAME fully self-consistent content-chain + code-chain fixture
+    routed through ``EXACT_RELEASE_BINDING`` with its path constants
+    pointed at an isolated tempdir, exercised via
+    ``UNI.effective_identity_mapping()``/``UNI._identity_taxonomy_exact_bound_effective()``
     directly (there is no other, indirect entry point to "bypass")."""
 
-    def _build_chain(self, tmp: Path):
+    def _patched(self, tmp: Path):
         erb = UNI.EXACT_RELEASE_BINDING
+        return (
+            mock.patch.object(erb, "ROOT", tmp),
+            mock.patch.object(erb, "POLICY_CONTRACT_PATH", tmp / "config" / "upbit_exact_release_binding_policy_contract.json"),
+            mock.patch.object(erb, "CONSUMER_PATH", tmp / "universe" / "upbit_tradeable_universe.py"),
+            mock.patch.object(erb, "VALIDATOR_PATH", tmp / "governance" / "upbit_exact_release_binding.py"),
+            mock.patch.object(erb, "FREEZE_PATH", tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"),
+        )
 
-        def write(path, obj):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(obj, sort_keys=True) + "\n", encoding="utf-8")
-            return path
-
-        consumer_path = tmp / "universe" / "upbit_tradeable_universe.py"
-        consumer_path.parent.mkdir(parents=True, exist_ok=True)
-        consumer_path.write_text("# placeholder\n", encoding="utf-8")
-        consumer_hash = erb.file_sha256(consumer_path)
-
-        authority_false = {"order_authorized": False, "trading_authorized": False}
-        mappings = {"KRW-BTC": "BTC"}
-        proposed_registry = {"mappings": mappings, "authority": dict(authority_false)}
-        candidate = {
-            "proposed_registry": proposed_registry,
-            "proposed_registry_payload_sha256": erb.payload_sha256(proposed_registry),
-            "consumer_file_sha256": consumer_hash,
-            "authority": dict(authority_false),
-        }
-        candidate["payload_sha256"] = erb.payload_sha256(candidate)
-        candidate_path = write(tmp / "candidate.json", candidate)
-
-        approval = {
-            "approval_status": "RATIFIED", "ratified_by": "CIO_USER",
-            "candidate": {
-                "path": "candidate.json", "file_sha256": erb.file_sha256(candidate_path),
-                "payload_sha256": candidate["payload_sha256"],
-                "registry_payload_sha256": candidate["proposed_registry_payload_sha256"],
-                "consumer_file_sha256": consumer_hash,
-            },
-            "approved_scope": {"x": True}, "authority": dict(authority_false),
-        }
-        approval_path = write(tmp / "approval.json", approval)
-        approval_hash = erb.file_sha256(approval_path)
-
-        contract = {
-            "schema_version": erb.SCHEMA_VERSION, "resolution_status": "RATIFIED_BY_EXPLICIT_CIO_DECISION",
-            "allowed_approval_evidence": [{"path": "approval.json", "file_sha256": approval_hash}],
-            "authority": dict(authority_false),
-        }
-        contract["payload_sha256"] = erb.payload_sha256({k: v for k, v in contract.items() if k != "payload_sha256"})
-        contract_path = write(tmp / "contract.json", contract)
-
-        write(tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json", {
-            "approval_resolution": {
-                "candidate_packet_path": "candidate.json",
-                "candidate_packet_file_sha256": erb.file_sha256(candidate_path),
-                "candidate_packet_payload_sha256": candidate["payload_sha256"],
-                "registry_candidate_payload_sha256": candidate["proposed_registry_payload_sha256"],
-                "consumer_file_sha256": consumer_hash,
-            },
-            "released_paper_markets": ["KRW-BTC"],
-        })
-
-        registry_doc = {
-            "approval_status": "RATIFIED",
-            "approval_evidence_ref": "approval.json", "approval_evidence_sha256": approval_hash,
-            "approved_candidate_payload_sha256": candidate["proposed_registry_payload_sha256"],
-            "source_candidate_packet": {
-                "path": "candidate.json", "file_sha256": erb.file_sha256(candidate_path),
-                "payload_sha256": candidate["payload_sha256"],
-            },
-            "mappings": mappings, "effective_from": None,
-        }
-        return registry_doc, contract_path
-
-    def test_synthetic_valid_chain_is_effective_through_the_real_universe_module(self):
-        erb = UNI.EXACT_RELEASE_BINDING
+    def test_activated_synthetic_v3_chain_is_effective_through_the_real_universe_module(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            registry_doc, contract_path = self._build_chain(tmp)
-            with (
-                mock.patch.object(erb, "ROOT", tmp),
-                mock.patch.object(erb, "CONTRACT_PATH", contract_path),
-                mock.patch.object(erb, "CONSUMER_PATH", tmp / "universe" / "upbit_tradeable_universe.py"),
-                mock.patch.object(erb, "FREEZE_PATH", tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"),
-            ):
-                self.assertEqual(UNI.effective_identity_mapping(registry_doc, "2026-08-30"), {"KRW-BTC": "BTC"})
-                tampered = copy.deepcopy(registry_doc)
-                tampered["mappings"]["KRW-BTC"] = "WRONG"
-                # G.8: direct call, no other indirection to bypass -- must
+            registry, _, artifacts = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
+            activated = artifacts["activate"](registry)
+            patches = self._patched(tmp)
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                self.assertEqual(
+                    UNI.effective_identity_mapping(activated, "2026-08-30"),
+                    _EXACT_RELEASE_BINDING_TEST.MARKETS_TO_IDS,
+                )
+
+    def test_shipped_branch_without_code_approval_ref_stays_pending_through_universe_module(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, _ = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
+            patches = self._patched(tmp)
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                # content chain alone, no code_approval_evidence_ref yet
+                self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-30"), {})
+
+    def test_ninth_market_tamper_stays_empty_via_direct_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
+            activated = artifacts["activate"](registry)
+            patches = self._patched(tmp)
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                self.assertEqual(
+                    UNI.effective_identity_mapping(activated, "2026-08-30"),
+                    _EXACT_RELEASE_BINDING_TEST.MARKETS_TO_IDS,
+                )
+                tampered = copy.deepcopy(activated)
+                tampered["mappings"]["KRW-DOGE"] = "DOGE"
+                # direct call, no other indirection to bypass -- must
                 # still fail closed for tampered content.
                 self.assertEqual(UNI.effective_identity_mapping(tampered, "2026-08-30"), {})
-                # approval_status alone flipped back to RATIFIED on
-                # otherwise-tampered content still doesn't revive it.
-                tampered["approval_status"] = "RATIFIED"
+
+    def test_consumer_or_validator_file_tamper_stays_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
+            activated = artifacts["activate"](registry)
+            patches = self._patched(tmp)
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                self.assertEqual(
+                    UNI.effective_identity_mapping(activated, "2026-08-30"),
+                    _EXACT_RELEASE_BINDING_TEST.MARKETS_TO_IDS,
+                )
+                artifacts["consumer_path"].write_text("# tampered\n", encoding="utf-8")
+                self.assertEqual(UNI.effective_identity_mapping(activated, "2026-08-30"), {})
+
+    def test_approval_status_tamper_does_not_restore_a_broken_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, _ = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
+            patches = self._patched(tmp)
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                tampered = copy.deepcopy(registry)
+                tampered["approval_status"] = "RATIFIED"  # already was; no code_approval_evidence_ref exists
                 self.assertEqual(UNI.effective_identity_mapping(tampered, "2026-08-30"), {})
+                self.assertFalse(UNI._identity_taxonomy_exact_bound_effective(
+                    tampered, "2026-08-30", date_field="effective_from", content_field="mappings",
+                ))
 
 
 if __name__ == "__main__":

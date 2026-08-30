@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """P3-12-GOV-05: append-only successor candidate for the runtime
-exact-approval-binding change.
+exact-approval-binding change -- v2 schema (base candidate exact pins +
+explicit code_binding block, not a bare reference-hash list).
 
-This documents the exact hashes this branch's identity/taxonomy binding
-change touches, for a FUTURE, separate, explicit CIO re-approval. It grants
-no authority by itself (``release_ready``/``exact_hash_cio_approval_present``
-stay ``False``) and never re-collects the first-party identity evidence PR
-#494 already captured -- it only references that evidence and the prior
-approval/candidate by their exact, already-committed hashes.
+This is an immutable proposal artifact, exactly like
+``identity/upbit_paper_identity_hardening_candidate.py``'s own candidate
+packets: it always declares ``release_ready``/``exact_hash_cio_approval_present``
+as ``False`` and never re-collects the first-party identity evidence PR
+#494 already captured -- it references the base (v2) candidate and
+approval by their exact, already-committed hashes only. A future,
+separate, explicit CIO decision would produce a NEW file -- a code
+approval evidence document -- that names this successor candidate's own
+exact hash; this module never produces that file itself.
 """
 from __future__ import annotations
 
@@ -23,14 +27,12 @@ BASE_APPROVAL_PATH = (
 BASE_CANDIDATE_PATH = (
     ROOT / "data/observations/upbit_paper_identity_hardening_candidate/2026-08-30/20260830T111117Z/packet.json"
 )
-BASE_CANDIDATE_BUILDER_PATH = ROOT / "identity" / "upbit_paper_identity_hardening_candidate.py"
-REGISTRY_PATH = ROOT / "config" / "upbit_asset_identity_registry.json"
-TAXONOMY_PATH = ROOT / "config" / "upbit_exclusion_taxonomy.json"
 CONSUMER_PATH = ROOT / "universe" / "upbit_tradeable_universe.py"
 VALIDATOR_PATH = ROOT / "governance" / "upbit_exact_release_binding.py"
-BINDING_CONTRACT_PATH = ROOT / "config" / "upbit_exact_release_binding_contract.json"
+POLICY_CONTRACT_PATH = ROOT / "config" / "upbit_exact_release_binding_policy_contract.json"
 THIS_BUILDER_PATH = Path(__file__).resolve()
 FIRST_PARTY_EVIDENCE_ROOT = "evidence/crypto/upbit/identity/first_party/2026-08-30/20260830T111117Z"
+SCHEMA_VERSION = "upbit_exact_release_binding_successor_candidate/2"
 
 
 def file_sha256(path: Path) -> str:
@@ -50,50 +52,34 @@ def _read_json(path: Path) -> dict:
 
 
 def build_successor_candidate(*, generated_at: str) -> dict:
-    registry = _read_json(REGISTRY_PATH)
-    taxonomy = _read_json(TAXONOMY_PATH)
+    base_candidate = _read_json(BASE_CANDIDATE_PATH)
     packet = {
-        "schema_version": "upbit_exact_release_binding_successor_candidate/1",
+        "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
         "scope": "P3_12_GOV_05_RUNTIME_EXACT_APPROVAL_BINDING",
         "review_status": "PENDING_EXACT_HASH_REAPPROVAL",
-        "supersedes": {
-            "base_approval_evidence": {
-                "path": str(BASE_APPROVAL_PATH.relative_to(ROOT)),
-                "file_sha256": file_sha256(BASE_APPROVAL_PATH),
+        "base_candidate": {
+            "path": str(BASE_CANDIDATE_PATH.relative_to(ROOT)),
+            "file_sha256": file_sha256(BASE_CANDIDATE_PATH),
+            "payload_sha256": base_candidate["payload_sha256"],
+        },
+        "base_approval_evidence": {
+            "path": str(BASE_APPROVAL_PATH.relative_to(ROOT)),
+            "file_sha256": file_sha256(BASE_APPROVAL_PATH),
+        },
+        "code_binding": {
+            "consumer_file": {
+                "path": str(CONSUMER_PATH.relative_to(ROOT)),
+                "sha256": file_sha256(CONSUMER_PATH),
             },
-            "base_candidate_packet": {
-                "path": str(BASE_CANDIDATE_PATH.relative_to(ROOT)),
-                "file_sha256": file_sha256(BASE_CANDIDATE_PATH),
+            "validator_file": {
+                "path": str(VALIDATOR_PATH.relative_to(ROOT)),
+                "sha256": file_sha256(VALIDATOR_PATH),
             },
-            "base_candidate_builder": {
-                "path": str(BASE_CANDIDATE_BUILDER_PATH.relative_to(ROOT)),
-                "file_sha256": file_sha256(BASE_CANDIDATE_BUILDER_PATH),
+            "policy_contract": {
+                "path": str(POLICY_CONTRACT_PATH.relative_to(ROOT)),
+                "sha256": file_sha256(POLICY_CONTRACT_PATH),
             },
-        },
-        "unchanged_approved_content": {
-            "note": (
-                "The approved registry/taxonomy CONTENT (exactly the eight "
-                "BTC/ETH/LINK/SHIB/SOL/SUI/WLD/XRP mappings and records) is "
-                "not modified by this branch -- only the runtime binding "
-                "mechanism around it changes."
-            ),
-            "registry_approved_candidate_payload_sha256": registry.get("approved_candidate_payload_sha256"),
-            "taxonomy_approved_candidate_payload_sha256": taxonomy.get("approved_candidate_payload_sha256"),
-            "registry_file_sha256": file_sha256(REGISTRY_PATH),
-            "taxonomy_file_sha256": file_sha256(TAXONOMY_PATH),
-        },
-        "changed_consumer": {
-            "path": str(CONSUMER_PATH.relative_to(ROOT)),
-            "file_sha256": file_sha256(CONSUMER_PATH),
-        },
-        "new_runtime_validator": {
-            "path": str(VALIDATOR_PATH.relative_to(ROOT)),
-            "file_sha256": file_sha256(VALIDATOR_PATH),
-        },
-        "new_binding_contract": {
-            "path": str(BINDING_CONTRACT_PATH.relative_to(ROOT)),
-            "file_sha256": file_sha256(BINDING_CONTRACT_PATH),
         },
         "this_successor_candidate_builder": {
             "path": str(THIS_BUILDER_PATH.relative_to(ROOT)),
@@ -101,7 +87,7 @@ def build_successor_candidate(*, generated_at: str) -> dict:
         },
         "first_party_evidence_reference": {
             "path": FIRST_PARTY_EVIDENCE_ROOT,
-            "note": "Referenced, not re-captured -- see supersedes.base_candidate_packet for the original capture.",
+            "note": "Referenced, not re-captured -- see base_candidate for the original capture.",
         },
         "release_ready": False,
         "exact_hash_cio_approval_present": False,
