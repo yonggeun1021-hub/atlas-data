@@ -307,18 +307,18 @@ class NaturalPacketTests(unittest.TestCase):
         self.assertIn("KRW-RE", hold_markets)
         self.assertEqual(packet["summary"]["new_records_by_category"].get("eligible_crypto"), 72)
 
-    def test_real_committed_taxonomy_file_reflects_candidate_records(self):
+    def test_real_committed_taxonomy_file_reflects_exact_approved_paper_slice(self):
         taxonomy = UNI.load_taxonomy()
-        self.assertEqual(taxonomy["approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
-        self.assertEqual(taxonomy["previous_approval_status"], "RATIFIED")
+        self.assertEqual(taxonomy["approval_status"], "RATIFIED")
+        self.assertEqual(taxonomy["previous_approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
         self.assertEqual(taxonomy["effective_from"], "2026-08-30")
-        self.assertIn("commodity_linked", taxonomy["excluded_categories"])
+        self.assertEqual(taxonomy["excluded_categories"], [])
         ids = {row["canonical_asset_id"] for row in taxonomy["records"]}
-        for expected in ("USDG", "RE", "XAUT"):
-            self.assertIn(expected, ids)
-        # original 6 stablecoin records still present, untouched
-        for expected in ("USDT", "USDC", "USDE", "USDS", "RLUSD", "EURC"):
-            self.assertIn(expected, ids)
+        self.assertEqual(ids, {"BTC", "ETH", "LINK", "SHIB", "SOL", "SUI", "WLD", "XRP"})
+        for excluded in ("USDG", "RE", "XAUT", "USDT", "USDC", "USDE", "USDS", "RLUSD", "EURC"):
+            self.assertNotIn(excluded, ids)
+        self.assertTrue(all(row["category"] == "eligible_crypto" for row in taxonomy["records"]))
+        self.assertTrue(all(value is False for value in taxonomy["authority"].values()))
 
     def test_build_script_is_idempotent_and_tamper_fails_closed(self):
         build_module = _load_build_module()
