@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 from functools import lru_cache
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,11 +21,57 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(BRIDGE)
 
 
-def latest_committed_packet() -> dict:
-    paths = sorted((ROOT / "evidence" / "crypto_paper_decision").glob("*/*/*/packet.json"))
-    if not paths:
-        raise AssertionError("NO_COMMITTED_CRYPTO_PAPER_DECISION_PACKET")
-    return json.loads(paths[-1].read_text(encoding="utf-8"))
+def source_observation_ceiling(
+    *, universe_entry: dict | None, market_evidence_entry: dict | None,
+    realtime_entry: dict | None,
+) -> str:
+    """Return the newest timestamp the decision builder actually gates on.
+
+    This is an offline-regression as-of, not a replacement for the scheduler's
+    wall clock.  It deliberately preserves each committed source timestamp and
+    takes their chronological maximum; it never clamps or rewrites a source.
+    The decision builder remains responsible for rejecting a caller-supplied
+    ``generated_at`` that precedes any of these timestamps.
+    """
+    timestamps: list[dt.datetime] = []
+
+    def add(value: object, label: str) -> None:
+        timestamps.append(BRIDGE.DECISION._parse_utc(value, label))
+
+    if universe_entry is not None:
+        packet = universe_entry.get("packet")
+        if not isinstance(packet, dict):
+            raise AssertionError("UNIVERSE_PACKET_MISSING")
+        add(packet.get("available_at"), "universe.available_at")
+
+    if market_evidence_entry is not None:
+        record = market_evidence_entry.get("record")
+        if not isinstance(record, dict) or not isinstance(record.get("packets"), dict):
+            raise AssertionError("MARKET_EVIDENCE_RECORD_INVALID")
+        add(record.get("generated_at"), "market_evidence.generated_at")
+        for market, packet in record["packets"].items():
+            if not isinstance(packet, dict):
+                raise AssertionError(f"MARKET_EVIDENCE_PACKET_INVALID:{market}")
+            add(packet.get("captured_at"), f"market_evidence.{market}.captured_at")
+
+    if realtime_entry is not None:
+        record = realtime_entry.get("record")
+        run = record.get("run") if isinstance(record, dict) else None
+        if not isinstance(run, dict):
+            raise AssertionError("REALTIME_RUN_INVALID")
+        add(run.get("ended_at"), "realtime.ended_at")
+
+    if not timestamps:
+        raise AssertionError("NO_COMMITTED_CRYPTO_SOURCE_TIMESTAMP")
+    return max(timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def latest_committed_source_observation_ceiling() -> str:
+    return source_observation_ceiling(
+        universe_entry=BRIDGE.DECISION.find_latest_universe_packet(),
+        market_evidence_entry=BRIDGE.DECISION.find_latest_market_evidence_packet(),
+        realtime_entry=BRIDGE.DECISION.find_latest_realtime_run(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -35,10 +83,9 @@ def current_contract_packet() -> dict:
     packet before invoking this bridge, so this fixture mirrors that ordering
     instead of treating a pre-change committed packet as current authority.
     """
-    prior = latest_committed_packet()
     with tempfile.TemporaryDirectory(prefix="axis_bridge_source_") as tmp:
         result = BRIDGE.DECISION.populate(
-            generated_at=prior["generated_at"],
+            generated_at=latest_committed_source_observation_ceiling(),
             allow_realtime_fallback=True,
             output_root=Path(tmp) / "decision",
             wire_regime_components=True,
@@ -55,6 +102,202 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(all(value is False for value in contract["authority"].values()))
         self.assertEqual(contract["aggregate_policy_status"], "UNRATIFIED")
         self.assertEqual(contract["aggregate_regimes_currently_authorized"], ["UNKNOWN"])
+
+
+class SourceAvailabilityRegressionTests(unittest.TestCase):
+    SOURCE_COMMIT = "0" * 40
+
+    @staticmethod
+    def _one_second_before(value: str) -> str:
+        parsed = BRIDGE.DECISION._parse_utc(value, "test.source_time")
+        return (parsed - dt.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @staticmethod
+    def _rehash(record: dict, field: str = "payload_sha256") -> None:
+        unsigned = copy.deepcopy(record)
+        unsigned.pop(field, None)
+        record[field] = BRIDGE.DECISION.payload_sha256(unsigned)
+
+    def test_normal_ceiling_uses_universe_market_and_realtime_source_times(self):
+        universe = {"packet": {"available_at": "2026-08-30T00:01:00Z"}}
+        market = {"record": {
+            "generated_at": "2026-08-30T00:02:00Z",
+            "packets": {"KRW-BTC": {"captured_at": "2026-08-30T00:04:00Z"}},
+        }}
+        realtime = {"record": {"run": {"ended_at": "2026-08-30T00:03:00Z"}}}
+        self.assertEqual(
+            source_observation_ceiling(
+                universe_entry=universe,
+                market_evidence_entry=market,
+                realtime_entry=realtime,
+            ),
+            "2026-08-30T00:04:00Z",
+        )
+
+    def test_current_committed_source_ceiling_builds_without_reusing_prior_decision_time(self):
+        universe = BRIDGE.DECISION.find_latest_universe_packet()
+        market = BRIDGE.DECISION.find_latest_market_evidence_packet()
+        realtime = BRIDGE.DECISION.find_latest_realtime_run()
+        generated_at = source_observation_ceiling(
+            universe_entry=universe,
+            market_evidence_entry=market,
+            realtime_entry=realtime,
+        )
+        packet = BRIDGE.DECISION.build_snapshot(
+            generated_at=generated_at,
+            source_commit=self.SOURCE_COMMIT,
+            universe_entry=universe,
+            market_evidence_entry=market,
+            realtime_entry=realtime,
+        )
+        self.assertEqual(packet["generated_at"], generated_at)
+        self.assertEqual(
+            set(packet["freshness_status"]),
+            {"upbit_universe", "market_evidence", "realtime", "overall"},
+        )
+
+    def test_future_dated_universe_still_fails_closed(self):
+        universe = BRIDGE.DECISION.find_latest_universe_packet()
+        available_at = universe["packet"]["available_at"]
+        with self.assertRaisesRegex(
+            BRIDGE.DECISION.CryptoPaperDecisionSnapshotError,
+            "UNIVERSE_AVAILABLE_AT_FUTURE_DATED",
+        ):
+            BRIDGE.DECISION.build_snapshot(
+                generated_at=self._one_second_before(available_at),
+                source_commit=self.SOURCE_COMMIT,
+                universe_entry=universe,
+                market_evidence_entry=None,
+                realtime_entry=None,
+            )
+
+    def test_future_dated_market_evidence_still_fails_closed(self):
+        market = BRIDGE.DECISION.find_latest_market_evidence_packet()
+        ceiling = source_observation_ceiling(
+            universe_entry=None, market_evidence_entry=market, realtime_entry=None,
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.DECISION.CryptoPaperDecisionSnapshotError,
+            "MARKET_EVIDENCE_(PACKET_)?FUTURE_DATED",
+        ):
+            BRIDGE.DECISION.build_snapshot(
+                generated_at=self._one_second_before(ceiling),
+                source_commit=self.SOURCE_COMMIT,
+                universe_entry=None,
+                market_evidence_entry=market,
+                realtime_entry=None,
+            )
+
+    def test_future_dated_realtime_still_fails_closed(self):
+        realtime = BRIDGE.DECISION.find_latest_realtime_run()
+        ended_at = realtime["record"]["run"]["ended_at"]
+        with self.assertRaisesRegex(
+            BRIDGE.DECISION.CryptoPaperDecisionSnapshotError,
+            "REALTIME_EVIDENCE_FUTURE_DATED",
+        ):
+            BRIDGE.DECISION.build_snapshot(
+                generated_at=self._one_second_before(ended_at),
+                source_commit=self.SOURCE_COMMIT,
+                universe_entry=None,
+                market_evidence_entry=None,
+                realtime_entry=realtime,
+            )
+
+    def test_stale_universe_remains_stale(self):
+        universe = copy.deepcopy(BRIDGE.DECISION.find_latest_universe_packet())
+        universe["packet"]["policy_ratified"] = True
+        universe["packet"]["taxonomy_ratified"] = True
+        self._rehash(universe["packet"])
+        universe["record"]["packet"] = universe["packet"]
+        self._rehash(universe["record"])
+        available = BRIDGE.DECISION._parse_utc(
+            universe["packet"]["available_at"], "universe.available_at",
+        )
+        max_age = float(BRIDGE.DECISION.UNIVERSE.load_policy()["max_capture_age_hours"])
+        generated_at = (available + dt.timedelta(hours=max_age, seconds=1)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        packet = BRIDGE.DECISION.build_snapshot(
+            generated_at=generated_at,
+            source_commit=self.SOURCE_COMMIT,
+            universe_entry=universe,
+            market_evidence_entry=None,
+            realtime_entry=None,
+        )
+        self.assertEqual(packet["freshness_status"]["upbit_universe"], "STALE")
+
+    def test_stale_market_evidence_remains_stale(self):
+        stale = "STALE"
+        packet = {
+            "candles": {
+                timeframe: {"freshness": {"status": stale}}
+                for timeframe in BRIDGE.DECISION.CANDLE_FINALIZATION.TIMEFRAMES
+            },
+            "trades": {"freshness": {"status": stale}},
+            "orderbook": {"freshness": {"status": stale}},
+        }
+        status, reason = BRIDGE.DECISION._market_evidence_freshness({
+            "packets": {"KRW-BTC": packet},
+            "policy_ratified": True,
+            "errors": {},
+        })
+        self.assertEqual(status, stale)
+        self.assertEqual(reason, "UPBIT_MARKET_EVIDENCE_COMPONENT_STALE")
+
+    def test_stale_realtime_remains_stale(self):
+        record = {
+            "run": {
+                "markets": ["KRW-BTC"],
+                "message_log": [{}],
+                "status": {
+                    "markets": {"KRW-BTC": {}},
+                    "connection_state": "CONNECTED",
+                    "overall_status": "STALE",
+                },
+            }
+        }
+        with mock.patch.object(
+            BRIDGE.DECISION.REALTIME_GATE,
+            "load_freshness_policy_proposal",
+            return_value={"approval_status": "RATIFIED"},
+        ):
+            status, reason = BRIDGE.DECISION._realtime_freshness(record)
+        self.assertEqual(status, "STALE")
+        self.assertEqual(reason, "UPBIT_REALTIME_GATE_STATUS_STALE")
+
+    def test_mixed_market_date_remains_mixed_generation(self):
+        universe = BRIDGE.DECISION.find_latest_universe_packet()
+        market = copy.deepcopy(BRIDGE.DECISION.find_latest_market_evidence_packet())
+        market["date"] = "1999-01-01"
+        market["record"]["snapshot_date"] = market["date"]
+        self._rehash(market["record"])
+        generated_at = source_observation_ceiling(
+            universe_entry=universe, market_evidence_entry=market, realtime_entry=None,
+        )
+        packet = BRIDGE.DECISION.build_snapshot(
+            generated_at=generated_at,
+            source_commit=self.SOURCE_COMMIT,
+            universe_entry=universe,
+            market_evidence_entry=market,
+            realtime_entry=None,
+        )
+        self.assertEqual(packet["freshness_status"]["market_evidence"], "MIXED_GENERATION")
+
+    def test_mixed_realtime_date_remains_mixed_generation(self):
+        universe = BRIDGE.DECISION.find_latest_universe_packet()
+        realtime = copy.deepcopy(BRIDGE.DECISION.find_latest_realtime_run())
+        realtime["date"] = "1999-01-01"
+        generated_at = source_observation_ceiling(
+            universe_entry=universe, market_evidence_entry=None, realtime_entry=realtime,
+        )
+        packet = BRIDGE.DECISION.build_snapshot(
+            generated_at=generated_at,
+            source_commit=self.SOURCE_COMMIT,
+            universe_entry=universe,
+            market_evidence_entry=None,
+            realtime_entry=realtime,
+        )
+        self.assertEqual(packet["freshness_status"]["realtime"], "MIXED_GENERATION")
 
 
 class RealEvidenceTests(unittest.TestCase):
