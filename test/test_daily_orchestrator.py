@@ -1544,6 +1544,20 @@ class DailyOrchestratorTest(unittest.TestCase):
             by_id["KRX_POST_CLOSE"]["reason"],
             "WEEKEND_MORNING_MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE",
         )
+        # The rolling Step-0 pointers advance every day and are correctly
+        # blocked when replaying this historical weekend.  Keep this render
+        # assertion hermetic by supplying the exact previous-session dates
+        # the presentation contract consumes, rather than assuming today's
+        # mutable pointer still contains 2026-08-28.
+        by_id["STEP0_READ_MODEL_HEALTH"]["packet"] = {
+            "sources": {
+                name: {"collected_for_kst_date": "2026-08-28"}
+                for name in ("krx", "dart", "sec")
+            }
+        }
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
         rendered = MODULE.render_markdown(packet)
         self.assertIn("- market_session: MARKET_CLOSED", rendered)
         self.assertIn("- new_session: NONE", rendered)
@@ -2435,18 +2449,64 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
             decision_date, "evening", f"{decision_date}T23:45:00+09:00"
         )
 
+    def _validated_source_with_one_zero_capital_item(self):
+        """Latest immutable real sample with a retained review item.
+
+        The rolling operational packet may legitimately contain zero rows.
+        Exercise the non-empty presentation path against an append-only,
+        content-addressed historical sample instead of mutable population.
+        """
+        paths = sorted(
+            (
+                MODULE.ROOT
+                / "evidence/operational/dynamic_clock/shadow_entry_reviews"
+            ).glob("*/*/*.json")
+        )
+        records = [MODULE._read_json(path) for path in paths]
+        record = max(
+            (
+                value for value in records
+                if value["shadow_entry_review"]["summary"][
+                    "zero_capital_review_item_count"
+                ] > 0
+            ),
+            key=lambda value: value["operational_evaluated_at"],
+        )
+        claimed_record_sha = record["record_sha256"]
+        self.assertEqual(
+            claimed_record_sha,
+            MODULE.payload_sha256(
+                {key: value for key, value in record.items() if key != "record_sha256"}
+            ),
+        )
+        packet = record["shadow_entry_review"]
+        self.assertEqual(
+            packet["packet_sha256"],
+            MODULE.payload_sha256(
+                {key: value for key, value in packet.items() if key != "packet_sha256"}
+            ),
+        )
+        return {
+            "packet": copy.deepcopy(packet),
+            "trigger_kind": record["trigger_kind"],
+        }
+
     def test_sample_label_matches_exact_review_trigger_and_exposes_zero_capital_items(self):
-        row = self._row()
+        validation = self._validated_source_with_one_zero_capital_item()
+        source = validation["packet"]
+        with mock.patch.object(
+            MODULE, "_validated_shadow_review_source", return_value=validation
+        ):
+            row = self._row(source["decision_date"])
         self.assertEqual(row["status"], "READY")
         packet = row["packet"]
-        source = MODULE._read_json(MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH)
         expected_sample_status = {
             "UPSTREAM_WORKFLOW_RUN": "NATURAL_OPERATIONAL_SAMPLE",
             "MANUAL_WORKFLOW_DISPATCH": "MANUAL_DIAGNOSTIC_SAMPLE",
             "LOCAL_REPRODUCTION": "LOCAL_REPRODUCTION_ONLY",
-        }[source["source"]["trigger_kind"]]
+        }[validation["trigger_kind"]]
         self.assertEqual(packet["sample_status"], expected_sample_status)
-        if source["source"]["trigger_kind"] != "UPSTREAM_WORKFLOW_RUN":
+        if validation["trigger_kind"] != "UPSTREAM_WORKFLOW_RUN":
             self.assertNotEqual(packet["sample_status"], "NATURAL_OPERATIONAL_SAMPLE")
         self.assertEqual(packet["summary"]["candidate_count"], len(source["review_items"]))
         retained_source = [
@@ -2567,11 +2627,15 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         self.assertIn("SHADOW_ENTRY_REVIEW_SEMANTIC_TAMPER_OR_DRIFT", row["reason"])
 
     def test_markdown_says_why_now_and_why_not_without_buy_language(self):
-        row = self._row()
-        decision_date = self._source_decision_date()
-        packet = MODULE.build_packet(
-            "evening", decision_date, f"{decision_date}T23:59:59Z"
-        )
+        validation = self._validated_source_with_one_zero_capital_item()
+        decision_date = validation["packet"]["decision_date"]
+        with mock.patch.object(
+            MODULE, "_validated_shadow_review_source", return_value=validation
+        ):
+            row = self._row(decision_date)
+            packet = MODULE.build_packet(
+                "evening", decision_date, f"{decision_date}T23:59:59Z"
+            )
         packet["components"] = [
             row if item["component_id"] == "SHADOW_ENTRY_REVIEW" else item
             for item in packet["components"]
@@ -2638,6 +2702,17 @@ class DartObservationBriefingIntegrationTests(unittest.TestCase):
         self.assertEqual(row["authority"]["trading_authorized"], False)
 
         packet = MODULE.build_packet("evening", source["source_date"], generated_at)
+        packet["components"] = [
+            row if item["component_id"] == "ROTATION_DISCOVERY" else item
+            for item in packet["components"]
+        ]
+        packet["component_status_counts"] = {
+            status: sum(item["status"] == status for item in packet["components"])
+            for status in MODULE.STATUS_VALUES
+        }
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "packet_sha256"}
+        )
         rendered = MODULE.render_markdown(packet)
         if dart["observation_count"] or dart["source_failed_count"] or dart["content_failure_count"]:
             self.assertIn(f"DART observations={dart['observation_count']}", rendered)
