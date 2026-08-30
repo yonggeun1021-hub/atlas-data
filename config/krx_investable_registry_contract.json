@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_investable_registry/1",
+  "output_schema_version": "krx_investable_registry/1",
+  "public_summary_schema_version": "krx_investable_registry_public_summary/1",
+  "markets": [
+    "KOSDAQ",
+    "KOSPI"
+  ],
+  "identity": {
+    "immutable_primary": "KIS_STANDARD_CODE",
+    "mutable_alias": "KIS_SHORT_CODE",
+    "security_id_format": "KR:XKRX:{KIS_STANDARD_CODE}",
+    "code_reuse_policy": "COMPARE_SHORT_CODE_TO_STANDARD_CODE_ACROSS_APPEND_ONLY_KIS_SNAPSHOTS"
+  },
+  "kis_primary_source": {
+    "repository": "https://github.com/koreainvestment/open-trading-api",
+    "parser_commit": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+    "parser_paths": {
+      "KOSDAQ": "stocks_info/kis_kosdaq_code_mst.py",
+      "KOSPI": "stocks_info/kis_kospi_code_mst.py"
+    },
+    "master_urls": {
+      "KOSDAQ": "https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip",
+      "KOSPI": "https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip"
+    },
+    "archive_members": {
+      "KOSDAQ": "kosdaq_code.mst",
+      "KOSPI": "kospi_code.mst"
+    },
+    "encoding": "cp949"
+  },
+  "krx_primary_source": {
+    "packet_schema_version": "krx_global_universe_packet/1",
+    "membership_semantics": "exact_trading_date_source_coverage_not_investable",
+    "required_source_id": "krx_open_api_stock_daily",
+    "required_latest_session_evidence_schema": "korea_market_signals_observation/1",
+    "required_exact_latest_completed_session": true
+  },
+  "product_policy": {
+    "common_stock": {
+      "security_group": "ST",
+      "preferred_codes": [
+        "0"
+      ],
+      "spac_flag": "N"
+    },
+    "preferred_stock": {
+      "security_group": "ST",
+      "preferred_codes": [
+        "1",
+        "2"
+      ],
+      "screening_state": "EXCLUDED"
+    },
+    "spac": {
+      "security_group": "ST",
+      "spac_flag": "Y",
+      "screening_state": "EXCLUDED"
+    },
+    "etf": {
+      "security_group": "EF",
+      "documented_etp_codes": [
+        "1",
+        "2"
+      ]
+    },
+    "etn": {
+      "documented_etp_codes": [
+        "3",
+        "4"
+      ],
+      "screening_state": "EXCLUDED"
+    },
+    "other_security_groups": {
+      "BC": "BENEFICIARY_CERTIFICATE",
+      "DR": "DEPOSITARY_RECEIPT",
+      "FS": "FOREIGN_STOCK",
+      "IF": "INFRASTRUCTURE_FUND",
+      "MF": "SECURITIES_INVESTMENT_COMPANY",
+      "PF": "LISTED_BENEFICIARY_CERTIFICATE",
+      "RT": "REIT",
+      "SR": "SUBSCRIPTION_RIGHT_CERTIFICATE",
+      "SW": "WARRANT_SECURITY"
+    }
+  },
+  "categorical_exclusions": {
+    "trading_halt": "Y",
+    "liquidation_trading": "Y",
+    "managed_issue": "Y",
+    "market_warning_nonzero": true,
+    "market_warning_advance_notice": "Y",
+    "kosdaq_investment_attention": "Y"
+  },
+  "measurement_policy": {
+    "turnover": {
+      "status": "UNRATIFIED",
+      "proposed_threshold": null
+    },
+    "order_book_depth": {
+      "status": "UNRATIFIED",
+      "proposed_threshold": null
+    },
+    "spread": {
+      "status": "UNRATIFIED",
+      "proposed_threshold": null
+    },
+    "slippage": {
+      "status": "UNRATIFIED",
+      "proposed_threshold": null
+    }
+  },
+  "krx_paper_gate_compatibility": {
+    "common_safety_contract_version": "krx_paper_common_safety_gate/1",
+    "market_gate_contract_version": "krx_paper_market_gate/1",
+    "evidence_targets": [
+      "COMMON_PIT_AND_IMMUTABLE_LINEAGE",
+      "KRX_FINAL_CANDIDATE_POLICY_RATIFIED"
+    ],
+    "evidence_role": "NON_AUTHORITY_EVIDENCE_CANDIDATE",
+    "gate_result_authorized": false,
+    "state_transition_authorized": false
+  },
+  "distribution_boundary": {
+    "public_allowed": [
+      "source_urls",
+      "source_commit",
+      "source_hashes",
+      "source_byte_lengths",
+      "capture_and_as_of_times",
+      "aggregate_counts",
+      "policy_and_authority_flags"
+    ],
+    "private_only": [
+      "KIS_MASTER_ARCHIVE_BYTES",
+      "KIS_MASTER_ROW_BYTES",
+      "KRX_RAW_RESPONSE_BYTES",
+      "PER_SYMBOL_NAMES",
+      "PER_SYMBOL_STATUS_FIELDS",
+      "FULL_REGISTRY_RECORDS"
+    ],
+    "basis": "KRX_OPEN_API_TERMS_PROHIBIT_THIRD_PARTY_PROVISION;KIS_MASTER_REDISTRIBUTION_LICENSE_NOT_ESTABLISHED"
+  },
+  "authority": {
+    "registry_evidence_only": true,
+    "investable_universe_authorized": false,
+    "strategy_entry_authorized": false,
+    "paper_order_authorized": false,
+    "real_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
