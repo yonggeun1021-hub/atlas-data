@@ -35,12 +35,19 @@ jobs:
         run: python3 regime/paper_regime_reference.py --write
       - name: Verify generated pointer from retained inputs
         run: python3 regime/paper_regime_reference.py --verify data/latest_paper_regime_reference.json
+      - name: Build market-flow and capital-posture reference
+        run: |
+          python3 test/test_capital_flow_posture_reference.py
+          python3 portfolio/capital_flow_posture_reference.py --write
+          python3 portfolio/capital_flow_posture_reference.py --verify data/latest_capital_flow_posture_reference.json
       - name: Commit append-only evidence and latest pointer
         run: |
           set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
-          git add config/paper_regime_reference_policy_v1.json data/latest_paper_regime_reference.json evidence/regime/paper_reference
+          git add config/paper_regime_reference_policy_v1.json data/latest_paper_regime_reference.json evidence/regime/paper_reference \
+            config/capital_flow_posture_reference_policy_v1.json data/latest_capital_flow_posture_reference.json \
+            evidence/portfolio/capital_flow_posture_reference
           if git diff --cached --quiet; then
             echo "same inputs and policy: no change"
             exit 0
@@ -52,7 +59,10 @@ jobs:
           # pre-rebase source bytes.
           python3 regime/paper_regime_reference.py --write
           python3 regime/paper_regime_reference.py --verify data/latest_paper_regime_reference.json
-          git add data/latest_paper_regime_reference.json evidence/regime/paper_reference
+          python3 portfolio/capital_flow_posture_reference.py --write
+          python3 portfolio/capital_flow_posture_reference.py --verify data/latest_capital_flow_posture_reference.json
+          git add data/latest_paper_regime_reference.json evidence/regime/paper_reference \
+            data/latest_capital_flow_posture_reference.json evidence/portfolio/capital_flow_posture_reference
           if ! git diff --cached --quiet; then
             git commit --amend --no-edit
           fi
