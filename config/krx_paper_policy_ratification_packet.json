@@ -1,0 +1,80 @@
+{
+  "schema_version": "krx_paper_policy_ratification_packet/1",
+  "market": "KOREA",
+  "decision_status": "UNRATIFIED_EVIDENCE_INCOMPLETE",
+  "ratifies_strategy_policy": false,
+  "candidate_policy_ids": [
+    "ATLAS_KRX_CONSERVATIVE_DIAGNOSTIC_V1",
+    "KRX_MULTITIMEFRAME_BREAKOUT_CANDIDATE",
+    "KRX_PULLBACK_REENTRY_CANDIDATE"
+  ],
+  "source_lineage": {
+    "shadow_policy_candidate_head": "48782fe4892fc12e868bada05a0d82c3bddf6f7e",
+    "shadow_policy_merge_commit": "7353be0dc26af8d6cacf2115c07d68358b5d607f",
+    "shadow_policy_candidate_status": "MERGED_PROPOSED_UNRATIFIED_REPLAY_ONLY",
+    "universe_candidate_head": "e7b7a209d785d63627dc596f4a58581b681b61ad",
+    "universe_candidate_status": "MERGED_NON_AUTHORITY_INTERFACE"
+  },
+  "required_evidence": {
+    "point_in_time_chronological_replay": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "walk_forward_out_of_sample": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "cost_fee_slippage_tick_gap_sensitivity": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "up_regime": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "down_regime": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "sideways_regime": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "missed_upside_and_avoided_downside": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    },
+    "expiry_and_lifecycle_outcomes": {
+      "status": "NOT_AVAILABLE",
+      "result": null
+    }
+  },
+  "decision_metrics": {
+    "minimum_sample_size": null,
+    "net_expectancy_threshold": null,
+    "maximum_drawdown_threshold": null,
+    "false_probe_loss_threshold": null,
+    "opportunity_cost_threshold": null
+  },
+  "ratification_requirements": [
+    "MERGED_EXACT_HEAD_UNIVERSE",
+    "MERGED_EXACT_HEAD_SHADOW",
+    "OUTCOME_INDEPENDENT_REPLAY_PROTOCOL",
+    "WALK_FORWARD_OUT_OF_SAMPLE_RESULTS",
+    "COST_AND_SLIPPAGE_SENSITIVITY",
+    "UP_DOWN_SIDEWAYS_REGIME_RESULTS",
+    "CIO_EXPLICIT_EFFECTIVE_DATED_DECISION"
+  ],
+  "authority": {
+    "strategy_policy_ratified": false,
+    "entry_policy_ratified": false,
+    "hold_exit_policy_ratified": false,
+    "position_size_policy_ratified": false,
+    "internal_virtual_ledger_authorized": false,
+    "paper_order_write": false,
+    "order_authority": false,
+    "real_capital_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}
