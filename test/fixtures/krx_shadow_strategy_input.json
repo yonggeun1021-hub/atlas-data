@@ -1,0 +1,170 @@
+{
+  "schema_version": "krx_shadow_strategy_input/1",
+  "contract_version": "krx_shadow_strategy/1",
+  "decision_batch_id": "KRX-SHADOW-20260827-0030",
+  "evaluated_at": "2026-08-27T00:29:59Z",
+  "business_date": "2026-08-27",
+  "mode": "PAPER_CANARY",
+  "prior_decision_keys": [],
+  "candidates": [
+    {
+      "candidate_id": "KRX-SHADOW-005930",
+      "symbol": "005930",
+      "briefing_rank": 1,
+      "identity": {
+        "status": "RESOLVED",
+        "symbol": "005930",
+        "canonical_instrument_id": "KRX:005930:COMMON",
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "eligibility": {
+        "status": "ELIGIBLE",
+        "authority_status": "TEST_FIXTURE_NOT_AUTHORITY",
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "market_context": {
+        "status": "AVAILABLE",
+        "authority_status": "TEST_FIXTURE_NOT_AUTHORITY",
+        "entry_allowed": true,
+        "hold_allowed": true,
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "relative_strength": {
+        "status": "AVAILABLE",
+        "authority_status": "TEST_FIXTURE_NOT_AUTHORITY",
+        "entry_confirmed": true,
+        "hold_confirmed": true,
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "liquidity": {
+        "status": "AVAILABLE",
+        "authority_status": "TEST_FIXTURE_NOT_AUTHORITY",
+        "eligible": true,
+        "max_shadow_quantity": 50,
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "bars": {
+        "15m": {
+          "interval": "15m",
+          "completed": true,
+          "opened_at": "2026-08-27T00:00:00Z",
+          "closed_at": "2026-08-27T00:15:00Z",
+          "available_at": "2026-08-27T00:15:00Z",
+          "valid_until": "2026-08-27T01:00:00Z",
+          "open": 99000,
+          "high": 100000,
+          "low": 98000,
+          "close": 99500,
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "1h": {
+          "interval": "1h",
+          "completed": true,
+          "opened_at": "2026-08-26T05:00:00Z",
+          "closed_at": "2026-08-26T06:00:00Z",
+          "available_at": "2026-08-26T06:00:00Z",
+          "valid_until": "2026-08-27T01:00:00Z",
+          "open": 99000,
+          "high": 100000,
+          "low": 98000,
+          "close": 99500,
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "1d": {
+          "interval": "1d",
+          "completed": true,
+          "opened_at": "2026-08-26T00:00:00Z",
+          "closed_at": "2026-08-26T06:30:00Z",
+          "available_at": "2026-08-26T06:30:00Z",
+          "valid_until": "2026-08-27T01:00:00Z",
+          "open": 99000,
+          "high": 100000,
+          "low": 98000,
+          "close": 99500,
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "quote": {
+        "status": "AVAILABLE",
+        "observed_at": "2026-08-27T00:29:59Z",
+        "available_at": "2026-08-27T00:29:59Z",
+        "valid_until": "2026-08-27T00:30:30Z",
+        "last": 101000,
+        "bid": 100900,
+        "ask": 101000,
+        "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "position": {
+        "status": "FLAT",
+        "entry_price": null,
+        "quantity": null,
+        "opened_at": null,
+        "take_profit_1_done": null,
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "trade_plan": {
+        "policy_id": "KRX-SHADOW-TEST-V1",
+        "status": "TEST_FIXTURE_NOT_AUTHORITY",
+        "entry_reference_price": 100000,
+        "max_entry_price": 102000,
+        "stop_price": 98000,
+        "take_profit_1_price": 106000,
+        "final_take_profit_price": 110000,
+        "take_profit_1_fraction_bps": 5000,
+        "expires_at": "2026-09-03T06:20:00Z",
+        "invalidation_triggered": false,
+        "exit_on_regime_block": true,
+        "exit_on_relative_strength_break": true,
+        "tick_size": 100,
+        "entry_fee_bps": 10,
+        "exit_fee_bps": 10,
+        "stop_slippage_bps": 20,
+        "entry_after_kst": "09:15:00",
+        "session_ends_kst": "15:20:00",
+        "quote_max_age_seconds": 30,
+        "max_spread_bps": 25,
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "risk_budget": {
+        "status": "TEST_FIXTURE_NOT_AUTHORITY",
+        "allocation_id": "ALLOC-005930",
+        "allocation_scope": "PER_CANDIDATE_PREALLOCATED_FROM_ACCOUNT_RISK_BUDGET",
+        "account_risk_budget_id": "ACCOUNT-RISK-BUDGET-TEST",
+        "account_risk_budget_total_krw": 100000,
+        "account_committed_risk_krw": 0,
+        "risk_budget_krw": 100000,
+        "account_capacity_quantity": 100,
+        "current_open_positions": 0,
+        "available_at": "2026-08-27T00:15:00Z",
+        "valid_until": "2026-08-27T01:00:00Z",
+        "source_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "source_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "authority": {
+    "shadow_evaluation_only": true,
+    "symbol_selection_authority": false,
+    "portfolio_action_authority": false,
+    "order_draft_authority": false,
+    "order_submission_authority": false,
+    "paper_order_write": false,
+    "real_trading": false,
+    "production_trading": false
+  },
+  "packet_sha256": "7b0c9a3a7293436d08a5da2c78b94edf4fbdb38652ba6405272ceb9854b0397a"
+}

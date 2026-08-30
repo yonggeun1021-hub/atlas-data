@@ -1,0 +1,101 @@
+{
+  "schema_version": "krx_shadow_strategy_policy_candidates/1",
+  "market": "KOREA",
+  "status": "PROPOSED_UNRATIFIED_REPLAY_ONLY",
+  "ratifies_strategy": false,
+  "candidates": [
+    {
+      "policy_id": "ATLAS_KRX_CONSERVATIVE_DIAGNOSTIC_V1",
+      "provenance": "P10-10_DIAGNOSTIC_DRAFT_NOT_AUTHORITY",
+      "status": "DIAGNOSTIC_DRAFT_NOT_AUTHORITY",
+      "entry": {
+        "after_kst": "09:15:00",
+        "before_kst": "15:20:00",
+        "reference": "PREVIOUS_COMPLETED_15M_HIGH",
+        "quote_max_age_seconds": 30,
+        "max_spread_bps": 25
+      },
+      "management": {
+        "stop_loss_bps": 200,
+        "harvest_gain_bps": 400,
+        "first_take_profit": null,
+        "final_take_profit": null,
+        "time_expiry": null,
+        "invalidation_rule": null
+      },
+      "missing_before_replay": [
+        "RATIFIED_ELIGIBLE_UNIVERSE_MAPPING",
+        "COMPLETED_KRX_1H_AND_1D_CONFIRMATION_SEMANTICS",
+        "ACCOUNT_RISK_BUDGET_POLICY",
+        "TICK_SIZE_AND_FEE_SLIPPAGE_POLICY",
+        "FIRST_VS_FINAL_TAKE_PROFIT_POLICY",
+        "TIME_EXPIRY_AND_INVALIDATION_POLICY"
+      ]
+    },
+    {
+      "policy_id": "KRX_MULTITIMEFRAME_BREAKOUT_CANDIDATE",
+      "provenance": "NEW_POLICY_CANDIDATE_NOT_RATIFIED",
+      "status": "PROPOSED_UNRATIFIED_REPLAY_ONLY",
+      "entry": {
+        "reference": "PREVIOUS_COMPLETED_15M_HIGH",
+        "one_hour_confirmation": null,
+        "daily_confirmation": null,
+        "relative_strength_confirmation": null,
+        "liquidity_gate": null,
+        "maximum_entry_gap": null
+      },
+      "management": {
+        "structural_stop": null,
+        "first_take_profit": null,
+        "final_take_profit": null,
+        "time_expiry": null,
+        "invalidation_rule": null
+      }
+    },
+    {
+      "policy_id": "KRX_PULLBACK_REENTRY_CANDIDATE",
+      "provenance": "NEW_POLICY_CANDIDATE_NOT_RATIFIED",
+      "status": "PROPOSED_UNRATIFIED_REPLAY_ONLY",
+      "entry": {
+        "pullback_reference": null,
+        "one_hour_confirmation": null,
+        "daily_confirmation": null,
+        "relative_strength_confirmation": null,
+        "liquidity_gate": null,
+        "maximum_entry_gap": null
+      },
+      "management": {
+        "structural_stop": null,
+        "first_take_profit": null,
+        "final_take_profit": null,
+        "time_expiry": null,
+        "invalidation_rule": null
+      }
+    }
+  ],
+  "validation": {
+    "point_in_time_only": true,
+    "completed_bars_only": [
+      "15m",
+      "1h",
+      "1d"
+    ],
+    "four_hour_required": false,
+    "chronological_replay": true,
+    "walk_forward_out_of_sample": true,
+    "cost_sensitivity_required": true,
+    "gap_and_tick_sensitivity_required": true,
+    "compare_missed_upside_and_avoided_downside": true,
+    "minimum_sample_size": null,
+    "approval_after_validation": "CIO_EXPLICIT_RATIFICATION_REQUIRED"
+  },
+  "authority": {
+    "strategy_policy_ratified": false,
+    "candidate_selection_authorized": false,
+    "position_sizing_authorized": false,
+    "order_draft_authorized": false,
+    "order_submission_authorized": false,
+    "paper_order_write": false,
+    "real_trading": false
+  }
+}

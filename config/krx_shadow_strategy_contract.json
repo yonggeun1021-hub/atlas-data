@@ -1,0 +1,48 @@
+{
+  "schema_version": "krx_shadow_strategy_contract/1",
+  "contract_version": "krx_shadow_strategy/1",
+  "input_schema_version": "krx_shadow_strategy_input/1",
+  "output_schema_version": "krx_shadow_strategy_packet/1",
+  "market": "KOREA",
+  "required_completed_bar_intervals": [
+    "15m",
+    "1h",
+    "1d"
+  ],
+  "four_hour_bar_required": false,
+  "actions": [
+    "ENTER",
+    "HOLD",
+    "EXIT",
+    "NO_TRADE"
+  ],
+  "policy_statuses": [
+    "DIAGNOSTIC_DRAFT_NOT_AUTHORITY",
+    "RATIFIED_SHADOW_ONLY",
+    "TEST_FIXTURE_NOT_AUTHORITY",
+    "UNRATIFIED"
+  ],
+  "ratified_shadow_status": "RATIFIED_SHADOW_ONLY",
+  "repository_default_strategy_policy": null,
+  "repository_default_universe_eligibility": null,
+  "ratified_shadow_policy_bindings": [],
+  "paper_canary": {
+    "symbol": "005930",
+    "max_open_positions": 1
+  },
+  "authority": {
+    "shadow_evaluation_only": true,
+    "symbol_selection_authority": false,
+    "portfolio_action_authority": false,
+    "order_draft_authority": false,
+    "order_submission_authority": false,
+    "paper_order_write": false,
+    "real_trading": false,
+    "production_trading": false
+  },
+  "order_boundary": {
+    "executable": false,
+    "order_draft": null,
+    "submission_authority": null
+  }
+}
