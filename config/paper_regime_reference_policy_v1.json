@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "contract_version": "paper_regime_reference_policy/v1",
+  "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
+  "status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY",
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "axis_values": {
+    "POSITIVE": 1,
+    "NEUTRAL": 0,
+    "NEGATIVE": -1
+  },
+  "aggregation": {
+    "RISK_ON_MIN_SCORE": 3,
+    "RISK_OFF_MAX_SCORE": -3,
+    "NEUTRAL_MIN_SCORE": -2,
+    "NEUTRAL_MAX_SCORE": 2,
+    "stress_overrides_score": true
+  },
+  "markets": {
+    "US": {
+      "source_path": "data/latest_free_market_data.json",
+      "TREND": {
+        "method": "majority_positive_20_session_returns",
+        "positive_min_fraction": "0.666667",
+        "negative_max_fraction": "0.333333"
+      },
+      "BREADTH": {
+        "method": "representative_etf_advance_fraction",
+        "positive_min": "0.55",
+        "negative_max": "0.45"
+      },
+      "RISK_VOL": {
+        "method": "fred_vix_level",
+        "positive_below": "15",
+        "neutral_below": "25",
+        "negative_below": "30",
+        "stress_min": "30"
+      },
+      "LIQUIDITY": {
+        "method": "fred_reserve_balances_and_bank_credit_change_sign",
+        "positive": "both_positive",
+        "negative": "both_negative",
+        "neutral": "mixed_or_zero"
+      },
+      "LEADERSHIP": {
+        "method": "positive_20_session_group_return_fraction",
+        "positive_min_fraction": "0.666667",
+        "negative_max_fraction": "0.333333"
+      }
+    },
+    "KR": {
+      "source_path": "data/latest_korea_market_signals.json",
+      "TREND": {
+        "method": "kospi_kosdaq_one_session_return_sign",
+        "positive": "both_positive",
+        "negative": "both_negative",
+        "neutral": "mixed_or_zero"
+      },
+      "BREADTH": {
+        "method": "combined_advance_fraction",
+        "positive_min": "0.55",
+        "negative_max": "0.45"
+      },
+      "RISK_VOL": {
+        "method": "combined_mean_absolute_stock_move_pct",
+        "positive_max": "1.5",
+        "neutral_max": "2.5",
+        "negative_max": "3.5",
+        "stress_above": "3.5"
+      },
+      "LIQUIDITY": {
+        "method": "combined_trading_value_change_pct",
+        "positive_min": "5",
+        "negative_max": "-5"
+      },
+      "LEADERSHIP": {
+        "method": "positive_sector_return_fraction",
+        "positive_min": "0.60",
+        "negative_max": "0.40"
+      }
+    },
+    "CRYPTO": {
+      "required_coverage": "5/5",
+      "current_blocker": "LEADERSHIP_VALIDATED_RETAINED_EVIDENCE_MISSING"
+    }
+  },
+  "authority": {
+    "paper_reference_display_authorized": true,
+    "paper_symbol_context_authorized": true,
+    "runtime_regime_authorized": false,
+    "final_regime_authorized": false,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
