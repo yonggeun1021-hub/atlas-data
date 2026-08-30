@@ -700,7 +700,9 @@ class ProductionEmptyTests(unittest.TestCase):
         policy = copy.deepcopy(policy)
         taxonomy = copy.deepcopy(taxonomy)
         policy["approval_status"] = "RATIFIED"
+        policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
+        taxonomy["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.policy_patch.start()
@@ -746,7 +748,9 @@ class DeterminismTests(unittest.TestCase):
         policy = copy.deepcopy(UNI.load_policy())
         taxonomy = copy.deepcopy(UNI.load_taxonomy())
         policy["approval_status"] = "RATIFIED"
+        policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
+        taxonomy["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.policy_patch.start()
@@ -790,7 +794,9 @@ class AuthorityTests(unittest.TestCase):
         policy = copy.deepcopy(UNI.load_policy())
         taxonomy = copy.deepcopy(UNI.load_taxonomy())
         policy["approval_status"] = "RATIFIED"
+        policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
+        taxonomy["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.policy_patch.start()

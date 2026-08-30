@@ -205,7 +205,9 @@ def ratified_policy_patches():
     policy = copy.deepcopy(UNI.load_policy())
     taxonomy = copy.deepcopy(UNI.load_taxonomy())
     policy["approval_status"] = "RATIFIED"
+    policy["effective_date"] = EVAL_AS_OF
     taxonomy["approval_status"] = "RATIFIED"
+    taxonomy["effective_from"] = EVAL_AS_OF
     targets = [CPDS.PROMOTION.UPBIT_UNIVERSE, CPDS.ELIGIBILITY.UPBIT_UNIVERSE]
     patchers = []
     for target in targets:
