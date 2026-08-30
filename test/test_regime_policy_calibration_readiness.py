@@ -38,10 +38,13 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
             self.packet["status"],
             "NOT_READY_POLICY_CANDIDATE" if korea_retained else "NOT_READY_AXIS_COVERAGE",
         )
-        self.assertEqual(markets["US"]["coverage"]["ratio"], "1/5")
+        self.assertEqual(markets["US"]["coverage"]["ratio"], "3/5")
         self.assertEqual(markets["KR"]["coverage"]["ratio"], "5/5" if korea_retained else "0/5")
         self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], "4/5")
-        self.assertEqual(markets["US"]["coverage"]["defined_axes"], ["RISK_VOL"])
+        self.assertEqual(
+            markets["US"]["coverage"]["defined_axes"],
+            ["TREND", "RISK_VOL", "LIQUIDITY"],
+        )
         self.assertEqual(
             markets["CRYPTO"]["coverage"]["defined_axes"],
             ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY"],
