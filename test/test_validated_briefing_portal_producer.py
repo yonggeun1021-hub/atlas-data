@@ -382,6 +382,29 @@ class ValidatedBriefingPortalProducerTests(unittest.TestCase):
             client.requested,
         )
 
+    def test_dispatch_accepts_verified_fact_that_state_is_unknown(self):
+        args = self._inputs()
+        ledger_path = Path(args.claim_ledger)
+        ledger = json.loads(ledger_path.read_text())
+        ledger["claims"][0]["statement"] = (
+            "The official regime remains UNKNOWN because the retained source is incomplete."
+        )
+        ledger_body = _write_json(ledger_path, ledger)
+        report_path = Path(args.validation_report)
+        report = json.loads(report_path.read_text())
+        report["claim_ledger_sha256"] = _sha(ledger_body)
+        _write_json(report_path, report)
+
+        built, envelope_commit, client = self._dispatch_fixture(args)
+        payload = dispatcher.validate_dispatch_candidate(
+            client, envelope_commit, built["envelope_path"],
+            built["envelope_sha256"], "main",
+        )
+
+        self.assertEqual(payload["client_payload"]["envelope_commit"], envelope_commit)
+        envelope = json.loads((self.repo / built["envelope_path"]).read_text())
+        self.assertEqual(envelope["verified_facts"][0]["statement"], ledger["claims"][0]["statement"])
+
     def test_dispatch_rejects_non_main_envelope_commit(self):
         built, envelope_commit, client = self._dispatch_fixture()
         client.ancestors.remove(envelope_commit)
