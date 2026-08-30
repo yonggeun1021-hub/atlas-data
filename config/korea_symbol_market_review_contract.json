@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_symbol_market_review/1",
+  "output_schema_version": "korea_symbol_market_review_packet/1",
+  "mode": "CURRENT_OBSERVATION_REVIEW_ONLY",
+  "required_axes": ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"],
+  "supported_pipeline_subjects": ["012450", "298040", "329180"],
+  "entry_policy": {
+    "observed_price_state": "WAIT",
+    "automatic_entry_generated": false
+  },
+  "holding_policy": {
+    "state_without_account_position": "NOT_POSITION_AWARE",
+    "automatic_holding_action_generated": false
+  },
+  "exit_policy": {
+    "state_without_account_position": "NOT_APPLICABLE_NO_POSITION_CONTEXT",
+    "automatic_exit_generated": false
+  },
+  "authority": {
+    "market_regime_authorized": false,
+    "entry_eligibility_authorized": false,
+    "holding_action_authorized": false,
+    "exit_action_authorized": false,
+    "order_authorized": false,
+    "broker_submission_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
