@@ -1,0 +1,39 @@
+name: KRX Investable Registry Offline Gate
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/krx-investable-registry.yml"
+      - "config/krx_investable_registry_contract.json"
+      - "config/krx_paper_common_safety_gate_contract.json"
+      - "config/krx_paper_market_gate_contract.json"
+      - "docs/krx_investable_registry_contract.md"
+      - "validation/tests/test_krx_investable_registry.py"
+      - "universe/krx_investable_registry.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the exact event revision without adding shared action pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            event_ref="refs/pull/${{ github.event.pull_request.number }}/merge"
+          else
+            event_ref="${GITHUB_REF}"
+          fi
+          git fetch --no-tags --depth=1 origin "${event_ref}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+      - name: KIS + KRX point-in-time registry regression
+        run: python3 validation/tests/test_krx_investable_registry.py
+      - name: No tracked mutation
+        run: git diff --exit-code
