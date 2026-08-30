@@ -16,6 +16,20 @@
   "reconnect_default_base_backoff_seconds": 1.0,
   "reconnect_default_max_backoff_seconds": 30.0,
   "connection_gap_min_seconds_for_backfill": 5,
+  "provider_gap_threshold_seconds_by_kind": {
+    "ticker": 5,
+    "trade": 5,
+    "orderbook": 5,
+    "candle": 20
+  },
+  "rest_backfill_max_window_seconds": 300,
+  "rest_backfill_max_rows": 20,
+  "rest_backfill_max_requests_per_run": 40,
+  "rest_backfill_timeout_seconds": 15,
+  "rest_public_candles_minutes_endpoint_template": "https://api.upbit.com/v1/candles/minutes/{UNIT}",
+  "rest_public_trades_endpoint": "https://api.upbit.com/v1/trades/ticks",
+  "ratified_freshness_policy_path": "config/upbit_realtime_freshness_policy_ratified.json",
+  "ratified_freshness_policy_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34",
   "default_max_staleness_seconds_by_kind": {
     "ticker": 30,
     "trade": 30,

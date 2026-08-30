@@ -8,6 +8,8 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -16,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "realtime" / "upbit_realtime_gate.py"
 CAPTURE_SCRIPT_PATH = ROOT / ".github" / "scripts" / "upbit_realtime_capture.py"
 CONTRACT_PATH = ROOT / "config" / "upbit_realtime_gate_contract.json"
+RECOVERY_TEST_PATH = ROOT / "test" / "upbit_realtime_recovery_tests.py"
 
 
 def load_module(name: str, path: Path):
@@ -565,6 +568,20 @@ class AuthorityTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class ModuleSanityTests(unittest.TestCase):
+    def test_bounded_recovery_regression_suite_is_in_approved_ci_path(self):
+        completed = subprocess.run(
+            [sys.executable, str(RECOVERY_TEST_PATH)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            msg=f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+        )
+
     def test_module_has_no_websockets_or_asyncio_dependency(self):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertNotIn("import websockets", source)
