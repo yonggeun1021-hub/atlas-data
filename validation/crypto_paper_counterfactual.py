@@ -880,12 +880,30 @@ def persist_daily_report(root: Path, report: dict, contract: dict | None = None)
 
 
 def _write_json(path: Path, value: dict) -> None:
+    path = Path(path)
     resolved = path.resolve(strict=False)
     repo = ROOT.resolve()
     if resolved == repo or repo in resolved.parents:
         raise CryptoPaperValidationError(f"TRACKED_REPORT_OUTPUT_FORBIDDEN:{path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical_json(value) + "\n", encoding="utf-8")
+    if path.is_symlink():
+        raise CryptoPaperValidationError(f"REPORT_OUTPUT_SYMLINK_FORBIDDEN:{path}")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.parent.is_symlink():
+        raise CryptoPaperValidationError(f"REPORT_OUTPUT_PARENT_SYMLINK_FORBIDDEN:{path.parent}")
+    os.chmod(path.parent, 0o700)
+    data = (canonical_json(value) + "\n").encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise CryptoPaperValidationError(f"REPORT_OUTPUT_WRITE_FAILED:{path}:{exc}") from exc
+    with os.fdopen(fd, "wb") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _parser() -> argparse.ArgumentParser:

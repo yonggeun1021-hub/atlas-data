@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -286,6 +287,26 @@ class LineageAndLookaheadTests(unittest.TestCase):
 
 
 class AppendOnlyAndReviewTests(unittest.TestCase):
+    def test_direct_cli_output_is_owner_only_and_rejects_symlinks(self):
+        report = MODULE.build_daily_report(_batch())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "secure" / "report.json"
+            MODULE._write_json(output, report)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(output.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), report)
+
+            target = root / "target.json"
+            target.write_text("unchanged\n", encoding="utf-8")
+            symlink = root / "report-link.json"
+            symlink.symlink_to(target)
+            with self.assertRaisesRegex(
+                MODULE.CryptoPaperValidationError, "REPORT_OUTPUT_SYMLINK_FORBIDDEN"
+            ):
+                MODULE._write_json(symlink, report)
+            self.assertEqual(target.read_text(encoding="utf-8"), "unchanged\n")
+
     def test_external_daily_persistence_is_append_only_and_idempotent(self):
         first = MODULE.build_daily_report(_batch())
         with tempfile.TemporaryDirectory() as directory:
