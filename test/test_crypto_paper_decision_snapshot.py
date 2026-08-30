@@ -325,6 +325,61 @@ class NormalCompleteInputTests(TempDirMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# 1b. P4 exact-P3-hash directory discovery
+# ---------------------------------------------------------------------------
+
+class MarketEvidenceDiscoveryTests(TempDirMixin, unittest.TestCase):
+    def _write_exact_key_record(self, *, generated_at="2026-08-29T08:00:00Z"):
+        record_hash = "f" * 64
+        snapshot_key = f"{EVAL_AS_OF}-p3-{record_hash[:16]}"
+        packet = valid_market_evidence_packet("KRW-BTC")
+        record = {
+            "schema_version": "upbit_microstructure_population/2",
+            "snapshot_date": EVAL_AS_OF,
+            "snapshot_key": snapshot_key,
+            "generated_at": generated_at,
+            "policy_ratified": True,
+            "summary": {"market_count": 1, "packet_count": 1, "error_count": 0},
+            "errors": {},
+            "packets": {"KRW-BTC": packet},
+            "universe_lineage": {"record_payload_sha256": record_hash},
+        }
+        record["payload_sha256"] = CPDS.payload_sha256(record)
+        path = self.tmp / "market_evidence" / snapshot_key / "packet.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(record), encoding="utf-8")
+        return path, record
+
+    def test_exact_hash_directory_outranks_older_legacy_date_packet_by_internal_time(self):
+        legacy = write_market_evidence_entry(self.tmp, {}, date=EVAL_AS_OF)
+        exact_path, exact_record = self._write_exact_key_record()
+
+        found = CPDS.find_latest_market_evidence_packet(
+            self.tmp / "market_evidence"
+        )
+        self.assertEqual(found["path"], exact_path)
+        self.assertEqual(found["date"], EVAL_AS_OF)
+        self.assertEqual(found["record"], exact_record)
+
+        before_exact = CPDS.find_latest_market_evidence_packet(
+            self.tmp / "market_evidence",
+            not_after=dt.datetime(2026, 8, 29, 2, tzinfo=dt.timezone.utc),
+        )
+        self.assertEqual(before_exact["path"], legacy["path"])
+
+    def test_exact_hash_directory_rejects_lineage_prefix_mismatch(self):
+        path, record = self._write_exact_key_record()
+        record["universe_lineage"]["record_payload_sha256"] = "e" * 64
+        record["payload_sha256"] = CPDS.payload_sha256(record)
+        path.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(
+            CPDS.CryptoPaperDecisionSnapshotError,
+            "MARKET_EVIDENCE_SNAPSHOT_KEY_LINEAGE_MISMATCH",
+        ):
+            CPDS.find_latest_market_evidence_packet(self.tmp / "market_evidence")
+
+
+# ---------------------------------------------------------------------------
 # 2. P3-12 packet missing
 # ---------------------------------------------------------------------------
 
