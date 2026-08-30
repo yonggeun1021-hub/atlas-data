@@ -276,13 +276,39 @@ def _validate_market_evidence_entry(entry: dict | None) -> None:
     if entry is None:
         return
     record = entry.get("record")
+    schema = record.get("schema_version") if isinstance(record, dict) else None
     if (
         not isinstance(record, dict)
-        or record.get("schema_version") != "upbit_microstructure_population/1"
+        or schema not in {
+            "upbit_microstructure_population/1",
+            "upbit_microstructure_population/2",
+        }
         or record.get("snapshot_date") != entry.get("date")
         or not isinstance(record.get("packets"), dict)
     ):
         raise CryptoPaperDecisionSnapshotError("MARKET_EVIDENCE_SOURCE_RECORD_INVALID")
+    if schema == "upbit_microstructure_population/2":
+        snapshot_key = record.get("snapshot_key")
+        exact = (
+            P4_SNAPSHOT_KEY_RE.fullmatch(snapshot_key)
+            if isinstance(snapshot_key, str) else None
+        )
+        lineage = record.get("universe_lineage") or {}
+        record_hash = lineage.get("record_payload_sha256")
+        if (
+            exact is None
+            or exact.group("date") != record.get("snapshot_date")
+            or not isinstance(record_hash, str)
+            or not SHA256_RE.fullmatch(record_hash)
+            or exact.group("record_hash_prefix") != record_hash[:16]
+        ):
+            raise CryptoPaperDecisionSnapshotError(
+                "MARKET_EVIDENCE_SNAPSHOT_KEY_LINEAGE_MISMATCH"
+            )
+    elif record.get("snapshot_key") not in (None, ""):
+        raise CryptoPaperDecisionSnapshotError(
+            "MARKET_EVIDENCE_LEGACY_SNAPSHOT_KEY_INVALID"
+        )
     _validate_embedded_hash(record, "payload_sha256", "upbit_microstructure_population")
     summary = record.get("summary") or {}
     errors = record.get("errors")
@@ -489,14 +515,9 @@ def find_latest_market_evidence_packet(
                     f"MARKET_EVIDENCE_PATH_DATE_MISMATCH:{path}"
                 )
         else:
-            lineage = record.get("universe_lineage") or {}
-            record_hash = lineage.get("record_payload_sha256")
             if (
                 exact.group("date") != snapshot_date
                 or record.get("snapshot_key") != directory.name
-                or not isinstance(record_hash, str)
-                or not SHA256_RE.fullmatch(record_hash)
-                or exact.group("record_hash_prefix") != record_hash[:16]
             ):
                 raise CryptoPaperDecisionSnapshotError(
                     f"MARKET_EVIDENCE_SNAPSHOT_KEY_LINEAGE_MISMATCH:{path}"

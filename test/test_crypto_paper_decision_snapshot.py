@@ -334,7 +334,7 @@ class MarketEvidenceDiscoveryTests(TempDirMixin, unittest.TestCase):
         snapshot_key = f"{EVAL_AS_OF}-p3-{record_hash[:16]}"
         packet = valid_market_evidence_packet("KRW-BTC")
         record = {
-            "schema_version": "upbit_microstructure_population/1",
+            "schema_version": "upbit_microstructure_population/2",
             "snapshot_date": EVAL_AS_OF,
             "snapshot_key": snapshot_key,
             "generated_at": generated_at,
