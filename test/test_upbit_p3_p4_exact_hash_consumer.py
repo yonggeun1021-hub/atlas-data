@@ -12,6 +12,16 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 ANCHOR = ROOT / "data" / "observations" / "upbit_tradeable_universe" / "2026-08-30" / "packet.json"
+FROZEN_ANCHOR = (
+    ROOT
+    / "evidence"
+    / "crypto_paper_decision"
+    / "_sources"
+    / "sha256"
+    / "485c62d534ebeb82a97a5d3b64159fa3c5b40b0cca42e1b70b8f3fadb3035530"
+    / "2026-08-30"
+    / "source.json"
+)
 
 
 def _load(name: str, relative: str):
@@ -86,7 +96,7 @@ class ExactHashBridgeTests(unittest.TestCase):
     def test_authoritative_anchor_is_frozen_before_provider_capture(self):
         with self.assertRaisesRegex(BRIDGE.BridgeError, "UNIVERSE_IDENTITY_AUTHORITY_FROZEN:a9be9c63"):
             BRIDGE.consume_universe_record(
-                ANCHOR,
+                FROZEN_ANCHOR,
                 expected_record_sha256="a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
             )
 
@@ -115,7 +125,7 @@ class ExactHashBridgeTests(unittest.TestCase):
             lineage["markets"],
             ["KRW-BTC", "KRW-ETH", "KRW-LINK", "KRW-SHIB", "KRW-SOL", "KRW-SUI", "KRW-WLD", "KRW-XRP"],
         )
-        self.assertEqual(lineage["identity_unratified_count"], 220)
+        self.assertEqual(lineage["identity_unratified_count"], 266)
         self.assertFalse(lineage["historical_identity_backfill_applied"])
         self.assertEqual(
             lineage["p4_policy"]["packet_sha256"],

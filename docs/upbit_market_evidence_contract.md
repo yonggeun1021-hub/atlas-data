@@ -25,9 +25,11 @@ any of that. It instead:
    classification effective 2026-08-30. P4-07 consumes only a hash-valid
    record and inner packet hashes, the raw manifest hash, the ratified
    policy/taxonomy/effective-time lineage, and the complete market set before
-   any provider call. The initial natural anchor is record hash
-   `a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12`
-   with PAPER 8 (`BTC, ETH, LINK, SHIB, SOL, SUI, WLD, XRP`) and 220 retained
+   any provider call. The corrected exact-hash natural anchor is record hash
+   `ffb4e69d3f31c53b2fdc4eea82f598eceb45cbd735a7adbce46ae87d9eb3850f`.
+   The historical `a9be9c63...` record remains explicitly frozen and cannot
+   be reused as the current anchor.
+   with PAPER 8 (`BTC, ETH, LINK, SHIB, SOL, SUI, WLD, XRP`) and 266 retained
    `IDENTITY_UNRATIFIED` rows. An earlier packet is never retroactively
    promoted with the current registry.
 2. Captures a wider set of evidence per market: 15m/1h/4h/1d candles (not
@@ -186,11 +188,11 @@ P5-08 / P5-09 / P8-13's job, not this one's).
 ```bash
 python3 .github/scripts/upbit_microstructure_capture.py \
   --snapshot-root /tmp/upbit-microstructure/raw --snapshot-date 2026-08-30 \
-  --snapshot-key 2026-08-30-p3-a9be9c63f9a39d1a \
+  --snapshot-key 2026-08-30-p3-ffb4e69d3f31c53b \
   --universe-packet data/observations/upbit_tradeable_universe/2026-08-30/packet.json \
-  --expected-universe-record-sha256 a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12
+  --expected-universe-record-sha256 ffb4e69d3f31c53b2fdc4eea82f598eceb45cbd735a7adbce46ae87d9eb3850f
 
-python3 .github/scripts/upbit_microstructure_populate.py 2026-08-30-p3-a9be9c63f9a39d1a \
+python3 .github/scripts/upbit_microstructure_populate.py 2026-08-30-p3-ffb4e69d3f31c53b \
   --raw-root /tmp/upbit-microstructure/raw --data-root /tmp/upbit-microstructure/data
 ```
 
