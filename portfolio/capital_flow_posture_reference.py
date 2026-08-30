@@ -155,8 +155,12 @@ def _market_reviews(markets: list[dict], comparable: list[dict]) -> list[dict]:
         market = row["market"]
         score = row["paper_reference"]["score"]
         if market not in comparable_ids:
-            review = "WAIT_FOR_COMPLETE_REGIME"
-            explanation = "시장 분위기 5개 신호가 모두 계산될 때까지 비중 우선순위를 정하지 않습니다."
+            if row.get("classification_status") == "WAIT_MARKET_NORMALIZATION_POLICY":
+                review = "WAIT_FOR_CLASSIFICATION_POLICY"
+                explanation = "신호 5개는 모두 확인됐지만 코인 전용 판정 규칙 검증이 끝날 때까지 비중 우선순위를 정하지 않습니다."
+            else:
+                review = "WAIT_FOR_COMPLETE_REGIME"
+                explanation = "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다."
         elif unique_max and score == maximum and maximum != minimum:
             review = "RELATIVE_STRENGTH_LEADER_REFERENCE"
             explanation = "같은 날짜에 비교 가능한 시장 중 점수가 가장 높습니다. 실제 자금 유입을 뜻하지는 않습니다."
@@ -184,6 +188,12 @@ def _total_exposure(markets: list[dict]) -> dict:
     if "STRESS" in regimes:
         review = "DEFENSIVE_REVIEW"
         reason = "한 시장에서 불안 경보가 확인돼 전체 위험 노출을 낮추는 검토가 우선입니다."
+    elif not complete and any(
+        row.get("classification_status") == "WAIT_MARKET_NORMALIZATION_POLICY"
+        for row in markets
+    ):
+        review = "WAIT_CLASSIFICATION_POLICY"
+        reason = "세 시장의 입력은 확인됐지만 코인 판정 규칙 검증이 남아 있어 전체 투자비중 숫자를 만들지 않습니다."
     elif not complete:
         review = "WAIT_INCOMPLETE_MARKET_SET"
         reason = "세 시장 중 판정이 끝나지 않은 곳이 있어 전체 투자비중 숫자를 만들지 않습니다."

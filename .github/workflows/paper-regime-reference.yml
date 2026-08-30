@@ -2,6 +2,11 @@ name: PAPER Market Risk Reference
 
 on:
   workflow_dispatch:
+  schedule:
+    # Crypto capture is 09:40 KST. Recheck after the first and second
+    # half-hour decision snapshots so the Portal cannot remain on yesterday's
+    # hard-coded coverage when source evidence has progressed.
+    - cron: "20,50 1 * * *"  # 10:20 / 10:50 KST
   workflow_run:
     workflows:
       - Atlas Free Market Data Evidence
@@ -18,7 +23,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -30,7 +35,14 @@ jobs:
         with:
           python-version: '3.11'
       - name: Verify PAPER reference contract
-        run: python3 test/test_paper_regime_reference.py
+        run: |
+          python3 test/test_crypto_regime_refresh_status.py
+          python3 test/test_paper_regime_reference.py
+      - name: Build current-vs-official Crypto refresh status
+        run: |
+          python3 regime/crypto_regime_refresh_status.py --write
+          python3 regime/crypto_regime_refresh_status.py \
+            --verify data/latest_crypto_regime_refresh_status.json
       - name: Build hash-bound PAPER reference
         run: python3 regime/paper_regime_reference.py --write
       - name: Verify generated pointer from retained inputs
@@ -45,7 +57,8 @@ jobs:
           set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
-          git add config/paper_regime_reference_policy_v1.json data/latest_paper_regime_reference.json evidence/regime/paper_reference \
+          git add data/latest_crypto_regime_refresh_status.json evidence/regime/crypto_refresh_status \
+            config/paper_regime_reference_policy_v1.json data/latest_paper_regime_reference.json evidence/regime/paper_reference \
             config/capital_flow_posture_reference_policy_v1.json data/latest_capital_flow_posture_reference.json \
             evidence/portfolio/capital_flow_posture_reference
           if git diff --cached --quiet; then
@@ -57,11 +70,14 @@ jobs:
           # The source workflows also write main. Rebuild once more after the
           # rebase so the committed latest pointer can never describe the
           # pre-rebase source bytes.
+          python3 regime/crypto_regime_refresh_status.py --write
+          python3 regime/crypto_regime_refresh_status.py --verify data/latest_crypto_regime_refresh_status.json
           python3 regime/paper_regime_reference.py --write
           python3 regime/paper_regime_reference.py --verify data/latest_paper_regime_reference.json
           python3 portfolio/capital_flow_posture_reference.py --write
           python3 portfolio/capital_flow_posture_reference.py --verify data/latest_capital_flow_posture_reference.json
-          git add data/latest_paper_regime_reference.json evidence/regime/paper_reference \
+          git add data/latest_crypto_regime_refresh_status.json evidence/regime/crypto_refresh_status \
+            data/latest_paper_regime_reference.json evidence/regime/paper_reference \
             data/latest_capital_flow_posture_reference.json evidence/portfolio/capital_flow_posture_reference
           if ! git diff --cached --quiet; then
             git commit --amend --no-edit

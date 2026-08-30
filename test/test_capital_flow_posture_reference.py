@@ -64,6 +64,7 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
             for name in (
                 "latest_free_market_data.json",
                 "latest_korea_market_signals.json",
+                "latest_crypto_regime_refresh_status.json",
                 "latest_paper_regime_reference.json",
             ):
                 shutil.copy2(ROOT / "data" / name, root / "data" / name)
@@ -87,10 +88,10 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
                 "latest_paper_regime_reference.json",
             ):
                 shutil.copy2(ROOT / "data" / name, root / "data" / name)
-            packet = MODULE.build_reference(root)
+            packet = MODULE.build_reference()
             evidence, latest = MODULE.write_packet(packet, root)
             self.assertEqual(evidence.read_bytes(), latest.read_bytes())
-            self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text()), root), packet)
+            self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text())), packet)
             MODULE.write_packet(packet, root)
 
 

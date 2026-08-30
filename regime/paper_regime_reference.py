@@ -22,8 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "config" / "paper_regime_reference_policy_v1.json"
 US_PATH = ROOT / "data" / "latest_free_market_data.json"
 KR_PATH = ROOT / "data" / "latest_korea_market_signals.json"
+CRYPTO_PATH = ROOT / "data" / "latest_crypto_regime_refresh_status.json"
 LATEST_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
-SCHEMA_VERSION = "paper_regime_reference/v1"
+SCHEMA_VERSION = "paper_regime_reference/v2"
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -227,8 +228,63 @@ def market_packet(market: str, as_of_date: str, axes: list[dict], regime: str, s
         "as_of_date": as_of_date,
         "coverage": {"defined_count": len(axes), "required_count": 5, "ratio": f"{len(axes)}/5", "missing_axes": []},
         "paper_reference": {"candidate_regime": regime, "score": score, "confidence": None if conf is None else str(conf), "explanation_ko": explanation},
+        "classification_status": "PAPER_REFERENCE_CLASSIFIED",
         "runtime_regime": "UNKNOWN",
         "axes": axes,
+    }
+
+
+def build_crypto(packet: dict) -> dict:
+    if packet.get("schema_version") != "crypto_regime_refresh_status/1":
+        fail("CRYPTO_SOURCE_INVALID")
+    unsigned = copy.deepcopy(packet)
+    claimed = unsigned.pop("payload_sha256", None)
+    if (
+        not isinstance(claimed, str)
+        or SHA256.fullmatch(claimed) is None
+        or payload_sha256(unsigned) != claimed
+    ):
+        fail("CRYPTO_SOURCE_SHA_INVALID")
+    authority = packet.get("authority")
+    if not isinstance(authority, dict) or authority.get("read_only_reference") is not True:
+        fail("CRYPTO_SOURCE_AUTHORITY_INVALID")
+    for key, value in authority.items():
+        if key != "read_only_reference" and value is not False:
+            fail("CRYPTO_SOURCE_AUTHORITY_INVALID", key)
+    official = packet.get("official_decision")
+    coverage = official.get("coverage") if isinstance(official, dict) else None
+    if (
+        not isinstance(coverage, dict)
+        or coverage.get("required_count") != 5
+        or coverage.get("defined_count") not in range(0, 6)
+        or coverage.get("ratio") != f"{coverage['defined_count']}/5"
+        or coverage.get("defined_axes") != [axis for axis in AXES if axis not in coverage.get("missing_axes", [])]
+    ):
+        fail("CRYPTO_SOURCE_COVERAGE_INVALID")
+    complete = coverage["defined_count"] == 5
+    classification_status = (
+        "WAIT_MARKET_NORMALIZATION_POLICY"
+        if complete
+        else "WAIT_OFFICIAL_INPUT_COVERAGE"
+    )
+    explanation = (
+        "필수 신호 5개는 모두 확인됐지만 코인 전용 방향·점수 규칙의 검증이 끝날 때까지 Risk On/Off를 보류합니다."
+        if complete
+        else "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
+    )
+    return {
+        "market": "CRYPTO",
+        "as_of_date": packet.get("current_reference", {}).get("as_of_date"),
+        "coverage": copy.deepcopy(coverage),
+        "paper_reference": {
+            "candidate_regime": "UNKNOWN",
+            "score": None,
+            "confidence": None,
+            "explanation_ko": explanation,
+        },
+        "classification_status": classification_status,
+        "runtime_regime": "UNKNOWN",
+        "axes": [],
     }
 
 
@@ -236,6 +292,7 @@ def build_reference(root: Path = ROOT) -> dict:
     policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
     us_path = root / "data" / "latest_free_market_data.json"
     kr_path = root / "data" / "latest_korea_market_signals.json"
+    crypto_path = root / "data" / "latest_crypto_regime_refresh_status.json"
     policy = read_json(policy_path, "POLICY_INVALID")
     if policy.get("contract_version") != "paper_regime_reference_policy/v1" or policy.get("mode") != "PAPER_DIAGNOSTIC_NOT_RUNTIME":
         fail("POLICY_INVALID")
@@ -248,29 +305,28 @@ def build_reference(root: Path = ROOT) -> dict:
 
     us_source = read_json(us_path, "US_SOURCE_INVALID")
     kr_source = read_json(kr_path, "KR_SOURCE_INVALID")
+    crypto_source = read_json(crypto_path, "CRYPTO_SOURCE_INVALID")
     sources = [
         {"market": "US", "path": "data/latest_free_market_data.json", "sha256": file_sha256(us_path)},
         {"market": "KR", "path": "data/latest_korea_market_signals.json", "sha256": file_sha256(kr_path)},
+        {"market": "CRYPTO", "path": "data/latest_crypto_regime_refresh_status.json", "sha256": file_sha256(crypto_path)},
     ]
     generation_id = payload_sha256({"policy_sha256": file_sha256(policy_path), "sources": sources})
     markets = [
         build_us(us_source, policy),
         build_kr(kr_source, policy),
-        {
-            "market": "CRYPTO",
-            "as_of_date": None,
-            "coverage": {"defined_count": 4, "required_count": 5, "ratio": "4/5", "missing_axes": ["LEADERSHIP"]},
-            "paper_reference": {"candidate_regime": "UNKNOWN", "score": None, "confidence": None, "explanation_ko": "주도 코인 흐름의 검증된 연속 이력이 부족해 판정을 보류합니다."},
-            "runtime_regime": "UNKNOWN",
-            "axes": [],
-        },
+        build_crypto(crypto_source),
     ]
     packet = {
         "schema_version": SCHEMA_VERSION,
         "contract_version": policy["contract_version"],
         "mode": policy["mode"],
         "status": "PARTIAL_REFERENCE_AVAILABLE",
-        "generated_at": us_source["observed_at_utc"],
+        "generated_at": max(
+            us_source["observed_at_utc"],
+            kr_source["generated_at"],
+            crypto_source["generated_at"],
+        ),
         "generation_id": generation_id,
         "policy": {"path": "config/paper_regime_reference_policy_v1.json", "sha256": file_sha256(policy_path), "status": policy["status"]},
         "sources": sources,
