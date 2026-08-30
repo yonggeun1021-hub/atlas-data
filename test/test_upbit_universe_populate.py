@@ -28,6 +28,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".github" / "scripts" / "upbit_universe_populate.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "upbit-universe-capture.yml"
 
 SPEC = importlib.util.spec_from_file_location("upbit_universe_populate", SCRIPT)
 POPULATE = importlib.util.module_from_spec(SPEC)
@@ -177,6 +178,30 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             existing_hash=historical["payload_sha256"],
             freeze=fixture_freeze,
         ))
+
+
+class WorkflowTransactionTests(unittest.TestCase):
+    def test_raw_is_committed_before_derived_outputs_and_telemetry(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        raw_commit = text.index("Commit immutable raw snapshot before P3 classification")
+        classification = text.index("P3-12 classification (reads raw snapshot only")
+        telemetry = text.index("Record P3-12 Upbit universe scheduler telemetry")
+        derived_commit = text.index("Commit P3-12 tradeable-universe classification")
+        self.assertLess(raw_commit, classification)
+        self.assertLess(classification, telemetry)
+        self.assertLess(telemetry, derived_commit)
+
+        raw_block = text[raw_commit:classification]
+        self.assertIn('git add "evidence/crypto/upbit/raw/$SNAPSHOT_DATE"', raw_block)
+        self.assertNotIn("data/observations/upbit_tradeable_universe", raw_block)
+        self.assertNotIn("data/operations/upbit_universe_capture_runs", raw_block)
+
+        derived_block = text[derived_commit:]
+        self.assertIn("data/operations/upbit_universe_capture_runs", derived_block)
+        self.assertIn("data/observations/upbit_tradeable_universe", derived_block)
+        self.assertIn("data/observations/upbit_identity_review", derived_block)
+        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', derived_block)
+        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', derived_block)
 
 
 if __name__ == "__main__":
