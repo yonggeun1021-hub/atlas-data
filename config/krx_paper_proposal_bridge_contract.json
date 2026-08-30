@@ -1,0 +1,89 @@
+{
+  "schema_version": "krx_paper_proposal_bridge_contract/1",
+  "contract_version": "krx_paper_proposal_bridge/1",
+  "input_schema_version": "krx_paper_proposal_bridge_input/1",
+  "output_schema_version": "krx_paper_proposal_bridge_packet/1",
+  "market": "KOREA",
+  "source_requirements": {
+    "public_krx_gate": {
+      "merge_commit": "016a2889c503066a3a07180e8d12b9da81869e7b",
+      "assessment_schema_version": "krx_paper_gate_assessment/1",
+      "assessment_sha256": "780690500832dceffed4ede9059da4c9cb4e8d565042878ee1c503fc3e724e07",
+      "common_contract_sha256": "83ceb7bfcb05d5b8c492b6d98c8a2f0d73274c87a228a9369291db95adef8411",
+      "market_contract_sha256": "e8275ac083c5624946718da0dc7db7f01e9700a82aa330e6d306ab734e73cd3f"
+    },
+    "private_kis_safety": {
+      "merge_commit": "273d07e73eb9577c4e5a4edcd241eab2037f3c8f",
+      "exact_approved_head": "792aa93273e71813cab3ddebe529be69849cfbaa",
+      "prerequisite_only": true,
+      "grants_proposal_or_order_authority": false
+    },
+    "universe": {
+      "repository": "yonggeun1021-hub/atlas-data",
+      "interface_contract_version": "krx_investable_registry/1",
+      "exact_head": "e7b7a209d785d63627dc596f4a58581b681b61ad",
+      "merge_commit": "acb33d8b1cd866d478ec6c1e49422571fe71a48d",
+      "required_repository_state": "MERGED_TO_PUBLIC_MAIN"
+    },
+    "shadow": {
+      "repository": "yonggeun1021-hub/atlas-data",
+      "interface_contract_version": "krx_shadow_strategy/1",
+      "exact_head": "48782fe4892fc12e868bada05a0d82c3bddf6f7e",
+      "merge_commit": "7353be0dc26af8d6cacf2115c07d68358b5d607f",
+      "required_repository_state": "MERGED_TO_PUBLIC_MAIN"
+    }
+  },
+  "required_completed_bar_intervals": [
+    "15m",
+    "1h",
+    "1d"
+  ],
+  "proposal_actions": [
+    "ENTER",
+    "HOLD",
+    "EXIT"
+  ],
+  "policy_boundary": {
+    "required_status": "RATIFIED",
+    "ratified_policy_bindings": [],
+    "candidate_policy_is_authority": false,
+    "merge_or_ci_ratifies_policy": false
+  },
+  "gate_requirements": {
+    "common_safety": "PASS",
+    "krx_shadow": "PASS",
+    "minimum_state_for_proposal": "SHADOW",
+    "paper_canary_gate_is_downstream": true
+  },
+  "canary": {
+    "maximum_symbols_per_packet": 1,
+    "maximum_open_positions": 1,
+    "proposal_expiry_required": true,
+    "duplicate_decision_key_blocking": true,
+    "stale_input_blocking": true,
+    "identity_mismatch_blocking": true,
+    "exit_without_position_blocking": true
+  },
+  "order_boundary": {
+    "draft_kind": "INTERNAL_VIRTUAL_LEDGER_DRAFT_ONLY",
+    "submission_compatible": false,
+    "exchange_authority": false,
+    "order_authority": false,
+    "kis_mock_submission_authority": false,
+    "new_broker_post_permitted": false
+  },
+  "authority": {
+    "briefing_candidate_selection_authority": false,
+    "strategy_policy_ratification_authority": false,
+    "portfolio_action_authority": false,
+    "internal_virtual_ledger_consumption_authority": false,
+    "paper_order_write": false,
+    "kis_submission_compatible": false,
+    "exchange_authority": false,
+    "order_authority": false,
+    "real_capital_authority": false,
+    "live_account_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}

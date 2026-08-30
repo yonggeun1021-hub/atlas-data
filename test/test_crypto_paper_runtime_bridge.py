@@ -326,6 +326,41 @@ class RollingObservationRootTests(unittest.TestCase):
 
 
 class BridgeContractTests(RuntimeFixture):
+    def test_exact_key_market_source_uses_embedded_operational_date(self):
+        universe_path = self.tmp / "universe" / "2026-08-29" / "packet.json"
+        universe_path.parent.mkdir(parents=True)
+        universe_path.write_text(
+            json.dumps({"packet": {"evaluation_as_of": "2026-08-29T01:00:00Z"}}),
+            encoding="utf-8",
+        )
+        market_path = (
+            self.tmp / "market" / "2026-08-29-p3-ffffffffffffffff" / "packet.json"
+        )
+        market_path.parent.mkdir(parents=True)
+        market_path.write_text(
+            json.dumps({"snapshot_date": "2026-08-29", "packets": {}}),
+            encoding="utf-8",
+        )
+        packet = {
+            "source_refs": [
+                {
+                    "role": "upbit_tradeable_universe_packet",
+                    "path": str(universe_path.relative_to(ROOT)),
+                    "sha256": BRIDGE._file_sha256(universe_path),
+                },
+                {
+                    "role": "upbit_market_evidence_packet",
+                    "path": str(market_path.relative_to(ROOT)),
+                    "sha256": BRIDGE._file_sha256(market_path),
+                },
+            ]
+        }
+
+        entries = BRIDGE._entries(packet)
+
+        self.assertEqual(entries["universe"]["date"], "2026-08-29")
+        self.assertEqual(entries["market_evidence"]["date"], "2026-08-29")
+
     def test_approved_code_rederives_a_later_separate_observation_checkout(self):
         decision = self.decision()
         observation_root, packet_path = self.separate_observation(decision)

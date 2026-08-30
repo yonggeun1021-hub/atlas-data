@@ -263,10 +263,17 @@ def _entries(packet: dict, *, observation_root: Path | None = None) -> dict:
         }
     market_entry = None
     if market_ref is not None:
+        market_record = market_ref["record"]
         market_entry = {
-            "date": market_ref["path"].parent.name,
+            # P4 v2 is stored under an immutable exact-generation directory
+            # (YYYY-MM-DD-p3-<record-hash-prefix>).  The operational date is
+            # the hash-pinned record's embedded snapshot_date, not that
+            # directory name.  Using path.parent.name here would make a
+            # valid same-day P3/P4 pair look mixed and silently remove all
+            # market evidence from PAPER promotion.
+            "date": market_record.get("snapshot_date"),
             "path": market_ref["path"],
-            "record": market_ref["record"],
+            "record": market_record,
         }
     realtime_entry = None
     if realtime_ref is not None:
