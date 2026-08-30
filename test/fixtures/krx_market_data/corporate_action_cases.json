@@ -1,0 +1,32 @@
+{
+  "split_adjusted": {
+    "status": "APPLIED",
+    "factor": "0.5",
+    "action_refs": [
+      "fixture://krx/corporate-action/005930/split"
+    ],
+    "snapshot_ref": "fixture://kis/daily/005930/adjusted/split",
+    "snapshot_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "available_at": "2026-08-27T18:00:00+09:00"
+  },
+  "dividend_adjusted_future": {
+    "status": "APPLIED",
+    "factor": "0.99",
+    "action_refs": [
+      "fixture://krx/corporate-action/005930/dividend"
+    ],
+    "snapshot_ref": "fixture://kis/daily/005930/adjusted/dividend",
+    "snapshot_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "available_at": "2026-08-29T18:00:00+09:00"
+  },
+  "dividend_raw": {
+    "status": "DISCLOSED_NOT_APPLIED",
+    "factor": null,
+    "action_refs": [
+      "fixture://krx/corporate-action/005930/dividend"
+    ],
+    "snapshot_ref": null,
+    "snapshot_sha256": null,
+    "available_at": null
+  }
+}
