@@ -207,6 +207,7 @@ APPROVED_TESTS = [
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",
+    "test/test_upbit_identity_governance_freeze.py",
     # ★ P4-07 -- REST-based Upbit public-market evidence & microstructure
     #   contract, extending P3-12's capture (not re-fetching what it already
     #   gets). Introduces the repo's first explicit, timeframe-generalized

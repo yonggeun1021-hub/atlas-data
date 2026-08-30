@@ -697,16 +697,23 @@ class ProductionEmptyTests(unittest.TestCase):
     def setUp(self):
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
+        registry = UNI.load_identity_registry()
         policy = copy.deepcopy(policy)
         taxonomy = copy.deepcopy(taxonomy)
+        registry = copy.deepcopy(registry)
         policy["approval_status"] = "RATIFIED"
         policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
         taxonomy["effective_from"] = EVAL_AS_OF
+        registry["approval_status"] = "RATIFIED"
+        registry["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
+        self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
         self.policy_patch.start()
         self.taxonomy_patch.start()
+        self.registry_patch.start()
+        self.addCleanup(self.registry_patch.stop)
         self.addCleanup(self.taxonomy_patch.stop)
         self.addCleanup(self.policy_patch.stop)
 
@@ -747,14 +754,20 @@ class DeterminismTests(unittest.TestCase):
     def setUp(self):
         policy = copy.deepcopy(UNI.load_policy())
         taxonomy = copy.deepcopy(UNI.load_taxonomy())
+        registry = copy.deepcopy(UNI.load_identity_registry())
         policy["approval_status"] = "RATIFIED"
         policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
         taxonomy["effective_from"] = EVAL_AS_OF
+        registry["approval_status"] = "RATIFIED"
+        registry["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
+        self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
         self.policy_patch.start()
         self.taxonomy_patch.start()
+        self.registry_patch.start()
+        self.addCleanup(self.registry_patch.stop)
         self.addCleanup(self.taxonomy_patch.stop)
         self.addCleanup(self.policy_patch.stop)
 
@@ -793,14 +806,20 @@ class AuthorityTests(unittest.TestCase):
     def setUp(self):
         policy = copy.deepcopy(UNI.load_policy())
         taxonomy = copy.deepcopy(UNI.load_taxonomy())
+        registry = copy.deepcopy(UNI.load_identity_registry())
         policy["approval_status"] = "RATIFIED"
         policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
         taxonomy["effective_from"] = EVAL_AS_OF
+        registry["approval_status"] = "RATIFIED"
+        registry["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
+        self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
         self.policy_patch.start()
         self.taxonomy_patch.start()
+        self.registry_patch.start()
+        self.addCleanup(self.registry_patch.stop)
         self.addCleanup(self.taxonomy_patch.stop)
         self.addCleanup(self.policy_patch.stop)
 

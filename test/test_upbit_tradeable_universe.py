@@ -302,13 +302,14 @@ class BuildClassificationTests(unittest.TestCase):
         self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
         self.assertEqual(packet["markets"][0]["reason"], "IDENTITY_UNRATIFIED")
 
-    def test_shipped_repo_config_is_effective_dated_without_historical_backfill(self):
-        """The real committed ratification starts on 2026-08-30 only."""
+    def test_shipped_repo_config_preserves_history_but_has_no_current_authority(self):
+        """The retained mapping stays auditable while current authority is frozen."""
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
         registry = UNI.load_identity_registry()
         self.assertEqual(policy["approval_status"], "RATIFIED")
-        self.assertEqual(taxonomy["approval_status"], "RATIFIED")
+        self.assertEqual(taxonomy["approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
+        self.assertEqual(registry["approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
         self.assertEqual(len(registry["mappings"]), 55)
         self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-29"), {})
         core = base_core({"KRW-BTC": market_entry()})
@@ -320,7 +321,7 @@ class BuildClassificationTests(unittest.TestCase):
         self.assertEqual(packet["summary"]["paper_eligible_count"], 0)
         self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
 
-    def test_shipped_repo_config_produces_paper_state_only_after_effective_date(self):
+    def test_shipped_repo_config_freeze_keeps_post_effective_date_in_observation(self):
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
         registry = UNI.load_identity_registry()
@@ -333,8 +334,9 @@ class BuildClassificationTests(unittest.TestCase):
             ratified_identity_registry=UNI.effective_identity_mapping(registry, "2026-08-30"),
         )
         self.assertTrue(packet["policy_ratified"])
-        self.assertTrue(packet["taxonomy_ratified"])
-        self.assertEqual(packet["markets"][0]["state"], UNI.STATE_PAPER_ELIGIBLE)
+        self.assertFalse(packet["taxonomy_ratified"])
+        self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
+        self.assertEqual(packet["markets"][0]["reason"], "IDENTITY_UNRATIFIED")
         self.assertTrue(all(value is False for value in packet["authority"].values()))
 
     def test_turnover_threshold_uses_30_day_daily_average(self):

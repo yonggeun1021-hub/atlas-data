@@ -86,7 +86,38 @@ def load_bridge_contract(path: Path = BRIDGE_CONTRACT_PATH) -> dict:
     ):
         if contract.get(field) is not False:
             raise BridgeError(f"BRIDGE_AUTHORITY_INVARIANT_VIOLATED:{field}")
+    governance = contract.get("identity_governance") or {}
+    if (
+        not isinstance(governance.get("path"), str)
+        or SHA256_RE.fullmatch(str(governance.get("file_sha256", ""))) is None
+        or governance.get("required_release_status") != "RATIFIED_BY_EXPLICIT_CIO_DECISION"
+    ):
+        raise BridgeError("IDENTITY_GOVERNANCE_CONTRACT_INVALID")
     return contract
+
+
+def load_identity_governance(contract: dict, *, repo_root: Path = ROOT) -> dict:
+    pin = contract["identity_governance"]
+    path = (Path(repo_root) / pin["path"]).resolve()
+    try:
+        path.relative_to(Path(repo_root).resolve())
+    except ValueError as exc:
+        raise BridgeError("IDENTITY_GOVERNANCE_PATH_OUTSIDE_REPOSITORY") from exc
+    if file_sha256(path) != pin["file_sha256"]:
+        raise BridgeError("IDENTITY_GOVERNANCE_FILE_HASH_MISMATCH")
+    governance = _read_json(path, "IDENTITY_GOVERNANCE")
+    if governance.get("schema_version") != "upbit_identity_taxonomy_governance_freeze/1":
+        raise BridgeError("IDENTITY_GOVERNANCE_SCHEMA_MISMATCH")
+    authority = governance.get("authority")
+    if not isinstance(authority, dict) or not authority or any(value is not False for value in authority.values()):
+        raise BridgeError("IDENTITY_GOVERNANCE_AUTHORITY_INVALID")
+    blocked = governance.get("blocked_universe_record_payload_sha256s")
+    if (
+        not isinstance(blocked, list)
+        or any(not isinstance(value, str) or SHA256_RE.fullmatch(value) is None for value in blocked)
+    ):
+        raise BridgeError("IDENTITY_GOVERNANCE_BLOCKED_HASHES_INVALID")
+    return governance
 
 
 def load_ratified_p4_policy(
@@ -135,6 +166,14 @@ def consume_universe_record(
     if expected_record_sha256 is not None and record_hash != expected_record_sha256:
         raise BridgeError(
             f"UNIVERSE_RECORD_EXACT_HASH_MISMATCH:expected={expected_record_sha256}:actual={record_hash}"
+        )
+
+    governance = load_identity_governance(contract, repo_root=repo_root)
+    if record_hash in governance["blocked_universe_record_payload_sha256s"]:
+        raise BridgeError(f"UNIVERSE_IDENTITY_AUTHORITY_FROZEN:{record_hash}")
+    if governance.get("resolution_status") != contract["identity_governance"]["required_release_status"]:
+        raise BridgeError(
+            f"IDENTITY_GOVERNANCE_NOT_RELEASED:{governance.get('resolution_status')}"
         )
 
     initial = contract["initial_post_ratification_anchor"]

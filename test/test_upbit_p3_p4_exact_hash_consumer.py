@@ -44,6 +44,7 @@ def staged_repo(tmp: str, record: dict) -> tuple[Path, Path]:
     for relative in (
         "config/upbit_p3_p4_bridge_contract.json",
         "config/upbit_market_evidence_policy_ratified.json",
+        "config/upbit_identity_taxonomy_governance_freeze.json",
         "evidence/crypto/upbit/raw/2026-08-30/_manifest.json",
     ):
         target = root / relative
@@ -55,12 +56,60 @@ def staged_repo(tmp: str, record: dict) -> tuple[Path, Path]:
     return root, target
 
 
-class ExactHashBridgeTests(unittest.TestCase):
-    def test_authoritative_anchor_exact_hash_and_eight_market_cohort_pass(self):
-        lineage = BRIDGE.consume_universe_record(
-            ANCHOR,
-            expected_record_sha256="a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
+def release_staged_governance(root: Path) -> Path:
+    governance_path = root / "config/upbit_identity_taxonomy_governance_freeze.json"
+    governance = json.loads(governance_path.read_text(encoding="utf-8"))
+    governance["resolution_status"] = "RATIFIED_BY_EXPLICIT_CIO_DECISION"
+    governance["blocked_universe_record_payload_sha256s"] = []
+    governance_path.write_text(json.dumps(governance), encoding="utf-8")
+    contract_path = root / "config/upbit_p3_p4_bridge_contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["identity_governance"]["file_sha256"] = BRIDGE.file_sha256(governance_path)
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+    return contract_path
+
+
+def released_anchor_lineage() -> dict:
+    record = json.loads(ANCHOR.read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as tmp:
+        root, path = staged_repo(tmp, record)
+        contract_path = release_staged_governance(root)
+        return BRIDGE.consume_universe_record(
+            path,
+            expected_record_sha256=record["payload_sha256"],
+            contract_path=contract_path,
+            repo_root=root,
         )
+
+
+class ExactHashBridgeTests(unittest.TestCase):
+    def test_authoritative_anchor_is_frozen_before_provider_capture(self):
+        with self.assertRaisesRegex(BRIDGE.BridgeError, "UNIVERSE_IDENTITY_AUTHORITY_FROZEN:a9be9c63"):
+            BRIDGE.consume_universe_record(
+                ANCHOR,
+                expected_record_sha256="a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
+            )
+
+    def test_governance_contract_rejects_tampered_freeze_file(self):
+        record = json.loads(ANCHOR.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root, path = staged_repo(tmp, record)
+            governance_path = root / "config/upbit_identity_taxonomy_governance_freeze.json"
+            governance = json.loads(governance_path.read_text(encoding="utf-8"))
+            governance["reason"] = f"{governance['reason']} tampered"
+            governance_path.write_text(json.dumps(governance), encoding="utf-8")
+            with self.assertRaisesRegex(
+                BRIDGE.BridgeError, "IDENTITY_GOVERNANCE_FILE_HASH_MISMATCH"
+            ):
+                BRIDGE.consume_universe_record(
+                    path,
+                    expected_record_sha256=record["payload_sha256"],
+                    contract_path=root / "config/upbit_p3_p4_bridge_contract.json",
+                    repo_root=root,
+                )
+
+    def test_explicitly_released_fixture_retains_eight_market_lineage(self):
+        lineage = released_anchor_lineage()
         self.assertEqual(lineage["market_count"], 8)
         self.assertEqual(
             lineage["markets"],
@@ -88,7 +137,7 @@ class ExactHashBridgeTests(unittest.TestCase):
         forged_hash = rehash_packet_and_record(record)
         with tempfile.TemporaryDirectory() as tmp:
             root, path = staged_repo(tmp, record)
-            contract_path = root / "config/upbit_p3_p4_bridge_contract.json"
+            contract_path = release_staged_governance(root)
             contract = json.loads(contract_path.read_text(encoding="utf-8"))
             contract["initial_post_ratification_anchor"]["record_payload_sha256"] = forged_hash
             contract_path.write_text(json.dumps(contract), encoding="utf-8")
@@ -105,7 +154,7 @@ class ExactHashBridgeTests(unittest.TestCase):
         forged_hash = rehash_packet_and_record(record)
         with tempfile.TemporaryDirectory() as tmp:
             root, path = staged_repo(tmp, record)
-            contract_path = root / "config/upbit_p3_p4_bridge_contract.json"
+            contract_path = release_staged_governance(root)
             contract = json.loads(contract_path.read_text(encoding="utf-8"))
             contract["initial_post_ratification_anchor"]["path"] = "not-this-record.json"
             contract_path.write_text(json.dumps(contract), encoding="utf-8")
@@ -126,7 +175,7 @@ class ExactHashBridgeTests(unittest.TestCase):
 
 class CaptureAndEvidenceFailCloseTests(unittest.TestCase):
     def setUp(self):
-        self.lineage = BRIDGE.consume_universe_record(ANCHOR)
+        self.lineage = released_anchor_lineage()
 
     def test_partial_universe_is_rejected_before_provider_call(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -199,7 +248,7 @@ class CaptureAndEvidenceFailCloseTests(unittest.TestCase):
 
 class PopulationIntegrationTests(unittest.TestCase):
     def test_complete_exact_hash_market_is_pass_and_idempotent(self):
-        lineage = BRIDGE.consume_universe_record(ANCHOR)
+        lineage = released_anchor_lineage()
         lineage = copy.deepcopy(lineage)
         lineage["markets"] = ["KRW-BTC"]
         lineage["market_count"] = 1
