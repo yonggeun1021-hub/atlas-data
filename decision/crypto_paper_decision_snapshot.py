@@ -1200,10 +1200,20 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
     market_entry = None
     if "upbit_market_evidence_packet" in by_role:
         value = by_role["upbit_market_evidence_packet"]
+        market_record = value["record"]
         market_entry = {
-            "date": value["path"].parent.name,
+            # P4 v2's immutable source directory is
+            # ``YYYY-MM-DD-p3-<record-hash-prefix>`` while the source's
+            # operational date remains the embedded ``snapshot_date``.
+            # Retained sources use a content-addressed path whose immediate
+            # parent is the plain date, so path.parent.name cannot be the
+            # authoritative reconstruction rule for both valid layouts.
+            # The embedded record is file-hash pinned above and its v2
+            # snapshot-key/P3 lineage is independently checked by
+            # _validate_market_evidence_entry.
+            "date": market_record.get("snapshot_date"),
             "path": value["path"],
-            "record": value["record"],
+            "record": market_record,
         }
     realtime_entry = None
     if "upbit_realtime_capture_run" in by_role:

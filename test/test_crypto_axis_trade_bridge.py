@@ -284,6 +284,9 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
         market = copy.deepcopy(BRIDGE.DECISION.find_latest_market_evidence_packet())
         market["date"] = "1999-01-01"
         market["record"]["snapshot_date"] = market["date"]
+        if market["record"].get("schema_version") == "upbit_microstructure_population/2":
+            record_hash = market["record"]["universe_lineage"]["record_payload_sha256"]
+            market["record"]["snapshot_key"] = f"{market['date']}-p3-{record_hash[:16]}"
         self._rehash(market["record"])
         generated_at = source_observation_ceiling(
             universe_entry=universe, market_evidence_entry=market, realtime_entry=None,
