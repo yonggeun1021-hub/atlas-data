@@ -153,11 +153,12 @@ class FreeMarketDataTests(unittest.TestCase):
         contract = M.load_contract()
         symbols = contract["alpaca"]["trend_symbols"] + contract["alpaca"]["sector_reference_symbols"]
         bars = []
+        start = dt.date(2026, 5, 1)
         for symbol in symbols:
             for index in range(61):
                 bars.append({
                     "symbol": symbol,
-                    "opened_at": f"2026-06-{(index % 28) + 1:02d}T00:00:00Z-{index:03d}",
+                    "opened_at": f"{(start + dt.timedelta(days=index)).isoformat()}T00:00:00Z",
                     "open": str(100 + index), "high": str(101 + index),
                     "low": str(99 + index), "close": str(100 + index),
                     "volume": "1000",
@@ -166,6 +167,17 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual([row["symbol"] for row in result["trend_etfs"]], ["SPY", "QQQ", "IWM"])
         self.assertEqual(len(result["sector_etfs"]), 12)
+        self.assertEqual(result["schema_version"], "us_market_reference/v2")
+        self.assertEqual(result["proxy_axes"]["BREADTH"]["status"], "OBSERVED")
+        self.assertEqual(result["proxy_axes"]["LEADERSHIP"]["status"], "OBSERVED")
+        self.assertEqual(
+            result["proxy_axes"]["BREADTH"]["measurement"]["observed_count"],
+            14,
+        )
+        self.assertEqual(
+            result["proxy_axes"]["LEADERSHIP"]["measurement"]["observed_count"],
+            12,
+        )
         self.assertEqual(result["interpretation"], "OBSERVED_UNCLASSIFIED")
         self.assertNotIn("RISK_ON", json.dumps(result))
 

@@ -273,7 +273,7 @@ def v5_free_market_row(root: Path) -> tuple[dict, dict]:
 class RegimeLiveAxisAdapterTest(unittest.TestCase):
     def test_adapter_contract_is_versioned_and_all_authority_is_false(self):
         contract = MODULE.LIVE_AXIS_ADAPTER.load_contract()
-        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v7")
+        self.assertEqual(contract["contract_version"], "regime_live_axis_adapter/v8")
         self.assertEqual(contract["mode"], "EVIDENCE_ONLY_NO_INTERPRETATION")
         self.assertTrue(all_authorities_false(contract))
         self.assertEqual(
@@ -441,7 +441,7 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         )
         self.assertTrue(all_authorities_false(us))
 
-    def test_weekend_latest_completed_us_session_defines_three_evidence_axes(self):
+    def test_weekend_latest_completed_us_session_defines_five_reference_axes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             row, packet = v5_free_market_row(root)
@@ -455,13 +455,20 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
                     "2026-08-30T09:00:00Z", {"FREE_MARKET_DATA": row}
                 )
         us = outputs["US"]
-        self.assertEqual(us["coverage"]["defined_axes"], ["TREND", "RISK_VOL", "LIQUIDITY"])
-        self.assertEqual(us["coverage"]["ratio"], "3/5")
+        self.assertEqual(
+            us["coverage"]["defined_axes"],
+            ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"],
+        )
+        self.assertEqual(us["coverage"]["ratio"], "5/5")
         self.assertEqual(us["regime"], "UNKNOWN")
         self.assertEqual(us["direction"], "UNKNOWN")
         self.assertTrue(all_authorities_false(us))
         self.assertIn(
-            "NOT_CANONICAL_US_LEADERSHIP",
+            "NOT_FULL_US_SECURITY_LEVEL_BREADTH",
+            packet["us_market_reference"]["warnings"],
+        )
+        self.assertIn(
+            "NOT_INVESTMENT_RANKING",
             packet["us_market_reference"]["warnings"],
         )
 

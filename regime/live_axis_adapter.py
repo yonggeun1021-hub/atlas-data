@@ -14,6 +14,11 @@ Only direct semantic bindings are supported:
 * US/TREND          <- independently replayed SPY/QQQ/IWM Alpaca IEX daily bars
 * US/RISK_VOL       <- independently replayed FRED VIXCLS raw evidence
 * US/LIQUIDITY      <- current FRED WRESBAL/TOTBKCR no-raw derived observation
+* US/BREADTH        <- latest-session advance/decline across the ratified
+                       representative ETF set; explicitly not security-level
+                       full-market breadth
+* US/LEADERSHIP     <- 20-session sector/SMH return ordering and relative
+                       return versus SPY; explicitly not an investment ranking
 * CRYPTO/TREND      <- BTC_TREND
 * CRYPTO/RISK_VOL   <- BTC_RISK
 * CRYPTO/LIQUIDITY  <- STABLECOIN_NET_ISSUANCE, and/or Upbit microstructure
@@ -61,7 +66,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "regime_live_axis_adapter_contract.json"
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-CONTRACT_VERSION = "regime_live_axis_adapter/v7"
+CONTRACT_VERSION = "regime_live_axis_adapter/v8"
 MARKETS = ("US", "KR", "CRYPTO")
 
 
@@ -107,6 +112,20 @@ def _expected_contract() -> dict:
                 "source_transform_version": "free_market_data/3",
                 "axis_transform_version": "regime_live_axis_fred_liquidity/v1",
             },
+            "US/BREADTH": {
+                "source_component": "FREE_MARKET_DATA",
+                "source_transform_version": "free_market_data/3",
+                "axis_transform_version": (
+                    "regime_live_axis_us_representative_etf_breadth/v1"
+                ),
+            },
+            "US/LEADERSHIP": {
+                "source_component": "FREE_MARKET_DATA",
+                "source_transform_version": "free_market_data/3",
+                "axis_transform_version": (
+                    "regime_live_axis_us_sector_leadership_reference/v1"
+                ),
+            },
             "CRYPTO/TREND": {
                 "source_component": "BTC_TREND",
                 "source_transform_version": "btc_trend/v1",
@@ -138,11 +157,11 @@ def _expected_contract() -> dict:
         },
         "deferred_axes": {},
         "non_promotable_evidence": [
-            "IEX_PARTIAL_EXCHANGE_SECTOR_REFERENCE_NOT_CANONICAL_LEADERSHIP",
             "KRX_SEVEN_SYMBOL_WATCHLIST",
             "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
             "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_FIVE_SIGNAL_PACKET",
             "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES",
+            "US_REPRESENTATIVE_ETF_AXES_WITHOUT_REGIME_INTERPRETATION",
         ],
         "authority": {
             "axis_evidence_binding_only": True,
@@ -796,6 +815,51 @@ def _us_liquidity(rows: dict, generated_at: str, binding: dict) -> dict:
     )
 
 
+def _us_current_proxy_axis(
+    rows: dict, generated_at: str, binding: dict, axis: str
+) -> dict:
+    row, capture = _free_market_capture(rows, generated_at, binding)
+    try:
+        replay = FREE_MARKET_DATA.validate_alpaca_daily_evidence(ROOT, capture)
+    except Exception as exc:
+        raise LiveAxisAdapterError(
+            f"SOURCE_EVIDENCE_INVALID:US/{axis}"
+        ) from exc
+    reference = replay["reference"]
+    proxy = reference.get("proxy_axes", {}).get(axis)
+    measurement = proxy.get("measurement") if isinstance(proxy, dict) else None
+    if (
+        reference.get("schema_version") != "us_market_reference/v2"
+        or reference.get("status") != "READY"
+        or not isinstance(proxy, dict)
+        or proxy.get("status") != "OBSERVED"
+        or not isinstance(measurement, dict)
+        or measurement.get("scope")
+        != "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
+        or row.get("packet", {}).get("us_market_reference") != reference
+        or row.get("packet", {}).get("alpaca_daily_evidence") != {
+            "raw_path": replay["raw_path"],
+            "raw_response_sha256": replay["raw_response_sha256"],
+        }
+    ):
+        fail("COMPONENT_REDERIVATION_MISMATCH", f"US/{axis}")
+    return _defined(
+        row,
+        measurement["as_of_session_date"],
+        capture["observed_at_utc"],
+        binding["axis_transform_version"],
+        f"atlas-raw-response://{replay['raw_path']}",
+        replay["raw_response_sha256"],
+        [
+            "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE",
+            "NOT_FULL_US_SECURITY_LEVEL_BREADTH"
+            if axis == "BREADTH"
+            else "NOT_INVESTMENT_RANKING",
+            "REGIME_INTERPRETATION_UNAUTHORIZED",
+        ],
+    )
+
+
 def _attempt(builder, rows: dict, generated_at: str, binding: dict) -> dict:
     try:
         return builder(rows, generated_at, binding)
@@ -869,6 +933,22 @@ def build_axis_factors(component_rows: dict, generated_at: str) -> dict[str, dic
     )
     result["US"]["LIQUIDITY"] = _attempt(
         _us_liquidity, component_rows, generated_at, bindings["US/LIQUIDITY"]
+    )
+    result["US"]["BREADTH"] = _attempt(
+        lambda rows, generated_at, binding: _us_current_proxy_axis(
+            rows, generated_at, binding, "BREADTH"
+        ),
+        component_rows,
+        generated_at,
+        bindings["US/BREADTH"],
+    )
+    result["US"]["LEADERSHIP"] = _attempt(
+        lambda rows, generated_at, binding: _us_current_proxy_axis(
+            rows, generated_at, binding, "LEADERSHIP"
+        ),
+        component_rows,
+        generated_at,
+        bindings["US/LEADERSHIP"],
     )
     result["CRYPTO"]["TREND"] = _attempt(
         _btc_trend, component_rows, generated_at, bindings["CRYPTO/TREND"]

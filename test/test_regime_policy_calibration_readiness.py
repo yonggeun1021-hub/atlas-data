@@ -94,7 +94,12 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
             else "VALIDATED_RETAINED_EVIDENCE_MISSING",
         )
         self.assertEqual(
-            axes["US/BREADTH"]["blocker"], "NO_RATIFIED_LIVE_AXIS_BINDING"
+            axes["US/BREADTH"]["blocker"],
+            "VALIDATED_RETAINED_EVIDENCE_MISSING",
+        )
+        self.assertEqual(
+            axes["US/LEADERSHIP"]["blocker"],
+            "VALIDATED_RETAINED_EVIDENCE_MISSING",
         )
         # P1-CR-08: CRYPTO/LEADERSHIP is now a real, bound axis -- its
         # blocker is that no history has been VALIDATED_RETAINED yet

@@ -116,8 +116,8 @@ def _expected_contract() -> dict:
         "bound_contracts": {
             "live_axis_adapter": {
                 "path": "config/regime_live_axis_adapter_contract.json",
-                "sha256": "f32e88f493a8aaf62ce30ec62a33aadedb635f021cb6bfe30812a7caa5f52ff1",
-                "contract_version": "regime_live_axis_adapter/v7",
+                "sha256": "a116380212dd0f41e4e2fa712fb443aa5d97fbdcd83f95b43415a7c58bc8ff7c",
+                "contract_version": "regime_live_axis_adapter/v8",
             },
             "minimum_coverage": {
                 "path": "config/regime_minimum_coverage_policy.json",
@@ -364,20 +364,35 @@ def _scan_us_current_reference(root: Path, axis: str) -> list[dict]:
         claimed = unsigned.pop("packet_sha256", None)
         if claimed != payload_sha256(unsigned):
             fail("SOURCE_EVIDENCE_INVALID", f"US/{axis}:{path.name}")
-        if axis == "TREND":
+        if axis in {"TREND", "BREADTH", "LEADERSHIP"}:
             try:
                 replay = LIVE_AXIS.FREE_MARKET_DATA.validate_alpaca_daily_evidence(
                     root, packet
                 )
             except Exception as exc:  # noqa: BLE001
                 raise PolicyCalibrationReadinessError(
-                    f"SOURCE_EVIDENCE_INVALID:US/TREND:{path.name}"
+                    f"SOURCE_EVIDENCE_INVALID:US/{axis}:{path.name}"
                 ) from exc
             reference = replay["reference"]
             if reference.get("status") != "READY":
                 continue
+            if axis in {"BREADTH", "LEADERSHIP"}:
+                proxy = reference.get("proxy_axes", {}).get(axis)
+                measurement = (
+                    proxy.get("measurement") if isinstance(proxy, dict) else None
+                )
+                if (
+                    reference.get("schema_version") != "us_market_reference/v2"
+                    or not isinstance(proxy, dict)
+                    or proxy.get("status") != "OBSERVED"
+                    or not isinstance(measurement, dict)
+                ):
+                    continue
+                observation_date = measurement.get("as_of_session_date")
+            else:
+                observation_date = reference["as_of_session_date"]
             records.append(_record(
-                observation_date=reference["as_of_session_date"],
+                observation_date=observation_date,
                 available_at=packet["observed_at_utc"],
                 uri=f"atlas-raw-response://{replay['raw_path']}",
                 evidence_sha256=replay["raw_response_sha256"],
@@ -514,8 +529,12 @@ def _scan_source_history(root: Path, qualified_axis: str) -> list[dict]:
         return _scan_fred(root)
     if qualified_axis == "US/TREND":
         return _scan_us_current_reference(root, "TREND")
+    if qualified_axis == "US/BREADTH":
+        return _scan_us_current_reference(root, "BREADTH")
     if qualified_axis == "US/LIQUIDITY":
         return _scan_us_current_reference(root, "LIQUIDITY")
+    if qualified_axis == "US/LEADERSHIP":
+        return _scan_us_current_reference(root, "LEADERSHIP")
     if qualified_axis == "CRYPTO/TREND":
         return _scan_btc(root, "TREND")
     if qualified_axis == "CRYPTO/RISK_VOL":
@@ -602,7 +621,8 @@ def build_readiness(root: Path = ROOT) -> dict:
         fail("BOUND_CONTRACT_VERSION_MISMATCH", "policy_candidate_population")
     if list(live_contract["bindings"]) != [
         "KR/TREND", "KR/BREADTH", "KR/RISK_VOL", "KR/LIQUIDITY",
-        "KR/LEADERSHIP", "US/TREND", "US/RISK_VOL", "US/LIQUIDITY", "CRYPTO/TREND",
+        "KR/LEADERSHIP", "US/TREND", "US/RISK_VOL", "US/LIQUIDITY",
+        "US/BREADTH", "US/LEADERSHIP", "CRYPTO/TREND",
         "CRYPTO/RISK_VOL", "CRYPTO/LIQUIDITY", "CRYPTO/BREADTH",
         "CRYPTO/LEADERSHIP",
     ]:

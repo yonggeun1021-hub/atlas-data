@@ -5,7 +5,7 @@ when a dedicated market-data-only credential is present, Alpaca Basic IEX
 latest and bounded daily bars. The daily universe includes SPY/QQQ/IWM and
 sector ETFs in addition to the existing single-name watchlist. It is
 evidence-only. IEX is a single-exchange partial US feed and cannot authorize
-US breadth, market-wide prices, canonical Leadership, entry, action, order,
+security-level full-market breadth, market-wide prices, entry, action, order,
 broker submission, production, or trading.
 
 FRED response bytes are public market evidence and are retained in a
@@ -28,14 +28,28 @@ degraded evidence result—not a market-wide price, Regime, or trading PASS.
 Malformed or future FRED data, raw/manifest/path tampering, authority drift,
 fabricated Alpaca rows in a blocked state, or a non-IEX contract fail closed.
 
-The independently replayed VIX observation may define only the US `RISK_VOL`
-evidence axis. Independently replayed SPY/QQQ/IWM daily bars may define only
-the US `TREND` evidence-presence axis. The no-raw FRED current snapshot may
-define only US `LIQUIDITY` evidence presence with an explicit no-raw warning.
-Sector ETF relative returns are reference observations only and never define
-US `LEADERSHIP`. None of these observations interprets a value, classifies a
-Regime, assigns a direction or confidence, ranks a market, or authorizes an
-investment action.
+The independently replayed VIX observation defines only the US `RISK_VOL`
+evidence axis. Independently replayed SPY/QQQ/IWM daily bars define US `TREND`
+evidence presence. The no-raw FRED current snapshot defines US `LIQUIDITY`
+evidence presence with an explicit no-raw warning.
+
+`us_market_reference/v2` additionally derives two current, free and plainly
+scoped reference axes from the same retained IEX daily-bar bytes:
+
+- `BREADTH`: latest-session advance/decline across SPY, QQQ, IWM and the 11
+  broad sector ETFs. All 14 symbols and one exact common session pair are
+  required; missing coverage fails the axis closed.
+- `LEADERSHIP`: the observed 20-session return ordering of the 11 sector ETFs
+  plus SMH, together with each ETF's return difference versus SPY. All 12
+  groups and SPY are required.
+
+This is the CIO-ratified **current representative-ETF reference**, not a claim
+that every US-listed security was counted. The output carries
+`NOT_FULL_US_SECURITY_LEVEL_BREADTH`, `NOT_INVESTMENT_RANKING`, and
+`REGIME_INTERPRETATION_UNAUTHORIZED` warnings. The P1-US-04 historical
+point-in-time/delisted-security Exit Gate remains open. None of the five axes
+classifies a Regime, assigns a direction or confidence, ranks an investment,
+or authorizes an action.
 
 The scheduled capture runs at 06:35 KST Monday through Saturday. A v5
 briefing may use the latest completed US session over a weekend or exchange

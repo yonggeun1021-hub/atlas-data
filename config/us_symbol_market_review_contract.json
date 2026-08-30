@@ -5,6 +5,10 @@
   "mode": "CURRENT_OBSERVATION_REVIEW_ONLY",
   "required_axes": ["TREND", "RISK_VOL", "LIQUIDITY", "BREADTH", "LEADERSHIP"],
   "supported_pipeline_subjects": ["TSM", "SNDK"],
+  "symbol_leadership_proxies": {
+    "TSM": ["SMH", "XLK"],
+    "SNDK": ["SMH", "XLK"]
+  },
   "return_windows_sessions": [5, 20, 60],
   "entry_policy": {
     "observed_price_state": "WAIT",

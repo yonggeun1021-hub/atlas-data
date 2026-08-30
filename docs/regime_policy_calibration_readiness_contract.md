@@ -46,7 +46,11 @@ Before the first `korea_market_signals/1` packet is retained, the repository
 replays:
 
 - US: `1/5` (`RISK_VOL`) in the pre-v5 retained archive; `3/5`
-  (`TREND`, `RISK_VOL`, `LIQUIDITY`) after the first validated v5 capture
+  (`TREND`, `RISK_VOL`, `LIQUIDITY`) for legacy
+  `us_market_reference/v1` captures; `5/5` after the first validated
+  `us_market_reference/v2` capture adds the current representative-ETF
+  `BREADTH` and sector-reference `LEADERSHIP` observations. The latter two do
+  not close the separate historical full-universe/delisted-security gate.
 - Korea: `0/5`; it becomes `5/5` evidence coverage when the first combined
   official-KRX packet is retained, while classification remains unratified
 - Crypto: `4/5` (`TREND`, `BREADTH`, `RISK_VOL`, `LIQUIDITY`) -- `BREADTH` newly
@@ -57,9 +61,9 @@ replays:
   methodology needs a longer unbroken run of Crypto Breadth snapshots than
   currently exists in committed evidence.
 
-All three markets therefore remain `NOT_READY_AXIS_COVERAGE`. The readiness
-order `CRYPTO, US, KR` is an engineering gap order only; it is explicitly not a
-market ranking or capital preference.
+The result is derived from what has actually been retained; code availability
+alone does not count. Any readiness order is an engineering gap order only,
+not a market ranking or capital preference.
 
 ## Fail-closed boundary
 
