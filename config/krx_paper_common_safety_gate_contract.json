@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_paper_common_safety_gate/1",
+  "gate_id": "COMMON_SAFETY",
+  "scope": "COMMON_SAFETY_APPLIED_TO_KRX_PAPER_ONLY",
+  "approval_status": "USER_MANDATED_GATE_STRUCTURE_NO_EXECUTION_AUTHORITY",
+  "allowed_results": [
+    "PASS",
+    "FAIL",
+    "UNKNOWN"
+  ],
+  "checks": [
+    {
+      "id": "COMMON_REAL_CAPITAL_HARD_FALSE",
+      "input": "All REAL, live-account, real-capital, Production, and trading authority flags plus endpoint routing.",
+      "evidence": "Machine-readable authority envelope and endpoint allowlist from the exact deployed revision.",
+      "failure_reason": "COMMON_REAL_CAPITAL_OR_LIVE_ROUTE_OPEN",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_THIS_INVARIANT"
+    },
+    {
+      "id": "COMMON_PAPER_ENDPOINT_ALLOWLIST",
+      "input": "Broker base URL, account environment, and transaction identifiers.",
+      "evidence": "Redacted configuration attestation proving KIS PAPER/mock routing only.",
+      "failure_reason": "COMMON_NON_PAPER_ENDPOINT_OR_ACCOUNT",
+      "approval_authority": "SECURITY_REVIEW"
+    },
+    {
+      "id": "COMMON_BROKER_PROTOCOL_AND_ACCOUNT_COMPATIBILITY",
+      "input": "Exact PAPER transaction profile, exchange code, account capability, cancel/query semantics, and request-field mapping.",
+      "evidence": "Natural read-only compatibility verdict from the exact deployed profile; legacy profiles are never automatic fallbacks.",
+      "failure_reason": "COMMON_BROKER_PROTOCOL_OR_ACCOUNT_COMPATIBILITY_NOT_PROVEN",
+      "approval_authority": "PAPER_OPERATIONS_OWNER_AND_INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "COMMON_CREDENTIALS_PRIVATE_AND_REDACTED",
+      "input": "Credential storage permissions and every persisted/logged/public field.",
+      "evidence": "Private-boundary and log-redaction test receipt; no secret value is evidence.",
+      "failure_reason": "COMMON_SECRET_OR_ACCOUNT_FACT_EXPOSURE",
+      "approval_authority": "SECURITY_REVIEW"
+    },
+    {
+      "id": "COMMON_KILL_SWITCH_FAIL_CLOSED",
+      "input": "Static write lock, runtime kill switch, one-shot grant state, and restoration behavior.",
+      "evidence": "Preflight plus post-attempt lock-restoration receipt from the exact runtime revision.",
+      "failure_reason": "COMMON_WRITE_LOCK_OR_KILL_SWITCH_NOT_PROVEN",
+      "approval_authority": "PAPER_OPERATIONS_OWNER"
+    },
+    {
+      "id": "COMMON_IDEMPOTENCY_AND_RECONCILIATION",
+      "input": "Idempotency key, pending-order state, broker acknowledgement, fill/cancel reconciliation, and uncertain-submit handling.",
+      "evidence": "Tests and broker-authoritative PAPER lifecycle receipts with no unresolved submission.",
+      "failure_reason": "COMMON_DUPLICATE_OR_UNRECONCILED_ORDER_RISK",
+      "approval_authority": "PAPER_OPERATIONS_OWNER"
+    },
+    {
+      "id": "COMMON_PIT_AND_IMMUTABLE_LINEAGE",
+      "input": "Decision as-of, observation availability, exact contract/code pins, and append-only evidence lineage.",
+      "evidence": "Semantic revalidation from immutable inputs; a self-hash alone is insufficient.",
+      "failure_reason": "COMMON_PIT_OR_LINEAGE_NOT_PROVEN",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "COMMON_APPROVAL_AND_AUTHORITY_SEPARATION",
+      "input": "Evidence, diagnostic, Shadow, virtual-ledger, KIS mock-order, and REAL authority fields.",
+      "evidence": "Contract tests proving no upstream PASS silently grants a downstream authority.",
+      "failure_reason": "COMMON_AUTHORITY_LAYER_COLLAPSE",
+      "approval_authority": "CIO_AND_SECURITY_REVIEW"
+    }
+  ],
+  "invariants": {
+    "common_failure_blocks_krx_paper": true,
+    "other_market_failure_blocks_krx_paper": false,
+    "real_capital_authorized": false,
+    "live_order_submission_authorized": false,
+    "secret_values_permitted_in_evidence": false
+  }
+}

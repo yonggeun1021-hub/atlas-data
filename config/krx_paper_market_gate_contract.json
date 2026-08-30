@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_paper_market_gate/1",
+  "market": "KOREA",
+  "approval_status": "USER_MANDATED_GATE_STRUCTURE_NO_STRATEGY_OR_ORDER_AUTHORITY",
+  "state_sequence": [
+    "LOCKED",
+    "SHADOW",
+    "PAPER_CANARY",
+    "PAPER_ACTIVE",
+    "PAPER_VALIDATED",
+    "LIVE_REVIEW"
+  ],
+  "paper_substages": {
+    "PAPER_CANARY": "INTERNAL_VIRTUAL_LEDGER_PAPER",
+    "PAPER_ACTIVE": "KIS_MOCK_ACCOUNT_AUTO_ORDER",
+    "PAPER_VALIDATED": "KIS_MOCK_ACCOUNT_AUTO_ORDER_VALIDATED",
+    "LIVE_REVIEW": "KIS_MOCK_ACCOUNT_ONLY_LIVE_AUTHORITY_STILL_FALSE"
+  },
+  "gates": [
+    {
+      "id": "KRX_SHADOW",
+      "opens_state": "SHADOW",
+      "prerequisite_gate": "COMMON_SAFETY",
+      "required_checks": [
+        "KRX_P10_09_SHADOW_MECHANISM",
+        "KRX_P10_10_DIAGNOSTIC_NONAUTHORITY",
+        "KRX_SHADOW_ORDER_OUTPUT_NULL"
+      ]
+    },
+    {
+      "id": "KRX_PAPER_CANARY_START",
+      "opens_state": "PAPER_CANARY",
+      "prerequisite_gate": "KRX_SHADOW",
+      "required_checks": [
+        "KRX_FINAL_CANDIDATE_POLICY_RATIFIED",
+        "KRX_ENTRY_POLICY_RATIFIED",
+        "KRX_HOLD_EXIT_POLICY_RATIFIED",
+        "KRX_POSITION_SIZE_POLICY_RATIFIED",
+        "KRX_P8_13_EXECUTABLE_PAPER_PROPOSAL",
+        "KRX_INTERNAL_LEDGER_CANARY_AUTHORITY",
+        "KRX_INTERNAL_LEDGER_RESTART_RECONCILED"
+      ]
+    },
+    {
+      "id": "KRX_PAPER_ACTIVE",
+      "opens_state": "PAPER_ACTIVE",
+      "prerequisite_gate": "KRX_PAPER_CANARY_START",
+      "required_checks": [
+        "KRX_INTERNAL_LEDGER_CANARY_TERMINAL",
+        "KRX_KIS_MOCK_AUTO_ORDER_POLICY_RATIFIED",
+        "KRX_KIS_MOCK_BOUNDED_CANARY_TERMINAL",
+        "KRX_KIS_MOCK_AUTOMATION_KILL_TESTED"
+      ]
+    },
+    {
+      "id": "KRX_PAPER_VALIDATED_30D",
+      "opens_state": "PAPER_VALIDATED",
+      "prerequisite_gate": "KRX_PAPER_ACTIVE",
+      "required_checks": [
+        "KRX_NATURAL_SAMPLE_30_CALENDAR_DAYS",
+        "KRX_NATURAL_SAMPLE_LINEAGE_COMPLETE",
+        "KRX_VALIDATION_CRITERIA_RATIFIED",
+        "KRX_INDEPENDENT_VALIDATION_PASS"
+      ]
+    },
+    {
+      "id": "KRX_LIVE_REVIEW",
+      "opens_state": "LIVE_REVIEW",
+      "prerequisite_gate": "KRX_PAPER_VALIDATED_30D",
+      "required_checks": [
+        "KRX_PAPER_VALIDATED_REVIEW_PACKET",
+        "KRX_LIVE_REVIEW_USER_ACCEPTED",
+        "KRX_REAL_AUTHORITY_REMAINS_FALSE"
+      ]
+    }
+  ],
+  "check_definitions": [
+    {
+      "id": "KRX_P10_09_SHADOW_MECHANISM",
+      "input": "P10-09 signed realtime Shadow observations and fail-closed evaluator.",
+      "evidence": "Merged/deployed mechanism and natural WAIT observation.",
+      "failure_reason": "KRX_SHADOW_RUNNER_NOT_PROVEN",
+      "approval_authority": "KRX_SHADOW_OWNER"
+    },
+    {
+      "id": "KRX_P10_10_DIAGNOSTIC_NONAUTHORITY",
+      "input": "P10-10 counterfactual output and its policy-authority flags.",
+      "evidence": "Diagnostic preset is versioned and explicitly NOT_AUTHORITY.",
+      "failure_reason": "KRX_DIAGNOSTIC_OUTPUT_CLAIMS_STRATEGY_AUTHORITY",
+      "approval_authority": "CIO_POLICY_REVIEW"
+    },
+    {
+      "id": "KRX_SHADOW_ORDER_OUTPUT_NULL",
+      "input": "Authoritative Shadow action, quantity, order draft, and broker-write fields.",
+      "evidence": "Natural observation with WAIT/null/false boundary.",
+      "failure_reason": "KRX_SHADOW_EMITTED_MONEY_ACTION",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_THIS_INVARIANT"
+    },
+    {
+      "id": "KRX_FINAL_CANDIDATE_POLICY_RATIFIED",
+      "input": "PIT-valid final KRX candidate contract and canonical identity.",
+      "evidence": "Effective-dated CIO ratification and natural candidate packet.",
+      "failure_reason": "KRX_FINAL_CANDIDATE_AUTHORITY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "KRX_ENTRY_POLICY_RATIFIED",
+      "input": "Entry eligibility, entry zone, invalidation, expiry, and candidate-validity policy.",
+      "evidence": "Ratified rule pack plus PIT replay and natural Shadow consumption.",
+      "failure_reason": "KRX_ENTRY_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "KRX_HOLD_EXIT_POLICY_RATIFIED",
+      "input": "Hold, reduce, harvest, stop, exit, and post-fill management policy.",
+      "evidence": "Ratified rule pack plus position lifecycle replay; no invented threshold.",
+      "failure_reason": "KRX_HOLD_EXIT_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "KRX_POSITION_SIZE_POLICY_RATIFIED",
+      "input": "Risk amount, maximum/target size, quantity, account capacity, and concentration policy.",
+      "evidence": "Effective-dated ratified sizing inputs and positive KIS PAPER account-fact lineage.",
+      "failure_reason": "KRX_POSITION_SIZE_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_RISK_POLICY_RATIFICATION"
+    },
+    {
+      "id": "KRX_P8_13_EXECUTABLE_PAPER_PROPOSAL",
+      "input": "P8-13 KRX proposal with entry/hold/exit/size lineage.",
+      "evidence": "Non-NONE PAPER proposal that remains non-REAL and is independently rederived.",
+      "failure_reason": "KRX_P8_13_PAPER_PROPOSAL_ABSENT",
+      "approval_authority": "CIO_HUMAN_REVIEW"
+    },
+    {
+      "id": "KRX_INTERNAL_LEDGER_CANARY_AUTHORITY",
+      "input": "One bounded INTERNAL_VIRTUAL_LEDGER_PAPER plan and explicit authority envelope.",
+      "evidence": "Approval binds exact plan/rules/code and forbids any broker submission.",
+      "failure_reason": "KRX_INTERNAL_LEDGER_CANARY_NOT_AUTHORIZED",
+      "approval_authority": "CIO_PAPER_CANARY_APPROVAL"
+    },
+    {
+      "id": "KRX_INTERNAL_LEDGER_RESTART_RECONCILED",
+      "input": "Virtual-ledger intent, simulated fill, position, exit, restart, and duplicate handling.",
+      "evidence": "Exact restart readback and append-only reconciliation receipt.",
+      "failure_reason": "KRX_INTERNAL_LEDGER_RECONCILIATION_FAILED",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "KRX_INTERNAL_LEDGER_CANARY_TERMINAL",
+      "input": "Bounded internal canary terminal state and all exceptions.",
+      "evidence": "Terminal receipt with no unresolved or skipped lifecycle state.",
+      "failure_reason": "KRX_INTERNAL_LEDGER_CANARY_NOT_TERMINAL",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "KRX_KIS_MOCK_AUTO_ORDER_POLICY_RATIFIED",
+      "input": "KIS mock-account automation scope, limits, schedule, and stop conditions.",
+      "evidence": "Separate approval from virtual-ledger authority; PAPER endpoint only.",
+      "failure_reason": "KRX_KIS_MOCK_AUTO_ORDER_AUTHORITY_ABSENT",
+      "approval_authority": "CIO_AND_USER_PAPER_ORDER_APPROVAL"
+    },
+    {
+      "id": "KRX_KIS_MOCK_BOUNDED_CANARY_TERMINAL",
+      "input": "Bounded KIS mock order, broker acknowledgement/fill/cancel, position, and ledger.",
+      "evidence": "Broker-authoritative terminal receipt with locks restored.",
+      "failure_reason": "KRX_KIS_MOCK_CANARY_NOT_TERMINAL",
+      "approval_authority": "PAPER_OPERATIONS_OWNER_AND_INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "KRX_KIS_MOCK_AUTOMATION_KILL_TESTED",
+      "input": "Stop, stale, ambiguous-submit, restart, duplicate, and kill-switch paths.",
+      "evidence": "Fail-closed tests and bounded PAPER runtime receipt.",
+      "failure_reason": "KRX_KIS_MOCK_AUTOMATION_SAFETY_NOT_PROVEN",
+      "approval_authority": "SECURITY_AND_PAPER_OPERATIONS_REVIEW"
+    },
+    {
+      "id": "KRX_NATURAL_SAMPLE_30_CALENDAR_DAYS",
+      "input": "Forward-only KRX PAPER observations over 30 natural calendar days.",
+      "evidence": "Unforced, non-backfilled daily lineage; replay/manual/synthetic days do not count.",
+      "failure_reason": "KRX_30_NATURAL_CALENDAR_DAYS_NOT_COMPLETE",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "KRX_NATURAL_SAMPLE_LINEAGE_COMPLETE",
+      "input": "Every scheduled decision/order/position/reconciliation outcome inside the 30-day window.",
+      "evidence": "Append-only inventory accounting for PASS, FAIL, WAIT, no-candidate, and outage outcomes.",
+      "failure_reason": "KRX_30D_LINEAGE_INCOMPLETE",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "KRX_VALIDATION_CRITERIA_RATIFIED",
+      "input": "Outcome-independent validation criteria and treatment of costs/errors/opportunity cost.",
+      "evidence": "Explicit CIO approval; this contract invents no performance threshold.",
+      "failure_reason": "KRX_VALIDATION_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "KRX_INDEPENDENT_VALIDATION_PASS",
+      "input": "30-day evidence and ratified validation criteria.",
+      "evidence": "Independent report that rederives results from immutable inputs.",
+      "failure_reason": "KRX_INDEPENDENT_VALIDATION_NOT_PASS",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "KRX_PAPER_VALIDATED_REVIEW_PACKET",
+      "input": "PAPER_VALIDATED evidence, unresolved risks, and proposed live constraints.",
+      "evidence": "Review packet only; it grants no REAL authority.",
+      "failure_reason": "KRX_LIVE_REVIEW_PACKET_ABSENT",
+      "approval_authority": "CIO_LIVE_REVIEW"
+    },
+    {
+      "id": "KRX_LIVE_REVIEW_USER_ACCEPTED",
+      "input": "Explicit user decision to enter LIVE_REVIEW, not a live order approval.",
+      "evidence": "Out-of-band review acceptance bound to exact packet hash.",
+      "failure_reason": "KRX_LIVE_REVIEW_NOT_ACCEPTED",
+      "approval_authority": "USER_FINAL_CAPITAL_APPROVER"
+    },
+    {
+      "id": "KRX_REAL_AUTHORITY_REMAINS_FALSE",
+      "input": "All REAL/live order/capital/Production/trading authority fields.",
+      "evidence": "Machine-checkable all-false envelope at LIVE_REVIEW entry.",
+      "failure_reason": "KRX_LIVE_REVIEW_IMPLIED_REAL_AUTHORITY",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_WITHIN_THIS_CONTRACT"
+    }
+  ],
+  "authority_by_state": {
+    "LOCKED": {
+      "internal_virtual_ledger_paper_authorized": false,
+      "kis_mock_account_auto_order_authorized": false
+    },
+    "SHADOW": {
+      "internal_virtual_ledger_paper_authorized": false,
+      "kis_mock_account_auto_order_authorized": false
+    },
+    "PAPER_CANARY": {
+      "internal_virtual_ledger_paper_authorized": true,
+      "kis_mock_account_auto_order_authorized": false
+    },
+    "PAPER_ACTIVE": {
+      "internal_virtual_ledger_paper_authorized": true,
+      "kis_mock_account_auto_order_authorized": true
+    },
+    "PAPER_VALIDATED": {
+      "internal_virtual_ledger_paper_authorized": true,
+      "kis_mock_account_auto_order_authorized": true
+    },
+    "LIVE_REVIEW": {
+      "internal_virtual_ledger_paper_authorized": true,
+      "kis_mock_account_auto_order_authorized": true
+    }
+  },
+  "permanent_authority_boundary": {
+    "real_capital_authorized": false,
+    "live_account_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "cross_market_isolation": {
+    "evaluated_market": "KOREA",
+    "other_market_gate_results_are_diagnostic_only": true,
+    "common_safety_failure_is_blocking": true
+  }
+}
