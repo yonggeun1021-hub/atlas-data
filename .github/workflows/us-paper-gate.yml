@@ -1,0 +1,32 @@
+name: us-paper-gate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/us-paper-gate.yml'
+      - 'config/us_paper_*'
+      - 'docs/us_paper_*'
+      - 'evidence/us_paper_gate/**'
+      - 'shadow/us_paper_gate.py'
+      - 'validation/tests/test_us_paper_gate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  us-paper-gate:
+    runs-on: ubuntu-latest
+    env:
+      EXACT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Fetch public exact-head source archive
+        run: |
+          mkdir source
+          curl --fail --location --retry 3 \
+            "https://github.com/${GITHUB_REPOSITORY}/archive/${EXACT_HEAD_SHA}.tar.gz" \
+            --output source.tar.gz
+          tar -xzf source.tar.gz --strip-components=1 --directory source
+      - name: US PAPER Gate exact-head mechanism regression
+        working-directory: source
+        run: python3 validation/tests/test_us_paper_gate.py

@@ -1,0 +1,180 @@
+{
+  "as_of_utc": "2026-08-30T23:52:34Z",
+  "assessment_sha256": "73ac2540786979a1d3275ae48b8817f161893d91db3b25e11f39df7af343a665",
+  "authority": {
+    "broker_post_authorized": false,
+    "broker_post_count": 0,
+    "internal_paper_ledger_authorized": false,
+    "live_account_order_authorized": false,
+    "paper_only": true,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "scheduled_internal_paper_authorized": false,
+    "trading_authorized": false
+  },
+  "blocking_reasons": [
+    "COMMON_KILL_SWITCH_FAIL_CLOSED_EVIDENCE_UNKNOWN",
+    "COMMON_IDEMPOTENCY_AND_RECONCILIATION_EVIDENCE_UNKNOWN"
+  ],
+  "ci_semantics": {
+    "ci_may_advance_operational_state": false,
+    "focused_us_gate_ci_is_mechanism_verification_only": true,
+    "full_repository_ci_is_regression_only_not_operational_approval": true
+  },
+  "contract_sha256": {
+    "common_safety": "628ecb0b07b18fe9112c0cc2c6806c8ef18eefd3bc809b780e27f23235d384df",
+    "us_market": "8cac5107e0602bee312ac4b703fff3652fa7e5c25a83d0dd44835b50eddf0581"
+  },
+  "contract_versions": {
+    "common_safety": "us_paper_common_safety_gate/1",
+    "us_market": "us_paper_market_gate/1"
+  },
+  "cross_market_isolation_applied": true,
+  "current_state": "LOCKED",
+  "evidence_input_sha256": "2ef8766c348641c348301f928aae1061d22332eea55eab2cba209030cced88da",
+  "gate_results": [
+    {
+      "gate_id": "COMMON_SAFETY",
+      "opens_state": "LOCKED_BOUNDARY_ONLY",
+      "own_status": "UNKNOWN",
+      "prerequisite_gate": null,
+      "prerequisite_status": null,
+      "reasons": [
+        "COMMON_KILL_SWITCH_FAIL_CLOSED_EVIDENCE_UNKNOWN",
+        "COMMON_IDEMPOTENCY_AND_RECONCILIATION_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "COMMON_PAPER_ONLY_ENVIRONMENT",
+        "COMMON_BROKER_POST_HARD_ZERO",
+        "COMMON_CREDENTIALS_PRIVATE_AND_REDACTED",
+        "COMMON_KILL_SWITCH_FAIL_CLOSED",
+        "COMMON_IDEMPOTENCY_AND_RECONCILIATION",
+        "COMMON_PIT_AND_IMMUTABLE_LINEAGE",
+        "COMMON_APPROVAL_AND_AUTHORITY_SEPARATION"
+      ],
+      "status": "UNKNOWN"
+    },
+    {
+      "gate_id": "US_SHADOW",
+      "opens_state": "SHADOW",
+      "own_status": "PASS",
+      "prerequisite_gate": "COMMON_SAFETY",
+      "prerequisite_status": "UNKNOWN",
+      "reasons": [
+        "COMMON_SAFETY_NOT_PASS:UNKNOWN"
+      ],
+      "required_checks": [
+        "US_ZERO_CAPITAL_SHADOW_MECHANISM",
+        "US_SHADOW_OUTPUT_NULL",
+        "US_CROSS_MARKET_ISOLATION"
+      ],
+      "status": "UNKNOWN"
+    },
+    {
+      "gate_id": "US_PAPER_CANARY_START",
+      "opens_state": "PAPER_CANARY",
+      "own_status": "FAIL",
+      "prerequisite_gate": "US_SHADOW",
+      "prerequisite_status": "UNKNOWN",
+      "reasons": [
+        "US_SHADOW_NOT_PASS:UNKNOWN",
+        "US_FINAL_CANDIDATE_AUTHORITY_UNRATIFIED",
+        "US_ENTRY_POLICY_UNRATIFIED",
+        "US_HOLD_EXIT_POLICY_UNRATIFIED",
+        "US_POSITION_SIZE_POLICY_UNRATIFIED",
+        "US_P8_13_PAPER_PROPOSAL_ABSENT",
+        "US_INTERNAL_LEDGER_CANARY_AUTHORITY_EVIDENCE_UNKNOWN",
+        "US_INTERNAL_LEDGER_RESTART_RECONCILED_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "US_FINAL_CANDIDATE_POLICY_RATIFIED",
+        "US_ENTRY_POLICY_RATIFIED",
+        "US_HOLD_EXIT_POLICY_RATIFIED",
+        "US_POSITION_SIZE_POLICY_RATIFIED",
+        "US_P8_13_EXECUTABLE_PAPER_PROPOSAL",
+        "US_INTERNAL_LEDGER_CANARY_AUTHORITY",
+        "US_INTERNAL_LEDGER_RESTART_RECONCILED"
+      ],
+      "status": "FAIL"
+    },
+    {
+      "gate_id": "US_PAPER_ACTIVE",
+      "opens_state": "PAPER_ACTIVE",
+      "own_status": "UNKNOWN",
+      "prerequisite_gate": "US_PAPER_CANARY_START",
+      "prerequisite_status": "FAIL",
+      "reasons": [
+        "US_PAPER_CANARY_START_NOT_PASS:FAIL",
+        "US_INTERNAL_LEDGER_CANARY_TERMINAL_EVIDENCE_UNKNOWN",
+        "US_INTERNAL_PAPER_SCHEDULE_POLICY_RATIFIED_EVIDENCE_UNKNOWN",
+        "US_INTERNAL_PAPER_KILL_TESTED_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "US_INTERNAL_LEDGER_CANARY_TERMINAL",
+        "US_INTERNAL_PAPER_SCHEDULE_POLICY_RATIFIED",
+        "US_INTERNAL_PAPER_KILL_TESTED"
+      ],
+      "status": "FAIL"
+    },
+    {
+      "gate_id": "US_PAPER_VALIDATED_30D",
+      "opens_state": "PAPER_VALIDATED",
+      "own_status": "FAIL",
+      "prerequisite_gate": "US_PAPER_ACTIVE",
+      "prerequisite_status": "FAIL",
+      "reasons": [
+        "US_PAPER_ACTIVE_NOT_PASS:FAIL",
+        "US_30_NATURAL_CALENDAR_DAYS_NOT_COMPLETE",
+        "US_NATURAL_SAMPLE_LINEAGE_COMPLETE_EVIDENCE_UNKNOWN",
+        "US_VALIDATION_CRITERIA_RATIFIED_EVIDENCE_UNKNOWN",
+        "US_INDEPENDENT_VALIDATION_PASS_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "US_NATURAL_SAMPLE_30_CALENDAR_DAYS",
+        "US_NATURAL_SAMPLE_LINEAGE_COMPLETE",
+        "US_VALIDATION_CRITERIA_RATIFIED",
+        "US_INDEPENDENT_VALIDATION_PASS"
+      ],
+      "status": "FAIL"
+    },
+    {
+      "gate_id": "US_LIVE_REVIEW",
+      "opens_state": "LIVE_REVIEW",
+      "own_status": "UNKNOWN",
+      "prerequisite_gate": "US_PAPER_VALIDATED_30D",
+      "prerequisite_status": "FAIL",
+      "reasons": [
+        "US_PAPER_VALIDATED_30D_NOT_PASS:FAIL",
+        "US_PAPER_VALIDATED_REVIEW_PACKET_EVIDENCE_UNKNOWN",
+        "US_LIVE_REVIEW_USER_ACCEPTED_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "US_PAPER_VALIDATED_REVIEW_PACKET",
+        "US_LIVE_REVIEW_USER_ACCEPTED",
+        "US_REAL_AUTHORITY_REMAINS_FALSE"
+      ],
+      "status": "FAIL"
+    }
+  ],
+  "internal_virtual_us_paper_policy": {
+    "automaticTransitionRequiresEveryHardGatePass": true,
+    "brokerPostCount": 0,
+    "hardGateNullPolicy": "FAIL_CLOSED",
+    "humanApprovalRequired": false,
+    "liveAccountAuthorized": false,
+    "realCapitalAuthorized": false,
+    "userReceiptRequired": false
+  },
+  "market": "US",
+  "next_gate": "COMMON_SAFETY",
+  "other_market_context": {
+    "CRYPTO": "UNKNOWN",
+    "KOREA": "UNKNOWN"
+  },
+  "paper_substage": "NONE",
+  "schema_version": "us_paper_gate_assessment/1",
+  "source_revisions": {
+    "atlas_data_main": "7e6021fcb866027b3b6caa28405dd0d9b3e90875",
+    "atlas_private_evidence_main": "6b28629beab066912c71c572c303bd51d581f893"
+  }
+}
