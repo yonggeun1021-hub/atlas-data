@@ -63,6 +63,27 @@ jobs:
       # auth_required/order_or_withdrawal_endpoints_called invariants
       # (enforced fail-closed by upbit_market_capture.py::load_contract)
       # and test_upbit_market_capture.py's endpoint-path assertions.
+      - name: Commit immutable raw snapshot before P3 classification
+        if: always()
+        env:
+          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
+          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$CAPTURE_RESULT" = "captured" ]; then
+            git add "evidence/crypto/upbit/raw/$SNAPSHOT_DATE"
+          fi
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "upbit universe raw capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
       - name: P3-12 classification (reads raw snapshot only, never re-fetches)
         id: p3_12
         if: >-
@@ -101,28 +122,6 @@ jobs:
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: python3 .github/scripts/record_upbit_universe_run.py
-      - name: Commit immutable raw snapshot and run telemetry
-        if: always()
-        env:
-          CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
-          SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
-          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/operations/upbit_universe_capture_runs || true
-          if [ "$CAPTURE_RESULT" = "captured" ]; then
-            git add "evidence/crypto/upbit/raw/$SNAPSHOT_DATE"
-          fi
-          if git diff --staged --quiet; then
-            echo "변경 없음 — 커밋 생략"
-          else
-            git commit -m "upbit universe capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
-          fi
       # Deliberately its own step and commit, after raw evidence above is
       # already pushed -- a P3-12 population failure can never lose or roll
       # back the already-committed raw snapshot. Every market landing in
@@ -139,6 +138,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/operations/upbit_universe_capture_runs || true
           if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/upbit_tradeable_universe/$SNAPSHOT_DATE" ]; then
             git add "data/observations/upbit_tradeable_universe/$SNAPSHOT_DATE"
           fi
