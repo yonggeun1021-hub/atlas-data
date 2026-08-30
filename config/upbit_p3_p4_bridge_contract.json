@@ -1,0 +1,40 @@
+{
+  "schema_version": "upbit_p3_p4_bridge_contract/1",
+  "bridge_id": "P3_12_TO_P4_07_EXACT_HASH_PAPER_V1",
+  "effective_from_utc": "2026-08-30T00:00:00Z",
+  "p3_record_schema_version": "upbit_universe_population/1",
+  "p3_packet_schema_version": "upbit_tradeable_universe_packet/1",
+  "required_p3_policy_version": "upbit_tradeable_universe_policy/v1",
+  "required_p3_taxonomy_version": "upbit_exclusion_taxonomy/v1",
+  "eligible_states": ["TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE"],
+  "identity_unratified_reason": "IDENTITY_UNRATIFIED",
+  "initial_post_ratification_anchor": {
+    "path": "data/observations/upbit_tradeable_universe/2026-08-30/packet.json",
+    "record_payload_sha256": "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
+    "paper_markets": [
+      "KRW-BTC",
+      "KRW-ETH",
+      "KRW-LINK",
+      "KRW-SHIB",
+      "KRW-SOL",
+      "KRW-SUI",
+      "KRW-WLD",
+      "KRW-XRP"
+    ],
+    "identity_unratified_count": 220
+  },
+  "p4_policy": {
+    "path": "config/upbit_market_evidence_policy_ratified.json",
+    "policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+    "policy_version": "upbit_market_evidence_policy/v1",
+    "packet_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e"
+  },
+  "historical_identity_backfill_authorized": false,
+  "provider_public_get_only": true,
+  "exchange_authorized": false,
+  "order_authorized": false,
+  "paper_exit_authorized": false,
+  "production_authorized": false,
+  "real_capital_authorized": false,
+  "trading_authorized": false
+}
