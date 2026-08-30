@@ -1,0 +1,57 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "action_generation_authorized": false,
+    "decision_eligible": false,
+    "evidence_derivation_only": true,
+    "order_action_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": false,
+    "raw_publication_eligible": true,
+    "reason": "new_snapshot_staged",
+    "result": "captured",
+    "step_outcome": "success"
+  },
+  "consumer_lineage": {
+    "exact_hash_verified_before_provider_calls": true,
+    "p4_policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+    "p4_policy_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e",
+    "snapshot_key": "2026-08-30-p3-ffb4e69d3f31c53b",
+    "universe_market_count": 8,
+    "universe_record_sha256": "ffb4e69d3f31c53b2fdc4eea82f598eceb45cbd735a7adbce46ae87d9eb3850f"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "workflow_dispatch",
+    "event_schedule": null,
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 33315465886,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33315465886"
+  },
+  "p4_07_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/upbit_market_evidence/2026-08-30-p3-ffb4e69d3f31c53b/packet.json",
+    "payload_sha256": "d35d5f527355f93278e681bacfba9fb1d77b559054c12160110b59b6c8de5b2c",
+    "reason": null,
+    "result": "populated",
+    "step_outcome": "success"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-08-30T22:55:26+09:00",
+    "observed_started_at_utc": "2026-08-30T13:55:26Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": null,
+    "expected_start_kst": null,
+    "expected_start_utc": null,
+    "id": "manual",
+    "timing_status": "not_applicable"
+  },
+  "snapshot_date_utc": "2026-08-30",
+  "workflow": "P4-07 Upbit Market Evidence & Microstructure Daily Capture"
+}
