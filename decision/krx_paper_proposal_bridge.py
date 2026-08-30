@@ -3,9 +3,9 @@
 
 The bridge packages a human-readable briefing and a machine-readable proposal
 from the same evidence basis.  It grants no policy, portfolio, ledger, broker,
-or trading authority.  Until the exact Wave1 sources are merged, a strategy
-policy is explicitly ratified, and COMMON_SAFETY plus KRX_SHADOW pass, the
-authoritative proposal is always ``NONE``.
+or trading authority.  Although the exact Wave1 interfaces are now merged, a
+strategy policy must still be explicitly ratified and COMMON_SAFETY plus
+KRX_SHADOW must pass; otherwise the authoritative proposal is always ``NONE``.
 
 No network or broker client is imported by this module.  A future non-NONE
 result may contain only an internal virtual-ledger draft whose KIS submission,
@@ -73,7 +73,8 @@ EXPECTED_SOURCE_PINS = {
     "shadow": {
         "repository": "yonggeun1021-hub/atlas-data",
         "interface_contract_version": "krx_shadow_strategy/1",
-        "exact_head": "858ee61d149e91cbb3b7e45aeb8ff9b2d0fd05a6",
+        "exact_head": "48782fe4892fc12e868bada05a0d82c3bddf6f7e",
+        "merge_commit": "7353be0dc26af8d6cacf2115c07d68358b5d607f",
         "required_repository_state": "MERGED_TO_PUBLIC_MAIN",
     },
 }
@@ -295,7 +296,8 @@ def validate_policy_packet(value: object) -> dict:
         raise KrxPaperProposalBridgeError("POLICY_PACKET_CANDIDATES_INVALID")
     if row["source_lineage"] != {
         "shadow_policy_candidate_head": EXPECTED_SOURCE_PINS["shadow"]["exact_head"],
-        "shadow_policy_candidate_status": "PROPOSED_UNRATIFIED_REPLAY_ONLY",
+        "shadow_policy_merge_commit": EXPECTED_SOURCE_PINS["shadow"]["merge_commit"],
+        "shadow_policy_candidate_status": "MERGED_PROPOSED_UNRATIFIED_REPLAY_ONLY",
         "universe_candidate_head": EXPECTED_SOURCE_PINS["universe"]["exact_head"],
         "universe_candidate_status": "MERGED_NON_AUTHORITY_INTERFACE",
     }:

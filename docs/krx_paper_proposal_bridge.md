@@ -27,16 +27,16 @@ briefing rank or diagnostic Shadow action never grants any downstream layer.
 - Wave1 Universe interface head (PR #485):
   `e7b7a209d785d63627dc596f4a58581b681b61ad`, merged to public main as
   `acb33d8b1cd866d478ec6c1e49422571fe71a48d`.
-- Wave1 Shadow interface head:
-  `858ee61d149e91cbb3b7e45aeb8ff9b2d0fd05a6` — PR #484, unmerged at
-  final verification time.
+- Wave1 Shadow interface head (PR #484):
+  `48782fe4892fc12e868bada05a0d82c3bddf6f7e`, merged to public main as
+  `7353be0dc26af8d6cacf2115c07d68358b5d607f`.
 
-Although the Universe interface is merged, its contract grants no investable-
-universe or strategy authority and the fixture's decision eligibility is still
-`UNKNOWN`. The Shadow head remains unmerged, its action is `NO_TRADE`, the strategy policy is unratified,
-`COMMON_SAFETY` is `UNKNOWN`, and effective `KRX_SHADOW` is `UNKNOWN`, the
-tracked synthetic fixture deterministically produces proposal `NONE` with no
-ledger draft.
+Although both interfaces are merged, neither merge grants investable-universe,
+strategy, or ledger authority and the fixture's decision eligibility is still
+`UNKNOWN`. The Shadow action is `NO_TRADE`, the strategy policy is unratified,
+`COMMON_SAFETY` is `UNKNOWN`, and effective `KRX_SHADOW` is `UNKNOWN`; the
+tracked synthetic fixture therefore deterministically produces proposal `NONE`
+with no ledger draft.
 
 ## Fail-close rules
 

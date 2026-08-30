@@ -267,13 +267,13 @@ class KrxPaperProposalBridgeTests(unittest.TestCase):
             self.policy_packet,
         )
 
-    def test_merged_universe_unmerged_shadow_and_unratified_policy_keep_none(self):
+    def test_merged_sources_and_unratified_policy_keep_none(self):
         proposal = self.packet["machine_proposal"]
         self.assertEqual("NONE", proposal["status"])
         self.assertEqual("NONE", proposal["action"])
         self.assertEqual("ENTER", proposal["diagnostic_action"])
         self.assertNotIn("UNIVERSE_SOURCE_UNMERGED", proposal["blockers"])
-        self.assertIn("SHADOW_SOURCE_UNMERGED", proposal["blockers"])
+        self.assertNotIn("SHADOW_SOURCE_UNMERGED", proposal["blockers"])
         self.assertIn("STRATEGY_POLICY_UNRATIFIED", proposal["blockers"])
         self.assertIn("COMMON_SAFETY_NOT_PASS", proposal["blockers"])
         self.assertIn("KRX_SHADOW_NOT_PASS", proposal["blockers"])
@@ -415,10 +415,13 @@ class KrxPaperProposalBridgeTests(unittest.TestCase):
         promoted_order["authority"]["order_authority"] = True
         moved_head = copy.deepcopy(self.contract)
         moved_head["source_requirements"]["shadow"]["exact_head"] = "0" * 40
+        moved_merge = copy.deepcopy(self.contract)
+        moved_merge["source_requirements"]["shadow"]["merge_commit"] = "0" * 40
         for contract, error in (
             (promoted_policy, "CONTRACT_POLICY_AUTHORITY_DRIFT"),
             (promoted_order, "CONTRACT_AUTHORITY_ESCALATION"),
             (moved_head, "CONTRACT_SOURCE_PIN_DRIFT"),
+            (moved_merge, "CONTRACT_SOURCE_PIN_DRIFT"),
         ):
             with self.subTest(error=error), self.assertRaisesRegex(
                 krx_bridge.KrxPaperProposalBridgeError, error
