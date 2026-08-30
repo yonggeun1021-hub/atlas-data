@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schemas/common_paper_candidate_funnel.schema.json",
+  "title": "Atlas common three-market PAPER candidate funnel",
+  "oneOf": [
+    {"$ref": "#/$defs/input"},
+    {"$ref": "#/$defs/output"}
+  ],
+  "$defs": {
+    "scoreComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["componentId", "points", "maxPoints", "reason", "sourceRef"],
+      "properties": {
+        "componentId": {"type": "string", "minLength": 1},
+        "points": {"type": "integer", "minimum": 0, "maximum": 100},
+        "maxPoints": {"type": "integer", "minimum": 1, "maximum": 100},
+        "reason": {"type": "string", "minLength": 1},
+        "sourceRef": {"type": "string", "minLength": 1}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "evidenceRef"],
+      "properties": {
+        "status": {"enum": ["PASS", "FAIL", null]},
+        "reason": {"type": "string", "minLength": 1},
+        "evidenceRef": {"type": ["string", "null"]}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "IDENTITY_TRADEABLE": {"$ref": "#/$defs/gate"},
+        "COMPLETED_BAR": {"$ref": "#/$defs/gate"},
+        "FRESHNESS": {"$ref": "#/$defs/gate"},
+        "LIQUIDITY": {"$ref": "#/$defs/gate"},
+        "DUPLICATE_IDEMPOTENCY": {"$ref": "#/$defs/gate"},
+        "LEDGER_INTEGRITY": {"$ref": "#/$defs/gate"},
+        "RESTART_RECOVERY": {"$ref": "#/$defs/gate"},
+        "RISK_BUDGET": {"$ref": "#/$defs/gate"},
+        "MARKET_SPECIFIC_SAFETY": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "candidateInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["market", "candidateId", "symbol", "candidateLane", "lane", "defensiveAction", "sourceTimestamp", "ttlSeconds", "scoreBreakdown", "completedBarTrigger", "hardGates", "risk", "sourceRefs"],
+      "properties": {
+        "market": {"enum": ["KOREA", "US", "CRYPTO"]},
+        "candidateId": {"type": "string", "minLength": 1},
+        "symbol": {"type": "string", "minLength": 1},
+        "candidateLane": {"enum": ["PRIMARY_LONG", "DEFENSIVE_ACTION"]},
+        "lane": {"enum": ["SYSTEM_CANARY", "INVESTMENT_PAPER", "SYSTEM_HEDGE_CANARY", "INVESTMENT_HEDGE_PAPER"]},
+        "defensiveAction": {"enum": ["NONE", "CASH", "REDUCE", "HEDGE", "INVERSE"]},
+        "sourceTimestamp": {"type": "string", "format": "date-time"},
+        "ttlSeconds": {"type": "integer", "minimum": 1},
+        "scoreBreakdown": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scoreComponent"}},
+        "completedBarTrigger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "barId", "completedAt"],
+          "properties": {
+            "status": {"enum": ["PASS", "FAIL", null]},
+            "barId": {"type": ["string", "null"]},
+            "completedAt": {"type": ["string", "null"], "format": "date-time"}
+          }
+        },
+        "hardGates": {"$ref": "#/$defs/gates"},
+        "risk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["currentOpenLongPositionCount", "currentOpenHedgePositionCount", "plannedLossNavFraction", "longMarketExposureNavFraction", "hedgeMarketExposureNavFraction"],
+          "properties": {
+            "currentOpenLongPositionCount": {"type": "integer", "minimum": 0},
+            "currentOpenHedgePositionCount": {"type": "integer", "minimum": 0},
+            "plannedLossNavFraction": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "longMarketExposureNavFraction": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "hedgeMarketExposureNavFraction": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"}
+          }
+        },
+        "sourceRefs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "effectiveGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["IDENTITY_TRADEABLE", "COMPLETED_BAR", "FRESHNESS", "LIQUIDITY", "DUPLICATE_IDEMPOTENCY", "LEDGER_INTEGRITY", "RESTART_RECOVERY", "RISK_BUDGET", "MARKET_SPECIFIC_SAFETY"],
+      "properties": {
+        "IDENTITY_TRADEABLE": {"$ref": "#/$defs/gate"},
+        "COMPLETED_BAR": {"$ref": "#/$defs/gate"},
+        "FRESHNESS": {"$ref": "#/$defs/gate"},
+        "LIQUIDITY": {"$ref": "#/$defs/gate"},
+        "DUPLICATE_IDEMPOTENCY": {"$ref": "#/$defs/gate"},
+        "LEDGER_INTEGRITY": {"$ref": "#/$defs/gate"},
+        "RESTART_RECOVERY": {"$ref": "#/$defs/gate"},
+        "RISK_BUDGET": {"$ref": "#/$defs/gate"},
+        "MARKET_SPECIFIC_SAFETY": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "candidateOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["market", "candidateId", "symbol", "candidateLane", "lane", "defensiveAction", "sourceTimestamp", "ttlSeconds", "expiresAt", "expired", "score", "scoreBreakdown", "completedBarTrigger", "hardGates", "risk", "sourceRefs", "rank", "funnelFlags", "highestStage", "reasons", "authority"],
+      "properties": {
+        "market": {"$ref": "#/$defs/candidateInput/properties/market"},
+        "candidateId": {"$ref": "#/$defs/candidateInput/properties/candidateId"},
+        "symbol": {"$ref": "#/$defs/candidateInput/properties/symbol"},
+        "candidateLane": {"$ref": "#/$defs/candidateInput/properties/candidateLane"},
+        "lane": {"$ref": "#/$defs/candidateInput/properties/lane"},
+        "defensiveAction": {"$ref": "#/$defs/candidateInput/properties/defensiveAction"},
+        "sourceTimestamp": {"type": "string", "format": "date-time"},
+        "ttlSeconds": {"type": "integer", "minimum": 1},
+        "expiresAt": {"type": "string", "format": "date-time"},
+        "expired": {"type": "boolean"},
+        "score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "scoreBreakdown": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scoreComponent"}},
+        "completedBarTrigger": {"$ref": "#/$defs/candidateInput/properties/completedBarTrigger"},
+        "hardGates": {"$ref": "#/$defs/effectiveGates"},
+        "risk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["currentOpenLongPositionCount", "currentOpenHedgePositionCount", "plannedLossNavFraction", "longMarketExposureNavFraction", "hedgeMarketExposureNavFraction", "exposureAccounting"],
+          "properties": {
+            "currentOpenLongPositionCount": {"type": "integer", "minimum": 0},
+            "currentOpenHedgePositionCount": {"type": "integer", "minimum": 0},
+            "plannedLossNavFraction": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "longMarketExposureNavFraction": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "hedgeMarketExposureNavFraction": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "exposureAccounting": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["longExposureBucketNavFraction", "hedgeExposureBucketNavFraction", "longPositionCount", "hedgePositionCount", "nettedMarketExposureNavFraction", "hedgeExcludedFromLongExposure", "hedgePositionExcludedFromLongPositionCount", "longHedgeCrossBucketNettingAuthorized"],
+              "properties": {
+                "longExposureBucketNavFraction": {"type": "string"},
+                "hedgeExposureBucketNavFraction": {"type": "string"},
+                "longPositionCount": {"type": "integer", "minimum": 0},
+                "hedgePositionCount": {"type": "integer", "minimum": 0},
+                "nettedMarketExposureNavFraction": {"const": null},
+                "hedgeExcludedFromLongExposure": {"const": true},
+                "hedgePositionExcludedFromLongPositionCount": {"const": true},
+                "longHedgeCrossBucketNettingAuthorized": {"const": false}
+              }
+            }
+          }
+        },
+        "sourceRefs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "rank": {"type": "integer", "minimum": 1},
+        "funnelFlags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["universe", "top10", "top3", "candidate", "ready", "paperBuyEligible"],
+          "properties": {
+            "universe": {"const": true},
+            "top10": {"type": "boolean"},
+            "top3": {"type": "boolean"},
+            "candidate": {"type": "boolean"},
+            "ready": {"type": "boolean"},
+            "paperBuyEligible": {"type": "boolean"}
+          }
+        },
+        "highestStage": {"enum": ["UNIVERSE", "TOP10", "TOP3", "CANDIDATE", "READY", "PAPER_BUY_ELIGIBLE"]},
+        "reasons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["PAPER_INTERNAL_AUTO", "humanApprovalRequired", "userReceiptRequired", "internalVirtualLedgerMutationEligible", "real", "live", "realCapital", "production", "trading", "brokerRealPost", "brokerPaperPost", "externalBrokerTransport", "brokerNetworkGet", "brokerNetworkPost"],
+          "properties": {
+            "PAPER_INTERNAL_AUTO": {"const": true},
+            "humanApprovalRequired": {"const": false},
+            "userReceiptRequired": {"const": false},
+            "internalVirtualLedgerMutationEligible": {"type": "boolean"},
+            "real": {"const": false},
+            "live": {"const": false},
+            "realCapital": {"const": false},
+            "production": {"const": false},
+            "trading": {"const": false},
+            "brokerRealPost": {"const": false},
+            "brokerPaperPost": {"const": false},
+            "externalBrokerTransport": {"const": false},
+            "brokerNetworkGet": {"const": false},
+            "brokerNetworkPost": {"const": false}
+          }
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "contractVersion", "evaluationAt", "candidates"],
+      "properties": {
+        "schemaVersion": {"const": "common_paper_candidate_funnel_input/1"},
+        "contractVersion": {"const": "common_paper_candidate_funnel_contract/1"},
+        "evaluationAt": {"type": "string", "format": "date-time"},
+        "candidates": {"type": "array", "items": {"$ref": "#/$defs/candidateInput"}}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "contractVersion", "evaluationAt", "evaluationId", "summary", "universe", "top10", "top3", "candidates", "ready", "paperBuyEligible", "authority", "payloadSha256"],
+      "properties": {
+        "schemaVersion": {"const": "common_paper_candidate_funnel_output/1"},
+        "contractVersion": {"const": "common_paper_candidate_funnel_contract/1"},
+        "evaluationAt": {"type": "string", "format": "date-time"},
+        "evaluationId": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "summary": {"type": "object"},
+        "universe": {"type": "array", "items": {"$ref": "#/$defs/candidateOutput"}},
+        "top10": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/candidateOutput"}},
+        "top3": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/candidateOutput"}},
+        "candidates": {"type": "array", "items": {"$ref": "#/$defs/candidateOutput"}},
+        "ready": {"type": "array", "items": {"$ref": "#/$defs/candidateOutput"}},
+        "paperBuyEligible": {"type": "array", "items": {"$ref": "#/$defs/candidateOutput"}},
+        "authority": {"type": "object"},
+        "payloadSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}
