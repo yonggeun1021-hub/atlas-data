@@ -555,6 +555,13 @@ APPROVED_TESTS = [
     #   breadth/entry/action/order authority.
     #   ⛔ regression uses injected bytes only; no live key/network access.
     "test/test_free_market_data.py",
+    # ★ P1-US current evidence → pipeline-symbol review bridge. Committed
+    #   SPY/QQQ/IWM, VIX, liquidity and per-symbol daily bars are connected
+    #   to TSM/SNDK entry/holding/exit review contexts. Missing Breadth,
+    #   Leadership, price or account-position context stays explicit; no
+    #   Regime, entry, exit, order, broker, Production or Trading authority.
+    #   ⛔ current committed inputs only; no live network or order endpoint.
+    "test/test_us_symbol_market_review.py",
     # ★ FRED VIX append-only provenance — content-and-capture addressed raw
     #   revisions are independently decompressed/re-derived and cannot be
     #   overwritten, backdated, path-substituted, or re-signed after tamper.
