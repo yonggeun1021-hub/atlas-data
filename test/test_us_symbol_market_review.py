@@ -35,13 +35,17 @@ class CurrentEvidenceTests(unittest.TestCase):
         market, stages = current_inputs()
         result = REVIEW.build_review(market, stages)
         self.assertEqual(REVIEW.validate_output(result), result)
-        self.assertEqual(result["five_axis"]["ratio"], "3/5")
-        self.assertEqual(result["five_axis"]["missing_axes"], ["BREADTH", "LEADERSHIP"])
+        self.assertEqual(result["five_axis"]["ratio"], "5/5")
+        self.assertEqual(result["five_axis"]["missing_axes"], [])
         self.assertEqual(result["five_axis"]["aggregate_regime"], "UNKNOWN")
         by_symbol = {row["symbol"]: row for row in result["symbols"]}
         self.assertEqual(by_symbol["TSM"]["pipeline_stage"], "Ready")
         self.assertEqual(by_symbol["TSM"]["price_context"]["status"], "OBSERVED")
         self.assertEqual(by_symbol["TSM"]["entry_review"]["state"], "WAIT")
+        self.assertEqual(
+            [row["symbol"] for row in by_symbol["TSM"]["market_context"]["leadership_proxies"]],
+            ["SMH", "XLK"],
+        )
         self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], "Discovery")
         self.assertEqual(by_symbol["SNDK"]["price_context"]["status"], "UNAVAILABLE")
         self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "BLOCKED")
