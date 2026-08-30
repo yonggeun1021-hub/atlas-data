@@ -12,14 +12,11 @@ withdrawal/private endpoint:
 * ``GET /v1/orderbook?markets=...``            -- one batched call across
   every captured market.
 
-Only markets already at ``TRADEABLE_UNIVERSE`` or ``PAPER_ELIGIBLE`` in the
-most recent P3-12 classification packet are captured here -- capturing
-every ``OBSERVATION_POOL`` market's full microstructure would be wasteful
-network load for markets nothing downstream can yet act on. In production,
-since P3-12's policy/taxonomy/identity are all unratified, this market list
-is currently empty; an empty-market capture is a normal, successful,
-append-only-empty snapshot, never a failure (same "OBSERVATION_POOL is
-expected, not a bug" discipline P3-12 established).
+Only markets in the exact-hash, effective-dated P3-12 consumer lineage are
+captured here.  The consumer rejects a hash mismatch, unratified policy,
+historical identity backfill, duplicate market, or partial cohort before the
+first provider call.  ``IDENTITY_UNRATIFIED`` rows are never reinterpreted
+with a newer registry.
 
 Every fetch is retried with exponential backoff on transient HTTP failure
 (``fetch_with_retry``, independently testable); a fetch that still fails
@@ -54,12 +51,15 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from microstructure import upbit_p3_p4_bridge as P3_P4  # noqa: E402
+
 CONTRACT_PATH = ROOT / "config" / "upbit_market_evidence_contract.json"
 UTC = dt.timezone.utc
 USER_AGENT = "Project-Atlas-upbit-microstructure-capture/1.0"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 CAPTURE_VERSION = "upbit-microstructure-capture/v1"
 MAX_MARKETS_PER_BATCH_CALL = 400
+SNAPSHOT_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-p3-[0-9a-f]{16}$")
 
 
 class CaptureError(RuntimeError):
@@ -162,6 +162,21 @@ def load_target_markets(universe_packet_path: Optional[Path]) -> list[str]:
     return sorted(row["market"] for row in markets if row.get("state") in eligible)
 
 
+def load_universe_lineage(
+    universe_packet_path: Path,
+    *,
+    expected_record_sha256: str | None = None,
+) -> dict:
+    """Production P3->P4 bridge: exact hash + effective-time validation."""
+    try:
+        return P3_P4.consume_universe_record(
+            universe_packet_path,
+            expected_record_sha256=expected_record_sha256,
+        )
+    except P3_P4.BridgeError as exc:
+        fail("UNIVERSE_CONSUMER_REJECTED", str(exc))
+
+
 def write_raw(snapshot: Path, relative_gz: str, raw: bytes) -> str:
     target = snapshot / relative_gz
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -182,6 +197,8 @@ def capture_snapshot(
     fetcher: Optional[Callable[[str, int], bytes]] = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], dt.datetime] = utc_now,
+    snapshot_key: str | None = None,
+    universe_lineage: dict | None = None,
 ) -> Path:
     contract = contract or load_contract()
     observed_start = clock().astimezone(UTC)
@@ -190,7 +207,16 @@ def capture_snapshot(
         fail("CAPTURE_DATE_MISMATCH", f"clock={observed_start.date()} requested={vintage}")
     if request_interval_seconds < 1:
         fail("RATE_LIMIT_POLICY_INVALID", str(request_interval_seconds))
-    target = Path(snapshot_root) / vintage.isoformat()
+    key = snapshot_key or vintage.isoformat()
+    if snapshot_key is not None and SNAPSHOT_KEY_RE.fullmatch(snapshot_key) is None:
+        fail("SNAPSHOT_KEY_INVALID", snapshot_key)
+    if universe_lineage is not None:
+        expected_key = P3_P4.snapshot_key(universe_lineage)
+        if key != expected_key:
+            fail("SNAPSHOT_KEY_LINEAGE_MISMATCH", f"expected={expected_key} actual={key}")
+        if sorted(markets) != universe_lineage.get("markets"):
+            fail("PARTIAL_UNIVERSE_REJECTED", "capture markets differ from exact P3 cohort")
+    target = Path(snapshot_root) / key
     if target.exists():
         fail("APPEND_ONLY_VIOLATION", str(target))
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -206,10 +232,9 @@ def capture_snapshot(
 
     markets = sorted(set(markets))
     temporary_parent = Path(tempfile.mkdtemp(prefix="upbit-microstructure-", dir=str(target.parent)))
-    snapshot = temporary_parent / vintage.isoformat()
+    snapshot = temporary_parent / key
     snapshot.mkdir()
     try:
-        (snapshot / "_downloaded_at.txt").write_text(iso_utc(observed_start) + "\n", encoding="utf-8")
         checksums: dict[str, str] = {}
 
         for timeframe in contract["timeframes"]:
@@ -268,6 +293,10 @@ def capture_snapshot(
         orderbook_raw = json.dumps(orderbook_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
         checksums[contract["orderbook_raw_file"]] = write_raw(snapshot, contract["orderbook_raw_file"], orderbook_raw)
 
+        completed_at = clock().astimezone(UTC)
+        if completed_at < observed_start:
+            fail("CAPTURE_CLOCK_REVERSED", f"start={observed_start} completed={completed_at}")
+        (snapshot / "_downloaded_at.txt").write_text(iso_utc(completed_at) + "\n", encoding="utf-8")
         (snapshot / "_sha256.txt").write_text(
             "".join(f"{checksums[name]}  {name}\n" for name in sorted(checksums)), encoding="utf-8",
         )
@@ -277,9 +306,11 @@ def capture_snapshot(
             "transform_version": contract["transform_version"],
             "source_name": contract["source_name"],
             "vintage_date": vintage.isoformat(),
-            "downloaded_at_utc": iso_utc(observed_start),
+            "capture_started_at_utc": iso_utc(observed_start),
+            "downloaded_at_utc": iso_utc(completed_at),
             "market_count": len(markets),
             "markets": markets,
+            "universe_lineage": universe_lineage,
             "timeframes": list(contract["timeframes"]),
             "checksums": checksums,
             "auth_required": False,
@@ -329,6 +360,17 @@ def validate_snapshot(snapshot_dir: Path) -> dict:
         fail("MANIFEST_MARKET_LIST_INVALID", str(snapshot_dir))
     if manifest.get("market_count") != len(markets):
         fail("MANIFEST_MARKET_COUNT_MISMATCH", str(snapshot_dir))
+    lineage = manifest.get("universe_lineage")
+    if lineage is not None:
+        if not isinstance(lineage, dict):
+            fail("MANIFEST_UNIVERSE_LINEAGE_INVALID", str(snapshot_dir))
+        if lineage.get("markets") != markets or lineage.get("market_count") != len(markets):
+            fail("MANIFEST_PARTIAL_UNIVERSE", str(snapshot_dir))
+        if snapshot_dir.name != P3_P4.snapshot_key(lineage):
+            fail("MANIFEST_SNAPSHOT_KEY_MISMATCH", str(snapshot_dir))
+        authority = lineage.get("authority") or {}
+        if not authority or any(value is True for key, value in authority.items() if key != "evidence_derivation_only"):
+            fail("MANIFEST_UNIVERSE_AUTHORITY_VIOLATED", str(snapshot_dir))
     if manifest.get("auth_required") is not False or manifest.get("order_or_withdrawal_endpoints_called") is not False:
         fail("MANIFEST_SAFETY_INVARIANT_VIOLATED", str(snapshot_dir))
     return manifest
@@ -338,17 +380,29 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot-root", type=Path, required=True)
     parser.add_argument("--snapshot-date", type=dt.date.fromisoformat)
-    parser.add_argument("--universe-packet", type=Path, help="P3-12 classification packet.json to read target markets from")
+    parser.add_argument("--universe-packet", type=Path, required=True, help="exact P3-12 population record")
+    parser.add_argument("--expected-universe-record-sha256", required=True)
+    parser.add_argument("--snapshot-key")
     parser.add_argument("--request-interval-seconds", type=float, default=1.05)
     parser.add_argument("--timeout-seconds", type=int, default=60)
     args = parser.parse_args(argv)
-    markets = load_target_markets(args.universe_packet)
+    lineage = load_universe_lineage(
+        args.universe_packet,
+        expected_record_sha256=args.expected_universe_record_sha256,
+    )
+    markets = lineage["markets"]
+    key = args.snapshot_key or P3_P4.snapshot_key(lineage)
     target = capture_snapshot(
         args.snapshot_root, markets=markets, snapshot_date=args.snapshot_date,
         request_interval_seconds=args.request_interval_seconds, timeout_seconds=args.timeout_seconds,
+        snapshot_key=key, universe_lineage=lineage,
     )
     validated = validate_snapshot(target)
-    print(json.dumps({"path": str(target), "market_count": validated["market_count"]}, indent=2, sort_keys=True))
+    print(json.dumps({
+        "path": str(target), "snapshot_key": key,
+        "market_count": validated["market_count"],
+        "universe_record_sha256": lineage["record_payload_sha256"],
+    }, indent=2, sort_keys=True))
     return 0
 
 

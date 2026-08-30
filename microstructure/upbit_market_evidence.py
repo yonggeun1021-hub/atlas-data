@@ -36,6 +36,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -57,7 +58,8 @@ from microstructure import upbit_candle_finalization as finalization  # noqa: E4
 
 
 UTC = dt.timezone.utc
-OUTPUT_SCHEMA_VERSION = "upbit_market_evidence_packet/1"
+OUTPUT_SCHEMA_VERSION = "upbit_market_evidence_packet/2"
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 FRESH = "FRESH"
 STALE = "STALE"
@@ -131,6 +133,24 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     }
     if not isinstance(doc, dict) or not required.issubset(doc):
         raise MarketEvidenceError("POLICY_FIELDS_INVALID")
+    declared_hash = doc.get("packet_sha256")
+    actual_hash = payload_sha256({key: value for key, value in doc.items() if key != "packet_sha256"})
+    if not isinstance(declared_hash, str) or SHA256_RE.fullmatch(declared_hash) is None or declared_hash != actual_hash:
+        raise MarketEvidenceError("POLICY_PACKET_HASH_MISMATCH")
+    contract = load_contract()
+    if (
+        doc.get("approval_status") != "RATIFIED"
+        or doc.get("policy_id") != contract.get("ratified_policy_id")
+        or doc.get("policy_version") != contract.get("ratified_policy_version")
+        or declared_hash != contract.get("ratified_policy_sha256")
+    ):
+        raise MarketEvidenceError("POLICY_EXACT_PIN_MISMATCH")
+    for field in (
+        "exchange_authorized", "order_authorized", "paper_exit_authorized",
+        "production_authorized", "real_capital_authorized", "trading_authorized",
+    ):
+        if doc.get(field) is not False:
+            raise MarketEvidenceError(f"POLICY_AUTHORITY_INVARIANT_VIOLATED:{field}")
     if set(doc["max_staleness_seconds_by_timeframe"]) != set(finalization.TIMEFRAMES):
         raise MarketEvidenceError("POLICY_STALENESS_TIMEFRAMES_MISMATCH")
     return doc
@@ -170,7 +190,10 @@ def build_candle_evidence(
     market: str, timeframe: str, raw_candles: list, *,
     as_of: dt.datetime, captured_at: dt.datetime, max_staleness_seconds: int,
 ) -> dict:
-    classified = finalization.classify_candles(raw_candles, timeframe, as_of)
+    try:
+        classified = finalization.classify_candles(raw_candles, timeframe, as_of)
+    except finalization.CandleFinalizationError as exc:
+        raise MarketEvidenceError(f"CANDLE_MALFORMED:{market}:{timeframe}:{exc}") from exc
     finalized_rows = [
         {
             "open_time": entry["open_time"].strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -186,17 +209,36 @@ def build_candle_evidence(
     ]
     latest_close = classified["finalized"][-1]["close_time"] if classified["finalized"] else None
     fresh = freshness_status(latest_close, captured_at, max_staleness_seconds)
+    gap_times = []
+    if len(classified["finalized"]) >= 2:
+        opens = [entry["open_time"] for entry in classified["finalized"]]
+        gap_times = finalization.detect_gaps(opens, timeframe, opens[0], latest_close)
+    reasons = []
+    if not finalized_rows:
+        reasons.append("NO_FINALIZED_CANDLE")
+    if classified["duplicate_row_count"]:
+        reasons.append("DUPLICATE_CANDLE")
+    if gap_times:
+        reasons.append("CANDLE_GAP")
+    if fresh["status"] != FRESH:
+        reasons.append(f"CANDLE_{fresh['status']}")
     return {
         "market": market,
         "timeframe": timeframe,
         "finalized_candle_count": len(finalized_rows),
         "in_progress_candle_count": len(classified["in_progress"]),
         "duplicate_row_count": classified["duplicate_row_count"],
+        "gap_count": len(gap_times),
+        "gap_open_times": [value.strftime("%Y-%m-%dT%H:%M:%SZ") for value in gap_times],
         "finalized_candles": finalized_rows,
         "latest_finalized_close_time": (
             latest_close.strftime("%Y-%m-%dT%H:%M:%SZ") if latest_close is not None else None
         ),
         "freshness": fresh,
+        "observed_at": latest_close.strftime("%Y-%m-%dT%H:%M:%SZ") if latest_close else None,
+        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "evidence_status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
 
@@ -257,6 +299,15 @@ def build_orderbook_evidence(
     if isinstance(timestamp_ms, (int, float)):
         reference_time = dt.datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
     fresh = freshness_status(reference_time, captured_at, max_staleness_seconds)
+    reasons = []
+    if fresh["status"] != FRESH:
+        reasons.append(f"ORDERBOOK_{fresh['status']}")
+    if depth["levels_available"] < depth_levels:
+        reasons.append("ORDERBOOK_DEPTH_LEVELS_PARTIAL")
+    if spread_status != "NORMAL":
+        reasons.append(f"SPREAD_{spread_status}")
+    if slippage_status != "NORMAL":
+        reasons.append(f"SLIPPAGE_{slippage_status}")
 
     return {
         "market": market,
@@ -269,6 +320,10 @@ def build_orderbook_evidence(
         "slippage_bps": str(slippage_bps) if slippage_bps is not None else None,
         "slippage_status": slippage_status,
         "freshness": fresh,
+        "observed_at": reference_time.strftime("%Y-%m-%dT%H:%M:%SZ") if reference_time else None,
+        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "evidence_status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
 
@@ -294,13 +349,29 @@ def build_trades_evidence(
     latest_trade_time = dt.datetime.fromtimestamp(latest_ms / 1000, tz=UTC)
     prices = [_decimal(row["trade_price"], "trade_price") for row in raw_trades]
     fresh = freshness_status(latest_trade_time, captured_at, max_staleness_seconds)
+    fingerprints = [canonical_json(row) for row in raw_trades]
+    duplicate_count = len(fingerprints) - len(set(fingerprints))
+    out_of_order = timestamps != sorted(timestamps, reverse=True)
+    reasons = []
+    if fresh["status"] != FRESH:
+        reasons.append(f"TRADES_{fresh['status']}")
+    if duplicate_count:
+        reasons.append("DUPLICATE_TRADE")
+    if out_of_order:
+        reasons.append("TRADE_OUT_OF_ORDER")
     return {
         "market": market,
         "trade_count": len(raw_trades),
         "latest_trade_time": latest_trade_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "min_trade_price": str(min(prices)),
         "max_trade_price": str(max(prices)),
+        "duplicate_trade_count": duplicate_count,
+        "out_of_order": out_of_order,
         "freshness": fresh,
+        "observed_at": latest_trade_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "evidence_status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
 
@@ -313,6 +384,7 @@ def build_market_evidence_packet(
     market: str, *,
     candles_by_timeframe: dict, trades: list, orderbook_row: dict,
     as_of: dt.datetime, captured_at: dt.datetime, policy: dict,
+    generated_at: dt.datetime | None = None, source_identity: dict | None = None,
 ) -> dict:
     """Aggregate one market's full P4-07 evidence: finalized candles across
     every configured timeframe, trade-tick evidence, and orderbook
@@ -324,6 +396,9 @@ def build_market_evidence_packet(
     captured_at = _require_aware(captured_at, "CAPTURED_AT_NAIVE")
     if captured_at < as_of:
         raise MarketEvidenceError("CAPTURED_AT_BEFORE_AS_OF")
+    generated_at = captured_at if generated_at is None else _require_aware(generated_at, "GENERATED_AT_NAIVE")
+    if generated_at < captured_at:
+        raise MarketEvidenceError("GENERATED_AT_BEFORE_AVAILABLE_AT")
 
     max_staleness_by_timeframe = policy["max_staleness_seconds_by_timeframe"]
     candles = {}
@@ -352,16 +427,45 @@ def build_market_evidence_packet(
         max_slippage_bps_normal=policy["max_slippage_bps_normal"],
     )
 
+    reasons = []
+    for timeframe, evidence in candles.items():
+        reasons.extend(f"{timeframe}:{reason}" for reason in evidence["fail_closed_reasons"])
+    reasons.extend(trades_evidence["fail_closed_reasons"])
+    reasons.extend(orderbook_evidence["fail_closed_reasons"])
+    policy_ratified = policy.get("approval_status") == "RATIFIED"
+    if not policy_ratified:
+        reasons.append("P4_POLICY_UNRATIFIED")
+    policy_hash = policy.get("packet_sha256")
+    if policy_ratified and (not isinstance(policy_hash, str) or SHA256_RE.fullmatch(policy_hash) is None):
+        reasons.append("P4_POLICY_HASH_MISSING")
+    observed_values = [
+        evidence.get("observed_at") for evidence in candles.values()
+    ] + [trades_evidence.get("observed_at"), orderbook_evidence.get("observed_at")]
+    observed_parsed = [
+        dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        for value in observed_values if value is not None
+    ]
+    observed_at = max(observed_parsed) if observed_parsed else None
+    if observed_at is None or not (observed_at <= captured_at <= generated_at):
+        reasons.append("TIMESTAMP_ORDER_INVALID")
+
     packet = {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "market": market,
         "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "captured_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observed_at": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ") if observed_at else None,
+        "available_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "policy_version": policy.get("policy_version"),
-        "policy_ratified": policy.get("approval_status") == "RATIFIED",
+        "policy_id": policy.get("policy_id"),
+        "policy_packet_sha256": policy_hash,
+        "policy_ratified": policy_ratified,
+        "source_identity": copy.deepcopy(source_identity),
         "candles": candles,
         "trades": trades_evidence,
         "orderbook": orderbook_evidence,
+        "status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": sorted(set(reasons)),
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
     packet["payload_sha256"] = payload_sha256(packet)
