@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 OUT = DATA / "briefing"
 HEALTH = DATA / "briefing_status.json"
+OWNED_OUTPUT_NAMES = frozenset({"step0_status.json", "krx", "dart", "sec"})
 
 
 def _load_sibling(name, filename):
@@ -490,6 +491,29 @@ def atomic_publish(staging, target):
             shutil.rmtree(backup)
 
 
+def preserve_unowned_outputs(source, staging):
+    """Carry forward state that belongs to other briefing subsystems.
+
+    The read-model builder owns only the compact views and Step 0 status.  The
+    same directory also contains the immutable finalization ledger and the
+    exact delivery locator, so replacing the whole directory without copying
+    those entries first would delete append-only delivery evidence.
+    """
+    if not source.exists():
+        return
+
+    for child in source.iterdir():
+        if child.name in OWNED_OUTPUT_NAMES:
+            continue
+
+        destination = staging / child.name
+        if child.is_dir():
+            shutil.copytree(child, destination, symlinks=True)
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(child, destination, follow_symlinks=False)
+
+
 def write_health(
     expected_date, data_ready, read_model_ready, error=None, generation=None
 ):
@@ -756,6 +780,7 @@ def build_and_publish(expected_date, fail_before_publish=False):
         shutil.rmtree(staging)
 
     try:
+        preserve_unowned_outputs(OUT, staging)
         write_json(staging / "step0_status.json", status)
         build_krx_views(sources["krx"], hashes["krx"], staging, generation)
         build_dart_views(
