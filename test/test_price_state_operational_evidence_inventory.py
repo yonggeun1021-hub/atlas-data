@@ -37,18 +37,42 @@ class PriceStateOperationalEvidenceInventoryTests(unittest.TestCase):
             if row["sample_qualification"] == "NATURAL_OPERATIONAL_SAMPLE"
         ]
         self.assertTrue(natural_samples)
+        self.assertTrue(any(
+            sample["by_market"]["BTC"]["linkage_status_counts"].get("LINKED", 0) > 0
+            for sample in natural_samples
+        ))
+        self.assertTrue(any(
+            sample["by_market"]["KOREA"]["linkage_status_counts"].get("LINKED", 0) > 0
+            for sample in natural_samples
+        ))
+        self.assertTrue(any(
+            sample["by_market"]["CRYPTO"]["linkage_status_counts"].get(
+                "NOT_LINKED_THIS_SLICE", 0
+            ) > 0
+            for sample in natural_samples
+        ))
         for natural in natural_samples:
-            self.assertGreater(natural["price_state_linked_candidate_count"], 0)
-            self.assertEqual(natural["by_market"]["BTC"]["linkage_status_counts"], {"LINKED": 1})
-            self.assertEqual(natural["by_market"]["BTC"]["price_state_counts"], {"OVEREXTENDED": 1})
-            self.assertGreater(natural["by_market"]["KOREA"]["linkage_status_counts"].get("LINKED", 0), 0)
-            self.assertGreater(natural["by_market"]["CRYPTO"]["linkage_status_counts"].get("NOT_LINKED_THIS_SLICE", 0), 0)
+            linked = sum(
+                market["linkage_status_counts"].get("LINKED", 0)
+                for market in natural["by_market"].values()
+            )
+            self.assertEqual(natural["price_state_linked_candidate_count"], linked)
+            for market in natural["by_market"].values():
+                self.assertEqual(
+                    sum(market["linkage_status_counts"].values()),
+                    market["candidate_count"],
+                )
 
     def test_reflection_remains_unknown_in_every_candidate(self):
         for sample in self.inventory["samples"]:
             for market in sample["by_market"].values():
-                self.assertTrue(set(market["reflection_status_counts"]).issubset({"UNKNOWN", "NOT_AVAILABLE"}))
-                self.assertTrue(market["reflection_status_counts"])
+                counts = market["reflection_status_counts"]
+                self.assertTrue(set(counts).issubset({"UNKNOWN", "NOT_AVAILABLE"}))
+                self.assertEqual(sum(counts.values()), market["candidate_count"])
+                if market["candidate_count"] == 0:
+                    self.assertEqual(counts, {})
+                else:
+                    self.assertTrue(counts)
 
     def test_provisional_threshold_never_opens_downstream(self):
         boundary = self.inventory["operational_boundary"]

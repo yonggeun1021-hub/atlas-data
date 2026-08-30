@@ -14,6 +14,12 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+FIXTURE_REPORT_PATH = (
+    ROOT / "evidence" / "operational" / "dynamic_clock"
+    / "candidate_validity_source_reports"
+    / "report-8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512.json"
+)
+
 from identity import canonical_identity as ci  # noqa: E402
 from identity.candidate_identity_observation import (  # noqa: E402
     AUTHORITY_ALL_FALSE,
@@ -38,7 +44,7 @@ def resign(candidate: dict) -> None:
 class CandidateIdentityObservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        full = json.loads((ROOT / "evidence/operational/dynamic_clock/dynamic_clock_report.json").read_text())
+        full = json.loads(FIXTURE_REPORT_PATH.read_text(encoding="utf-8"))
         crypto_rows = full["by_market"]["CRYPTO"]["review_queue"]
         cls.unresolved_crypto_subject = next(
             row["subject"] for row in crypto_rows if row["subject"] != "BTC"
@@ -87,6 +93,30 @@ class CandidateIdentityObservationTests(unittest.TestCase):
         for row in self.packet["observations"]:
             self.assertEqual(row["authority"], AUTHORITY_ALL_FALSE)
             self.assertTrue(all(value is False for value in row["authority"].values()))
+
+    def test_zero_candidate_population_is_a_valid_identity_observation(self):
+        report = {
+            "decision_date": self.report["decision_date"],
+            "operational_evaluation": copy.deepcopy(
+                self.report["operational_evaluation"]
+            ),
+            "by_market": {},
+        }
+        packet = build_observation(
+            report, self.authority, self.scope_authority
+        )
+        self.assertEqual(packet["observations"], [])
+        self.assertEqual(packet["summary"], {
+            "candidate_count": 0,
+            "identity_resolved_count": 0,
+            "scope_resolved_count": 0,
+        })
+        self.assertEqual(
+            validate_observation(
+                packet, report, self.authority, self.scope_authority
+            ),
+            packet,
+        )
 
     def test_packet_is_deterministic_and_validator_rebuilds_independently(self):
         rebuilt = build_observation(self.report, self.authority, self.scope_authority)
