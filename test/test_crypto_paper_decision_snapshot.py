@@ -607,6 +607,37 @@ class DuplicateGuardKeyTests(TempDirMixin, unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class PopulateIdempotencyTests(TempDirMixin, unittest.TestCase):
+    def test_source_ref_is_content_addressed_and_survives_rolling_source_mutation(self):
+        output_root = self.tmp / "out"
+        original = write_universe_entry(
+            self.tmp,
+            universe_packet([
+                universe_row(state=UNI.STATE_OBSERVATION_POOL, canonical_asset_id=None),
+            ]),
+        )
+        with mock.patch.object(CPDS, "ROOT", self.tmp):
+            result = CPDS.populate(
+                generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+                universe_data_root=self.tmp / "universe",
+                market_evidence_data_root=self.tmp / "no_market_evidence",
+                realtime_evidence_root=self.tmp / "no_realtime",
+                output_root=output_root,
+            )
+        source_ref = next(
+            ref for ref in result["record"]["source_refs"]
+            if ref["role"] == "upbit_tradeable_universe_packet"
+        )
+        retained = self.tmp / source_ref["path"]
+        self.assertEqual(retained.parts[-5:-3], ("_sources", "sha256"))
+        self.assertEqual(retained.parts[-3], source_ref["sha256"])
+        self.assertEqual(retained.parent.name, EVAL_AS_OF)
+        self.assertEqual(retained.name, "source.json")
+        self.assertEqual(retained.read_bytes(), original["path"].read_bytes())
+
+        original["path"].write_text('{"later":"rolling replacement"}\n', encoding="utf-8")
+        with mock.patch.object(CPDS, "ROOT", self.tmp):
+            self.assertEqual(CPDS.validate_output(result["record"]), result["record"])
+
     def test_rerun_same_slot_verifies_existing_not_duplicate(self):
         output_root = self.tmp / "out"
         first = CPDS.populate(

@@ -1163,6 +1163,47 @@ def output_path(capture_date: str, capture_hhmm: str, generation_id: str, output
     return Path(output_root) / capture_date / capture_hhmm / generation_id / "packet.json"
 
 
+def retain_source(entry: dict | None, output_root: Path) -> dict | None:
+    """Copy one selected input to a content-addressed immutable path.
+
+    The source-ref schema intentionally stays unchanged.  Keeping the source's
+    date as the immediate parent directory preserves the validator's existing
+    date reconstruction contract while the digest directory makes later
+    writes to the rolling upstream path irrelevant.  Retention applies only to
+    repository evidence emission.  A caller using an external/disposable
+    output root keeps the original source reference so strict downstream
+    consumers never receive an absolute retained-source path.
+    """
+    if entry is None:
+        return None
+    try:
+        Path(output_root).resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return copy.deepcopy(entry)
+    source = Path(entry["path"])
+    source_bytes = source.read_bytes()
+    digest = hashlib.sha256(source_bytes).hexdigest()
+    target = (
+        Path(output_root) / "_sources" / "sha256" / digest
+        / entry["date"] / "source.json"
+    )
+    if target.exists():
+        if target.read_bytes() != source_bytes:
+            raise PopulationError(f"RETAINED_SOURCE_DRIFT_OR_TAMPER:{target}")
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_name(f".{target.name}.tmp")
+        try:
+            temp.write_bytes(source_bytes)
+            temp.replace(target)
+        finally:
+            if temp.exists():
+                temp.unlink()
+    retained = copy.deepcopy(entry)
+    retained["path"] = target
+    return retained
+
+
 def populate(
     *,
     generated_at: str,
@@ -1194,6 +1235,10 @@ def populate(
         )
     else:
         realtime_entry = None
+
+    universe_entry = retain_source(universe_entry, output_root)
+    market_evidence_entry = retain_source(market_evidence_entry, output_root)
+    realtime_entry = retain_source(realtime_entry, output_root)
 
     capture_date = generated_at[:10]
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
