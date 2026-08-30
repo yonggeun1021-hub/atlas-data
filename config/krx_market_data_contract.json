@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_completed_market_data/1",
+  "market": "KOREA",
+  "venue_scope": "KRX_ONLY",
+  "timezone": "Asia/Seoul",
+  "utc_offset": "+09:00",
+  "dst_observed_as_of": false,
+  "timezone_rules_as_of": "2026-08-30",
+  "regular_session": {
+    "open": "09:00:00",
+    "close": "15:30:00",
+    "pre_and_post_market_excluded": true,
+    "special_session_policy": "UNKNOWN_FAIL_CLOSED"
+  },
+  "supported_timeframes": {
+    "15m": {
+      "duration_seconds": 900,
+      "anchor": "SESSION_OPEN",
+      "required_for_consumer": true
+    },
+    "1h": {
+      "duration_seconds": 3600,
+      "anchor": "SESSION_OPEN",
+      "required_for_consumer": true,
+      "partial_session_tail": "EXCLUDE_15_00_TO_15_30"
+    },
+    "1d": {
+      "duration_seconds": 23400,
+      "anchor": "REGULAR_SESSION",
+      "required_for_consumer": true
+    },
+    "4h": {
+      "required_for_consumer": false,
+      "status": "UNRATIFIED_SESSION_BOUNDARY"
+    }
+  },
+  "freshness": {
+    "latest_bar_rule": "EXACT_LATEST_COMPLETED_SESSION_INTERVAL",
+    "p9_contract_path": "config/intraday_freshness_guard_contract.json",
+    "p9_contract_version": "intraday_freshness_guard/1",
+    "repository_default_policy": "ABSENT",
+    "policy_requirement": "EXTERNAL_RATIFIED_POLICY_REQUIRED",
+    "official_provider_sla": "UNKNOWN"
+  },
+  "calendar": {
+    "date_specific_snapshot_required": true,
+    "weekdays_are_not_sufficient": true,
+    "allowed_statuses": [
+      "OPEN_REGULAR",
+      "CLOSED",
+      "UNKNOWN"
+    ],
+    "open_source_identity": "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
+    "market_rule_identity": "KRX_EQUITY_MARKET_OPERATION_RULES"
+  },
+  "provider_allowlist": [
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "FHKST03010230",
+      "purpose": "KRX_DATED_ONE_MINUTE_GET_ONLY_PRIMARY",
+      "path": "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
+    },
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "FHKST03010200",
+      "purpose": "KRX_CURRENT_DAY_ONE_MINUTE_GET_ONLY_SUPPLEMENTAL",
+      "path": "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
+    },
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "FHKST03010100",
+      "purpose": "KRX_DAILY_GET_ONLY",
+      "path": "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+    },
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "FHKST01010100",
+      "purpose": "KRX_CURRENT_MARKET_STATE_GET_ONLY",
+      "path": "/uapi/domestic-stock/v1/quotations/inquire-price"
+    },
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "FHKST01010200",
+      "purpose": "KRX_ORDERBOOK_STATE_GET_ONLY",
+      "path": "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn"
+    },
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "CTCA0903R",
+      "purpose": "KRX_DATE_SPECIFIC_OPEN_DAY_GET_ONLY",
+      "path": "/uapi/domestic-stock/v1/quotations/chk-holiday"
+    },
+    {
+      "provider_id": "KIS_OPEN_API",
+      "endpoint_id": "FHPST01390000",
+      "purpose": "KRX_VI_STATUS_GET_ONLY",
+      "path": "/uapi/domestic-stock/v1/quotations/inquire-vi-status"
+    }
+  ],
+  "price_basis": {
+    "allowed": [
+      "RAW",
+      "ADJUSTED"
+    ],
+    "mixed_within_series": "REJECT",
+    "kis_daily_selector": {
+      "0": "ADJUSTED",
+      "1": "RAW"
+    },
+    "adjusted_requirements": [
+      "EXPLICIT_FACTOR",
+      "CORPORATE_ACTION_REFS",
+      "ACTION_SNAPSHOT_SHA256",
+      "ACTION_AVAILABLE_AT_LE_REPLAY_AS_OF"
+    ]
+  },
+  "required_source_times": [
+    "observed_at",
+    "available_at",
+    "generated_at"
+  ],
+  "time_order": "BAR_CLOSE_LE_OBSERVED_AT_LE_AVAILABLE_AT_LE_GENERATED_AT_LE_DECISION_AT",
+  "gap_and_backfill": {
+    "missing_expected_interval": "GAP_FAIL_CLOSED",
+    "exact_duplicate": "DEDUPE_AND_COUNT",
+    "conflicting_duplicate": "REJECT",
+    "backfill_visibility": "AVAILABLE_AT_POINT_IN_TIME_ONLY",
+    "overwrite_committed_interval": "REJECT"
+  },
+  "market_state_required": [
+    "price_limits",
+    "tick_size",
+    "volatility_interruption",
+    "trading_halt",
+    "market_circuit_breaker"
+  ],
+  "authority": {
+    "market_data_observation_only": true,
+    "universe_eligibility_authorized": false,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "hold_exit_authorized": false,
+    "action_authorized": false,
+    "internal_virtual_fill_authorized": false,
+    "kis_mock_order_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

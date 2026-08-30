@@ -1,0 +1,30 @@
+{
+  "schema_version": "upbit_paper_identity_hardening_contract/1",
+  "review_status": "PROPOSED_UNRATIFIED_EXACT_HASH_APPROVAL_REQUIRED",
+  "scope": "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY",
+  "eligible_category": "eligible_crypto",
+  "unknown_asset_policy": "fail_closed_unknown",
+  "unknown_market_policy": "fail_closed_unratified_identity",
+  "authority": {
+    "identity_authorized": false,
+    "taxonomy_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "candidate_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "exchange_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "assets": [
+    {"market": "KRW-BTC", "canonical_asset_id": "BTC", "korean_name": "비트코인", "english_name": "Bitcoin", "category": "eligible_crypto"},
+    {"market": "KRW-ETH", "canonical_asset_id": "ETH", "korean_name": "이더리움", "english_name": "Ethereum", "category": "eligible_crypto"},
+    {"market": "KRW-LINK", "canonical_asset_id": "LINK", "korean_name": "체인링크", "english_name": "Chainlink", "category": "eligible_crypto"},
+    {"market": "KRW-SHIB", "canonical_asset_id": "SHIB", "korean_name": "시바이누", "english_name": "Shiba Inu", "category": "eligible_crypto"},
+    {"market": "KRW-SOL", "canonical_asset_id": "SOL", "korean_name": "솔라나", "english_name": "Solana", "category": "eligible_crypto"},
+    {"market": "KRW-SUI", "canonical_asset_id": "SUI", "korean_name": "수이", "english_name": "Sui", "category": "eligible_crypto"},
+    {"market": "KRW-WLD", "canonical_asset_id": "WLD", "korean_name": "월드코인", "english_name": "Worldcoin", "category": "eligible_crypto"},
+    {"market": "KRW-XRP", "canonical_asset_id": "XRP", "korean_name": "엑스알피(리플)", "english_name": "XRP", "category": "eligible_crypto"}
+  ]
+}

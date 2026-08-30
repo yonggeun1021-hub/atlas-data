@@ -1,0 +1,105 @@
+{
+  "schema_version": "upbit_first_party_identity_capture_contract/1",
+  "review_status": "PROPOSED_EVIDENCE_ONLY_AUTHORITY_FALSE",
+  "scope": "P3-12 governance-frozen Crypto PAPER markets only",
+  "capture_version": "upbit-first-party-identity-capture/v1",
+  "max_response_bytes": 2000000,
+  "timeout_seconds": 60,
+  "auth_required": false,
+  "order_or_withdrawal_endpoints_called": false,
+  "source_published_at_claimed": false,
+  "authority": {
+    "identity_authorized": false,
+    "taxonomy_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "candidate_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "exchange_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "assets": [
+    {
+      "market": "KRW-BTC",
+      "canonical_asset_id": "BTC",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_WEB",
+      "url": "https://bitcoin.org/en/",
+      "validated_authority_domain": "bitcoin.org",
+      "allowed_redirect_domains": ["bitcoin.org"],
+      "raw_file": "BTC/source.html.gz",
+      "required_markers": ["Bitcoin is an innovative", "peer-to-peer"]
+    },
+    {
+      "market": "KRW-ETH",
+      "canonical_asset_id": "ETH",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_WEB",
+      "url": "https://ethereum.org/en/what-is-ether/",
+      "validated_authority_domain": "ethereum.org",
+      "allowed_redirect_domains": ["ethereum.org"],
+      "raw_file": "ETH/source.html.gz",
+      "required_markers": ["ETH", "ether"]
+    },
+    {
+      "market": "KRW-LINK",
+      "canonical_asset_id": "LINK",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "url": "https://docs.chain.link/resources/link-token-contracts",
+      "validated_authority_domain": "chain.link",
+      "allowed_redirect_domains": ["docs.chain.link", "chain.link"],
+      "raw_file": "LINK/source.html.gz",
+      "required_markers": ["LINK Token Contracts", "0x514910"]
+    },
+    {
+      "market": "KRW-SHIB",
+      "canonical_asset_id": "SHIB",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_WEB",
+      "url": "https://shib.io/tokens",
+      "validated_authority_domain": "shib.io",
+      "allowed_redirect_domains": ["shib.io"],
+      "raw_file": "SHIB/source.html.gz",
+      "required_markers": ["$SHIB", "main tokens"]
+    },
+    {
+      "market": "KRW-SOL",
+      "canonical_asset_id": "SOL",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "url": "https://solana.com/learn/introduction-to-solana-tokens",
+      "validated_authority_domain": "solana.com",
+      "allowed_redirect_domains": ["solana.com"],
+      "raw_file": "SOL/source.html.gz",
+      "required_markers": ["SOL is Solana's native currency", "transactions and fees"]
+    },
+    {
+      "market": "KRW-SUI",
+      "canonical_asset_id": "SUI",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "url": "https://docs.sui.io/develop/sui-architecture/tokenomics-overview",
+      "validated_authority_domain": "sui.io",
+      "allowed_redirect_domains": ["docs.sui.io", "sui.io"],
+      "raw_file": "SUI/source.html.gz",
+      "required_markers": ["SUI token", "gas fees"]
+    },
+    {
+      "market": "KRW-WLD",
+      "canonical_asset_id": "WLD",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "url": "https://whitepaper.world.org/designing-for-scale",
+      "validated_authority_domain": "world.org",
+      "allowed_redirect_domains": ["whitepaper.world.org", "world.org"],
+      "raw_file": "WLD/source.html.gz",
+      "required_markers": ["WLD", "ERC-20"]
+    },
+    {
+      "market": "KRW-XRP",
+      "canonical_asset_id": "XRP",
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "url": "https://xrpl.org/about/xrp",
+      "validated_authority_domain": "xrpl.org",
+      "allowed_redirect_domains": ["xrpl.org"],
+      "raw_file": "XRP/source.html.gz",
+      "required_markers": ["XRP Ledger", "native digital asset"]
+    }
+  ]
+}

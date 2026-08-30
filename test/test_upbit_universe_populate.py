@@ -28,6 +28,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".github" / "scripts" / "upbit_universe_populate.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "upbit-universe-capture.yml"
 
 SPEC = importlib.util.spec_from_file_location("upbit_universe_populate", SCRIPT)
 POPULATE = importlib.util.module_from_spec(SPEC)
@@ -104,7 +105,7 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             self.assertEqual(second["outcome"], "verified_existing")
             self.assertEqual(first["payload_sha256"], second["payload_sha256"])
 
-    def test_governance_freeze_refuses_same_vintage_authority_reclassification(self):
+    def test_exact_approval_allows_one_safe_same_vintage_ratification_transition(self):
         current = POPULATE.rebuild("2026-08-30")
         historical = copy.deepcopy(current)
         historical.pop("ratification")
@@ -135,10 +136,72 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             target = POPULATE.output_path("2026-08-30", data_root)
             target.parent.mkdir(parents=True)
             target.write_text(json.dumps(historical, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            before = target.read_bytes()
-            with self.assertRaisesRegex(POPULATE.PopulationError, "EXISTING_PACKET_DRIFT_OR_TAMPER"):
-                POPULATE.populate("2026-08-30", data_root=data_root)
-            self.assertEqual(target.read_bytes(), before)
+            result = POPULATE.populate("2026-08-30", data_root=data_root)
+            self.assertEqual(result["outcome"], "ratified_reclassification")
+            self.assertEqual(result["reason"], "UNRATIFIED_TO_RATIFIED_SAME_RAW_VINTAGE")
+            released = json.loads(target.read_text(encoding="utf-8"))
+            self.assertTrue(released["ratification"]["effective_for_snapshot"])
+            self.assertEqual(released["packet"]["summary"]["paper_eligible_count"], 8)
+            self.assertTrue(all(value is False for value in released["packet"]["authority"].values()))
+
+    def test_exact_approval_replaces_only_the_known_frozen_eight_market_record(self):
+        current = POPULATE.rebuild("2026-08-30")
+        historical = copy.deepcopy(current)
+        freeze = json.loads(POPULATE.IDENTITY_GOVERNANCE_FREEZE_PATH.read_text(encoding="utf-8"))
+        historical["ratification"]["identity_registry"]["file_sha256"] = (
+            freeze["blocked_identity_registry"]["pre_freeze_file_sha256"]
+        )
+        historical["ratification"]["identity_registry"]["mapping_count"] = 55
+        historical["ratification"]["taxonomy"]["file_sha256"] = (
+            freeze["blocked_taxonomy"]["pre_freeze_file_sha256"]
+        )
+        historical["payload_sha256"] = POPULATE.payload_sha256(
+            {key: value for key, value in historical.items() if key != "payload_sha256"}
+        )
+        fixture_freeze = copy.deepcopy(freeze)
+        fixture_freeze["blocked_universe_record_payload_sha256s"] = [historical["payload_sha256"]]
+
+        self.assertTrue(POPULATE._safe_frozen_exact_hash_transition(
+            historical,
+            current,
+            existing_hash=historical["payload_sha256"],
+            freeze=fixture_freeze,
+        ))
+        tampered = copy.deepcopy(historical)
+        next(
+            row for row in tampered["packet"]["markets"]
+            if row["state"] == UNI.STATE_PAPER_ELIGIBLE
+        )["market"] = "KRW-TAMPER"
+        self.assertFalse(POPULATE._safe_frozen_exact_hash_transition(
+            tampered,
+            current,
+            existing_hash=historical["payload_sha256"],
+            freeze=fixture_freeze,
+        ))
+
+
+class WorkflowTransactionTests(unittest.TestCase):
+    def test_raw_is_committed_before_derived_outputs_and_telemetry(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        raw_commit = text.index("Commit immutable raw snapshot before P3 classification")
+        classification = text.index("P3-12 classification (reads raw snapshot only")
+        telemetry = text.index("Record P3-12 Upbit universe scheduler telemetry")
+        derived_commit = text.index("Commit P3-12 tradeable-universe classification")
+        self.assertLess(raw_commit, classification)
+        self.assertLess(classification, telemetry)
+        self.assertLess(telemetry, derived_commit)
+
+        raw_block = text[raw_commit:classification]
+        self.assertIn('git add "evidence/crypto/upbit/raw/$SNAPSHOT_DATE"', raw_block)
+        self.assertNotIn("data/observations/upbit_tradeable_universe", raw_block)
+        self.assertNotIn("data/operations/upbit_universe_capture_runs", raw_block)
+
+        derived_block = text[derived_commit:]
+        self.assertIn("data/operations/upbit_universe_capture_runs", derived_block)
+        self.assertIn("data/observations/upbit_tradeable_universe", derived_block)
+        self.assertIn("data/observations/upbit_identity_review", derived_block)
+        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', derived_block)
+        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', derived_block)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,53 @@
+{
+  "schema_version": "upbit_paper_identity_exact_hash_approval/1",
+  "approval_status": "RATIFIED",
+  "ratified_at_utc": "2026-08-30T11:17:37Z",
+  "ratified_by": "CIO_USER",
+  "decision_evidence": {
+    "notion_page": "https://app.notion.com/p/3ca9f2d73c84812caceed8bd5cba8a53",
+    "notion_comment_id": "3cc9f2d7-3c84-81f8-81a0-001db0ff8164",
+    "approval_text": "정정된 위 해시와 BTC·ETH·LINK·SHIB·SOL·SUI·WLD·XRP 8개 종목의 Atlas 내부 PAPER 가상매매 전용 해제를 승인합니다. Upbit 실제 주문·출금·REAL·Production·Trading 권한은 승인하지 않습니다."
+  },
+  "candidate": {
+    "path": "data/observations/upbit_paper_identity_hardening_candidate/2026-08-30/20260830T111117Z/packet.json",
+    "schema_version": "upbit_paper_identity_hardening_candidate/2",
+    "file_sha256": "770c722ffa3d9c185ad7629396037cdec1154bad38624cc9d887af3878bcd186",
+    "payload_sha256": "bbc73029ec00dc4b6e3762d69d96f18efa4b2fbd611830c2bd71c976ef405abd",
+    "registry_payload_sha256": "cdf8de02aacf022f4acc20f73a95e43a2ec9f9b6aca905f13de986253c96448a",
+    "taxonomy_payload_sha256": "0a9037b4cb931ab7cb985abef164a99381edabb80fabb629c1b0dccfcadca090",
+    "consumer_file_sha256": "4bc8779e67ff59858b98b2b421bea5cfb71c6297f32802dd396f4927538981b2",
+    "candidate_builder_file_sha256": "eff2a505d844346733dfc7e7a334c782ba908580333b6217fe7f962efecce85d",
+    "consumer_contract_sha256": "80cbebc48afd98a3c3ffefcf634f96d09e5e22d80d558a19ab38e9b866f85f17"
+  },
+  "approved_markets": [
+    "KRW-BTC",
+    "KRW-ETH",
+    "KRW-LINK",
+    "KRW-SHIB",
+    "KRW-SOL",
+    "KRW-SUI",
+    "KRW-WLD",
+    "KRW-XRP"
+  ],
+  "approved_scope": {
+    "atlas_internal_paper_virtual_buy": true,
+    "atlas_internal_paper_virtual_hold": true,
+    "atlas_internal_paper_virtual_stop_loss": true,
+    "atlas_internal_paper_virtual_take_profit": true,
+    "atlas_internal_paper_virtual_sell": true,
+    "atlas_internal_paper_ledger": true
+  },
+  "authority": {
+    "upbit_exchange_order_authorized": false,
+    "upbit_withdrawal_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "invariants": {
+    "identity_approval_does_not_create_entry_signal": true,
+    "regime_freshness_entry_and_risk_gates_remain_required": true,
+    "unknown_or_stale_remains_wait": true,
+    "order_draft_remains_null_without_all_paper_gates": true
+  }
+}

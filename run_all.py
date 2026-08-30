@@ -204,6 +204,18 @@ APPROVED_TESTS = [
     #   behavior). Deterministic: no wall-clock in the classification math.
     #   ⛔ investable/PAPER/Stage/Production/trading/order 권한 없음.
     "test/test_upbit_market_capture.py",
+    # P3-12 governance-freeze remediation slice: immutable first-party
+    # identity evidence for exactly the eight frozen PAPER markets. Source
+    # type/domain/content hash/observed_at/available_at are bound, redirects
+    # fail closed, and every identity/PAPER/exchange/order authority remains
+    # false. Evidence capture only; never releases the freeze by itself.
+    "test/test_upbit_first_party_identity_capture.py",
+    # Exact-hash approval packet for the same bounded eight. It compares
+    # hash-bound Upbit listing names to the first-party capture and proposes
+    # registry/taxonomy payloads, but release_ready and every authority remain
+    # false until a later CIO decision names the exact hashes.
+    "test/test_upbit_paper_identity_hardening_candidate.py",
+    "test/test_upbit_paper_identity_hardening_release.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",
@@ -642,6 +654,15 @@ APPROVED_TESTS = [
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # Current-reference 5/5 and official PIT-history coverage remain separate.
+    # The pointer exposes automatic refresh timing and fail-closed progress;
+    # it never promotes current data into final Regime or trading authority.
+    "test/test_crypto_regime_refresh_status.py",
+    # PAPER-only bridge: Regime controls the future total risk envelope while
+    # cross-market flow/relative strength controls the within-envelope review.
+    # All numeric weights, account facts, actions, orders, and trading remain
+    # null/false until replay and a separate capital-budget ratification.
+    "test/test_capital_flow_posture_reference.py",
     # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
     #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
     #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가

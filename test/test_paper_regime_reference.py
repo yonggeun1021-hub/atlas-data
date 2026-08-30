@@ -29,9 +29,16 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         self.assertEqual(markets["KR"]["coverage"]["ratio"], "5/5")
         self.assertEqual(markets["KR"]["paper_reference"]["candidate_regime"], "NEUTRAL")
         self.assertEqual(markets["KR"]["paper_reference"]["score"], 1)
-        self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], "4/5")
         self.assertEqual(markets["CRYPTO"]["paper_reference"]["candidate_regime"], "UNKNOWN")
-        self.assertEqual(markets["CRYPTO"]["coverage"]["missing_axes"], ["LEADERSHIP"])
+        source = json.loads((ROOT / "data/latest_crypto_regime_refresh_status.json").read_text())
+        self.assertEqual(markets["CRYPTO"]["coverage"], source["official_decision"]["coverage"])
+        expected_status = (
+            "WAIT_MARKET_NORMALIZATION_POLICY"
+            if markets["CRYPTO"]["coverage"]["ratio"] == "5/5"
+            else "WAIT_OFFICIAL_INPUT_COVERAGE"
+        )
+        self.assertEqual(markets["CRYPTO"]["classification_status"], expected_status)
+        self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
         self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
 
     def test_axis_values_and_korean_explanations_are_visible(self):
@@ -73,6 +80,7 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             (root / "data").mkdir()
             shutil.copy2(ROOT / "data/latest_free_market_data.json", root / "data/latest_free_market_data.json")
             shutil.copy2(ROOT / "data/latest_korea_market_signals.json", root / "data/latest_korea_market_signals.json")
+            shutil.copy2(ROOT / "data/latest_crypto_regime_refresh_status.json", root / "data/latest_crypto_regime_refresh_status.json")
             value = json.loads((root / "data/latest_free_market_data.json").read_text())
             value["fred"]["value"] = "not-a-number"
             (root / "data/latest_free_market_data.json").write_text(json.dumps(value), encoding="utf-8")
@@ -86,10 +94,11 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             (root / "data").mkdir()
             shutil.copy2(ROOT / "data/latest_free_market_data.json", root / "data/latest_free_market_data.json")
             shutil.copy2(ROOT / "data/latest_korea_market_signals.json", root / "data/latest_korea_market_signals.json")
-            packet = MODULE.build_reference(root)
+            shutil.copy2(ROOT / "data/latest_crypto_regime_refresh_status.json", root / "data/latest_crypto_regime_refresh_status.json")
+            packet = MODULE.build_reference()
             evidence, latest = MODULE.write_packet(packet, root)
             self.assertEqual(evidence.read_bytes(), latest.read_bytes())
-            self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text()), root), packet)
+            self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text())), packet)
             MODULE.write_packet(packet, root)
 
 

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_market_data_consumer/1",
+  "market_data_contract": {
+    "path": "config/krx_market_data_contract.json",
+    "version": "krx_completed_market_data/1"
+  },
+  "krx_gate_pin": {
+    "public_repository": "yonggeun1021-hub/atlas-data",
+    "merged_main_sha": "016a2889c503066a3a07180e8d12b9da81869e7b",
+    "common_contract_path": "config/krx_paper_common_safety_gate_contract.json",
+    "common_contract_version": "krx_paper_common_safety_gate/1",
+    "common_contract_canonical_sha256": "83ceb7bfcb05d5b8c492b6d98c8a2f0d73274c87a228a9369291db95adef8411",
+    "market_contract_path": "config/krx_paper_market_gate_contract.json",
+    "market_contract_version": "krx_paper_market_gate/1",
+    "market_contract_canonical_sha256": "e8275ac083c5624946718da0dc7db7f01e9700a82aa330e6d306ab734e73cd3f",
+    "required_state_for_any_future_paper_promotion": "ALL_APPLICABLE_GATES_PASS",
+    "current_state_at_pin": "LOCKED"
+  },
+  "external_consumers": {
+    "universe": {
+      "status": "EXACT_HASH_REQUIRED_NOT_PINNED_BY_THIS_LANE",
+      "may_change_market_data_semantics": false
+    },
+    "shadow": {
+      "status": "EXACT_HASH_REQUIRED_NOT_PINNED_BY_THIS_LANE",
+      "may_change_market_data_semantics": false
+    }
+  },
+  "required_market_data_result": {
+    "status": "PASS",
+    "all_series_completed": true,
+    "freshness_status": "FRESH",
+    "market_operability": [
+      "ORDERABLE_OBSERVATION_ONLY",
+      "CLOSED_SESSION"
+    ],
+    "four_hour_bar_required": false
+  },
+  "freshness_dependency": {
+    "canonical_wbs": "P9-01 Intraday price / volume freshness",
+    "contract_path": "config/intraday_freshness_guard_contract.json",
+    "contract_version": "intraday_freshness_guard/1",
+    "repository_default_policy": "ABSENT",
+    "required_external_policy_status": "RATIFIED"
+  },
+  "separation": {
+    "universe_eligibility_is_not_market_operability": true,
+    "market_operability_is_not_order_authority": true,
+    "ci_success_is_not_gate_pass": true,
+    "merge_is_not_operational_approval": true
+  },
+  "authority": {
+    "internal_virtual_fill_authorized": false,
+    "kis_mock_order_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

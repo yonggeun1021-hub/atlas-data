@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -211,8 +212,32 @@ class RealEvidenceTest(unittest.TestCase):
         )
         # Cross-check the blocker_summary aggregation against the raw P3-12
         # packet directly, independent of the module's own internal counts.
-        entry = MODULE.DECISION_SNAPSHOT.find_latest_universe_packet(
-            MODULE.UNIVERSE_DATA_ROOT
+        # The detail view is generation-bound: when a decision packet exists,
+        # it must use that decision's exact frozen P3 source rather than the
+        # mutable latest dated pointer (which may have been replaced by a
+        # later same-day ratified reclassification).  Verify the referenced
+        # bytes independently before using them as the expectation source.
+        decision = result["decision_snapshot"]
+        if decision is not None:
+            decision_record = json.loads(
+                (ROOT / decision["path"]).read_text(encoding="utf-8")
+            )
+            refs = [
+                row for row in decision_record["source_refs"]
+                if row["role"] == "upbit_tradeable_universe_packet"
+            ]
+            self.assertEqual(len(refs), 1)
+            source_path = ROOT / refs[0]["path"]
+            source_bytes = source_path.read_bytes()
+            self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), refs[0]["sha256"])
+            entry = json.loads(source_bytes)
+        else:
+            latest = MODULE.DECISION_SNAPSHOT.find_latest_universe_packet(
+                MODULE.UNIVERSE_DATA_ROOT
+            )
+            entry = latest["record"]
+        self.assertEqual(
+            entry["packet"]["payload_sha256"], result["universe_payload_sha256"]
         )
         raw_rows = entry["packet"]["markets"]
         expected_by_reason: dict[str, int] = {}
