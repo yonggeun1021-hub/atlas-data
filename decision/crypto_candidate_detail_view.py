@@ -232,6 +232,43 @@ def _source_entry_from_decision(decision_record: dict, role: str) -> dict | None
     return {"date": date, "path": path, "record": record}
 
 
+def _is_superseded_by_ratified_universe(path: Path, decision_record: dict) -> bool:
+    """Return true only for a valid, authority-free ratified replacement.
+
+    P3-12 permits one same-raw-vintage UNRATIFIED->RATIFIED reclassification.
+    That intentionally replaces the date packet and makes a previously
+    retained decision's path hash stale.  A current detail view must not bind
+    that historical decision to different bytes; it falls back to the newly
+    verified P3 packet with no inherited P5 evaluation instead.
+    """
+    try:
+        record = DECISION_SNAPSHOT._read_json(path)
+        unsigned_record = copy.deepcopy(record)
+        claimed_record_hash = unsigned_record.pop("payload_sha256", None)
+        packet = record.get("packet")
+        unsigned_packet = copy.deepcopy(packet)
+        claimed_packet_hash = unsigned_packet.pop("payload_sha256", None)
+        identity = decision_record.get("upbit_universe_snapshot_identity") or {}
+        return bool(
+            isinstance(packet, dict)
+            and claimed_record_hash == payload_sha256(unsigned_record)
+            and claimed_packet_hash == payload_sha256(unsigned_packet)
+            and record.get("ratification", {}).get("effective_for_snapshot") is True
+            and packet.get("policy_ratified") is True
+            and packet.get("taxonomy_ratified") is True
+            and identity.get("date") == path.parent.name
+            and identity.get("payload_sha256") != claimed_packet_hash
+            and all(value is False for value in (packet.get("authority") or {}).values())
+            and all(
+                value is False
+                for key, value in (record.get("authority") or {}).items()
+                if key != "observation_pool_population_only"
+            )
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def _price_fact(market_evidence_packet: dict | None) -> dict:
     """Real, already-finalized daily close from P4-07's own committed
     candle evidence -- never a live/current-candle price. ``None``
@@ -391,10 +428,29 @@ def build_view(
         else find_latest_decision_snapshot(decision_snapshot_root)
     )
     decision_record = decision_entry["record"] if decision_entry else None
-    bound_universe = (
-        _source_entry_from_decision(decision_record, "upbit_tradeable_universe_packet")
-        if isinstance(decision_record, dict) else None
-    )
+    bound_universe = None
+    if isinstance(decision_record, dict):
+        try:
+            bound_universe = _source_entry_from_decision(
+                decision_record, "upbit_tradeable_universe_packet",
+            )
+        except CryptoCandidateDetailViewError as exc:
+            refs = [
+                row for row in decision_record.get("source_refs") or []
+                if row.get("role") == "upbit_tradeable_universe_packet"
+            ]
+            source_path = (
+                (ROOT / refs[0]["path"]).resolve()
+                if len(refs) == 1 and isinstance(refs[0].get("path"), str)
+                else None
+            )
+            if (
+                "DECISION_SOURCE_BYTES_MISMATCH" not in str(exc)
+                or source_path is None
+                or not _is_superseded_by_ratified_universe(source_path, decision_record)
+            ):
+                raise
+            decision_record = None
     if decision_packet_path is not None and bound_universe is None:
         _fail("DECISION_UNIVERSE_SOURCE_REF_MISSING", str(decision_packet_path))
     universe_entry = bound_universe or DECISION_SNAPSHOT.find_latest_universe_packet(universe_data_root)

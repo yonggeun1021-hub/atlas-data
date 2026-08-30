@@ -460,7 +460,9 @@ class BuildPromotionPacketTests(unittest.TestCase):
         self.actual_policy = copy.deepcopy(policy)
         self.actual_taxonomy = copy.deepcopy(taxonomy)
         policy["approval_status"] = "RATIFIED"
+        policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
+        taxonomy["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.policy_patch.start()
@@ -604,7 +606,9 @@ class BuildPromotionPacketTests(unittest.TestCase):
     def test_unratified_universe_policy_cannot_be_bypassed_by_fabricated_in_scope_row(self):
         packet, regime, evidence, leadership = self._full_watch_inputs()
         packet["policy_ratified"] = False
-        packet["taxonomy_ratified"] = self.actual_taxonomy.get("approval_status") == "RATIFIED"
+        packet["taxonomy_ratified"] = UNI._approval_effective(
+            self.actual_taxonomy, EVAL_AS_OF, date_field="effective_from",
+        )
         packet["payload_sha256"] = UNI.payload_sha256({
             key: value for key, value in packet.items() if key != "payload_sha256"
         })

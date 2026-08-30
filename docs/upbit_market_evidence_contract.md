@@ -21,12 +21,11 @@ any of that. It instead:
    (`data/observations/upbit_tradeable_universe/<date>/packet.json`) to
    determine which markets are already at `TRADEABLE_UNIVERSE` or
    `PAPER_ELIGIBLE` -- capturing microstructure for markets nothing
-   downstream can act on yet would be wasted network load. Since P3-12's
-   policy/taxonomy/identity all ship `PROPOSED_*_UNRATIFIED`, this list is
-   currently **empty in production**; an empty capture is a normal,
-   successful, append-only-empty snapshot, exactly as
-   `docs/upbit_tradeable_universe_contract.md` documents for
-   `OBSERVATION_POOL` -- expected, not a bug.
+   downstream can act on yet would be wasted network load. P3-12's
+   policy/taxonomy/exact identity registry are RATIFIED for PAPER-only
+   classification effective 2026-08-30. P4-07 consumes only a hash-valid
+   packet for that effective vintage; an earlier packet remains empty and
+   is never retroactively promoted.
 2. Captures a wider set of evidence per market: 15m/1h/4h/1d candles (not
    just daily), recent public trade ticks, and an orderbook snapshot with
    computed spread/depth/estimated-slippage and an explicit freshness

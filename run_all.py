@@ -303,6 +303,14 @@ APPROVED_TESTS = [
     # evaluation_as_of; never from a name pattern alone. approval_status is
     # never changed. Review-only; every authority field hardcoded false.
     "test/test_upbit_taxonomy_schema_eligible_candidate.py",
+    # P3-12-ID-01 Upbit Bounded Identity Registry: ticker-match-alone is
+    # never sufficient -- a market's candidate canonical id becomes a
+    # VERIFIED_CANDIDATE only from curated, official-source-cited research
+    # evidence (config/upbit_bounded_identity_evidence.json), high
+    # name-match confidence, no found ticker collision, and no unresolved
+    # rebrand history. RE forced-held regardless of evidence. Registry is
+    # never ratified; every authority field hardcoded false.
+    "test/test_upbit_bounded_identity_registry.py",
     # ★ P2-01 — externally RATIFIED Theme / Value-Chain graph validator.
     #   repo default taxonomy 없이 effective nodes/edges와 evidence-linked US/KR
     #   memberships를 검증한다. draft는 membership 0, ratified graph만 detached
