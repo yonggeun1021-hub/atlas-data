@@ -426,6 +426,27 @@ class BriefingInputsTest(unittest.TestCase):
         sec_views = list((self.out / "sec").glob("*.json"))
         self.assertTrue(sec_views)
 
+    def test_successful_build_preserves_unowned_briefing_state(self):
+        locator = self.out / "daily_briefing_sources.json"
+        validation = (
+            self.out
+            / "finalization"
+            / "2026-08-30"
+            / "morning"
+            / "validation-rev-005.json"
+        )
+        locator_bytes = b'{"locator":"exact"}\n'
+        validation_bytes = b'{"validation_status":"HOLD"}\n'
+        locator.write_bytes(locator_bytes)
+        validation.parent.mkdir(parents=True, exist_ok=True)
+        validation.write_bytes(validation_bytes)
+
+        self.module.build_and_publish(self.today)
+
+        self.assertEqual(locator.read_bytes(), locator_bytes)
+        self.assertEqual(validation.read_bytes(), validation_bytes)
+        self.assertTrue((self.out / "step0_status.json").is_file())
+
     def test_read_model_failure_is_degraded_not_data_failure(self):
         self.module.build_and_publish(self.today)
         before = self.snapshot_bundle()
