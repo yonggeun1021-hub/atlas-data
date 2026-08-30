@@ -810,6 +810,8 @@ def build_snapshot(
             universe_taxonomy,
             universe_packet["evaluation_as_of"],
             date_field="effective_from",
+            governance_source_path=UNIVERSE.TAXONOMY_RELATIVE_PATH,
+            governance_content=universe_taxonomy.get("records") or [],
         )
         if not identity_authority_available or not taxonomy_authority_available:
             universe_status = UNKNOWN

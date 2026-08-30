@@ -99,6 +99,18 @@ DECISION_SNAPSHOT = _load(
     "crypto_candidate_detail_view_decision_snapshot",
     "decision/crypto_paper_decision_snapshot.py",
 )
+# P3-12-GOV-03A: the structured, self-hash-bound identity/taxonomy freeze
+# registry. A frozen tuple must block this read-model regardless of whether
+# the CURRENTLY OBSERVED bytes happen to match, differ from, or have been
+# restored back to the frozen value -- see
+# governance/upbit_identity_taxonomy_governance_freeze.py's module
+# docstring and ``_bound_universe_source()``/``_universe_packet_is_frozen()``
+# below.
+GOVERNANCE_FREEZE = _load(
+    "crypto_candidate_detail_view_governance_freeze",
+    "governance/upbit_identity_taxonomy_governance_freeze.py",
+)
+GOVERNANCE_FROZEN_REASON = "IDENTITY_TAXONOMY_PENDING_GOVERNANCE_RESOLUTION"
 
 
 def _relative_or_absolute(path: Path) -> str:
@@ -165,11 +177,79 @@ def _verified_decision_entry(candidate: Path) -> dict:
         _fail("DECISION_PACKET_INVALID", f"{candidate}:{exc}")
 
 
+def _path_is_frozen(relative_path: str, *, declared_sha256: str | None = None) -> bool:
+    """True iff ``relative_path`` has an exact, registered freeze-registry
+    entry matching ANY of: ``declared_sha256`` (a caller-supplied pinned/
+    expected hash -- checked even if the actual current file no longer has
+    those bytes, or never did), the CURRENT file's own raw byte hash, the
+    current file's own embedded record ``payload_sha256``, or its nested
+    ``packet.payload_sha256`` (checked even if those differ from
+    ``declared_sha256`` or from each other).
+
+    This is P3-12-GOV-03A's core fix (item C): a freeze must never depend
+    on first observing a byte MISMATCH. In this specific incident the
+    frozen universe packet's bytes were never reverted, so a "check only on
+    mismatch" design (the defect this function replaces) would never even
+    fire -- every one of these hash identities is checked unconditionally,
+    every time, regardless of whether any of them currently agree with each
+    other.
+    """
+    if declared_sha256 is not None and GOVERNANCE_FREEZE.is_frozen(relative_path, file_sha256=declared_sha256):
+        return True
+    absolute = (ROOT / relative_path).resolve()
+    try:
+        absolute.relative_to(ROOT.resolve())
+    except ValueError:
+        return False
+    if not absolute.is_file():
+        return False
+    actual_file_hash = hashlib.sha256(absolute.read_bytes()).hexdigest()
+    if GOVERNANCE_FREEZE.is_frozen(relative_path, file_sha256=actual_file_hash):
+        return True
+    try:
+        record = DECISION_SNAPSHOT._read_json(absolute)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+    packet = record.get("packet") if isinstance(record, dict) else None
+    return GOVERNANCE_FREEZE.is_frozen(
+        relative_path,
+        record_payload_sha256=record.get("payload_sha256") if isinstance(record, dict) else None,
+        inner_packet_sha256=(packet or {}).get("payload_sha256") if isinstance(packet, dict) else None,
+    )
+
+
+def _decision_references_frozen_universe(decision_record: dict) -> bool:
+    """True iff this decision record's own ``upbit_tradeable_universe_packet``
+    source_ref -- by its declared path+hash alone, never requiring a
+    successful bind first -- is governance-frozen. A malformed/ambiguous
+    ref is not this function's concern (the normal bind path raises its own
+    specific error for that); this only answers "is the thing it POINTS AT
+    frozen," which must be knowable even when the ref currently resolves
+    cleanly with no byte mismatch at all.
+    """
+    matches = [
+        row for row in decision_record.get("source_refs") or []
+        if row.get("role") == "upbit_tradeable_universe_packet"
+    ]
+    if len(matches) != 1:
+        return False
+    relative = matches[0].get("path")
+    expected_sha = matches[0].get("sha256")
+    if not isinstance(relative, str) or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
+        return False
+    return _path_is_frozen(relative, declared_sha256=expected_sha)
+
+
 def find_latest_decision_snapshot(root: Path = DECISION_SNAPSHOT_ROOT) -> dict | None:
     """Latest verified decision packet by its internal UTC timestamp.
 
     Directory names are checked against the signed-in-payload time basis and
-    never used as the selection authority.
+    never used as the selection authority. A decision packet whose universe
+    source_ref points at exact, registered-frozen lineage (P3-12-GOV-03A) is
+    EXCLUDED from selection here -- never deleted, never modified on disk,
+    simply never eligible to be "latest" while that lineage stays frozen,
+    regardless of whether its reference currently resolves with a byte
+    match or a mismatch.
     """
     root = Path(root)
     if not root.is_dir():
@@ -180,6 +260,7 @@ def find_latest_decision_snapshot(root: Path = DECISION_SNAPSHOT_ROOT) -> dict |
             candidates.append(_verified_decision_entry(candidate))
         except CryptoCandidateDetailViewError as exc:
             print(f"TAMPER_OR_DRIFT:{exc}", file=__import__("sys").stderr)
+    candidates = [row for row in candidates if not _decision_references_frozen_universe(row["record"])]
     if not candidates:
         return None
     candidates.sort(key=lambda row: row["captured_at"])
@@ -428,6 +509,23 @@ def build_view(
         else find_latest_decision_snapshot(decision_snapshot_root)
     )
     decision_record = decision_entry["record"] if decision_entry else None
+    explicit = decision_packet_path is not None
+
+    # P3-12-GOV-03A item D.2: an EXPLICITLY named decision packet whose
+    # universe lineage is governance-frozen must fail closed here -- never
+    # silently fall back to something else -- checked BEFORE attempting any
+    # bind, so this fires even when the ref currently resolves with a clean
+    # byte match (the defect this whole mechanism exists to close).
+    if isinstance(decision_record, dict) and _decision_references_frozen_universe(decision_record):
+        if explicit:
+            _fail("DECISION_SOURCE_GOVERNANCE_FROZEN", str(decision_packet_path))
+        # Auto-latest should never reach here -- find_latest_decision_snapshot()
+        # already excludes frozen-lineage candidates -- but if it somehow
+        # does (e.g. a caller passes a hand-picked decision_snapshot_root),
+        # never inherit its P5 evaluation: fall back exactly as if no
+        # decision snapshot existed at all.
+        decision_record = None
+
     bound_universe = None
     if isinstance(decision_record, dict):
         try:
@@ -460,6 +558,26 @@ def build_view(
     if not isinstance(universe_packet, dict):
         _fail("UNIVERSE_PACKET_INVALID", universe_entry["date"])
 
+    # P3-12-GOV-03A item D.1/D.4: the universe packet ULTIMATELY selected --
+    # whether bound from a decision snapshot's source_ref or obtained via
+    # the plain "latest committed" fallback -- is checked for governance
+    # freeze independently. In this incident the frozen universe packet's
+    # bytes were never reverted, so even the fallback path returns exactly
+    # the frozen content; this is what actually drives the funnel down to
+    # zero, not merely excluding one stale decision snapshot.
+    universe_path = universe_entry.get("path")
+    universe_relative = None
+    if universe_path is not None:
+        try:
+            universe_relative = str(Path(universe_path).resolve().relative_to(ROOT.resolve()))
+        except ValueError:
+            universe_relative = None
+    universe_frozen = universe_relative is not None and _path_is_frozen(universe_relative)
+    if universe_frozen:
+        if explicit and bound_universe is not None:
+            _fail("DECISION_SOURCE_GOVERNANCE_FROZEN", str(decision_packet_path))
+        decision_record = None
+
     bound_market_evidence = (
         _source_entry_from_decision(decision_record, "upbit_market_evidence_packet")
         if isinstance(decision_record, dict) else None
@@ -473,30 +591,47 @@ def build_view(
     candidates = []
     for universe_row in sorted(universe_packet.get("markets") or [], key=lambda row: row["market"]):
         market = universe_row["market"]
+        effective_row = universe_row
+        if universe_frozen and universe_row.get("state") != "OBSERVATION_POOL":
+            # Identity/taxonomy authority is frozen -- this market can never
+            # be shown as anything but OBSERVATION_POOL right now, no matter
+            # what state the (frozen) committed packet itself declares.
+            effective_row = dict(universe_row)
+            effective_row["state"] = "OBSERVATION_POOL"
+            effective_row["reason"] = GOVERNANCE_FROZEN_REASON
+            effective_row["candidate_canonical_asset_id"] = None
         candidates.append(
             _candidate_row(
-                universe_row,
-                decision_by_market.get(market),
-                _market_evidence_packet_for(market, market_evidence_entry),
+                effective_row,
+                None if universe_frozen else decision_by_market.get(market),
+                None if universe_frozen else _market_evidence_packet_for(market, market_evidence_entry),
             )
         )
 
     funnel_counts = (
         decision_record.get("funnel_counts")
-        if isinstance(decision_record, dict)
+        if isinstance(decision_record, dict) and not universe_frozen
         else None
     )
     if funnel_counts is None:
-        summary = universe_packet.get("summary") or {}
-        funnel_counts = {
-            "observation_pool_count": summary.get("observation_pool_count"),
-            "tradeable_universe_count": (
-                (summary.get("tradeable_universe_count") or 0)
-                + (summary.get("paper_eligible_count") or 0)
-            ),
-            "focused_review_count": None,
-            "paper_ready_count": None,
-        }
+        if universe_frozen:
+            funnel_counts = {
+                "observation_pool_count": len(candidates),
+                "tradeable_universe_count": 0,
+                "focused_review_count": 0,
+                "paper_ready_count": 0,
+            }
+        else:
+            summary = universe_packet.get("summary") or {}
+            funnel_counts = {
+                "observation_pool_count": summary.get("observation_pool_count"),
+                "tradeable_universe_count": (
+                    (summary.get("tradeable_universe_count") or 0)
+                    + (summary.get("paper_eligible_count") or 0)
+                ),
+                "focused_review_count": None,
+                "paper_ready_count": None,
+            }
 
     if generated_at is None:
         generated_at = (

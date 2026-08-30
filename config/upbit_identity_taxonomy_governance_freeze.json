@@ -1,27 +1,31 @@
 {
-  "schema_version": "upbit_identity_taxonomy_governance_freeze/1",
-  "resolution_status": "PENDING_GOVERNANCE_RESOLUTION",
-  "effective_from_utc": "2026-08-30T05:11:30Z",
-  "reason": "The P3-12 identity registry and taxonomy were merged without an explicit post-HOLD CIO approval, and their independent identity sources lack source typing, validated authority domains, exact content hashes, and observed_at/available_at binding.",
-  "preserve_historical_evidence": true,
+  "audit_counts": {
+    "ambiguous_count": 25,
+    "authority_invalid_registry_mapping_count": 55,
+    "authority_valid_identity_count": 0,
+    "bounded_market_count": 282,
+    "content_conflict_count": 1,
+    "first_party_candidate_unbound_count": 23,
+    "official_listing_only_unresolved_count": 201,
+    "third_party_only_count": 32
+  },
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
   "blocked_identity_registry": {
+    "mapping_count": 55,
     "path": "config/upbit_asset_identity_registry.json",
-    "pre_freeze_file_sha256": "dc4b524282de611c71fbc1440a05f420b7b2d83f9f9b0b20ef602d4ae460655a",
-    "mapping_count": 55
+    "pre_freeze_file_sha256": "dc4b524282de611c71fbc1440a05f420b7b2d83f9f9b0b20ef602d4ae460655a"
   },
-  "blocked_taxonomy": {
-    "path": "config/upbit_exclusion_taxonomy.json",
-    "pre_freeze_file_sha256": "6c81909974e20d4d9717e23f07c03f03e263e1359de6fd5de104c44466901f4b",
-    "content_conflict_markets": [
-      "KRW-LIT"
-    ]
-  },
-  "blocked_universe_record_payload_sha256s": [
-    "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12"
-  ],
-  "blocked_universe_packet_payload_sha256s": [
-    "3ba2721dec6ff574b0e1652fd4d8712259d17797aa2f60f8ba022020ff702c3f"
-  ],
   "blocked_paper_markets": [
     "KRW-BTC",
     "KRW-ETH",
@@ -32,16 +36,49 @@
     "KRW-WLD",
     "KRW-XRP"
   ],
-  "audit_counts": {
-    "bounded_market_count": 282,
-    "official_listing_only_unresolved_count": 201,
-    "first_party_candidate_unbound_count": 23,
-    "third_party_only_count": 32,
-    "ambiguous_count": 25,
-    "content_conflict_count": 1,
-    "authority_valid_identity_count": 0,
-    "authority_invalid_registry_mapping_count": 55
+  "blocked_taxonomy": {
+    "content_conflict_markets": [
+      "KRW-LIT"
+    ],
+    "path": "config/upbit_exclusion_taxonomy.json",
+    "pre_freeze_file_sha256": "6c81909974e20d4d9717e23f07c03f03e263e1359de6fd5de104c44466901f4b"
   },
+  "blocked_universe_packet_payload_sha256s": [
+    "3ba2721dec6ff574b0e1652fd4d8712259d17797aa2f60f8ba022020ff702c3f"
+  ],
+  "blocked_universe_record_payload_sha256s": [
+    "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12"
+  ],
+  "effective_from_utc": "2026-08-30T05:11:30Z",
+  "payload_sha256": "ab8e9ab9c287d48a3495b4dc5f9f9e1ba79b9e777d73c81b2565ec498608c01a",
+  "preserve_historical_evidence": true,
+  "reason": "The P3-12 identity registry and taxonomy were merged without an explicit post-HOLD CIO approval, and their independent identity sources lack source typing, validated authority domains, exact content hashes, and observed_at/available_at binding.",
+  "records": [
+    {
+      "effective_from": "2026-08-30",
+      "reason": "Ratified P3-12 Upbit PAPER universe record (paper_eligible_count=8: BTC, ETH, LINK, SHIB, SOL, SUI, WLD, XRP) built from an identity registry/taxonomy merged without an explicit post-HOLD CIO approval.",
+      "revoked_file_sha256": "485c62d534ebeb82a97a5d3b64159fa3c5b40b0cca42e1b70b8f3fadb3035530",
+      "revoked_inner_packet_sha256": "3ba2721dec6ff574b0e1652fd4d8712259d17797aa2f60f8ba022020ff702c3f",
+      "revoked_record_payload_sha256": "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
+      "source_path": "data/observations/upbit_tradeable_universe/2026-08-30/packet.json"
+    },
+    {
+      "effective_from": "2026-08-30",
+      "reason": "The 55-row canonical mapping this file's `mappings` field declares -- identified by the content hash of that field alone, independent of the document's own `approval_status`/`previous_approval_status` metadata -- has zero rows with a first-party-bound authority source (see docs/p3_12_gov_03_identity_authority_audit_and_freeze_20260830.md). This tuple stays frozen even if `approval_status` is later edited back to RATIFIED without a genuinely re-hardened `mappings` payload.",
+      "revoked_file_sha256": "dc4b524282de611c71fbc1440a05f420b7b2d83f9f9b0b20ef602d4ae460655a",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "c1f01559068cc04db860a33037fa039ad5da645b73c2d75788b183d97f07b8a1",
+      "source_path": "config/upbit_asset_identity_registry.json"
+    },
+    {
+      "effective_from": "2026-08-30",
+      "reason": "The taxonomy `records` content -- identified by its own content hash, independent of `approval_status` -- includes the KRW-LIT record, which conflates Upbit's actual listing (Lighter, a zk-rollup perps DEX) with an unrelated project (Litentry/Heima) that the record's own citation describes. This tuple stays frozen even if `approval_status` is later edited back to RATIFIED without a genuinely corrected `records` payload.",
+      "revoked_file_sha256": "6c81909974e20d4d9717e23f07c03f03e263e1359de6fd5de104c44466901f4b",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "6ff33eba303707f35db50ca1a4c7f3dadd6babef6d664df639fac5d48ae5477d",
+      "source_path": "config/upbit_exclusion_taxonomy.json"
+    }
+  ],
   "release_requirements": [
     "Every identity source has an explicit source_type and validated authority domain.",
     "Every cited source is bound to captured content_sha256, observed_at, and available_at.",
@@ -49,16 +86,6 @@
     "A hardened registry and corrected taxonomy have exact hashes and focused, related, and full CI evidence.",
     "The CIO posts explicit approval identifying the exact hardened registry, taxonomy, and consumer hashes."
   ],
-  "authority": {
-    "identity_authorized": false,
-    "taxonomy_authorized": false,
-    "paper_eligible_promotion_authorized": false,
-    "candidate_promotion_authorized": false,
-    "paper_exit_authorized": false,
-    "exchange_authorized": false,
-    "order_authorized": false,
-    "production_authorized": false,
-    "real_capital_authorized": false,
-    "trading_authorized": false
-  }
+  "resolution_status": "PENDING_GOVERNANCE_RESOLUTION",
+  "schema_version": "upbit_identity_taxonomy_governance_freeze/1"
 }

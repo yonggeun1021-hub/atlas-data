@@ -270,6 +270,8 @@ def _validate_universe_packet(packet: dict, evaluation_as_of: str) -> dict:
     )
     expected_taxonomy_ratified = UPBIT_UNIVERSE._approval_effective(
         taxonomy, evaluation_as_of, date_field="effective_from",
+        governance_source_path=UPBIT_UNIVERSE.TAXONOMY_RELATIVE_PATH,
+        governance_content=taxonomy.get("records") or [],
     )
     if packet["policy_version"] != policy.get("policy_version") or packet["policy_ratified"] is not expected_policy_ratified:
         raise CryptoCandidatePromotionError("UNIVERSE_POLICY_PIN_MISMATCH")

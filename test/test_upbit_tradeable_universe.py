@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -489,6 +490,92 @@ class SnapshotPipelineTests(unittest.TestCase):
                 identity_module.default_candidate_canonical_asset_id(market)  # must not raise
             with self.assertRaises(identity_module.UpbitMarketIdentityProposalError):
                 identity_module.default_candidate_canonical_asset_id("BTC-0G")
+
+
+def _self_hashed_freeze(records):
+    doc = {
+        "schema_version": UNI.GOVERNANCE_FREEZE.SCHEMA_VERSION,
+        "resolution_status": UNI.GOVERNANCE_FREEZE.PENDING_RESOLUTION_STATUS,
+        "records": records,
+        "authority": {
+            "identity_authorized": False, "taxonomy_authorized": False,
+            "paper_eligible_promotion_authorized": False, "candidate_promotion_authorized": False,
+            "paper_exit_authorized": False, "exchange_authorized": False,
+            "order_authorized": False, "production_authorized": False,
+            "real_capital_authorized": False, "trading_authorized": False,
+        },
+    }
+    doc["payload_sha256"] = UNI.GOVERNANCE_FREEZE.payload_sha256(
+        {k: v for k, v in doc.items() if k != "payload_sha256"}
+    )
+    return doc
+
+
+def _freeze_record(source_path, record_sha, reason="test freeze", effective_from="2026-08-30"):
+    return {
+        "source_path": source_path,
+        "revoked_file_sha256": None,
+        "revoked_record_payload_sha256": record_sha,
+        "revoked_inner_packet_sha256": None,
+        "reason": reason,
+        "effective_from": effective_from,
+    }
+
+
+class GovernanceFreezeTamperResistanceTests(unittest.TestCase):
+    """P3-12-GOV-03A item C / test G.7: a frozen tuple must keep blocking
+    even after ``approval_status`` is edited back to ``RATIFIED``, because
+    the freeze check runs on the document's own content hash BEFORE (and
+    regardless of) the ``approval_status`` check. Patches
+    ``GOVERNANCE_FREEZE.load_freeze`` with a synthetic, self-hash-valid
+    registry -- the real committed freeze file is never read here."""
+
+    def _patched(self, doc):
+        return mock.patch.object(UNI.GOVERNANCE_FREEZE, "load_freeze", lambda path=None: doc)
+
+    def test_taxonomy_approval_status_tamper_does_not_revive_frozen_content(self):
+        taxonomy = ratified_taxonomy()  # approval_status == "RATIFIED" already
+        content_hash = UNI.GOVERNANCE_FREEZE.payload_sha256(taxonomy["records"])
+        doc = _self_hashed_freeze([_freeze_record(UNI.TAXONOMY_RELATIVE_PATH, content_hash)])
+        with self._patched(doc):
+            self.assertFalse(UNI._approval_effective(
+                taxonomy, "2026-08-30", date_field="effective_from",
+                governance_source_path=UNI.TAXONOMY_RELATIVE_PATH,
+                governance_content=taxonomy["records"],
+            ))
+
+    def test_identity_registry_approval_status_tamper_does_not_revive_frozen_mappings(self):
+        registry = {
+            "approval_status": "RATIFIED",
+            "effective_from": "2026-08-01",
+            "mappings": {"KRW-BTC": "BTC", "KRW-ETH": "ETH"},
+        }
+        content_hash = UNI.GOVERNANCE_FREEZE.payload_sha256(registry["mappings"])
+        doc = _self_hashed_freeze([_freeze_record(UNI.IDENTITY_REGISTRY_RELATIVE_PATH, content_hash)])
+        with self._patched(doc):
+            self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-30"), {})
+
+    def test_unfrozen_ratified_content_is_still_effective(self):
+        # The freeze check must not become a blanket "always False" --
+        # content the registry does NOT name must validate normally.
+        taxonomy = ratified_taxonomy()
+        doc = _self_hashed_freeze([_freeze_record("config/unrelated_other_file.json", "9" * 64)])
+        with self._patched(doc):
+            self.assertTrue(UNI._approval_effective(
+                taxonomy, "2026-08-30", date_field="effective_from",
+                governance_source_path=UNI.TAXONOMY_RELATIVE_PATH,
+                governance_content=taxonomy["records"],
+            ))
+
+    def test_unratified_content_stays_ineffective_freeze_or_not(self):
+        taxonomy = ratified_taxonomy(approval_status="PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY")
+        doc = _self_hashed_freeze([_freeze_record("config/unrelated_other_file.json", "9" * 64)])
+        with self._patched(doc):
+            self.assertFalse(UNI._approval_effective(
+                taxonomy, "2026-08-30", date_field="effective_from",
+                governance_source_path=UNI.TAXONOMY_RELATIVE_PATH,
+                governance_content=taxonomy["records"],
+            ))
 
 
 if __name__ == "__main__":
