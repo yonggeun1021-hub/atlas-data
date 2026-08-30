@@ -226,7 +226,7 @@ def _symbol_reviews(source: dict, coverage: dict, contract: dict) -> list[dict]:
             entry_reasons = [
                 "CURRENT_PRICE_AND_RETURN_CONTEXT_CONNECTED",
                 "OFFICIAL_AXES_INCOMPLETE:" + ",".join(coverage["missing_axes"]),
-                "AGGREGATE_US_REGIME_UNRATIFIED",
+                "FINAL_US_REGIME_NOT_AVAILABLE",
                 "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY",
             ]
         else:
@@ -242,7 +242,7 @@ def _symbol_reviews(source: dict, coverage: dict, contract: dict) -> list[dict]:
             entry_reasons = [
                 "PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE",
                 "OFFICIAL_AXES_INCOMPLETE:" + ",".join(coverage["missing_axes"]),
-                "AGGREGATE_US_REGIME_UNRATIFIED",
+                "FINAL_US_REGIME_NOT_AVAILABLE",
             ]
         rows.append({
             "symbol": symbol,
