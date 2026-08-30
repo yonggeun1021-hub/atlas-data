@@ -14,12 +14,14 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_ROOT = ROOT / "data" / "operations" / "upbit_microstructure_capture_runs"
 UTC = dt.timezone.utc
 KST = dt.timezone(dt.timedelta(hours=9))
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 SCHEDULE_SLOTS = {
     "20 1 * * *": ("daily_1020_kst", 1, 20),
@@ -143,6 +145,15 @@ def build_record(environ: dict[str, str]) -> dict:
     repository = environ.get("ATLAS_REPOSITORY", "").strip()
     server_url = environ.get("ATLAS_SERVER_URL", "https://github.com").rstrip("/")
 
+    universe_sha = _blank_to_none(environ.get("ATLAS_UNIVERSE_RECORD_SHA256", ""))
+    policy_sha = _blank_to_none(environ.get("ATLAS_P4_POLICY_SHA256", ""))
+    if universe_sha is not None and SHA256_RE.fullmatch(universe_sha) is None:
+        raise TelemetryError("ATLAS_UNIVERSE_RECORD_SHA256 must be lowercase SHA-256")
+    if policy_sha is not None and SHA256_RE.fullmatch(policy_sha) is None:
+        raise TelemetryError("ATLAS_P4_POLICY_SHA256 must be lowercase SHA-256")
+    market_count_raw = _blank_to_none(environ.get("ATLAS_UNIVERSE_MARKET_COUNT", ""))
+    market_count = positive_int(market_count_raw, "ATLAS_UNIVERSE_MARKET_COUNT") if market_count_raw else None
+
     return {
         "schema_version": 1,
         "workflow": "P4-07 Upbit Market Evidence & Microstructure Daily Capture",
@@ -167,6 +178,14 @@ def build_record(environ: dict[str, str]) -> dict:
             environ.get("ATLAS_P4_07_REASON", ""), environ.get("ATLAS_P4_07_PATH", ""),
             environ.get("ATLAS_P4_07_SHA256", ""),
         ),
+        "consumer_lineage": {
+            "snapshot_key": _blank_to_none(environ.get("ATLAS_SNAPSHOT_KEY", "")),
+            "universe_record_sha256": universe_sha,
+            "universe_market_count": market_count,
+            "p4_policy_id": _blank_to_none(environ.get("ATLAS_P4_POLICY_ID", "")),
+            "p4_policy_sha256": policy_sha,
+            "exact_hash_verified_before_provider_calls": universe_sha is not None and policy_sha is not None,
+        },
         "authority_flags": {
             "policy_ratification_authorized": False,
             "evidence_derivation_only": True,

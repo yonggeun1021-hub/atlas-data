@@ -1,0 +1,32 @@
+{
+  "schema_version": "upbit_market_evidence_policy/1",
+  "policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+  "policy_version": "upbit_market_evidence_policy/v1",
+  "approval_status": "RATIFIED",
+  "ratified_by": "CIO/User Notion policy 3cb9f2d7-3c84-8181-bd69-fe7d425aefd0",
+  "ratified_at_utc": "2026-08-29T23:51:27Z",
+  "effective_from_utc": "2026-08-30T00:00:00Z",
+  "effective_to_utc": "9999-12-31T23:59:59Z",
+  "quote_currency": "KRW",
+  "orderbook_depth_levels": 5,
+  "paper_slippage_estimate_notional_krw": "1000000",
+  "max_spread_bps_normal": "100",
+  "max_slippage_bps_normal": "150",
+  "max_staleness_seconds_by_timeframe": {
+    "15m": 1800,
+    "1h": 7200,
+    "4h": 28800,
+    "1d": 172800
+  },
+  "max_trades_staleness_seconds": 600,
+  "max_orderbook_staleness_seconds": 300,
+  "unknown_metric_policy": "fail_closed_unknown",
+  "paper_only": true,
+  "exchange_authorized": false,
+  "order_authorized": false,
+  "paper_exit_authorized": false,
+  "production_authorized": false,
+  "real_capital_authorized": false,
+  "trading_authorized": false,
+  "packet_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e"
+}
