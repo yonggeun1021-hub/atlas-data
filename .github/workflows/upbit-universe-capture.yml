@@ -36,6 +36,7 @@ jobs:
           python3 test/test_upbit_identity_review_bundle.py
           python3 test/test_upbit_bounded_identity_registry.py
           python3 test/test_upbit_universe_populate.py
+          python3 test/test_upbit_identity_governance_freeze.py
       - name: Capture complete append-only Upbit KRW market snapshot
         id: capture
         run: |

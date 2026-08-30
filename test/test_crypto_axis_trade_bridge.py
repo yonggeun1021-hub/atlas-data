@@ -217,13 +217,27 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
         generated_at = (available + dt.timedelta(hours=max_age, seconds=1)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        packet = BRIDGE.DECISION.build_snapshot(
-            generated_at=generated_at,
-            source_commit=self.SOURCE_COMMIT,
-            universe_entry=universe,
-            market_evidence_entry=None,
-            realtime_entry=None,
-        )
+        taxonomy = copy.deepcopy(BRIDGE.DECISION.UNIVERSE.load_taxonomy())
+        registry = copy.deepcopy(BRIDGE.DECISION.UNIVERSE.load_identity_registry())
+        taxonomy["approval_status"] = "RATIFIED"
+        taxonomy["effective_from"] = universe["packet"]["evaluation_as_of"]
+        registry["approval_status"] = "RATIFIED"
+        registry["effective_from"] = universe["packet"]["evaluation_as_of"]
+        with (
+            mock.patch.object(
+                BRIDGE.DECISION.UNIVERSE, "load_taxonomy", return_value=taxonomy,
+            ),
+            mock.patch.object(
+                BRIDGE.DECISION.UNIVERSE, "load_identity_registry", return_value=registry,
+            ),
+        ):
+            packet = BRIDGE.DECISION.build_snapshot(
+                generated_at=generated_at,
+                source_commit=self.SOURCE_COMMIT,
+                universe_entry=universe,
+                market_evidence_entry=None,
+                realtime_entry=None,
+            )
         self.assertEqual(packet["freshness_status"]["upbit_universe"], "STALE")
 
     def test_stale_market_evidence_remains_stale(self):

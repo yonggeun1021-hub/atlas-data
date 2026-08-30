@@ -783,6 +783,8 @@ def build_snapshot(
 
     # -- P3-12 universe freshness -------------------------------------
     universe_policy = UNIVERSE.load_policy()
+    universe_taxonomy = UNIVERSE.load_taxonomy()
+    universe_identity_registry = UNIVERSE.load_identity_registry()
     max_age_hours = Decimal(str(universe_policy["max_capture_age_hours"]))
     universe_packet = universe_entry["packet"] if universe_entry else None
     universe_date = universe_entry["date"] if universe_entry else None
@@ -799,7 +801,20 @@ def build_snapshot(
         if available_at > generated_dt:
             raise CryptoPaperDecisionSnapshotError("UNIVERSE_AVAILABLE_AT_FUTURE_DATED")
         age_hours = Decimal(str((generated_dt - available_at).total_seconds())) / Decimal("3600")
-        if universe_packet.get("policy_ratified") is not True or universe_packet.get("taxonomy_ratified") is not True:
+        identity_authority_available = bool(
+            UNIVERSE.effective_identity_mapping(
+                universe_identity_registry, universe_packet["evaluation_as_of"],
+            )
+        )
+        taxonomy_authority_available = UNIVERSE._approval_effective(
+            universe_taxonomy,
+            universe_packet["evaluation_as_of"],
+            date_field="effective_from",
+        )
+        if not identity_authority_available or not taxonomy_authority_available:
+            universe_status = UNKNOWN
+            notes.append("UPBIT_IDENTITY_TAXONOMY_PENDING_GOVERNANCE_RESOLUTION")
+        elif universe_packet.get("policy_ratified") is not True or universe_packet.get("taxonomy_ratified") is not True:
             universe_status = UNKNOWN
             notes.append("UPBIT_UNIVERSE_POLICY_OR_TAXONOMY_UNRATIFIED")
         elif age_hours > max_age_hours:
@@ -938,7 +953,7 @@ def build_snapshot(
     observation_pool_count = universe_packet["summary"]["observation_pool_count"] if universe_packet else 0
     tradeable_universe_count = (
         universe_packet["summary"]["tradeable_universe_count"] + universe_packet["summary"]["paper_eligible_count"]
-        if universe_packet else 0
+        if universe_packet and universe_status == FRESH else 0
     )
     focused_review_count = promotion_packet["summary"]["focused_review_count"] if promotion_packet else 0
     paper_ready_count = sum(1 for row in candidates if row["state"] == "PAPER_BUY_ELIGIBLE")

@@ -309,7 +309,8 @@ class NaturalPacketTests(unittest.TestCase):
 
     def test_real_committed_taxonomy_file_reflects_candidate_records(self):
         taxonomy = UNI.load_taxonomy()
-        self.assertEqual(taxonomy["approval_status"], "RATIFIED")
+        self.assertEqual(taxonomy["approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
+        self.assertEqual(taxonomy["previous_approval_status"], "RATIFIED")
         self.assertEqual(taxonomy["effective_from"], "2026-08-30")
         self.assertIn("commodity_linked", taxonomy["excluded_categories"])
         ids = {row["canonical_asset_id"] for row in taxonomy["records"]}

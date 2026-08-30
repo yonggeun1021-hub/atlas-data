@@ -392,27 +392,19 @@ class BridgeContractTests(RuntimeFixture):
                 forged, expected_observation_commit_sha="c" * 40,
             )
 
-    def test_first_natural_post_merge_decision_packet_validates_and_waits(self):
+    def test_first_natural_post_merge_decision_is_frozen_as_old_identity_lineage(self):
         paths = sorted((ROOT / "evidence" / "crypto_paper_decision" / "2026-08-29" / "0504").glob(
             "*/packet.json"
         ))
         self.assertEqual(len(paths), 1)
-        decision = BRIDGE.load_and_validate_decision_snapshot(
-            paths[0],
-            expected_source_commit="ba11308e96fa926395e87d37ded8b726d46a3872",
-        )
-        request = BRIDGE.build_runtime_request(
-            decision,
-            expected_source_commit=decision["source_commit"],
-            public_code_commit_sha="608ab37cf9e7fad139f5f857d655ad6c1a19d1b8",
-            account_state=None,
-            open_position_risk=None,
-            runtime_config=None,
-        )
-        self.assertEqual(decision["freshness_status"]["overall"], "MISSING")
-        self.assertEqual(request["status"], "WAIT_RUNTIME_INPUTS_MISSING")
-        self.assertEqual(request["requests"], [])
-        self.assertEqual(request["match_snapshots"], [])
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "DECISION_REDERIVATION_FAILED:OUTPUT_DERIVATION_MISMATCH",
+        ):
+            BRIDGE.load_and_validate_decision_snapshot(
+                paths[0],
+                expected_source_commit="ba11308e96fa926395e87d37ded8b726d46a3872",
+            )
 
     def test_decision_is_rederived_and_exact_public_orderbook_becomes_p10_snapshot(self):
         decision = self.decision()

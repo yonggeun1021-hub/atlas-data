@@ -168,7 +168,7 @@ def load_taxonomy(path: Path = TAXONOMY_PATH) -> dict:
         raise UpbitUniverseError("TAXONOMY_FIELDS_INVALID")
     if doc.get("unknown_asset_policy") != "fail_closed_unknown":
         raise UpbitUniverseError("TAXONOMY_UNKNOWN_POLICY_NOT_FAIL_CLOSED")
-    if doc.get("approval_status") == "RATIFIED":
+    if doc.get("approval_status") in {"RATIFIED", "PENDING_GOVERNANCE_RESOLUTION"}:
         if not _DATE_RE.fullmatch(str(doc.get("effective_from", ""))):
             raise UpbitUniverseError("TAXONOMY_EFFECTIVE_FROM_INVALID")
         if not _UTC_RE.fullmatch(str(doc.get("ratified_at_utc", ""))):
@@ -188,12 +188,13 @@ def _resolve_repo_path(relative_path: str, label: str) -> Path:
 
 
 def load_identity_registry(path: Path = IDENTITY_REGISTRY_PATH) -> dict:
-    """Load the CIO-ratified mapping and revalidate its exact evidence pins.
+    """Load the retained mapping and revalidate its exact evidence pins.
 
     The source candidate packet deliberately remains a historical
-    ``PROPOSED_UNRATIFIED`` observation. This document ratifies exactly its
-    55 verified rows from 2026-08-30 onward; it never edits or re-dates that
-    earlier evidence.
+    ``PROPOSED_UNRATIFIED`` observation. A governance freeze preserves the
+    55-row mapping for audit while ``approval_status`` is
+    ``PENDING_GOVERNANCE_RESOLUTION``; ``effective_identity_mapping`` then
+    returns an empty mapping, so no consumer can promote it.
     """
     doc = _read_json(Path(path))
     required = {
@@ -205,8 +206,8 @@ def load_identity_registry(path: Path = IDENTITY_REGISTRY_PATH) -> dict:
         raise UpbitUniverseError("IDENTITY_REGISTRY_FIELDS_INVALID")
     if doc.get("registry_version") != "upbit_asset_identity_registry/v1":
         raise UpbitUniverseError("IDENTITY_REGISTRY_VERSION_INVALID")
-    if doc.get("approval_status") != "RATIFIED":
-        raise UpbitUniverseError("IDENTITY_REGISTRY_NOT_RATIFIED")
+    if doc.get("approval_status") not in {"RATIFIED", "PENDING_GOVERNANCE_RESOLUTION"}:
+        raise UpbitUniverseError("IDENTITY_REGISTRY_STATUS_INVALID")
     if not _DATE_RE.fullmatch(str(doc.get("effective_from", ""))):
         raise UpbitUniverseError("IDENTITY_REGISTRY_EFFECTIVE_FROM_INVALID")
     if not _UTC_RE.fullmatch(str(doc.get("ratified_at_utc", ""))):

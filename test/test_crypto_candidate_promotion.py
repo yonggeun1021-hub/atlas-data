@@ -457,18 +457,24 @@ class BuildPromotionPacketTests(unittest.TestCase):
     def setUp(self):
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
+        registry = UNI.load_identity_registry()
         self.actual_policy = copy.deepcopy(policy)
         self.actual_taxonomy = copy.deepcopy(taxonomy)
         policy["approval_status"] = "RATIFIED"
         policy["effective_date"] = EVAL_AS_OF
         taxonomy["approval_status"] = "RATIFIED"
         taxonomy["effective_from"] = EVAL_AS_OF
+        registry["approval_status"] = "RATIFIED"
+        registry["effective_from"] = EVAL_AS_OF
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
+        self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
         self.policy_patch.start()
         self.taxonomy_patch.start()
+        self.registry_patch.start()
 
     def tearDown(self):
+        self.registry_patch.stop()
         self.taxonomy_patch.stop()
         self.policy_patch.stop()
 

@@ -261,6 +261,10 @@ def _validate_universe_packet(packet: dict, evaluation_as_of: str) -> dict:
 
     policy = UPBIT_UNIVERSE.load_policy()
     taxonomy = UPBIT_UNIVERSE.load_taxonomy()
+    identity_registry = UPBIT_UNIVERSE.load_identity_registry()
+    effective_identity_registry = UPBIT_UNIVERSE.effective_identity_mapping(
+        identity_registry, evaluation_as_of,
+    )
     expected_policy_ratified = UPBIT_UNIVERSE._approval_effective(
         policy, evaluation_as_of, date_field="effective_date",
     )
@@ -298,6 +302,10 @@ def _validate_universe_packet(packet: dict, evaluation_as_of: str) -> dict:
                 raise CryptoCandidatePromotionError("UNIVERSE_IN_SCOPE_STATE_WITH_UNRATIFIED_POLICY")
             if not isinstance(row["candidate_canonical_asset_id"], str) or not row["candidate_canonical_asset_id"]:
                 raise CryptoCandidatePromotionError("UNIVERSE_IN_SCOPE_IDENTITY_INVALID")
+            if effective_identity_registry.get(row["market"]) != row["candidate_canonical_asset_id"]:
+                raise CryptoCandidatePromotionError(
+                    "UNIVERSE_IN_SCOPE_STATE_WITH_UNRATIFIED_IDENTITY"
+                )
         if row["state"] == UPBIT_UNIVERSE.STATE_PAPER_ELIGIBLE and row["reason"] != "PAPER_ELIGIBLE_ALL_GATES_PASSED":
             raise CryptoCandidatePromotionError("UNIVERSE_PAPER_ELIGIBLE_REASON_INVALID")
     expected_summary = {

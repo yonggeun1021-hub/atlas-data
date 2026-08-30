@@ -204,15 +204,19 @@ def ratified_policy_patches():
     """
     policy = copy.deepcopy(UNI.load_policy())
     taxonomy = copy.deepcopy(UNI.load_taxonomy())
+    registry = copy.deepcopy(UNI.load_identity_registry())
     policy["approval_status"] = "RATIFIED"
     policy["effective_date"] = EVAL_AS_OF
     taxonomy["approval_status"] = "RATIFIED"
     taxonomy["effective_from"] = EVAL_AS_OF
-    targets = [CPDS.PROMOTION.UPBIT_UNIVERSE, CPDS.ELIGIBILITY.UPBIT_UNIVERSE]
+    registry["approval_status"] = "RATIFIED"
+    registry["effective_from"] = EVAL_AS_OF
+    targets = [CPDS.UNIVERSE, CPDS.PROMOTION.UPBIT_UNIVERSE, CPDS.ELIGIBILITY.UPBIT_UNIVERSE]
     patchers = []
     for target in targets:
         patchers.append(mock.patch.object(target, "load_policy", return_value=policy))
         patchers.append(mock.patch.object(target, "load_taxonomy", return_value=taxonomy))
+        patchers.append(mock.patch.object(target, "load_identity_registry", return_value=registry))
     market_policy = copy.deepcopy(CPDS.MARKET_EVIDENCE.load_policy())
     market_policy["approval_status"] = "RATIFIED"
     patchers.append(mock.patch.object(CPDS.MARKET_EVIDENCE, "load_policy", return_value=market_policy))
@@ -978,12 +982,12 @@ class FindPreviousPacketTests(TempDirMixin, unittest.TestCase):
         result = CPDS.find_previous_packet(output_root, "2026-08-29", "1000")
         self.assertIsNone(result)
 
-    def test_backward_compatible_with_pre_existing_committed_packet_missing_new_fields(self):
+    def test_pre_existing_zero_authority_summary_remains_available_for_continuity(self):
         # evidence/crypto_paper_decision/2026-08-29/0504/<gen>/packet.json is
         # the one real packet already committed to main -- built before this
-        # PR's new fields existed, so it has no captured_at_utc. It must
-        # still be found/read without crashing, falling back to its own
-        # generated_at.
+        # PR's new fields existed, so it has no captured_at_utc. The packet
+        # remains immutable evidence, but the current governance freeze must
+        # keep it out of the reusable decision lineage.
         real_packet_path = (
             ROOT / "evidence" / "crypto_paper_decision" / "2026-08-29" / "0504"
             / "07def23c61fe1cb7608da7cacc20e54b2fc32d3caad8cf5b6762b0a2c74851d4"
@@ -991,7 +995,8 @@ class FindPreviousPacketTests(TempDirMixin, unittest.TestCase):
         )
         real_packet = json.loads(real_packet_path.read_text(encoding="utf-8"))
         self.assertNotIn("captured_at_utc", real_packet)
-        self.assertEqual(CPDS.validate_output(real_packet), real_packet)
+        with self.assertRaisesRegex(CPDS.CryptoPaperDecisionSnapshotError, "OUTPUT_DERIVATION_MISMATCH"):
+            CPDS.validate_output(real_packet)
         output_root = self.tmp / "out"
         directory = (
             output_root / real_packet["capture_date"] / real_packet["capture_hhmm"] / real_packet["generation_id"]
@@ -1003,6 +1008,7 @@ class FindPreviousPacketTests(TempDirMixin, unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result["generation_id"], real_packet["generation_id"])
+        self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 0)
         self.assertEqual(result["payload_sha256"], real_packet["payload_sha256"])
         self.assertEqual(result["funnel_counts"], real_packet["funnel_counts"])
 
