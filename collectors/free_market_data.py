@@ -69,6 +69,31 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         raise FreeMarketDataError("ALPACA_TREND_SYMBOLS_INVALID")
     if value.get("alpaca", {}).get("return_windows_sessions") != [5, 20, 60]:
         raise FreeMarketDataError("ALPACA_RETURN_WINDOWS_INVALID")
+    proxy = value.get("alpaca", {}).get("current_proxy_axes")
+    if proxy != {
+        "approval_status": "RATIFIED_CURRENT_REFERENCE_ONLY",
+        "breadth_symbols": [
+            "SPY", "QQQ", "IWM", "XLK", "XLF", "XLE", "XLI", "XLV",
+            "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC",
+        ],
+        "breadth_method": (
+            "latest_session_advance_decline_across_representative_etfs"
+        ),
+        "leadership_symbols": [
+            "XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB",
+            "XLU", "XLRE", "XLC", "SMH",
+        ],
+        "leadership_benchmark": "SPY",
+        "leadership_window_sessions": 20,
+        "leadership_method": (
+            "observed_return_order_and_relative_return_vs_spy"
+        ),
+        "coverage_requirement": "ALL_CONFIGURED_SYMBOLS_PRESENT",
+        "scope": (
+            "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
+        ),
+    }:
+        raise FreeMarketDataError("ALPACA_CURRENT_PROXY_AXES_INVALID")
     authority = value.get("authority")
     if authority != {
         "evidence_capture_only": True,
@@ -328,8 +353,22 @@ def _session_return(closes: list[Decimal], sessions: int) -> str:
     return _decimal_text(value.quantize(Decimal("0.0001")))
 
 
-def derive_us_market_reference(daily_bars: list[dict], contract: dict) -> dict:
-    """Derive objective ETF returns only; never emit a market label."""
+def derive_us_market_reference(
+    daily_bars: list[dict],
+    contract: dict,
+    *,
+    schema_version: str = "us_market_reference/v2",
+) -> dict:
+    """Derive objective ETF observations only; never emit a market label.
+
+    ``v1`` remains reproducible for already-retained packets. ``v2`` adds two
+    explicitly scoped current-reference axes from the same retained IEX bars:
+    representative-ETF advance/decline and sector/semiconductor leadership
+    versus SPY. Neither is relabelled as security-level US breadth, a market
+    Regime, an investment ranking, or trade authority.
+    """
+    if schema_version not in {"us_market_reference/v1", "us_market_reference/v2"}:
+        raise FreeMarketDataError("US_MARKET_REFERENCE_SCHEMA_INVALID")
     grouped: dict[str, list[dict]] = {}
     for row in daily_bars:
         if not isinstance(row, dict) or not isinstance(row.get("symbol"), str):
@@ -388,7 +427,7 @@ def derive_us_market_reference(daily_bars: list[dict], contract: dict) -> dict:
     status = "READY" if not missing else "PARTIAL"
     as_of_dates = sorted({row["as_of_session_date"] for row in trend})
     result = {
-        "schema_version": "us_market_reference/v1",
+        "schema_version": schema_version,
         "status": status,
         "as_of_session_date": as_of_dates[-1] if len(as_of_dates) == 1 else None,
         "trend_etfs": trend,
@@ -401,12 +440,156 @@ def derive_us_market_reference(daily_bars: list[dict], contract: dict) -> dict:
         },
         "source_scope": "ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE",
         "interpretation": "OBSERVED_UNCLASSIFIED",
-        "warnings": [
+        "warnings": [],
+    }
+    if schema_version == "us_market_reference/v1":
+        result["warnings"] = [
             "NOT_US_BREADTH",
             "NOT_CANONICAL_US_LEADERSHIP",
             "REGIME_INTERPRETATION_UNAUTHORIZED",
-        ],
+        ]
+        result["payload_sha256"] = sha256_bytes(canonical_bytes(result))
+        return result
+
+    proxy = contract["alpaca"]["current_proxy_axes"]
+    breadth_rows = []
+    breadth_missing = []
+    session_pairs = set()
+    for symbol in proxy["breadth_symbols"]:
+        rows = grouped.get(symbol, [])
+        if len(rows) < 2:
+            breadth_missing.append(symbol)
+            continue
+        previous, latest = rows[-2], rows[-1]
+        previous_close = _decimal(previous["close"], "ALPACA_CLOSE_INVALID")
+        latest_close = _decimal(latest["close"], "ALPACA_CLOSE_INVALID")
+        if previous_close == 0:
+            raise FreeMarketDataError(f"ALPACA_CLOSE_ZERO:{symbol}")
+        return_pct = ((latest_close / previous_close) - Decimal("1")) * Decimal("100")
+        previous_date = str(previous.get("opened_at", ""))[:10]
+        latest_date = str(latest.get("opened_at", ""))[:10]
+        if not previous_date or not latest_date or previous_date >= latest_date:
+            raise FreeMarketDataError(f"ALPACA_SESSION_PAIR_INVALID:{symbol}")
+        session_pairs.add((previous_date, latest_date))
+        breadth_rows.append({
+            "symbol": symbol,
+            "previous_session_date": previous_date,
+            "as_of_session_date": latest_date,
+            "latest_session_return_pct": _decimal_text(
+                return_pct.quantize(Decimal("0.0001"))
+            ),
+        })
+    breadth_ready = not breadth_missing and len(session_pairs) == 1
+    if breadth_ready:
+        advancing = sum(
+            _decimal(row["latest_session_return_pct"], "ALPACA_RETURN_INVALID") > 0
+            for row in breadth_rows
+        )
+        declining = sum(
+            _decimal(row["latest_session_return_pct"], "ALPACA_RETURN_INVALID") < 0
+            for row in breadth_rows
+        )
+        unchanged = len(breadth_rows) - advancing - declining
+        previous_date, latest_date = next(iter(session_pairs))
+        breadth_measurement = {
+            "scope": proxy["scope"],
+            "method": proxy["breadth_method"],
+            "previous_session_date": previous_date,
+            "as_of_session_date": latest_date,
+            "required_count": len(proxy["breadth_symbols"]),
+            "observed_count": len(breadth_rows),
+            "advancing_count": advancing,
+            "declining_count": declining,
+            "unchanged_count": unchanged,
+            "advance_fraction": _decimal_text(
+                (Decimal(advancing) / Decimal(len(breadth_rows))).quantize(
+                    Decimal("0.000001")
+                )
+            ),
+            "observations": breadth_rows,
+        }
+    else:
+        breadth_measurement = {
+            "scope": proxy["scope"],
+            "method": proxy["breadth_method"],
+            "required_count": len(proxy["breadth_symbols"]),
+            "observed_count": len(breadth_rows),
+            "missing_symbols": breadth_missing,
+            "session_pair_count": len(session_pairs),
+        }
+
+    leadership_window = proxy["leadership_window_sessions"]
+    leadership_key = f"{leadership_window}_session_pct"
+    sector_by_symbol = {row["symbol"]: row for row in sectors}
+    leadership_missing = [
+        symbol for symbol in proxy["leadership_symbols"]
+        if symbol not in sector_by_symbol
+    ]
+    leadership_ready = (
+        not leadership_missing
+        and proxy["leadership_benchmark"] in observations
+        and result["as_of_session_date"] is not None
+    )
+    ordered_groups = []
+    if leadership_ready:
+        for symbol in proxy["leadership_symbols"]:
+            row = sector_by_symbol[symbol]
+            ordered_groups.append({
+                "symbol": symbol,
+                "as_of_session_date": row["as_of_session_date"],
+                "window_sessions": leadership_window,
+                "return_pct": row["returns"][leadership_key],
+                "relative_to_spy_pct": row["relative_to_spy_pct"][leadership_key],
+            })
+        ordered_groups.sort(
+            key=lambda row: (
+                -_decimal(row["relative_to_spy_pct"], "ALPACA_RETURN_INVALID"),
+                row["symbol"],
+            )
+        )
+        for index, row in enumerate(ordered_groups, start=1):
+            row["observed_return_order"] = index
+        leadership_measurement = {
+            "scope": proxy["scope"],
+            "method": proxy["leadership_method"],
+            "benchmark": proxy["leadership_benchmark"],
+            "window_sessions": leadership_window,
+            "as_of_session_date": result["as_of_session_date"],
+            "required_count": len(proxy["leadership_symbols"]),
+            "observed_count": len(ordered_groups),
+            "outperforming_spy_count": sum(
+                _decimal(row["relative_to_spy_pct"], "ALPACA_RETURN_INVALID") > 0
+                for row in ordered_groups
+            ),
+            "ordered_groups": ordered_groups,
+        }
+    else:
+        leadership_measurement = {
+            "scope": proxy["scope"],
+            "method": proxy["leadership_method"],
+            "benchmark": proxy["leadership_benchmark"],
+            "window_sessions": leadership_window,
+            "required_count": len(proxy["leadership_symbols"]),
+            "observed_count": len(ordered_groups),
+            "missing_symbols": leadership_missing,
+        }
+
+    result["proxy_axes"] = {
+        "BREADTH": {
+            "status": "OBSERVED" if breadth_ready else "UNAVAILABLE",
+            "measurement": breadth_measurement,
+        },
+        "LEADERSHIP": {
+            "status": "OBSERVED" if leadership_ready else "UNAVAILABLE",
+            "measurement": leadership_measurement,
+        },
     }
+    result["warnings"] = [
+        "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE",
+        "NOT_FULL_US_SECURITY_LEVEL_BREADTH",
+        "NOT_INVESTMENT_RANKING",
+        "REGIME_INTERPRETATION_UNAUTHORIZED",
+    ]
     result["payload_sha256"] = sha256_bytes(canonical_bytes(result))
     return result
 
@@ -461,7 +644,15 @@ def validate_alpaca_daily_evidence(root: Path, packet: dict) -> dict:
     ):
         raise FreeMarketDataError("ALPACA_DAILY_REDERIVATION_MISMATCH")
     contract = load_contract(Path(root) / "config/free_market_data_contract.json")
-    reference = derive_us_market_reference(normalized, contract)
+    embedded_reference = packet.get("us_market_reference")
+    schema_version = (
+        embedded_reference.get("schema_version")
+        if isinstance(embedded_reference, dict)
+        else None
+    )
+    reference = derive_us_market_reference(
+        normalized, contract, schema_version=schema_version
+    )
     if reference != packet.get("us_market_reference"):
         raise FreeMarketDataError("US_MARKET_REFERENCE_REDERIVATION_MISMATCH")
     return {
@@ -505,7 +696,7 @@ def build_capture(
         derive_us_market_reference(daily_bars, contract)
         if alpaca_status == "READY"
         else {
-            "schema_version": "us_market_reference/v1",
+            "schema_version": "us_market_reference/v2",
             "status": "BLOCKED",
             "reason": alpaca_status,
             "trend_etfs": [],
@@ -524,7 +715,26 @@ def build_capture(
             },
             "source_scope": "ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE",
             "interpretation": "OBSERVED_UNCLASSIFIED",
-            "warnings": ["REGIME_INTERPRETATION_UNAUTHORIZED"],
+            "proxy_axes": {
+                "BREADTH": {
+                    "status": "UNAVAILABLE",
+                    "measurement": {
+                        "reason": "ALPACA_DAILY_BARS_UNAVAILABLE",
+                    },
+                },
+                "LEADERSHIP": {
+                    "status": "UNAVAILABLE",
+                    "measurement": {
+                        "reason": "ALPACA_DAILY_BARS_UNAVAILABLE",
+                    },
+                },
+            },
+            "warnings": [
+                "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE",
+                "NOT_FULL_US_SECURITY_LEVEL_BREADTH",
+                "NOT_INVESTMENT_RANKING",
+                "REGIME_INTERPRETATION_UNAUTHORIZED",
+            ],
         }
     )
     packet = {

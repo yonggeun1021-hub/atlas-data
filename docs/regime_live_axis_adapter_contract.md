@@ -1,4 +1,4 @@
-# Regime Live Axis Adapter (`regime_live_axis_adapter/v7`)
+# Regime Live Axis Adapter (`regime_live_axis_adapter/v8`)
 
 `regime/live_axis_adapter.py` proves, for each of the fifteen `market/axis`
 combinations in the P1-COM-01 envelope, whether qualified point-in-time
@@ -21,20 +21,21 @@ measurement exists with point-in-time lineage. It is not a Korea
 
 ## US current free-data evidence coverage
 
-`v7` binds three US axes without creating a market label:
+`v8` binds five current US reference axes without creating a market label:
 
 | Axis | Qualified evidence | Boundary |
 | --- | --- | --- |
 | `US/TREND` | replayed SPY/QQQ/IWM IEX daily bars | presence only; IEX is partial |
 | `US/RISK_VOL` | replayed FRED VIXCLS response | presence only; no risk threshold |
 | `US/LIQUIDITY` | FRED WRESBAL/TOTBKCR current no-raw snapshot | response-hash attested; no historical PIT claim |
+| `US/BREADTH` | latest-session advance/decline across 14 representative broad/sector ETFs | all configured ETFs and one exact common session pair required; not security-level full-market breadth |
+| `US/LEADERSHIP` | 20-session return ordering of 11 sector ETFs plus SMH and relative return versus SPY | descriptive current reference; not an investment ranking |
 
-Sector ETF returns versus SPY are retained for the user-facing market screen,
-but remain reference observations and cannot define `US/LEADERSHIP`.
-`US/BREADTH` also stays `UNDEFINED`: the forward membership roster still has
-no qualified advance/decline price population. Therefore `3/5` means only
-that three inputs are observable; it is not a `RISK_ON`, `RISK_OFF`, or trade
-decision.
+The two new bindings are explicitly the CIO-ratified current free proxy slice.
+They do not close P1-US-04's historical PIT/delisted-security Exit Gate and do
+not claim a full-security-universe breadth series. `5/5` means that five
+current reference inputs are observable; it is still not a `RISK_ON`,
+`RISK_OFF`, or trade decision.
 
 ## P1-CR-08: Crypto axis coverage
 
