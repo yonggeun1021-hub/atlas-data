@@ -104,7 +104,7 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             self.assertEqual(second["outcome"], "verified_existing")
             self.assertEqual(first["payload_sha256"], second["payload_sha256"])
 
-    def test_governance_freeze_refuses_same_vintage_authority_reclassification(self):
+    def test_exact_approval_allows_one_safe_same_vintage_ratification_transition(self):
         current = POPULATE.rebuild("2026-08-30")
         historical = copy.deepcopy(current)
         historical.pop("ratification")
@@ -135,10 +135,13 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             target = POPULATE.output_path("2026-08-30", data_root)
             target.parent.mkdir(parents=True)
             target.write_text(json.dumps(historical, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            before = target.read_bytes()
-            with self.assertRaisesRegex(POPULATE.PopulationError, "EXISTING_PACKET_DRIFT_OR_TAMPER"):
-                POPULATE.populate("2026-08-30", data_root=data_root)
-            self.assertEqual(target.read_bytes(), before)
+            result = POPULATE.populate("2026-08-30", data_root=data_root)
+            self.assertEqual(result["outcome"], "ratified_reclassification")
+            self.assertEqual(result["reason"], "UNRATIFIED_TO_RATIFIED_SAME_RAW_VINTAGE")
+            released = json.loads(target.read_text(encoding="utf-8"))
+            self.assertTrue(released["ratification"]["effective_for_snapshot"])
+            self.assertEqual(released["packet"]["summary"]["paper_eligible_count"], 8)
+            self.assertTrue(all(value is False for value in released["packet"]["authority"].values()))
 
 
 if __name__ == "__main__":

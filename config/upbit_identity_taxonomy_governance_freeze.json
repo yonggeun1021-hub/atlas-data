@@ -1,27 +1,42 @@
 {
-  "schema_version": "upbit_identity_taxonomy_governance_freeze/1",
-  "resolution_status": "PENDING_GOVERNANCE_RESOLUTION",
-  "effective_from_utc": "2026-08-30T05:11:30Z",
-  "reason": "The P3-12 identity registry and taxonomy were merged without an explicit post-HOLD CIO approval, and their independent identity sources lack source typing, validated authority domains, exact content hashes, and observed_at/available_at binding.",
-  "preserve_historical_evidence": true,
+  "approval_resolution": {
+    "approval_evidence_ref": "evidence/crypto/upbit/identity/approvals/2026-08-30/p3-12-paper-eight-exact-hash-v2.json",
+    "approval_evidence_sha256": "b13ca0152c1382bb56df045d11bf2b54c7010ec0b59b8a66d15f288cc012da54",
+    "approved_scope": "ATLAS_INTERNAL_PAPER_VIRTUAL_TRADING_EIGHT_ONLY",
+    "candidate_packet_file_sha256": "770c722ffa3d9c185ad7629396037cdec1154bad38624cc9d887af3878bcd186",
+    "candidate_packet_path": "data/observations/upbit_paper_identity_hardening_candidate/2026-08-30/20260830T111117Z/packet.json",
+    "candidate_packet_payload_sha256": "bbc73029ec00dc4b6e3762d69d96f18efa4b2fbd611830c2bd71c976ef405abd",
+    "consumer_file_sha256": "4bc8779e67ff59858b98b2b421bea5cfb71c6297f32802dd396f4927538981b2",
+    "registry_candidate_payload_sha256": "cdf8de02aacf022f4acc20f73a95e43a2ec9f9b6aca905f13de986253c96448a",
+    "taxonomy_candidate_payload_sha256": "0a9037b4cb931ab7cb985abef164a99381edabb80fabb629c1b0dccfcadca090"
+  },
+  "audit_counts": {
+    "ambiguous_count": 25,
+    "authority_invalid_registry_mapping_count": 55,
+    "authority_valid_identity_count": 0,
+    "bounded_market_count": 282,
+    "content_conflict_count": 1,
+    "first_party_candidate_unbound_count": 23,
+    "official_listing_only_unresolved_count": 201,
+    "third_party_only_count": 32
+  },
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
   "blocked_identity_registry": {
+    "mapping_count": 55,
     "path": "config/upbit_asset_identity_registry.json",
-    "pre_freeze_file_sha256": "dc4b524282de611c71fbc1440a05f420b7b2d83f9f9b0b20ef602d4ae460655a",
-    "mapping_count": 55
+    "pre_freeze_file_sha256": "dc4b524282de611c71fbc1440a05f420b7b2d83f9f9b0b20ef602d4ae460655a"
   },
-  "blocked_taxonomy": {
-    "path": "config/upbit_exclusion_taxonomy.json",
-    "pre_freeze_file_sha256": "6c81909974e20d4d9717e23f07c03f03e263e1359de6fd5de104c44466901f4b",
-    "content_conflict_markets": [
-      "KRW-LIT"
-    ]
-  },
-  "blocked_universe_record_payload_sha256s": [
-    "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12"
-  ],
-  "blocked_universe_packet_payload_sha256s": [
-    "3ba2721dec6ff574b0e1652fd4d8712259d17797aa2f60f8ba022020ff702c3f"
-  ],
   "blocked_paper_markets": [
     "KRW-BTC",
     "KRW-ETH",
@@ -32,16 +47,23 @@
     "KRW-WLD",
     "KRW-XRP"
   ],
-  "audit_counts": {
-    "bounded_market_count": 282,
-    "official_listing_only_unresolved_count": 201,
-    "first_party_candidate_unbound_count": 23,
-    "third_party_only_count": 32,
-    "ambiguous_count": 25,
-    "content_conflict_count": 1,
-    "authority_valid_identity_count": 0,
-    "authority_invalid_registry_mapping_count": 55
+  "blocked_taxonomy": {
+    "content_conflict_markets": [
+      "KRW-LIT"
+    ],
+    "path": "config/upbit_exclusion_taxonomy.json",
+    "pre_freeze_file_sha256": "6c81909974e20d4d9717e23f07c03f03e263e1359de6fd5de104c44466901f4b"
   },
+  "blocked_universe_packet_payload_sha256s": [
+    "3ba2721dec6ff574b0e1652fd4d8712259d17797aa2f60f8ba022020ff702c3f"
+  ],
+  "blocked_universe_record_payload_sha256s": [
+    "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12"
+  ],
+  "effective_from_utc": "2026-08-30T05:11:30Z",
+  "paper_classification_scope_approved": true,
+  "preserve_historical_evidence": true,
+  "reason": "The exact eight-market first-party identity and taxonomy candidate was approved for Atlas internal PAPER virtual trading only; historical frozen records remain preserved and actual Upbit authority remains closed.",
   "release_requirements": [
     "Every identity source has an explicit source_type and validated authority domain.",
     "Every cited source is bound to captured content_sha256, observed_at, and available_at.",
@@ -49,16 +71,17 @@
     "A hardened registry and corrected taxonomy have exact hashes and focused, related, and full CI evidence.",
     "The CIO posts explicit approval identifying the exact hardened registry, taxonomy, and consumer hashes."
   ],
-  "authority": {
-    "identity_authorized": false,
-    "taxonomy_authorized": false,
-    "paper_eligible_promotion_authorized": false,
-    "candidate_promotion_authorized": false,
-    "paper_exit_authorized": false,
-    "exchange_authorized": false,
-    "order_authorized": false,
-    "production_authorized": false,
-    "real_capital_authorized": false,
-    "trading_authorized": false
-  }
+  "released_paper_markets": [
+    "KRW-BTC",
+    "KRW-ETH",
+    "KRW-LINK",
+    "KRW-SHIB",
+    "KRW-SOL",
+    "KRW-SUI",
+    "KRW-WLD",
+    "KRW-XRP"
+  ],
+  "resolution_status": "RATIFIED_BY_EXPLICIT_CIO_DECISION",
+  "resolved_at_utc": "2026-08-30T11:17:37Z",
+  "schema_version": "upbit_identity_taxonomy_governance_freeze/1"
 }

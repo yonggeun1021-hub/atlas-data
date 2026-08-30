@@ -1,590 +1,88 @@
 {
-  "schema_version": 1,
-  "policy_version": "upbit_exclusion_taxonomy/v1",
-  "approval_status": "PENDING_GOVERNANCE_RESOLUTION",
-  "previous_approval_status": "RATIFIED",
+  "approval_evidence_ref": "evidence/crypto/upbit/identity/approvals/2026-08-30/p3-12-paper-eight-exact-hash-v2.json",
+  "approval_evidence_sha256": "b13ca0152c1382bb56df045d11bf2b54c7010ec0b59b8a66d15f288cc012da54",
+  "approval_status": "RATIFIED",
+  "approved_candidate_payload_sha256": "0a9037b4cb931ab7cb985abef164a99381edabb80fabb629c1b0dccfcadca090",
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
+  "decision_evidence_url": "https://app.notion.com/p/3ca9f2d73c84812caceed8bd5cba8a53",
   "effective_from": "2026-08-30",
-  "ratified_at_utc": "2026-08-29T23:51:27Z",
-  "ratified_by": "CIO_USER",
-  "decision_evidence_url": "https://app.notion.com/p/3cb9f2d73c848181bd69fe7d425aefd0",
-  "source_name": "upbit_krw_market_data",
   "eligible_category": "eligible_crypto",
-  "excluded_categories": [
-    "stablecoin",
-    "wrapped",
-    "leveraged",
-    "derivative_like",
-    "unverified_identity",
-    "commodity_linked"
-  ],
-  "unknown_asset_policy": "fail_closed_unknown",
+  "excluded_categories": [],
+  "policy_version": "upbit_exclusion_taxonomy/v1",
+  "previous_approval_status": "PENDING_GOVERNANCE_RESOLUTION",
+  "ratified_at_utc": "2026-08-30T11:17:37Z",
+  "ratified_by": "CIO_USER",
   "records": [
-    {
-      "canonical_asset_id": "USDT",
-      "category": "stablecoin",
-      "effective_from": "2026-08-28",
-      "effective_to": null,
-      "reason": "Tether -- USD-pegged stablecoin. Confirmed live on Upbit KRW-USDT (english_name=Tether) 2026-08-28 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "USDC",
-      "category": "stablecoin",
-      "effective_from": "2026-08-28",
-      "effective_to": null,
-      "reason": "USD Coin -- USD-pegged stablecoin. Confirmed live on Upbit KRW-USDC (english_name=USD Coin) 2026-08-28 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "USDE",
-      "category": "stablecoin",
-      "effective_from": "2026-08-28",
-      "effective_to": null,
-      "reason": "Ethena USDe -- synthetic USD-pegged dollar. Confirmed live on Upbit KRW-USDE (english_name=Ethena USDe) 2026-08-28 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "USDS",
-      "category": "stablecoin",
-      "effective_from": "2026-08-28",
-      "effective_to": null,
-      "reason": "USDS -- USD-pegged stablecoin (Sky Ecosystem). Confirmed live on Upbit KRW-USDS (english_name=USDS) 2026-08-28 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "RLUSD",
-      "category": "stablecoin",
-      "effective_from": "2026-08-28",
-      "effective_to": null,
-      "reason": "Ripple USD -- USD-pegged stablecoin. Confirmed live on Upbit KRW-RLUSD (english_name=Ripple USD) 2026-08-28 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "EURC",
-      "category": "stablecoin",
-      "effective_from": "2026-08-28",
-      "effective_to": null,
-      "reason": "EURC -- EUR-pegged stablecoin (Circle). Confirmed live on Upbit KRW-EURC (english_name=EURC) 2026-08-28 via GET /v1/market/all. Excluded as a non-USD-KRW-reference stable asset, not evaluated for KRW-quote investability."
-    },
-    {
-      "canonical_asset_id": "AAVE",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Aave native asset. Confirmed live on Upbit KRW-AAVE (english_name=Aave) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ADA",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Cardano native asset. Confirmed live on Upbit KRW-ADA (english_name=Ada) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "AERO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Aerodrome Finance -- Base-chain DEX governance token (Kraken + CoinGecko). Confirmed live on Upbit KRW-AERO (english_name=Aerodrome Finance) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "AKT",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Akash Network -- decentralized cloud compute marketplace token (Kraken + CoinGecko). Confirmed live on Upbit KRW-AKT (english_name=Akash Network) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ALGO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Algorand native asset. Confirmed live on Upbit KRW-ALGO (english_name=Algorand) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "APT",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Aptos L1 native token (retained Kraken online USD pair + Aptos Foundation tokenomics). Confirmed live on Upbit KRW-APT (english_name=Aptos) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ARB",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Arbitrum governance token (retained Kraken online USD pair + Arbitrum Foundation docs). Confirmed live on Upbit KRW-ARB (english_name=Arbitrum) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ATOM",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Cosmos Hub native asset. Confirmed live on Upbit KRW-ATOM (english_name=Cosmos) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "AVAX",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Avalanche native asset. Confirmed live on Upbit KRW-AVAX (english_name=Avalanche) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "BABY",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Babylon Genesis native token (retained Kraken online USD pair + Babylon Labs official docs). Confirmed live on Upbit KRW-BABY (english_name=Babylon) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "BCH",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Bitcoin Cash native asset. Confirmed live on Upbit KRW-BCH (english_name=Bitcoin Cash) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "BONK",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Bonk Solana ecosystem token (retained Kraken online USD pair + Bonk official project paper). Confirmed live on Upbit KRW-BONK (english_name=Bonk) 2026-08-29 via GET /v1/market/all."
-    },
     {
       "canonical_asset_id": "BTC",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): native crypto asset; reference-only after universe selection. Confirmed live on Upbit KRW-BTC (english_name=Bitcoin) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "CAP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Cap -- onchain institutional credit protocol token (Kraken + CoinGecko). Confirmed live on Upbit KRW-CAP (english_name=Cap) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "CC",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Canton -- privacy-focused smart contract L1 native token (Kraken + CoinGecko). Confirmed live on Upbit KRW-CC (english_name=Canton) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "CRV",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Curve DAO Token -- Curve Finance AMM governance token (Kraken + CoinGecko). Confirmed live on Upbit KRW-CRV (english_name=Curve) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "DOGE",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Dogecoin native asset. Confirmed live on Upbit KRW-DOGE (english_name=Dogecoin) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "DOT",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Polkadot native asset. Confirmed live on Upbit KRW-DOT (english_name=Polkadot) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ENA",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Ethena -- synthetic dollar protocol governance token (Kraken + CoinGecko). Confirmed live on Upbit KRW-ENA (english_name=Ethena) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ESP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Espresso Network token (retained Kraken online USD pair + Espresso Foundation docs). Confirmed live on Upbit KRW-ESP (english_name=Espresso) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-BTC to korean_name=비트코인 and english_name=Bitcoin; first-party project evidence is hash-bound under bitcoin.org."
     },
     {
       "canonical_asset_id": "ETH",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): native crypto asset. Confirmed live on Upbit KRW-ETH (english_name=Ethereum) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ETHFI",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Ether.fi governance token, not a liquid-staking receipt (retained Kraken online USD pair + Ether.fi official docs). Confirmed live on Upbit KRW-ETHFI (english_name=Ether.fi) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "EUL",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Euler -- permissionless lending protocol governance token (Kraken + CoinGecko). Confirmed live on Upbit KRW-EUL (english_name=Euler) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "FIL",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Filecoin native asset. Confirmed live on Upbit KRW-FIL (english_name=Filecoin) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "HBAR",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Hedera native asset. Confirmed live on Upbit KRW-HBAR (english_name=Hedera) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ICP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Internet Computer native asset. Confirmed live on Upbit KRW-ICP (english_name=Internet Computer) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "INJ",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Injective native asset. Confirmed live on Upbit KRW-INJ (english_name=Injective) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "JTO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Jito governance token (retained Kraken online USD pair + Jito official governance docs). Confirmed live on Upbit KRW-JTO (english_name=Jito) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "JUP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Jupiter -- Solana DEX aggregator governance token (Kraken + CoinGecko). Confirmed live on Upbit KRW-JUP (english_name=Jupiter) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "KAITO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Kaito -- InfoFi/AI attention-economy token on Base (Kraken + CoinGecko). Confirmed live on Upbit KRW-KAITO (english_name=KAITO) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-ETH to korean_name=이더리움 and english_name=Ethereum; first-party project evidence is hash-bound under ethereum.org."
     },
     {
       "canonical_asset_id": "LINK",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Chainlink native asset. Confirmed live on Upbit KRW-LINK (english_name=Chainlink) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "LIT",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Litentry token identity preceding the HEI migration (retained Kraken online USD pair + Litentry/Heima official migration docs). Confirmed live on Upbit KRW-LIT (english_name=Lighter) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "MANA",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Decentraland ERC-20 ecosystem token (retained Kraken online USD pair + Decentraland official contract/whitepaper). Confirmed live on Upbit KRW-MANA (english_name=Decentraland) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "MINA",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Mina Protocol native token (retained Kraken online USD pair + Mina Foundation docs). Confirmed live on Upbit KRW-MINA (english_name=Mina) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "MON",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Monad -- high-performance EVM-compatible L1 native token (Kraken + CoinGecko). Confirmed live on Upbit KRW-MON (english_name=Monad) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "MORPHO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Morpho -- DeFi lending protocol governance token (Kraken + CoinGecko). Confirmed live on Upbit KRW-MORPHO (english_name=Morpho) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "NEAR",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): NEAR Protocol native asset. Confirmed live on Upbit KRW-NEAR (english_name=NEAR Protocol) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ONDO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Ondo Finance -- RWA/DeFi protocol native token (Kraken + CoinGecko). Confirmed live on Upbit KRW-ONDO (english_name=Ondo Finance) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "OP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Optimism governance token (retained Kraken online USD pair + OP Stack governance specification). Confirmed live on Upbit KRW-OP (english_name=Optimism) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PENDLE",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Pendle protocol governance token (retained Kraken online USD pair + Pendle official tokenomics docs). Confirmed live on Upbit KRW-PENDLE (english_name=Pendle) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PENGU",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Pudgy Penguins -- multi-chain meme/NFT ecosystem token (Kraken + CoinGecko). Confirmed live on Upbit KRW-PENGU (english_name=Pudgy Penguins) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PEPE",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Pepe -- Ethereum meme token (Kraken + CoinGecko). Confirmed live on Upbit KRW-PEPE (english_name=Pepe) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PLUME",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Plume Network native token (retained Kraken online USD pair + Plume official token docs). Confirmed live on Upbit KRW-PLUME (english_name=Plume) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "POL",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Polygon network token, official 1:1 upgrade of MATIC (Sept 2024, polygon.technology + exchange announcements). Confirmed live on Upbit KRW-POL (english_name=Polygon Ecosystem Token) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PROS",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Pharos Network -- RealFi Layer-1 blockchain native token (Kraken blog listing + CoinGecko/pharosnetwork.xyz). Confirmed live on Upbit KRW-PROS (english_name=Pharos) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PUMP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Pump.fun -- Solana memecoin launchpad native token (Kraken + CoinGecko). Confirmed live on Upbit KRW-PUMP (english_name=Pump.fun) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "PYTH",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Pyth Network governance token (retained Kraken online USD pair + Pyth official docs). Confirmed live on Upbit KRW-PYTH (english_name=Pyth Network) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "RE",
-      "category": "unverified_identity",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Re -- ticker identity conflict risk. Corroborated as 'unverified_identity' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): No canonical on-chain/project identity confirmed by two independent sources as of this ratification. Kraken's own AssetPairs/Assets metadata carries no chain/contract/genesis identity field to disambiguate. Conservatively excluded from source-coverage universe, not an investability claim. Applied conservatively to Upbit KRW-RE pending a second independent source distinguishing Upbit's listed project from the collision Kraken's taxonomy documents for canonical id RE. A manual identity-layer hold is retained regardless of this taxonomy classification -- see the shadow harness's identity_review.manual_review_queue."
-    },
-    {
-      "canonical_asset_id": "RENDER",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Render Network native asset. Confirmed live on Upbit KRW-RENDER (english_name=Render Token) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "SEI",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Sei Network native asset. Confirmed live on Upbit KRW-SEI (english_name=Sei) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-LINK to korean_name=체인링크 and english_name=Chainlink; first-party project evidence is hash-bound under chain.link."
     },
     {
       "canonical_asset_id": "SHIB",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Shiba Inu -- Ethereum meme token ecosystem (Kraken + CoinGecko). Confirmed live on Upbit KRW-SHIB (english_name=Shiba Inu) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "SKY",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Sky Ecosystem governance token, official successor to MakerDAO's MKR at 1:24000 (kraken.com support article + multi-exchange announcements). Confirmed live on Upbit KRW-SKY (english_name=Sky Protocol) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-SHIB to korean_name=시바이누 and english_name=Shiba Inu; first-party project evidence is hash-bound under shib.io."
     },
     {
       "canonical_asset_id": "SOL",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): native crypto asset. Confirmed live on Upbit KRW-SOL (english_name=Solana) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "SPX",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): SPX6900 -- meme token parody of S&P 500, explicitly not a security/index product (Kraken + CoinGecko). Confirmed live on Upbit KRW-SPX (english_name=SPX6900) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "STX",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Stacks network native token (retained Kraken online USD pair + Stacks official docs). Confirmed live on Upbit KRW-STX (english_name=Stacks) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-SOL to korean_name=솔라나 and english_name=Solana; first-party project evidence is hash-bound under solana.com."
     },
     {
       "canonical_asset_id": "SUI",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Sui Network native asset. Confirmed live on Upbit KRW-SUI (english_name=Sui) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "SYRUP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Maple Finance governance token, distinct from syrupUSDC/syrupUSDT/stSYRUP (retained Kraken online USD pair + Maple official docs). Confirmed live on Upbit KRW-SYRUP (english_name=Maple Finance) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "TAO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Bittensor native asset. Confirmed live on Upbit KRW-TAO (english_name=Bittensor) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "TIA",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Celestia native token (retained Kraken online USD pair + Celestia official docs). Confirmed live on Upbit KRW-TIA (english_name=Celestia) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "TRUMP",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Official Trump -- Solana PolitiFi meme token (Kraken + CoinGecko). Confirmed live on Upbit KRW-TRUMP (english_name=Official Trump) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "TRX",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Tron native asset. Confirmed live on Upbit KRW-TRX (english_name=TRON) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "UNI",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Uniswap native asset. Confirmed live on Upbit KRW-UNI (english_name=Uniswap) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "USDG",
-      "category": "stablecoin",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Global Dollar -- USD/EUR-pegged stablecoin. Corroborated as 'stablecoin' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): USD-pegged stablecoin. Confirmed live on Upbit KRW-USDG (english_name=Global Dollar) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "VIRTUAL",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Virtuals Protocol ecosystem token (retained Kraken online USD pair + Virtuals official whitepaper). Confirmed live on Upbit KRW-VIRTUAL (english_name=Virtuals Protocol) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "VVV",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Venice Token -- Venice AI platform utility token on Base (Kraken + CoinGecko). Confirmed live on Upbit KRW-VVV (english_name=Venice Token) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "WIF",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Dogwifhat Solana memecoin (retained Kraken online USD pair + project identity source). Confirmed live on Upbit KRW-WIF (english_name=dogwifhat) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-SUI to korean_name=수이 and english_name=Sui; first-party project evidence is hash-bound under sui.io."
     },
     {
       "canonical_asset_id": "WLD",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Worldcoin -- identity/financial network native token (Kraken + CoinGecko). Confirmed live on Upbit KRW-WLD (english_name=Worldcoin) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "WLFI",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): World Liberty Financial -- DeFi governance token, native project asset not a wrapped representation (Kraken + CoinGecko). Confirmed live on Upbit KRW-WLFI (english_name=World Liberty Financial) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "XAUT",
-      "category": "commodity_linked",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Tether Gold -- commodity-linked token, not a cryptocurrency-native asset. Corroborated as 'commodity_linked' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): gold-linked token. Confirmed live on Upbit KRW-XAUT (english_name=Tether Gold) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "XCN",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Onyxcoin -- multi-asset ledger infrastructure token (Kraken + CoinGecko). Confirmed live on Upbit KRW-XCN (english_name=Onyxcoin) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "XLM",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Stellar native asset. Confirmed live on Upbit KRW-XLM (english_name=Lumen) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "XPL",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Plasma L1 native token (retained Kraken online USD pair + Plasma official launch docs). Confirmed live on Upbit KRW-XPL (english_name=Plasma) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-WLD to korean_name=월드코인 and english_name=Worldcoin; first-party project evidence is hash-bound under world.org."
     },
     {
       "canonical_asset_id": "XRP",
       "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
+      "effective_from": "2026-08-30",
       "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): XRP Ledger native asset (Ripple). Confirmed live on Upbit KRW-XRP (english_name=XRP) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ZAMA",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): Zama -- Fully Homomorphic Encryption (FHE) privacy infrastructure token (Kraken + CoinGecko). Confirmed live on Upbit KRW-ZAMA (english_name=Zama) 2026-08-29 via GET /v1/market/all."
-    },
-    {
-      "canonical_asset_id": "ZRO",
-      "category": "eligible_crypto",
-      "effective_from": "2026-08-29",
-      "effective_to": null,
-      "reason": "Corroborated as 'eligible_crypto' by config/crypto_breadth_exclusion_taxonomy.json (RATIFIED v2, active as of 2026-08-29): LayerZero governance token (retained Kraken online USD pair + LayerZero official docs). Confirmed live on Upbit KRW-ZRO (english_name=LayerZero) 2026-08-29 via GET /v1/market/all."
+      "reason": "Upbit public listing binds KRW-XRP to korean_name=엑스알피(리플) and english_name=XRP; first-party project evidence is hash-bound under xrpl.org."
     }
-  ]
+  ],
+  "schema_version": 1,
+  "scope": "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY",
+  "source_name": "upbit_first_party_exact_hash_identity_candidate",
+  "unknown_asset_policy": "fail_closed_unknown"
 }
