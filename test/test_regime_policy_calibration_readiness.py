@@ -38,12 +38,12 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
             self.packet["status"],
             "NOT_READY_POLICY_CANDIDATE" if korea_retained else "NOT_READY_AXIS_COVERAGE",
         )
-        self.assertEqual(markets["US"]["coverage"]["ratio"], "3/5")
+        self.assertEqual(markets["US"]["coverage"]["ratio"], "5/5")
         self.assertEqual(markets["KR"]["coverage"]["ratio"], "5/5" if korea_retained else "0/5")
         self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], "4/5")
         self.assertEqual(
             markets["US"]["coverage"]["defined_axes"],
-            ["TREND", "RISK_VOL", "LIQUIDITY"],
+            ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"],
         )
         self.assertEqual(
             markets["CRYPTO"]["coverage"]["defined_axes"],
@@ -51,7 +51,7 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         )
         self.assertEqual(
             self.packet["summary"]["current_readiness_order_not_market_ranking"],
-            ["KR", "CRYPTO", "US"] if korea_retained else ["CRYPTO", "US", "KR"],
+            ["US", "KR", "CRYPTO"] if korea_retained else ["US", "CRYPTO", "KR"],
         )
 
     def test_histories_are_independently_replayed_from_retained_raw_bytes(self):
@@ -95,11 +95,11 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         )
         self.assertEqual(
             axes["US/BREADTH"]["blocker"],
-            "VALIDATED_RETAINED_EVIDENCE_MISSING",
+            None,
         )
         self.assertEqual(
             axes["US/LEADERSHIP"]["blocker"],
-            "VALIDATED_RETAINED_EVIDENCE_MISSING",
+            None,
         )
         # P1-CR-08: CRYPTO/LEADERSHIP is now a real, bound axis -- its
         # blocker is that no history has been VALIDATED_RETAINED yet
@@ -192,7 +192,7 @@ class RegimePolicyCalibrationReadinessTest(unittest.TestCase):
         self.assertEqual(MODULE.validate_readiness(self.packet), self.packet)
 
         tampered = copy.deepcopy(self.packet)
-        tampered["markets"][0]["coverage"]["defined_count"] = 5
+        tampered["markets"][0]["coverage"]["defined_count"] = 4
         unsigned = copy.deepcopy(tampered)
         unsigned.pop("payload_sha256")
         tampered["payload_sha256"] = MODULE.payload_sha256(unsigned)
