@@ -47,6 +47,8 @@ from pathlib import Path
 import signal
 import sys
 import tempfile
+import urllib.parse
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -148,6 +150,132 @@ def build_gate(markets: list, contract: dict) -> "GATE.RealtimeGate":
         max_backoff_seconds=contract["reconnect_default_max_backoff_seconds"],
         max_staleness_seconds_by_kind=contract["default_max_staleness_seconds_by_kind"],
         connection_gap_min_seconds=contract["connection_gap_min_seconds_for_backfill"],
+        provider_gap_threshold_seconds_by_kind=contract["provider_gap_threshold_seconds_by_kind"],
+        max_backfill_window_seconds=contract["rest_backfill_max_window_seconds"],
+        max_backfill_rows=contract["rest_backfill_max_rows"],
+    )
+
+
+def _public_rest_get(url: str, timeout_seconds: int) -> bytes:
+    if not url.startswith("https://api.upbit.com/v1/") or any(
+        fragment in url for fragment in ("/orders", "/withdraw", "/deposit", "/accounts")
+    ):
+        raise RealtimeCaptureError("REST_BACKFILL_ENDPOINT_FORBIDDEN")
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Project-Atlas-upbit-realtime-recovery/1.0", "Accept": "application/json"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read()
+    if not body:
+        raise RealtimeCaptureError("REST_BACKFILL_EMPTY_RESPONSE")
+    return body
+
+
+def plan_public_rest_backfill(gaps: list, markets: list, contract: dict) -> list[dict]:
+    """Create a deterministic, bounded public-GET request plan.
+
+    A gap beyond the ratified operational bound remains pending and emits no
+    request.  Connection-wide gaps expand only across the already-scoped
+    P3 markets; no observation-pool market is introduced here.
+    """
+    max_rows = contract["rest_backfill_max_rows"]
+    max_window = contract["rest_backfill_max_window_seconds"]
+    max_requests = contract["rest_backfill_max_requests_per_run"]
+    planned = {}
+    for gap in gaps:
+        if not isinstance(gap, dict) or gap.get("status") != "PENDING" or gap.get("bounded") is not True:
+            continue
+        start = GATE._parse_utc(gap.get("from"), "REST_PLAN_GAP_FROM_INVALID")
+        end = GATE._parse_utc(gap.get("to"), "REST_PLAN_GAP_TO_INVALID")
+        duration = int((end - start).total_seconds())
+        if duration < 1 or duration > max_window:
+            continue
+        target_markets = [gap["market"]] if gap.get("market") else sorted(set(markets))
+        gap_planned = {}
+        for market in target_markets:
+            if market not in markets:
+                raise RealtimeCaptureError(f"REST_BACKFILL_MARKET_OUT_OF_SCOPE:{market}")
+            request_range = {"from": GATE._iso_utc(start), "to": GATE._iso_utc(end)}
+            trade_count = max_rows
+            trade_query = urllib.parse.urlencode({
+                "market": market,
+                "to": GATE._iso_utc(end),
+                "count": trade_count,
+            })
+            trade_url = f"{contract['rest_public_trades_endpoint']}?{trade_query}"
+            trade_key = ("trade", None, market, request_range["from"], request_range["to"])
+            trade_request = {
+                "kind": "trade", "timeframe": None, "market": market, "method": "GET",
+                "url": trade_url, "count": trade_count, "auth_required": False,
+                "request_range": request_range,
+            }
+            trade_request["request_id"] = GATE.payload_sha256(trade_request)
+            trade_request["gap_ids"] = [gap["gap_id"]]
+            gap_planned[trade_key] = trade_request
+            for timeframe in CANDLE_TIMEFRAMES:
+                spec = GATE.finalization.TIMEFRAMES[timeframe]
+                count = min(max_rows, max(1, (duration + spec["unit_seconds"] - 1) // spec["unit_seconds"] + 2))
+                endpoint = contract["rest_public_candles_minutes_endpoint_template"].format(
+                    UNIT=spec["upbit_unit"],
+                )
+                query = urllib.parse.urlencode({
+                    "market": market,
+                    "to": GATE._iso_utc(end),
+                    "count": count,
+                })
+                request = {
+                    "kind": "candle", "timeframe": timeframe, "market": market, "method": "GET",
+                    "url": f"{endpoint}?{query}", "count": count, "auth_required": False,
+                    "request_range": request_range,
+                }
+                request["request_id"] = GATE.payload_sha256(request)
+                request["gap_ids"] = [gap["gap_id"]]
+                key = ("candle", timeframe, market, request_range["from"], request_range["to"])
+                gap_planned[key] = request
+        prospective = set(planned).union(gap_planned)
+        if len(prospective) > max_requests:
+            continue
+        for key, request in gap_planned.items():
+            if key in planned:
+                request["gap_ids"] = sorted(set(planned[key]["gap_ids"] + request["gap_ids"]))
+            planned[key] = request
+    return [planned[key] for key in sorted(planned)]
+
+
+def execute_public_rest_backfill(
+    requests: list, *, gap_ids: list, fetcher=_public_rest_get, clock=utc_now,
+    evidence_class: str = GATE.NATURAL_AUTOMATED, timeout_seconds: int = 15,
+) -> dict:
+    responses = []
+    last_received_at = None
+    for request in requests:
+        requested_at = clock().astimezone(UTC)
+        raw = fetcher(request["url"], timeout_seconds)
+        received_at = clock().astimezone(UTC)
+        try:
+            payload = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RealtimeCaptureError(f"REST_BACKFILL_JSON_INVALID:{exc}") from exc
+        if not isinstance(payload, list):
+            raise RealtimeCaptureError("REST_BACKFILL_PAYLOAD_NOT_LIST")
+        if len(payload) > request["count"]:
+            raise RealtimeCaptureError("REST_BACKFILL_RETURNED_COUNT_EXCEEDED")
+        range_start = GATE._parse_utc(request["request_range"]["from"], "REST_BACKFILL_FROM_INVALID")
+        range_end = GATE._parse_utc(request["request_range"]["to"], "REST_BACKFILL_TO_INVALID")
+        provider_times = GATE._returned_provider_times(request, payload)
+        payload = [
+            row for row, provider_at in zip(payload, provider_times)
+            if range_start <= provider_at <= range_end
+        ]
+        responses.append(GATE.backfill_response_record(
+            request=request, payload=payload, requested_at=requested_at, received_at=received_at,
+        ))
+        last_received_at = received_at
+    generated_at = last_received_at or clock().astimezone(UTC)
+    return GATE.build_backfill_receipt(
+        gap_ids=gap_ids, responses=responses, evidence_class=evidence_class, generated_at=generated_at,
     )
 
 
@@ -215,7 +343,8 @@ def public_transport_validation_summary(markets: list, latest_public_messages: d
 
 
 async def _connect_and_stream(
-    gate: "GATE.RealtimeGate", markets: list, *, deadline: dt.datetime, stop_event: "asyncio.Event",
+    gate: "GATE.RealtimeGate", markets: list, *, contract: dict,
+    deadline: dt.datetime, stop_event: "asyncio.Event",
 ) -> dict:
     """The only function in this script that imports ``websockets`` or
     touches a real socket. Runs until ``deadline`` or ``stop_event`` is set
@@ -228,6 +357,8 @@ async def _connect_and_stream(
 
     message_log: list = []
     latest_public_messages: dict = {}
+    recovery_receipts: list = []
+    recovery_errors: list = []
     ticket = f"atlas-p9-06-{utc_now().strftime('%Y%m%dT%H%M%SZ')}"
     subscribe_message = GATE.build_subscription_message(
         markets, ticket=ticket, candle_timeframes=CANDLE_TIMEFRAMES,
@@ -275,10 +406,31 @@ async def _connect_and_stream(
             if stop_event.is_set() or utc_now() >= deadline:
                 break
             await asyncio.sleep(min(attempt["backoff_seconds"], max((deadline - utc_now()).total_seconds(), 0)))
+    pending = gate.pending_gap_windows()
+    requests = plan_public_rest_backfill(pending, markets, contract)
+    if requests:
+        try:
+            receipt = await asyncio.to_thread(
+                execute_public_rest_backfill,
+                requests,
+                gap_ids=sorted({gap_id for request in requests for gap_id in request["gap_ids"]}),
+                timeout_seconds=contract["rest_backfill_timeout_seconds"],
+            )
+            gate.apply_backfill_receipt(receipt, revalidated_at=utc_now())
+            recovery_receipts.append(receipt)
+        except (RealtimeCaptureError, GATE.RealtimeGateError, OSError) as exc:
+            recovery_errors.append({"code": "PUBLIC_REST_BACKFILL_FAILED", "detail": str(exc)})
+    elif pending:
+        recovery_errors.append({
+            "code": "PENDING_GAP_OUTSIDE_BOUNDED_BACKFILL",
+            "gap_ids": [row["gap_id"] for row in pending],
+        })
     return {
         "message_log": message_log,
         "latest_public_messages_schema_version": LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
         "latest_public_messages": latest_public_messages,
+        "public_rest_backfill_receipts": recovery_receipts,
+        "public_rest_backfill_errors": recovery_errors,
     }
 
 
@@ -313,22 +465,62 @@ async def run_capture_async(
     deadline = start + dt.timedelta(seconds=duration_seconds)
     try:
         if markets:
-            streamed = await _connect_and_stream(gate, markets, deadline=deadline, stop_event=stop_event)
+            streamed = await _connect_and_stream(
+                gate, markets, contract=contract, deadline=deadline, stop_event=stop_event,
+            )
         else:
             streamed = {
                 "message_log": [],
                 "latest_public_messages_schema_version": LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
                 "latest_public_messages": {},
+                "public_rest_backfill_receipts": [],
+                "public_rest_backfill_errors": [],
             }
     finally:
         for sig in installed_handlers:
             loop.remove_signal_handler(sig)
 
-    status = gate.status_snapshot(utc_now())
+    ended_at = utc_now()
+    status = gate.status_snapshot(ended_at)
+    quote_rows = []
+    for item in streamed["latest_public_messages"].values():
+        if item.get("kind") != "ticker":
+            continue
+        parsed = GATE.parse_message(item["raw"])
+        received_at = dt.datetime.strptime(
+            item["received_at"], "%Y-%m-%dT%H:%M:%S.%fZ",
+        ).replace(tzinfo=UTC)
+        quote_rows.append(GATE.quote_row_from_ticker(parsed, received_at=received_at))
+    if quote_rows:
+        try:
+            freshness_policy_result = GATE.evaluate_with_ratified_freshness_policy(
+                quote_rows,
+                observed_at=ended_at,
+                batch_id=f"P9_06_{ended_at.strftime('%Y%m%dT%H%M%SZ')}",
+                contract=contract,
+            )
+        except GATE.RealtimeGateError as exc:
+            freshness_policy_result = {"status": GATE.UNKNOWN, "reason": str(exc), "result": None}
+    else:
+        freshness_policy_result = {
+            "status": GATE.UNKNOWN,
+            "reason": "P9_06_RATIFIED_POLICY_INPUT_NO_TICKER",
+            "result": None,
+        }
+    freshness_rows = (freshness_policy_result.get("result") or {}).get("results", [])
+    all_quotes_fresh = bool(freshness_rows) and all(
+        row.get("freshness_status") == GATE.FRESH for row in freshness_rows
+    )
+    action_gate_status = GATE.FRESH if (
+        all_quotes_fresh
+        and not status["pending_gap_windows"]
+        and status["finalized_candle_ledger_count"] > 0
+    ) else GATE.UNKNOWN
     run_record = {
+        "evidence_class": GATE.NATURAL_AUTOMATED,
         "capture_mode": capture_mode,
         "started_at": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "ended_at": utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ended_at": ended_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "requested_duration_seconds": duration_seconds,
         "markets": markets,
         "message_log": streamed["message_log"],
@@ -336,6 +528,23 @@ async def run_capture_async(
             "latest_public_messages_schema_version"
         ],
         "latest_public_messages": streamed["latest_public_messages"],
+        "public_rest_backfill_receipts": streamed.get("public_rest_backfill_receipts", []),
+        "public_rest_backfill_errors": streamed.get("public_rest_backfill_errors", []),
+        "ratified_freshness_policy": {
+            "path": contract["ratified_freshness_policy_path"],
+            "packet_sha256": contract["ratified_freshness_policy_sha256"],
+            "consumer_result": freshness_policy_result,
+        },
+        "finalized_only_action_gate": {
+            "status": action_gate_status,
+            "finalized_candle_only": True,
+            "finalized_candle_ledger_count": status["finalized_candle_ledger_count"],
+            "in_progress_candle_count": status["in_progress_candle_count"],
+            "pending_gap_count": len(status["pending_gap_windows"]),
+            "decision_eligible": False,
+            "action_generation_authorized": False,
+            "order_authorized": False,
+        },
         "status": status,
         "candle_ledger": {
             f"{market}|{timeframe}": sorted(t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in open_times)

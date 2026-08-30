@@ -38,12 +38,11 @@ Reuses, never reimplements:
   -- so this reuse is exact, not approximate.
 * ``execution/intraday_freshness.py`` -- P9-01's external-RATIFIED-policy
   freshness guard, called directly (not reimplemented) by
-  ``evaluate_via_intraday_freshness_guard``. This repository ships no
-  default/ratified CRYPTO threshold (same ``repository_default_policy:
-  ABSENT`` discipline P9-01 itself established), so in production this call
-  always fails closed to ``UNKNOWN`` until a human ratifies a real
-  ``intraday_freshness_policy/1`` packet for the ``CRYPTO`` market -- see
-  ``config/upbit_realtime_freshness_policy_proposal.json``.
+  ``evaluate_via_intraday_freshness_guard``. P9-06's production consumer
+  accepts only the contract-pinned exact hash of
+  ``config/upbit_realtime_freshness_policy_ratified.json`` and scopes it to
+  CRYPTO quotes.  The older proposal file remains non-authoritative and can
+  never pass the production loader.
 
 Upbit's public WS has **no daily candle stream** (only
 ``candle.1s``/``1m``/``3m``/``5m``/``10m``/``15m``/``30m``/``60m``/``240m``)
@@ -85,6 +84,7 @@ _INTRADAY_FRESHNESS_SPEC.loader.exec_module(INTRADAY_FRESHNESS)
 UTC = dt.timezone.utc
 CONTRACT_PATH = ROOT / "config" / "upbit_realtime_gate_contract.json"
 FRESHNESS_POLICY_PROPOSAL_PATH = ROOT / "config" / "upbit_realtime_freshness_policy_proposal.json"
+RATIFIED_FRESHNESS_POLICY_PATH = ROOT / "config" / "upbit_realtime_freshness_policy_ratified.json"
 
 OUTPUT_SCHEMA_VERSION = "upbit_realtime_gate_status/1"
 
@@ -93,6 +93,11 @@ STALE = "STALE"
 UNKNOWN = "UNKNOWN"
 WAIT = "WAIT"
 GATE_STATUSES = (FRESH, STALE, UNKNOWN, WAIT)
+
+NATURAL_AUTOMATED = "NATURAL_AUTOMATED"
+PIT_REPLAY = "PIT_REPLAY"
+SYNTHETIC_FIXTURE = "SYNTHETIC_FIXTURE"
+EVIDENCE_CLASSES = (NATURAL_AUTOMATED, PIT_REPLAY, SYNTHETIC_FIXTURE)
 
 CONNECTING = "CONNECTING"
 CONNECTED = "CONNECTED"
@@ -148,6 +153,22 @@ def _require_aware(value: dt.datetime, code: str) -> dt.datetime:
     return value.astimezone(UTC)
 
 
+def _iso_utc(value: dt.datetime) -> str:
+    return _require_aware(value, "UTC_TIMESTAMP_NAIVE").strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_utc(value: str, code: str) -> dt.datetime:
+    if not isinstance(value, str):
+        raise RealtimeGateError(code)
+    try:
+        parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError as exc:
+        raise RealtimeGateError(code) from exc
+    if _iso_utc(parsed) != value:
+        raise RealtimeGateError(code)
+    return parsed
+
+
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     value = _read_json(Path(path))
     if not isinstance(value, dict) or value.get("contract_version") != "upbit_realtime_gate_contract/1":
@@ -164,6 +185,22 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         raise RealtimeGateError("CONTRACT_CANDLE_TYPES_MISMATCH")
     if set(value.get("private_channel_types_forbidden", [])) != set(PRIVATE_WS_TYPES_FORBIDDEN):
         raise RealtimeGateError("CONTRACT_PRIVATE_TYPES_MISMATCH")
+    if value.get("ratified_freshness_policy_path") != "config/upbit_realtime_freshness_policy_ratified.json":
+        raise RealtimeGateError("CONTRACT_RATIFIED_POLICY_PATH_MISMATCH")
+    policy_hash = value.get("ratified_freshness_policy_sha256")
+    if not isinstance(policy_hash, str) or re.fullmatch(r"[0-9a-f]{64}", policy_hash) is None:
+        raise RealtimeGateError("CONTRACT_RATIFIED_POLICY_HASH_INVALID")
+    for field in (
+        "rest_backfill_max_window_seconds", "rest_backfill_max_rows",
+        "rest_backfill_max_requests_per_run", "rest_backfill_timeout_seconds",
+    ):
+        if type(value.get(field)) is not int or value[field] < 1:
+            raise RealtimeGateError(f"CONTRACT_BACKFILL_BOUND_INVALID:{field}")
+    thresholds = value.get("provider_gap_threshold_seconds_by_kind")
+    if not isinstance(thresholds, dict) or set(thresholds) != {"ticker", "trade", "orderbook", "candle"}:
+        raise RealtimeGateError("CONTRACT_PROVIDER_GAP_THRESHOLDS_INVALID")
+    if any(type(item) is not int or item < 1 for item in thresholds.values()):
+        raise RealtimeGateError("CONTRACT_PROVIDER_GAP_THRESHOLD_INVALID")
     return copy.deepcopy(value)
 
 
@@ -178,6 +215,71 @@ def load_freshness_policy_proposal(path: Path = FRESHNESS_POLICY_PROPOSAL_PATH) 
     if not isinstance(value, dict) or value.get("approval_status") == "RATIFIED":
         raise RealtimeGateError("FRESHNESS_PROPOSAL_MUST_NOT_BE_RATIFIED_HERE")
     return copy.deepcopy(value)
+
+
+def load_ratified_freshness_policy(
+    path: Path = RATIFIED_FRESHNESS_POLICY_PATH, *, observed_at: dt.datetime,
+    contract: dict = None,
+) -> dict:
+    """Load only the exact-hash Notion-ratified P9-06 policy packet.
+
+    The proposal file cannot pass this loader: it has a different schema,
+    no self hash, and no contract-pinned exact hash.  The effective window is
+    checked here before any quote bytes are evaluated, so a once-ratified but
+    stale packet cannot be consumed.
+    """
+    observed_at = _require_aware(observed_at, "FRESHNESS_POLICY_OBSERVED_AT_NAIVE")
+    contract = copy.deepcopy(contract) if contract is not None else load_contract()
+    value = _read_json(Path(path))
+    fields = {
+        "schema_version", "policy_id", "approval_status", "ratified_by",
+        "ratified_at_utc", "effective_from_utc", "effective_to_utc",
+        "input_contract_version", "max_provider_age_seconds_by_market",
+        "max_transport_delay_seconds_by_market", "packet_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise RealtimeGateError("FRESHNESS_POLICY_FIELDS_MISMATCH")
+    if (
+        value.get("schema_version") != "intraday_freshness_policy/1"
+        or value.get("approval_status") != "RATIFIED"
+        or value.get("input_contract_version") != "intraday_freshness_guard/1"
+    ):
+        raise RealtimeGateError("FRESHNESS_POLICY_IDENTITY_INVALID")
+    normalized = copy.deepcopy(value)
+    claimed = normalized.pop("packet_sha256", None)
+    expected = contract.get("ratified_freshness_policy_sha256")
+    if claimed != expected or payload_sha256(normalized) != claimed:
+        raise RealtimeGateError("FRESHNESS_POLICY_EXACT_HASH_MISMATCH")
+    ratified = _parse_utc(value["ratified_at_utc"], "FRESHNESS_POLICY_RATIFIED_AT_INVALID")
+    start = _parse_utc(value["effective_from_utc"], "FRESHNESS_POLICY_EFFECTIVE_FROM_INVALID")
+    end = _parse_utc(value["effective_to_utc"], "FRESHNESS_POLICY_EFFECTIVE_TO_INVALID")
+    if ratified > start or not (start <= observed_at < end):
+        raise RealtimeGateError("FRESHNESS_POLICY_NOT_EFFECTIVE")
+    if (
+        value.get("max_provider_age_seconds_by_market", {}).get("CRYPTO") != 20
+        or value.get("max_transport_delay_seconds_by_market", {}).get("CRYPTO") != 3
+    ):
+        raise RealtimeGateError("FRESHNESS_POLICY_CRYPTO_THRESHOLDS_MISMATCH")
+    return copy.deepcopy(value)
+
+
+def summarize_evidence_classes(records: list) -> dict:
+    counts = {item: 0 for item in EVIDENCE_CLASSES}
+    natural_days = set()
+    for record in records:
+        evidence_class = record.get("evidence_class") if isinstance(record, dict) else None
+        if evidence_class not in counts:
+            raise RealtimeGateError(f"EVIDENCE_CLASS_INVALID:{evidence_class}")
+        counts[evidence_class] += 1
+        if evidence_class == NATURAL_AUTOMATED:
+            started_at = _parse_utc(record.get("started_at"), "EVIDENCE_STARTED_AT_INVALID")
+            natural_days.add(started_at.date().isoformat())
+    return {
+        "natural_sample_count": counts[NATURAL_AUTOMATED],
+        "p10_12_natural_day_count": len(natural_days),
+        "pit_replay_count": counts[PIT_REPLAY],
+        "synthetic_fixture_count": counts[SYNTHETIC_FIXTURE],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -490,30 +592,80 @@ class CandleLedger:
     across a reconnect (identical raw bytes) is a harmless no-op; different
     raw bytes for an already-committed open time fails closed
     (``CandleFinalizationError: COMMITTED_CANDLE_MISMATCH``), propagated
-    unchanged. An in-progress candle is never merged into committed state --
-    it simply never appears in ``added_open_times``.
+    unchanged. An in-progress candle is preserved in a separate mutable
+    bucket and can move to the immutable ledger only when its close boundary
+    elapses or a public REST recovery returns it after close.
     """
 
     def __init__(self):
         self.committed: dict = {}
+        self.in_progress: dict = {}
+
+    @staticmethod
+    def _canonical_row(raw_candle_row: dict) -> dict:
+        """Transport-neutral candle body used as the ledger value.
+
+        WS adds ``type/code/stream_type`` while REST adds ``market/unit``.
+        Those transport envelopes must not create two logical candles for
+        the same market/timeframe/open_time identity.
+        """
+        return {field: raw_candle_row.get(field) for field in finalization.REQUIRED_CANDLE_FIELDS}
 
     def ingest(self, market: str, timeframe: str, raw_candle_row: dict, *, as_of: dt.datetime) -> dict:
         key = (market, timeframe)
-        classified = finalization.classify_candles([raw_candle_row], timeframe, as_of)
+        canonical_row = self._canonical_row(raw_candle_row)
+        classified = finalization.classify_candles([canonical_row], timeframe, as_of)
         existing = self.committed.get(key, {})
         merged = finalization.merge_finalized_no_overwrite(existing, classified["finalized"])
         self.committed[key] = merged["merged"]
+        pending = self.in_progress.setdefault(key, {})
+        for entry in classified["in_progress"]:
+            pending[entry["open_time"]] = entry
+        for open_time in merged["added_open_times"]:
+            pending.pop(open_time, None)
         return {
             "added_open_times": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in merged["added_open_times"]],
             "in_progress_count": len(classified["in_progress"]),
             "duplicate_row_count": classified["duplicate_row_count"],
         }
 
+    def promote_closed(self, *, as_of: dt.datetime) -> dict:
+        as_of = _require_aware(as_of, "CANDLE_PROMOTION_AS_OF_NAIVE")
+        added = []
+        for key in sorted(self.in_progress):
+            market, timeframe = key
+            pending = self.in_progress[key]
+            rows = [pending[open_time]["raw"] for open_time in sorted(pending)]
+            if not rows:
+                continue
+            classified = finalization.classify_candles(rows, timeframe, as_of)
+            merged = finalization.merge_finalized_no_overwrite(
+                self.committed.get(key, {}), classified["finalized"],
+            )
+            self.committed[key] = merged["merged"]
+            for open_time in merged["added_open_times"]:
+                pending.pop(open_time, None)
+                added.append({
+                    "market": market,
+                    "timeframe": timeframe,
+                    "open_time": _iso_utc(open_time),
+                })
+        return {"added_count": len(added), "added": added}
+
     def finalized_open_times(self, market: str, timeframe: str) -> set:
         return set(self.committed.get((market, timeframe), {}))
 
     def finalized_count(self, market: str, timeframe: str) -> int:
         return len(self.committed.get((market, timeframe), {}))
+
+    def total_finalized_count(self) -> int:
+        return sum(len(rows) for rows in self.committed.values())
+
+    def in_progress_count(self, market: str, timeframe: str) -> int:
+        return len(self.in_progress.get((market, timeframe), {}))
+
+    def total_in_progress_count(self) -> int:
+        return sum(len(rows) for rows in self.in_progress.values())
 
 
 def candle_gap_windows(
@@ -539,6 +691,174 @@ def connection_gap_windows(disconnect_intervals: list, *, min_gap_seconds) -> li
         dict(interval) for interval in disconnect_intervals
         if interval["gap_seconds"] >= min_gap_seconds
     ]
+
+
+def _returned_provider_times(request: dict, payload: list) -> list[dt.datetime]:
+    values = []
+    for row in payload:
+        if not isinstance(row, dict):
+            raise RealtimeGateError("BACKFILL_PAYLOAD_ROW_INVALID")
+        if request.get("kind") == "candle":
+            values.append(finalization.parse_candle_open_time(row))
+        elif request.get("kind") == "trade":
+            timestamp = row.get("trade_timestamp", row.get("timestamp"))
+            if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool):
+                raise RealtimeGateError("BACKFILL_TRADE_PROVIDER_TIME_INVALID")
+            values.append(dt.datetime.fromtimestamp(timestamp / 1000, tz=UTC))
+        else:
+            raise RealtimeGateError(f"BACKFILL_REQUEST_KIND_INVALID:{request.get('kind')}")
+    return values
+
+
+def backfill_response_record(
+    *, request: dict, payload: list, requested_at: dt.datetime, received_at: dt.datetime,
+) -> dict:
+    requested_at = _require_aware(requested_at, "BACKFILL_REQUESTED_AT_NAIVE")
+    received_at = _require_aware(received_at, "BACKFILL_RECEIVED_AT_NAIVE")
+    if received_at < requested_at:
+        raise RealtimeGateError("BACKFILL_TRANSPORT_TIME_INVALID")
+    if not isinstance(request, dict) or request.get("method") != "GET" or request.get("auth_required") is not False:
+        raise RealtimeGateError("BACKFILL_REQUEST_PUBLIC_GET_REQUIRED")
+    if type(request.get("count")) is not int or request["count"] < 1:
+        raise RealtimeGateError("BACKFILL_REQUEST_COUNT_INVALID")
+    request_identity = {
+        field: request.get(field) for field in (
+            "kind", "timeframe", "market", "method", "url", "count", "auth_required", "request_range",
+        )
+    }
+    if request.get("request_id") != payload_sha256(request_identity):
+        raise RealtimeGateError("BACKFILL_REQUEST_ID_MISMATCH")
+    url = request.get("url")
+    if not isinstance(url, str) or not url.startswith("https://api.upbit.com/v1/"):
+        raise RealtimeGateError("BACKFILL_REQUEST_ENDPOINT_FORBIDDEN")
+    if any(fragment in url for fragment in ("/orders", "/withdraw", "/deposit", "/accounts")):
+        raise RealtimeGateError("BACKFILL_REQUEST_ENDPOINT_FORBIDDEN")
+    if not isinstance(payload, list):
+        raise RealtimeGateError("BACKFILL_PAYLOAD_NOT_LIST")
+    provider_times = _returned_provider_times(request, payload)
+    request_range = copy.deepcopy(request.get("request_range"))
+    if not isinstance(request_range, dict) or set(request_range) != {"from", "to"}:
+        raise RealtimeGateError("BACKFILL_REQUEST_RANGE_INVALID")
+    range_start = _parse_utc(request_range["from"], "BACKFILL_REQUEST_FROM_INVALID")
+    range_end = _parse_utc(request_range["to"], "BACKFILL_REQUEST_TO_INVALID")
+    if range_end <= range_start:
+        raise RealtimeGateError("BACKFILL_REQUEST_RANGE_INVALID")
+    if any(provider_at < range_start or provider_at > range_end for provider_at in provider_times):
+        raise RealtimeGateError("BACKFILL_RETURNED_RANGE_OUTSIDE_REQUEST")
+    returned_range = {
+        "from": _iso_utc(min(provider_times)) if provider_times else None,
+        "to": _iso_utc(max(provider_times)) if provider_times else None,
+        "row_count": len(payload),
+    }
+    return {
+        "request_id": request.get("request_id"),
+        "requested_count": request.get("count"),
+        "kind": request.get("kind"),
+        "timeframe": request.get("timeframe"),
+        "market": request.get("market"),
+        "method": "GET",
+        "url": url,
+        "auth_required": False,
+        "request_range": request_range,
+        "returned_range": returned_range,
+        "provider_time": {
+            "first_returned_at": returned_range["from"],
+            "last_returned_at": returned_range["to"],
+        },
+        "transport_time": {
+            "requested_at": _iso_utc(requested_at),
+            "received_at": _iso_utc(received_at),
+            "duration_milliseconds": int((received_at - requested_at).total_seconds() * 1000),
+        },
+        "payload_sha256": payload_sha256(payload),
+        "payload": copy.deepcopy(payload),
+    }
+
+
+def build_backfill_receipt(
+    *, gap_ids: list, responses: list, evidence_class: str, generated_at: dt.datetime,
+) -> dict:
+    if evidence_class not in EVIDENCE_CLASSES:
+        raise RealtimeGateError(f"EVIDENCE_CLASS_INVALID:{evidence_class}")
+    if not isinstance(gap_ids, list) or any(
+        not isinstance(item, str) or re.fullmatch(r"[0-9a-f]{64}", item) is None for item in gap_ids
+    ):
+        raise RealtimeGateError("BACKFILL_GAP_IDS_INVALID")
+    if not isinstance(responses, list):
+        raise RealtimeGateError("BACKFILL_RESPONSES_INVALID")
+    receipt = {
+        "schema_version": "upbit_public_rest_backfill_receipt/1",
+        "evidence_class": evidence_class,
+        "source": "UPBIT_PUBLIC_REST",
+        "generated_at": _iso_utc(generated_at),
+        "gap_ids": sorted(set(gap_ids)),
+        "responses": copy.deepcopy(responses),
+        "auth_required": False,
+        "private_or_order_endpoint_called": False,
+        "authority": dict(_GATE_AUTHORITY),
+    }
+    receipt["receipt_sha256"] = payload_sha256(receipt)
+    return receipt
+
+
+def validate_backfill_receipt(receipt: dict) -> dict:
+    fields = {
+        "schema_version", "evidence_class", "source", "generated_at", "gap_ids",
+        "responses", "auth_required", "private_or_order_endpoint_called", "authority",
+        "receipt_sha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != fields:
+        raise RealtimeGateError("BACKFILL_RECEIPT_FIELDS_MISMATCH")
+    if (
+        receipt.get("schema_version") != "upbit_public_rest_backfill_receipt/1"
+        or receipt.get("source") != "UPBIT_PUBLIC_REST"
+        or receipt.get("evidence_class") not in EVIDENCE_CLASSES
+        or receipt.get("auth_required") is not False
+        or receipt.get("private_or_order_endpoint_called") is not False
+        or receipt.get("authority") != _GATE_AUTHORITY
+    ):
+        raise RealtimeGateError("BACKFILL_RECEIPT_IDENTITY_INVALID")
+    claimed = receipt.get("receipt_sha256")
+    normalized = copy.deepcopy(receipt)
+    normalized.pop("receipt_sha256", None)
+    if not isinstance(claimed, str) or payload_sha256(normalized) != claimed:
+        raise RealtimeGateError("BACKFILL_RECEIPT_HASH_MISMATCH")
+    _parse_utc(receipt.get("generated_at"), "BACKFILL_RECEIPT_GENERATED_AT_INVALID")
+    if not isinstance(receipt.get("gap_ids"), list) or any(
+        not isinstance(item, str) or re.fullmatch(r"[0-9a-f]{64}", item) is None
+        for item in receipt["gap_ids"]
+    ):
+        raise RealtimeGateError("BACKFILL_RECEIPT_GAP_IDS_INVALID")
+    for response in receipt.get("responses", []):
+        if not isinstance(response, dict):
+            raise RealtimeGateError("BACKFILL_RESPONSE_INVALID")
+        if payload_sha256(response.get("payload")) != response.get("payload_sha256"):
+            raise RealtimeGateError("BACKFILL_RESPONSE_PAYLOAD_HASH_MISMATCH")
+        rebuilt = backfill_response_record(
+            request={
+                "request_id": response.get("request_id"),
+                "kind": response.get("kind"),
+                "timeframe": response.get("timeframe"),
+                "market": response.get("market"),
+                "method": response.get("method"),
+                "url": response.get("url"),
+                "count": response.get("requested_count"),
+                "auth_required": response.get("auth_required"),
+                "request_range": response.get("request_range"),
+            },
+            payload=response.get("payload"),
+            requested_at=_parse_utc(
+                response.get("transport_time", {}).get("requested_at"),
+                "BACKFILL_RESPONSE_REQUESTED_AT_INVALID",
+            ),
+            received_at=_parse_utc(
+                response.get("transport_time", {}).get("received_at"),
+                "BACKFILL_RESPONSE_RECEIVED_AT_INVALID",
+            ),
+        )
+        if rebuilt != response:
+            raise RealtimeGateError("BACKFILL_RESPONSE_REVALIDATION_MISMATCH")
+    return copy.deepcopy(receipt)
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +940,23 @@ def evaluate_via_intraday_freshness_guard(
         return {"status": UNKNOWN, "reason": f"P9_01_GUARD_REJECTED:{exc}", "result": None}
 
 
+def evaluate_with_ratified_freshness_policy(
+    quote_rows: list, *, observed_at: dt.datetime, batch_id: str,
+    policy_path: Path = RATIFIED_FRESHNESS_POLICY_PATH, contract: dict = None,
+) -> dict:
+    """P9-06 production consumer for the exact-hash CRYPTO policy only."""
+    if not isinstance(quote_rows, list) or any(
+        not isinstance(row, dict) or row.get("market") != "CRYPTO" for row in quote_rows
+    ):
+        raise RealtimeGateError("P9_06_FRESHNESS_CONSUMER_CRYPTO_ONLY")
+    policy = load_ratified_freshness_policy(
+        policy_path, observed_at=observed_at, contract=contract,
+    )
+    return evaluate_via_intraday_freshness_guard(
+        quote_rows, observed_at=observed_at, batch_id=batch_id, ratified_policy=policy,
+    )
+
+
 # ---------------------------------------------------------------------------
 # The gate -- ties everything together
 # ---------------------------------------------------------------------------
@@ -637,6 +974,8 @@ class RealtimeGate:
     def __init__(
         self, *, markets: list, max_reconnect_attempts: int, base_backoff_seconds: float,
         max_backoff_seconds: float, max_staleness_seconds_by_kind: dict, connection_gap_min_seconds,
+        provider_gap_threshold_seconds_by_kind: dict = None,
+        max_backfill_window_seconds: int = 300, max_backfill_rows: int = 20,
     ):
         if not isinstance(markets, (list, tuple, set)):
             raise RealtimeGateError("GATE_MARKETS_INVALID")
@@ -655,11 +994,59 @@ class RealtimeGate:
         self.candles = CandleLedger()
         self.max_staleness_seconds_by_kind = dict(max_staleness_seconds_by_kind)
         self.connection_gap_min_seconds = connection_gap_min_seconds
+        self.provider_gap_threshold_seconds_by_kind = dict(
+            provider_gap_threshold_seconds_by_kind
+            or {"ticker": 5, "trade": 5, "orderbook": 5, "candle": 20}
+        )
+        self.max_backfill_window_seconds = int(max_backfill_window_seconds)
+        self.max_backfill_rows = int(max_backfill_rows)
+        if self.max_backfill_window_seconds < 1 or self.max_backfill_rows < 1:
+            raise RealtimeGateError("GATE_BACKFILL_BOUND_INVALID")
         self.last_message_at: dict = {}
+        self.last_provider_at: dict = {}
+        self._gaps: dict = {}
+        self.receipt_ledger: dict = {}
         self.counts = {
             "accepted": 0, "duplicate_ignored": 0, "out_of_order": 0,
             "rejected_malformed": 0, "rejected_out_of_scope_market": 0,
+            "rest_backfill_receipts_applied": 0, "rest_backfill_receipts_revalidated": 0,
+            "rest_backfill_candles_added": 0,
         }
+
+    @staticmethod
+    def _provider_at(parsed: dict) -> dt.datetime:
+        raw = parsed["raw"]
+        timestamp = raw.get("trade_timestamp") if parsed["kind"] in ("ticker", "trade") else raw.get("timestamp")
+        if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool):
+            raise RealtimeGateError("MESSAGE_PROVIDER_TIMESTAMP_INVALID")
+        return dt.datetime.fromtimestamp(timestamp / 1000, tz=UTC)
+
+    def _record_gap(
+        self, *, source: str, kind: str, timeframe, market, start: dt.datetime, end: dt.datetime,
+    ) -> dict:
+        start = _require_aware(start, "GAP_START_NAIVE")
+        end = _require_aware(end, "GAP_END_NAIVE")
+        if end <= start:
+            raise RealtimeGateError("GAP_WINDOW_INVALID")
+        body = {
+            "schema_version": "upbit_realtime_gap/1",
+            "source": source,
+            "kind": kind,
+            "timeframe": timeframe,
+            "market": market,
+            "from": _iso_utc(start),
+            "to": _iso_utc(end),
+            "duration_seconds": int((end - start).total_seconds()),
+            "bounded": (end - start).total_seconds() <= self.max_backfill_window_seconds,
+            "max_backfill_window_seconds": self.max_backfill_window_seconds,
+        }
+        gap_id = payload_sha256(body)
+        row = {**body, "gap_id": gap_id, "status": "PENDING"}
+        self._gaps.setdefault(gap_id, row)
+        return copy.deepcopy(self._gaps[gap_id])
+
+    def pending_gap_windows(self) -> list:
+        return [copy.deepcopy(self._gaps[key]) for key in sorted(self._gaps) if self._gaps[key]["status"] == "PENDING"]
 
     def handle_message(self, raw: dict, *, received_at: dt.datetime, as_of: dt.datetime = None) -> dict:
         """Never raises: any failure mode (malformed input, out-of-scope
@@ -689,7 +1076,28 @@ class RealtimeGate:
         order = self.sequence.check(parsed)
         if order == "OUT_OF_ORDER":
             self.counts["out_of_order"] += 1
+            provider_at = self._provider_at(parsed)
+            provider_key = (parsed["kind"], parsed["timeframe"], parsed["market"])
+            last_provider_at = self.last_provider_at.get(provider_key)
+            if last_provider_at is not None and last_provider_at > provider_at:
+                self._record_gap(
+                    source="WS_SEQUENCE_REGRESSION", kind=parsed["kind"], timeframe=parsed["timeframe"],
+                    market=parsed["market"], start=provider_at, end=last_provider_at,
+                )
             return {"action": "OUT_OF_ORDER_FLAGGED", "market": parsed["market"], "kind": parsed["kind"]}
+        provider_at = self._provider_at(parsed)
+        provider_key = (parsed["kind"], parsed["timeframe"], parsed["market"])
+        last_provider_at = self.last_provider_at.get(provider_key)
+        gap = None
+        threshold = self.provider_gap_threshold_seconds_by_kind.get(parsed["kind"])
+        if last_provider_at is not None and threshold is not None:
+            elapsed = (provider_at - last_provider_at).total_seconds()
+            if elapsed > threshold:
+                gap = self._record_gap(
+                    source="WS_PROVIDER_TIME_GAP", kind=parsed["kind"], timeframe=parsed["timeframe"],
+                    market=parsed["market"], start=last_provider_at, end=provider_at,
+                )
+        self.last_provider_at[provider_key] = provider_at
         last_key = (parsed["kind"], parsed["timeframe"], parsed["market"]) if parsed["kind"] == "candle" \
             else (parsed["kind"], None, parsed["market"])
         self.last_message_at[last_key] = received_at
@@ -698,6 +1106,8 @@ class RealtimeGate:
             result["candle_ingest"] = self.candles.ingest(
                 parsed["market"], parsed["timeframe"], parsed["raw"], as_of=as_of,
             )
+        if gap is not None:
+            result["detected_gap"] = gap
         self.counts["accepted"] += 1
         return result
 
@@ -705,7 +1115,20 @@ class RealtimeGate:
         self.connection.on_disconnect(at, reason)
 
     def on_connected(self, at: dt.datetime) -> None:
+        before = len(self.connection.disconnect_intervals)
         self.connection.on_connected(at)
+        if len(self.connection.disconnect_intervals) > before:
+            interval = self.connection.disconnect_intervals[-1]
+            if interval["gap_seconds"] >= self.connection_gap_min_seconds:
+                self._record_gap(
+                    source="WS_CONNECTION_GAP", kind="connection", timeframe=None, market=None,
+                    start=dt.datetime.strptime(
+                        interval["disconnected_at"], "%Y-%m-%dT%H:%M:%S.%fZ",
+                    ).replace(tzinfo=UTC),
+                    end=dt.datetime.strptime(
+                        interval["reconnected_at"], "%Y-%m-%dT%H:%M:%S.%fZ",
+                    ).replace(tzinfo=UTC),
+                )
 
     def next_reconnect_attempt(self) -> dict:
         return self.connection.next_attempt()
@@ -713,8 +1136,61 @@ class RealtimeGate:
     def request_stop(self) -> None:
         self.connection.request_stop()
 
+    def apply_backfill_receipt(self, receipt: dict, *, revalidated_at: dt.datetime) -> dict:
+        receipt = validate_backfill_receipt(receipt)
+        revalidated_at = _require_aware(revalidated_at, "BACKFILL_REVALIDATED_AT_NAIVE")
+        receipt_hash = receipt["receipt_sha256"]
+        if receipt_hash in self.receipt_ledger:
+            self.counts["rest_backfill_receipts_revalidated"] += 1
+            return {
+                "action": "IDEMPOTENT_REVALIDATED",
+                "receipt_sha256": receipt_hash,
+                "added_candle_count": 0,
+            }
+        unknown_gap_ids = [gap_id for gap_id in receipt["gap_ids"] if gap_id not in self._gaps]
+        if unknown_gap_ids:
+            raise RealtimeGateError(f"BACKFILL_RECEIPT_UNKNOWN_GAP:{unknown_gap_ids[0]}")
+        response_keys = {
+            (response.get("kind"), response.get("timeframe"), response.get("market"))
+            for response in receipt["responses"]
+        }
+        required_dimensions = {
+            ("trade", None), ("candle", "15m"), ("candle", "1h"), ("candle", "4h"),
+        }
+        for gap_id in receipt["gap_ids"]:
+            gap = self._gaps[gap_id]
+            required_markets = [gap["market"]] if gap.get("market") else self.markets
+            for market in required_markets:
+                if any((kind, timeframe, market) not in response_keys for kind, timeframe in required_dimensions):
+                    raise RealtimeGateError(f"BACKFILL_RECEIPT_COVERAGE_INCOMPLETE:{gap_id}:{market}")
+        added = 0
+        for response in receipt["responses"]:
+            if response["kind"] != "candle":
+                continue
+            market = response.get("market")
+            timeframe = response.get("timeframe")
+            if market not in self.markets or timeframe not in CANDLE_WS_TYPE_BY_TIMEFRAME:
+                raise RealtimeGateError("BACKFILL_CANDLE_SCOPE_INVALID")
+            for row in response["payload"]:
+                ingest = self.candles.ingest(market, timeframe, row, as_of=revalidated_at)
+                added += len(ingest["added_open_times"])
+        for gap_id in receipt["gap_ids"]:
+            self._gaps[gap_id]["status"] = "RESOLVED"
+            self._gaps[gap_id]["resolved_by_receipt_sha256"] = receipt_hash
+        application = {
+            "receipt_sha256": receipt_hash,
+            "applied_at": _iso_utc(revalidated_at),
+            "added_candle_count": added,
+            "evidence_class": receipt["evidence_class"],
+        }
+        self.receipt_ledger[receipt_hash] = application
+        self.counts["rest_backfill_receipts_applied"] += 1
+        self.counts["rest_backfill_candles_added"] += added
+        return {"action": "RECEIPT_APPLIED", **application}
+
     def status_snapshot(self, now: dt.datetime) -> dict:
         now = _require_aware(now, "STATUS_SNAPSHOT_NOW_NAIVE")
+        promotion = self.candles.promote_closed(as_of=now)
         per_market = []
         # Worst-status aggregation across every market/kind: UNKNOWN (missing
         # or impossible-ordering evidence) outranks STALE (a known-negative
@@ -736,9 +1212,7 @@ class RealtimeGate:
                 if severity[fresh["status"]] > severity[worst]:
                     worst = fresh["status"]
             per_market.append(row)
-        gap_windows = connection_gap_windows(
-            self.connection.disconnect_intervals, min_gap_seconds=self.connection_gap_min_seconds,
-        )
+        gap_windows = self.pending_gap_windows()
         overall_status = WAIT if self.connection.state == WAIT_MAX_RETRIES_EXCEEDED else worst
         if gap_windows and overall_status == FRESH:
             overall_status = UNKNOWN
@@ -751,7 +1225,14 @@ class RealtimeGate:
             "overall_status": overall_status,
             "counts": dict(self.counts),
             "markets": per_market,
-            "pending_connection_gap_windows": gap_windows,
+            "pending_connection_gap_windows": [
+                row for row in gap_windows if row["source"] == "WS_CONNECTION_GAP"
+            ],
+            "pending_gap_windows": gap_windows,
+            "receipt_ledger_count": len(self.receipt_ledger),
+            "finalized_candle_ledger_count": self.candles.total_finalized_count(),
+            "in_progress_candle_count": self.candles.total_in_progress_count(),
+            "closed_candle_promotion": promotion,
             "duplicate_guard_size": len(self.duplicate_guard),
             "authority": dict(_GATE_AUTHORITY),
         }

@@ -1,0 +1,21 @@
+{
+  "schema_version": "intraday_freshness_policy/1",
+  "policy_id": "P9_06_UPBIT_CRYPTO_PAPER_V1",
+  "approval_status": "RATIFIED",
+  "ratified_by": "CIO/User Notion policy 3cb9f2d7-3c84-8181-bd69-fe7d425aefd0",
+  "ratified_at_utc": "2026-08-29T23:51:27Z",
+  "effective_from_utc": "2026-08-30T00:00:00Z",
+  "effective_to_utc": "9999-12-31T23:59:59Z",
+  "input_contract_version": "intraday_freshness_guard/1",
+  "max_provider_age_seconds_by_market": {
+    "US": 60,
+    "KOREA": 45,
+    "CRYPTO": 20
+  },
+  "max_transport_delay_seconds_by_market": {
+    "US": 10,
+    "KOREA": 8,
+    "CRYPTO": 3
+  },
+  "packet_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34"
+}

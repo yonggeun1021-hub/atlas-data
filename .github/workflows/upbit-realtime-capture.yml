@@ -41,6 +41,7 @@ jobs:
         run: pip install "websockets>=12.0"
       - name: Offline P9-06 realtime-gate regression (no live connection)
         run: |
+          python3 test/upbit_realtime_recovery_tests.py
           python3 test/test_upbit_realtime_gate.py
           python3 test/test_upbit_public_validation_capture.py
           python3 test/test_upbit_public_validation_natural_20260829.py
