@@ -70,6 +70,18 @@ class UpbitPaperIdentityHardeningCandidateTests(unittest.TestCase):
             self.assertFalse(packet["release_ready"])
             self.assertFalse(packet["exact_hash_cio_approval_present"])
             self.assertTrue(all(value is False for value in packet["authority"].values()))
+            self.assertEqual(
+                BUILD.CONSUMER_PATH,
+                ROOT / "universe" / "upbit_tradeable_universe.py",
+            )
+            self.assertEqual(
+                packet["consumer_file_sha256"],
+                BUILD.file_sha256(ROOT / "universe" / "upbit_tradeable_universe.py"),
+            )
+            self.assertEqual(
+                packet["candidate_builder_file_sha256"],
+                BUILD.file_sha256(ROOT / "identity" / "upbit_paper_identity_hardening_candidate.py"),
+            )
             self.assertEqual(packet["payload_sha256"], BUILD.payload_sha256({
                 key: value for key, value in packet.items() if key != "payload_sha256"
             }))
@@ -125,6 +137,20 @@ class UpbitPaperIdentityHardeningCandidateTests(unittest.TestCase):
                 key: value for key, value in packet.items() if key != "payload_sha256"
             })
             with self.assertRaisesRegex(BUILD.HardeningError, "CONSUMER_FILE_HASH_MISMATCH"):
+                BUILD.validate_candidate(packet)
+
+    def test_candidate_builder_hash_tamper_is_rejected_after_self_rehash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first_party = first_party_snapshot(Path(tmp) / "fp")
+            packet = BUILD.build_candidate(
+                first_party_snapshot_dir=first_party,
+                market_snapshot_dir=MARKET_SNAPSHOT,
+            )
+            packet["candidate_builder_file_sha256"] = "0" * 64
+            packet["payload_sha256"] = BUILD.payload_sha256({
+                key: value for key, value in packet.items() if key != "payload_sha256"
+            })
+            with self.assertRaisesRegex(BUILD.HardeningError, "CANDIDATE_BUILDER_FILE_HASH_MISMATCH"):
                 BUILD.validate_candidate(packet)
 
     def test_latest_selection_uses_internal_time_not_directory_order(self):

@@ -21,7 +21,11 @@ CONTRACT_PATH = ROOT / "config" / "upbit_paper_identity_hardening_contract.json"
 FIRST_PARTY_CAPTURE_PATH = ROOT / ".github" / "scripts" / "upbit_first_party_identity_capture.py"
 MARKET_CAPTURE_PATH = ROOT / ".github" / "scripts" / "upbit_market_capture.py"
 FREEZE_PATH = ROOT / "config" / "upbit_identity_taxonomy_governance_freeze.json"
-CONSUMER_PATH = Path(__file__).resolve()
+# The exact-hash approval must bind the authoritative classifier that consumes
+# the registry and taxonomy.  Pinning this candidate builder itself would not
+# protect the release boundary and must never be treated as consumer approval.
+CONSUMER_PATH = ROOT / "universe" / "upbit_tradeable_universe.py"
+CANDIDATE_BUILDER_PATH = Path(__file__).resolve()
 
 
 def _load_module(name: str, path: Path):
@@ -210,7 +214,7 @@ def build_candidate(
         "authority": contract["authority"],
     }
     packet = {
-        "schema_version": "upbit_paper_identity_hardening_candidate/1",
+        "schema_version": "upbit_paper_identity_hardening_candidate/2",
         "review_status": contract["review_status"],
         "generated_at": first_party["available_at"],
         "evaluation_as_of": first_party["available_at"][:10],
@@ -230,6 +234,7 @@ def build_candidate(
         "proposed_taxonomy": proposed_taxonomy,
         "proposed_taxonomy_payload_sha256": payload_sha256(proposed_taxonomy),
         "consumer_file_sha256": file_sha256(CONSUMER_PATH),
+        "candidate_builder_file_sha256": file_sha256(CANDIDATE_BUILDER_PATH),
         "consumer_contract_sha256": file_sha256(contract_path),
         "exact_hash_cio_approval_present": False,
         "release_ready": False,
@@ -242,6 +247,8 @@ def build_candidate(
 
 def validate_candidate(packet: dict, *, contract_path: Path = CONTRACT_PATH) -> None:
     contract = load_contract(contract_path)
+    if packet.get("schema_version") != "upbit_paper_identity_hardening_candidate/2":
+        fail("PACKET_SCHEMA_INVALID", repr(packet.get("schema_version")))
     stored = packet.get("payload_sha256")
     if stored != payload_sha256({key: value for key, value in packet.items() if key != "payload_sha256"}):
         fail("PACKET_SELF_HASH_MISMATCH", repr(stored))
@@ -253,6 +260,8 @@ def validate_candidate(packet: dict, *, contract_path: Path = CONTRACT_PATH) -> 
         fail("PACKET_AUTHORITY_INVALID", repr(packet.get("authority")))
     if packet.get("consumer_file_sha256") != file_sha256(CONSUMER_PATH):
         fail("CONSUMER_FILE_HASH_MISMATCH", repr(packet.get("consumer_file_sha256")))
+    if packet.get("candidate_builder_file_sha256") != file_sha256(CANDIDATE_BUILDER_PATH):
+        fail("CANDIDATE_BUILDER_FILE_HASH_MISMATCH", repr(packet.get("candidate_builder_file_sha256")))
     if packet.get("consumer_contract_sha256") != file_sha256(contract_path):
         fail("CONSUMER_CONTRACT_HASH_MISMATCH", repr(packet.get("consumer_contract_sha256")))
     registry = packet.get("proposed_registry") or {}
