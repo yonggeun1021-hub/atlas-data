@@ -1,0 +1,58 @@
+{
+  "schema_version": "krx_paper_canary_eligibility_contract/1",
+  "contract_version": "krx_paper_canary_eligibility/1",
+  "input_schema_version": "krx_paper_canary_eligibility_input/1",
+  "output_schema_version": "krx_paper_canary_eligibility_packet/1",
+  "market": "KOREA",
+  "proposal_path": "config/krx_paper_canary_policy_ratification_proposal.json",
+  "required_completed_bar_intervals": [
+    "15m",
+    "1h",
+    "1d"
+  ],
+  "required_natural_measurements": [
+    "turnover",
+    "depth",
+    "spread",
+    "slippage",
+    "tick"
+  ],
+  "maximum_symbols": 1,
+  "maximum_open_positions": 1,
+  "ranking_order": [
+    "TURNOVER_DESC",
+    "MIN_BID_ASK_DEPTH_DESC",
+    "SPREAD_BPS_ASC",
+    "WORST_SIDE_SLIPPAGE_BPS_ASC",
+    "SYMBOL_ASC",
+    "SECURITY_ID_ASC"
+  ],
+  "authoritative_result_while_proposal_unratified": {
+    "status": "LOCKED",
+    "symbol": "NONE"
+  },
+  "synthetic_boundary": {
+    "allowed_mode": "SYNTHETIC_TEST_FIXTURE",
+    "diagnostic_selection_only": true,
+    "may_set_authoritative_symbol": false,
+    "may_ratify_policy": false
+  },
+  "order_boundary": {
+    "order_draft": null,
+    "broker_submission": null,
+    "network_or_broker_client_imported": false
+  },
+  "authority": {
+    "eligibility_authority": false,
+    "candidate_selection_authority": false,
+    "strategy_authority": false,
+    "internal_virtual_ledger_authorized": false,
+    "paper_order_write": false,
+    "kis_post_authorized": false,
+    "order_authorized": false,
+    "real_account_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
