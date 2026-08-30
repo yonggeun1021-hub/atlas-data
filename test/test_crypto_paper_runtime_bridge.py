@@ -242,6 +242,89 @@ class LatestPublicMessageTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
 
+class RollingObservationRootTests(unittest.TestCase):
+    def test_stablecoin_evidence_only_in_observation_root_rederives(self):
+        seed_packet_path = (
+            ROOT
+            / "evidence"
+            / "crypto_paper_decision"
+            / "2026-08-30"
+            / "0719"
+            / "0c42f5337058dcbfde6f21b6742c3cfefefe87c46891e1b90895505ffe643f51"
+            / "packet.json"
+        )
+        seed = json.loads(seed_packet_path.read_text(encoding="utf-8"))
+
+        observation_root = Path(tempfile.mkdtemp(prefix="crypto_runtime_stablecoin_"))
+        self.addCleanup(shutil.rmtree, observation_root, ignore_errors=True)
+        for source_row in seed["source_components"]["source_directories"]:
+            source = ROOT / source_row["path"]
+            target = observation_root / source_row["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, target)
+
+        generated_at = seed["generated_at"]
+        component_registry = DECISION.LIVE_COMPONENT_REGISTRY.build_registry(
+            generated_at, root=observation_root
+        )
+        with (
+            mock.patch.object(DECISION, "ROOT", observation_root),
+            mock.patch.object(DECISION.LIVE_AXIS, "ROOT", observation_root),
+        ):
+            decision = DECISION.build_snapshot(
+                generated_at=generated_at,
+                source_commit=seed["source_commit"],
+                universe_entry=None,
+                market_evidence_entry=None,
+                realtime_entry=None,
+                component_rows=component_registry,
+            )
+        self.assertEqual(
+            decision["crypto_regime_five_axis"]["LIQUIDITY"]["status"],
+            "DEFINED",
+        )
+        stablecoin_row = decision["source_components"]["rows"][
+            "STABLECOIN_NET_ISSUANCE"
+        ]
+        self.assertEqual(stablecoin_row["status"], "READY")
+
+        copied_packet = (
+            observation_root / "evidence" / "crypto_paper_decision" / "packet.json"
+        )
+        copied_packet.parent.mkdir(parents=True, exist_ok=True)
+        copied_packet.write_text(json.dumps(decision), encoding="utf-8")
+
+        code_only_root = Path(tempfile.mkdtemp(prefix="crypto_runtime_code_only_"))
+        self.addCleanup(shutil.rmtree, code_only_root, ignore_errors=True)
+        self.assertFalse(
+            (code_only_root / "evidence" / "stablecoin" / "raw").exists()
+        )
+        with mock.patch.object(DECISION.LIVE_AXIS, "ROOT", code_only_root):
+            validator = BRIDGE._decision_validator(observation_root)
+            self.assertEqual(
+                Path(validator.LIVE_AXIS.__file__).resolve(),
+                (ROOT / "regime" / "live_axis_adapter.py").resolve(),
+            )
+            self.assertEqual(
+                validator.LIVE_AXIS.ROOT.resolve(), observation_root.resolve()
+            )
+            checked = BRIDGE.load_and_validate_decision_snapshot(
+                copied_packet,
+                expected_source_commit=decision["source_commit"],
+                observation_root=observation_root,
+            )
+
+        self.assertEqual(checked, decision)
+        self.assertTrue(checked["authority"])
+        self.assertTrue(
+            all(value is False for value in checked["authority"].values())
+        )
+        self.assertEqual(
+            checked["crypto_regime_five_axis"]["LIQUIDITY"]["status"],
+            "DEFINED",
+        )
+
+
 class BridgeContractTests(RuntimeFixture):
     def test_approved_code_rederives_a_later_separate_observation_checkout(self):
         decision = self.decision()

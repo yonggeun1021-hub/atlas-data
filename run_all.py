@@ -643,6 +643,11 @@ APPROVED_TESTS = [
     #   replay case, market rank, Regime, capital, or trading authority is
     #   invented; resigned output/source tamper fails closed. temp output only.
     "test/test_regime_policy_calibration_readiness.py",
+    # ★ P1-COM-05 PAPER 참고판정. 이미 보존된 무료 US/KR 5축 관찰값을
+    #   사용자 화면용 진단으로만 정규화한다. runtime/final Regime은 UNKNOWN,
+    #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
+    #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
+    "test/test_paper_regime_reference.py",
     # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
     #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
     #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가

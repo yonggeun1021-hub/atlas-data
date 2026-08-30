@@ -2,7 +2,7 @@ name: P9-06 Upbit Realtime WebSocket Bounded Capture
 
 on:
   schedule:
-    - cron: "*/30 * * * *"  # every 30 minutes; bounded-run only, never a persistent connection
+    - cron: "6,36 * * * *"  # every 30 minutes; phase-target a natural 15m boundary within the bounded window
   workflow_dispatch:
     inputs:
       duration_seconds:

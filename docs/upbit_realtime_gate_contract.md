@@ -162,7 +162,9 @@ long it runs or what drives it -- no `websockets` import, no `asyncio`
 import, no socket, no wall-clock read anywhere in this file. Today,
 `.github/scripts/upbit_realtime_capture.py` drives it for one bounded,
 configurable-duration window per cron trigger (default 240s;
-`.github/workflows/upbit-realtime-capture.yml` runs every 30 minutes,
+`.github/workflows/upbit-realtime-capture.yml` runs at minutes 06 and 36
+of every hour (still every 30 minutes), phase-targeting a natural 15-minute
+candle boundary inside the bounded capture window,
 `timeout-minutes: 10`), reconnecting within that window, writing an
 append-only evidence snapshot, and exiting cleanly. A genuinely persistent
 daemon on separate always-on infrastructure later would drive the exact

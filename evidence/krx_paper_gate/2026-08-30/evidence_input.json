@@ -1,0 +1,248 @@
+{
+  "schema_version": "krx_paper_gate_evidence/1",
+  "market": "KOREA",
+  "as_of_utc": "2026-08-30T08:00:00Z",
+  "source_revisions": {
+    "atlas_data_main": "3cf338e3572d456340328d1f8dda8daaaaa3ad33",
+    "atlas_private_evidence_main": "c1473a27ce7b721ebdd0f1d7f7c703eddfafc25b"
+  },
+  "common_safety_checks": {
+    "COMMON_REAL_CAPITAL_HARD_FALSE": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481dcb233e75c05ea5016",
+        "atlas-private-evidence:services/kis-paper-order-gateway/README.md@be666248048d8932f2e1cd8b45719712c249dc0b"
+      ],
+      "approval_refs": [],
+      "note": "P10-08 and the gateway contract keep REAL, Production, and Trading authority false."
+    },
+    "COMMON_PAPER_ENDPOINT_ALLOWLIST": {
+      "status": "PASS",
+      "evidence_refs": [
+        "atlas-private-evidence:private_evidence/kis_paper_order.py@be666248048d8932f2e1cd8b45719712c249dc0b"
+      ],
+      "approval_refs": [],
+      "note": "The audited execution slice is KIS PAPER/mock only."
+    },
+    "COMMON_BROKER_PROTOCOL_AND_ACCOUNT_COMPATIBILITY": {
+      "status": "UNKNOWN",
+      "evidence_refs": [
+        "https://github.com/yonggeun1021-hub/atlas-private-evidence/pull/96",
+        "https://app.notion.com/p/3c89f2d73c8481dcb233e75c05ea5016"
+      ],
+      "approval_refs": [],
+      "note": "Private PR #96 reports current PAPER protocol/account cancel and query compatibility as UNKNOWN and pauses the canary; the PR is not merged into the audited private main."
+    },
+    "COMMON_CREDENTIALS_PRIVATE_AND_REDACTED": {
+      "status": "PASS",
+      "evidence_refs": [
+        "atlas-private-evidence:services/kis-paper-order-gateway/README.md@be666248048d8932f2e1cd8b45719712c249dc0b",
+        "atlas-private-evidence:test/test_kis_paper_preflight.py@be666248048d8932f2e1cd8b45719712c249dc0b"
+      ],
+      "approval_refs": [],
+      "note": "Credentials and value-bearing ledgers remain private; public evidence is redacted."
+    },
+    "COMMON_KILL_SWITCH_FAIL_CLOSED": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481dcb233e75c05ea5016",
+        "atlas-private-evidence:test/test_kis_paper_preflight.py@be666248048d8932f2e1cd8b45719712c249dc0b"
+      ],
+      "approval_refs": [],
+      "note": "Five human-approved PAPER lifecycles ended with locks restored; this proves safety mechanics, not automation authority."
+    },
+    "COMMON_IDEMPOTENCY_AND_RECONCILIATION": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481dcb233e75c05ea5016",
+        "atlas-private-evidence:test/test_kis_paper_order.py@be666248048d8932f2e1cd8b45719712c249dc0b"
+      ],
+      "approval_refs": [],
+      "note": "P10-08 proves broker reconciliation and bounded idempotency mechanics for human-approved PAPER orders."
+    },
+    "COMMON_PIT_AND_IMMUTABLE_LINEAGE": {
+      "status": "PASS",
+      "evidence_refs": [
+        "decision/entry_policy_readiness.py@5d5df805f2365a9c89eed6f6ddab0fbadc400896",
+        "decision/entry_proposal_boundary.py@5d5df805f2365a9c89eed6f6ddab0fbadc400896"
+      ],
+      "approval_refs": [],
+      "note": "Current fail-closed decision boundaries rederive semantic outputs from exact upstream inputs."
+    },
+    "COMMON_APPROVAL_AND_AUTHORITY_SEPARATION": {
+      "status": "PASS",
+      "evidence_refs": [
+        "config/entry_policy_readiness_contract.json@5d5df805f2365a9c89eed6f6ddab0fbadc400896",
+        "config/ready_signal_order_boundary_contract.json@5d5df805f2365a9c89eed6f6ddab0fbadc400896"
+      ],
+      "approval_refs": [],
+      "note": "Evidence, review, entry, sizing, order, Production, and trading authority are structurally separated."
+    }
+  },
+  "krx_checks": {
+    "KRX_P10_09_SHADOW_MECHANISM": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481c4ba21cddb28f5831f"
+      ],
+      "approval_refs": [],
+      "note": "P10-09 mechanism and natural WAIT observations are complete."
+    },
+    "KRX_P10_10_DIAGNOSTIC_NONAUTHORITY": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481dba394cc167ed71cad"
+      ],
+      "approval_refs": [],
+      "note": "P10-10 is a completed diagnostic policy lab and explicitly not strategy authority."
+    },
+    "KRX_SHADOW_ORDER_OUTPUT_NULL": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481c4ba21cddb28f5831f",
+        "https://app.notion.com/p/3c89f2d73c8481dba394cc167ed71cad"
+      ],
+      "approval_refs": [],
+      "note": "Authoritative action remains WAIT with null quantity/order draft and PAPER write false."
+    },
+    "KRX_FINAL_CANDIDATE_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c8481a88894f691568187e2"
+      ],
+      "approval_refs": [],
+      "note": "Candidate Validity authority remains unratified."
+    },
+    "KRX_ENTRY_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "config/entry_policy_readiness_contract.json@5d5df805f2365a9c89eed6f6ddab0fbadc400896",
+        "https://app.notion.com/p/3c49f2d73c8481a88894f691568187e2"
+      ],
+      "approval_refs": [],
+      "note": "Entry eligibility remains LOCKED_AUTHORITY_UNRATIFIED."
+    },
+    "KRX_HOLD_EXIT_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c8481388644eee246dd713f"
+      ],
+      "approval_refs": [],
+      "note": "Position management and Profit Harvest/Exit authority remain unratified."
+    },
+    "KRX_POSITION_SIZE_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3bf9f2d73c84819c9565f97cf0a2997b",
+        "https://app.notion.com/p/3c49f2d73c8481f0ba20ff5eef12b2ec"
+      ],
+      "approval_refs": [],
+      "note": "Sizing capability exists, but live inputs and sizing authority remain unratified."
+    },
+    "KRX_P8_13_EXECUTABLE_PAPER_PROPOSAL": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c84810683eed0f390af6860",
+        "decision/entry_proposal_boundary.py@5d5df805f2365a9c89eed6f6ddab0fbadc400896"
+      ],
+      "approval_refs": [],
+      "note": "P8-13 remains LOCKED_NOT_STARTED/NONE with capital zero and order null."
+    },
+    "KRX_INTERNAL_LEDGER_CANARY_AUTHORITY": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No isolated-main KRX internal-ledger canary approval was found."
+    },
+    "KRX_INTERNAL_LEDGER_RESTART_RECONCILED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No accepted KRX strategy-driven internal-ledger restart receipt was found."
+    },
+    "KRX_INTERNAL_LEDGER_CANARY_TERMINAL": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "The human-approved P10-08 broker pilots do not prove a strategy-driven internal-ledger canary."
+    },
+    "KRX_KIS_MOCK_AUTO_ORDER_POLICY_RATIFIED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481dcb233e75c05ea5016"
+      ],
+      "approval_refs": [],
+      "note": "P10-08 explicitly leaves unattended/automatic PAPER order authority separate and closed."
+    },
+    "KRX_KIS_MOCK_BOUNDED_CANARY_TERMINAL": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "An active external canary automation exists, but no terminal evidence from an accepted isolated revision was available at this as-of."
+    },
+    "KRX_KIS_MOCK_AUTOMATION_KILL_TESTED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "Human-order gateway safety evidence is not automatically reclassified as unattended strategy automation evidence."
+    },
+    "KRX_NATURAL_SAMPLE_30_CALENDAR_DAYS": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c89f2d73c8481c4ba21cddb28f5831f",
+        "https://app.notion.com/p/3c89f2d73c8481dba394cc167ed71cad"
+      ],
+      "approval_refs": [],
+      "note": "The canonical rows cite D1/minute observations, not 30 natural calendar days."
+    },
+    "KRX_NATURAL_SAMPLE_LINEAGE_COMPLETE": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "A 30-day forward window has not started under this contract."
+    },
+    "KRX_VALIDATION_CRITERIA_RATIFIED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No KRX-specific outcome-independent PAPER validation policy was found; no threshold is invented here."
+    },
+    "KRX_INDEPENDENT_VALIDATION_PASS": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "Independent 30-day KRX PAPER validation cannot run yet."
+    },
+    "KRX_PAPER_VALIDATED_REVIEW_PACKET": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "PAPER_VALIDATED has not been reached."
+    },
+    "KRX_LIVE_REVIEW_USER_ACCEPTED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No LIVE_REVIEW acceptance exists."
+    },
+    "KRX_REAL_AUTHORITY_REMAINS_FALSE": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c8481649f6de3662e222c3e"
+      ],
+      "approval_refs": [],
+      "note": "Doctrine and user mandate keep REAL/live authority false even in LIVE_REVIEW."
+    }
+  },
+  "other_market_context": {
+    "CRYPTO": "FAIL",
+    "US": "UNKNOWN"
+  },
+  "authority": {
+    "paper_environment_only": true,
+    "real_capital_authorized": false,
+    "live_account_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

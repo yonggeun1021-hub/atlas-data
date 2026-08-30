@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
 DECISION_PATH = ROOT / "decision" / "crypto_paper_decision_snapshot.py"
 SIMULATOR_PATH = ROOT / "shadow" / "crypto_paper_simulator.py"
 REALTIME_GATE_PATH = ROOT / "realtime" / "upbit_realtime_gate.py"
+LIVE_AXIS_PATH = ROOT / "regime" / "live_axis_adapter.py"
 
 REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/2"
 RUNTIME_CONFIG_SCHEMA_VERSION = "crypto_paper_runtime_config/1"
@@ -122,9 +123,21 @@ def _decision_validator(observation_root: Path):
     validator = _load(name, DECISION_PATH)
     for dependency in (
         "UNIVERSE", "PROMOTION", "ELIGIBILITY", "MARKET_EVIDENCE",
-        "CANDLE_FINALIZATION", "REALTIME_GATE", "REGIME_OUTPUT", "LIVE_AXIS",
+        "CANDLE_FINALIZATION", "REALTIME_GATE", "REGIME_OUTPUT",
     ):
         setattr(validator, dependency, getattr(DECISION, dependency))
+    live_axis = _load(
+        "crypto_paper_runtime_live_axis_observation_"
+        + hashlib.sha256(str(observation_root).encode("utf-8")).hexdigest()[:16],
+        LIVE_AXIS_PATH,
+    )
+    # Keep every adapter and transform imported from the approved code checkout,
+    # but resolve their retained public evidence inside the separately verified
+    # rolling observation checkout. Reusing DECISION.LIVE_AXIS here would leave
+    # its module-level ROOT pinned to the older code checkout and silently turn
+    # later stablecoin or other component evidence back into UNDEFINED.
+    live_axis.ROOT = observation_root
+    validator.LIVE_AXIS = live_axis
     # The module and every imported policy/transform came from the approved
     # code checkout. Only its relative evidence-path root is redirected to the
     # separately verified, read-only observation checkout.

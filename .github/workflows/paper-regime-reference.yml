@@ -1,0 +1,59 @@
+name: PAPER Market Risk Reference
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Atlas Free Market Data Evidence
+      - Korea Market Five Signals
+      - P1-CR-06 Crypto Breadth Daily Capture
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-paper-regime-reference
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Verify PAPER reference contract
+        run: python3 test/test_paper_regime_reference.py
+      - name: Build hash-bound PAPER reference
+        run: python3 regime/paper_regime_reference.py --write
+      - name: Verify generated pointer from retained inputs
+        run: python3 regime/paper_regime_reference.py --verify data/latest_paper_regime_reference.json
+      - name: Commit append-only evidence and latest pointer
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add config/paper_regime_reference_policy_v1.json data/latest_paper_regime_reference.json evidence/regime/paper_reference
+          if git diff --cached --quiet; then
+            echo "same inputs and policy: no change"
+            exit 0
+          fi
+          git commit -m "data: PAPER market risk reference $(date -u +%F)"
+          git pull --rebase origin main
+          # The source workflows also write main. Rebuild once more after the
+          # rebase so the committed latest pointer can never describe the
+          # pre-rebase source bytes.
+          python3 regime/paper_regime_reference.py --write
+          python3 regime/paper_regime_reference.py --verify data/latest_paper_regime_reference.json
+          git add data/latest_paper_regime_reference.json evidence/regime/paper_reference
+          if ! git diff --cached --quiet; then
+            git commit --amend --no-edit
+          fi
+          git push origin HEAD:main
