@@ -1,0 +1,1523 @@
+{
+  "aggregate_policy": {
+    "authorized_regimes": [
+      "UNKNOWN"
+    ],
+    "regime": "UNKNOWN",
+    "status": "UNRATIFIED"
+  },
+  "authority": {
+    "broker_submission_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exchange_order_authorized": false,
+    "exit_action_authorized": false,
+    "market_judgment_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "crypto_axis_trade_bridge/1",
+  "five_axis": {
+    "all_defined": false,
+    "axes": {
+      "BREADTH": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "LEADERSHIP": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-08_RELATIVE_STRENGTH",
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "LIQUIDITY": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-08_LIQUIDITY",
+            "P5-09_BLOCKER_FRESHNESS"
+          ],
+          "exit_consumers": [
+            "P7-13_SECURITY_LIQUIDITY"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "RISK_VOL": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-09_REGIME_RISK_CONTEXT"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "TREND": {
+        "available_at": null,
+        "bindings": {
+          "entry_consumers": [
+            "P5-08_TREND"
+          ],
+          "exit_consumers": [
+            "P7-13_TREND"
+          ]
+        },
+        "observation_date": null,
+        "status": "UNDEFINED",
+        "warnings": [
+          "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+        ]
+      }
+    },
+    "defined_count": 0,
+    "missing_axes": [
+      "TREND",
+      "RISK_VOL",
+      "LIQUIDITY",
+      "BREADTH",
+      "LEADERSHIP"
+    ],
+    "required_count": 5
+  },
+  "generated_at": "2026-08-30T22:49:02Z",
+  "mode": "PAPER_REVIEW_ONLY",
+  "operational_date_kst": "2026-08-31",
+  "packet_sha256": "71d020b1db814a0d75e1a20d593d8e51a28c027c6281b41d5e4b8c60d55cec1c",
+  "schema_version": "crypto_axis_trade_bridge_packet/1",
+  "source": {
+    "contract": {
+      "aggregate_policy_status": "UNRATIFIED",
+      "aggregate_regimes_currently_authorized": [
+        "UNKNOWN"
+      ],
+      "authority": {
+        "broker_submission_authorized": false,
+        "entry_eligibility_authorized": false,
+        "exchange_order_authorized": false,
+        "exit_action_authorized": false,
+        "market_judgment_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "real_capital_authorized": false,
+        "trading_authorized": false
+      },
+      "axis_bindings": {
+        "BREADTH": {
+          "entry_consumers": [
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "LEADERSHIP": {
+          "entry_consumers": [
+            "P5-08_RELATIVE_STRENGTH",
+            "P1-CR-08_AGGREGATE_REGIME"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "LIQUIDITY": {
+          "entry_consumers": [
+            "P5-08_LIQUIDITY",
+            "P5-09_BLOCKER_FRESHNESS"
+          ],
+          "exit_consumers": [
+            "P7-13_SECURITY_LIQUIDITY"
+          ]
+        },
+        "RISK_VOL": {
+          "entry_consumers": [
+            "P5-09_REGIME_RISK_CONTEXT"
+          ],
+          "exit_consumers": [
+            "P7-13_RISK_REGIME"
+          ]
+        },
+        "TREND": {
+          "entry_consumers": [
+            "P5-08_TREND"
+          ],
+          "exit_consumers": [
+            "P7-13_TREND"
+          ]
+        }
+      },
+      "contract_version": "crypto_axis_trade_bridge/1",
+      "entry_policy": {
+        "missing_axis_state": "WAIT",
+        "publish_order_draft": false,
+        "unratified_aggregate_state": "WAIT",
+        "upstream_blocked_state": "BLOCKED"
+      },
+      "exit_policy": {
+        "aggregate_signal_when_unratified": "UNKNOWN",
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "pre_fill_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "trend_signal_when_interpretation_unauthorized": "UNKNOWN"
+      },
+      "mode": "PAPER_REVIEW_ONLY",
+      "output_schema_version": "crypto_axis_trade_bridge_packet/1",
+      "required_axes": [
+        "TREND",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "BREADTH",
+        "LEADERSHIP"
+      ],
+      "schema_version": 1
+    },
+    "decision_snapshot": {
+      "authority": {
+        "entry_authorized": false,
+        "exchange_order_authorized": false,
+        "focused_review_authorized": false,
+        "investable_eligible": false,
+        "order_authorized": false,
+        "order_write_authorized": false,
+        "paper_buy_eligible_authorized": false,
+        "paper_eligible": false,
+        "production_authorized": false,
+        "real_authority": false,
+        "stage_authorized": false,
+        "trading_authorized": false
+      },
+      "candidates": [
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "BTC",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-BTC",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "ETH",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-ETH",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "LINK",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-LINK",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "SHIB",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-SHIB",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "SOL",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-SOL",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "SUI",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-SUI",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "WLD",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-WLD",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "UPBIT_MARKET_EVENT_CAUTION_ACTIVE",
+                "status": "FAIL"
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_FAILED:MATERIAL_BLOCKER",
+            "promotion_state": "BLOCKED"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_FAILED:MATERIAL_BLOCKER",
+          "state": "BLOCKED"
+        },
+        {
+          "authority": {
+            "entry_authorized": false,
+            "exchange_order_authorized": false,
+            "focused_review_authorized": false,
+            "investable_eligible": false,
+            "order_authorized": false,
+            "order_write_authorized": false,
+            "paper_buy_eligible_authorized": false,
+            "paper_eligible": false,
+            "production_authorized": false,
+            "real_authority": false,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "canonical_asset_id": "XRP",
+          "freshness_cap_reason": null,
+          "freshness_capped": false,
+          "market": "KRW-XRP",
+          "p3_12_state": "PAPER_ELIGIBLE",
+          "p5_08": {
+            "criteria": {
+              "IDENTITY": {
+                "reason": "IDENTITY_RATIFIED_VIA_P3_12",
+                "status": "PASS"
+              },
+              "MATERIAL_BLOCKER": {
+                "reason": "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+                "status": "UNKNOWN",
+                "upbit_market_event_caution_active": false
+              },
+              "OVEREXTENSION": {
+                "reason": "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+                "status": "UNKNOWN"
+              },
+              "REGIME": {
+                "reason": "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+                "status": "UNKNOWN"
+              },
+              "RELATIVE_STRENGTH": {
+                "reason": "LEADERSHIP_OUTPUT_MISSING",
+                "status": "UNKNOWN"
+              },
+              "TRADABILITY": {
+                "reason": "P3_12_STATE:PAPER_ELIGIBLE",
+                "status": "PASS"
+              },
+              "TREND": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              },
+              "VOLUME_LIQUIDITY": {
+                "reason": "MARKET_EVIDENCE_PACKET_MISSING",
+                "status": "UNKNOWN"
+              }
+            },
+            "promotion_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+            "promotion_state": "WATCH"
+          },
+          "p5_09": null,
+          "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+          "state": "WATCH"
+        }
+      ],
+      "capture_date": "2026-08-30",
+      "capture_hhmm": "2249",
+      "captured_at_kst": "2026-08-31T07:49:02+09:00",
+      "captured_at_utc": "2026-08-30T22:49:02Z",
+      "completed_at": "2026-08-30T22:49:02Z",
+      "crypto_regime_five_axis": {
+        "BREADTH": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "LEADERSHIP": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "LIQUIDITY": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "RISK_VOL": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        },
+        "TREND": {
+          "available_at": null,
+          "observation_date": null,
+          "status": "UNDEFINED",
+          "warnings": [
+            "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+          ]
+        }
+      },
+      "derivation_notes": [
+        "CRYPTO_LIVE_COMPONENT_REGISTRY_WIRED:0_SOURCE_COMPONENTS",
+        "UPBIT_MARKET_EVIDENCE_COMPONENT_UNKNOWN",
+        "UPBIT_REALTIME_FRESHNESS_POLICY_UNRATIFIED"
+      ],
+      "duplicate_guard_key": "CRYPTO-PAPER-DECISION-20260830-2249-AA800BA36E0EF8CE94EF64D0",
+      "finalized_candle_attestation": {
+        "market_evidence_snapshot_date": "2026-08-30",
+        "markets": {
+          "KRW-BTC": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-ETH": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-LINK": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-SHIB": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-SOL": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-SUI": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-WLD": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          },
+          "KRW-XRP": {
+            "15m": {
+              "finalized_candle_count": 95,
+              "freshness": {
+                "age_seconds": 698,
+                "max_staleness_seconds": 1800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:45:00Z"
+            },
+            "1d": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 50198,
+                "max_staleness_seconds": 172800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T00:00:00Z"
+            },
+            "1h": {
+              "finalized_candle_count": 47,
+              "freshness": {
+                "age_seconds": 3398,
+                "max_staleness_seconds": 7200,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T13:00:00Z"
+            },
+            "4h": {
+              "finalized_candle_count": 29,
+              "freshness": {
+                "age_seconds": 6998,
+                "max_staleness_seconds": 28800,
+                "status": "FRESH"
+              },
+              "in_progress_candle_count": 1,
+              "latest_finalized_close_time": "2026-08-30T12:00:00Z"
+            }
+          }
+        },
+        "used_in_promotion": false
+      },
+      "freshness_status": {
+        "market_evidence": "UNKNOWN",
+        "overall": "UNKNOWN",
+        "realtime": "UNKNOWN",
+        "upbit_universe": "FRESH"
+      },
+      "funnel_counts": {
+        "focused_review_count": 0,
+        "observation_pool_count": 274,
+        "paper_ready_count": 0,
+        "tradeable_universe_count": 8
+      },
+      "generated_at": "2026-08-30T22:49:02Z",
+      "generation_id": "aa800ba36e0ef8ce94ef64d0a9a2ce240509700c5d84a539d0d280e8615473ac",
+      "operational_date_kst": "2026-08-31",
+      "path_time_basis": "capture_date and capture_hhmm (and the evidence path they name) are UTC, not KST",
+      "payload_sha256": "a66fdc0583c5dc2f1e8b7aa426a43ce3528719f7e1732ee20d26fca5b4d1ecac",
+      "previous_state_reference": {
+        "funnel_counts": {
+          "focused_review_count": 0,
+          "observation_pool_count": 274,
+          "paper_ready_count": 0,
+          "tradeable_universe_count": 8
+        },
+        "generation_id": "efe4c6782c3a14bb2fb28ca3e2a631df02a7193a076fff6e7985cfc41834a7ba",
+        "payload_sha256": "963ee32dbd29ec748f92ce37c7c0e48d3f0acfaa901524d917ea04547c33c0cc"
+      },
+      "scheduled_for": "2026-08-30T22:30:00Z",
+      "schema_version": "crypto_paper_decision_snapshot_packet/1",
+      "source_commit": "0ab02185f927109d87ede0ce2149c5ee19eb10a5",
+      "source_components": {
+        "authority": {
+          "action_authorized": false,
+          "evidence_registry_only": true,
+          "exchange_order_authorized": false,
+          "paper_order_authorized": false,
+          "production_authorized": false,
+          "real_capital_authorized": false,
+          "regime_interpretation_authorized": false,
+          "strategy_authorized": false,
+          "threshold_authorized": false,
+          "trading_authorized": false,
+          "withdrawal_authorized": false
+        },
+        "contract_version": "crypto_live_component_registry_contract/1",
+        "deferred_components": {},
+        "generated_at": "2026-08-30T22:49:02Z",
+        "mode": "PUBLIC_EVIDENCE_ONLY_NO_INTERPRETATION",
+        "operational_date_kst": "2026-08-31",
+        "payload_sha256": "b160b29098c644a090a752c6d41855a54d27d78ed26000240c6497cdd066c031",
+        "rows": {},
+        "schema_version": "crypto_live_component_registry/1",
+        "source_directories": []
+      },
+      "source_refs": [
+        {
+          "path": "evidence/crypto_paper_decision/_sources/sha256/58a10c40e481b72b614cafde2f07a183262e7953fe7bd20081e39d9faa175c46/2026-08-30/source.json",
+          "role": "upbit_tradeable_universe_packet",
+          "sha256": "58a10c40e481b72b614cafde2f07a183262e7953fe7bd20081e39d9faa175c46"
+        },
+        {
+          "path": "evidence/crypto_paper_decision/_sources/sha256/21211fc76a518598e5e0c1821b7b794ac97f07837e785e48ef6c5e3954bc57d7/2026-08-30/source.json",
+          "role": "upbit_market_evidence_packet",
+          "sha256": "21211fc76a518598e5e0c1821b7b794ac97f07837e785e48ef6c5e3954bc57d7"
+        },
+        {
+          "path": "evidence/crypto_paper_decision/_sources/sha256/acb7cece6b19a1116e4eaf5f87f382b1fdb043e5cc02a4d7150b40286d7be995/2026-08-30/source.json",
+          "role": "upbit_realtime_capture_run",
+          "sha256": "acb7cece6b19a1116e4eaf5f87f382b1fdb043e5cc02a4d7150b40286d7be995"
+        }
+      ],
+      "started_at": "2026-08-30T22:42:47Z",
+      "upbit_universe_snapshot_identity": {
+        "date": "2026-08-30",
+        "payload_sha256": "f5194d563cf58442eb06281f47f750a073ba8759190108f6d88c52e1a7c7dc2c"
+      }
+    }
+  },
+  "source_decision_sha256": "a66fdc0583c5dc2f1e8b7aa426a43ce3528719f7e1732ee20d26fca5b4d1ecac",
+  "source_generation_id": "aa800ba36e0ef8ce94ef64d0a9a2ce240509700c5d84a539d0d280e8615473ac",
+  "summary": {
+    "automatic_entry_count": 0,
+    "automatic_exit_count": 0,
+    "entry_blocked_count": 1,
+    "entry_wait_count": 7,
+    "symbol_count": 8
+  },
+  "symbol_rules": [
+    {
+      "canonical_asset_id": "BTC",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-BTC",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "canonical_asset_id": "ETH",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-ETH",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "canonical_asset_id": "LINK",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-LINK",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "canonical_asset_id": "SHIB",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-SHIB",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "canonical_asset_id": "SOL",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-SOL",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "canonical_asset_id": "SUI",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-SUI",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "canonical_asset_id": "WLD",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:BLOCKED",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "BLOCKED"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-WLD",
+      "upstream_reason": "CRITERIA_FAILED:MATERIAL_BLOCKER",
+      "upstream_state": "BLOCKED"
+    },
+    {
+      "canonical_asset_id": "XRP",
+      "entry": {
+        "aggregate_regime": "UNKNOWN",
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "UPSTREAM_STATE:WATCH",
+          "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "AGGREGATE_POLICY_UNRATIFIED"
+        ],
+        "state": "WAIT"
+      },
+      "exit": {
+        "automatic_exit_generated": false,
+        "hard_exit_priority_preserved": true,
+        "post_fill_manager_contract_version": "crypto_paper_exit_manager/1",
+        "priority_categories": [
+          "HARD_EXIT",
+          "SECURITY_LIQUIDITY",
+          "RISK_REGIME",
+          "TREND",
+          "PROFIT_TRAIL",
+          "TIME_REVIEW"
+        ],
+        "reasons": [
+          "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "AGGREGATE_POLICY_UNRATIFIED",
+          "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+        ],
+        "regime_signal": "UNKNOWN",
+        "state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+        "trend_signal": "UNKNOWN"
+      },
+      "market": "KRW-XRP",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    }
+  ]
+}
