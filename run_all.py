@@ -653,6 +653,11 @@ APPROVED_TESTS = [
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # PAPER-only bridge: Regime controls the future total risk envelope while
+    # cross-market flow/relative strength controls the within-envelope review.
+    # All numeric weights, account facts, actions, orders, and trading remain
+    # null/false until replay and a separate capital-budget ratification.
+    "test/test_capital_flow_posture_reference.py",
     # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
     #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
     #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가
