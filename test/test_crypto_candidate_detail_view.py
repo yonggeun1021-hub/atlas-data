@@ -109,8 +109,8 @@ def write_market_evidence_packet(root: Path, date: str, packets_by_market: dict)
         "errors": {},
         "authority": {},
         "packets": packets_by_market,
-        "payload_sha256": "d" * 64,
     }
+    record["payload_sha256"] = MODULE.payload_sha256(record)
     return write_json(root / date / "packet.json", record)
 
 

@@ -135,6 +135,9 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+P4_SNAPSHOT_KEY_RE = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})-p3-(?P<record_hash_prefix>[0-9a-f]{16})$"
+)
 HHMM_RE = re.compile(r"^\d{4}$")
 # Same idempotency-key token shape as decision/action_order_idempotency.py
 # (P9-04) and universe/crypto_paper_buy_eligibility.py::compute_duplicate_guard_key
@@ -451,24 +454,69 @@ def find_latest_universe_packet(
 def find_latest_market_evidence_packet(
     data_root: Path = MARKET_EVIDENCE_DATA_ROOT, *, not_after: dt.datetime | None = None,
 ):
-    """Latest committed P4-07 record under ``data_root``, or ``None``."""
+    """Latest verified P4-07 record under ``data_root``, or ``None``.
+
+    P4-07 originally wrote ``YYYY-MM-DD`` directories.  The exact P3-hash
+    bridge now writes ``YYYY-MM-DD-p3-<record-hash-prefix>`` so multiple
+    immutable same-day universe generations cannot overwrite each other.
+    Select by each record's verified internal ``generated_at`` rather than
+    by either directory spelling; otherwise a legacy empty date packet can
+    silently outrank the current exact-eight packet.
+    """
     data_root = Path(data_root)
     if not data_root.is_dir():
         return None
-    dates = sorted(p.name for p in data_root.iterdir() if p.is_dir() and DATE_RE.fullmatch(p.name))
-    for date in reversed(dates):
-        candidate = data_root / date / "packet.json"
-        if candidate.is_file():
-            record = _read_json(candidate)
-            if not_after is not None:
-                generated_at = _parse_utc(
-                    record.get("generated_at") if isinstance(record, dict) else None,
-                    "market_evidence.generated_at",
+    candidates = []
+    for directory in data_root.iterdir():
+        if not directory.is_dir():
+            continue
+        legacy = DATE_RE.fullmatch(directory.name)
+        exact = P4_SNAPSHOT_KEY_RE.fullmatch(directory.name)
+        if legacy is None and exact is None:
+            continue
+        path = directory / "packet.json"
+        if not path.is_file():
+            continue
+        record = _read_json(path)
+        snapshot_date = record.get("snapshot_date") if isinstance(record, dict) else None
+        if not isinstance(snapshot_date, str) or DATE_RE.fullmatch(snapshot_date) is None:
+            raise CryptoPaperDecisionSnapshotError(
+                f"MARKET_EVIDENCE_SNAPSHOT_DATE_INVALID:{path}"
+            )
+        if legacy is not None:
+            if directory.name != snapshot_date:
+                raise CryptoPaperDecisionSnapshotError(
+                    f"MARKET_EVIDENCE_PATH_DATE_MISMATCH:{path}"
                 )
-                if generated_at > not_after:
-                    continue
-            return {"date": date, "path": candidate, "record": record}
-    return None
+        else:
+            lineage = record.get("universe_lineage") or {}
+            record_hash = lineage.get("record_payload_sha256")
+            if (
+                exact.group("date") != snapshot_date
+                or record.get("snapshot_key") != directory.name
+                or not isinstance(record_hash, str)
+                or not SHA256_RE.fullmatch(record_hash)
+                or exact.group("record_hash_prefix") != record_hash[:16]
+            ):
+                raise CryptoPaperDecisionSnapshotError(
+                    f"MARKET_EVIDENCE_SNAPSHOT_KEY_LINEAGE_MISMATCH:{path}"
+                )
+        entry = {"date": snapshot_date, "path": path, "record": record}
+        _validate_market_evidence_entry(entry)
+        generated_at = _parse_utc(record.get("generated_at"), "market_evidence.generated_at")
+        if not_after is not None and generated_at > not_after:
+            continue
+        candidates.append((generated_at, record["payload_sha256"], entry))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: (row[0], row[1]))
+    latest_at = candidates[-1][0]
+    latest = [row for row in candidates if row[0] == latest_at]
+    if len({row[1] for row in latest}) != 1:
+        raise CryptoPaperDecisionSnapshotError(
+            f"MARKET_EVIDENCE_LATEST_TIMESTAMP_AMBIGUOUS:{latest_at.isoformat()}"
+        )
+    return latest[-1][2]
 
 
 def find_latest_realtime_run(
