@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.parse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,6 +119,13 @@ class GapReceiptRecoveryTests(unittest.TestCase):
         self.assertTrue(all(request["auth_required"] is False for request in requests))
         self.assertTrue(all(request["count"] <= contract["rest_backfill_max_rows"] for request in requests))
         self.assertTrue(all("api.upbit.com/v1/" in request["url"] for request in requests))
+        trade_request = next(request for request in requests if request["kind"] == "trade")
+        trade_query = urllib.parse.parse_qs(urllib.parse.urlparse(trade_request["url"]).query)
+        self.assertEqual(trade_query["to"], ["00:00:30"])
+        self.assertEqual(
+            trade_request["request_range"],
+            {"from": "2026-08-28T00:00:00Z", "to": "2026-08-28T00:00:30Z"},
+        )
 
         payloads = {}
         for request in requests:
@@ -127,23 +135,30 @@ class GapReceiptRecoveryTests(unittest.TestCase):
                 payloads[request["url"]] = []
 
         clock_values = iter(
-            z(value) for value in (
+            z(value) + dt.timedelta(milliseconds=100 if index % 2 == 0 else 900)
+            for index, value in enumerate((
                 "2026-08-28T00:00:31Z", "2026-08-28T00:00:32Z",
                 "2026-08-28T00:00:33Z", "2026-08-28T00:00:34Z",
                 "2026-08-28T00:00:35Z", "2026-08-28T00:00:36Z",
                 "2026-08-28T00:00:37Z", "2026-08-28T00:00:38Z",
-            )
+            ))
         )
 
         def fetcher(url: str, _timeout: int) -> bytes:
             return json.dumps(payloads[url], sort_keys=True).encode("utf-8")
 
+        sleeps = []
         receipt = C.execute_public_rest_backfill(
             requests,
             gap_ids=[pending[0]["gap_id"]],
             fetcher=fetcher,
             clock=lambda: next(clock_values),
             evidence_class=G.SYNTHETIC_FIXTURE,
+            sleeper=sleeps.append,
+        )
+        self.assertEqual(
+            sleeps,
+            [C.REST_BACKFILL_MIN_REQUEST_INTERVAL_SECONDS] * (len(requests) - 1),
         )
         self.assertEqual(receipt["schema_version"], "upbit_public_rest_backfill_receipt/1")
         self.assertEqual(receipt["evidence_class"], G.SYNTHETIC_FIXTURE)
@@ -154,6 +169,7 @@ class GapReceiptRecoveryTests(unittest.TestCase):
             self.assertIn("provider_time", response)
             self.assertIn("transport_time", response)
             self.assertEqual(G.payload_sha256(response["payload"]), response["payload_sha256"])
+            self.assertEqual(response["transport_time"]["duration_milliseconds"], 1000)
 
         accepted_before = realtime.counts["accepted"]
         applied = realtime.apply_backfill_receipt(receipt, revalidated_at=z("2026-08-28T00:15:01Z"))

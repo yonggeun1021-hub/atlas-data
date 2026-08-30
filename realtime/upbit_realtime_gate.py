@@ -750,6 +750,8 @@ def backfill_response_record(
         "to": _iso_utc(max(provider_times)) if provider_times else None,
         "row_count": len(payload),
     }
+    requested_at_recorded = _parse_utc(_iso_utc(requested_at), "BACKFILL_REQUESTED_AT_INVALID")
+    received_at_recorded = _parse_utc(_iso_utc(received_at), "BACKFILL_RECEIVED_AT_INVALID")
     return {
         "request_id": request.get("request_id"),
         "requested_count": request.get("count"),
@@ -766,9 +768,11 @@ def backfill_response_record(
             "last_returned_at": returned_range["to"],
         },
         "transport_time": {
-            "requested_at": _iso_utc(requested_at),
-            "received_at": _iso_utc(received_at),
-            "duration_milliseconds": int((received_at - requested_at).total_seconds() * 1000),
+            "requested_at": _iso_utc(requested_at_recorded),
+            "received_at": _iso_utc(received_at_recorded),
+            "duration_milliseconds": int(
+                (received_at_recorded - requested_at_recorded).total_seconds() * 1000
+            ),
         },
         "payload_sha256": payload_sha256(payload),
         "payload": copy.deepcopy(payload),

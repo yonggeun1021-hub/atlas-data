@@ -47,6 +47,7 @@ from pathlib import Path
 import signal
 import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 
@@ -61,6 +62,7 @@ CANDLE_TIMEFRAMES = ("15m", "1h", "4h")
 LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION = "upbit_realtime_latest_public_messages/1"
 ELIGIBLE_UNIVERSE_MODE = "P3_ELIGIBLE_UNIVERSE"
 PUBLIC_VALIDATION_MODE = "PUBLIC_TRANSPORT_VALIDATION_ONLY"
+REST_BACKFILL_MIN_REQUEST_INTERVAL_SECONDS = 0.125
 
 
 def _load_module(name: str, relative_path: str):
@@ -201,7 +203,9 @@ def plan_public_rest_backfill(gaps: list, markets: list, contract: dict) -> list
             trade_count = max_rows
             trade_query = urllib.parse.urlencode({
                 "market": market,
-                "to": GATE._iso_utc(end),
+                # Upbit's trades/ticks endpoint accepts a UTC time-of-day,
+                # unlike candle endpoints whose `to` is ISO 8601.
+                "to": end.strftime("%H:%M:%S"),
                 "count": trade_count,
             })
             trade_url = f"{contract['rest_public_trades_endpoint']}?{trade_query}"
@@ -247,10 +251,14 @@ def plan_public_rest_backfill(gaps: list, markets: list, contract: dict) -> list
 def execute_public_rest_backfill(
     requests: list, *, gap_ids: list, fetcher=_public_rest_get, clock=utc_now,
     evidence_class: str = GATE.NATURAL_AUTOMATED, timeout_seconds: int = 15,
+    sleeper=time.sleep,
+    min_request_interval_seconds: float = REST_BACKFILL_MIN_REQUEST_INTERVAL_SECONDS,
 ) -> dict:
     responses = []
     last_received_at = None
-    for request in requests:
+    for index, request in enumerate(requests):
+        if index:
+            sleeper(min_request_interval_seconds)
         requested_at = clock().astimezone(UTC)
         raw = fetcher(request["url"], timeout_seconds)
         received_at = clock().astimezone(UTC)
