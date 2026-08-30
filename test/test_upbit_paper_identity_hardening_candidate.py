@@ -67,6 +67,9 @@ class UpbitPaperIdentityHardeningCandidateTests(unittest.TestCase):
             self.assertEqual(len(packet["proposed_registry"]["mappings"]), 8)
             self.assertEqual(len(packet["proposed_taxonomy"]["records"]), 8)
             self.assertEqual(len(packet["evidence"]), 8)
+            self.assertEqual(len(packet["registry_candidates"]), 8)
+            self.assertEqual(packet["hold_list"], [])
+            self.assertEqual(packet["snapshot_date"], packet["evaluation_as_of"])
             self.assertFalse(packet["release_ready"])
             self.assertFalse(packet["exact_hash_cio_approval_present"])
             self.assertTrue(all(value is False for value in packet["authority"].values()))
@@ -123,6 +126,20 @@ class UpbitPaperIdentityHardeningCandidateTests(unittest.TestCase):
                 key: value for key, value in packet.items() if key != "payload_sha256"
             })
             with self.assertRaisesRegex(BUILD.HardeningError, "REGISTRY_HASH_MISMATCH"):
+                BUILD.validate_candidate(packet)
+
+    def test_classifier_compatibility_projection_tamper_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first_party = first_party_snapshot(Path(tmp) / "fp")
+            packet = BUILD.build_candidate(
+                first_party_snapshot_dir=first_party,
+                market_snapshot_dir=MARKET_SNAPSHOT,
+            )
+            packet["registry_candidates"][0]["canonical_asset_id"] = "FORGED"
+            packet["payload_sha256"] = BUILD.payload_sha256({
+                key: value for key, value in packet.items() if key != "payload_sha256"
+            })
+            with self.assertRaisesRegex(BUILD.HardeningError, "REGISTRY_COMPATIBILITY_PROJECTION_MISMATCH"):
                 BUILD.validate_candidate(packet)
 
     def test_consumer_hash_tamper_is_rejected_after_self_rehash(self):

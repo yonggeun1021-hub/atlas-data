@@ -217,6 +217,7 @@ def build_candidate(
         "schema_version": "upbit_paper_identity_hardening_candidate/2",
         "review_status": contract["review_status"],
         "generated_at": first_party["available_at"],
+        "snapshot_date": first_party["available_at"][:10],
         "evaluation_as_of": first_party["available_at"][:10],
         "scope": contract["scope"],
         "upstream": {
@@ -229,6 +230,19 @@ def build_candidate(
             "governance_freeze_sha256": file_sha256(freeze_path),
         },
         "evidence": evidence,
+        # Existing classifier compatibility surface.  These rows are a
+        # projection of the exact proposed registry below, never an
+        # independent mapping source.  The empty hold list is also checked by
+        # the unchanged authoritative consumer before it returns a mapping.
+        "registry_candidates": [
+            {
+                "market": market,
+                "canonical_asset_id": canonical_asset_id,
+                "verdict": "VERIFIED_CANDIDATE_PENDING_EXACT_HASH_APPROVAL",
+            }
+            for market, canonical_asset_id in sorted(mappings.items())
+        ],
+        "hold_list": [],
         "proposed_registry": proposed_registry,
         "proposed_registry_payload_sha256": payload_sha256(proposed_registry),
         "proposed_taxonomy": proposed_taxonomy,
@@ -273,6 +287,17 @@ def validate_candidate(packet: dict, *, contract_path: Path = CONTRACT_PATH) -> 
     expected_markets = sorted(row["market"] for row in contract["assets"])
     if sorted(registry.get("mappings") or {}) != expected_markets:
         fail("REGISTRY_SCOPE_INVALID", repr(registry.get("mappings")))
+    compatibility_mappings = {
+        row.get("market"): row.get("canonical_asset_id")
+        for row in packet.get("registry_candidates") or []
+        if isinstance(row, dict)
+    }
+    if compatibility_mappings != registry.get("mappings"):
+        fail("REGISTRY_COMPATIBILITY_PROJECTION_MISMATCH", repr(compatibility_mappings))
+    if packet.get("hold_list") != []:
+        fail("REGISTRY_COMPATIBILITY_HOLD_LIST_INVALID", repr(packet.get("hold_list")))
+    if packet.get("snapshot_date") != packet.get("evaluation_as_of"):
+        fail("PACKET_SNAPSHOT_DATE_MISMATCH", repr(packet.get("snapshot_date")))
     mapping_values = list(registry["mappings"].values())
     if len(mapping_values) != len(set(mapping_values)):
         fail("REGISTRY_CANONICAL_COLLISION", repr(mapping_values))
