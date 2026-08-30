@@ -9,9 +9,12 @@ Authority: identity/taxonomy/PAPER-promotion/exchange/order/production/real-capi
 ## Executive finding
 
 PR #474 is directionally correct that merge `69e1cd27d62ea1f2c871d1d91657b05f11a6e699`
-did not establish a valid identity source-authority contract. It is not a safe repair:
-the draft is a 33-file inverse revert (`+250/-12,111`), conflicts with current `main`,
-and removes later natural evidence and consumer work. Keep it Draft and unmerged.
+did not establish a valid identity source-authority contract. Its original head was a
+33-file inverse revert (`+250/-12,111`) that conflicted with current `main`. While this
+audit was running, another worker updated it to head `93898f29059fc8df72e6ce57c393fc71c4fbcf03`:
+41 files (`+1,270/-12,242`), mergeable, with an added exact-hash revocation layer and
+new CI in progress. It still retains the full revert and deletes eight current-main
+paths, including bounded identity evidence and its packet. Keep it Draft and unmerged.
 
 The bounded official Upbit listing observation is valid for all 282 audited markets.
 It does **not** establish canonical identity. None of the 81 researched identity rows
@@ -39,6 +42,7 @@ All timestamps below are UTC; KST is UTC+09:00.
 | 03:43:54 | Exact final-head Actions completed successfully, after the merge. |
 | 04:46:51 | Draft PR #474 created as the inverse revert of #465. |
 | 05:14:34 | #474 Actions run 33293250713 failed; the failure includes `DECISION_SOURCE_BYTES_MISMATCH` against the later P3 record. |
+| 05:51:14 | A separate worker merged latest main into #474 head `93898f29…` after adding an exact-hash revocation layer; #474 became mergeable and started a new CI run. This audit did not rebase or modify it. |
 
 A Ready-for-review transition is not the explicit approval required to clear the
 recorded CIO HOLD. Passing CI after merge proves regression status, not ratification.
@@ -110,7 +114,7 @@ retroactively reclassify historical evidence.
 
 | Option | Concrete diff / conflicts | Lineage effect | Rollback cost | Finding |
 |---|---|---|---|---|
-| Full revert (#474) | 33 files, `+250/-12,111`; 1 current-main content conflict in `docs/upbit_market_evidence_contract.md`; overlaps #471 in that file and `run_all.py`; Actions failure. | Deletes/reverses #465-era evidence and tests and breaks later exact-byte consumers. | High: reconstruct removed evidence and reconcile P4/P9/P10. | Reject. Keep Draft, then close as superseded only after approved replacement merge. |
+| Full revert (#474) | Original `d2ed71a…`: 33 files, `+250/-12,111`, 1 conflict, failed Actions. Current `93898f2…`: 41 files, `+1,270/-12,242`, mergeable, 8 deleted paths, added exact-hash quarantine, new CI pending. | The newer quarantine protects some consumers, but the retained full revert still deletes bounded source evidence/packet and rewrites the committed P3 record instead of preserving history. | High: reconstruct removed evidence and continue maintaining both revert and revocation layers. | Reject. Keep Draft, then close as superseded only after approved replacement merge. |
 | Minimal authority freeze (this change) | 21 files including tests and this packet; no historical observation/evidence deletion; based directly on current main. | Blocks one exact PAPER8 record and all pending identity authority while preserving later code/evidence. | Low: a later explicit, exact-hash re-ratification changes the release contract without reconstructing history. | **Recommend.** |
 | Surgical invalidation + hardened re-ratification | Freeze first, then a separate evidence PR correcting 55 mappings and all 26 holds; exact diff cannot be independently verified because claimed local commit `47de85e` is not present in the remote or any inspected local repository. | Can restore authority only prospectively after full evidence binding; historical bytes remain historical. | Medium and presently unbounded until the candidate object is recoverable or rebuilt. | Phase 2 only; separate Draft, never bundled into emergency freeze. |
 
