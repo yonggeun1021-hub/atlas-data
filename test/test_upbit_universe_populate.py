@@ -143,6 +143,41 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             self.assertEqual(released["packet"]["summary"]["paper_eligible_count"], 8)
             self.assertTrue(all(value is False for value in released["packet"]["authority"].values()))
 
+    def test_exact_approval_replaces_only_the_known_frozen_eight_market_record(self):
+        current = POPULATE.rebuild("2026-08-30")
+        historical = copy.deepcopy(current)
+        freeze = json.loads(POPULATE.IDENTITY_GOVERNANCE_FREEZE_PATH.read_text(encoding="utf-8"))
+        historical["ratification"]["identity_registry"]["file_sha256"] = (
+            freeze["blocked_identity_registry"]["pre_freeze_file_sha256"]
+        )
+        historical["ratification"]["identity_registry"]["mapping_count"] = 55
+        historical["ratification"]["taxonomy"]["file_sha256"] = (
+            freeze["blocked_taxonomy"]["pre_freeze_file_sha256"]
+        )
+        historical["payload_sha256"] = POPULATE.payload_sha256(
+            {key: value for key, value in historical.items() if key != "payload_sha256"}
+        )
+        fixture_freeze = copy.deepcopy(freeze)
+        fixture_freeze["blocked_universe_record_payload_sha256s"] = [historical["payload_sha256"]]
+
+        self.assertTrue(POPULATE._safe_frozen_exact_hash_transition(
+            historical,
+            current,
+            existing_hash=historical["payload_sha256"],
+            freeze=fixture_freeze,
+        ))
+        tampered = copy.deepcopy(historical)
+        next(
+            row for row in tampered["packet"]["markets"]
+            if row["state"] == UNI.STATE_PAPER_ELIGIBLE
+        )["market"] = "KRW-TAMPER"
+        self.assertFalse(POPULATE._safe_frozen_exact_hash_transition(
+            tampered,
+            current,
+            existing_hash=historical["payload_sha256"],
+            freeze=fixture_freeze,
+        ))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

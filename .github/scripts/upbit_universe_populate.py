@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RAW_ROOT = ROOT / "evidence" / "crypto" / "upbit" / "raw"
 DATA_ROOT = ROOT / "data" / "observations" / "upbit_tradeable_universe"
+IDENTITY_GOVERNANCE_FREEZE_PATH = ROOT / "config" / "upbit_identity_taxonomy_governance_freeze.json"
 RECORD_SCHEMA_VERSION = "upbit_universe_population/1"
 
 
@@ -168,6 +169,93 @@ def rebuild(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
     return record
 
 
+def _paper_markets(record: dict) -> list[str]:
+    packet = record.get("packet") or {}
+    return sorted(
+        row.get("market")
+        for row in packet.get("markets") or []
+        if isinstance(row, dict)
+        and row.get("state") == UNI.STATE_PAPER_ELIGIBLE
+        and isinstance(row.get("market"), str)
+    )
+
+
+def _all_authority_false(record: dict) -> bool:
+    packet_authority = (record.get("packet") or {}).get("authority") or {}
+    record_authority = record.get("authority") or {}
+    return (
+        bool(packet_authority)
+        and all(value is False for value in packet_authority.values())
+        and bool(record_authority)
+        and all(value is False for value in record_authority.values())
+    )
+
+
+def _safe_frozen_exact_hash_transition(
+    existing: dict,
+    record: dict,
+    *,
+    existing_hash: str,
+    freeze: dict,
+) -> bool:
+    """Allow exactly one correction of the known frozen same-vintage record.
+
+    The 2026-08-30 packet already contained eight PAPER rows before its
+    identity/taxonomy lineage was frozen.  Requiring an old zero-row packet
+    therefore cannot release the corrected exact-hash configuration.  This
+    alternative remains narrow: it accepts only an explicitly frozen record
+    hash, the exact old registry/taxonomy file hashes recorded by governance,
+    the exact CIO-released market set, identical raw evidence, and zero
+    operational authority on both sides.
+    """
+    immutable_keys = (
+        "schema_version", "snapshot_date", "generated_at",
+        "raw_snapshot", "builder", "identity_review",
+    )
+    if not all(existing.get(key) == record.get(key) for key in immutable_keys):
+        return False
+    if existing_hash not in (freeze.get("blocked_universe_record_payload_sha256s") or []):
+        return False
+    released_markets = freeze.get("released_paper_markets")
+    if not isinstance(released_markets, list) or not released_markets:
+        return False
+    if _paper_markets(existing) != sorted(released_markets) or _paper_markets(record) != sorted(released_markets):
+        return False
+    if not _all_authority_false(existing) or not _all_authority_false(record):
+        return False
+
+    old_ratification = existing.get("ratification") or {}
+    new_ratification = record.get("ratification") or {}
+    old_registry = old_ratification.get("identity_registry") or {}
+    old_taxonomy = old_ratification.get("taxonomy") or {}
+    blocked_registry = freeze.get("blocked_identity_registry") or {}
+    blocked_taxonomy = freeze.get("blocked_taxonomy") or {}
+    if old_registry.get("file_sha256") != blocked_registry.get("pre_freeze_file_sha256"):
+        return False
+    if old_taxonomy.get("file_sha256") != blocked_taxonomy.get("pre_freeze_file_sha256"):
+        return False
+    if old_ratification.get("effective_for_snapshot") is not True:
+        return False
+    if new_ratification.get("effective_for_snapshot") is not True:
+        return False
+    if (new_ratification.get("identity_registry") or {}).get("mapping_count") != len(released_markets):
+        return False
+
+    old_packet = existing.get("packet") or {}
+    new_packet = record.get("packet") or {}
+    old_summary = old_packet.get("summary") or {}
+    new_summary = new_packet.get("summary") or {}
+    return (
+        old_packet.get("policy_ratified") is True
+        and old_packet.get("taxonomy_ratified") is True
+        and new_packet.get("policy_ratified") is True
+        and new_packet.get("taxonomy_ratified") is True
+        and old_summary.get("paper_eligible_count") == len(released_markets)
+        and new_summary.get("paper_eligible_count") == len(released_markets)
+        and old_summary.get("market_count") == new_summary.get("market_count")
+    )
+
+
 def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DATA_ROOT) -> dict:
     record = rebuild(snapshot_date, raw_root)
     target = output_path(snapshot_date, data_root)
@@ -228,7 +316,14 @@ def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DA
                 and new_packet.get("taxonomy_ratified") is True
                 and record.get("ratification", {}).get("effective_for_snapshot") is True
             )
-            if not safe_ratification_transition:
+            try:
+                freeze = json.loads(IDENTITY_GOVERNANCE_FREEZE_PATH.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise PopulationError(f"IDENTITY_GOVERNANCE_FREEZE_INVALID:{exc}") from exc
+            safe_frozen_transition = _safe_frozen_exact_hash_transition(
+                existing, record, existing_hash=existing_hash, freeze=freeze,
+            )
+            if not (safe_ratification_transition or safe_frozen_transition):
                 raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}")
             temporary = target.with_name(f".{target.name}.tmp.{os.getpid()}")
             try:
@@ -241,7 +336,12 @@ def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DA
                 if temporary.exists():
                     temporary.unlink()
             return {
-                "outcome": "ratified_reclassification", "reason": "UNRATIFIED_TO_RATIFIED_SAME_RAW_VINTAGE",
+                "outcome": "ratified_reclassification",
+                "reason": (
+                    "FROZEN_TO_EXACT_HASH_RATIFIED_SAME_RAW_VINTAGE"
+                    if safe_frozen_transition
+                    else "UNRATIFIED_TO_RATIFIED_SAME_RAW_VINTAGE"
+                ),
                 "path": str(target), "payload_sha256": record["payload_sha256"],
             }
         return {
