@@ -539,6 +539,11 @@ APPROVED_TESTS = [
     #   retaining no raw response or per-symbol row and opening no Regime,
     #   Stage, Buy, Action, Order, Production, or trading authority.
     "test/test_korea_market_signals.py",
+    # ★ Korea 5/5 observation → staged-symbol review bridge. Confirmed KRX
+    #   price/SMA20/investor flow is joined to 012450/298040/329180 while the
+    #   final market policy and every entry/exit/order authority remain closed.
+    #   ⛔ committed public inputs only; no live provider, account or broker call.
+    "test/test_korea_symbol_market_review.py",
     # ★ P1-KR-05 shared-fetch derived outputs — 같은 manual live fetch에서
     #   non-reconstructive Korea Breadth observation packet(시장×scope별,
     #   available_at=null/decision_eligible=false)과 P3-03 KOSPI/KOSDAQ
