@@ -18,7 +18,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_CONTRACT_PATH = ROOT / "config" / "upbit_p3_p4_bridge_contract.json"
-P4_POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy.json"
+P4_POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy_ratified.json"
 UTC = dt.timezone.utc
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 

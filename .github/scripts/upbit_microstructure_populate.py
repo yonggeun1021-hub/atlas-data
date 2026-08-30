@@ -97,7 +97,7 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
         raise PopulationError("UNIVERSE_LINEAGE_MISSING")
     if lineage.get("markets") != manifest.get("markets"):
         raise PopulationError("PARTIAL_UNIVERSE_MANIFEST")
-    policy = EV.load_policy()
+    policy = EV.load_ratified_policy()
     if (lineage.get("p4_policy") or {}).get("packet_sha256") != policy.get("packet_sha256"):
         raise PopulationError("P4_POLICY_LINEAGE_HASH_MISMATCH")
     as_of = _parse_utc(manifest["downloaded_at_utc"])
@@ -163,14 +163,13 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
                 candles_by_timeframe=candles_by_timeframe,
                 trades=trade_record.get("body"),
                 orderbook_row=orderbook_record,
-                as_of=as_of, captured_at=captured_at, generated_at=generated_at,
-                policy=policy, source_identity=source_identity,
+                as_of=as_of, captured_at=captured_at, policy=policy,
             )
-            market_results[market] = {
-                "status": packets[market]["status"],
-                "reasons": packets[market]["fail_closed_reasons"],
-                "packet_sha256": packets[market]["payload_sha256"],
-            }
+            market_results[market] = EV.market_evidence_result(
+                packets[market], policy=policy, generated_at=generated_at,
+                source_identity=source_identity,
+            )
+            market_results[market]["packet_sha256"] = packets[market]["payload_sha256"]
         except EV.MarketEvidenceError as exc:
             # A gap in ONE market's evidence (e.g. missing orderbook) fails
             # only that market's packet -- every other market is unaffected.

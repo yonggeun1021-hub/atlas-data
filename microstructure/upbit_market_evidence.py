@@ -45,6 +45,7 @@ sys.path.insert(0, str(ROOT))
 
 CONTRACT_PATH = ROOT / "config" / "upbit_market_evidence_contract.json"
 POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy.json"
+RATIFIED_POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy_ratified.json"
 
 _UNIVERSE_SPEC = importlib.util.spec_from_file_location(
     "upbit_tradeable_universe_for_microstructure",
@@ -58,7 +59,7 @@ from microstructure import upbit_candle_finalization as finalization  # noqa: E4
 
 
 UTC = dt.timezone.utc
-OUTPUT_SCHEMA_VERSION = "upbit_market_evidence_packet/2"
+OUTPUT_SCHEMA_VERSION = "upbit_market_evidence_packet/1"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 FRESH = "FRESH"
@@ -133,6 +134,13 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     }
     if not isinstance(doc, dict) or not required.issubset(doc):
         raise MarketEvidenceError("POLICY_FIELDS_INVALID")
+    if set(doc["max_staleness_seconds_by_timeframe"]) != set(finalization.TIMEFRAMES):
+        raise MarketEvidenceError("POLICY_STALENESS_TIMEFRAMES_MISMATCH")
+    return doc
+
+
+def load_ratified_policy(path: Path = RATIFIED_POLICY_PATH) -> dict:
+    doc = load_policy(path)
     declared_hash = doc.get("packet_sha256")
     actual_hash = payload_sha256({key: value for key, value in doc.items() if key != "packet_sha256"})
     if not isinstance(declared_hash, str) or SHA256_RE.fullmatch(declared_hash) is None or declared_hash != actual_hash:
@@ -151,8 +159,6 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     ):
         if doc.get(field) is not False:
             raise MarketEvidenceError(f"POLICY_AUTHORITY_INVARIANT_VIOLATED:{field}")
-    if set(doc["max_staleness_seconds_by_timeframe"]) != set(finalization.TIMEFRAMES):
-        raise MarketEvidenceError("POLICY_STALENESS_TIMEFRAMES_MISMATCH")
     return doc
 
 
@@ -384,7 +390,6 @@ def build_market_evidence_packet(
     market: str, *,
     candles_by_timeframe: dict, trades: list, orderbook_row: dict,
     as_of: dt.datetime, captured_at: dt.datetime, policy: dict,
-    generated_at: dt.datetime | None = None, source_identity: dict | None = None,
 ) -> dict:
     """Aggregate one market's full P4-07 evidence: finalized candles across
     every configured timeframe, trade-tick evidence, and orderbook
@@ -396,9 +401,6 @@ def build_market_evidence_packet(
     captured_at = _require_aware(captured_at, "CAPTURED_AT_NAIVE")
     if captured_at < as_of:
         raise MarketEvidenceError("CAPTURED_AT_BEFORE_AS_OF")
-    generated_at = captured_at if generated_at is None else _require_aware(generated_at, "GENERATED_AT_NAIVE")
-    if generated_at < captured_at:
-        raise MarketEvidenceError("GENERATED_AT_BEFORE_AVAILABLE_AT")
 
     max_staleness_by_timeframe = policy["max_staleness_seconds_by_timeframe"]
     candles = {}
@@ -427,11 +429,45 @@ def build_market_evidence_packet(
         max_slippage_bps_normal=policy["max_slippage_bps_normal"],
     )
 
+    packet = {
+        "schema_version": OUTPUT_SCHEMA_VERSION,
+        "market": market,
+        "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "captured_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "policy_version": policy.get("policy_version"),
+        "policy_ratified": policy.get("approval_status") == "RATIFIED",
+        "candles": candles,
+        "trades": trades_evidence,
+        "orderbook": orderbook_evidence,
+        "authority": dict(_EVIDENCE_AUTHORITY),
+    }
+    packet["payload_sha256"] = payload_sha256(packet)
+    return packet
+
+
+def market_evidence_result(
+    packet: dict,
+    *,
+    policy: dict,
+    generated_at: dt.datetime,
+    source_identity: dict,
+) -> dict:
+    """Outer population result for one backward-compatible v1 packet.
+
+    P5's established exact packet schema remains byte-contract compatible;
+    the P4 population/2 envelope owns new exact policy/source/timing lineage
+    and explicit PASS/UNKNOWN reasons.
+    """
+    generated_at = _require_aware(generated_at, "GENERATED_AT_NAIVE")
+    available_at = _require_aware(
+        dt.datetime.fromisoformat(packet["captured_at"].replace("Z", "+00:00")),
+        "AVAILABLE_AT_NAIVE",
+    )
     reasons = []
-    for timeframe, evidence in candles.items():
+    for timeframe, evidence in packet["candles"].items():
         reasons.extend(f"{timeframe}:{reason}" for reason in evidence["fail_closed_reasons"])
-    reasons.extend(trades_evidence["fail_closed_reasons"])
-    reasons.extend(orderbook_evidence["fail_closed_reasons"])
+    reasons.extend(packet["trades"]["fail_closed_reasons"])
+    reasons.extend(packet["orderbook"]["fail_closed_reasons"])
     policy_ratified = policy.get("approval_status") == "RATIFIED"
     if not policy_ratified:
         reasons.append("P4_POLICY_UNRATIFIED")
@@ -439,34 +475,23 @@ def build_market_evidence_packet(
     if policy_ratified and (not isinstance(policy_hash, str) or SHA256_RE.fullmatch(policy_hash) is None):
         reasons.append("P4_POLICY_HASH_MISSING")
     observed_values = [
-        evidence.get("observed_at") for evidence in candles.values()
-    ] + [trades_evidence.get("observed_at"), orderbook_evidence.get("observed_at")]
+        evidence.get("observed_at") for evidence in packet["candles"].values()
+    ] + [packet["trades"].get("observed_at"), packet["orderbook"].get("observed_at")]
     observed_parsed = [
         dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
         for value in observed_values if value is not None
     ]
     observed_at = max(observed_parsed) if observed_parsed else None
-    if observed_at is None or not (observed_at <= captured_at <= generated_at):
+    if observed_at is None or not (observed_at <= available_at <= generated_at):
         reasons.append("TIMESTAMP_ORDER_INVALID")
-
-    packet = {
-        "schema_version": OUTPUT_SCHEMA_VERSION,
-        "market": market,
-        "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "observed_at": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ") if observed_at else None,
-        "available_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "policy_version": policy.get("policy_version"),
-        "policy_id": policy.get("policy_id"),
-        "policy_packet_sha256": policy_hash,
-        "policy_ratified": policy_ratified,
-        "source_identity": copy.deepcopy(source_identity),
-        "candles": candles,
-        "trades": trades_evidence,
-        "orderbook": orderbook_evidence,
+    return {
         "status": "PASS" if not reasons else UNKNOWN,
-        "fail_closed_reasons": sorted(set(reasons)),
-        "authority": dict(_EVIDENCE_AUTHORITY),
+        "reasons": sorted(set(reasons)),
+        "observed_at": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ") if observed_at else None,
+        "available_at": available_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source_identity": copy.deepcopy(source_identity),
+        "policy_id": policy.get("policy_id"),
+        "policy_version": policy.get("policy_version"),
+        "policy_packet_sha256": policy_hash,
     }
-    packet["payload_sha256"] = payload_sha256(packet)
-    return packet

@@ -43,7 +43,7 @@ def staged_repo(tmp: str, record: dict) -> tuple[Path, Path]:
     root = Path(tmp)
     for relative in (
         "config/upbit_p3_p4_bridge_contract.json",
-        "config/upbit_market_evidence_policy.json",
+        "config/upbit_market_evidence_policy_ratified.json",
         "evidence/crypto/upbit/raw/2026-08-30/_manifest.json",
     ):
         target = root / relative
@@ -185,9 +185,13 @@ class CaptureAndEvidenceFailCloseTests(unittest.TestCase):
             orderbook_row={"timestamp": 1788052799000, "orderbook_units": [{"bid_price": 1, "bid_size": 10000, "ask_price": 1, "ask_size": 10000}]},
             as_of=as_of, captured_at=as_of, policy=policy,
         )
-        self.assertEqual(packet["status"], "UNKNOWN")
-        self.assertTrue(any("DUPLICATE" in reason for reason in packet["fail_closed_reasons"]))
-        self.assertTrue(any("STALE" in reason for reason in packet["fail_closed_reasons"]))
+        result = EV.market_evidence_result(
+            packet, policy=policy, generated_at=as_of,
+            source_identity={"source_id": "fixture"},
+        )
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertTrue(any("DUPLICATE" in reason for reason in result["reasons"]))
+        self.assertTrue(any("STALE" in reason for reason in result["reasons"]))
         malformed = [{"trade_price": 1}]
         with self.assertRaisesRegex(EV.MarketEvidenceError, "TRADE_FIELD_MISSING"):
             EV.build_trades_evidence("KRW-BTC", malformed, captured_at=as_of, max_staleness_seconds=1)
@@ -266,11 +270,11 @@ class PopulationIntegrationTests(unittest.TestCase):
             self.assertEqual(packet["market_results"]["KRW-BTC"]["status"], "PASS")
             self.assertEqual(packet["universe_lineage"]["record_payload_sha256"], lineage["record_payload_sha256"])
             self.assertEqual(packet["policy_packet_sha256"], lineage["p4_policy"]["packet_sha256"])
-            market_packet = packet["packets"]["KRW-BTC"]
-            self.assertLessEqual(market_packet["observed_at"], market_packet["available_at"])
-            self.assertLessEqual(market_packet["available_at"], market_packet["generated_at"])
-            self.assertEqual(market_packet["source_identity"]["source_id"], "upbit_public_api")
-            self.assertEqual(len(market_packet["source_identity"]["raw_manifest_sha256"]), 64)
+            market_result = packet["market_results"]["KRW-BTC"]
+            self.assertLessEqual(market_result["observed_at"], market_result["available_at"])
+            self.assertLessEqual(market_result["available_at"], market_result["generated_at"])
+            self.assertEqual(market_result["source_identity"]["source_id"], "upbit_public_api")
+            self.assertEqual(len(market_result["source_identity"]["raw_manifest_sha256"]), 64)
 
 
 if __name__ == "__main__":
