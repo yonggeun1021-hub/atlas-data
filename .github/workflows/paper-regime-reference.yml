@@ -47,4 +47,13 @@ jobs:
           fi
           git commit -m "data: PAPER market risk reference $(date -u +%F)"
           git pull --rebase origin main
+          # The source workflows also write main. Rebuild once more after the
+          # rebase so the committed latest pointer can never describe the
+          # pre-rebase source bytes.
+          python3 regime/paper_regime_reference.py --write
+          python3 regime/paper_regime_reference.py --verify data/latest_paper_regime_reference.json
+          git add data/latest_paper_regime_reference.json evidence/regime/paper_reference
+          if ! git diff --cached --quiet; then
+            git commit --amend --no-edit
+          fi
           git push origin HEAD:main
