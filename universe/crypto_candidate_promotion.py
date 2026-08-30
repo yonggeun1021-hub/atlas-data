@@ -331,7 +331,20 @@ def _validate_market_evidence_packet(packet: dict, market: str, evaluation_as_of
         raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_IDENTITY_MISMATCH:{market}")
     _validate_payload_hash(packet, f"market_evidence:{market}")
     _require_false_authority(packet["authority"], MARKET_EVIDENCE._EVIDENCE_AUTHORITY, f"market_evidence:{market}")
-    policy = MARKET_EVIDENCE.load_policy()
+    # Evidence packets must be checked against the policy authority they
+    # actually declare.  Once the exact ratified policy exists, continuing to
+    # compare a ratified packet with the proposal file makes every legitimate
+    # packet fail closed as a status mismatch.  Loading the ratified path here
+    # also preserves its exact-hash/contract-pin validation; a packet cannot
+    # self-assert ratification and bypass that check.
+    if packet["policy_ratified"] is True:
+        policy = MARKET_EVIDENCE.load_ratified_policy()
+    elif packet["policy_ratified"] is False:
+        policy = MARKET_EVIDENCE.load_policy()
+    else:
+        raise CryptoCandidatePromotionError(
+            f"MARKET_EVIDENCE_POLICY_STATUS_MISMATCH:{market}"
+        )
     if packet["policy_version"] != policy.get("policy_version"):
         raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_PIN_MISMATCH:{market}")
     if packet["policy_ratified"] is not (policy.get("approval_status") == "RATIFIED"):

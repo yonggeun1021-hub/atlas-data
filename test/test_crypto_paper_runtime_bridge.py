@@ -62,6 +62,57 @@ class RuntimeFixture(unittest.TestCase):
         policy_patch.start()
         self.addCleanup(policy_patch.stop)
 
+    def test_ratified_market_evidence_uses_exact_ratified_policy_pin(self):
+        market_evidence = BRIDGE.PROMOTION.MARKET_EVIDENCE
+        policy = market_evidence.load_ratified_policy()
+        as_of = dt.datetime(2026, 8, 30, 1, 0, 0, tzinfo=UTC)
+        captured_at = dt.datetime(2026, 8, 30, 1, 5, 0, tzinfo=UTC)
+        raw_candle = {
+            "candle_date_time_utc": "2026-08-29T00:00:00",
+            "opening_price": 1000,
+            "high_price": 1010,
+            "low_price": 990,
+            "trade_price": 1005,
+            "candle_acc_trade_price": 123456,
+            "candle_acc_trade_volume": 12.3,
+        }
+        candles = {
+            timeframe: [copy.deepcopy(raw_candle)]
+            for timeframe in market_evidence.finalization.TIMEFRAMES
+        }
+        timestamp_ms = int(as_of.timestamp() * 1000)
+        packet = market_evidence.build_market_evidence_packet(
+            "KRW-BTC",
+            candles_by_timeframe=candles,
+            trades=[{
+                "market": "KRW-BTC",
+                "trade_price": 1000,
+                "trade_volume": 1,
+                "timestamp": timestamp_ms,
+                "ask_bid": "BID",
+            }],
+            orderbook_row={
+                "market": "KRW-BTC",
+                "timestamp": timestamp_ms,
+                "orderbook_units": [{
+                    "bid_price": 999,
+                    "bid_size": 10000,
+                    "ask_price": 1001,
+                    "ask_size": 10000,
+                }],
+            },
+            as_of=as_of,
+            captured_at=captured_at,
+            policy=policy,
+        )
+
+        checked = BRIDGE.PROMOTION._validate_market_evidence_packet(
+            packet, "KRW-BTC", "2026-08-30"
+        )
+
+        self.assertTrue(checked["policy_ratified"])
+        self.assertEqual(checked["policy_version"], policy["policy_version"])
+
     def decision(self, *, received_at="2026-08-29T01:30:30.000000Z"):
         latest = {}
         received = dt.datetime.strptime(received_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
