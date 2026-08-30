@@ -110,6 +110,14 @@
       "proposed_threshold": null
     }
   },
+  "execution_measurement_evidence": {
+    "contract_version": "krx_execution_measurement/1",
+    "private_schema_version": "krx_execution_measurement_private/1",
+    "optional_input_field": "execution_evidence_path",
+    "identity_binding": "registry_identity_snapshot_sha256",
+    "effect": "REMOVE_ONLY_THE_CORRESPONDING_MEASUREMENT_MISSING_BLOCKER",
+    "eligibility_promotion_authorized": false
+  },
   "krx_paper_gate_compatibility": {
     "common_safety_contract_version": "krx_paper_common_safety_gate/1",
     "market_gate_contract_version": "krx_paper_market_gate/1",
@@ -129,6 +137,7 @@
       "source_byte_lengths",
       "capture_and_as_of_times",
       "aggregate_counts",
+      "aggregate_measured_distributions_with_minimum_sample_suppression",
       "policy_and_authority_flags"
     ],
     "private_only": [
