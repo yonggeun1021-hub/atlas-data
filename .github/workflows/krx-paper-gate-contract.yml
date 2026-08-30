@@ -1,0 +1,33 @@
+name: KRX PAPER Gate Contract
+
+on:
+  pull_request:
+    paths:
+      - "config/krx_paper_*"
+      - "shadow/krx_paper_gate.py"
+      - "validation/tests/test_krx_paper_gate.py"
+      - "docs/krx_paper_gate_contract.md"
+      - "evidence/krx_paper_gate/**"
+      - ".github/workflows/krx-paper-gate-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  krx-paper-gate-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: KRX PAPER gate focused regression
+        run: python3 validation/tests/test_krx_paper_gate.py
+      - name: Revalidate committed current assessment
+        run: |
+          python3 shadow/krx_paper_gate.py validate \
+            evidence/krx_paper_gate/2026-08-30/assessment.json \
+            --evidence-input evidence/krx_paper_gate/2026-08-30/evidence_input.json
+      - name: Verify no generated drift
+        run: git diff --exit-code

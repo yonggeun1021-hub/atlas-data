@@ -1,0 +1,164 @@
+{
+  "as_of_utc": "2026-08-30T08:00:00Z",
+  "assessment_sha256": "780690500832dceffed4ede9059da4c9cb4e8d565042878ee1c503fc3e724e07",
+  "authority": {
+    "internal_virtual_ledger_paper_authorized": false,
+    "kis_mock_account_auto_order_authorized": false,
+    "live_account_order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "blocking_reasons": [
+    "COMMON_BROKER_PROTOCOL_AND_ACCOUNT_COMPATIBILITY_EVIDENCE_UNKNOWN"
+  ],
+  "contract_sha256": {
+    "common_safety": "83ceb7bfcb05d5b8c492b6d98c8a2f0d73274c87a228a9369291db95adef8411",
+    "krx_market": "e8275ac083c5624946718da0dc7db7f01e9700a82aa330e6d306ab734e73cd3f"
+  },
+  "contract_versions": {
+    "common_safety": "krx_paper_common_safety_gate/1",
+    "krx_market": "krx_paper_market_gate/1"
+  },
+  "cross_market_isolation_applied": true,
+  "current_state": "LOCKED",
+  "evidence_input_sha256": "86099df69123b9ab80baa3e2cb88cb9dd34a205762dd1bd7b38cc97e73b8db62",
+  "gate_results": [
+    {
+      "gate_id": "COMMON_SAFETY",
+      "opens_state": "LOCKED_BOUNDARY_ONLY",
+      "own_status": "UNKNOWN",
+      "prerequisite_gate": null,
+      "prerequisite_status": null,
+      "reasons": [
+        "COMMON_BROKER_PROTOCOL_AND_ACCOUNT_COMPATIBILITY_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "COMMON_REAL_CAPITAL_HARD_FALSE",
+        "COMMON_PAPER_ENDPOINT_ALLOWLIST",
+        "COMMON_BROKER_PROTOCOL_AND_ACCOUNT_COMPATIBILITY",
+        "COMMON_CREDENTIALS_PRIVATE_AND_REDACTED",
+        "COMMON_KILL_SWITCH_FAIL_CLOSED",
+        "COMMON_IDEMPOTENCY_AND_RECONCILIATION",
+        "COMMON_PIT_AND_IMMUTABLE_LINEAGE",
+        "COMMON_APPROVAL_AND_AUTHORITY_SEPARATION"
+      ],
+      "status": "UNKNOWN"
+    },
+    {
+      "gate_id": "KRX_SHADOW",
+      "opens_state": "SHADOW",
+      "own_status": "PASS",
+      "prerequisite_gate": "COMMON_SAFETY",
+      "prerequisite_status": "UNKNOWN",
+      "reasons": [
+        "COMMON_SAFETY_NOT_PASS:UNKNOWN"
+      ],
+      "required_checks": [
+        "KRX_P10_09_SHADOW_MECHANISM",
+        "KRX_P10_10_DIAGNOSTIC_NONAUTHORITY",
+        "KRX_SHADOW_ORDER_OUTPUT_NULL"
+      ],
+      "status": "UNKNOWN"
+    },
+    {
+      "gate_id": "KRX_PAPER_CANARY_START",
+      "opens_state": "PAPER_CANARY",
+      "own_status": "FAIL",
+      "prerequisite_gate": "KRX_SHADOW",
+      "prerequisite_status": "UNKNOWN",
+      "reasons": [
+        "KRX_SHADOW_NOT_PASS:UNKNOWN",
+        "KRX_FINAL_CANDIDATE_AUTHORITY_UNRATIFIED",
+        "KRX_ENTRY_POLICY_UNRATIFIED",
+        "KRX_HOLD_EXIT_POLICY_UNRATIFIED",
+        "KRX_POSITION_SIZE_POLICY_UNRATIFIED",
+        "KRX_P8_13_PAPER_PROPOSAL_ABSENT",
+        "KRX_INTERNAL_LEDGER_CANARY_AUTHORITY_EVIDENCE_UNKNOWN",
+        "KRX_INTERNAL_LEDGER_RESTART_RECONCILED_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "KRX_FINAL_CANDIDATE_POLICY_RATIFIED",
+        "KRX_ENTRY_POLICY_RATIFIED",
+        "KRX_HOLD_EXIT_POLICY_RATIFIED",
+        "KRX_POSITION_SIZE_POLICY_RATIFIED",
+        "KRX_P8_13_EXECUTABLE_PAPER_PROPOSAL",
+        "KRX_INTERNAL_LEDGER_CANARY_AUTHORITY",
+        "KRX_INTERNAL_LEDGER_RESTART_RECONCILED"
+      ],
+      "status": "FAIL"
+    },
+    {
+      "gate_id": "KRX_PAPER_ACTIVE",
+      "opens_state": "PAPER_ACTIVE",
+      "own_status": "UNKNOWN",
+      "prerequisite_gate": "KRX_PAPER_CANARY_START",
+      "prerequisite_status": "FAIL",
+      "reasons": [
+        "KRX_PAPER_CANARY_START_NOT_PASS:FAIL",
+        "KRX_INTERNAL_LEDGER_CANARY_TERMINAL_EVIDENCE_UNKNOWN",
+        "KRX_KIS_MOCK_AUTO_ORDER_POLICY_RATIFIED_EVIDENCE_UNKNOWN",
+        "KRX_KIS_MOCK_BOUNDED_CANARY_TERMINAL_EVIDENCE_UNKNOWN",
+        "KRX_KIS_MOCK_AUTOMATION_KILL_TESTED_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "KRX_INTERNAL_LEDGER_CANARY_TERMINAL",
+        "KRX_KIS_MOCK_AUTO_ORDER_POLICY_RATIFIED",
+        "KRX_KIS_MOCK_BOUNDED_CANARY_TERMINAL",
+        "KRX_KIS_MOCK_AUTOMATION_KILL_TESTED"
+      ],
+      "status": "FAIL"
+    },
+    {
+      "gate_id": "KRX_PAPER_VALIDATED_30D",
+      "opens_state": "PAPER_VALIDATED",
+      "own_status": "FAIL",
+      "prerequisite_gate": "KRX_PAPER_ACTIVE",
+      "prerequisite_status": "FAIL",
+      "reasons": [
+        "KRX_PAPER_ACTIVE_NOT_PASS:FAIL",
+        "KRX_30_NATURAL_CALENDAR_DAYS_NOT_COMPLETE",
+        "KRX_NATURAL_SAMPLE_LINEAGE_COMPLETE_EVIDENCE_UNKNOWN",
+        "KRX_VALIDATION_CRITERIA_RATIFIED_EVIDENCE_UNKNOWN",
+        "KRX_INDEPENDENT_VALIDATION_PASS_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "KRX_NATURAL_SAMPLE_30_CALENDAR_DAYS",
+        "KRX_NATURAL_SAMPLE_LINEAGE_COMPLETE",
+        "KRX_VALIDATION_CRITERIA_RATIFIED",
+        "KRX_INDEPENDENT_VALIDATION_PASS"
+      ],
+      "status": "FAIL"
+    },
+    {
+      "gate_id": "KRX_LIVE_REVIEW",
+      "opens_state": "LIVE_REVIEW",
+      "own_status": "UNKNOWN",
+      "prerequisite_gate": "KRX_PAPER_VALIDATED_30D",
+      "prerequisite_status": "FAIL",
+      "reasons": [
+        "KRX_PAPER_VALIDATED_30D_NOT_PASS:FAIL",
+        "KRX_PAPER_VALIDATED_REVIEW_PACKET_EVIDENCE_UNKNOWN",
+        "KRX_LIVE_REVIEW_USER_ACCEPTED_EVIDENCE_UNKNOWN"
+      ],
+      "required_checks": [
+        "KRX_PAPER_VALIDATED_REVIEW_PACKET",
+        "KRX_LIVE_REVIEW_USER_ACCEPTED",
+        "KRX_REAL_AUTHORITY_REMAINS_FALSE"
+      ],
+      "status": "FAIL"
+    }
+  ],
+  "market": "KOREA",
+  "next_gate": "COMMON_SAFETY",
+  "other_market_context": {
+    "CRYPTO": "FAIL",
+    "US": "UNKNOWN"
+  },
+  "paper_substage": "NONE",
+  "schema_version": "krx_paper_gate_assessment/1",
+  "source_revisions": {
+    "atlas_data_main": "3cf338e3572d456340328d1f8dda8daaaaa3ad33",
+    "atlas_private_evidence_main": "c1473a27ce7b721ebdd0f1d7f7c703eddfafc25b"
+  }
+}
