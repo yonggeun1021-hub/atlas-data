@@ -1,0 +1,29 @@
+name: Crypto PAPER Validation Scaffold
+
+on:
+  pull_request:
+    paths:
+      - "validation/**"
+      - "config/crypto_paper_counterfactual_validation_contract.json"
+      - "docs/crypto_paper_counterfactual_validation_contract.md"
+      - "docs/templates/crypto_paper_*"
+      - ".github/workflows/crypto-paper-validation-scaffold.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: P10-12 synthetic and tamper regression
+        run: python3 validation/tests/test_crypto_paper_counterfactual.py
+      - name: Reused P10-11 and P7-13 regressions
+        run: |
+          python3 test/test_crypto_paper_simulator.py
+          python3 test/test_crypto_paper_exit_manager.py

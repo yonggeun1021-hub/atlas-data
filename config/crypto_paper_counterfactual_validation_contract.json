@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_paper_counterfactual_validation/1",
+  "input_schema_version": "crypto_paper_validation_daily_input/1",
+  "daily_report_schema_version": "crypto_paper_validation_daily_report/1",
+  "cio_review_schema_version": "crypto_paper_validation_cio_review/1",
+  "sample_origins": [
+    "NATURAL_AUTOMATED",
+    "MANUAL_OBSERVATION",
+    "PIT_REPLAY",
+    "SYNTHETIC_FIXTURE"
+  ],
+  "artifact_roles": [
+    "D0_GATE",
+    "LEDGER",
+    "ACCOUNT_STATE",
+    "NAV_SERIES",
+    "MARK_SERIES",
+    "PLANNED_LOSS",
+    "ERROR_ASSESSMENT"
+  ],
+  "error_metric_types": [
+    "FALSE_POSITIVE",
+    "MISS",
+    "STALE",
+    "DUPLICATE",
+    "SILENT_ERROR"
+  ],
+  "metric_statuses": ["PRESENT", "ABSENT", "UNVERIFIED"],
+  "official_gate_prerequisites": [
+    "exact_public_private_pins_verified",
+    "natural_eligible_later_book_fill_verified",
+    "natural_virtual_sell_reconciliation_verified",
+    "restart_recovery_verified",
+    "silent_error_zero_24h_verified",
+    "cio_d0_ratification_recorded"
+  ],
+  "official_count_policy": "EXPLICIT_OPEN_GATE_PLUS_NATURAL_AUTOMATED_ONLY_NO_RETROACTIVE_BACKFILL",
+  "lookahead_policy": "OBSERVED_AT_LE_AVAILABLE_AT_LE_REPORT_GENERATED_AT",
+  "counterfactual_policy": "NO_TRADE_PNL_IS_ZERO_AND_NEVER_PROMOTES_A_HISTORICAL_CANDIDATE",
+  "daily_chain_policy": "CONTENT_ADDRESSED_APPEND_ONLY_EXACT_PREDECESSOR",
+  "review_policy": "THIRTY_CONSECUTIVE_COUNTABLE_DAYS_ENABLE_CIO_REVIEW_NOT_LIVE_AUTHORITY",
+  "authority": {
+    "diagnostic_only": true,
+    "official_d0_automatic_start_authorized": false,
+    "candidate_promotion_authorized": false,
+    "strategy_change_authorized": false,
+    "risk_threshold_change_authorized": false,
+    "paper_order_authorized": false,
+    "paper_exit_authorized": false,
+    "exchange_order_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
