@@ -178,6 +178,13 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
                 "status": EV.UNKNOWN,
                 "reasons": [f"MALFORMED_OR_MISSING:{exc}"],
                 "packet_sha256": None,
+                "observed_at": None,
+                "available_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "source_identity": source_identity,
+                "policy_id": policy.get("policy_id"),
+                "policy_version": policy.get("policy_version"),
+                "policy_packet_sha256": policy.get("packet_sha256"),
             }
 
     if set(market_results) != set(manifest["markets"]):
