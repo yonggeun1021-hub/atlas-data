@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_investable_registry/1",
+  "market": "US",
+  "venue_scope": [
+    "NASDAQ",
+    "NYSE",
+    "NYSE_AMERICAN",
+    "NYSE_ARCA"
+  ],
+  "instrument_types": [
+    "COMMON_STOCK",
+    "ETF"
+  ],
+  "source_coverage_contract": "us_global_universe/1",
+  "source_coverage_is_investability": false,
+  "common_stock_type_proof": "OFFICIAL_SECURITY_MASTER_OR_EQUIVALENT_REQUIRED",
+  "etf_type_proof": "OFFICIAL_ETF_FLAG_OR_SECURITY_MASTER_REQUIRED",
+  "otc_policy": "ALWAYS_EXCLUDE",
+  "required_fail_closed_facts": [
+    "security_type",
+    "listing",
+    "trading_halt",
+    "scheduled_delisting",
+    "corporate_action_state",
+    "liquidity"
+  ],
+  "liquidity": {
+    "repository_default_policy": "ABSENT",
+    "policy_requirement": "EXTERNAL_RATIFIED_POLICY_REQUIRED",
+    "metrics": [
+      "median_daily_dollar_volume",
+      "median_daily_trade_count",
+      "max_median_spread_bps",
+      "observed_session_count"
+    ]
+  },
+  "pit": {
+    "current_directory_backfill": "PROHIBITED",
+    "fact_available_at_rule": "FACT_AVAILABLE_AT_LE_DECISION_AT",
+    "future_corporate_action_rule": "DO_NOT_APPLY_BEFORE_AVAILABLE_AT",
+    "unknown_or_revised_history": "EXCLUDE"
+  },
+  "public_retention": {
+    "raw_vendor_rows": false,
+    "price_or_volume_rows": false,
+    "credentials": false,
+    "redacted_contract_results": true,
+    "redistribution_rights_must_be_explicit": true
+  },
+  "authority": {
+    "universe_observation_only": true,
+    "paper_data_eligibility_authorized": false,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "action_authorized": false,
+    "broker_oauth_authorized": false,
+    "broker_order_post_authorized": false,
+    "real_account_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
