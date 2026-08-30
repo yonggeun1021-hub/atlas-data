@@ -204,6 +204,12 @@ APPROVED_TESTS = [
     #   behavior). Deterministic: no wall-clock in the classification math.
     #   ⛔ investable/PAPER/Stage/Production/trading/order 권한 없음.
     "test/test_upbit_market_capture.py",
+    # P3-12 governance-freeze remediation slice: immutable first-party
+    # identity evidence for exactly the eight frozen PAPER markets. Source
+    # type/domain/content hash/observed_at/available_at are bound, redirects
+    # fail closed, and every identity/PAPER/exchange/order authority remains
+    # false. Evidence capture only; never releases the freeze by itself.
+    "test/test_upbit_first_party_identity_capture.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",

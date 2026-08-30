@@ -1,0 +1,55 @@
+name: P3-12 Upbit First-Party Identity Evidence Capture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-upbit-first-party-identity-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Verify bounded fail-closed identity capture
+        run: |
+          python3 test/test_upbit_first_party_identity_capture.py
+          python3 test/test_upbit_identity_governance_freeze.py
+      - name: Capture eight frozen PAPER identity sources
+        id: capture
+        run: |
+          set -euo pipefail
+          CAPTURE_ID=$(date -u +%Y%m%dT%H%M%SZ)
+          SNAPSHOT_DATE=$(date -u +%F)
+          SNAPSHOT_ROOT="evidence/crypto/upbit/identity/first_party"
+          python3 .github/scripts/upbit_first_party_identity_capture.py \
+            --snapshot-root "$SNAPSHOT_ROOT" \
+            --capture-id "$CAPTURE_ID"
+          echo "snapshot=$SNAPSHOT_ROOT/$SNAPSHOT_DATE/$CAPTURE_ID" >> "$GITHUB_OUTPUT"
+      - name: Commit immutable evidence only
+        env:
+          SNAPSHOT: ${{ steps.capture.outputs.snapshot }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$SNAPSHOT"
+          git commit -m "upbit first-party identity evidence $(date -u +%F) [workflow_dispatch]"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+      # This workflow captures public source bytes only. It deliberately does
+      # not edit the registry/taxonomy/freeze, does not promote a candidate,
+      # and does not call an exchange order, cancellation, private, deposit,
+      # or withdrawal endpoint.
