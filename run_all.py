@@ -1640,6 +1640,13 @@ APPROVED_TESTS = [
     # quantity, proposal, order, capital and all execution authorities remain
     # structurally locked. Semantic rebuild rejects re-signed tamper.
     "test/test_entry_proposal_boundary.py",
+    # KRX PAPER 5-1 proposal-only one-symbol selector.  Existing ratification
+    # state remains UNRATIFIED; unsupported NAV/risk/exposure/cost values stay
+    # null.  Synthetic fixtures exercise completed-bar, turnover/depth/spread/
+    # slippage/tick, stale, duplicate and deterministic ranking behavior, but
+    # the authoritative result is always NONE/LOCKED with all order/ledger/
+    # KIS/REAL/Production/trading authority false.
+    "test/test_krx_paper_canary_eligibility.py",
     # P7-11 operational readiness bridge: revalidates exact P8-13 and the
     # committed 11-episode baseline, but keeps live position eligibility,
     # harvest review, quantity, reallocation, proposal and order at zero/null

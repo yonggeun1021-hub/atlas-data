@@ -1,0 +1,265 @@
+{
+  "schema_version": "krx_paper_canary_policy_ratification_proposal/1",
+  "packet_id": "KRX_PAPER_5_1_POLICY_RATIFICATION_PROPOSAL_20260831",
+  "market": "KOREA",
+  "proposal_status": "UNRATIFIED_PROPOSAL_ONLY",
+  "decision_status": "LOCKED_EVIDENCE_AND_POLICY_INCOMPLETE",
+  "ratified": false,
+  "effective_at_utc": null,
+  "ratified_at_utc": null,
+  "ratified_by": null,
+  "audit_as_of_utc": "2026-08-30T15:14:05Z",
+  "source_lineage": {
+    "public_main_audited": "0421b473957e318a7642524b41820306455e5f41",
+    "universe_interface_merge": "acb33d8b1cd866d478ec6c1e49422571fe71a48d",
+    "completed_market_data_merge": "37e07659aa934e9a6e09b27b786dc49203060af1",
+    "execution_measurement_merge": "7446cc2ba8261ab09cf40cd4daf2d3fe1a1bb17e",
+    "shadow_merge": "7353be0dc26af8d6cacf2115c07d68358b5d607f",
+    "p8_13_bridge_merge": "f70249c306c3d069d7c3a549ac7c87f4f2bcf37f",
+    "p8_13_merge_main_full_ci": {
+      "run_id": 33317349022,
+      "status": "SUCCESS",
+      "completed_at_utc": "2026-08-30T15:11:27Z"
+    },
+    "private_read_only_reconciliation_merge": "196dfd3b1380f60673d84cd3df80a586f691ea85",
+    "private_p8_13_lineage_merge": "b8f0538877ed149f2ad5e4ad59a3232722ce21ef"
+  },
+  "existing_packet_boundary": {
+    "path": "config/krx_paper_policy_ratification_packet.json",
+    "schema_version": "krx_paper_policy_ratification_packet/1",
+    "decision_status": "UNRATIFIED_EVIDENCE_INCOMPLETE",
+    "ratifies_strategy_policy": false,
+    "mutation_by_this_proposal": false
+  },
+  "measured_current_gaps": {
+    "as_of_kst": "2026-08-31T00:14:05+09:00",
+    "registry_total": 4390,
+    "categorical_candidates": 3415,
+    "final_eligible": 0,
+    "final_excluded": 944,
+    "final_unknown": 3446,
+    "exact_session_turnover_coverage": 2271,
+    "natural_completed_bar_coverage": 0,
+    "natural_depth_coverage": 0,
+    "natural_spread_coverage": 0,
+    "natural_slippage_coverage": 0,
+    "common_safety": "UNKNOWN",
+    "effective_krx_shadow": "UNKNOWN",
+    "krx_paper_canary_start": "FAIL",
+    "basis": [
+      "NOTION_P3_03_READBACK_2026_08_30T14_22_27Z",
+      "NOTION_P8_13_READBACK_2026_08_30T12_16_07Z",
+      "EVIDENCE_KRX_PAPER_GATE_2026_08_30_ASSESSMENT"
+    ]
+  },
+  "recommended_from_existing_authoritative_contracts": {
+    "scope": {
+      "maximum_symbols": {
+        "value": 1,
+        "source": "config/krx_paper_proposal_bridge_contract.json#canary.maximum_symbols_per_packet",
+        "source_contract_version": "krx_paper_proposal_bridge/1",
+        "source_effective_date": "2026-08-30"
+      },
+      "maximum_open_positions": {
+        "value": 1,
+        "source": "config/krx_paper_proposal_bridge_contract.json#canary.maximum_open_positions",
+        "source_contract_version": "krx_paper_proposal_bridge/1",
+        "source_effective_date": "2026-08-30"
+      }
+    },
+    "completed_bar_intervals": {
+      "value": [
+        "15m",
+        "1h",
+        "1d"
+      ],
+      "four_hour_required": false,
+      "source": "config/krx_market_data_contract.json#supported_timeframes",
+      "source_contract_version": "krx_completed_market_data/1",
+      "source_effective_date": "2026-08-30"
+    },
+    "stale_and_duplicate_block": {
+      "stale_rule": "EVERY_REQUIRED_INPUT_AVAILABLE_AT_LE_EVALUATED_AT_LE_VALID_UNTIL_AND_LATEST_COMPLETED_SLOT_EXACT",
+      "duplicate_rule": "PRIOR_SELECTION_KEY_AND_EXACT_SYMBOL_SECURITY_ID_DUPLICATE_BLOCK",
+      "source": "config/krx_paper_proposal_bridge_contract.json#canary",
+      "source_contract_version": "krx_paper_proposal_bridge/1",
+      "source_effective_date": "2026-08-30"
+    },
+    "kill_switch": {
+      "value": "ACTIVE_FAIL_CLOSED_UNTIL_SEPARATE_EXPLICIT_CANARY_AUTHORITY",
+      "source": "config/krx_paper_common_safety_gate_contract.json#COMMON_KILL_SWITCH_FAIL_CLOSED",
+      "source_contract_version": "krx_paper_common_safety_gate/1",
+      "source_effective_date": "2026-08-30"
+    },
+    "restart_and_reconciliation": {
+      "value": "APPEND_ONLY_RESTART_REDERIVATION_AND_READ_ONLY_RECONCILIATION_REQUIRED",
+      "source_merges": [
+        "196dfd3b1380f60673d84cd3df80a586f691ea85",
+        "b8f0538877ed149f2ad5e4ad59a3232722ce21ef"
+      ],
+      "source_effective_date": "2026-08-30",
+      "grants_ledger_or_order_authority": false
+    }
+  },
+  "unratified_policy_axes": {
+    "virtual_nav_scope": {
+      "status": "UNRATIFIED",
+      "virtual_nav_krw": null,
+      "choices": [
+        "DEDICATED_FIXED_VIRTUAL_NAV_KRW_TO_BE_SET_BY_CIO",
+        "PERCENT_OF_SEPARATELY_RATIFIED_TOTAL_VIRTUAL_NAV_TO_BE_SET_BY_CIO",
+        "NO_VIRTUAL_NAV_KEEP_LOCKED"
+      ]
+    },
+    "planned_loss_per_trade": {
+      "status": "UNRATIFIED",
+      "maximum_planned_loss_krw": null,
+      "maximum_planned_loss_bps_of_virtual_nav": null,
+      "choices": [
+        "FIXED_KRW_CAP_TO_BE_SET_BY_CIO",
+        "VIRTUAL_NAV_BPS_CAP_TO_BE_SET_BY_CIO",
+        "MIN_OF_FIXED_KRW_AND_NAV_BPS_CAPS_TO_BE_SET_BY_CIO"
+      ]
+    },
+    "single_symbol_and_gross_exposure": {
+      "status": "UNRATIFIED",
+      "maximum_single_symbol_notional_krw": null,
+      "maximum_single_symbol_bps_of_virtual_nav": null,
+      "maximum_gross_exposure_krw": null,
+      "maximum_gross_exposure_bps_of_virtual_nav": null,
+      "choices": [
+        "FIXED_NOTIONAL_CAPS_TO_BE_SET_BY_CIO",
+        "VIRTUAL_NAV_FRACTION_CAPS_TO_BE_SET_BY_CIO",
+        "MIN_OF_RISK_SIZED_NOTIONAL_LIQUIDITY_CAPACITY_AND_NAV_CAP"
+      ]
+    },
+    "entry": {
+      "status": "UNRATIFIED",
+      "rule": null,
+      "parameters": null,
+      "choices": [
+        "PREVIOUS_COMPLETED_15M_HIGH_BREAKOUT_WITH_1H_AND_1D_CONFIRMATION",
+        "COMPLETED_BAR_PULLBACK_REENTRY_WITH_1H_AND_1D_CONFIRMATION",
+        "NO_ENTRY_POLICY_KEEP_LOCKED"
+      ],
+      "diagnostic_provenance_only": "config/krx_shadow_strategy_policy_candidates.json"
+    },
+    "stop": {
+      "status": "UNRATIFIED",
+      "rule": null,
+      "parameters": null,
+      "choices": [
+        "STRUCTURAL_COMPLETED_BAR_INVALIDATION",
+        "FIXED_BPS_STOP_TO_BE_SET_BY_CIO",
+        "VOLATILITY_SCALED_STOP_TO_BE_SET_BY_CIO"
+      ]
+    },
+    "profit_taking": {
+      "status": "UNRATIFIED",
+      "first_take_profit": null,
+      "final_take_profit": null,
+      "partial_fraction": null,
+      "choices": [
+        "TWO_STAGE_FIXED_R_MULTIPLES_TO_BE_SET_BY_CIO",
+        "FIRST_RISK_RECOVERY_THEN_TRAILING_EXIT_TO_BE_SET_BY_CIO",
+        "SINGLE_FINAL_TARGET_TO_BE_SET_BY_CIO"
+      ]
+    },
+    "time_expiry": {
+      "status": "UNRATIFIED",
+      "value": null,
+      "choices": [
+        "SAME_SESSION_EXPIRY_AT_EXPLICIT_TIMESTAMP",
+        "N_COMPLETED_SESSIONS_TO_BE_SET_BY_CIO",
+        "CATALYST_OR_THESIS_EXPIRY_WITH_EXPLICIT_TIMESTAMP"
+      ]
+    },
+    "fee_tax_slippage_tick": {
+      "status": "UNRATIFIED",
+      "entry_fee_bps": null,
+      "exit_fee_bps": null,
+      "sell_tax_bps": null,
+      "maximum_slippage_bps": null,
+      "slippage_order_notional_krw": null,
+      "tick_size": null,
+      "choices": [
+        "EFFECTIVE_DATED_KIS_ACCOUNT_FEE_SCHEDULE_PLUS_OFFICIAL_KRX_TAX_AND_TICK_SOURCES",
+        "WORST_CASE_OF_EFFECTIVE_SCHEDULE_AND_NATURAL_OBSERVED_COST_ENVELOPE",
+        "NO_COST_BINDING_KEEP_LOCKED"
+      ],
+      "required_natural_sources": [
+        "KIS_FHKST01010200_KRX_TEN_LEVEL_BOOK",
+        "KIS_CURRENT_MARKET_STATE_TICK",
+        "EFFECTIVE_DATED_BROKER_FEE_SCHEDULE",
+        "EFFECTIVE_DATED_OFFICIAL_TAX_SCHEDULE"
+      ]
+    },
+    "daily_loss_stop": {
+      "status": "UNRATIFIED",
+      "maximum_daily_loss_krw": null,
+      "maximum_daily_loss_bps_of_virtual_nav": null,
+      "choices": [
+        "REALIZED_PLUS_OPEN_PLANNED_LOSS_LIMIT_TO_BE_SET_BY_CIO",
+        "REALIZED_ONLY_LIMIT_PLUS_NO_NEW_ENTRY_AFTER_HIT_TO_BE_SET_BY_CIO",
+        "MIN_OF_FIXED_KRW_AND_NAV_BPS_DAILY_LIMITS_TO_BE_SET_BY_CIO"
+      ]
+    }
+  },
+  "eligibility_selector_proposal": {
+    "contract_path": "config/krx_paper_canary_eligibility_contract.json",
+    "implementation_path": "decision/krx_paper_canary_eligibility.py",
+    "required_natural_families": [
+      "COMPLETED_15M",
+      "COMPLETED_1H",
+      "COMPLETED_1D",
+      "EXACT_SESSION_TURNOVER",
+      "FRESH_ORDER_BOOK_DEPTH",
+      "FRESH_SPREAD",
+      "FRESH_SLIPPAGE_AT_RATIFIED_NOTIONAL",
+      "FRESH_OFFICIAL_TICK"
+    ],
+    "ranking_order": [
+      "TURNOVER_DESC",
+      "MIN_BID_ASK_DEPTH_DESC",
+      "SPREAD_BPS_ASC",
+      "WORST_SIDE_SLIPPAGE_BPS_ASC",
+      "SYMBOL_ASC",
+      "SECURITY_ID_ASC"
+    ],
+    "missing_or_unratified_result": {
+      "symbol": "NONE",
+      "status": "LOCKED"
+    },
+    "synthetic_fixture_may_only_set": "diagnostic_selected_symbol",
+    "synthetic_fixture_grants_authority": false
+  },
+  "cio_decision_required": [
+    "VIRTUAL_NAV_SCOPE",
+    "PLANNED_LOSS_PER_TRADE",
+    "SINGLE_SYMBOL_AND_GROSS_EXPOSURE",
+    "ENTRY",
+    "STOP",
+    "PROFIT_TAKING",
+    "TIME_EXPIRY",
+    "FEE_TAX_SLIPPAGE_TICK",
+    "DAILY_LOSS_STOP",
+    "ELIGIBILITY_THRESHOLDS_AND_NATURAL_EVIDENCE_WINDOW",
+    "SEPARATE_INTERNAL_LEDGER_CANARY_AUTHORITY"
+  ],
+  "authority": {
+    "evidence_authority": false,
+    "eligibility_authority": false,
+    "candidate_selection_authority": false,
+    "strategy_policy_ratified": false,
+    "entry_policy_ratified": false,
+    "hold_exit_policy_ratified": false,
+    "position_size_policy_ratified": false,
+    "internal_virtual_ledger_authorized": false,
+    "paper_order_write": false,
+    "kis_post_authorized": false,
+    "real_account_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

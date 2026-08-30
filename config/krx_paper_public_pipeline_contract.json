@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_paper_public_pipeline/1",
+  "input_schema_version": "krx_paper_public_pipeline_input/1",
+  "output_schema_version": "krx_paper_public_pipeline_packet/1",
+  "market": "KOREA",
+  "source_pins": {
+    "completed_bars": {
+      "merge_commit": "37e07659aa934e9a6e09b27b786dc49203060af1",
+      "contract_path": "config/krx_market_data_contract.json",
+      "contract_version": "krx_completed_market_data/1",
+      "contract_file_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649"
+    },
+    "execution_measurement": {
+      "merge_commit": "7446cc2ba8261ab09cf40cd4daf2d3fe1a1bb17e",
+      "contract_path": "config/krx_execution_measurement_contract.json",
+      "contract_version": "krx_execution_measurement/1",
+      "contract_file_sha256": "4271d20b1aface74834c5c7a4c529ab3cc05402ecfe0992eeb8441aea403fddc"
+    },
+    "shadow": {
+      "merge_commit": "7353be0dc26af8d6cacf2115c07d68358b5d607f",
+      "contract_path": "config/krx_shadow_strategy_contract.json",
+      "contract_version": "krx_shadow_strategy/1",
+      "contract_file_sha256": "8024e420b56287ede05796fb68a917b197d5ce855d586da80b06c5504c2a0a01"
+    },
+    "proposal": {
+      "merge_commit": "f70249c306c3d069d7c3a549ac7c87f4f2bcf37f",
+      "contract_path": "config/krx_paper_proposal_bridge_contract.json",
+      "contract_version": "krx_paper_proposal_bridge/1",
+      "contract_file_sha256": "c9f18ad2aca1d33aac7aaaffaa8e8c9c76206e95694fca6d785cdcf906275e1f"
+    }
+  },
+  "required_completed_bar_intervals": [
+    "15m",
+    "1h",
+    "1d"
+  ],
+  "required_natural_evidence": [
+    "AUTHORITY_BEARING_UNIVERSE_IDENTITY",
+    "DATE_SPECIFIC_CTCA0903R_OPEN_DAY_SNAPSHOT",
+    "EXACT_COMPLETED_15M_1H_1D_BARS",
+    "RATIFIED_EFFECTIVE_P9_01_KOREA_FRESHNESS",
+    "RATIFIED_EFFECTIVE_KIS_INTERVAL_START_SEMANTICS",
+    "GET_ONLY_EXECUTION_MEASUREMENT_RECEIPT",
+    "RATIFIED_EFFECTIVE_STRATEGY_ENTRY_HOLD_EXIT_SIZE_POLICY",
+    "COMMON_SAFETY_PASS",
+    "EFFECTIVE_KRX_SHADOW_PASS"
+  ],
+  "authority_bindings": {
+    "universe_identity": [],
+    "open_day_snapshot": [],
+    "p9_01_policy": [],
+    "kis_interval_semantics": [],
+    "execution_measurement": []
+  },
+  "ratified_policy_bindings": [],
+  "replay": {
+    "same_identity_same_proposal": "NO_CHANGE",
+    "same_identity_different_proposal": "LOCKED_FAIL_CLOSED",
+    "duplicate_prior_identity": "LOCKED_FAIL_CLOSED"
+  },
+  "public_output": {
+    "locked_symbol": "NONE",
+    "locked_proposal": "NONE",
+    "quantity": 0,
+    "order_draft": null,
+    "broker_route": null,
+    "kis_submission": null,
+    "broker_post_count": 0,
+    "kis_post_count": 0
+  },
+  "authority": {
+    "public_readiness_only": true,
+    "candidate_selection_authorized": false,
+    "internal_virtual_ledger_authorized": false,
+    "paper_order_write": false,
+    "kis_submission_authorized": false,
+    "live_account_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
