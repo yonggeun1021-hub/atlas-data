@@ -1,0 +1,29 @@
+name: KRX PAPER Public Pipeline
+
+on:
+  pull_request:
+    paths:
+      - "config/krx_paper_public_pipeline_contract.json"
+      - "orchestration/krx_paper_public_pipeline.py"
+      - "validation/tests/test_krx_paper_public_pipeline.py"
+      - "docs/krx_paper_public_pipeline.md"
+      - ".github/workflows/krx-paper-public-pipeline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  krx-paper-public-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Exact-pin public pipeline regression
+        run: python3 validation/tests/test_krx_paper_public_pipeline.py
+      - name: Verify no generated drift
+        run: git diff --exit-code
