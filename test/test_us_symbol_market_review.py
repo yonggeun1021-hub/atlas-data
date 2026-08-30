@@ -15,6 +15,13 @@ SPEC = importlib.util.spec_from_file_location("us_symbol_market_review", ROOT / 
 REVIEW = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(REVIEW)
+MARKET_SPEC = importlib.util.spec_from_file_location(
+    "free_market_data_for_us_review",
+    ROOT / "collectors" / "free_market_data.py",
+)
+MARKET = importlib.util.module_from_spec(MARKET_SPEC)
+assert MARKET_SPEC.loader is not None
+MARKET_SPEC.loader.exec_module(MARKET)
 
 
 def current_inputs():
@@ -40,6 +47,29 @@ class CurrentEvidenceTests(unittest.TestCase):
         self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "BLOCKED")
         self.assertEqual(result["summary"]["automatic_entry_count"], 0)
         self.assertEqual(result["summary"]["automatic_exit_count"], 0)
+        self.assertTrue(all(value is False for value in result["authority"].values()))
+
+    def test_v2_reference_connects_five_axes_and_symbol_leadership_context(self):
+        market, stages = current_inputs()
+        market = copy.deepcopy(market)
+        market["us_market_reference"] = MARKET.derive_us_market_reference(
+            market["alpaca"]["daily_bars"], MARKET.load_contract()
+        )
+        unsigned = {key: value for key, value in market.items() if key != "packet_sha256"}
+        market["packet_sha256"] = REVIEW.payload_sha256(unsigned)
+        result = REVIEW.build_review(market, stages)
+        self.assertEqual(result["five_axis"]["ratio"], "5/5")
+        self.assertEqual(result["five_axis"]["missing_axes"], [])
+        by_symbol = {row["symbol"]: row for row in result["symbols"]}
+        self.assertEqual(
+            [row["symbol"] for row in by_symbol["TSM"]["market_context"]["leadership_proxies"]],
+            ["SMH", "XLK"],
+        )
+        self.assertIn(
+            "FIVE_AXIS_CURRENT_REFERENCE_CONNECTED",
+            by_symbol["TSM"]["entry_review"]["reasons"],
+        )
+        self.assertEqual(result["five_axis"]["aggregate_regime"], "UNKNOWN")
         self.assertTrue(all(value is False for value in result["authority"].values()))
 
     def test_rehashing_tampered_source_cannot_change_output(self):

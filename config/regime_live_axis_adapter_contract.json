@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "regime_live_axis_adapter/v7",
+  "contract_version": "regime_live_axis_adapter/v8",
   "mode": "EVIDENCE_ONLY_NO_INTERPRETATION",
   "bindings": {
     "KR/TREND": {
@@ -44,6 +44,16 @@
       "source_transform_version": "free_market_data/3",
       "axis_transform_version": "regime_live_axis_fred_liquidity/v1"
     },
+    "US/BREADTH": {
+      "source_component": "FREE_MARKET_DATA",
+      "source_transform_version": "free_market_data/3",
+      "axis_transform_version": "regime_live_axis_us_representative_etf_breadth/v1"
+    },
+    "US/LEADERSHIP": {
+      "source_component": "FREE_MARKET_DATA",
+      "source_transform_version": "free_market_data/3",
+      "axis_transform_version": "regime_live_axis_us_sector_leadership_reference/v1"
+    },
     "CRYPTO/TREND": {
       "source_component": "BTC_TREND",
       "source_transform_version": "btc_trend/v1",
@@ -75,11 +85,11 @@
   },
   "deferred_axes": {},
   "non_promotable_evidence": [
-    "IEX_PARTIAL_EXCHANGE_SECTOR_REFERENCE_NOT_CANONICAL_LEADERSHIP",
     "KRX_SEVEN_SYMBOL_WATCHLIST",
     "KOREA_BREADTH_LINEAGE_RECEIPT_WITHOUT_PARTICIPATION_COUNTS",
     "KOREA_BREADTH_REPLAY_ATTESTATION_WITHOUT_FIVE_SIGNAL_PACKET",
-    "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES"
+    "US_MEMBERSHIP_ROSTER_WITHOUT_ADVANCE_DECLINE_VALUES",
+    "US_REPRESENTATIVE_ETF_AXES_WITHOUT_REGIME_INTERPRETATION"
   ],
   "authority": {
     "axis_evidence_binding_only": true,

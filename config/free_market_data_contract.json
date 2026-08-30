@@ -20,6 +20,17 @@
     "trend_symbols": ["SPY", "QQQ", "IWM"],
     "sector_reference_symbols": ["XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC", "SMH"],
     "return_windows_sessions": [5, 20, 60],
+    "current_proxy_axes": {
+      "approval_status": "RATIFIED_CURRENT_REFERENCE_ONLY",
+      "breadth_symbols": ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC"],
+      "breadth_method": "latest_session_advance_decline_across_representative_etfs",
+      "leadership_symbols": ["XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC", "SMH"],
+      "leadership_benchmark": "SPY",
+      "leadership_window_sessions": 20,
+      "leadership_method": "observed_return_order_and_relative_return_vs_spy",
+      "coverage_requirement": "ALL_CONFIGURED_SYMBOLS_PRESENT",
+      "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
+    },
     "feed": "iex",
     "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
     "credential_scope": "DEDICATED_MARKET_DATA_ONLY",
@@ -28,7 +39,9 @@
   "evidence_scopes": [
     "US_TREND_PRESENCE",
     "US_LIQUIDITY_PRESENCE",
-    "US_SECTOR_ETF_REFERENCE"
+    "US_SECTOR_ETF_REFERENCE",
+    "US_REPRESENTATIVE_ETF_BREADTH_REFERENCE",
+    "US_SECTOR_LEADERSHIP_REFERENCE"
   ],
   "authority": {
     "evidence_capture_only": true,
