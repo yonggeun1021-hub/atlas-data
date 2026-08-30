@@ -90,6 +90,11 @@ class ValidationAnchorContractTests(unittest.TestCase):
         with self.assertRaises(C.RealtimeCaptureError):
             C.validate_evidence_root(C.ELIGIBLE_UNIVERSE_MODE, Path("/tmp/realtime_validation"))
 
+    def test_schedule_phase_targets_a_natural_fifteen_minute_boundary(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn('cron: "6,36 * * * *"', workflow)
+        self.assertIn('default: "240"', workflow)
+
 
 class ValidationEvidenceTests(unittest.TestCase):
     def test_channel_coverage_is_exact_and_non_authoritative(self):
