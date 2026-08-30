@@ -1,0 +1,189 @@
+{
+  "asset_count": 8,
+  "auth_required": false,
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
+  "available_at": "2026-08-30T11:11:20Z",
+  "capture_id": "20260830T111117Z",
+  "capture_version": "upbit-first-party-identity-capture/v1",
+  "contract_path": "config/upbit_first_party_identity_capture_contract.json",
+  "contract_sha256": "bd690b7ea6fc293022705af912d6fc26a991d2ec1e6728f26550e8f2dd21b3bf",
+  "governance_freeze_path": "config/upbit_identity_taxonomy_governance_freeze.json",
+  "governance_freeze_sha256": "cad98f6d37e81f9d3423b5d87b291d8700f51b30e1319662f9a6e5393b1d8e8d",
+  "observed_at": "2026-08-30T11:11:18Z",
+  "order_or_withdrawal_endpoints_called": false,
+  "review_status": "PROPOSED_EVIDENCE_ONLY_AUTHORITY_FALSE",
+  "schema_version": "upbit_first_party_identity_capture/1",
+  "sources": [
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:18Z",
+      "canonical_asset_id": "BTC",
+      "content_sha256": "86133782865998791af9f94e673e37cd84753ce82a62e981a9c847568b942f79",
+      "content_type": "text/html",
+      "effective_url": "https://bitcoin.org/en/",
+      "http_status": 200,
+      "market": "KRW-BTC",
+      "observed_at": "2026-08-30T11:11:18Z",
+      "raw_file": "BTC/source.html.gz",
+      "required_markers": [
+        "Bitcoin is an innovative",
+        "peer-to-peer"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_WEB",
+      "source_url": "https://bitcoin.org/en/",
+      "validated_authority_domain": "bitcoin.org"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:18Z",
+      "canonical_asset_id": "ETH",
+      "content_sha256": "cbde43ab7d0a8d267a540916b5cf9ed32dd07c8b4cfe80d05066449247ac8363",
+      "content_type": "text/html",
+      "effective_url": "https://ethereum.org/what-is-ether/",
+      "http_status": 200,
+      "market": "KRW-ETH",
+      "observed_at": "2026-08-30T11:11:18Z",
+      "raw_file": "ETH/source.html.gz",
+      "required_markers": [
+        "ETH",
+        "ether"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_WEB",
+      "source_url": "https://ethereum.org/en/what-is-ether/",
+      "validated_authority_domain": "ethereum.org"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:18Z",
+      "canonical_asset_id": "LINK",
+      "content_sha256": "e51dc72f5e23128cfbf65887cb0a25fce9c89e84b164d29861eee19321b2ae24",
+      "content_type": "text/html",
+      "effective_url": "https://docs.chain.link/resources/link-token-contracts",
+      "http_status": 200,
+      "market": "KRW-LINK",
+      "observed_at": "2026-08-30T11:11:18Z",
+      "raw_file": "LINK/source.html.gz",
+      "required_markers": [
+        "LINK Token Contracts",
+        "0x514910"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "source_url": "https://docs.chain.link/resources/link-token-contracts",
+      "validated_authority_domain": "chain.link"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:18Z",
+      "canonical_asset_id": "SHIB",
+      "content_sha256": "594c7edf36321fce27b9117649a41dbdea6e2e07ac86ae00a53f74e9474d5f2d",
+      "content_type": "text/html",
+      "effective_url": "https://shib.io/tokens",
+      "http_status": 200,
+      "market": "KRW-SHIB",
+      "observed_at": "2026-08-30T11:11:18Z",
+      "raw_file": "SHIB/source.html.gz",
+      "required_markers": [
+        "$SHIB",
+        "main tokens"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_WEB",
+      "source_url": "https://shib.io/tokens",
+      "validated_authority_domain": "shib.io"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:19Z",
+      "canonical_asset_id": "SOL",
+      "content_sha256": "f5c0ede69260a04c72a9161c6f5b4d60b4f545c420f86ea7993297aaf2cd2fb1",
+      "content_type": "text/html",
+      "effective_url": "https://solana.com/learn/introduction-to-solana-tokens",
+      "http_status": 200,
+      "market": "KRW-SOL",
+      "observed_at": "2026-08-30T11:11:18Z",
+      "raw_file": "SOL/source.html.gz",
+      "required_markers": [
+        "SOL is Solana's native currency",
+        "transactions and fees"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "source_url": "https://solana.com/learn/introduction-to-solana-tokens",
+      "validated_authority_domain": "solana.com"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:19Z",
+      "canonical_asset_id": "SUI",
+      "content_sha256": "913572455ac1d65cfc2323a5af80a1b0aa65236fd011b9303abc13f6c5ea63f8",
+      "content_type": "text/html",
+      "effective_url": "https://docs.sui.io/develop/sui-architecture/tokenomics-overview",
+      "http_status": 200,
+      "market": "KRW-SUI",
+      "observed_at": "2026-08-30T11:11:19Z",
+      "raw_file": "SUI/source.html.gz",
+      "required_markers": [
+        "SUI token",
+        "gas fees"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "source_url": "https://docs.sui.io/develop/sui-architecture/tokenomics-overview",
+      "validated_authority_domain": "sui.io"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:20Z",
+      "canonical_asset_id": "WLD",
+      "content_sha256": "b4861da12c729c87f1eb20855c6f16542a453c1b93bdc8440a67ed993c4e98a2",
+      "content_type": "text/html",
+      "effective_url": "https://whitepaper.world.org/designing-for-scale",
+      "http_status": 200,
+      "market": "KRW-WLD",
+      "observed_at": "2026-08-30T11:11:19Z",
+      "raw_file": "WLD/source.html.gz",
+      "required_markers": [
+        "WLD",
+        "ERC-20"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "source_url": "https://whitepaper.world.org/designing-for-scale",
+      "validated_authority_domain": "world.org"
+    },
+    {
+      "atlas_capture_time_is_source_published_at": false,
+      "available_at": "2026-08-30T11:11:20Z",
+      "canonical_asset_id": "XRP",
+      "content_sha256": "10da66e8d25fc798f7997f0c3459f58368f5472179abccdf5eafde7b53c57b8f",
+      "content_type": "text/html",
+      "effective_url": "https://xrpl.org/about/xrp",
+      "http_status": 200,
+      "market": "KRW-XRP",
+      "observed_at": "2026-08-30T11:11:20Z",
+      "raw_file": "XRP/source.html.gz",
+      "required_markers": [
+        "XRP Ledger",
+        "native digital asset"
+      ],
+      "source_published_at": null,
+      "source_type": "PROJECT_FIRST_PARTY_PUBLIC_DOCUMENTATION",
+      "source_url": "https://xrpl.org/about/xrp",
+      "validated_authority_domain": "xrpl.org"
+    }
+  ]
+}

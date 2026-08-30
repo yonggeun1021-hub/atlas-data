@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "contract_version": "capital_flow_posture_reference_policy/v1",
+  "mode": "PAPER_DIAGNOSTIC_NOT_ALLOCATION",
+  "status": "CIO_INTENT_RECORDED_NUMERIC_BUDGET_UNRATIFIED",
+  "source_contract_version": "paper_regime_reference_policy/v1",
+  "market_order": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "comparison": {
+    "minimum_comparable_markets": 2,
+    "require_same_as_of_date": true,
+    "score_basis": "EQUAL_WEIGHT_FIVE_AXIS_SUM_MINUS5_TO_PLUS5",
+    "actual_flow_inference": "FORBIDDEN_WITHOUT_COMPARABLE_DIRECT_FLOW_EVIDENCE"
+  },
+  "capital_model": {
+    "total_exposure_driver": "REGIME",
+    "within_envelope_allocation_driver": "CROSS_MARKET_FLOW_AND_RELATIVE_STRENGTH",
+    "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
+    "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
+    "missing_market_policy": "WAIT_NO_NUMERIC_TARGET"
+  },
+  "authority": {
+    "paper_reference_display_authorized": true,
+    "relative_strength_comparison_authorized": true,
+    "actual_flow_claim_authorized": false,
+    "gross_exposure_authorized": false,
+    "cash_target_authorized": false,
+    "cross_market_allocation_authorized": false,
+    "position_size_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
