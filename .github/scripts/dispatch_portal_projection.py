@@ -413,8 +413,6 @@ def _validate_envelope(envelope: dict, path_match: re.Match[str]) -> None:
     for key in ("verified_facts", "display_proposal", "unknown_blocked"):
         if not isinstance(envelope.get(key), list):
             raise DispatchError("ENVELOPE_COLLECTION_INVALID")
-    if "UNKNOWN" in json.dumps(envelope["verified_facts"], ensure_ascii=False):
-        raise DispatchError("UNKNOWN_FACT_BLOCKED")
     for change in envelope["display_proposal"]:
         if not isinstance(change, dict) or set(change) != {"path", "content"}:
             raise DispatchError("DISPLAY_CHANGE_FIELDS_MISMATCH")
