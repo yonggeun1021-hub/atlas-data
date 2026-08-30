@@ -16,6 +16,7 @@ drift/tamper -- exactly ``upbit_universe_populate.py``'s discipline.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import gzip
 import hashlib
 import importlib.util
@@ -179,8 +180,8 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
                 "reasons": [f"MALFORMED_OR_MISSING:{exc}"],
                 "packet_sha256": None,
                 "observed_at": None,
-                "available_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "available_at": EV._iso_utc(captured_at),
+                "generated_at": EV._iso_utc(generated_at),
                 "source_identity": source_identity,
                 "policy_id": policy.get("policy_id"),
                 "policy_version": policy.get("policy_version"),
@@ -202,8 +203,13 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
 
 
 def _parse_utc(value: str):
-    import datetime as dt
-    return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise PopulationError(f"TIMESTAMP_INVALID:{value!r}") from exc
+    if parsed.tzinfo is None:
+        raise PopulationError(f"TIMESTAMP_NAIVE:{value!r}")
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def rebuild(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:

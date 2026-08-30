@@ -75,7 +75,11 @@ def utc_now() -> dt.datetime:
 
 
 def iso_utc(value: dt.datetime) -> str:
-    return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    # ``auto`` preserves provider/capture ordering below one second while
+    # retaining the existing whole-second representation when microseconds
+    # are zero.  Truncating here can make a provider timestamp such as
+    # 13.049 appear later than a capture completed at 13.100.
+    return value.astimezone(UTC).isoformat(timespec="auto").replace("+00:00", "Z")
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
