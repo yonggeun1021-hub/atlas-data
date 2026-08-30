@@ -415,9 +415,7 @@ def _realtime_freshness(record: dict) -> tuple[str, str | None]:
 # Upstream evidence discovery -- read-only, zero network calls.
 # ---------------------------------------------------------------------------
 
-def find_latest_universe_packet(
-    data_root: Path = UNIVERSE_DATA_ROOT, *, not_after: dt.datetime | None = None,
-):
+def find_latest_universe_packet(data_root: Path = UNIVERSE_DATA_ROOT):
     """Latest committed P3-12 record under ``data_root``, or ``None``.
 
     Mirrors ``upbit-realtime-capture.yml``'s own
@@ -433,24 +431,14 @@ def find_latest_universe_packet(
         candidate = data_root / date / "packet.json"
         if candidate.is_file():
             record = _read_json(candidate)
-            packet = record.get("packet") if isinstance(record, dict) else None
-            if not_after is not None:
-                available_at = _parse_utc(
-                    packet.get("available_at") if isinstance(packet, dict) else None,
-                    "universe.available_at",
-                )
-                if available_at > not_after:
-                    continue
             return {
                 "date": date, "path": candidate, "record": record,
-                "packet": packet,
+                "packet": record.get("packet") if isinstance(record, dict) else None,
             }
     return None
 
 
-def find_latest_market_evidence_packet(
-    data_root: Path = MARKET_EVIDENCE_DATA_ROOT, *, not_after: dt.datetime | None = None,
-):
+def find_latest_market_evidence_packet(data_root: Path = MARKET_EVIDENCE_DATA_ROOT):
     """Latest committed P4-07 record under ``data_root``, or ``None``."""
     data_root = Path(data_root)
     if not data_root.is_dir():
@@ -460,20 +448,11 @@ def find_latest_market_evidence_packet(
         candidate = data_root / date / "packet.json"
         if candidate.is_file():
             record = _read_json(candidate)
-            if not_after is not None:
-                generated_at = _parse_utc(
-                    record.get("generated_at") if isinstance(record, dict) else None,
-                    "market_evidence.generated_at",
-                )
-                if generated_at > not_after:
-                    continue
             return {"date": date, "path": candidate, "record": record}
     return None
 
 
-def find_latest_realtime_run(
-    evidence_root: Path = REALTIME_EVIDENCE_ROOT, *, not_after: dt.datetime | None = None,
-):
+def find_latest_realtime_run(evidence_root: Path = REALTIME_EVIDENCE_ROOT):
     """The most recently written P9-06 ``run_NNN.json`` across every
     committed date directory -- "the run that just happened in this same
     workflow invocation" when called immediately after the capture step, or
@@ -485,16 +464,9 @@ def find_latest_realtime_run(
     dates = sorted(p.name for p in evidence_root.iterdir() if p.is_dir() and DATE_RE.fullmatch(p.name))
     for date in reversed(dates):
         runs = sorted((evidence_root / date).glob("run_*.json"))
-        for latest in reversed(runs):
-            record = _read_json(latest)
-            if not_after is not None:
-                ended_at = _parse_utc(
-                    (record.get("run") or {}).get("ended_at") if isinstance(record, dict) else None,
-                    "realtime.ended_at",
-                )
-                if ended_at > not_after:
-                    continue
-            return {"date": date, "path": latest, "record": record}
+        if runs:
+            latest = runs[-1]
+            return {"date": date, "path": latest, "record": _read_json(latest)}
     return None
 
 
@@ -1177,11 +1149,8 @@ def populate(
     wire_regime_components: bool = False,
 ) -> dict:
     resolved_source_commit = resolve_source_commit(source_commit)
-    generated_dt = _parse_utc(generated_at, "generated_at")
-    universe_entry = find_latest_universe_packet(universe_data_root, not_after=generated_dt)
-    market_evidence_entry = find_latest_market_evidence_packet(
-        market_evidence_data_root, not_after=generated_dt,
-    )
+    universe_entry = find_latest_universe_packet(universe_data_root)
+    market_evidence_entry = find_latest_market_evidence_packet(market_evidence_data_root)
     if realtime_run_path is not None:
         realtime_run_path = Path(realtime_run_path)
         realtime_entry = (
@@ -1189,9 +1158,7 @@ def populate(
             if realtime_run_path.is_file() else None
         )
     elif allow_realtime_fallback:
-        realtime_entry = find_latest_realtime_run(
-            realtime_evidence_root, not_after=generated_dt,
-        )
+        realtime_entry = find_latest_realtime_run(realtime_evidence_root)
     else:
         realtime_entry = None
 

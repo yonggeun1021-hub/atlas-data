@@ -1,11 +1,12 @@
 # Upbit KRW Tradeable Universe / PAPER-Eligibility Contract (P3-12)
 
-Status: **RATIFIED, PAPER-only, effective 2026-08-30**. The CIO-ratified
-tradeable-universe policy, exclusion taxonomy, and exact evidence-bound
-55-market identity registry are loaded fail-closed. Their document-level
-effective dates prevent any 2026-08-29-or-earlier packet from being
-retroactively reclassified. Classification grants no Exchange, REAL,
-Production, Trading, order, or PAPER-exit authority.
+Status: capture, identity-proposal, and classification mechanism
+implemented. Every input this PR ships -- the tradeable-universe policy
+thresholds, the exclusion taxonomy, and every per-market canonical identity
+mapping -- is `PROPOSED_UNRATIFIED`. In production every Upbit KRW market
+therefore currently classifies as `OBSERVATION_POOL`. This is the expected,
+correct current state, not a bug: a separate, later, human/CIO-ratified
+change to these config files is required before any market can advance.
 
 The daily classification packet retains proposal counts/findings so its
 decision surface stays compact. The full proposal bodies are independently
@@ -81,21 +82,21 @@ discipline as `identity/kis_provenance_proposal.py` and
    one day's capture to the next simply is not classified that day, and
    its historical presence remains visible in the append-only raw
    evidence under `evidence/crypto/upbit/raw/`.
-4. **Identity not ratified/effective** for this market (absent from the
-   evidence-bound `config/upbit_asset_identity_registry.json` mapping, or
-   evaluated before its `effective_from`) -- `OBSERVATION_POOL`, reason
-   `IDENTITY_UNRATIFIED`. The loader revalidates the source packet's file
-   hash, payload hash, exact 55 mappings, and held-market exclusion.
-5. **Taxonomy not ratified/effective** -- `OBSERVATION_POOL`, reason
-   `TAXONOMY_UNRATIFIED`. The document is RATIFIED effective 2026-08-30;
-   its individual records retain their original evidence dates.
+4. **Identity not ratified** for this market (absent from the classifier's
+   `ratified_identity_registry` argument) -- `OBSERVATION_POOL`, reason
+   `IDENTITY_UNRATIFIED`. No ratified per-market registry file exists in
+   this repository; `upbit_universe_populate.py` always passes `{}`.
+5. **Taxonomy not ratified** (`config/upbit_exclusion_taxonomy.json`'s
+   `approval_status != "RATIFIED"`) -- `OBSERVATION_POOL`, reason
+   `TAXONOMY_UNRATIFIED`. Ships as `PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY`.
 6. **Taxonomy category excluded or unknown** -- `OBSERVATION_POOL`, reason
    `TAXONOMY_EXCLUDED:<category>` or `TAXONOMY_UNKNOWN`
    (`unknown_asset_policy: fail_closed_unknown`, same discipline as
    `config/crypto_breadth_exclusion_taxonomy.json`).
-7. **Policy not ratified/effective** -- `OBSERVATION_POOL`, reason
-   `POLICY_UNRATIFIED`. The policy is RATIFIED effective 2026-08-30 and
-   carries hard-false authority flags.
+7. **Policy not ratified**
+   (`config/upbit_tradeable_universe_policy.json`'s
+   `approval_status != "RATIFIED"`) -- `OBSERVATION_POOL`, reason
+   `POLICY_UNRATIFIED`. Ships as `PROPOSED_PAPER_BASELINE_UNRATIFIED`.
 8. **Stale capture** (`available_at` older than the policy's
    `max_capture_age_hours` relative to `evaluation_as_of`) --
    `OBSERVATION_POOL`, reason `STALE_CAPTURE`.
@@ -117,12 +118,11 @@ discipline as `identity/kis_provenance_proposal.py` and
 - **Listing history**: `observed_daily_candle_count`, the number of daily
   candles Upbit's `candles/days` endpoint actually returned (a floor bound
   on true listing age, capped by the capture's lookback `count`).
-- **30-day average turnover**: arithmetic mean of
-  `candle_acc_trade_price` over exactly 30 finalized days immediately
-  preceding the capture day. The packet retains the 30-day aggregate for
-  schema compatibility; the gate divides it by the validated finalized-day
-  count before comparing with KRW 5,000,000,000. Today's open candle is
-  always excluded.
+- **30-day turnover**: sum of `candle_acc_trade_price` over the 30
+  finalized days immediately preceding the capture day -- the first
+  returned candle (today, still open) is always excluded, the same T-1
+  discipline `crypto_breadth_contract.json`'s
+  `current_candle_policy: exclude_last_row_always` uses for Kraken.
 - **Spread**: a single best-bid/best-ask snapshot at capture time, not a
   true intraday median. Continuous intraday quote freshness/median-spread
   measurement is P4-07/P9-06's job (`execution/intraday_freshness.py`),
@@ -152,11 +152,12 @@ output -- `test_upbit_tradeable_universe.py::test_determinism_same_input_twice_i
 
 ## Versioning rule
 
-The policy, taxonomy, and identity registry each carry a document-level
-effective date. Taxonomy records additionally retain their own original
-effective intervals. A later edit requires a new version/effective date;
-the 2026-08-30 ratification never changes a classification for an earlier
-`evaluation_as_of`.
+`config/upbit_tradeable_universe_policy.json` and
+`config/upbit_exclusion_taxonomy.json` each carry their own
+`policy_version`/`effective_date` (or effective-dated per-record interval
+for the taxonomy). A later policy edit is a new version with a new
+`effective_from`; it never retroactively changes a classification already
+produced for an earlier `evaluation_as_of`.
 
 ## Offline commands
 

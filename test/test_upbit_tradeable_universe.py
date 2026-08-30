@@ -32,7 +32,7 @@ def market_entry(
     ask_size="10",
     candle_count=100,
     turnover_days=30,
-    turnover="180000000000",
+    turnover="6000000000",
     market_all_available=True,
 ):
     entry = {"market_all_available": market_all_available}
@@ -104,7 +104,7 @@ class BuildClassificationTests(unittest.TestCase):
     def test_normal_complete_input_produces_correct_split(self):
         core = base_core({
             "KRW-BTC": market_entry(),                                           # passes everything -> PAPER_ELIGIBLE
-            "KRW-ETH": market_entry(turnover="30000000000"),                     # 1B/day -> OBSERVATION_POOL
+            "KRW-ETH": market_entry(turnover="1000000000"),                      # below turnover -> OBSERVATION_POOL
             "KRW-USDT": market_entry(),                                          # excluded taxonomy category
         })
         packet = UNI.build_classification(
@@ -222,7 +222,7 @@ class BuildClassificationTests(unittest.TestCase):
         self.assertEqual(row["reason"], "SLIPPAGE_ABOVE_THRESHOLD")
 
     def test_kraken_presence_never_promotes(self):
-        core = base_core({"KRW-BTC": market_entry(turnover="30000000000")})  # 1B/day, deliberately fails
+        core = base_core({"KRW-BTC": market_entry(turnover="1000000000")})  # deliberately fails turnover
         without_kraken = UNI.build_classification(
             core, evaluation_as_of="2026-08-28", policy=ratified_policy(), taxonomy=ratified_taxonomy(),
             ratified_identity_registry={"KRW-BTC": "BTC"},
@@ -246,7 +246,7 @@ class BuildClassificationTests(unittest.TestCase):
     def test_determinism_same_input_twice_identical_output(self):
         core = base_core({
             "KRW-BTC": market_entry(),
-            "KRW-ETH": market_entry(turnover="30000000000"),
+            "KRW-ETH": market_entry(turnover="1000000000"),
         })
         first = UNI.build_classification(
             core, evaluation_as_of="2026-08-28", policy=ratified_policy(), taxonomy=ratified_taxonomy(),
@@ -302,65 +302,20 @@ class BuildClassificationTests(unittest.TestCase):
         self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
         self.assertEqual(packet["markets"][0]["reason"], "IDENTITY_UNRATIFIED")
 
-    def test_shipped_repo_config_is_effective_dated_without_historical_backfill(self):
-        """The real committed ratification starts on 2026-08-30 only."""
+    def test_shipped_repo_config_is_unratified_and_stays_observation_pool_only(self):
+        """The real, committed config files -- exactly as this PR ships them."""
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
-        registry = UNI.load_identity_registry()
-        self.assertEqual(policy["approval_status"], "RATIFIED")
-        self.assertEqual(taxonomy["approval_status"], "RATIFIED")
-        self.assertEqual(len(registry["mappings"]), 55)
-        self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-29"), {})
+        self.assertNotEqual(policy["approval_status"], "RATIFIED")
+        self.assertNotEqual(taxonomy["approval_status"], "RATIFIED")
         core = base_core({"KRW-BTC": market_entry()})
         packet = UNI.build_classification(
             core, evaluation_as_of="2026-08-28", policy=policy, taxonomy=taxonomy,
-            ratified_identity_registry=UNI.effective_identity_mapping(registry, "2026-08-28"),
+            ratified_identity_registry={},  # no ratified registry file exists in this repo
         )
         self.assertEqual(packet["summary"]["tradeable_universe_count"], 0)
         self.assertEqual(packet["summary"]["paper_eligible_count"], 0)
         self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
-
-    def test_shipped_repo_config_produces_paper_state_only_after_effective_date(self):
-        policy = UNI.load_policy()
-        taxonomy = UNI.load_taxonomy()
-        registry = UNI.load_identity_registry()
-        core = base_core(
-            {"KRW-BTC": market_entry(best_bid="99900", best_ask="100000")},
-            available_at="2026-08-30T00:40:00Z", snapshot_date="2026-08-30",
-        )
-        packet = UNI.build_classification(
-            core, evaluation_as_of="2026-08-30", policy=policy, taxonomy=taxonomy,
-            ratified_identity_registry=UNI.effective_identity_mapping(registry, "2026-08-30"),
-        )
-        self.assertTrue(packet["policy_ratified"])
-        self.assertTrue(packet["taxonomy_ratified"])
-        self.assertEqual(packet["markets"][0]["state"], UNI.STATE_PAPER_ELIGIBLE)
-        self.assertTrue(all(value is False for value in packet["authority"].values()))
-
-    def test_turnover_threshold_uses_30_day_daily_average(self):
-        core = base_core({"KRW-BTC": market_entry(turnover="149999999999.99")})
-        packet = UNI.build_classification(
-            core, evaluation_as_of="2026-08-28", policy=ratified_policy(), taxonomy=ratified_taxonomy(),
-            ratified_identity_registry={"KRW-BTC": "BTC"},
-        )
-        self.assertEqual(packet["markets"][0]["reason"], "TURNOVER_BELOW_THRESHOLD")
-
-
-class RatifiedIdentityRegistryTests(unittest.TestCase):
-    def test_registry_is_exactly_evidence_bound_and_held_markets_stay_absent(self):
-        registry = UNI.load_identity_registry()
-        self.assertEqual(len(registry["mappings"]), 55)
-        self.assertNotIn("KRW-RE", registry["mappings"])
-        self.assertNotIn("KRW-LIT", registry["mappings"])
-
-    def test_registry_source_hash_tamper_fails_closed(self):
-        registry = UNI.load_identity_registry()
-        registry["source_candidate_packet"]["file_sha256"] = "0" * 64
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "registry.json"
-            path.write_text(json.dumps(registry), encoding="utf-8")
-            with self.assertRaisesRegex(UNI.UpbitUniverseError, "SOURCE_PACKET_FILE_HASH_MISMATCH"):
-                UNI.load_identity_registry(path)
 
     def test_evaluation_as_of_and_available_at_shape_validated(self):
         core = base_core({"KRW-BTC": market_entry()})

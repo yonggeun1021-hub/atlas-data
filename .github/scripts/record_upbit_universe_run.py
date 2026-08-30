@@ -117,7 +117,7 @@ def classification_observation(step_outcome: str, result: str, reason: str, path
         normalized = "cancelled"
     elif outcome == "skipped":
         normalized = "not_run"
-    elif declared in {"classified", "populated", "ratified_reclassification", "verified_existing", "blocked", "failed"}:
+    elif declared in {"classified", "verified_existing", "blocked", "failed"}:
         normalized = declared
     else:
         normalized = "unknown"

@@ -33,7 +33,7 @@ def _load_run_module():
 
 def market_row(*, warning=False, orderbook_available=True, candles_available=True,
                 best_bid="99000", best_ask="100000", ask_size="10",
-                candle_count=100, turnover_days=30, turnover="180000000000",
+                candle_count=100, turnover_days=30, turnover="6000000000",
                 market_all_available=True, korean_name="코인", english_name="Coin"):
     entry = {"market_all_available": market_all_available}
     if market_all_available:
@@ -322,7 +322,7 @@ class BuildShadowPacketTests(unittest.TestCase):
         self.assertEqual(packet["gate_pass_fail_distribution"]["market_count"], 0)
 
     def test_determinism_same_input_twice_identical_output(self):
-        markets = {"KRW-BTC": market_row(), "KRW-ETH": market_row(turnover="30000000000")}
+        markets = {"KRW-BTC": market_row(), "KRW-ETH": market_row(turnover="1000000000")}
         first = self._run(copy.deepcopy(markets))
         second = self._run(copy.deepcopy(markets))
         self.assertEqual(H.canonical_json(first), H.canonical_json(second))

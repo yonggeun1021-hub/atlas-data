@@ -5,10 +5,14 @@ Reads the exact, already-committed Upbit public raw snapshot for one
 snapshot_date and publishes, verifies, or repairs the corresponding
 classification packet built by universe/upbit_tradeable_universe.py.
 
-This module never calls a network provider. It still builds mechanical
-identity proposals for transparency, but production classification now
-loads the evidence-bound, effective-dated RATIFIED identity registry. An
-unmapped/held market remains fail-closed at OBSERVATION_POOL.
+This module never calls a network provider. It builds
+PROPOSED_UNRATIFIED identity proposals purely for transparency (they are
+recorded in the packet's ``identity_review`` section) and passes an empty
+``ratified_identity_registry`` to the classifier -- no ratified per-market
+identity registry file exists in this repository. Every market therefore
+lands at OBSERVATION_POOL in production. This is the expected, correct
+current state, not a bug: a separate, later, human-ratified change is
+required before any market can advance.
 """
 from __future__ import annotations
 
@@ -109,11 +113,9 @@ def rebuild(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
     )
     policy = UNI.load_policy()
     taxonomy = UNI.load_taxonomy()
-    identity_registry = UNI.load_identity_registry()
-    effective_registry = UNI.effective_identity_mapping(identity_registry, snapshot_date)
     packet = UNI.build_classification(
         core, evaluation_as_of=snapshot_date, policy=policy, taxonomy=taxonomy,
-        ratified_identity_registry=effective_registry,
+        ratified_identity_registry={},  # no ratified registry file exists yet -- see module docstring
         blocked_markets=set(identity_review["blocked_markets"]),
     )
     record = {
@@ -128,31 +130,9 @@ def rebuild(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
             "module": "universe/upbit_tradeable_universe.py",
             "output_schema_version": packet["schema_version"],
         },
-        "ratification": {
-            "effective_for_snapshot": bool(
-                packet["policy_ratified"] and packet["taxonomy_ratified"] and effective_registry
-            ),
-            "policy": {
-                "path": "config/upbit_tradeable_universe_policy.json",
-                "file_sha256": UNI._file_sha(UNI.POLICY_PATH),
-                "effective_from": policy.get("effective_date"),
-            },
-            "taxonomy": {
-                "path": "config/upbit_exclusion_taxonomy.json",
-                "file_sha256": UNI._file_sha(UNI.TAXONOMY_PATH),
-                "effective_from": taxonomy.get("effective_from"),
-            },
-            "identity_registry": {
-                "path": "config/upbit_asset_identity_registry.json",
-                "file_sha256": UNI._file_sha(UNI.IDENTITY_REGISTRY_PATH),
-                "registry_version": identity_registry["registry_version"],
-                "effective_from": identity_registry["effective_from"],
-                "mapping_count": len(effective_registry),
-            },
-        },
         "identity_review": identity_review,
         "authority": {
-            "observation_pool_population_only": not bool(effective_registry),
+            "observation_pool_population_only": True,
             "identity_ratification_authorized": False,
             "taxonomy_ratification_authorized": False,
             "policy_ratification_authorized": False,
@@ -172,78 +152,12 @@ def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DA
     record = rebuild(snapshot_date, raw_root)
     target = output_path(snapshot_date, data_root)
     if target.exists():
-        if target.is_symlink():
-            raise PopulationError(f"EXISTING_PACKET_INVALID:{snapshot_date}:symlink")
         try:
             existing = json.loads(target.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise PopulationError(f"EXISTING_PACKET_UNREADABLE:{snapshot_date}:{exc}") from exc
         if existing != record:
-            existing_hash = existing.get("payload_sha256")
-            if not isinstance(existing_hash, str) or len(existing_hash) != 64:
-                raise PopulationError(f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}")
-            if payload_sha256({key: value for key, value in existing.items() if key != "payload_sha256"}) != existing_hash:
-                raise PopulationError(f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}")
-            immutable_keys = (
-                "schema_version", "snapshot_date", "generated_at",
-                "raw_snapshot", "builder", "identity_review",
-            )
-            same_pre_ratification_evidence = all(
-                existing.get(key) == record.get(key) for key in immutable_keys
-            )
-            old_packet = existing.get("packet") or {}
-            new_packet = record.get("packet") or {}
-            old_summary = old_packet.get("summary") or {}
-            old_rows = old_packet.get("markets") or []
-            old_authority = old_packet.get("authority") or {}
-            old_record_authority = existing.get("authority") or {}
-            old_fail_closed = (
-                old_summary.get("tradeable_universe_count") == 0
-                and old_summary.get("paper_eligible_count") == 0
-                and old_summary.get("market_count") == len(old_rows)
-                and (
-                    old_summary.get("observation_pool_count", 0)
-                    + old_summary.get("blocked_count", 0)
-                ) == len(old_rows)
-                and all(
-                    row.get("state") in (UNI.STATE_OBSERVATION_POOL, UNI.STATE_BLOCKED)
-                    for row in old_rows
-                    if isinstance(row, dict)
-                )
-                and old_authority
-                and all(value is False for value in old_authority.values())
-                and old_record_authority.get("observation_pool_population_only") is True
-                and all(
-                    value is False
-                    for key, value in old_record_authority.items()
-                    if key != "observation_pool_population_only"
-                )
-            )
-            safe_ratification_transition = (
-                same_pre_ratification_evidence
-                and old_fail_closed
-                and old_packet.get("policy_ratified") is False
-                and old_packet.get("taxonomy_ratified") is False
-                and new_packet.get("policy_ratified") is True
-                and new_packet.get("taxonomy_ratified") is True
-                and record.get("ratification", {}).get("effective_for_snapshot") is True
-            )
-            if not safe_ratification_transition:
-                raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}")
-            temporary = target.with_name(f".{target.name}.tmp.{os.getpid()}")
-            try:
-                temporary.write_text(
-                    json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                )
-                temporary.replace(target)
-            finally:
-                if temporary.exists():
-                    temporary.unlink()
-            return {
-                "outcome": "ratified_reclassification", "reason": "UNRATIFIED_TO_RATIFIED_SAME_RAW_VINTAGE",
-                "path": str(target), "payload_sha256": record["payload_sha256"],
-            }
+            raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}")
         return {
             "outcome": "verified_existing", "reason": None,
             "path": str(target), "payload_sha256": record["payload_sha256"],

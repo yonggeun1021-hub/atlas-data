@@ -34,8 +34,6 @@ jobs:
           python3 test/test_upbit_market_identity_proposal.py
           python3 test/test_upbit_tradeable_universe.py
           python3 test/test_upbit_identity_review_bundle.py
-          python3 test/test_upbit_bounded_identity_registry.py
-          python3 test/test_upbit_universe_populate.py
       - name: Capture complete append-only Upbit KRW market snapshot
         id: capture
         run: |
@@ -125,9 +123,8 @@ jobs:
       # Deliberately its own step and commit, after raw evidence above is
       # already pushed -- a P3-12 population failure can never lose or roll
       # back the already-committed raw snapshot. Every market landing in
-      # OBSERVATION_POOL is an expected, deterministic outcome for unmapped,
-      # excluded, incomplete, or threshold-failing markets and is never
-      # treated as a workflow failure.
+      # OBSERVATION_POOL is an expected, deterministic outcome (identity
+      # and policy ship PROPOSED_UNRATIFIED), never treated as a failure.
       - name: Commit P3-12 tradeable-universe classification
         if: always()
         env:

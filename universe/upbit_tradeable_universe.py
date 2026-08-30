@@ -11,22 +11,21 @@ row's ``authority`` block is hardcoded all-``false`` regardless of state --
 turning a classification into real investable/PAPER/order authority is a
 separate, later, explicitly-ratified change that this module cannot make.
 
-Three independently ratified inputs must all be effective for the evaluated
-vintage before any market can leave ``OBSERVATION_POOL``:
+Two independent things must both be true, in the *input documents*, before
+any market can leave ``OBSERVATION_POOL``:
 
-1. ``tradeable_universe_policy`` and ``taxonomy`` are both ``RATIFIED`` and
-   their document-level effective date is not later than ``evaluation_as_of``.
-2. The specific market's canonical identity mapping appears in the exact,
-   evidence-bound ``config/upbit_asset_identity_registry.json`` mapping and
-   that registry is effective for ``evaluation_as_of``.
-3. The specific market's canonical identity mapping appears in
+1. ``tradeable_universe_policy["approval_status"] == "RATIFIED"`` and
+   ``taxonomy["approval_status"] == "RATIFIED"`` -- both ship in this PR as
+   ``PROPOSED_*_UNRATIFIED``/``PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY``, so in
+   production every market stays at ``OBSERVATION_POOL``. This is the
+   expected, correct current state, not a bug.
+2. The specific market's canonical identity mapping appears in
    ``ratified_identity_registry`` (``{upbit_market: canonical_asset_id}``).
-   The production population script derives this argument only through the
-   fail-closed registry loader below; callers cannot promote a ticker match.
-
-The v1 ratification is effective 2026-08-30. Earlier proposed taxonomy and
-identity evidence retain their original dates and are never backfilled into
-an earlier classification.
+   No such ratified registry file exists in this repository yet --
+   `identity/upbit_market_identity_proposal.py` only ever produces
+   ``PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY`` proposals -- so production
+   callers always pass ``{}`` here too. Tests pass a populated fixture to
+   prove the state machine itself works once ratification exists.
 
 A trading-suspended / investment-warning market (Upbit's own
 ``market_event.warning``) is force-excluded from ``TRADEABLE_UNIVERSE`` /
@@ -68,7 +67,6 @@ CONTRACT_PATH = ROOT / "config" / "upbit_tradeable_universe_contract.json"
 CAPTURE_CONTRACT_PATH = ROOT / "config" / "upbit_market_capture_contract.json"
 POLICY_PATH = ROOT / "config" / "upbit_tradeable_universe_policy.json"
 TAXONOMY_PATH = ROOT / "config" / "upbit_exclusion_taxonomy.json"
-IDENTITY_REGISTRY_PATH = ROOT / "config" / "upbit_asset_identity_registry.json"
 OUTPUT_SCHEMA_VERSION = "upbit_tradeable_universe_packet/1"
 
 STATE_OBSERVATION_POOL = "OBSERVATION_POOL"
@@ -131,7 +129,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     if value.get("kraken_cross_reference_policy", {}).get("may_affect_state") is not False:
         raise UpbitUniverseError("CONTRACT_FIELD_MISMATCH:kraken_cross_reference_policy.may_affect_state")
     for key, expected in value.get("authority", {}).items():
-        if expected is not False:
+        if expected is not False and key != "observation_pool_population_only":
             raise UpbitUniverseError(f"CONTRACT_AUTHORITY_NOT_FALSE:{key}")
     return copy.deepcopy(value)
 
@@ -145,19 +143,6 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     }
     if not isinstance(doc, dict) or not required.issubset(doc):
         raise UpbitUniverseError("POLICY_FIELDS_INVALID")
-    if doc.get("approval_status") == "RATIFIED":
-        if not _DATE_RE.fullmatch(str(doc.get("effective_date", ""))):
-            raise UpbitUniverseError("POLICY_EFFECTIVE_DATE_INVALID")
-        if not _UTC_RE.fullmatch(str(doc.get("ratified_at_utc", ""))):
-            raise UpbitUniverseError("POLICY_RATIFIED_AT_INVALID")
-        if doc.get("paper_only") is not True:
-            raise UpbitUniverseError("POLICY_SCOPE_NOT_PAPER_ONLY")
-        for key in (
-            "exchange_authorized", "order_authorized", "paper_exit_authorized",
-            "production_authorized", "real_capital_authorized", "trading_authorized",
-        ):
-            if doc.get(key) is not False:
-                raise UpbitUniverseError(f"POLICY_AUTHORITY_NOT_FALSE:{key}")
     return doc
 
 
@@ -168,118 +153,7 @@ def load_taxonomy(path: Path = TAXONOMY_PATH) -> dict:
         raise UpbitUniverseError("TAXONOMY_FIELDS_INVALID")
     if doc.get("unknown_asset_policy") != "fail_closed_unknown":
         raise UpbitUniverseError("TAXONOMY_UNKNOWN_POLICY_NOT_FAIL_CLOSED")
-    if doc.get("approval_status") == "RATIFIED":
-        if not _DATE_RE.fullmatch(str(doc.get("effective_from", ""))):
-            raise UpbitUniverseError("TAXONOMY_EFFECTIVE_FROM_INVALID")
-        if not _UTC_RE.fullmatch(str(doc.get("ratified_at_utc", ""))):
-            raise UpbitUniverseError("TAXONOMY_RATIFIED_AT_INVALID")
     return doc
-
-
-def _resolve_repo_path(relative_path: str, label: str) -> Path:
-    if not isinstance(relative_path, str) or not relative_path or relative_path.startswith("/"):
-        raise UpbitUniverseError(f"{label}_PATH_INVALID")
-    candidate = (ROOT / relative_path).resolve()
-    try:
-        candidate.relative_to(ROOT.resolve())
-    except ValueError as exc:
-        raise UpbitUniverseError(f"{label}_PATH_OUTSIDE_REPOSITORY") from exc
-    return candidate
-
-
-def load_identity_registry(path: Path = IDENTITY_REGISTRY_PATH) -> dict:
-    """Load the CIO-ratified mapping and revalidate its exact evidence pins.
-
-    The source candidate packet deliberately remains a historical
-    ``PROPOSED_UNRATIFIED`` observation. This document ratifies exactly its
-    55 verified rows from 2026-08-30 onward; it never edits or re-dates that
-    earlier evidence.
-    """
-    doc = _read_json(Path(path))
-    required = {
-        "registry_version", "approval_status", "effective_from", "ratified_at_utc",
-        "source_candidate_packet", "source_identity_evidence", "unknown_market_policy",
-        "mappings", "authority",
-    }
-    if not isinstance(doc, dict) or not required.issubset(doc):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_FIELDS_INVALID")
-    if doc.get("registry_version") != "upbit_asset_identity_registry/v1":
-        raise UpbitUniverseError("IDENTITY_REGISTRY_VERSION_INVALID")
-    if doc.get("approval_status") != "RATIFIED":
-        raise UpbitUniverseError("IDENTITY_REGISTRY_NOT_RATIFIED")
-    if not _DATE_RE.fullmatch(str(doc.get("effective_from", ""))):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_EFFECTIVE_FROM_INVALID")
-    if not _UTC_RE.fullmatch(str(doc.get("ratified_at_utc", ""))):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_RATIFIED_AT_INVALID")
-    if doc.get("unknown_market_policy") != "fail_closed_unratified_identity":
-        raise UpbitUniverseError("IDENTITY_REGISTRY_UNKNOWN_POLICY_INVALID")
-    if not isinstance(doc.get("authority"), dict) or not doc["authority"]:
-        raise UpbitUniverseError("IDENTITY_REGISTRY_AUTHORITY_INVALID")
-    for key, value in doc["authority"].items():
-        if value is not False:
-            raise UpbitUniverseError(f"IDENTITY_REGISTRY_AUTHORITY_NOT_FALSE:{key}")
-
-    source = doc["source_candidate_packet"]
-    evidence_source = doc["source_identity_evidence"]
-    if not isinstance(source, dict) or not isinstance(evidence_source, dict):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_INVALID")
-    packet_path = _resolve_repo_path(source.get("path"), "IDENTITY_REGISTRY_SOURCE_PACKET")
-    evidence_path = _resolve_repo_path(evidence_source.get("path"), "IDENTITY_REGISTRY_SOURCE_EVIDENCE")
-    if _file_sha(packet_path) != source.get("file_sha256"):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_PACKET_FILE_HASH_MISMATCH")
-    if _file_sha(evidence_path) != evidence_source.get("file_sha256"):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_EVIDENCE_HASH_MISMATCH")
-
-    packet = _read_json(packet_path)
-    stored_payload_hash = packet.get("payload_sha256")
-    if stored_payload_hash != source.get("payload_sha256"):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_PACKET_PAYLOAD_PIN_MISMATCH")
-    if payload_sha256({key: value for key, value in packet.items() if key != "payload_sha256"}) != stored_payload_hash:
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_PACKET_SELF_HASH_MISMATCH")
-    if packet.get("review_status") != source.get("review_status"):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_REVIEW_STATUS_MISMATCH")
-    if packet.get("snapshot_date") != source.get("snapshot_date"):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_SNAPSHOT_DATE_MISMATCH")
-    if packet.get("evaluation_as_of") != source.get("evaluation_as_of"):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_EVALUATION_DATE_MISMATCH")
-
-    mappings = doc.get("mappings")
-    if not isinstance(mappings, dict) or not mappings:
-        raise UpbitUniverseError("IDENTITY_REGISTRY_MAPPINGS_INVALID")
-    if sorted(mappings) != list(mappings):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_MAPPINGS_NOT_SORTED")
-    if any(not _KRW_MARKET_RE.fullmatch(str(market)) for market in mappings):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_MARKET_INVALID")
-    if any(not isinstance(asset, str) or not asset for asset in mappings.values()):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_CANONICAL_ID_INVALID")
-    if len(set(mappings.values())) != len(mappings):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_DUPLICATE_CANONICAL_TARGET")
-    source_mappings = {
-        row["market"]: row["canonical_asset_id"]
-        for row in packet.get("registry_candidates", [])
-    }
-    if source_mappings != mappings:
-        raise UpbitUniverseError("IDENTITY_REGISTRY_SOURCE_MAPPING_MISMATCH")
-    held_markets = {row.get("market") for row in packet.get("hold_list", [])}
-    if held_markets & set(mappings):
-        raise UpbitUniverseError("IDENTITY_REGISTRY_HELD_MARKET_PROMOTED")
-    return copy.deepcopy(doc)
-
-
-def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: str) -> bool:
-    if document.get("approval_status") != "RATIFIED":
-        return False
-    effective = document.get(date_field)
-    # Synthetic fixtures predating effective-dated ratification remain valid
-    # for unit-level classifier tests. Real loaded RATIFIED documents are
-    # required by their loaders above to carry the field.
-    return effective is None or (isinstance(effective, str) and effective <= evaluation_as_of)
-
-
-def effective_identity_mapping(registry: dict, evaluation_as_of: str) -> dict:
-    if not _approval_effective(registry, evaluation_as_of, date_field="effective_from"):
-        return {}
-    return copy.deepcopy(registry["mappings"])
 
 
 def _decimal(value, label: str) -> Decimal:
@@ -505,8 +379,8 @@ def build_classification(
     # test_upbit_tradeable_universe.py::test_kraken_presence_never_promotes.
     kraken_known_canonical_ids = kraken_known_canonical_ids or set()
 
-    policy_ratified = _approval_effective(policy, evaluation_as_of, date_field="effective_date")
-    taxonomy_ratified = _approval_effective(taxonomy, evaluation_as_of, date_field="effective_from")
+    policy_ratified = policy.get("approval_status") == "RATIFIED"
+    taxonomy_ratified = taxonomy.get("approval_status") == "RATIFIED"
     min_listing_days = int(policy["min_listing_history_finalized_days"])
     min_turnover = _decimal(policy["min_30d_avg_krw_turnover"], "min_30d_avg_krw_turnover")
     max_spread = _decimal(policy["max_spread_bps"], "max_spread_bps")
@@ -554,15 +428,7 @@ def build_classification(
                     reason = "LISTING_HISTORY_BELOW_THRESHOLD"
                 elif entry["trailing_turnover_finalized_day_count"] < policy["turnover_lookback_finalized_days"]:
                     reason = "TURNOVER_HISTORY_INCOMPLETE"
-                # The ratified threshold is the mean finalized daily KRW
-                # turnover across the complete 30-day lookback, not the
-                # 30-day aggregate. Keep the aggregate in the packet for
-                # schema compatibility and compute the comparison exactly
-                # here from the already-validated finalized-day count.
-                elif (
-                    entry["trailing_30d_krw_turnover"]
-                    / Decimal(entry["trailing_turnover_finalized_day_count"])
-                ) < min_turnover:
+                elif entry["trailing_30d_krw_turnover"] < min_turnover:
                     reason = "TURNOVER_BELOW_THRESHOLD"
                 else:
                     spread_bps = _spread_bps(Decimal(str(entry["best_bid"])), Decimal(str(entry["best_ask"])))

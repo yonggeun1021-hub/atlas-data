@@ -53,30 +53,17 @@ class IdentityReviewBundleTests(unittest.TestCase):
         self.assertIn("KRW-BTC", markets)
         self.assertIn("KRW-ETH", markets)
 
-    def test_source_hashes_remain_historical_after_effective_dated_ratification(self):
+    def test_source_hashes_match_current_retained_inputs(self):
         packet = json.loads(NATURAL.read_text(encoding="utf-8"))
         source = packet["source"]
-        self.assertNotEqual(
+        self.assertEqual(
             source["universe_policy_file_sha256"],
             B.file_sha256(ROOT / source["universe_policy_path"]),
         )
-        self.assertNotEqual(
+        self.assertEqual(
             source["taxonomy_file_sha256"],
             B.file_sha256(ROOT / source["taxonomy_path"]),
         )
-        self.assertEqual(len(source["universe_policy_file_sha256"]), 64)
-        self.assertEqual(len(source["taxonomy_file_sha256"]), 64)
-
-    def test_natural_bundle_verifies_as_historical_without_rewrite(self):
-        natural_0830 = ROOT / "data" / "observations" / "upbit_identity_review" / "2026-08-30" / "packet.json"
-        original = natural_0830.read_bytes()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            target = Path(temp_dir) / "2026-08-30" / "packet.json"
-            target.parent.mkdir(parents=True)
-            target.write_bytes(original)
-            result = B.populate("2026-08-30", data_root=Path(temp_dir))
-            self.assertEqual(result["outcome"], "verified_historical")
-            self.assertEqual(target.read_bytes(), original)
 
     def test_population_is_idempotent_and_tamper_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp_dir:

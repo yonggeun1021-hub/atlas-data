@@ -1,8 +1,6 @@
 # P3-12 Shadow Validation Harness contract
 
-Status: **HISTORICAL PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY**, review material
-only. The 2026-08-29 packet remains immutable after the 2026-08-30
-ratification. This
+Status: **PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY**, review material only. This
 harness ratifies nothing, mutates no canonical config file, calls no Upbit
 order/withdrawal/private endpoint, and grants no investable/PAPER/order/
 Production/Trading authority. Every `authority` field it emits is hardcoded
@@ -10,11 +8,15 @@ Production/Trading authority. Every `authority` field it emits is hardcoded
 
 ## Purpose
 
-Before ratification, P3-12's real classifier correctly kept every Upbit KRW
-market at `OBSERVATION_POOL`. This harness answered what the funnel would
-look like if the CIO ratified the proposed inputs. It remains available to
-reconstruct that historical review method, but its shadow counts are not a
-replacement for the effective-dated natural packet:
+P3-12's real classifier (`universe/upbit_tradeable_universe.py`) and its
+production populate script (`.github/scripts/upbit_universe_populate.py`)
+correctly keep every Upbit KRW market at `OBSERVATION_POOL` today, because
+the tradeable-universe policy, the exclusion taxonomy, and every per-market
+identity mapping are all `PROPOSED_UNRATIFIED`. That is by design, not a bug
+-- but it also means nobody can see, ahead of an actual ratification
+decision, what the funnel would look like if the CIO said yes. This harness
+answers exactly that question, repeatably, without pre-committing to an
+answer:
 
 > If today's already-proposed policy, taxonomy, and identity proposals were
 > ratified **exactly as currently written** -- no threshold changed, no
