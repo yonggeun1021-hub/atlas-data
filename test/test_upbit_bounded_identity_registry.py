@@ -29,7 +29,7 @@ def market_row(*, korean_name="코인", english_name="Coin", warning=False):
         "orderbook_available": True, "best_bid": "99000", "best_ask": "100000",
         "ask_levels": [{"price": "100000", "size": "10"}],
         "candles_available": True, "observed_daily_candle_count": 100,
-        "trailing_turnover_finalized_day_count": 30, "trailing_30d_krw_turnover": Decimal("6000000000"),
+        "trailing_turnover_finalized_day_count": 30, "trailing_30d_krw_turnover": Decimal("180000000000"),
     }
 
 

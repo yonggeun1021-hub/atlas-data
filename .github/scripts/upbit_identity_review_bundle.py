@@ -162,8 +162,31 @@ def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DA
             existing = json.loads(target.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise IdentityReviewBundleError(f"EXISTING_PACKET_UNREADABLE:{snapshot_date}:{exc}") from exc
+        existing_hash = existing.get("payload_sha256")
+        if not isinstance(existing_hash, str) or len(existing_hash) != 64:
+            raise IdentityReviewBundleError(f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}")
+        if payload_sha256({key: value for key, value in existing.items() if key != "payload_sha256"}) != existing_hash:
+            raise IdentityReviewBundleError(f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}")
         if existing != packet:
-            raise IdentityReviewBundleError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}")
+            # Policy/taxonomy files are evidence inputs only by historical
+            # file hash for this review-only proposal bundle. A later
+            # effective-dated ratification must not rewrite or re-date that
+            # prior observation. Accept exactly that two-pin transition,
+            # while requiring every other byte-semantic field to match the
+            # deterministic rebuild from the same raw snapshot.
+            historical = json.loads(json.dumps(existing))
+            rebuilt = json.loads(json.dumps(packet))
+            for candidate in (historical, rebuilt):
+                candidate.pop("payload_sha256", None)
+                source = candidate.get("source") or {}
+                source.pop("universe_policy_file_sha256", None)
+                source.pop("taxonomy_file_sha256", None)
+            if historical != rebuilt:
+                raise IdentityReviewBundleError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}")
+            return {
+                "outcome": "verified_historical", "path": str(target),
+                "payload_sha256": existing_hash,
+            }
         return {"outcome": "verified_existing", "path": str(target), "payload_sha256": packet["payload_sha256"]}
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_name(f".{target.name}.tmp")

@@ -1,8 +1,11 @@
 # P3-12-ID-01 -- Upbit Bounded Identity Registry contract
 
-Status: **PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY**. Nothing here ratifies an
-identity registry, changes `approval_status` on any taxonomy or policy
-file, or grants investable/PAPER/order/Production/Trading authority.
+Status: the packet described below remains the immutable
+**PROPOSED_UNRATIFIED_CIO_REVIEW_ONLY** 2026-08-29 observation. The CIO
+subsequently ratified exactly its 55 verified mappings, effective
+2026-08-30, in `config/upbit_asset_identity_registry.json`. That registry
+pins the proposal packet and curated evidence by SHA-256 and grants no
+Exchange, REAL, Production, Trading, order, or PAPER-exit authority.
 
 ## The question this closes
 
@@ -105,11 +108,14 @@ in a future, separately-reviewed change, not a live call from this module.
 (unmodified, the real classifier) with this module's own
 `registry_candidate_as_mapping()` output substituted for the shadow
 harness's own broader "every non-colliding proposal" identity registry. No
-parallel classification logic exists here. Re-running against the real
-2026-08-29 snapshot: **55 of 81** taxonomy-covered assets become
-`VERIFIED_CANDIDATE`; the resulting funnel is **24 `PAPER_ELIGIBLE`, 0
-`TRADEABLE_UNIVERSE`** -- 5 fewer than P3-12-TAX-01's taxonomy-only
-supplemental estimate of 29 (28 `PAPER_ELIGIBLE` + 1 `TRADEABLE_UNIVERSE`).
+parallel classification logic exists here. The historical 2026-08-29
+proposal packet records **55 of 81** taxonomy-covered assets as
+`VERIFIED_CANDIDATE` and its then-current shadow funnel as **24
+`PAPER_ELIGIBLE`, 0 `TRADEABLE_UNIVERSE`**. Those values are preserved as
+historical evidence, not backfilled. The ratified runtime applies the KRW
+5B threshold to the 30-day *daily average* (the historical shadow compared
+the aggregate); current natural counts therefore come only from a new
+effective-date packet.
 See `docs/p3_12_id_01_bounded_identity_registry_cio_decision_packet_20260830.md`
 §5 for the exact 5-market, per-asset explanation of that drop.
 
@@ -131,7 +137,8 @@ from this market-data-freshness concern -- see `_is_stale()`'s docstring.
 python3 .github/scripts/upbit_bounded_identity_registry_build.py 2026-08-29 --evaluation-as-of 2026-08-29
 ```
 
-Reads the already-committed raw snapshot, `config/upbit_exclusion_taxonomy.json`,
+This command reconstructs the candidate method for review; it does not
+rewrite the ratified registry. It reads the already-committed raw snapshot, `config/upbit_exclusion_taxonomy.json`,
 and `config/upbit_bounded_identity_evidence.json`; writes
 `data/observations/upbit_bounded_identity_registry/2026-08-29/packet.json`.
 Never writes to any canonical config file, calls no network endpoint.

@@ -1,5 +1,15 @@
 # P3-12-ID-01 -- Upbit Bounded Identity Registry -- CIO decision packet -- 2026-08-30
 
+> **Ratification addendum (2026-08-30):** CIO ratified exactly the 55
+> `VERIFIED_CANDIDATE` mappings in this historical packet, together with
+> the stated exclusion taxonomy and PAPER-only thresholds, effective
+> 2026-08-30. The executable registry is
+> `config/upbit_asset_identity_registry.json`, which pins this packet and
+> its curated evidence by SHA-256. All Exchange, REAL, Production, Trading,
+> order, and `paper_exit_authorized` flags remain false. The original draft
+> text and 2026-08-29 shadow figures below are retained verbatim as the
+> pre-ratification record; they are not current natural-run results.
+
 Status: **REVIEW MATERIAL, DRAFT ONLY**. No identity registry is ratified.
 `config/upbit_exclusion_taxonomy.json` and `config/upbit_tradeable_universe_policy.json`
 `approval_status` fields are unchanged by this work. This PR is a **draft

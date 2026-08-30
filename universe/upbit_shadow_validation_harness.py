@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""P3-12 pre-ratification Shadow Validation Harness.
+"""P3-12 historical pre-ratification Shadow Validation Harness.
 
-Answers exactly one question for the CIO, repeatably: *if today's already
-PROPOSED_UNRATIFIED Upbit tradeable-universe policy, exclusion taxonomy, and
+Answers exactly one historical question for the CIO, repeatably: *if the
+then-PROPOSED_UNRATIFIED Upbit tradeable-universe policy, exclusion taxonomy, and
 per-market identity proposals were ratified exactly as they are currently
 written -- no threshold changed, no taxonomy category added, no identity
 guessed -- what would the resulting universe/PAPER-eligibility funnel look

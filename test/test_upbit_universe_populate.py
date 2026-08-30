@@ -15,6 +15,7 @@ and with the exact incident scenario reproduced.
 """
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import gzip
 import hashlib
@@ -102,6 +103,41 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             second = POPULATE.populate("2026-08-28", raw_root, data_root)
             self.assertEqual(second["outcome"], "verified_existing")
             self.assertEqual(first["payload_sha256"], second["payload_sha256"])
+
+    def test_effective_date_allows_one_atomic_fail_closed_ratification_transition(self):
+        current = POPULATE.rebuild("2026-08-30")
+        historical = copy.deepcopy(current)
+        historical.pop("ratification")
+        historical["authority"]["observation_pool_population_only"] = True
+        packet = historical["packet"]
+        packet["policy_ratified"] = False
+        packet["taxonomy_ratified"] = False
+        for row in packet["markets"]:
+            row["state"] = UNI.STATE_OBSERVATION_POOL
+            row["reason"] = "IDENTITY_UNRATIFIED"
+            row["candidate_canonical_asset_id"] = None
+        packet["summary"] = {
+            "market_count": len(packet["markets"]),
+            "observation_pool_count": len(packet["markets"]),
+            "tradeable_universe_count": 0,
+            "paper_eligible_count": 0,
+            "blocked_count": 0,
+        }
+        packet["payload_sha256"] = UNI.payload_sha256(
+            {key: value for key, value in packet.items() if key != "payload_sha256"}
+        )
+        historical["payload_sha256"] = POPULATE.payload_sha256(
+            {key: value for key, value in historical.items() if key != "payload_sha256"}
+        )
+
+        with tempfile.TemporaryDirectory() as data:
+            data_root = Path(data)
+            target = POPULATE.output_path("2026-08-30", data_root)
+            target.parent.mkdir(parents=True)
+            target.write_text(json.dumps(historical, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            result = POPULATE.populate("2026-08-30", data_root=data_root)
+            self.assertEqual(result["outcome"], "ratified_reclassification")
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), current)
 
 
 if __name__ == "__main__":
