@@ -227,9 +227,19 @@ def ratified_policy_patches():
     market_policy = copy.deepcopy(CPDS.MARKET_EVIDENCE.load_policy())
     market_policy["approval_status"] = "RATIFIED"
     patchers.append(mock.patch.object(CPDS.MARKET_EVIDENCE, "load_policy", return_value=market_policy))
+    patchers.append(mock.patch.object(
+        CPDS.MARKET_EVIDENCE, "load_ratified_policy", return_value=market_policy,
+    ))
     patchers.append(mock.patch.object(CPDS.PROMOTION.MARKET_EVIDENCE, "load_policy", return_value=market_policy))
     patchers.append(mock.patch.object(
+        CPDS.PROMOTION.MARKET_EVIDENCE, "load_ratified_policy", return_value=market_policy,
+    ))
+    patchers.append(mock.patch.object(
         CPDS.ELIGIBILITY.PROMOTION.MARKET_EVIDENCE, "load_policy", return_value=market_policy,
+    ))
+    patchers.append(mock.patch.object(
+        CPDS.ELIGIBILITY.PROMOTION.MARKET_EVIDENCE,
+        "load_ratified_policy", return_value=market_policy,
     ))
     patchers.append(mock.patch.object(
         CPDS.REALTIME_GATE, "load_freshness_policy_proposal",

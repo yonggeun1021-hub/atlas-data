@@ -1,0 +1,141 @@
+{
+  "authority": {
+    "action_generation_authorized": false,
+    "candidate_promotion_authorized": false,
+    "event_type_inference_authorized": false,
+    "importance_classification_authorized": false,
+    "interpretation_authorized": false,
+    "notification_authorized": false,
+    "observation_recording_only": true,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "decision_at": "2026-08-30T21:00:32Z",
+  "lineage": {
+    "content_contract_version": "dart_filing_content/1",
+    "content_run_path": "data/latest_dart_content.json",
+    "content_run_sha256": "e8b28c01a37934392ddd6c8b7de9c856b23bc45adbc89deaad71f4074f50a02a",
+    "source_path": "data/latest_dart.json",
+    "source_sha256": "0bbce47794ced4faa8b58a68e7c4c03c3d3b9abbbb4a1f292ad7d9eec74e4342"
+  },
+  "observations": [
+    {
+      "blocked_reasons": [
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": "2026-08-25T21:57:46Z",
+        "reasons": [
+          "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED"
+        ],
+        "source_sha256": "ced60979d27b6971dbc2bb20dfd1ecbfec6ff9a98cfd8469e0d0bab949f35225",
+        "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260824800122",
+        "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+      },
+      "filing_date": "20260824",
+      "filing_title": "단일판매ㆍ공급계약체결",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260824800122",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260824800122_329180",
+      "rcept_no": "20260824800122",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "329180",
+      "subject_name": "HD현대중공업",
+      "time_precision": "DATE_ONLY"
+    },
+    {
+      "blocked_reasons": [
+        "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED",
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": null,
+        "reasons": [
+          "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED"
+        ],
+        "source_sha256": null,
+        "source_uri": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260827800365",
+        "status": "METADATA_ONLY_STAGE_NOT_ASSIGNED"
+      },
+      "filing_date": "20260827",
+      "filing_title": "[기재정정]단일판매ㆍ공급계약체결",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260827800365",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260827800365_267260",
+      "rcept_no": "20260827800365",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "267260",
+      "subject_name": "HD현대일렉트릭",
+      "time_precision": "DATE_ONLY"
+    },
+    {
+      "blocked_reasons": [
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": "2026-08-28T04:46:32Z",
+        "reasons": [
+          "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED"
+        ],
+        "source_sha256": "489e8667c5efb453f2e1273195fce96f19ee792a524ba764453d1894589eb1d3",
+        "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260827800389",
+        "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+      },
+      "filing_date": "20260827",
+      "filing_title": "영업(잠정)실적(공정공시)",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260827800389",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260827800389_329180",
+      "rcept_no": "20260827800389",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "329180",
+      "subject_name": "HD현대중공업",
+      "time_precision": "DATE_ONLY"
+    }
+  ],
+  "packet_sha256": "db9ef77e57ce756fbfc8306e9b67f20d8cfc8bb81f46c553e8607a2cf4c70ef6",
+  "schema_version": "dart_event_observation_packet/2",
+  "source_date": "2026-08-31",
+  "source_failures": [],
+  "status": "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED",
+  "summary": {
+    "action_count": 0,
+    "content_failure_count": 0,
+    "event_type_inferred_count": 0,
+    "importance_classified_count": 0,
+    "metadata_only_count": 1,
+    "notification_sent_count": 0,
+    "order_count": 0,
+    "raw_bytes_verified_count": 2,
+    "relevant_filing_count": 3,
+    "source_failed_count": 0,
+    "source_ok_count": 7
+  }
+}

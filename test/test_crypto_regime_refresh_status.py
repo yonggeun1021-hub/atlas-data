@@ -57,7 +57,14 @@ class CryptoRegimeRefreshStatusTest(unittest.TestCase):
 
     def test_current_reference_and_official_decision_stay_distinct(self):
         packet = self.packet
-        self.assertEqual(packet["current_reference"]["coverage"]["ratio"], "5/5")
+        current = packet["current_reference"]["coverage"]
+        self.assertEqual(current["required_count"], 5)
+        self.assertEqual(current["ratio"], f"{current['defined_count']}/5")
+        self.assertIn("LEADERSHIP", current["defined_axes"])
+        self.assertEqual(
+            set(current["defined_axes"]) | set(current["missing_axes"]),
+            set(MODULE.AXES),
+        )
         self.assertIn(packet["current_reference"]["leadership_code"], {
             "BTC_LEADERSHIP", "ETH_LEADERSHIP", "BROAD_ALT_LEADERSHIP",
             "NARROW_ALT_LEADERSHIP", "MIXED_WINDOW_LEADERSHIP",
@@ -86,7 +93,14 @@ class CryptoRegimeRefreshStatusTest(unittest.TestCase):
         self.assertTrue(authority["read_only_reference"])
         self.assertTrue(all(value is False for key, value in authority.items() if key != "read_only_reference"))
         current = self.packet["current_reference"]["as_of_date"]
-        self.assertEqual(MODULE.validate_expected_date(self.packet, current), self.packet)
+        if self.packet["current_reference"]["coverage"]["ratio"] == "5/5":
+            self.assertEqual(MODULE.validate_expected_date(self.packet, current), self.packet)
+        else:
+            with self.assertRaisesRegex(
+                MODULE.CryptoRegimeRefreshStatusError,
+                "CURRENT_REFERENCE_NOT_COMPLETE",
+            ):
+                MODULE.validate_expected_date(self.packet, current)
         next_day = (dt.date.fromisoformat(current) + dt.timedelta(days=1)).isoformat()
         with self.assertRaisesRegex(MODULE.CryptoRegimeRefreshStatusError, "CURRENT_REFERENCE_DATE_STALE"):
             MODULE.validate_expected_date(self.packet, next_day)
