@@ -302,15 +302,15 @@ class BuildClassificationTests(unittest.TestCase):
         self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
         self.assertEqual(packet["markets"][0]["reason"], "IDENTITY_UNRATIFIED")
 
-    def test_shipped_repo_config_preserves_history_but_has_no_current_authority(self):
-        """The retained mapping stays auditable while current authority is frozen."""
+    def test_shipped_repo_config_releases_only_exact_eight_after_effective_date(self):
+        """The exact approved slice is effective without historical backfill."""
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
         registry = UNI.load_identity_registry()
         self.assertEqual(policy["approval_status"], "RATIFIED")
-        self.assertEqual(taxonomy["approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
-        self.assertEqual(registry["approval_status"], "PENDING_GOVERNANCE_RESOLUTION")
-        self.assertEqual(len(registry["mappings"]), 55)
+        self.assertEqual(taxonomy["approval_status"], "RATIFIED")
+        self.assertEqual(registry["approval_status"], "RATIFIED")
+        self.assertEqual(len(registry["mappings"]), 8)
         self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-29"), {})
         core = base_core({"KRW-BTC": market_entry()})
         packet = UNI.build_classification(
@@ -321,7 +321,7 @@ class BuildClassificationTests(unittest.TestCase):
         self.assertEqual(packet["summary"]["paper_eligible_count"], 0)
         self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
 
-    def test_shipped_repo_config_freeze_keeps_post_effective_date_in_observation(self):
+    def test_shipped_repo_config_allows_paper_classification_post_effective_date(self):
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
         registry = UNI.load_identity_registry()
@@ -334,9 +334,9 @@ class BuildClassificationTests(unittest.TestCase):
             ratified_identity_registry=UNI.effective_identity_mapping(registry, "2026-08-30"),
         )
         self.assertTrue(packet["policy_ratified"])
-        self.assertFalse(packet["taxonomy_ratified"])
-        self.assertEqual(packet["markets"][0]["state"], UNI.STATE_OBSERVATION_POOL)
-        self.assertEqual(packet["markets"][0]["reason"], "IDENTITY_UNRATIFIED")
+        self.assertTrue(packet["taxonomy_ratified"])
+        self.assertEqual(packet["markets"][0]["state"], UNI.STATE_PAPER_ELIGIBLE)
+        self.assertEqual(packet["markets"][0]["reason"], "PAPER_ELIGIBLE_ALL_GATES_PASSED")
         self.assertTrue(all(value is False for value in packet["authority"].values()))
 
     def test_turnover_threshold_uses_30_day_daily_average(self):
@@ -351,7 +351,11 @@ class BuildClassificationTests(unittest.TestCase):
 class RatifiedIdentityRegistryTests(unittest.TestCase):
     def test_registry_is_exactly_evidence_bound_and_held_markets_stay_absent(self):
         registry = UNI.load_identity_registry()
-        self.assertEqual(len(registry["mappings"]), 55)
+        self.assertEqual(len(registry["mappings"]), 8)
+        self.assertEqual(
+            sorted(registry["mappings"]),
+            ["KRW-BTC", "KRW-ETH", "KRW-LINK", "KRW-SHIB", "KRW-SOL", "KRW-SUI", "KRW-WLD", "KRW-XRP"],
+        )
         self.assertNotIn("KRW-RE", registry["mappings"])
         self.assertNotIn("KRW-LIT", registry["mappings"])
 

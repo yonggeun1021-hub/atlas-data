@@ -215,6 +215,7 @@ APPROVED_TESTS = [
     # registry/taxonomy payloads, but release_ready and every authority remain
     # false until a later CIO decision names the exact hashes.
     "test/test_upbit_paper_identity_hardening_candidate.py",
+    "test/test_upbit_paper_identity_hardening_release.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",

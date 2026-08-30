@@ -138,7 +138,7 @@ class UpbitIdentityGovernanceFreezeTest(unittest.TestCase):
             self.freeze["audit_counts"]["authority_valid_identity_count"],
         )
 
-    def test_candidates_and_holds_fail_closed_without_symbol_aliasing(self) -> None:
+    def test_historical_candidates_stay_frozen_and_release_is_exact_eight(self) -> None:
         candidate_markets = {
             candidate["market"] for candidate in self.packet["registry_candidates"]
         }
@@ -148,11 +148,12 @@ class UpbitIdentityGovernanceFreezeTest(unittest.TestCase):
 
         self.assertEqual(len(candidate_markets), 55)
         self.assertEqual(len(hold_markets), 26)
-        self.assertEqual(mapping_markets, candidate_markets)
+        self.assertEqual(mapping_markets, set(self.freeze["released_paper_markets"]))
+        self.assertEqual(len(mapping_markets), 8)
         self.assertTrue(mapping_markets.isdisjoint(hold_markets))
         self.assertEqual(len(mapping_ids), len(set(mapping_ids)))
         self.assertEqual(
-            len(mapping_markets),
+            len(candidate_markets),
             self.freeze["audit_counts"]["authority_invalid_registry_mapping_count"],
         )
 
@@ -160,30 +161,22 @@ class UpbitIdentityGovernanceFreezeTest(unittest.TestCase):
         lit_evidence = next(
             row for row in self.packet["evidence"] if row["market"] == "KRW-LIT"
         )
-        lit_taxonomy = next(
-            row
-            for row in self.taxonomy["records"]
-            if row["canonical_asset_id"] == "LIT"
-        )
         mapping_markets = set(self.registry["mappings"])
 
         self.assertEqual(lit_evidence["verdict"], "HOLD_TICKER_COLLISION")
         self.assertEqual(lit_evidence["upbit_evidence"]["english_name"], "Lighter")
-        self.assertIn("Litentry", lit_taxonomy["reason"])
-        self.assertIn("HEI", lit_taxonomy["reason"])
-        self.assertIn("english_name=Lighter", lit_taxonomy["reason"])
+        self.assertEqual(self.freeze["blocked_taxonomy"]["content_conflict_markets"], ["KRW-LIT"])
+        self.assertNotIn("LIT", {row["canonical_asset_id"] for row in self.taxonomy["records"]})
         self.assertNotIn("KRW-LIT", mapping_markets)
 
-    def test_all_authority_and_ratification_gates_are_frozen(self) -> None:
+    def test_exact_paper_scope_is_released_while_operational_authority_stays_false(self) -> None:
         self.assertEqual(
-            self.freeze["resolution_status"], "PENDING_GOVERNANCE_RESOLUTION"
+            self.freeze["resolution_status"], "RATIFIED_BY_EXPLICIT_CIO_DECISION"
         )
-        self.assertEqual(
-            self.registry["approval_status"], "PENDING_GOVERNANCE_RESOLUTION"
-        )
-        self.assertEqual(
-            self.taxonomy["approval_status"], "PENDING_GOVERNANCE_RESOLUTION"
-        )
+        self.assertEqual(self.registry["approval_status"], "RATIFIED")
+        self.assertEqual(self.taxonomy["approval_status"], "RATIFIED")
+        self.assertTrue(self.freeze["paper_classification_scope_approved"])
+        self.assertEqual(set(self.freeze["released_paper_markets"]), set(self.registry["mappings"]))
         self.assertTrue(all(value is False for value in self.freeze["authority"].values()))
         self.assertEqual(
             self.freeze["blocked_universe_record_payload_sha256s"],
