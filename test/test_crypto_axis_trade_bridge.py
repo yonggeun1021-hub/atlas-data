@@ -230,6 +230,12 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
             mock.patch.object(
                 BRIDGE.DECISION.UNIVERSE, "load_identity_registry", return_value=registry,
             ),
+            # P3-12-GOV-05: standard test-only mock exempting this
+            # hypothetical-future-ratification fixture from the
+            # exact-release allowlist binding -- never a production bypass.
+            mock.patch.object(
+                BRIDGE.DECISION.UNIVERSE.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+            ),
         ):
             packet = BRIDGE.DECISION.build_snapshot(
                 generated_at=generated_at,

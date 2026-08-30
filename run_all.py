@@ -216,6 +216,15 @@ APPROVED_TESTS = [
     # false until a later CIO decision names the exact hashes.
     "test/test_upbit_paper_identity_hardening_candidate.py",
     "test/test_upbit_paper_identity_hardening_release.py",
+    # ★ P3-12-GOV-05 -- runtime exact-approval binding for the identity
+    #   registry/taxonomy: an ALLOWLIST of the one CIO-approved exact-hash
+    #   chain (never a denylist of specific bad hashes), wired directly
+    #   into _approval_effective()/effective_identity_mapping() so
+    #   approval_status alone can never revive unapproved content. On this
+    #   branch the allowlist is empty -- PENDING_EXACT_HASH_REAPPROVAL --
+    #   until a future, separate CIO decision. ⛔ authority 전부 false.
+    "test/test_upbit_exact_release_binding.py",
+    "test/test_upbit_exact_release_binding_successor_candidate.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",

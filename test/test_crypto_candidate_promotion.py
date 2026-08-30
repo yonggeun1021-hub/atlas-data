@@ -469,11 +469,24 @@ class BuildPromotionPacketTests(unittest.TestCase):
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
+        # P3-12-GOV-05: this fixture simulates a HYPOTHETICAL future full
+        # ratification by flipping approval_status on copies of the real
+        # taxonomy/registry -- it is not exercising the exact-release
+        # allowlist binding itself (that has its own dedicated coverage in
+        # test_upbit_exact_release_binding.py), so exempt it via a standard
+        # test-only mock rather than building a full synthetic exact-hash
+        # chain for every promotion-logic test. This is a test fixture
+        # swap, never a bypass flag in the production code path.
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
         self.policy_patch.start()
         self.taxonomy_patch.start()
         self.registry_patch.start()
+        self.exact_release_binding_patch.start()
 
     def tearDown(self):
+        self.exact_release_binding_patch.stop()
         self.registry_patch.stop()
         self.taxonomy_patch.stop()
         self.policy_patch.stop()

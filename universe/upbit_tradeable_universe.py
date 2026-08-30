@@ -63,6 +63,18 @@ UPBIT_CAPTURE = importlib.util.module_from_spec(_CAPTURE_SPEC)
 assert _CAPTURE_SPEC.loader is not None
 _CAPTURE_SPEC.loader.exec_module(UPBIT_CAPTURE)
 
+# P3-12-GOV-05: runtime exact-approval binding. ``approval_status ==
+# "RATIFIED"`` alone is never sufficient for the identity registry or
+# taxonomy -- see ``_approval_effective()`` below and
+# ``governance/upbit_exact_release_binding.py``'s module docstring.
+_EXACT_RELEASE_BINDING_SPEC = importlib.util.spec_from_file_location(
+    "upbit_tradeable_universe_exact_release_binding",
+    ROOT / "governance" / "upbit_exact_release_binding.py",
+)
+EXACT_RELEASE_BINDING = importlib.util.module_from_spec(_EXACT_RELEASE_BINDING_SPEC)
+assert _EXACT_RELEASE_BINDING_SPEC.loader is not None
+_EXACT_RELEASE_BINDING_SPEC.loader.exec_module(EXACT_RELEASE_BINDING)
+
 
 CONTRACT_PATH = ROOT / "config" / "upbit_tradeable_universe_contract.json"
 CAPTURE_CONTRACT_PATH = ROOT / "config" / "upbit_market_capture_contract.json"
@@ -267,7 +279,29 @@ def load_identity_registry(path: Path = IDENTITY_REGISTRY_PATH) -> dict:
     return copy.deepcopy(doc)
 
 
-def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: str) -> bool:
+def _approval_effective(
+    document: dict, evaluation_as_of: str, *, date_field: str,
+    require_exact_release_binding: bool = False, content_field: str | None = None,
+) -> bool:
+    """``require_exact_release_binding`` is passed by every identity-registry
+    and taxonomy call site (never by policy, which P3-12-GOV-05 does not
+    touch). When set, ``document.approval_status == "RATIFIED"`` is
+    necessary but never sufficient by itself -- the document's entire
+    exact-hash provenance chain must also independently resolve to the ONE
+    approval-evidence file ``config/upbit_exact_release_binding_contract.json``
+    currently allowlists (see that module's docstring for why this is an
+    allowlist of known-good content, never a denylist of known-bad hashes).
+    This runs BEFORE the ``approval_status`` check for the same reason
+    P3-12-GOV-04 flagged as its P1 finding: editing ``approval_status`` back
+    to ``"RATIFIED"`` on a document whose content was never re-approved must
+    never revive authority on its own.
+    """
+    if require_exact_release_binding:
+        try:
+            if not EXACT_RELEASE_BINDING.validate_exact_release(document, content_field=content_field):
+                return False
+        except EXACT_RELEASE_BINDING.ExactReleaseBindingError:
+            return False
     if document.get("approval_status") != "RATIFIED":
         return False
     effective = document.get(date_field)
@@ -278,7 +312,10 @@ def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: st
 
 
 def effective_identity_mapping(registry: dict, evaluation_as_of: str) -> dict:
-    if not _approval_effective(registry, evaluation_as_of, date_field="effective_from"):
+    if not _approval_effective(
+        registry, evaluation_as_of, date_field="effective_from",
+        require_exact_release_binding=True, content_field="mappings",
+    ):
         return {}
     return copy.deepcopy(registry["mappings"])
 
@@ -507,7 +544,10 @@ def build_classification(
     kraken_known_canonical_ids = kraken_known_canonical_ids or set()
 
     policy_ratified = _approval_effective(policy, evaluation_as_of, date_field="effective_date")
-    taxonomy_ratified = _approval_effective(taxonomy, evaluation_as_of, date_field="effective_from")
+    taxonomy_ratified = _approval_effective(
+        taxonomy, evaluation_as_of, date_field="effective_from",
+        require_exact_release_binding=True, content_field="records",
+    )
     min_listing_days = int(policy["min_listing_history_finalized_days"])
     min_turnover = _decimal(policy["min_30d_avg_krw_turnover"], "min_30d_avg_krw_turnover")
     max_spread = _decimal(policy["max_spread_bps"], "max_spread_bps")

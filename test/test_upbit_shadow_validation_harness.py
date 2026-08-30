@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -170,6 +171,22 @@ class ShadowIdentityRegistryTests(unittest.TestCase):
 
 
 class BuildShadowPacketTests(unittest.TestCase):
+    """P3-12-GOV-05: build_shadow_packet() delegates to
+    UNI.build_classification(), whose taxonomy gate now also requires the
+    exact-release allowlist binding -- these are pure classifier-state-
+    machine fixtures (liquidity/spread/staleness gating), not exercising
+    the binding itself (dedicated coverage lives in
+    test_upbit_exact_release_binding.py), so exempt them via the same
+    standard test-only mock used throughout this suite. Never a
+    production bypass."""
+
+    def setUp(self):
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
+        self.exact_release_binding_patch.start()
+        self.addCleanup(self.exact_release_binding_patch.stop)
+
     def _run(self, markets: dict, *, policy=None, taxonomy=None, kraken=None,
               evaluation_as_of="2026-08-28", exceptions_doc=None):
         core = base_core(markets)
