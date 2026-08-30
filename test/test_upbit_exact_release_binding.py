@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""P3-12-GOV-05 (v2 design): governance/upbit_exact_release_binding.py.
+"""P3-12-GOV-05 (v3 design): governance/upbit_exact_release_binding.py.
 
 Two independent, one-way chains rooted entirely in fields the identity
 registry / taxonomy documents carry on themselves -- no separate mutable
-allowlist file. The content chain is the pre-existing
-approval_evidence_ref/source_candidate_packet pointer these documents
-already had; the code chain is the new code_approval_evidence_ref pointer,
-absent from every real document on this branch, which is exactly what
-keeps this PENDING without any external list needing to be pre-populated.
+allowlist file, contract-declared field/authority vocabularies actually
+enforced (not merely declarative), code-binding paths exactly compared
+(not just their sha256), base-candidate pins compared as exact
+``{path, file_sha256, payload_sha256}`` tuples, and temporal ordering
+that prevents a future approval from retroactively applying to a past
+evaluation.
 """
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -47,6 +49,12 @@ _FORBIDDEN_AUTHORITY_FALSE = {
     "production_authorized": False, "real_capital_authorized": False, "trading_authorized": False,
 }
 
+BASE_CANDIDATE_GENERATED_AT = "2026-08-30T10:00:00Z"
+CONTENT_APPROVAL_RATIFIED_AT = "2026-08-30T11:00:00Z"
+SUCCESSOR_GENERATED_AT = "2026-08-30T12:00:00Z"
+CODE_APPROVAL_RATIFIED_AT = "2026-08-30T13:00:00Z"
+EVAL_AS_OF = "2026-08-30"
+
 
 def _write(path: Path, obj) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,7 +62,17 @@ def _write(path: Path, obj) -> Path:
     return path
 
 
-def build_full_chain(tmp: Path, *, mappings=None):
+def build_full_chain(
+    tmp: Path, *, mappings=None,
+    base_candidate_generated_at=BASE_CANDIDATE_GENERATED_AT,
+    content_approval_ratified_at=CONTENT_APPROVAL_RATIFIED_AT,
+    successor_generated_at=SUCCESSOR_GENERATED_AT,
+    code_approval_ratified_at=CODE_APPROVAL_RATIFIED_AT,
+    omit_base_candidate_generated_at=False,
+    omit_content_approval_ratified_at=False,
+    omit_successor_generated_at=False,
+    omit_code_approval_ratified_at=False,
+):
     """A fully self-consistent chain (content approval + candidate,
     consumer/validator/policy-contract code, code approval + successor
     candidate) under ``tmp``. Returns (registry_doc, taxonomy_doc,
@@ -71,8 +89,22 @@ def build_full_chain(tmp: Path, *, mappings=None):
         "content_approval_schema_version": "upbit_paper_identity_exact_hash_approval/1",
         "code_approval_schema_version": "upbit_exact_release_binding_code_approval/1",
         "successor_candidate_schema_version": "upbit_exact_release_binding_successor_candidate/2",
-        "paper_scope_keys": sorted(_SCOPE_TRUE),
+        "required_content_approval_fields": [
+            "schema_version", "approval_status", "ratified_by", "ratified_at_utc",
+            "candidate", "approved_scope", "authority",
+        ],
+        "required_code_approval_fields": [
+            "schema_version", "approval_status", "ratified_by", "ratified_at_utc",
+            "successor_candidate", "authority",
+        ],
+        "required_successor_candidate_fields": [
+            "schema_version", "generated_at", "base_candidate", "code_binding",
+            "release_ready", "exact_hash_cio_approval_present", "authority",
+        ],
+        "authority_keys": sorted(_AUTHORITY_FALSE),
         "forbidden_authority_keys": sorted(_FORBIDDEN_AUTHORITY_FALSE),
+        "paper_scope_keys": sorted(_SCOPE_TRUE),
+        "code_binding_labels": ["consumer_file", "validator_file", "policy_contract"],
         "authority": dict(_AUTHORITY_FALSE),
     }
     policy_contract["payload_sha256"] = ERB.payload_sha256(
@@ -104,6 +136,8 @@ def build_full_chain(tmp: Path, *, mappings=None):
         "proposed_taxonomy_payload_sha256": ERB.payload_sha256(proposed_taxonomy),
         "authority": dict(_AUTHORITY_FALSE),
     }
+    if not omit_base_candidate_generated_at:
+        base_candidate["generated_at"] = base_candidate_generated_at
     base_candidate["payload_sha256"] = ERB.payload_sha256(base_candidate)
     base_candidate_path = _write(tmp / "base_candidate.json", base_candidate)
     base_candidate_relative = str(base_candidate_path.relative_to(tmp))
@@ -121,6 +155,8 @@ def build_full_chain(tmp: Path, *, mappings=None):
         "approved_scope": dict(_SCOPE_TRUE),
         "authority": dict(_FORBIDDEN_AUTHORITY_FALSE),
     }
+    if not omit_content_approval_ratified_at:
+        content_approval["ratified_at_utc"] = content_approval_ratified_at
     content_approval_path = _write(tmp / "content_approval.json", content_approval)
     content_approval_relative = str(content_approval_path.relative_to(tmp))
     content_approval_hash = ERB.file_sha256(content_approval_path)
@@ -142,6 +178,8 @@ def build_full_chain(tmp: Path, *, mappings=None):
         "exact_hash_cio_approval_present": False,
         "authority": dict(_AUTHORITY_FALSE),
     }
+    if not omit_successor_generated_at:
+        successor["generated_at"] = successor_generated_at
     successor["payload_sha256"] = ERB.payload_sha256(successor)
     successor_path = _write(tmp / "successor_candidate.json", successor)
     successor_relative = str(successor_path.relative_to(tmp))
@@ -156,6 +194,8 @@ def build_full_chain(tmp: Path, *, mappings=None):
         },
         "authority": dict(_AUTHORITY_FALSE),
     }
+    if not omit_code_approval_ratified_at:
+        code_approval["ratified_at_utc"] = code_approval_ratified_at
     code_approval_path = _write(tmp / "code_approval.json", code_approval)
     code_approval_relative = str(code_approval_path.relative_to(tmp))
     code_approval_hash = ERB.file_sha256(code_approval_path)
@@ -216,23 +256,41 @@ def build_full_chain(tmp: Path, *, mappings=None):
 
 
 class ActivatedChainTests(unittest.TestCase):
-    """Both chains present and consistent -> effective."""
+    """Both chains present, consistent, and correctly time-ordered ->
+    effective, exactly at/after the ratification date."""
 
     def test_activated_registry_and_taxonomy_validate_true(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             registry, taxonomy, artifacts = build_full_chain(tmp)
-            self.assertTrue(ERB.validate_exact_release(artifacts["activate"](registry), content_field="mappings", repo_root=tmp))
-            self.assertTrue(ERB.validate_exact_release(artifacts["activate"](taxonomy), content_field="records", repo_root=tmp))
+            self.assertTrue(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+            self.assertTrue(ERB.validate_exact_release(
+                artifacts["activate"](taxonomy), content_field="records", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
 
     def test_activated_registry_is_exactly_the_eight_approved_markets(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             registry, _, artifacts = build_full_chain(tmp)
             activated = artifacts["activate"](registry)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(ERB.validate_exact_release(
+                activated, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
             self.assertEqual(activated["mappings"], MARKETS_TO_IDS)
             self.assertEqual(len(activated["mappings"]), 8)
+
+    def test_effective_exactly_on_ratification_date_not_only_after(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(tmp)
+            activated = artifacts["activate"](registry)
+            # code_approval ratified at 2026-08-30T13:00:00Z -> effective for
+            # evaluation_as_of == "2026-08-30" itself, not just strictly later.
+            self.assertTrue(ERB.validate_exact_release(
+                activated, content_field="mappings", evaluation_as_of="2026-08-30", repo_root=tmp,
+            ))
 
 
 class UnactivatedIsPendingTests(unittest.TestCase):
@@ -243,8 +301,8 @@ class UnactivatedIsPendingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             registry, taxonomy, _ = build_full_chain(tmp)
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
-            self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records", repo_root=tmp))
+            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp))
+            self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records", evaluation_as_of=EVAL_AS_OF, repo_root=tmp))
 
     def test_explicit_null_code_approval_ref_stays_false(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,19 +310,112 @@ class UnactivatedIsPendingTests(unittest.TestCase):
             registry, _, _ = build_full_chain(tmp)
             registry["code_approval_evidence_ref"] = None
             registry["code_approval_evidence_sha256"] = None
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp))
 
 
 class RealRepoStaysPendingTests(unittest.TestCase):
     def test_real_committed_registry_has_no_code_approval_ref(self):
         registry = json.loads((ROOT / "config" / "upbit_asset_identity_registry.json").read_text(encoding="utf-8"))
         self.assertNotIn("code_approval_evidence_ref", registry)
-        self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings"))
+        self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of="2026-08-30"))
 
     def test_real_committed_taxonomy_has_no_code_approval_ref(self):
         taxonomy = json.loads((ROOT / "config" / "upbit_exclusion_taxonomy.json").read_text(encoding="utf-8"))
         self.assertNotIn("code_approval_evidence_ref", taxonomy)
-        self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records"))
+        self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records", evaluation_as_of="2026-08-30"))
+
+
+class TemporalOrderingTests(unittest.TestCase):
+    """CIO P1: a future approval must never apply retroactively to a past
+    evaluation, and an approval can never precede the thing it approves."""
+
+    def test_missing_content_approval_ratified_at_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(tmp, omit_content_approval_ratified_at=True)
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_missing_base_candidate_generated_at_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(tmp, omit_base_candidate_generated_at=True)
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_missing_successor_generated_at_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(tmp, omit_successor_generated_at=True)
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_missing_code_approval_ratified_at_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(tmp, omit_code_approval_ratified_at=True)
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_future_code_approval_does_not_apply_to_past_evaluation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(
+                tmp, code_approval_ratified_at="2026-09-15T00:00:00Z",
+            )
+            activated = artifacts["activate"](registry)
+            # Effective for an evaluation on/after the (later) ratification date...
+            self.assertTrue(ERB.validate_exact_release(
+                activated, content_field="mappings", evaluation_as_of="2026-09-15", repo_root=tmp,
+            ))
+            # ...but NOT retroactively for a past evaluation date.
+            self.assertFalse(ERB.validate_exact_release(
+                activated, content_field="mappings", evaluation_as_of="2026-08-30", repo_root=tmp,
+            ))
+
+    def test_future_content_approval_does_not_apply_to_past_evaluation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(
+                tmp, content_approval_ratified_at="2026-09-15T00:00:00Z",
+                successor_generated_at="2026-09-15T01:00:00Z",
+                code_approval_ratified_at="2026-09-15T02:00:00Z",
+            )
+            activated = artifacts["activate"](registry)
+            self.assertFalse(ERB.validate_exact_release(
+                activated, content_field="mappings", evaluation_as_of="2026-08-30", repo_root=tmp,
+            ))
+            self.assertTrue(ERB.validate_exact_release(
+                activated, content_field="mappings", evaluation_as_of="2026-09-15", repo_root=tmp,
+            ))
+
+    def test_approval_predating_its_own_candidate_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(
+                tmp,
+                base_candidate_generated_at="2026-08-30T23:00:00Z",
+                content_approval_ratified_at="2026-08-30T10:00:00Z",  # BEFORE the candidate it approves
+            )
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_code_approval_predating_its_own_successor_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(
+                tmp,
+                successor_generated_at="2026-08-30T23:00:00Z",
+                code_approval_ratified_at="2026-08-30T10:00:00Z",  # BEFORE the successor it approves
+            )
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
 
 
 class NegativeTests(unittest.TestCase):
@@ -275,92 +426,183 @@ class NegativeTests(unittest.TestCase):
         document = registry if content_field == "mappings" else taxonomy
         return artifacts["activate"](document), artifacts
 
+    def _ok(self, activated, tmp, content_field="mappings"):
+        return ERB.validate_exact_release(activated, content_field=content_field, evaluation_as_of=EVAL_AS_OF, repo_root=tmp)
+
     def test_ninth_market_added_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, _ = self._activated(tmp)
             activated["mappings"]["KRW-DOGE"] = "DOGE"
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_consumer_file_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             artifacts["consumer_path"].write_text("# tampered\n", encoding="utf-8")
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_validator_file_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             artifacts["validator_path"].write_text("# tampered\n", encoding="utf-8")
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_base_candidate_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             candidate = json.loads(artifacts["base_candidate_path"].read_text(encoding="utf-8"))
             candidate["proposed_registry"]["mappings"]["KRW-BTC"] = "TAMPERED"
             _write(artifacts["base_candidate_path"], candidate)
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_content_approval_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             approval = json.loads(artifacts["content_approval_path"].read_text(encoding="utf-8"))
             approval["ratified_by"] = "SOMEONE_ELSE"
             _write(artifacts["content_approval_path"], approval)
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_code_approval_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             approval = json.loads(artifacts["code_approval_path"].read_text(encoding="utf-8"))
             approval["authority"]["order_authorized"] = True
-            approval_bytes = json.dumps(approval, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
-            artifacts["code_approval_path"].write_text(approval_bytes, encoding="utf-8")
+            _write(artifacts["code_approval_path"], approval)
             # sha256 pin in `activated` now stale -> mismatch, fails closed.
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_code_approval_authority_missing_key_fails(self):
+        """CIO P1: authority declaring only one key (the rest silently
+        dropped) must fail the exact-key-set check, not just an
+        all-False-among-present-keys check."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            approval = json.loads(artifacts["code_approval_path"].read_text(encoding="utf-8"))
+            approval["authority"] = {"trading_authorized": False}
+            _write(artifacts["code_approval_path"], approval)
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_successor_candidate_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             successor = json.loads(artifacts["successor_path"].read_text(encoding="utf-8"))
             successor["exact_hash_cio_approval_present"] = True
             _write(artifacts["successor_path"], successor)
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_forged_code_binding_path_with_correct_sha_fails(self):
+        """CIO P1: the validator must exact-compare the DECLARED path, not
+        just trust whatever sha256 is present -- a forged path alongside a
+        byte-correct sha256 must still fail."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            successor = json.loads(artifacts["successor_path"].read_text(encoding="utf-8"))
+            successor["code_binding"]["consumer_file"]["path"] = "some/other/fake/path.py"
+            successor["payload_sha256"] = ERB.payload_sha256(
+                {k: v for k, v in successor.items() if k != "payload_sha256"}
+            )
+            _write(artifacts["successor_path"], successor)
+            # re-sign the code approval's pin to the re-hashed successor
+            approval = json.loads(artifacts["code_approval_path"].read_text(encoding="utf-8"))
+            approval["successor_candidate"]["file_sha256"] = ERB.file_sha256(artifacts["successor_path"])
+            approval["successor_candidate"]["payload_sha256"] = successor["payload_sha256"]
+            _write(artifacts["code_approval_path"], approval)
+            activated["code_approval_evidence_sha256"] = ERB.file_sha256(artifacts["code_approval_path"])
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_required_field_missing_from_policy_contract_fails_closed_by_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            contract = json.loads(artifacts["policy_contract_path"].read_text(encoding="utf-8"))
+            del contract["required_code_approval_fields"]
+            contract["payload_sha256"] = ERB.payload_sha256(
+                {k: v for k, v in contract.items() if k != "payload_sha256"}
+            )
+            _write(artifacts["policy_contract_path"], contract)
+            with self.assertRaises(ERB.ExactReleaseBindingError):
+                ERB.validate_exact_release(activated, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp)
+
+    def test_different_base_path_same_bytes_fails(self):
+        """CIO P1: successor.base_candidate must match the content chain's
+        exact (path, file_sha256, payload_sha256) tuple -- a byte-identical
+        copy of the base candidate at a DIFFERENT path must not pass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            duplicate_path = tmp / "duplicate_base_candidate.json"
+            duplicate_path.write_bytes(artifacts["base_candidate_path"].read_bytes())
+            successor = json.loads(artifacts["successor_path"].read_text(encoding="utf-8"))
+            successor["base_candidate"]["path"] = str(duplicate_path.relative_to(tmp))
+            successor["payload_sha256"] = ERB.payload_sha256(
+                {k: v for k, v in successor.items() if k != "payload_sha256"}
+            )
+            _write(artifacts["successor_path"], successor)
+            approval = json.loads(artifacts["code_approval_path"].read_text(encoding="utf-8"))
+            approval["successor_candidate"]["file_sha256"] = ERB.file_sha256(artifacts["successor_path"])
+            approval["successor_candidate"]["payload_sha256"] = successor["payload_sha256"]
+            _write(artifacts["code_approval_path"], approval)
+            activated["code_approval_evidence_sha256"] = ERB.file_sha256(artifacts["code_approval_path"])
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_missing_required_successor_field_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            successor = json.loads(artifacts["successor_path"].read_text(encoding="utf-8"))
+            del successor["release_ready"]
+            successor["payload_sha256"] = ERB.payload_sha256(
+                {k: v for k, v in successor.items() if k != "payload_sha256"}
+            )
+            _write(artifacts["successor_path"], successor)
+            approval = json.loads(artifacts["code_approval_path"].read_text(encoding="utf-8"))
+            approval["successor_candidate"]["file_sha256"] = ERB.file_sha256(artifacts["successor_path"])
+            approval["successor_candidate"]["payload_sha256"] = successor["payload_sha256"]
+            _write(artifacts["code_approval_path"], approval)
+            activated["code_approval_evidence_sha256"] = ERB.file_sha256(artifacts["code_approval_path"])
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_freeze_tamper_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, _ = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             freeze_path = tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"
             freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
             freeze["released_paper_markets"] = ["KRW-BTC"]
             _write(freeze_path, freeze)
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
 
     def test_bytes_removed_then_restored_still_reflects_current_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             activated, artifacts = self._activated(tmp)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
             original = artifacts["consumer_path"].read_bytes()
             artifacts["consumer_path"].write_bytes(b"# different\n")
-            self.assertFalse(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertFalse(self._ok(activated, tmp))
             artifacts["consumer_path"].write_bytes(original)
-            self.assertTrue(ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp))
+            self.assertTrue(self._ok(activated, tmp))
 
     def test_malformed_policy_contract_fails_closed_by_raising(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -370,14 +612,14 @@ class NegativeTests(unittest.TestCase):
             contract["paper_scope_keys"] = []
             _write(artifacts["policy_contract_path"], contract)
             with self.assertRaises(ERB.ExactReleaseBindingError):
-                ERB.validate_exact_release(activated, content_field="mappings", repo_root=tmp)
+                ERB.validate_exact_release(activated, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp)
 
     def test_approval_status_tamper_alone_does_not_help_a_broken_chain(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             registry, _, _ = build_full_chain(tmp)
             registry["approval_status"] = "RATIFIED"  # already RATIFIED; no code chain exists
-            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", repo_root=tmp))
+            self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp))
 
 
 if __name__ == "__main__":

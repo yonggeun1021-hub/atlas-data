@@ -217,13 +217,25 @@ APPROVED_TESTS = [
     "test/test_upbit_paper_identity_hardening_candidate.py",
     "test/test_upbit_paper_identity_hardening_release.py",
     # ★ P3-12-GOV-05 -- runtime exact-approval binding for the identity
-    #   registry/taxonomy: an ALLOWLIST of the one CIO-approved exact-hash
-    #   chain (never a denylist of specific bad hashes), wired directly
-    #   into _approval_effective()/effective_identity_mapping() so
-    #   approval_status alone can never revive unapproved content. On this
-    #   branch the allowlist is empty -- PENDING_EXACT_HASH_REAPPROVAL --
-    #   until a future, separate CIO decision. ⛔ authority 전부 false.
+    #   registry/taxonomy: two independent one-way chains rooted in fields
+    #   the registry/taxonomy documents carry on themselves (a pre-existing
+    #   content-approval pointer, and a new code-approval pointer) --
+    #   never a mutable allowlist and never a denylist of specific bad
+    #   hashes. Wired into _identity_taxonomy_exact_bound_effective()/
+    #   effective_identity_mapping() (a dedicated function with no boolean
+    #   toggle -- _policy_approval_effective() is the separate, weaker,
+    #   policy-only path a new consumer cannot accidentally reach for
+    #   identity/taxonomy) so approval_status alone can never revive
+    #   unapproved content. Approval/candidate ratification timestamps are
+    #   validated and temporally ordered so a future approval can never
+    #   retroactively apply to a past evaluation. On this branch every real
+    #   committed document has no code_approval_evidence_ref at all --
+    #   PENDING_EXACT_HASH_REAPPROVAL -- until a future, separate CIO
+    #   decision populates it by hand via
+    #   identity/upbit_exact_release_binding_release.py's deterministic
+    #   projection. ⛔ authority 전부 false.
     "test/test_upbit_exact_release_binding.py",
+    "test/test_upbit_exact_release_binding_release.py",
     "test/test_upbit_exact_release_binding_successor_candidate.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",

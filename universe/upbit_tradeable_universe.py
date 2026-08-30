@@ -315,7 +315,9 @@ def _identity_taxonomy_exact_bound_effective(
     never revive authority on its own.
     """
     try:
-        if not EXACT_RELEASE_BINDING.validate_exact_release(document, content_field=content_field):
+        if not EXACT_RELEASE_BINDING.validate_exact_release(
+            document, content_field=content_field, evaluation_as_of=evaluation_as_of,
+        ):
             return False
     except EXACT_RELEASE_BINDING.ExactReleaseBindingError:
         return False
