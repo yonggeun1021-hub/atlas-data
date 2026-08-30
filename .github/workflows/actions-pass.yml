@@ -66,6 +66,8 @@ jobs:
         run: python3 atlas_price_pit_contract_regression.py atlas_price_pit_contract.py
       - name: KRX R-2 Open API offline contract regression
         run: python3 atlas_krx_r2_openapi_regression.py atlas_krx_r2_openapi_probe.py
+      - name: KRX completed market-data session and freshness regression
+        run: python3 validation/tests/test_krx_market_data.py
       - name: P0-03 briefing read model regression
         run: |
           python3 test/test_briefing_inputs.py
