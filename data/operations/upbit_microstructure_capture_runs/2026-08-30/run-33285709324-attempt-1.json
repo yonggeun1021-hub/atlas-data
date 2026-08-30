@@ -1,0 +1,49 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "action_generation_authorized": false,
+    "decision_eligible": false,
+    "evidence_derivation_only": true,
+    "order_action_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": false,
+    "raw_publication_eligible": true,
+    "reason": "new_snapshot_staged",
+    "result": "captured",
+    "step_outcome": "success"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "20 1 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 33285709324,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33285709324"
+  },
+  "p4_07_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/upbit_market_evidence/2026-08-30/packet.json",
+    "payload_sha256": "34acc16d69914ceda2c153651a9ecad97dfd680fba3193e0a8bc534de43096d3",
+    "reason": null,
+    "result": "populated",
+    "step_outcome": "success"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-08-30T10:27:40+09:00",
+    "observed_started_at_utc": "2026-08-30T01:27:40Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 460,
+    "expected_start_kst": "2026-08-30T10:20:00+09:00",
+    "expected_start_utc": "2026-08-30T01:20:00Z",
+    "id": "daily_1020_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-08-30",
+  "workflow": "P4-07 Upbit Market Evidence & Microstructure Daily Capture"
+}
