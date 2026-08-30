@@ -1,10 +1,9 @@
 # Upbit Market Evidence & Microstructure Contract (P4-07)
 
-Status: REST-based evidence/microstructure capture, candle-finalization
-primitive, and derivation mechanism implemented. This is **REST evidence
-only** -- real-time WebSocket ingestion is a separate, later item (P9-06),
-which depends on this contract but is not implemented here. No order
-placement, cancellation, or execution code exists in this PR.
+Status: exact-hash post-ratification consumer implemented; the first natural
+PAPER-8 run remains the completion gate. This is **REST evidence only** --
+P9-06 owns realtime ingestion. No order placement, cancellation, strategy
+promotion, PAPER exit, or execution authority is created here.
 
 Dependency: P3-12 (`universe/upbit_tradeable_universe.py`,
 `identity/upbit_market_identity_proposal.py`, merged on `main`) + Upbit's
@@ -17,16 +16,34 @@ P3-12 already captures a daily `market/all`, `ticker`, `orderbook`, and
 -> PAPER_ELIGIBLE` classification. P4-07 does **not** re-fetch or re-derive
 any of that. It instead:
 
-1. Reads the most recently *committed* P3-12 classification packet
+1. Reads the most recently *committed* P3-12 classification record
    (`data/observations/upbit_tradeable_universe/<date>/packet.json`) to
    determine which markets are already at `TRADEABLE_UNIVERSE` or
    `PAPER_ELIGIBLE` -- capturing microstructure for markets nothing
-   downstream can act on yet would be wasted network load. Since P3-12's
-   policy/taxonomy/identity all ship `PROPOSED_*_UNRATIFIED`, this list is
-   currently **empty in production**; an empty capture is a normal,
-   successful, append-only-empty snapshot, exactly as
+   downstream can act on yet would be wasted network load. P4-07 consumes
+   only a hash-valid record and inner packet hashes, the raw manifest hash,
+   the ratified policy/taxonomy/effective-time lineage, and the complete
+   market set before any provider call -- but the P3-12 ratification this
+   bridge was originally anchored to (policy/taxonomy/identity registry
+   ratified via PR #465, initial natural anchor record hash
+   `a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12`, PAPER
+   8: `BTC, ETH, LINK, SHIB, SOL, SUI, WLD, XRP`) was found to violate the
+   identity source-authority evidence contract (CoinGecko-only citations,
+   the KRW-LIT/Lighter-vs-Litentry conflict) and was **CIO-revoked,
+   fail-closed** -- see `config/upbit_governance_revocations.json` and
+   `config/upbit_p3_p4_bridge_contract.json`'s `approval_status:
+   SUSPENDED_INVALID_UPSTREAM`. That anchor is never treated as active
+   again, and `microstructure/upbit_p3_p4_bridge.py` refuses any
+   provider call while suspended (`P3_ANCHOR_REVOKED`/`P3_BRIDGE_SUSPENDED`).
+   Since P3-12's policy/taxonomy/identity are back to
+   `PROPOSED_*_UNRATIFIED` (their pre-#465 state) and no new anchor has
+   been separately CIO-ratified, this list is currently **empty in
+   production**; an empty capture is a normal, successful,
+   append-only-empty snapshot, exactly as
    `docs/upbit_tradeable_universe_contract.md` documents for
-   `OBSERVATION_POOL` -- expected, not a bug.
+   `OBSERVATION_POOL` -- expected, not a bug. An earlier packet is never
+   retroactively promoted with a later registry, and a revoked anchor is
+   never silently reused either.
 2. Captures a wider set of evidence per market: 15m/1h/4h/1d candles (not
    just daily), recent public trade ticks, and an orderbook snapshot with
    computed spread/depth/estimated-slippage and an explicit freshness
@@ -132,21 +149,25 @@ snapshot, the orderbook snapshot) carries an explicit
   ordering -- evidence cannot be observed before the instant it describes).
   Never silently defaulted to `FRESH`.
 
-Per-timeframe thresholds (`max_staleness_seconds_by_timeframe`) and the
-trade/orderbook thresholds ship in `config/upbit_market_evidence_policy.json`
-as `PROPOSED_UNRATIFIED` starting values. This naming is consistent with,
+The ratified PAPER-only policy packet is
+`P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1`, version
+`upbit_market_evidence_policy/v1`, exact canonical packet hash
+`26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e`.
+It fixes 5-level depth, KRW 1,000,000 impact, 100/150bp quality caps,
+15m/1h/4h/1d maximum ages 1,800/7,200/28,800/172,800 seconds, trade 600
+seconds, and book 300 seconds. This naming is consistent with,
 but not wired into, P9-01's `execution/intraday_freshness.py`
 (`FRESH`/`STALE` naming, `provider_age_seconds` idiom) -- integrating P4-07
 evidence into P9-01's guard machinery is P9-06's job, not this PR's.
 
 ## Evidence and determinism
 
-`evidence/crypto/upbit/microstructure/<date>/` holds gzip-compressed raw
+`evidence/crypto/upbit/microstructure/<date>-p3-<record-hash-prefix>/` holds gzip-compressed raw
 response bytes (an ndjson bundle per timeframe's candles, one for trade
 ticks, and one batched orderbook snapshot), a `_manifest.json` with a
 SHA-256 per component and `downloaded_at_utc`, and is append-only --
 `upbit_microstructure_capture.py::capture_snapshot()` refuses to overwrite
-an existing date, exactly like P3-12's raw snapshot. Any tampered or
+an existing exact lineage key. Any tampered or
 hash-mismatched raw file is rejected (`RAW_FILE_HASH_MISMATCH`) before a
 single market is derived.
 
@@ -176,12 +197,21 @@ P5-08 / P5-09 / P8-13's job, not this one's).
 
 ## Offline commands
 
+The `a9be9c63...` anchor below is the illustrative, historical example this
+module was originally built and tested against; that specific anchor is now
+**revoked** (see above) and `upbit_p3_p4_bridge.py` will refuse to run
+against it while `config/upbit_p3_p4_bridge_contract.json` stays
+`SUSPENDED_INVALID_UPSTREAM`. Re-running the command below requires a new,
+separately CIO-ratified anchor.
+
 ```bash
 python3 .github/scripts/upbit_microstructure_capture.py \
-  --snapshot-root /tmp/upbit-microstructure/raw --snapshot-date 2026-08-29 \
-  --universe-packet data/observations/upbit_tradeable_universe/2026-08-29/packet.json
+  --snapshot-root /tmp/upbit-microstructure/raw --snapshot-date 2026-08-30 \
+  --snapshot-key 2026-08-30-p3-a9be9c63f9a39d1a \
+  --universe-packet data/observations/upbit_tradeable_universe/2026-08-30/packet.json \
+  --expected-universe-record-sha256 a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12
 
-python3 .github/scripts/upbit_microstructure_populate.py 2026-08-29 \
+python3 .github/scripts/upbit_microstructure_populate.py 2026-08-30-p3-a9be9c63f9a39d1a \
   --raw-root /tmp/upbit-microstructure/raw --data-root /tmp/upbit-microstructure/data
 ```
 

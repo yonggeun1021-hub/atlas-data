@@ -36,6 +36,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -44,6 +45,7 @@ sys.path.insert(0, str(ROOT))
 
 CONTRACT_PATH = ROOT / "config" / "upbit_market_evidence_contract.json"
 POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy.json"
+RATIFIED_POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy_ratified.json"
 
 _UNIVERSE_SPEC = importlib.util.spec_from_file_location(
     "upbit_tradeable_universe_for_microstructure",
@@ -58,6 +60,7 @@ from microstructure import upbit_candle_finalization as finalization  # noqa: E4
 
 UTC = dt.timezone.utc
 OUTPUT_SCHEMA_VERSION = "upbit_market_evidence_packet/1"
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 FRESH = "FRESH"
 STALE = "STALE"
@@ -136,6 +139,29 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     return doc
 
 
+def load_ratified_policy(path: Path = RATIFIED_POLICY_PATH) -> dict:
+    doc = load_policy(path)
+    declared_hash = doc.get("packet_sha256")
+    actual_hash = payload_sha256({key: value for key, value in doc.items() if key != "packet_sha256"})
+    if not isinstance(declared_hash, str) or SHA256_RE.fullmatch(declared_hash) is None or declared_hash != actual_hash:
+        raise MarketEvidenceError("POLICY_PACKET_HASH_MISMATCH")
+    contract = load_contract()
+    if (
+        doc.get("approval_status") != "RATIFIED"
+        or doc.get("policy_id") != contract.get("ratified_policy_id")
+        or doc.get("policy_version") != contract.get("ratified_policy_version")
+        or declared_hash != contract.get("ratified_policy_sha256")
+    ):
+        raise MarketEvidenceError("POLICY_EXACT_PIN_MISMATCH")
+    for field in (
+        "exchange_authorized", "order_authorized", "paper_exit_authorized",
+        "production_authorized", "real_capital_authorized", "trading_authorized",
+    ):
+        if doc.get(field) is not False:
+            raise MarketEvidenceError(f"POLICY_AUTHORITY_INVARIANT_VIOLATED:{field}")
+    return doc
+
+
 # ---------------------------------------------------------------------------
 # Freshness
 # ---------------------------------------------------------------------------
@@ -170,7 +196,10 @@ def build_candle_evidence(
     market: str, timeframe: str, raw_candles: list, *,
     as_of: dt.datetime, captured_at: dt.datetime, max_staleness_seconds: int,
 ) -> dict:
-    classified = finalization.classify_candles(raw_candles, timeframe, as_of)
+    try:
+        classified = finalization.classify_candles(raw_candles, timeframe, as_of)
+    except finalization.CandleFinalizationError as exc:
+        raise MarketEvidenceError(f"CANDLE_MALFORMED:{market}:{timeframe}:{exc}") from exc
     finalized_rows = [
         {
             "open_time": entry["open_time"].strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -186,17 +215,36 @@ def build_candle_evidence(
     ]
     latest_close = classified["finalized"][-1]["close_time"] if classified["finalized"] else None
     fresh = freshness_status(latest_close, captured_at, max_staleness_seconds)
+    gap_times = []
+    if len(classified["finalized"]) >= 2:
+        opens = [entry["open_time"] for entry in classified["finalized"]]
+        gap_times = finalization.detect_gaps(opens, timeframe, opens[0], latest_close)
+    reasons = []
+    if not finalized_rows:
+        reasons.append("NO_FINALIZED_CANDLE")
+    if classified["duplicate_row_count"]:
+        reasons.append("DUPLICATE_CANDLE")
+    if gap_times:
+        reasons.append("CANDLE_GAP")
+    if fresh["status"] != FRESH:
+        reasons.append(f"CANDLE_{fresh['status']}")
     return {
         "market": market,
         "timeframe": timeframe,
         "finalized_candle_count": len(finalized_rows),
         "in_progress_candle_count": len(classified["in_progress"]),
         "duplicate_row_count": classified["duplicate_row_count"],
+        "gap_count": len(gap_times),
+        "gap_open_times": [value.strftime("%Y-%m-%dT%H:%M:%SZ") for value in gap_times],
         "finalized_candles": finalized_rows,
         "latest_finalized_close_time": (
             latest_close.strftime("%Y-%m-%dT%H:%M:%SZ") if latest_close is not None else None
         ),
         "freshness": fresh,
+        "observed_at": latest_close.strftime("%Y-%m-%dT%H:%M:%SZ") if latest_close else None,
+        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "evidence_status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
 
@@ -257,6 +305,15 @@ def build_orderbook_evidence(
     if isinstance(timestamp_ms, (int, float)):
         reference_time = dt.datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
     fresh = freshness_status(reference_time, captured_at, max_staleness_seconds)
+    reasons = []
+    if fresh["status"] != FRESH:
+        reasons.append(f"ORDERBOOK_{fresh['status']}")
+    if depth["levels_available"] < depth_levels:
+        reasons.append("ORDERBOOK_DEPTH_LEVELS_PARTIAL")
+    if spread_status != "NORMAL":
+        reasons.append(f"SPREAD_{spread_status}")
+    if slippage_status != "NORMAL":
+        reasons.append(f"SLIPPAGE_{slippage_status}")
 
     return {
         "market": market,
@@ -269,6 +326,10 @@ def build_orderbook_evidence(
         "slippage_bps": str(slippage_bps) if slippage_bps is not None else None,
         "slippage_status": slippage_status,
         "freshness": fresh,
+        "observed_at": reference_time.strftime("%Y-%m-%dT%H:%M:%SZ") if reference_time else None,
+        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "evidence_status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
 
@@ -294,13 +355,29 @@ def build_trades_evidence(
     latest_trade_time = dt.datetime.fromtimestamp(latest_ms / 1000, tz=UTC)
     prices = [_decimal(row["trade_price"], "trade_price") for row in raw_trades]
     fresh = freshness_status(latest_trade_time, captured_at, max_staleness_seconds)
+    fingerprints = [canonical_json(row) for row in raw_trades]
+    duplicate_count = len(fingerprints) - len(set(fingerprints))
+    out_of_order = timestamps != sorted(timestamps, reverse=True)
+    reasons = []
+    if fresh["status"] != FRESH:
+        reasons.append(f"TRADES_{fresh['status']}")
+    if duplicate_count:
+        reasons.append("DUPLICATE_TRADE")
+    if out_of_order:
+        reasons.append("TRADE_OUT_OF_ORDER")
     return {
         "market": market,
         "trade_count": len(raw_trades),
         "latest_trade_time": latest_trade_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "min_trade_price": str(min(prices)),
         "max_trade_price": str(max(prices)),
+        "duplicate_trade_count": duplicate_count,
+        "out_of_order": out_of_order,
         "freshness": fresh,
+        "observed_at": latest_trade_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "evidence_status": "PASS" if not reasons else UNKNOWN,
+        "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
 
@@ -366,3 +443,55 @@ def build_market_evidence_packet(
     }
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
+
+
+def market_evidence_result(
+    packet: dict,
+    *,
+    policy: dict,
+    generated_at: dt.datetime,
+    source_identity: dict,
+) -> dict:
+    """Outer population result for one backward-compatible v1 packet.
+
+    P5's established exact packet schema remains byte-contract compatible;
+    the P4 population/2 envelope owns new exact policy/source/timing lineage
+    and explicit PASS/UNKNOWN reasons.
+    """
+    generated_at = _require_aware(generated_at, "GENERATED_AT_NAIVE")
+    available_at = _require_aware(
+        dt.datetime.fromisoformat(packet["captured_at"].replace("Z", "+00:00")),
+        "AVAILABLE_AT_NAIVE",
+    )
+    reasons = []
+    for timeframe, evidence in packet["candles"].items():
+        reasons.extend(f"{timeframe}:{reason}" for reason in evidence["fail_closed_reasons"])
+    reasons.extend(packet["trades"]["fail_closed_reasons"])
+    reasons.extend(packet["orderbook"]["fail_closed_reasons"])
+    policy_ratified = policy.get("approval_status") == "RATIFIED"
+    if not policy_ratified:
+        reasons.append("P4_POLICY_UNRATIFIED")
+    policy_hash = policy.get("packet_sha256")
+    if policy_ratified and (not isinstance(policy_hash, str) or SHA256_RE.fullmatch(policy_hash) is None):
+        reasons.append("P4_POLICY_HASH_MISSING")
+    observed_values = [
+        evidence.get("observed_at") for evidence in packet["candles"].values()
+    ] + [packet["trades"].get("observed_at"), packet["orderbook"].get("observed_at")]
+    observed_parsed = [
+        dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        for value in observed_values if value is not None
+    ]
+    observed_at = max(observed_parsed) if observed_parsed else None
+    if observed_at is None or not (observed_at <= available_at <= generated_at):
+        reasons.append("TIMESTAMP_ORDER_INVALID")
+    return {
+        "status": "PASS" if not reasons else UNKNOWN,
+        "reasons": sorted(set(reasons)),
+        "observed_at": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ") if observed_at else None,
+        "available_at": available_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source_identity": copy.deepcopy(source_identity),
+        "policy_id": policy.get("policy_id"),
+        "policy_version": policy.get("policy_version"),
+        "policy_packet_sha256": policy_hash,
+    }

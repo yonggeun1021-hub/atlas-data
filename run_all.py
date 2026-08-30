@@ -217,15 +217,17 @@ APPROVED_TESTS = [
     #   universe/upbit_tradeable_universe.py's slippage/spread formulas),
     #   an explicit FRESH/STALE/UNKNOWN freshness contract per artifact, and
     #   gap-detection/backfill for the append-only evidence history. Only
-    #   markets already at TRADEABLE_UNIVERSE/PAPER_ELIGIBLE are captured;
-    #   currently empty in production since P3-12 remains unratified -- an
-    #   empty capture is a normal, successful outcome, not a bug. REST only;
+    #   exact-hash/effective-time P3 record markets at TRADEABLE_UNIVERSE/
+    #   PAPER_ELIGIBLE are captured; identity-unratified historical rows are
+    #   never backfilled with today's registry. A partial/replayed/tampered
+    #   cohort fails closed before a provider call. REST only;
     #   real-time WebSocket ingestion is P9-06's job, not this one's. No
     #   API key/order/withdrawal/private endpoint is ever called.
     #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
     "test/test_upbit_candle_finalization.py",
     "test/test_upbit_microstructure_capture.py",
     "test/test_upbit_market_evidence_microstructure.py",
+    "test/test_upbit_p3_p4_exact_hash_consumer.py",
     # ★ P9-06 -- real-time Upbit public WebSocket layer sitting on top of
     #   P4-07's REST evidence contract. A deployment-agnostic, fully
     #   mock-tested state machine (realtime/upbit_realtime_gate.py, zero
