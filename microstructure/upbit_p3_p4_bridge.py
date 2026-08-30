@@ -73,10 +73,28 @@ def _hash_without_self(value: dict, field: str, code: str) -> str:
     return declared
 
 
+ACTIVE_APPROVAL_STATUS = "ACTIVE"
+
+
 def load_bridge_contract(path: Path = BRIDGE_CONTRACT_PATH) -> dict:
+    """Fail-closed BEFORE any provider/network call whenever this bridge is
+    not both explicitly ``ACTIVE`` and carrying a real
+    ``active_post_ratification_anchor`` (P3-12-GOV-02B). A suspended bridge
+    -- e.g. because its upstream P3 ratification was CIO-revoked -- must
+    never silently keep serving whatever its last-known-good anchor was;
+    every caller of this module (``consume_universe_record()`` first, before
+    anything else) is blocked here, before any HTTP request is ever made.
+    """
     contract = _read_json(path, "BRIDGE_CONTRACT")
     if contract.get("schema_version") != "upbit_p3_p4_bridge_contract/1":
         raise BridgeError("BRIDGE_CONTRACT_VERSION_MISMATCH")
+    approval_status = contract.get("approval_status")
+    if approval_status == "SUSPENDED_INVALID_UPSTREAM":
+        raise BridgeError("P3_BRIDGE_SUSPENDED")
+    if approval_status != ACTIVE_APPROVAL_STATUS:
+        raise BridgeError(f"P3_BRIDGE_SUSPENDED:UNRECOGNIZED_APPROVAL_STATUS:{approval_status!r}")
+    if contract.get("active_post_ratification_anchor") is None:
+        raise BridgeError("P3_ANCHOR_REVOKED")
     if contract.get("provider_public_get_only") is not True:
         raise BridgeError("BRIDGE_PUBLIC_PROVIDER_INVARIANT_VIOLATED")
     for field in (
@@ -137,9 +155,11 @@ def consume_universe_record(
             f"UNIVERSE_RECORD_EXACT_HASH_MISMATCH:expected={expected_record_sha256}:actual={record_hash}"
         )
 
-    initial = contract["initial_post_ratification_anchor"]
-    anchored_path = (Path(repo_root) / initial["path"]).resolve()
-    if path.resolve() == anchored_path and record_hash != initial["record_payload_sha256"]:
+    # load_bridge_contract() already guarantees active_post_ratification_anchor
+    # is not None -- a bridge with no active anchor never reaches this line.
+    anchor = contract["active_post_ratification_anchor"]
+    anchored_path = (Path(repo_root) / anchor["path"]).resolve()
+    if path.resolve() == anchored_path and record_hash != anchor["record_payload_sha256"]:
         raise BridgeError("INITIAL_UNIVERSE_ANCHOR_HASH_MISMATCH")
 
     if record.get("schema_version") != contract["p3_record_schema_version"]:
@@ -217,9 +237,9 @@ def consume_universe_record(
         row.get("reason") == contract["identity_unratified_reason"] for row in rows
     )
     if path.resolve() == anchored_path:
-        if cohort != initial["paper_markets"]:
+        if cohort != anchor["paper_markets"]:
             raise BridgeError("INITIAL_UNIVERSE_COHORT_MISMATCH")
-        if identity_unratified_count != initial["identity_unratified_count"]:
+        if identity_unratified_count != anchor["identity_unratified_count"]:
             raise BridgeError("INITIAL_IDENTITY_UNRATIFIED_COUNT_MISMATCH")
 
     return {

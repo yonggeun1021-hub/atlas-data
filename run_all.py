@@ -228,6 +228,21 @@ APPROVED_TESTS = [
     "test/test_upbit_microstructure_capture.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
+    # P3-12-GOV-02B -- CIO-authored exact-(path, hash) revocation registry
+    # (config/upbit_governance_revocations.json) recording every downstream
+    # lineage item of the invalidly-merged PR #465 P3-12 ratification, for
+    # permanent, explicit exclusion from any current read model. Matching is
+    # exact path + exact hash only, never a broad date/prefix pattern; a
+    # forged/self-inconsistent registry fails closed. Historical
+    # packets/runs are never deleted or modified. Every authority field
+    # hardcoded false.
+    "test/test_upbit_governance_revocations.py",
+    # P3-12-GOV-02/GOV-02B -- locks the exact bytes of the pre-existing
+    # Upbit realtime capture evidence (run_006/007/008, 2026-08-29 and
+    # 2026-08-30, both realtime/ and realtime_validation/) so the revert-
+    # and-quarantine work in this WBS, or any future one, never rewrites or
+    # deletes real historical evidence while doing unrelated governance work.
+    "test/test_p3_12_gov_02_historical_evidence_immutable.py",
     # ★ P9-06 -- real-time Upbit public WebSocket layer sitting on top of
     #   P4-07's REST evidence contract. A deployment-agnostic, fully
     #   mock-tested state machine (realtime/upbit_realtime_gate.py, zero

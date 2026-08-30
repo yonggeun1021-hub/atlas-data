@@ -99,6 +99,14 @@ DECISION_SNAPSHOT = _load(
     "crypto_candidate_detail_view_decision_snapshot",
     "decision/crypto_paper_decision_snapshot.py",
 )
+# P3-12-GOV-02B: the exact-(path, hash) revocation registry -- see
+# governance/upbit_governance_revocations.py's module docstring. Consulted
+# ONLY when a source_ref's pinned hash does not match the file's current
+# bytes; never consulted, and never a factor, when hashes already match.
+GOVERNANCE_REVOCATIONS = _load(
+    "crypto_candidate_detail_view_governance_revocations",
+    "governance/upbit_governance_revocations.py",
+)
 
 
 def _relative_or_absolute(path: Path) -> str:
@@ -165,11 +173,49 @@ def _verified_decision_entry(candidate: Path) -> dict:
         _fail("DECISION_PACKET_INVALID", f"{candidate}:{exc}")
 
 
+def _load_governance_revocations_or_fail() -> dict:
+    try:
+        return GOVERNANCE_REVOCATIONS.load_revocations()
+    except GOVERNANCE_REVOCATIONS.GovernanceRevocationsError as exc:
+        _fail("GOVERNANCE_REVOCATIONS_REGISTRY_INVALID", str(exc))
+
+
+def _universe_ref_is_revoked(decision_record: dict) -> bool:
+    """True only when this decision record's ``upbit_tradeable_universe_packet``
+    source_ref currently mismatches its pinned hash AND that EXACT
+    ``(path, pinned_hash)`` tuple is a registered revocation -- never true
+    merely because a ref exists, and never true for a mismatch the registry
+    does not explain (that stays a hard failure elsewhere, unchanged)."""
+    matches = [
+        row for row in decision_record.get("source_refs") or []
+        if row.get("role") == "upbit_tradeable_universe_packet"
+    ]
+    if len(matches) != 1:
+        return False
+    ref = matches[0]
+    relative = ref.get("path")
+    expected_sha = ref.get("sha256")
+    if not isinstance(relative, str) or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
+        return False
+    path = (ROOT / relative).resolve()
+    try:
+        path.relative_to(ROOT.resolve())
+    except ValueError:
+        return False
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha:
+        return False  # missing, or matches current bytes -- nothing to revoke
+    revocations = _load_governance_revocations_or_fail()
+    return GOVERNANCE_REVOCATIONS.is_revoked(relative, expected_sha, revocations=revocations)
+
+
 def find_latest_decision_snapshot(root: Path = DECISION_SNAPSHOT_ROOT) -> dict | None:
     """Latest verified decision packet by its internal UTC timestamp.
 
     Directory names are checked against the signed-in-payload time basis and
-    never used as the selection authority.
+    never used as the selection authority. A decision packet whose universe
+    source_ref is an exact, registered revocation (P3-12-GOV-02B) is EXCLUDED
+    from selection here -- never deleted, never modified on disk, simply
+    never eligible to be "latest" while its pinned lineage is revoked.
     """
     root = Path(root)
     if not root.is_dir():
@@ -180,6 +226,7 @@ def find_latest_decision_snapshot(root: Path = DECISION_SNAPSHOT_ROOT) -> dict |
             candidates.append(_verified_decision_entry(candidate))
         except CryptoCandidateDetailViewError as exc:
             print(f"TAMPER_OR_DRIFT:{exc}", file=__import__("sys").stderr)
+    candidates = [row for row in candidates if not _universe_ref_is_revoked(row["record"])]
     if not candidates:
         return None
     candidates.sort(key=lambda row: row["captured_at"])
@@ -203,7 +250,20 @@ def _market_evidence_packet_for(market: str, market_evidence_entry: dict | None)
     return packet if isinstance(packet, dict) else None
 
 
-def _source_entry_from_decision(decision_record: dict, role: str) -> dict | None:
+def _source_entry_from_decision(decision_record: dict, role: str, *, explicit: bool = False) -> dict | None:
+    """``explicit`` is True only when the caller of ``build_view()`` named
+    one specific decision packet by path (rather than asking for "latest").
+    That distinction governs ONLY what happens on a registered-revocation
+    mismatch (P3-12-GOV-02B): explicit -> fail closed with
+    ``DECISION_SOURCE_REVOKED`` (never silently substitute what the caller
+    asked for by name); latest-selection -> return ``None`` so the caller
+    falls back to the current, unratified universe packet (this should be
+    rare in practice since ``find_latest_decision_snapshot()`` already
+    excludes revoked-lineage packets from ever being selected as latest).
+    A mismatch NOT explained by an exact registry entry is unaffected by any
+    of this and still fails closed with ``DECISION_SOURCE_BYTES_MISMATCH``,
+    exactly as before.
+    """
     matches = [row for row in decision_record.get("source_refs") or [] if row.get("role") == role]
     if not matches:
         return None
@@ -220,6 +280,14 @@ def _source_entry_from_decision(decision_record: dict, role: str) -> dict | None
     except ValueError:
         _fail("DECISION_SOURCE_PATH_ESCAPE", relative)
     if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha:
+        revoked = False
+        if path.is_file():
+            revocations = _load_governance_revocations_or_fail()
+            revoked = GOVERNANCE_REVOCATIONS.is_revoked(relative, expected_sha, revocations=revocations)
+        if revoked:
+            if explicit:
+                _fail("DECISION_SOURCE_REVOKED", relative)
+            return None
         _fail("DECISION_SOURCE_BYTES_MISMATCH", relative)
     record = DECISION_SNAPSHOT._read_json(path)
     date = path.parent.name
@@ -391,8 +459,9 @@ def build_view(
         else find_latest_decision_snapshot(decision_snapshot_root)
     )
     decision_record = decision_entry["record"] if decision_entry else None
+    explicit = decision_packet_path is not None
     bound_universe = (
-        _source_entry_from_decision(decision_record, "upbit_tradeable_universe_packet")
+        _source_entry_from_decision(decision_record, "upbit_tradeable_universe_packet", explicit=explicit)
         if isinstance(decision_record, dict) else None
     )
     if decision_packet_path is not None and bound_universe is None:
@@ -405,7 +474,7 @@ def build_view(
         _fail("UNIVERSE_PACKET_INVALID", universe_entry["date"])
 
     bound_market_evidence = (
-        _source_entry_from_decision(decision_record, "upbit_market_evidence_packet")
+        _source_entry_from_decision(decision_record, "upbit_market_evidence_packet", explicit=explicit)
         if isinstance(decision_record, dict) else None
     )
     market_evidence_entry = bound_market_evidence or DECISION_SNAPSHOT.find_latest_market_evidence_packet(market_evidence_data_root)

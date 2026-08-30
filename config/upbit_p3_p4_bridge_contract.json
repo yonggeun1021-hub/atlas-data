@@ -1,14 +1,22 @@
 {
   "schema_version": "upbit_p3_p4_bridge_contract/1",
   "bridge_id": "P3_12_TO_P4_07_EXACT_HASH_PAPER_V1",
+  "approval_status": "SUSPENDED_INVALID_UPSTREAM",
+  "suspended_reason": "The P3-12 ratification this bridge originally anchored to (PR #465, merge commit 69e1cd27d62ea1f2c871d1d91657b05f11a6e699) violated the identity source-authority evidence contract (CoinGecko-only VERIFIED_CANDIDATE entries, unresolved KRW-LIT/Lighter-vs-Litentry identity conflict) and was CIO-revoked, fail-closed -- see config/upbit_governance_revocations.json. No new active anchor may be set until a hardened P3 registry is separately CIO-ratified.",
+  "suspended_at_utc": "2026-08-30T05:32:49Z",
+  "governance_revocations_path": "config/upbit_governance_revocations.json",
   "effective_from_utc": "2026-08-30T00:00:00Z",
   "p3_record_schema_version": "upbit_universe_population/1",
   "p3_packet_schema_version": "upbit_tradeable_universe_packet/1",
   "required_p3_policy_version": "upbit_tradeable_universe_policy/v1",
   "required_p3_taxonomy_version": "upbit_exclusion_taxonomy/v1",
-  "eligible_states": ["TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE"],
+  "eligible_states": [
+    "TRADEABLE_UNIVERSE",
+    "PAPER_ELIGIBLE"
+  ],
   "identity_unratified_reason": "IDENTITY_UNRATIFIED",
-  "initial_post_ratification_anchor": {
+  "active_post_ratification_anchor": null,
+  "revoked_initial_anchor": {
     "path": "data/observations/upbit_tradeable_universe/2026-08-30/packet.json",
     "record_payload_sha256": "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
     "paper_markets": [
@@ -21,7 +29,8 @@
       "KRW-WLD",
       "KRW-XRP"
     ],
-    "identity_unratified_count": 220
+    "identity_unratified_count": 220,
+    "revoked": true
   },
   "p4_policy": {
     "path": "config/upbit_market_evidence_policy_ratified.json",

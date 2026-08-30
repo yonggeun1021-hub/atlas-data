@@ -178,10 +178,14 @@ def decision_candidate_row(
     }
 
 
-def write_decision_snapshot(root: Path, date: str, hhmm: str, generation_id: str, candidates: list[dict]) -> Path:
+def write_decision_snapshot(
+    root: Path, date: str, hhmm: str, generation_id: str, candidates: list[dict],
+    *, source_refs: list[dict] | None = None, upbit_universe_snapshot_identity: dict | None = None,
+) -> Path:
     record = {
         "schema_version": "crypto_paper_decision_snapshot/1",
         "generated_at": f"{date}T{hhmm[:2]}:{hhmm[2:]}:00Z",
+        "captured_at_utc": f"{date}T{hhmm[:2]}:{hhmm[2:]}:00Z",
         "capture_date": date,
         "capture_hhmm": hhmm,
         "generation_id": generation_id,
@@ -192,10 +196,16 @@ def write_decision_snapshot(root: Path, date: str, hhmm: str, generation_id: str
             "paper_ready_count": sum(1 for c in candidates if c["state"] == "PAPER_BUY_ELIGIBLE"),
         },
         "candidates": candidates,
+        "source_refs": source_refs or [],
+        "upbit_universe_snapshot_identity": upbit_universe_snapshot_identity or {},
         "authority": {},
     }
     record["payload_sha256"] = MODULE.payload_sha256(record)
     return write_json(root / date / hhmm / generation_id / "packet.json", record)
+
+
+def universe_source_ref(relative_path: str, sha256: str) -> dict:
+    return {"role": "upbit_tradeable_universe_packet", "path": relative_path, "sha256": sha256}
 
 
 class RealEvidenceTest(unittest.TestCase):
@@ -560,6 +570,124 @@ class SyntheticFixtureTest(unittest.TestCase):
                     market_evidence_data_root=tmp / "market_evidence",
                     decision_packet_path=decision_path,
                 )
+
+
+REAL_UNIVERSE_RELATIVE_PATH = "data/observations/upbit_tradeable_universe/2026-08-30/packet.json"
+REVOKED_UNIVERSE_FILE_SHA256 = "485c62d534ebeb82a97a5d3b64159fa3c5b40b0cca42e1b70b8f3fadb3035530"
+
+
+class GovernanceRevocationReadModelTests(unittest.TestCase):
+    """P3-12-GOV-02B: decision/crypto_candidate_detail_view.py's fail-closed
+    handling of a source_ref pointing at a registered-revoked lineage item.
+    Uses the REAL, currently-committed universe packet path and its REAL,
+    currently-registered revoked hash (the actual PR #465 ratified bytes,
+    which no longer match the current, reverted file on disk) -- exactly
+    the real-world condition this recovery addresses, not a synthetic stand-in.
+    """
+
+    def test_exact_revoked_decision_hash_excluded_from_latest_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_root = tmp / "decision"
+            # An OLDER, non-revoked snapshot exists (bound to no universe ref
+            # at all -- simplest "clean" candidate) ...
+            write_decision_snapshot(decision_root, "2026-08-30", "0100", "1" * 64, [])
+            # ... and a NEWER one whose universe source_ref is the exact,
+            # registered-revoked (path, hash) tuple.
+            write_decision_snapshot(
+                decision_root, "2026-08-30", "0500", "2" * 64, [],
+                source_refs=[universe_source_ref(REAL_UNIVERSE_RELATIVE_PATH, REVOKED_UNIVERSE_FILE_SHA256)],
+            )
+            latest = MODULE.find_latest_decision_snapshot(decision_root)
+            self.assertIsNotNone(latest)
+            # The revoked (newer) one must never be selected -- the older,
+            # non-revoked candidate wins instead.
+            self.assertEqual(latest["generation_id"], "1" * 64)
+
+    def test_only_revoked_candidate_available_yields_none_not_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_root = tmp / "decision"
+            write_decision_snapshot(
+                decision_root, "2026-08-30", "0500", "2" * 64, [],
+                source_refs=[universe_source_ref(REAL_UNIVERSE_RELATIVE_PATH, REVOKED_UNIVERSE_FILE_SHA256)],
+            )
+            self.assertIsNone(MODULE.find_latest_decision_snapshot(decision_root))
+
+    def test_latest_selection_falls_back_to_current_universe_packet_zero_paper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_root = tmp / "decision"
+            write_decision_snapshot(
+                decision_root, "2026-08-30", "0500", "2" * 64, [],
+                source_refs=[universe_source_ref(REAL_UNIVERSE_RELATIVE_PATH, REVOKED_UNIVERSE_FILE_SHA256)],
+            )
+            result = MODULE.build_view(
+                decision_snapshot_root=decision_root, generated_at="2026-08-30T06:00:00Z",
+            )
+            # No decision snapshot was usable -- falls back to the real,
+            # currently-committed (reverted, unratified) universe packet.
+            self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 0)
+            self.assertTrue(all(not row["evaluated_by_p5_08"] for row in result["candidates"]))
+
+    def test_explicit_revoked_decision_path_fails_closed_with_revoked_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_path = write_decision_snapshot(
+                tmp / "decision", "2026-08-30", "0500", "2" * 64, [],
+                source_refs=[universe_source_ref(REAL_UNIVERSE_RELATIVE_PATH, REVOKED_UNIVERSE_FILE_SHA256)],
+            )
+            with self.assertRaisesRegex(MODULE.CryptoCandidateDetailViewError, "DECISION_SOURCE_REVOKED"):
+                MODULE.build_view(decision_packet_path=decision_path, generated_at="2026-08-30T06:00:00Z")
+
+    def test_unregistered_mismatch_still_fails_bytes_mismatch_not_silently_excluded(self):
+        # A hash mismatch NOT explained by any registry entry must remain a
+        # hard failure -- both via explicit path and via auto-latest
+        # selection reaching it as the only candidate.
+        unregistered_hash = "9" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_path = write_decision_snapshot(
+                tmp / "decision", "2026-08-30", "0500", "2" * 64, [],
+                source_refs=[universe_source_ref(REAL_UNIVERSE_RELATIVE_PATH, unregistered_hash)],
+            )
+            with self.assertRaisesRegex(MODULE.CryptoCandidateDetailViewError, "DECISION_SOURCE_BYTES_MISMATCH"):
+                MODULE.build_view(decision_packet_path=decision_path, generated_at="2026-08-30T06:00:00Z")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            decision_root = tmp / "decision"
+            write_decision_snapshot(
+                decision_root, "2026-08-30", "0500", "2" * 64, [],
+                source_refs=[universe_source_ref(REAL_UNIVERSE_RELATIVE_PATH, unregistered_hash)],
+            )
+            # find_latest_decision_snapshot() itself does not pre-check
+            # unregistered mismatches (only registered revocations) -- this
+            # one is still selected as "latest", and build_view() must then
+            # raise when it actually tries to bind it.
+            latest = MODULE.find_latest_decision_snapshot(decision_root)
+            self.assertIsNotNone(latest)
+            with self.assertRaisesRegex(MODULE.CryptoCandidateDetailViewError, "DECISION_SOURCE_BYTES_MISMATCH"):
+                MODULE.build_view(decision_snapshot_root=decision_root, generated_at="2026-08-30T06:00:00Z")
+
+    def test_real_latest_read_model_is_zero_paper_zero_tradeable_and_all_authority_false(self):
+        """Section C.5 / E.8: against the REAL, currently-committed evidence
+        tree (no synthetic fixtures at all), the latest read model must show
+        zero PAPER/TRADEABLE and never inherit the revoked ratification's
+        8-market cohort."""
+        result = MODULE.build_view(generated_at="2026-08-30T06:00:00Z")
+        self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 0)
+        self.assertEqual(
+            sum(1 for row in result["candidates"] if row["funnel_stage"] == "PAPER_BUY_ELIGIBLE"), 0,
+        )
+        self.assertEqual(
+            sum(1 for row in result["candidates"] if row["evaluated_by_p5_08"]), 0,
+        )
+        for row in result["candidates"]:
+            for value in row["authority"].values():
+                self.assertIs(value, False)
+        for value in result["authority"].values():
+            self.assertIs(value, False)
 
 
 if __name__ == "__main__":

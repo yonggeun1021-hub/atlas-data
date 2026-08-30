@@ -1,0 +1,88 @@
+{
+  "approval_status": "CIO_REVOKED_FAIL_CLOSED",
+  "authority": {
+    "action_generation_authorized": false,
+    "decision_eligible": false,
+    "identity_ratification_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_authorized": false,
+    "review_only": true,
+    "taxonomy_ratification_authorized": false,
+    "tradeable_universe_promotion_authorized": false,
+    "trading_authorized": false
+  },
+  "payload_sha256": "795e449d33638e0750642c835198be7ad9cc3bf3070760ab189554a1ff364d05",
+  "reason": "PR #465 ratified config/upbit_exclusion_taxonomy.json, config/upbit_tradeable_universe_policy.json, and a new config/upbit_asset_identity_registry.json from config/upbit_bounded_identity_evidence.json, an evidence file that failed the CIO's source-authority contract: 28 of its VERIFIED_CANDIDATE entries cited only CoinGecko (a third-party aggregator, never sufficient alone), and its KRW-LIT record conflated Upbit's actual listing (Lighter, a zk-rollup perps DEX) with an unrelated project (Litentry/Heima) that Kraken's own citation described. The CIO issued a MERGE HOLD on PR #465 before this was fixed; PR #465 was merged into main anyway (merge commit 69e1cd27d62ea1f2c871d1d91657b05f11a6e699) after the MERGE HOLD comment was posted. This registry records every exact (path, hash) lineage item downstream of that invalid ratification, fail-closed, for permanent, explicit exclusion from any current read model -- never by broad date/prefix match, only by exact path + exact hash.",
+  "records": [
+    {
+      "affected_lineage": "P3-12 ratified Upbit PAPER universe record (PR #465, merge commit 69e1cd27d62ea1f2c871d1d91657b05f11a6e699), built from config/upbit_bounded_identity_evidence.json (28 CoinGecko-only VERIFIED_CANDIDATE entries + unresolved KRW-LIT/Lighter-vs-Litentry identity conflict). paper_eligible_count=8 (BTC, ETH, LINK, SHIB, SOL, SUI, WLD, XRP). This is the primary revoked anchor -- entries below are its known downstream lineage.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "485c62d534ebeb82a97a5d3b64159fa3c5b40b0cca42e1b70b8f3fadb3035530",
+      "revoked_inner_packet_sha256": "3ba2721dec6ff574b0e1652fd4d8712259d17797aa2f60f8ba022020ff702c3f",
+      "revoked_record_payload_sha256": "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
+      "source_path": "data/observations/upbit_tradeable_universe/2026-08-30/packet.json"
+    },
+    {
+      "affected_lineage": "crypto_paper_decision snapshot whose source_refs pinned data/observations/upbit_tradeable_universe/2026-08-30/packet.json at revoked_file_sha256=485c62d534eb... (record #1 above). Never eligible for latest-read-model selection while that pin resolves to a revoked hash.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "e95f0c75ea6da60c8524e1e74bf5abee61c5c0e3cc44ad02a0f0dfdbb241279b",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "917d745a20ce65c207e7d70b7833a92ed13df260814be41b273a8b6944beb025",
+      "source_path": "evidence/crypto_paper_decision/2026-08-30/0325/2986f1506ac5c042244cc85b865e3e3bbe4d4866c958ccf8ff8c85b263200c0e/packet.json"
+    },
+    {
+      "affected_lineage": "crypto_paper_decision snapshot whose source_refs pinned data/observations/upbit_tradeable_universe/2026-08-30/packet.json at revoked_file_sha256=485c62d534eb... (record #1 above). Never eligible for latest-read-model selection while that pin resolves to a revoked hash.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "c2de3733cbbb3321517210cf081fce8edd3352735dfc652013bf42adcdc34f99",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "c50b7049e07485fba1db978be92bd16e0fa657f9ae7089412bcf53a3436b44e4",
+      "source_path": "evidence/crypto_paper_decision/2026-08-30/0340/2ba3ed2e9b661fe0a92d2fc315d33f2c742a302d111d75bfedb34f55a7336728/packet.json"
+    },
+    {
+      "affected_lineage": "crypto_paper_decision snapshot whose source_refs pinned data/observations/upbit_tradeable_universe/2026-08-30/packet.json at revoked_file_sha256=485c62d534eb... (record #1 above). Never eligible for latest-read-model selection while that pin resolves to a revoked hash.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "0bd9f4db42c783e2ed1e77e23d6fd7e0fb5b808ca69814ff0eaee8c8ce841c90",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "f8ce83c0d1037f5456d9655cebbf36011ea099044f4b5c8c08b537032a1e2b60",
+      "source_path": "evidence/crypto_paper_decision/2026-08-30/0411/b931158cfe517128dfa9b0ae01fe0f576ac5edc4796fb50f2e28f87040a6950c/packet.json"
+    },
+    {
+      "affected_lineage": "crypto_paper_decision snapshot whose source_refs pinned data/observations/upbit_tradeable_universe/2026-08-30/packet.json at revoked_file_sha256=485c62d534eb... (record #1 above). Never eligible for latest-read-model selection while that pin resolves to a revoked hash.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "344e3215406c7131b35c3217dbadc718ca6a311ffd0d7e35e6222f7b1ffe7f46",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "1e4456fea9427b6b15a3679e872d7d3d13e8d3cd75c01ab02b6c46f21435cba9",
+      "source_path": "evidence/crypto_paper_decision/2026-08-30/0441/554e578db529afb6cffafd822e9712f76ede92e35ff93135b7005153a728d995/packet.json"
+    },
+    {
+      "affected_lineage": "crypto_paper_decision snapshot whose source_refs pinned data/observations/upbit_tradeable_universe/2026-08-30/packet.json at revoked_file_sha256=485c62d534eb... (record #1 above). Never eligible for latest-read-model selection while that pin resolves to a revoked hash.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "67af3df7340bcba7f008f87923b35ec317fc853d70e75b4c8099edbb0cc3ee1c",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "a03f7b368023394691c8b786e08366620ac039d05d644af418ddd703e1c4c150",
+      "source_path": "evidence/crypto_paper_decision/2026-08-30/0511/789395201beabe82085f0a6a9c5995e448caf09873d2f8766d09cdccfebffb60/packet.json"
+    },
+    {
+      "affected_lineage": "PR #471's P3->P4 exact-hash consumer bridge (microstructure/upbit_p3_p4_bridge.py) pinned initial_post_ratification_anchor.record_payload_sha256=a9be9c63... (record #1 above) as its post-ratification anchor. That field is renamed to revoked_initial_anchor in this same change; the contract's active_post_ratification_anchor is null and approval_status is SUSPENDED_INVALID_UPSTREAM until a new anchor is separately CIO-ratified.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": null,
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "a9be9c63f9a39d1afbfd282a5707e797a7db61138edc9538b7ccf4a6a43d2d12",
+      "source_path": "config/upbit_p3_p4_bridge_contract.json"
+    },
+    {
+      "affected_lineage": "P4-07 public microstructure evidence packet derived, via the now-revoked bridge anchor (record #3 above), from the raw capture at evidence/crypto/upbit/microstructure/2026-08-30-p3-a9be9c63f9a39d1a/ (manifest sha256 69501f227a3ba77cf5bc1f31cf01a665db7c77583b6969efdcefdbf85962bc21). Preserved byte-for-byte as historical evidence, never deleted or modified -- this record documents that its universe_lineage anchor is revoked, so it must never be treated as evidence for a currently-active PAPER cohort.",
+      "effective_from": "2026-08-30",
+      "revoked_file_sha256": "c3cdb64eecc76cfa673bdf4245fed3e51fa2c7d62f678e314f0afe6a15a684a6",
+      "revoked_inner_packet_sha256": null,
+      "revoked_record_payload_sha256": "038f76aa8204f7c7892282fa760dd1e422dc51fd8cf42770454cea2b1e9df8d0",
+      "source_path": "data/observations/upbit_market_evidence/2026-08-30-p3-a9be9c63f9a39d1a/packet.json"
+    }
+  ],
+  "revoked_at_utc": "2026-08-30T05:32:49Z",
+  "schema_version": "upbit_governance_revocations/1",
+  "source_merge_commit": "69e1cd27d62ea1f2c871d1d91657b05f11a6e699",
+  "source_pr": 465
+}
