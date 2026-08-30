@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 from universe import global_asset_master as GAM  # noqa: E402
 from universe import krx_global_universe as KRU  # noqa: E402
+from universe import krx_execution_measurements as KEM  # noqa: E402
 
 
 CONTRACT_PATH = ROOT / "config" / "krx_investable_registry_contract.json"
@@ -163,6 +164,16 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     for policy in measurements.values():
         if policy != {"status": "UNRATIFIED", "proposed_threshold": None}:
             raise RegistryError("CONTRACT_MEASUREMENT_THRESHOLD_RATIFIED")
+    measurement_evidence = value.get("execution_measurement_evidence")
+    if measurement_evidence != {
+        "contract_version": "krx_execution_measurement/1",
+        "private_schema_version": "krx_execution_measurement_private/1",
+        "optional_input_field": "execution_evidence_path",
+        "identity_binding": "registry_identity_snapshot_sha256",
+        "effect": "REMOVE_ONLY_THE_CORRESPONDING_MEASUREMENT_MISSING_BLOCKER",
+        "eligibility_promotion_authorized": False,
+    }:
+        raise RegistryError("CONTRACT_EXECUTION_EVIDENCE_INVALID")
     _gate_compatibility_projection(value)
     return copy.deepcopy(value)
 
@@ -322,6 +333,9 @@ def _validate_input(value: dict, contract: dict) -> dict:
     previous = value.get("previous_registry_path")
     if previous is not None and (not isinstance(previous, str) or not previous):
         raise RegistryError("PREVIOUS_REGISTRY_PATH_INVALID")
+    execution = value.get("execution_evidence_path")
+    if execution is not None and (not isinstance(execution, str) or not execution):
+        raise RegistryError("EXECUTION_EVIDENCE_PATH_INVALID")
     cleaned = copy.deepcopy(value)
     cleaned["latest_session_evidence"] = {
         "source_name": session_evidence.get("source_name"),
@@ -472,6 +486,62 @@ def _load_previous(path: str | None) -> tuple[dict[str, str], str]:
             raise RegistryError("PREVIOUS_SHORT_CODE_AMBIGUOUS")
         mapping[short] = standard
     return mapping, "CHECKED_AGAINST_PRIOR_REGISTRY"
+
+
+def _load_execution_evidence(path: str, records: list[dict], contract: dict) -> tuple[dict[str, dict], dict]:
+    value = _read_json(Path(path))
+    expected = contract["execution_measurement_evidence"]
+    if value.get("schema_version") != expected["private_schema_version"]:
+        raise RegistryError("EXECUTION_EVIDENCE_SCHEMA_MISMATCH")
+    if value.get("contract_version") != expected["contract_version"]:
+        raise RegistryError("EXECUTION_EVIDENCE_CONTRACT_MISMATCH")
+    measurement_contract = KEM.load_contract()
+    try:
+        public_projection = KEM.validate_private_packet(value, measurement_contract)
+    except KEM.MeasurementError as exc:
+        raise RegistryError(f"EXECUTION_EVIDENCE_INVALID:{exc}") from exc
+    identity_sha, _ = KEM.identity_snapshot(records)
+    if value.get("registry_identity_snapshot_sha256") != identity_sha:
+        raise RegistryError("EXECUTION_EVIDENCE_IDENTITY_MISMATCH")
+    candidates = {
+        row["security_id"]: row for row in records
+        if row["screening_state"] == "CATEGORICAL_CANDIDATE"
+    }
+    evidence_records = value.get("records")
+    if not isinstance(evidence_records, list):
+        raise RegistryError("EXECUTION_EVIDENCE_RECORDS_INVALID")
+    mapping = {}
+    for row in evidence_records:
+        if not isinstance(row, dict):
+            raise RegistryError("EXECUTION_EVIDENCE_RECORD_INVALID")
+        security_id = row.get("security_id")
+        if security_id not in candidates or security_id in mapping:
+            raise RegistryError("EXECUTION_EVIDENCE_SCOPE_INVALID")
+        if row.get("market") != candidates[security_id]["market"]:
+            raise RegistryError("EXECUTION_EVIDENCE_MARKET_MISMATCH")
+        if row.get("as_of_date") != value.get("completed_session_date"):
+            raise RegistryError("EXECUTION_EVIDENCE_DATE_MISMATCH")
+        embedded = row.get("evidence_sha256")
+        measurement = copy.deepcopy(row)
+        measurement.pop("evidence_sha256", None)
+        if embedded != payload_sha256({
+            "identity_snapshot_sha256": identity_sha,
+            "measurement": measurement,
+        }):
+            raise RegistryError("EXECUTION_EVIDENCE_RECORD_SHA_MISMATCH")
+        mapping[security_id] = copy.deepcopy(row)
+    if set(mapping) != set(candidates):
+        raise RegistryError("EXECUTION_EVIDENCE_CANDIDATE_COVERAGE_SHAPE_INVALID")
+    computed = {
+        "candidate_count": len(candidates),
+        "turnover": sum(row.get("turnover_krw") is not None for row in mapping.values()),
+        "order_book_depth": sum(row.get("order_book") is not None for row in mapping.values()),
+        "spread": sum(row.get("order_book") is not None for row in mapping.values()),
+        "slippage": sum(row.get("order_book") is not None for row in mapping.values()),
+    }
+    if value.get("coverage") != computed:
+        raise RegistryError("EXECUTION_EVIDENCE_COVERAGE_MISMATCH")
+    return mapping, public_projection
 
 
 def _product(row: dict, contract: dict) -> tuple[str, str, list[str]]:
@@ -644,6 +714,47 @@ def build_registry(value: dict, contract: dict | None = None) -> tuple[dict, dic
         })
 
     records.sort(key=lambda item: (item["market"], item["standard_code"]))
+    execution_projection = None
+    measurement_coverage = {
+        "turnover": 0,
+        "order_book_depth": 0,
+        "spread": 0,
+        "slippage": 0,
+    }
+    if value.get("execution_evidence_path") is not None:
+        execution_mapping, execution_projection = _load_execution_evidence(
+            value["execution_evidence_path"], records, contract
+        )
+        if execution_projection["completed_session_date"] != latest_date:
+            raise RegistryError("EXECUTION_EVIDENCE_COMPLETED_SESSION_MISMATCH")
+        if execution_projection["completed_session_evidence_sha256"] != value["latest_session_evidence"]["source_sha256"]:
+            raise RegistryError("EXECUTION_EVIDENCE_SESSION_LINEAGE_MISMATCH")
+        measurement_coverage = {
+            key: execution_projection["coverage"][key]
+            for key in measurement_coverage
+        }
+        for record in records:
+            evidence = execution_mapping.get(record["security_id"])
+            if evidence is None:
+                continue
+            measured = {
+                "as_of_date": evidence["as_of_date"],
+                "turnover_krw": evidence.get("turnover_krw"),
+                "order_book": copy.deepcopy(evidence.get("order_book")),
+                "measurement_reason_codes": copy.deepcopy(
+                    evidence.get("measurement_reason_codes", [])
+                ),
+                "evidence_sha256": evidence["evidence_sha256"],
+            }
+            blockers = set(record["decision_blocker_codes"])
+            if measured["turnover_krw"] is not None:
+                blockers.discard("TURNOVER_MEASUREMENT_MISSING")
+            if measured["order_book"] is not None:
+                blockers.discard("ORDER_BOOK_DEPTH_MEASUREMENT_MISSING")
+                blockers.discard("SPREAD_MEASUREMENT_MISSING")
+                blockers.discard("SLIPPAGE_MEASUREMENT_MISSING")
+            record["decision_blocker_codes"] = sorted(blockers)
+            record["execution_measurements"] = measured
     screening_counts = {key: 0 for key in ("CATEGORICAL_CANDIDATE", "EXCLUDED", "UNKNOWN")}
     decision_counts = {key: 0 for key in ("ELIGIBLE", "EXCLUDED", "UNKNOWN")}
     product_counts: dict[str, int] = {}
@@ -681,14 +792,10 @@ def build_registry(value: dict, contract: dict | None = None) -> tuple[dict, dic
             "duplicate_standard_code_count": 0,
             "duplicate_short_code_count": 0,
             "code_reuse_count": sum(record["code_reuse_status"] == "REUSED" for record in records),
-            "measurement_coverage": {
-                "turnover": 0,
-                "order_book_depth": 0,
-                "spread": 0,
-                "slippage": 0,
-            },
+            "measurement_coverage": measurement_coverage,
         },
         "measurement_policy": copy.deepcopy(contract["measurement_policy"]),
+        "execution_measurement_evidence": execution_projection,
         "krx_paper_gate_compatibility": copy.deepcopy(gate_compatibility),
         "distribution_boundary": copy.deepcopy(contract["distribution_boundary"]),
         "authority": copy.deepcopy(contract["authority"]),
@@ -708,6 +815,9 @@ def build_registry(value: dict, contract: dict | None = None) -> tuple[dict, dic
         "source_lineage": copy.deepcopy(registry["source_lineage"]),
         "summary": copy.deepcopy(registry["summary"]),
         "measurement_policy": copy.deepcopy(registry["measurement_policy"]),
+        "execution_measurement_evidence": copy.deepcopy(
+            registry["execution_measurement_evidence"]
+        ),
         "krx_paper_gate_compatibility": copy.deepcopy(
             registry["krx_paper_gate_compatibility"]
         ),

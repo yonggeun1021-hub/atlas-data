@@ -23,6 +23,7 @@ def load(name: str, relative: str):
 
 
 M = load("krx_investable_registry", "universe/krx_investable_registry.py")
+E = load("krx_execution_measurements_for_registry", "universe/krx_execution_measurements.py")
 KRU_FIXTURE = load("krx_global_universe_registry_fixture", "test/test_krx_global_universe.py")
 
 
@@ -372,6 +373,80 @@ class KrxInvestableRegistryTests(unittest.TestCase):
             bad["masters"]["KOSPI"]["path"] = str(wrong_zip)
             with self.assertRaisesRegex(M.RegistryError, "MASTER_ARCHIVE_MEMBERS_MISMATCH"):
                 M.build_registry(bad)
+
+    def test_execution_evidence_removes_only_measured_blockers_and_never_promotes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            inputs = self.make_inputs(root)
+            base, _ = M.build_registry(inputs)
+            registry_path = write_json(root / "base-registry.json", base)
+            krx_sources = []
+            for market, code in (("KOSPI", "005930"), ("KOSDAQ", "035720")):
+                path = write_json(root / f"{market}.json", {"OutBlock_1": [{
+                    "BAS_DD": "20260820",
+                    "ISU_CD": code,
+                    "MKT_NM": market,
+                    "ACC_TRDVAL": "1000000",
+                }]})
+                krx_sources.append({
+                    "market": market,
+                    "path": str(path),
+                    "source_url": E.load_contract()["krx_turnover_source"]["market_endpoints"][market],
+                    "retrieved_at_utc": "2026-08-30T09:00:00Z",
+                })
+            captures = []
+            for row in base["records"]:
+                if row["screening_state"] != "CATEGORICAL_CANDIDATE":
+                    continue
+                output = {"aspr_acpt_hour": "151500"}
+                for level in range(1, 11):
+                    output[f"askp{level}"] = str(10000 + level * 10)
+                    output[f"bidp{level}"] = str(10000 - level * 10)
+                    output[f"askp_rsqn{level}"] = str(level * 100)
+                    output[f"bidp_rsqn{level}"] = str(level * 110)
+                captures.append({
+                    "security_id": row["security_id"],
+                    "captured_at_utc": "2026-08-20T06:15:05Z",
+                    "http_method": "GET",
+                    "endpoint_path": E.load_contract()["kis_order_book_source"]["endpoint_path"],
+                    "tr_id": "FHKST01010200",
+                    "venue_code": "J",
+                    "response": {"rt_cd": "0", "output1": output},
+                })
+            capture_path = write_json(root / "orderbooks.json", {
+                "schema_version": "kis_domestic_order_book_capture/1",
+                "session_date": "2026-08-20",
+                "session_state": "COMPLETED",
+                "completed_session_evidence_sha256": inputs["latest_session_evidence"]["source_sha256"],
+                "captures": captures,
+            })
+            private, _ = E.build_measurements({
+                "schema_version": "krx_execution_measurement_input/1",
+                "captured_at_utc": "2026-08-30T10:10:00Z",
+                "completed_session_date": "2026-08-20",
+                "registry_path": str(registry_path),
+                "krx_turnover_snapshots": krx_sources,
+                "kis_order_book_capture_path": str(capture_path),
+            })
+            evidence_path = write_json(root / "execution-evidence.json", private)
+            integrated_inputs = copy.deepcopy(inputs)
+            integrated_inputs["execution_evidence_path"] = str(evidence_path)
+            integrated, public = M.build_registry(integrated_inputs)
+        samsung = next(row for row in integrated["records"] if row["short_code"] == "005930")
+        etf = next(row for row in integrated["records"] if row["short_code"] == "069500")
+        self.assertNotIn("TURNOVER_MEASUREMENT_MISSING", samsung["decision_blocker_codes"])
+        self.assertNotIn("SPREAD_MEASUREMENT_MISSING", samsung["decision_blocker_codes"])
+        self.assertIn("TURNOVER_MEASUREMENT_MISSING", etf["decision_blocker_codes"])
+        self.assertNotIn("SLIPPAGE_MEASUREMENT_MISSING", etf["decision_blocker_codes"])
+        self.assertIn("LIQUIDITY_AND_EXECUTION_THRESHOLDS_UNRATIFIED", samsung["decision_blocker_codes"])
+        self.assertEqual(public["summary"]["measurement_coverage"], {
+            "turnover": 2,
+            "order_book_depth": 3,
+            "spread": 3,
+            "slippage": 3,
+        })
+        self.assertEqual(public["summary"]["decision_counts"]["ELIGIBLE"], 0)
+        self.assertNotIn("records", public)
 
 
 if __name__ == "__main__":

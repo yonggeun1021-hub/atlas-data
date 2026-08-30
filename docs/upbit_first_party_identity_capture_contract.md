@@ -21,10 +21,15 @@ Each append-only snapshot binds:
 
 The workflow is manual (`workflow_dispatch`) because identity evidence changes
 slowly and should be reviewed. It has no schedule, secret, authenticated API,
-or exchange write path. A successful capture does **not** unfreeze P3-12. A
-separate reviewed change must bind the evidence to a corrected registry and
-taxonomy, pass focused/related/full CI, publish their exact hashes, and receive
-explicit CIO approval naming those hashes.
+or exchange write path. A successful capture does **not** unfreeze P3-12. The
+same manual workflow builds an unratified
+`upbit_paper_identity_hardening_candidate/1` packet for the exact eight-market
+scope. That packet compares the hash-bound Upbit names to the hash-bound
+project sources, proposes an eight-row registry and taxonomy, and publishes
+their exact payload hashes plus the consumer code/contract hashes. It always
+records `release_ready: false`. A separate reviewed change must apply those
+exact values, pass focused/related/full CI, and receive explicit CIO approval
+naming the hashes.
 
 Offline verification:
 
