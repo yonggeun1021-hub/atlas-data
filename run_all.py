@@ -654,6 +654,10 @@ APPROVED_TESTS = [
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # Current-reference 5/5 and official PIT-history coverage remain separate.
+    # The pointer exposes automatic refresh timing and fail-closed progress;
+    # it never promotes current data into final Regime or trading authority.
+    "test/test_crypto_regime_refresh_status.py",
     # PAPER-only bridge: Regime controls the future total risk envelope while
     # cross-market flow/relative strength controls the within-envelope review.
     # All numeric weights, account facts, actions, orders, and trading remain

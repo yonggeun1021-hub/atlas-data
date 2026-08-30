@@ -1,0 +1,66 @@
+name: Crypto Market Status Refresh Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * *"  # 12:30 KST, after both status rebuild retries
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: atlas-crypto-market-status-watchdog
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Verify today's complete current-reference status
+        id: verify
+        continue-on-error: true
+        env:
+          TZ: Asia/Seoul
+        run: |
+          python3 regime/crypto_regime_refresh_status.py \
+            --verify data/latest_crypto_regime_refresh_status.json \
+            --expected-date "$(date +%F)"
+      - name: Open or update one delay issue
+        if: steps.verify.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title='[자동감시] 코인 시장판정 갱신 지연'
+          body="12:30 KST 자동 점검에서 오늘 코인 참고 신호 5/5 포인터를 확인하지 못했습니다. 주문·매매 권한은 열리지 않았습니다. 점검 실행: ${RUN_URL}"
+          number="$(gh issue list --repo "$REPO" --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
+      - name: Close delay issue after recovery
+        if: steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title='[자동감시] 코인 시장판정 갱신 지연'
+          gh issue list --repo "$REPO" --state open --search "${title} in:title" --json number --jq '.[].number' |
+          while read -r number; do
+            [ -z "$number" ] || gh issue close "$number" --repo "$REPO" --comment '오늘 참고 신호 5/5 포인터가 정상 갱신되어 자동 종료합니다.'
+          done
+      - name: Fail the watchdog run after recording the incident
+        if: steps.verify.outcome == 'failure'
+        run: exit 1
