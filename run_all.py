@@ -210,6 +210,11 @@ APPROVED_TESTS = [
     # fail closed, and every identity/PAPER/exchange/order authority remains
     # false. Evidence capture only; never releases the freeze by itself.
     "test/test_upbit_first_party_identity_capture.py",
+    # Exact-hash approval packet for the same bounded eight. It compares
+    # hash-bound Upbit listing names to the first-party capture and proposes
+    # registry/taxonomy payloads, but release_ready and every authority remain
+    # false until a later CIO decision names the exact hashes.
+    "test/test_upbit_paper_identity_hardening_candidate.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",
