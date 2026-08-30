@@ -576,10 +576,19 @@ class NaturalPacketTests(unittest.TestCase):
         self.assertRegex(packet["code_commit_sha"], r"^[0-9a-f]{40}$")
 
     def test_natural_packet_surfaces_known_real_findings(self):
+        # As of P3-12-TAX-01 (2026-08-30), config/upbit_exclusion_taxonomy.json
+        # already carries drafted records for USDG/XAUT/RE (see
+        # docs/p3_12_tax_01_taxonomy_candidate_cio_decision_packet_20260830.md),
+        # so they are now "already_recorded", not open taxonomy_audit
+        # candidates -- only the two still-uncorroborated name-pattern hits
+        # (USD1, CHIP) remain as open candidates.
         packet = json.loads(NATURAL.read_text(encoding="utf-8"))
         candidate_markets = {row["market"] for row in packet["taxonomy_audit"]["candidates"]}
-        for expected in ("KRW-USD1", "KRW-USDG", "KRW-XAUT", "KRW-RE"):
+        for expected in ("KRW-USD1", "KRW-CHIP"):
             self.assertIn(expected, candidate_markets)
+        already_recorded_markets = {row["market"] for row in packet["taxonomy_audit"]["already_recorded"]}
+        for expected in ("KRW-USDG", "KRW-XAUT", "KRW-RE"):
+            self.assertIn(expected, already_recorded_markets)
         queue_markets = {row["market"] for row in packet["identity_review"]["manual_review_queue"]}
         self.assertIn("KRW-RE", queue_markets)
 

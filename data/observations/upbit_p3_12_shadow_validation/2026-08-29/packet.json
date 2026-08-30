@@ -13,15 +13,15 @@
     "tradeable_universe_promotion_authorized": false,
     "trading_authorized": false
   },
-  "code_commit_sha": "31e64933b95edbaa0a01dd0def90044fe3ed33b2",
+  "code_commit_sha": "0cde03f79cb91c4cfe693cd0e92fb273d4315973",
   "evaluation_as_of": "2026-08-29",
   "funnel": {
     "after_shadow_if_ratified_as_currently_proposed": {
       "blocked_count": 0,
       "market_count": 282,
-      "observation_pool_count": 282,
-      "paper_eligible_count": 0,
-      "tradeable_universe_count": 0
+      "observation_pool_count": 253,
+      "paper_eligible_count": 28,
+      "tradeable_universe_count": 1
     },
     "before_current_production_mechanical_collision_included": {
       "blocked_count": 0,
@@ -43,7 +43,7 @@
       "paper_eligible_count": 28,
       "tradeable_universe_count": 1
     },
-    "hypothetical_records_added": 72,
+    "hypothetical_records_added": 0,
     "note": "NOT the primary shadow result. config/upbit_exclusion_taxonomy.json ships with zero eligible_category records, so ratifying it exactly as written (the 'after' funnel above) still resolves almost every market to TAXONOMY_UNKNOWN. This scenario shows the additional, separate effect of also ratifying one mechanically-derived eligible_crypto record per canonical asset id already corroborated by the independently RATIFIED config/crypto_breadth_exclusion_taxonomy.json -- see shadow_taxonomy_with_kraken_corroborated_eligible_records().",
     "slippage_curve_sample": [
       {
@@ -315,17 +315,17 @@
       "not_failed_here": 282
     },
     "liquidity": {
-      "fail": 0,
-      "not_failed_here": 282
+      "fail": 9,
+      "not_failed_here": 273
     },
     "market_count": 282,
     "slippage": {
-      "fail": 0,
-      "not_failed_here": 282
+      "fail": 1,
+      "not_failed_here": 281
     },
     "spread": {
-      "fail": 0,
-      "not_failed_here": 282
+      "fail": 33,
+      "not_failed_here": 249
     }
   },
   "generated_at": "2026-08-29T00:52:31Z",
@@ -424,8 +424,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "75106872865.59719200"
     },
     {
@@ -443,7 +443,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "292063280100.30549080"
     },
@@ -462,7 +462,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "12674867007.67548259"
     },
@@ -538,7 +538,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "43009180929.97988939"
     },
@@ -557,7 +557,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "45552075862.06891880"
     },
@@ -652,8 +652,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "40875687958.08541709"
     },
     {
@@ -671,7 +671,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "46947677250.15261462"
     },
@@ -804,8 +804,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "20518784430.70208650"
     },
     {
@@ -842,8 +842,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "92240727357.46440595"
     },
     {
@@ -975,7 +975,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 86,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "95778608159.48682017"
     },
@@ -1032,8 +1032,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "140241897247.89605000"
     },
     {
@@ -1317,8 +1317,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "3050903427835.78879000"
     },
     {
@@ -1355,7 +1355,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 24,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "579348298002.39840140"
     },
@@ -1412,7 +1412,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "40599943416.92494715"
     },
@@ -1621,7 +1621,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 9,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "46502821554.74488697"
     },
@@ -1754,7 +1754,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "566046754003.42456860"
     },
@@ -1811,8 +1811,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "22344203223.57598863"
     },
     {
@@ -1925,7 +1925,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "368684253627.10355868"
     },
@@ -2001,7 +2001,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "118950681729.76877306"
     },
@@ -2039,8 +2039,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "2164707067844.90110000"
     },
     {
@@ -2058,7 +2058,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "29009716161.68121756"
     },
@@ -2077,7 +2077,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 35,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "315329845193.60665214"
     },
@@ -2153,8 +2153,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "29330528677.65065964"
     },
     {
@@ -2362,7 +2362,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "88920911121.15210790"
     },
@@ -2495,7 +2495,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "9941776799.09519211"
     },
@@ -2590,7 +2590,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "22146650977.48656420"
     },
@@ -2723,8 +2723,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "44469579601.44235345"
     },
     {
@@ -2742,7 +2742,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "23501566131.07205990"
     },
@@ -2761,7 +2761,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "202989177852.73697324"
     },
@@ -2951,8 +2951,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "162934216670.43367990"
     },
     {
@@ -2970,7 +2970,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 6,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "75298064476.26748915"
     },
@@ -3027,7 +3027,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "6792614471.44880231"
     },
@@ -3236,7 +3236,7 @@
       "market_event_caution_any": true,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "24875252499.50401244"
     },
@@ -3369,7 +3369,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "33672916169.56854261"
     },
@@ -3407,7 +3407,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 36,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "17046200028.58725850"
     },
@@ -3502,8 +3502,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "131689360305.38423272"
     },
     {
@@ -3578,7 +3578,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "598664208338.60123924"
     },
@@ -3635,7 +3635,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "9331991536.43681942"
     },
@@ -3749,8 +3749,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "16072059343.44725448"
     },
     {
@@ -3768,7 +3768,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "114032777254.23199011"
     },
@@ -3787,8 +3787,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "64665873316.29065564"
     },
     {
@@ -3825,7 +3825,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "51320316534.64244181"
     },
@@ -3863,7 +3863,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "57585646105.23683556"
     },
@@ -3958,8 +3958,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "SLIPPAGE_ABOVE_THRESHOLD",
+      "state": "TRADEABLE_UNIVERSE",
       "trailing_30d_krw_turnover": "24221465022.21373063"
     },
     {
@@ -3996,7 +3996,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "150590615173.68100977"
     },
@@ -4034,8 +4034,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "34104193737.07409694"
     },
     {
@@ -4129,7 +4129,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 72,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "TAXONOMY_EXCLUDED:unverified_identity",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "331397045226.50032018"
     },
@@ -4167,8 +4167,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "19003036407.92368150"
     },
     {
@@ -4300,8 +4300,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "44326341244.57391697"
     },
     {
@@ -4338,8 +4338,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "224495287514.20711158"
     },
     {
@@ -4395,7 +4395,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "TURNOVER_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "4673597638.98590659"
     },
@@ -4452,8 +4452,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "865096713914.54448200"
     },
     {
@@ -4566,7 +4566,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 75,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "LISTING_HISTORY_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "12107524583.95304885"
     },
@@ -4642,7 +4642,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "162664661864.98836924"
     },
@@ -4661,8 +4661,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "283248586647.52632147"
     },
     {
@@ -4718,7 +4718,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "TURNOVER_BELOW_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "4666790457.49489079"
     },
@@ -4756,8 +4756,8 @@
       "market_event_caution_any": true,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "51883522851.98603400"
     },
     {
@@ -4813,7 +4813,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "5214988081.22523114"
     },
@@ -4908,8 +4908,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "1738559718024.53267300"
     },
     {
@@ -4946,7 +4946,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "72874974482.70987212"
     },
@@ -4984,8 +4984,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "83122273460.72762230"
     },
     {
@@ -5079,7 +5079,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 31,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "TAXONOMY_EXCLUDED:stablecoin",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "4082526475.62303036"
     },
@@ -5174,8 +5174,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "115038401826.22953141"
     },
     {
@@ -5212,8 +5212,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "26509839676.11652840"
     },
     {
@@ -5326,7 +5326,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "7232909389.78952152"
     },
@@ -5345,8 +5345,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "372196366210.94449816"
     },
     {
@@ -5364,7 +5364,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "125343857230.40736282"
     },
@@ -5383,7 +5383,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "TAXONOMY_EXCLUDED:commodity_linked",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "12056864490.66341000"
     },
@@ -5402,7 +5402,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "19651818626.26975909"
     },
@@ -5440,7 +5440,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "466174148835.26435352"
     },
@@ -5459,7 +5459,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "99146817526.13277213"
     },
@@ -5478,8 +5478,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "6217484085317.66477551"
     },
     {
@@ -5535,7 +5535,7 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
+      "reason": "SPREAD_ABOVE_THRESHOLD",
       "state": "OBSERVATION_POOL",
       "trailing_30d_krw_turnover": "57344821381.24580663"
     },
@@ -5687,8 +5687,8 @@
       "market_event_caution_any": false,
       "market_event_warning": false,
       "observed_daily_candle_count": 100,
-      "reason": "TAXONOMY_UNKNOWN",
-      "state": "OBSERVATION_POOL",
+      "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED",
+      "state": "PAPER_ELIGIBLE",
       "trailing_30d_krw_turnover": "70116152859.67001199"
     },
     {
@@ -5711,12 +5711,19 @@
       "trailing_30d_krw_turnover": "5298061754.76636071"
     }
   ],
-  "payload_sha256": "e2a88b5b98c40af40f73db4dcf50cb54d37b1f3e475427e37f9ced72690417b9",
+  "payload_sha256": "ef5fbda40727a7a4b0b7880dc5d4353747445e1eb7f18ba34a803bc02fc1a410",
   "reason_distribution": {
     "after": {
       "INVESTMENT_WARNING_ACTIVE": 8,
-      "TAXONOMY_EXCLUDED:stablecoin": 6,
-      "TAXONOMY_UNKNOWN": 268
+      "LISTING_HISTORY_BELOW_THRESHOLD": 7,
+      "PAPER_ELIGIBLE_ALL_GATES_PASSED": 28,
+      "SLIPPAGE_ABOVE_THRESHOLD": 1,
+      "SPREAD_ABOVE_THRESHOLD": 33,
+      "TAXONOMY_EXCLUDED:commodity_linked": 1,
+      "TAXONOMY_EXCLUDED:stablecoin": 7,
+      "TAXONOMY_EXCLUDED:unverified_identity": 1,
+      "TAXONOMY_UNKNOWN": 194,
+      "TURNOVER_BELOW_THRESHOLD": 2
     },
     "after_with_kraken_corroborated_eligible_records_hypothetical": {
       "INVESTMENT_WARNING_ACTIVE": 8,
@@ -5724,8 +5731,10 @@
       "PAPER_ELIGIBLE_ALL_GATES_PASSED": 28,
       "SLIPPAGE_ABOVE_THRESHOLD": 1,
       "SPREAD_ABOVE_THRESHOLD": 33,
-      "TAXONOMY_EXCLUDED:stablecoin": 6,
-      "TAXONOMY_UNKNOWN": 197,
+      "TAXONOMY_EXCLUDED:commodity_linked": 1,
+      "TAXONOMY_EXCLUDED:stablecoin": 7,
+      "TAXONOMY_EXCLUDED:unverified_identity": 1,
+      "TAXONOMY_UNKNOWN": 194,
       "TURNOVER_BELOW_THRESHOLD": 2
     },
     "before_current_production_mechanical_collision_included": {
@@ -5743,7 +5752,269 @@
     "taxonomy_source": "in-memory copy of config/upbit_exclusion_taxonomy.json with approval_status forced to RATIFIED for this evaluation only -- every category/record unchanged",
     "thresholds_changed": false
   },
-  "slippage_curve_sample": [],
+  "slippage_curve_sample": [
+    {
+      "market": "KRW-AAVE",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-22",
+        "3000000": "0E-22",
+        "500000": "0E-22",
+        "5000000": "0E-22"
+      }
+    },
+    {
+      "market": "KRW-APT",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "-3.984063745019920318725099602E-24",
+        "3000000": "2.979964389856070453851254980",
+        "500000": "0E-25",
+        "5000000": "7.097519674903790758569103586"
+      }
+    },
+    {
+      "market": "KRW-ATOM",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "4.293031766542952167215137881",
+        "3000000": "6.091411623560870144907044025",
+        "500000": "3.748193517586008805261465893",
+        "5000000": "7.524882362797733267150527334"
+      }
+    },
+    {
+      "market": "KRW-AVAX",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-23",
+        "3000000": "0E-23",
+        "500000": "0E-23",
+        "5000000": "0E-23"
+      }
+    },
+    {
+      "market": "KRW-BCH",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "2.372037077131778336753497076",
+        "3000000": "4.026200944161644167725710526",
+        "500000": "1.820158452355098788552064327",
+        "5000000": "4.754822243048869124770599415"
+      }
+    },
+    {
+      "market": "KRW-BTC",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-19",
+        "3000000": "0E-19",
+        "500000": "0E-19",
+        "5000000": "0E-19"
+      }
+    },
+    {
+      "market": "KRW-DOT",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-24",
+        "3000000": "4.024599655894552058902834179",
+        "500000": "0E-24",
+        "5000000": "5.798382666625600657758409475"
+      }
+    },
+    {
+      "market": "KRW-ETH",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-21",
+        "3000000": "0E-21",
+        "500000": "2.948982601002654084340902389E-24",
+        "5000000": "2.948982601002654084340902389E-24"
+      }
+    },
+    {
+      "market": "KRW-FIL",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-25",
+        "3000000": "0E-25",
+        "500000": "0E-25",
+        "5000000": "0E-25"
+      }
+    },
+    {
+      "market": "KRW-JTO",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "-2.971768202080237741456166419E-24",
+        "3000000": "-1.485884101040118870728083210E-24",
+        "500000": "0E-25",
+        "5000000": "0E-25"
+      }
+    },
+    {
+      "market": "KRW-LINK",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-23",
+        "3000000": "0E-23",
+        "500000": "0E-23",
+        "5000000": "0E-23"
+      }
+    },
+    {
+      "market": "KRW-NEAR",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-24",
+        "3000000": "3.155360377059870041622015873",
+        "500000": "0E-24",
+        "5000000": "5.067271106206819781526031746"
+      }
+    },
+    {
+      "market": "KRW-PENDLE",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "8.155990226975034265763037225",
+        "3000000": "10.07071085105795894469843063",
+        "500000": "7.851762064311565157800308799",
+        "5000000": "12.63696992653803844879233080"
+      }
+    },
+    {
+      "market": "KRW-PEPE",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "-1.949317738791423001949317739E-24",
+        "3000000": "0E-25",
+        "500000": "0E-25",
+        "5000000": "0E-25"
+      }
+    },
+    {
+      "market": "KRW-PROS",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "37.07547508736587670705118182",
+        "3000000": "46.65923137901256421215003774",
+        "500000": "31.21164347543414353986780103",
+        "5000000": "48.57817927547434089640823156"
+      }
+    },
+    {
+      "market": "KRW-PYTH",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "1.515151515151515151515151515E-24",
+        "3000000": "1.515151515151515151515151515E-24",
+        "500000": "0E-26",
+        "5000000": "0E-26"
+      }
+    },
+    {
+      "market": "KRW-RENDER",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-24",
+        "3000000": "2.770096408639529849204822766",
+        "500000": "0E-24",
+        "5000000": "10.99387752522090442966824763"
+      }
+    },
+    {
+      "market": "KRW-SEI",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "3.120124804992199687987519501E-24",
+        "3000000": "0E-25",
+        "500000": "0E-25",
+        "5000000": "3.333270918051745595905190328"
+      }
+    },
+    {
+      "market": "KRW-SHIB",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "1.394700139470013947001394700E-24",
+        "3000000": "1.394700139470013947001394700E-24",
+        "500000": "0E-25",
+        "5000000": "0E-25"
+      }
+    },
+    {
+      "market": "KRW-SOL",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-22",
+        "3000000": "0E-22",
+        "500000": "0E-22",
+        "5000000": "0E-22"
+      }
+    },
+    {
+      "market": "KRW-SUI",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-24",
+        "3000000": "6.184227258592629645133854369",
+        "500000": "0E-24",
+        "5000000": "7.593733615799223269123330097"
+      }
+    },
+    {
+      "market": "KRW-TAO",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "5.780571608132326313299951115",
+        "3000000": "6.000589379882559345541402383",
+        "500000": "5.450563091954779950906804155",
+        "5000000": "6.830786015907455106671750687"
+      }
+    },
+    {
+      "market": "KRW-TRUMP",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-24",
+        "3000000": "0E-24",
+        "500000": "0E-24",
+        "5000000": "0E-24"
+      }
+    },
+    {
+      "market": "KRW-UNI",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "7.804437391897532589622719284",
+        "3000000": "8.025941013472753647308480065",
+        "500000": "7.472200343114732776789449959",
+        "5000000": "8.070242914407230001459290480"
+      }
+    },
+    {
+      "market": "KRW-VIRTUAL",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "-3.1250000E-24",
+        "3000000": "0",
+        "500000": "1.041666666666666666666666667E-24",
+        "5000000": "0.7254706113357851882289750000"
+      }
+    },
+    {
+      "market": "KRW-VVV",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0.2126480147432567669734244733",
+        "3000000": "4.064221707523007908248350515",
+        "500000": "0E-23",
+        "5000000": "8.304761259815519616008883909"
+      }
+    },
+    {
+      "market": "KRW-WLD",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-25",
+        "3000000": "0E-25",
+        "500000": "0E-25",
+        "5000000": "0E-25"
+      }
+    },
+    {
+      "market": "KRW-XRP",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "0E-24",
+        "3000000": "0",
+        "500000": "0E-24",
+        "5000000": "0E-24"
+      }
+    },
+    {
+      "market": "KRW-ZRO",
+      "slippage_bps_by_notional_krw": {
+        "1000000": "4.286215987441837494050059880",
+        "3000000": "5.864187504149174020090632069",
+        "500000": "1.920191692221945246319447771",
+        "5000000": "8.819561588688982590204165003"
+      }
+    }
+  ],
   "snapshot_date": "2026-08-29",
   "source": {
     "identity_exceptions_file_sha256": "b756d6654c8f06b9132313b9582662af566ae77c1ec0fd5c93758647c4c2b4dc",
@@ -5752,7 +6023,7 @@
     "kraken_breadth_taxonomy_path": "config/crypto_breadth_exclusion_taxonomy.json",
     "raw_manifest_sha256": "8757cf51cb985e5150f2d8d49adff12abb67631d49eedd95259956bfc6aed47f",
     "raw_snapshot_path": "evidence/crypto/upbit/raw/2026-08-29",
-    "taxonomy_file_sha256": "2f5b2133c0c9fc9726a9ae89b451566d6e90d291e825df1e7e172a6f2ce1abb1",
+    "taxonomy_file_sha256": "bea7a0755b9ee86c1f956283aaafa54a0136bbcb184bef62f7655e7a15ba801d",
     "taxonomy_path": "config/upbit_exclusion_taxonomy.json",
     "universe_policy_file_sha256": "37cdd87a174a739ebba2af97b2c601ac2cdb15b1a223ab7212489d6dd3f1a3fb",
     "universe_policy_path": "config/upbit_tradeable_universe_policy.json"
@@ -5760,14 +6031,324 @@
   "taxonomy_audit": {
     "already_recorded": [
       {
+        "candidate_canonical_asset_id": "AAVE",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-AAVE"
+      },
+      {
+        "candidate_canonical_asset_id": "ADA",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ADA"
+      },
+      {
+        "candidate_canonical_asset_id": "AERO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-AERO"
+      },
+      {
+        "candidate_canonical_asset_id": "AKT",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-AKT"
+      },
+      {
+        "candidate_canonical_asset_id": "ALGO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ALGO"
+      },
+      {
+        "candidate_canonical_asset_id": "APT",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-APT"
+      },
+      {
+        "candidate_canonical_asset_id": "ARB",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ARB"
+      },
+      {
+        "candidate_canonical_asset_id": "ATOM",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ATOM"
+      },
+      {
+        "candidate_canonical_asset_id": "AVAX",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-AVAX"
+      },
+      {
+        "candidate_canonical_asset_id": "BABY",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-BABY"
+      },
+      {
+        "candidate_canonical_asset_id": "BCH",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-BCH"
+      },
+      {
+        "candidate_canonical_asset_id": "BONK",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-BONK"
+      },
+      {
+        "candidate_canonical_asset_id": "BTC",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-BTC"
+      },
+      {
+        "candidate_canonical_asset_id": "CAP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-CAP"
+      },
+      {
+        "candidate_canonical_asset_id": "CC",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-CC"
+      },
+      {
+        "candidate_canonical_asset_id": "CRV",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-CRV"
+      },
+      {
+        "candidate_canonical_asset_id": "DOGE",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-DOGE"
+      },
+      {
+        "candidate_canonical_asset_id": "DOT",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-DOT"
+      },
+      {
+        "candidate_canonical_asset_id": "ENA",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ENA"
+      },
+      {
+        "candidate_canonical_asset_id": "ESP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ESP"
+      },
+      {
+        "candidate_canonical_asset_id": "ETH",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ETH"
+      },
+      {
+        "candidate_canonical_asset_id": "ETHFI",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ETHFI"
+      },
+      {
+        "candidate_canonical_asset_id": "EUL",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-EUL"
+      },
+      {
         "candidate_canonical_asset_id": "EURC",
         "existing_category": "stablecoin",
         "market": "KRW-EURC"
       },
       {
+        "candidate_canonical_asset_id": "FIL",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-FIL"
+      },
+      {
+        "candidate_canonical_asset_id": "HBAR",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-HBAR"
+      },
+      {
+        "candidate_canonical_asset_id": "ICP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ICP"
+      },
+      {
+        "candidate_canonical_asset_id": "INJ",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-INJ"
+      },
+      {
+        "candidate_canonical_asset_id": "JTO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-JTO"
+      },
+      {
+        "candidate_canonical_asset_id": "JUP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-JUP"
+      },
+      {
+        "candidate_canonical_asset_id": "KAITO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-KAITO"
+      },
+      {
+        "candidate_canonical_asset_id": "LINK",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-LINK"
+      },
+      {
+        "candidate_canonical_asset_id": "LIT",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-LIT"
+      },
+      {
+        "candidate_canonical_asset_id": "MANA",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-MANA"
+      },
+      {
+        "candidate_canonical_asset_id": "MINA",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-MINA"
+      },
+      {
+        "candidate_canonical_asset_id": "MON",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-MON"
+      },
+      {
+        "candidate_canonical_asset_id": "MORPHO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-MORPHO"
+      },
+      {
+        "candidate_canonical_asset_id": "NEAR",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-NEAR"
+      },
+      {
+        "candidate_canonical_asset_id": "ONDO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ONDO"
+      },
+      {
+        "candidate_canonical_asset_id": "OP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-OP"
+      },
+      {
+        "candidate_canonical_asset_id": "PENDLE",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PENDLE"
+      },
+      {
+        "candidate_canonical_asset_id": "PENGU",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PENGU"
+      },
+      {
+        "candidate_canonical_asset_id": "PEPE",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PEPE"
+      },
+      {
+        "candidate_canonical_asset_id": "PLUME",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PLUME"
+      },
+      {
+        "candidate_canonical_asset_id": "POL",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-POL"
+      },
+      {
+        "candidate_canonical_asset_id": "PROS",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PROS"
+      },
+      {
+        "candidate_canonical_asset_id": "PUMP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PUMP"
+      },
+      {
+        "candidate_canonical_asset_id": "PYTH",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-PYTH"
+      },
+      {
+        "candidate_canonical_asset_id": "RE",
+        "existing_category": "unverified_identity",
+        "market": "KRW-RE"
+      },
+      {
+        "candidate_canonical_asset_id": "RENDER",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-RENDER"
+      },
+      {
         "candidate_canonical_asset_id": "RLUSD",
         "existing_category": "stablecoin",
         "market": "KRW-RLUSD"
+      },
+      {
+        "candidate_canonical_asset_id": "SEI",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SEI"
+      },
+      {
+        "candidate_canonical_asset_id": "SHIB",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SHIB"
+      },
+      {
+        "candidate_canonical_asset_id": "SKY",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SKY"
+      },
+      {
+        "candidate_canonical_asset_id": "SOL",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SOL"
+      },
+      {
+        "candidate_canonical_asset_id": "SPX",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SPX"
+      },
+      {
+        "candidate_canonical_asset_id": "STX",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-STX"
+      },
+      {
+        "candidate_canonical_asset_id": "SUI",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SUI"
+      },
+      {
+        "candidate_canonical_asset_id": "SYRUP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-SYRUP"
+      },
+      {
+        "candidate_canonical_asset_id": "TAO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-TAO"
+      },
+      {
+        "candidate_canonical_asset_id": "TIA",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-TIA"
+      },
+      {
+        "candidate_canonical_asset_id": "TRUMP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-TRUMP"
+      },
+      {
+        "candidate_canonical_asset_id": "TRX",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-TRX"
+      },
+      {
+        "candidate_canonical_asset_id": "UNI",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-UNI"
       },
       {
         "candidate_canonical_asset_id": "USDC",
@@ -5780,6 +6361,11 @@
         "market": "KRW-USDE"
       },
       {
+        "candidate_canonical_asset_id": "USDG",
+        "existing_category": "stablecoin",
+        "market": "KRW-USDG"
+      },
+      {
         "candidate_canonical_asset_id": "USDS",
         "existing_category": "stablecoin",
         "market": "KRW-USDS"
@@ -5788,6 +6374,66 @@
         "candidate_canonical_asset_id": "USDT",
         "existing_category": "stablecoin",
         "market": "KRW-USDT"
+      },
+      {
+        "candidate_canonical_asset_id": "VIRTUAL",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-VIRTUAL"
+      },
+      {
+        "candidate_canonical_asset_id": "VVV",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-VVV"
+      },
+      {
+        "candidate_canonical_asset_id": "WIF",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-WIF"
+      },
+      {
+        "candidate_canonical_asset_id": "WLD",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-WLD"
+      },
+      {
+        "candidate_canonical_asset_id": "WLFI",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-WLFI"
+      },
+      {
+        "candidate_canonical_asset_id": "XAUT",
+        "existing_category": "commodity_linked",
+        "market": "KRW-XAUT"
+      },
+      {
+        "candidate_canonical_asset_id": "XCN",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-XCN"
+      },
+      {
+        "candidate_canonical_asset_id": "XLM",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-XLM"
+      },
+      {
+        "candidate_canonical_asset_id": "XPL",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-XPL"
+      },
+      {
+        "candidate_canonical_asset_id": "XRP",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-XRP"
+      },
+      {
+        "candidate_canonical_asset_id": "ZAMA",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ZAMA"
+      },
+      {
+        "candidate_canonical_asset_id": "ZRO",
+        "existing_category": "eligible_crypto",
+        "market": "KRW-ZRO"
       }
     ],
     "candidates": [
@@ -5807,20 +6453,6 @@
       },
       {
         "as_of": "2026-08-29",
-        "candidate_canonical_asset_id": "RE",
-        "disposition": "CANDIDATE_NEEDS_TAXONOMY_REVIEW",
-        "evidence_basis": [
-          "kraken_ratified_registry_category=unverified_identity (config/crypto_breadth_exclusion_taxonomy.json RATIFIED v2; reason: No canonical on-chain/project identity confirmed by two independent sources as of this ratification. Kraken's own AssetPairs/Assets metadata carries no chain/contract/genesis identity field to disambiguate. Conservatively excluded from source-coverage universe, not an investability claim.)"
-        ],
-        "market": "KRW-RE",
-        "source_name_english": "Re",
-        "source_name_korean": "리",
-        "suggested_categories": [
-          "unverified_identity"
-        ]
-      },
-      {
-        "as_of": "2026-08-29",
         "candidate_canonical_asset_id": "USD1",
         "disposition": "CANDIDATE_NEEDS_TAXONOMY_REVIEW",
         "evidence_basis": [
@@ -5832,125 +6464,17 @@
         "suggested_categories": [
           "stablecoin"
         ]
-      },
-      {
-        "as_of": "2026-08-29",
-        "candidate_canonical_asset_id": "USDG",
-        "disposition": "CANDIDATE_NEEDS_TAXONOMY_REVIEW",
-        "evidence_basis": [
-          "name_pattern:stablecoin_name_pattern",
-          "kraken_ratified_registry_category=stablecoin (config/crypto_breadth_exclusion_taxonomy.json RATIFIED v2; reason: USD-pegged stablecoin)"
-        ],
-        "market": "KRW-USDG",
-        "source_name_english": "Global Dollar",
-        "source_name_korean": "글로벌달러",
-        "suggested_categories": [
-          "stablecoin"
-        ]
-      },
-      {
-        "as_of": "2026-08-29",
-        "candidate_canonical_asset_id": "XAUT",
-        "disposition": "CANDIDATE_NEEDS_TAXONOMY_REVIEW",
-        "evidence_basis": [
-          "kraken_ratified_registry_category=commodity_linked (config/crypto_breadth_exclusion_taxonomy.json RATIFIED v2; reason: gold-linked token)"
-        ],
-        "market": "KRW-XAUT",
-        "source_name_english": "Tether Gold",
-        "source_name_korean": "테더골드",
-        "suggested_categories": []
       }
     ],
     "category_definition_gap_note": "These excluded_categories appear in config/upbit_exclusion_taxonomy.json but have zero ratified records or worked criteria anywhere in this repository -- this harness does not invent a definition for them. A market can only be pattern-flagged into one of these categories by an explicit keyword/symbol hint (see taxonomy_pattern_flags); ratifying a criteria definition for these categories is a separate, prior CIO decision.",
     "category_definition_gaps": [
+      "commodity_linked",
       "derivative_like",
       "leveraged"
     ],
-    "corroborated_eligible_canonical_asset_ids": [
-      "AAVE",
-      "ADA",
-      "AERO",
-      "AKT",
-      "ALGO",
-      "APT",
-      "ARB",
-      "ATOM",
-      "AVAX",
-      "BABY",
-      "BCH",
-      "BONK",
-      "BTC",
-      "CAP",
-      "CC",
-      "CRV",
-      "DOGE",
-      "DOT",
-      "ENA",
-      "ESP",
-      "ETH",
-      "ETHFI",
-      "EUL",
-      "FIL",
-      "HBAR",
-      "ICP",
-      "INJ",
-      "JTO",
-      "JUP",
-      "KAITO",
-      "LINK",
-      "LIT",
-      "MANA",
-      "MINA",
-      "MON",
-      "MORPHO",
-      "NEAR",
-      "ONDO",
-      "OP",
-      "PENDLE",
-      "PENGU",
-      "PEPE",
-      "PLUME",
-      "POL",
-      "PROS",
-      "PUMP",
-      "PYTH",
-      "RENDER",
-      "SEI",
-      "SHIB",
-      "SKY",
-      "SOL",
-      "SPX",
-      "STX",
-      "SUI",
-      "SYRUP",
-      "TAO",
-      "TIA",
-      "TRUMP",
-      "TRX",
-      "UNI",
-      "VIRTUAL",
-      "VVV",
-      "WIF",
-      "WLD",
-      "WLFI",
-      "XCN",
-      "XLM",
-      "XPL",
-      "XRP",
-      "ZAMA",
-      "ZRO"
-    ],
-    "corroborated_eligible_count": 72,
-    "schema_gaps": [
-      {
-        "as_of": "2026-08-29",
-        "candidate_canonical_asset_id": "XAUT",
-        "issue": "config/crypto_breadth_exclusion_taxonomy.json (RATIFIED) classifies XAUT as 'commodity_linked', a category absent from Upbit's own taxonomy schema (excluded_categories=['stablecoin', 'wrapped', 'leveraged', 'derivative_like', 'unverified_identity'], eligible_category='eligible_crypto'). CIO decision needed before ratification: add an equivalent category to config/upbit_exclusion_taxonomy.json, or explicitly assign this asset to an existing category with its own reason.",
-        "kraken_ratified_category": "commodity_linked",
-        "market": "KRW-XAUT",
-        "source_name_english": "Tether Gold"
-      }
-    ]
+    "corroborated_eligible_canonical_asset_ids": [],
+    "corroborated_eligible_count": 0,
+    "schema_gaps": []
   },
   "unresolved_no_data_items": []
 }
