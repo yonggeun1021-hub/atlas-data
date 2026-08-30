@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "common_paper_candidate_funnel_input/1",
+  "contractVersion": "common_paper_candidate_funnel_contract/1",
+  "evaluationAt": "2026-08-31T06:00:00Z",
+  "candidates": [
+    {
+      "market": "US",
+      "candidateId": "US-STALE-20260831",
+      "symbol": "STALE",
+      "candidateLane": "PRIMARY_LONG",
+      "lane": "INVESTMENT_PAPER",
+      "defensiveAction": "NONE",
+      "sourceTimestamp": "2026-08-31T05:00:00Z",
+      "ttlSeconds": 300,
+      "scoreBreakdown": [
+        {"componentId": "upstream", "points": 90, "maxPoints": 100, "reason": "high upstream score", "sourceRef": "fixture:stale"}
+      ],
+      "completedBarTrigger": {"status": "PASS", "barId": "US:STALE:15m:20260831T054500Z", "completedAt": "2026-08-31T05:45:00Z"},
+      "hardGates": {
+        "IDENTITY_TRADEABLE": {"status": "PASS", "reason": "identity passed", "evidenceRef": "stale:identity"},
+        "COMPLETED_BAR": {"status": "PASS", "reason": "bar passed", "evidenceRef": "stale:bar"},
+        "FRESHNESS": {"status": "PASS", "reason": "claimed fresh", "evidenceRef": "stale:fresh"},
+        "LIQUIDITY": {"status": "PASS", "reason": "liquidity passed", "evidenceRef": "stale:liquidity"},
+        "DUPLICATE_IDEMPOTENCY": {"status": "PASS", "reason": "unique", "evidenceRef": "stale:idempotency"},
+        "LEDGER_INTEGRITY": {"status": "PASS", "reason": "ledger passed", "evidenceRef": "stale:ledger"},
+        "RESTART_RECOVERY": {"status": "PASS", "reason": "restart passed", "evidenceRef": "stale:restart"},
+        "RISK_BUDGET": {"status": "PASS", "reason": "claimed budget pass", "evidenceRef": "stale:risk"},
+        "MARKET_SPECIFIC_SAFETY": {"status": null, "reason": "safety unproven", "evidenceRef": null}
+      },
+      "risk": {"currentOpenLongPositionCount": 1, "currentOpenHedgePositionCount": 0, "plannedLossNavFraction": "0.0030", "longMarketExposureNavFraction": "0.06", "hedgeMarketExposureNavFraction": "0"},
+      "sourceRefs": ["fixture:stale"]
+    }
+  ]
+}
