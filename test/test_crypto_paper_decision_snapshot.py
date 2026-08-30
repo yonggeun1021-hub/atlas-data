@@ -33,6 +33,37 @@ GENERATED_AT = EVAL_AS_OF + "T09:00:00Z"
 SOURCE_COMMIT = "a" * 40
 
 
+def unblocking_freeze_doc(uni_module):
+    """A synthetic, self-hash-valid freeze registry that blocks nothing a
+    test fixture could plausibly construct -- for tests that simulate a
+    HYPOTHETICAL future full ratification (flipping approval_status on a
+    copy of the real taxonomy/registry whose content is otherwise
+    unchanged) to exercise downstream logic, never to test the freeze
+    mechanism itself. Never mutates the real committed freeze file."""
+    freeze = uni_module.GOVERNANCE_FREEZE
+    doc = {
+        "schema_version": freeze.SCHEMA_VERSION,
+        "resolution_status": "RATIFIED_BY_EXPLICIT_CIO_DECISION",
+        "records": [{
+            "source_path": "config/_test_only_placeholder.json",
+            "revoked_file_sha256": "0" * 64,
+            "revoked_record_payload_sha256": None,
+            "revoked_inner_packet_sha256": None,
+            "reason": "placeholder so records is non-empty; matches nothing real",
+            "effective_from": "2026-01-01",
+        }],
+        "authority": {
+            "identity_authorized": False, "taxonomy_authorized": False,
+            "paper_eligible_promotion_authorized": False, "candidate_promotion_authorized": False,
+            "paper_exit_authorized": False, "exchange_authorized": False,
+            "order_authorized": False, "production_authorized": False,
+            "real_capital_authorized": False, "trading_authorized": False,
+        },
+    }
+    doc["payload_sha256"] = freeze.payload_sha256({k: v for k, v in doc.items() if k != "payload_sha256"})
+    return doc
+
+
 # ---------------------------------------------------------------------------
 # Fixture builders -- same shape/technique as test/test_crypto_candidate_promotion.py
 # ---------------------------------------------------------------------------
@@ -214,6 +245,16 @@ def ratified_policy_patches():
     targets = [CPDS.UNIVERSE, CPDS.PROMOTION.UPBIT_UNIVERSE, CPDS.ELIGIBILITY.UPBIT_UNIVERSE]
     patchers = []
     for target in targets:
+        # P3-12-GOV-03A: synthetic non-blocking freeze so this
+        # hypothetical-future-ratification fixture (unchanged taxonomy/
+        # registry content, only approval_status flipped) isn't itself
+        # still recognized as frozen -- see test G.7. Never touches the
+        # real committed freeze file. Each of the three module instances
+        # has its own loaded GOVERNANCE_FREEZE submodule instance too.
+        patchers.append(mock.patch.object(
+            target.GOVERNANCE_FREEZE, "load_freeze",
+            lambda path=None, _t=target: unblocking_freeze_doc(_t),
+        ))
         patchers.append(mock.patch.object(target, "load_policy", return_value=policy))
         patchers.append(mock.patch.object(target, "load_taxonomy", return_value=taxonomy))
         patchers.append(mock.patch.object(target, "load_identity_registry", return_value=registry))

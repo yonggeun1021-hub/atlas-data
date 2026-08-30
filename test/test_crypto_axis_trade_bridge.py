@@ -21,6 +21,37 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(BRIDGE)
 
 
+def unblocking_freeze_doc(uni_module):
+    """A synthetic, self-hash-valid freeze registry that blocks nothing a
+    test fixture could plausibly construct -- for tests that simulate a
+    HYPOTHETICAL future full ratification (flipping approval_status on a
+    copy of the real taxonomy/registry whose content is otherwise
+    unchanged) to exercise downstream logic, never to test the freeze
+    mechanism itself. Never mutates the real committed freeze file."""
+    freeze = uni_module.GOVERNANCE_FREEZE
+    doc = {
+        "schema_version": freeze.SCHEMA_VERSION,
+        "resolution_status": "RATIFIED_BY_EXPLICIT_CIO_DECISION",
+        "records": [{
+            "source_path": "config/_test_only_placeholder.json",
+            "revoked_file_sha256": "0" * 64,
+            "revoked_record_payload_sha256": None,
+            "revoked_inner_packet_sha256": None,
+            "reason": "placeholder so records is non-empty; matches nothing real",
+            "effective_from": "2026-01-01",
+        }],
+        "authority": {
+            "identity_authorized": False, "taxonomy_authorized": False,
+            "paper_eligible_promotion_authorized": False, "candidate_promotion_authorized": False,
+            "paper_exit_authorized": False, "exchange_authorized": False,
+            "order_authorized": False, "production_authorized": False,
+            "real_capital_authorized": False, "trading_authorized": False,
+        },
+    }
+    doc["payload_sha256"] = freeze.payload_sha256({k: v for k, v in doc.items() if k != "payload_sha256"})
+    return doc
+
+
 def source_observation_ceiling(
     *, universe_entry: dict | None, market_evidence_entry: dict | None,
     realtime_entry: dict | None,
@@ -229,6 +260,15 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
             ),
             mock.patch.object(
                 BRIDGE.DECISION.UNIVERSE, "load_identity_registry", return_value=registry,
+            ),
+            # P3-12-GOV-03A: synthetic non-blocking freeze so this
+            # hypothetical-future-ratification fixture (unchanged
+            # taxonomy/registry content, only approval_status flipped)
+            # isn't itself still recognized as frozen -- see test G.7.
+            # Never touches the real committed freeze file.
+            mock.patch.object(
+                BRIDGE.DECISION.UNIVERSE.GOVERNANCE_FREEZE, "load_freeze",
+                lambda path=None: unblocking_freeze_doc(BRIDGE.DECISION.UNIVERSE),
             ),
         ):
             packet = BRIDGE.DECISION.build_snapshot(

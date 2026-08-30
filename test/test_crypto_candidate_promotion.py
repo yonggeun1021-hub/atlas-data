@@ -26,6 +26,37 @@ GENERATED_AT = "2026-08-28T23:59:59Z"
 EVAL_AS_OF = "2026-08-28"
 
 
+def unblocking_freeze_doc(uni_module):
+    """A synthetic, self-hash-valid freeze registry that blocks nothing a
+    test fixture could plausibly construct -- for tests that simulate a
+    HYPOTHETICAL future full ratification (flipping approval_status on a
+    copy of the real taxonomy/registry whose content is otherwise
+    unchanged) to exercise downstream logic, never to test the freeze
+    mechanism itself. Never mutates the real committed freeze file."""
+    freeze = uni_module.GOVERNANCE_FREEZE
+    doc = {
+        "schema_version": freeze.SCHEMA_VERSION,
+        "resolution_status": "RATIFIED_BY_EXPLICIT_CIO_DECISION",
+        "records": [{
+            "source_path": "config/_test_only_placeholder.json",
+            "revoked_file_sha256": "0" * 64,
+            "revoked_record_payload_sha256": None,
+            "revoked_inner_packet_sha256": None,
+            "reason": "placeholder so records is non-empty; matches nothing real",
+            "effective_from": "2026-01-01",
+        }],
+        "authority": {
+            "identity_authorized": False, "taxonomy_authorized": False,
+            "paper_eligible_promotion_authorized": False, "candidate_promotion_authorized": False,
+            "paper_exit_authorized": False, "exchange_authorized": False,
+            "order_authorized": False, "production_authorized": False,
+            "real_capital_authorized": False, "trading_authorized": False,
+        },
+    }
+    doc["payload_sha256"] = freeze.payload_sha256({k: v for k, v in doc.items() if k != "payload_sha256"})
+    return doc
+
+
 # ---------------------------------------------------------------------------
 # Fixture builders
 # ---------------------------------------------------------------------------
@@ -469,11 +500,24 @@ class BuildPromotionPacketTests(unittest.TestCase):
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
+        # P3-12-GOV-03A: this fixture simulates a HYPOTHETICAL future full
+        # ratification by flipping approval_status on copies of the real
+        # taxonomy/registry whose `records`/`mappings` content is otherwise
+        # unchanged -- without this, the freeze check correctly still
+        # recognizes that unchanged content and blocks it (test G.7). These
+        # tests exercise downstream promotion logic post-ratification, not
+        # the freeze mechanism itself, so inject a synthetic non-blocking
+        # registry; the real committed freeze file is never touched.
+        self.freeze_patch = mock.patch.object(
+            UNI.GOVERNANCE_FREEZE, "load_freeze", lambda path=None: unblocking_freeze_doc(UNI)
+        )
         self.policy_patch.start()
         self.taxonomy_patch.start()
         self.registry_patch.start()
+        self.freeze_patch.start()
 
     def tearDown(self):
+        self.freeze_patch.stop()
         self.registry_patch.stop()
         self.taxonomy_patch.stop()
         self.policy_patch.stop()

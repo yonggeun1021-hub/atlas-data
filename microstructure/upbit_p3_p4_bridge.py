@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -21,6 +22,24 @@ BRIDGE_CONTRACT_PATH = ROOT / "config" / "upbit_p3_p4_bridge_contract.json"
 P4_POLICY_PATH = ROOT / "config" / "upbit_market_evidence_policy_ratified.json"
 UTC = dt.timezone.utc
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _load_module(name: str, relative_path: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+# P3-12-GOV-03A: the structured, self-hash-bound identity/taxonomy freeze
+# registry -- see governance/upbit_identity_taxonomy_governance_freeze.py's
+# module docstring for the "block regardless of current-byte match" rule
+# every consumer (this bridge included) must follow.
+FREEZE = _load_module(
+    "upbit_p3_p4_bridge_governance_freeze",
+    "governance/upbit_identity_taxonomy_governance_freeze.py",
+)
 
 
 class BridgeError(ValueError):
@@ -97,6 +116,15 @@ def load_bridge_contract(path: Path = BRIDGE_CONTRACT_PATH) -> dict:
 
 
 def load_identity_governance(contract: dict, *, repo_root: Path = ROOT) -> dict:
+    """Load and self-validate the freeze registry pinned by this contract.
+
+    The pin's own ``file_sha256`` is checked first (so a caller cannot point
+    ``identity_governance.path`` at a different, more permissive freeze
+    file), then the registry's own self-hash/structure is validated by
+    ``FREEZE.load_freeze`` -- fail-closed on any of: missing file, malformed
+    JSON, wrong schema, forged/inconsistent self-hash, non-false authority,
+    or malformed records.
+    """
     pin = contract["identity_governance"]
     path = (Path(repo_root) / pin["path"]).resolve()
     try:
@@ -105,19 +133,10 @@ def load_identity_governance(contract: dict, *, repo_root: Path = ROOT) -> dict:
         raise BridgeError("IDENTITY_GOVERNANCE_PATH_OUTSIDE_REPOSITORY") from exc
     if file_sha256(path) != pin["file_sha256"]:
         raise BridgeError("IDENTITY_GOVERNANCE_FILE_HASH_MISMATCH")
-    governance = _read_json(path, "IDENTITY_GOVERNANCE")
-    if governance.get("schema_version") != "upbit_identity_taxonomy_governance_freeze/1":
-        raise BridgeError("IDENTITY_GOVERNANCE_SCHEMA_MISMATCH")
-    authority = governance.get("authority")
-    if not isinstance(authority, dict) or not authority or any(value is not False for value in authority.values()):
-        raise BridgeError("IDENTITY_GOVERNANCE_AUTHORITY_INVALID")
-    blocked = governance.get("blocked_universe_record_payload_sha256s")
-    if (
-        not isinstance(blocked, list)
-        or any(not isinstance(value, str) or SHA256_RE.fullmatch(value) is None for value in blocked)
-    ):
-        raise BridgeError("IDENTITY_GOVERNANCE_BLOCKED_HASHES_INVALID")
-    return governance
+    try:
+        return FREEZE.load_freeze(path)
+    except FREEZE.GovernanceFreezeError as exc:
+        raise BridgeError(f"IDENTITY_GOVERNANCE_INVALID:{exc}") from exc
 
 
 def load_ratified_p4_policy(
@@ -168,10 +187,38 @@ def consume_universe_record(
             f"UNIVERSE_RECORD_EXACT_HASH_MISMATCH:expected={expected_record_sha256}:actual={record_hash}"
         )
 
+    if record.get("schema_version") != contract["p3_record_schema_version"]:
+        raise BridgeError("UNIVERSE_RECORD_SCHEMA_MISMATCH")
+    packet = record.get("packet")
+    if not isinstance(packet, dict):
+        raise BridgeError("UNIVERSE_PACKET_MISSING")
+    packet_hash = _hash_without_self(packet, "payload_sha256", "UNIVERSE_PACKET_HASH")
+
+    # P3-12-GOV-03A: check the freeze registry using every hash identity we
+    # can observe for this exact record -- the record's OWN declared
+    # payload_sha256 (record_hash), its inner packet's own declared
+    # payload_sha256 (packet_hash), and the raw file's current byte hash --
+    # against the record path's own frozen entry, if any. This fires
+    # regardless of whether the caller's ``expected_record_sha256`` pin
+    # matched above, and regardless of whether this record's CURRENT bytes
+    # happen to equal, differ from, or have been restored back to the
+    # frozen value: any one of the three hash identities matching a frozen
+    # record for this exact path is enough to block. See
+    # governance/upbit_identity_taxonomy_governance_freeze.py::is_frozen().
     governance = load_identity_governance(contract, repo_root=repo_root)
-    if record_hash in governance["blocked_universe_record_payload_sha256s"]:
+    try:
+        source_path = str(path.resolve().relative_to(Path(repo_root).resolve()))
+    except ValueError:
+        source_path = str(path)
+    if FREEZE.is_frozen(
+        source_path,
+        file_sha256=file_sha256(path),
+        record_payload_sha256=record_hash,
+        inner_packet_sha256=packet_hash,
+        freeze=governance,
+    ):
         raise BridgeError(f"UNIVERSE_IDENTITY_AUTHORITY_FROZEN:{record_hash}")
-    if governance.get("resolution_status") != contract["identity_governance"]["required_release_status"]:
+    if not FREEZE.is_released(governance):
         raise BridgeError(
             f"IDENTITY_GOVERNANCE_NOT_RELEASED:{governance.get('resolution_status')}"
         )
@@ -181,12 +228,6 @@ def consume_universe_record(
     if path.resolve() == anchored_path and record_hash != initial["record_payload_sha256"]:
         raise BridgeError("INITIAL_UNIVERSE_ANCHOR_HASH_MISMATCH")
 
-    if record.get("schema_version") != contract["p3_record_schema_version"]:
-        raise BridgeError("UNIVERSE_RECORD_SCHEMA_MISMATCH")
-    packet = record.get("packet")
-    if not isinstance(packet, dict):
-        raise BridgeError("UNIVERSE_PACKET_MISSING")
-    packet_hash = _hash_without_self(packet, "payload_sha256", "UNIVERSE_PACKET_HASH")
     if packet.get("schema_version") != contract["p3_packet_schema_version"]:
         raise BridgeError("UNIVERSE_PACKET_SCHEMA_MISMATCH")
     if (

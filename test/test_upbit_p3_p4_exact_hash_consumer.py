@@ -57,10 +57,29 @@ def staged_repo(tmp: str, record: dict) -> tuple[Path, Path]:
 
 
 def release_staged_governance(root: Path) -> Path:
+    """P3-12-GOV-03A: a synthetic RELEASED fixture, built by mutating only
+    this test's isolated STAGED copy of the freeze registry -- the real
+    committed ``config/upbit_identity_taxonomy_governance_freeze.json`` is
+    never touched. Flipping ``resolution_status`` alone would NOT be enough
+    to un-freeze the anchor (a record's presence in ``records`` is itself
+    the block, independent of ``resolution_status`` -- see
+    ``test_upbit_identity_taxonomy_governance_freeze.py``'s
+    ``test_released_fixture_still_blocks_its_own_registered_records``), so
+    this also drops the P3 lineage entry from the staged copy's own
+    ``records`` list and re-signs the registry's self-hash.
+    """
     governance_path = root / "config/upbit_identity_taxonomy_governance_freeze.json"
     governance = json.loads(governance_path.read_text(encoding="utf-8"))
     governance["resolution_status"] = "RATIFIED_BY_EXPLICIT_CIO_DECISION"
     governance["blocked_universe_record_payload_sha256s"] = []
+    governance["blocked_universe_packet_payload_sha256s"] = []
+    governance["records"] = [
+        record for record in governance["records"]
+        if record["source_path"] != "data/observations/upbit_tradeable_universe/2026-08-30/packet.json"
+    ]
+    governance["payload_sha256"] = BRIDGE.FREEZE.payload_sha256(
+        {key: value for key, value in governance.items() if key != "payload_sha256"}
+    )
     governance_path.write_text(json.dumps(governance), encoding="utf-8")
     contract_path = root / "config/upbit_p3_p4_bridge_contract.json"
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
@@ -162,6 +181,35 @@ class ExactHashBridgeTests(unittest.TestCase):
                 BRIDGE.consume_universe_record(
                     path, expected_record_sha256=forged_hash,
                     contract_path=contract_path, repo_root=root,
+                )
+
+    def test_active_released_contract_copying_the_blocked_anchor_still_blocks(self):
+        # P3-12-GOV-03A Section F.2: flipping resolution_status to a
+        # released state alone must NOT revive an anchor that is still
+        # listed in ``records`` -- only a genuinely re-hardened/absent
+        # record does. This mutates a staged (never the real committed)
+        # copy of the governance file, re-signing its self-hash, without
+        # touching ``records``.
+        record = json.loads(ANCHOR.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root, path = staged_repo(tmp, record)
+            governance_path = root / "config/upbit_identity_taxonomy_governance_freeze.json"
+            governance = json.loads(governance_path.read_text(encoding="utf-8"))
+            governance["resolution_status"] = "RATIFIED_BY_EXPLICIT_CIO_DECISION"
+            governance["payload_sha256"] = BRIDGE.FREEZE.payload_sha256(
+                {key: value for key, value in governance.items() if key != "payload_sha256"}
+            )
+            governance_path.write_text(json.dumps(governance), encoding="utf-8")
+            contract_path = root / "config/upbit_p3_p4_bridge_contract.json"
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["identity_governance"]["file_sha256"] = BRIDGE.file_sha256(governance_path)
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            with self.assertRaisesRegex(BRIDGE.BridgeError, "UNIVERSE_IDENTITY_AUTHORITY_FROZEN:a9be9c63"):
+                BRIDGE.consume_universe_record(
+                    path,
+                    expected_record_sha256=record["payload_sha256"],
+                    contract_path=contract_path,
+                    repo_root=root,
                 )
 
     def test_ratified_policy_exact_self_hash_is_verified(self):

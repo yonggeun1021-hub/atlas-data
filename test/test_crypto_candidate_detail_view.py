@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -560,6 +561,248 @@ class SyntheticFixtureTest(unittest.TestCase):
                     market_evidence_data_root=tmp / "market_evidence",
                     decision_packet_path=decision_path,
                 )
+
+
+def _self_hashed_freeze(records):
+    doc = {
+        "schema_version": MODULE.GOVERNANCE_FREEZE.SCHEMA_VERSION,
+        "resolution_status": MODULE.GOVERNANCE_FREEZE.PENDING_RESOLUTION_STATUS,
+        "records": records,
+        "authority": {
+            "identity_authorized": False, "taxonomy_authorized": False,
+            "paper_eligible_promotion_authorized": False, "candidate_promotion_authorized": False,
+            "paper_exit_authorized": False, "exchange_authorized": False,
+            "order_authorized": False, "production_authorized": False,
+            "real_capital_authorized": False, "trading_authorized": False,
+        },
+    }
+    doc["payload_sha256"] = MODULE.GOVERNANCE_FREEZE.payload_sha256(
+        {k: v for k, v in doc.items() if k != "payload_sha256"}
+    )
+    return doc
+
+
+def _freeze_record(source_path, file_sha=None, record_sha=None, inner_sha=None,
+                    reason="test freeze", effective_from="2026-08-30"):
+    return {
+        "source_path": source_path,
+        "revoked_file_sha256": file_sha,
+        "revoked_record_payload_sha256": record_sha,
+        "revoked_inner_packet_sha256": inner_sha,
+        "reason": reason,
+        "effective_from": effective_from,
+    }
+
+
+class GovernanceFreezeReadModelTests(unittest.TestCase):
+    """P3-12-GOV-03A Section G: the freeze/revocation check must block
+    regardless of whether current bytes match, differ from, or have been
+    restored to the frozen value -- never gated on "a mismatch was
+    detected". These patch ``GOVERNANCE_FREEZE.load_freeze`` with a
+    synthetic, self-hash-valid registry, AND patch ``MODULE.ROOT`` to a
+    scratch temp directory (``_path_is_frozen`` requires the observed path
+    to physically resolve inside ``ROOT``) so real committed evidence and
+    the real freeze file are never touched by this test class."""
+
+    def _patched(self, doc, root):
+        return (
+            mock.patch.object(MODULE, "ROOT", root),
+            mock.patch.object(MODULE.GOVERNANCE_FREEZE, "load_freeze", lambda path=None: doc),
+        )
+
+    def test_g1_exact_tuple_current_bytes_match_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            universe_root = tmp / "universe"
+            path = write_universe_packet(
+                universe_root, "2026-08-30",
+                [universe_row("KRW-BTC", state="TRADEABLE_UNIVERSE", canonical_asset_id="BTC")],
+            )
+            relative = str(path.resolve().relative_to(tmp))
+            file_hash = MODULE.GOVERNANCE_FREEZE.file_sha256(path)
+            doc = _self_hashed_freeze([_freeze_record(relative, file_sha=file_hash)])
+            root_patch, freeze_patch = self._patched(doc, tmp)
+            with root_patch, freeze_patch:
+                result = MODULE.build_view(
+                    universe_data_root=universe_root,
+                    market_evidence_data_root=tmp / "market_evidence",
+                    decision_snapshot_root=tmp / "decision",
+                    generated_at="2026-08-30T12:00:00Z",
+                )
+            self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 0)
+            self.assertEqual(result["candidates"][0]["funnel_stage"], "OBSERVATION_POOL")
+            self.assertEqual(
+                result["candidates"][0]["blocker_reason"],
+                MODULE.GOVERNANCE_FROZEN_REASON,
+            )
+
+    def test_g2_exact_tuple_current_bytes_differ_still_blocks(self):
+        # write_universe_packet's record/packet payload_sha256 fields are
+        # fixed test-fixture sentinels ("c"*64 / "b"*64) independent of the
+        # actual row content -- registering ONLY those content-identity
+        # hashes (never the raw file hash) proves the block fires even
+        # though this file's raw bytes were never the ones "originally"
+        # hashed into the registry.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            universe_root = tmp / "universe"
+            path = write_universe_packet(
+                universe_root, "2026-08-30",
+                [universe_row("KRW-ETH", state="PAPER_ELIGIBLE", canonical_asset_id="ETH")],
+            )
+            relative = str(path.resolve().relative_to(tmp))
+            doc = _self_hashed_freeze([
+                _freeze_record(relative, file_sha=None, record_sha="c" * 64, inner_sha="b" * 64)
+            ])
+            root_patch, freeze_patch = self._patched(doc, tmp)
+            with root_patch, freeze_patch:
+                result = MODULE.build_view(
+                    universe_data_root=universe_root,
+                    market_evidence_data_root=tmp / "market_evidence",
+                    decision_snapshot_root=tmp / "decision",
+                    generated_at="2026-08-30T12:00:00Z",
+                )
+            self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 0)
+            self.assertEqual(result["candidates"][0]["funnel_stage"], "OBSERVATION_POOL")
+
+    def test_g3_bytes_removed_then_restored_still_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            universe_root = tmp / "universe"
+            path = write_universe_packet(
+                universe_root, "2026-08-30",
+                [universe_row("KRW-SOL", state="TRADEABLE_UNIVERSE", canonical_asset_id="SOL")],
+            )
+            relative = str(path.resolve().relative_to(tmp))
+            frozen_bytes = path.read_bytes()
+            frozen_hash = MODULE.GOVERNANCE_FREEZE.file_sha256(path)
+            doc = _self_hashed_freeze([_freeze_record(relative, file_sha=frozen_hash)])
+            root_patch, freeze_patch = self._patched(doc, tmp)
+            with root_patch, freeze_patch:
+                self.assertTrue(MODULE._path_is_frozen(relative))
+                path.write_bytes(frozen_bytes + b"\n// tampered\n")
+                self.assertFalse(
+                    MODULE._path_is_frozen(relative),
+                    "different bytes with no registered content-hash match must not be frozen",
+                )
+                path.write_bytes(frozen_bytes)
+                self.assertTrue(
+                    MODULE._path_is_frozen(relative),
+                    "bytes restored back to the exact frozen value must block again",
+                )
+
+    def test_g4_same_path_different_hash_is_not_exempted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            universe_root = tmp / "universe"
+            path = write_universe_packet(
+                universe_root, "2026-08-30",
+                [universe_row("KRW-XRP", state="TRADEABLE_UNIVERSE", canonical_asset_id="XRP")],
+            )
+            relative = str(path.resolve().relative_to(tmp))
+            doc = _self_hashed_freeze([_freeze_record(relative, file_sha="9" * 64)])
+            root_patch, freeze_patch = self._patched(doc, tmp)
+            with root_patch, freeze_patch:
+                self.assertFalse(MODULE._path_is_frozen(relative))
+                result = MODULE.build_view(
+                    universe_data_root=universe_root,
+                    market_evidence_data_root=tmp / "market_evidence",
+                    decision_snapshot_root=tmp / "decision",
+                    generated_at="2026-08-30T12:00:00Z",
+                )
+            self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 1)
+
+    def test_g5_different_path_same_hash_is_not_broad_revocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            universe_root = tmp / "universe"
+            path = write_universe_packet(
+                universe_root, "2026-08-30",
+                [universe_row("KRW-WLD", state="TRADEABLE_UNIVERSE", canonical_asset_id="WLD")],
+            )
+            relative = str(path.resolve().relative_to(tmp))
+            file_hash = MODULE.GOVERNANCE_FREEZE.file_sha256(path)
+            doc = _self_hashed_freeze([_freeze_record("some/other/unrelated/path.json", file_sha=file_hash)])
+            root_patch, freeze_patch = self._patched(doc, tmp)
+            with root_patch, freeze_patch:
+                self.assertFalse(MODULE._path_is_frozen(relative))
+                result = MODULE.build_view(
+                    universe_data_root=universe_root,
+                    market_evidence_data_root=tmp / "market_evidence",
+                    decision_snapshot_root=tmp / "decision",
+                    generated_at="2026-08-30T12:00:00Z",
+                )
+            self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 1)
+
+    def test_g6_malformed_freeze_registry_fails_closed(self):
+        with mock.patch.object(
+            MODULE.GOVERNANCE_FREEZE, "load_freeze",
+            lambda path=None: (_ for _ in ()).throw(MODULE.GOVERNANCE_FREEZE.GovernanceFreezeError("FREEZE_SELF_HASH_MISMATCH")),
+        ):
+            with self.assertRaises(MODULE.GOVERNANCE_FREEZE.GovernanceFreezeError):
+                MODULE._path_is_frozen("data/observations/upbit_tradeable_universe/2026-08-30/packet.json")
+
+    def test_g8_explicit_frozen_decision_path_raises_governance_frozen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            universe_root = tmp / "universe"
+            universe_path = write_universe_packet(
+                universe_root, "2026-08-30",
+                [universe_row("KRW-SUI", state="TRADEABLE_UNIVERSE", canonical_asset_id="SUI")],
+            )
+            universe_relative = str(universe_path.resolve().relative_to(tmp))
+            universe_file_hash = MODULE.GOVERNANCE_FREEZE.file_sha256(universe_path)
+            decision_root = tmp / "decision"
+            decision_path = write_decision_snapshot(
+                decision_root, "2026-08-30", "0900", "5" * 64,
+                [decision_candidate_row("KRW-SUI", canonical_asset_id="SUI")],
+            )
+            # Splice in an explicit source_refs entry pointing at the
+            # to-be-frozen universe packet, then re-sign the record's own
+            # payload_sha256 (mirrors the real retain_source()-style ref
+            # shape this module expects).
+            record = json.loads(decision_path.read_text(encoding="utf-8"))
+            record["source_refs"] = [{
+                "role": "upbit_tradeable_universe_packet",
+                "path": universe_relative,
+                "sha256": universe_file_hash,
+            }]
+            unsigned = dict(record)
+            del unsigned["payload_sha256"]
+            record["payload_sha256"] = MODULE.payload_sha256(unsigned)
+            decision_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+            doc = _self_hashed_freeze([_freeze_record(universe_relative, file_sha=universe_file_hash)])
+            root_patch, freeze_patch = self._patched(doc, tmp)
+            with root_patch, freeze_patch:
+                with self.assertRaisesRegex(
+                    MODULE.CryptoCandidateDetailViewError,
+                    "DECISION_SOURCE_GOVERNANCE_FROZEN",
+                ):
+                    MODULE.build_view(
+                        universe_data_root=universe_root,
+                        market_evidence_data_root=tmp / "market_evidence",
+                        decision_snapshot_root=decision_root,
+                        decision_packet_path=decision_path,
+                        generated_at="2026-08-30T12:00:00Z",
+                    )
+
+    @unittest.skipUnless(REAL_UNIVERSE_ROOT.is_dir(), "real P3-12 evidence not committed")
+    def test_g9_auto_latest_real_read_model_is_zero_zero(self):
+        # Uses the REAL committed freeze registry (no patching) against the
+        # REAL committed evidence tree -- the headline P3-12-GOV-03A
+        # acceptance criterion.
+        result = MODULE.build_view(generated_at="2026-08-30T12:00:00Z")
+        self.assertEqual(result["funnel_counts"]["tradeable_universe_count"], 0)
+        self.assertEqual(result["funnel_counts"]["paper_ready_count"], 0)
+        for row in result["candidates"]:
+            self.assertNotEqual(row["funnel_stage"], "PAPER_BUY_ELIGIBLE")
+            self.assertNotEqual(row["funnel_stage"], "TRADEABLE_UNIVERSE")
+        for row in result["candidates"]:
+            for key, value in row["authority"].items():
+                self.assertFalse(value, f"{row['market']}.authority.{key} must stay false")
+        for value in result["authority"].values():
+            self.assertFalse(value)
 
 
 if __name__ == "__main__":

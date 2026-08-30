@@ -63,6 +63,23 @@ UPBIT_CAPTURE = importlib.util.module_from_spec(_CAPTURE_SPEC)
 assert _CAPTURE_SPEC.loader is not None
 _CAPTURE_SPEC.loader.exec_module(UPBIT_CAPTURE)
 
+# P3-12-GOV-03A: the structured, self-hash-bound identity/taxonomy freeze
+# registry. Consulted by _approval_effective()/effective_identity_mapping()
+# so that a frozen tuple blocks regardless of whether the taxonomy/identity
+# registry's CURRENT approval_status field says RATIFIED or PENDING -- see
+# governance/upbit_identity_taxonomy_governance_freeze.py's module
+# docstring. Never consulted for ``policy`` (not part of this freeze).
+_FREEZE_SPEC = importlib.util.spec_from_file_location(
+    "upbit_identity_taxonomy_governance_freeze_for_universe",
+    ROOT / "governance" / "upbit_identity_taxonomy_governance_freeze.py",
+)
+GOVERNANCE_FREEZE = importlib.util.module_from_spec(_FREEZE_SPEC)
+assert _FREEZE_SPEC.loader is not None
+_FREEZE_SPEC.loader.exec_module(GOVERNANCE_FREEZE)
+
+TAXONOMY_RELATIVE_PATH = "config/upbit_exclusion_taxonomy.json"
+IDENTITY_REGISTRY_RELATIVE_PATH = "config/upbit_asset_identity_registry.json"
+
 
 CONTRACT_PATH = ROOT / "config" / "upbit_tradeable_universe_contract.json"
 CAPTURE_CONTRACT_PATH = ROOT / "config" / "upbit_market_capture_contract.json"
@@ -267,7 +284,23 @@ def load_identity_registry(path: Path = IDENTITY_REGISTRY_PATH) -> dict:
     return copy.deepcopy(doc)
 
 
-def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: str) -> bool:
+def _approval_effective(
+    document: dict, evaluation_as_of: str, *, date_field: str,
+    governance_source_path: str | None = None, governance_content: object = None,
+) -> bool:
+    """``governance_source_path``/``governance_content`` are supplied ONLY by
+    callers checking a taxonomy or identity-registry document (never
+    policy, which this freeze incident never touched). When given, this
+    checks the freeze registry FIRST and unconditionally -- a frozen tuple
+    returns False here regardless of what ``approval_status`` currently
+    says, so editing ``approval_status`` back to ``RATIFIED`` without a
+    genuinely different (re-hardened) ``governance_content`` payload can
+    never revive frozen authority (P3-12-GOV-03A item C / test G.7).
+    """
+    if governance_source_path is not None:
+        content_hash = GOVERNANCE_FREEZE.payload_sha256(governance_content)
+        if GOVERNANCE_FREEZE.is_frozen(governance_source_path, record_payload_sha256=content_hash):
+            return False
     if document.get("approval_status") != "RATIFIED":
         return False
     effective = document.get(date_field)
@@ -278,7 +311,11 @@ def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: st
 
 
 def effective_identity_mapping(registry: dict, evaluation_as_of: str) -> dict:
-    if not _approval_effective(registry, evaluation_as_of, date_field="effective_from"):
+    if not _approval_effective(
+        registry, evaluation_as_of, date_field="effective_from",
+        governance_source_path=IDENTITY_REGISTRY_RELATIVE_PATH,
+        governance_content=registry.get("mappings") or {},
+    ):
         return {}
     return copy.deepcopy(registry["mappings"])
 
@@ -507,7 +544,11 @@ def build_classification(
     kraken_known_canonical_ids = kraken_known_canonical_ids or set()
 
     policy_ratified = _approval_effective(policy, evaluation_as_of, date_field="effective_date")
-    taxonomy_ratified = _approval_effective(taxonomy, evaluation_as_of, date_field="effective_from")
+    taxonomy_ratified = _approval_effective(
+        taxonomy, evaluation_as_of, date_field="effective_from",
+        governance_source_path=TAXONOMY_RELATIVE_PATH,
+        governance_content=taxonomy.get("records") or [],
+    )
     min_listing_days = int(policy["min_listing_history_finalized_days"])
     min_turnover = _decimal(policy["min_30d_avg_krw_turnover"], "min_30d_avg_krw_turnover")
     max_spread = _decimal(policy["max_spread_bps"], "max_spread_bps")
