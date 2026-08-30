@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_execution_measurement/1",
+  "input_schema_version": "krx_execution_measurement_input/1",
+  "private_output_schema_version": "krx_execution_measurement_private/1",
+  "public_output_schema_version": "krx_execution_measurement_public/1",
+  "registry_schema_version": "krx_investable_registry/1",
+  "markets": [
+    "KOSDAQ",
+    "KOSPI"
+  ],
+  "measurement_families": [
+    "order_book_depth",
+    "slippage",
+    "spread",
+    "turnover"
+  ],
+  "krx_turnover_source": {
+    "source_id": "krx_open_api_stock_daily",
+    "response_block": "OutBlock_1",
+    "required_fields": [
+      "ACC_TRDVAL",
+      "BAS_DD",
+      "ISU_CD",
+      "MKT_NM"
+    ],
+    "market_endpoints": {
+      "KOSDAQ": "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd",
+      "KOSPI": "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd"
+    },
+    "http_method": "GET",
+    "date_semantics": "EXACT_COMPLETED_SESSION",
+    "product_coverage": [
+      "COMMON_STOCK",
+      "PREFERRED_STOCK",
+      "SPAC"
+    ]
+  },
+  "kis_order_book_source": {
+    "repository": "https://github.com/koreainvestment/open-trading-api",
+    "pinned_commit": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+    "sample_path": "examples_llm/domestic_stock/inquire_asking_price_exp_ccn/chk_inquire_asking_price_exp_ccn.py",
+    "implementation_path": "examples_llm/domestic_stock/inquire_asking_price_exp_ccn/inquire_asking_price_exp_ccn.py",
+    "endpoint_path": "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+    "tr_id": "FHKST01010200",
+    "http_method": "GET",
+    "venue_code": "J",
+    "levels": 10,
+    "response_block": "output1",
+    "accepted_response_code": "0"
+  },
+  "measurement_definitions": {
+    "turnover_krw": "KRX_ACC_TRDVAL_FOR_EXACT_COMPLETED_SESSION",
+    "displayed_depth_krw": "SUM_PRICE_TIMES_QUANTITY_ACROSS_OFFICIAL_TEN_LEVELS_PER_SIDE",
+    "spread_bps": "10000_TIMES_ASK1_MINUS_BID1_DIVIDED_BY_MID",
+    "slippage_curve": "CUMULATIVE_NOTIONAL_AND_VWAP_IMPACT_AT_EACH_AVAILABLE_BOOK_LEVEL_WITHOUT_POLICY_ORDER_NOTIONAL"
+  },
+  "distribution": {
+    "method": "NEAREST_RANK",
+    "quantiles": [
+      "min",
+      "p25",
+      "p50",
+      "p75",
+      "max"
+    ],
+    "minimum_public_sample_count": 5,
+    "suppressed_value": null
+  },
+  "policy_candidates": {
+    "order_book_depth": {
+      "status": "UNRATIFIED",
+      "minimum_displayed_depth_krw": null
+    },
+    "slippage": {
+      "status": "UNRATIFIED",
+      "maximum_impact_bps": null,
+      "order_notional_krw": null
+    },
+    "spread": {
+      "status": "UNRATIFIED",
+      "maximum_spread_bps": null
+    },
+    "turnover": {
+      "status": "UNRATIFIED",
+      "lookback_completed_sessions": null,
+      "minimum_turnover_krw": null
+    }
+  },
+  "distribution_boundary": {
+    "public_allowed": [
+      "aggregate_coverage_counts",
+      "aggregate_distributions_when_minimum_sample_count_is_met",
+      "capture_and_as_of_times",
+      "contract_and_source_urls",
+      "policy_candidate_state",
+      "source_hashes_and_byte_lengths"
+    ],
+    "private_only": [
+      "KIS_CREDENTIALS_AND_ACCOUNT_IDENTIFIERS",
+      "KIS_RAW_ORDER_BOOK_RESPONSES",
+      "KRX_RAW_RESPONSE_BYTES",
+      "PER_SYMBOL_IDENTIFIERS_AND_MEASUREMENTS",
+      "PER_SYMBOL_SLIPPAGE_CURVES"
+    ],
+    "basis": "KRX_OPEN_API_TERMS_RESTRICT_THIRD_PARTY_PROVISION_AND_REDISTRIBUTION_RIGHTS_ARE_NOT_ESTABLISHED"
+  },
+  "authority": {
+    "read_only_evidence": true,
+    "broker_post_authorized": false,
+    "investable_universe_authorized": false,
+    "kis_mock_order_authorized": false,
+    "live_account_order_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "strategy_entry_authorized": false,
+    "trading_authorized": false
+  }
+}

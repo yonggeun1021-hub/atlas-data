@@ -81,6 +81,14 @@ contract fixes every proposed threshold to `null` and every policy status to
 `UNRATIFIED`.  No source flag, current count, backtest result, or code merge may
 ratify those thresholds.
 
+An optional private `krx_execution_measurement/1` packet may be bound to the
+registry's immutable identity-snapshot hash and exact completed-session
+evidence. Valid per-symbol measurements remove only their corresponding
+`*_MEASUREMENT_MISSING` blocker. They do not remove the unratified-policy
+blocker, create `ELIGIBLE`, or authorize an order. Public registry output copies
+only the measurement packet's source hashes, aggregate coverage, suppressed
+aggregate distributions, policy state, and false authority projection.
+
 ## Distribution boundary
 
 KRX Open API terms say API information may not be provided to a third party and
@@ -124,13 +132,14 @@ output is only a `NON_AUTHORITY_EVIDENCE_CANDIDATE` for
 `KRX_FINAL_CANDIDATE_POLICY_RATIFIED`.  It cannot declare either check PASS,
 claim a KRX Gate state, or authorize a state transition.
 
-The current projection is `INSUFFICIENT` with
+The current projection remains `INSUFFICIENT` with
 `COMMON_PIT_OR_LINEAGE_NOT_PROVEN` and
 `KRX_FINAL_CANDIDATE_AUTHORITY_UNRATIFIED`.  COMMON SAFETY and the KRX PAPER
 Gate remain independently evaluated by the merged Gate implementation.  The
-latest completed KRX membership snapshot, append-only prior KIS identity
-history, official scheduled-delisting evidence, observed
-turnover/depth/spread/slippage coverage, and CIO-ratified policies are still
-absent.  All virtual-ledger, KIS mock-account, REAL, live-account, Production,
-and trading authority fields remain false.  Full CI is only a merge regression
-and cannot replace either Gate.
+latest 2026-08-28 completed-session KRX membership snapshot is now available,
+so the stale-snapshot blocker is resolved for a registry built from that
+packet. Append-only prior KIS identity history, official scheduled-delisting
+evidence, complete observed turnover/depth/spread/slippage coverage, and
+CIO-ratified policies are still absent. All virtual-ledger, KIS mock-account,
+REAL, live-account, Production, and trading authority fields remain false. Full
+CI is only a merge regression and cannot replace either Gate.
