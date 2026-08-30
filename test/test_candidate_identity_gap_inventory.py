@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from identity import canonical_identity as ci
+from identity.candidate_identity_observation import build_observation
 from identity.candidate_identity_gap_inventory import (
     CandidateIdentityGapInventoryError,
     DIAGNOSTIC_MATCH,
@@ -25,18 +26,45 @@ from identity.candidate_identity_gap_inventory import (
     validate_inventory,
 )
 
+FIXTURE_REPORT_PATH = (
+    ROOT / "evidence" / "operational" / "dynamic_clock"
+    / "candidate_validity_source_reports"
+    / "report-8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512.json"
+)
+
+
+def _identity_fixture_report() -> dict:
+    full = json.loads(FIXTURE_REPORT_PATH.read_text(encoding="utf-8"))
+    crypto_rows = full["by_market"]["CRYPTO"]["review_queue"]
+    unresolved_crypto_subject = next(
+        row["subject"] for row in crypto_rows if row["subject"] != "BTC"
+    )
+    wanted = {"BTC", "005930", unresolved_crypto_subject}
+    by_market = {}
+    for market, result in full["by_market"].items():
+        rows = [
+            copy.deepcopy(row)
+            for row in result["review_queue"]
+            if row["subject"] in wanted
+        ]
+        if rows:
+            by_market[market] = {"review_queue": rows}
+    return {
+        "decision_date": full["decision_date"],
+        "operational_evaluation": copy.deepcopy(full["operational_evaluation"]),
+        "by_market": by_market,
+    }
+
 
 class CandidateIdentityGapInventoryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.report = json.loads(
-            (ROOT / "evidence/operational/dynamic_clock/dynamic_clock_report.json").read_text()
-        )
-        cls.observation = json.loads(
-            (ROOT / "evidence/operational/dynamic_clock/candidate_identity_observation.json").read_text()
-        )
+        cls.report = _identity_fixture_report()
         cls.authority = ci.load_authority()
         cls.scope_authority = ci.load_scope_authority()
+        cls.observation = build_observation(
+            cls.report, cls.authority, cls.scope_authority
+        )
         cls.taxonomy_path = ROOT / "config/crypto_breadth_exclusion_taxonomy.json"
         cls.taxonomy, cls.records = _load_taxonomy(cls.taxonomy_path)
         cls.taxonomy_sha = hashlib.sha256(cls.taxonomy_path.read_bytes()).hexdigest()
@@ -73,6 +101,43 @@ class CandidateIdentityGapInventoryTests(unittest.TestCase):
         self.assertNotIn("BTC", subjects)
         self.assertNotIn("005930", subjects)
         self.assertNotIn("000660", subjects)
+
+    def test_zero_candidate_population_builds_an_empty_valid_inventory(self):
+        report = {
+            "decision_date": self.report["decision_date"],
+            "operational_evaluation": copy.deepcopy(
+                self.report["operational_evaluation"]
+            ),
+            "by_market": {},
+        }
+        observation = build_observation(
+            report, self.authority, self.scope_authority
+        )
+        packet = build_inventory(
+            observation,
+            report,
+            self.authority,
+            self.scope_authority,
+            self.taxonomy,
+            self.records,
+            taxonomy_bytes_sha256=self.taxonomy_sha,
+        )
+        self.assertEqual(packet["identity_gaps"], [])
+        self.assertEqual(packet["summary"]["candidate_count"], 0)
+        self.assertEqual(packet["summary"]["identity_gap_count"], 0)
+        self.assertEqual(
+            validate_inventory(
+                packet,
+                observation,
+                report,
+                self.authority,
+                self.scope_authority,
+                self.taxonomy,
+                self.records,
+                taxonomy_bytes_sha256=self.taxonomy_sha,
+            ),
+            packet,
+        )
 
     def test_every_gap_and_packet_authority_remains_false(self):
         packet = self.build()

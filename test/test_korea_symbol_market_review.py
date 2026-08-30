@@ -40,10 +40,30 @@ class CurrentEvidenceTests(unittest.TestCase):
         self.assertEqual(result["five_axis"]["final_policy"], "PENDING_POLICY_RATIFICATION")
         by_symbol = {row["symbol"]: row for row in result["symbols"]}
         self.assertEqual(set(by_symbol), {"012450", "298040", "329180"})
-        self.assertEqual(by_symbol["298040"]["pipeline_stage"], "Candidate")
-        self.assertEqual(by_symbol["298040"]["price_context"]["close_krw"], 3079000)
-        self.assertEqual(by_symbol["298040"]["entry_review"]["state"], "WAIT")
-        self.assertIn("FOREIGN_AND_INSTITUTION_NET_BUY", by_symbol["298040"]["observed_facts"])
+        candidate = by_symbol["298040"]
+        source_row = result["source"]["stage_snapshot"]["subjects"]["298040"][
+            "latest_confirmed_row"
+        ]
+        self.assertEqual(candidate["pipeline_stage"], "Candidate")
+        self.assertEqual(candidate["price_context"]["close_krw"], source_row["close"])
+        self.assertEqual(
+            candidate["flow_context"]["foreign_net_value_krw"],
+            source_row["net_value"]["외국인합계"],
+        )
+        self.assertEqual(
+            candidate["flow_context"]["institution_net_value_krw"],
+            source_row["net_value"]["기관합계"],
+        )
+        foreign_positive = source_row["net_value"]["외국인합계"] > 0
+        institution_positive = source_row["net_value"]["기관합계"] > 0
+        expected_flow_fact = {
+            (True, True): "FOREIGN_AND_INSTITUTION_NET_BUY",
+            (True, False): "FOREIGN_NET_BUY_INSTITUTION_NET_SELL",
+            (False, True): "INSTITUTION_NET_BUY_FOREIGN_NET_SELL",
+            (False, False): "FOREIGN_AND_INSTITUTION_NET_SELL",
+        }[(foreign_positive, institution_positive)]
+        self.assertEqual(candidate["entry_review"]["state"], "WAIT")
+        self.assertIn(expected_flow_fact, candidate["observed_facts"])
         self.assertEqual(result["summary"]["automatic_entry_count"], 0)
         self.assertEqual(result["summary"]["automatic_exit_count"], 0)
         self.assertTrue(all(value is False for value in result["authority"].values()))

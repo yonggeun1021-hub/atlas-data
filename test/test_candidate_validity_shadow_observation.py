@@ -32,11 +32,25 @@ from clock.review_candidate import AUTHORITY_ALL_FALSE
 
 
 REPORT_PATH = ROOT / "evidence" / "operational" / "dynamic_clock" / "dynamic_clock_report.json"
+FIXTURE_REPORT_PATH = (
+    ROOT / "evidence" / "operational" / "dynamic_clock"
+    / "candidate_validity_source_reports"
+    / "report-8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512.json"
+)
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "p8-12-dynamic-clock.yml"
 
 
 def _report() -> dict:
     return json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+
+
+def _candidate_fixture_report() -> dict:
+    """A content-addressed source report with BTC and CRYPTO candidates.
+
+    The rolling operational report is allowed to contain zero candidates, so
+    mutation tests must not borrow candidates from it implicitly.
+    """
+    return json.loads(FIXTURE_REPORT_PATH.read_text(encoding="utf-8"))
 
 
 def _rehash_candidate(candidate: dict) -> None:
@@ -84,12 +98,17 @@ class RealReportShadowObservationTests(unittest.TestCase):
             self.observation,
         )
         self.assertEqual(self.observation["observation_mode"], OBSERVATION_MODE)
-        self.assertGreater(self.observation["candidate_count"], 0)
+        self.assertEqual(
+            self.observation["candidate_count"],
+            sum(
+                len(market["review_queue"])
+                for market in self.report["by_market"].values()
+            ),
+        )
 
     def test_every_candidate_remains_freshness_not_computable(self):
         candidates = _all_candidates(self.observation)
         self.assertEqual(len(candidates), self.observation["candidate_count"])
-        self.assertTrue(candidates)
         for candidate in candidates:
             self.assertEqual(candidate["candidate_freshness_status"], FRESHNESS_STATUS)
             self.assertEqual(candidate["risk_capacity_status"], FRESHNESS_STATUS)
@@ -143,10 +162,25 @@ class RealReportShadowObservationTests(unittest.TestCase):
             "LOCAL_REPRODUCTION_NOT_OPERATIONAL_SAMPLE",
         )
 
+    def test_zero_candidate_population_is_a_valid_observation(self):
+        report = copy.deepcopy(self.report)
+        for market in report["by_market"].values():
+            market["review_queue"] = []
+            market["review_queue_subject_count"] = 0
+            market["tier_counts"] = {
+                "IMMEDIATE_REVIEW": 0,
+                "WATCH_REVIEW": 0,
+                "OBSERVATION_ONLY": 0,
+            }
+        observation = build_observation(report)
+        self.assertEqual(observation["candidate_count"], 0)
+        self.assertEqual(_all_candidates(observation), [])
+        self.assertEqual(validate_observation(observation, report), observation)
+
 
 class SourceFailClosedTests(unittest.TestCase):
     def setUp(self):
-        self.report = _report()
+        self.report = _candidate_fixture_report()
 
     def _first_candidate(self) -> dict:
         for market in ("BTC", "CRYPTO", "KOREA"):

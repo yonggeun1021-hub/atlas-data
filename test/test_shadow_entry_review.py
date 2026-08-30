@@ -45,8 +45,14 @@ class ShadowEntryReviewTests(unittest.TestCase):
         self.assertIsNone(row["money_boundary"]["trade_proposal"])
 
     def test_real_btc_and_hynix_are_never_misrepresented_as_executable_entries(self):
-        for subject in ("BTC", "000660"):
-            row = self.by_subject[subject]
+        for market, subject in (("BTC", "BTC"), ("KOREA", "000660")):
+            row = self.by_subject.get(subject)
+            if row is None:
+                self.assertTrue(any(
+                    expired["subject"] == subject
+                    for expired in self.report["by_market"][market]["expired_triggers"]
+                ))
+                continue
             self.assertIn(row["review_state"], {
                 review.REVIEW_MOMENTUM, review.REVIEW_REVERSAL,
                 review.REVIEW_PULLBACK, review.REVIEW_WATCH, review.REVIEW_BLOCKED,
