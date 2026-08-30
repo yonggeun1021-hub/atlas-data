@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from decision import entry_policy_readiness as readiness
 from decision import entry_proposal_boundary as boundary
+from decision import krx_paper_proposal_bridge as krx_bridge
 from replay.opportunity_trigger import payload_sha256
 
 
@@ -25,6 +26,14 @@ def _contains_key(value: object, forbidden: set[str]) -> bool:
     if isinstance(value, list):
         return any(_contains_key(child, forbidden) for child in value)
     return False
+
+
+def _resign_krx_bridge(value: dict) -> dict:
+    result = copy.deepcopy(value)
+    result["packet_sha256"] = krx_bridge.payload_sha256(
+        {key: item for key, item in result.items() if key != "packet_sha256"}
+    )
+    return result
 
 
 class EntryProposalBoundaryTests(unittest.TestCase):
@@ -237,6 +246,236 @@ class EntryProposalBoundaryTests(unittest.TestCase):
                     trigger_kind=self.trigger_kind,
                 ),
             )
+
+
+class KrxPaperProposalBridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.contract = krx_bridge.load_contract()
+        cls.policy_packet = krx_bridge.load_policy_packet()
+        cls.source = json.loads(
+            krx_bridge.DEFAULT_INPUT_PATH.read_text(encoding="utf-8")
+        )
+        cls.packet = krx_bridge.build_packet(
+            cls.source, cls.contract, cls.policy_packet
+        )
+
+    def _build(self, source: dict | None = None) -> dict:
+        return krx_bridge.build_packet(
+            source if source is not None else self.source,
+            self.contract,
+            self.policy_packet,
+        )
+
+    def test_merged_universe_unmerged_shadow_and_unratified_policy_keep_none(self):
+        proposal = self.packet["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertEqual("NONE", proposal["action"])
+        self.assertEqual("ENTER", proposal["diagnostic_action"])
+        self.assertNotIn("UNIVERSE_SOURCE_UNMERGED", proposal["blockers"])
+        self.assertIn("SHADOW_SOURCE_UNMERGED", proposal["blockers"])
+        self.assertIn("STRATEGY_POLICY_UNRATIFIED", proposal["blockers"])
+        self.assertIn("COMMON_SAFETY_NOT_PASS", proposal["blockers"])
+        self.assertIn("KRX_SHADOW_NOT_PASS", proposal["blockers"])
+        self.assertIsNone(proposal["internal_virtual_ledger_draft"])
+        self.assertIsNone(proposal["broker_order_draft"])
+
+    def test_candidate_plan_binds_requested_facts_without_authority(self):
+        proposal = self.packet["machine_proposal"]
+        self.assertEqual("005930", proposal["symbol"])
+        self.assertEqual("UNKNOWN", proposal["eligibility"]["status"])
+        self.assertEqual(["15m", "1h", "1d"], list(proposal["completed_bars"]))
+        self.assertTrue(
+            all(row["completed"] for row in proposal["completed_bars"].values())
+        )
+        plan = proposal["candidate_plan_not_authority"]
+        self.assertEqual(
+            {"minimum_price_units": 100000, "maximum_price_units": 102000},
+            plan["entry_zone"],
+        )
+        self.assertEqual(98000, plan["stop_price_units"])
+        self.assertEqual(106000, plan["first_take_profit_price_units"])
+        self.assertEqual(110000, plan["final_take_profit_price_units"])
+        self.assertEqual(1000, plan["planned_loss_units"])
+        self.assertEqual(10000, plan["account_risk_budget_units"])
+        self.assertEqual(krx_bridge.AUTHORITY_ALL_FALSE, proposal["authority"])
+
+    def test_human_and_machine_share_one_evidence_basis_hash(self):
+        digest = krx_bridge.payload_sha256(self.packet["evidence_basis"])
+        self.assertEqual(digest, self.packet["evidence_basis_sha256"])
+        self.assertEqual(
+            digest, self.packet["human_briefing"]["evidence_basis_sha256"]
+        )
+        self.assertEqual(
+            digest, self.packet["machine_proposal"]["evidence_basis_sha256"]
+        )
+        self.assertEqual(
+            self.packet["human_briefing"]["proposal_key"],
+            self.packet["machine_proposal"]["proposal_key"],
+        )
+
+    def test_candidate_selection_and_order_authorities_remain_false(self):
+        authority = self.packet["authority"]
+        self.assertEqual(krx_bridge.AUTHORITY_ALL_FALSE, authority)
+        for field in (
+            "briefing_candidate_selection_authority",
+            "kis_submission_compatible",
+            "exchange_authority",
+            "order_authority",
+            "paper_order_write",
+            "real_capital_authority",
+            "production_authority",
+            "trading_authority",
+        ):
+            self.assertFalse(authority[field])
+
+    def test_policy_packet_has_no_invented_threshold_or_result(self):
+        self.assertFalse(self.policy_packet["ratifies_strategy_policy"])
+        self.assertTrue(
+            all(value is None for value in self.policy_packet["decision_metrics"].values())
+        )
+        for row in self.policy_packet["required_evidence"].values():
+            self.assertEqual({"status": "NOT_AVAILABLE", "result": None}, row)
+        self.assertTrue(
+            all(value is False for value in self.policy_packet["authority"].values())
+        )
+
+    def test_duplicate_decision_key_fails_closed(self):
+        source = copy.deepcopy(self.source)
+        source["prior_proposal_keys"] = [source["shadow"]["decision_key"]]
+        proposal = self._build(_resign_krx_bridge(source))["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertIn("DUPLICATE_SHADOW_DECISION_KEY", proposal["blockers"])
+
+    def test_stale_input_fails_closed(self):
+        source = copy.deepcopy(self.source)
+        source["position"]["valid_until_utc"] = source["evaluated_at_utc"]
+        proposal = self._build(_resign_krx_bridge(source))["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertIn("POSITION_STALE", proposal["blockers"])
+
+    def test_identity_mismatch_fails_closed(self):
+        source = copy.deepcopy(self.source)
+        source["position"]["symbol"] = "000660"
+        proposal = self._build(_resign_krx_bridge(source))["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertIn("IDENTITY_SYMBOL_MISMATCH", proposal["blockers"])
+
+    def test_exit_without_position_fails_closed(self):
+        source = copy.deepcopy(self.source)
+        source["shadow"]["diagnostic_action"] = "EXIT"
+        proposal = self._build(_resign_krx_bridge(source))["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertIn("NO_POSITION_EXIT", proposal["blockers"])
+
+    def test_enter_with_existing_position_fails_closed(self):
+        source = copy.deepcopy(self.source)
+        source["position"]["status"] = "OPEN"
+        source["position"]["current_open_positions"] = 1
+        proposal = self._build(_resign_krx_bridge(source))["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertIn("ENTER_REQUIRES_FLAT_POSITION", proposal["blockers"])
+        self.assertIn("ENTER_REQUIRES_ZERO_OPEN_POSITIONS", proposal["blockers"])
+
+    def test_incomplete_bar_fails_closed(self):
+        source = copy.deepcopy(self.source)
+        source["bars"]["15m"]["completed"] = False
+        proposal = self._build(_resign_krx_bridge(source))["machine_proposal"]
+        self.assertEqual("NONE", proposal["status"])
+        self.assertIn("BAR_NOT_COMPLETED:15m", proposal["blockers"])
+
+    def test_lookahead_bar_is_rejected_before_proposal(self):
+        source = copy.deepcopy(self.source)
+        source["bars"]["15m"]["available_at_utc"] = "2026-08-27T00:30:00Z"
+        source["bars"]["15m"]["valid_until_utc"] = "2026-08-27T01:01:00Z"
+        with self.assertRaisesRegex(
+            krx_bridge.KrxPaperProposalBridgeError,
+            "BAR_TIME_ORDER_INVALID:15m",
+        ):
+            self._build(_resign_krx_bridge(source))
+
+    def test_planned_loss_over_remaining_budget_is_rejected(self):
+        source = copy.deepcopy(self.source)
+        source["policy"]["planned_loss_units"] = 10001
+        with self.assertRaisesRegex(
+            krx_bridge.KrxPaperProposalBridgeError,
+            "PLANNED_LOSS_EXCEEDS_REMAINING_RISK_BUDGET",
+        ):
+            self._build(_resign_krx_bridge(source))
+
+    def test_contract_cannot_promote_source_policy_or_authority(self):
+        promoted_policy = copy.deepcopy(self.contract)
+        promoted_policy["policy_boundary"]["ratified_policy_bindings"] = [
+            {
+                "policy_id": "KRX_MULTITIMEFRAME_BREAKOUT_CANDIDATE",
+                "source_sha256": "5" * 64,
+            }
+        ]
+        promoted_order = copy.deepcopy(self.contract)
+        promoted_order["authority"]["order_authority"] = True
+        moved_head = copy.deepcopy(self.contract)
+        moved_head["source_requirements"]["shadow"]["exact_head"] = "0" * 40
+        for contract, error in (
+            (promoted_policy, "CONTRACT_POLICY_AUTHORITY_DRIFT"),
+            (promoted_order, "CONTRACT_AUTHORITY_ESCALATION"),
+            (moved_head, "CONTRACT_SOURCE_PIN_DRIFT"),
+        ):
+            with self.subTest(error=error), self.assertRaisesRegex(
+                krx_bridge.KrxPaperProposalBridgeError, error
+            ):
+                krx_bridge.validate_contract(contract)
+
+    def test_rehashed_policy_result_or_threshold_tamper_is_rejected(self):
+        result = copy.deepcopy(self.policy_packet)
+        result["required_evidence"]["up_regime"] = {
+            "status": "PASS",
+            "result": {"net": 1},
+        }
+        with self.assertRaisesRegex(
+            krx_bridge.KrxPaperProposalBridgeError,
+            "POLICY_PACKET_EVIDENCE_DRIFT",
+        ):
+            krx_bridge.validate_policy_packet(result)
+        threshold = copy.deepcopy(self.policy_packet)
+        threshold["decision_metrics"]["minimum_sample_size"] = 30
+        with self.assertRaisesRegex(
+            krx_bridge.KrxPaperProposalBridgeError,
+            "POLICY_PACKET_THRESHOLD_INVENTED",
+        ):
+            krx_bridge.validate_policy_packet(threshold)
+
+    def test_resigned_output_semantic_tamper_is_rejected(self):
+        tampered = copy.deepcopy(self.packet)
+        tampered["machine_proposal"]["action"] = "ENTER"
+        tampered["machine_proposal"]["proposal_sha256"] = (
+            krx_bridge.payload_sha256(
+                {
+                    key: value
+                    for key, value in tampered["machine_proposal"].items()
+                    if key != "proposal_sha256"
+                }
+            )
+        )
+        tampered["packet_sha256"] = krx_bridge.payload_sha256(
+            {key: value for key, value in tampered.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            krx_bridge.KrxPaperProposalBridgeError,
+            "PROPOSAL_PACKET_SEMANTIC_TAMPER_OR_DRIFT",
+        ):
+            krx_bridge.validate_packet(
+                tampered, self.source, self.contract, self.policy_packet
+            )
+
+    def test_build_is_deterministic_and_exactly_revalidated(self):
+        rebuilt = self._build()
+        self.assertEqual(self.packet, rebuilt)
+        self.assertEqual(
+            self.packet,
+            krx_bridge.validate_packet(
+                self.packet, self.source, self.contract, self.policy_packet
+            ),
+        )
 
 
 if __name__ == "__main__":

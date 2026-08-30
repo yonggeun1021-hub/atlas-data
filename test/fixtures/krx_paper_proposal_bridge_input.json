@@ -1,0 +1,121 @@
+{
+  "schema_version": "krx_paper_proposal_bridge_input/1",
+  "evaluated_at_utc": "2026-08-27T00:29:59Z",
+  "proposal_expires_at_utc": "2026-08-27T01:00:00Z",
+  "prior_proposal_keys": [],
+  "briefing": {
+    "symbol": "005930",
+    "rank": 1,
+    "summary": "Synthetic KRX fixture: completed-bar breakout review candidate.",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "universe": {
+    "repository": "yonggeun1021-hub/atlas-data",
+    "source_commit": "e7b7a209d785d63627dc596f4a58581b681b61ad",
+    "repository_state": "MERGED_TO_PUBLIC_MAIN",
+    "contract_version": "krx_investable_registry/1",
+    "symbol": "005930",
+    "security_id": "KR:XKRX:KR7005930003",
+    "decision_eligibility": "UNKNOWN",
+    "available_at_utc": "2026-08-27T00:15:00Z",
+    "valid_until_utc": "2026-08-27T01:00:00Z",
+    "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "packet_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "shadow": {
+    "repository": "yonggeun1021-hub/atlas-data",
+    "source_commit": "858ee61d149e91cbb3b7e45aeb8ff9b2d0fd05a6",
+    "repository_state": "UNMERGED_INTERFACE_ONLY",
+    "contract_version": "krx_shadow_strategy/1",
+    "decision_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "symbol": "005930",
+    "action": "NO_TRADE",
+    "diagnostic_action": "ENTER",
+    "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "packet_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "bars": {
+    "15m": {
+      "completed": true,
+      "opened_at_utc": "2026-08-27T00:00:00Z",
+      "closed_at_utc": "2026-08-27T00:15:00Z",
+      "available_at_utc": "2026-08-27T00:15:00Z",
+      "valid_until_utc": "2026-08-27T01:00:00Z",
+      "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "1h": {
+      "completed": true,
+      "opened_at_utc": "2026-08-26T05:00:00Z",
+      "closed_at_utc": "2026-08-26T06:00:00Z",
+      "available_at_utc": "2026-08-26T06:00:00Z",
+      "valid_until_utc": "2026-08-27T01:00:00Z",
+      "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "1d": {
+      "completed": true,
+      "opened_at_utc": "2026-08-26T00:00:00Z",
+      "closed_at_utc": "2026-08-26T06:30:00Z",
+      "available_at_utc": "2026-08-26T06:30:00Z",
+      "valid_until_utc": "2026-08-27T01:00:00Z",
+      "source_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  },
+  "position": {
+    "symbol": "005930",
+    "status": "FLAT",
+    "current_open_positions": 0,
+    "available_at_utc": "2026-08-27T00:15:00Z",
+    "valid_until_utc": "2026-08-27T01:00:00Z",
+    "source_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "policy": {
+    "policy_id": "KRX_MULTITIMEFRAME_BREAKOUT_CANDIDATE",
+    "status": "PROPOSED_UNRATIFIED_REPLAY_ONLY",
+    "symbol": "005930",
+    "entry_zone": {
+      "minimum_price_units": 100000,
+      "maximum_price_units": 102000
+    },
+    "stop_price_units": 98000,
+    "first_take_profit_price_units": 106000,
+    "final_take_profit_price_units": 110000,
+    "expires_at_utc": "2026-08-27T01:00:00Z",
+    "planned_loss_units": 1000,
+    "account_risk_budget_units": 10000,
+    "account_committed_risk_units": 0,
+    "available_at_utc": "2026-08-27T00:15:00Z",
+    "valid_until_utc": "2026-08-27T01:00:00Z",
+    "source_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "gate_assessment": {
+    "schema_version": "krx_paper_gate_assessment/1",
+    "assessment_sha256": "780690500832dceffed4ede9059da4c9cb4e8d565042878ee1c503fc3e724e07",
+    "current_state": "LOCKED",
+    "common_safety": "UNKNOWN",
+    "krx_shadow": "UNKNOWN",
+    "krx_paper_canary_start": "FAIL",
+    "authority": {
+      "internal_virtual_ledger_paper_authorized": false,
+      "kis_mock_account_auto_order_authorized": false,
+      "live_account_order_authorized": false,
+      "production_authorized": false,
+      "real_capital_authorized": false,
+      "trading_authorized": false
+    }
+  },
+  "authority": {
+    "briefing_candidate_selection_authority": false,
+    "strategy_policy_ratification_authority": false,
+    "portfolio_action_authority": false,
+    "internal_virtual_ledger_consumption_authority": false,
+    "paper_order_write": false,
+    "kis_submission_compatible": false,
+    "exchange_authority": false,
+    "order_authority": false,
+    "real_capital_authority": false,
+    "live_account_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  },
+  "packet_sha256": "63725aecf2e38618b0663805f3e5eda9ffec1f2e7176d3b9071fbdc0bef04399"
+}
