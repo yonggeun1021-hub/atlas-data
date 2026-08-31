@@ -1126,6 +1126,12 @@ APPROVED_TESTS = [
     #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
     #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
     "test/test_daily_orchestrator.py",
+    # ★ Daily Briefing same-day recovery — original natural schedule run만
+    #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
+    #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
+    #   workflow_dispatch·broker credential·action/order/trading surface가 없다.
+    #   ⛔ 테스트 자체는 fixture-only이며 GitHub API/network 호출 없음.
+    "test/test_daily_briefing_recovery.py",
     # ★ P9-01 — external RATIFIED freshness policy + caller-supplied quote guard.
     #   provider timestamp/received time/observed time으로 age와 transport delay를
     #   계산하되 repository default threshold는 없다. stale은 data 소비만 차단한다.
