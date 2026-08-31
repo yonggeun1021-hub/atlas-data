@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_paper_market_gate/1",
+  "market": "US",
+  "approval_status": "UNRATIFIED_EVIDENCE_GATED",
+  "state_sequence": [
+    "LOCKED",
+    "SHADOW",
+    "PAPER_CANARY",
+    "PAPER_ACTIVE",
+    "PAPER_VALIDATED",
+    "LIVE_REVIEW"
+  ],
+  "paper_substages": {
+    "PAPER_CANARY": "BOUNDED_INTERNAL_US_PAPER_LEDGER",
+    "PAPER_ACTIVE": "SCHEDULED_INTERNAL_US_PAPER_LEDGER",
+    "PAPER_VALIDATED": "VALIDATED_INTERNAL_US_PAPER_LEDGER",
+    "LIVE_REVIEW": "REVIEW_ONLY_REAL_AUTHORITY_STILL_FALSE"
+  },
+  "internal_virtual_us_paper_policy": {
+    "humanApprovalRequired": false,
+    "userReceiptRequired": false,
+    "hardGateNullPolicy": "FAIL_CLOSED",
+    "automaticTransitionRequiresEveryHardGatePass": true,
+    "brokerPostCount": 0,
+    "realCapitalAuthorized": false,
+    "liveAccountAuthorized": false
+  },
+  "gates": [
+    {
+      "id": "US_SHADOW",
+      "opens_state": "SHADOW",
+      "prerequisite_gate": "COMMON_SAFETY",
+      "required_checks": [
+        "US_ZERO_CAPITAL_SHADOW_MECHANISM",
+        "US_SHADOW_OUTPUT_NULL",
+        "US_CROSS_MARKET_ISOLATION"
+      ]
+    },
+    {
+      "id": "US_PAPER_CANARY_START",
+      "opens_state": "PAPER_CANARY",
+      "prerequisite_gate": "US_SHADOW",
+      "required_checks": [
+        "US_FINAL_CANDIDATE_POLICY_RATIFIED",
+        "US_ENTRY_POLICY_RATIFIED",
+        "US_HOLD_EXIT_POLICY_RATIFIED",
+        "US_POSITION_SIZE_POLICY_RATIFIED",
+        "US_P8_13_EXECUTABLE_PAPER_PROPOSAL",
+        "US_INTERNAL_LEDGER_CANARY_AUTHORITY",
+        "US_INTERNAL_LEDGER_RESTART_RECONCILED"
+      ]
+    },
+    {
+      "id": "US_PAPER_ACTIVE",
+      "opens_state": "PAPER_ACTIVE",
+      "prerequisite_gate": "US_PAPER_CANARY_START",
+      "required_checks": [
+        "US_INTERNAL_LEDGER_CANARY_TERMINAL",
+        "US_INTERNAL_PAPER_SCHEDULE_POLICY_RATIFIED",
+        "US_INTERNAL_PAPER_KILL_TESTED"
+      ]
+    },
+    {
+      "id": "US_PAPER_VALIDATED_30D",
+      "opens_state": "PAPER_VALIDATED",
+      "prerequisite_gate": "US_PAPER_ACTIVE",
+      "required_checks": [
+        "US_NATURAL_SAMPLE_30_CALENDAR_DAYS",
+        "US_NATURAL_SAMPLE_LINEAGE_COMPLETE",
+        "US_VALIDATION_CRITERIA_RATIFIED",
+        "US_INDEPENDENT_VALIDATION_PASS"
+      ]
+    },
+    {
+      "id": "US_LIVE_REVIEW",
+      "opens_state": "LIVE_REVIEW",
+      "prerequisite_gate": "US_PAPER_VALIDATED_30D",
+      "required_checks": [
+        "US_PAPER_VALIDATED_REVIEW_PACKET",
+        "US_LIVE_REVIEW_USER_ACCEPTED",
+        "US_REAL_AUTHORITY_REMAINS_FALSE"
+      ]
+    }
+  ],
+  "check_definitions": [
+    {
+      "id": "US_ZERO_CAPITAL_SHADOW_MECHANISM",
+      "input": "US decision evidence and a zero-capital append-only Shadow record.",
+      "evidence": "Merged mechanism plus natural BLOCKED/WAIT/PASS observations without PAPER mutation.",
+      "failure_reason": "US_SHADOW_MECHANISM_NOT_PROVEN",
+      "approval_authority": "US_SHADOW_OWNER"
+    },
+    {
+      "id": "US_SHADOW_OUTPUT_NULL",
+      "input": "SHADOW quantity, order draft, request, and broker method fields.",
+      "evidence": "Natural observation keeps all money action and broker request fields null.",
+      "failure_reason": "US_SHADOW_EMITTED_MONEY_ACTION",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_THIS_INVARIANT"
+    },
+    {
+      "id": "US_CROSS_MARKET_ISOLATION",
+      "input": "KRX and Crypto Gate statuses varied independently of the US assessment.",
+      "evidence": "Focused regression proves other-market status cannot change the US state.",
+      "failure_reason": "US_CROSS_MARKET_ISOLATION_NOT_PROVEN",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "US_FINAL_CANDIDATE_POLICY_RATIFIED",
+      "input": "PIT-valid final US candidate identity and eligibility contract.",
+      "evidence": "Effective-dated CIO ratification and natural candidate packet.",
+      "failure_reason": "US_FINAL_CANDIDATE_AUTHORITY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "US_ENTRY_POLICY_RATIFIED",
+      "input": "Entry eligibility, zone, invalidation, expiry, and candidate-validity policy.",
+      "evidence": "Ratified rule pack plus PIT replay and natural SHADOW consumption.",
+      "failure_reason": "US_ENTRY_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "US_HOLD_EXIT_POLICY_RATIFIED",
+      "input": "Hold, reduce, harvest, stop, exit, and post-fill management policy.",
+      "evidence": "Ratified rule pack plus position lifecycle replay.",
+      "failure_reason": "US_HOLD_EXIT_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "US_POSITION_SIZE_POLICY_RATIFIED",
+      "input": "Risk amount, size, concentration, cost, and internal PAPER capacity policy.",
+      "evidence": "Effective-dated ratified sizing inputs with no private account facts in public evidence.",
+      "failure_reason": "US_POSITION_SIZE_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_RISK_POLICY_RATIFICATION"
+    },
+    {
+      "id": "US_P8_13_EXECUTABLE_PAPER_PROPOSAL",
+      "input": "P8-13 US proposal with candidate, entry, hold/exit, size, and PIT lineage.",
+      "evidence": "Non-NONE internal PAPER proposal independently rederived with every REAL authority false.",
+      "failure_reason": "US_P8_13_PAPER_PROPOSAL_ABSENT",
+      "approval_authority": "CIO_HUMAN_REVIEW"
+    },
+    {
+      "id": "US_INTERNAL_LEDGER_CANARY_AUTHORITY",
+      "input": "One bounded internal US PAPER plan bound to exact rules and code.",
+      "evidence": "Every Hard Gate is explicit PASS; transition is automatic without human approval or user receipt and forbids every broker request.",
+      "failure_reason": "US_INTERNAL_LEDGER_CANARY_NOT_AUTHORIZED",
+      "approval_authority": "AUTOMATIC_AFTER_ALL_HARD_GATES_PASS_NO_HUMAN_OR_USER_RECEIPT"
+    },
+    {
+      "id": "US_INTERNAL_LEDGER_RESTART_RECONCILED",
+      "input": "Intent, simulated fill, position, exit, duplicate, and restart lineage.",
+      "evidence": "Exact restart readback and append-only reconciliation receipt.",
+      "failure_reason": "US_INTERNAL_LEDGER_RECONCILIATION_FAILED",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "US_INTERNAL_LEDGER_CANARY_TERMINAL",
+      "input": "Bounded internal canary terminal state and all exceptions.",
+      "evidence": "Terminal receipt with no unresolved or skipped lifecycle state and broker POST count zero.",
+      "failure_reason": "US_INTERNAL_LEDGER_CANARY_NOT_TERMINAL",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "US_INTERNAL_PAPER_SCHEDULE_POLICY_RATIFIED",
+      "input": "Internal PAPER schedule, limits, sessions, stop conditions, and ownership.",
+      "evidence": "Effective-dated approval for internal simulation only; no broker adapter or account route.",
+      "failure_reason": "US_INTERNAL_PAPER_SCHEDULE_AUTHORITY_ABSENT",
+      "approval_authority": "CIO_PAPER_OPERATIONS_APPROVAL"
+    },
+    {
+      "id": "US_INTERNAL_PAPER_KILL_TESTED",
+      "input": "Stop, stale, duplicate, crash, restart, tamper, and kill-switch paths.",
+      "evidence": "Fail-closed tests and bounded internal PAPER runtime receipt.",
+      "failure_reason": "US_INTERNAL_PAPER_KILL_PATH_NOT_PROVEN",
+      "approval_authority": "SECURITY_AND_PAPER_OPERATIONS_REVIEW"
+    },
+    {
+      "id": "US_NATURAL_SAMPLE_30_CALENDAR_DAYS",
+      "input": "Forward-only US internal PAPER observations over 30 natural calendar days.",
+      "evidence": "Unforced, non-backfilled daily lineage; replay, manual, and synthetic days do not count.",
+      "failure_reason": "US_30_NATURAL_CALENDAR_DAYS_NOT_COMPLETE",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "US_NATURAL_SAMPLE_LINEAGE_COMPLETE",
+      "input": "Every scheduled decision, simulated fill, position, and reconciliation outcome in the window.",
+      "evidence": "Append-only inventory includes PASS, FAIL, WAIT, no-candidate, early close, and outage outcomes.",
+      "failure_reason": "US_30D_LINEAGE_INCOMPLETE",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "US_VALIDATION_CRITERIA_RATIFIED",
+      "input": "Outcome-independent validation criteria and cost/error/opportunity-cost treatment.",
+      "evidence": "Explicit CIO approval before grading; this Gate invents no performance threshold.",
+      "failure_reason": "US_VALIDATION_POLICY_UNRATIFIED",
+      "approval_authority": "CIO_POLICY_RATIFICATION"
+    },
+    {
+      "id": "US_INDEPENDENT_VALIDATION_PASS",
+      "input": "30-day evidence and ratified validation criteria.",
+      "evidence": "Independent report rederives results from immutable inputs.",
+      "failure_reason": "US_INDEPENDENT_VALIDATION_NOT_PASS",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "US_PAPER_VALIDATED_REVIEW_PACKET",
+      "input": "PAPER_VALIDATED evidence, unresolved risks, and proposed review constraints.",
+      "evidence": "Review packet only; it grants no REAL or live-account authority.",
+      "failure_reason": "US_LIVE_REVIEW_PACKET_ABSENT",
+      "approval_authority": "CIO_LIVE_REVIEW"
+    },
+    {
+      "id": "US_LIVE_REVIEW_USER_ACCEPTED",
+      "input": "Explicit decision to enter LIVE_REVIEW, not an order or capital approval.",
+      "evidence": "Acceptance is bound to an exact review-packet hash.",
+      "failure_reason": "US_LIVE_REVIEW_NOT_ACCEPTED",
+      "approval_authority": "USER_FINAL_CAPITAL_APPROVER"
+    },
+    {
+      "id": "US_REAL_AUTHORITY_REMAINS_FALSE",
+      "input": "REAL, live-account, real-capital, Production, and Trading authority fields.",
+      "evidence": "Machine-checkable all-false envelope at LIVE_REVIEW entry.",
+      "failure_reason": "US_LIVE_REVIEW_IMPLIED_REAL_AUTHORITY",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_WITHIN_THIS_CONTRACT"
+    }
+  ],
+  "authority_by_state": {
+    "LOCKED": {
+      "internal_paper_ledger_authorized": false,
+      "scheduled_internal_paper_authorized": false,
+      "broker_post_authorized": false
+    },
+    "SHADOW": {
+      "internal_paper_ledger_authorized": false,
+      "scheduled_internal_paper_authorized": false,
+      "broker_post_authorized": false
+    },
+    "PAPER_CANARY": {
+      "internal_paper_ledger_authorized": true,
+      "scheduled_internal_paper_authorized": false,
+      "broker_post_authorized": false
+    },
+    "PAPER_ACTIVE": {
+      "internal_paper_ledger_authorized": true,
+      "scheduled_internal_paper_authorized": true,
+      "broker_post_authorized": false
+    },
+    "PAPER_VALIDATED": {
+      "internal_paper_ledger_authorized": true,
+      "scheduled_internal_paper_authorized": true,
+      "broker_post_authorized": false
+    },
+    "LIVE_REVIEW": {
+      "internal_paper_ledger_authorized": true,
+      "scheduled_internal_paper_authorized": true,
+      "broker_post_authorized": false
+    }
+  },
+  "permanent_authority_boundary": {
+    "paper_only": true,
+    "broker_post_count": 0,
+    "real_capital_authorized": false,
+    "live_account_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "ci_semantics": {
+    "focused_us_gate_ci_is_mechanism_verification_only": true,
+    "full_repository_ci_is_regression_only_not_operational_approval": true,
+    "ci_may_advance_operational_state": false
+  },
+  "cross_market_isolation": {
+    "evaluated_market": "US",
+    "other_market_gate_results_are_diagnostic_only": true,
+    "common_safety_failure_is_blocking": true
+  }
+}

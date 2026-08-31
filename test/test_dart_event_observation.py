@@ -148,10 +148,54 @@ class DartEventObservationTests(unittest.TestCase):
         self.assertIn("DART_ITEM_EXTRACTION_POLICY_UNRATIFIED", linked["blocked_reasons"])
 
     def test_metadata_only_row_cannot_be_presented_as_content_verified(self):
-        row = next(row for row in self.packet["observations"] if row["subject_id"] == "034020")
-        self.assertEqual(row["evidence"]["status"], "METADATA_ONLY_STAGE_NOT_ASSIGNED")
-        self.assertIsNone(row["evidence"]["source_sha256"])
-        self.assertIn("DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED", row["blocked_reasons"])
+        # The latest DART inputs are rolling evidence.  A particular stock can
+        # legitimately disappear from the next collection, so construct the
+        # contract case from a record that is present instead of pinning this
+        # invariant to the former 034020 fixture.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_path = root / "latest_dart.json"
+            content_path = root / "latest_dart_content.json"
+            source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
+            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            record = content["records"][0]
+            subject_id = record["filing_identity"]["stock_code"]
+            record.update({
+                "atlas_stage": None,
+                "capture_policy": "index_only",
+                "content_status": "NOT_APPLICABLE",
+                "evidence_status": "NOT_APPLICABLE",
+                "documents": [],
+                "extracted": [],
+                "publication_status": "NOT_APPLICABLE",
+                "reasons": ["STAGE_NOT_ASSIGNED_FOR_AUTO_CONSUMPTION"],
+                "source_archive": None,
+            })
+            record.pop("operation", None)
+            record.pop("retrieved_at_utc", None)
+            record.pop("skip_reason", None)
+            recount_content_records(content)
+            source_path.write_text(json.dumps(source), encoding="utf-8")
+            content["source_sha256"] = hashlib.sha256(
+                source_path.read_bytes()
+            ).hexdigest()
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+
+            packet = MODULE.build_packet(
+                decision_at=DECISION_AT,
+                source_path=source_path,
+                content_path=content_path,
+            )
+            row = next(
+                row for row in packet["observations"]
+                if row["subject_id"] == subject_id
+                and row["evidence"]["status"] == "METADATA_ONLY_STAGE_NOT_ASSIGNED"
+            )
+            self.assertIsNone(row["evidence"]["source_sha256"])
+            self.assertIn(
+                "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED",
+                row["blocked_reasons"],
+            )
 
     def test_all_authority_and_side_effect_counts_remain_closed(self):
         self.assertTrue(self.packet["authority"]["observation_recording_only"])

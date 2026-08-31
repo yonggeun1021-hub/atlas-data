@@ -1,0 +1,228 @@
+{
+  "schema_version": "us_paper_gate_evidence/1",
+  "market": "US",
+  "as_of_utc": "2026-08-30T23:52:34Z",
+  "source_revisions": {
+    "atlas_data_main": "7e6021fcb866027b3b6caa28405dd0d9b3e90875",
+    "atlas_private_evidence_main": "6b28629beab066912c71c572c303bd51d581f893"
+  },
+  "common_safety_checks": {
+    "COMMON_PAPER_ONLY_ENVIRONMENT": {
+      "status": "PASS",
+      "evidence_refs": [
+        "config/us_paper_common_safety_gate_contract.json",
+        "config/us_paper_market_gate_contract.json"
+      ],
+      "approval_refs": [],
+      "note": "The bounded US 1-1 mechanism accepts PAPER-only evidence and defines no account route."
+    },
+    "COMMON_BROKER_POST_HARD_ZERO": {
+      "status": "PASS",
+      "evidence_refs": [
+        "shadow/us_paper_gate.py",
+        "validation/tests/test_us_paper_gate.py"
+      ],
+      "approval_refs": [],
+      "note": "The evaluator is offline and its permanent envelope fixes broker_post_count=0."
+    },
+    "COMMON_CREDENTIALS_PRIVATE_AND_REDACTED": {
+      "status": "PASS",
+      "evidence_refs": [
+        "AGENTS.md",
+        "docs/ATLAS_SESSION_BOOTSTRAP.md"
+      ],
+      "approval_refs": [],
+      "note": "This public packet contains revision and policy facts only; no credentials or private account facts."
+    },
+    "COMMON_KILL_SWITCH_FAIL_CLOSED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No accepted natural US internal-PAPER runtime kill-switch receipt exists."
+    },
+    "COMMON_IDEMPOTENCY_AND_RECONCILIATION": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No accepted natural US internal-PAPER intent/fill/restart reconciliation receipt exists."
+    },
+    "COMMON_PIT_AND_IMMUTABLE_LINEAGE": {
+      "status": "PASS",
+      "evidence_refs": [
+        "docs/ATLAS_SESSION_BOOTSTRAP.md",
+        "https://github.com/yonggeun1021-hub/atlas-data/commit/7e6021fcb866027b3b6caa28405dd0d9b3e90875",
+        "https://github.com/yonggeun1021-hub/atlas-private-evidence/commit/6b28629beab066912c71c572c303bd51d581f893"
+      ],
+      "approval_refs": [],
+      "note": "The audit pins exact public/private main revisions and records active PR heads separately in the contract document."
+    },
+    "COMMON_APPROVAL_AND_AUTHORITY_SEPARATION": {
+      "status": "PASS",
+      "evidence_refs": [
+        "config/us_paper_common_safety_gate_contract.json",
+        "config/us_paper_market_gate_contract.json",
+        "docs/us_paper_gate_contract.md"
+      ],
+      "approval_refs": [],
+      "note": "CI and mechanism evidence cannot advance operational state or grant capital authority."
+    }
+  },
+  "us_checks": {
+    "US_ZERO_CAPITAL_SHADOW_MECHANISM": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/3c39f2d73c84818fa40adbde11fde007"
+      ],
+      "approval_refs": [],
+      "note": "P10-06 records bounded zero-capital US Shadow behavior; it is not PAPER authority."
+    },
+    "US_SHADOW_OUTPUT_NULL": {
+      "status": "PASS",
+      "evidence_refs": [
+        "https://app.notion.com/3c39f2d73c84818fa40adbde11fde007"
+      ],
+      "approval_refs": [],
+      "note": "Canonical evidence keeps capital=0 and action/order/stage_change null."
+    },
+    "US_CROSS_MARKET_ISOLATION": {
+      "status": "PASS",
+      "evidence_refs": [
+        "validation/tests/test_us_paper_gate.py"
+      ],
+      "approval_refs": [],
+      "note": "Focused regression varies KRX and Crypto context without changing the US state."
+    },
+    "US_FINAL_CANDIDATE_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/3bf9f2d73c8481ba86f6f9ddd3dacb71"
+      ],
+      "approval_refs": [],
+      "note": "P1-US-04 remains externally blocked on historical PIT membership and delisted-inclusive price evidence."
+    },
+    "US_ENTRY_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c8481649f6de3662e222c3e"
+      ],
+      "approval_refs": [],
+      "note": "No effective-dated US PAPER entry policy has been ratified for this Gate."
+    },
+    "US_HOLD_EXIT_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c8481649f6de3662e222c3e"
+      ],
+      "approval_refs": [],
+      "note": "No effective-dated US PAPER hold/harvest/exit policy has been ratified for this Gate."
+    },
+    "US_POSITION_SIZE_POLICY_RATIFIED": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c8481649f6de3662e222c3e"
+      ],
+      "approval_refs": [],
+      "note": "No US internal-PAPER sizing and cost policy has been ratified."
+    },
+    "US_P8_13_EXECUTABLE_PAPER_PROPOSAL": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "https://app.notion.com/p/3c49f2d73c84810683eed0f390af6860"
+      ],
+      "approval_refs": [],
+      "note": "No accepted non-NONE US executable internal-PAPER proposal exists."
+    },
+    "US_INTERNAL_LEDGER_CANARY_AUTHORITY": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "humanApprovalRequired=false and userReceiptRequired=false are ratified for internal virtual US PAPER, but the exact plan and every Hard Gate PASS do not yet exist."
+    },
+    "US_INTERNAL_LEDGER_RESTART_RECONCILED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No natural US internal-ledger restart receipt exists."
+    },
+    "US_INTERNAL_LEDGER_CANARY_TERMINAL": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No bounded US internal PAPER canary has run."
+    },
+    "US_INTERNAL_PAPER_SCHEDULE_POLICY_RATIFIED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No scheduled US internal PAPER operation is approved."
+    },
+    "US_INTERNAL_PAPER_KILL_TESTED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No accepted runtime kill-path receipt exists."
+    },
+    "US_NATURAL_SAMPLE_30_CALENDAR_DAYS": {
+      "status": "FAIL",
+      "evidence_refs": [
+        "docs/us_paper_gate_contract.md"
+      ],
+      "approval_refs": [],
+      "note": "The US PAPER observation window has not started; natural day count is zero."
+    },
+    "US_NATURAL_SAMPLE_LINEAGE_COMPLETE": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "There is no 30-day observation inventory to validate."
+    },
+    "US_VALIDATION_CRITERIA_RATIFIED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "Outcome-independent US PAPER validation criteria are unratified."
+    },
+    "US_INDEPENDENT_VALIDATION_PASS": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No independent US PAPER validation report exists."
+    },
+    "US_PAPER_VALIDATED_REVIEW_PACKET": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "No PAPER_VALIDATED evidence exists from which to build a review packet."
+    },
+    "US_LIVE_REVIEW_USER_ACCEPTED": {
+      "status": "UNKNOWN",
+      "evidence_refs": [],
+      "approval_refs": [],
+      "note": "The user has not accepted an exact LIVE_REVIEW packet."
+    },
+    "US_REAL_AUTHORITY_REMAINS_FALSE": {
+      "status": "PASS",
+      "evidence_refs": [
+        "config/us_paper_common_safety_gate_contract.json",
+        "config/us_paper_market_gate_contract.json",
+        "shadow/us_paper_gate.py"
+      ],
+      "approval_refs": [],
+      "note": "Every state fixes REAL, live-account, real-capital, Production, and Trading authority to false."
+    }
+  },
+  "other_market_context": {
+    "KOREA": "UNKNOWN",
+    "CRYPTO": "UNKNOWN"
+  },
+  "authority": {
+    "paper_environment_only": true,
+    "broker_post_authorized": false,
+    "paper_only": true,
+    "broker_post_count": 0,
+    "real_capital_authorized": false,
+    "live_account_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

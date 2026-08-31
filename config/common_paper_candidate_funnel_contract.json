@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "contract_version": "common_paper_candidate_funnel_contract/1",
+  "input_schema_version": "common_paper_candidate_funnel_input/1",
+  "output_schema_version": "common_paper_candidate_funnel_output/1",
+  "markets": ["KOREA", "US", "CRYPTO"],
+  "candidate_lanes": ["PRIMARY_LONG", "DEFENSIVE_ACTION"],
+  "performance_lanes": ["SYSTEM_CANARY", "INVESTMENT_PAPER", "SYSTEM_HEDGE_CANARY", "INVESTMENT_HEDGE_PAPER"],
+  "defensive_actions": ["NONE", "CASH", "REDUCE", "HEDGE", "INVERSE"],
+  "funnel": {
+    "sequence": ["UNIVERSE", "TOP10", "TOP3", "CANDIDATE", "READY", "PAPER_BUY_ELIGIBLE"],
+    "top10_limit": 10,
+    "top3_limit": 3,
+    "candidate_min_score": 60,
+    "ready_min_score": 70,
+    "paper_buy_eligible_min_score": 75,
+    "score_total": 100,
+    "score_policy": "SUM_EXACT_UPSTREAM_BREAKDOWN_POINTS_WITH_MAX_TOTAL_100",
+    "tie_break": ["score_desc", "market_contract_order", "candidate_id_asc", "source_timestamp_asc"]
+  },
+  "hard_gates": [
+    "IDENTITY_TRADEABLE",
+    "COMPLETED_BAR",
+    "FRESHNESS",
+    "LIQUIDITY",
+    "DUPLICATE_IDEMPOTENCY",
+    "LEDGER_INTEGRITY",
+    "RESTART_RECOVERY",
+    "RISK_BUDGET",
+    "MARKET_SPECIFIC_SAFETY"
+  ],
+  "hard_gate_statuses": ["PASS", "FAIL", null],
+  "null_or_missing_hard_gate_policy": "FAIL_CLOSED_NOT_ELIGIBLE",
+  "risk": {
+    "max_long_positions_per_market": 1,
+    "max_hedge_positions_per_market": 1,
+    "hedge_position_excluded_from_long_position_count": true,
+    "max_planned_loss_nav_fraction_per_trade": "0.0025",
+    "max_long_market_exposure_nav_fraction": "0.05",
+    "max_single_hedge_instrument_nav_fraction": "0.20",
+    "max_hedge_to_long_beta_ratio": "0.50",
+    "hedge_excluded_from_long_exposure": true,
+    "long_hedge_cross_bucket_netting_authorized": false,
+    "virtual_nav_only": true,
+    "cross_market_nav_netting_authorized": false
+  },
+  "paper_internal_authority": {
+    "PAPER_INTERNAL_AUTO": true,
+    "humanApprovalRequired": false,
+    "userReceiptRequired": false,
+    "approval_null_blocks_internal_virtual_paper": false,
+    "all_hard_gates_required": true,
+    "completed_bar_trigger_required": true,
+    "broker_mock_post_count": 0,
+    "external_system_calls_authorized": false
+  },
+  "us_paper_transport_boundary": {
+    "compatibility_evidence_ref": "atlas-private-evidence#120@c1ca4da7614e6d399a5f86287e976d32b7f17a3c",
+    "profiles": [
+      {"id": "ALPACA_PAPER", "priority": 1},
+      {"id": "KIS_US_PAPER", "priority": 2}
+    ],
+    "explicit_selector_required": true,
+    "automatic_fallback_authorized": false,
+    "internal_virtual_paper_grants_external_transport": false,
+    "missing_credentials_or_admission_policy": "NETWORK_GET_POST_ZERO",
+    "network_call_count": 0,
+    "get_call_count": 0,
+    "post_call_count": 0
+  },
+  "permanent_false_authority": {
+    "real": false,
+    "live": false,
+    "realCapital": false,
+    "production": false,
+    "trading": false,
+    "brokerRealPost": false,
+    "brokerPaperPost": false,
+    "externalBrokerTransport": false,
+    "brokerNetworkGet": false,
+    "brokerNetworkPost": false
+  },
+  "lane_accounting": {
+    "separate_performance_required": true,
+    "combined_performance_authorized": false,
+    "system_canary_investment_performance_authorized": false,
+    "system_hedge_canary_investment_performance_authorized": false
+  },
+  "public_private_boundary": {
+    "public_contract_and_redacted_decision_only": true,
+    "private_account_values_permitted": false,
+    "credentials_permitted": false,
+    "holdings_or_money_values_permitted": false
+  }
+}

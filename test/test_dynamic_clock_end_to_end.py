@@ -15,6 +15,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+IMMUTABLE_BTC_REVIEW_REPORT = ROOT / (
+    "evidence/operational/dynamic_clock/candidate_validity_source_reports/"
+    "report-8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512.json"
+)
+
 from clock.run_dynamic_clock import (  # noqa: E402
     MODE_HISTORICAL_REPLAY,
     build_briefing_section,
@@ -279,7 +284,12 @@ class RealP810IntegrationTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_btc_real_overextended_provisional_link_does_not_elevate_it(self):
-        btc = next(r for r in self.report["by_market"]["BTC"]["review_queue"] if r["subject"] == "BTC")
+        # This is a BTC-specific historical integration contract.  The
+        # rolling operational report may legitimately have no active BTC
+        # candidate after its source observation expires, so pin the exact
+        # content-addressed report that contains the reviewed linkage.
+        report = json.loads(IMMUTABLE_BTC_REVIEW_REPORT.read_text())
+        btc = next(r for r in report["by_market"]["BTC"]["review_queue"] if r["subject"] == "BTC")
         pr = btc["price_reflection_status"]
         self.assertEqual(pr["status"], "LINKED")
         self.assertEqual(pr["threshold_basis"], "PROVISIONAL")
@@ -532,11 +542,11 @@ class BriefingSectionShapeTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_briefing_watch_review_candidates_are_shown_not_only_immediate(self):
-        # Since IMMEDIATE_REVIEW is 0 everywhere today, WATCH_REVIEW must
-        # actually be rendered -- otherwise already-moving subjects like
-        # BTC/삼성전자/SK하이닉스 fall through the briefing's cracks
-        # (section 2's explicit purpose).
-        report = run()
+        # Prove the BTC rendering contract against an immutable historical
+        # packet.  The current rolling packet may legitimately have no
+        # active BTC candidate after source expiry; that zero-candidate
+        # state is covered by the current-packet schema/authority tests.
+        report = json.loads(IMMUTABLE_BTC_REVIEW_REPORT.read_text())
         section = build_briefing_section(report)
         total_watch = sum(len(m["watch_review"]) for m in section["markets"].values())
         self.assertGreater(total_watch, 0)

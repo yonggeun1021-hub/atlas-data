@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_paper_common_safety_gate/1",
+  "gate_id": "COMMON_SAFETY",
+  "scope": "COMMON_SAFETY_APPLIED_TO_US_PAPER_ONLY",
+  "approval_status": "UNRATIFIED_EVIDENCE_GATED",
+  "allowed_results": [
+    "PASS",
+    "FAIL",
+    "UNKNOWN"
+  ],
+  "checks": [
+    {
+      "id": "COMMON_PAPER_ONLY_ENVIRONMENT",
+      "input": "Runtime mode, account class, and route inventory.",
+      "evidence": "Every accepted input is explicitly PAPER-only and contains no live-account route.",
+      "failure_reason": "COMMON_US_ENVIRONMENT_NOT_PAPER_ONLY",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_WITHIN_THIS_CONTRACT"
+    },
+    {
+      "id": "COMMON_BROKER_POST_HARD_ZERO",
+      "input": "Network client, endpoint, method, and request-count inventory.",
+      "evidence": "No broker client is imported or called and broker POST count is exactly zero.",
+      "failure_reason": "COMMON_US_BROKER_POST_NOT_ZERO",
+      "approval_authority": "NO_APPROVER_MAY_OVERRIDE_WITHIN_THIS_CONTRACT"
+    },
+    {
+      "id": "COMMON_CREDENTIALS_PRIVATE_AND_REDACTED",
+      "input": "Credential boundary and committed evidence inventory.",
+      "evidence": "Public artifacts contain no account facts, tokens, secrets, holdings, quantities, or money values.",
+      "failure_reason": "COMMON_US_PRIVATE_BOUNDARY_NOT_PROVEN",
+      "approval_authority": "SECURITY_REVIEW"
+    },
+    {
+      "id": "COMMON_KILL_SWITCH_FAIL_CLOSED",
+      "input": "Stop, stale, crash, restart, and ambiguous-state behavior.",
+      "evidence": "Every missing or unsafe condition produces no PAPER mutation and no broker request.",
+      "failure_reason": "COMMON_US_KILL_SWITCH_NOT_PROVEN",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "COMMON_IDEMPOTENCY_AND_RECONCILIATION",
+      "input": "Intent, simulated fill, ledger, duplicate, and restart lineage.",
+      "evidence": "Append-only internal PAPER state is idempotent and exactly reconciled after restart.",
+      "failure_reason": "COMMON_US_RECONCILIATION_NOT_PROVEN",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "COMMON_PIT_AND_IMMUTABLE_LINEAGE",
+      "input": "Observation, availability, decision, policy, code, and evidence identities.",
+      "evidence": "Point-in-time ordering and immutable exact revisions are independently rederived.",
+      "failure_reason": "COMMON_US_PIT_LINEAGE_NOT_PROVEN",
+      "approval_authority": "INDEPENDENT_VALIDATOR"
+    },
+    {
+      "id": "COMMON_APPROVAL_AND_AUTHORITY_SEPARATION",
+      "input": "Evidence, recommendation, SHADOW, PAPER, LIVE_REVIEW, and REAL authority fields.",
+      "evidence": "Mechanism, CI, and evidence never imply operational or capital authority.",
+      "failure_reason": "COMMON_US_AUTHORITY_SEPARATION_NOT_PROVEN",
+      "approval_authority": "CIO_POLICY_REVIEW"
+    }
+  ],
+  "invariants": {
+    "common_failure_blocks_us_paper": true,
+    "other_market_failure_blocks_us_paper": false,
+    "paper_only": true,
+    "broker_post_authorized": false,
+    "broker_post_count": 0,
+    "real_capital_authorized": false,
+    "live_account_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "full_repository_ci_is_regression_only_not_operational_approval": true,
+    "secret_values_permitted_in_evidence": false
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "common_paper_candidate_funnel_input/1",
+  "contractVersion": "common_paper_candidate_funnel_contract/1",
+  "evaluationAt": "2026-08-31T06:00:00Z",
+  "candidates": [
+    {
+      "market": "KOREA",
+      "candidateId": "KR-005930-20260831",
+      "symbol": "005930",
+      "candidateLane": "PRIMARY_LONG",
+      "lane": "INVESTMENT_PAPER",
+      "defensiveAction": "NONE",
+      "sourceTimestamp": "2026-08-31T05:55:00Z",
+      "ttlSeconds": 900,
+      "scoreBreakdown": [
+        {"componentId": "market_score", "points": 38, "maxPoints": 50, "reason": "exact upstream market score", "sourceRef": "atlas-data@fixture:kr"},
+        {"componentId": "decision_score", "points": 40, "maxPoints": 50, "reason": "exact upstream decision score", "sourceRef": "atlas-data@fixture:kr"}
+      ],
+      "completedBarTrigger": {"status": "PASS", "barId": "KRX:005930:15m:20260831T054500Z", "completedAt": "2026-08-31T05:45:00Z"},
+      "hardGates": {
+        "IDENTITY_TRADEABLE": {"status": "PASS", "reason": "identity and tradeability passed", "evidenceRef": "kr:identity"},
+        "COMPLETED_BAR": {"status": "PASS", "reason": "completed bar passed", "evidenceRef": "kr:bar"},
+        "FRESHNESS": {"status": "PASS", "reason": "source within TTL", "evidenceRef": "kr:fresh"},
+        "LIQUIDITY": {"status": "PASS", "reason": "liquidity passed", "evidenceRef": "kr:liquidity"},
+        "DUPLICATE_IDEMPOTENCY": {"status": "PASS", "reason": "identity unique", "evidenceRef": "kr:idempotency"},
+        "LEDGER_INTEGRITY": {"status": "PASS", "reason": "ledger verified", "evidenceRef": "kr:ledger"},
+        "RESTART_RECOVERY": {"status": "PASS", "reason": "restart verified", "evidenceRef": "kr:restart"},
+        "RISK_BUDGET": {"status": "PASS", "reason": "risk within virtual NAV limits", "evidenceRef": "kr:risk"},
+        "MARKET_SPECIFIC_SAFETY": {"status": "PASS", "reason": "KRX PAPER safety passed", "evidenceRef": "kr:safety"}
+      },
+      "risk": {"currentOpenLongPositionCount": 0, "currentOpenHedgePositionCount": 0, "plannedLossNavFraction": "0.0025", "longMarketExposureNavFraction": "0.05", "hedgeMarketExposureNavFraction": "0"},
+      "sourceRefs": ["atlas-data@fixture:kr", "atlas-private-evidence@fixture:kr"]
+    },
+    {
+      "market": "US",
+      "candidateId": "US-MSFT-20260831",
+      "symbol": "MSFT",
+      "candidateLane": "PRIMARY_LONG",
+      "lane": "SYSTEM_CANARY",
+      "defensiveAction": "NONE",
+      "sourceTimestamp": "2026-08-31T05:50:00Z",
+      "ttlSeconds": 1200,
+      "scoreBreakdown": [
+        {"componentId": "market_score", "points": 35, "maxPoints": 50, "reason": "exact upstream market score", "sourceRef": "atlas-data@fixture:us"},
+        {"componentId": "decision_score", "points": 39, "maxPoints": 50, "reason": "exact upstream decision score", "sourceRef": "atlas-data@fixture:us"}
+      ],
+      "completedBarTrigger": {"status": "PASS", "barId": "US:MSFT:15m:20260831T054500Z", "completedAt": "2026-08-31T05:45:00Z"},
+      "hardGates": {
+        "IDENTITY_TRADEABLE": {"status": "PASS", "reason": "identity and tradeability passed", "evidenceRef": "us:identity"},
+        "COMPLETED_BAR": {"status": "PASS", "reason": "completed bar passed", "evidenceRef": "us:bar"},
+        "FRESHNESS": {"status": "PASS", "reason": "source within TTL", "evidenceRef": "us:fresh"},
+        "LIQUIDITY": {"status": "PASS", "reason": "liquidity passed", "evidenceRef": "us:liquidity"},
+        "DUPLICATE_IDEMPOTENCY": {"status": "PASS", "reason": "identity unique", "evidenceRef": "us:idempotency"},
+        "LEDGER_INTEGRITY": {"status": "PASS", "reason": "ledger verified", "evidenceRef": "us:ledger"},
+        "RESTART_RECOVERY": {"status": "PASS", "reason": "restart verified", "evidenceRef": "us:restart"},
+        "RISK_BUDGET": {"status": "PASS", "reason": "risk within virtual NAV limits", "evidenceRef": "us:risk"},
+        "MARKET_SPECIFIC_SAFETY": {"status": "PASS", "reason": "US PAPER safety passed", "evidenceRef": "us:safety"}
+      },
+      "risk": {"currentOpenLongPositionCount": 0, "currentOpenHedgePositionCount": 0, "plannedLossNavFraction": "0.0020", "longMarketExposureNavFraction": "0.04", "hedgeMarketExposureNavFraction": "0"},
+      "sourceRefs": ["atlas-data@fixture:us", "atlas-private-evidence@fixture:us"]
+    },
+    {
+      "market": "CRYPTO",
+      "candidateId": "CR-KRW-BTC-20260831",
+      "symbol": "KRW-BTC",
+      "candidateLane": "PRIMARY_LONG",
+      "lane": "INVESTMENT_PAPER",
+      "defensiveAction": "NONE",
+      "sourceTimestamp": "2026-08-31T05:58:00Z",
+      "ttlSeconds": 600,
+      "scoreBreakdown": [
+        {"componentId": "market_score", "points": 30, "maxPoints": 50, "reason": "exact upstream market score", "sourceRef": "atlas-data@fixture:crypto"},
+        {"componentId": "decision_score", "points": 29, "maxPoints": 50, "reason": "exact upstream decision score", "sourceRef": "atlas-data@fixture:crypto"}
+      ],
+      "completedBarTrigger": {"status": null, "barId": null, "completedAt": null},
+      "hardGates": {
+        "IDENTITY_TRADEABLE": {"status": "PASS", "reason": "identity and tradeability passed", "evidenceRef": "crypto:identity"},
+        "COMPLETED_BAR": {"status": null, "reason": "no completed-bar trigger", "evidenceRef": null},
+        "FRESHNESS": {"status": "PASS", "reason": "source within TTL", "evidenceRef": "crypto:fresh"},
+        "LIQUIDITY": {"status": "PASS", "reason": "liquidity passed", "evidenceRef": "crypto:liquidity"},
+        "DUPLICATE_IDEMPOTENCY": {"status": "PASS", "reason": "identity unique", "evidenceRef": "crypto:idempotency"},
+        "LEDGER_INTEGRITY": {"status": "PASS", "reason": "ledger verified", "evidenceRef": "crypto:ledger"},
+        "RESTART_RECOVERY": {"status": "PASS", "reason": "restart verified", "evidenceRef": "crypto:restart"},
+        "RISK_BUDGET": {"status": "PASS", "reason": "risk within virtual NAV limits", "evidenceRef": "crypto:risk"},
+        "MARKET_SPECIFIC_SAFETY": {"status": null, "reason": "Candidate NONE current state", "evidenceRef": null}
+      },
+      "risk": {"currentOpenLongPositionCount": 0, "currentOpenHedgePositionCount": 0, "plannedLossNavFraction": "0.0025", "longMarketExposureNavFraction": "0.05", "hedgeMarketExposureNavFraction": "0"},
+      "sourceRefs": ["atlas-data@fixture:crypto"]
+    },
+    {
+      "market": "KOREA",
+      "candidateId": "KR-HEDGE-20260831",
+      "symbol": "KRX-INVERSE-1X-FIXTURE",
+      "candidateLane": "DEFENSIVE_ACTION",
+      "lane": "SYSTEM_HEDGE_CANARY",
+      "defensiveAction": "INVERSE",
+      "sourceTimestamp": "2026-08-31T05:57:00Z",
+      "ttlSeconds": 900,
+      "scoreBreakdown": [
+        {"componentId": "defensive_evidence", "points": 40, "maxPoints": 50, "reason": "synthetic defensive evidence", "sourceRef": "fixture:hedge"},
+        {"componentId": "risk_reduction", "points": 36, "maxPoints": 50, "reason": "synthetic risk reduction score", "sourceRef": "fixture:hedge"}
+      ],
+      "completedBarTrigger": {"status": "PASS", "barId": "KRX:HEDGE:15m:20260831T054500Z", "completedAt": "2026-08-31T05:45:00Z"},
+      "hardGates": {
+        "IDENTITY_TRADEABLE": {"status": "PASS", "reason": "identity and tradeability passed", "evidenceRef": "hedge:identity"},
+        "COMPLETED_BAR": {"status": "PASS", "reason": "completed bar passed", "evidenceRef": "hedge:bar"},
+        "FRESHNESS": {"status": "PASS", "reason": "source within TTL", "evidenceRef": "hedge:fresh"},
+        "LIQUIDITY": {"status": "PASS", "reason": "liquidity passed", "evidenceRef": "hedge:liquidity"},
+        "DUPLICATE_IDEMPOTENCY": {"status": "PASS", "reason": "identity unique", "evidenceRef": "hedge:idempotency"},
+        "LEDGER_INTEGRITY": {"status": "PASS", "reason": "ledger verified", "evidenceRef": "hedge:ledger"},
+        "RESTART_RECOVERY": {"status": "PASS", "reason": "restart verified", "evidenceRef": "hedge:restart"},
+        "RISK_BUDGET": {"status": "PASS", "reason": "separate hedge risk budget passed", "evidenceRef": "hedge:risk"},
+        "MARKET_SPECIFIC_SAFETY": {"status": "PASS", "reason": "synthetic system hedge canary only", "evidenceRef": "hedge:safety"}
+      },
+      "risk": {"currentOpenLongPositionCount": 1, "currentOpenHedgePositionCount": 0, "plannedLossNavFraction": "0.0025", "longMarketExposureNavFraction": "0.05", "hedgeMarketExposureNavFraction": "0.02"},
+      "sourceRefs": ["fixture:hedge"]
+    }
+  ]
+}
