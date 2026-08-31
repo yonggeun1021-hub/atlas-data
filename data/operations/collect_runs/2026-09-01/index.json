@@ -1,0 +1,35 @@
+{
+  "authority": {
+    "collector_authority": false,
+    "data_readiness_authority": false,
+    "operational_telemetry_index_only": true,
+    "production_authority": false,
+    "recovery_authority": false,
+    "schedule_authority": false,
+    "trading_authority": false
+  },
+  "contract_version": "collect_run_index/1",
+  "index_sha256": "33bd62dbf557f0e77bc210a802894b50728169c63a22ca774be3479e238b83a2",
+  "kst_date": "2026-09-01",
+  "record_count": 1,
+  "records": [
+    {
+      "event_name": "schedule",
+      "guard_result": "stale",
+      "guard_skip": false,
+      "observed_started_at_utc": "2026-08-31T20:59:32Z",
+      "path": "data/operations/collect_runs/2026-09-01/run-33438970400-attempt-1.json",
+      "record_sha256": "c73f8eeab7ac573f3a17438fa215a81abebbf7c4613be3878343414996f999d0",
+      "run_attempt": 1,
+      "run_id": 33438970400,
+      "slot_id": "primary_0555_kst",
+      "timing_status": "measured"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "guard_skip_count": 0,
+    "guard_stale_count": 1,
+    "measured_count": 1
+  }
+}
