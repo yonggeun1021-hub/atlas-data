@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_market_judgement/1",
+  "input_schema_version": "us_market_judgement_input/1",
+  "receipt_schema_version": "us_market_judgement_receipt/1",
+  "market": "US",
+  "market_timezone": "America/New_York",
+  "source_order": [
+    "US_UNIVERSE",
+    "US_BREADTH",
+    "US_SECTOR_LEADERSHIP",
+    "US_PRICE_BREADTH",
+    "US_MARKET_FLOW",
+    "US_TREND",
+    "US_RISK_VOL",
+    "US_FINISHED_SESSION"
+  ],
+  "axis_source_bindings": {
+    "TREND": "US_TREND",
+    "BREADTH": "US_PRICE_BREADTH",
+    "RISK_VOL": "US_RISK_VOL",
+    "LIQUIDITY": "US_MARKET_FLOW",
+    "LEADERSHIP": "US_SECTOR_LEADERSHIP"
+  },
+  "axis_prerequisite_sources": [
+    "US_UNIVERSE",
+    "US_BREADTH",
+    "US_FINISHED_SESSION"
+  ],
+  "source_statuses": ["AVAILABLE", "MISSING", "UNKNOWN"],
+  "policy_statuses": ["RATIFIED", "UNRATIFIED", "ABSENT", "NOT_AUTHORIZED"],
+  "coverage_statuses": ["COVERAGE_MET", "INCOMPLETE", "UNKNOWN"],
+  "session_statuses": ["FINISHED", "IN_PROGRESS", "UNKNOWN"],
+  "required_axis_count": 5,
+  "required_policy_status": "RATIFIED",
+  "required_coverage_status": "COVERAGE_MET",
+  "required_finished_session_status": "FINISHED",
+  "current_policy_facts": {
+    "leadership_policy_version": "us_leadership/draft-v1",
+    "leadership_policy_status": "UNRATIFIED",
+    "universe_policy_version": "us_leadership_universe/draft-v1",
+    "universe_policy_status": "UNRATIFIED",
+    "price_breadth_authorized": false,
+    "regime_classification_authorized": false
+  },
+  "fail_closed": {
+    "judgement": "UNKNOWN",
+    "status": "HOLD",
+    "recommendation": "WAIT",
+    "action": null,
+    "regime": "UNKNOWN",
+    "direction": "UNKNOWN",
+    "confidence": null
+  },
+  "consumer_pins": {
+    "paper_12_4": {
+      "schema_version": "regime_output/v1",
+      "json_pointer": "/regimeOutput"
+    },
+    "paper_12_1": {
+      "schema_version": "us_market_judgement_bridge_projection/1",
+      "json_pointer": "/paperDecisionBridgeProjection"
+    }
+  },
+  "authority": {
+    "paper_observation_only": true,
+    "fixture_promotable": false,
+    "candidate_generation_authorized": false,
+    "paper_buy_authorized": false,
+    "real": false,
+    "live": false,
+    "realCapital": false,
+    "production": false,
+    "trading": false,
+    "network": false,
+    "broker": false,
+    "credential": false,
+    "oauth": false,
+    "post": false,
+    "order": false
+  }
+}

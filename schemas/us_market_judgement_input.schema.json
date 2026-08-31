@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.invalid/schemas/us_market_judgement_input.schema.json",
+  "title": "US market judgement input envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "market", "evidenceClass", "evaluationAt", "sessionDate", "sources"],
+  "properties": {
+    "schemaVersion": {"const": "us_market_judgement_input/1"},
+    "market": {"const": "US"},
+    "evidenceClass": {"enum": ["NATURAL_READ_ONLY", "SYNTHETIC_CONTRACT_TEST", "NO_INPUT_BASELINE"]},
+    "evaluationAt": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "sessionDate": {"type": "string", "format": "date"},
+    "sources": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/source"}
+    }
+  },
+  "$defs": {
+    "pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"type": ["string", "null"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "approvalStatus", "pin"],
+      "properties": {
+        "version": {"type": ["string", "null"]},
+        "approvalStatus": {"enum": ["RATIFIED", "UNRATIFIED", "ABSENT", "NOT_AUTHORIZED"]},
+        "pin": {"$ref": "#/$defs/pin"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "observedCount", "requiredCount"],
+      "properties": {
+        "status": {"enum": ["COVERAGE_MET", "INCOMPLETE", "UNKNOWN"]},
+        "observedCount": {"type": ["integer", "null"], "minimum": 0},
+        "requiredCount": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "status", "observationDate", "sourceTime", "ttlSeconds", "pin", "policy", "coverage", "sessionStatus"],
+      "properties": {
+        "sourceId": {"type": "string"},
+        "status": {"enum": ["AVAILABLE", "MISSING", "UNKNOWN"]},
+        "observationDate": {"type": ["string", "null"], "format": "date"},
+        "sourceTime": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+        "ttlSeconds": {"type": ["integer", "null"], "minimum": 1},
+        "pin": {"$ref": "#/$defs/pin"},
+        "policy": {"$ref": "#/$defs/policy"},
+        "coverage": {"$ref": "#/$defs/coverage"},
+        "sessionStatus": {"enum": ["FINISHED", "IN_PROGRESS", "UNKNOWN", null]}
+      }
+    }
+  }
+}
