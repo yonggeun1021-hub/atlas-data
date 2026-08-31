@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schemas/paper_decision_bridge.schema.json",
+  "title": "Atlas immutable three-market PAPER decision bridge",
+  "oneOf": [{"$ref": "#/$defs/input"}, {"$ref": "#/$defs/output"}],
+  "$defs": {
+    "status": {"enum": ["PASS", "FAIL", null]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {
+        "ref": {"type": ["string", "null"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "sources"],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {"type": "string", "minLength": 1},
+        "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}}
+      }
+    },
+    "observedRanking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["universe", "top10", "top3"],
+      "properties": {
+        "universe": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "top10": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "uniqueItems": true},
+        "top3": {"type": "array", "maxItems": 3, "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName", "tickerCode", "upstreamAction", "tradePlan", "tradePlanGate", "exactSources", "funnelCandidate"],
+      "properties": {
+        "displayName": {"type": "string", "minLength": 1},
+        "tickerCode": {"type": "string", "minLength": 1},
+        "upstreamAction": {"enum": ["BUY", "HOLD", "SELL", "WAIT", null]},
+        "tradePlan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entryPrice", "stopPrice", "takeProfitPrice", "quantity", "expiresAt"],
+          "properties": {
+            "entryPrice": {"type": ["string", "null"]},
+            "stopPrice": {"type": ["string", "null"]},
+            "takeProfitPrice": {"type": ["string", "null"]},
+            "quantity": {"type": ["string", "null"]},
+            "expiresAt": {"type": ["string", "null"], "format": "date-time"}
+          }
+        },
+        "tradePlanGate": {"$ref": "#/$defs/gate"},
+        "exactSources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}},
+        "funnelCandidate": {"type": "object"}
+      }
+    },
+    "marketInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["market", "sourceTimestamp", "ttlSeconds", "exactSources", "leadership", "observedRanking", "riskPacket", "lifecycleGates", "traceStages", "candidates"],
+      "properties": {
+        "market": {"enum": ["KRX", "US", "CRYPTO"]},
+        "sourceTimestamp": {"type": ["string", "null"], "format": "date-time"},
+        "ttlSeconds": {"type": ["integer", "null"], "minimum": 1},
+        "exactSources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}},
+        "leadership": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transformVersion", "approvalStatus", "groupCoverageStatus", "observationStatus", "reason"],
+          "properties": {
+            "transformVersion": {"type": "string"},
+            "approvalStatus": {"enum": ["RATIFIED", "UNRATIFIED"]},
+            "groupCoverageStatus": {"enum": ["RATIFIED", "UNRATIFIED", "NOT_APPLICABLE"]},
+            "observationStatus": {"$ref": "#/$defs/status"},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        },
+        "observedRanking": {"$ref": "#/$defs/observedRanking"},
+        "riskPacket": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "cashAction", "exposureAction", "inverseAction", "hedgeAction", "reason", "sources"],
+          "properties": {
+            "status": {"$ref": "#/$defs/status"},
+            "cashAction": {"type": ["string", "null"]},
+            "exposureAction": {"type": ["string", "null"]},
+            "inverseAction": {"type": ["string", "null"]},
+            "hedgeAction": {"type": ["string", "null"]},
+            "reason": {"type": "string", "minLength": 1},
+            "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}}
+          }
+        },
+        "lifecycleGates": {"type": "object", "additionalProperties": {"$ref": "#/$defs/gate"}},
+        "traceStages": {"type": "object", "additionalProperties": {"$ref": "#/$defs/gate"}},
+        "candidates": {"type": "array", "items": {"$ref": "#/$defs/candidate"}}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "contractVersion", "evaluationAt", "evidenceClass", "regimeHeader", "regimeHeaderSource", "markets"],
+      "properties": {
+        "schemaVersion": {"const": "paper_decision_bridge_input/1"},
+        "contractVersion": {"const": "paper_decision_bridge_contract/1"},
+        "evaluationAt": {"type": "string", "format": "date-time"},
+        "evidenceClass": {"enum": ["NATURAL_READ_ONLY", "FIXTURE"]},
+        "regimeHeader": {"type": ["object", "null"]},
+        "regimeHeaderSource": {"$ref": "#/$defs/source"},
+        "markets": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/marketInput"}}
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": ["schemaVersion", "contractVersion", "decisionIdentitySha256", "evidenceClass", "evaluationAt", "markets", "summary", "authority", "receiptSha256"],
+      "properties": {
+        "schemaVersion": {"const": "paper_decision_bridge_receipt/1"},
+        "contractVersion": {"const": "paper_decision_bridge_contract/1"},
+        "decisionIdentitySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "evidenceClass": {"enum": ["NATURAL_READ_ONLY", "FIXTURE"]},
+        "evaluationAt": {"type": "string", "format": "date-time"},
+        "markets": {"type": "array", "minItems": 3, "maxItems": 3},
+        "summary": {"type": "object"},
+        "authority": {"type": "object"},
+        "receiptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

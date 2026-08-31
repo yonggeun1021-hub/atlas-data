@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "contract_version": "paper_decision_bridge_contract/1",
+  "input_schema_version": "paper_decision_bridge_input/1",
+  "output_schema_version": "paper_decision_bridge_receipt/1",
+  "markets": ["KRX", "US", "CRYPTO"],
+  "regime_market_map": {"KRX": "KR", "US": "US", "CRYPTO": "CRYPTO"},
+  "funnel_market_map": {"KRX": "KOREA", "US": "US", "CRYPTO": "CRYPTO"},
+  "funnel_sequence": ["UNIVERSE", "TOP10", "TOP3", "CANDIDATE", "READY", "PAPER_BUY_ELIGIBLE"],
+  "thresholds": {"candidate": 60, "ready": 70, "paper_buy_eligible": 75},
+  "market_lifecycle_gates": [
+    "MARKET_JUDGEMENT",
+    "MARKET_APPROVAL",
+    "LEADERSHIP_APPROVAL",
+    "LEADERSHIP_COVERAGE",
+    "COMPLETED_BAR",
+    "FRESHNESS",
+    "ENTRY_ELIGIBILITY",
+    "EXIT_ELIGIBILITY",
+    "RISK_PACKET",
+    "LEDGER_INTEGRITY"
+  ],
+  "trace_order": [
+    "FLOW_FIRST_BRIEFING",
+    "THREE_MARKET_REGIME_HEADER",
+    "LEADERSHIP",
+    "CAPITAL_ROTATION",
+    "CASH_EXPOSURE_ACTION",
+    "DEFENSIVE_ACTION_DECISION",
+    "HEDGE_INSTRUMENT_ELIGIBILITY",
+    "BEAR_HEDGE_RISK_BUDGET",
+    "STRATEGIC_CAPITAL_POSTURE",
+    "COMMON_CANDIDATE_FUNNEL",
+    "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
+    "LEDGER"
+  ],
+  "component_contracts": {
+    "FLOW_FIRST_BRIEFING": {"contract": "flow_first_briefing/2", "paper_transition_authorized": false},
+    "THREE_MARKET_REGIME_HEADER": {"contract": "briefing_three_market_regime_header/1", "paper_transition_authorized": false},
+    "LEADERSHIP": {"contract": "MARKET_SPECIFIC", "paper_transition_authorized": false},
+    "CAPITAL_ROTATION": {"contract": "MARKET_SPECIFIC", "paper_transition_authorized": false},
+    "CASH_EXPOSURE_ACTION": {"contract": "cash_exposure_action_boundary/1", "paper_transition_authorized": false},
+    "DEFENSIVE_ACTION_DECISION": {"contract": "defensive_action_decision_readiness/1", "paper_transition_authorized": false},
+    "HEDGE_INSTRUMENT_ELIGIBILITY": {"contract": "hedge_instrument_eligibility/1", "paper_transition_authorized": false},
+    "BEAR_HEDGE_RISK_BUDGET": {"contract": "bear_hedge_risk_budget/1", "paper_transition_authorized": false},
+    "STRATEGIC_CAPITAL_POSTURE": {"contract": "strategic_capital_posture_readiness/1", "paper_transition_authorized": false},
+    "COMMON_CANDIDATE_FUNNEL": {"contract": "common_paper_candidate_funnel_contract/1", "paper_transition_authorized": true},
+    "ENTRY_EXIT_TRIGGER_ELIGIBILITY": {"contract": "entry_exit_trigger_eligibility/1", "paper_transition_authorized": false},
+    "LEDGER": {"contract": "MARKET_SPECIFIC", "paper_transition_authorized": false}
+  },
+  "leadership_policy": {
+    "KRX": {"transform_version": "korea_leadership/v1", "approval_status": "RATIFIED", "group_coverage_status": "NOT_APPLICABLE"},
+    "US": {"transform_version": "us_leadership/v1", "approval_status": "UNRATIFIED", "group_coverage_status": "UNRATIFIED"},
+    "CRYPTO": {"transform_version": "crypto_leadership/v1", "approval_status": "RATIFIED", "group_coverage_status": "UNRATIFIED"}
+  },
+  "ranking_scope": "INDEPENDENT_WITHIN_EACH_MARKET_ONLY",
+  "top3_semantics": "UP_TO_THREE_INSTRUMENTS_WITHIN_ONE_MARKET_NOT_THREE_MARKETS",
+  "leadership_semantics": "MARKET_JUDGEMENT_OBSERVATION_ONLY_NEVER_DIRECT_PAPER_AUTHORITY",
+  "fixture_policy": "FIXTURE_NEVER_TRANSITIONS_TO_PAPER_ACTION_OR_LEDGER",
+  "missing_null_stale_hash_policy": "FAIL_CLOSED_ACTION_NULL_RECOMMENDATION_WAIT",
+  "permanent_false_authority": {
+    "real": false,
+    "live": false,
+    "realCapital": false,
+    "production": false,
+    "trading": false,
+    "brokerNetwork": false,
+    "brokerPost": false,
+    "oauthPost": false,
+    "order": false
+  }
+}
