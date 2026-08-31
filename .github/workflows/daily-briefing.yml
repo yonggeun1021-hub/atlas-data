@@ -61,7 +61,10 @@ jobs:
   # tests that already ran in CI before merge.
   offline-regression:
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    timeout-minutes: 15
+    # The provenance-heavy identity checks repeatedly walk full git history.
+    # They complete well inside this bound on the isolated runner, but can
+    # exceed the former GitHub-hosted 15-minute budget on a cold checkout.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
