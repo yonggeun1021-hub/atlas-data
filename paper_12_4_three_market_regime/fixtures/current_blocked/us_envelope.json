@@ -1,0 +1,48 @@
+{
+  "schema_version": "paper12_4_market_input_envelope/v1",
+  "market": "US",
+  "envelope_id": "us-current-blocked-2026-08-31",
+  "regime_scoring_policy_status": "UNRATIFIED",
+  "declared_rotation_state": "DEGRADED",
+  "inputs": {
+    "LEADERSHIP": {
+      "availability": "PRESENT",
+      "source_id": "us_leadership/draft-v1-policy-snapshot",
+      "source_path": "paper_12_4_three_market_regime/fixtures/current_blocked/sources/us_leadership.json",
+      "source_sha256": "875e505c788b73cb69902e8ff3dcf57ffec6909c66ab5685e277529c35abe025",
+      "source_time_utc": "2026-08-31T00:30:00Z",
+      "bar_close_time_utc": "2026-08-31T00:00:00Z",
+      "completed_bar": true,
+      "ttl_seconds": 7200,
+      "policy_status": "UNRATIFIED",
+      "coverage_policy_status": "UNRATIFIED",
+      "coverage": {"defined_count": 0, "required_count": 5}
+    },
+    "SECTOR_FLOW": {
+      "availability": "PRESENT",
+      "source_id": "us-sector-flow-blocked-snapshot",
+      "source_path": "paper_12_4_three_market_regime/fixtures/current_blocked/sources/us_sector_flow.json",
+      "source_sha256": "306cef505607633e2af8bc875fbaddc9350c44f9ada263fb91f8642bd8ce3a15",
+      "source_time_utc": "2026-08-31T00:30:00Z",
+      "bar_close_time_utc": "2026-08-31T00:00:00Z",
+      "completed_bar": true,
+      "ttl_seconds": 7200,
+      "policy_status": "UNRATIFIED",
+      "coverage_policy_status": "UNRATIFIED",
+      "coverage": {"defined_count": 0, "required_count": 5}
+    },
+    "AXES": {
+      "availability": "PRESENT",
+      "source_id": "us-five-axis-blocked-snapshot",
+      "source_path": "paper_12_4_three_market_regime/fixtures/current_blocked/sources/us_axes.json",
+      "source_sha256": "3b9fe37f7ca4743180c51633229024ce1ac6a8eadb6d0346effdd39b7e25ee8e",
+      "source_time_utc": "2026-08-31T00:30:00Z",
+      "bar_close_time_utc": "2026-08-31T00:00:00Z",
+      "completed_bar": true,
+      "ttl_seconds": 7200,
+      "policy_status": "RATIFIED",
+      "coverage_policy_status": "UNRATIFIED",
+      "coverage": {"defined_count": 0, "required_count": 5}
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://paper-12-4/receipt-bundle/v1",
+  "title": "PAPER 12-4 Three-Market Regime Receipt Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at_utc",
+    "market_receipts",
+    "three_market_header",
+    "transition_ledger",
+    "authority",
+    "bundle_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "paper12_4_regime_receipt_bundle/v1"},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "market_receipts": {"type": "array", "minItems": 0, "maxItems": 3},
+    "three_market_header": {"type": "object"},
+    "transition_ledger": {"type": "array", "minItems": 4, "maxItems": 4},
+    "authority": {
+      "const": {
+        "paper_authorized": false,
+        "strategy_authorized": false,
+        "action_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      }
+    },
+    "bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
