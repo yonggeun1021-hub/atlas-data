@@ -13,18 +13,22 @@ allowlist file and no declarative-only contract.
 
 **Content chain** (unchanged, pre-existing): ``document.approval_evidence_ref``
 names a RATIFIED content-approval file, which pins the exact candidate
-that proposed ``document``'s own ``mappings``/``records`` content.
+that proposed ``document``'s own ``mappings``/``records`` content.  The
+identity registry also carries a redundant ``source_candidate_packet``
+pin and it must agree when present.  The shipped taxonomy does not carry
+that redundant field, so its canonical pin is resolved from the same
+hash-verified content approval instead of being fabricated.
 
 **Code chain**: ``document.code_approval_evidence_ref`` names a RATIFIED
 code-approval file, which pins a successor candidate that in turn pins
 the exact consumer file, this validator's own file, the immutable policy
 contract, and the release builder module -- and pins the SAME base
 content candidate the content chain independently resolved, compared as
-the canonical ``{path, file_sha256, payload_sha256}`` 3-tuple (a real
-registry/taxonomy's own ``source_candidate_packet`` carries additional
+the canonical ``{path, file_sha256, payload_sha256}`` 3-tuple.  The real
+registry's redundant ``source_candidate_packet`` carries additional
 metadata -- ``evaluation_as_of``/``review_status``/``snapshot_date`` --
-that the successor's pin never needs to replicate; only the 3 identity
-keys must match exactly).
+that the successor's pin never needs to replicate; the real taxonomy's
+pin comes from its independently verified content approval.
 
 ``verify_code_chain()`` is exported (not module-private) specifically so
 ``identity/upbit_exact_release_binding_release.py``'s release builder can
@@ -205,73 +209,82 @@ def load_policy_contract(path: Path = POLICY_CONTRACT_PATH) -> dict:
     return doc
 
 
-def _verify_content_chain(
+def verify_content_chain(
     document: dict, *, content_field: str, evaluation_as_of: str, contract: dict, repo_root: Path,
-) -> tuple[bool, dict | None]:
-    """Content chain only: does ``document``'s own pre-existing
-    ``approval_evidence_ref``/``source_candidate_packet`` pointers resolve
-    to a RATIFIED content approval whose candidate proposed EXACTLY
-    ``document[content_field]``, ratified strictly after the candidate's
-    own ``generated_at`` and no later than ``evaluation_as_of``? Returns
-    ``(ok, candidate_or_none)`` so the code chain below can cross-check it
-    names the SAME candidate.
+) -> tuple[bool, dict | None, dict | None]:
+    """Public content-chain verifier shared with the release builder.
+
+    ``document.approval_evidence_ref`` must resolve to a RATIFIED content
+    approval whose exact candidate proposed ``document[content_field]``.
+    If the document also carries ``source_candidate_packet`` (the shipped
+    registry does), that redundant pin must exactly match the approval's
+    canonical three-key candidate pin.  If it is absent (the shipped
+    taxonomy shape), the pin is resolved from the approval itself; it is
+    never invented from caller input.
+
+    Returns ``(ok, candidate_or_none, canonical_pin_or_none)`` so both the
+    runtime and release builder cross-check the code chain against the
+    same independently resolved base candidate.
     """
-    required = {"approval_evidence_ref", "approval_evidence_sha256", "approved_candidate_payload_sha256", "source_candidate_packet"}
+    required = {"approval_evidence_ref", "approval_evidence_sha256", "approved_candidate_payload_sha256"}
     if not required.issubset(document):
-        return False, None
-    source = document["source_candidate_packet"]
-    source_pin = _canonical_pin(source)
-    if source_pin is None:
-        return False, None
+        return False, None, None
+    source_pin = None
+    if "source_candidate_packet" in document:
+        source_pin = _canonical_pin(document["source_candidate_packet"])
+        if source_pin is None:
+            return False, None, None
 
     try:
         approval_path = _resolve_repo_path(document["approval_evidence_ref"], repo_root)
     except ExactReleaseBindingError:
-        return False, None
+        return False, None, None
     if not approval_path.is_file() or file_sha256(approval_path) != document["approval_evidence_sha256"]:
-        return False, None
+        return False, None, None
     approval = _read_json_or_none(approval_path)
     if approval is None or approval.get("schema_version") != contract["content_approval_schema_version"]:
-        return False, None
+        return False, None, None
     if not set(contract["required_content_approval_fields"]).issubset(approval):
-        return False, None
+        return False, None, None
     if approval.get("approval_status") != "RATIFIED" or approval.get("ratified_by") != "CIO_USER":
-        return False, None
+        return False, None, None
     scope = approval.get("approved_scope")
     if not isinstance(scope, dict) or set(scope) != set(contract["paper_scope_keys"]) or any(v is not True for v in scope.values()):
-        return False, None
+        return False, None, None
     if not _exact_keys_all_false(approval.get("authority"), contract["forbidden_authority_keys"]):
-        return False, None
+        return False, None, None
     approval_ratified_at = _parse_rfc3339_or_none(approval.get("ratified_at_utc"))
     if approval_ratified_at is None:
-        return False, None
+        return False, None, None
 
     candidate_pin = approval.get("candidate")
-    if not isinstance(candidate_pin, dict) or candidate_pin.get("path") != source_pin["path"]:
-        return False, None
+    resolved_source_pin = _canonical_pin(candidate_pin)
+    if resolved_source_pin is None:
+        return False, None, None
+    if source_pin is not None and source_pin != resolved_source_pin:
+        return False, None, None
     try:
-        candidate_path = _resolve_repo_path(source_pin["path"], repo_root)
+        candidate_path = _resolve_repo_path(resolved_source_pin["path"], repo_root)
     except ExactReleaseBindingError:
-        return False, None
+        return False, None, None
     if not candidate_path.is_file():
-        return False, None
+        return False, None, None
     live_candidate_hash = file_sha256(candidate_path)
-    if live_candidate_hash != source_pin["file_sha256"] or live_candidate_hash != candidate_pin.get("file_sha256"):
-        return False, None
+    if live_candidate_hash != resolved_source_pin["file_sha256"]:
+        return False, None, None
 
     candidate = _read_json_or_none(candidate_path)
     if candidate is None:
-        return False, None
+        return False, None, None
     unsigned = {k: v for k, v in candidate.items() if k != "payload_sha256"}
     live_payload_hash = payload_sha256(unsigned)
     if (
         candidate.get("payload_sha256") != live_payload_hash
-        or live_payload_hash != source_pin["payload_sha256"]
-        or live_payload_hash != candidate_pin.get("payload_sha256")
+        or live_payload_hash != resolved_source_pin["payload_sha256"]
     ):
-        return False, None
+        return False, None, None
     if not _exact_keys_all_false(candidate.get("authority"), contract["authority_keys"]):
-        return False, None
+        return False, None, None
 
     # Temporal ordering: the approval must be ratified STRICTLY after the
     # thing it approves (equal timestamps rejected, matching the real v2
@@ -281,24 +294,24 @@ def _verify_content_chain(
     # evaluation.
     candidate_generated_at = _parse_rfc3339_or_none(candidate.get("generated_at"))
     if candidate_generated_at is None or approval_ratified_at <= candidate_generated_at:
-        return False, None
+        return False, None, None
     if not isinstance(evaluation_as_of, str) or not _DATE_RE.fullmatch(evaluation_as_of):
-        return False, None
+        return False, None, None
     if approval_ratified_at.strftime("%Y-%m-%d") > evaluation_as_of:
-        return False, None
+        return False, None, None
 
     cfg = _CONTENT_CONFIG[content_field]
     proposed = candidate.get(cfg["proposed_key"])
     if not isinstance(proposed, dict) or proposed.get(content_field) != document.get(content_field):
-        return False, None
+        return False, None, None
     proposed_payload_hash = payload_sha256(proposed)
     if (
         candidate.get(cfg["proposed_payload_field"]) != proposed_payload_hash
         or document["approved_candidate_payload_sha256"] != proposed_payload_hash
         or candidate_pin.get(cfg["approval_candidate_payload_field"]) != proposed_payload_hash
     ):
-        return False, None
-    return True, candidate
+        return False, None, None
+    return True, candidate, resolved_source_pin
 
 
 def verify_code_chain(
@@ -501,13 +514,12 @@ def validate_exact_release(
     if not isinstance(evaluation_as_of, str) or not _DATE_RE.fullmatch(evaluation_as_of):
         return False
 
-    content_ok, content_candidate = _verify_content_chain(
+    content_ok, content_candidate, content_source_pin = verify_content_chain(
         document, content_field=content_field, evaluation_as_of=evaluation_as_of,
         contract=contract, repo_root=repo_root,
     )
-    if not content_ok or content_candidate is None:
+    if not content_ok or content_candidate is None or content_source_pin is None:
         return False
-    content_source_pin = document.get("source_candidate_packet")
 
     code_ref = document.get("code_approval_evidence_ref")
     code_sha = document.get("code_approval_evidence_sha256")

@@ -5,9 +5,10 @@ validation, computes hashes itself, rejects absolute/outside paths, and
 the committed-release validator re-runs the projection through the real
 runtime validator end to end).
 
-Synthetic-fixture-only: this module never runs against the real
-committed registry/taxonomy/freeze (no genuine code approval exists yet),
-so every test here builds its own tempdir fixtures.
+No genuine code approval exists yet, so release tests use tempdir
+artifacts.  The E2E fixture deliberately preserves the asymmetric shipped
+shape: the registry has a six-field ``source_candidate_packet`` while the
+taxonomy has no such field.
 """
 from __future__ import annotations
 
@@ -106,16 +107,21 @@ class BuildReleaseProjectionUnitTests(unittest.TestCase):
     def test_registry_and_taxonomy_base_candidate_pin_mismatch_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            _write(tmp / "code_approval.json", _code_approval())
-            with self.assertRaises(RELEASE.ReleaseProjectionError):
+            registry, taxonomy, _ = FIXTURES.build_full_chain(tmp)
+            taxonomy["source_candidate_packet"]["payload_sha256"] = "0" * 64
+            current_freeze = json.loads(
+                (tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json").read_text(encoding="utf-8")
+            )
+            with self.assertRaises(RELEASE.ReleaseProjectionError) as ctx:
                 RELEASE.build_release_projection(
                     repo_root=tmp,
                     code_approval_relative_path="code_approval.json",
-                    current_registry={"source_candidate_packet": {"path": "x", "file_sha256": "a" * 64, "payload_sha256": "b" * 64}},
-                    current_taxonomy={"source_candidate_packet": {"path": "y", "file_sha256": "a" * 64, "payload_sha256": "b" * 64}},
-                    current_freeze={},
-                    evaluation_as_of="2026-08-30",
+                    current_registry=registry,
+                    current_taxonomy=taxonomy,
+                    current_freeze=current_freeze,
+                    evaluation_as_of=FIXTURES.EVAL_AS_OF,
                 )
+            self.assertIn("TAXONOMY_CONTENT_APPROVAL_CHAIN_INVALID", str(ctx.exception))
 
     def test_invalid_code_chain_raises(self):
         """A code approval that does not pass the real full chain
@@ -144,8 +150,9 @@ class BuildReleaseProjectionUnitTests(unittest.TestCase):
 class EndToEndReleaseAndRuntimeTests(unittest.TestCase):
     """No-mock: builds the full real content+code chain (via the SAME
     fixture builder test_upbit_exact_release_binding.py's own tests use),
-    with a REAL, current-repo-shaped 6-field source_candidate_packet on
-    the pre-release registry/taxonomy, then drives
+    then reshapes the pre-release documents to the actual committed form:
+    a six-field source_candidate_packet on the registry and no such field
+    on the taxonomy.  It then drives
     release builder -> registry/taxonomy/freeze projection -> the real
     runtime validator, proving: before the code approval's ratification
     date the projected release is NOT yet effective, and on/after it,
@@ -153,14 +160,15 @@ class EndToEndReleaseAndRuntimeTests(unittest.TestCase):
 
     def _setup(self, tmp: Path):
         registry, taxonomy, artifacts = FIXTURES.build_full_chain(tmp)
-        # Real registry/taxonomy shape: six fields on source_candidate_packet,
-        # not just the three identity keys the successor's simpler pin uses.
-        for document in (registry, taxonomy):
-            document["source_candidate_packet"] = dict(
-                document["source_candidate_packet"],
-                evaluation_as_of="2026-08-30", review_status="RATIFIED_BY_EXPLICIT_CIO_DECISION",
-                snapshot_date="2026-08-30",
-            )
+        # Actual committed shapes, not a symmetric synthetic convenience:
+        # registry has a six-field redundant pin; taxonomy has none and
+        # must resolve the same base candidate from its content approval.
+        registry["source_candidate_packet"] = dict(
+            registry["source_candidate_packet"],
+            evaluation_as_of="2026-08-30", review_status="RATIFIED_BY_EXPLICIT_CIO_DECISION",
+            snapshot_date="2026-08-30",
+        )
+        del taxonomy["source_candidate_packet"]
         current_freeze = json.loads(
             (tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json").read_text(encoding="utf-8")
         )
@@ -187,6 +195,8 @@ class EndToEndReleaseAndRuntimeTests(unittest.TestCase):
             self.assertEqual(projection["registry"]["code_approval_evidence_sha256"], hand_activated["code_approval_evidence_sha256"])
             # original inputs never mutated in place
             self.assertNotIn("code_approval_evidence_ref", registry)
+            self.assertNotIn("source_candidate_packet", taxonomy)
+            self.assertNotIn("source_candidate_packet", projection["taxonomy"])
 
     def test_e2e_committed_release_is_false_before_ratification_and_exact_eight_after(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -237,15 +247,13 @@ class EndToEndReleaseAndRuntimeTests(unittest.TestCase):
             self.assertTrue(GOVERNANCE.validate_exact_release(
                 committed_taxonomy, content_field="records", evaluation_as_of=FIXTURES.EVAL_AS_OF, repo_root=tmp,
             ))
-            # Real source_candidate_packet metadata (evaluation_as_of/
-            # review_status/snapshot_date) is preserved byte for byte --
-            # the release builder never narrows a real document's own
-            # pin down to the successor's simpler 3-key shape.
-            for document in (committed_registry, committed_taxonomy):
-                pin = document["source_candidate_packet"]
-                self.assertEqual(pin["evaluation_as_of"], "2026-08-30")
-                self.assertEqual(pin["review_status"], "RATIFIED_BY_EXPLICIT_CIO_DECISION")
-                self.assertEqual(pin["snapshot_date"], "2026-08-30")
+            # Registry metadata is preserved; taxonomy stays in its real
+            # committed shape and the builder does not invent a pin.
+            pin = committed_registry["source_candidate_packet"]
+            self.assertEqual(pin["evaluation_as_of"], "2026-08-30")
+            self.assertEqual(pin["review_status"], "RATIFIED_BY_EXPLICIT_CIO_DECISION")
+            self.assertEqual(pin["snapshot_date"], "2026-08-30")
+            self.assertNotIn("source_candidate_packet", committed_taxonomy)
 
     def test_e2e_diverging_committed_registry_fails_validate_committed_release(self):
         with tempfile.TemporaryDirectory() as tmp:

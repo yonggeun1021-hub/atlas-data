@@ -11,7 +11,7 @@ Given a genuine, RATIFIED code approval, this module computes the ONE
 deterministic projection of what the identity registry / taxonomy /
 governance freeze documents must contain to reflect that approval -- the
 content fields (``mappings``/``records``, and every other field) stay
-byte-for-byte unchanged; only the two new
+value-for-value unchanged; only the two new
 ``code_approval_evidence_ref``/``code_approval_evidence_sha256`` fields
 (and a matching ``code_approval_resolution`` block on the freeze
 document, produced by ``governance/upbit_exact_release_binding.py::verify_code_chain()``
@@ -28,6 +28,14 @@ at runtime; there is only one code-chain-verification implementation.
 repo-relative approval path -- it computes the approval's file hash
 itself and never trusts a caller-supplied hash or an absolute/
 outside-repository path.
+
+Before projecting, the builder runs both current documents through the
+same public ``verify_content_chain()`` implementation used at runtime.
+The shipped registry's redundant ``source_candidate_packet`` pin must
+match the approval; the shipped taxonomy has no such field and resolves
+the same canonical base-candidate pin from its hash-verified content
+approval.  This preserves the real committed shapes instead of requiring
+a synthetic taxonomy-only field.
 
 This module works on plain dicts/paths its caller supplies -- it never
 looks at, or writes to, this repository's own real committed
@@ -71,10 +79,19 @@ class ReleaseProjectionError(ValueError):
     """Fail-closed deterministic-projection violation."""
 
 
-def _content_source_pin(document: dict, label: str) -> dict:
-    pin = GOVERNANCE._canonical_pin(document.get("source_candidate_packet"))
-    if pin is None:
-        raise ReleaseProjectionError(f"{label}_SOURCE_CANDIDATE_PACKET_INVALID")
+def _verified_content_source_pin(
+    document: dict, *, label: str, content_field: str,
+    evaluation_as_of: str, contract: dict, repo_root: Path,
+) -> dict:
+    ok, _candidate, pin = GOVERNANCE.verify_content_chain(
+        document,
+        content_field=content_field,
+        evaluation_as_of=evaluation_as_of,
+        contract=contract,
+        repo_root=repo_root,
+    )
+    if not ok or pin is None:
+        raise ReleaseProjectionError(f"{label}_CONTENT_APPROVAL_CHAIN_INVALID")
     return pin
 
 
@@ -92,19 +109,17 @@ def build_release_projection(
     ``current_freeze`` under the code approval at
     ``code_approval_relative_path`` (repo-relative; resolved and hashed
     HERE, never trusting a caller-supplied path or hash). Every existing
-    field is preserved byte-for-byte (deep-copied, never mutated in
+    field is preserved value-for-value (deep-copied, never mutated in
     place); only the code-approval pointer fields are added.
 
     Raises ``ReleaseProjectionError`` if the approval path is absolute,
     outside the repository, missing, or if
-    ``governance/upbit_exact_release_binding.py::verify_code_chain()`` --
-    the SAME full validation the runtime validator performs -- does not
-    accept it. ``current_registry``/``current_taxonomy`` must each have
-    already gone through the content-approval chain (their own,
-    pre-existing ``source_candidate_packet`` pin identifies the base
-    candidate this code approval must also pin, by the canonical 3-tuple
-    -- extra registry/taxonomy metadata on that pin is preserved, never
-    required of the successor's simpler pin).
+    ``governance/upbit_exact_release_binding.py::verify_content_chain()``
+    and ``verify_code_chain()`` -- the SAME full validations the runtime
+    validator performs -- do not accept it.  The registry's optional
+    redundant source pin is cross-checked when present; the taxonomy's
+    base pin is resolved from its content approval because the real
+    committed taxonomy has no ``source_candidate_packet`` field.
     """
     try:
         approval_path = GOVERNANCE._resolve_repo_path(code_approval_relative_path, repo_root)
@@ -114,16 +129,22 @@ def build_release_projection(
         raise ReleaseProjectionError("CODE_APPROVAL_FILE_MISSING")
     code_approval_file_sha256 = file_sha256(approval_path)
 
-    registry_source_pin = _content_source_pin(current_registry, "REGISTRY")
-    taxonomy_source_pin = _content_source_pin(current_taxonomy, "TAXONOMY")
-    if registry_source_pin != taxonomy_source_pin:
-        raise ReleaseProjectionError("REGISTRY_AND_TAXONOMY_BASE_CANDIDATE_PIN_MISMATCH")
-
     contract = GOVERNANCE.load_policy_contract(
         GOVERNANCE._resolve_repo_path(
             str(GOVERNANCE.POLICY_CONTRACT_PATH.relative_to(GOVERNANCE.ROOT)), repo_root,
         )
     )
+    registry_source_pin = _verified_content_source_pin(
+        current_registry, label="REGISTRY", content_field="mappings",
+        evaluation_as_of=evaluation_as_of, contract=contract, repo_root=repo_root,
+    )
+    taxonomy_source_pin = _verified_content_source_pin(
+        current_taxonomy, label="TAXONOMY", content_field="records",
+        evaluation_as_of=evaluation_as_of, contract=contract, repo_root=repo_root,
+    )
+    if registry_source_pin != taxonomy_source_pin:
+        raise ReleaseProjectionError("REGISTRY_AND_TAXONOMY_BASE_CANDIDATE_PIN_MISMATCH")
+
     ok, resolution = GOVERNANCE.verify_code_chain(
         code_approval_ref=code_approval_relative_path,
         code_approval_sha256=code_approval_file_sha256,

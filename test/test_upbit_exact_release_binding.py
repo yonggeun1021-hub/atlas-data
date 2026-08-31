@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """P3-12-GOV-05 (v3 design): governance/upbit_exact_release_binding.py.
 
-Two independent, one-way chains rooted entirely in fields the identity
-registry / taxonomy documents carry on themselves -- no separate mutable
+Two independent, one-way chains rooted in each document's approval
+reference (plus the registry's redundant source pin when present) -- no separate mutable
 allowlist file, contract-declared field/authority vocabularies actually
 enforced (not merely declarative), code-binding paths exactly compared
 (not just their sha256), base-candidate pins compared as exact
@@ -286,6 +286,32 @@ class ActivatedChainTests(unittest.TestCase):
                 artifacts["activate"](taxonomy), content_field="records", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
             ))
 
+    def test_activated_taxonomy_without_redundant_source_pin_validates_true(self):
+        """The shipped taxonomy has no source_candidate_packet field.
+
+        Its canonical base-candidate pin must be resolved from the exact,
+        hash-verified content approval rather than manufactured by a test
+        fixture or required as a taxonomy-only schema addition.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, taxonomy, artifacts = build_full_chain(tmp)
+            del taxonomy["source_candidate_packet"]
+            self.assertTrue(ERB.validate_exact_release(
+                artifacts["activate"](taxonomy), content_field="records",
+                evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_explicit_taxonomy_source_pin_mismatch_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, taxonomy, artifacts = build_full_chain(tmp)
+            taxonomy["source_candidate_packet"]["payload_sha256"] = "0" * 64
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](taxonomy), content_field="records",
+                evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
     def test_activated_registry_is_exactly_the_eight_approved_markets(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -339,6 +365,25 @@ class RealRepoStaysPendingTests(unittest.TestCase):
         taxonomy = json.loads((ROOT / "config" / "upbit_exclusion_taxonomy.json").read_text(encoding="utf-8"))
         self.assertNotIn("code_approval_evidence_ref", taxonomy)
         self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records", evaluation_as_of="2026-08-30"))
+
+    def test_real_committed_taxonomy_content_chain_resolves_without_source_pin(self):
+        taxonomy = json.loads((ROOT / "config" / "upbit_exclusion_taxonomy.json").read_text(encoding="utf-8"))
+        self.assertNotIn("source_candidate_packet", taxonomy)
+        contract = ERB.load_policy_contract()
+        ok, candidate, canonical_pin = ERB.verify_content_chain(
+            taxonomy, content_field="records", evaluation_as_of="2026-08-31",
+            contract=contract, repo_root=ROOT,
+        )
+        self.assertTrue(ok)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(
+            canonical_pin,
+            {
+                "path": "data/observations/upbit_paper_identity_hardening_candidate/2026-08-30/20260830T111117Z/packet.json",
+                "file_sha256": "770c722ffa3d9c185ad7629396037cdec1154bad38624cc9d887af3878bcd186",
+                "payload_sha256": "bbc73029ec00dc4b6e3762d69d96f18efa4b2fbd611830c2bd71c976ef405abd",
+            },
+        )
 
 
 class TemporalOrderingTests(unittest.TestCase):
