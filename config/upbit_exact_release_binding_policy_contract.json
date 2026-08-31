@@ -27,7 +27,8 @@
   "code_binding_labels": [
     "consumer_file",
     "validator_file",
-    "policy_contract"
+    "policy_contract",
+    "release_builder"
   ],
   "content_approval_schema_version": "upbit_paper_identity_exact_hash_approval/1",
   "forbidden_authority_keys": [
@@ -45,7 +46,7 @@
     "atlas_internal_paper_virtual_sell",
     "atlas_internal_paper_ledger"
   ],
-  "payload_sha256": "2509709f2d401c940874434dc726dec9308aaf2086bbf8da58d4c15c4b4d7954",
+  "payload_sha256": "20dcf5dc86143c0c45fe7c8f4c765389bc61f887300159438051e396a1c03d75",
   "purpose": "Immutable structural/schema contract for P3-12-GOV-05's runtime exact-approval binding. This file declares invariant field/schema requirements only -- it never names a specific approved hash and is never edited to record an approval. A real approval event never touches this file; it is recorded entirely in the identity registry / taxonomy documents' own code_approval_evidence_ref field and the code-approval evidence file that names, plus a successor candidate that names the exact consumer/validator/this-contract file hashes.",
   "required_code_approval_fields": [
     "schema_version",

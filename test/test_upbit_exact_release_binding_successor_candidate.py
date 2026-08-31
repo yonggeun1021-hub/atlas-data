@@ -50,10 +50,12 @@ class SuccessorCandidateBuilderTests(unittest.TestCase):
         base_document = json.loads((ROOT / base["path"]).read_text(encoding="utf-8"))
         self.assertEqual(base_document["payload_sha256"], base["payload_sha256"])
 
-    def test_code_binding_pins_consumer_validator_and_immutable_policy_contract(self):
+    def test_code_binding_pins_consumer_validator_policy_contract_and_release_builder(self):
         packet = BUILDER.build_successor_candidate(generated_at="2026-08-30T20:00:00Z")
         binding = packet["code_binding"]
-        self.assertEqual(set(binding), {"consumer_file", "validator_file", "policy_contract"})
+        self.assertEqual(
+            set(binding), {"consumer_file", "validator_file", "policy_contract", "release_builder"},
+        )
         for entry in binding.values():
             self.assertEqual(BUILDER.file_sha256(ROOT / entry["path"]), entry["sha256"])
 
@@ -94,6 +96,7 @@ class CommittedSuccessorCandidatePacketTests(unittest.TestCase):
             ("consumer_file", erb.CONSUMER_PATH),
             ("validator_file", erb.VALIDATOR_PATH),
             ("policy_contract", erb.POLICY_CONTRACT_PATH),
+            ("release_builder", erb.RELEASE_BUILDER_PATH),
         ):
             self.assertEqual(
                 successor["code_binding"][label]["sha256"], erb.file_sha256(path_const),

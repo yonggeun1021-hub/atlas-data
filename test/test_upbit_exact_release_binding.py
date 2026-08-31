@@ -104,7 +104,7 @@ def build_full_chain(
         "authority_keys": sorted(_AUTHORITY_FALSE),
         "forbidden_authority_keys": sorted(_FORBIDDEN_AUTHORITY_FALSE),
         "paper_scope_keys": sorted(_SCOPE_TRUE),
-        "code_binding_labels": ["consumer_file", "validator_file", "policy_contract"],
+        "code_binding_labels": ["consumer_file", "validator_file", "policy_contract", "release_builder"],
         "authority": dict(_AUTHORITY_FALSE),
     }
     policy_contract["payload_sha256"] = ERB.payload_sha256(
@@ -119,6 +119,9 @@ def build_full_chain(
     validator_path = tmp / "governance" / "upbit_exact_release_binding.py"
     validator_path.parent.mkdir(parents=True, exist_ok=True)
     validator_path.write_text("# synthetic validator placeholder\n", encoding="utf-8")
+    release_builder_path = tmp / "identity" / "upbit_exact_release_binding_release.py"
+    release_builder_path.parent.mkdir(parents=True, exist_ok=True)
+    release_builder_path.write_text("# synthetic release builder placeholder\n", encoding="utf-8")
 
     # -- content: base candidate + content approval --
     proposed_registry = {"mappings": dict(mappings), "authority": dict(_AUTHORITY_FALSE)}
@@ -173,6 +176,7 @@ def build_full_chain(
             "consumer_file": {"path": "universe/upbit_tradeable_universe.py", "sha256": ERB.file_sha256(consumer_path)},
             "validator_file": {"path": "governance/upbit_exact_release_binding.py", "sha256": ERB.file_sha256(validator_path)},
             "policy_contract": {"path": "config/upbit_exact_release_binding_policy_contract.json", "sha256": ERB.file_sha256(policy_contract_path)},
+            "release_builder": {"path": "identity/upbit_exact_release_binding_release.py", "sha256": ERB.file_sha256(release_builder_path)},
         },
         "release_ready": False,
         "exact_hash_cio_approval_present": False,
@@ -208,6 +212,17 @@ def build_full_chain(
             "candidate_packet_payload_sha256": base_candidate["payload_sha256"],
             "registry_candidate_payload_sha256": base_candidate["proposed_registry_payload_sha256"],
             "taxonomy_candidate_payload_sha256": base_candidate["proposed_taxonomy_payload_sha256"],
+        },
+        # Only a genuine, verify_code_chain()-produced resolution activates
+        # the code chain -- this must exactly match what that function
+        # would independently compute, never hand-assembled differently.
+        "code_approval_resolution": {
+            "code_approval_evidence_ref": code_approval_relative,
+            "code_approval_evidence_sha256": code_approval_hash,
+            "ratified_at_utc": code_approval.get("ratified_at_utc"),
+            "successor_candidate_path": successor_relative,
+            "successor_candidate_file_sha256": ERB.file_sha256(successor_path),
+            "successor_candidate_payload_sha256": successor["payload_sha256"],
         },
         "released_paper_markets": sorted(mappings),
     }
@@ -246,6 +261,7 @@ def build_full_chain(
         "policy_contract_path": policy_contract_path,
         "consumer_path": consumer_path,
         "validator_path": validator_path,
+        "release_builder_path": release_builder_path,
         "base_candidate_path": base_candidate_path,
         "content_approval_path": content_approval_path,
         "successor_path": successor_path,
@@ -620,6 +636,79 @@ class NegativeTests(unittest.TestCase):
             registry, _, _ = build_full_chain(tmp)
             registry["approval_status"] = "RATIFIED"  # already RATIFIED; no code chain exists
             self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp))
+
+    def test_freeze_missing_code_approval_resolution_block_fails(self):
+        """CIO P1: hand-adding the two code_approval_evidence_* ref fields
+        to a document, WITHOUT the freeze document also carrying a
+        matching, builder-produced code_approval_resolution block, must
+        still fail closed -- this is exactly the 'skip the release
+        builder' bypass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            freeze_path = tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"
+            freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+            del freeze["code_approval_resolution"]
+            _write(freeze_path, freeze)
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_freeze_code_approval_resolution_tampered_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            freeze_path = tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"
+            freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+            freeze["code_approval_resolution"]["ratified_at_utc"] = "2099-01-01T00:00:00Z"
+            _write(freeze_path, freeze)
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_absolute_code_approval_path_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            activated, artifacts = self._activated(tmp)
+            self.assertTrue(self._ok(activated, tmp))
+            activated["code_approval_evidence_ref"] = str(artifacts["code_approval_path"])  # absolute
+            self.assertFalse(self._ok(activated, tmp))
+
+    def test_equal_content_ratification_and_generation_timestamps_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(
+                tmp, base_candidate_generated_at="2026-08-30T10:00:00Z",
+                content_approval_ratified_at="2026-08-30T10:00:00Z",  # EQUAL, not strictly after
+            )
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_equal_code_ratification_and_generation_timestamps_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(
+                tmp, successor_generated_at="2026-08-30T12:00:00Z",
+                code_approval_ratified_at="2026-08-30T12:00:00Z",  # EQUAL, not strictly after
+            )
+            self.assertFalse(ERB.validate_exact_release(
+                artifacts["activate"](registry), content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp,
+            ))
+
+    def test_real_shape_six_field_source_pin_still_validates(self):
+        """CIO P1: a real registry/taxonomy's source_candidate_packet
+        legally carries evaluation_as_of/review_status/snapshot_date in
+        addition to the 3 identity keys -- the successor's simpler
+        3-field base_candidate pin must still match it via the canonical
+        3-tuple, without requiring those extra keys to be replicated."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            registry, _, artifacts = build_full_chain(tmp)
+            registry["source_candidate_packet"] = dict(
+                registry["source_candidate_packet"],
+                evaluation_as_of="2026-08-30", review_status="RATIFIED", snapshot_date="2026-08-30",
+            )
+            activated = artifacts["activate"](registry)
+            self.assertTrue(self._ok(activated, tmp))
 
 
 if __name__ == "__main__":

@@ -561,6 +561,7 @@ class ExactReleaseBindingIntegrationTests(unittest.TestCase):
             mock.patch.object(erb, "CONSUMER_PATH", tmp / "universe" / "upbit_tradeable_universe.py"),
             mock.patch.object(erb, "VALIDATOR_PATH", tmp / "governance" / "upbit_exact_release_binding.py"),
             mock.patch.object(erb, "FREEZE_PATH", tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"),
+            mock.patch.object(erb, "RELEASE_BUILDER_PATH", tmp / "identity" / "upbit_exact_release_binding_release.py"),
         )
 
     def test_activated_synthetic_v3_chain_is_effective_through_the_real_universe_module(self):
@@ -569,7 +570,7 @@ class ExactReleaseBindingIntegrationTests(unittest.TestCase):
             registry, _, artifacts = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
             activated = artifacts["activate"](registry)
             patches = self._patched(tmp)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
                 self.assertEqual(
                     UNI.effective_identity_mapping(activated, "2026-08-30"),
                     _EXACT_RELEASE_BINDING_TEST.MARKETS_TO_IDS,
@@ -580,7 +581,7 @@ class ExactReleaseBindingIntegrationTests(unittest.TestCase):
             tmp = Path(tmp)
             registry, _, _ = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
             patches = self._patched(tmp)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
                 # content chain alone, no code_approval_evidence_ref yet
                 self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-30"), {})
 
@@ -590,7 +591,7 @@ class ExactReleaseBindingIntegrationTests(unittest.TestCase):
             registry, _, artifacts = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
             activated = artifacts["activate"](registry)
             patches = self._patched(tmp)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
                 self.assertEqual(
                     UNI.effective_identity_mapping(activated, "2026-08-30"),
                     _EXACT_RELEASE_BINDING_TEST.MARKETS_TO_IDS,
@@ -607,7 +608,7 @@ class ExactReleaseBindingIntegrationTests(unittest.TestCase):
             registry, _, artifacts = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
             activated = artifacts["activate"](registry)
             patches = self._patched(tmp)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
                 self.assertEqual(
                     UNI.effective_identity_mapping(activated, "2026-08-30"),
                     _EXACT_RELEASE_BINDING_TEST.MARKETS_TO_IDS,
@@ -620,7 +621,7 @@ class ExactReleaseBindingIntegrationTests(unittest.TestCase):
             tmp = Path(tmp)
             registry, _, _ = _EXACT_RELEASE_BINDING_TEST.build_full_chain(tmp)
             patches = self._patched(tmp)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
                 tampered = copy.deepcopy(registry)
                 tampered["approval_status"] = "RATIFIED"  # already was; no code_approval_evidence_ref exists
                 self.assertEqual(UNI.effective_identity_mapping(tampered, "2026-08-30"), {})

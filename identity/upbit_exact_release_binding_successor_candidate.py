@@ -30,6 +30,7 @@ BASE_CANDIDATE_PATH = (
 CONSUMER_PATH = ROOT / "universe" / "upbit_tradeable_universe.py"
 VALIDATOR_PATH = ROOT / "governance" / "upbit_exact_release_binding.py"
 POLICY_CONTRACT_PATH = ROOT / "config" / "upbit_exact_release_binding_policy_contract.json"
+RELEASE_BUILDER_PATH = ROOT / "identity" / "upbit_exact_release_binding_release.py"
 THIS_BUILDER_PATH = Path(__file__).resolve()
 FIRST_PARTY_EVIDENCE_ROOT = "evidence/crypto/upbit/identity/first_party/2026-08-30/20260830T111117Z"
 SCHEMA_VERSION = "upbit_exact_release_binding_successor_candidate/2"
@@ -79,6 +80,10 @@ def build_successor_candidate(*, generated_at: str) -> dict:
             "policy_contract": {
                 "path": str(POLICY_CONTRACT_PATH.relative_to(ROOT)),
                 "sha256": file_sha256(POLICY_CONTRACT_PATH),
+            },
+            "release_builder": {
+                "path": str(RELEASE_BUILDER_PATH.relative_to(ROOT)),
+                "sha256": file_sha256(RELEASE_BUILDER_PATH),
             },
         },
         "this_successor_candidate_builder": {
