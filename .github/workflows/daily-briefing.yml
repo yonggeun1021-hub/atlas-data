@@ -60,7 +60,7 @@ jobs:
   # parallel job so the 07:05/18:30 retrieval-authority SLA is not consumed by
   # tests that already ran in CI before merge.
   offline-regression:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, atlas-data]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -79,7 +79,7 @@ jobs:
           python3 test/test_three_market_shadow_operational_readiness.py
 
   briefing:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, atlas-data]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
