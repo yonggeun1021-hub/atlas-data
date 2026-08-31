@@ -262,16 +262,16 @@ def build_crypto(packet: dict) -> dict:
     ):
         fail("CRYPTO_SOURCE_COVERAGE_INVALID")
     complete = coverage["defined_count"] == 5
-    classification_status = (
-        "WAIT_MARKET_NORMALIZATION_POLICY"
-        if complete
-        else "WAIT_OFFICIAL_INPUT_COVERAGE"
-    )
-    explanation = (
-        "필수 신호 5개는 모두 확인됐지만 코인 전용 방향·점수 규칙의 검증이 끝날 때까지 Risk On/Off를 보류합니다."
-        if complete
-        else "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
-    )
+    refresh_pending = official.get("classification_status") == "WAIT_OFFICIAL_DECISION_REFRESH"
+    if refresh_pending:
+        classification_status = "WAIT_OFFICIAL_DECISION_REFRESH"
+        explanation = "오늘 참고자료는 확인했지만 현재 코드와 정책으로 검증된 공식 코인 판정이 아직 없어 새 판정 생성을 기다립니다."
+    elif complete:
+        classification_status = "WAIT_MARKET_NORMALIZATION_POLICY"
+        explanation = "필수 신호 5개는 모두 확인됐지만 코인 전용 방향·점수 규칙의 검증이 끝날 때까지 Risk On/Off를 보류합니다."
+    else:
+        classification_status = "WAIT_OFFICIAL_INPUT_COVERAGE"
+        explanation = "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
     return {
         "market": "CRYPTO",
         "as_of_date": packet.get("current_reference", {}).get("as_of_date"),

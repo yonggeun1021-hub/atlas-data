@@ -23,13 +23,14 @@ class CryptoRegimeRefreshStatusTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # P3-12-GOV-05: _select_official_decision() fully re-derives (and
-        # byte-compares) each candidate decision snapshot via
+        # byte-compares) the newest decision snapshot via
         # DECISION.validate_output(); on this branch the real committed
         # identity/taxonomy is PENDING_EXACT_HASH_REAPPROVAL (dedicated
         # coverage in test_upbit_exact_release_binding.py and
         # test_upbit_tradeable_universe.py), so a fresh re-derivation would
-        # legitimately differ from historical snapshots captured while the
-        # v2 release was in effect. This test is about regime-refresh
+        # legitimately differ from a historical snapshot captured while the
+        # v2 release was in effect. That state must become an explicit WAIT,
+        # while a current compatible packet remains fully re-derived. This test is about regime-refresh
         # status mechanics, not the exact-release binding itself, so it is
         # exempted the same standard test-only way as every other
         # hypothetical-future-ratification fixture in this test suite --
@@ -73,6 +74,39 @@ class CryptoRegimeRefreshStatusTest(unittest.TestCase):
         self.assertLessEqual(official["defined_count"], 5)
         self.assertTrue(set(official["defined_axes"]).issubset(set(packet["current_reference"]["coverage"]["defined_axes"])))
         self.assertEqual(packet["official_decision"]["runtime_regime"], "UNKNOWN")
+
+    def test_historical_decision_rederivation_gap_is_explicit_wait(self):
+        decision = self.packet["official_decision"]
+        if decision["unavailable_reason"] is None:
+            self.assertIsNotNone(decision["captured_at_utc"])
+            return
+        self.assertEqual(self.packet["status"], "WAIT_OFFICIAL_DECISION_REFRESH")
+        self.assertIsNone(decision["captured_at_utc"])
+        self.assertEqual(decision["coverage"]["ratio"], "0/5")
+        self.assertEqual(decision["runtime_regime"], "UNKNOWN")
+        self.assertEqual(decision["classification_status"], "WAIT_OFFICIAL_DECISION_REFRESH")
+        self.assertIn(
+            decision["unavailable_reason"],
+            {"OFFICIAL_DECISION_NOT_FOUND", "OFFICIAL_DECISION_REFRESH_REQUIRED"},
+        )
+        self.assertFalse(any(row["kind"] == "OFFICIAL_DECISION" for row in self.packet["sources"]))
+
+    def test_missing_official_decision_is_wait_not_workflow_failure(self):
+        with tempfile.TemporaryDirectory() as raw:
+            selected = MODULE._select_official_decision(Path(raw))
+        self.assertEqual(selected, (None, None, "OFFICIAL_DECISION_NOT_FOUND"))
+
+    def test_malformed_official_decision_is_not_hidden_as_wait(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = root / "evidence" / "crypto_paper_decision" / "2026-09-01" / "0000" / ("0" * 64) / "packet.json"
+            target.parent.mkdir(parents=True)
+            target.write_text('{"schema_version":"broken"}\n', encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.CryptoRegimeRefreshStatusError,
+                "OFFICIAL_DECISION_INVALID",
+            ):
+                MODULE._select_official_decision(root)
 
     def test_natural_history_progress_is_explicit(self):
         history = self.packet["natural_history_progress"]
