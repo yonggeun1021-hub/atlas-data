@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_paper_funnel_handoff/1",
+  "market": "US",
+  "consumer_owner": "PAPER_9_3",
+  "consumer_thread_id": "01a05473-0395-72c3-86de-2d114fe24431",
+  "producer_scope": "US_UNIVERSE_AND_COMPLETED_BAR_EVIDENCE_ONLY",
+  "integration_implemented_here": false,
+  "identity_join_key": "asset_id",
+  "inputs": {
+    "universe": {
+      "schema_version": "us_investable_registry_result/1",
+      "required_status": "ELIGIBLE_FOR_PAPER_DATA_REVIEW",
+      "required_liquidity_status": "PASS"
+    },
+    "market_data": {
+      "schema_version": "us_market_data_result/1",
+      "required_status": "PASS",
+      "required_freshness_status": "FRESH",
+      "required_timeframes": [
+        "15m",
+        "1h",
+        "1d"
+      ],
+      "required_session_statuses": [
+        "OPEN_REGULAR",
+        "OPEN_EARLY_CLOSE"
+      ]
+    }
+  },
+  "canonical_funnel": {
+    "always_output": [
+      "TOP10",
+      "TOP3"
+    ],
+    "candidate_min_score": 60,
+    "ready_min_score": 70,
+    "paper_buy_eligible_min_score": 75,
+    "paper_buy_additional_requirements": [
+      "HARD_GATE_PASS",
+      "COMPLETED_BAR_PASS"
+    ]
+  },
+  "fail_closed_requirements": [
+    "IDENTITY_MATCH",
+    "UNIVERSE_ELIGIBLE",
+    "LIQUIDITY_PASS",
+    "SESSION_CALENDAR_PASS",
+    "COMPLETED_15M_1H_1D_PASS",
+    "FRESHNESS_PASS",
+    "NO_GAP",
+    "NO_CONFLICTING_DUPLICATE",
+    "PIT_LINEAGE_PASS",
+    "HARD_GATE_PASS"
+  ],
+  "consumer_responsibilities": [
+    "SCORE_CALCULATION",
+    "TOP10_TOP3_ALWAYS_OUTPUT",
+    "CANDIDATE_READY_PAPER_BUY_STATE",
+    "LEDGER_RESTART_RECONCILIATION",
+    "ONE_SYMBOL_ONE_POSITION",
+    "RISK_BUDGET",
+    "SYSTEM_CANARY_VS_INVESTMENT_PAPER_SEPARATION"
+  ],
+  "authority": {
+    "handoff_metadata_only": true,
+    "paper_buy_authorized": false,
+    "broker_oauth_authorized": false,
+    "broker_order_post_authorized": false,
+    "real_account_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
