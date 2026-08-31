@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -333,10 +334,17 @@ class ShadowApplyFunnelTests(unittest.TestCase):
         # here is 2026-08-30 (this WBS's own evaluation date, matching when
         # the identity research was performed) -- widen max_capture_age_hours
         # so this fixture isn't accidentally testing STALE_CAPTURE instead.
-        after = ID01.shadow_apply_funnel(
-            core=core, real_policy=real_policy(max_capture_age_hours="48"), real_taxonomy=taxonomy,
-            registry_mapping=registry_mapping, blocked_markets=set(), evaluation_as_of="2026-08-30",
-        )
+        # P3-12-GOV-05: shadow_apply_funnel() delegates to
+        # UNI.build_classification(), whose taxonomy gate now also requires
+        # the exact-release allowlist binding -- this synthetic taxonomy
+        # fixture is not exercising that binding (dedicated coverage lives
+        # in test_upbit_exact_release_binding.py), so exempt it via the
+        # same standard test-only mock used throughout this suite.
+        with mock.patch.object(UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True):
+            after = ID01.shadow_apply_funnel(
+                core=core, real_policy=real_policy(max_capture_age_hours="48"), real_taxonomy=taxonomy,
+                registry_mapping=registry_mapping, blocked_markets=set(), evaluation_as_of="2026-08-30",
+            )
         rows = {r["market"]: r for r in after["markets"]}
         self.assertEqual(rows["KRW-SOL"]["state"], UNI.STATE_PAPER_ELIGIBLE)
         self.assertEqual(rows["KRW-UNKNOWNCOIN"]["state"], UNI.STATE_OBSERVATION_POOL)

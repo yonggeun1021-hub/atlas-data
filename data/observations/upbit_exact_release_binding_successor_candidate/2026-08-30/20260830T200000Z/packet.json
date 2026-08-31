@@ -1,0 +1,56 @@
+{
+  "authority": {
+    "candidate_promotion_authorized": false,
+    "exchange_authorized": false,
+    "identity_authorized": false,
+    "order_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "paper_exit_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "taxonomy_authorized": false,
+    "trading_authorized": false
+  },
+  "base_approval_evidence": {
+    "file_sha256": "b13ca0152c1382bb56df045d11bf2b54c7010ec0b59b8a66d15f288cc012da54",
+    "path": "evidence/crypto/upbit/identity/approvals/2026-08-30/p3-12-paper-eight-exact-hash-v2.json"
+  },
+  "base_candidate": {
+    "file_sha256": "770c722ffa3d9c185ad7629396037cdec1154bad38624cc9d887af3878bcd186",
+    "path": "data/observations/upbit_paper_identity_hardening_candidate/2026-08-30/20260830T111117Z/packet.json",
+    "payload_sha256": "bbc73029ec00dc4b6e3762d69d96f18efa4b2fbd611830c2bd71c976ef405abd"
+  },
+  "code_binding": {
+    "consumer_file": {
+      "path": "universe/upbit_tradeable_universe.py",
+      "sha256": "2dabc9dc80b436ea61909b6c1baf09c1c880d016358b55b72b89d9546cc4eb17"
+    },
+    "policy_contract": {
+      "path": "config/upbit_exact_release_binding_policy_contract.json",
+      "sha256": "a2492917a394b396565508d63cf211e245236444e6d1ef6e0e0a257adfa1b08d"
+    },
+    "release_builder": {
+      "path": "identity/upbit_exact_release_binding_release.py",
+      "sha256": "4d6dc1f071ff371f1cf9ed4e4e2b51c2a15222f9d24e0181329b45feeec2f896"
+    },
+    "validator_file": {
+      "path": "governance/upbit_exact_release_binding.py",
+      "sha256": "a1a3e298a54d92f75fb68de76ed2fc1521778e4aca042fd25fe54f1de81f87b6"
+    }
+  },
+  "exact_hash_cio_approval_present": false,
+  "first_party_evidence_reference": {
+    "note": "Referenced, not re-captured -- see base_candidate for the original capture.",
+    "path": "evidence/crypto/upbit/identity/first_party/2026-08-30/20260830T111117Z"
+  },
+  "generated_at": "2026-08-30T20:00:00Z",
+  "payload_sha256": "bfee49031395439011e6214dff12d242c60cf9d5f61bf474da89ae84f2b6954c",
+  "release_ready": false,
+  "review_status": "PENDING_EXACT_HASH_REAPPROVAL",
+  "schema_version": "upbit_exact_release_binding_successor_candidate/2",
+  "scope": "P3_12_GOV_05_RUNTIME_EXACT_APPROVAL_BINDING",
+  "this_successor_candidate_builder": {
+    "file_sha256": "0fba9e282464f10f73603b692b8a022d64b8ac45e2fd3e65471a20d434812a16",
+    "path": "identity/upbit_exact_release_binding_successor_candidate.py"
+  }
+}

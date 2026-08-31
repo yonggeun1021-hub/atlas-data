@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,6 +107,18 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             self.assertEqual(first["payload_sha256"], second["payload_sha256"])
 
     def test_exact_approval_allows_one_safe_same_vintage_ratification_transition(self):
+        # P3-12-GOV-05: standard test-only mock exempting the real committed
+        # v2 identity/taxonomy from the exact-release allowlist binding --
+        # this test is about populate()'s own same-vintage-reclassification
+        # safety mechanics, not the binding mechanism itself (dedicated
+        # coverage lives in test_upbit_exact_release_binding.py). Never a
+        # production bypass.
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
+        self.exact_release_binding_patch.start()
+        self.addCleanup(self.exact_release_binding_patch.stop)
+
         current = POPULATE.rebuild("2026-08-30")
         historical = copy.deepcopy(current)
         historical.pop("ratification")
@@ -145,6 +158,15 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             self.assertTrue(all(value is False for value in released["packet"]["authority"].values()))
 
     def test_exact_approval_replaces_only_the_known_frozen_eight_market_record(self):
+        # P3-12-GOV-05: same test-only exemption as above -- this test is
+        # about _safe_frozen_exact_hash_transition()'s own logic, not the
+        # exact-release allowlist binding.
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
+        self.exact_release_binding_patch.start()
+        self.addCleanup(self.exact_release_binding_patch.stop)
+
         current = POPULATE.rebuild("2026-08-30")
         historical = copy.deepcopy(current)
         freeze = json.loads(POPULATE.IDENTITY_GOVERNANCE_FREEZE_PATH.read_text(encoding="utf-8"))

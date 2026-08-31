@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +22,38 @@ SPEC.loader.exec_module(MODULE)
 class CryptoRegimeRefreshStatusTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # P3-12-GOV-05: _select_official_decision() fully re-derives (and
+        # byte-compares) each candidate decision snapshot via
+        # DECISION.validate_output(); on this branch the real committed
+        # identity/taxonomy is PENDING_EXACT_HASH_REAPPROVAL (dedicated
+        # coverage in test_upbit_exact_release_binding.py and
+        # test_upbit_tradeable_universe.py), so a fresh re-derivation would
+        # legitimately differ from historical snapshots captured while the
+        # v2 release was in effect. This test is about regime-refresh
+        # status mechanics, not the exact-release binding itself, so it is
+        # exempted the same standard test-only way as every other
+        # hypothetical-future-ratification fixture in this test suite --
+        # never a production bypass. Each of DECISION.UNIVERSE,
+        # DECISION.PROMOTION.UPBIT_UNIVERSE, and
+        # DECISION.ELIGIBILITY.UPBIT_UNIVERSE is its own independent module
+        # instance (this repo's own established reuse pattern) and must be
+        # patched separately.
+        cls._exact_release_binding_patches = [
+            mock.patch.object(target.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True)
+            for target in (
+                MODULE.DECISION.UNIVERSE,
+                MODULE.DECISION.PROMOTION.UPBIT_UNIVERSE,
+                MODULE.DECISION.ELIGIBILITY.UPBIT_UNIVERSE,
+            )
+        ]
+        for patcher in cls._exact_release_binding_patches:
+            patcher.start()
         cls.packet = MODULE.build_status()
+
+    @classmethod
+    def tearDownClass(cls):
+        for patcher in cls._exact_release_binding_patches:
+            patcher.stop()
 
     def test_current_reference_and_official_decision_stay_distinct(self):
         packet = self.packet

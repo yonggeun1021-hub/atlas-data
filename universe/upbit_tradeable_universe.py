@@ -63,6 +63,18 @@ UPBIT_CAPTURE = importlib.util.module_from_spec(_CAPTURE_SPEC)
 assert _CAPTURE_SPEC.loader is not None
 _CAPTURE_SPEC.loader.exec_module(UPBIT_CAPTURE)
 
+# P3-12-GOV-05: runtime exact-approval binding. ``approval_status ==
+# "RATIFIED"`` alone is never sufficient for the identity registry or
+# taxonomy -- see ``_approval_effective()`` below and
+# ``governance/upbit_exact_release_binding.py``'s module docstring.
+_EXACT_RELEASE_BINDING_SPEC = importlib.util.spec_from_file_location(
+    "upbit_tradeable_universe_exact_release_binding",
+    ROOT / "governance" / "upbit_exact_release_binding.py",
+)
+EXACT_RELEASE_BINDING = importlib.util.module_from_spec(_EXACT_RELEASE_BINDING_SPEC)
+assert _EXACT_RELEASE_BINDING_SPEC.loader is not None
+_EXACT_RELEASE_BINDING_SPEC.loader.exec_module(EXACT_RELEASE_BINDING)
+
 
 CONTRACT_PATH = ROOT / "config" / "upbit_tradeable_universe_contract.json"
 CAPTURE_CONTRACT_PATH = ROOT / "config" / "upbit_market_capture_contract.json"
@@ -267,7 +279,16 @@ def load_identity_registry(path: Path = IDENTITY_REGISTRY_PATH) -> dict:
     return copy.deepcopy(doc)
 
 
-def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: str) -> bool:
+def _policy_approval_effective(document: dict, evaluation_as_of: str, *, date_field: str) -> bool:
+    """Plain date-gated ``approval_status`` check. Used ONLY for
+    ``policy`` (``config/upbit_tradeable_universe_policy.json``), which
+    P3-12-GOV-05 does not touch -- this function has no exact-hash binding
+    at all and must never be used for the identity registry or taxonomy.
+    See ``_identity_taxonomy_exact_bound_effective`` below, which is the
+    ONLY function those two document kinds may go through; there is no
+    shared function or boolean flag a new identity/taxonomy consumer could
+    accidentally call into this weaker path with.
+    """
     if document.get("approval_status") != "RATIFIED":
         return False
     effective = document.get(date_field)
@@ -277,8 +298,39 @@ def _approval_effective(document: dict, evaluation_as_of: str, *, date_field: st
     return effective is None or (isinstance(effective, str) and effective <= evaluation_as_of)
 
 
+def _identity_taxonomy_exact_bound_effective(
+    document: dict, evaluation_as_of: str, *, date_field: str, content_field: str,
+) -> bool:
+    """The ONLY approval-effectiveness check for the identity registry
+    (``content_field="mappings"``) or taxonomy (``content_field="records"``).
+    Unlike ``_policy_approval_effective``, there is no boolean toggle here
+    to accidentally omit -- every call always runs the full exact-hash
+    binding first. ``document.approval_status == "RATIFIED"`` is necessary
+    but never sufficient by itself: the document's own content AND
+    currently-running code must both independently resolve through
+    ``governance/upbit_exact_release_binding.py``'s two one-way chains
+    (content chain + code chain) before the date check even runs. This is
+    P3-12-GOV-04's P1 finding: editing ``approval_status`` back to
+    ``"RATIFIED"`` on a document whose content was never re-approved must
+    never revive authority on its own.
+    """
+    try:
+        if not EXACT_RELEASE_BINDING.validate_exact_release(
+            document, content_field=content_field, evaluation_as_of=evaluation_as_of,
+        ):
+            return False
+    except EXACT_RELEASE_BINDING.ExactReleaseBindingError:
+        return False
+    if document.get("approval_status") != "RATIFIED":
+        return False
+    effective = document.get(date_field)
+    return effective is None or (isinstance(effective, str) and effective <= evaluation_as_of)
+
+
 def effective_identity_mapping(registry: dict, evaluation_as_of: str) -> dict:
-    if not _approval_effective(registry, evaluation_as_of, date_field="effective_from"):
+    if not _identity_taxonomy_exact_bound_effective(
+        registry, evaluation_as_of, date_field="effective_from", content_field="mappings",
+    ):
         return {}
     return copy.deepcopy(registry["mappings"])
 
@@ -506,8 +558,10 @@ def build_classification(
     # test_upbit_tradeable_universe.py::test_kraken_presence_never_promotes.
     kraken_known_canonical_ids = kraken_known_canonical_ids or set()
 
-    policy_ratified = _approval_effective(policy, evaluation_as_of, date_field="effective_date")
-    taxonomy_ratified = _approval_effective(taxonomy, evaluation_as_of, date_field="effective_from")
+    policy_ratified = _policy_approval_effective(policy, evaluation_as_of, date_field="effective_date")
+    taxonomy_ratified = _identity_taxonomy_exact_bound_effective(
+        taxonomy, evaluation_as_of, date_field="effective_from", content_field="records",
+    )
     min_listing_days = int(policy["min_listing_history_finalized_days"])
     min_turnover = _decimal(policy["min_30d_avg_krw_turnover"], "min_30d_avg_krw_turnover")
     max_spread = _decimal(policy["max_spread_bps"], "max_spread_bps")

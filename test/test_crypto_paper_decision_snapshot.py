@@ -217,6 +217,13 @@ def ratified_policy_patches():
         patchers.append(mock.patch.object(target, "load_policy", return_value=policy))
         patchers.append(mock.patch.object(target, "load_taxonomy", return_value=taxonomy))
         patchers.append(mock.patch.object(target, "load_identity_registry", return_value=registry))
+        # P3-12-GOV-05: standard test-only mock exempting this
+        # hypothetical-future-ratification fixture from the exact-release
+        # allowlist binding on each of the three independent module
+        # instances -- never a production bypass.
+        patchers.append(mock.patch.object(
+            target.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        ))
     market_policy = copy.deepcopy(CPDS.MARKET_EVIDENCE.load_policy())
     market_policy["approval_status"] = "RATIFIED"
     patchers.append(mock.patch.object(CPDS.MARKET_EVIDENCE, "load_policy", return_value=market_policy))
