@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_market_judgement/1",
+  "input_envelope_version": "krx_market_judgement_input/1",
+  "receipt_version": "krx_market_judgement_receipt/1",
+  "market": "KRX",
+  "source_market": "KOREA",
+  "run_mode": "PAPER",
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "required_markets": [
+    "KOSPI",
+    "KOSDAQ"
+  ],
+  "allowed_regimes": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF"
+  ],
+  "literal_pass": "PASS",
+  "fail_closed_regime": "UNKNOWN",
+  "fail_closed_recommendation": "HOLD",
+  "natural_evidence_class": "NATURAL_READ_ONLY",
+  "test_evidence_class": "TEST_ONLY_NON_PROMOTABLE",
+  "scoring_receipt_version": "krx_regime_scoring_receipt/1",
+  "bound_contracts": {
+    "korea_market_signals": {
+      "path": "config/korea_market_signals_contract.json",
+      "sha256": "e0e91bd51b17532a7a3c4dfc8648a94f54bf32ee0ab255d9cb9866fa96c557e4",
+      "contract_version": "korea_market_signals/1"
+    },
+    "minimum_coverage": {
+      "path": "config/regime_minimum_coverage_policy.json",
+      "sha256": "92bfc5704e97d65a4c9a28043db49a2e09a75eea08e88c157be88db6dcd81e7b",
+      "contract_version": "regime_minimum_coverage/v1"
+    },
+    "regime_decision_authority": {
+      "path": "config/regime_decision_authority_contract.json",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "contract_version": "regime_decision_authority/v1"
+    }
+  },
+  "source_requirements": {
+    "observation_schema_version": "korea_market_signals_observation/1",
+    "observation_contract_version": "korea_market_signals/1",
+    "observation_status": "OBSERVED_UNCLASSIFIED",
+    "leadership_policy_version": "korea_leadership/v1",
+    "leadership_policy_approval": "RATIFIED",
+    "leadership_run_mode": "FORWARD_SHADOW",
+    "latest_pointer_path": "data/latest_korea_market_signals.json",
+    "append_only_path_template": "data/observations/korea_market_signals/{as_of_date}/packet.json",
+    "source_hash_algorithm": "SHA-256",
+    "latest_pointer_must_be_byte_identical_to_append_only_packet": true,
+    "completed_bar_granularity": "1d",
+    "ttl_source": "RATIFIED_SCORING_RECEIPT_ONLY_NO_FALLBACK"
+  },
+  "all_pass_gate_order": [
+    "PAPER_SAFETY",
+    "EXACT_SOURCE_HASH",
+    "COMPLETED_BAR",
+    "LEADERSHIP_POLICY",
+    "AXIS_COVERAGE",
+    "BREADTH_KOSPI_KOSDAQ",
+    "TURNOVER_KOSPI_KOSDAQ",
+    "SECTOR_RELATIVE_STRENGTH",
+    "REGIME_SCORING_AUTHORITY",
+    "TTL_POLICY",
+    "FRESHNESS",
+    "SCORING_RESULT"
+  ],
+  "authority": {
+    "paper_market_judgement_input_only": true,
+    "market_observation_authorized": true,
+    "source_lineage_authorized": true,
+    "fixture_promotion_authorized": false,
+    "market_ranking_authorized": false,
+    "strategy_authorized": false,
+    "candidate_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "ledger_mutation_authorized": false,
+    "broker_authorized": false,
+    "order_authorized": false,
+    "real_authorized": false,
+    "live_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
