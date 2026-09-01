@@ -2,8 +2,12 @@
 """P3-12 Upbit tradeable-universe scheduled population wiring.
 
 Reads the exact, already-committed Upbit public raw snapshot for one
-snapshot_date and publishes, verifies, or repairs the corresponding
-classification packet built by universe/upbit_tradeable_universe.py.
+snapshot_date and publishes or verifies the corresponding classification
+packet built by universe/upbit_tradeable_universe.py. Existing canonical
+packets are never repaired or replaced. The sole same-vintage exception is
+an append-only, content-addressed successor built by the exact-code-approved
+release builder when the preserved source is policy=True/taxonomy=False and
+the live exact eight-market content+code release passes end to end.
 
 This module never calls a network provider. It still builds mechanical
 identity proposals for transparency, but production classification now
@@ -22,8 +26,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RAW_ROOT = ROOT / "evidence" / "crypto" / "upbit" / "raw"
 DATA_ROOT = ROOT / "data" / "observations" / "upbit_tradeable_universe"
-IDENTITY_GOVERNANCE_FREEZE_PATH = ROOT / "config" / "upbit_identity_taxonomy_governance_freeze.json"
 RECORD_SCHEMA_VERSION = "upbit_universe_population/1"
+TRANSITION_DIRECTORY = "transitions"
 
 
 def _load_module(name: str, relative_path: str):
@@ -36,6 +40,10 @@ def _load_module(name: str, relative_path: str):
 
 UNI = _load_module("upbit_tradeable_universe_for_population", "universe/upbit_tradeable_universe.py")
 IDP = _load_module("upbit_market_identity_proposal_for_population", "identity/upbit_market_identity_proposal.py")
+RELEASE = _load_module(
+    "upbit_exact_release_binding_release_for_population",
+    "identity/upbit_exact_release_binding_release.py",
+)
 
 
 class PopulationError(ValueError):
@@ -56,6 +64,30 @@ def snapshot_dir(snapshot_date: str, raw_root: Path = RAW_ROOT) -> Path:
 
 def output_path(snapshot_date: str, data_root: Path = DATA_ROOT) -> Path:
     return Path(data_root) / snapshot_date / "packet.json"
+
+
+def transition_output_path(
+    snapshot_date: str,
+    *,
+    source_payload_sha256: str,
+    successor_payload_sha256: str,
+    data_root: Path = DATA_ROOT,
+) -> Path:
+    """Content-addressed path for an immutable same-vintage successor.
+
+    The canonical ``<date>/packet.json`` remains the original observation.
+    A successor is a complete, directly consumable P3 record at a separate
+    path whose directory binds both the preserved source record and the
+    deterministically rebuilt successor.  Full hashes avoid mutable aliases
+    such as ``latest`` and make a second, different write fail closed.
+    """
+    return (
+        Path(data_root)
+        / snapshot_date
+        / TRANSITION_DIRECTORY
+        / f"{source_payload_sha256}-to-{successor_payload_sha256}"
+        / "packet.json"
+    )
 
 
 def _identity_review(core: dict, capture_contract: dict, *, source_url: str, review_as_of: str) -> dict:
@@ -169,91 +201,67 @@ def rebuild(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
     return record
 
 
-def _paper_markets(record: dict) -> list[str]:
-    packet = record.get("packet") or {}
-    return sorted(
-        row.get("market")
-        for row in packet.get("markets") or []
-        if isinstance(row, dict)
-        and row.get("state") == UNI.STATE_PAPER_ELIGIBLE
-        and isinstance(row.get("market"), str)
-    )
+def _write_immutable_transition(target: Path, projection: dict, *, snapshot_date: str) -> str:
+    """Atomically create successor+manifest; never replace existing bytes."""
+    manifest = projection["manifest"]
+    manifest_target = target.with_name("transition.json")
+    successor_bytes = projection["successor_bytes"]
+    manifest_bytes = (
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
 
+    def verify_existing() -> str:
+        if target.parent.is_symlink() or target.is_symlink() or manifest_target.is_symlink():
+            raise PopulationError(f"EXISTING_TRANSITION_INVALID:{snapshot_date}:symlink")
+        try:
+            existing_record_bytes = target.read_bytes()
+            existing_manifest_bytes = manifest_target.read_bytes()
+        except OSError as exc:
+            raise PopulationError(f"EXISTING_TRANSITION_UNREADABLE:{snapshot_date}:{exc}") from exc
+        if existing_record_bytes != successor_bytes or existing_manifest_bytes != manifest_bytes:
+            raise PopulationError(f"EXISTING_TRANSITION_DRIFT_OR_TAMPER:{snapshot_date}")
+        return "verified_existing_transition"
 
-def _all_authority_false(record: dict) -> bool:
-    packet_authority = (record.get("packet") or {}).get("authority") or {}
-    record_authority = record.get("authority") or {}
-    return (
-        bool(packet_authority)
-        and all(value is False for value in packet_authority.values())
-        and bool(record_authority)
-        and all(value is False for value in record_authority.values())
-    )
+    transition_root = target.parents[1]
+    date_root = target.parents[2]
+    if transition_root.is_symlink() or target.parent.is_symlink() or date_root.is_symlink():
+        raise PopulationError(f"EXISTING_TRANSITION_INVALID:{snapshot_date}:symlink")
+    transition_root.mkdir(parents=True, exist_ok=True)
+    for child in transition_root.iterdir():
+        if child.name.startswith("."):
+            continue
+        if child.is_symlink():
+            raise PopulationError(f"EXISTING_TRANSITION_INVALID:{snapshot_date}:symlink")
+        if child.name != target.parent.name:
+            raise PopulationError(f"SIBLING_TRANSITION_FORBIDDEN:{snapshot_date}:{child.name}")
+    if target.parent.is_symlink() or target.is_symlink() or manifest_target.is_symlink():
+        raise PopulationError(f"EXISTING_TRANSITION_INVALID:{snapshot_date}:symlink")
+    if target.exists():
+        return verify_existing()
 
-
-def _safe_frozen_exact_hash_transition(
-    existing: dict,
-    record: dict,
-    *,
-    existing_hash: str,
-    freeze: dict,
-) -> bool:
-    """Allow exactly one correction of the known frozen same-vintage record.
-
-    The 2026-08-30 packet already contained eight PAPER rows before its
-    identity/taxonomy lineage was frozen.  Requiring an old zero-row packet
-    therefore cannot release the corrected exact-hash configuration.  This
-    alternative remains narrow: it accepts only an explicitly frozen record
-    hash, the exact old registry/taxonomy file hashes recorded by governance,
-    the exact CIO-released market set, identical raw evidence, and zero
-    operational authority on both sides.
-    """
-    immutable_keys = (
-        "schema_version", "snapshot_date", "generated_at",
-        "raw_snapshot", "builder", "identity_review",
-    )
-    if not all(existing.get(key) == record.get(key) for key in immutable_keys):
-        return False
-    if existing_hash not in (freeze.get("blocked_universe_record_payload_sha256s") or []):
-        return False
-    released_markets = freeze.get("released_paper_markets")
-    if not isinstance(released_markets, list) or not released_markets:
-        return False
-    if _paper_markets(existing) != sorted(released_markets) or _paper_markets(record) != sorted(released_markets):
-        return False
-    if not _all_authority_false(existing) or not _all_authority_false(record):
-        return False
-
-    old_ratification = existing.get("ratification") or {}
-    new_ratification = record.get("ratification") or {}
-    old_registry = old_ratification.get("identity_registry") or {}
-    old_taxonomy = old_ratification.get("taxonomy") or {}
-    blocked_registry = freeze.get("blocked_identity_registry") or {}
-    blocked_taxonomy = freeze.get("blocked_taxonomy") or {}
-    if old_registry.get("file_sha256") != blocked_registry.get("pre_freeze_file_sha256"):
-        return False
-    if old_taxonomy.get("file_sha256") != blocked_taxonomy.get("pre_freeze_file_sha256"):
-        return False
-    if old_ratification.get("effective_for_snapshot") is not True:
-        return False
-    if new_ratification.get("effective_for_snapshot") is not True:
-        return False
-    if (new_ratification.get("identity_registry") or {}).get("mapping_count") != len(released_markets):
-        return False
-
-    old_packet = existing.get("packet") or {}
-    new_packet = record.get("packet") or {}
-    old_summary = old_packet.get("summary") or {}
-    new_summary = new_packet.get("summary") or {}
-    return (
-        old_packet.get("policy_ratified") is True
-        and old_packet.get("taxonomy_ratified") is True
-        and new_packet.get("policy_ratified") is True
-        and new_packet.get("taxonomy_ratified") is True
-        and old_summary.get("paper_eligible_count") == len(released_markets)
-        and new_summary.get("paper_eligible_count") == len(released_markets)
-        and old_summary.get("market_count") == new_summary.get("market_count")
-    )
+    staging = transition_root / f".{target.parent.name}.tmp.{os.getpid()}"
+    try:
+        staging.mkdir()
+        with (staging / "packet.json").open("xb") as handle:
+            handle.write(successor_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        with (staging / "transition.json").open("x", encoding="utf-8") as handle:
+            handle.write(manifest_bytes.decode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.rename(staging, target.parent)
+        except OSError:
+            if target.parent.exists():
+                return verify_existing()
+            raise
+    finally:
+        if staging.exists():
+            for child in staging.iterdir():
+                child.unlink()
+            staging.rmdir()
+    return "transition_populated"
 
 
 def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DATA_ROOT) -> dict:
@@ -272,77 +280,39 @@ def populate(snapshot_date: str, raw_root: Path = RAW_ROOT, data_root: Path = DA
                 raise PopulationError(f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}")
             if payload_sha256({key: value for key, value in existing.items() if key != "payload_sha256"}) != existing_hash:
                 raise PopulationError(f"EXISTING_PACKET_HASH_INVALID:{snapshot_date}")
-            immutable_keys = (
-                "schema_version", "snapshot_date", "generated_at",
-                "raw_snapshot", "builder", "identity_review",
-            )
-            same_pre_ratification_evidence = all(
-                existing.get(key) == record.get(key) for key in immutable_keys
-            )
-            old_packet = existing.get("packet") or {}
-            new_packet = record.get("packet") or {}
-            old_summary = old_packet.get("summary") or {}
-            old_rows = old_packet.get("markets") or []
-            old_authority = old_packet.get("authority") or {}
-            old_record_authority = existing.get("authority") or {}
-            old_fail_closed = (
-                old_summary.get("tradeable_universe_count") == 0
-                and old_summary.get("paper_eligible_count") == 0
-                and old_summary.get("market_count") == len(old_rows)
-                and (
-                    old_summary.get("observation_pool_count", 0)
-                    + old_summary.get("blocked_count", 0)
-                ) == len(old_rows)
-                and all(
-                    row.get("state") in (UNI.STATE_OBSERVATION_POOL, UNI.STATE_BLOCKED)
-                    for row in old_rows
-                    if isinstance(row, dict)
-                )
-                and old_authority
-                and all(value is False for value in old_authority.values())
-                and old_record_authority.get("observation_pool_population_only") is True
-                and all(
-                    value is False
-                    for key, value in old_record_authority.items()
-                    if key != "observation_pool_population_only"
-                )
-            )
-            safe_ratification_transition = (
-                same_pre_ratification_evidence
-                and old_fail_closed
-                and old_packet.get("policy_ratified") is False
-                and old_packet.get("taxonomy_ratified") is False
-                and new_packet.get("policy_ratified") is True
-                and new_packet.get("taxonomy_ratified") is True
-                and record.get("ratification", {}).get("effective_for_snapshot") is True
+            transition_target = transition_output_path(
+                snapshot_date,
+                source_payload_sha256=existing_hash,
+                successor_payload_sha256=record["payload_sha256"],
+                data_root=data_root,
             )
             try:
-                freeze = json.loads(IDENTITY_GOVERNANCE_FREEZE_PATH.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise PopulationError(f"IDENTITY_GOVERNANCE_FREEZE_INVALID:{exc}") from exc
-            safe_frozen_transition = _safe_frozen_exact_hash_transition(
-                existing, record, existing_hash=existing_hash, freeze=freeze,
-            )
-            if not (safe_ratification_transition or safe_frozen_transition):
-                raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}")
-            temporary = target.with_name(f".{target.name}.tmp.{os.getpid()}")
+                source_relative = str(target.resolve().relative_to(ROOT.resolve()))
+                successor_relative = str(transition_target.resolve().relative_to(ROOT.resolve()))
+            except ValueError as exc:
+                raise PopulationError(f"TRANSITION_PATH_OUTSIDE_REPOSITORY:{snapshot_date}") from exc
             try:
-                temporary.write_text(
-                    json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
+                projection = RELEASE.build_same_vintage_transition_projection(
+                    repo_root=ROOT,
+                    source_record_relative_path=source_relative,
+                    successor_record_relative_path=successor_relative,
+                    successor_record=record,
+                    evaluation_as_of=snapshot_date,
                 )
-                temporary.replace(target)
-            finally:
-                if temporary.exists():
-                    temporary.unlink()
+            except RELEASE.ReleaseProjectionError as exc:
+                raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{snapshot_date}:{exc}") from exc
+            outcome = _write_immutable_transition(
+                transition_target,
+                projection,
+                snapshot_date=snapshot_date,
+            )
             return {
-                "outcome": "ratified_reclassification",
-                "reason": (
-                    "FROZEN_TO_EXACT_HASH_RATIFIED_SAME_RAW_VINTAGE"
-                    if safe_frozen_transition
-                    else "UNRATIFIED_TO_RATIFIED_SAME_RAW_VINTAGE"
-                ),
-                "path": str(target), "payload_sha256": record["payload_sha256"],
+                "outcome": outcome,
+                "reason": "POLICY_RATIFIED_TAXONOMY_UNRATIFIED_TO_EXACT_RELEASE_SAME_RAW_VINTAGE",
+                "path": str(transition_target),
+                "transition_manifest_path": str(transition_target.with_name("transition.json")),
+                "payload_sha256": record["payload_sha256"],
+                "source_payload_sha256": existing_hash,
             }
         return {
             "outcome": "verified_existing", "reason": None,
@@ -372,6 +342,7 @@ def _write_github_output(result: dict) -> None:
         f"outcome={single_line(result.get('outcome'))}",
         f"reason={single_line(result.get('reason'))}",
         f"path={single_line(result.get('path'))}",
+        f"transition_manifest_path={single_line(result.get('transition_manifest_path'))}",
         f"payload_sha256={single_line(result.get('payload_sha256'))}",
     ]
     with open(path, "a", encoding="utf-8") as handle:

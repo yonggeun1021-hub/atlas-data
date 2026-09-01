@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import datetime as dt
 import gzip
 import hashlib
@@ -52,6 +53,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from microstructure import upbit_p3_p4_bridge as P3_P4  # noqa: E402
+from universe import upbit_tradeable_universe as UNIVERSE  # noqa: E402
 
 CONTRACT_PATH = ROOT / "config" / "upbit_market_evidence_contract.json"
 UTC = dt.timezone.utc
@@ -166,15 +168,37 @@ def load_universe_lineage(
     universe_packet_path: Path,
     *,
     expected_record_sha256: str | None = None,
+    transition_manifest_path: Path | None = None,
 ) -> dict:
     """Production P3->P4 bridge: exact hash + effective-time validation."""
     try:
-        return P3_P4.consume_universe_record(
+        lineage = P3_P4.consume_universe_record(
             universe_packet_path,
             expected_record_sha256=expected_record_sha256,
         )
     except P3_P4.BridgeError as exc:
         fail("UNIVERSE_CONSUMER_REJECTED", str(exc))
+    if transition_manifest_path is not None:
+        try:
+            transition = UNIVERSE.validate_same_vintage_transition(transition_manifest_path)
+        except UNIVERSE.UpbitUniverseError as exc:
+            fail("UNIVERSE_TRANSITION_REJECTED", str(exc))
+        if (
+            transition["path"].resolve() != Path(universe_packet_path).resolve()
+            or transition["record"]["payload_sha256"] != lineage["record_payload_sha256"]
+        ):
+            fail("UNIVERSE_TRANSITION_SUCCESSOR_MISMATCH", str(universe_packet_path))
+        manifest = transition["transition_manifest"]
+        lineage["transition"] = {
+            "manifest_path": str(transition_manifest_path),
+            "manifest_file_sha256": transition["transition_manifest_file_sha256"],
+            "manifest_payload_sha256": transition["transition_manifest_payload_sha256"],
+            "canonical_source": copy.deepcopy(manifest["source_record"]),
+            "successor": copy.deepcopy(manifest["successor_record"]),
+        }
+    elif "/transitions/" in Path(universe_packet_path).as_posix():
+        fail("UNIVERSE_TRANSITION_MANIFEST_REQUIRED", str(universe_packet_path))
+    return lineage
 
 
 def write_raw(snapshot: Path, relative_gz: str, raw: bytes) -> str:
@@ -371,6 +395,27 @@ def validate_snapshot(snapshot_dir: Path) -> dict:
         authority = lineage.get("authority") or {}
         if not authority or any(value is True for key, value in authority.items() if key != "evidence_derivation_only"):
             fail("MANIFEST_UNIVERSE_AUTHORITY_VIOLATED", str(snapshot_dir))
+        transition = lineage.get("transition")
+        transition_selected = "/transitions/" in str(lineage.get("record_path", "")).replace("\\", "/")
+        if transition_selected and not isinstance(transition, dict):
+            fail("MANIFEST_UNIVERSE_TRANSITION_PROVENANCE_MISSING", str(snapshot_dir))
+        if transition is not None:
+            if not isinstance(transition, dict) or set(transition) != {
+                "manifest_path", "manifest_file_sha256", "manifest_payload_sha256",
+                "canonical_source", "successor",
+            }:
+                fail("MANIFEST_UNIVERSE_TRANSITION_PROVENANCE_INVALID", str(snapshot_dir))
+            if any(
+                SHA256_RE.fullmatch(str(transition.get(field, ""))) is None
+                for field in ("manifest_file_sha256", "manifest_payload_sha256")
+            ):
+                fail("MANIFEST_UNIVERSE_TRANSITION_HASH_INVALID", str(snapshot_dir))
+            for pin_label in ("canonical_source", "successor"):
+                pin = transition.get(pin_label)
+                if not isinstance(pin, dict) or set(pin) != {"path", "file_sha256", "payload_sha256"}:
+                    fail("MANIFEST_UNIVERSE_TRANSITION_PIN_INVALID", pin_label)
+            if transition["successor"]["payload_sha256"] != lineage.get("record_payload_sha256"):
+                fail("MANIFEST_UNIVERSE_TRANSITION_SUCCESSOR_HASH_MISMATCH", str(snapshot_dir))
     if manifest.get("auth_required") is not False or manifest.get("order_or_withdrawal_endpoints_called") is not False:
         fail("MANIFEST_SAFETY_INVARIANT_VIOLATED", str(snapshot_dir))
     return manifest
@@ -382,6 +427,7 @@ def main(argv=None) -> int:
     parser.add_argument("--snapshot-date", type=dt.date.fromisoformat)
     parser.add_argument("--universe-packet", type=Path, required=True, help="exact P3-12 population record")
     parser.add_argument("--expected-universe-record-sha256", required=True)
+    parser.add_argument("--transition-manifest", type=Path)
     parser.add_argument("--snapshot-key")
     parser.add_argument("--request-interval-seconds", type=float, default=1.05)
     parser.add_argument("--timeout-seconds", type=int, default=60)
@@ -389,6 +435,7 @@ def main(argv=None) -> int:
     lineage = load_universe_lineage(
         args.universe_packet,
         expected_record_sha256=args.expected_universe_record_sha256,
+        transition_manifest_path=args.transition_manifest,
     )
     markets = lineage["markets"]
     key = args.snapshot_key or P3_P4.snapshot_key(lineage)

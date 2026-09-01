@@ -64,7 +64,7 @@ def write_universe_packet(root: Path, date: str, rows: list[dict]) -> Path:
         "blocked_count": sum(1 for r in rows if r["state"] == "BLOCKED"),
     }
     packet = {
-        "schema_version": 1,
+        "schema_version": "upbit_tradeable_universe_packet/1",
         "snapshot_date": date,
         "evaluation_as_of": date,
         "available_at": f"{date}T00:10:00Z",
@@ -76,19 +76,46 @@ def write_universe_packet(root: Path, date: str, rows: list[dict]) -> Path:
         "duplicate_market_codes": {},
         "summary": summary,
         "markets": rows,
-        "authority": {},
+        "authority": {
+            "investable_eligible": False,
+            "order_authorized": False,
+            "paper_eligible": False,
+            "production_authorized": False,
+            "stage_authorized": False,
+            "trading_authorized": False,
+        },
     }
-    packet["payload_sha256"] = "b" * 64
+    packet["payload_sha256"] = MODULE.payload_sha256(packet)
     record = {
-        "schema_version": 1,
+        "schema_version": "upbit_universe_population/1",
         "snapshot_date": date,
         "generated_at": f"{date}T00:10:00Z",
-        "raw_snapshot": {},
+        "raw_snapshot": {
+            "path": f"evidence/crypto/upbit/raw/{date}",
+            "manifest_sha256": "a" * 64,
+        },
+        "builder": {
+            "module": "universe/upbit_tradeable_universe.py",
+            "output_schema_version": packet["schema_version"],
+        },
+        "ratification": {
+            "effective_for_snapshot": True,
+        },
         "identity_review": {},
         "packet": packet,
-        "authority": {},
-        "payload_sha256": "c" * 64,
+        "authority": {
+            "observation_pool_population_only": False,
+            "identity_ratification_authorized": False,
+            "taxonomy_ratification_authorized": False,
+            "policy_ratification_authorized": False,
+            "tradeable_universe_promotion_authorized": False,
+            "paper_eligible_promotion_authorized": False,
+            "production_authorized": False,
+            "trading_authorized": False,
+            "order_authorized": False,
+        },
     }
+    record["payload_sha256"] = MODULE.payload_sha256(record)
     return write_json(root / date / "packet.json", record)
 
 

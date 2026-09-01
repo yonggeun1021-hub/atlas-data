@@ -13,11 +13,13 @@ taxonomy has no such field.
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +30,13 @@ SPEC = importlib.util.spec_from_file_location(
 RELEASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RELEASE)
 GOVERNANCE = RELEASE.GOVERNANCE
+
+_UNIVERSE_SPEC = importlib.util.spec_from_file_location(
+    "upbit_tradeable_universe_for_transition_release_test",
+    ROOT / "universe" / "upbit_tradeable_universe.py",
+)
+UNIVERSE = importlib.util.module_from_spec(_UNIVERSE_SPEC)
+_UNIVERSE_SPEC.loader.exec_module(UNIVERSE)
 
 _FIXTURES_SPEC = importlib.util.spec_from_file_location(
     "upbit_exact_release_binding_fixtures_for_release_test",
@@ -58,6 +67,78 @@ def _code_approval(**overrides):
     }
     doc.update(overrides)
     return doc
+
+
+def _population_record(*, exact_release: bool) -> dict:
+    row_authority = {
+        "investable_eligible": False,
+        "paper_eligible": False,
+        "stage_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
+        "order_authorized": False,
+    }
+    rows = []
+    for market, asset in sorted(FIXTURES.MARKETS_TO_IDS.items()):
+        rows.append({
+            "market": market,
+            "state": "PAPER_ELIGIBLE" if exact_release else "OBSERVATION_POOL",
+            "reason": "PAPER_ELIGIBLE_ALL_GATES_PASSED" if exact_release else "IDENTITY_UNRATIFIED",
+            "candidate_canonical_asset_id": asset if exact_release else None,
+            "authority": dict(row_authority),
+        })
+    packet = {
+        "schema_version": "upbit_tradeable_universe_packet/1",
+        "snapshot_date": FIXTURES.EVAL_AS_OF,
+        "evaluation_as_of": FIXTURES.EVAL_AS_OF,
+        "available_at": "2026-08-30T00:40:00Z",
+        "manifest_sha256": "1" * 64,
+        "policy_version": "fixture-policy",
+        "policy_ratified": True,
+        "taxonomy_version": "fixture-taxonomy",
+        "taxonomy_ratified": exact_release,
+        "duplicate_market_codes": {},
+        "summary": {
+            "market_count": 8,
+            "observation_pool_count": 0 if exact_release else 8,
+            "tradeable_universe_count": 0,
+            "paper_eligible_count": 8 if exact_release else 0,
+            "blocked_count": 0,
+        },
+        "markets": rows,
+        "authority": dict(row_authority),
+    }
+    packet["payload_sha256"] = RELEASE.payload_sha256(packet)
+    record_authority = {
+        "observation_pool_population_only": not exact_release,
+        "identity_ratification_authorized": False,
+        "taxonomy_ratification_authorized": False,
+        "policy_ratification_authorized": False,
+        "tradeable_universe_promotion_authorized": False,
+        "paper_eligible_promotion_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
+        "order_authorized": False,
+    }
+    record = {
+        "schema_version": "upbit_universe_population/1",
+        "snapshot_date": FIXTURES.EVAL_AS_OF,
+        "generated_at": "2026-08-30T00:40:00Z",
+        "raw_snapshot": {
+            "path": f"evidence/crypto/upbit/raw/{FIXTURES.EVAL_AS_OF}",
+            "manifest_sha256": "1" * 64,
+        },
+        "builder": {
+            "module": "universe/upbit_tradeable_universe.py",
+            "output_schema_version": "upbit_tradeable_universe_packet/1",
+        },
+        "ratification": {"effective_for_snapshot": exact_release},
+        "identity_review": {"proposal_count": 8, "findings": [], "blocked_markets": []},
+        "authority": record_authority,
+        "packet": packet,
+    }
+    record["payload_sha256"] = RELEASE.payload_sha256(record)
+    return record
 
 
 class BuildReleaseProjectionUnitTests(unittest.TestCase):
@@ -320,6 +401,558 @@ class EndToEndReleaseAndRuntimeTests(unittest.TestCase):
                     evaluation_as_of=FIXTURES.EVAL_AS_OF,
                 )
             self.assertIn("RUNTIME_VALIDATION", str(ctx.exception))
+
+
+class SameVintageTransitionProjectionTests(unittest.TestCase):
+    """The append-only population successor stays inside both approved
+    code labels: its manifest is built by ``release_builder`` and consumed
+    by ``consumer_file``.  No populate/workflow-only trust path exists."""
+
+    def setUp(self):
+        self.deterministic_successor = None
+
+        def deterministic_rebuild(_source, **_kwargs):
+            if self.deterministic_successor is None:
+                raise AssertionError("deterministic successor fixture not initialized")
+            return copy.deepcopy(self.deterministic_successor)
+
+        self.release_rebuild_patch = mock.patch.object(
+            RELEASE.UNIVERSE,
+            "rebuild_same_vintage_population_record",
+            side_effect=deterministic_rebuild,
+        )
+        self.consumer_rebuild_patch = mock.patch.object(
+            UNIVERSE,
+            "rebuild_same_vintage_population_record",
+            side_effect=deterministic_rebuild,
+        )
+        self.release_rebuild_patch.start()
+        self.consumer_rebuild_patch.start()
+
+    def tearDown(self):
+        self.consumer_rebuild_patch.stop()
+        self.release_rebuild_patch.stop()
+
+    def _setup(self, tmp: Path):
+        registry, taxonomy, artifacts = FIXTURES.build_full_chain(tmp)
+        registry = artifacts["activate"](registry)
+        taxonomy = artifacts["activate"](taxonomy)
+        del taxonomy["source_candidate_packet"]
+        _write(tmp / "config" / "upbit_asset_identity_registry.json", registry)
+        _write(tmp / "config" / "upbit_exclusion_taxonomy.json", taxonomy)
+
+        freeze_path = tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json"
+        freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+        freeze["approval_resolution"].update({
+            "approval_evidence_ref": registry["approval_evidence_ref"],
+            "approval_evidence_sha256": registry["approval_evidence_sha256"],
+        })
+        _write(freeze_path, freeze)
+
+        source = _population_record(exact_release=False)
+        source_relative = (
+            f"data/observations/upbit_tradeable_universe/{FIXTURES.EVAL_AS_OF}/packet.json"
+        )
+        source_path = _write(tmp / source_relative, source)
+        successor = _population_record(exact_release=True)
+        self.deterministic_successor = copy.deepcopy(successor)
+        successor_relative = (
+            f"data/observations/upbit_tradeable_universe/{FIXTURES.EVAL_AS_OF}/transitions/"
+            f"{source['payload_sha256']}-to-{successor['payload_sha256']}/packet.json"
+        )
+        return source, source_path, successor, source_relative, successor_relative, artifacts
+
+    @staticmethod
+    def _rehash_record(record: dict) -> dict:
+        record["packet"]["payload_sha256"] = RELEASE.payload_sha256(
+            {key: value for key, value in record["packet"].items() if key != "payload_sha256"}
+        )
+        record["payload_sha256"] = RELEASE.payload_sha256(
+            {key: value for key, value in record.items() if key != "payload_sha256"}
+        )
+        return record
+
+    def test_builder_and_consumer_reject_rehashed_forged_successor_content_and_authority(self):
+        mutators = {
+            "reason": lambda record: record["packet"]["markets"][0].__setitem__("reason", "FORGED"),
+            "canonical_asset_id": lambda record: record["packet"]["markets"][0].__setitem__(
+                "candidate_canonical_asset_id", "FORGED-ASSET",
+            ),
+            "authority_key_shrink": lambda record: record["packet"]["markets"][0].__setitem__(
+                "authority", {"other": False},
+            ),
+        }
+        for label, mutate in mutators.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                source, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+                valid_projection = RELEASE.build_same_vintage_transition_projection(
+                    repo_root=tmp,
+                    source_record_relative_path=source_relative,
+                    successor_record_relative_path=successor_relative,
+                    successor_record=successor,
+                    evaluation_as_of=FIXTURES.EVAL_AS_OF,
+                )
+                forged = self._rehash_record(copy.deepcopy(successor))
+                mutate(forged)
+                forged = self._rehash_record(forged)
+                forged_relative = (
+                    f"data/observations/upbit_tradeable_universe/{FIXTURES.EVAL_AS_OF}/transitions/"
+                    f"{source['payload_sha256']}-to-{forged['payload_sha256']}/packet.json"
+                )
+                with self.assertRaises(RELEASE.ReleaseProjectionError):
+                    RELEASE.build_same_vintage_transition_projection(
+                        repo_root=tmp,
+                        source_record_relative_path=source_relative,
+                        successor_record_relative_path=forged_relative,
+                        successor_record=forged,
+                        evaluation_as_of=FIXTURES.EVAL_AS_OF,
+                    )
+
+                manifest = copy.deepcopy(valid_projection["manifest"])
+                forged_bytes = RELEASE.formatted_json_bytes(forged)
+                manifest["successor_record"] = {
+                    "path": forged_relative,
+                    "file_sha256": RELEASE.hashlib.sha256(forged_bytes).hexdigest(),
+                    "payload_sha256": forged["payload_sha256"],
+                }
+                manifest["payload_sha256"] = RELEASE.payload_sha256(
+                    {key: value for key, value in manifest.items() if key != "payload_sha256"}
+                )
+                forged_path = _write(tmp / forged_relative, forged)
+                manifest_path = _write(forged_path.with_name("transition.json"), manifest)
+                with self.assertRaises(UNIVERSE.UpbitUniverseError):
+                    UNIVERSE.validate_same_vintage_transition(manifest_path, repo_root=tmp)
+
+    def test_builder_rejects_rehashed_source_with_truncated_authority_schema(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            source, source_path, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            source["authority"] = {"other": False}
+            source["payload_sha256"] = RELEASE.payload_sha256(
+                {key: value for key, value in source.items() if key != "payload_sha256"}
+            )
+            _write(source_path, source)
+            successor_relative = (
+                f"data/observations/upbit_tradeable_universe/{FIXTURES.EVAL_AS_OF}/transitions/"
+                f"{source['payload_sha256']}-to-{successor['payload_sha256']}/packet.json"
+            )
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseProjectionError,
+                "TRANSITION_SOURCE_AUTHORITY_NOT_CLOSED",
+            ):
+                RELEASE.build_same_vintage_transition_projection(
+                    repo_root=tmp,
+                    source_record_relative_path=source_relative,
+                    successor_record_relative_path=successor_relative,
+                    successor_record=successor,
+                    evaluation_as_of=FIXTURES.EVAL_AS_OF,
+                )
+
+    def test_projection_preserves_exact_eight_base_and_pins_approved_builder_consumer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            source, source_path, successor, source_relative, successor_relative, artifacts = self._setup(tmp)
+            source_bytes = source_path.read_bytes()
+
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+
+            manifest = projection["manifest"]
+            self.assertEqual(source_path.read_bytes(), source_bytes)
+            self.assertEqual(projection["successor_record"], successor)
+            self.assertEqual(
+                manifest["builder"],
+                {
+                    "path": "identity/upbit_exact_release_binding_release.py",
+                    "file_sha256": GOVERNANCE.file_sha256(artifacts["release_builder_path"]),
+                },
+            )
+            self.assertEqual(
+                manifest["consumer"],
+                {
+                    "path": "universe/upbit_tradeable_universe.py",
+                    "file_sha256": GOVERNANCE.file_sha256(artifacts["consumer_path"]),
+                },
+            )
+            self.assertEqual(
+                manifest["base_content_approval"],
+                json.loads(
+                    (tmp / "config" / "upbit_identity_taxonomy_governance_freeze.json")
+                    .read_text(encoding="utf-8")
+                )["approval_resolution"],
+            )
+            self.assertEqual(
+                sorted(
+                    row["market"] for row in successor["packet"]["markets"]
+                    if row["state"] == "PAPER_ELIGIBLE"
+                ),
+                sorted(FIXTURES.MARKETS_TO_IDS),
+            )
+            self.assertTrue(all(value is False for value in manifest["authority"].values()))
+
+    def test_pinned_consumer_independently_accepts_projection_and_rejects_tamper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            source, source_path, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            successor_path = _write(tmp / successor_relative, projection["successor_record"])
+            manifest_path = _write(successor_path.with_name("transition.json"), projection["manifest"])
+
+            selected = UNIVERSE.validate_same_vintage_transition(manifest_path, repo_root=tmp)
+            self.assertEqual(selected["path"].resolve(), successor_path.resolve())
+            self.assertEqual(selected["packet"]["summary"]["paper_eligible_count"], 8)
+
+            tampered = copy.deepcopy(projection["manifest"])
+            tampered["authority"]["order_authorized"] = True
+            tampered["payload_sha256"] = RELEASE.payload_sha256(
+                {key: value for key, value in tampered.items() if key != "payload_sha256"}
+            )
+            _write(manifest_path, tampered)
+            with self.assertRaisesRegex(UNIVERSE.UpbitUniverseError, "TRANSITION_AUTHORITY_NOT_FALSE"):
+                UNIVERSE.validate_same_vintage_transition(manifest_path, repo_root=tmp)
+
+    def test_latest_selector_prefers_valid_same_day_transition_only_after_code_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            successor_path = _write(tmp / successor_relative, projection["successor_record"])
+            _write(successor_path.with_name("transition.json"), projection["manifest"])
+            data_root = tmp / "data" / "observations" / "upbit_tradeable_universe"
+
+            before = UNIVERSE.find_latest_population_record(
+                data_root,
+                not_after=dt.datetime(
+                    2026, 8, 30, 12, 59, 59,
+                    tzinfo=dt.timezone.utc,
+                ),
+                repo_root=tmp,
+            )
+            after = UNIVERSE.find_latest_population_record(
+                data_root,
+                not_after=dt.datetime(
+                    2026, 8, 30, 13, 0, 0,
+                    tzinfo=dt.timezone.utc,
+                ),
+                repo_root=tmp,
+            )
+            self.assertEqual(before["path"], tmp / source_relative)
+            self.assertEqual(after["path"].resolve(), successor_path.resolve())
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_SELECTION_REQUIRES_NOT_AFTER",
+            ):
+                UNIVERSE.find_latest_population_record(data_root, repo_root=tmp)
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "UNIVERSE_NOT_AFTER_MUST_BE_TIMEZONE_AWARE",
+            ):
+                UNIVERSE.find_latest_population_record(
+                    data_root,
+                    not_after=dt.datetime(2026, 8, 30, 13, 0, 0),
+                    repo_root=tmp,
+                )
+
+    def test_invalid_latest_transition_never_falls_back_to_old_or_previous_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            successor_path = _write(tmp / successor_relative, projection["successor_record"])
+            manifest = copy.deepcopy(projection["manifest"])
+            manifest["consumer"]["file_sha256"] = "0" * 64
+            manifest["payload_sha256"] = RELEASE.payload_sha256(
+                {key: value for key, value in manifest.items() if key != "payload_sha256"}
+            )
+            _write(successor_path.with_name("transition.json"), manifest)
+
+            previous = _population_record(exact_release=False)
+            previous["snapshot_date"] = "2026-08-29"
+            previous["packet"]["snapshot_date"] = "2026-08-29"
+            previous["packet"]["evaluation_as_of"] = "2026-08-29"
+            previous["raw_snapshot"]["path"] = "evidence/crypto/upbit/raw/2026-08-29"
+            previous["packet"]["payload_sha256"] = RELEASE.payload_sha256(
+                {key: value for key, value in previous["packet"].items() if key != "payload_sha256"}
+            )
+            previous["payload_sha256"] = RELEASE.payload_sha256(
+                {key: value for key, value in previous.items() if key != "payload_sha256"}
+            )
+            _write(
+                tmp / "data" / "observations" / "upbit_tradeable_universe"
+                / "2026-08-29" / "packet.json",
+                previous,
+            )
+            (tmp / "evidence" / "crypto" / "upbit" / "realtime_validation" / "2026-08-30").mkdir(
+                parents=True,
+            )
+
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_CONSUMER_FILE_HASH_MISMATCH",
+            ):
+                UNIVERSE.find_latest_population_record(
+                    tmp / "data" / "observations" / "upbit_tradeable_universe",
+                    repo_root=tmp,
+                )
+
+    def test_transition_directory_symlink_and_symlinked_manifest_parent_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            redirect = tmp / "redirected-transition"
+            _write(redirect / "packet.json", projection["successor_record"])
+            redirected_manifest = _write(redirect / "transition.json", projection["manifest"])
+            transitions_root = (
+                tmp / "data" / "observations" / "upbit_tradeable_universe"
+                / FIXTURES.EVAL_AS_OF / "transitions"
+            )
+            transitions_root.mkdir()
+            symlink_child = transitions_root / "symlink-child"
+            symlink_child.symlink_to(redirect, target_is_directory=True)
+
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_DIRECTORY_SYMLINK_FORBIDDEN",
+            ):
+                UNIVERSE.find_latest_population_record(
+                    tmp / "data" / "observations" / "upbit_tradeable_universe",
+                    repo_root=tmp,
+                )
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_MANIFEST_SYMLINK_FORBIDDEN",
+            ):
+                UNIVERSE.validate_same_vintage_transition(
+                    symlink_child / redirected_manifest.name,
+                    repo_root=tmp,
+                )
+
+    def test_manifest_must_resolve_to_exact_content_addressed_transition_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            _write(tmp / successor_relative, projection["successor_record"])
+            relocated = _write(
+                tmp / "relocated" / "transition.json",
+                projection["manifest"],
+            )
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_MANIFEST_LOCATION_MISMATCH",
+            ):
+                UNIVERSE.validate_same_vintage_transition(relocated, repo_root=tmp)
+
+    def test_consumer_rejects_final_packet_and_intermediate_parent_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            successor_path = tmp / successor_relative
+            successor_path.parent.mkdir(parents=True)
+            backing = _write(tmp / "successor-backing.json", projection["successor_record"])
+            successor_path.symlink_to(backing)
+            manifest_path = _write(successor_path.with_name("transition.json"), projection["manifest"])
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_SUCCESSOR_RECORD_SYMLINK_FORBIDDEN",
+            ):
+                UNIVERSE.validate_same_vintage_transition(manifest_path, repo_root=tmp)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            expected_successor = tmp / successor_relative
+            transitions_root = expected_successor.parents[1]
+            redirected_root = tmp / "redirected-transitions"
+            redirected_successor = redirected_root / expected_successor.parent.name / "packet.json"
+            _write(redirected_successor, projection["successor_record"])
+            redirected_manifest = _write(
+                redirected_successor.with_name("transition.json"),
+                projection["manifest"],
+            )
+            transitions_root.parent.mkdir(parents=True, exist_ok=True)
+            transitions_root.symlink_to(redirected_root, target_is_directory=True)
+            with self.assertRaisesRegex(
+                UNIVERSE.UpbitUniverseError,
+                "TRANSITION_MANIFEST_SYMLINK_FORBIDDEN",
+            ):
+                UNIVERSE.validate_same_vintage_transition(
+                    transitions_root / expected_successor.parent.name / redirected_manifest.name,
+                    repo_root=tmp,
+                )
+
+    def test_retained_bundle_replay_requires_untampered_manifest_source_and_successor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            source, _, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            projection = RELEASE.build_same_vintage_transition_projection(
+                repo_root=tmp,
+                source_record_relative_path=source_relative,
+                successor_record_relative_path=successor_relative,
+                successor_record=successor,
+                evaluation_as_of=FIXTURES.EVAL_AS_OF,
+            )
+            bundle = tmp / "retained" / "bundle"
+            source_path = _write(bundle / "canonical-source.json", source)
+            successor_path = _write(bundle / "successor.json", projection["successor_record"])
+            manifest_path = _write(bundle / "transition.json", projection["manifest"])
+
+            selected = UNIVERSE.validate_retained_same_vintage_transition(
+                manifest_path,
+                source_record_path=source_path,
+                successor_record_path=successor_path,
+                repo_root=tmp,
+            )
+            self.assertEqual(selected["record"], successor)
+
+            source_path.unlink()
+            with self.assertRaises(UNIVERSE.UpbitUniverseError):
+                UNIVERSE.validate_retained_same_vintage_transition(
+                    manifest_path,
+                    source_record_path=source_path,
+                    successor_record_path=successor_path,
+                    repo_root=tmp,
+                )
+            _write(source_path, source)
+            tampered_manifest = copy.deepcopy(projection["manifest"])
+            tampered_manifest["source_record"]["file_sha256"] = "0" * 64
+            tampered_manifest["payload_sha256"] = RELEASE.payload_sha256(
+                {key: value for key, value in tampered_manifest.items() if key != "payload_sha256"}
+            )
+            _write(manifest_path, tampered_manifest)
+            with self.assertRaises(UNIVERSE.UpbitUniverseError):
+                UNIVERSE.validate_retained_same_vintage_transition(
+                    manifest_path,
+                    source_record_path=source_path,
+                    successor_record_path=successor_path,
+                    repo_root=tmp,
+                )
+
+    def test_builder_rejects_final_source_packet_and_intermediate_parent_symlinks(self):
+        for symlink_kind in ("packet", "date-directory"):
+            with self.subTest(symlink_kind=symlink_kind), tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                _, source_path, successor, source_relative, successor_relative, _ = self._setup(tmp)
+                if symlink_kind == "packet":
+                    backing = source_path.with_name("source-backing.json")
+                    source_path.rename(backing)
+                    source_path.symlink_to(backing)
+                else:
+                    date_directory = source_path.parent
+                    backing = tmp / "source-date-backing"
+                    date_directory.rename(backing)
+                    date_directory.symlink_to(backing, target_is_directory=True)
+                with self.assertRaisesRegex(
+                    RELEASE.ReleaseProjectionError,
+                    "TRANSITION_SOURCE_RECORD_SYMLINK_FORBIDDEN",
+                ):
+                    RELEASE.build_same_vintage_transition_projection(
+                        repo_root=tmp,
+                        source_record_relative_path=source_relative,
+                        successor_record_relative_path=successor_relative,
+                        successor_record=successor,
+                        evaluation_as_of=FIXTURES.EVAL_AS_OF,
+                    )
+
+    def test_builder_rejects_any_old_state_other_than_policy_true_taxonomy_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            source, source_path, successor, source_relative, successor_relative, _ = self._setup(tmp)
+            for policy_ratified, taxonomy_ratified in ((False, False), (False, True), (True, True)):
+                with self.subTest(policy=policy_ratified, taxonomy=taxonomy_ratified):
+                    mutated = copy.deepcopy(source)
+                    mutated["packet"]["policy_ratified"] = policy_ratified
+                    mutated["packet"]["taxonomy_ratified"] = taxonomy_ratified
+                    mutated["packet"]["payload_sha256"] = RELEASE.payload_sha256(
+                        {key: value for key, value in mutated["packet"].items() if key != "payload_sha256"}
+                    )
+                    mutated["payload_sha256"] = RELEASE.payload_sha256(
+                        {key: value for key, value in mutated.items() if key != "payload_sha256"}
+                    )
+                    _write(source_path, mutated)
+                    bad_successor_relative = successor_relative.replace(
+                        source["payload_sha256"], mutated["payload_sha256"],
+                    )
+                    with self.assertRaisesRegex(
+                        RELEASE.ReleaseProjectionError,
+                        "TRANSITION_SOURCE_STATE_NOT_POLICY_TRUE_TAXONOMY_FALSE",
+                    ):
+                        RELEASE.build_same_vintage_transition_projection(
+                            repo_root=tmp,
+                            source_record_relative_path=source_relative,
+                            successor_record_relative_path=bad_successor_relative,
+                            successor_record=successor,
+                            evaluation_as_of=FIXTURES.EVAL_AS_OF,
+                        )
+            _write(source_path, source)
+
+    def test_builder_fails_when_approved_consumer_bytes_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _, _, successor, source_relative, successor_relative, artifacts = self._setup(tmp)
+            artifacts["consumer_path"].write_text("# tampered after approval\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseProjectionError,
+                "TRANSITION_REGISTRY_EXACT_RELEASE_FAILED",
+            ):
+                RELEASE.build_same_vintage_transition_projection(
+                    repo_root=tmp,
+                    source_record_relative_path=source_relative,
+                    successor_record_relative_path=successor_relative,
+                    successor_record=successor,
+                    evaluation_as_of=FIXTURES.EVAL_AS_OF,
+                )
 
 
 class ReleaseBuilderRemainingNegativeTests(unittest.TestCase):

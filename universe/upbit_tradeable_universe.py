@@ -82,6 +82,10 @@ POLICY_PATH = ROOT / "config" / "upbit_tradeable_universe_policy.json"
 TAXONOMY_PATH = ROOT / "config" / "upbit_exclusion_taxonomy.json"
 IDENTITY_REGISTRY_PATH = ROOT / "config" / "upbit_asset_identity_registry.json"
 OUTPUT_SCHEMA_VERSION = "upbit_tradeable_universe_packet/1"
+POPULATION_RECORD_SCHEMA_VERSION = "upbit_universe_population/1"
+TRANSITION_SCHEMA_VERSION = "upbit_universe_same_vintage_transition/1"
+POPULATION_DATA_ROOT = ROOT / "data" / "observations" / "upbit_tradeable_universe"
+TRANSITION_RELEASE_BUILDER_PATH = ROOT / "identity" / "upbit_exact_release_binding_release.py"
 
 STATE_OBSERVATION_POOL = "OBSERVATION_POOL"
 STATE_TRADEABLE_UNIVERSE = "TRADEABLE_UNIVERSE"
@@ -300,6 +304,7 @@ def _policy_approval_effective(document: dict, evaluation_as_of: str, *, date_fi
 
 def _identity_taxonomy_exact_bound_effective(
     document: dict, evaluation_as_of: str, *, date_field: str, content_field: str,
+    repo_root: Path | None = None,
 ) -> bool:
     """The ONLY approval-effectiveness check for the identity registry
     (``content_field="mappings"``) or taxonomy (``content_field="records"``).
@@ -315,8 +320,12 @@ def _identity_taxonomy_exact_bound_effective(
     never revive authority on its own.
     """
     try:
+        validation_kwargs = {}
+        if repo_root is not None:
+            validation_kwargs["repo_root"] = Path(repo_root)
         if not EXACT_RELEASE_BINDING.validate_exact_release(
             document, content_field=content_field, evaluation_as_of=evaluation_as_of,
+            **validation_kwargs,
         ):
             return False
     except EXACT_RELEASE_BINDING.ExactReleaseBindingError:
@@ -327,12 +336,639 @@ def _identity_taxonomy_exact_bound_effective(
     return effective is None or (isinstance(effective, str) and effective <= evaluation_as_of)
 
 
-def effective_identity_mapping(registry: dict, evaluation_as_of: str) -> dict:
+def effective_identity_mapping(
+    registry: dict,
+    evaluation_as_of: str,
+    *,
+    repo_root: Path | None = None,
+) -> dict:
     if not _identity_taxonomy_exact_bound_effective(
         registry, evaluation_as_of, date_field="effective_from", content_field="mappings",
+        repo_root=repo_root,
     ):
         return {}
     return copy.deepcopy(registry["mappings"])
+
+
+# ---------------------------------------------------------------------------
+# Append-only same-vintage population transition consumer
+# ---------------------------------------------------------------------------
+
+def _transition_repo_path(relative_path, *, repo_root: Path, label: str) -> Path:
+    if not isinstance(relative_path, str) or not relative_path:
+        raise UpbitUniverseError(f"{label}_PATH_INVALID")
+    relative = Path(relative_path)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise UpbitUniverseError(f"{label}_PATH_INVALID")
+    root = Path(repo_root).absolute()
+    candidate = root / relative
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise UpbitUniverseError(f"{label}_PATH_OUTSIDE_REPOSITORY") from exc
+    current = root
+    if current.is_symlink():
+        raise UpbitUniverseError(f"{label}_SYMLINK_FORBIDDEN")
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise UpbitUniverseError(f"{label}_SYMLINK_FORBIDDEN")
+    return candidate
+
+
+def _transition_assert_manifest_lexical_path(manifest_path: Path, *, repo_root: Path) -> None:
+    root = Path(repo_root).absolute()
+    candidate = Path(manifest_path).absolute()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise UpbitUniverseError("TRANSITION_MANIFEST_PATH_OUTSIDE_REPOSITORY") from exc
+    current = root
+    if current.is_symlink():
+        raise UpbitUniverseError("TRANSITION_MANIFEST_SYMLINK_FORBIDDEN")
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise UpbitUniverseError("TRANSITION_MANIFEST_SYMLINK_FORBIDDEN")
+
+
+def _transition_self_hash(value: dict, label: str) -> str:
+    declared = value.get("payload_sha256")
+    actual = payload_sha256({key: item for key, item in value.items() if key != "payload_sha256"})
+    if not isinstance(declared, str) or declared != actual:
+        raise UpbitUniverseError(f"{label}_PAYLOAD_SHA256_MISMATCH")
+    return actual
+
+
+def _transition_parse_utc(value, label: str) -> dt.datetime:
+    if not isinstance(value, str) or not _UTC_RE.fullmatch(value):
+        raise UpbitUniverseError(label)
+    try:
+        return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError as exc:
+        raise UpbitUniverseError(label) from exc
+
+
+def _transition_read_record_pin(
+    pin: dict,
+    *,
+    repo_root: Path,
+    label: str,
+    retained_path: Path | None = None,
+) -> tuple[Path, dict, str, str]:
+    if not isinstance(pin, dict) or set(pin) != {"path", "file_sha256", "payload_sha256"}:
+        raise UpbitUniverseError(f"{label}_PIN_INVALID")
+    if retained_path is None:
+        path = _transition_repo_path(pin.get("path"), repo_root=repo_root, label=label)
+    else:
+        path = Path(retained_path).absolute()
+        _transition_assert_manifest_lexical_path(path, repo_root=repo_root)
+    if path.is_symlink() or not path.is_file():
+        raise UpbitUniverseError(f"{label}_FILE_HASH_MISMATCH")
+    try:
+        record_bytes = path.read_bytes()
+        record = json.loads(record_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UpbitUniverseError(f"{label}_READ_FAILED:{exc}") from exc
+    record_file_hash = hashlib.sha256(record_bytes).hexdigest()
+    if record_file_hash != pin.get("file_sha256"):
+        raise UpbitUniverseError(f"{label}_FILE_HASH_MISMATCH")
+    if not isinstance(record, dict):
+        raise UpbitUniverseError(f"{label}_ROOT_INVALID")
+    record_hash = _transition_self_hash(record, label)
+    if record_hash != pin.get("payload_sha256"):
+        raise UpbitUniverseError(f"{label}_PAYLOAD_PIN_MISMATCH")
+    return path, record, record_hash, record_file_hash
+
+
+def _transition_authority_closed(record: dict, *, allow_observation_pool_marker: bool = False) -> bool:
+    packet = record.get("packet") or {}
+    packet_authority = packet.get("authority") or {}
+    record_authority = record.get("authority") or {}
+    rows = packet.get("markets") or []
+    expected_record_keys = {
+        "observation_pool_population_only",
+        "identity_ratification_authorized",
+        "taxonomy_ratification_authorized",
+        "policy_ratification_authorized",
+        "tradeable_universe_promotion_authorized",
+        "paper_eligible_promotion_authorized",
+        "production_authorized",
+        "trading_authorized",
+        "order_authorized",
+    }
+    record_closed = (
+        set(record_authority) == expected_record_keys
+        and record_authority.get("observation_pool_population_only") is allow_observation_pool_marker
+        and all(
+            item is False
+            for key, item in record_authority.items()
+            if key != "observation_pool_population_only"
+        )
+    )
+    return (
+        packet_authority == _ROW_AUTHORITY
+        and record_closed
+        and bool(rows)
+        and all(
+            isinstance(row, dict)
+            and row.get("authority") == _ROW_AUTHORITY
+            for row in rows
+        )
+    )
+
+
+def rebuild_same_vintage_population_record(
+    source_record: dict,
+    *,
+    evaluation_as_of: str,
+    repo_root: Path = ROOT,
+) -> dict:
+    """Deterministically rebuild the only permissible successor from live bytes.
+
+    The raw snapshot and pre-ratification identity review remain fixed by the
+    canonical source. Policy, taxonomy, and identity mapping are loaded from
+    their live, exact-code-approved files. Callers cannot supply any successor
+    row, reason, summary, metadata, or ratification field to this primitive.
+    """
+    if not isinstance(source_record, dict):
+        raise UpbitUniverseError("TRANSITION_SOURCE_RECORD_ROOT_INVALID")
+    if not isinstance(evaluation_as_of, str) or not _DATE_RE.fullmatch(evaluation_as_of):
+        raise UpbitUniverseError("TRANSITION_EVALUATION_AS_OF_INVALID")
+    expected_raw_relative = f"evidence/crypto/upbit/raw/{evaluation_as_of}"
+    raw_path = _transition_repo_path(
+        expected_raw_relative,
+        repo_root=repo_root,
+        label="TRANSITION_RAW_SNAPSHOT",
+    )
+    capture_contract_path = _transition_repo_path(
+        "config/upbit_market_capture_contract.json",
+        repo_root=repo_root,
+        label="TRANSITION_CAPTURE_CONTRACT",
+    )
+    try:
+        capture_contract = UPBIT_CAPTURE.load_contract(capture_contract_path)
+        core = load_snapshot_core(raw_path, capture_contract)
+    except UPBIT_CAPTURE.CaptureError as exc:
+        raise UpbitUniverseError(f"TRANSITION_RAW_REBUILD_FAILED:{exc}") from exc
+    expected_raw_snapshot = {
+        "path": expected_raw_relative,
+        "manifest_sha256": core["manifest_sha256"],
+    }
+    if (
+        source_record.get("schema_version") != POPULATION_RECORD_SCHEMA_VERSION
+        or source_record.get("snapshot_date") != evaluation_as_of
+        or source_record.get("generated_at") != core["available_at"]
+        or source_record.get("raw_snapshot") != expected_raw_snapshot
+        or source_record.get("builder") != {
+            "module": "universe/upbit_tradeable_universe.py",
+            "output_schema_version": OUTPUT_SCHEMA_VERSION,
+        }
+    ):
+        raise UpbitUniverseError("TRANSITION_SOURCE_RAW_OR_BUILDER_PIN_MISMATCH")
+    identity_review = source_record.get("identity_review")
+    if not isinstance(identity_review, dict):
+        raise UpbitUniverseError("TRANSITION_SOURCE_IDENTITY_REVIEW_INVALID")
+    blocked_markets = identity_review.get("blocked_markets") or []
+    if not isinstance(blocked_markets, list) or any(not isinstance(item, str) for item in blocked_markets):
+        raise UpbitUniverseError("TRANSITION_SOURCE_BLOCKED_MARKETS_INVALID")
+
+    policy_path = _transition_repo_path(
+        "config/upbit_tradeable_universe_policy.json",
+        repo_root=repo_root,
+        label="TRANSITION_POLICY",
+    )
+    taxonomy_path = _transition_repo_path(
+        "config/upbit_exclusion_taxonomy.json",
+        repo_root=repo_root,
+        label="TRANSITION_TAXONOMY",
+    )
+    registry_path = _transition_repo_path(
+        "config/upbit_asset_identity_registry.json",
+        repo_root=repo_root,
+        label="TRANSITION_REGISTRY",
+    )
+    policy = load_policy(policy_path)
+    taxonomy = load_taxonomy(taxonomy_path)
+    registry = _read_json(registry_path)
+    effective_registry = effective_identity_mapping(
+        registry,
+        evaluation_as_of,
+        repo_root=repo_root,
+    )
+    packet = build_classification(
+        core,
+        evaluation_as_of=evaluation_as_of,
+        policy=policy,
+        taxonomy=taxonomy,
+        ratified_identity_registry=effective_registry,
+        blocked_markets=set(blocked_markets),
+        repo_root=repo_root,
+    )
+    record = {
+        "schema_version": POPULATION_RECORD_SCHEMA_VERSION,
+        "snapshot_date": evaluation_as_of,
+        "generated_at": core["available_at"],
+        "raw_snapshot": expected_raw_snapshot,
+        "builder": {
+            "module": "universe/upbit_tradeable_universe.py",
+            "output_schema_version": packet["schema_version"],
+        },
+        "ratification": {
+            "effective_for_snapshot": bool(
+                packet["policy_ratified"] and packet["taxonomy_ratified"] and effective_registry
+            ),
+            "policy": {
+                "path": "config/upbit_tradeable_universe_policy.json",
+                "file_sha256": _file_sha(policy_path),
+                "effective_from": policy.get("effective_date"),
+            },
+            "taxonomy": {
+                "path": "config/upbit_exclusion_taxonomy.json",
+                "file_sha256": _file_sha(taxonomy_path),
+                "effective_from": taxonomy.get("effective_from"),
+            },
+            "identity_registry": {
+                "path": "config/upbit_asset_identity_registry.json",
+                "file_sha256": _file_sha(registry_path),
+                "registry_version": registry.get("registry_version"),
+                "effective_from": registry.get("effective_from"),
+                "mapping_count": len(effective_registry),
+            },
+        },
+        "identity_review": copy.deepcopy(identity_review),
+        "authority": {
+            "observation_pool_population_only": not bool(effective_registry),
+            "identity_ratification_authorized": False,
+            "taxonomy_ratification_authorized": False,
+            "policy_ratification_authorized": False,
+            "tradeable_universe_promotion_authorized": False,
+            "paper_eligible_promotion_authorized": False,
+            "production_authorized": False,
+            "trading_authorized": False,
+            "order_authorized": False,
+        },
+        "packet": packet,
+    }
+    record["payload_sha256"] = payload_sha256(record)
+    return record
+
+
+def validate_same_vintage_transition(
+    manifest_path: Path,
+    *,
+    repo_root: Path = ROOT,
+    _retained_source_path: Path | None = None,
+    _retained_successor_path: Path | None = None,
+) -> dict:
+    """Independently validate one immutable population transition.
+
+    This function is deliberately inside the exact-code-approved universe
+    consumer.  The manifest must pin this file and the exact-code-approved
+    release builder, and the live registry/taxonomy must still pass the full
+    content+code chain before the successor becomes selectable.
+    """
+    repo_root = Path(repo_root)
+    manifest_path = Path(manifest_path)
+    retained_mode = _retained_source_path is not None or _retained_successor_path is not None
+    if retained_mode and (_retained_source_path is None or _retained_successor_path is None):
+        raise UpbitUniverseError("TRANSITION_RETAINED_BUNDLE_INCOMPLETE")
+    _transition_assert_manifest_lexical_path(manifest_path, repo_root=repo_root)
+    if (
+        manifest_path.is_symlink()
+        or manifest_path.parent.is_symlink()
+        or manifest_path.name != "transition.json"
+    ):
+        raise UpbitUniverseError("TRANSITION_MANIFEST_PATH_INVALID")
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UpbitUniverseError(f"TRANSITION_MANIFEST_READ_FAILED:{exc}") from exc
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != TRANSITION_SCHEMA_VERSION:
+        raise UpbitUniverseError("TRANSITION_SCHEMA_VERSION_MISMATCH")
+    manifest_hash = _transition_self_hash(manifest, "TRANSITION_MANIFEST")
+    snapshot_date = manifest.get("snapshot_date")
+    if not isinstance(snapshot_date, str) or not _DATE_RE.fullmatch(snapshot_date):
+        raise UpbitUniverseError("TRANSITION_SNAPSHOT_DATE_INVALID")
+    if manifest.get("evaluation_as_of") != snapshot_date:
+        raise UpbitUniverseError("TRANSITION_EVALUATION_AS_OF_MISMATCH")
+
+    contract = EXACT_RELEASE_BINDING.load_policy_contract(
+        _transition_repo_path(
+            "config/upbit_exact_release_binding_policy_contract.json",
+            repo_root=repo_root,
+            label="TRANSITION_POLICY_CONTRACT",
+        )
+    )
+    authority = manifest.get("authority")
+    if authority != contract.get("authority") or not authority or any(item is not False for item in authority.values()):
+        raise UpbitUniverseError("TRANSITION_AUTHORITY_NOT_FALSE")
+
+    expected_code_files = {
+        "builder": str(TRANSITION_RELEASE_BUILDER_PATH.relative_to(ROOT)),
+        "consumer": str(Path(__file__).resolve().relative_to(ROOT)),
+    }
+    for label, expected_relative in expected_code_files.items():
+        pin = manifest.get(label)
+        if not isinstance(pin, dict) or set(pin) != {"path", "file_sha256"}:
+            raise UpbitUniverseError(f"TRANSITION_{label.upper()}_PIN_INVALID")
+        if pin.get("path") != expected_relative:
+            raise UpbitUniverseError(f"TRANSITION_{label.upper()}_PATH_MISMATCH")
+        code_path = _transition_repo_path(
+            expected_relative, repo_root=repo_root, label=f"TRANSITION_{label.upper()}",
+        )
+        if code_path.is_symlink() or not code_path.is_file() or _file_sha(code_path) != pin.get("file_sha256"):
+            raise UpbitUniverseError(f"TRANSITION_{label.upper()}_FILE_HASH_MISMATCH")
+
+    source_path, source, source_hash, source_file_hash = _transition_read_record_pin(
+        manifest.get("source_record"),
+        repo_root=repo_root,
+        label="TRANSITION_SOURCE_RECORD",
+        retained_path=_retained_source_path,
+    )
+    successor_path, successor, successor_hash, _successor_file_hash = _transition_read_record_pin(
+        manifest.get("successor_record"),
+        repo_root=repo_root,
+        label="TRANSITION_SUCCESSOR_RECORD",
+        retained_path=_retained_successor_path,
+    )
+    expected_source = f"data/observations/upbit_tradeable_universe/{snapshot_date}/packet.json"
+    if manifest["source_record"]["path"] != expected_source:
+        raise UpbitUniverseError("TRANSITION_SOURCE_NOT_CANONICAL_SAME_VINTAGE")
+    successor_relative = manifest["successor_record"]["path"]
+    expected_successor_prefix = (
+        f"data/observations/upbit_tradeable_universe/{snapshot_date}/transitions/"
+    )
+    if (
+        not successor_relative.startswith(expected_successor_prefix)
+        or not successor_relative.endswith("/packet.json")
+    ):
+        raise UpbitUniverseError("TRANSITION_SUCCESSOR_PATH_INVALID")
+    expected_manifest_path = (repo_root / successor_relative).parent / "transition.json"
+    expected_date_root = repo_root / "data" / "observations" / "upbit_tradeable_universe" / snapshot_date
+    expected_transitions_root = expected_date_root / "transitions"
+    if retained_mode:
+        bundle_root = manifest_path.parent
+        if (
+            manifest_path != bundle_root / "transition.json"
+            or source_path != bundle_root / "canonical-source.json"
+            or successor_path != bundle_root / "successor.json"
+        ):
+            raise UpbitUniverseError("TRANSITION_RETAINED_BUNDLE_LAYOUT_INVALID")
+    elif (
+        expected_date_root.is_symlink()
+        or expected_transitions_root.is_symlink()
+        or expected_manifest_path.parent.is_symlink()
+        or manifest_path.resolve() != expected_manifest_path.resolve()
+    ):
+        raise UpbitUniverseError("TRANSITION_MANIFEST_LOCATION_MISMATCH")
+    if (
+        Path(successor_relative).parent.name != f"{source_hash}-to-{successor_hash}"
+        or (
+            not retained_mode
+            and (
+                manifest_path.resolve().parent != successor_path.parent.resolve()
+                or successor_path.name != "packet.json"
+            )
+        )
+    ):
+        raise UpbitUniverseError("TRANSITION_CONTENT_ADDRESSED_PATH_MISMATCH")
+
+    immutable_keys = (
+        "schema_version", "snapshot_date", "generated_at",
+        "raw_snapshot", "builder", "identity_review",
+    )
+    expected_raw = f"evidence/crypto/upbit/raw/{snapshot_date}"
+    if not all(source.get(key) == successor.get(key) for key in immutable_keys):
+        raise UpbitUniverseError("TRANSITION_SAME_RAW_VINTAGE_MISMATCH")
+    if (
+        source.get("snapshot_date") != snapshot_date
+        or successor.get("snapshot_date") != snapshot_date
+        or (source.get("raw_snapshot") or {}).get("path") != expected_raw
+        or (successor.get("raw_snapshot") or {}).get("path") != expected_raw
+    ):
+        raise UpbitUniverseError("TRANSITION_RAW_PATH_MISMATCH")
+
+    source_packet = source.get("packet") or {}
+    successor_packet = successor.get("packet") or {}
+    source_summary = source_packet.get("summary") or {}
+    successor_summary = successor_packet.get("summary") or {}
+    source_rows = source_packet.get("markets") or []
+    successor_rows = successor_packet.get("markets") or []
+    if (
+        source_packet.get("policy_ratified") is not True
+        or source_packet.get("taxonomy_ratified") is not False
+        or (source.get("ratification") or {}).get("effective_for_snapshot") is not False
+        or source_summary.get("tradeable_universe_count") != 0
+        or source_summary.get("paper_eligible_count") != 0
+        or source_summary.get("market_count") != len(source_rows)
+        or (
+            source_summary.get("observation_pool_count", 0)
+            + source_summary.get("blocked_count", 0)
+        ) != len(source_rows)
+        or any(
+            not isinstance(row, dict)
+            or row.get("state") not in {STATE_OBSERVATION_POOL, STATE_BLOCKED}
+            for row in source_rows
+        )
+    ):
+        raise UpbitUniverseError("TRANSITION_SOURCE_STATE_NOT_POLICY_TRUE_TAXONOMY_FALSE")
+    if (
+        successor_packet.get("policy_ratified") is not True
+        or successor_packet.get("taxonomy_ratified") is not True
+        or (successor.get("ratification") or {}).get("effective_for_snapshot") is not True
+        or successor_summary.get("market_count") != len(successor_rows)
+        or successor_summary.get("tradeable_universe_count") != 0
+        or successor_summary.get("paper_eligible_count") != 8
+        or (
+            successor_summary.get("observation_pool_count", 0)
+            + successor_summary.get("blocked_count", 0)
+            + successor_summary.get("paper_eligible_count", 0)
+        ) != len(successor_rows)
+        or any(
+            not isinstance(row, dict)
+            or row.get("state") not in {STATE_OBSERVATION_POOL, STATE_BLOCKED, STATE_PAPER_ELIGIBLE}
+            for row in successor_rows
+        )
+    ):
+        raise UpbitUniverseError("TRANSITION_SUCCESSOR_NOT_EXACT_EIGHT_EFFECTIVE")
+    if not _transition_authority_closed(source, allow_observation_pool_marker=True):
+        raise UpbitUniverseError("TRANSITION_SOURCE_AUTHORITY_NOT_CLOSED")
+    if not _transition_authority_closed(successor):
+        raise UpbitUniverseError("TRANSITION_SUCCESSOR_AUTHORITY_NOT_CLOSED")
+
+    freeze = _read_json(
+        _transition_repo_path(
+            "config/upbit_identity_taxonomy_governance_freeze.json",
+            repo_root=repo_root,
+            label="TRANSITION_FREEZE",
+        )
+    )
+    if manifest.get("base_content_approval") != freeze.get("approval_resolution"):
+        raise UpbitUniverseError("TRANSITION_BASE_CONTENT_APPROVAL_MISMATCH")
+    resolution = freeze.get("code_approval_resolution")
+    if not isinstance(resolution, dict) or manifest.get("exact_release_resolution") != resolution:
+        raise UpbitUniverseError("TRANSITION_EXACT_RELEASE_RESOLUTION_MISMATCH")
+    if manifest.get("transition_available_at") != resolution.get("ratified_at_utc"):
+        raise UpbitUniverseError("TRANSITION_AVAILABLE_AT_NOT_CODE_APPROVAL")
+    transition_available_at = _transition_parse_utc(
+        manifest.get("transition_available_at"), "TRANSITION_AVAILABLE_AT_INVALID",
+    )
+    if transition_available_at.date().isoformat() > snapshot_date:
+        raise UpbitUniverseError("TRANSITION_APPROVAL_AFTER_EVALUATION_DATE")
+
+    registry = _read_json(
+        _transition_repo_path(
+            "config/upbit_asset_identity_registry.json",
+            repo_root=repo_root,
+            label="TRANSITION_REGISTRY",
+        )
+    )
+    taxonomy = _read_json(
+        _transition_repo_path(
+            "config/upbit_exclusion_taxonomy.json",
+            repo_root=repo_root,
+            label="TRANSITION_TAXONOMY",
+        )
+    )
+    if not EXACT_RELEASE_BINDING.validate_exact_release(
+        registry, content_field="mappings", evaluation_as_of=snapshot_date, repo_root=repo_root,
+    ):
+        raise UpbitUniverseError("TRANSITION_REGISTRY_EXACT_RELEASE_FAILED")
+    if not EXACT_RELEASE_BINDING.validate_exact_release(
+        taxonomy, content_field="records", evaluation_as_of=snapshot_date, repo_root=repo_root,
+    ):
+        raise UpbitUniverseError("TRANSITION_TAXONOMY_EXACT_RELEASE_FAILED")
+    released = freeze.get("released_paper_markets")
+    paper_markets = sorted(
+        row.get("market")
+        for row in successor_packet.get("markets") or []
+        if isinstance(row, dict) and row.get("state") == STATE_PAPER_ELIGIBLE
+    )
+    if (
+        not isinstance(released, list)
+        or len(released) != 8
+        or len(set(released)) != 8
+        or sorted(registry.get("mappings") or {}) != sorted(released)
+        or paper_markets != sorted(released)
+    ):
+        raise UpbitUniverseError("TRANSITION_EXACT_EIGHT_CONTENT_MISMATCH")
+
+    deterministic_successor = rebuild_same_vintage_population_record(
+        source,
+        evaluation_as_of=snapshot_date,
+        repo_root=repo_root,
+    )
+    if successor != deterministic_successor:
+        raise UpbitUniverseError("TRANSITION_SUCCESSOR_NOT_DETERMINISTIC_REBUILD")
+
+    return {
+        "date": snapshot_date,
+        "path": successor_path,
+        "record": successor,
+        "packet": successor_packet,
+        "transition_manifest_path": manifest_path,
+        "transition_manifest": manifest,
+        "transition_manifest_payload_sha256": manifest_hash,
+        "transition_manifest_file_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "transition_available_at": transition_available_at,
+        "source_path": source_path,
+        "source_record": source,
+        "source_file_sha256": source_file_hash,
+        "source_payload_sha256": source_hash,
+    }
+
+
+def validate_retained_same_vintage_transition(
+    manifest_path: Path,
+    *,
+    source_record_path: Path,
+    successor_record_path: Path,
+    repo_root: Path = ROOT,
+) -> dict:
+    """Replay one retained manifest+canonical-source+successor bundle."""
+    return validate_same_vintage_transition(
+        manifest_path,
+        repo_root=repo_root,
+        _retained_source_path=source_record_path,
+        _retained_successor_path=successor_record_path,
+    )
+
+
+def find_latest_population_record(
+    data_root: Path = POPULATION_DATA_ROOT,
+    *,
+    not_after: dt.datetime | None = None,
+    repo_root: Path = ROOT,
+) -> dict | None:
+    """Select latest canonical P3 record or its validated same-day successor.
+
+    Once a latest-date directory exists, invalid/unavailable transition
+    material never causes a prior-day fallback.  A valid transition becomes
+    selectable only at its exact code-approval time.
+    """
+    data_root = Path(data_root)
+    if not_after is not None:
+        if not isinstance(not_after, dt.datetime) or not_after.tzinfo is None or not_after.utcoffset() is None:
+            raise UpbitUniverseError("UNIVERSE_NOT_AFTER_MUST_BE_TIMEZONE_AWARE")
+        not_after = not_after.astimezone(dt.timezone.utc)
+    if not data_root.is_dir():
+        return None
+    dates = sorted(
+        path for path in data_root.iterdir()
+        if path.is_dir() and _DATE_RE.fullmatch(path.name)
+    )
+    for date_dir in reversed(dates):
+        if date_dir.is_symlink():
+            raise UpbitUniverseError("LATEST_UNIVERSE_DATE_DIRECTORY_SYMLINK_FORBIDDEN")
+        canonical_path = date_dir / "packet.json"
+        if canonical_path.is_symlink() or not canonical_path.is_file():
+            raise UpbitUniverseError("LATEST_UNIVERSE_CANONICAL_PACKET_MISSING")
+        canonical = _read_json(canonical_path)
+        if not isinstance(canonical, dict):
+            raise UpbitUniverseError("UNIVERSE_CANONICAL_RECORD_INVALID")
+        _transition_self_hash(canonical, "UNIVERSE_CANONICAL_RECORD")
+        if (
+            canonical.get("schema_version") != POPULATION_RECORD_SCHEMA_VERSION
+            or canonical.get("snapshot_date") != date_dir.name
+        ):
+            raise UpbitUniverseError("UNIVERSE_CANONICAL_RECORD_IDENTITY_MISMATCH")
+        packet = canonical.get("packet") or {}
+        canonical_available_at = _transition_parse_utc(
+            packet.get("available_at"), "UNIVERSE_CANONICAL_AVAILABLE_AT_INVALID",
+        )
+        if not_after is not None and canonical_available_at > not_after:
+            return None
+
+        transitions_root = date_dir / "transitions"
+        manifests = []
+        if transitions_root.exists():
+            if transitions_root.is_symlink() or not transitions_root.is_dir():
+                raise UpbitUniverseError("TRANSITIONS_ROOT_INVALID")
+            children = sorted(child for child in transitions_root.iterdir() if not child.name.startswith("."))
+            for child in children:
+                if child.is_symlink():
+                    raise UpbitUniverseError("TRANSITION_DIRECTORY_SYMLINK_FORBIDDEN")
+                manifest = child / "transition.json"
+                if not child.is_dir() or manifest.is_symlink() or not manifest.is_file():
+                    raise UpbitUniverseError("TRANSITION_INCOMPLETE_OR_UNMANIFESTED")
+                manifests.append(manifest)
+        if len(manifests) > 1:
+            raise UpbitUniverseError("MULTIPLE_SAME_VINTAGE_TRANSITIONS_UNSUPPORTED")
+        if manifests:
+            transition = validate_same_vintage_transition(manifests[0], repo_root=repo_root)
+            if not_after is None:
+                raise UpbitUniverseError("TRANSITION_SELECTION_REQUIRES_NOT_AFTER")
+            if transition["transition_available_at"] <= not_after:
+                return transition
+        return {
+            "date": date_dir.name,
+            "path": canonical_path,
+            "record": canonical,
+            "packet": packet,
+        }
+    return None
 
 
 def _decimal(value, label: str) -> Decimal:
@@ -537,6 +1173,7 @@ def build_classification(
     ratified_identity_registry: dict | None = None,
     blocked_markets: set | None = None,
     kraken_known_canonical_ids: set | None = None,
+    repo_root: Path | None = None,
 ) -> dict:
     if not isinstance(evaluation_as_of, str) or not _DATE_RE.fullmatch(evaluation_as_of):
         raise UpbitUniverseError("EVALUATION_AS_OF_INVALID")
@@ -561,6 +1198,7 @@ def build_classification(
     policy_ratified = _policy_approval_effective(policy, evaluation_as_of, date_field="effective_date")
     taxonomy_ratified = _identity_taxonomy_exact_bound_effective(
         taxonomy, evaluation_as_of, date_field="effective_from", content_field="records",
+        repo_root=repo_root,
     )
     min_listing_days = int(policy["min_listing_history_finalized_days"])
     min_turnover = _decimal(policy["min_30d_avg_krw_turnover"], "min_30d_avg_krw_turnover")
