@@ -1,0 +1,308 @@
+{
+  "schema_version": 2,
+  "registry_version": "regime_source_owner_registry/v2",
+  "registry_mode": "SOURCE_OWNER_ARCHITECTURE_ONLY",
+  "decision": {
+    "identity": "CIO-GATE2-3MARKET-REGIME-SOURCE-FIRST-B-2026-09-01",
+    "status": "CIO_APPROVED_ARCHITECTURE_SCOPE_ONLY",
+    "option": "OPTION_B_SOURCE_FIRST_LAYERED_RATIFICATION",
+    "effective_date": "2026-09-01",
+    "packet_sha256": "bdeb9b9970c71d38a9650f2374b9078e1f76ef4eeddf5acb34c6a890e9b7591c"
+  },
+  "common_v1_alignment": {
+    "policy_status": "RATIFIED_PAPER_BASELINE_V1",
+    "repository_v2_alignment_status": "ALIGNED_ARCHITECTURE_ONLY_RUNTIME_NOT_WIRED",
+    "legacy_runtime_contract": {
+      "path": "config/regime_decision_authority_contract.json",
+      "contract_version": "regime_decision_authority/v1",
+      "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "status": "UNCHANGED_FAIL_CLOSED"
+    },
+    "required_axes": [
+      "TREND",
+      "BREADTH",
+      "RISK_VOL",
+      "LIQUIDITY",
+      "LEADERSHIP"
+    ],
+    "normalized_axis_values": {
+      "POSITIVE": 1,
+      "NEUTRAL": 0,
+      "NEGATIVE": -1
+    },
+    "weights": {
+      "TREND": 1,
+      "BREADTH": 1,
+      "RISK_VOL": 1,
+      "LIQUIDITY": 1,
+      "LEADERSHIP": 1
+    },
+    "classification": {
+      "RISK_ON": "S>=3",
+      "NEUTRAL": "-2<=S<=2",
+      "RISK_OFF": "S<=-3",
+      "STRESS": "RISK_VOL_STRESS_OR_RATIFIED_MARKET_KILL_STRESS_CONDITION",
+      "UNKNOWN": "COVERAGE_OR_FRESHNESS_OR_POLICY_OR_LINEAGE_OR_INVALIDATION_FAILURE"
+    },
+    "direction": {
+      "IMPROVING": "DELTA_S>=2",
+      "STABLE": "-1<=DELTA_S<=1",
+      "DETERIORATING": "DELTA_S<=-2",
+      "UNKNOWN": "NO_COMPARABLE_PRIOR_FINALIZED_PACKET"
+    },
+    "confidence": {
+      "RISK_ON": "POSITIVE_AXIS_COUNT_DIV_5",
+      "RISK_OFF": "NEGATIVE_AXIS_COUNT_DIV_5",
+      "NEUTRAL": "NEUTRAL_AXIS_COUNT_DIV_5",
+      "STRESS": "EXPLICIT_STRESS_OVERRIDE_1_DIV_1",
+      "UNKNOWN": null
+    },
+    "hysteresis": {
+      "ordinary_transition_finalized_packets": 2,
+      "stress_entry": "IMMEDIATE",
+      "unknown_on_coverage_freshness_invalidation_failure": "IMMEDIATE",
+      "stress_exit": "TWO_CONSECUTIVE_NON_STRESS_AND_S_GREATER_THAN_NEGATIVE_3"
+    },
+    "market_specific_normalization_freshness_and_replay_inherited": false
+  },
+  "markets": {
+    "KRX": {
+      "architecture_status": "CIO_APPROVED_ARCHITECTURE_SCOPE_ONLY",
+      "acceptance_status": "BLOCKED_SIGNED_NORMALIZATION_TTL_PIT_REPLAY",
+      "source_scope": "KRX_OFFICIAL_FIVE_AXIS",
+      "source_owner": {
+        "owner_id": "KRX_OFFICIAL_FIVE_AXIS_SOURCE_OWNER",
+        "workflow_path": ".github/workflows/korea-market-signals.yml",
+        "workflow_sha256": "6cfee9c88105c6705d74e2aa6a19bd92ce216315de887198d5d79fe0201082e3",
+        "producer_path": ".github/scripts/korea_market_signals.py",
+        "producer_sha256": "a7ea5b973cf0f664c5dd4236f65c1593736f7b6cfd244e56dcaf0605191fdef7",
+        "contract_path": "config/korea_market_signals_contract.json",
+        "contract_version": "korea_market_signals/1",
+        "contract_sha256": "e0e91bd51b17532a7a3c4dfc8648a94f54bf32ee0ab255d9cb9866fa96c557e4",
+        "source_name": "KRX_OPEN_API_STOCK_AND_INDEX_DAILY",
+        "owner_status": "BOUND_EXISTING"
+      },
+      "natural_receipt_owner": {
+        "owner_id": "PAPER_12_5_KRX_MARKET_JUDGEMENT_OWNER",
+        "runtime_path": "market_judgement/krx_market_judgement.py",
+        "runtime_sha256": "41e1428949ffd48a7dcb839502bddf4b562791dc51f52ff601d22be1459a22a2",
+        "contract_path": "config/krx_market_judgement_contract.json",
+        "contract_version": "krx_market_judgement/1",
+        "contract_sha256": "08c4c9a07743ae6a6c0c989e13927889838133e6b7381270e42de0c2f8646be5",
+        "owner_status": "BOUND_EXISTING_NATURAL_READ_ONLY"
+      },
+      "signed_normalization_policy": null,
+      "ttl_seconds": null,
+      "pit_replay_acceptance": "NOT_ACCEPTED"
+    },
+    "US": {
+      "architecture_status": "CIO_APPROVED_ARCHITECTURE_SCOPE_ONLY",
+      "acceptance_status": "BLOCKED_FINISHED_SESSION_TTL_PIT_REPLAY",
+      "official_calendar": {
+        "timezone": "America/New_York",
+        "regular_session": "09:30-16:00_ET",
+        "early_close": "13:00_ET",
+        "weekday_inference_prohibited": true,
+        "sources": [
+          {
+            "source_id": "NYSE_HOLIDAYS_AND_TRADING_HOURS",
+            "url": "https://www.nyse.com/trade/hours-calendars",
+            "role": "PRIMARY_DATE_SPECIFIC_SNAPSHOT"
+          },
+          {
+            "source_id": "NASDAQ_TRADING_SCHEDULE",
+            "url": "https://www.nasdaq.com/market-activity/stock-market-holiday-schedule",
+            "role": "NASDAQ_LISTED_COMPONENT_CROSS_CHECK"
+          }
+        ],
+        "conflict_or_missing_result": "US_FINISHED_SESSION_UNKNOWN"
+      },
+      "paper_proxy": {
+        "source_scope": "ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE",
+        "price_basis": "RAW",
+        "universe_kind": "PAPER_REFERENCE_ONLY_NOT_FULL_US_SECURITY_BREADTH",
+        "exact_15_etfs": [
+          "IWM",
+          "QQQ",
+          "SMH",
+          "SPY",
+          "XLB",
+          "XLC",
+          "XLE",
+          "XLF",
+          "XLI",
+          "XLK",
+          "XLP",
+          "XLRE",
+          "XLU",
+          "XLV",
+          "XLY"
+        ],
+        "breadth_14_etfs": [
+          "SPY",
+          "QQQ",
+          "IWM",
+          "XLK",
+          "XLF",
+          "XLE",
+          "XLI",
+          "XLV",
+          "XLY",
+          "XLP",
+          "XLB",
+          "XLU",
+          "XLRE",
+          "XLC"
+        ],
+        "leadership_benchmark": "SPY",
+        "leadership_window_finalized_sessions": 20,
+        "leadership_12_group_proxies": [
+          "SMH",
+          "XLB",
+          "XLC",
+          "XLE",
+          "XLF",
+          "XLI",
+          "XLK",
+          "XLP",
+          "XLRE",
+          "XLU",
+          "XLV",
+          "XLY"
+        ]
+      },
+      "source_owner": {
+        "owner_id": "US_PAPER_PROXY_SOURCE_OWNER",
+        "workflow_path": ".github/workflows/free-market-data.yml",
+        "workflow_sha256": "39f8ca4e7822a35d6899d06de4218e0a2db0464078a89acc9f5c5c151b216c8f",
+        "producer_path": "collectors/free_market_data.py",
+        "producer_sha256": "c44d8c9babe5b819f7b07887c8c4af8835154ce8cd4a878c42b6f9c5bc23bec6",
+        "contract_path": "config/free_market_data_contract.json",
+        "contract_version": "free_market_data/3",
+        "contract_sha256": "648cc68d0bc926c8fe55037f63879bb362032db6052d2c51ed8bc845fd7dec88",
+        "owner_status": "BOUND_EXISTING_REFERENCE_ONLY"
+      },
+      "finished_session_owner": {
+        "owner_id": "PAPER_12_6_US_FINISHED_SESSION_OWNER",
+        "validator_path": "market_data/us_session_bars.py",
+        "validator_sha256": "9d5b0e1821432a24d22db9e97da3092fb56e94c26d221afd378ee187dc94935c",
+        "contract_path": "config/us_completed_market_data_contract.json",
+        "contract_version": "us_completed_market_data/1",
+        "contract_sha256": "800770f7e9afe93b33d49ea0430c1b6f7bfbc55a872291cc71f69b3958e206b7",
+        "natural_receipt_producer_path": "market_data/us_natural_session_receipt.py",
+        "natural_receipt_producer_sha256": "371541018122e695bf9aa651ec5bf3d80103486c48403e0551046266c728306f",
+        "natural_receipt_contract_path": "config/us_natural_session_receipt_contract.json",
+        "natural_receipt_contract_version": "us_natural_session_receipt/1",
+        "natural_receipt_contract_sha256": "34fb094f61d0ed884e7192cd96d84ee21783dcbb818c1be71a4057e82f8979fe",
+        "natural_receipt_workflow_path": ".github/workflows/us-natural-session-receipt.yml",
+        "natural_receipt_workflow_sha256": "0e9d9166c60789b632f7f173fc72fc468f6ac0c82ef38fd4558339adbfd59b90",
+        "initial_receipt_path": "data/observations/us_natural_finished_session/2026-09-01/receipt.json",
+        "initial_receipt_sha256": "92d6435ec5d9178e7f2cbb473c820507f3ad2ff3e497e8d4b6fc47716c801f0c",
+        "initial_receipt_evidence_class": "NATURAL_INPUT_ABSENCE_AUDIT",
+        "initial_receipt_gate1_status": "UNKNOWN",
+        "initial_receipt_gate2_status": "HOLD",
+        "initial_receipt_recommendation": "WAIT",
+        "owner_status": "BOUND_EXISTING_NATURAL_RECEIPT_OWNER_GATE1_ONLY"
+      },
+      "natural_receipt_owner": {
+        "owner_id": "PAPER_12_6_US_MARKET_JUDGEMENT_OWNER",
+        "runtime_path": "regime/us_market_judgement.py",
+        "runtime_sha256": "6ca63150122762fe0d54843d0d05854ee4ef3a355fa342572e3b006740abbf9e",
+        "contract_path": "config/us_market_judgement_contract.json",
+        "contract_version": "us_market_judgement/1",
+        "contract_sha256": "fd96a32d2805444d1f72e387627546d65c576cd8b95cab4bd6ec2c339f01f961",
+        "owner_status": "DESIGNATED_NATURAL_RUNNER_IMPLEMENTATION_PENDING"
+      },
+      "signed_normalization_policy": null,
+      "ttl_seconds": null,
+      "pit_replay_acceptance": "NOT_ACCEPTED"
+    },
+    "CRYPTO": {
+      "architecture_status": "CIO_APPROVED_ARCHITECTURE_SCOPE_ONLY",
+      "acceptance_status": "BLOCKED_OVERALL_FRESHNESS_PIT_REPLAY",
+      "breadth_source": {
+        "source_scope": "KRAKEN_USD_SPOT_PRIOR_DAY_TOP_100_BY_30_FINALIZED_DAY_TURNOVER",
+        "policy_path": "config/crypto_breadth_universe_policy.json",
+        "policy_version": "crypto_breadth_universe/v1",
+        "policy_sha256": "b9189e59ae697b1c5cb2cefa68a96601b2fefe38b365b8fbc7328e196c894aa7",
+        "policy_status": "RATIFIED"
+      },
+      "leadership_source": {
+        "source_scope": "CR_06_APPEND_ONLY_SNAPSHOT_DERIVED",
+        "bucket_layer": "BTC_ETH_ALT",
+        "bucket_policy": "btc_eth_else_alt",
+        "relative_strength_reference": "BTC",
+        "pilot_window_calendar_days": 7,
+        "primary_window_calendar_days": 30,
+        "policy_path": "config/crypto_leadership_policy.json",
+        "policy_version": "crypto_leadership/v1",
+        "policy_sha256": "d37a7362440fd6d8dc595e13f19d864fff9db0839a7e3304aeadb6178f24338f",
+        "contract_path": "config/crypto_leadership_contract.json",
+        "contract_version": "crypto_leadership_contract/v2",
+        "contract_sha256": "c8e28f947fa171b89fce67c1a92dce97567d59d5b0a1db5a89f13121967bb2d6",
+        "sector_chain_group_layer": "UNKNOWN_GROUP_LAYER",
+        "group_coverage_policy_status": "UNRATIFIED"
+      },
+      "source_owner": {
+        "owner_id": "CR_06_CR_07_SOURCE_OWNER",
+        "workflow_path": ".github/workflows/crypto-breadth-capture.yml",
+        "workflow_sha256": "dee67470604d69916a5392d8e11190b229baae6ffe677dd0e1828e68a58b1ac2",
+        "breadth_producer_path": ".github/scripts/crypto_breadth.py",
+        "breadth_producer_sha256": "b53b626a5e46fb24a6e0c77b64d390b4dcd669701fb94a9b786ec5537d2b191c",
+        "leadership_producer_path": ".github/scripts/crypto_leadership.py",
+        "leadership_producer_sha256": "536833f232e1d6dd6d158e8e384bf3ff86b73cbbf0be93fff630200660cb48b5",
+        "owner_status": "BOUND_EXISTING"
+      },
+      "status_owner": {
+        "owner_id": "CRYPTO_REGIME_REFERENCE_STATUS_OWNER",
+        "workflow_path": ".github/workflows/paper-regime-reference.yml",
+        "workflow_sha256": "cd4ffa48cc27067cfa4b483f39206f6baf077cd7751825baa99078576eb5d490",
+        "status_runtime_path": "regime/crypto_regime_refresh_status.py",
+        "status_runtime_sha256": "a0c484627dc79b9f7b0f014f159eac70662f75fa9349f8b4a3f9fa95e08e2419",
+        "owner_status": "BOUND_EXISTING_STATUS_ONLY"
+      },
+      "natural_receipt_owner": {
+        "owner_id": "PAPER_12_11_CRYPTO_MARKET_JUDGEMENT_OWNER",
+        "owner_status": "DESIGNATED_NATURAL_OWNER_PACKAGE_IMPLEMENTATION_PENDING"
+      },
+      "overall_freshness_policy": null,
+      "pit_replay_acceptance": "NOT_ACCEPTED"
+    }
+  },
+  "aggregate": {
+    "acceptance_status": "BLOCKED_MIXED_EVIDENCE_CLASSES",
+    "owner_id": "PAPER_GATE_2_3_THREE_MARKET_AGGREGATE_OWNER",
+    "runtime_path": "paper_gate_2_3_three_market_aggregate/aggregate.py",
+    "runtime_sha256": "c8b7797f9dd38d98559eccb22e42c7b668093f908c3c3b6c25da3413aec14251",
+    "exact_pins_path": "paper_gate_2_3_three_market_aggregate/exact_pins.v1.json",
+    "exact_pins_sha256": "5190d62fb60a9ddb9151fd42870b9f1274be9e2457c9f7c0d97ddc1e21b6c807",
+    "pin_update_allowed": false,
+    "runtime_output_status": "UNKNOWN/HOLD/WAIT"
+  },
+  "forbidden_promotions": [
+    "MARKET_POLICY_RATIFICATION",
+    "SIGNED_NORMALIZATION_RATIFICATION",
+    "TTL_OR_FRESHNESS_RATIFICATION",
+    "PIT_REPLAY_ACCEPTANCE",
+    "REGIME_RESULT_RATIFICATION",
+    "FIXTURE_OR_BASELINE_PROMOTION",
+    "THRESHOLD_OVERRIDE",
+    "CANDIDATE_FORCING"
+  ],
+  "authority": {
+    "source_owner_architecture_authorized": true,
+    "runtime_binding_authorized": false,
+    "market_regime_authorized": false,
+    "candidate_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "capital_authorized": false,
+    "ledger_mutation_authorized": false,
+    "real": false,
+    "live": false,
+    "order": false,
+    "production": false,
+    "trading": false
+  }
+}
