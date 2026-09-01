@@ -20,6 +20,7 @@ def _load(name: str, relative: str):
 
 EV = _load("upbit_market_evidence", "microstructure/upbit_market_evidence.py")
 FIN = _load("upbit_candle_finalization_for_evidence_test", "microstructure/upbit_candle_finalization.py")
+POP = _load("upbit_microstructure_populate_for_evidence_test", ".github/scripts/upbit_microstructure_populate.py")
 
 UTC = dt.timezone.utc
 
@@ -64,6 +65,13 @@ def full_candles_by_timeframe(open_time="2026-08-28T00:00:00"):
 
 
 class FreshnessTests(unittest.TestCase):
+    def test_subsecond_provider_timestamp_before_capture_is_fresh(self):
+        ref = dt.datetime(2026, 8, 30, 4, 52, 13, 49000, tzinfo=UTC)
+        captured = dt.datetime(2026, 8, 30, 4, 52, 13, 100000, tzinfo=UTC)
+        result = EV.freshness_status(ref, captured, 300)
+        self.assertEqual(result["status"], EV.FRESH)
+        self.assertEqual(result["age_seconds"], 0)
+
     def test_fresh_within_threshold(self):
         ref = dt.datetime(2026, 8, 28, 0, 0, 0, tzinfo=UTC)
         captured = dt.datetime(2026, 8, 28, 0, 10, 0, tzinfo=UTC)
@@ -84,6 +92,16 @@ class FreshnessTests(unittest.TestCase):
         ref = dt.datetime(2026, 8, 28, 1, 0, 0, tzinfo=UTC)
         captured = dt.datetime(2026, 8, 28, 0, 0, 0, tzinfo=UTC)
         self.assertEqual(EV.freshness_status(ref, captured, 100)["status"], EV.UNKNOWN)
+
+
+class TimestampParsingTests(unittest.TestCase):
+    def test_population_parser_preserves_subsecond_utc(self):
+        parsed = POP._parse_utc("2026-08-30T04:52:13.100000Z")
+        self.assertEqual(parsed, dt.datetime(2026, 8, 30, 4, 52, 13, 100000, tzinfo=UTC))
+
+    def test_population_parser_rejects_naive_timestamp(self):
+        with self.assertRaisesRegex(POP.PopulationError, "TIMESTAMP_NAIVE"):
+            POP._parse_utc("2026-08-30T04:52:13.100000")
 
 
 class CandleEvidenceTests(unittest.TestCase):
@@ -115,6 +133,30 @@ class CandleEvidenceTests(unittest.TestCase):
 
 
 class OrderbookEvidenceTests(unittest.TestCase):
+    def test_whole_second_capture_keeps_legacy_timestamp_serialization(self):
+        row = orderbook_row(timestamp_ms=1788065532999)
+        captured = dt.datetime(2026, 8, 30, 4, 52, 13, tzinfo=UTC)
+        result = EV.build_orderbook_evidence(
+            "KRW-BTC", row, captured_at=captured, max_staleness_seconds=300,
+            depth_levels=1, slippage_notional_krw="5000",
+            max_spread_bps_normal="1000", max_slippage_bps_normal="1000",
+        )
+        self.assertEqual(result["freshness"]["status"], EV.FRESH)
+        self.assertEqual(result["observed_at"], "2026-08-30T04:52:12Z")
+        self.assertEqual(result["available_at"], "2026-08-30T04:52:13Z")
+
+    def test_subsecond_observed_and_available_times_are_not_truncated(self):
+        row = orderbook_row(timestamp_ms=1788065533049)
+        captured = dt.datetime(2026, 8, 30, 4, 52, 13, 100000, tzinfo=UTC)
+        result = EV.build_orderbook_evidence(
+            "KRW-BTC", row, captured_at=captured, max_staleness_seconds=300,
+            depth_levels=1, slippage_notional_krw="5000",
+            max_spread_bps_normal="1000", max_slippage_bps_normal="1000",
+        )
+        self.assertEqual(result["freshness"]["status"], EV.FRESH)
+        self.assertEqual(result["observed_at"], "2026-08-30T04:52:13.049000Z")
+        self.assertEqual(result["available_at"], "2026-08-30T04:52:13.100000Z")
+
     def test_normal_spread_depth_slippage_computed(self):
         row = orderbook_row(levels=[
             {"bid_price": 999, "bid_size": 10, "ask_price": 1001, "ask_size": 10},

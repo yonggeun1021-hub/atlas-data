@@ -107,6 +107,16 @@ def _require_aware(value: dt.datetime, code: str) -> dt.datetime:
     return value.astimezone(UTC)
 
 
+def _iso_utc(value: dt.datetime, *, preserve_subseconds: bool = True) -> str:
+    """Serialize UTC without discarding sub-second evidence ordering.
+
+    ``timespec=auto`` deliberately leaves existing whole-second packets
+    byte-compatible while preserving milliseconds/microseconds when present.
+    """
+    timespec = "auto" if preserve_subseconds else "seconds"
+    return _require_aware(value, "TIMESTAMP_NAIVE").isoformat(timespec=timespec).replace("+00:00", "Z")
+
+
 def _read_json(path: Path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -242,7 +252,7 @@ def build_candle_evidence(
         ),
         "freshness": fresh,
         "observed_at": latest_close.strftime("%Y-%m-%dT%H:%M:%SZ") if latest_close else None,
-        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "available_at": _iso_utc(captured_at),
         "evidence_status": "PASS" if not reasons else UNKNOWN,
         "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
@@ -326,8 +336,11 @@ def build_orderbook_evidence(
         "slippage_bps": str(slippage_bps) if slippage_bps is not None else None,
         "slippage_status": slippage_status,
         "freshness": fresh,
-        "observed_at": reference_time.strftime("%Y-%m-%dT%H:%M:%SZ") if reference_time else None,
-        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observed_at": (
+            _iso_utc(reference_time, preserve_subseconds=bool(captured_at.microsecond))
+            if reference_time else None
+        ),
+        "available_at": _iso_utc(captured_at),
         "evidence_status": "PASS" if not reasons else UNKNOWN,
         "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
@@ -368,14 +381,18 @@ def build_trades_evidence(
     return {
         "market": market,
         "trade_count": len(raw_trades),
-        "latest_trade_time": latest_trade_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "latest_trade_time": _iso_utc(
+            latest_trade_time, preserve_subseconds=bool(captured_at.microsecond),
+        ),
         "min_trade_price": str(min(prices)),
         "max_trade_price": str(max(prices)),
         "duplicate_trade_count": duplicate_count,
         "out_of_order": out_of_order,
         "freshness": fresh,
-        "observed_at": latest_trade_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "available_at": captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observed_at": _iso_utc(
+            latest_trade_time, preserve_subseconds=bool(captured_at.microsecond),
+        ),
+        "available_at": _iso_utc(captured_at),
         "evidence_status": "PASS" if not reasons else UNKNOWN,
         "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
@@ -432,8 +449,8 @@ def build_market_evidence_packet(
     packet = {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "market": market,
-        "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "captured_at": captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "as_of": _iso_utc(as_of),
+        "captured_at": _iso_utc(captured_at),
         "policy_version": policy.get("policy_version"),
         "policy_ratified": policy.get("approval_status") == "RATIFIED",
         "candles": candles,
@@ -487,9 +504,9 @@ def market_evidence_result(
     return {
         "status": "PASS" if not reasons else UNKNOWN,
         "reasons": sorted(set(reasons)),
-        "observed_at": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ") if observed_at else None,
-        "available_at": available_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observed_at": _iso_utc(observed_at) if observed_at else None,
+        "available_at": _iso_utc(available_at),
+        "generated_at": _iso_utc(generated_at),
         "source_identity": copy.deepcopy(source_identity),
         "policy_id": policy.get("policy_id"),
         "policy_version": policy.get("policy_version"),

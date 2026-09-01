@@ -121,6 +121,22 @@ class LoadTargetMarketsTests(unittest.TestCase):
 
 
 class CaptureSnapshotTests(unittest.TestCase):
+    def test_capture_completion_preserves_subsecond_precision(self):
+        contract = CAP.load_contract()
+        completed_at = dt.datetime(2026, 8, 29, 1, 20, 0, 100000, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = CAP.capture_snapshot(
+                Path(tmp), markets=[], snapshot_date=dt.date(2026, 8, 29),
+                contract=contract, fetcher=build_fetcher(contract, []),
+                sleeper=lambda _: None, clock=lambda: completed_at,
+            )
+            manifest = CAP.validate_snapshot(target)
+            self.assertEqual(manifest["downloaded_at_utc"], "2026-08-29T01:20:00.100000Z")
+            self.assertEqual(
+                (target / "_downloaded_at.txt").read_text(encoding="utf-8"),
+                "2026-08-29T01:20:00.100000Z\n",
+            )
+
     def test_capture_writes_hash_bound_manifest_and_validates(self):
         contract = CAP.load_contract()
         markets = ["KRW-BTC", "KRW-ETH"]
