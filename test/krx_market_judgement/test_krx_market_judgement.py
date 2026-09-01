@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import json
@@ -15,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "market_judgement" / "krx_market_judgement.py"
 FIXTURE = ROOT / "test" / "fixtures" / "krx_market_judgement" / "expected_natural_hold.json"
 OBSERVATION = ROOT / "data" / "latest_korea_market_signals.json"
-RETAINED = ROOT / "data" / "observations" / "korea_market_signals" / "2026-08-28" / "packet.json"
 POLICY = ROOT / "config" / "korea_leadership_policy.json"
 
 
@@ -29,17 +29,36 @@ def load_module(name, path):
 MODULE = load_module("krx_market_judgement", SOURCE)
 CONTRACT = MODULE.load_contract()
 EXPECTATION = json.loads(FIXTURE.read_text(encoding="utf-8"))
+OBSERVATION_PACKET = json.loads(OBSERVATION.read_text(encoding="utf-8"))
+RETAINED = (
+    ROOT
+    / "data"
+    / "observations"
+    / "korea_market_signals"
+    / OBSERVATION_PACKET["as_of_date"]
+    / "packet.json"
+)
 
 
 def file_sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+SOURCE_SHA256 = file_sha(OBSERVATION)
+SOURCE_TIME = dt.datetime.strptime(
+    OBSERVATION_PACKET["available_at"], "%Y-%m-%dT%H:%M:%SZ"
+).replace(tzinfo=dt.timezone.utc)
+DECISION_TIME = SOURCE_TIME + dt.timedelta(
+    seconds=EXPECTATION["decision_offset_seconds"]
+)
+DECISION_AT = DECISION_TIME.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def build_natural():
     envelope = MODULE.build_input_envelope(
-        decision_at=EXPECTATION["decision_at"],
+        decision_at=DECISION_AT,
         observation_path=OBSERVATION,
-        observation_sha256=EXPECTATION["source_sha256"],
+        observation_sha256=SOURCE_SHA256,
         retained_observation_path=RETAINED,
         leadership_policy_path=POLICY,
         leadership_policy_sha256=EXPECTATION["leadership_policy_sha256"],
@@ -71,8 +90,9 @@ class KrxMarketJudgementTests(unittest.TestCase):
                 self.assertFalse(value, key)
 
     def test_canonical_source_hashes_and_pointer_are_exact(self):
-        self.assertEqual(file_sha(OBSERVATION), EXPECTATION["source_sha256"])
-        self.assertEqual(file_sha(RETAINED), EXPECTATION["source_sha256"])
+        self.assertEqual(EXPECTATION["source_selection"], "CURRENT_CANONICAL_LATEST_POINTER")
+        self.assertEqual(file_sha(OBSERVATION), SOURCE_SHA256)
+        self.assertEqual(file_sha(RETAINED), SOURCE_SHA256)
         self.assertEqual(OBSERVATION.read_bytes(), RETAINED.read_bytes())
         self.assertEqual(file_sha(POLICY), EXPECTATION["leadership_policy_sha256"])
 
@@ -85,11 +105,11 @@ class KrxMarketJudgementTests(unittest.TestCase):
         )
         self.assertEqual(
             evidence["breadth"]["measurement"]["markets"]["KOSPI"]["paired_count"],
-            944,
+            OBSERVATION_PACKET["axes"]["BREADTH"]["measurement"]["markets"]["KOSPI"]["paired_count"],
         )
         self.assertEqual(
             evidence["turnover"]["measurement"]["markets"]["KOSDAQ"]["current_turnover_pct"],
-            "1.060545",
+            OBSERVATION_PACKET["axes"]["LIQUIDITY"]["measurement"]["markets"]["KOSDAQ"]["current_turnover_pct"],
         )
         coverage = evidence["leadership_policy_coverage"]
         self.assertEqual(coverage["KOSPI"]["observed_sector_count"], 24)
@@ -121,7 +141,10 @@ class KrxMarketJudgementTests(unittest.TestCase):
         expected = EXPECTATION["expected"]
         self.assertEqual(envelope["completed_bar"]["status"], expected["completed_bar"])
         self.assertEqual(envelope["freshness"]["ttl_seconds"], None)
-        self.assertEqual(envelope["freshness"]["source_age_seconds"], 178216)
+        self.assertEqual(
+            envelope["freshness"]["source_age_seconds"],
+            EXPECTATION["decision_offset_seconds"],
+        )
         for reason in expected["required_blocking_reasons"]:
             self.assertIn(reason, receipt["blocking_reasons"])
         self.assertEqual(EXPECTATION["evidence_class"], "TEST_ONLY_NON_PROMOTABLE")
@@ -136,9 +159,9 @@ class KrxMarketJudgementTests(unittest.TestCase):
                 MODULE.KrxMarketJudgementError, "EXACT_SOURCE_HASH_MISMATCH"
             ):
                 MODULE.build_input_envelope(
-                    decision_at=EXPECTATION["decision_at"],
+                    decision_at=DECISION_AT,
                     observation_path=OBSERVATION,
-                    observation_sha256=EXPECTATION["source_sha256"],
+                    observation_sha256=SOURCE_SHA256,
                     retained_observation_path=RETAINED,
                     leadership_policy_path=policy,
                     leadership_policy_sha256=EXPECTATION["leadership_policy_sha256"],
@@ -150,9 +173,9 @@ class KrxMarketJudgementTests(unittest.TestCase):
                 MODULE.KrxMarketJudgementError, "LATEST_POINTER_APPEND_ONLY_MISMATCH"
             ):
                 MODULE.build_input_envelope(
-                    decision_at=EXPECTATION["decision_at"],
+                    decision_at=DECISION_AT,
                     observation_path=OBSERVATION,
-                    observation_sha256=EXPECTATION["source_sha256"],
+                    observation_sha256=SOURCE_SHA256,
                     retained_observation_path=retained,
                     leadership_policy_path=POLICY,
                     leadership_policy_sha256=EXPECTATION["leadership_policy_sha256"],
@@ -162,9 +185,11 @@ class KrxMarketJudgementTests(unittest.TestCase):
     def test_source_from_future_and_bad_expected_hash_fail_closed(self):
         with self.assertRaisesRegex(MODULE.KrxMarketJudgementError, "SOURCE_FROM_FUTURE"):
             MODULE.build_input_envelope(
-                decision_at="2026-08-29T07:29:43Z",
+                decision_at=(SOURCE_TIME - dt.timedelta(seconds=1)).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ),
                 observation_path=OBSERVATION,
-                observation_sha256=EXPECTATION["source_sha256"],
+                observation_sha256=SOURCE_SHA256,
                 retained_observation_path=RETAINED,
                 leadership_policy_path=POLICY,
                 leadership_policy_sha256=EXPECTATION["leadership_policy_sha256"],
@@ -174,7 +199,7 @@ class KrxMarketJudgementTests(unittest.TestCase):
             MODULE.KrxMarketJudgementError, "EXACT_SOURCE_HASH_MISMATCH"
         ):
             MODULE.build_input_envelope(
-                decision_at=EXPECTATION["decision_at"],
+                decision_at=DECISION_AT,
                 observation_path=OBSERVATION,
                 observation_sha256="0" * 64,
                 retained_observation_path=RETAINED,
@@ -230,9 +255,9 @@ class KrxMarketJudgementTests(unittest.TestCase):
             envelope_path = temp / "envelope.json"
             receipt_path = temp / "receipt.json"
             first = MODULE.run(
-                decision_at=EXPECTATION["decision_at"],
+                decision_at=DECISION_AT,
                 observation_path=OBSERVATION,
-                observation_sha256=EXPECTATION["source_sha256"],
+                observation_sha256=SOURCE_SHA256,
                 retained_observation_path=RETAINED,
                 leadership_policy_path=POLICY,
                 leadership_policy_sha256=EXPECTATION["leadership_policy_sha256"],
@@ -240,9 +265,9 @@ class KrxMarketJudgementTests(unittest.TestCase):
                 receipt_output=receipt_path,
             )
             second = MODULE.run(
-                decision_at=EXPECTATION["decision_at"],
+                decision_at=DECISION_AT,
                 observation_path=OBSERVATION,
-                observation_sha256=EXPECTATION["source_sha256"],
+                observation_sha256=SOURCE_SHA256,
                 retained_observation_path=RETAINED,
                 leadership_policy_path=POLICY,
                 leadership_policy_sha256=EXPECTATION["leadership_policy_sha256"],
