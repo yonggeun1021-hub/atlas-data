@@ -93,13 +93,23 @@ class DartStructuralContentIndexTests(unittest.TestCase):
         self.assertGreater(packet["summary"]["row_count"], 0)
         self.assertGreater(packet["summary"]["cell_count"], 0)
         self.assertEqual(packet["summary"]["semantic_item_count"], 0)
-        self.assertTrue(all(row["subject_id"] == "329180" for row in packet["indexed_filings"]))
         self.assertTrue(all(document["semantic_items"] == [] for document in packet["documents"]))
 
     def test_metadata_only_filing_is_not_presented_as_content_indexed(self):
-        self.assertNotIn(
-            "034020", {row["subject_id"] for row in self.packet["indexed_filings"]}
-        )
+        source_observations = MODULE.DART_OBSERVATION.build_packet(
+            decision_at=DECISION_AT
+        )["observations"]
+        metadata_only = {
+            (row["subject_id"], row["rcept_no"])
+            for row in source_observations
+            if row["evidence"]["status"] == "METADATA_ONLY_STAGE_NOT_ASSIGNED"
+        }
+        indexed = {
+            (row["subject_id"], row["rcept_no"])
+            for row in self.packet["indexed_filings"]
+        }
+        self.assertTrue(metadata_only)
+        self.assertTrue(metadata_only.isdisjoint(indexed))
 
     def test_packet_retains_no_filing_text_attribute_values_or_company_name(self):
         rendered = MODULE.canonical_json(self.packet)
@@ -326,7 +336,14 @@ class DartStructuralContentIndexTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             data_root = Path(temporary) / "data"
             shutil.copytree(MODULE.DEFAULT_DATA_ROOT / "dart_content", data_root / "dart_content")
-            member = next((data_root / "dart_content").glob("*/*/member-*.gz"))
+            document = self.packet["documents"][0]
+            member = (
+                data_root
+                / "dart_content"
+                / document["subject_id"]
+                / document["rcept_no"]
+                / document["cache_name"]
+            )
             raw = bytearray(member.read_bytes())
             raw[-1] ^= 1
             member.write_bytes(bytes(raw))
