@@ -1,0 +1,100 @@
+name: P2-COM-03 Cross-Market Flow Transition Ledger
+
+on:
+  workflow_dispatch:
+    inputs:
+      observation_mode:
+        description: Explicit non-natural observation label
+        required: true
+        default: MANUAL
+        type: choice
+        options:
+          - MANUAL
+          - RECOVERY
+          - REPLAY
+  schedule:
+    # P2-COM-02 normally finishes its second scheduled refresh at 10:50 KST.
+    # This independent run observes that immutable output after its 10-minute
+    # timeout window, without sharing the P2-COM-02-owned workflow file.
+    - cron: "5 2 * * *"  # 11:05 KST
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-p2-com-03-cross-market-flow-transition-ledger
+  cancel-in-progress: false
+
+jobs:
+  append:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Classify observation without manufacturing NATURAL evidence
+        id: observation
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DISPATCH_MODE: ${{ inputs.observation_mode }}
+        run: |
+          set -euo pipefail
+          if [ "$RUN_ATTEMPT" -gt 1 ]; then
+            mode=RECOVERY
+          elif [ "$EVENT_NAME" = schedule ]; then
+            mode=NATURAL
+          else
+            mode="$DISPATCH_MODE"
+          fi
+          case "$mode" in
+            NATURAL|MANUAL|RECOVERY|REPLAY) ;;
+            *) echo "invalid observation mode: $mode" >&2; exit 1 ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+      - name: Verify producer and transition-ledger contracts
+        run: |
+          python3 test/test_capital_flow_posture_reference.py
+          python3 test/test_cross_market_flow_transition_ledger.py
+          python3 portfolio/capital_flow_posture_reference.py \
+            --verify data/latest_capital_flow_posture_reference.json
+      - name: Append exact P2-COM-02 observation
+        env:
+          OBSERVATION_MODE: ${{ steps.observation.outputs.mode }}
+        run: |
+          python3 portfolio/cross_market_flow_transition_ledger.py \
+            --mode "$OBSERVATION_MODE" --write
+          python3 portfolio/cross_market_flow_transition_ledger.py \
+            --verify data/latest_cross_market_flow_transition_ledger.json
+      - name: Commit append-only evidence and latest pointer
+        env:
+          OBSERVATION_MODE: ${{ steps.observation.outputs.mode }}
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/latest_cross_market_flow_transition_ledger.json \
+            evidence/portfolio/cross_market_flow_transition_ledger
+          if git diff --cached --quiet; then
+            echo "identical source packet: byte-identical no-op"
+            exit 0
+          fi
+          git commit -m "data: cross-market flow transition ledger $(date -u +%F)"
+          git pull --rebase origin main
+          python3 portfolio/capital_flow_posture_reference.py \
+            --verify data/latest_capital_flow_posture_reference.json
+          python3 portfolio/cross_market_flow_transition_ledger.py \
+            --mode "$OBSERVATION_MODE" --write
+          python3 portfolio/cross_market_flow_transition_ledger.py \
+            --verify data/latest_cross_market_flow_transition_ledger.json
+          git add data/latest_cross_market_flow_transition_ledger.json \
+            evidence/portfolio/cross_market_flow_transition_ledger
+          if ! git diff --cached --quiet; then
+            git commit --amend --no-edit
+          fi
+          git push origin HEAD:main
