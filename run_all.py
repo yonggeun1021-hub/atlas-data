@@ -262,6 +262,9 @@ APPROVED_TESTS = [
     "test/test_upbit_microstructure_capture.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
+    # Expected governance WAIT is fail-closed and provider-call-free, but it
+    # is not an Actions runtime defect. Integrity/hash errors remain fatal.
+    "test/test_upbit_p4_expected_wait.py",
     # ★ P9-06 -- real-time Upbit public WebSocket layer sitting on top of
     #   P4-07's REST evidence contract. A deployment-agnostic, fully
     #   mock-tested state machine (realtime/upbit_realtime_gate.py, zero
