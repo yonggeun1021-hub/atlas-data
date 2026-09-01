@@ -724,15 +724,27 @@ def build_krx_post_close(
 def _fetch_filing_snapshot(status_file: str) -> dict:
     """Raw snapshot of a DART/SEC mutable status pointer file, read live
     right now. Frozen into packet["frozen_sources"] at build time -- see
-    _fetch_step0_snapshot for why."""
+    _fetch_step0_snapshot for why.
+
+    The status document's ``source_sha256`` names the upstream metadata
+    pointer that produced it, not this content-status file itself.  Preserve
+    the exact bytes digest separately so the component's
+    ``source_packet_path`` and ``source_packet_sha256`` describe the same
+    artifact.
+    """
     path = ROOT / status_file
     if not path.exists():
         return {"kind": "missing", "value": None}
     try:
-        payload = _read_json(path)
-    except DailyOrchestratorError as exc:
-        return {"kind": "error", "value": str(exc)}
-    return {"kind": "payload", "value": payload}
+        raw = path.read_bytes()
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {"kind": "error", "value": f"JSON_READ_FAILED:{path}:{exc}"}
+    return {
+        "kind": "payload",
+        "value": payload,
+        "content_sha256": hashlib.sha256(raw).hexdigest(),
+    }
 
 
 def _classify_filing_content(
@@ -779,7 +791,13 @@ def _classify_filing_content(
         as_of_date=payload.get("collected_for_kst_date"),
         generated_at=payload.get("observed_at_utc"),
         source_packet_path=status_file,
-        source_packet_sha256=payload.get("source_sha256"),
+        # New snapshots bind the exact bytes at source_packet_path.  The
+        # fallback keeps historical frozen packets independently replayable;
+        # those immutable revisions predate the explicit content digest and
+        # remain audit-only rather than being silently rewritten.
+        source_packet_sha256=(
+            snapshot.get("content_sha256") or payload.get("source_sha256")
+        ),
         # True: this snapshot is frozen into packet["frozen_sources"] at
         # build time -- see FROZEN_SOURCE_COMPONENTS.
         validated=True,
