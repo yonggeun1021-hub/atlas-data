@@ -259,6 +259,58 @@ class TempDirMixin:
             self.addCleanup(patcher.stop)
 
 
+class TransitionTemporalSelectionTests(unittest.TestCase):
+    def test_operational_wrapper_returns_validated_transition_entry_unchanged(self):
+        transition_entry = {
+            "date": "2026-08-29",
+            "path": Path("successor.json"),
+            "transition_manifest_path": Path("transition.json"),
+            "transition_manifest_payload_sha256": "a" * 64,
+        }
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "find_latest_population_record",
+            return_value=transition_entry,
+        ) as selector:
+            selected = CPDS.find_latest_universe_packet(Path("unused"))
+        self.assertIs(selected, transition_entry)
+        cutoff = selector.call_args.kwargs["not_after"]
+        self.assertIsNotNone(cutoff.tzinfo)
+        self.assertIsNotNone(cutoff.utcoffset())
+
+    def test_operational_wrapper_uses_aware_cutoff_and_future_transition_fails_closed(self):
+        observed = {}
+
+        def reject_future(_data_root, *, not_after):
+            observed["not_after"] = not_after
+            raise CPDS.UNIVERSE.UpbitUniverseError("TRANSITION_AVAILABLE_IN_FUTURE")
+
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "find_latest_population_record",
+            side_effect=reject_future,
+        ):
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "UPBIT_UNIVERSE_TRANSITION_INVALID:TRANSITION_AVAILABLE_IN_FUTURE",
+            ):
+                CPDS.find_latest_universe_packet(Path("unused"))
+        self.assertIsNotNone(observed["not_after"].tzinfo)
+        self.assertIsNotNone(observed["not_after"].utcoffset())
+
+    def test_explicit_generation_cutoff_is_preserved_exactly(self):
+        cutoff = dt.datetime(2026, 8, 29, 9, 0, tzinfo=dt.timezone.utc)
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "find_latest_population_record",
+            return_value=None,
+        ) as selector:
+            self.assertIsNone(
+                CPDS.find_latest_universe_packet(Path("unused"), not_after=cutoff)
+            )
+        self.assertEqual(selector.call_args.kwargs["not_after"], cutoff)
+
+
 # ---------------------------------------------------------------------------
 # 1. Normal complete input
 # ---------------------------------------------------------------------------
@@ -683,6 +735,146 @@ class DuplicateGuardKeyTests(TempDirMixin, unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class PopulateIdempotencyTests(TempDirMixin, unittest.TestCase):
+    def test_transition_retention_bundle_and_replay_require_manifest_and_canonical_source(self):
+        self.start_ratified_patches()
+        output_root = self.tmp / "out"
+        entry = write_universe_entry(
+            self.tmp,
+            universe_packet([universe_row()]),
+        )
+        transition_dir = self.tmp / "transition"
+        transition_dir.mkdir()
+        manifest = {
+            "schema_version": "upbit_universe_same_vintage_transition/1",
+            "payload_sha256": "1" * 64,
+        }
+        manifest_path = transition_dir / "transition.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        canonical_source = transition_dir / "canonical.json"
+        canonical_source.write_text(json.dumps(entry["record"]), encoding="utf-8")
+        entry.update({
+            "transition_manifest_path": manifest_path,
+            "transition_manifest_payload_sha256": manifest["payload_sha256"],
+            "source_path": canonical_source,
+            "source_payload_sha256": entry["record"]["payload_sha256"],
+        })
+
+        with mock.patch.object(CPDS, "ROOT", self.tmp):
+            retained = CPDS.retain_source(entry, output_root)
+        self.assertEqual(retained["path"].name, "successor.json")
+        self.assertEqual(retained["transition_manifest_path"].name, "transition.json")
+        self.assertEqual(retained["source_path"].name, "canonical-source.json")
+        self.assertTrue(retained["transition_retained"])
+
+        validated_transition = {
+            "record": retained["record"],
+            "transition_available_at": dt.datetime(
+                2026, 8, 29, 8, 0, tzinfo=dt.timezone.utc,
+            ),
+        }
+        with (
+            mock.patch.object(
+                CPDS.UNIVERSE,
+                "validate_retained_same_vintage_transition",
+                return_value=validated_transition,
+            ),
+            mock.patch.object(CPDS, "ROOT", self.tmp),
+        ):
+            record = CPDS.build_snapshot(
+                generated_at=GENERATED_AT,
+                source_commit=SOURCE_COMMIT,
+                universe_entry=retained,
+                market_evidence_entry=None,
+                realtime_entry=None,
+            )
+            self.assertEqual(
+                {
+                    "upbit_tradeable_universe_packet",
+                    "upbit_universe_transition_manifest",
+                    "upbit_universe_transition_source",
+                },
+                {ref["role"] for ref in record["source_refs"]},
+            )
+            self.assertEqual(CPDS.validate_output(record), record)
+
+            omitted = copy.deepcopy(record)
+            omitted["source_refs"] = [
+                ref for ref in omitted["source_refs"]
+                if ref["role"] == "upbit_tradeable_universe_packet"
+            ]
+            omitted["payload_sha256"] = CPDS.payload_sha256(
+                {key: value for key, value in omitted.items() if key != "payload_sha256"}
+            )
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "UNIVERSE_TRANSITION_SOURCE_REFS_MISSING",
+            ):
+                CPDS.validate_output(omitted)
+
+            # A fully rehashed decision packet is still invalid when replay
+            # proves that its transition was not available until after the
+            # packet's generated_at.  validate_output must enforce the same
+            # temporal boundary as the operational selector.
+            future_transition = {
+                "record": retained["record"],
+                "transition_available_at": dt.datetime(
+                    2026, 8, 29, 10, 0, tzinfo=dt.timezone.utc,
+                ),
+            }
+            with mock.patch.object(
+                CPDS.UNIVERSE,
+                "validate_retained_same_vintage_transition",
+                return_value=future_transition,
+            ):
+                with self.assertRaisesRegex(
+                    CPDS.CryptoPaperDecisionSnapshotError,
+                    "UNIVERSE_TRANSITION_NOT_YET_AVAILABLE",
+                ):
+                    CPDS.validate_output(record)
+
+            retained["transition_manifest_path"].write_text('{"tampered":true}\n', encoding="utf-8")
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "SOURCE_REF_HASH_MISMATCH:upbit_universe_transition_manifest",
+            ):
+                CPDS.validate_output(record)
+
+    def test_nonretained_transition_after_generated_at_is_rejected(self):
+        self.start_ratified_patches()
+        entry = write_universe_entry(
+            self.tmp,
+            universe_packet([universe_row()]),
+        )
+        manifest_path = self.tmp / "transition.json"
+        manifest_path.write_text('{}\n', encoding="utf-8")
+        source_path = self.tmp / "canonical-source.json"
+        source_path.write_text(json.dumps(entry["record"]), encoding="utf-8")
+        entry.update({
+            "transition_manifest_path": manifest_path,
+            "source_path": source_path,
+        })
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "validate_same_vintage_transition",
+            return_value={
+                "record": entry["record"],
+                "transition_available_at": dt.datetime(
+                    2026, 8, 29, 10, 0, tzinfo=dt.timezone.utc,
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "UNIVERSE_TRANSITION_NOT_YET_AVAILABLE",
+            ):
+                CPDS.build_snapshot(
+                    generated_at=GENERATED_AT,
+                    source_commit=SOURCE_COMMIT,
+                    universe_entry=entry,
+                    market_evidence_entry=None,
+                    realtime_entry=None,
+                )
+
     def test_source_ref_is_content_addressed_and_survives_rolling_source_mutation(self):
         output_root = self.tmp / "out"
         original = write_universe_entry(

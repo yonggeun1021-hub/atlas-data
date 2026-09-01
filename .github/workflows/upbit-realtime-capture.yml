@@ -57,13 +57,10 @@ jobs:
         id: universe
         run: |
           set -euo pipefail
-          LATEST=$(ls -1 data/observations/upbit_tradeable_universe 2>/dev/null | sort | tail -n 1 || true)
-          echo "packet_date=${LATEST}" >> "$GITHUB_OUTPUT"
-          if [ -n "$LATEST" ] && [ -f "data/observations/upbit_tradeable_universe/$LATEST/packet.json" ]; then
-            echo "packet_path=data/observations/upbit_tradeable_universe/$LATEST/packet.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "packet_path=" >> "$GITHUB_OUTPUT"
-          fi
+          python3 .github/scripts/resolve_upbit_p3_p4_lineage.py \
+            --latest-data-root data/observations/upbit_tradeable_universe \
+            --select-only \
+            --github-output "$GITHUB_OUTPUT"
       # Public market-data WebSocket only -- ticker/trade/orderbook/candle.*.
       # No API key/secret, never myOrder/myAsset, never an order/withdrawal/
       # private endpoint. See config/upbit_realtime_gate_contract.json and

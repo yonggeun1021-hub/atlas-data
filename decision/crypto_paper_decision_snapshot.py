@@ -258,9 +258,20 @@ def _validate_embedded_hash(record: dict, field: str, label: str) -> None:
         raise CryptoPaperDecisionSnapshotError(f"SOURCE_HASH_MISMATCH:{label}")
 
 
-def _validate_universe_entry(entry: dict | None) -> None:
+def _validate_universe_entry(
+    entry: dict | None,
+    *,
+    not_after: dt.datetime,
+) -> None:
     if entry is None:
         return
+    if (
+        not isinstance(not_after, dt.datetime)
+        or not_after.tzinfo is None
+        or not_after.utcoffset() is None
+    ):
+        raise CryptoPaperDecisionSnapshotError("UNIVERSE_NOT_AFTER_MUST_BE_TIMEZONE_AWARE")
+    not_after = not_after.astimezone(dt.timezone.utc)
     record = entry.get("record")
     if (
         not isinstance(record, dict)
@@ -270,6 +281,41 @@ def _validate_universe_entry(entry: dict | None) -> None:
     ):
         raise CryptoPaperDecisionSnapshotError("UNIVERSE_SOURCE_RECORD_INVALID")
     _validate_embedded_hash(record, "payload_sha256", "upbit_universe_population")
+    manifest_path = entry.get("transition_manifest_path")
+    transition_selected = manifest_path is not None
+    if not transition_selected and (
+        entry.get("transition_retained") is True
+        or "/transitions/" in Path(entry["path"]).as_posix()
+    ):
+        raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_PROVENANCE_MISSING")
+    if transition_selected:
+        try:
+            if entry.get("transition_retained") is True:
+                validated = UNIVERSE.validate_retained_same_vintage_transition(
+                    manifest_path,
+                    source_record_path=entry.get("source_path"),
+                    successor_record_path=entry["path"],
+                )
+            else:
+                validated = UNIVERSE.validate_same_vintage_transition(manifest_path)
+        except (UNIVERSE.UpbitUniverseError, TypeError) as exc:
+            raise CryptoPaperDecisionSnapshotError(
+                f"UNIVERSE_TRANSITION_PROVENANCE_INVALID:{exc}"
+            ) from exc
+        if (
+            validated["record"] != record
+            or validated["record"]["payload_sha256"] != record.get("payload_sha256")
+        ):
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_SUCCESSOR_MISMATCH")
+        available_at = validated.get("transition_available_at")
+        if (
+            not isinstance(available_at, dt.datetime)
+            or available_at.tzinfo is None
+            or available_at.utcoffset() is None
+        ):
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_AVAILABLE_AT_INVALID")
+        if available_at.astimezone(dt.timezone.utc) > not_after:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_NOT_YET_AVAILABLE")
 
 
 def _validate_market_evidence_entry(entry: dict | None) -> None:
@@ -447,34 +493,17 @@ def _realtime_freshness(record: dict) -> tuple[str, str | None]:
 def find_latest_universe_packet(
     data_root: Path = UNIVERSE_DATA_ROOT, *, not_after: dt.datetime | None = None,
 ):
-    """Latest committed P3-12 record under ``data_root``, or ``None``.
-
-    Mirrors ``upbit-realtime-capture.yml``'s own
-    "Find latest committed P3-12 tradeable-universe classification" step
-    (``ls -1 ... | sort | tail -n 1``): the lexicographically-last
-    ``YYYY-MM-DD`` directory that actually contains a ``packet.json``.
-    """
-    data_root = Path(data_root)
-    if not data_root.is_dir():
-        return None
-    dates = sorted(p.name for p in data_root.iterdir() if p.is_dir() and DATE_RE.fullmatch(p.name))
-    for date in reversed(dates):
-        candidate = data_root / date / "packet.json"
-        if candidate.is_file():
-            record = _read_json(candidate)
-            packet = record.get("packet") if isinstance(record, dict) else None
-            if not_after is not None:
-                available_at = _parse_utc(
-                    packet.get("available_at") if isinstance(packet, dict) else None,
-                    "universe.available_at",
-                )
-                if available_at > not_after:
-                    continue
-            return {
-                "date": date, "path": candidate, "record": record,
-                "packet": packet,
-            }
-    return None
+    """Latest canonical P3 record or exact-validated same-day successor."""
+    selection_cutoff = not_after or dt.datetime.now(dt.timezone.utc)
+    try:
+        return UNIVERSE.find_latest_population_record(
+            data_root,
+            not_after=selection_cutoff,
+        )
+    except UNIVERSE.UpbitUniverseError as exc:
+        raise CryptoPaperDecisionSnapshotError(
+            f"UPBIT_UNIVERSE_TRANSITION_INVALID:{exc}"
+        ) from exc
 
 
 def find_latest_market_evidence_packet(
@@ -832,7 +861,7 @@ def build_snapshot(
         for component_id, reason in component_registry["deferred_components"].items():
             notes.append(f"{component_id}:{reason}")
 
-    _validate_universe_entry(universe_entry)
+    _validate_universe_entry(universe_entry, not_after=generated_dt)
     _validate_market_evidence_entry(market_evidence_entry)
     _validate_realtime_entry(realtime_entry)
     if market_evidence_entry is not None:
@@ -862,6 +891,19 @@ def build_snapshot(
             "role": "upbit_tradeable_universe_packet", "path": _relpath(universe_entry["path"]),
             "sha256": _file_sha256(universe_entry["path"]),
         })
+        if universe_entry.get("transition_manifest_path") is not None:
+            source_refs.extend([
+                {
+                    "role": "upbit_universe_transition_manifest",
+                    "path": _relpath(universe_entry["transition_manifest_path"]),
+                    "sha256": _file_sha256(universe_entry["transition_manifest_path"]),
+                },
+                {
+                    "role": "upbit_universe_transition_source",
+                    "path": _relpath(universe_entry["source_path"]),
+                    "sha256": _file_sha256(universe_entry["source_path"]),
+                },
+            ])
     if universe_packet is None:
         universe_status = MISSING
         notes.append("UPBIT_UNIVERSE_PACKET_MISSING")
@@ -1044,6 +1086,20 @@ def build_snapshot(
                 "date": universe_entry["date"],
                 "payload_sha256": universe_packet.get("payload_sha256"),
                 "file_sha256": _file_sha256(universe_entry["path"]),
+                "transition": (
+                    {
+                        "manifest_file_sha256": _file_sha256(
+                            universe_entry["transition_manifest_path"]
+                        ),
+                        "manifest_payload_sha256": universe_entry[
+                            "transition_manifest_payload_sha256"
+                        ],
+                        "source_file_sha256": _file_sha256(universe_entry["source_path"]),
+                        "source_payload_sha256": universe_entry["source_payload_sha256"],
+                    }
+                    if universe_entry.get("transition_manifest_path") is not None
+                    else None
+                ),
             }
             if universe_entry else None
         ),
@@ -1182,6 +1238,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         if role in by_role or role not in {
             "upbit_tradeable_universe_packet", "upbit_market_evidence_packet",
             "upbit_realtime_capture_run",
+            "upbit_universe_transition_manifest", "upbit_universe_transition_source",
         }:
             raise CryptoPaperDecisionSnapshotError("SOURCE_REF_ROLE_INVALID")
         path = _resolve_source_path(ref["path"], allow_external_sources=allow_external_sources)
@@ -1198,6 +1255,27 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
             "record": value["record"],
             "packet": value["record"].get("packet"),
         }
+        transition_roles = {
+            "upbit_universe_transition_manifest",
+            "upbit_universe_transition_source",
+        }
+        present_transition_roles = transition_roles & set(by_role)
+        retained_successor = value["path"].name == "successor.json"
+        if present_transition_roles and present_transition_roles != transition_roles:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_SOURCE_REFS_INCOMPLETE")
+        if retained_successor and present_transition_roles != transition_roles:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_SOURCE_REFS_MISSING")
+        if present_transition_roles:
+            manifest_value = by_role["upbit_universe_transition_manifest"]
+            source_value = by_role["upbit_universe_transition_source"]
+            manifest_record = manifest_value["record"]
+            universe_entry.update({
+                "transition_manifest_path": manifest_value["path"],
+                "transition_manifest_payload_sha256": manifest_record.get("payload_sha256"),
+                "source_path": source_value["path"],
+                "source_payload_sha256": source_value["record"].get("payload_sha256"),
+                "transition_retained": True,
+            })
     market_entry = None
     if "upbit_market_evidence_packet" in by_role:
         value = by_role["upbit_market_evidence_packet"]
@@ -1278,24 +1356,40 @@ def retain_source(entry: dict | None, output_root: Path) -> dict | None:
     source = Path(entry["path"])
     source_bytes = source.read_bytes()
     digest = hashlib.sha256(source_bytes).hexdigest()
-    target = (
-        Path(output_root) / "_sources" / "sha256" / digest
-        / entry["date"] / "source.json"
-    )
-    if target.exists():
-        if target.read_bytes() != source_bytes:
-            raise PopulationError(f"RETAINED_SOURCE_DRIFT_OR_TAMPER:{target}")
-    else:
+    bundle_root = Path(output_root) / "_sources" / "sha256" / digest / entry["date"]
+
+    def retain_exact(original: Path, target: Path) -> None:
+        original_bytes = Path(original).read_bytes()
+        if target.exists():
+            if target.read_bytes() != original_bytes:
+                raise PopulationError(f"RETAINED_SOURCE_DRIFT_OR_TAMPER:{target}")
+            return
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_name(f".{target.name}.tmp")
         try:
-            temp.write_bytes(source_bytes)
+            temp.write_bytes(original_bytes)
             temp.replace(target)
         finally:
             if temp.exists():
                 temp.unlink()
+
+    transition_manifest_path = entry.get("transition_manifest_path")
+    if transition_manifest_path is None:
+        target = bundle_root / "source.json"
+        retain_exact(source, target)
+    else:
+        target = bundle_root / "successor.json"
+        retained_manifest = bundle_root / "transition.json"
+        retained_source = bundle_root / "canonical-source.json"
+        retain_exact(source, target)
+        retain_exact(Path(transition_manifest_path), retained_manifest)
+        retain_exact(Path(entry["source_path"]), retained_source)
     retained = copy.deepcopy(entry)
     retained["path"] = target
+    if transition_manifest_path is not None:
+        retained["transition_manifest_path"] = retained_manifest
+        retained["source_path"] = retained_source
+        retained["transition_retained"] = True
     return retained
 
 

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +100,42 @@ class FetchWithRetryTests(unittest.TestCase):
 
 
 class LoadTargetMarketsTests(unittest.TestCase):
+    def test_transition_lineage_is_revalidated_and_carried_into_p4_manifest_basis(self):
+        lineage = {
+            "record_payload_sha256": "b" * 64,
+            "markets": ["KRW-BTC"],
+            "market_count": 1,
+        }
+        manifest = {
+            "source_record": {
+                "path": "canonical.json", "file_sha256": "c" * 64,
+                "payload_sha256": "d" * 64,
+            },
+            "successor_record": {
+                "path": "successor.json", "file_sha256": "e" * 64,
+                "payload_sha256": "b" * 64,
+            },
+        }
+        selected = {
+            "path": Path("successor.json").resolve(),
+            "record": {"payload_sha256": "b" * 64},
+            "transition_manifest": manifest,
+            "transition_manifest_file_sha256": "f" * 64,
+            "transition_manifest_payload_sha256": "1" * 64,
+        }
+        with (
+            mock.patch.object(CAP.P3_P4, "consume_universe_record", return_value=dict(lineage)),
+            mock.patch.object(CAP.UNIVERSE, "validate_same_vintage_transition", return_value=selected),
+        ):
+            result = CAP.load_universe_lineage(
+                Path("successor.json"),
+                expected_record_sha256="b" * 64,
+                transition_manifest_path=Path("transition.json"),
+            )
+        self.assertEqual(result["transition"]["canonical_source"], manifest["source_record"])
+        self.assertEqual(result["transition"]["successor"], manifest["successor_record"])
+        self.assertEqual(result["transition"]["manifest_file_sha256"], "f" * 64)
+
     def test_no_packet_path_returns_empty(self):
         self.assertEqual(CAP.load_target_markets(None), [])
 
@@ -121,6 +158,69 @@ class LoadTargetMarketsTests(unittest.TestCase):
 
 
 class CaptureSnapshotTests(unittest.TestCase):
+    def test_transition_lineage_manifest_and_source_pins_are_durable_and_required(self):
+        contract = CAP.load_contract()
+        markets = ["KRW-BTC"]
+        fetcher = build_fetcher(contract, markets)
+        base_lineage = {
+            "snapshot_date": "2026-08-29",
+            "record_path": (
+                "data/observations/upbit_tradeable_universe/2026-08-29/transitions/"
+                + "a" * 64 + "-to-" + "b" * 64 + "/packet.json"
+            ),
+            "record_payload_sha256": "b" * 64,
+            "markets": markets,
+            "market_count": 1,
+            "authority": {
+                "evidence_derivation_only": True,
+                "order_authorized": False,
+            },
+        }
+        snapshot_key = CAP.P3_P4.snapshot_key(base_lineage)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                CAP.CaptureError,
+                "MANIFEST_UNIVERSE_TRANSITION_PROVENANCE_MISSING",
+            ):
+                CAP.capture_snapshot(
+                    Path(tmp), markets=markets, snapshot_date=dt.date(2026, 8, 29),
+                    contract=contract, fetcher=fetcher, sleeper=lambda s: None,
+                    clock=fixed_clock, snapshot_key=snapshot_key,
+                    universe_lineage=base_lineage,
+                )
+
+        valid_lineage = dict(base_lineage)
+        valid_lineage["transition"] = {
+            "manifest_path": "transition.json",
+            "manifest_file_sha256": "c" * 64,
+            "manifest_payload_sha256": "d" * 64,
+            "canonical_source": {
+                "path": "canonical.json", "file_sha256": "e" * 64,
+                "payload_sha256": "f" * 64,
+            },
+            "successor": {
+                "path": "successor.json", "file_sha256": "1" * 64,
+                "payload_sha256": "b" * 64,
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            target = CAP.capture_snapshot(
+                Path(tmp), markets=markets, snapshot_date=dt.date(2026, 8, 29),
+                contract=contract, fetcher=fetcher, sleeper=lambda s: None,
+                clock=fixed_clock, snapshot_key=snapshot_key,
+                universe_lineage=valid_lineage,
+            )
+            manifest = CAP.validate_snapshot(target)
+            self.assertEqual(manifest["universe_lineage"]["transition"], valid_lineage["transition"])
+            tampered = json.loads((target / "_manifest.json").read_text(encoding="utf-8"))
+            del tampered["universe_lineage"]["transition"]["canonical_source"]
+            (target / "_manifest.json").write_text(json.dumps(tampered), encoding="utf-8")
+            with self.assertRaisesRegex(
+                CAP.CaptureError,
+                "MANIFEST_UNIVERSE_TRANSITION_PROVENANCE_INVALID",
+            ):
+                CAP.validate_snapshot(target)
+
     def test_capture_writes_hash_bound_manifest_and_validates(self):
         contract = CAP.load_contract()
         markets = ["KRW-BTC", "KRW-ETH"]

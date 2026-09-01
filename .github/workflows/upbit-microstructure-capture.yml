@@ -39,11 +39,9 @@ jobs:
         id: universe
         run: |
           set -euo pipefail
-          LATEST=$(ls -1 data/observations/upbit_tradeable_universe 2>/dev/null | sort | tail -n 1 || true)
-          test -n "$LATEST"
-          PACKET="data/observations/upbit_tradeable_universe/$LATEST/packet.json"
-          test -f "$PACKET"
-          python3 .github/scripts/resolve_upbit_p3_p4_lineage.py "$PACKET" "$GITHUB_OUTPUT"
+          python3 .github/scripts/resolve_upbit_p3_p4_lineage.py \
+            --latest-data-root data/observations/upbit_tradeable_universe \
+            --github-output "$GITHUB_OUTPUT"
       - name: Capture complete append-only Upbit microstructure snapshot
         id: capture
         run: |
@@ -68,12 +66,19 @@ jobs:
             echo "result=incomplete_existing" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          TRANSITION_ARGS=()
+          if [ -n "${{ steps.universe.outputs.transition_manifest_path }}" ]; then
+            TRANSITION_ARGS+=(
+              --transition-manifest "${{ steps.universe.outputs.transition_manifest_path }}"
+            )
+          fi
           python3 .github/scripts/upbit_microstructure_capture.py \
             --snapshot-root evidence/crypto/upbit/microstructure \
             --snapshot-date "$SNAPSHOT_DATE" \
             --snapshot-key "$SNAPSHOT_KEY" \
             --universe-packet "${{ steps.universe.outputs.packet_path }}" \
             --expected-universe-record-sha256 "${{ steps.universe.outputs.record_sha256 }}" \
+            "${TRANSITION_ARGS[@]}" \
             --request-interval-seconds 1.05
           echo "result=captured" >> "$GITHUB_OUTPUT"
       # No order/withdrawal/private endpoint is ever called above -- see
@@ -111,6 +116,12 @@ jobs:
           ATLAS_UNIVERSE_WAIT_REASON: ${{ steps.universe.outputs.wait_reason }}
           ATLAS_UNIVERSE_PACKET_PATH: ${{ steps.universe.outputs.packet_path }}
           ATLAS_UNIVERSE_PACKET_DATE: ${{ steps.universe.outputs.packet_date }}
+          ATLAS_UNIVERSE_TRANSITION_MANIFEST_PATH: ${{ steps.universe.outputs.transition_manifest_path }}
+          ATLAS_UNIVERSE_TRANSITION_MANIFEST_FILE_SHA256: ${{ steps.universe.outputs.transition_manifest_file_sha256 }}
+          ATLAS_UNIVERSE_TRANSITION_MANIFEST_PAYLOAD_SHA256: ${{ steps.universe.outputs.transition_manifest_payload_sha256 }}
+          ATLAS_UNIVERSE_TRANSITION_SOURCE_PATH: ${{ steps.universe.outputs.transition_source_path }}
+          ATLAS_UNIVERSE_TRANSITION_SOURCE_FILE_SHA256: ${{ steps.universe.outputs.transition_source_file_sha256 }}
+          ATLAS_UNIVERSE_TRANSITION_SOURCE_PAYLOAD_SHA256: ${{ steps.universe.outputs.transition_source_payload_sha256 }}
           ATLAS_P4_POLICY_ID: ${{ steps.universe.outputs.p4_policy_id }}
           ATLAS_P4_POLICY_SHA256: ${{ steps.universe.outputs.p4_policy_sha256 }}
           ATLAS_REPOSITORY: ${{ github.repository }}

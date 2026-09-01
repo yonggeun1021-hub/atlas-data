@@ -8,6 +8,7 @@ other bridge error remains a hard failure.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 from pathlib import Path
 import sys
@@ -22,6 +23,7 @@ from microstructure.upbit_p3_p4_bridge import (
     consume_universe_record,
     snapshot_key,
 )
+from universe import upbit_tradeable_universe as UNIVERSE
 
 
 EXPECTED_WAIT_REASON = "UNIVERSE_RATIFICATION_NOT_EFFECTIVE"
@@ -59,6 +61,20 @@ def resolve_lineage(
     }
 
 
+def select_latest_packet(data_root: Path) -> dict:
+    """Thin caller into the exact-code-approved P3 transition consumer."""
+    try:
+        entry = UNIVERSE.find_latest_population_record(
+            data_root,
+            not_after=dt.datetime.now(dt.timezone.utc),
+        )
+    except UNIVERSE.UpbitUniverseError as exc:
+        raise BridgeError(f"UNIVERSE_TRANSITION_SELECTION_FAILED:{exc}") from exc
+    if entry is None:
+        raise BridgeError("UNIVERSE_PACKET_MISSING")
+    return entry
+
+
 def write_github_outputs(values: dict[str, str], output_path: Path) -> None:
     with output_path.open("a", encoding="utf-8") as out:
         for key, value in values.items():
@@ -67,14 +83,63 @@ def write_github_outputs(values: dict[str, str], output_path: Path) -> None:
             out.write(f"{key}={value}\n")
 
 
+def transition_outputs(entry: dict | None) -> dict[str, str]:
+    entry = entry or {}
+    return {
+        "transition_manifest_path": str(entry.get("transition_manifest_path") or ""),
+        "transition_manifest_file_sha256": str(entry.get("transition_manifest_file_sha256") or ""),
+        "transition_manifest_payload_sha256": str(
+            entry.get("transition_manifest_payload_sha256") or ""
+        ),
+        "transition_source_path": str(entry.get("source_path") or ""),
+        "transition_source_file_sha256": str(entry.get("source_file_sha256") or ""),
+        "transition_source_payload_sha256": str(entry.get("source_payload_sha256") or ""),
+    }
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("packet_path", type=Path)
-    parser.add_argument("github_output", type=Path)
+    parser.add_argument("packet_path", type=Path, nargs="?")
+    parser.add_argument("legacy_github_output", type=Path, nargs="?")
+    parser.add_argument("--latest-data-root", type=Path)
+    parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--select-only", action="store_true")
     args = parser.parse_args(argv)
 
-    values = resolve_lineage(args.packet_path)
-    write_github_outputs(values, args.github_output)
+    github_output = args.github_output or args.legacy_github_output
+    if github_output is None:
+        parser.error("github output path is required")
+    if args.latest_data_root is not None:
+        entry = select_latest_packet(args.latest_data_root)
+        packet_path = entry["path"]
+    elif args.packet_path is not None:
+        entry = None
+        packet_path = args.packet_path
+    else:
+        parser.error("packet_path or --latest-data-root is required")
+
+    if args.select_only:
+        if entry is None:
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+            values = {
+                "packet_path": str(packet_path),
+                "packet_date": str(packet.get("snapshot_date") or ""),
+            }
+        else:
+            values = {
+                "packet_path": str(packet_path),
+                "packet_date": entry["date"],
+            }
+    else:
+        values = resolve_lineage(packet_path)
+    values.update(transition_outputs(entry))
+    write_github_outputs(values, github_output)
+    if args.select_only:
+        print(
+            "P3-12 exact transition-aware lineage selected"
+            f" packet_date={values['packet_date']} path={values['packet_path']}"
+        )
+        return 0
     if values["ready"] == "false":
         print(
             "::warning title=P4-07 expected WAIT::"
