@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "paper_decision_bridge_input/1",
+  "contractVersion": "paper_decision_bridge_contract/1",
+  "evaluationAt": "2026-08-31T09:00:00Z",
+  "evidenceClass": "FIXTURE",
+  "regimeHeader": null,
+  "regimeHeaderSource": {"ref": null, "sha256": null},
+  "markets": [
+    {
+      "market": "KRX",
+      "sourceTimestamp": "2026-08-31T08:40:00Z",
+      "ttlSeconds": 1800,
+      "exactSources": [{"ref": "test/fixtures/paper_decision_bridge/krx_source.json", "sha256": "93e550f83d8894d45968fe2684178c36aea680c5f25a4ab88f29fcb02df0aa65"}],
+      "leadership": {"transformVersion": "korea_leadership/v1", "approvalStatus": "RATIFIED", "groupCoverageStatus": "NOT_APPLICABLE", "observationStatus": null, "reason": "FIXTURE_UNKNOWN"},
+      "observedRanking": {"universe": [], "top10": [], "top3": []},
+      "riskPacket": {"status": null, "cashAction": null, "exposureAction": null, "inverseAction": null, "hedgeAction": null, "reason": "RISK_PACKET_MISSING", "sources": []},
+      "lifecycleGates": {
+        "MARKET_JUDGEMENT": {"status": null, "reason": "MARKET_JUDGEMENT_UNKNOWN", "sources": []},
+        "MARKET_APPROVAL": {"status": null, "reason": "MARKET_APPROVAL_MISSING", "sources": []},
+        "LEADERSHIP_APPROVAL": {"status": "PASS", "reason": "POLICY_RATIFIED", "sources": [{"ref": "test/fixtures/paper_decision_bridge/krx_source.json", "sha256": "93e550f83d8894d45968fe2684178c36aea680c5f25a4ab88f29fcb02df0aa65"}]},
+        "LEADERSHIP_COVERAGE": {"status": "PASS", "reason": "NOT_APPLICABLE", "sources": [{"ref": "test/fixtures/paper_decision_bridge/krx_source.json", "sha256": "93e550f83d8894d45968fe2684178c36aea680c5f25a4ab88f29fcb02df0aa65"}]},
+        "COMPLETED_BAR": {"status": null, "reason": "COMPLETED_BAR_MISSING", "sources": []},
+        "FRESHNESS": {"status": "PASS", "reason": "SOURCE_WITHIN_TTL", "sources": [{"ref": "test/fixtures/paper_decision_bridge/krx_source.json", "sha256": "93e550f83d8894d45968fe2684178c36aea680c5f25a4ab88f29fcb02df0aa65"}]},
+        "ENTRY_ELIGIBILITY": {"status": null, "reason": "ENTRY_ELIGIBILITY_MISSING", "sources": []},
+        "EXIT_ELIGIBILITY": {"status": null, "reason": "EXIT_ELIGIBILITY_MISSING", "sources": []},
+        "RISK_PACKET": {"status": null, "reason": "RISK_PACKET_MISSING", "sources": []},
+        "LEDGER_INTEGRITY": {"status": null, "reason": "LEDGER_NOT_EVALUATED", "sources": []}
+      },
+      "traceStages": {
+        "FLOW_FIRST_BRIEFING": {"status": null, "reason": "FLOW_FIRST_INPUT_MISSING", "sources": []},
+        "THREE_MARKET_REGIME_HEADER": {"status": null, "reason": "REGIME_HEADER_MISSING", "sources": []},
+        "LEADERSHIP": {"status": null, "reason": "LEADERSHIP_OBSERVATION_MISSING", "sources": []},
+        "CAPITAL_ROTATION": {"status": null, "reason": "CAPITAL_ROTATION_MISSING", "sources": []},
+        "CASH_EXPOSURE_ACTION": {"status": null, "reason": "CASH_EXPOSURE_NOT_EVALUATED", "sources": []},
+        "DEFENSIVE_ACTION_DECISION": {"status": null, "reason": "DEFENSIVE_ACTION_BLOCKED", "sources": []},
+        "HEDGE_INSTRUMENT_ELIGIBILITY": {"status": null, "reason": "HEDGE_REGISTRY_UNRATIFIED", "sources": []},
+        "BEAR_HEDGE_RISK_BUDGET": {"status": null, "reason": "HEDGE_BUDGET_UNRATIFIED", "sources": []},
+        "STRATEGIC_CAPITAL_POSTURE": {"status": null, "reason": "STRATEGIC_POSTURE_BLOCKED", "sources": []},
+        "COMMON_CANDIDATE_FUNNEL": {"status": null, "reason": "NATURAL_CANDIDATE_MISSING", "sources": []},
+        "ENTRY_EXIT_TRIGGER_ELIGIBILITY": {"status": null, "reason": "TRIGGER_POLICY_ABSENT", "sources": []},
+        "LEDGER": {"status": null, "reason": "LEDGER_NOT_EVALUATED", "sources": []}
+      },
+      "candidates": []
+    },
+    {
+      "market": "US",
+      "sourceTimestamp": "2026-08-31T08:36:04Z",
+      "ttlSeconds": 1800,
+      "exactSources": [{"ref": "test/fixtures/paper_decision_bridge/us_source.json", "sha256": "679a279f1d23190c1ff1c9cf6528244a729c85d962e4df96181b22d399798156"}],
+      "leadership": {"transformVersion": "us_leadership/v1", "approvalStatus": "UNRATIFIED", "groupCoverageStatus": "UNRATIFIED", "observationStatus": null, "reason": "US_LEADERSHIP_DRAFT_ONLY"},
+      "observedRanking": {"universe": [], "top10": [], "top3": []},
+      "riskPacket": {"status": null, "cashAction": null, "exposureAction": null, "inverseAction": null, "hedgeAction": null, "reason": "RISK_PACKET_MISSING", "sources": []},
+      "lifecycleGates": {
+        "MARKET_JUDGEMENT": {"status": null, "reason": "MARKET_JUDGEMENT_UNKNOWN", "sources": []},
+        "MARKET_APPROVAL": {"status": null, "reason": "MARKET_APPROVAL_MISSING", "sources": []},
+        "LEADERSHIP_APPROVAL": {"status": null, "reason": "LEADERSHIP_POLICY_UNRATIFIED", "sources": []},
+        "LEADERSHIP_COVERAGE": {"status": null, "reason": "LEADERSHIP_COVERAGE_UNRATIFIED", "sources": []},
+        "COMPLETED_BAR": {"status": null, "reason": "COMPLETED_BAR_MISSING", "sources": []},
+        "FRESHNESS": {"status": "PASS", "reason": "SOURCE_WITHIN_TTL", "sources": [{"ref": "test/fixtures/paper_decision_bridge/us_source.json", "sha256": "679a279f1d23190c1ff1c9cf6528244a729c85d962e4df96181b22d399798156"}]},
+        "ENTRY_ELIGIBILITY": {"status": null, "reason": "ENTRY_ELIGIBILITY_MISSING", "sources": []},
+        "EXIT_ELIGIBILITY": {"status": null, "reason": "EXIT_ELIGIBILITY_MISSING", "sources": []},
+        "RISK_PACKET": {"status": null, "reason": "RISK_PACKET_MISSING", "sources": []},
+        "LEDGER_INTEGRITY": {"status": null, "reason": "LEDGER_NOT_EVALUATED", "sources": []}
+      },
+      "traceStages": {
+        "FLOW_FIRST_BRIEFING": {"status": null, "reason": "FLOW_FIRST_INPUT_MISSING", "sources": []},
+        "THREE_MARKET_REGIME_HEADER": {"status": null, "reason": "REGIME_HEADER_MISSING", "sources": []},
+        "LEADERSHIP": {"status": null, "reason": "LEADERSHIP_UNRATIFIED", "sources": []},
+        "CAPITAL_ROTATION": {"status": null, "reason": "CAPITAL_ROTATION_POLICY_ABSENT", "sources": []},
+        "CASH_EXPOSURE_ACTION": {"status": null, "reason": "CASH_EXPOSURE_NOT_EVALUATED", "sources": []},
+        "DEFENSIVE_ACTION_DECISION": {"status": null, "reason": "DEFENSIVE_ACTION_BLOCKED", "sources": []},
+        "HEDGE_INSTRUMENT_ELIGIBILITY": {"status": null, "reason": "HEDGE_REGISTRY_UNRATIFIED", "sources": []},
+        "BEAR_HEDGE_RISK_BUDGET": {"status": null, "reason": "HEDGE_BUDGET_UNRATIFIED", "sources": []},
+        "STRATEGIC_CAPITAL_POSTURE": {"status": null, "reason": "STRATEGIC_POSTURE_BLOCKED", "sources": []},
+        "COMMON_CANDIDATE_FUNNEL": {"status": null, "reason": "NATURAL_CANDIDATE_MISSING", "sources": []},
+        "ENTRY_EXIT_TRIGGER_ELIGIBILITY": {"status": null, "reason": "TRIGGER_POLICY_ABSENT", "sources": []},
+        "LEDGER": {"status": null, "reason": "LEDGER_NOT_EVALUATED", "sources": []}
+      },
+      "candidates": []
+    },
+    {
+      "market": "CRYPTO",
+      "sourceTimestamp": "2026-08-31T08:40:00Z",
+      "ttlSeconds": 1800,
+      "exactSources": [{"ref": "test/fixtures/paper_decision_bridge/crypto_source.json", "sha256": "b89870d09eba8dbe71669a306907f7457a7a124c3773b0954d2142a8c16faaf5"}],
+      "leadership": {"transformVersion": "crypto_leadership/v1", "approvalStatus": "RATIFIED", "groupCoverageStatus": "UNRATIFIED", "observationStatus": null, "reason": "GROUP_COVERAGE_UNRATIFIED"},
+      "observedRanking": {"universe": ["KRW-BTC", "KRW-ETH", "KRW-LINK", "KRW-SHIB", "KRW-SOL", "KRW-SUI", "KRW-WLD", "KRW-XRP"], "top10": ["KRW-BTC", "KRW-ETH", "KRW-LINK", "KRW-SHIB", "KRW-SOL", "KRW-SUI", "KRW-WLD", "KRW-XRP"], "top3": ["KRW-BTC", "KRW-ETH", "KRW-LINK"]},
+      "riskPacket": {"status": null, "cashAction": null, "exposureAction": null, "inverseAction": null, "hedgeAction": null, "reason": "RISK_PACKET_MISSING", "sources": []},
+      "lifecycleGates": {
+        "MARKET_JUDGEMENT": {"status": null, "reason": "MARKET_JUDGEMENT_UNKNOWN", "sources": []},
+        "MARKET_APPROVAL": {"status": null, "reason": "MARKET_APPROVAL_MISSING", "sources": []},
+        "LEADERSHIP_APPROVAL": {"status": "PASS", "reason": "POLICY_RATIFIED", "sources": [{"ref": "test/fixtures/paper_decision_bridge/crypto_source.json", "sha256": "b89870d09eba8dbe71669a306907f7457a7a124c3773b0954d2142a8c16faaf5"}]},
+        "LEADERSHIP_COVERAGE": {"status": null, "reason": "GROUP_COVERAGE_UNRATIFIED", "sources": []},
+        "COMPLETED_BAR": {"status": "FAIL", "reason": "COMPLETED_BAR_STALE", "sources": [{"ref": "test/fixtures/paper_decision_bridge/crypto_source.json", "sha256": "b89870d09eba8dbe71669a306907f7457a7a124c3773b0954d2142a8c16faaf5"}]},
+        "FRESHNESS": {"status": "PASS", "reason": "SOURCE_WITHIN_TTL", "sources": [{"ref": "test/fixtures/paper_decision_bridge/crypto_source.json", "sha256": "b89870d09eba8dbe71669a306907f7457a7a124c3773b0954d2142a8c16faaf5"}]},
+        "ENTRY_ELIGIBILITY": {"status": null, "reason": "ENTRY_ELIGIBILITY_MISSING", "sources": []},
+        "EXIT_ELIGIBILITY": {"status": null, "reason": "EXIT_ELIGIBILITY_MISSING", "sources": []},
+        "RISK_PACKET": {"status": null, "reason": "RISK_PACKET_MISSING", "sources": []},
+        "LEDGER_INTEGRITY": {"status": null, "reason": "LEDGER_NOT_EVALUATED", "sources": []}
+      },
+      "traceStages": {
+        "FLOW_FIRST_BRIEFING": {"status": null, "reason": "FLOW_FIRST_INPUT_MISSING", "sources": []},
+        "THREE_MARKET_REGIME_HEADER": {"status": null, "reason": "REGIME_HEADER_MISSING", "sources": []},
+        "LEADERSHIP": {"status": null, "reason": "GROUP_COVERAGE_UNRATIFIED", "sources": []},
+        "CAPITAL_ROTATION": {"status": null, "reason": "CRYPTO_CAPITAL_ROTATION_CONTRACT_ABSENT", "sources": []},
+        "CASH_EXPOSURE_ACTION": {"status": null, "reason": "CASH_EXPOSURE_NOT_EVALUATED", "sources": []},
+        "DEFENSIVE_ACTION_DECISION": {"status": null, "reason": "DEFENSIVE_ACTION_BLOCKED", "sources": []},
+        "HEDGE_INSTRUMENT_ELIGIBILITY": {"status": null, "reason": "CRYPTO_HEDGE_INSTRUMENT_NOT_SUPPORTED", "sources": []},
+        "BEAR_HEDGE_RISK_BUDGET": {"status": null, "reason": "HEDGE_BUDGET_UNRATIFIED", "sources": []},
+        "STRATEGIC_CAPITAL_POSTURE": {"status": null, "reason": "STRATEGIC_POSTURE_BLOCKED", "sources": []},
+        "COMMON_CANDIDATE_FUNNEL": {"status": "FAIL", "reason": "FOUR_COMPONENT_SCORE_MISSING", "sources": [{"ref": "test/fixtures/paper_decision_bridge/crypto_source.json", "sha256": "b89870d09eba8dbe71669a306907f7457a7a124c3773b0954d2142a8c16faaf5"}]},
+        "ENTRY_EXIT_TRIGGER_ELIGIBILITY": {"status": null, "reason": "TRIGGER_POLICY_ABSENT", "sources": []},
+        "LEDGER": {"status": null, "reason": "LEDGER_NOT_EVALUATED", "sources": []}
+      },
+      "candidates": []
+    }
+  ]
+}
