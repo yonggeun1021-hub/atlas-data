@@ -1,4 +1,4 @@
-name: Common three-market PAPER candidate funnel
+name: Common three-market PAPER candidate funnel and decision receipt
 
 on:
   pull_request:
@@ -6,8 +6,14 @@ on:
       - "config/common_paper_candidate_funnel_contract.json"
       - "schemas/common_paper_candidate_funnel.schema.json"
       - "decision/common_paper_candidate_funnel.py"
+      - "config/paper_decision_bridge_contract.json"
+      - "schemas/paper_decision_bridge.schema.json"
+      - "decision/paper_decision_bridge.py"
+      - "docs/paper_decision_bridge_contract.md"
       - "test/fixtures/common_paper_candidate_funnel/**"
+      - "test/fixtures/paper_decision_bridge/**"
       - "test/common_paper_candidate_funnel/**"
+      - "test/paper_decision_bridge/**"
       - ".github/workflows/common-paper-candidate-funnel.yml"
   workflow_dispatch:
 
@@ -24,5 +30,7 @@ jobs:
           python-version: "3.11"
       - name: Deterministic funnel and authority regression
         run: python3 test/common_paper_candidate_funnel/test_funnel.py
+      - name: Decision receipt lifecycle and integrity regression
+        run: python3 test/paper_decision_bridge/test_bridge.py
       - name: No tracked mutation
         run: git diff --exit-code
