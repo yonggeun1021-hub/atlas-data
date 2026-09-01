@@ -12,8 +12,10 @@ repository alignment artifact, not a runtime policy input.
   natural read-only judgement owner.
 - US uses date-specific NYSE snapshots with Nasdaq cross-checks, the exact
   15-ETF PAPER reference universe, and the exact 12-group SPY-relative
-  leadership layer. The finished-session and natural judgement owners are
-  designated, but their natural snapshot/runner implementations are still
+  leadership layer. The finished-session owner reuses the existing offline
+  natural-receipt producer, contract, workflow, and immutable 2026-09-01
+  absence-audit receipt. That receipt remains `UNKNOWN/HOLD/WAIT`; it is not a
+  finished-session success. The natural market-judgement runner is still
   pending.
 - Crypto reuses the ratified Kraken breadth policy and the CR-06-derived
   BTC/ETH/ALT leadership layer. Sector/chain coverage remains an unknown group
@@ -40,9 +42,10 @@ The current acceptance states are exact:
 
 ## Next acceptance work
 
-Each designated owner must produce content-addressed natural evidence with
-official session identity, completed-bar checks, exact source/policy/contract
-hashes, freshness, deterministic rerun and tamper rejection. Market-specific
+The bound US finished-session owner must still receive content-addressed natural
+calendar and minute evidence that passes official session identity and
+completed-bar checks; the checked-in absence audit is not that evidence. Other
+designated owners must still implement their natural runners. Market-specific
 signed normalization and freshness must be separately ratified, and the
 bull/bear/sideways/stress PIT replay must be accepted before any market result
 or aggregate pin can advance.

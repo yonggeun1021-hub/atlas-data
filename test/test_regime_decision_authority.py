@@ -641,7 +641,7 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         self.assert_pins(krx["source_owner"])
         self.assert_pins(krx["natural_receipt_owner"])
 
-    def test_v2_us_exact_calendar_proxy_and_pending_natural_owners(self):
+    def test_v2_us_exact_calendar_proxy_and_bound_finished_session_owner(self):
         us = self.registry["markets"]["US"]
         self.assertEqual(
             [row["source_id"] for row in us["official_calendar"]["sources"]],
@@ -664,8 +664,22 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         )
         self.assertEqual(proxy["leadership_benchmark"], "SPY")
         self.assertEqual(proxy["leadership_window_finalized_sessions"], 20)
-        self.assertIn("IMPLEMENTATION_PENDING", us["finished_session_owner"]["owner_status"])
-        self.assertIn("IMPLEMENTATION_PENDING", us["natural_receipt_owner"]["owner_status"])
+        finished = us["finished_session_owner"]
+        self.assertEqual(
+            finished["owner_status"],
+            "BOUND_EXISTING_NATURAL_RECEIPT_OWNER_GATE1_ONLY",
+        )
+        self.assertEqual(
+            finished["initial_receipt_evidence_class"],
+            "NATURAL_INPUT_ABSENCE_AUDIT",
+        )
+        self.assertEqual(finished["initial_receipt_gate1_status"], "UNKNOWN")
+        self.assertEqual(finished["initial_receipt_gate2_status"], "HOLD")
+        self.assertEqual(finished["initial_receipt_recommendation"], "WAIT")
+        self.assertIn(
+            "IMPLEMENTATION_PENDING",
+            us["natural_receipt_owner"]["owner_status"],
+        )
         self.assertIsNone(us["signed_normalization_policy"])
         self.assertIsNone(us["ttl_seconds"])
         self.assert_pins(us["source_owner"])
