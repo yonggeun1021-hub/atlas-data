@@ -1,0 +1,118 @@
+{
+  "as_of_utc": "2026-09-01T06:38:02Z",
+  "authority": {
+    "candidate_ranking_authorized": false,
+    "cross_market_scoring_authorized": false,
+    "importance_ranking_authorized": false,
+    "production_authorized": false,
+    "radar_case_recording_only_with_ratified_policy": true,
+    "raw_feature_observation_only_without_ratified_policy": true,
+    "rule_evaluation_authorized": false,
+    "source_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "trading_authorized": false
+  },
+  "candidate_policy": null,
+  "case_count": 0,
+  "cases": [],
+  "contract_version": "supply_demand_radar/2",
+  "payload_sha256": "c123f71281654012402a8d4a95f53e4532dd6f260e94424b7a25a7724ac9c9bf",
+  "policy_status": {
+    "candidate_ranking": "UNRATIFIED",
+    "cross_market_comparability": "UNRATIFIED",
+    "default_candidate_policy": "ABSENT",
+    "improvement_direction": "UNRATIFIED",
+    "minimum_change": "UNRATIFIED",
+    "source_hierarchy": "UNRATIFIED"
+  },
+  "schema_version": "supply_demand_radar_packet/3",
+  "series_count": 1,
+  "series_results": [
+    {
+      "acceleration_change": "-359701078.620000000000",
+      "action": null,
+      "asset_id": "CRYPTO:USD_PEGGED_AGGREGATE",
+      "candidate_policy_match": null,
+      "candidate_policy_status": "ABSENT_OR_UNRATIFIED",
+      "candidate_rank": null,
+      "comparison_basis": "CONSECUTIVE_CALENDAR_DAY_WITHIN_ONE_PIT_VINTAGE",
+      "evidence_lineage": [
+        {
+          "period_end": "2026-08-30",
+          "source_identity": {
+            "available_at": "2026-09-01T06:38:02Z",
+            "retrieved_at_utc": "2026-09-01T06:38:02Z",
+            "source_id": "defillama_stablecoins_api",
+            "source_sha256": "52db3529bb48728de834d030297008b85ad1d23e7d1ff15673f57535111e6a5d",
+            "source_url": "https://stablecoins.llama.fi/stablecoincharts/all"
+          },
+          "status": "EVIDENCE_AVAILABLE"
+        },
+        {
+          "period_end": "2026-08-31",
+          "source_identity": {
+            "available_at": "2026-09-01T06:38:02Z",
+            "retrieved_at_utc": "2026-09-01T06:38:02Z",
+            "source_id": "defillama_stablecoins_api",
+            "source_sha256": "52db3529bb48728de834d030297008b85ad1d23e7d1ff15673f57535111e6a5d",
+            "source_url": "https://stablecoins.llama.fi/stablecoincharts/all"
+          },
+          "status": "EVIDENCE_AVAILABLE"
+        },
+        {
+          "period_end": "2026-09-01",
+          "source_identity": {
+            "available_at": "2026-09-01T06:38:02Z",
+            "retrieved_at_utc": "2026-09-01T06:38:02Z",
+            "source_id": "defillama_stablecoins_api",
+            "source_sha256": "52db3529bb48728de834d030297008b85ad1d23e7d1ff15673f57535111e6a5d",
+            "source_url": "https://stablecoins.llama.fi/stablecoincharts/all"
+          },
+          "status": "EVIDENCE_AVAILABLE"
+        }
+      ],
+      "expected_periods": [
+        "2026-08-30",
+        "2026-08-31",
+        "2026-09-01"
+      ],
+      "feature_status": "OBSERVED",
+      "frequency": "DAILY",
+      "importance": "UNRATIFIED",
+      "investable_eligible": false,
+      "latest_change": "-456827929.620000000000",
+      "market": "CRYPTO",
+      "measurement_identity": "DefiLlama stablecoincharts/all totalCirculating.peggedUSD aggregate native USD-pegged token supply",
+      "metric_type": "AGGREGATE_TOKEN_SUPPLY",
+      "prior_change": "-97126851.000000000000",
+      "radar_case_created": false,
+      "series_id": "CRYPTO.STABLECOIN.NATIVE.SUPPLY",
+      "stage_transition": null,
+      "unavailable_evidence": [],
+      "unit": "USD_PEGGED_TOKEN",
+      "values": [
+        "309435948946.000000000000",
+        "309338822095.000000000000",
+        "308881994165.380000000000"
+      ]
+    }
+  ],
+  "source_coverage": {
+    "CRYPTO": "OPERATIONAL_PIT_POPULATION_WIRED",
+    "KOREA": "PARTIAL_KRX_ONLY_RELEASE_TIME_UNVERIFIED",
+    "US": "PARTIAL_SEC_SOURCE_NO_SELECTED_METRIC_SERIES"
+  },
+  "source_policy": null,
+  "status": "SUPPLY_DEMAND_FEATURES_OBSERVED",
+  "unresolved_boundaries": [
+    "DEFAULT_CANDIDATE_POLICY_ABSENT",
+    "IMPROVEMENT_DIRECTION_UNRATIFIED",
+    "MINIMUM_CHANGE_UNRATIFIED",
+    "CROSS_MARKET_COMPARABILITY_UNRATIFIED",
+    "SOURCE_HIERARCHY_UNRATIFIED",
+    "CANDIDATE_RANKING_UNRATIFIED",
+    "KOREA_SOURCE_RELEASE_TIME_UNVERIFIED",
+    "US_METRIC_SERIES_NOT_SELECTED",
+    "LIVE_RADAR_POPULATION_PARTIAL_CRYPTO_ONLY"
+  ]
+}
