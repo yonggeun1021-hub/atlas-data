@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -213,6 +214,46 @@ def _walk_authorized_keys(value, path=""):
 
 
 class DailyOrchestratorTest(unittest.TestCase):
+    def test_filing_content_rows_bind_the_content_status_file_bytes(self):
+        for component_id, relative_path in (
+            ("DART_FILING_CONTENT", "data/latest_dart_content.json"),
+            ("SEC_FILING_CONTENT", "data/latest_sec_content.json"),
+        ):
+            with self.subTest(component_id=component_id):
+                path = ROOT / relative_path
+                snapshot = MODULE._fetch_filing_snapshot(relative_path)
+                expected = hashlib.sha256(path.read_bytes()).hexdigest()
+                self.assertEqual(snapshot["kind"], "payload")
+                self.assertEqual(snapshot["content_sha256"], expected)
+                self.assertNotEqual(
+                    expected,
+                    snapshot["value"].get("source_sha256"),
+                    "upstream metadata hash must not be relabelled as the content file hash",
+                )
+                row = MODULE._classify_filing_content(
+                    component_id,
+                    relative_path,
+                    snapshot["value"]["collected_for_kst_date"],
+                    snapshot,
+                )
+                self.assertEqual(row["source_packet_path"], relative_path)
+                self.assertEqual(row["source_packet_sha256"], expected)
+
+    def test_historical_filing_snapshot_without_content_digest_still_replays(self):
+        snapshot = MODULE._fetch_filing_snapshot("data/latest_dart_content.json")
+        legacy_snapshot = copy.deepcopy(snapshot)
+        del legacy_snapshot["content_sha256"]
+        row = MODULE._classify_filing_content(
+            "DART_FILING_CONTENT",
+            "data/latest_dart_content.json",
+            legacy_snapshot["value"]["collected_for_kst_date"],
+            legacy_snapshot,
+        )
+        self.assertEqual(
+            row["source_packet_sha256"],
+            legacy_snapshot["value"].get("source_sha256"),
+        )
+
     def test_morning_build_against_real_evidence_has_no_degraded_components(self):
         packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
         counts = packet["component_status_counts"]
