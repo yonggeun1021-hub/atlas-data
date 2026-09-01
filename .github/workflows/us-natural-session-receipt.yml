@@ -1,0 +1,73 @@
+name: US Natural Session Receipt
+
+on:
+  pull_request:
+    paths:
+      - "config/us_natural_session_receipt_contract.json"
+      - "market_data/us_natural_session_receipt.py"
+      - "validation/tests/test_us_natural_session_receipt.py"
+      - "docs/us_natural_session_receipt.md"
+      - "data/observations/us_natural_finished_session/**"
+      - ".github/workflows/us-natural-session-receipt.yml"
+  push:
+    branches: [main]
+    paths:
+      - "config/us_natural_session_receipt_contract.json"
+      - "market_data/us_natural_session_receipt.py"
+      - "validation/tests/test_us_natural_session_receipt.py"
+      - "docs/us_natural_session_receipt.md"
+      - "data/observations/us_natural_finished_session/**"
+      - ".github/workflows/us-natural-session-receipt.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-actual-step:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read-only exact checkout
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          git remote remove origin
+      - name: Focused producer and receipt regressions
+        run: |
+          python3 validation/tests/test_us_natural_session_receipt.py
+          python3 market_data/us_natural_session_receipt.py \
+            --verify data/observations/us_natural_finished_session/2026-09-01/receipt.json
+      - name: Rebuild the actual absent/unfinished observation byte-identically
+        run: |
+          output_path="$(mktemp)"
+          python3 market_data/us_natural_session_receipt.py \
+            --session-date 2026-09-01 \
+            --evaluated-at-utc 2026-09-01T14:00:00Z \
+            --next-natural-observation-at-utc 2026-09-01T20:05:00Z \
+            --output "$output_path"
+          cmp "$output_path" data/observations/us_natural_finished_session/2026-09-01/receipt.json
+      - name: Verify no tracked mutation
+        run: git diff --exit-code
+
+  broader:
+    needs: focused-actual-step
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read-only exact checkout
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          git remote remove origin
+      - name: Existing and new US completed-session boundaries
+        run: |
+          python3 validation/tests/test_us_session_bars.py
+          python3 validation/tests/test_us_paper_market_data_boundary.py
+          python3 validation/tests/test_us_natural_session_receipt.py
+      - name: Verify no tracked mutation
+        run: git diff --exit-code
