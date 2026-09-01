@@ -28,6 +28,7 @@ POLICY_SPEC = importlib.util.spec_from_file_location(
 POLICY = importlib.util.module_from_spec(POLICY_SPEC)
 POLICY_SPEC.loader.exec_module(POLICY)
 POLICY_CONTRACT = POLICY.load_contract()
+SOURCE_OWNER_V2 = ROOT / "config" / "regime_source_owner_registry_v2.json"
 
 
 def defined(axis, character):
@@ -553,6 +554,174 @@ class RegimePolicyCandidateTest(unittest.TestCase):
             persisted = json.loads(inventory_path.read_text(encoding="utf-8"))
             self.assertEqual(persisted["candidate_status"], "CANDIDATE_READY")
             self.assertEqual(persisted["policy_status"], "DRAFT_NOT_RATIFIED")
+
+
+class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.registry = json.loads(SOURCE_OWNER_V2.read_text(encoding="utf-8"))
+
+    def assert_pins(self, value):
+        for key, expected in value.items():
+            if key.endswith("_sha256"):
+                path_key = key.removesuffix("_sha256") + "_path"
+                if path_key in value:
+                    actual = hashlib.sha256((ROOT / value[path_key]).read_bytes()).hexdigest()
+                    self.assertEqual(actual, expected, path_key)
+
+    def test_v2_exact_decision_and_common_v1_separation(self):
+        value = self.registry
+        self.assertEqual(value["schema_version"], 2)
+        self.assertEqual(value["registry_version"], "regime_source_owner_registry/v2")
+        self.assertEqual(value["registry_mode"], "SOURCE_OWNER_ARCHITECTURE_ONLY")
+        self.assertEqual(
+            value["decision"],
+            {
+                "identity": "CIO-GATE2-3MARKET-REGIME-SOURCE-FIRST-B-2026-09-01",
+                "status": "CIO_APPROVED_ARCHITECTURE_SCOPE_ONLY",
+                "option": "OPTION_B_SOURCE_FIRST_LAYERED_RATIFICATION",
+                "effective_date": "2026-09-01",
+                "packet_sha256": "bdeb9b9970c71d38a9650f2374b9078e1f76ef4eeddf5acb34c6a890e9b7591c",
+            },
+        )
+        common = value["common_v1_alignment"]
+        self.assertEqual(common["policy_status"], "RATIFIED_PAPER_BASELINE_V1")
+        self.assertEqual(
+            common["repository_v2_alignment_status"],
+            "ALIGNED_ARCHITECTURE_ONLY_RUNTIME_NOT_WIRED",
+        )
+        self.assertEqual(
+            common["required_axes"],
+            ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"],
+        )
+        self.assertEqual(set(common["weights"].values()), {1})
+        self.assertFalse(
+            common["market_specific_normalization_freshness_and_replay_inherited"]
+        )
+        self.assertEqual(
+            common["legacy_runtime_contract"]["status"], "UNCHANGED_FAIL_CLOSED"
+        )
+        self.assert_pins(common["legacy_runtime_contract"])
+
+    def test_v2_market_and_aggregate_acceptance_remain_blocked(self):
+        markets = self.registry["markets"]
+        expected = {
+            "KRX": "BLOCKED_SIGNED_NORMALIZATION_TTL_PIT_REPLAY",
+            "US": "BLOCKED_FINISHED_SESSION_TTL_PIT_REPLAY",
+            "CRYPTO": "BLOCKED_OVERALL_FRESHNESS_PIT_REPLAY",
+        }
+        for name, status in expected.items():
+            self.assertEqual(markets[name]["acceptance_status"], status)
+            self.assertEqual(
+                markets[name]["architecture_status"],
+                "CIO_APPROVED_ARCHITECTURE_SCOPE_ONLY",
+            )
+            self.assertEqual(markets[name]["pit_replay_acceptance"], "NOT_ACCEPTED")
+        aggregate = self.registry["aggregate"]
+        self.assertEqual(
+            aggregate["acceptance_status"], "BLOCKED_MIXED_EVIDENCE_CLASSES"
+        )
+        self.assertEqual(aggregate["runtime_output_status"], "UNKNOWN/HOLD/WAIT")
+        self.assertFalse(aggregate["pin_update_allowed"])
+        self.assert_pins(aggregate)
+
+    def test_v2_krx_reuses_exact_official_source_and_owner(self):
+        krx = self.registry["markets"]["KRX"]
+        self.assertEqual(krx["source_scope"], "KRX_OFFICIAL_FIVE_AXIS")
+        self.assertEqual(
+            krx["source_owner"]["source_name"],
+            "KRX_OPEN_API_STOCK_AND_INDEX_DAILY",
+        )
+        self.assertEqual(
+            krx["natural_receipt_owner"]["owner_status"],
+            "BOUND_EXISTING_NATURAL_READ_ONLY",
+        )
+        self.assertIsNone(krx["signed_normalization_policy"])
+        self.assertIsNone(krx["ttl_seconds"])
+        self.assert_pins(krx["source_owner"])
+        self.assert_pins(krx["natural_receipt_owner"])
+
+    def test_v2_us_exact_calendar_proxy_and_bound_finished_session_owner(self):
+        us = self.registry["markets"]["US"]
+        self.assertEqual(
+            [row["source_id"] for row in us["official_calendar"]["sources"]],
+            ["NYSE_HOLIDAYS_AND_TRADING_HOURS", "NASDAQ_TRADING_SCHEDULE"],
+        )
+        proxy = us["paper_proxy"]
+        self.assertEqual(
+            proxy["exact_15_etfs"],
+            [
+                "IWM", "QQQ", "SMH", "SPY", "XLB", "XLC", "XLE", "XLF",
+                "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY",
+            ],
+        )
+        self.assertEqual(
+            proxy["leadership_12_group_proxies"],
+            [
+                "SMH", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
+                "XLRE", "XLU", "XLV", "XLY",
+            ],
+        )
+        self.assertEqual(proxy["leadership_benchmark"], "SPY")
+        self.assertEqual(proxy["leadership_window_finalized_sessions"], 20)
+        finished = us["finished_session_owner"]
+        self.assertEqual(
+            finished["owner_status"],
+            "BOUND_EXISTING_NATURAL_RECEIPT_OWNER_GATE1_ONLY",
+        )
+        self.assertEqual(
+            finished["initial_receipt_evidence_class"],
+            "NATURAL_INPUT_ABSENCE_AUDIT",
+        )
+        self.assertEqual(finished["initial_receipt_gate1_status"], "UNKNOWN")
+        self.assertEqual(finished["initial_receipt_gate2_status"], "HOLD")
+        self.assertEqual(finished["initial_receipt_recommendation"], "WAIT")
+        self.assertIn(
+            "IMPLEMENTATION_PENDING",
+            us["natural_receipt_owner"]["owner_status"],
+        )
+        self.assertIsNone(us["signed_normalization_policy"])
+        self.assertIsNone(us["ttl_seconds"])
+        self.assert_pins(us["source_owner"])
+        self.assert_pins(us["finished_session_owner"])
+        self.assert_pins(us["natural_receipt_owner"])
+
+    def test_v2_crypto_reuses_sources_without_promoting_group_layer(self):
+        crypto = self.registry["markets"]["CRYPTO"]
+        self.assertEqual(crypto["breadth_source"]["policy_status"], "RATIFIED")
+        self.assertEqual(crypto["leadership_source"]["bucket_layer"], "BTC_ETH_ALT")
+        self.assertEqual(
+            crypto["leadership_source"]["sector_chain_group_layer"],
+            "UNKNOWN_GROUP_LAYER",
+        )
+        self.assertEqual(
+            crypto["leadership_source"]["group_coverage_policy_status"],
+            "UNRATIFIED",
+        )
+        self.assertIn(
+            "IMPLEMENTATION_PENDING",
+            crypto["natural_receipt_owner"]["owner_status"],
+        )
+        self.assertIsNone(crypto["overall_freshness_policy"])
+        for key in ("breadth_source", "leadership_source", "source_owner", "status_owner"):
+            self.assert_pins(crypto[key])
+
+    def test_v2_owner_ids_unique_and_no_authority_promotion(self):
+        owners = []
+        for market in self.registry["markets"].values():
+            for key, value in market.items():
+                if key.endswith("owner") and isinstance(value, dict):
+                    owners.append(value["owner_id"])
+                    for path_key, path_value in value.items():
+                        if path_key.endswith("_path"):
+                            self.assertTrue((ROOT / path_value).is_file(), path_value)
+        owners.append(self.registry["aggregate"]["owner_id"])
+        self.assertEqual(len(owners), len(set(owners)))
+        authority = self.registry["authority"]
+        self.assertTrue(authority["source_owner_architecture_authorized"])
+        for key, value in authority.items():
+            if key != "source_owner_architecture_authorized":
+                self.assertFalse(value, key)
 
 
 if __name__ == "__main__":
