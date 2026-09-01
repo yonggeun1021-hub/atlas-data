@@ -98,6 +98,8 @@ def capture_observation(step_outcome: str, result: str) -> dict:
         normalized, reason = "cancelled", "capture_step_cancelled"
     elif outcome == "skipped":
         normalized, reason = "not_run", "capture_step_not_run"
+    elif declared == "waiting_universe_ratification":
+        normalized, reason = "waiting", "universe_ratification_not_effective"
     elif declared == "captured":
         normalized, reason = "captured", "new_snapshot_staged"
     elif declared == "skipped_existing":
@@ -179,6 +181,10 @@ def build_record(environ: dict[str, str]) -> dict:
             environ.get("ATLAS_P4_07_SHA256", ""),
         ),
         "consumer_lineage": {
+            "ready": environ.get("ATLAS_UNIVERSE_READY", "").strip().lower() == "true",
+            "wait_reason": _blank_to_none(environ.get("ATLAS_UNIVERSE_WAIT_REASON", "")),
+            "packet_path": _blank_to_none(environ.get("ATLAS_UNIVERSE_PACKET_PATH", "")),
+            "packet_date": _blank_to_none(environ.get("ATLAS_UNIVERSE_PACKET_DATE", "")),
             "snapshot_key": _blank_to_none(environ.get("ATLAS_SNAPSHOT_KEY", "")),
             "universe_record_sha256": universe_sha,
             "universe_market_count": market_count,
