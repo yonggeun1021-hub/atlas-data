@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.example/schemas/krx_gate1_natural_receipt.schema.json",
+  "title": "KRX Gate 1 natural completed-bar receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "as_of_date",
+    "decision_at",
+    "evidence_class",
+    "source_status",
+    "calendar",
+    "completed_series",
+    "ttl_sla_governance",
+    "gate1_status",
+    "runtime",
+    "blockers",
+    "lineage",
+    "authority",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "krx_gate1_natural_receipt/1"},
+    "contract_version": {"const": "krx_gate1_natural_receipt/1"},
+    "as_of_date": {"type": "string", "format": "date"},
+    "decision_at": {"type": "string", "format": "date-time"},
+    "evidence_class": {"enum": ["NATURAL_READ_ONLY", "TEST_ONLY_NON_PROMOTABLE"]},
+    "source_status": {"enum": ["COMPLETE", "INCOMPLETE", "TEST_ONLY"]},
+    "calendar": {"type": "object"},
+    "completed_series": {"type": "object"},
+    "ttl_sla_governance": {"type": "object"},
+    "gate1_status": {"enum": ["PASS", "UNKNOWN", "TEST_ONLY"]},
+    "runtime": {"type": "object"},
+    "blockers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "lineage": {"type": "object"},
+    "authority": {"type": "object"},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
