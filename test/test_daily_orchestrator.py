@@ -2560,8 +2560,23 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         original_read = MODULE._read_json
         shadow_path = MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH
         tampered = copy.deepcopy(original_read(shadow_path))
-        target = next(item for item in tampered["review_items"] if item["subject"] == "005930")
-        target["review_state"] = "MOMENTUM_PROBE_REVIEW"
+        self.assertTrue(
+            tampered["review_items"],
+            "committed shadow-review fixture must contain a row for tamper testing",
+        )
+        target = min(
+            tampered["review_items"],
+            key=lambda item: (
+                item["market"],
+                item["subject"],
+                item["candidate_id"],
+            ),
+        )
+        target["review_state"] = (
+            "WATCH_REVIEW"
+            if target["review_state"] == "MOMENTUM_PROBE_REVIEW"
+            else "MOMENTUM_PROBE_REVIEW"
+        )
         target["row_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
             {key: value for key, value in target.items() if key != "row_sha256"}
         )
