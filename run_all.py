@@ -597,6 +597,11 @@ APPROVED_TESTS = [
     #   재현하되 Trend/Breadth/순위/Regime/Production 권한은 부여하지 않는다.
     #   ⛔ live Tiingo/workflow/tracked factor 없음 — temp policies/stdin fixtures only.
     "test/test_us_leadership.py",
+    # ★ PAPER 12-6 정확한 commit f4e1d955 — US market-judgement fail-closed
+    #   receipt 회귀. 자연 증거나 policy를 임의 생성하지 않고, 합성
+    #   contract input도 repository의 UNRATIFIED/0-of-5 경계를 넘을 수 없다.
+    #   ⛔ network/broker/credential/order 없음 — temp files + committed contracts only.
+    "test/test_us_market_judgement.py",
     # ★ P1-US-05 — US Risk / Vol transient derived-feature 계약.
     #   기존 US price temporal eligibility를 재사용해 PIT/available_at을 검증하고
     #   synthetic stdin rows에서 RV/drawdown만 계산하며 vendor price 보존을 막는다.

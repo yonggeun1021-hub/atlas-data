@@ -1,0 +1,96 @@
+{
+  "schema_version": "paper_12_6_us_market_judgement_implementation_report/1",
+  "as_of_utc": "2026-08-31T09:48:24Z",
+  "base_commit": "c8f33c9a3f5d936f4c7c42d91fcee74a768e2e6a",
+  "scope": "ISOLATED_US_MARKET_JUDGEMENT_ONLY",
+  "implementation": {
+    "input_envelope": "us_market_judgement_input/1",
+    "receipt": "us_market_judgement_receipt/1",
+    "aggregate_projection": "regime_output/v1",
+    "bridge_projection": "us_market_judgement_bridge_projection/1",
+    "deterministic": true,
+    "content_addressed": true
+  },
+  "no_input_baseline_receipt": {
+    "evaluation_at": "2026-08-31T09:48:24Z",
+    "session_date": "2026-08-31",
+    "input_sha256": "4ddb023bd1089a749c0f1a277e8ffba23efaecd3ac945d9ce042773bd73e401c",
+    "receipt_sha256": "deb45b4afdfda74220d4fbc91ef297daa274c266b3d40f6590ee3dbd49b6f854",
+    "paper_12_4_regime_output_sha256": "79f84ef761eaa748c01a14ad3a75fe8dc2492343ea4f8b660245454767f278d6",
+    "paper_12_1_bridge_projection_sha256": "ed979c65460b6f731c2edb52c62d05d7bb7388b68dec35c979bba901c3c3c6fe",
+    "runtime_sha256": "6ca63150122762fe0d54843d0d05854ee4ef3a355fa342572e3b006740abbf9e",
+    "blocker_count": 49,
+    "evidence_class": "NO_INPUT_BASELINE_NOT_NATURAL_EVIDENCE"
+  },
+  "current_verified_facts": {
+    "us_leadership_policy": "us_leadership/draft-v1",
+    "us_leadership_approval_status": "UNRATIFIED",
+    "us_universe_policy": "us_leadership_universe/draft-v1",
+    "us_universe_approval_status": "UNRATIFIED",
+    "price_breadth_authorized": false,
+    "regime_classification_authorized": false,
+    "regime_coverage": "0/5",
+    "judgement": "UNKNOWN",
+    "status": "HOLD",
+    "recommendation": "WAIT",
+    "action": null
+  },
+  "connected": [
+    "ordered US source envelope",
+    "source observation date/time/TTL/hash verification",
+    "policy pin and coverage verification",
+    "finished-session prerequisite",
+    "five-axis minimum coverage gate",
+    "PAPER 12-4 exact regimeOutput subtree pin",
+    "PAPER 12-1 exact bridge projection subtree pin"
+  ],
+  "not_connected": [
+    "natural US finished-session evidence",
+    "ratified US universe policy",
+    "ratified US sector leadership policy",
+    "authorized market-wide price breadth",
+    "complete TREND/BREADTH/RISK_VOL/LIQUIDITY/LEADERSHIP axes",
+    "regime classification",
+    "candidate, portal, ledger, hedge, KRX, or Crypto runtime"
+  ],
+  "policy_blockers": [
+    "US_UNIVERSE_POLICY_UNRATIFIED",
+    "US_LEADERSHIP_POLICY_UNRATIFIED",
+    "US_PRICE_BREADTH_NOT_AUTHORIZED",
+    "REGIME_CLASSIFICATION_NOT_AUTHORIZED",
+    "MINIMUM_COVERAGE_NOT_MET"
+  ],
+  "tests": {
+    "focused_new_tests": 12,
+    "existing_regime_output_tests": 11,
+    "existing_minimum_coverage_tests": 8,
+    "existing_us_leadership_tests": 12,
+    "existing_us_paper_gate_tests": 19,
+    "total_passed": 62,
+    "failed": 0
+  },
+  "next_natural_session": {
+    "candidate_session_date": "2026-08-31",
+    "market_timezone": "America/New_York",
+    "qualification_boundary": "ONLY_AFTER_EXACT_FINISHED_SESSION_RECEIPT_AND_ALL_SOURCE_POLICY_COVERAGE_CHECKS",
+    "calendar_authority": "NOT_FETCHED_NETWORK_ZERO"
+  },
+  "boundaries": {
+    "network_calls": 0,
+    "broker_calls": 0,
+    "credential_reads": 0,
+    "oauth_calls": 0,
+    "post_calls": 0,
+    "orders": 0,
+    "ledger_mutations": 0,
+    "real": false,
+    "live": false,
+    "real_capital": false,
+    "production": false,
+    "trading": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "timer_install": false
+  }
+}

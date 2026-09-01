@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "contract_version": "paper_12_31_us_upstream_gate_lineage/1",
+  "main_audit_commit": "d972c20722a34d2a67e3e1f51501d755506151f5",
+  "paper_12_6_commit": "f4e1d955d20442326d4f42bf0be2bbbe9e263c5d",
+  "natural_session_date": "2026-08-31",
+  "evaluation_at_utc": "2026-09-01T01:29:11Z",
+  "files": {
+    "free_market_data": {
+      "ref": "evidence/free_market_data/derived/2026-08-31/manifest.json",
+      "sha256": "c3fedbb83c7a1e5b1ddfbd1024c0431a790de9ba314dcce171364e0533f5da93"
+    },
+    "free_market_data_contract": {
+      "ref": "config/free_market_data_contract.json",
+      "sha256": "648cc68d0bc926c8fe55037f63879bb362032db6052d2c51ed8bc845fd7dec88"
+    },
+    "us_global_universe": {
+      "ref": "data/observations/us_global_universe/2026-08-31/packet.json",
+      "sha256": "a1fa76167995577bbfc63edba47059176bef41ffffb6b041758ef9d4a2db7e67"
+    },
+    "us_global_universe_contract": {
+      "ref": "config/us_global_universe_contract.json",
+      "sha256": "4b79509434599aeddee2d8e9f52dde4ad80a4d6055ad18899edb69303373ce55"
+    },
+    "us_completed_market_data_contract": {
+      "ref": "config/us_completed_market_data_contract.json",
+      "sha256": "800770f7e9afe93b33d49ea0430c1b6f7bfbc55a872291cc71f69b3958e206b7"
+    },
+    "us_investable_registry_contract": {
+      "ref": "config/us_investable_registry_contract.json",
+      "sha256": "b54b062402a0fe4765f1b226145774c0b77eced0e4ade01f7b478fcbea172191"
+    },
+    "us_paper_funnel_handoff_contract": {
+      "ref": "config/us_paper_funnel_handoff_contract.json",
+      "sha256": "5b7f3152eb61aab3687d3e391dea280527d7cff5324c5a7fdd1615af84d296c3"
+    },
+    "us_market_judgement_contract": {
+      "ref": "config/us_market_judgement_contract.json",
+      "sha256": "fd96a32d2805444d1f72e387627546d65c576cd8b95cab4bd6ec2c339f01f961"
+    },
+    "us_market_judgement_runtime": {
+      "ref": "regime/us_market_judgement.py",
+      "sha256": "6ca63150122762fe0d54843d0d05854ee4ef3a355fa342572e3b006740abbf9e"
+    }
+  },
+  "audited_local_commits": [
+    {
+      "commit": "cefdec832b66e441e680a6db40c38e674d4546b6",
+      "role": "US_NATURAL_SOURCE_ADAPTER",
+      "disposition": "NOT_CONSUMED_NO_NATURAL_PAYLOAD"
+    },
+    {
+      "commit": "269eeb793206dc7d62108f2593ba641a2d9907bc",
+      "role": "US_NATURAL_ADMISSION_BRIDGE",
+      "disposition": "NOT_CONSUMED_NO_GENUINE_P9_RECEIPT"
+    },
+    {
+      "commit": "afbe457e09aa622f77bd8292c4552339feb79cbd",
+      "role": "US_REGIME_POLICY_DRAFT",
+      "disposition": "REJECTED_AS_RATIFICATION_SOURCE"
+    }
+  ]
+}
