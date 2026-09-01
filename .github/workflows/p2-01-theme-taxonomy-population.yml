@@ -1,0 +1,49 @@
+name: P2-01 Theme Taxonomy Source Population
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/p2-01-theme-taxonomy-population.yml'
+      - 'config/theme_taxonomy_authority_registry.json'
+      - 'config/theme_taxonomy_contract.json'
+      - 'config/theme_taxonomy_source_fact_registry.json'
+      - 'config/korea_leadership_policy.json'
+      - 'config/*leadership*'
+      - 'config/crypto_breadth_exclusion_taxonomy.json'
+      - 'config/upbit_exclusion_taxonomy.json'
+      - 'config/korea_capital_rotation_contract.json'
+      - 'config/us_capital_rotation_contract.json'
+      - 'config/crypto_rotation_contract.json'
+      - 'rotation/theme_taxonomy.py'
+      - 'rotation/theme_taxonomy_authority.py'
+      - 'rotation/theme_taxonomy_population.py'
+      - 'test/p2_01_theme_taxonomy_population/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-population:
+    runs-on: ubuntu-latest
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact event SHA with full provenance history
+        run: |
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin "${HEAD_SHA}"
+          git checkout --detach "${HEAD_SHA}"
+      - name: Exact source population and authority regression
+        run: |
+          python3 test/p2_01_theme_taxonomy_population/test_population.py
+          python3 test/test_theme_taxonomy.py
+          python3 test/test_theme_taxonomy_authority.py
+          python3 test/test_us_capital_rotation.py
+          python3 test/test_korea_capital_rotation.py
+          python3 test/test_crypto_rotation.py
+          python3 -m rotation.theme_taxonomy_population 2026-09-01 \
+            --trusted-commit "${HEAD_SHA}" > "$RUNNER_TEMP/p2-01-population.json"
+      - name: No tracked mutation
+        run: git diff --exit-code
