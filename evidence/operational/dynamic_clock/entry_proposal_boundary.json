@@ -26,29 +26,69 @@
     "status": "LOCKED_POLICY_UNRATIFIED",
     "trade_proposal": null
   },
-  "decision_date": "2026-09-01",
-  "human_review_material": [],
+  "decision_date": "2026-09-02",
+  "human_review_material": [
+    {
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "entry_authorized": false,
+        "order_authority": false,
+        "position_management_authorized": false,
+        "position_size_authorized": false,
+        "production_authority": false,
+        "proposal_draft_authorized": false,
+        "review_only": true,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "candidate_id": "aed9e83d24938e33089de94883c309c9d3b99646c048a4fc49403b036364f9b5",
+      "canonical_instrument_id": "KRX:000660:COMMON",
+      "capital": 0,
+      "diagnostic_participation_state": "PROBE_REVIEW",
+      "diagnostic_reason": "PIT_TRIGGER_WITH_LINKED_MOMENTUM_PRICE_STATE",
+      "entry_zone": null,
+      "identity_status": "RESOLVED",
+      "invalidation": null,
+      "market": "KOREA",
+      "material_status": "DIAGNOSTIC_REVIEW_MATERIAL_ONLY",
+      "max_loss": null,
+      "order_intent": null,
+      "p8_13_boundary": "IMPLEMENTED_FAIL_CLOSED",
+      "position_size": null,
+      "proposal_status": "LOCKED_POLICY_UNRATIFIED",
+      "proposed_action": "NONE",
+      "quantity": null,
+      "readiness_row_sha256": "d0a6bb0f2c270ac591fab9b40a2b8979a4bf7be4c98693fac5a2264e134efd55",
+      "review_state": "MOMENTUM_PROBE_REVIEW",
+      "risk_budget_pct": null,
+      "row_sha256": "4a8cc20df39e4cb336f50008a7997ca243ff704b9a8120f3976b182909be3565",
+      "status": "LOCKED_POLICY_UNRATIFIED",
+      "subject": "000660",
+      "trade_proposal": null
+    }
+  ],
   "operational_evaluation": {
-    "evaluated_at_utc": "2026-09-01T00:49:18Z",
+    "evaluated_at_utc": "2026-09-01T21:09:33Z",
     "status": "EXACT_CALLER_SUPPLIED_OPERATIONAL_RUN_TIMESTAMP",
     "time_precision": "TIMESTAMP"
   },
-  "packet_sha256": "bd4b7714bab9d9c7c78f887ea390595fada9f48beaab4df9cbd8b129b1d6608f",
+  "packet_sha256": "81e5606cb973e702abe963586b2a9909c23df0d993e85ddabf733d37f349934b",
   "schema_version": "entry_proposal_boundary/1",
   "source": {
-    "candidate_identity_packet_sha256": "6403f6f75ed46c970b2d5fda5b6616e185e8e676c3c90461208005ce881e3f69",
-    "dynamic_clock_report_sha256": "43e673648a4891c3303e9580389b5ae7c7c1ee734f44f266cbf4640e42aedba7",
-    "entry_policy_readiness_packet_sha256": "70fbcad2283859a66854fa9b09842025c2c0746b7af0960bae56968954d4f683",
+    "candidate_identity_packet_sha256": "a8330573d4573e2300f05f0d8db3c52522a902b10ce7e9cf3d9508d2b2fe56ca",
+    "dynamic_clock_report_sha256": "a4329a7027e15dcb63cb9d16eebfab5bea40b698277cd2aabcceb4114c02a0d4",
+    "entry_policy_readiness_packet_sha256": "d3ce097eddcca49ac02fba7239a815df0324be789e1cedbe38422f43c4b13956",
     "entry_proposal_boundary_contract_sha256": "4d07a80a63e84bc74d256d7fff54607246dac886426c3029068d8a99cafaf2bd",
-    "shadow_entry_review_packet_sha256": "516537b9405a43719a109f9955f8ee4b6672a2a7e755afde9505531e686930a8",
+    "shadow_entry_review_packet_sha256": "94aeb1170c20e4f28177ed4a936cec25755e4a96f60f29dd10553be1c03c111c",
     "trigger_kind": "UPSTREAM_WORKFLOW_RUN"
   },
   "summary": {
     "actionable_proposal_count": 0,
     "entry_proposal_count": 0,
-    "human_review_material_count": 0,
-    "observation_only_count": 55,
-    "observed_candidate_count": 55,
+    "human_review_material_count": 1,
+    "observation_only_count": 47,
+    "observed_candidate_count": 48,
     "order_intent_count": 0
   }
 }
