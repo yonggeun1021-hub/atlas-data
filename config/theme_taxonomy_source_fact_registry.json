@@ -1,0 +1,120 @@
+{
+  "schema_version": "theme_taxonomy_source_fact_registry/1",
+  "theme_contract": {
+    "path": "config/theme_taxonomy_contract.json",
+    "sha256": "c15d051b963ba299e1c2e85c2b75e0960188a2082e916f6d0ca0b6834375f2c6",
+    "contract_version": "theme_taxonomy/2"
+  },
+  "authority_registry": {
+    "path": "config/theme_taxonomy_authority_registry.json",
+    "sha256": "955d1e20d713213bac16068707f03d74dca1508afa21890ade0f19e1f9c1cbda",
+    "schema_version": "theme_taxonomy_authority_registry/1"
+  },
+  "sources": [
+    {
+      "source_id": "KOREA.KRX.OFFICIAL.SECTOR_SERIES",
+      "market": "KOREA",
+      "path": "config/korea_leadership_policy.json",
+      "sha256": "3b532ad57ba3a6750c83346eb7d832a184fe4f218b91843611eaad37c7510585",
+      "first_seen_commit": "8555b51cd89d66371baec71351588ccfd6aecf24",
+      "policy_version": "korea_leadership/v1",
+      "approval_status": "RATIFIED",
+      "identity_field": "series_identity",
+      "classification_field": "role",
+      "record_count": 48,
+      "fact_scope": "OFFICIAL_SECTOR_SERIES_IDENTITY_ONLY",
+      "theme_membership_authorized": false
+    },
+    {
+      "source_id": "US.LEADERSHIP.DRAFT",
+      "market": "US",
+      "path": "config/us_leadership_policy.json",
+      "sha256": "268ce29abf42f6498c64f3c692e37757f0f11ddda3e4ddf99a3218e3ff02fb2b",
+      "first_seen_commit": "02cecb795572a1e25aae09d5102b066b304747d0",
+      "policy_version": "us_leadership/draft-v1",
+      "approval_status": "UNRATIFIED",
+      "identity_field": "series_identity",
+      "classification_field": "role",
+      "record_count": 0,
+      "fact_scope": "EMPTY_DRAFT_NOT_AUTHORITY",
+      "theme_membership_authorized": false
+    },
+    {
+      "source_id": "US.LEADERSHIP.UNIVERSE.DRAFT",
+      "market": "US",
+      "path": "config/us_leadership_universe_policy.json",
+      "sha256": "98d180b13a92193005ca7be8aeab21f625ff3617109d7cf5a94749107a84ba09",
+      "first_seen_commit": "02cecb795572a1e25aae09d5102b066b304747d0",
+      "policy_version": "us_leadership_universe/draft-v1",
+      "approval_status": "UNRATIFIED",
+      "identity_field": "asset_id",
+      "classification_field": "role",
+      "record_count": 0,
+      "fact_scope": "EMPTY_DRAFT_NOT_AUTHORITY",
+      "theme_membership_authorized": false
+    },
+    {
+      "source_id": "CRYPTO.KRAKEN.IDENTITY_EXCLUSION",
+      "market": "CRYPTO",
+      "path": "config/crypto_breadth_exclusion_taxonomy.json",
+      "sha256": "11970369f465cb41c2289c8af77f806bb066d2486a126578525ab229a8c5270d",
+      "first_seen_commit": "f97b27389c51c8fd5e5842c5b369f940a41c36f0",
+      "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+      "approval_status": "RATIFIED",
+      "identity_field": "canonical_asset_id",
+      "classification_field": "category",
+      "record_count": 152,
+      "fact_scope": "IDENTITY_AND_EXCLUSION_ONLY_NOT_SECTOR_CHAIN",
+      "theme_membership_authorized": false
+    },
+    {
+      "source_id": "CRYPTO.UPBIT.PAPER_EIGHT.IDENTITY_EXCLUSION",
+      "market": "CRYPTO",
+      "path": "config/upbit_exclusion_taxonomy.json",
+      "sha256": "9a0de849edd22f21677157f71fb17f6a218f86de690f3df66ed97a71bc8e12ee",
+      "first_seen_commit": "5cc15031c505f1a56cff5f952a899fda9dba9afb",
+      "policy_version": "upbit_exclusion_taxonomy/v1",
+      "approval_status": "RATIFIED",
+      "identity_field": "canonical_asset_id",
+      "classification_field": "category",
+      "record_count": 8,
+      "fact_scope": "IDENTITY_AND_EXCLUSION_ONLY_NOT_SECTOR_CHAIN",
+      "theme_membership_authorized": false
+    }
+  ],
+  "consumers": [
+    {
+      "market": "KOREA",
+      "path": "config/korea_capital_rotation_contract.json",
+      "sha256": "7428c0be760de04f6634fd132c96b8902624b4f6c18810991fac70d73f0985c8",
+      "contract_version": "korea_capital_rotation/4",
+      "taxonomy_contract_version": "theme_taxonomy/1"
+    },
+    {
+      "market": "US",
+      "path": "config/us_capital_rotation_contract.json",
+      "sha256": "a35bc62b78d464b582d80240e849ab9a95c9cc128efb21d6ef4499e3ec4b5088",
+      "contract_version": "us_capital_rotation/2",
+      "taxonomy_contract_version": "theme_taxonomy/1"
+    },
+    {
+      "market": "CRYPTO",
+      "path": "config/crypto_rotation_contract.json",
+      "sha256": "8a49aec0a16777eb900cdb9b9bc0605c18a79e8e4f9ebef407aea982e53cf9ec",
+      "contract_version": "crypto_rotation/2",
+      "taxonomy_contract_version": null
+    }
+  ],
+  "authority": {
+    "source_fact_audit_authorized": true,
+    "theme_membership_authorized": false,
+    "sector_chain_membership_authorized": false,
+    "rotation_score_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false,
+    "real_capital_authorized": false
+  }
+}
