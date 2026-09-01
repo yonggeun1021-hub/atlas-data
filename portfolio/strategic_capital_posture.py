@@ -119,31 +119,45 @@ def _expected_contract() -> dict:
                 "schema_version": "defensive_action_decision_readiness_packet/1",
                 "contract_version": "defensive_action_decision_readiness/1",
                 "statuses": ["DEFENSIVE_ACTION_READINESS_BLOCKED"],
+                "effective_available_at_path": ["generated_at"],
             },
             "P7_CONCENTRATION_GUARD": {
                 "schema_version": "concentration_correlation_packet/2",
                 "contract_version": "concentration_correlation_guard/2",
                 "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
+                "effective_available_at_path": [
+                    "source_packets", "INPUT", "generated_at_utc"
+                ],
             },
             "P7_MARKET_THEME_BUDGET": {
                 "schema_version": "market_theme_exposure_packet/2",
                 "contract_version": "market_theme_exposure_budget/1",
                 "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_BUDGET"],
+                "effective_available_at_path": [
+                    "source_packets", "INPUT", "generated_at_utc"
+                ],
             },
             "P7_CRYPTO_EXPOSURE_LIMIT": {
                 "schema_version": "crypto_exposure_packet/2",
                 "contract_version": "crypto_exposure_limit/1",
                 "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LIMITS"],
+                "effective_available_at_path": [
+                    "source_packets", "INPUT", "generated_at_utc"
+                ],
             },
             "P7_PLANNED_LOSS_BUDGET": {
                 "schema_version": "planned_loss_packet/2",
                 "contract_version": "planned_loss_budget/2",
                 "statuses": ["LIMIT_BREACH", "WITHIN_RATIFIED_LOSS_BUDGET"],
+                "effective_available_at_path": [
+                    "source_packets", "INPUT", "generated_at_utc"
+                ],
             },
             "P7_CURRENCY_EXPOSURE": {
                 "schema_version": "currency_exposure_packet/1",
                 "contract_version": "currency_exposure/1",
                 "statuses": ["RAW_QUOTE_CURRENCY_EXPOSURE_ONLY"],
+                "effective_available_at_path": ["available_at"],
             },
         },
         "constraint_checks": [
@@ -249,6 +263,26 @@ def _assert_execution_authority_closed(name: str, authority) -> None:
             raise StrategicCapitalPostureError(f"SOURCE_AUTHORITY_EXPANDED:{name}:{key}")
 
 
+def _source_effective_available_at(name: str, packet: dict, spec: dict) -> str:
+    value = packet
+    path = spec.get("effective_available_at_path")
+    if (
+        not isinstance(path, list)
+        or not path
+        or any(not isinstance(key, str) or not key for key in path)
+    ):
+        raise StrategicCapitalPostureError(
+            f"SOURCE_EFFECTIVE_AVAILABLE_AT_PATH_INVALID:{name}"
+        )
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            raise StrategicCapitalPostureError(
+                f"SOURCE_EFFECTIVE_AVAILABLE_AT_MISSING:{name}"
+            )
+        value = value[key]
+    return _utc(value, f"SOURCE_EFFECTIVE_AVAILABLE_AT_INVALID:{name}")
+
+
 def _validate_source(
     name: str,
     packet: dict,
@@ -269,14 +303,13 @@ def _validate_source(
         raise StrategicCapitalPostureError(f"SOURCE_SEMANTIC_INVALID:{name}:{exc}") from exc
     _assert_execution_authority_closed(name, checked.get("authority"))
     digest = _sha(checked.get("packet_sha256"), f"SOURCE_PACKET_SHA_INVALID:{name}")
-    evidence_date = None
-    if "generated_at" in checked:
-        source_time = _utc(checked.get("generated_at"), f"SOURCE_TIME_INVALID:{name}")
-        if source_time > generated_at:
-            raise StrategicCapitalPostureError(f"SOURCE_FROM_FUTURE:{name}")
-        evidence_date = source_time[:10]
-    elif "as_of_date" in checked:
+    effective_available_at = _source_effective_available_at(name, checked, spec)
+    if effective_available_at > generated_at:
+        raise StrategicCapitalPostureError(f"SOURCE_FROM_FUTURE:{name}")
+    if "as_of_date" in checked:
         evidence_date = _date(checked.get("as_of_date"), f"SOURCE_DATE_INVALID:{name}")
+    else:
+        evidence_date = effective_available_at[:10]
     if evidence_date is not None and evidence_date > as_of_date:
         raise StrategicCapitalPostureError(f"SOURCE_AFTER_AS_OF_DATE:{name}")
     return {

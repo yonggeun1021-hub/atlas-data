@@ -278,6 +278,30 @@ class StrategicCapitalPostureTests(unittest.TestCase):
                 contract=CONTRACT,
             )
 
+    def test_future_effective_availability_in_each_p7_source_fails_closed(self):
+        for name in (
+            "P7_CONCENTRATION_GUARD",
+            "P7_MARKET_THEME_BUDGET",
+            "P7_CRYPTO_EXPOSURE_LIMIT",
+            "P7_PLANNED_LOSS_BUDGET",
+            "P7_CURRENCY_EXPOSURE",
+        ):
+            with self.subTest(name=name):
+                packets, reasons = bundle(defensive_available=False)
+                packets[name] = p7_source_packet(name)
+                reasons[name] = []
+                with self.assertRaisesRegex(
+                    MODULE.StrategicCapitalPostureError,
+                    f"SOURCE_FROM_FUTURE:{name}",
+                ):
+                    MODULE.build_packet(
+                        packets,
+                        reasons,
+                        "2026-08-21",
+                        "2026-08-21T00:00:00Z",
+                        contract=CONTRACT,
+                    )
+
     def test_unratified_policy_packet_is_rejected(self):
         packets, reasons = bundle()
         with self.assertRaisesRegex(
