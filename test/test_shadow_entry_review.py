@@ -11,8 +11,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from identity import canonical_identity as ci
+from identity.candidate_identity_observation import build_observation
 from replay.opportunity_trigger import payload_sha256
 from decision import shadow_entry_review as review
+
+
+FIXTURE_REPORT = (
+    ROOT
+    / "evidence"
+    / "operational"
+    / "dynamic_clock"
+    / "candidate_validity_source_reports"
+    / "report-8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512.json"
+)
 
 
 def _contains_key(value, forbidden: set[str]) -> bool:
@@ -28,8 +40,15 @@ def _contains_key(value, forbidden: set[str]) -> bool:
 class ShadowEntryReviewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.report = json.loads(review.DEFAULT_REPORT.read_text())
-        cls.identity = json.loads(review.DEFAULT_IDENTITY.read_text())
+        # Unit tests need an immutable source vintage.  The default files are
+        # rolling operational pointers and may legitimately stop containing a
+        # particular candidate between natural Dynamic Clock runs.
+        cls.report = json.loads(FIXTURE_REPORT.read_text())
+        cls.identity = build_observation(
+            cls.report,
+            ci.load_authority(),
+            ci.load_scope_authority(),
+        )
         cls.contract = json.loads(review.DEFAULT_CONTRACT.read_text())
         cls.packet = review.build_packet(cls.report, cls.identity, cls.contract)
         cls.by_subject = {row["subject"]: row for row in cls.packet["review_items"]}
