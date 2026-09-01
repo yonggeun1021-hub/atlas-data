@@ -3224,7 +3224,9 @@ _STATUS_MARK = {
 }
 
 
-def _format_component_detail(row: dict) -> list[str]:
+def _format_component_detail(
+    row: dict, decision_date: str | None = None
+) -> list[str]:
     """Real, human-meaningful values pulled from a component's own
     retained packet -- never a raw JSON dump. A component with no packet
     (blocked/unavailable) contributes nothing here; its status + reason
@@ -3276,16 +3278,25 @@ def _format_component_detail(row: dict) -> list[str]:
         elif cid == "FREE_MARKET_DATA":
             vix = packet.get("vixcls", {})
             bars = packet.get("alpaca_iex_bars", [])
-            lines.append(
-                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
-            )
-            lines.append(
-                "    - Alpaca IEX partial: "
-                + (
-                    ", ".join(f"{bar.get('symbol')}={bar.get('close')}" for bar in bars)
-                    if bars else f"{packet.get('alpaca_status')}"
+            if decision_date and row.get("as_of_date") != decision_date:
+                # US evidence is never a substitute for the KRX briefing
+                # date.  Keep its own date visible, but do not present an
+                # older close as if it described the current KST session.
+                lines.append(
+                    "    - US close values withheld: independent session evidence "
+                    f"is dated {row.get('as_of_date') or 'UNKNOWN'}, not {decision_date}"
                 )
-            )
+            else:
+                lines.append(
+                    f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
+                )
+                lines.append(
+                    "    - Alpaca IEX partial: "
+                    + (
+                        ", ".join(f"{bar.get('symbol')}={bar.get('close')}" for bar in bars)
+                        if bars else f"{packet.get('alpaca_status')}"
+                    )
+                )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
             lines.append(
@@ -3335,27 +3346,33 @@ def _format_component_detail(row: dict) -> list[str]:
                 .get("measurement", {})
                 .get("largest_relative_returns", [])[:3]
             )
-            lines.append(
-                f"    - 기준일={packet.get('as_of_date')} "
-                f"코스피={trend.get('KOSPI', {}).get('one_session_return_pct')}% "
-                f"코스닥={trend.get('KOSDAQ', {}).get('one_session_return_pct')}%"
-            )
-            lines.append(
-                f"    - 상승={breadth.get('advancing_count')} "
-                f"하락={breadth.get('declining_count')} "
-                f"보합={breadth.get('unchanged_count')} "
-                f"거래대금변화={liquidity.get('trading_value_change_pct')}%"
-            )
-            if leaders:
+            if decision_date and row.get("as_of_date") != decision_date:
                 lines.append(
-                    "    - 상대강도 상위 관측: "
-                    + ", ".join(
-                        f"{item.get('market')} {item.get('sector_name')} "
-                        f"{item.get('relative_return_vs_benchmark_pct')}%p"
-                        for item in leaders
-                    )
-                    + " (투자순위 아님)"
+                    "    - 한국 종가 수치 보류: 최신 보존 관측일="
+                    f"{row.get('as_of_date') or 'UNKNOWN'}; {decision_date} 종가로 재표기하지 않음"
                 )
+            else:
+                lines.append(
+                    f"    - 기준일={packet.get('as_of_date')} "
+                    f"코스피={trend.get('KOSPI', {}).get('one_session_return_pct')}% "
+                    f"코스닥={trend.get('KOSDAQ', {}).get('one_session_return_pct')}%"
+                )
+                lines.append(
+                    f"    - 상승={breadth.get('advancing_count')} "
+                    f"하락={breadth.get('declining_count')} "
+                    f"보합={breadth.get('unchanged_count')} "
+                    f"거래대금변화={liquidity.get('trading_value_change_pct')}%"
+                )
+                if leaders:
+                    lines.append(
+                        "    - 상대강도 상위 관측: "
+                        + ", ".join(
+                            f"{item.get('market')} {item.get('sector_name')} "
+                            f"{item.get('relative_return_vs_benchmark_pct')}%p"
+                            for item in leaders
+                        )
+                        + " (투자순위 아님)"
+                    )
         elif cid == "THREE_MARKET_REGIME_HEADER":
             for market in packet.get("markets", []):
                 coverage = market.get("coverage", {})
@@ -3647,6 +3664,52 @@ def _format_component_detail(row: dict) -> list[str]:
     return lines
 
 
+def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> list[str]:
+    """Render each market against its own evidence clock, never KRX's.
+
+    This is a presentation boundary only: it neither infers an exchange
+    holiday nor changes a component's status.  A same-date validated source
+    can be described as current.  Any other source date is disclosed and its
+    numerical close is withheld by ``_format_component_detail``.
+    """
+    decision_date = packet["decision_date"]
+
+    def source_date(component_id: str) -> str:
+        row = by_id.get(component_id) or {}
+        return row.get("as_of_date") or "UNKNOWN"
+
+    krx = by_id.get("KOREA_MARKET_SIGNALS") or {}
+    krx_fresh = krx.get("status") == "READY" and krx.get("as_of_date") == decision_date
+    us = by_id.get("FREE_MARKET_DATA") or {}
+    us_fresh = us.get("status") == "READY" and us.get("as_of_date") == decision_date
+    crypto_ids = ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE")
+    crypto_dates = [source_date(component_id) for component_id in crypto_ids]
+    crypto_fresh = all(date == decision_date for date in crypto_dates)
+
+    return [
+        "## Market session / freshness",
+        (
+            "- KRX: FRESH_CLOSE" if krx_fresh else
+            "- KRX: FRESH_CLOSE_PENDING"
+        )
+        + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}; "
+        + "KOSPI/KOSDAQ values are shown only for a same-date validated close.",
+        (
+            "- US: CURRENT_SESSION_EVIDENCE" if us_fresh else
+            "- US: INDEPENDENT_SESSION_PENDING"
+        )
+        + f"; evidence_date={source_date('FREE_MARKET_DATA')}; "
+        + "US values are not relabelled as the KRX briefing date.",
+        (
+            "- Crypto: CONTINUOUS_CURRENT_EVIDENCE" if crypto_fresh else
+            "- Crypto: CONTINUOUS_EVIDENCE_PENDING"
+        )
+        + f"; evidence_dates={','.join(crypto_dates)}; "
+        + "Crypto freshness is evaluated independently of both equity sessions.",
+        "",
+    ]
+
+
 def render_markdown(packet: dict) -> str:
     by_id = {row["component_id"]: row for row in packet["components"]}
     flow_first = FLOW_FIRST_BRIEFING.build_packet(packet)
@@ -3660,6 +3723,7 @@ def render_markdown(packet: dict) -> str:
         "briefing. All such fields remain false/null.",
         "",
     ]
+    lines.extend(_market_session_freshness_lines(packet, by_id))
     decision_day = dt.date.fromisoformat(packet["decision_date"])
     if packet["slot"] == "morning" and decision_day.weekday() >= 5:
         step0 = by_id.get("STEP0_READ_MODEL_HEALTH") or {}
@@ -3730,7 +3794,7 @@ def render_markdown(packet: dict) -> str:
             mark = _STATUS_MARK.get(row["status"], row["status"])
             reason = f" — {row['reason']}" if row["reason"] else ""
             lines.append(f"- **{row['component_id']}**: {mark}{reason}")
-            lines.extend(_format_component_detail(row))
+            lines.extend(_format_component_detail(row, packet["decision_date"]))
             if row["source_packet_path"]:
                 lines.append(f"  - source: `{row['source_packet_path']}`")
             if row["source_packet_sha256"]:

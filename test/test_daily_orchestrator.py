@@ -1535,6 +1535,51 @@ class DailyOrchestratorTest(unittest.TestCase):
             "No action, order, Production, or trading authority", rendered
         )
 
+    def test_market_freshness_is_independent_and_stale_equity_values_are_withheld(self):
+        packet = {"decision_date": "2026-09-01"}
+        by_id = {
+            "KOREA_MARKET_SIGNALS": {"status": "READY", "as_of_date": "2026-08-31"},
+            "FREE_MARKET_DATA": {"status": "READY", "as_of_date": "2026-08-28"},
+            "BTC_TREND": {"as_of_date": "2026-09-01"},
+            "BTC_RISK": {"as_of_date": "2026-09-01"},
+            "STABLECOIN_NET_ISSUANCE": {"as_of_date": "2026-09-01"},
+        }
+        context = "\n".join(MODULE._market_session_freshness_lines(packet, by_id))
+        self.assertIn("KRX: FRESH_CLOSE_PENDING", context)
+        self.assertIn("evidence_date=2026-08-31", context)
+        self.assertIn("US: INDEPENDENT_SESSION_PENDING", context)
+        self.assertIn("evidence_date=2026-08-28", context)
+        self.assertIn("Crypto: CONTINUOUS_CURRENT_EVIDENCE", context)
+        self.assertNotIn("FRESH_CLOSE; evidence_date=2026-08-31", context)
+
+        korea = {
+            "component_id": "KOREA_MARKET_SIGNALS",
+            "as_of_date": "2026-08-31",
+            "packet": {
+                "as_of_date": "2026-08-31",
+                "axes": {"TREND": {"measurement": {"benchmarks": {
+                    "KOSPI": {"one_session_return_pct": "9.99"},
+                    "KOSDAQ": {"one_session_return_pct": "8.88"},
+                }}}},
+            },
+        }
+        korea_detail = "\n".join(MODULE._format_component_detail(korea, "2026-09-01"))
+        self.assertIn("한국 종가 수치 보류", korea_detail)
+        self.assertNotIn("코스피=9.99%", korea_detail)
+
+        us = {
+            "component_id": "FREE_MARKET_DATA",
+            "as_of_date": "2026-08-28",
+            "packet": {
+                "vixcls": {"value": "14.43", "date": "2026-08-28"},
+                "alpaca_iex_bars": [{"symbol": "SPY", "close": "766.87"}],
+                "scope_warning": "PARTIAL",
+            },
+        }
+        us_detail = "\n".join(MODULE._format_component_detail(us, "2026-09-01"))
+        self.assertIn("US close values withheld", us_detail)
+        self.assertNotIn("VIXCLS=14.43", us_detail)
+
     def test_weekend_morning_discloses_closed_session_without_date_relabelling(self):
         packet = MODULE.build_packet(
             "morning", "2026-08-29", "2026-08-28T22:09:34Z"
