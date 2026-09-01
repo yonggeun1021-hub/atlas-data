@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_version": "cross_market_flow_transition_ledger/1",
+  "input_schema_version": "capital_flow_posture_reference/v1",
+  "input_contract_version": "capital_flow_posture_reference_policy/v1",
+  "ledger_schema_version": "cross_market_flow_transition_ledger_packet/1",
+  "observation_modes": [
+    "NATURAL",
+    "MANUAL",
+    "RECOVERY",
+    "REPLAY"
+  ],
+  "persistence_count_policy": {
+    "NATURAL": true,
+    "MANUAL": false,
+    "RECOVERY": false,
+    "REPLAY": false
+  },
+  "transition_types": [
+    "INITIAL",
+    "UNCHANGED",
+    "CHANGED",
+    "REVERSAL",
+    "INVALIDATION",
+    "RECOVERY"
+  ],
+  "same_observation_date_policy": "IDENTICAL_SOURCE_NOOP_OTHERWISE_REVISION_DRIFT_FAIL_CLOSED",
+  "confirmation_policy": "UNRATIFIED_CONFIRMED_AT_NULL",
+  "stale_policy": "NON_FORWARD_OBSERVATION_DATE_FAIL_CLOSED_NO_WALL_CLOCK_THRESHOLD",
+  "authority": {
+    "read_only_audit_display_authorized": true,
+    "persistence_observation_authorized": true,
+    "confirmation_authorized": false,
+    "numeric_threshold_authorized": false,
+    "market_allocation_authorized": false,
+    "capital_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

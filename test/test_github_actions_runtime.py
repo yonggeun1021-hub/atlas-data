@@ -78,8 +78,8 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
                         observed[action].append((path.name, use))
                         self.assertEqual(use, f"{action}@{item['commit_sha']}")
 
-        self.assertEqual(len(observed["actions/checkout"]), 43)
-        self.assertEqual(len(observed["actions/setup-python"]), 40)
+        self.assertEqual(len(observed["actions/checkout"]), 44)
+        self.assertEqual(len(observed["actions/setup-python"]), 41)
         self.assertEqual(len(observed["actions/upload-artifact"]), 13)
         self.assertEqual(len(observed["actions/download-artifact"]), 2)
 

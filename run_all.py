@@ -696,6 +696,13 @@ APPROVED_TESTS = [
     # All numeric weights, account facts, actions, orders, and trading remain
     # null/false until replay and a separate capital-budget ratification.
     "test/test_capital_flow_posture_reference.py",
+    # ★ P2-COM-03 append-only Cross-Market Flow transition ledger. Consumes
+    # only the exact P2-COM-02 evidence packet and records previous/current,
+    # first_seen, persistence, reversal/invalidation, and evidence lineage.
+    # Only NATURAL observations count; MANUAL/RECOVERY/REPLAY are labeled but
+    # non-counting. confirmed_at stays null and no threshold, allocation,
+    # capital/action/order, Production, or Trading authority is introduced.
+    "test/test_cross_market_flow_transition_ledger.py",
     # ★ P1-COM-04 — Regime pre-score deterministic replay harness.
     #   US/KR/CRYPTO의 동일 regime_output/v1 증거를 두 번 검증하고 canonical
     #   byte equality와 설명 가능 필드 보존을 확인한다. minimum coverage가
