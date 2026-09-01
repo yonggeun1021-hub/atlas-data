@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://paper-12-4/market-input-envelope/v1",
+  "title": "PAPER 12-4 Market Regime Input Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "market",
+    "envelope_id",
+    "regime_scoring_policy_status",
+    "declared_rotation_state",
+    "inputs"
+  ],
+  "properties": {
+    "schema_version": {"const": "paper12_4_market_input_envelope/v1"},
+    "market": {"enum": ["KRX", "US", "CRYPTO"]},
+    "envelope_id": {"type": "string", "minLength": 1},
+    "regime_scoring_policy_status": {"enum": ["RATIFIED", "UNRATIFIED"]},
+    "declared_rotation_state": {"enum": ["READY", "PENDING", "DEGRADED"]},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["LEADERSHIP", "SECTOR_FLOW", "AXES"],
+      "properties": {
+        "LEADERSHIP": {"$ref": "#/$defs/input"},
+        "SECTOR_FLOW": {"$ref": "#/$defs/input"},
+        "AXES": {"$ref": "#/$defs/input"}
+      }
+    }
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "source_id",
+        "source_path",
+        "source_sha256",
+        "source_time_utc",
+        "bar_close_time_utc",
+        "completed_bar",
+        "ttl_seconds",
+        "policy_status",
+        "coverage_policy_status",
+        "coverage"
+      ],
+      "properties": {
+        "availability": {"enum": ["PRESENT", "MISSING"]},
+        "source_id": {"type": "string", "minLength": 1},
+        "source_path": {"type": ["string", "null"]},
+        "source_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_time_utc": {"type": ["string", "null"], "format": "date-time"},
+        "bar_close_time_utc": {"type": ["string", "null"], "format": "date-time"},
+        "completed_bar": {"type": "boolean"},
+        "ttl_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "policy_status": {"enum": ["RATIFIED", "UNRATIFIED"]},
+        "coverage_policy_status": {"enum": ["RATIFIED", "UNRATIFIED"]},
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["defined_count", "required_count"],
+          "properties": {
+            "defined_count": {"type": "integer", "minimum": 0},
+            "required_count": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema_version": "paper_gate_2_3_report/v1",
+  "report_date": "2026-09-01",
+  "scope": "paper_gate_2_3_three_market_aggregate plus PAPER_12_4 fixture compatibility reseal",
+  "base_commit": "d972c20722a34d2a67e3e1f51501d755506151f5",
+  "exact_pins_sha256": "5190d62fb60a9ddb9151fd42870b9f1274be9e2457c9f7c0d97ddc1e21b6c807",
+  "source_commits": {
+    "paper_12_4": "25ee4b1ec0634ffb9b7f5f33cac4fd6e676371c1",
+    "krx_12_5": "bd9db7bd9cd631b7c56536a0077bacf5b475d574",
+    "us_12_6": "f4e1d955d20442326d4f42bf0be2bbbe9e263c5d",
+    "crypto_12_11": "2b09c615a804ea68f058cc56de5aefdd34aa7aa6",
+    "crypto_private_adapter_merge": "742053c6aa0d88cd109d51d476376bd18f1331a8",
+    "common_funnel_public_merge": "7e6021fcb866027b3b6caa28405dd0d9b3e90875",
+    "p2_com_02_flow_rotation": "992891a12a92f230659edbaf9aab26f124edfe3e"
+  },
+  "owner_receipt_pins": {
+    "KRX": "f6cedaa44bdae902b6d98dbc31eedb51e67f18f6118d4ad6d299c4d126a675c1",
+    "US": "deb45b4afdfda74220d4fbc91ef297daa274c266b3d40f6590ee3dbd49b6f854",
+    "CRYPTO": "ad661a9209e1ee0a820618f4797b4d0e66483aef332abb660d4f7acbb4e61aa9"
+  },
+  "result": {
+    "market_regime_receipts": {
+      "KRX": "375a20c6371279aed8deb0e74fedd82aca91c0bf0414013cf89287f662071ccb",
+      "US": "6b9ce9c566648726a77a892e2fe4cc83d6ee77489e19d010a54f1eb01f856231",
+      "CRYPTO": "969123b6c49422d85bbf4ca55ed9110287c143d208ecb29d1434e4d1b1e90d65"
+    },
+    "market_rotation_receipts": {
+      "KRX": "fbbab5613f404c4b6744a2b0dfe7982b5b3e6b48139ecfbcda00794a33fd5d0a",
+      "US": "3ef9d230a63a7e2d771c23a7e3e67e879a5136e591e39e1a1913ad3f9a8236a4",
+      "CRYPTO": "b1db2ac53e45a5b8d49f66ae0c4f8fe38b295cf801173054a1ce7422fbac464e"
+    },
+    "regime_header_sha256": "9f3f654f82935b9bf96656649b6b20b26e1565b241eb01f61534d0d5de23dfbe",
+    "rotation_header_sha256": "914756f2d64ab3d89c4308c8385c9bac1992d5dc7b4129e19ba26e55cd4f54de",
+    "transition_ledger_sha256": "3a3baf335f36528e85501919777b765b741a5defab531f2de5148874eef8138e",
+    "aggregate_sha256": "25a4eec6ddae04b4bacf002819c3f80d19f3769b57e71623eeb4e846cb1704e6",
+    "three_market_regime_header": "PENDING",
+    "rotation_discovery": "DEGRADED",
+    "paper_authorized": false
+  },
+  "crypto_release_fact": {
+    "natural_candidate_count": 8,
+    "investment_paper_count": 0,
+    "judgement": "UNKNOWN",
+    "disposition": "HOLD",
+    "blocked_by": [
+      "CRYPTO_REGIME_EVIDENCE_INCOMPLETE",
+      "CRYPTO_RELATIVE_STRENGTH_EVIDENCE_INCOMPLETE",
+      "CRYPTO_LIQUIDITY_EVIDENCE_INCOMPLETE",
+      "CRYPTO_FOUR_COMPONENT_SCORE_EVIDENCE_INCOMPLETE"
+    ]
+  },
+  "tests": {
+    "focused": 14,
+    "paper_12_4": 12,
+    "regime_rotation_ledger_regression": 128,
+    "total_passed": 154,
+    "failed": 0
+  },
+  "effects": {
+    "network": 0,
+    "credentials": 0,
+    "get": 0,
+    "post": 0,
+    "oauth": 0,
+    "broker": 0,
+    "orders": 0,
+    "cancels": 0,
+    "runtime_mutations": 0,
+    "portal_mutations": 0,
+    "timer_installs": 0
+  },
+  "authority": {
+    "real": false,
+    "live": false,
+    "real_capital": false,
+    "production": false,
+    "trading": false
+  }
+}

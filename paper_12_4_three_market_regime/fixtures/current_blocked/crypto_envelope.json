@@ -1,0 +1,48 @@
+{
+  "schema_version": "paper12_4_market_input_envelope/v1",
+  "market": "CRYPTO",
+  "envelope_id": "crypto-current-blocked-2026-08-31",
+  "regime_scoring_policy_status": "UNRATIFIED",
+  "declared_rotation_state": "DEGRADED",
+  "inputs": {
+    "LEADERSHIP": {
+      "availability": "PRESENT",
+      "source_id": "crypto_leadership/v1-policy-snapshot",
+      "source_path": "paper_12_4_three_market_regime/fixtures/current_blocked/sources/crypto_leadership.json",
+      "source_sha256": "b149f341643037bdd864d2adf91c36a40cbf1583a95e4826f54631d13d961013",
+      "source_time_utc": "2026-08-31T00:30:00Z",
+      "bar_close_time_utc": "2026-08-31T00:00:00Z",
+      "completed_bar": true,
+      "ttl_seconds": 7200,
+      "policy_status": "RATIFIED",
+      "coverage_policy_status": "UNRATIFIED",
+      "coverage": {"defined_count": 0, "required_count": 5}
+    },
+    "SECTOR_FLOW": {
+      "availability": "PRESENT",
+      "source_id": "crypto-group-flow-blocked-snapshot",
+      "source_path": "paper_12_4_three_market_regime/fixtures/current_blocked/sources/crypto_sector_flow.json",
+      "source_sha256": "194ce5fc6c4ceaeb8877d962bc487cc1fe3eaa5e8084ae7217396021bc71d254",
+      "source_time_utc": "2026-08-31T00:30:00Z",
+      "bar_close_time_utc": "2026-08-31T00:00:00Z",
+      "completed_bar": true,
+      "ttl_seconds": 7200,
+      "policy_status": "RATIFIED",
+      "coverage_policy_status": "UNRATIFIED",
+      "coverage": {"defined_count": 0, "required_count": 5}
+    },
+    "AXES": {
+      "availability": "PRESENT",
+      "source_id": "crypto-five-axis-blocked-snapshot",
+      "source_path": "paper_12_4_three_market_regime/fixtures/current_blocked/sources/crypto_axes.json",
+      "source_sha256": "8aedc24d18dcf69e1feba1033c2945be672f765dd04abb1582e8a3e8c16736d6",
+      "source_time_utc": "2026-08-31T00:30:00Z",
+      "bar_close_time_utc": "2026-08-31T00:00:00Z",
+      "completed_bar": true,
+      "ttl_seconds": 7200,
+      "policy_status": "RATIFIED",
+      "coverage_policy_status": "UNRATIFIED",
+      "coverage": {"defined_count": 0, "required_count": 5}
+    }
+  }
+}
