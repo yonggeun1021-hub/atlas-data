@@ -1,7 +1,8 @@
 # P2-01 Theme / Value-Chain taxonomy contract
 
 Status: external-graph validation plus an empty independent authority-registry
-mechanism; no approved repository taxonomy or live membership population.
+mechanism and an exact-source-fact population audit; no approved repository
+Theme graph or live Theme membership population.
 
 ## No default taxonomy
 
@@ -72,6 +73,24 @@ The existing US/Korea rotation contracts still declare `theme_taxonomy/1`.
 They are intentionally not relabeled as `/2`: their current binding shape does
 not consume or independently verify the new authority boundary. Integration
 therefore remains blocked rather than implying compatibility by version alone.
+
+## Canonical source-fact population
+
+`config/theme_taxonomy_source_fact_registry.json` and
+`rotation/theme_taxonomy_population.py` pin the current Korea, US, and Crypto
+classification sources and all three rotation-consumer contracts by exact
+bytes. The audit reuses the authority registry validator and checks immutable
+git provenance, first-seen source bytes, effective intervals, duplicates, and
+cross-source Crypto identity collisions. See
+`docs/theme_taxonomy_population.md` for the record-by-record boundary.
+
+The population audit does not copy those sources into a parallel taxonomy.
+Official KRX sector series remain sector-series identity facts; Crypto records
+remain identity/exclusion facts; the US sources remain unratified and empty.
+All three therefore publish zero Theme or sector/chain memberships. The exact
+consumer pins make the integration gap executable and tamper-evident without
+pretending that the existing `theme_taxonomy/1` or absent Crypto pin consumes
+`theme_taxonomy/2` authority.
 
 ## Authority and operation
 
