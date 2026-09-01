@@ -1,0 +1,49 @@
+name: KRX Gate 1 natural receipt
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/krx-gate1-natural-receipt.yml"
+      - "config/krx_gate1_natural_receipt_contract.json"
+      - "docs/krx_gate1_natural_receipt_20260901.md"
+      - "evidence/krx_gate1_natural_receipt/**"
+      - "krx_gate1_natural_receipt/**"
+      - "schemas/krx_gate1_natural_receipt.schema.json"
+      - "test/krx_gate1_natural_receipt/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/krx-gate1-natural-receipt.yml"
+      - "config/krx_gate1_natural_receipt_contract.json"
+      - "docs/krx_gate1_natural_receipt_20260901.md"
+      - "evidence/krx_gate1_natural_receipt/**"
+      - "krx_gate1_natural_receipt/**"
+      - "schemas/krx_gate1_natural_receipt.schema.json"
+      - "test/krx_gate1_natural_receipt/**"
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read-only exact-SHA checkout without changing common action count
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          git remote remove origin
+      - name: Verify exact KRX Gate 1 receipt
+        run: |
+          python3 test/krx_gate1_natural_receipt/test_receipt.py -v
+          python3 -m krx_gate1_natural_receipt.receipt \
+            evidence/krx_gate1_natural_receipt/2026-09-01/input_manifest.json \
+            --check-receipt evidence/krx_gate1_natural_receipt/2026-09-01/receipt.json
+      - name: Verify reused KRX validators
+        run: |
+          python3 validation/tests/test_krx_market_data.py
+          python3 test/krx_market_judgement/test_krx_market_judgement.py
+      - name: Verify tracked tree remains clean
+        run: git diff --exit-code

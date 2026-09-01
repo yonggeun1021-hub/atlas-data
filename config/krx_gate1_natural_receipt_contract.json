@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_gate1_natural_receipt/1",
+  "receipt_version": "krx_gate1_natural_receipt/1",
+  "market": "KRX",
+  "timezone": "Asia/Seoul",
+  "run_mode": "PAPER_READ_ONLY",
+  "approval_receipt": {
+    "id": "CIO_GATE1_TTL_SLA_OPTION_B_20260901",
+    "decision": "APPROVED_OPTION_B",
+    "numeric_ttl_seconds": null,
+    "repository_default": "ABSENT",
+    "provider_sla": "UNKNOWN",
+    "governance": "OBSERVATION_REQUIRED"
+  },
+  "exact_pins": {
+    "public_base_commit": "2ec4bf86a09ccfa77a80e272f791ef01881cc6c5",
+    "completed_bar_validator": {
+      "path": "market_data/krx_session_bars.py",
+      "sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0"
+    },
+    "market_data_contract": {
+      "path": "config/krx_market_data_contract.json",
+      "sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
+      "contract_version": "krx_completed_market_data/1"
+    },
+    "natural_judgement_producer_merge": "19fefca7dd26be1984c5b4b5cc4256b5e2cb27dc",
+    "natural_judgement_producer": {
+      "path": "market_judgement/krx_market_judgement.py",
+      "sha256": "41e1428949ffd48a7dcb839502bddf4b562791dc51f52ff601d22be1459a22a2"
+    },
+    "natural_judgement_contract": {
+      "path": "config/krx_market_judgement_contract.json",
+      "sha256": "08c4c9a07743ae6a6c0c989e13927889838133e6b7381270e42de0c2f8646be5",
+      "contract_version": "krx_market_judgement/1"
+    }
+  },
+  "official_session_source": {
+    "provider_id": "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
+    "endpoint_id": "CTCA0903R",
+    "market_rule_source": "KRX_EQUITY_MARKET_OPERATION_RULES",
+    "date_specific_required": true,
+    "exact_response_sha256_required": true,
+    "network_fetch_owned_here": false
+  },
+  "normalized_minute_source": {
+    "provider_id": "KIS_OPEN_API",
+    "allowed_endpoint_ids": [
+      "FHKST03010230",
+      "FHKST03010200"
+    ],
+    "timestamp_semantics": "INTERVAL_START_RATIFIED",
+    "normalization_receipt_required": true,
+    "pit_time_order": "BAR_CLOSE_LE_OBSERVED_AT_LE_AVAILABLE_AT_LE_GENERATED_AT_LE_DECISION_AT",
+    "network_fetch_owned_here": false
+  },
+  "required_completed_series": {
+    "15m": {
+      "regular_session_count": 26,
+      "first_interval": "09:00:00/09:15:00",
+      "last_interval": "15:15:00/15:30:00"
+    },
+    "1h": {
+      "regular_session_count": 6,
+      "first_interval": "09:00:00/10:00:00",
+      "last_interval": "14:00:00/15:00:00",
+      "partial_tail": "15:00_TO_15:30_EXCLUDED"
+    },
+    "1d": {
+      "status": "UNCONFIRMED_NOT_PROMOTED_BY_THIS_RECEIPT"
+    }
+  },
+  "evidence_classes": [
+    "NATURAL_READ_ONLY",
+    "TEST_ONLY_NON_PROMOTABLE"
+  ],
+  "fail_closed": {
+    "gate1_status": "UNKNOWN",
+    "runtime_status": "UNKNOWN",
+    "runtime_action": "HOLD",
+    "writer_invocation_count": 0,
+    "ledger_mutation_count": 0
+  },
+  "authority": {
+    "market_data_observation_only": true,
+    "fixture_promotion_authorized": false,
+    "regime_authorized": false,
+    "candidate_authorized": false,
+    "scoring_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "writer_authorized": false,
+    "ledger_mutation_authorized": false,
+    "broker_authorized": false,
+    "order_authorized": false,
+    "cancel_authorized": false,
+    "real_authorized": false,
+    "live_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "as_of_date": "2026-09-01",
+  "authority": {
+    "action_authorized": false,
+    "broker_authorized": false,
+    "buy_authorized": false,
+    "cancel_authorized": false,
+    "candidate_authorized": false,
+    "fixture_promotion_authorized": false,
+    "ledger_mutation_authorized": false,
+    "live_authorized": false,
+    "market_data_observation_only": true,
+    "order_authorized": false,
+    "production_authorized": false,
+    "proposal_authorized": false,
+    "real_authorized": false,
+    "regime_authorized": false,
+    "scoring_authorized": false,
+    "stage_authorized": false,
+    "trading_authorized": false,
+    "writer_authorized": false
+  },
+  "blockers": [
+    "KIS_MINUTE_TIMESTAMP_NORMALIZATION_UNRATIFIED",
+    "NATURAL_NORMALIZED_MINUTE_PACKET_ABSENT",
+    "NUMERIC_TTL_ABSENT_OPTION_B",
+    "OBSERVATION_REQUIRED",
+    "OFFICIAL_DATE_SPECIFIC_CALENDAR_RECEIPT_ABSENT",
+    "PROVIDER_SLA_UNKNOWN"
+  ],
+  "calendar": {
+    "official_response_ref": null,
+    "official_response_sha256": null,
+    "session_date": "2026-09-01",
+    "session_status": "UNKNOWN",
+    "source_file_sha256": null,
+    "source_path": null,
+    "status": "UNKNOWN"
+  },
+  "completed_series": {
+    "15m": {
+      "accepted_bar_count": 0,
+      "expected_interval_count": 26,
+      "series_sha256": null,
+      "status": "UNKNOWN"
+    },
+    "1d": {
+      "accepted_bar_count": 0,
+      "status": "UNCONFIRMED_NOT_PROMOTED"
+    },
+    "1h": {
+      "accepted_bar_count": 0,
+      "expected_interval_count": 6,
+      "series_sha256": null,
+      "status": "UNKNOWN"
+    }
+  },
+  "contract_version": "krx_gate1_natural_receipt/1",
+  "decision_at": "2026-09-01T23:30:00+09:00",
+  "evidence_class": "NATURAL_READ_ONLY",
+  "gate1_status": "UNKNOWN",
+  "lineage": {
+    "completed_bar_validator": {
+      "path": "market_data/krx_session_bars.py",
+      "sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0"
+    },
+    "input_manifest_path": "evidence/krx_gate1_natural_receipt/2026-09-01/input_manifest.json",
+    "input_manifest_sha256": "230eb41f1229c632551f68d391490a2b51488c1103c483cdd5f3faa1096d6685",
+    "market_data_contract": {
+      "contract_version": "krx_completed_market_data/1",
+      "path": "config/krx_market_data_contract.json",
+      "sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649"
+    },
+    "natural_judgement_producer": {
+      "path": "market_judgement/krx_market_judgement.py",
+      "sha256": "41e1428949ffd48a7dcb839502bddf4b562791dc51f52ff601d22be1459a22a2"
+    },
+    "natural_judgement_producer_merge": "19fefca7dd26be1984c5b4b5cc4256b5e2cb27dc",
+    "public_base_commit": "2ec4bf86a09ccfa77a80e272f791ef01881cc6c5"
+  },
+  "payload_sha256": "151251fb46c84f4df49919d505335493afd0ac17ab89fbb56008f052f0bbf5b7",
+  "runtime": {
+    "action": "HOLD",
+    "cancel_count": 0,
+    "ledger_mutation_count": 0,
+    "order_count": 0,
+    "status": "UNKNOWN",
+    "writer_invocation_count": 0
+  },
+  "schema_version": "krx_gate1_natural_receipt/1",
+  "source_status": "INCOMPLETE",
+  "ttl_sla_governance": {
+    "decision": "APPROVED_OPTION_B",
+    "governance": "OBSERVATION_REQUIRED",
+    "id": "CIO_GATE1_TTL_SLA_OPTION_B_20260901",
+    "numeric_ttl_seconds": null,
+    "provider_sla": "UNKNOWN",
+    "repository_default": "ABSENT"
+  }
+}
