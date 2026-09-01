@@ -389,6 +389,11 @@ def _reduce_market(market: dict, evaluation_at: str, evidence_class: str, contra
         if upstream_action == "WAIT":
             action_allowed = False
         action = upstream_action if action_allowed else None
+        recommendation = (
+            action
+            if action is not None
+            else upstream_action if upstream_action in ("HOLD", "WAIT") else "WAIT"
+        )
         results.append({
             "display_name": meta["displayName"],
             "ticker_code": meta["tickerCode"],
@@ -406,7 +411,7 @@ def _reduce_market(market: dict, evaluation_at: str, evidence_class: str, contra
             "tradePlanGate": copy.deepcopy(meta["tradePlanGate"]),
             "upstreamAction": upstream_action,
             "action": action,
-            "recommendation": action or "WAIT",
+            "recommendation": recommendation,
             "reasons": sorted(set(reasons)),
             "exactSources": copy.deepcopy(meta["exactSources"]),
         })
@@ -423,6 +428,12 @@ def _reduce_market(market: dict, evaluation_at: str, evidence_class: str, contra
         + [reason for row in trace for reason in row["reasons"] if reason != "LITERAL_PASS"]
     ))
     actions = [row["action"] for row in results if row["action"] is not None]
+    recommendations = {row["recommendation"] for row in results}
+    market_recommendation = (
+        actions[0]
+        if len(actions) == 1
+        else "HOLD" if recommendations == {"HOLD"} else "WAIT"
+    )
     return {
         "market": market_id,
         "sourceTimestamp": market["sourceTimestamp"],
@@ -441,7 +452,7 @@ def _reduce_market(market: dict, evaluation_at: str, evidence_class: str, contra
         "trace": trace,
         "results": results,
         "action": actions[0] if len(actions) == 1 else None,
-        "recommendation": actions[0] if len(actions) == 1 else "WAIT",
+        "recommendation": market_recommendation,
         "reasons": market_reasons or ["NO_ACTIONABLE_CANDIDATE"],
     }
 

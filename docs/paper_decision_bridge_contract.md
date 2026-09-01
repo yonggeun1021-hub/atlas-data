@@ -19,8 +19,10 @@ market approval, leadership approval and coverage, completed bar, freshness,
 entry eligibility, exit eligibility, risk packet, ledger integrity, every
 Flow-First trace edge, natural evidence classification, and exact source hashes
 must also be literal PASS.  A fixture is never promotable.  Any missing, null,
-stale, TTL-expired, or hash-mismatched evidence yields `action=null` and
-`recommendation=WAIT`.
+stale, TTL-expired, or hash-mismatched evidence yields `action=null`.  With no
+upstream decision, or with a blocked `BUY`/`SELL`, the recommendation is
+`WAIT`; an explicit upstream non-executing `HOLD` remains `HOLD` and never
+increments the PAPER transition count.
 
 Leadership is an observation feeding market judgement, never direct PAPER
 authority.  The pinned policies are preserved exactly:

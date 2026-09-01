@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_natural_session_receipt/1",
+  "market": "US",
+  "timezone": "America/New_York",
+  "official_calendar_sources": [
+    {
+      "source_id": "NYSE_TRADING_HOURS_CALENDAR",
+      "source_url": "https://www.nyse.com/trade/hours-calendars"
+    },
+    {
+      "source_id": "NASDAQ_STOCK_MARKET_HOLIDAY_SCHEDULE",
+      "source_url": "https://www.nasdaq.com/market-activity/stock-market-holiday-schedule"
+    }
+  ],
+  "calendar_consensus_required": true,
+  "calendar_statuses": [
+    "OPEN_REGULAR",
+    "OPEN_EARLY_CLOSE",
+    "CLOSED",
+    "UNKNOWN"
+  ],
+  "regular_session": {
+    "open": "09:30:00",
+    "close": "16:00:00",
+    "early_close": "13:00:00",
+    "dst_rule": "IANA_TZDB_NO_FIXED_OFFSET"
+  },
+  "source_bar_timeframe": "1m",
+  "completed_timeframes": {
+    "15m": 900,
+    "1h": 3600
+  },
+  "partial_interval_policy": "EXCLUDE_AND_WAIT",
+  "freshness": {
+    "numeric_ttl_seconds": null,
+    "repository_default_policy": "ABSENT",
+    "provider_sla": "UNRATIFIED",
+    "gate_status": "HOLD"
+  },
+  "public_output": {
+    "raw_prices_persisted": false,
+    "aggregate_prices_persisted": false,
+    "hashes_and_counts_only": true
+  },
+  "authority": {
+    "observation_only": true,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "exit_authorized": false,
+    "paper_mutation_authorized": false,
+    "broker_authorized": false,
+    "network_authorized": false,
+    "oauth_authorized": false,
+    "order_authorized": false,
+    "cancel_authorized": false,
+    "real_authorized": false,
+    "live_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
