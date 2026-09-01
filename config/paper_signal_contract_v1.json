@@ -1,0 +1,28 @@
+{
+  "schema_version": "paper_signal_contract/1",
+  "signal_schema": "atlas_paper_signal/1",
+  "result_schema": "atlas_paper_result/1",
+  "required_signal_fields": [
+    "signal_id",
+    "event_at",
+    "market",
+    "symbol",
+    "signal_type",
+    "payload",
+    "lineage",
+    "authority"
+  ],
+  "publication": {
+    "append_only": true,
+    "identical_replay": "NO_CHANGE",
+    "same_path_different_bytes": "FAIL_CLOSED",
+    "allowed_roots": ["runtime/paper/signals/v1/", "runtime/paper/results/v1/"]
+  },
+  "authority": {
+    "account_mode": "PAPER",
+    "real_capital": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}

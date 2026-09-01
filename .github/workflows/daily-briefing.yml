@@ -492,6 +492,24 @@ jobs:
             --decision-date "${{ steps.resolve.outputs.decision_date }}" \
             --repo-root . $ARGS
 
+      # briefing_core/2 freezes the Phase-A source commit and generation before
+      # any analyst/validator work.  It always emits a machine-readable
+      # handoff + claims ledger. Optional market/news/rotation adapters degrade
+      # only their own item; core date/lineage/authority conflicts fail closed.
+      # A committed major-event registry is discovered from the exact source
+      # commit and enters the correction loop before a Portal proposal exists.
+      - name: Build pinned briefing core handoff
+        if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
+        run: |
+          set -euo pipefail
+          python3 -m briefing_core.chain build \
+            --repo-root . \
+            --source-commit "${{ steps.briefing.outputs.source_commit }}" \
+            --packet-path "${{ steps.briefing.outputs.capture_path }}/packet.json" \
+            --briefing-path "${{ steps.briefing.outputs.capture_path }}/briefing.md" \
+            --decision-date "${{ steps.resolve.outputs.decision_date }}" \
+            --slot "${{ steps.resolve.outputs.slot }}"
+
       # The sealed payload must be durable before delivery. `seal` is idempotent
       # on identical input, so a retry reuses the same draft, marker and clock.
       - name: Publish sealed draft
@@ -503,6 +521,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/briefing/finalization
+          git add data/briefing/chain_v2
           git diff --cached --quiet || {
             git commit -m "finalization seal ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
             git push origin "HEAD:$DEFAULT_BRANCH"
