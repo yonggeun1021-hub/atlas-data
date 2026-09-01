@@ -1,0 +1,209 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "final_regime_authorized": false,
+    "order_authorized": false,
+    "paper_reference_display_authorized": true,
+    "paper_symbol_context_authorized": true,
+    "production_authorized": false,
+    "runtime_regime_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "paper_regime_reference_policy/v1",
+  "generated_at": "2026-09-01T01:48:10Z",
+  "generation_id": "6ee95128fbc23fce9d94b6b899269bfdf4cecca9acda3141c39ef81fa4a5a3bd",
+  "markets": [
+    {
+      "as_of_date": "2026-08-31",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "positive": 2,
+            "total": 3
+          },
+          "score": 0,
+          "summary_ko": "대표지수 3개 중 2개가 20거래일 기준 상승입니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "advance_fraction": "0.214286"
+          },
+          "score": -1,
+          "summary_ko": "대표 ETF 중 상승 비중은 21.4%입니다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "vix": "14.43"
+          },
+          "score": 1,
+          "summary_ko": "VIX는 14.43로 낮은 구간입니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "TOTBKCR": "33702.8",
+            "WRESBAL": "-10351"
+          },
+          "score": 0,
+          "summary_ko": "연준 준비금과 은행 신용 변화 방향이 서로 엇갈립니다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "positive_groups": 8,
+            "total": 12
+          },
+          "score": 0,
+          "summary_ko": "대표 업종 12개 중 8개가 20거래일 기준 상승입니다."
+        }
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "market": "US",
+      "paper_reference": {
+        "candidate_regime": "NEUTRAL",
+        "confidence": "0.6",
+        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+        "score": 0
+      },
+      "runtime_regime": "UNKNOWN"
+    },
+    {
+      "as_of_date": "2026-08-28",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "KOSDAQ": "0.090730",
+            "KOSPI": "-1.786507"
+          },
+          "score": 0,
+          "summary_ko": "코스피 -1.79%, 코스닥 +0.09%로 방향이 엇갈렸습니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "advance_fraction": "0.577882"
+          },
+          "score": 1,
+          "summary_ko": "전체 종목 중 상승 비중은 57.8%입니다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "mean_absolute_move_pct": "2.000889"
+          },
+          "score": 0,
+          "summary_ko": "종목 평균 절대 등락폭은 2.00%로 보통 구간입니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "trading_value_change_pct": "-6.337118"
+          },
+          "score": -1,
+          "summary_ko": "거래대금은 이전 거래일보다 -6.3% 변했습니다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "positive_sectors": 29,
+            "total": 46
+          },
+          "score": 1,
+          "summary_ko": "업종 46개 중 29개가 상승했습니다."
+        }
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "market": "KR",
+      "paper_reference": {
+        "candidate_regime": "NEUTRAL",
+        "confidence": "0.4",
+        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+        "score": 1
+      },
+      "runtime_regime": "UNKNOWN"
+    },
+    {
+      "as_of_date": "2026-08-31",
+      "axes": [],
+      "classification_status": "WAIT_OFFICIAL_INPUT_COVERAGE",
+      "coverage": {
+        "defined_axes": [
+          "TREND",
+          "RISK_VOL"
+        ],
+        "defined_count": 2,
+        "missing_axes": [
+          "BREADTH",
+          "LIQUIDITY",
+          "LEADERSHIP"
+        ],
+        "ratio": "2/5",
+        "required_count": 5
+      },
+      "market": "CRYPTO",
+      "paper_reference": {
+        "candidate_regime": "UNKNOWN",
+        "confidence": null,
+        "explanation_ko": "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다.",
+        "score": null
+      },
+      "runtime_regime": "UNKNOWN"
+    }
+  ],
+  "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
+  "payload_sha256": "c5e55b6b50f8398687c329e1d3515c69f6c9e48bb2111d074f754eba995a1eb6",
+  "policy": {
+    "path": "config/paper_regime_reference_policy_v1.json",
+    "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY"
+  },
+  "schema_version": "paper_regime_reference/v2",
+  "sources": [
+    {
+      "market": "US",
+      "path": "data/latest_free_market_data.json",
+      "sha256": "c3fedbb83c7a1e5b1ddfbd1024c0431a790de9ba314dcce171364e0533f5da93"
+    },
+    {
+      "market": "KR",
+      "path": "data/latest_korea_market_signals.json",
+      "sha256": "35b1fa416430f2a20d111db2f4c027ba63667acb4fb9138ea38894e72bef0ad9"
+    },
+    {
+      "market": "CRYPTO",
+      "path": "data/latest_crypto_regime_refresh_status.json",
+      "sha256": "65772eec32cde431d2ed4170b3a1cb6d5044df5f8f799a7f0a3afb4cf5dd7bd0"
+    }
+  ],
+  "status": "PARTIAL_REFERENCE_AVAILABLE"
+}

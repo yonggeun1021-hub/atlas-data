@@ -1,0 +1,91 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "actual_flow_claim_authorized": false,
+    "buy_authorized": false,
+    "cash_target_authorized": false,
+    "cross_market_allocation_authorized": false,
+    "gross_exposure_authorized": false,
+    "order_authorized": false,
+    "paper_reference_display_authorized": true,
+    "position_size_authorized": false,
+    "production_authorized": false,
+    "relative_strength_comparison_authorized": true,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "capital_flow_posture_reference_policy/v1",
+  "cross_market_flow": {
+    "actual_money_flow": "UNKNOWN",
+    "actual_money_flow_reason": "COMPARABLE_DIRECT_DONOR_RECEIVER_EVIDENCE_NOT_AVAILABLE",
+    "comparable_market_count": 2,
+    "comparison_as_of_date": "2026-08-31",
+    "comparison_status": "PARTIAL_RELATIVE_STRENGTH_REFERENCE",
+    "explanation_ko": "같은 날짜의 일부 시장만 비교할 수 있어 상대 강도만 표시하고 시장 간 자금 이동은 확정하지 않습니다.",
+    "relative_strength_laggard": "KR",
+    "relative_strength_leader": "US",
+    "required_market_count": 3
+  },
+  "generated_at": "2026-09-01T09:24:11Z",
+  "generation_id": "516d6907c69a2df5c07740c383f01af9e450a52c245a8bc423c6cd680451e6d3",
+  "market_allocation_reviews": [
+    {
+      "as_of_date": "2026-08-31",
+      "candidate_regime": "NEUTRAL",
+      "explanation_ko": "같은 날짜에 비교 가능한 시장 중 점수가 가장 높습니다. 실제 자금 유입을 뜻하지는 않습니다.",
+      "market": "US",
+      "regime_score": 0,
+      "review_priority": "RELATIVE_STRENGTH_LEADER_REFERENCE",
+      "target_weight_pct": null
+    },
+    {
+      "as_of_date": "2026-08-31",
+      "candidate_regime": "NEUTRAL",
+      "explanation_ko": "같은 날짜에 비교 가능한 시장 중 점수가 가장 낮습니다. 실제 자금 유출을 뜻하지는 않습니다.",
+      "market": "KR",
+      "regime_score": -1,
+      "review_priority": "RELATIVE_STRENGTH_LAGGARD_REFERENCE",
+      "target_weight_pct": null
+    },
+    {
+      "as_of_date": "2026-08-31",
+      "candidate_regime": "UNKNOWN",
+      "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
+      "market": "CRYPTO",
+      "regime_score": null,
+      "review_priority": "WAIT_FOR_COMPLETE_REGIME",
+      "target_weight_pct": null
+    }
+  ],
+  "mode": "PAPER_DIAGNOSTIC_NOT_ALLOCATION",
+  "payload_sha256": "6c146d5121969d8b3d68361d1ef55527533eb6dd6a822c43cf187e7fabd8f970",
+  "policy": {
+    "capital_model": {
+      "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
+      "missing_market_policy": "WAIT_NO_NUMERIC_TARGET",
+      "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
+      "total_exposure_driver": "REGIME",
+      "within_envelope_allocation_driver": "CROSS_MARKET_FLOW_AND_RELATIVE_STRENGTH"
+    },
+    "path": "config/capital_flow_posture_reference_policy_v1.json",
+    "sha256": "038ea2c64a1a75a2b786f0652b5bdac80551ebfca29a917fdb7143278ac76a68",
+    "status": "CIO_INTENT_RECORDED_NUMERIC_BUDGET_UNRATIFIED"
+  },
+  "schema_version": "capital_flow_posture_reference/v1",
+  "sources": [
+    {
+      "generation_id": "b279ca2b36cb20b566bc056ccbebc78aada775bf72cf6e4b42a8ab37562988f5",
+      "path": "data/latest_paper_regime_reference.json",
+      "sha256": "50cf2987d58f0a48245eca495fbf0c1ddce5f1412bed56384fdff02e5756971c"
+    }
+  ],
+  "status": "PARTIAL_REFERENCE_AVAILABLE",
+  "total_exposure_review": {
+    "cash_target_pct": null,
+    "explanation_ko": "세 시장 중 판정이 끝나지 않은 곳이 있어 전체 투자비중 숫자를 만들지 않습니다.",
+    "input_state": "INCOMPLETE",
+    "invested_target_pct": null,
+    "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
+    "review": "WAIT_INCOMPLETE_MARKET_SET"
+  }
+}

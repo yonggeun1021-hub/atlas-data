@@ -216,6 +216,27 @@ APPROVED_TESTS = [
     # false until a later CIO decision names the exact hashes.
     "test/test_upbit_paper_identity_hardening_candidate.py",
     "test/test_upbit_paper_identity_hardening_release.py",
+    # ★ P3-12-GOV-05 -- runtime exact-approval binding for the identity
+    #   registry/taxonomy: two independent one-way chains rooted in fields
+    #   the registry/taxonomy documents carry on themselves (a pre-existing
+    #   content-approval pointer, and a new code-approval pointer) --
+    #   never a mutable allowlist and never a denylist of specific bad
+    #   hashes. Wired into _identity_taxonomy_exact_bound_effective()/
+    #   effective_identity_mapping() (a dedicated function with no boolean
+    #   toggle -- _policy_approval_effective() is the separate, weaker,
+    #   policy-only path a new consumer cannot accidentally reach for
+    #   identity/taxonomy) so approval_status alone can never revive
+    #   unapproved content. Approval/candidate ratification timestamps are
+    #   validated and temporally ordered so a future approval can never
+    #   retroactively apply to a past evaluation. On this branch every real
+    #   committed document has no code_approval_evidence_ref at all --
+    #   PENDING_EXACT_HASH_REAPPROVAL -- until a future, separate CIO
+    #   decision populates it by hand via
+    #   identity/upbit_exact_release_binding_release.py's deterministic
+    #   projection. ⛔ authority 전부 false.
+    "test/test_upbit_exact_release_binding.py",
+    "test/test_upbit_exact_release_binding_release.py",
+    "test/test_upbit_exact_release_binding_successor_candidate.py",
     "test/test_upbit_market_identity_proposal.py",
     "test/test_upbit_tradeable_universe.py",
     "test/test_upbit_universe_populate.py",
@@ -241,6 +262,9 @@ APPROVED_TESTS = [
     "test/test_upbit_microstructure_capture.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
+    # Expected governance WAIT is fail-closed and provider-call-free, but it
+    # is not an Actions runtime defect. Integrity/hash errors remain fatal.
+    "test/test_upbit_p4_expected_wait.py",
     # ★ P9-06 -- real-time Upbit public WebSocket layer sitting on top of
     #   P4-07's REST evidence contract. A deployment-agnostic, fully
     #   mock-tested state machine (realtime/upbit_realtime_gate.py, zero
@@ -658,6 +682,10 @@ APPROVED_TESTS = [
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
     "test/test_crypto_regime_refresh_status.py",
+    # The date-rollover watchdog records an issue and explicit safe WAIT
+    # without turning an expected evidence delay into a failed workflow email.
+    # Order and trading authority remain closed in the operator message.
+    "test/test_crypto_regime_refresh_watchdog_workflow.py",
     # PAPER-only bridge: Regime controls the future total risk envelope while
     # cross-market flow/relative strength controls the within-envelope review.
     # All numeric weights, account facts, actions, orders, and trading remain
@@ -1105,6 +1133,12 @@ APPROVED_TESTS = [
     #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
     #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
     "test/test_daily_orchestrator.py",
+    # ★ Daily Briefing same-day recovery — original natural schedule run만
+    #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
+    #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
+    #   workflow_dispatch·broker credential·action/order/trading surface가 없다.
+    #   ⛔ 테스트 자체는 fixture-only이며 GitHub API/network 호출 없음.
+    "test/test_daily_briefing_recovery.py",
     # ★ P9-01 — external RATIFIED freshness policy + caller-supplied quote guard.
     #   provider timestamp/received time/observed time으로 age와 transport delay를
     #   계산하되 repository default threshold는 없다. stale은 data 소비만 차단한다.

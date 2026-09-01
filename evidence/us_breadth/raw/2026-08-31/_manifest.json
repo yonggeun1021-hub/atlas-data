@@ -1,0 +1,46 @@
+{
+  "capture_mode": "direct_fetch_append_only",
+  "collector_version": "us-breadth-forward-capture/v1",
+  "endpoints": [
+    {
+      "byte_length": 346941,
+      "endpoint": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+      "name": "nasdaq_listed",
+      "raw_file": "nasdaqlisted.txt.gz",
+      "record_count": 5590,
+      "response_sha256": "aed04b2ac140f969e41991e630924e4c2cb63c18acfdb9cb31e8a9f872ff3840",
+      "source_file_creation_time_raw": "0831202618:01"
+    },
+    {
+      "byte_length": 538301,
+      "endpoint": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
+      "name": "other_listed",
+      "raw_file": "otherlisted.txt.gz",
+      "record_count": 7587,
+      "response_sha256": "58af2872765062e687d685c7fb32b8f609049f3cb219c4a437ac7c3922c02550",
+      "source_file_creation_time_raw": "0831202618:01"
+    }
+  ],
+  "fetched_at_utc": "2026-09-01T01:29:11Z",
+  "historical_universe_policy": "as_captured_forward_only_no_current_state_backfill",
+  "paid_data_checkpoint": {
+    "allowed_without_reconfirmation": [
+      "forward_only_current_day_symbol_directory_capture",
+      "append_only_raw_persistence",
+      "captured_snapshot_membership_diff"
+    ],
+    "approved": false,
+    "status": "USER_RECONFIRMATION_REQUIRED",
+    "stop_before": [
+      "historical_breadth_reconstruction",
+      "delisted_security_ohlcv_acquisition",
+      "paid_api_or_vendor_integration",
+      "license_or_subscription_cost",
+      "trial_that_converts_to_paid"
+    ]
+  },
+  "schema_version": 1,
+  "snapshot_date": "2026-08-31",
+  "source_semantics": "current_trading_day_directory_updated_intraday",
+  "universe_semantics": "source_directory_membership_not_investable_universe"
+}

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_completed_market_data/1",
+  "market": "US",
+  "timezone": "America/New_York",
+  "dst_rule": "IANA_TZDB_NO_FIXED_OFFSET",
+  "regular_session": {
+    "open": "09:30:00",
+    "close": "16:00:00",
+    "early_close": "13:00:00",
+    "pre_and_post_market_excluded": true,
+    "date_specific_calendar_required": true,
+    "weekday_inference_prohibited": true
+  },
+  "supported_timeframes": {
+    "15m": {
+      "duration_seconds": 900,
+      "anchor": "SESSION_OPEN"
+    },
+    "1h": {
+      "duration_seconds": 3600,
+      "anchor": "SESSION_OPEN",
+      "partial_session_tail": "EXCLUDE"
+    },
+    "1d": {
+      "duration": "EXACT_SESSION",
+      "anchor": "SESSION_OPEN_TO_CLOSE"
+    }
+  },
+  "calendar_statuses": [
+    "OPEN_REGULAR",
+    "OPEN_EARLY_CLOSE",
+    "CLOSED",
+    "UNKNOWN"
+  ],
+  "price_basis": {
+    "allowed": [
+      "RAW"
+    ],
+    "adjusted": "REJECT_UNLESS_FUTURE_CONTRACT_RATIFIES_VINTAGE_AND_REVISION_SEMANTICS"
+  },
+  "corporate_actions": {
+    "types": [
+      "SPLIT",
+      "CASH_DIVIDEND",
+      "SYMBOL_CHANGE"
+    ],
+    "future_event_application": "REJECT",
+    "unresolved_or_abnormal": "REJECT",
+    "symbol_timeline_required_for_symbol_change": true
+  },
+  "gap_duplicate_backfill": {
+    "missing_expected_interval": "GAP_FAIL_CLOSED",
+    "exact_duplicate": "DEDUPE_AND_COUNT",
+    "conflicting_duplicate": "REJECT",
+    "backfill_without_original_available_at": "REJECT",
+    "overwrite_committed_interval": "REJECT"
+  },
+  "freshness": {
+    "latest_bar_rule": "EXACT_LATEST_COMPLETED_SESSION_INTERVAL",
+    "p9_contract_path": "config/intraday_freshness_guard_contract.json",
+    "p9_contract_version": "intraday_freshness_guard/1",
+    "repository_default_policy": "ABSENT",
+    "policy_requirement": "EXTERNAL_RATIFIED_US_POLICY_REQUIRED",
+    "provider_sla": "UNRATIFIED"
+  },
+  "source_rights": {
+    "free_is_not_redistribution_permission": true,
+    "public_raw_persistence_authorized": false,
+    "public_redistribution_authorized": false,
+    "in_memory_validation_only": true
+  },
+  "authority": {
+    "market_data_observation_only": true,
+    "paper_data_eligibility_authorized": false,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "action_authorized": false,
+    "broker_oauth_authorized": false,
+    "broker_order_post_authorized": false,
+    "real_account_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

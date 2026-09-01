@@ -710,9 +710,18 @@ class ProductionEmptyTests(unittest.TestCase):
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
+        # P3-12-GOV-05: standard test-only mock exempting this
+        # hypothetical-future-ratification fixture from the exact-release
+        # allowlist binding (dedicated coverage lives in
+        # test_upbit_exact_release_binding.py) -- never a production bypass.
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
         self.policy_patch.start()
         self.taxonomy_patch.start()
         self.registry_patch.start()
+        self.exact_release_binding_patch.start()
+        self.addCleanup(self.exact_release_binding_patch.stop)
         self.addCleanup(self.registry_patch.stop)
         self.addCleanup(self.taxonomy_patch.stop)
         self.addCleanup(self.policy_patch.stop)
@@ -764,9 +773,18 @@ class DeterminismTests(unittest.TestCase):
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
+        # P3-12-GOV-05: standard test-only mock exempting this
+        # hypothetical-future-ratification fixture from the exact-release
+        # allowlist binding (dedicated coverage lives in
+        # test_upbit_exact_release_binding.py) -- never a production bypass.
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
         self.policy_patch.start()
         self.taxonomy_patch.start()
         self.registry_patch.start()
+        self.exact_release_binding_patch.start()
+        self.addCleanup(self.exact_release_binding_patch.stop)
         self.addCleanup(self.registry_patch.stop)
         self.addCleanup(self.taxonomy_patch.stop)
         self.addCleanup(self.policy_patch.stop)
@@ -816,9 +834,18 @@ class AuthorityTests(unittest.TestCase):
         self.policy_patch = mock.patch.object(UNI, "load_policy", return_value=policy)
         self.taxonomy_patch = mock.patch.object(UNI, "load_taxonomy", return_value=taxonomy)
         self.registry_patch = mock.patch.object(UNI, "load_identity_registry", return_value=registry)
+        # P3-12-GOV-05: standard test-only mock exempting this
+        # hypothetical-future-ratification fixture from the exact-release
+        # allowlist binding (dedicated coverage lives in
+        # test_upbit_exact_release_binding.py) -- never a production bypass.
+        self.exact_release_binding_patch = mock.patch.object(
+            UNI.EXACT_RELEASE_BINDING, "validate_exact_release", return_value=True,
+        )
         self.policy_patch.start()
         self.taxonomy_patch.start()
         self.registry_patch.start()
+        self.exact_release_binding_patch.start()
+        self.addCleanup(self.exact_release_binding_patch.stop)
         self.addCleanup(self.registry_patch.stop)
         self.addCleanup(self.taxonomy_patch.stop)
         self.addCleanup(self.policy_patch.stop)

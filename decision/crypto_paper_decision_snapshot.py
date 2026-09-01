@@ -875,10 +875,11 @@ def build_snapshot(
                 universe_identity_registry, universe_packet["evaluation_as_of"],
             )
         )
-        taxonomy_authority_available = UNIVERSE._approval_effective(
+        taxonomy_authority_available = UNIVERSE._identity_taxonomy_exact_bound_effective(
             universe_taxonomy,
             universe_packet["evaluation_as_of"],
             date_field="effective_from",
+            content_field="records",
         )
         if not identity_authority_available or not taxonomy_authority_available:
             universe_status = UNKNOWN

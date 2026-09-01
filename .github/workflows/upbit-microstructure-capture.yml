@@ -34,6 +34,7 @@ jobs:
           python3 test/test_upbit_microstructure_capture.py
           python3 test/test_upbit_market_evidence_microstructure.py
           python3 test/test_upbit_p3_p4_exact_hash_consumer.py
+          python3 test/test_upbit_p4_expected_wait.py
       - name: Resolve exact-hash committed P3-12 universe consumer lineage
         id: universe
         run: |
@@ -42,33 +43,20 @@ jobs:
           test -n "$LATEST"
           PACKET="data/observations/upbit_tradeable_universe/$LATEST/packet.json"
           test -f "$PACKET"
-          python3 - "$PACKET" "$GITHUB_OUTPUT" <<'PY'
-          import json
-          from pathlib import Path
-          import sys
-          from microstructure.upbit_p3_p4_bridge import consume_universe_record, snapshot_key
-
-          packet_path = Path(sys.argv[1])
-          out_path = Path(sys.argv[2])
-          declared = json.loads(packet_path.read_text(encoding="utf-8"))["payload_sha256"]
-          lineage = consume_universe_record(packet_path, expected_record_sha256=declared)
-          with out_path.open("a", encoding="utf-8") as out:
-              out.write(f"packet_path={packet_path}\n")
-              out.write(f"packet_date={lineage['snapshot_date']}\n")
-              out.write(f"record_sha256={lineage['record_payload_sha256']}\n")
-              out.write(f"snapshot_key={snapshot_key(lineage)}\n")
-              out.write(f"market_count={lineage['market_count']}\n")
-              out.write(f"p4_policy_id={lineage['p4_policy']['policy_id']}\n")
-              out.write(f"p4_policy_sha256={lineage['p4_policy']['packet_sha256']}\n")
-          PY
+          python3 .github/scripts/resolve_upbit_p3_p4_lineage.py "$PACKET" "$GITHUB_OUTPUT"
       - name: Capture complete append-only Upbit microstructure snapshot
         id: capture
         run: |
           set -euo pipefail
           SNAPSHOT_DATE=$(date -u +%F)
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.universe.outputs.ready }}" != "true" ]; then
+            echo "P4-07 WAIT: ${{ steps.universe.outputs.wait_reason }}"
+            echo "result=waiting_universe_ratification" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           SNAPSHOT_KEY="${{ steps.universe.outputs.snapshot_key }}"
           SNAPSHOT="evidence/crypto/upbit/microstructure/$SNAPSHOT_KEY"
-          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
           echo "snapshot_key=$SNAPSHOT_KEY" >> "$GITHUB_OUTPUT"
           if [ -f "$SNAPSHOT/_manifest.json" ]; then
             echo "Exact P3 hash용 Upbit microstructure snapshot이 이미 있습니다: $SNAPSHOT_KEY"
@@ -119,6 +107,10 @@ jobs:
           ATLAS_SNAPSHOT_KEY: ${{ steps.capture.outputs.snapshot_key }}
           ATLAS_UNIVERSE_RECORD_SHA256: ${{ steps.universe.outputs.record_sha256 }}
           ATLAS_UNIVERSE_MARKET_COUNT: ${{ steps.universe.outputs.market_count }}
+          ATLAS_UNIVERSE_READY: ${{ steps.universe.outputs.ready }}
+          ATLAS_UNIVERSE_WAIT_REASON: ${{ steps.universe.outputs.wait_reason }}
+          ATLAS_UNIVERSE_PACKET_PATH: ${{ steps.universe.outputs.packet_path }}
+          ATLAS_UNIVERSE_PACKET_DATE: ${{ steps.universe.outputs.packet_date }}
           ATLAS_P4_POLICY_ID: ${{ steps.universe.outputs.p4_policy_id }}
           ATLAS_P4_POLICY_SHA256: ${{ steps.universe.outputs.p4_policy_sha256 }}
           ATLAS_REPOSITORY: ${{ github.repository }}

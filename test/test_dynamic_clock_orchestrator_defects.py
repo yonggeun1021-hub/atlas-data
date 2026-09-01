@@ -213,13 +213,58 @@ class Defect3AuditArtifactNeverReadByOperationalPathTests(unittest.TestCase):
         # Sanity companion to the zero-calls test above: proves the mocks
         # are wired to something real (a call-count-zero test that patches
         # the wrong target would trivially "pass" for the wrong reason).
+        # Use a constructed active priority episode instead of requiring
+        # today's rolling evidence to happen to contain one.
         import replay.forward_metrics as fm
         import clock.audit_diagnostics as ad
+        from clock.dynamic_clock import ClockEvent
+        from replay.price_series import PriceSeries
+
+        series = PriceSeries("BTC")
+        for day, price in ((20, 100.0), (21, 101.0), (22, 102.0)):
+            date = f"2026-08-{day:02d}"
+            series._merge_row(
+                date,
+                {"open": price, "high": price + 1, "low": price - 1, "close": price},
+                date,
+            )
+
+        def scanner(_decision_date):
+            return {
+                "evidence_dates": ["2026-08-20"],
+                "subjects": {
+                    "BTC": {
+                        "PRICE_CONFIRMATION": [ClockEvent(
+                            detected_at="2026-08-20",
+                            evidence_available_at="2026-08-20",
+                            evidence_hash="a" * 64,
+                            source="constructed-test-evidence",
+                            strength=1.0,
+                        )],
+                    },
+                },
+                "series": {"BTC": series},
+            }
+
+        def empty_scanner(_decision_date):
+            return {"evidence_dates": [], "subjects": {}, "series": {}}
+
+        operational_stub = {
+            "decision_date": None,
+            "mode": rdc.MODE_OPERATIONAL,
+            "report_asof_evidence_date": "2026-08-20",
+            "operational_evaluation": {"status": "CONSTRUCTED_TEST_ONLY"},
+        }
 
         cfm_mock = mock.MagicMock(wraps=fm.compute_forward_metrics)
         cmf_mock = mock.MagicMock(wraps=ad.confirmed_miss_for)
         with mock.patch.object(fm, "compute_forward_metrics", cfm_mock), \
-             mock.patch.object(ad, "confirmed_miss_for", cmf_mock):
+             mock.patch.object(ad, "confirmed_miss_for", cmf_mock), \
+             mock.patch.object(rdc, "run", return_value=operational_stub), \
+             mock.patch.dict(
+                 rdc.scan.MARKET_SCANNERS,
+                 {"BTC": scanner, "KOREA": empty_scanner, "CRYPTO": empty_scanner},
+             ):
             rdc.run_with_diagnostics()
         self.assertGreater(cfm_mock.call_count, 0)
         self.assertGreater(cmf_mock.call_count, 0)

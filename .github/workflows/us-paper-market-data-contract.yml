@@ -1,0 +1,67 @@
+name: US PAPER Market Data Contract
+
+on:
+  pull_request:
+    paths:
+      - "config/us_*"
+      - "universe/us_*"
+      - "market_data/us_*"
+      - "docs/us_*"
+      - "validation/tests/test_us_*"
+      - ".github/workflows/us-paper-market-data-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "config/us_*"
+      - "universe/us_*"
+      - "market_data/us_*"
+      - "docs/us_*"
+      - "validation/tests/test_us_*"
+      - ".github/workflows/us-paper-market-data-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read-only checkout without changing common action-count contract
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          git remote remove origin
+      - name: US universe and completed-bar regressions
+        run: |
+          python3 validation/tests/test_us_investable_registry.py
+          python3 validation/tests/test_us_session_bars.py
+          python3 validation/tests/test_us_paper_market_data_boundary.py
+      - name: Verify no tracked mutation
+        run: git diff --exit-code
+
+  full:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Read-only checkout without changing common action-count contract
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -c protocol.version=2 fetch --no-tags origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          git remote remove origin
+      - name: Install existing CI dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Re-run US boundary then existing full approved suite
+        run: |
+          python3 validation/tests/test_us_investable_registry.py
+          python3 validation/tests/test_us_session_bars.py
+          python3 validation/tests/test_us_paper_market_data_boundary.py
+          ATLAS_DISPOSABLE_CHECKOUT=1 python3 run_all.py --authoritative
+      - name: Verify no tracked mutation
+        run: git diff --exit-code

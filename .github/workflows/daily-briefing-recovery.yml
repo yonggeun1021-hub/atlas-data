@@ -1,0 +1,42 @@
+name: Recover Atlas Daily Briefing
+
+on:
+  schedule:
+    # 07:20 and 07:40 KST: verify/retry the original 07:05 natural run.
+    - cron: "20 22 * * *"
+    - cron: "40 22 * * *"
+    # 18:45 and 19:05 KST weekdays: verify/retry the original 18:30 natural run.
+    - cron: "45 9 * * 1-5"
+    - cron: "5 10 * * 1-5"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: atlas-daily-briefing-recovery
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: [self-hosted, Linux, X64, atlas-data]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify the scheduled briefing and request a bounded retry when needed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_SCHEDULE" in
+            "20 22 * * *") SLOT=morning; FINAL=0 ;;
+            "40 22 * * *") SLOT=morning; FINAL=1 ;;
+            "45 9 * * 1-5") SLOT=evening; FINAL=0 ;;
+            "5 10 * * 1-5") SLOT=evening; FINAL=1 ;;
+            *) echo "Unknown recovery schedule: $EVENT_SCHEDULE" >&2; exit 2 ;;
+          esac
+          ARGS=(--slot "$SLOT" --decision-date "$(TZ=Asia/Seoul date +%F)")
+          if [ "$FINAL" = 1 ]; then ARGS+=(--final-check); fi
+          python3 .github/scripts/daily_briefing_recovery.py "${ARGS[@]}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

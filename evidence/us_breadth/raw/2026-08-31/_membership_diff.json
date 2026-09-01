@@ -1,0 +1,86 @@
+{
+  "as_of_date": "2026-08-31",
+  "authority": {
+    "breadth_classification_authorized": false,
+    "historical_reconstruction_authorized": false,
+    "price_breadth_authorized": false,
+    "production_wiring_authorized": false,
+    "regime_score_authorized": false,
+    "threshold_authorized": false,
+    "trading_action_authorized": false
+  },
+  "membership": {
+    "changed_attribute_ids": [
+      "nasdaq_listed:MBAI",
+      "nasdaq_listed:SVRN",
+      "other_listed:QDTE"
+    ],
+    "changed_attributes_count": 3,
+    "current_count": 13177,
+    "current_source_counts": {
+      "nasdaq_listed": 5590,
+      "other_listed": 7587
+    },
+    "entered_count": 12,
+    "entered_ids": [
+      "nasdaq_listed:ATLQ",
+      "nasdaq_listed:ATLQR",
+      "nasdaq_listed:ATLQU",
+      "nasdaq_listed:ATLQW",
+      "nasdaq_listed:OPAD",
+      "nasdaq_listed:TRBG",
+      "other_listed:AELV",
+      "other_listed:FRUT",
+      "other_listed:MATR",
+      "other_listed:PAAI",
+      "other_listed:SAMO",
+      "other_listed:SAMO.W"
+    ],
+    "exited_count": 9,
+    "exited_ids": [
+      "nasdaq_listed:BCAB",
+      "nasdaq_listed:JAB",
+      "nasdaq_listed:JABRR",
+      "nasdaq_listed:JABRU",
+      "nasdaq_listed:JABRW",
+      "other_listed:AREN",
+      "other_listed:MAPP",
+      "other_listed:OPAD",
+      "other_listed:VLLU"
+    ],
+    "previous_count": 13174,
+    "previous_source_counts": {
+      "nasdaq_listed": 5589,
+      "other_listed": 7585
+    },
+    "unchanged_count": 13165
+  },
+  "observation": "SOURCE_DIRECTORY_MEMBERSHIP_CHANGE_ONLY",
+  "paid_data_checkpoint": {
+    "allowed_without_reconfirmation": [
+      "forward_only_current_day_symbol_directory_capture",
+      "append_only_raw_persistence",
+      "captured_snapshot_membership_diff"
+    ],
+    "approved": false,
+    "status": "USER_RECONFIRMATION_REQUIRED",
+    "stop_before": [
+      "historical_breadth_reconstruction",
+      "delisted_security_ohlcv_acquisition",
+      "paid_api_or_vendor_integration",
+      "license_or_subscription_cost",
+      "trial_that_converts_to_paid"
+    ]
+  },
+  "previous_date": "2026-08-28",
+  "price_breadth": {
+    "advance_fraction": null,
+    "advancing_count": null,
+    "declining_count": null,
+    "status": "UNKNOWN_PRICE_SOURCE_UNAVAILABLE",
+    "unchanged_count": null
+  },
+  "schema_version": 1,
+  "status": "PASS",
+  "universe_semantics": "source_directory_membership_not_investable_universe"
+}

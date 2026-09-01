@@ -15,6 +15,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+IMMUTABLE_BTC_REVIEW_REPORT = ROOT / (
+    "evidence/operational/dynamic_clock/candidate_validity_source_reports/"
+    "report-8dce78ebbbd43fb241afd77270ef80e67e8ab6ca2d89184302421707c4271512.json"
+)
+
 from clock.run_dynamic_clock import (  # noqa: E402
     MODE_HISTORICAL_REPLAY,
     build_briefing_section,
@@ -279,7 +284,12 @@ class RealP810IntegrationTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_btc_real_overextended_provisional_link_does_not_elevate_it(self):
-        btc = next(r for r in self.report["by_market"]["BTC"]["review_queue"] if r["subject"] == "BTC")
+        # This is a BTC-specific historical integration contract.  The
+        # rolling operational report may legitimately have no active BTC
+        # candidate after its source observation expires, so pin the exact
+        # content-addressed report that contains the reviewed linkage.
+        report = json.loads(IMMUTABLE_BTC_REVIEW_REPORT.read_text())
+        btc = next(r for r in report["by_market"]["BTC"]["review_queue"] if r["subject"] == "BTC")
         pr = btc["price_reflection_status"]
         self.assertEqual(pr["status"], "LINKED")
         self.assertEqual(pr["threshold_basis"], "PROVISIONAL")
@@ -422,15 +432,22 @@ class LookaheadSweepTests(unittest.TestCase):
         from clock.run_dynamic_clock import run_with_diagnostics
 
         _, diagnostics = run_with_diagnostics()
-        checked = 0
+        diagnostic_records = 0
         for market_diag in diagnostics["by_market"].values():
             for record in market_diag:
+                diagnostic_records += 1
                 for key in ("reference_forward_metrics_first_detection", "reference_forward_metrics_latest_detection"):
                     fm = record.get(key)
                     if fm and fm.get("status") == "OK":
-                        checked += 1
                         self.assertGreater(fm["hypothetical_entry_at"], fm["decision_date"], record)
-        self.assertGreater(checked, 0, "sanity: at least one reference metric should be OK-graded")
+        self.assertGreater(diagnostic_records, 0, "sanity: the live Dynamic Clock diagnostics should contain records")
+        # A fresh operational date can honestly have zero OK-graded forward
+        # outcomes: the future bars needed to grade today's decision do not
+        # exist yet.  The synthetic and immutable historical regressions in
+        # test_replay_forward_metrics.py and BtcRegressionCaseTests prove the
+        # invariant on computable rows.  This rolling-data sweep therefore
+        # checks every OK row that exists without turning an honest zero-OK
+        # population into a workflow failure.
 
     def test_review_queue_candidates_never_carry_reference_forward_metrics(self):
         # Defect 3: physically absent from the operational candidate.
@@ -532,11 +549,11 @@ class BriefingSectionShapeTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
     def test_briefing_watch_review_candidates_are_shown_not_only_immediate(self):
-        # Since IMMEDIATE_REVIEW is 0 everywhere today, WATCH_REVIEW must
-        # actually be rendered -- otherwise already-moving subjects like
-        # BTC/삼성전자/SK하이닉스 fall through the briefing's cracks
-        # (section 2's explicit purpose).
-        report = run()
+        # Prove the BTC rendering contract against an immutable historical
+        # packet.  The current rolling packet may legitimately have no
+        # active BTC candidate after source expiry; that zero-candidate
+        # state is covered by the current-packet schema/authority tests.
+        report = json.loads(IMMUTABLE_BTC_REVIEW_REPORT.read_text())
         section = build_briefing_section(report)
         total_watch = sum(len(m["watch_review"]) for m in section["markets"].values())
         self.assertGreater(total_watch, 0)

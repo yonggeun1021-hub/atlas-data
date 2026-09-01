@@ -1,0 +1,50 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "identity_ratification_authorized": false,
+    "order_action_authorized": false,
+    "paper_eligible_promotion_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_wiring_authorized": false,
+    "taxonomy_ratification_authorized": false,
+    "tradeable_universe_promotion_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": false,
+    "raw_publication_eligible": true,
+    "reason": "new_snapshot_staged",
+    "result": "captured",
+    "step_outcome": "success"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "50 0 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 33456828130,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33456828130"
+  },
+  "p3_12_classification": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/upbit_tradeable_universe/2026-09-01/packet.json",
+    "payload_sha256": "17d1afac97e99818b90558f21e3b4fd8b8085e74562ea64936fa2fc673b7e8d4",
+    "reason": null,
+    "result": "populated",
+    "step_outcome": "success"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-01T09:57:31+09:00",
+    "observed_started_at_utc": "2026-09-01T00:57:31Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 451,
+    "expected_start_kst": "2026-09-01T09:50:00+09:00",
+    "expected_start_utc": "2026-09-01T00:50:00Z",
+    "id": "daily_0950_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-09-01",
+  "workflow": "P3-12 Upbit KRW Tradeable Universe Daily Capture"
+}

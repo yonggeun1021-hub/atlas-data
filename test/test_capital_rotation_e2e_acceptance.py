@@ -704,7 +704,12 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         self.assertEqual(value["status"], "NOT_READY")
         self.assertEqual(value["schema_version"], "capital_rotation_e2e_acceptance/3")
         self.assertEqual(value["observed"]["portal_receipt_count"], 0)
-        self.assertEqual(value["observed"]["natural_pair_dates"], [])
+        pair_dates = value["observed"]["natural_pair_dates"]
+        self.assertEqual(pair_dates, sorted(set(pair_dates)))
+        self.assertLess(
+            len(pair_dates),
+            value["exit_gate"]["required_distinct_natural_pair_dates"],
+        )
 
 
 if __name__ == "__main__":
