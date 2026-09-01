@@ -61,6 +61,7 @@ jobs:
           while read -r number; do
             [ -z "$number" ] || gh issue close "$number" --repo "$REPO" --comment '오늘 참고 신호 5/5 포인터가 정상 갱신되어 자동 종료합니다.'
           done
-      - name: Fail the watchdog run after recording the incident
+      - name: Keep the delay as an explicit safe WAIT
         if: steps.verify.outcome == 'failure'
-        run: exit 1
+        run: |
+          echo "::warning::오늘 코인 참고 신호가 아직 완성되지 않아 WAIT를 유지합니다. 지연 이슈에 기록했으며 주문·매매 권한은 열리지 않았습니다."

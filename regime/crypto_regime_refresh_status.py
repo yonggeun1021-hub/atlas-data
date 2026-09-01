@@ -154,23 +154,33 @@ def _decision_time(packet: dict) -> str:
     return value
 
 
-def _select_official_decision(root: Path) -> tuple[Path, dict]:
+def _select_official_decision(root: Path) -> tuple[Path | None, dict | None, str | None]:
     candidates = sorted(
         (root / "evidence" / "crypto_paper_decision").glob("*/*/*/packet.json"),
         reverse=True,
     )
+    if not candidates:
+        return None, None, "OFFICIAL_DECISION_NOT_FOUND"
+
     # The path hierarchy is date/time/generation, so reverse lexical order is
-    # newest-first.  Full decision validation replays every retained source;
-    # stop at the first valid packet instead of replaying dozens of older
-    # half-hourly packets on every status refresh.
-    for path in candidates[:10]:
-        try:
-            packet = read_json(path, "OFFICIAL_DECISION_INVALID")
-            DECISION.validate_output(packet, allow_external_sources=True)
-            return path, copy.deepcopy(packet)
-        except Exception:
-            continue
-    fail("OFFICIAL_DECISION_NOT_FOUND")
+    # newest-first.  Never fall back to an older decision after a newer one has
+    # appeared: doing so would make the Portal look healthy while the current
+    # producer is actually waiting for a refresh.
+    path = candidates[0]
+    packet = read_json(path, "OFFICIAL_DECISION_INVALID")
+    try:
+        DECISION.validate_output(packet, allow_external_sources=True)
+    except DECISION.CryptoPaperDecisionSnapshotError as exc:
+        # A fully hashed, source-pinned historical packet can legitimately stop
+        # reproducing after the decision producer or policy changes.  It is not
+        # current official evidence any more, so expose an explicit WAIT and
+        # require the scheduled producer to emit a new packet.  Hash failures,
+        # missing source files, malformed schemas and every other integrity
+        # failure remain hard errors rather than being hidden as WAIT.
+        if str(exc) == "OUTPUT_DERIVATION_MISMATCH":
+            return None, None, "OFFICIAL_DECISION_REFRESH_REQUIRED"
+        fail("OFFICIAL_DECISION_INVALID", str(exc))
+    return path, copy.deepcopy(packet), None
 
 
 def _eligible_streak(root: Path, latest_snapshot_date: str) -> int:
@@ -212,11 +222,14 @@ def _coverage(defined_axes: list[str]) -> dict:
 
 def build_status(root: Path = ROOT) -> dict:
     reference_path, reference = _select_current_reference(root)
-    decision_path, decision = _select_official_decision(root)
-    official_axes = decision.get("crypto_regime_five_axis")
-    if not isinstance(official_axes, dict) or set(official_axes) != set(AXES):
-        fail("OFFICIAL_DECISION_AXES_INVALID")
-    official_defined = [axis for axis in AXES if official_axes[axis].get("status") == "DEFINED"]
+    decision_path, decision, decision_wait_reason = _select_official_decision(root)
+    if decision is None:
+        official_defined = []
+    else:
+        official_axes = decision.get("crypto_regime_five_axis")
+        if not isinstance(official_axes, dict) or set(official_axes) != set(AXES):
+            fail("OFFICIAL_DECISION_AXES_INVALID")
+        official_defined = [axis for axis in AXES if official_axes[axis].get("status") == "DEFINED"]
     current_defined = [axis for axis in AXES if axis in official_defined or axis == "LEADERSHIP"]
     if "LEADERSHIP" not in current_defined:
         fail("CURRENT_LEADERSHIP_NOT_DEFINED")
@@ -233,7 +246,11 @@ def build_status(root: Path = ROOT) -> dict:
 
     official_coverage = _coverage(official_defined)
     current_coverage = _coverage(current_defined)
-    if official_coverage["ratio"] == "5/5":
+    if decision is None:
+        state = "WAIT_OFFICIAL_DECISION_REFRESH"
+        headline = "오늘 참고자료 확인 · 공식 코인 판정 생성 대기"
+        detail = "현재 코드와 정책으로 검증된 공식 판정이 아직 없어 WAIT로 유지합니다. 새 공식 판정이 생성되기 전에는 자본·행동·주문 권한을 열지 않습니다."
+    elif official_coverage["ratio"] == "5/5":
         state = "OFFICIAL_INPUTS_COMPLETE_POLICY_PENDING"
         headline = "공식 입력 5개 확인 · 코인 판정식 검증 중"
         detail = "필수 입력은 모두 확인됐지만 코인 전용 방향·점수 정책이 비준되기 전에는 Risk On/Off를 확정하지 않습니다."
@@ -246,20 +263,25 @@ def build_status(root: Path = ROOT) -> dict:
         headline = "오늘 코인 시장자료 수집 대기"
         detail = "필수 참고 신호가 모두 도착하지 않아 판정을 보류합니다."
 
-    generated_at = max(reference["generated_at_utc"], _decision_time(decision))
+    generated_at = (
+        max(reference["generated_at_utc"], _decision_time(decision))
+        if decision is not None
+        else reference["generated_at_utc"]
+    )
     source_rows = [
         {
             "kind": "CURRENT_REFERENCE",
             "path": str(reference_path.relative_to(root)),
             "sha256": file_sha256(reference_path),
         },
-        {
+    ]
+    if decision_path is not None and decision is not None:
+        source_rows.append({
             "kind": "OFFICIAL_DECISION",
             "path": str(decision_path.relative_to(root)),
             "sha256": file_sha256(decision_path),
             "generation_id": decision["generation_id"],
-        },
-    ]
+        })
     generation_id = payload_sha256({
         "schema_version": SCHEMA_VERSION,
         "sources": source_rows,
@@ -279,14 +301,19 @@ def build_status(root: Path = ROOT) -> dict:
             "mode": reference["mode"],
         },
         "official_decision": {
-            "captured_at_utc": _decision_time(decision),
+            "captured_at_utc": _decision_time(decision) if decision is not None else None,
             "coverage": official_coverage,
             "runtime_regime": "UNKNOWN",
             "classification_status": (
-                "WAIT_CRYPTO_NORMALIZATION_POLICY"
-                if official_coverage["ratio"] == "5/5"
-                else "WAIT_PIT_LEADERSHIP_HISTORY"
+                "WAIT_OFFICIAL_DECISION_REFRESH"
+                if decision is None
+                else (
+                    "WAIT_CRYPTO_NORMALIZATION_POLICY"
+                    if official_coverage["ratio"] == "5/5"
+                    else "WAIT_PIT_LEADERSHIP_HISTORY"
+                )
             ),
+            "unavailable_reason": decision_wait_reason,
         },
         "natural_history_progress": {
             "eligible_consecutive_days": streak,

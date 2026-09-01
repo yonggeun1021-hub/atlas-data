@@ -679,6 +679,10 @@ APPROVED_TESTS = [
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
     "test/test_crypto_regime_refresh_status.py",
+    # The date-rollover watchdog records an issue and explicit safe WAIT
+    # without turning an expected evidence delay into a failed workflow email.
+    # Order and trading authority remain closed in the operator message.
+    "test/test_crypto_regime_refresh_watchdog_workflow.py",
     # PAPER-only bridge: Regime controls the future total risk envelope while
     # cross-market flow/relative strength controls the within-envelope review.
     # All numeric weights, account facts, actions, orders, and trading remain

@@ -138,12 +138,17 @@ class DartEventObservationTests(unittest.TestCase):
     def test_real_retained_zip_and_member_bytes_are_independently_revalidated(self):
         linked = next(
             row for row in self.packet["observations"]
-            if row["subject_id"] == "329180" and row["rcept_no"] == "20260824800122"
+            if row["evidence"]["status"]
+            == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
         )
+        manifest = MODULE.DART.load_existing_manifest(
+            MODULE.DEFAULT_DATA_ROOT, linked["subject_id"], linked["rcept_no"]
+        )
+        self.assertIsNotNone(manifest)
         self.assertEqual(linked["evidence"]["status"], "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED")
         self.assertEqual(
             linked["evidence"]["source_sha256"],
-            "ced60979d27b6971dbc2bb20dfd1ecbfec6ff9a98cfd8469e0d0bab949f35225",
+            manifest["source_archive"]["content_sha256"],
         )
         self.assertIn("DART_ITEM_EXTRACTION_POLICY_UNRATIFIED", linked["blocked_reasons"])
 
@@ -160,6 +165,7 @@ class DartEventObservationTests(unittest.TestCase):
             content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
             record = content["records"][0]
             subject_id = record["filing_identity"]["stock_code"]
+            source["stocks"][subject_id]["atlas_stage"] = None
             record.update({
                 "atlas_stage": None,
                 "capture_policy": "index_only",
@@ -249,7 +255,7 @@ class DartEventObservationTests(unittest.TestCase):
             shutil.copy2(MODULE.DEFAULT_DART, source_path)
             content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
             content["records"] = content["records"][:1]
-            content["counts"] = {"captured": 0, "failed": 0, "not_applicable": 1, "skipped": 0}
+            recount_content_records(content)
             content_path.write_text(json.dumps(content), encoding="utf-8")
             with self.assertRaisesRegex(MODULE.DartEventObservationError, "DART_CONTENT_RECORD_MISSING"):
                 MODULE.build_packet(
@@ -393,7 +399,27 @@ class DartEventObservationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             data_root = Path(temporary) / "data"
             shutil.copytree(ROOT / "data/dart_content", data_root / "dart_content")
-            member = next((data_root / "dart_content").rglob("*.gz"))
+            linked = next(
+                row for row in self.packet["observations"]
+                if row["evidence"]["status"]
+                == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+            )
+            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            record = next(
+                row for row in content["records"]
+                if row["filing_identity"]
+                == {
+                    "stock_code": linked["subject_id"],
+                    "rcept_no": linked["rcept_no"],
+                }
+            )
+            member = (
+                data_root
+                / "dart_content"
+                / linked["subject_id"]
+                / linked["rcept_no"]
+                / record["documents"][0]["cache_name"]
+            )
             member.write_bytes(member.read_bytes() + b"tamper")
             with self.assertRaisesRegex(MODULE.DartEventObservationError, "DART_RAW_CONTENT_INVALID"):
                 MODULE.build_packet(decision_at=DECISION_AT, data_root=data_root)

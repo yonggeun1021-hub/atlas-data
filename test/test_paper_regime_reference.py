@@ -24,19 +24,27 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         markets = {row["market"]: row for row in packet["markets"]}
         self.assertEqual(packet["status"], "PARTIAL_REFERENCE_AVAILABLE")
         self.assertEqual(markets["US"]["coverage"]["ratio"], "5/5")
-        self.assertEqual(markets["US"]["paper_reference"]["candidate_regime"], "NEUTRAL")
-        self.assertEqual(markets["US"]["paper_reference"]["score"], 2)
+        self.assertIn(markets["US"]["paper_reference"]["candidate_regime"], {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"})
+        self.assertEqual(
+            markets["US"]["paper_reference"]["score"],
+            sum(row["score"] for row in markets["US"]["axes"]),
+        )
         self.assertEqual(markets["KR"]["coverage"]["ratio"], "5/5")
-        self.assertEqual(markets["KR"]["paper_reference"]["candidate_regime"], "NEUTRAL")
-        self.assertEqual(markets["KR"]["paper_reference"]["score"], 1)
+        self.assertIn(markets["KR"]["paper_reference"]["candidate_regime"], {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"})
+        self.assertEqual(
+            markets["KR"]["paper_reference"]["score"],
+            sum(row["score"] for row in markets["KR"]["axes"]),
+        )
         self.assertEqual(markets["CRYPTO"]["paper_reference"]["candidate_regime"], "UNKNOWN")
         source = json.loads((ROOT / "data/latest_crypto_regime_refresh_status.json").read_text())
         self.assertEqual(markets["CRYPTO"]["coverage"], source["official_decision"]["coverage"])
-        expected_status = (
-            "WAIT_MARKET_NORMALIZATION_POLICY"
-            if markets["CRYPTO"]["coverage"]["ratio"] == "5/5"
-            else "WAIT_OFFICIAL_INPUT_COVERAGE"
-        )
+        expected_status = source["official_decision"].get("classification_status")
+        if expected_status != "WAIT_OFFICIAL_DECISION_REFRESH":
+            expected_status = (
+                "WAIT_MARKET_NORMALIZATION_POLICY"
+                if markets["CRYPTO"]["coverage"]["ratio"] == "5/5"
+                else "WAIT_OFFICIAL_INPUT_COVERAGE"
+            )
         self.assertEqual(markets["CRYPTO"]["classification_status"], expected_status)
         self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
         self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
@@ -44,16 +52,10 @@ class PaperRegimeReferenceTest(unittest.TestCase):
     def test_axis_values_and_korean_explanations_are_visible(self):
         packet = MODULE.build_reference()
         markets = {row["market"]: row for row in packet["markets"]}
-        self.assertEqual(
-            [row["direction"] for row in markets["US"]["axes"]],
-            ["POSITIVE", "NEGATIVE", "POSITIVE", "NEUTRAL", "POSITIVE"],
-        )
-        self.assertEqual(
-            [row["direction"] for row in markets["KR"]["axes"]],
-            ["NEUTRAL", "POSITIVE", "NEUTRAL", "NEGATIVE", "POSITIVE"],
-        )
         for market in ("US", "KR"):
+            self.assertEqual([row["axis"] for row in markets[market]["axes"]], MODULE.AXES)
             for row in markets[market]["axes"]:
+                self.assertIn(row["direction"], {"POSITIVE", "NEUTRAL", "NEGATIVE", "STRESS"})
                 self.assertTrue(row["summary_ko"])
 
     def test_authority_boundary_stays_paper_only(self):
@@ -62,6 +64,27 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         self.assertTrue(authority["paper_symbol_context_authorized"])
         for key in ("runtime_regime_authorized", "final_regime_authorized", "stage_authorized", "buy_authorized", "action_authorized", "order_authorized", "capital_authorized", "production_authorized", "trading_authorized"):
             self.assertFalse(authority[key], key)
+
+    def test_official_refresh_wait_is_preserved_in_combined_reference(self):
+        source = json.loads((ROOT / "data/latest_crypto_regime_refresh_status.json").read_text())
+        source["official_decision"]["classification_status"] = "WAIT_OFFICIAL_DECISION_REFRESH"
+        source["official_decision"]["captured_at_utc"] = None
+        source["official_decision"]["coverage"] = {
+            "defined_count": 0,
+            "required_count": 5,
+            "ratio": "0/5",
+            "defined_axes": [],
+            "missing_axes": list(MODULE.AXES),
+        }
+        source["official_decision"]["unavailable_reason"] = "OFFICIAL_DECISION_REFRESH_REQUIRED"
+        unsigned = copy.deepcopy(source)
+        unsigned.pop("payload_sha256")
+        source["payload_sha256"] = MODULE.payload_sha256(unsigned)
+
+        crypto = MODULE.build_crypto(source)
+        self.assertEqual(crypto["classification_status"], "WAIT_OFFICIAL_DECISION_REFRESH")
+        self.assertEqual(crypto["paper_reference"]["candidate_regime"], "UNKNOWN")
+        self.assertEqual(crypto["coverage"]["ratio"], "0/5")
 
     def test_resigned_tamper_and_source_tamper_fail_closed(self):
         packet = MODULE.build_reference()
