@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://paper/gate-2-3/aggregate/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "evaluation_id", "evaluated_at_utc", "exact_pins_sha256",
+    "input_sha256", "source_lineage", "market_regime_receipts",
+    "market_rotation_receipts", "headers", "transition_ledger", "summary", "effects",
+    "authority", "aggregate_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "paper_gate_2_3_aggregate_receipt/v1"},
+    "aggregate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "market_regime_receipts": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {"$ref": "#/$defs/regime"}
+    },
+    "market_rotation_receipts": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {"$ref": "#/$defs/rotation"}
+    }
+  },
+  "$defs": {
+    "authority": {
+      "type": "object",
+      "additionalProperties": {"const": false}
+    },
+    "regime": {
+      "type": "object",
+      "required": ["market", "receipt_status", "regime", "disposition", "state_sha256", "receipt_sha256"],
+      "properties": {
+        "market": {"enum": ["KRX", "US", "CRYPTO"]},
+        "receipt_status": {"const": "WAIT"},
+        "regime": {"const": "UNKNOWN"},
+        "disposition": {"const": "HOLD"},
+        "state_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "rotation": {
+      "type": "object",
+      "required": ["market", "receipt_status", "rotation_readiness", "disposition", "state_sha256", "receipt_sha256"],
+      "properties": {
+        "market": {"enum": ["KRX", "US", "CRYPTO"]},
+        "receipt_status": {"enum": ["PENDING", "DEGRADED"]},
+        "rotation_readiness": {"const": "BLOCKED"},
+        "disposition": {"const": "HOLD"},
+        "state_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

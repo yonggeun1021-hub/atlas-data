@@ -1,0 +1,139 @@
+{
+  "schema_version": "paper_gate_2_3_exact_pins/v1",
+  "mode": "READ_ONLY_EXACT_RECEIPT_PIN",
+  "dependencies": {
+    "PAPER_12_4_THREE_MARKET_REGIME": {
+      "source_commit": "25ee4b1ec0634ffb9b7f5f33cac4fd6e676371c1",
+      "runtime_path": "paper_12_4_three_market_regime/receipt_pipeline.py",
+      "runtime_sha256": "0a2d3bd86b27d60df12185c54565bbaf1a71cd61343f67d9e2d7c125684fc5e3",
+      "report_sha256": "0d6f55ffeb0bfd75c56d4389a0b18fe75c5d7f31b257f01f287ab9a38f75fbaa",
+      "receipt_pins": {
+        "KRX": "22b98ecca616ff356e806aa8c4df19323177d3cf3f6c614cb6ed73c03c5562e9",
+        "US": "5853bd4b4b90afc0c1436126f1a75436717931c842e78cb5466cfd3b9b9fca80",
+        "CRYPTO": "e72ec4ddc65ee1d403e1b8f526a82ad065a052a5a78ebdb2e991e60bb14ce371",
+        "HEADER": "853a9669898c59202cca0b67c08cb801e61683e8efbdc75cacad962fa0046a31",
+        "BUNDLE": "45803dd5f1af0b88ca7d9eec2d5b517cecbfdfb2cc728236f3a09f6983ce813b"
+      }
+    },
+    "PAPER_12_5_KRX_MARKET_JUDGEMENT": {
+      "source_commit": "bd9db7bd9cd631b7c56536a0077bacf5b475d574",
+      "runtime_path": "market_judgement/krx_market_judgement.py",
+      "runtime_sha256": "41e1428949ffd48a7dcb839502bddf4b562791dc51f52ff601d22be1459a22a2",
+      "contract_sha256": "08c4c9a07743ae6a6c0c989e13927889838133e6b7381270e42de0c2f8646be5",
+      "receipt_sha256": "f6cedaa44bdae902b6d98dbc31eedb51e67f18f6118d4ad6d299c4d126a675c1",
+      "expected_facts": {
+        "evidence_origin": "NATURAL_READ_ONLY",
+        "as_of_date": "2026-08-28",
+        "source_time_utc": "2026-08-29T07:29:44Z",
+        "completed_bar_status": "PASS",
+        "ttl_seconds": null,
+        "coverage": {"defined_count": 5, "required_count": 5},
+        "leadership_policy_status": "RATIFIED",
+        "coverage_policy_status": "RATIFIED",
+        "scoring_policy_status": "UNRATIFIED",
+        "signed_direction_policy_status": "UNRATIFIED",
+        "hysteresis_policy_status": "UNRATIFIED",
+        "rotation_policy_status": "RATIFIED",
+        "declared_rotation_state": "PENDING",
+        "judgement": "UNKNOWN",
+        "disposition": "HOLD"
+      }
+    },
+    "PAPER_12_6_US_MARKET_JUDGEMENT": {
+      "source_commit": "f4e1d955d20442326d4f42bf0be2bbbe9e263c5d",
+      "runtime_path": "regime/us_market_judgement.py",
+      "runtime_sha256": "6ca63150122762fe0d54843d0d05854ee4ef3a355fa342572e3b006740abbf9e",
+      "contract_sha256": "fd96a32d2805444d1f72e387627546d65c576cd8b95cab4bd6ec2c339f01f961",
+      "report_sha256": "8f70b6cae5d123c405535b4d520234ff878f50578ab050161934ab38c4f5fd99",
+      "receipt_sha256": "deb45b4afdfda74220d4fbc91ef297daa274c266b3d40f6590ee3dbd49b6f854",
+      "expected_facts": {
+        "evidence_origin": "NO_INPUT_BASELINE_NOT_NATURAL_EVIDENCE",
+        "as_of_date": "2026-08-31",
+        "source_time_utc": null,
+        "completed_bar_status": "UNKNOWN",
+        "ttl_seconds": null,
+        "coverage": {"defined_count": 0, "required_count": 5},
+        "leadership_policy_status": "UNRATIFIED",
+        "coverage_policy_status": "UNRATIFIED",
+        "scoring_policy_status": "UNRATIFIED",
+        "signed_direction_policy_status": "UNRATIFIED",
+        "hysteresis_policy_status": "UNRATIFIED",
+        "rotation_policy_status": "UNRATIFIED",
+        "declared_rotation_state": "DEGRADED",
+        "judgement": "UNKNOWN",
+        "disposition": "HOLD"
+      }
+    },
+    "PAPER_12_11_CRYPTO_MARKET_JUDGEMENT": {
+      "source_commit": "2b09c615a804ea68f058cc56de5aefdd34aa7aa6",
+      "runtime_path": "paper_12_11_crypto_market_judgement/crypto_market_judgement.py",
+      "runtime_sha256": "3678fdeac073ec1a319ad1c17ccbdb028471ecf48eab7d587a9b3fb9a366f11d",
+      "contract_sha256": "2f9af7e18219037117400dbdafd6262e4b6707bd914d1c2ce201e76991cf8b92",
+      "report_sha256": "e37f4adc21fe697eb6704c34c63c040bdad2676ae62dd97ab7c812157f13ac0b",
+      "receipt_sha256": "ad661a9209e1ee0a820618f4797b4d0e66483aef332abb660d4f7acbb4e61aa9",
+      "expected_facts": {
+        "evidence_origin": "TEST_ONLY_FIXTURE_NON_PROMOTABLE",
+        "as_of_date": "2026-08-31",
+        "source_time_utc": null,
+        "completed_bar_status": "UNKNOWN",
+        "ttl_seconds": null,
+        "coverage": {"defined_count": 0, "required_count": 5},
+        "leadership_policy_status": "RATIFIED",
+        "coverage_policy_status": "UNRATIFIED",
+        "scoring_policy_status": "UNRATIFIED",
+        "signed_direction_policy_status": "UNRATIFIED",
+        "hysteresis_policy_status": "UNRATIFIED",
+        "rotation_policy_status": "UNRATIFIED",
+        "declared_rotation_state": "DEGRADED",
+        "judgement": "UNKNOWN",
+        "disposition": "HOLD",
+        "natural_candidate_count": 8,
+        "investment_paper_count": 0,
+        "candidate_evidence_gaps": [
+          "CRYPTO_REGIME_EVIDENCE_INCOMPLETE",
+          "CRYPTO_RELATIVE_STRENGTH_EVIDENCE_INCOMPLETE",
+          "CRYPTO_LIQUIDITY_EVIDENCE_INCOMPLETE",
+          "CRYPTO_FOUR_COMPONENT_SCORE_EVIDENCE_INCOMPLETE"
+        ]
+      }
+    },
+    "CRYPTO_SPOT_ADAPTER_PRIVATE_RELEASE": {
+      "source_commit": "742053c6aa0d88cd109d51d476376bd18f1331a8",
+      "runtime_path": "private_evidence/crypto_spot_paper_adapter/adapter.py",
+      "runtime_sha256": "9690ef6a4ec85cc48e8c522c5410a51710494b3ff003ac99232aa9a6aaf0629a",
+      "contract_sha256": "debded646da7436c86d57abe82df89fc0d9e7faa204d0b46dfa9e25be520b045",
+      "public_pin_sha256": "066a56712c6ff06aff610efa2f4f0ab9950e6985a43e059e771b912e691e577b",
+      "approved_public_commit": "7e6021fcb866027b3b6caa28405dd0d9b3e90875"
+    },
+    "COMMON_PAPER_CANDIDATE_FUNNEL_PUBLIC": {
+      "source_commit": "7e6021fcb866027b3b6caa28405dd0d9b3e90875",
+      "runtime_path": "decision/common_paper_candidate_funnel.py",
+      "runtime_sha256": "cf02827acd8e780d14728ba19e769e24b67225a818356e39f5be617da3e79770",
+      "contract_sha256": "57be62887f9ca52edd063ff75bdb8d43e4d5871bead937f905a0bd3ace32e43a",
+      "schema_sha256": "4afaef389dce037b6e568940ace4dad5cbe6197d7850ea6b971f7d7b4517e273"
+    },
+    "P2_COM_02_THREE_MARKET_FLOW_ROTATION": {
+      "source_commit": "992891a12a92f230659edbaf9aab26f124edfe3e",
+      "runtime_path": "paper_12_10_three_market_flow_rotation/engine.py",
+      "runtime_sha256": "ca49e444eb741bd0073ea817270574bccfd941b9dae8e239616252e2515c3329",
+      "report_sha256": "79e1734924215b9cd661fabcf91c696691db2ecaf788834bda9be621ee343882",
+      "receipt_pins": {
+        "KRX": "b6eef7d7612baa1607a7f32d80a2d32cf54bb06fa019351a40b3afc4c5c6323b",
+        "US": "57ae317d7bf07b11063041410516df5d41d18d27d616cf7ba37f023c28a770fe",
+        "CRYPTO": "925074b214090fbd6b5374213b465f1289b069a705d426d5c5074cb04193e59f",
+        "HEADER": "27078066323d5e9ba7cacf01ba074a2042e58e15a775fbd91e35d7e3670b5e0e",
+        "BUNDLE": "55f4e68a78568311ea8711c4c46a3d5c33cf2a3b6e1f86cf462485202408a151"
+      },
+      "evidence_origin": "TEST_ONLY_NON_AUTHORITATIVE"
+    }
+  },
+  "authority": {
+    "policy_ratification_authorized": false,
+    "threshold_definition_authorized": false,
+    "paper_authorized": false,
+    "strategy_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

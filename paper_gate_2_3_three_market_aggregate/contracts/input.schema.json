@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://paper/gate-2-3/input/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evaluation_id", "evaluated_at_utc", "exact_pins_sha256", "markets"],
+  "properties": {
+    "schema_version": {"const": "paper_gate_2_3_input/v1"},
+    "evaluation_id": {"type": "string", "minLength": 1},
+    "evaluated_at_utc": {"type": "string", "format": "date-time"},
+    "exact_pins_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "markets": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/market"}
+    }
+  },
+  "$defs": {
+    "market": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["market", "source_commit", "receipt_sha256", "facts"],
+      "properties": {
+        "market": {"enum": ["KRX", "US", "CRYPTO"]},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidence_origin", "as_of_date", "source_time_utc", "completed_bar_status",
+            "ttl_seconds", "coverage", "leadership_policy_status", "coverage_policy_status",
+            "scoring_policy_status", "signed_direction_policy_status",
+            "hysteresis_policy_status", "rotation_policy_status", "declared_rotation_state",
+            "judgement", "disposition"
+          ]
+        }
+      }
+    }
+  }
+}

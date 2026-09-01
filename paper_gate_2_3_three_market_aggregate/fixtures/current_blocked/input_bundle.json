@@ -1,0 +1,82 @@
+{
+  "schema_version": "paper_gate_2_3_input/v1",
+  "evaluation_id": "GATE23-CURRENT-BLOCKED-20260901",
+  "evaluated_at_utc": "2026-09-01T02:00:00Z",
+  "exact_pins_sha256": "5190d62fb60a9ddb9151fd42870b9f1274be9e2457c9f7c0d97ddc1e21b6c807",
+  "markets": [
+    {
+      "market": "KRX",
+      "source_commit": "bd9db7bd9cd631b7c56536a0077bacf5b475d574",
+      "receipt_sha256": "f6cedaa44bdae902b6d98dbc31eedb51e67f18f6118d4ad6d299c4d126a675c1",
+      "facts": {
+        "evidence_origin": "NATURAL_READ_ONLY",
+        "as_of_date": "2026-08-28",
+        "source_time_utc": "2026-08-29T07:29:44Z",
+        "completed_bar_status": "PASS",
+        "ttl_seconds": null,
+        "coverage": {"defined_count": 5, "required_count": 5},
+        "leadership_policy_status": "RATIFIED",
+        "coverage_policy_status": "RATIFIED",
+        "scoring_policy_status": "UNRATIFIED",
+        "signed_direction_policy_status": "UNRATIFIED",
+        "hysteresis_policy_status": "UNRATIFIED",
+        "rotation_policy_status": "RATIFIED",
+        "declared_rotation_state": "PENDING",
+        "judgement": "UNKNOWN",
+        "disposition": "HOLD"
+      }
+    },
+    {
+      "market": "US",
+      "source_commit": "f4e1d955d20442326d4f42bf0be2bbbe9e263c5d",
+      "receipt_sha256": "deb45b4afdfda74220d4fbc91ef297daa274c266b3d40f6590ee3dbd49b6f854",
+      "facts": {
+        "evidence_origin": "NO_INPUT_BASELINE_NOT_NATURAL_EVIDENCE",
+        "as_of_date": "2026-08-31",
+        "source_time_utc": null,
+        "completed_bar_status": "UNKNOWN",
+        "ttl_seconds": null,
+        "coverage": {"defined_count": 0, "required_count": 5},
+        "leadership_policy_status": "UNRATIFIED",
+        "coverage_policy_status": "UNRATIFIED",
+        "scoring_policy_status": "UNRATIFIED",
+        "signed_direction_policy_status": "UNRATIFIED",
+        "hysteresis_policy_status": "UNRATIFIED",
+        "rotation_policy_status": "UNRATIFIED",
+        "declared_rotation_state": "DEGRADED",
+        "judgement": "UNKNOWN",
+        "disposition": "HOLD"
+      }
+    },
+    {
+      "market": "CRYPTO",
+      "source_commit": "2b09c615a804ea68f058cc56de5aefdd34aa7aa6",
+      "receipt_sha256": "ad661a9209e1ee0a820618f4797b4d0e66483aef332abb660d4f7acbb4e61aa9",
+      "facts": {
+        "evidence_origin": "TEST_ONLY_FIXTURE_NON_PROMOTABLE",
+        "as_of_date": "2026-08-31",
+        "source_time_utc": null,
+        "completed_bar_status": "UNKNOWN",
+        "ttl_seconds": null,
+        "coverage": {"defined_count": 0, "required_count": 5},
+        "leadership_policy_status": "RATIFIED",
+        "coverage_policy_status": "UNRATIFIED",
+        "scoring_policy_status": "UNRATIFIED",
+        "signed_direction_policy_status": "UNRATIFIED",
+        "hysteresis_policy_status": "UNRATIFIED",
+        "rotation_policy_status": "UNRATIFIED",
+        "declared_rotation_state": "DEGRADED",
+        "judgement": "UNKNOWN",
+        "disposition": "HOLD",
+        "natural_candidate_count": 8,
+        "investment_paper_count": 0,
+        "candidate_evidence_gaps": [
+          "CRYPTO_REGIME_EVIDENCE_INCOMPLETE",
+          "CRYPTO_RELATIVE_STRENGTH_EVIDENCE_INCOMPLETE",
+          "CRYPTO_LIQUIDITY_EVIDENCE_INCOMPLETE",
+          "CRYPTO_FOUR_COMPONENT_SCORE_EVIDENCE_INCOMPLETE"
+        ]
+      }
+    }
+  ]
+}
