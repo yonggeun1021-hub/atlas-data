@@ -53,12 +53,33 @@ class ShadowEntryReviewTests(unittest.TestCase):
         cls.packet = review.build_packet(cls.report, cls.identity, cls.contract)
         cls.by_subject = {row["subject"]: row for row in cls.packet["review_items"]}
 
-    def test_real_samsung_candidate_remains_a_zero_capital_diagnostic(self):
-        row = self.by_subject["005930"]
-        self.assertIn(row["review_state"], {
-            review.REVIEW_MOMENTUM, review.REVIEW_REVERSAL,
-            review.REVIEW_PULLBACK, review.REVIEW_WATCH, review.REVIEW_BLOCKED,
-        })
+    def _current_candidate_and_identity(self):
+        """Use an actual current row, not a ticker that may have expired."""
+        candidates = [
+            candidate
+            for market in self.report["by_market"].values()
+            for candidate in market["review_queue"]
+        ]
+        candidate = min(candidates, key=lambda row: (row["candidate_id"], row["subject"]))
+        identity = next(
+            row for row in self.identity["observations"]
+            if row["candidate_id"] == candidate["candidate_id"]
+        )
+        return copy.deepcopy(candidate), copy.deepcopy(identity)
+
+    def _resolved_identity_fixture(self, identity):
+        """Isolate trigger classification from today's upstream identity coverage."""
+        identity["identity"] = {
+            "canonical_instrument_id": "TEST-CURRENT-CANDIDATE",
+            "canonical_issuer_id": "TEST-ISSUER",
+            "listing_id": "TEST-LISTING",
+            "status": review.ci.RESOLVED,
+        }
+        return identity
+
+    def test_current_review_rows_remain_zero_capital_diagnostics(self):
+        row = min(self.packet["review_items"], key=lambda item: (item["candidate_id"], item["subject"]))
+        self.assertIn(row["review_state"], self.contract["review_states"])
         self.assertIn(row["participation_state"], {"RADAR", "PROBE_REVIEW"})
         self.assertEqual(0, row["money_boundary"]["capital"])
         self.assertIsNone(row["money_boundary"]["trade_proposal"])
@@ -138,13 +159,8 @@ class ShadowEntryReviewTests(unittest.TestCase):
             review.build_packet(self.report, self.identity, contract)
 
     def test_unsupported_trigger_family_cannot_open_review(self):
-        candidate = copy.deepcopy(next(
-            c for market in self.report["by_market"].values()
-            for c in market["review_queue"] if c["subject"] == "005930"
-        ))
-        identity = copy.deepcopy(next(
-            row for row in self.identity["observations"] if row["subject"] == "005930"
-        ))
+        candidate, identity = self._current_candidate_and_identity()
+        identity = self._resolved_identity_fixture(identity)
         candidate["trigger_types"] = ["FUNDAMENTAL_REVISION"]
         state, participation, reason = review._classify(candidate, identity, self.contract)
         self.assertEqual("NOT_REVIEWABLE", state)
@@ -152,26 +168,14 @@ class ShadowEntryReviewTests(unittest.TestCase):
         self.assertEqual("TRIGGER_FAMILY_UNVALIDATED_NO_LIVE_SAMPLE", reason)
 
     def test_expired_candidate_cannot_open_review(self):
-        candidate = copy.deepcopy(next(
-            c for market in self.report["by_market"].values()
-            for c in market["review_queue"] if c["subject"] == "005930"
-        ))
-        identity = copy.deepcopy(next(
-            row for row in self.identity["observations"] if row["subject"] == "005930"
-        ))
+        candidate, identity = self._current_candidate_and_identity()
         candidate["expiry"] = "2026-08-25"
         state, _, reason = review._classify(candidate, identity, self.contract)
         self.assertEqual("NOT_REVIEWABLE", state)
         self.assertEqual("CANDIDATE_EXPIRED_FOR_THIS_OPERATIONAL_RUN", reason)
 
     def test_reflection_authority_leak_is_a_hard_error(self):
-        candidate = copy.deepcopy(next(
-            c for market in self.report["by_market"].values()
-            for c in market["review_queue"] if c["subject"] == "005930"
-        ))
-        identity = copy.deepcopy(next(
-            row for row in self.identity["observations"] if row["subject"] == "005930"
-        ))
+        candidate, identity = self._current_candidate_and_identity()
         candidate["price_reflection_status"]["reflection_status"] = "FULLY_REFLECTED"
         with self.assertRaisesRegex(review.ShadowEntryReviewError, "MUST_REMAIN_UNKNOWN"):
             review._classify(candidate, identity, self.contract)
