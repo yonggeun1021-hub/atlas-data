@@ -132,6 +132,48 @@ class PaperDecisionBridgeTests(unittest.TestCase):
         self.assertIn("FIXTURE_NOT_PROMOTABLE", result["reasons"])
         self.assertIn("PINNED_COMPONENT_AUTHORITY_BLOCKS_PAPER_TRANSITION", result["reasons"])
 
+    def test_non_executing_hold_is_preserved_without_paper_transition(self):
+        value = unknown_input()
+        candidate = candidate_for("KRX", "KRX-HOLD-A")
+        candidate["upstreamAction"] = "HOLD"
+        value["markets"][0]["candidates"] = [candidate]
+        receipt = MODULE.build_receipt(value)
+        market = receipt["markets"][0]
+        result = market["results"][0]
+        self.assertIsNone(result["action"])
+        self.assertEqual(result["recommendation"], "HOLD")
+        self.assertIsNone(market["action"])
+        self.assertEqual(market["recommendation"], "HOLD")
+        self.assertEqual(receipt["summary"]["paperTransitionCount"], 0)
+        self.assertTrue(all(value is False for value in receipt["authority"].values()))
+
+    def test_buy_below_paper_eligibility_does_not_become_recommendation(self):
+        value = unknown_input()
+        candidate = candidate_for("KRX", "KRX-BELOW-A")
+        candidate["funnelCandidate"]["scoreBreakdown"][0]["points"] = 0
+        value["markets"][0]["candidates"] = [candidate]
+        result = MODULE.build_receipt(value)["markets"][0]["results"][0]
+        self.assertNotEqual(result["funnel"]["highestStage"], "PAPER_BUY_ELIGIBLE")
+        self.assertIsNone(result["action"])
+        self.assertEqual(result["recommendation"], "WAIT")
+        self.assertIn("BUY_REQUIRES_PAPER_BUY_ELIGIBLE", result["reasons"])
+
+    def test_completed_bar_failure_keeps_buy_at_wait(self):
+        value = unknown_input()
+        candidate = candidate_for("KRX", "KRX-INCOMPLETE-BAR")
+        value["markets"][0]["candidates"] = [candidate]
+        value["markets"][0]["lifecycleGates"]["COMPLETED_BAR"] = {
+            "status": "FAIL",
+            "reason": "COMPLETED_BAR_NOT_CLOSED",
+            "sources": [source_for("KRX")],
+        }
+        market = MODULE.build_receipt(value)["markets"][0]
+        result = market["results"][0]
+        self.assertEqual(market["lifecycleGates"]["COMPLETED_BAR"]["status"], "FAIL")
+        self.assertIsNone(result["action"])
+        self.assertEqual(result["recommendation"], "WAIT")
+        self.assertIn("MARKET_LIFECYCLE_GATES_INCOMPLETE", result["reasons"])
+
     def test_rank_is_independent_per_market_not_cross_market(self):
         value = unknown_input()
         value["markets"][0]["candidates"] = [candidate_for("KRX", "KRX-A", 0)]
