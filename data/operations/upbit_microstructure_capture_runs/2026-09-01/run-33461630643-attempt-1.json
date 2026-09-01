@@ -1,0 +1,61 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "action_generation_authorized": false,
+    "decision_eligible": false,
+    "evidence_derivation_only": true,
+    "order_action_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": false,
+    "raw_publication_eligible": false,
+    "reason": "universe_ratification_not_effective",
+    "result": "waiting",
+    "step_outcome": "success"
+  },
+  "consumer_lineage": {
+    "exact_hash_verified_before_provider_calls": false,
+    "p4_policy_id": null,
+    "p4_policy_sha256": null,
+    "packet_date": "2026-09-01",
+    "packet_path": "data/observations/upbit_tradeable_universe/2026-09-01/packet.json",
+    "ready": false,
+    "snapshot_key": null,
+    "universe_market_count": null,
+    "universe_record_sha256": null,
+    "wait_reason": "UNIVERSE_RATIFICATION_NOT_EFFECTIVE"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "workflow_dispatch",
+    "event_schedule": null,
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 33461630643,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33461630643"
+  },
+  "p4_07_population": {
+    "output_path": null,
+    "payload_sha256": null,
+    "reason": null,
+    "result": "not_run",
+    "step_outcome": "skipped"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-01T11:11:55+09:00",
+    "observed_started_at_utc": "2026-09-01T02:11:55Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": null,
+    "expected_start_kst": null,
+    "expected_start_utc": null,
+    "id": "manual",
+    "timing_status": "not_applicable"
+  },
+  "snapshot_date_utc": "2026-09-01",
+  "workflow": "P4-07 Upbit Market Evidence & Microstructure Daily Capture"
+}
