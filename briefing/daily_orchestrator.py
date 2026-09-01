@@ -3665,12 +3665,13 @@ def _format_component_detail(
 
 
 def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> list[str]:
-    """Render each market against its own evidence clock, never KRX's.
+    """Render a visible three-market board against independent evidence clocks.
 
     This is a presentation boundary only: it neither infers an exchange
     holiday nor changes a component's status.  A same-date validated source
-    can be described as current.  Any other source date is disclosed and its
-    numerical close is withheld by ``_format_component_detail``.
+    can be described as current.  A market whose own close/session evidence is
+    not current remains visible as PENDING; it is never omitted because KRX,
+    US, or Crypto happened to have a different clock.
     """
     decision_date = packet["decision_date"]
 
@@ -3686,28 +3687,59 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
     crypto_dates = [source_date(component_id) for component_id in crypto_ids]
     crypto_fresh = all(date == decision_date for date in crypto_dates)
 
-    return [
-        "## Market session / freshness",
-        (
-            "- KRX: FRESH_CLOSE" if krx_fresh else
-            "- KRX: FRESH_CLOSE_PENDING"
+    lines = ["## 3-market session board"]
+
+    lines.extend([
+        "### KRX · 한국",
+        ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
+        + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
+        "- latest_completed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+    ])
+    if krx_fresh:
+        lines.extend(_format_component_detail(krx, decision_date))
+    else:
+        lines.append(
+            "- KOSPI/KOSDAQ close values: pending a same-date validated close; "
+            "older evidence is not relabelled as today."
         )
-        + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}; "
-        + "KOSPI/KOSDAQ values are shown only for a same-date validated close.",
-        (
-            "- US: CURRENT_SESSION_EVIDENCE" if us_fresh else
-            "- US: INDEPENDENT_SESSION_PENDING"
+        lines.append(
+            "- verified sector/event summary: pending same-date KRX source evidence."
         )
-        + f"; evidence_date={source_date('FREE_MARKET_DATA')}; "
-        + "US values are not relabelled as the KRX briefing date.",
-        (
-            "- Crypto: CONTINUOUS_CURRENT_EVIDENCE" if crypto_fresh else
-            "- Crypto: CONTINUOUS_EVIDENCE_PENDING"
+
+    lines.extend([
+        "### US · 미국",
+        ("- session: CURRENT_SESSION_EVIDENCE" if us_fresh else "- session: INDEPENDENT_SESSION_PENDING")
+        + f"; evidence_date={source_date('FREE_MARKET_DATA')}",
+        "- latest_verified_us_evidence_date: " + source_date("FREE_MARKET_DATA"),
+    ])
+    if us_fresh:
+        lines.extend(_format_component_detail(us, decision_date))
+    else:
+        lines.append(
+            "- US close/sector/event summary: pending independently dated "
+            "validated US session evidence; no KRX-date substitution."
         )
-        + f"; evidence_dates={','.join(crypto_dates)}; "
-        + "Crypto freshness is evaluated independently of both equity sessions.",
-        "",
-    ]
+
+    lines.extend([
+        "### Crypto · 코인",
+        (
+            "- session: CONTINUOUS_CURRENT_EVIDENCE"
+            if crypto_fresh else "- session: CONTINUOUS_EVIDENCE_PENDING"
+        ) + f"; evidence_dates={','.join(crypto_dates)}",
+        "- continuous_observation_date: " + (decision_date if crypto_fresh else "PENDING"),
+    ])
+    if crypto_fresh:
+        for component_id in crypto_ids:
+            component = by_id.get(component_id) or {}
+            if component.get("component_id"):
+                lines.extend(_format_component_detail(component, decision_date))
+    else:
+        lines.append(
+            "- Crypto topic/sector/event summary: pending complete continuous source evidence."
+        )
+
+    lines.append("")
+    return lines
 
 
 def render_markdown(packet: dict) -> str:

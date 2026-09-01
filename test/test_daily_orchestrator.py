@@ -1545,12 +1545,18 @@ class DailyOrchestratorTest(unittest.TestCase):
             "STABLECOIN_NET_ISSUANCE": {"as_of_date": "2026-09-01"},
         }
         context = "\n".join(MODULE._market_session_freshness_lines(packet, by_id))
-        self.assertIn("KRX: FRESH_CLOSE_PENDING", context)
+        self.assertIn("## 3-market session board", context)
+        self.assertIn("### KRX · 한국", context)
+        self.assertIn("session: FRESH_CLOSE_PENDING", context)
         self.assertIn("evidence_date=2026-08-31", context)
-        self.assertIn("US: INDEPENDENT_SESSION_PENDING", context)
+        self.assertIn("### US · 미국", context)
+        self.assertIn("session: INDEPENDENT_SESSION_PENDING", context)
         self.assertIn("evidence_date=2026-08-28", context)
-        self.assertIn("Crypto: CONTINUOUS_CURRENT_EVIDENCE", context)
-        self.assertNotIn("FRESH_CLOSE; evidence_date=2026-08-31", context)
+        self.assertIn("### Crypto · 코인", context)
+        self.assertIn("session: CONTINUOUS_CURRENT_EVIDENCE", context)
+        self.assertIn("continuous_observation_date: 2026-09-01", context)
+        self.assertIn("pending a same-date validated close", context)
+        self.assertIn("pending independently dated validated US session evidence", context)
 
         korea = {
             "component_id": "KOREA_MARKET_SIGNALS",
