@@ -120,17 +120,26 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     def test_korea_direct_review_uses_two_official_sources_and_stays_unclassified(self):
         row = next(
             x for x in self.packet["proposals"]
-            if x["market"] == "KOREA" and x["subject"] == "034020"
+            if x["market"] == "KOREA"
         )
-        self.assertEqual(row["subject"], "034020")
+        subject = row["subject"]
+        corp_code = row["source_evidence"]["corp_code"]
         self.assertEqual(row["review_status"], COMPLETE)
-        self.assertEqual(row["proposed_rows"]["issuer"]["canonical_issuer_id"], "DART:00159616")
+        self.assertEqual(
+            row["proposed_rows"]["issuer"]["canonical_issuer_id"],
+            f"DART:{corp_code}",
+        )
         self.assertEqual(row["proposed_rows"]["instrument"]["instrument_type"], "OTHER_UNCLASSIFIED")
-        self.assertEqual(row["proposed_rows"]["listing"]["listing_id"], "XKRX:034020")
+        self.assertEqual(row["proposed_rows"]["listing"]["listing_id"], f"XKRX:{subject}")
         self.assertEqual(row["source_evidence"]["krx"]["source"], "KRX 정보데이터시스템 (pykrx)")
         self.assertEqual(row["source_evidence"]["dart"]["source"], "OpenDART (금융감독원)")
 
     def test_korea_cross_source_name_mismatch_fails_closed(self):
+        korea_gap = next(
+            row for row in self.gaps["identity_gaps"]
+            if row["market"] == "KOREA"
+        )
+        subject = korea_gap["subject"]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             day = root / self.gaps["decision_date"]
@@ -138,7 +147,7 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
             for name in ("krx.json", "dart.json"):
                 shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
             dart = json.loads((day / "dart.json").read_text())
-            dart["stocks"]["034020"]["name"] = "다른회사"
+            dart["stocks"][subject]["name"] = "다른회사"
             (day / "dart.json").write_text(json.dumps(dart, ensure_ascii=False))
             with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_CROSS_SOURCE_NAME_MISMATCH"):
                 build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
