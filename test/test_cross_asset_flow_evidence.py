@@ -78,7 +78,74 @@ def daily_packet():
     return packet
 
 
+def dynamic_clock_source(*, decision_date="2026-08-26"):
+    report = {"decision_date": decision_date, "candidates": []}
+    return {
+        "kind": "report",
+        "report_sha256": MODULE.payload_sha256(report),
+        "report": report,
+    }
+
+
+def resign(packet):
+    packet["packet_sha256"] = MODULE.payload_sha256(
+        {key: value for key, value in packet.items() if key != "packet_sha256"}
+    )
+    return packet
+
+
 class CrossAssetFlowEvidenceTests(unittest.TestCase):
+    def test_legacy_packets_without_dynamic_clock_remain_readable(self):
+        for frozen_sources in (None, {}):
+            with self.subTest(frozen_sources=frozen_sources):
+                source = daily_packet()
+                if frozen_sources is not None:
+                    source["frozen_sources"] = frozen_sources
+                    resign(source)
+                self.assertEqual(
+                    MODULE.build_packet(source)["source_daily_packet_sha256"],
+                    source["packet_sha256"],
+                )
+
+    def test_exact_dynamic_clock_variants_are_accepted(self):
+        for frozen_source in (
+            {"kind": "unavailable"},
+            {"kind": "error", "value": "DynamicClockError:sealed"},
+            dynamic_clock_source(),
+        ):
+            with self.subTest(kind=frozen_source["kind"]):
+                source = daily_packet()
+                source["frozen_sources"] = {"DYNAMIC_CLOCK": frozen_source}
+                packet = MODULE.build_packet(resign(source))
+                self.assertFalse(packet["authority"]["action_generation_authorized"])
+                self.assertFalse(packet["authority"]["order_generation_authorized"])
+
+    def test_resigned_dynamic_clock_shape_hash_and_date_tamper_fail_closed(self):
+        valid = dynamic_clock_source()
+        bad_hash = copy.deepcopy(valid)
+        bad_hash["report_sha256"] = "0" * 64
+        cases = (
+            (True, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({"kind": True}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({"kind": "unavailable", "value": None}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({"kind": "error", "value": True}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({**valid, "extra": None}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({**valid, "report_sha256": True}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({**valid, "report_sha256": "A" * 64}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            ({**valid, "report": []}, "SOURCE_DYNAMIC_CLOCK_INVALID"),
+            (bad_hash, "SOURCE_DYNAMIC_CLOCK_SHA_MISMATCH"),
+            (
+                dynamic_clock_source(decision_date="2026-08-25"),
+                "SOURCE_DYNAMIC_CLOCK_DATE_MISMATCH",
+            ),
+        )
+        for frozen_source, error in cases:
+            with self.subTest(frozen_source=frozen_source):
+                source = daily_packet()
+                source["frozen_sources"] = {"DYNAMIC_CLOCK": frozen_source}
+                with self.assertRaisesRegex(MODULE.CrossAssetFlowEvidenceError, error):
+                    MODULE.build_packet(resign(source))
+
     def test_four_evidence_classes_are_closed(self):
         self.assertEqual(MODULE.load_contract()["evidence_classes"], [
             "DIRECT_FLOW", "MARKET_IMPLIED_FLOW", "MACRO_CONTEXT", "UNKNOWN"
