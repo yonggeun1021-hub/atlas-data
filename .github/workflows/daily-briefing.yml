@@ -595,7 +595,9 @@ jobs:
 
       # drain ingests each stream's authoritative verdict THEN delivers, per
       # item, and exits non-zero while any due slot is still undelivered. A
-      # briefing nobody received is not a green build.
+      # briefing nobody received is not a green build. An explicitly selected
+      # recovery slot is scoped to that exact date/slot, so unrelated historic
+      # debt cannot turn a successfully completed recovery red.
       - name: Ingest verdicts and deliver
         if: steps.resolve.outputs.mode == 'drain'
         id: gate
@@ -606,10 +608,13 @@ jobs:
           set -uo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python3 .github/scripts/briefing_finalization.py drain \
-            --repo-root . \
-            --channel github_step_summary \
-            --required-channel github_step_summary > drain.json
+          ARGS=(--repo-root . --channel github_step_summary \
+            --required-channel github_step_summary)
+          if [ -n "${{ steps.resolve.outputs.slot }}" ]; then
+            ARGS+=(--slot "${{ steps.resolve.outputs.slot }}" \
+              --decision-date "${{ steps.resolve.outputs.decision_date }}")
+          fi
+          python3 .github/scripts/briefing_finalization.py drain "${ARGS[@]}" > drain.json
           RC=$?
           python3 .github/scripts/report_drain.py drain.json
           rm -f drain.json

@@ -1930,17 +1930,36 @@ def git_intent_publisher(repo_root: Path, path: Path) -> None:
 def drain(repo_root: Path, channels: list[str], required: list[str] | None = None,
           now: _dt.datetime | None = None,
           durability_probe: DurabilityProbe | None = None,
-          intent_publisher: Callable[[Path, Path], None] | None = None) -> dict:
+          intent_publisher: Callable[[Path, Path], None] | None = None,
+          target_date: str | None = None, target_slot: str | None = None) -> dict:
     """Ingest any published verdict, then deliver -- per item, in that order.
 
     (P0-6) rev 3 ingested the inbox only on a normal run and then had drain call
     deliver directly, so a verdict published after the first run was never read
     and the slot timed out anyway.
     """
+    if bool(target_date) != bool(target_slot):
+        raise FinalizationError(
+            "FINALIZATION_DRAIN_SCOPE_INVALID",
+            "target_date and target_slot must be supplied together",
+        )
     now = now or _utcnow()
     results = []
     state = backlog(repo_root, now)
-    for item in state["pending_delivery"]:
+    target_id = briefing_id(target_date, target_slot) if target_date and target_slot else None
+    pending_delivery = [
+        item for item in state["pending_delivery"]
+        if target_id is None or item["briefing_id"] == target_id
+    ]
+    missing_production = [
+        item for item in state["missing_production"]
+        if target_id is None or item["briefing_id"] == target_id
+    ]
+    post_delivery_changes = [
+        item for item in state["post_delivery_changes"]
+        if target_id is None or item["briefing_id"] == target_id
+    ]
+    for item in pending_delivery:
         entry = {"briefing_id": item["briefing_id"], "slot": item["slot"], "kst_date": item["kst_date"]}
         try:
             entry["ingest"] = ingest_inbox(repo_root, item["kst_date"], item["slot"])
@@ -1971,19 +1990,21 @@ def drain(repo_root: Path, channels: list[str], required: list[str] | None = Non
         "FINALIZATION_VALIDATION_STALE", "FINALIZATION_VALIDATION_INVALID",
     }
     undelivered = [e for e in results if not e.get("delivered")]
-    age_by_id = {i["briefing_id"]: i.get("age_days") for i in state["pending_delivery"]}
+    age_by_id = {i["briefing_id"]: i.get("age_days") for i in pending_delivery}
     debt = [{"briefing_id": e["briefing_id"], "age_days": age_by_id.get(e["briefing_id"]),
              "error": e.get("error")} for e in undelivered]
     failures = [e for e in undelivered if e.get("error") in machine_failure_codes]
     observed_pending = [e for e in undelivered if e.get("error") == "FINALIZATION_VALIDATION_PENDING"]
-    unresolved_changes = [c for c in state["post_delivery_changes"] if not c["complete"]]
+    unresolved_changes = [c for c in post_delivery_changes if not c["complete"]]
     outcome = {
         "drained": results,
+        "scope": ({"briefing_id": target_id, "kst_date": target_date, "slot": target_slot}
+                  if target_id else None),
         "activated": state["activated"],
         "semantic_validator_expected": load_semantic_validator_policy(repo_root)["expected"],
         "active_from": state["active_from"],
-        "missing_production": state["missing_production"],
-        "post_delivery_changes": state["post_delivery_changes"],
+        "missing_production": missing_production,
+        "post_delivery_changes": post_delivery_changes,
         # (P0) "we do not know whether this moved the investment conclusion" is
         # not a finished state. rev 14 warned and went green, so a change that
         # might matter could pass unnoticed -- and it will matter more once a
@@ -1994,10 +2015,10 @@ def drain(repo_root: Path, channels: list[str], required: list[str] | None = Non
         "machine_failures": [{"briefing_id": e["briefing_id"], "error": e["error"]} for e in failures],
         "observed_pending": [{"briefing_id": e["briefing_id"], "error": e["error"]} for e in observed_pending],
         # Green requires: every due slot delivered AND nothing owed production.
-        "complete": not undelivered and not state["missing_production"] and not unresolved_changes,
-        "exit_code": (EXIT_OK if not (undelivered or state["missing_production"] or unresolved_changes)
+        "complete": not undelivered and not missing_production and not unresolved_changes,
+        "exit_code": (EXIT_OK if not (undelivered or missing_production or unresolved_changes)
                       else EXIT_CIO_ATTENTION_REQUIRED if (unresolved_changes and not undelivered
-                                                           and not state["missing_production"])
+                                                           and not missing_production)
                       else EXIT_DRAIN_INCOMPLETE),
     }
     return outcome
@@ -2093,6 +2114,8 @@ def main(argv: list[str] | None = None) -> int:
                 "notice", "status"}
     if args.command in per_slot and not (slot and date):
         parser.error("--slot and --decision-date are required for this command")
+    if args.command == "drain" and bool(slot) != bool(date):
+        parser.error("drain scope requires both --slot and --decision-date")
 
     channels = args.channel or ["github_step_summary"]
     required = args.required_channel or None
@@ -2121,7 +2144,7 @@ def main(argv: list[str] | None = None) -> int:
                           durability_probe=probe, intent_publisher=publisher))
         elif args.command == "drain":
             outcome = drain(repo_root, channels, required=required, durability_probe=probe,
-                            intent_publisher=publisher)
+                            intent_publisher=publisher, target_date=date, target_slot=slot)
             _emit(outcome)
             return outcome["exit_code"]
         elif args.command == "backlog":
