@@ -185,6 +185,47 @@ class DailyBriefingDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(delivery.DeliveryError, "LOCATOR_DRIFT_OR_TAMPER"):
             delivery.consume(self.root, self.slot, self.date)
 
+    def test_packet_re_read_revalidates_dynamic_clock_source_type(self):
+        """The packet used for delivery must be the value that was validated.
+
+        Simulate a local replacement after build_locator() validates and hashes
+        the packet but before consume() reads it again for component delivery.
+        """
+        packet_path = self.date_root / "rev-001/packet.json"
+        packet = json.loads(packet_path.read_text())
+        packet["frozen_sources"] = {"DYNAMIC_CLOCK": {"kind": "unavailable"}}
+        dump(packet_path, packet)
+        delivery.write_locator(
+            self.root, delivery.build_locator(self.root, self.slot, self.date)
+        )
+
+        real_read_json = delivery._read_json
+        packet_reads = 0
+
+        def replace_after_locator_check(path):
+            nonlocal packet_reads
+            value = real_read_json(path)
+            if path == packet_path:
+                packet_reads += 1
+                if packet_reads == 2:
+                    value["frozen_sources"]["DYNAMIC_CLOCK"] = []
+            return value
+
+        def validate_dynamic_clock_type(value):
+            source = value.get("frozen_sources", {}).get("DYNAMIC_CLOCK")
+            if not isinstance(source, dict):
+                raise delivery.DeliveryError("DYNAMIC_CLOCK_SOURCE_INVALID")
+
+        with mock.patch.object(
+            delivery, "_read_json", side_effect=replace_after_locator_check
+        ), mock.patch.object(
+            delivery, "validate_packet", side_effect=validate_dynamic_clock_type
+        ):
+            with self.assertRaisesRegex(
+                delivery.DeliveryError, "DYNAMIC_CLOCK_SOURCE_INVALID"
+            ):
+                delivery.consume(self.root, self.slot, self.date)
+
     def test_missing_component_is_rejected(self):
         path = self.date_root / "rev-001/packet.json"
         packet = json.loads(path.read_text())
