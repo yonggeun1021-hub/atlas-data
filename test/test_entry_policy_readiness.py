@@ -257,5 +257,152 @@ class EntryPolicyReadinessTests(unittest.TestCase):
         self.assertIsNot(self.packet, validated)
 
 
+class EntryPolicyReadinessExactTypeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.report = json.loads(readiness.DEFAULT_REPORT.read_text())
+        cls.identity = json.loads(readiness.DEFAULT_IDENTITY.read_text())
+        cls.shadow_contract = json.loads(
+            readiness.DEFAULT_SHADOW_CONTRACT.read_text()
+        )
+        cls.shadow_packet = json.loads(readiness.DEFAULT_SHADOW_PACKET.read_text())
+        cls.contract = readiness.load_contract()
+        cls.trigger_kind = cls.shadow_packet["source"]["trigger_kind"]
+        with mock.patch.object(
+            shadow,
+            "validate_packet",
+            return_value=copy.deepcopy(cls.shadow_packet),
+        ):
+            cls.packet = readiness.build_packet(
+                cls.contract,
+                cls.shadow_packet,
+                cls.report,
+                cls.identity,
+                cls.shadow_contract,
+                trigger_kind=cls.trigger_kind,
+            )
+
+    def _build_with_validated_shadow(self, validated_shadow):
+        with mock.patch.object(
+            shadow,
+            "validate_packet",
+            return_value=validated_shadow,
+        ):
+            return readiness.build_packet(
+                self.contract,
+                self.shadow_packet,
+                self.report,
+                self.identity,
+                self.shadow_contract,
+                trigger_kind=self.trigger_kind,
+            )
+
+    def _validate_output(self, packet):
+        with mock.patch.object(
+            shadow,
+            "validate_packet",
+            return_value=copy.deepcopy(self.shadow_packet),
+        ):
+            return readiness.validate_packet(
+                packet,
+                self.contract,
+                self.shadow_packet,
+                self.report,
+                self.identity,
+                self.shadow_contract,
+                trigger_kind=self.trigger_kind,
+            )
+
+    def test_contract_rejects_boolean_and_integral_float_capital_aliases(self):
+        for alias in (False, 0.0):
+            contract = copy.deepcopy(self.contract)
+            contract["downstream_boundary"]["capital"] = alias
+            with self.subTest(alias=alias), self.assertRaisesRegex(
+                readiness.EntryPolicyReadinessError,
+                "DOWNSTREAM_BOUNDARY_DRIFT",
+            ):
+                readiness.validate_contract(contract)
+
+    def test_contract_rejects_numeric_boolean_authority_aliases(self):
+        for alias_type in (int, float):
+            for field, expected in readiness.AUTHORITY_ALL_FALSE.items():
+                contract = copy.deepcopy(self.contract)
+                contract["authority"][field] = alias_type(expected)
+                with self.subTest(
+                    alias_type=alias_type.__name__, field=field
+                ), self.assertRaisesRegex(
+                    readiness.EntryPolicyReadinessError,
+                    "CONTRACT_AUTHORITY_ESCALATION",
+                ):
+                    readiness.validate_contract(contract)
+
+    def test_validated_upstream_rejects_boolean_and_float_capital_aliases(self):
+        for alias in (False, 0.0):
+            upstream = copy.deepcopy(self.shadow_packet)
+            upstream["review_items"][0]["money_boundary"]["capital"] = alias
+            with self.subTest(alias=alias), self.assertRaisesRegex(
+                readiness.EntryPolicyReadinessError,
+                "UPSTREAM_MONEY_BOUNDARY_OPEN",
+            ):
+                self._build_with_validated_shadow(upstream)
+
+    def test_validated_upstream_rejects_numeric_boolean_authority_aliases(self):
+        for alias in (False, 0.0):
+            upstream = copy.deepcopy(self.shadow_packet)
+            upstream["authority"]["capital"] = alias
+            with self.subTest(field="capital", alias=alias), self.assertRaisesRegex(
+                readiness.EntryPolicyReadinessError,
+                "UPSTREAM_PACKET_AUTHORITY_ESCALATION",
+            ):
+                self._build_with_validated_shadow(upstream)
+        for alias_type in (int, float):
+            for field, expected in shadow.AUTHORITY_ZERO_CAPITAL.items():
+                if type(expected) is not bool:
+                    continue
+                upstream = copy.deepcopy(self.shadow_packet)
+                upstream["authority"][field] = alias_type(expected)
+                with self.subTest(
+                    alias_type=alias_type.__name__, field=field
+                ), self.assertRaisesRegex(
+                    readiness.EntryPolicyReadinessError,
+                    "UPSTREAM_PACKET_AUTHORITY_ESCALATION",
+                ):
+                    self._build_with_validated_shadow(upstream)
+
+    def test_output_rejects_boolean_and_integral_float_zero_aliases(self):
+        for path, alias in (
+            (("summary", "execution_eligible_count"), False),
+            (("summary", "execution_eligible_count"), 0.0),
+            (("decision", "capital"), False),
+            (("decision", "capital"), 0.0),
+        ):
+            tampered = copy.deepcopy(self.packet)
+            tampered[path[0]][path[1]] = alias
+            with self.subTest(path=path, alias=alias), self.assertRaisesRegex(
+                readiness.EntryPolicyReadinessError,
+                "ENTRY_POLICY_READINESS_SEMANTIC_TAMPER_OR_DRIFT",
+            ):
+                self._validate_output(tampered)
+
+    def test_output_rejects_numeric_boolean_authority_aliases(self):
+        for authority_path in (("authority",), ("candidates", 0, "authority")):
+            for alias_type in (int, float):
+                for field, expected in readiness.AUTHORITY_ALL_FALSE.items():
+                    tampered = copy.deepcopy(self.packet)
+                    authority = tampered
+                    for part in authority_path:
+                        authority = authority[part]
+                    authority[field] = alias_type(expected)
+                    with self.subTest(
+                        authority_path=authority_path,
+                        alias_type=alias_type.__name__,
+                        field=field,
+                    ), self.assertRaisesRegex(
+                        readiness.EntryPolicyReadinessError,
+                        "ENTRY_POLICY_READINESS_SEMANTIC_TAMPER_OR_DRIFT",
+                    ):
+                        self._validate_output(tampered)
+
+
 if __name__ == "__main__":
     unittest.main()

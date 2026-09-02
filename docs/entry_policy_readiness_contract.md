@@ -25,6 +25,13 @@ contracts. A modified output remains invalid even if its hashes are
 recalculated. The Dynamic Clock workflow writes a latest packet plus a
 content-addressed append-only history record.
 
+Contract, validated-upstream, and output identity checks use recursive
+exact-type comparison. Python scalar aliases therefore cannot cross this
+authority boundary: `true`/`false` are not accepted as `1`/`0`, integers are
+not accepted as integral floats, and an aliased zero-capital value or
+authority flag remains invalid even when the surrounding structure compares
+equal under ordinary Python equality.
+
 This mechanism does not ratify any policy and does not complete P5-06,
 P7-08, or P8-13. Stage, Buy, Action, Order, Production, and trading authority
 remain false.

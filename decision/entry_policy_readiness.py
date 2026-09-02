@@ -98,6 +98,23 @@ class EntryPolicyReadinessError(ValueError):
     pass
 
 
+def _exact_value_equal(actual: object, expected: object) -> bool:
+    """Compare JSON values without Python's bool/int/float aliasing."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_value_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_value_equal(left, right)
+            for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _load_json(path: Path) -> dict:
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
@@ -149,13 +166,18 @@ def validate_contract(contract: dict) -> dict:
         or contract["approval_status"] != "PROPOSED_UNRATIFIED"
     ):
         raise EntryPolicyReadinessError("CONTRACT_AUTHORITY_NOT_LOCKED")
-    if contract["policy_axes"] != EXPECTED_AXES:
+    if not _exact_value_equal(contract["policy_axes"], EXPECTED_AXES):
         raise EntryPolicyReadinessError("POLICY_AXES_DRIFT")
-    if contract["diagnostic_participation"] != EXPECTED_DIAGNOSTIC_PARTICIPATION:
+    if not _exact_value_equal(
+        contract["diagnostic_participation"],
+        EXPECTED_DIAGNOSTIC_PARTICIPATION,
+    ):
         raise EntryPolicyReadinessError("DIAGNOSTIC_PARTICIPATION_DRIFT")
-    if contract["downstream_boundary"] != EXPECTED_DOWNSTREAM_BOUNDARY:
+    if not _exact_value_equal(
+        contract["downstream_boundary"], EXPECTED_DOWNSTREAM_BOUNDARY
+    ):
         raise EntryPolicyReadinessError("DOWNSTREAM_BOUNDARY_DRIFT")
-    if contract["authority"] != AUTHORITY_ALL_FALSE:
+    if not _exact_value_equal(contract["authority"], AUTHORITY_ALL_FALSE):
         raise EntryPolicyReadinessError("CONTRACT_AUTHORITY_ESCALATION")
     _reject_policy_numbers(contract["policy_axes"])
     return copy.deepcopy(contract)
@@ -176,7 +198,10 @@ def _blocker_reasons() -> list[str]:
 
 def _candidate_row(row: dict) -> dict:
     money = row["money_boundary"]
-    if money.get("capital") != 0 or money.get("trade_proposal") is not None:
+    if (
+        not _exact_value_equal(money.get("capital"), 0)
+        or money.get("trade_proposal") is not None
+    ):
         raise EntryPolicyReadinessError("UPSTREAM_MONEY_BOUNDARY_OPEN")
     if money.get("quantity") is not None:
         raise EntryPolicyReadinessError("UPSTREAM_QUANTITY_PRESENT")
@@ -236,15 +261,20 @@ def build_packet(
         shadow_contract,
         trigger_kind=trigger_kind,
     )
-    if validated_shadow["authority"] != shadow.AUTHORITY_ZERO_CAPITAL:
+    if not _exact_value_equal(
+        validated_shadow["authority"], shadow.AUTHORITY_ZERO_CAPITAL
+    ):
         raise EntryPolicyReadinessError("UPSTREAM_PACKET_AUTHORITY_ESCALATION")
-    if validated_shadow["policy_status"] != {
-        "human_review_surface": "PROVISIONAL_CIO_ZERO_CAPITAL_REVIEW_ONLY",
-        "candidate_validity": "UNRATIFIED",
-        "entry": "UNRATIFIED",
-        "position_management": "UNRATIFIED",
-        "position_size": "UNRATIFIED",
-    }:
+    if not _exact_value_equal(
+        validated_shadow["policy_status"],
+        {
+            "human_review_surface": "PROVISIONAL_CIO_ZERO_CAPITAL_REVIEW_ONLY",
+            "candidate_validity": "UNRATIFIED",
+            "entry": "UNRATIFIED",
+            "position_management": "UNRATIFIED",
+            "position_size": "UNRATIFIED",
+        },
+    ):
         raise EntryPolicyReadinessError("UPSTREAM_POLICY_STATUS_CHANGED")
 
     candidates = [_candidate_row(row) for row in validated_shadow["review_items"]]
@@ -312,7 +342,7 @@ def validate_packet(
         shadow_contract,
         trigger_kind=trigger_kind,
     )
-    if packet != expected:
+    if not _exact_value_equal(packet, expected):
         raise EntryPolicyReadinessError(
             "ENTRY_POLICY_READINESS_SEMANTIC_TAMPER_OR_DRIFT"
         )
