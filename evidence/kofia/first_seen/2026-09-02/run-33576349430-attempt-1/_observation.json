@@ -1,0 +1,104 @@
+{
+  "api_field_unit_status": "unverified",
+  "atlas_first_seen_is_source_available_at": false,
+  "available_at": null,
+  "captured_at_utc": "2026-09-02T00:41:34Z",
+  "contract_version": "kofia_liquidity_source/v3",
+  "decision_eligible": false,
+  "first_seen_authority": "atlas_observation_only_not_source_release_time",
+  "historical_range_status": "unverified",
+  "mode": "first_seen",
+  "operations": {
+    "credit_financing": {
+      "latest_observation_date": "2026-08-31",
+      "missing_query_dates": [
+        "2026-09-02",
+        "2026-09-01",
+        "2026-08-30",
+        "2026-08-29"
+      ],
+      "observed_rows": [
+        {
+          "atlas_first_seen_at_utc": "2026-08-28T06:22:39Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-26",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "33102366526442",
+          "row_sha256": "29431071273b9ef67cf0054a6da2f5dbb6a71a397ebd61b166048c608119febd"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-31T21:35:11Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-27",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "33329014016866",
+          "row_sha256": "b758f30aea76958624c8d71fade81cfb390daeecae0db78cf0f7f482054c800c"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-31T21:35:11Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-28",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "33337971124201",
+          "row_sha256": "84028b2a111f612ecd5e2951019bf556a566e54e4db844189fdb60c722c72d7b"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-09-01T21:38:15Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-31",
+          "primary_value_field": "crdTrFingWhl",
+          "primary_value_raw": "33252658134516",
+          "row_sha256": "7f6246f7706a56f6064ede640a5f2615f5664f650b7933407a3fb207fd08c261"
+        }
+      ]
+    },
+    "investor_deposits": {
+      "latest_observation_date": "2026-08-31",
+      "missing_query_dates": [
+        "2026-09-02",
+        "2026-09-01",
+        "2026-08-30",
+        "2026-08-29"
+      ],
+      "observed_rows": [
+        {
+          "atlas_first_seen_at_utc": "2026-08-28T06:22:39Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-26",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "98917653413503",
+          "row_sha256": "c32341f437748c40b5dc5213b0aa5c0af51d56afaf6adc22ee837ef5518e4234"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-31T21:35:11Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-27",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "96709070727103",
+          "row_sha256": "7c0732eca20437b228fac9759bfca51fdfb561f153cde988906f5c10a8a0f158"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-08-31T21:35:11Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-28",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "99813821613132",
+          "row_sha256": "50c94aa64965c9e85428300f5b8428dfedc3f8708f50e3ffba1710762a68481c"
+        },
+        {
+          "atlas_first_seen_at_utc": "2026-09-01T21:38:15Z",
+          "first_seen_semantics": "earliest_atlas_capture_with_same_observation_date_and_row_hash",
+          "observation_date": "2026-08-31",
+          "primary_value_field": "invrDpsgAmt",
+          "primary_value_raw": "99704431511835",
+          "row_sha256": "af2b62017e9a3228a48d5d534e0224dfc6fc4493d1ef9a9299c351ccaaf811c8"
+        }
+      ]
+    }
+  },
+  "production_wiring_authorized": false,
+  "regime_score_authorized": false,
+  "schema_version": 1,
+  "source_release_time_status": "atlas_first_seen_sequence_collecting",
+  "trading_action_authorized": false
+}
