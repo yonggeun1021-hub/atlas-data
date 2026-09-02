@@ -1261,14 +1261,14 @@ APPROVED_TESTS = [
     #   depth — see that module's own note below), and
     #   WAIT_FOR_RULE_RATIFICATION was retired from alpha_review's vocabulary
     #   entirely as part of the same closing pass.
-    #   Deferred, not abandoned: a future, separate PR must design a
-    #   Reflection Evidence Authority jointly with Atlas P5 Rule Authority
-    #   (append-only per-rule canonical records, ratified_at/effective_from,
-    #   exact-content provenance, decision-time ordering, structured authority
-    #   evidence) — design approved before any implementation code is
-    #   written. Tracked on the existing P8-10 WBS row, no new/duplicate row.
+    #   Recommendation A (2026-09-02) ratifies only the Reflection Evidence
+    #   Authority structure: immutable identity/content/evidence hashes and
+    #   PIT/effective-date fail-closed checks. effective_from remains unresolved;
+    #   every numeric threshold/sample/confidence/owner field remains pending;
+    #   the classifier remains disabled and reflection_status stays UNKNOWN.
     #   ⛔ Rule PASS/FAIL/Stage/Candidate·Ready·Buy promotion/action/order/
     #      Production/trading and live network: none.
+    "test/test_reflection_evidence_authority.py",
     "test/test_price_reflection.py",
     # ★ P8-10 — real historical price + Korea KOSPI/KOSDAQ composite benchmark
     #   evidence assembly (decision/price_evidence.py). KRX 시세는
@@ -1691,6 +1691,9 @@ APPROVED_TESTS = [
     # harvest review, quantity, reallocation, proposal and order at zero/null
     # while all policy and money authority remains unratified.
     "test/test_profit_harvest_operational_readiness.py",
+    # P7-11 transition readiness: exact-type and transition-state validation
+    # remains fail-closed with zero harvest/action/order authority.
+    "test/test_profit_harvest_transition_readiness.py",
     # P7-10 Capital Reallocation readiness: independently revalidates the
     # exact P7-11 packet and exposes six missing authority/input axes. It has
     # no amount, proceeds, ranking, proposal, action, order or capital path.

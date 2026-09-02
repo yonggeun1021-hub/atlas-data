@@ -1,0 +1,76 @@
+{
+  "schema_version": "reflection_evidence_authority_content/1",
+  "rule_id": "P8-10-REFLECTION-EVIDENCE-AUTHORITY",
+  "rule_version": "1",
+  "scope": "REFLECTION_EVIDENCE_AUTHORITY_STRUCTURE_ONLY",
+  "state_vocabulary": {
+    "reflection_status": [
+      "UNDER_REFLECTED",
+      "PARTIALLY_REFLECTED",
+      "FULLY_REFLECTED",
+      "UNKNOWN"
+    ],
+    "authority_state": [
+      "ACTIVE",
+      "INACTIVE",
+      "UNKNOWN"
+    ]
+  },
+  "source_identity_policy": {
+    "exact_rule_identity_required": true,
+    "exact_content_sha256_required": true,
+    "exact_authority_evidence_sha256_required": true,
+    "append_only_records_required": true
+  },
+  "point_in_time_policy": {
+    "ratified_at_required": true,
+    "effective_from_required_for_operation": true,
+    "effective_from_must_not_precede_ratified_at": true,
+    "decision_at_must_not_precede_ratified_at": true,
+    "decision_at_must_not_precede_effective_from": true,
+    "historical_backfill_authorized": false
+  },
+  "fail_closed_conditions": [
+    "AUTHORITY_RECORD_MISSING",
+    "AUTHORITY_RECORD_STALE",
+    "AUTHORITY_RATIFICATION_IN_FUTURE",
+    "AUTHORITY_EFFECTIVE_FROM_UNRESOLVED",
+    "AUTHORITY_EFFECTIVE_FROM_IN_FUTURE",
+    "AUTHORITY_HASH_INVALID",
+    "AUTHORITY_CONTENT_HASH_MISMATCH",
+    "AUTHORITY_EVIDENCE_HASH_MISMATCH",
+    "AUTHORITY_IDENTITY_MISMATCH",
+    "AUTHORITY_CONTENT_TAMPERED",
+    "AUTHORITY_EVIDENCE_TAMPERED"
+  ],
+  "pending_ratification": {
+    "reflection_thresholds": "UNKNOWN_PENDING_RATIFICATION",
+    "minimum_natural_sample_count": "UNKNOWN_PENDING_RATIFICATION",
+    "confidence_thresholds": "UNKNOWN_PENDING_RATIFICATION",
+    "accountable_owner": "UNKNOWN_PENDING_RATIFICATION"
+  },
+  "operational_defaults": {
+    "classifier_enabled": false,
+    "reflection_status": "UNKNOWN",
+    "aggregate_threshold_basis": "PROVISIONAL",
+    "natural_revalidation_status": "PENDING"
+  },
+  "approval_boundary": {
+    "p8_12_recommendation_a_approved": false,
+    "p8_12_recommendation_b_approved": false,
+    "p8_12_recommendation_c_approved": false,
+    "candidate": "NONE",
+    "p5_06_authorized": false,
+    "p7_08_authorized": false,
+    "p8_13_authorized": false,
+    "stage_promotion_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "broker_authorized": false,
+    "real_capital_authorized": false,
+    "live_operation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import math
@@ -33,6 +34,20 @@ def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _same_exact(actual, expected) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _same_exact(actual[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _same_exact(left, right) for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _read_json(path: Path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -47,7 +62,7 @@ def _expected_contract() -> dict:
         "policy_schema_version": "crypto_exposure_policy/1",
         "input_schema_version": "crypto_exposure_input/1",
         "output_schema_version": "crypto_exposure_packet/2",
-        "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
+        "repository_default_status": "PAPER_LIMITS_RATIFIED_NATURAL_VERIFICATION_PENDING",
         "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
         "market": "CRYPTO",
         "budget_unit": "NAV_FRACTION",
@@ -57,6 +72,32 @@ def _expected_contract() -> dict:
         "volatility_lookback_returns": 30,
         "volatility_annualization_days": 365,
         "position_mode": "LONG_ONLY_EXPLICIT_HOLDINGS",
+        "canonical_wbs": {
+            "page_id": "3bf9f2d7-3c84-816c-ac6a-e59938e2d99d",
+            "order": 705,
+            "work_item": "P7-05",
+            "title": "Crypto separate exposure limit",
+            "status": "🔵 검증대기",
+            "snapshot_sha256": (
+                "09cab6d8c7065a5952fbc480195117ac92e3331164d94a5179b6fb8c0763744f"
+            ),
+            "row_sha256": (
+                "0881d4d107b79b9580a39e2b64f2a22b0cc1c9cb443d0a5e65eea7217d29d5bd"
+            ),
+        },
+        "ratified_paper_limits": {
+            "max_per_trade_planned_loss_nav_fraction": "0.0025",
+            "max_total_crypto_exposure_nav_fraction": "0.05",
+            "max_single_asset_exposure_nav_fraction": "0.02",
+            "max_concurrent_positions": 3,
+        },
+        "unresolved_limits": {
+            "max_total_planned_loss": {"value": None, "state": "UNKNOWN"},
+            "max_annualized_realized_volatility": {
+                "value": None,
+                "state": "UNKNOWN",
+            },
+        },
         "accepted_market_theme_budget_statuses": [
             "LIMIT_BREACH", "WITHIN_RATIFIED_BUDGET"
         ],
@@ -95,7 +136,7 @@ def _validate_contract(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) != set(expected):
         raise CryptoExposureLimitError("CONTRACT_FIELDS_MISMATCH")
     for key, expected_value in expected.items():
-        if value.get(key) != expected_value:
+        if not _same_exact(value.get(key), expected_value):
             raise CryptoExposureLimitError(f"CONTRACT_FIELD_MISMATCH:{key}")
     return copy.deepcopy(value)
 
@@ -127,6 +168,24 @@ def _number(value, code: str, *, positive: bool = False):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise CryptoExposureLimitError(code)
     if not math.isfinite(value) or value < 0 or (positive and value <= 0):
+        raise CryptoExposureLimitError(code)
+    return value
+
+
+def _fraction_text(value, code: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"0(?:\.\d+)?", value):
+        raise CryptoExposureLimitError(code)
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        raise CryptoExposureLimitError(code) from exc
+    if parsed < 0 or parsed > 1:
+        raise CryptoExposureLimitError(code)
+    return value
+
+
+def _positive_int(value, code: str) -> int:
+    if type(value) is not int or value <= 0:
         raise CryptoExposureLimitError(code)
     return value
 
@@ -175,17 +234,18 @@ def _rounded_sum(values) -> float:
 def _validate_policy(value: dict, as_of: str, contract: dict) -> dict:
     fields = {
         "schema_version", "contract_version", "policy_id", "status", "ratified_by",
-        "ratified_at", "valid_from", "valid_to", "limits", "volatility_requirement",
-        "policy_basis_ref", "policy_basis_sha256", "authority", "packet_sha256",
+        "ratified_at", "valid_from", "valid_to", "active_limits", "unresolved_limits",
+        "volatility_requirement", "policy_basis_ref", "policy_basis_sha256", "authority",
+        "packet_sha256",
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise CryptoExposureLimitError("POLICY_FIELDS_MISMATCH")
     if (
         value.get("schema_version") != contract["policy_schema_version"]
         or value.get("contract_version") != contract["contract_version"]
-        or value.get("status") != "RATIFIED"
+        or value.get("status") != "RATIFIED_PAPER_ONLY"
         or value.get("ratified_by") != "CIO"
-        or value.get("authority") != contract["policy_authority"]
+        or not _same_exact(value.get("authority"), contract["policy_authority"])
     ):
         raise CryptoExposureLimitError("POLICY_IDENTITY_INVALID")
     policy_id = _id(value.get("policy_id"), "POLICY_ID_INVALID")
@@ -195,18 +255,32 @@ def _validate_policy(value: dict, as_of: str, contract: dict) -> dict:
         raise CryptoExposureLimitError("POLICY_RATIFIED_AFTER_EFFECTIVE_START")
     if not _active(start, end, as_of):
         raise CryptoExposureLimitError("POLICY_NOT_EFFECTIVE")
-    limits = value.get("limits")
-    limit_fields = {
-        "max_total_crypto_exposure", "max_single_crypto_exposure",
-        "max_total_planned_loss", "max_single_planned_loss",
-        "max_annualized_realized_volatility",
-    }
-    if not isinstance(limits, dict) or set(limits) != limit_fields:
+    limits = value.get("active_limits")
+    expected_limits = contract["ratified_paper_limits"]
+    if not isinstance(limits, dict) or set(limits) != set(expected_limits):
         raise CryptoExposureLimitError("POLICY_LIMIT_FIELDS_MISMATCH")
-    limits = {
-        key: _number(limits.get(key), f"POLICY_LIMIT_INVALID:{key}", positive=True)
-        for key in sorted(limit_fields)
+    normalized_limits = {
+        "max_per_trade_planned_loss_nav_fraction": _fraction_text(
+            limits.get("max_per_trade_planned_loss_nav_fraction"),
+            "POLICY_LIMIT_INVALID:max_per_trade_planned_loss_nav_fraction",
+        ),
+        "max_total_crypto_exposure_nav_fraction": _fraction_text(
+            limits.get("max_total_crypto_exposure_nav_fraction"),
+            "POLICY_LIMIT_INVALID:max_total_crypto_exposure_nav_fraction",
+        ),
+        "max_single_asset_exposure_nav_fraction": _fraction_text(
+            limits.get("max_single_asset_exposure_nav_fraction"),
+            "POLICY_LIMIT_INVALID:max_single_asset_exposure_nav_fraction",
+        ),
+        "max_concurrent_positions": _positive_int(
+            limits.get("max_concurrent_positions"),
+            "POLICY_LIMIT_INVALID:max_concurrent_positions",
+        ),
     }
+    if normalized_limits != expected_limits:
+        raise CryptoExposureLimitError("POLICY_LIMITS_NOT_CANONICAL_PAPER_V1")
+    if not _same_exact(value.get("unresolved_limits"), contract["unresolved_limits"]):
+        raise CryptoExposureLimitError("POLICY_UNRESOLVED_LIMITS_MISMATCH")
     requirement = value.get("volatility_requirement")
     expected_requirement = {
         "unit": contract["volatility_unit"],
@@ -215,23 +289,30 @@ def _validate_policy(value: dict, as_of: str, contract: dict) -> dict:
         "lookback_returns": contract["volatility_lookback_returns"],
         "annualization_days": contract["volatility_annualization_days"],
     }
-    if requirement != expected_requirement:
+    if not _same_exact(requirement, expected_requirement):
         raise CryptoExposureLimitError("POLICY_VOLATILITY_REQUIREMENT_MISMATCH")
     normalized = {
         "schema_version": contract["policy_schema_version"],
         "contract_version": contract["contract_version"],
         "policy_id": policy_id,
-        "status": "RATIFIED",
+        "status": "RATIFIED_PAPER_ONLY",
         "ratified_by": "CIO",
         "ratified_at": ratified_at,
         "valid_from": start,
         "valid_to": end,
-        "limits": limits,
+        "active_limits": copy.deepcopy(normalized_limits),
+        "unresolved_limits": copy.deepcopy(contract["unresolved_limits"]),
         "volatility_requirement": copy.deepcopy(expected_requirement),
         "policy_basis_ref": _text(value.get("policy_basis_ref"), "POLICY_BASIS_REF_INVALID"),
         "policy_basis_sha256": _sha(value.get("policy_basis_sha256"), "POLICY_BASIS_SHA_INVALID"),
         "authority": copy.deepcopy(contract["policy_authority"]),
     }
+    expected_ref = f"notion-page:{contract['canonical_wbs']['page_id']}"
+    if (
+        normalized["policy_basis_ref"] != expected_ref
+        or normalized["policy_basis_sha256"] != contract["canonical_wbs"]["row_sha256"]
+    ):
+        raise CryptoExposureLimitError("POLICY_BASIS_NOT_CANONICAL_WBS_ROW")
     digest = value.get("packet_sha256")
     if not isinstance(digest, str) or digest != payload_sha256(normalized):
         raise CryptoExposureLimitError("POLICY_PACKET_SHA_MISMATCH")
@@ -240,7 +321,7 @@ def _validate_policy(value: dict, as_of: str, contract: dict) -> dict:
 
 def _position(row: dict) -> dict:
     fields = {
-        "asset_id", "portfolio_weight", "planned_loss_nav_fraction",
+        "position_id", "asset_id", "portfolio_weight", "planned_loss_nav_fraction",
         "position_record_sha256", "asset_identity_sha256",
         "crypto_universe_membership_sha256",
     }
@@ -254,6 +335,7 @@ def _position(row: dict) -> dict:
     if planned_loss > weight:
         raise CryptoExposureLimitError(f"PLANNED_LOSS_EXCEEDS_POSITION:{asset_id}")
     return {
+        "position_id": _id(row.get("position_id"), "POSITION_ID_INVALID"),
         "asset_id": asset_id,
         "portfolio_weight": weight,
         "planned_loss_nav_fraction": planned_loss,
@@ -286,7 +368,9 @@ def _volatility(value: dict, as_of: str, generated_at: str, contract: dict) -> d
         or value.get("unit") != contract["volatility_unit"]
         or value.get("transform_version") != contract["volatility_transform_version"]
         or value.get("estimator") != contract["volatility_estimator"]
+        or type(value.get("lookback_returns")) is not int
         or value.get("lookback_returns") != contract["volatility_lookback_returns"]
+        or type(value.get("annualization_days")) is not int
         or value.get("annualization_days") != contract["volatility_annualization_days"]
     ):
         raise CryptoExposureLimitError("VOLATILITY_IDENTITY_INVALID")
@@ -324,19 +408,22 @@ def _validate_input(value: dict, as_of: str, contract: dict) -> dict:
     if (
         value.get("schema_version") != contract["input_schema_version"]
         or value.get("contract_version") != contract["contract_version"]
-        or value.get("authority") != contract["input_authority"]
+        or not _same_exact(value.get("authority"), contract["input_authority"])
     ):
         raise CryptoExposureLimitError("INPUT_IDENTITY_INVALID")
     if _date(value.get("as_of_date"), "INPUT_AS_OF_INVALID") != as_of:
         raise CryptoExposureLimitError("INPUT_AS_OF_MISMATCH")
     generated_at = _utc(value.get("generated_at_utc"), "GENERATED_AT_INVALID")
     raw_positions = value.get("positions")
-    if not isinstance(raw_positions, list) or not raw_positions:
-        raise CryptoExposureLimitError("POSITIONS_EMPTY")
-    positions = sorted((_position(row) for row in raw_positions), key=lambda row: row["asset_id"])
-    asset_ids = [row["asset_id"] for row in positions]
-    if len(asset_ids) != len(set(asset_ids)):
-        raise CryptoExposureLimitError("POSITION_ASSET_DUPLICATE")
+    if not isinstance(raw_positions, list):
+        raise CryptoExposureLimitError("POSITIONS_INVALID")
+    positions = sorted(
+        (_position(row) for row in raw_positions),
+        key=lambda row: (row["asset_id"], row["position_id"]),
+    )
+    position_ids = [row["position_id"] for row in positions]
+    if len(position_ids) != len(set(position_ids)):
+        raise CryptoExposureLimitError("POSITION_ID_DUPLICATE")
     normalized = {
         "schema_version": contract["input_schema_version"],
         "contract_version": contract["contract_version"],
@@ -368,13 +455,30 @@ def _validate_input(value: dict, as_of: str, contract: dict) -> dict:
     return {"normalized": normalized, "packet_sha256": digest}
 
 
-def _assessment(metric: str, subject_id: str, observed: float, maximum: float) -> dict:
+def _assessment(metric: str, subject_id: str, observed, maximum) -> dict:
+    if isinstance(maximum, str):
+        breached = Decimal(str(observed)) > Decimal(maximum)
+    elif type(maximum) is int and type(observed) is int:
+        breached = observed > maximum
+    else:
+        raise CryptoExposureLimitError(f"ASSESSMENT_TYPES_INVALID:{metric}")
     return {
         "metric": metric,
         "subject_id": subject_id,
         "observed": observed,
         "maximum": maximum,
-        "result": "BREACH" if observed > maximum else "PASS",
+        "result": "BREACH" if breached else "PASS",
+    }
+
+
+def _not_computable_assessment(metric: str, subject_id: str) -> dict:
+    return {
+        "metric": metric,
+        "subject_id": subject_id,
+        "observed": None,
+        "maximum": None,
+        "result": "NOT_COMPUTABLE",
+        "reason": "UNRATIFIED_LIMIT",
     }
 
 
@@ -386,43 +490,45 @@ def _source_packet(validated: dict) -> dict:
 
 def _assemble(checked: dict, policy: dict, as_of: str, contract: dict) -> dict:
     source = checked["normalized"]
-    limits = policy["normalized"]["limits"]
+    limits = policy["normalized"]["active_limits"]
     positions = source["positions"]
+    exposure_by_asset = {}
+    for row in positions:
+        exposure_by_asset.setdefault(row["asset_id"], []).append(row["portfolio_weight"])
     assessments = [
         _assessment(
             "TOTAL_CRYPTO_EXPOSURE", "CRYPTO",
             _rounded_sum(row["portfolio_weight"] for row in positions),
-            limits["max_total_crypto_exposure"],
+            limits["max_total_crypto_exposure_nav_fraction"],
         )
     ]
     assessments.extend(
         _assessment(
-            "SINGLE_CRYPTO_EXPOSURE", row["asset_id"], row["portfolio_weight"],
-            limits["max_single_crypto_exposure"],
+            "SINGLE_ASSET_CRYPTO_EXPOSURE", asset_id, _rounded_sum(weights),
+            limits["max_single_asset_exposure_nav_fraction"],
         )
-        for row in positions
-    )
-    assessments.append(
-        _assessment(
-            "TOTAL_PLANNED_LOSS", "CRYPTO",
-            _rounded_sum(row["planned_loss_nav_fraction"] for row in positions),
-            limits["max_total_planned_loss"],
-        )
+        for asset_id, weights in sorted(exposure_by_asset.items())
     )
     assessments.extend(
         _assessment(
-            "SINGLE_PLANNED_LOSS", row["asset_id"], row["planned_loss_nav_fraction"],
-            limits["max_single_planned_loss"],
+            "PER_TRADE_PLANNED_LOSS", row["position_id"],
+            row["planned_loss_nav_fraction"],
+            limits["max_per_trade_planned_loss_nav_fraction"],
         )
         for row in positions
     )
     assessments.append(
         _assessment(
-            "ANNUALIZED_REALIZED_VOLATILITY", "BTC_REFERENCE",
-            source["volatility"]["annualized_fraction"],
-            limits["max_annualized_realized_volatility"],
+            "CONCURRENT_POSITIONS", "CRYPTO", len(positions),
+            limits["max_concurrent_positions"],
         )
     )
+    assessments.extend([
+        _not_computable_assessment("TOTAL_PLANNED_LOSS", "CRYPTO"),
+        _not_computable_assessment(
+            "ANNUALIZED_REALIZED_VOLATILITY", "BTC_REFERENCE"
+        ),
+    ])
     breaches = [
         {"metric": row["metric"], "subject_id": row["subject_id"]}
         for row in assessments if row["result"] == "BREACH"
@@ -444,8 +550,8 @@ def _assemble(checked: dict, policy: dict, as_of: str, contract: dict) -> dict:
         "summary": {
             "crypto_position_count": len(positions),
             "total_crypto_exposure": assessments[0]["observed"],
-            "total_planned_loss": next(
-                row["observed"] for row in assessments if row["metric"] == "TOTAL_PLANNED_LOSS"
+            "total_planned_loss": _rounded_sum(
+                row["planned_loss_nav_fraction"] for row in positions
             ),
             "upstream_market_theme_budget_status": source["market_theme_budget_status"],
             "breach_count": len(breaches),
@@ -469,7 +575,10 @@ def _assemble(checked: dict, policy: dict, as_of: str, contract: dict) -> dict:
         },
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "NO_REPOSITORY_DEFAULT_CRYPTO_LIMIT",
+            "NO_REPOSITORY_DEFAULT_CRYPTO_POLICY",
+            "TOTAL_PLANNED_LOSS_LIMIT_UNRATIFIED",
+            "REALIZED_VOLATILITY_LIMIT_UNRATIFIED",
+            "NATURAL_VIRTUAL_ACCOUNT_VERIFICATION_PENDING",
             "BTC_STRESS_CALIBRATION_UNDEFINED",
             "NO_AUTOMATIC_POSITION_REDUCTION",
             "POSITION_SIZING_NOT_AUTHORIZED",

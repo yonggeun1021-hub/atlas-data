@@ -4,7 +4,7 @@
   "policy_schema_version": "crypto_exposure_policy/1",
   "input_schema_version": "crypto_exposure_input/1",
   "output_schema_version": "crypto_exposure_packet/2",
-  "repository_default_status": "BLOCKED_UNTIL_EXTERNAL_POLICY_RATIFIED",
+  "repository_default_status": "PAPER_LIMITS_RATIFIED_NATURAL_VERIFICATION_PENDING",
   "approval_mode": "EXPLICIT_CIO_RATIFIED_ONLY",
   "market": "CRYPTO",
   "budget_unit": "NAV_FRACTION",
@@ -14,6 +14,31 @@
   "volatility_lookback_returns": 30,
   "volatility_annualization_days": 365,
   "position_mode": "LONG_ONLY_EXPLICIT_HOLDINGS",
+  "canonical_wbs": {
+    "page_id": "3bf9f2d7-3c84-816c-ac6a-e59938e2d99d",
+    "order": 705,
+    "work_item": "P7-05",
+    "title": "Crypto separate exposure limit",
+    "status": "🔵 검증대기",
+    "snapshot_sha256": "09cab6d8c7065a5952fbc480195117ac92e3331164d94a5179b6fb8c0763744f",
+    "row_sha256": "0881d4d107b79b9580a39e2b64f2a22b0cc1c9cb443d0a5e65eea7217d29d5bd"
+  },
+  "ratified_paper_limits": {
+    "max_per_trade_planned_loss_nav_fraction": "0.0025",
+    "max_total_crypto_exposure_nav_fraction": "0.05",
+    "max_single_asset_exposure_nav_fraction": "0.02",
+    "max_concurrent_positions": 3
+  },
+  "unresolved_limits": {
+    "max_total_planned_loss": {
+      "value": null,
+      "state": "UNKNOWN"
+    },
+    "max_annualized_realized_volatility": {
+      "value": null,
+      "state": "UNKNOWN"
+    }
+  },
   "accepted_market_theme_budget_statuses": [
     "LIMIT_BREACH",
     "WITHIN_RATIFIED_BUDGET"

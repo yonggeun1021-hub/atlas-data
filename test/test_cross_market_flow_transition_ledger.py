@@ -593,6 +593,23 @@ class CrossMarketFlowTransitionLedgerTest(unittest.TestCase):
 
     # ---- tamper and determinism ------------------------------------------
 
+    def test_p2_market_counts_require_exact_int_and_allow_zero(self):
+        _, packet = self._build_source("counts.json", "2026-09-11")
+        for key in ("comparable_market_count", "required_market_count"):
+            with self.subTest(key=key, value=0):
+                candidate = copy.deepcopy(packet)
+                candidate["cross_market_flow"][key] = 0
+                flow = MODULE._current_state(candidate)["cross_market_flow"]
+                self.assertEqual(flow[key], 0)
+                self.assertIs(type(flow[key]), int)
+            with self.subTest(key=key, value=True):
+                candidate["cross_market_flow"][key] = True
+                with self.assertRaisesRegex(
+                    MODULE.CrossMarketFlowTransitionLedgerError,
+                    f"SOURCE_MARKET_COUNT_TYPE_INVALID:{key}",
+                ):
+                    MODULE._current_state(candidate)
+
     def test_rehashed_state_confirmation_and_authority_tamper_fail_closed(self):
         path, _ = self._forward("forward.json", "2026-09-11")
         ledger = self._apply(path, "NATURAL")["ledger"]

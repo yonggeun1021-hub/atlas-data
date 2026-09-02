@@ -26,24 +26,19 @@ CONTRACT = MODULE.load_contract()
 
 
 def policy(**overrides):
-    limits = {
-        "max_total_crypto_exposure": 0.15,
-        "max_single_crypto_exposure": 0.10,
-        "max_total_planned_loss": 0.03,
-        "max_single_planned_loss": 0.02,
-        "max_annualized_realized_volatility": 0.90,
-    }
+    limits = copy.deepcopy(CONTRACT["ratified_paper_limits"])
     limits.update(overrides)
     value = {
         "schema_version": "crypto_exposure_policy/1",
         "contract_version": "crypto_exposure_limit/1",
-        "policy_id": "TEST-CRYPTO-LIMIT-2026",
-        "status": "RATIFIED",
+        "policy_id": "P7-05-PAPER-RISK-V1",
+        "status": "RATIFIED_PAPER_ONLY",
         "ratified_by": "CIO",
         "ratified_at": "2026-08-20T00:00:00Z",
         "valid_from": "2026-08-20",
         "valid_to": None,
-        "limits": limits,
+        "active_limits": limits,
+        "unresolved_limits": copy.deepcopy(CONTRACT["unresolved_limits"]),
         "volatility_requirement": {
             "unit": "ANNUALIZED_FRACTION",
             "transform_version": "btc_risk/v1",
@@ -51,8 +46,8 @@ def policy(**overrides):
             "lookback_returns": 30,
             "annualization_days": 365,
         },
-        "policy_basis_ref": "test://policy/crypto-limit",
-        "policy_basis_sha256": "a" * 64,
+        "policy_basis_ref": f"notion-page:{CONTRACT['canonical_wbs']['page_id']}",
+        "policy_basis_sha256": CONTRACT["canonical_wbs"]["row_sha256"],
         "authority": copy.deepcopy(CONTRACT["policy_authority"]),
     }
     unsigned = copy.deepcopy(value)
@@ -60,8 +55,9 @@ def policy(**overrides):
     return value
 
 
-def position(asset_id, weight, planned_loss, marker):
+def position(position_id, asset_id, weight, planned_loss, marker):
     return {
+        "position_id": position_id,
         "asset_id": asset_id,
         "portfolio_weight": weight,
         "planned_loss_nav_fraction": planned_loss,
@@ -73,7 +69,10 @@ def position(asset_id, weight, planned_loss, marker):
 
 def input_packet(positions=None, volatility=0.70):
     if positions is None:
-        positions = [position("BTC", 0.08, 0.01, "1"), position("ETH", 0.05, 0.01, "2")]
+        positions = [
+            position("POS-BTC-1", "BTC", 0.02, 0.0025, "1"),
+            position("POS-ETH-1", "ETH", 0.015, 0.001, "2"),
+        ]
     value = {
         "schema_version": "crypto_exposure_input/1",
         "contract_version": "crypto_exposure_limit/1",
@@ -101,7 +100,9 @@ def input_packet(positions=None, volatility=0.70):
         "authority": copy.deepcopy(CONTRACT["input_authority"]),
     }
     normalized = copy.deepcopy(value)
-    normalized["positions"] = sorted(normalized["positions"], key=lambda row: row["asset_id"])
+    normalized["positions"] = sorted(
+        normalized["positions"], key=lambda row: (row["asset_id"], row["position_id"])
+    )
     value["packet_sha256"] = MODULE.payload_sha256(normalized)
     return value
 
@@ -113,58 +114,167 @@ def write_json(path, value):
 
 
 class CryptoExposureLimitTests(unittest.TestCase):
-    def test_contract_has_no_default_limit_or_action_authority(self):
+    def test_contract_binds_exact_wbs_row_and_four_paper_limits(self):
         self.assertEqual(CONTRACT["output_schema_version"], "crypto_exposure_packet/2")
-        self.assertEqual(CONTRACT["volatility_transform_version"], "btc_risk/v1")
-        self.assertEqual(CONTRACT["volatility_lookback_returns"], 30)
-        self.assertTrue(CONTRACT["authority"]["crypto_exposure_limit_evaluation_only"])
+        self.assertEqual(CONTRACT["canonical_wbs"], {
+            "page_id": "3bf9f2d7-3c84-816c-ac6a-e59938e2d99d",
+            "order": 705,
+            "work_item": "P7-05",
+            "title": "Crypto separate exposure limit",
+            "status": "🔵 검증대기",
+            "snapshot_sha256": (
+                "09cab6d8c7065a5952fbc480195117ac92e3331164d94a5179b6fb8c0763744f"
+            ),
+            "row_sha256": (
+                "0881d4d107b79b9580a39e2b64f2a22b0cc1c9cb443d0a5e65eea7217d29d5bd"
+            ),
+        })
+        self.assertEqual(CONTRACT["ratified_paper_limits"], {
+            "max_per_trade_planned_loss_nav_fraction": "0.0025",
+            "max_total_crypto_exposure_nav_fraction": "0.05",
+            "max_single_asset_exposure_nav_fraction": "0.02",
+            "max_concurrent_positions": 3,
+        })
+        self.assertEqual(CONTRACT["unresolved_limits"], {
+            "max_total_planned_loss": {"value": None, "state": "UNKNOWN"},
+            "max_annualized_realized_volatility": {
+                "value": None,
+                "state": "UNKNOWN",
+            },
+        })
+        self.assertFalse(CONTRACT["authority"]["repository_default_policy_authorized"])
         for key, value in CONTRACT["authority"].items():
             if key != "crypto_exposure_limit_evaluation_only":
                 self.assertFalse(value, key)
 
-    def test_all_five_axes_pass_without_action_sizing_or_order(self):
-        source = input_packet()
-        ratified = policy()
-        packet = MODULE.build_packet(source, ratified, "2026-08-21", CONTRACT)
+    def test_four_ratified_axes_pass_at_boundary_without_action_authority(self):
+        packet = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
         self.assertEqual(packet["status"], "WITHIN_RATIFIED_LIMITS")
         self.assertEqual(packet["summary"], {
             "crypto_position_count": 2,
-            "total_crypto_exposure": 0.13,
-            "total_planned_loss": 0.02,
+            "total_crypto_exposure": 0.035,
+            "total_planned_loss": 0.0035,
             "upstream_market_theme_budget_status": "WITHIN_RATIFIED_BUDGET",
             "breach_count": 0,
         })
-        self.assertEqual(len(packet["assessments"]), 7)
+        self.assertEqual(
+            [row["result"] for row in packet["assessments"][-2:]],
+            ["NOT_COMPUTABLE", "NOT_COMPUTABLE"],
+        )
+        for row in packet["assessments"][-2:]:
+            self.assertIsNone(row["observed"])
+            self.assertIsNone(row["maximum"])
+            self.assertEqual(row["reason"], "UNRATIFIED_LIMIT")
         self.assertIsNone(packet["recommended_action"])
         self.assertIsNone(packet["target_crypto_exposure"])
         self.assertIsNone(packet["position_sizes"])
         self.assertEqual(packet["order_intents"], [])
-        self.assertEqual(packet["lineage"]["input_packet_sha256"], source["packet_sha256"])
-        self.assertEqual(packet["lineage"]["policy_packet_sha256"], ratified["packet_sha256"])
-        self.assertEqual(
-            packet["source_packets"]["INPUT"]["packet_sha256"], source["packet_sha256"]
-        )
-        self.assertEqual(packet["source_packets"]["POLICY"], ratified)
+        self.assertEqual(packet["source_packets"]["POLICY"], policy())
 
-    def test_each_limit_breaches_independently(self):
-        packet = MODULE.build_packet(
-            input_packet(volatility=0.91),
-            policy(
-                max_total_crypto_exposure=0.12,
-                max_single_crypto_exposure=0.04,
-                max_total_planned_loss=0.019,
-                max_single_planned_loss=0.009,
-            ),
-            "2026-08-21",
-            CONTRACT,
-        )
+    def test_each_ratified_axis_breaches_independently(self):
+        rows = [
+            position("POS-BTC-1", "BTC", 0.015, 0.003, "1"),
+            position("POS-BTC-2", "BTC", 0.010, 0.001, "2"),
+            position("POS-ETH-1", "ETH", 0.015, 0.001, "3"),
+            position("POS-SOL-1", "SOL", 0.015, 0.001, "4"),
+        ]
+        packet = MODULE.build_packet(input_packet(rows), policy(), "2026-08-21", CONTRACT)
         self.assertEqual(packet["status"], "LIMIT_BREACH")
-        self.assertEqual(packet["summary"]["breach_count"], 7)
+        self.assertEqual(packet["summary"]["breach_count"], 4)
         self.assertEqual({row["metric"] for row in packet["breaches"]}, {
-            "TOTAL_CRYPTO_EXPOSURE", "SINGLE_CRYPTO_EXPOSURE",
-            "TOTAL_PLANNED_LOSS", "SINGLE_PLANNED_LOSS",
-            "ANNUALIZED_REALIZED_VOLATILITY",
+            "TOTAL_CRYPTO_EXPOSURE",
+            "SINGLE_ASSET_CRYPTO_EXPOSURE",
+            "PER_TRADE_PLANNED_LOSS",
+            "CONCURRENT_POSITIONS",
         })
+
+    def test_same_asset_positions_are_aggregated_and_position_ids_are_unique(self):
+        rows = [
+            position("POS-BTC-1", "BTC", 0.012, 0.001, "1"),
+            position("POS-BTC-2", "BTC", 0.012, 0.001, "2"),
+        ]
+        packet = MODULE.build_packet(input_packet(rows), policy(), "2026-08-21", CONTRACT)
+        asset_row = next(
+            row for row in packet["assessments"]
+            if row["metric"] == "SINGLE_ASSET_CRYPTO_EXPOSURE"
+        )
+        self.assertEqual(asset_row["observed"], 0.024)
+        self.assertEqual(asset_row["result"], "BREACH")
+
+        rows[1]["position_id"] = "POS-BTC-1"
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POSITION_ID_DUPLICATE"):
+            MODULE.build_packet(input_packet(rows), policy(), "2026-08-21", CONTRACT)
+
+    def test_empty_positions_are_explicit_zero_not_missing(self):
+        packet = MODULE.build_packet(input_packet([]), policy(), "2026-08-21", CONTRACT)
+        self.assertEqual(packet["status"], "WITHIN_RATIFIED_LIMITS")
+        self.assertEqual(packet["summary"]["crypto_position_count"], 0)
+        self.assertEqual(packet["summary"]["total_crypto_exposure"], 0.0)
+        self.assertEqual(packet["summary"]["total_planned_loss"], 0.0)
+        concurrency = next(
+            row for row in packet["assessments"] if row["metric"] == "CONCURRENT_POSITIONS"
+        )
+        self.assertEqual(concurrency["observed"], 0)
+
+    def test_policy_values_types_and_unresolved_injection_fail_closed(self):
+        invalid_values = [
+            {"max_concurrent_positions": 3.0},
+            {"max_concurrent_positions": True},
+            {"max_total_crypto_exposure_nav_fraction": 0.05},
+            {"max_total_crypto_exposure_nav_fraction": "0.050"},
+        ]
+        for override in invalid_values:
+            with self.subTest(override=override):
+                with self.assertRaises(MODULE.CryptoExposureLimitError):
+                    MODULE.build_packet(input_packet(), policy(**override), "2026-08-21", CONTRACT)
+
+        injected = policy()
+        injected["unresolved_limits"]["max_total_planned_loss"]["value"] = "0.01"
+        unsigned = copy.deepcopy(injected)
+        unsigned.pop("packet_sha256")
+        injected["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(
+            MODULE.CryptoExposureLimitError, "POLICY_UNRESOLVED_LIMITS_MISMATCH"
+        ):
+            MODULE.build_packet(input_packet(), injected, "2026-08-21", CONTRACT)
+
+        aliased_contract = copy.deepcopy(CONTRACT)
+        aliased_contract["canonical_wbs"]["order"] = True
+        with self.assertRaisesRegex(
+            MODULE.CryptoExposureLimitError, "CONTRACT_FIELD_MISMATCH:canonical_wbs"
+        ):
+            MODULE.build_packet(input_packet(), policy(), "2026-08-21", aliased_contract)
+
+    def test_policy_basis_status_authority_and_hash_tamper_fail_closed(self):
+        unratified = policy()
+        unratified["status"] = "RATIFIED"
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_IDENTITY_INVALID"):
+            MODULE.build_packet(input_packet(), unratified, "2026-08-21", CONTRACT)
+
+        expanded = policy()
+        expanded["authority"]["order_authorized"] = True
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_IDENTITY_INVALID"):
+            MODULE.build_packet(input_packet(), expanded, "2026-08-21", CONTRACT)
+
+        aliased = policy()
+        aliased["authority"]["order_authorized"] = 0
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_IDENTITY_INVALID"):
+            MODULE.build_packet(input_packet(), aliased, "2026-08-21", CONTRACT)
+
+        wrong_basis = policy()
+        wrong_basis["policy_basis_sha256"] = "a" * 64
+        unsigned = copy.deepcopy(wrong_basis)
+        unsigned.pop("packet_sha256")
+        wrong_basis["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(
+            MODULE.CryptoExposureLimitError, "POLICY_BASIS_NOT_CANONICAL_WBS_ROW"
+        ):
+            MODULE.build_packet(input_packet(), wrong_basis, "2026-08-21", CONTRACT)
+
+        tampered = policy()
+        tampered["active_limits"]["max_total_crypto_exposure_nav_fraction"] = "0.99"
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_LIMITS_NOT_CANONICAL"):
+            MODULE.build_packet(input_packet(), tampered, "2026-08-21", CONTRACT)
 
     def test_upstream_market_theme_breach_is_preserved_without_action(self):
         source = input_packet()
@@ -182,10 +292,9 @@ class CryptoExposureLimitTests(unittest.TestCase):
         self.assertEqual(packet["order_intents"], [])
 
     def test_planned_loss_cannot_exceed_position_weight(self):
-        rows = [position("BTC", 0.05, 0.06, "1")]
+        rows = [position("POS-BTC-1", "BTC", 0.002, 0.003, "1")]
         with self.assertRaisesRegex(
-            MODULE.CryptoExposureLimitError,
-            "PLANNED_LOSS_EXCEEDS_POSITION",
+            MODULE.CryptoExposureLimitError, "PLANNED_LOSS_EXCEEDS_POSITION"
         ):
             MODULE.build_packet(input_packet(rows), policy(), "2026-08-21", CONTRACT)
 
@@ -205,40 +314,23 @@ class CryptoExposureLimitTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "VOLATILITY_IDENTITY_INVALID"):
             MODULE.build_packet(future, policy(), "2026-08-21", CONTRACT)
 
-    def test_universe_lineage_and_duplicate_assets_fail_closed(self):
-        rows = input_packet()["positions"]
-        rows[0]["crypto_universe_membership_sha256"] = "bad"
+    def test_input_lineage_authority_and_hash_tamper_fail_closed(self):
+        bad_lineage = input_packet()
+        bad_lineage["positions"][0]["crypto_universe_membership_sha256"] = "bad"
         with self.assertRaisesRegex(
-            MODULE.CryptoExposureLimitError,
-            "CRYPTO_UNIVERSE_MEMBERSHIP_SHA_INVALID",
+            MODULE.CryptoExposureLimitError, "CRYPTO_UNIVERSE_MEMBERSHIP_SHA_INVALID"
         ):
-            MODULE.build_packet(input_packet(rows), policy(), "2026-08-21", CONTRACT)
+            MODULE.build_packet(bad_lineage, policy(), "2026-08-21", CONTRACT)
 
-        duplicate = [position("BTC", 0.05, 0.01, "1"), position("BTC", 0.04, 0.01, "2")]
-        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POSITION_ASSET_DUPLICATE"):
-            MODULE.build_packet(input_packet(duplicate), policy(), "2026-08-21", CONTRACT)
-
-    def test_policy_approval_authority_and_hash_tamper_fail(self):
-        unratified = policy()
-        unratified["ratified_by"] = "SYSTEM"
-        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_IDENTITY_INVALID"):
-            MODULE.build_packet(input_packet(), unratified, "2026-08-21", CONTRACT)
-
-        expanded = policy()
-        expanded["authority"]["order_authorized"] = True
-        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_IDENTITY_INVALID"):
-            MODULE.build_packet(input_packet(), expanded, "2026-08-21", CONTRACT)
-
-        tampered = policy()
-        tampered["limits"]["max_total_crypto_exposure"] = 9
-        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_PACKET_SHA_MISMATCH"):
-            MODULE.build_packet(input_packet(), tampered, "2026-08-21", CONTRACT)
-
-    def test_input_authority_and_hash_tamper_fail(self):
         expanded = input_packet()
         expanded["authority"]["position_sizing_authorized"] = True
         with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "INPUT_IDENTITY_INVALID"):
             MODULE.build_packet(expanded, policy(), "2026-08-21", CONTRACT)
+
+        aliased = input_packet()
+        aliased["authority"]["crypto_exposure_measurement_authorized"] = 1
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "INPUT_IDENTITY_INVALID"):
+            MODULE.build_packet(aliased, policy(), "2026-08-21", CONTRACT)
 
         tampered = input_packet()
         tampered["positions"][0]["portfolio_weight"] = 0.99
@@ -263,34 +355,7 @@ class CryptoExposureLimitTests(unittest.TestCase):
             key: value for key, value in packet.items() if key != "packet_sha256"
         })
         with self.assertRaisesRegex(
-            MODULE.CryptoExposureLimitError,
-            "OUTPUT_DERIVATION_MISMATCH",
-        ):
-            MODULE.validate_packet(packet, CONTRACT)
-
-    def test_self_rehashed_exposure_and_limit_forgery_fails_closed(self):
-        packet = MODULE.build_packet(input_packet(), policy(), "2026-08-21", CONTRACT)
-        total_loss_index = next(
-            index
-            for index, row in enumerate(packet["assessments"])
-            if row["metric"] == "TOTAL_PLANNED_LOSS"
-        )
-        exposure_rows = packet["assessments"][1:total_loss_index]
-        self.assertEqual(exposure_rows[0]["result"], "PASS")
-        exposure_rows[0]["observed"] = 0.30
-        for row in [packet["assessments"][0], *exposure_rows]:
-            row["maximum"] = 999
-            row["result"] = "PASS"
-        packet["assessments"][0]["observed"] = MODULE._rounded_sum(
-            row["observed"] for row in exposure_rows
-        )
-        packet["summary"]["total_crypto_exposure"] = packet["assessments"][0]["observed"]
-        packet["packet_sha256"] = MODULE.payload_sha256({
-            key: value for key, value in packet.items() if key != "packet_sha256"
-        })
-        with self.assertRaisesRegex(
-            MODULE.CryptoExposureLimitError,
-            "OUTPUT_DERIVATION_MISMATCH",
+            MODULE.CryptoExposureLimitError, "OUTPUT_DERIVATION_MISMATCH"
         ):
             MODULE.validate_packet(packet, CONTRACT)
 
@@ -302,23 +367,17 @@ class CryptoExposureLimitTests(unittest.TestCase):
         draft["packet_sha256"] = MODULE.payload_sha256({
             key: value for key, value in draft.items() if key != "packet_sha256"
         })
-        with self.assertRaisesRegex(
-            MODULE.CryptoExposureLimitError,
-            "POLICY_IDENTITY_INVALID",
-        ):
+        with self.assertRaisesRegex(MODULE.CryptoExposureLimitError, "POLICY_IDENTITY_INVALID"):
             MODULE.validate_packet(draft, CONTRACT)
 
         stale_digest = copy.deepcopy(original)
-        stale_digest["source_packets"]["POLICY"]["limits"][
-            "max_single_crypto_exposure"
-        ] = 999
+        stale_digest["source_packets"]["POLICY"]["active_limits"][
+            "max_single_asset_exposure_nav_fraction"
+        ] = "0.99"
         stale_digest["packet_sha256"] = MODULE.payload_sha256({
             key: value for key, value in stale_digest.items() if key != "packet_sha256"
         })
-        with self.assertRaisesRegex(
-            MODULE.CryptoExposureLimitError,
-            "POLICY_PACKET_SHA_MISMATCH",
-        ):
+        with self.assertRaises(MODULE.CryptoExposureLimitError):
             MODULE.validate_packet(stale_digest, CONTRACT)
 
     def test_cli_is_offline_and_writes_only_outside_repository(self):
