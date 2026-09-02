@@ -41,6 +41,7 @@ DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 BRIEFING_ID = re.compile(r"^(\d{4}-\d{2}-\d{2})-(am|pm)$")
 PROJECTION_PATHS = {
     "generated/atlas-public-snapshot.json",
+    "generated/validated-briefing-recovery.json",
     "public/portal-projection-status.json",
 }
 SLOT_DIR = {"AM": "morning", "PM": "evening"}

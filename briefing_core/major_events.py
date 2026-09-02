@@ -260,6 +260,10 @@ def render_corrected_briefing(original: bytes, coverage: dict) -> bytes:
         lines.append("")
     section = "\n".join(lines).rstrip() + "\n\n"
     source = source.lstrip("\ufeff")
+    if "## 오늘의 핵심 사건" in source:
+        if source.count(section.rstrip()) != 1:
+            raise MajorEventError("MAJOR_EVENT_EXISTING_SECTION_CONFLICT")
+        return source.rstrip().encode("utf-8") + b"\n"
     source_lines = source.splitlines(keepends=True)
     if source_lines and source_lines[0].startswith("# "):
         rendered = (
