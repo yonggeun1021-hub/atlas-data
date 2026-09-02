@@ -502,11 +502,16 @@ jobs:
         if: steps.resolve.outputs.mode == 'brief' && steps.briefing.outputs.capture_path != ''
         run: |
           set -euo pipefail
+          CAPTURE_PATH="${{ steps.briefing.outputs.capture_path }}"
+          CAPTURE_PATH="${CAPTURE_PATH#"$GITHUB_WORKSPACE"/}"
+          case "$CAPTURE_PATH" in
+            /*) echo "STOP:CORE_PATH_OUTSIDE_WORKSPACE:$CAPTURE_PATH" >&2; exit 2 ;;
+          esac
           python3 -m briefing_core.chain build \
             --repo-root . \
             --source-commit "${{ steps.briefing.outputs.source_commit }}" \
-            --packet-path "${{ steps.briefing.outputs.capture_path }}/packet.json" \
-            --briefing-path "${{ steps.briefing.outputs.capture_path }}/briefing.md" \
+            --packet-path "$CAPTURE_PATH/packet.json" \
+            --briefing-path "$CAPTURE_PATH/briefing.md" \
             --decision-date "${{ steps.resolve.outputs.decision_date }}" \
             --slot "${{ steps.resolve.outputs.slot }}"
 
