@@ -87,6 +87,7 @@ ARTIFACT_NAMES = {
 }
 DISPLAY_ALLOWLIST = {
     "generated/atlas-public-snapshot.json",
+    "generated/validated-briefing-recovery.json",
     "public/portal-projection-status.json",
 }
 POST_DELIVERY_FIELDS = {
