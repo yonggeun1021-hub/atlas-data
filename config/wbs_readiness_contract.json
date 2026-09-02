@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "atlas_wbs_readiness_contract/1",
+  "source": {
+    "databaseUrl": "https://app.notion.com/p/1dc7a235b4284d15b573d2dbc8e7608d",
+    "dataSourceUrl": "collection://3b679327-02f3-4d75-8bf1-465eef3a8007",
+    "maxSourceAgeSeconds": 129600
+  },
+  "statuses": {
+    "formalComplete": "✅ 완료",
+    "forbidden": "⛔ 금지",
+    "lateStage": [
+      "✅ 완료",
+      "🟣 관측중",
+      "🔵 검증대기",
+      "🟠 승인대기"
+    ],
+    "weightedUnits": {
+      "✅ 완료": 100,
+      "🟣 관측중": 80,
+      "🔵 검증대기": 60,
+      "🟠 승인대기": 40,
+      "🟡 개발중": 20,
+      "🟠 외부대기": 0,
+      "🟠 보류": 0,
+      "⬜ 미처리": 0,
+      "⛔ 금지": 0
+    }
+  },
+  "scopes": {
+    "smallPaper": [
+      "P0-01", "P0-02", "P0-03", "P0-04", "P0-05", "P0-06",
+      "P1-COM-01", "P1-COM-02", "P1-COM-05",
+      "P1-CR-01", "P1-CR-02", "P1-CR-03", "P1-CR-04", "P1-CR-05", "P1-CR-06", "P1-CR-07", "P1-CR-08",
+      "P1-KR-01", "P1-KR-02", "P1-KR-03", "P1-KR-04", "P1-KR-05", "P1-KR-06", "P1-KR-07",
+      "P1-US-01", "P1-US-02", "P1-US-04", "P1-US-05", "P1-US-06",
+      "P2-01", "P2-02", "P2-03", "P2-04", "P2-05", "P2-COM-01", "P2-COM-02", "P2-COM-03", "P2-US-02A",
+      "P3-01", "P3-02", "P3-03", "P3-04", "P3-12",
+      "P4-07",
+      "P5-01", "P5-02", "P5-03", "P5-04", "P5-05", "P5-06", "P5-07", "P5-08", "P5-09", "P5-10",
+      "P6-01", "P6-02", "P6-03", "P6-04", "P6-05", "P6-06", "P6-07",
+      "P7-01", "P7-02", "P7-04", "P7-05", "P7-08", "P7-12", "P7-13",
+      "P8-01", "P8-02", "P8-03", "P8-04", "P8-05", "P8-06", "P8-07", "P8-10", "P8-12", "P8-13", "P8-14", "P8-15", "P8-16", "P8-17",
+      "P9-06",
+      "P10-01", "P10-06", "P10-08", "P10-09", "P10-10", "P10-11",
+      "P-PORTAL-01", "US-1-1", "PAPER 9-3"
+    ],
+    "smallLiveAdditional": [
+      "P7-06",
+      "P9-01", "P9-03", "P9-04", "P9-05",
+      "P10-04", "P10-05", "P10-12", "P10-13",
+      "P11-01", "P11-02", "P11-03", "P11-04", "P11-05", "P11-06"
+    ]
+  },
+  "paperRotation": {
+    "gateScoreUnits": {
+      "COMPLETE": 2,
+      "PARTIAL": 1,
+      "MISSING": 0,
+      "BLOCKED": 0
+    },
+    "gates": [
+      {"id": 1, "name": "KRX·US·Crypto natural market data and freshness/source lineage"},
+      {"id": 2, "name": "Market-specific and common Regime decisions"},
+      {"id": 3, "name": "Capital flow, Rotation, Universe and instrument classification"},
+      {"id": 4, "name": "Candidate, entry, hold and exit decisions"},
+      {"id": 5, "name": "Market/theme allocation, exposure limits and position quantity"},
+      {"id": 6, "name": "Natural decision lineage handoff to internal PAPER append/reconcile writer"},
+      {"id": 7, "name": "Internal virtual BUY/HOLD/SELL ledger, restart, idempotency and reconciliation"},
+      {"id": 8, "name": "Natural BUY→HOLD→SELL→RECONCILED completion evidence"}
+    ],
+    "naturalMarkets": ["KRX", "US", "CRYPTO"]
+  }
+}
