@@ -589,6 +589,88 @@ class DailyOrchestratorTest(unittest.TestCase):
         packet = MODULE.build_packet("morning", past_date, "2026-08-20T12:00:00Z")
         self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
 
+    def test_later_same_decision_date_btc_capture_cannot_change_persisted_validation(
+        self,
+    ):
+        latest = MODULE.DYNAMIC_CLOCK.run()
+        decision_date = latest["report_asof_evidence_date"]
+        publication_report = MODULE.DYNAMIC_CLOCK.run(decision_date=decision_date)
+        later_btc_report = copy.deepcopy(publication_report)
+        later_btc_report["by_market"]["BTC"]["raw_trigger_count"] += 1
+        self.assertEqual(later_btc_report["decision_date"], decision_date)
+        self.assertNotEqual(
+            MODULE.payload_sha256(publication_report),
+            MODULE.payload_sha256(later_btc_report),
+        )
+
+        # The first call is the publication-time input set.  The second
+        # side-effect represents a later BTC capture on the same decision
+        # date. Validation must not invoke run() again or observe it.
+        with mock.patch.object(
+            MODULE.DYNAMIC_CLOCK,
+            "run",
+            side_effect=[publication_report, later_btc_report],
+        ) as dynamic_run:
+            packet = MODULE.build_packet(
+                "morning", decision_date, f"{decision_date}T14:59:00Z"
+            )
+            self.assertEqual(dynamic_run.call_count, 1)
+            persisted = copy.deepcopy(packet)
+            self.assertEqual(MODULE.validate_packet(persisted), packet)
+            self.assertEqual(dynamic_run.call_count, 1)
+
+        source = packet["frozen_sources"]["DYNAMIC_CLOCK"]
+        self.assertEqual(source["kind"], "report")
+        self.assertEqual(source["report"], publication_report)
+        self.assertEqual(
+            source["report_sha256"], MODULE.payload_sha256(publication_report)
+        )
+        dynamic_row = next(
+            row for row in packet["components"]
+            if row["component_id"] == "DYNAMIC_CLOCK"
+        )
+        for authority_key in (
+            "stage_promotion_authorized",
+            "candidate_ready_buy_promotion_authorized",
+            "portfolio_decision_authorized",
+            "trade_proposal_authorized",
+            "capital_authorized",
+            "action_authorized",
+            "order_authorized",
+            "production_authorized",
+            "trading_authorized",
+        ):
+            self.assertIs(dynamic_row["authority"][authority_key], False)
+
+        # Rehashing the outer packet cannot hide a mismatch between the
+        # frozen source bytes and their publication-time identity.
+        tampered = copy.deepcopy(packet)
+        tampered["frozen_sources"]["DYNAMIC_CLOCK"]["report"]["by_market"][
+            "BTC"
+        ]["raw_trigger_count"] += 1
+        unsigned = copy.deepcopy(tampered)
+        del unsigned["packet_sha256"]
+        tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "DYNAMIC_CLOCK_SOURCE_SHA256_MISMATCH",
+        ):
+            MODULE.validate_packet(tampered)
+
+        # Older schema-1 packets have no recoverable publication-time
+        # Dynamic Clock input identity. They fail deterministically instead
+        # of consulting whichever BTC evidence exists at validation time.
+        legacy = copy.deepcopy(packet)
+        del legacy["frozen_sources"]["DYNAMIC_CLOCK"]
+        unsigned = copy.deepcopy(legacy)
+        del unsigned["packet_sha256"]
+        legacy["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "DYNAMIC_CLOCK_SOURCE_NOT_FROZEN",
+        ):
+            MODULE.validate_packet(legacy)
+
     def test_frozen_source_components_are_genuinely_independently_revalidatable(self):
         # STEP0_READ_MODEL_HEALTH / DART_FILING_CONTENT / SEC_FILING_CONTENT
         # (and, transitively through it, KRX_PREOPEN_COMPACT) read a mutable
@@ -598,7 +680,9 @@ class DailyOrchestratorTest(unittest.TestCase):
         # immutable, append-only, per-date archive whose *presence* (not
         # content) can still change between build time and a later
         # revalidation, if the same-dated capture lands afterward. All nine
-        # are frozen the same way: packet["frozen_sources"] carries the
+        # are frozen the same way. DYNAMIC_CLOCK freezes its exact shared
+        # report and digest because later same-date captures can grow its
+        # input set. packet["frozen_sources"] carries the
         # exact input snapshot each was built from, and validate_packet()
         # re-derives them purely from that -- genuinely independent, no
         # live data/ access, no "cannot be revalidated" boundary any more.
@@ -609,7 +693,7 @@ class DailyOrchestratorTest(unittest.TestCase):
                 "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
                 "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
                 "KRX_POST_CLOSE", "FREE_MARKET_DATA", "KOREA_ROTATION",
-                "KOREA_MARKET_SIGNALS",
+                "KOREA_MARKET_SIGNALS", "DYNAMIC_CLOCK",
             }),
         )
         # Built late in the KST day, on the evening slot (so KRX_POST_CLOSE
@@ -724,6 +808,14 @@ class DailyOrchestratorTest(unittest.TestCase):
                 # never fabricated.
                 self.assertEqual(by_id[component_id]["status"], "PENDING")
                 self.assertTrue(by_id[component_id]["validated"])
+                continue
+            if component_id == "DYNAMIC_CLOCK":
+                # This stale literal may correctly freeze either a report or
+                # its fail-closed DECISION_DATE_PRECEDES_EVIDENCE verdict.
+                self.assertIn(
+                    packet["frozen_sources"][component_id]["kind"],
+                    {"report", "error", "unavailable"},
+                )
                 continue
             self.assertTrue(by_id[component_id]["validated"], component_id)
 
@@ -1122,6 +1214,7 @@ class DailyOrchestratorTest(unittest.TestCase):
             "FREE_MARKET_DATA": {"kind": "missing"},
             "KOREA_ROTATION": {"kind": "missing", "value": None},
             "KOREA_MARKET_SIGNALS": {"kind": "error", "value": "TAMPERED"},
+            "DYNAMIC_CLOCK": {"kind": "error", "value": "TAMPERED"},
         }
         self.assertEqual(set(no_evidence_shape), MODULE.FROZEN_SOURCE_COMPONENTS)
 

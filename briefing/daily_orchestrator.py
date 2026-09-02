@@ -2224,7 +2224,7 @@ def build_dynamic_clock_status(
     generated_at: str,
     *,
     report: dict | None = None,
-    source_error: Exception | None = None,
+    source_error: Exception | str | None = None,
 ) -> dict:
     """P8-12 -- Opportunity Trigger + Dynamic Review Clock briefing section.
 
@@ -2251,6 +2251,8 @@ def build_dynamic_clock_status(
     if DYNAMIC_CLOCK is None:
         return component_row("DYNAMIC_CLOCK", "UNAVAILABLE", "DYNAMIC_CLOCK_MODULE_LOAD_FAILED")
     if source_error is not None:
+        if isinstance(source_error, str):
+            return component_row("DYNAMIC_CLOCK", "DEGRADED", source_error)
         return _degraded_from_exception("DYNAMIC_CLOCK", source_error)
     try:
         # ★ CIO review round 2, item 5: pass the briefing's own real
@@ -2314,6 +2316,63 @@ def build_dynamic_clock_status(
         contract_version=packet["contract_version"],
         packet=packet,
     )
+
+
+def _fetch_dynamic_clock_snapshot(decision_date: str) -> dict:
+    """Freeze the exact Dynamic Clock report used by this publication.
+
+    Dynamic Clock reads an append-only collection whose input set can still
+    grow later on the same decision date.  The report is shared by three
+    daily-briefing projections, so freezing it once here preserves their
+    common publication-time source identity without copying output rows or
+    touching the upstream P8-12 operational artifact.
+    """
+    if DYNAMIC_CLOCK is None:
+        return {"kind": "unavailable"}
+    try:
+        report = DYNAMIC_CLOCK.run(decision_date=decision_date)
+    except Exception as exc:  # noqa: BLE001 - freeze the fail-closed verdict too
+        return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
+    return {
+        "kind": "report",
+        "report_sha256": payload_sha256(report),
+        "report": report,
+    }
+
+
+def _resolve_dynamic_clock_snapshot(
+    snapshot: dict, decision_date: str
+) -> tuple[dict | None, str | None]:
+    """Validate and resolve one frozen Dynamic Clock source snapshot."""
+    if not isinstance(snapshot, dict):
+        fail("DYNAMIC_CLOCK_SOURCE_INVALID", "snapshot must be object")
+    kind = snapshot.get("kind")
+    if kind == "unavailable":
+        if set(snapshot) != {"kind"}:
+            fail("DYNAMIC_CLOCK_SOURCE_INVALID", "unavailable shape")
+        return None, None
+    if kind == "error":
+        if set(snapshot) != {"kind", "value"} or not isinstance(
+            snapshot.get("value"), str
+        ):
+            fail("DYNAMIC_CLOCK_SOURCE_INVALID", "error shape")
+        return None, snapshot["value"]
+    if kind != "report":
+        fail("DYNAMIC_CLOCK_SOURCE_INVALID", f"kind={kind!r}")
+    if set(snapshot) != {"kind", "report_sha256", "report"}:
+        fail("DYNAMIC_CLOCK_SOURCE_INVALID", "report shape")
+    report = snapshot.get("report")
+    report_sha256 = snapshot.get("report_sha256")
+    if not isinstance(report, dict) or not isinstance(report_sha256, str):
+        fail("DYNAMIC_CLOCK_SOURCE_INVALID", "report/hash type")
+    if payload_sha256(report) != report_sha256:
+        fail("DYNAMIC_CLOCK_SOURCE_SHA256_MISMATCH", "report_sha256")
+    if report.get("decision_date") != decision_date:
+        fail(
+            "DYNAMIC_CLOCK_SOURCE_DECISION_DATE_MISMATCH",
+            f"source={report.get('decision_date')!r}:packet={decision_date!r}",
+        )
+    return report, None
 
 
 _SHADOW_REVIEW_PACKET_PATH = Path(
@@ -2815,12 +2874,16 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
 # presence/absence fact (plus, once present, the resolved directory name)
 # is therefore sufficient here -- no digest of the immutable bytes is
 # needed, unlike the three above.
+# DYNAMIC_CLOCK is another input-set boundary: even though its evidence is
+# append-only, a second BTC capture can land later on the same decision date.
+# Freeze the one shared report plus its digest so every downstream projection
+# replays the publication-time input identity instead of rescanning.
 FROZEN_SOURCE_COMPONENTS = frozenset({
     "STEP0_READ_MODEL_HEALTH", "DART_FILING_CONTENT", "SEC_FILING_CONTENT",
     "KOFIA_FIRST_SEEN", "US_BREADTH_MEMBERSHIP", "BTC_TREND", "BTC_RISK",
     "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP",
     "KRX_POST_CLOSE", "FREE_MARKET_DATA", "KOREA_ROTATION",
-    "KOREA_MARKET_SIGNALS",
+    "KOREA_MARKET_SIGNALS", "DYNAMIC_CLOCK",
 })
 # KRX_PREOPEN_COMPACT is not fetched separately -- it is derived purely
 # from STEP0_READ_MODEL_HEALTH's own frozen input, so freezing that one
@@ -2984,16 +3047,16 @@ def build_packet(
     )
 
     # Dynamic Clock is computed once and shared by P8-05 presentation,
-    # P8-03 signal boundary, and the Dynamic Clock component.  This prevents
-    # three independently timed runs from presenting different candidate
-    # populations in one briefing generation.
-    dynamic_report = None
-    dynamic_report_error = None
-    if DYNAMIC_CLOCK is not None:
-        try:
-            dynamic_report = DYNAMIC_CLOCK.run(decision_date=decision_date)
-        except Exception as exc:  # noqa: BLE001
-            dynamic_report_error = exc
+    # P8-03 signal boundary, and the Dynamic Clock component.  Its exact
+    # report and hash are frozen at the daily-briefing producer boundary:
+    # a later same-decision-date BTC capture may legitimately produce a new
+    # publication revision, but must never alter validation of this one.
+    dynamic_clock_snapshot = frozen_sources.get("DYNAMIC_CLOCK")
+    if dynamic_clock_snapshot is None:
+        dynamic_clock_snapshot = _fetch_dynamic_clock_snapshot(decision_date)
+    dynamic_report, dynamic_report_error = _resolve_dynamic_clock_snapshot(
+        dynamic_clock_snapshot, decision_date
+    )
 
     regime_outputs = build_regime_outputs(generated_at, rows)
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
@@ -3137,6 +3200,7 @@ def build_packet(
             "CRYPTO_LEADERSHIP": crypto_leadership_snapshot,
             "KOREA_MARKET_SIGNALS": korea_market_signals_snapshot,
             "KOREA_ROTATION": korea_rotation_snapshot,
+            "DYNAMIC_CLOCK": dynamic_clock_snapshot,
             # Only present for the evening slot, where KRX_POST_CLOSE is
             # actually fetched -- the morning slot's static PENDING row has
             # no snapshot to freeze.
@@ -3192,7 +3256,8 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     # for any component. Every FROZEN_SOURCE_COMPONENTS row (STEP0/DART/
     # SEC's mutable rolling pointer; KOFIA/US_BREADTH/BTC_TREND/BTC_RISK/
     # STABLECOIN/CRYPTO_BREADTH's genuinely immutable but presence-may-
-    # arrive-later evidence archives) is rebuilt from packet[
+    # arrive-later evidence archives; DYNAMIC_CLOCK's same-date-growing
+    # report input set) is rebuilt from packet[
     # "frozen_sources"] -- the exact input snapshot persisted inside this
     # very packet at build time -- rather than live, current-moment state,
     # which may have moved on (mutable pointer) or newly appeared (an
@@ -3205,6 +3270,12 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     # to reproduce -- it re-derives from source data (real disk evidence,
     # or this packet's own frozen_sources) that the tamper never touched.
     frozen_sources = packet.get("frozen_sources") or {}
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        # Legacy packets did not persist enough input identity to distinguish
+        # their publication-time report from a later same-date capture.  Do
+        # not silently re-read today's larger input set and return a verdict
+        # that depends on validation time.
+        fail("DYNAMIC_CLOCK_SOURCE_NOT_FROZEN", "frozen_sources.DYNAMIC_CLOCK")
     rebuilt = build_packet(
         packet["slot"], packet["decision_date"], packet["generated_at"], contract,
         frozen_sources=frozen_sources,
