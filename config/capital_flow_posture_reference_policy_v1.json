@@ -4,6 +4,12 @@
   "mode": "PAPER_DIAGNOSTIC_NOT_ALLOCATION",
   "status": "CIO_INTENT_RECORDED_NUMERIC_BUDGET_UNRATIFIED",
   "source_contract_version": "paper_regime_reference_policy/v1",
+  "cross_asset_flow_contract": {
+    "path": "config/cross_asset_flow_evidence_contract.json",
+    "contract_version": "cross_asset_flow_evidence/1",
+    "output_schema_version": "cross_asset_flow_evidence_packet/1",
+    "required_cross_market_assessment_status": "UNKNOWN"
+  },
   "market_order": [
     "US",
     "KR",
@@ -21,6 +27,16 @@
     "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
     "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
     "missing_market_policy": "WAIT_NO_NUMERIC_TARGET"
+  },
+  "flow_candidate_semantics": {
+    "basis": "SAME_DATE_RELATIVE_STRENGTH_REFERENCE_ONLY",
+    "receiver_label": "RELATIVE_ATTRACTOR",
+    "donor_label": "RELATIVE_DONOR",
+    "actual_flow_claim": "FORBIDDEN",
+    "transition_source": "P2_COM_03_APPEND_ONLY_LEDGER",
+    "confidence_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+    "persistence_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+    "invalidation_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED"
   },
   "authority": {
     "paper_reference_display_authorized": true,
