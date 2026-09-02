@@ -1,0 +1,237 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "confirmation_authorized": false,
+    "market_allocation_authorized": false,
+    "numeric_threshold_authorized": false,
+    "order_authorized": false,
+    "persistence_observation_authorized": true,
+    "production_authorized": false,
+    "read_only_audit_display_authorized": true,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "contract": {
+    "contract_version": "cross_market_flow_transition_ledger/1",
+    "path": "config/cross_market_flow_transition_ledger_contract.json",
+    "sha256": "3699ca04c1d5f1dade1fe19924bdd8f95cbf9d57c2c33a24bdda6b9664203bcc"
+  },
+  "contract_version": "cross_market_flow_transition_ledger/1",
+  "counted_natural_observations": 1,
+  "current_state": {
+    "cross_market_flow": {
+      "actual_money_flow": "UNKNOWN",
+      "actual_money_flow_reason": "COMPARABLE_DIRECT_DONOR_RECEIVER_EVIDENCE_NOT_AVAILABLE",
+      "comparable_market_count": 0,
+      "comparison_as_of_date": null,
+      "comparison_status": "UNKNOWN",
+      "explanation_ko": "같은 날짜에 비교 가능한 시장이 둘보다 적어 상대 강도도 계산하지 않습니다.",
+      "relative_strength_laggard": null,
+      "relative_strength_leader": null,
+      "required_market_count": 3
+    },
+    "source_status": "PARTIAL_REFERENCE_AVAILABLE"
+  },
+  "entries": [
+    {
+      "confirmed_at": null,
+      "counts_toward_persistence": true,
+      "current_semantic_state_sha256": "d18ee65fe6f091863ba3740c60f53fd2ab59b2c754ee7682e7327ad4e0e1003e",
+      "current_state": {
+        "cross_market_flow": {
+          "actual_money_flow": "UNKNOWN",
+          "actual_money_flow_reason": "COMPARABLE_DIRECT_DONOR_RECEIVER_EVIDENCE_NOT_AVAILABLE",
+          "comparable_market_count": 0,
+          "comparison_as_of_date": null,
+          "comparison_status": "UNKNOWN",
+          "explanation_ko": "같은 날짜에 비교 가능한 시장이 둘보다 적어 상대 강도도 계산하지 않습니다.",
+          "relative_strength_laggard": null,
+          "relative_strength_leader": null,
+          "required_market_count": 3
+        },
+        "source_status": "PARTIAL_REFERENCE_AVAILABLE"
+      },
+      "effective_observation_date": "2026-09-02",
+      "entry_sha256": "0bee822d5974d91323ec273f1c506d9c4caccf68576d9b8d46b2f7b94aa1f294",
+      "first_seen": "2026-09-02T01:58:00Z",
+      "ledger_revision": 1,
+      "lineage": {
+        "input_contract_version": "capital_flow_posture_reference_policy/v1",
+        "input_file_sha256": "748d714dbcc3a9ff36eeee73d2b8900adf7c1c3b3788c902b7ae8123d75023d5",
+        "input_generation_id": "293677613959363701c68b74fe6b3487483d454c6b250851f075b90cae4df153",
+        "input_packet": {
+          "authority": {
+            "action_authorized": false,
+            "actual_flow_claim_authorized": false,
+            "buy_authorized": false,
+            "cash_target_authorized": false,
+            "cross_market_allocation_authorized": false,
+            "gross_exposure_authorized": false,
+            "order_authorized": false,
+            "paper_reference_display_authorized": true,
+            "position_size_authorized": false,
+            "production_authorized": false,
+            "relative_strength_comparison_authorized": true,
+            "stage_authorized": false,
+            "trading_authorized": false
+          },
+          "contract_version": "capital_flow_posture_reference_policy/v1",
+          "cross_market_flow": {
+            "actual_money_flow": "UNKNOWN",
+            "actual_money_flow_reason": "COMPARABLE_DIRECT_DONOR_RECEIVER_EVIDENCE_NOT_AVAILABLE",
+            "comparable_market_count": 0,
+            "comparison_as_of_date": null,
+            "comparison_status": "UNKNOWN",
+            "explanation_ko": "같은 날짜에 비교 가능한 시장이 둘보다 적어 상대 강도도 계산하지 않습니다.",
+            "relative_strength_laggard": null,
+            "relative_strength_leader": null,
+            "required_market_count": 3
+          },
+          "generated_at": "2026-09-02T01:58:00Z",
+          "generation_id": "293677613959363701c68b74fe6b3487483d454c6b250851f075b90cae4df153",
+          "market_allocation_reviews": [
+            {
+              "as_of_date": "2026-09-01",
+              "candidate_regime": "NEUTRAL",
+              "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
+              "market": "US",
+              "regime_score": -2,
+              "review_priority": "WAIT_FOR_COMPLETE_REGIME",
+              "target_weight_pct": null
+            },
+            {
+              "as_of_date": "2026-08-31",
+              "candidate_regime": "NEUTRAL",
+              "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
+              "market": "KR",
+              "regime_score": -1,
+              "review_priority": "WAIT_FOR_COMPLETE_REGIME",
+              "target_weight_pct": null
+            },
+            {
+              "as_of_date": "2026-08-31",
+              "candidate_regime": "UNKNOWN",
+              "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
+              "market": "CRYPTO",
+              "regime_score": null,
+              "review_priority": "WAIT_FOR_COMPLETE_REGIME",
+              "target_weight_pct": null
+            }
+          ],
+          "mode": "PAPER_DIAGNOSTIC_NOT_ALLOCATION",
+          "payload_sha256": "bed861c8324c72f39de47754e97dd48cb23f1db5fa83ce23670f0f6e161d5f13",
+          "policy": {
+            "capital_model": {
+              "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
+              "missing_market_policy": "WAIT_NO_NUMERIC_TARGET",
+              "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
+              "total_exposure_driver": "REGIME",
+              "within_envelope_allocation_driver": "CROSS_MARKET_FLOW_AND_RELATIVE_STRENGTH"
+            },
+            "path": "config/capital_flow_posture_reference_policy_v1.json",
+            "sha256": "038ea2c64a1a75a2b786f0652b5bdac80551ebfca29a917fdb7143278ac76a68",
+            "status": "CIO_INTENT_RECORDED_NUMERIC_BUDGET_UNRATIFIED"
+          },
+          "schema_version": "capital_flow_posture_reference/v1",
+          "sources": [
+            {
+              "generation_id": "91ae349f8733e603dc0d6b6d046358ef9f6542900e8b1fbcff8f836ff5f4a8da",
+              "path": "data/latest_paper_regime_reference.json",
+              "sha256": "712b398ee7c065581dae92823fe6fc879b45bb4b770568d53f5ed5ff63a3caf6"
+            }
+          ],
+          "status": "PARTIAL_REFERENCE_AVAILABLE",
+          "total_exposure_review": {
+            "cash_target_pct": null,
+            "explanation_ko": "세 시장 중 판정이 끝나지 않은 곳이 있어 전체 투자비중 숫자를 만들지 않습니다.",
+            "input_state": "INCOMPLETE",
+            "invested_target_pct": null,
+            "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
+            "review": "WAIT_INCOMPLETE_MARKET_SET"
+          }
+        },
+        "input_path": "data/latest_capital_flow_posture_reference.json",
+        "input_payload_sha256": "bed861c8324c72f39de47754e97dd48cb23f1db5fa83ce23670f0f6e161d5f13",
+        "input_schema_version": "capital_flow_posture_reference/v1",
+        "producer_policy": {
+          "capital_model": {
+            "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
+            "missing_market_policy": "WAIT_NO_NUMERIC_TARGET",
+            "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
+            "total_exposure_driver": "REGIME",
+            "within_envelope_allocation_driver": "CROSS_MARKET_FLOW_AND_RELATIVE_STRENGTH"
+          },
+          "path": "config/capital_flow_posture_reference_policy_v1.json",
+          "sha256": "038ea2c64a1a75a2b786f0652b5bdac80551ebfca29a917fdb7143278ac76a68",
+          "status": "CIO_INTENT_RECORDED_NUMERIC_BUDGET_UNRATIFIED"
+        },
+        "producer_sources": [
+          {
+            "generation_id": "91ae349f8733e603dc0d6b6d046358ef9f6542900e8b1fbcff8f836ff5f4a8da",
+            "path": "data/latest_paper_regime_reference.json",
+            "sha256": "712b398ee7c065581dae92823fe6fc879b45bb4b770568d53f5ed5ff63a3caf6"
+          }
+        ]
+      },
+      "observation_mode": "NATURAL",
+      "observed_at": "2026-09-02T01:58:00Z",
+      "persistence": {
+        "confirmation_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+        "confirmation_threshold": null,
+        "current_streak_natural_count": 1,
+        "current_streak_observation_count": 1,
+        "state_natural_observation_count_total": 1,
+        "state_observation_count_total": 1
+      },
+      "previous_entry_sha256": null,
+      "previous_state": null,
+      "transition": {
+        "invalidation": {
+          "detected": false,
+          "reason": null
+        },
+        "reversal": {
+          "current_laggard": null,
+          "current_leader": null,
+          "detected": false,
+          "previous_laggard": null,
+          "previous_leader": null
+        },
+        "type": "INITIAL"
+      }
+    }
+  ],
+  "latest_transition": {
+    "invalidation": {
+      "detected": false,
+      "reason": null
+    },
+    "reversal": {
+      "current_laggard": null,
+      "current_leader": null,
+      "detected": false,
+      "previous_laggard": null,
+      "previous_leader": null
+    },
+    "type": "INITIAL"
+  },
+  "ledger_id": "CROSS_MARKET_FLOW",
+  "ledger_revision": 1,
+  "observation_mode_counts": {
+    "MANUAL": 0,
+    "NATURAL": 1,
+    "RECOVERY": 0,
+    "REPLAY": 0
+  },
+  "payload_sha256": "58f34d06c92d66d96d64a0deb0261462aaae06a4ac99da7c43d4d2cfc35161cf",
+  "schema_version": "cross_market_flow_transition_ledger_packet/1",
+  "status": "HISTORY_OBSERVED",
+  "unresolved_boundaries": [
+    "CONFIRMATION_POLICY_UNRATIFIED",
+    "NUMERIC_THRESHOLD_ABSENT",
+    "MARKET_ALLOCATION_UNAUTHORIZED",
+    "CAPITAL_ACTION_ORDER_PRODUCTION_TRADING_UNAUTHORIZED"
+  ]
+}
