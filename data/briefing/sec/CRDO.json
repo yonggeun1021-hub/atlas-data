@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-09-01T21:00:37+00:00",
+    "generation_basis_at_utc": "2026-09-02T21:00:26+00:00",
     "generation_contract_version": 1,
-    "generation_id": "3aa39d128bbf975f15b4c3a03c90d9392f7ab84cb12d012442c8d41571197498"
+    "generation_id": "7bcfe44c7a74153305961a2a1660b4fa4f4e29bccea535321b06e3bff8f5d628"
   },
   "market": "SEC",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-09-01T21:00:37+00:00",
-    "collected_for_kst_date": "2026-09-02",
+    "collected_at_utc": "2026-09-02T21:00:26+00:00",
+    "collected_for_kst_date": "2026-09-03",
     "source_file": "data/latest_sec.json",
-    "source_sha256": "1f9d4092b72f6b2e379be3a8bedc9271504b238074f67c1b389048af28d5895b"
+    "source_sha256": "360e623e9fbe2869d9869b309780a04aa641563d5ccf9b3393d11718425154aa"
   },
   "stock": {
     "atlas_stage": null,
@@ -20,6 +20,59 @@
     "entity_name": "Credo Technology Group Holding Ltd",
     "filer_profile": "domestic",
     "filings_recent": [
+      {
+        "accession": "0001628280-26-060117",
+        "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
+        "body_captured": false,
+        "date": "2026-09-02",
+        "form": "S-8",
+        "form_class": "other",
+        "form_family": "registration",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/1807794/000162828026060117/0001628280-26-060117-index.htm",
+        "item_codes": [],
+        "item_status": "not_itemized",
+        "items_detail": [],
+        "items_raw": "",
+        "url": "https://www.sec.gov/Archives/edgar/data/1807794/000162828026060117/forms-82026.htm"
+      },
+      {
+        "accession": "0001628280-26-060111",
+        "body_capture_status": "NOT_APPLICABLE",
+        "body_captured": false,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "index_only",
+          "content_status": "NOT_APPLICABLE",
+          "discovery_status": "OK",
+          "documents": [],
+          "evidence_status": "NOT_APPLICABLE",
+          "extracted": [],
+          "extractor_version": "sec_filing_content/1",
+          "interpretation_status": "UNDETERMINED",
+          "publication_status": "NOT_APPLICABLE",
+          "reasons": [
+            "STAGE_NOT_ASSIGNED_FOR_AUTO_CONSUMPTION"
+          ],
+          "rule_impact": "NONE",
+          "source": {
+            "collected_for_kst_date": "2026-09-03",
+            "observed_at_utc": "2026-09-02T21:00:40Z",
+            "run_status": "OK",
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": "4694f395c07ba11e3669d4d28150ca2a9a187d3c461a7331e79ff8be918c1b78"
+          }
+        },
+        "date": "2026-09-02",
+        "form": "10-Q",
+        "form_class": "domestic",
+        "form_family": "quarterly_report",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/1807794/000162828026060111/0001628280-26-060111-index.htm",
+        "item_codes": [],
+        "item_status": "not_itemized",
+        "items_detail": [],
+        "items_raw": "",
+        "url": "https://www.sec.gov/Archives/edgar/data/1807794/000162828026060111/crdo-20260801.htm"
+      },
       {
         "accession": "0001628280-26-059795",
         "body_capture_status": "NOT_APPLICABLE",
@@ -40,11 +93,11 @@
           ],
           "rule_impact": "NONE",
           "source": {
-            "collected_for_kst_date": "2026-09-02",
-            "observed_at_utc": "2026-09-01T21:45:00Z",
+            "collected_for_kst_date": "2026-09-03",
+            "observed_at_utc": "2026-09-02T21:00:40Z",
             "run_status": "OK",
             "source_file": "data/latest_sec_content.json",
-            "source_sha256": "17b3b2c36059689472857dbca2b223e13bc77d1476502a092839847ba75020ca"
+            "source_sha256": "4694f395c07ba11e3669d4d28150ca2a9a187d3c461a7331e79ff8be918c1b78"
           }
         },
         "date": "2026-09-01",
@@ -153,7 +206,9 @@
       "current_report": 1,
       "other": 1,
       "ownership": 3,
-      "proxy": 1
+      "proxy": 1,
+      "quarterly_report": 1,
+      "registration": 1
     },
     "name": "Credo Technology",
     "sic_description": "Semiconductors & Related Devices",
