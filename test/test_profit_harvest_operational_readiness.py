@@ -233,5 +233,167 @@ class ProfitHarvestOperationalReadinessTests(unittest.TestCase):
         self.assertEqual(self.packet, validated)
 
 
+class ProfitHarvestExactTypeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.entry_packet = json.loads(
+            readiness.DEFAULT_ENTRY_BOUNDARY_PACKET.read_text()
+        )
+        cls.entry_contract = json.loads(
+            readiness.DEFAULT_ENTRY_BOUNDARY_CONTRACT.read_text()
+        )
+        cls.harvest_contract = json.loads(readiness.DEFAULT_HARVEST_CONTRACT.read_text())
+        cls.source_commit = readiness.current_source_commit()
+        cls.trigger_kind = cls.entry_packet["source"]["trigger_kind"]
+        cls.entry_inputs = (
+            cls.entry_packet,
+            cls.entry_contract,
+            {},
+            {},
+            {},
+            {},
+            {},
+            {},
+        )
+        with mock.patch.object(
+            entry_proposal_boundary,
+            "validate_packet",
+            return_value=copy.deepcopy(cls.entry_packet),
+        ):
+            cls.readiness_packet = readiness.build_readiness(
+                *cls.entry_inputs,
+                source_commit=cls.source_commit,
+                trigger_kind=cls.trigger_kind,
+            )
+        cls.packet = readiness.build_operational_packet(
+            cls.readiness_packet, cls.harvest_contract
+        )
+
+    def build_readiness_from_validated_entry(self, validated_entry):
+        with mock.patch.object(
+            entry_proposal_boundary,
+            "validate_packet",
+            return_value=copy.deepcopy(validated_entry),
+        ):
+            return readiness.build_readiness(
+                *self.entry_inputs,
+                source_commit=self.source_commit,
+                trigger_kind=self.trigger_kind,
+            )
+
+    def validate_output(self, packet):
+        with mock.patch.object(
+            readiness,
+            "build_readiness",
+            return_value=copy.deepcopy(self.readiness_packet),
+        ):
+            return readiness.validate_operational_packet(
+                packet,
+                *self.entry_inputs,
+                self.harvest_contract,
+                source_commit=self.source_commit,
+                trigger_kind=self.trigger_kind,
+            )
+
+    def test_p8_13_numeric_boolean_aliases_fail_closed(self):
+        for alias in (False, 0.0):
+            entry_packet = copy.deepcopy(self.entry_packet)
+            entry_packet["decision"]["capital"] = alias
+            with self.subTest(boundary="decision", alias=alias), self.assertRaisesRegex(
+                readiness.ProfitHarvestReadinessError,
+                "P8_13_BOUNDARY_NOT_LOCKED",
+            ):
+                self.build_readiness_from_validated_entry(entry_packet)
+
+        for alias in (False, 0.0):
+            entry_packet = copy.deepcopy(self.entry_packet)
+            entry_packet["summary"]["entry_proposal_count"] = alias
+            with self.subTest(boundary="summary", alias=alias), self.assertRaisesRegex(
+                readiness.ProfitHarvestReadinessError,
+                "P8_13_ENTRY_PROPOSAL_PRESENT",
+            ):
+                self.build_readiness_from_validated_entry(entry_packet)
+
+        for field, expected in entry_proposal_boundary.AUTHORITY_ALL_FALSE.items():
+            entry_packet = copy.deepcopy(self.entry_packet)
+            entry_packet["authority"][field] = int(expected)
+            with self.subTest(
+                boundary="authority", field=field
+            ), self.assertRaisesRegex(
+                readiness.ProfitHarvestReadinessError, "P8_13_AUTHORITY_ESCALATION"
+            ):
+                self.build_readiness_from_validated_entry(entry_packet)
+
+    def test_readiness_numeric_boolean_aliases_fail_closed(self):
+        packet = copy.deepcopy(self.readiness_packet)
+        packet["baseline"]["episode_count"] = 11.0
+        packet["readiness_sha256"] = profit_harvest_policy_boundary.payload_sha256(
+            {key: value for key, value in packet.items() if key != "readiness_sha256"}
+        )
+        with self.assertRaisesRegex(
+            readiness.ProfitHarvestReadinessError,
+            "UPSTREAM_READINESS_BASELINE_DRIFT",
+        ):
+            readiness.build_operational_packet(packet, self.harvest_contract)
+
+        for field, expected in readiness.AUTHORITY_ALL_FALSE.items():
+            packet = copy.deepcopy(self.readiness_packet)
+            packet["authority"][field] = int(expected)
+            packet["readiness_sha256"] = profit_harvest_policy_boundary.payload_sha256(
+                {
+                    key: value
+                    for key, value in packet.items()
+                    if key != "readiness_sha256"
+                }
+            )
+            with self.subTest(boundary="authority", field=field), self.assertRaisesRegex(
+                readiness.ProfitHarvestReadinessError,
+                "UPSTREAM_READINESS_AUTHORITY_ESCALATION",
+            ):
+                readiness.build_operational_packet(packet, self.harvest_contract)
+
+    def test_recursive_output_numeric_boolean_aliases_fail_closed(self):
+        summary_aliases = {
+            "baseline_episode_count": 11.0,
+            "entry_proposal_count": False,
+            "live_position_eligible_count": 0.0,
+            "harvest_review_item_count": False,
+            "harvest_proposal_count": 0.0,
+            "order_intent_count": False,
+        }
+        for field, alias in summary_aliases.items():
+            packet = copy.deepcopy(self.packet)
+            packet["summary"][field] = alias
+            with self.subTest(boundary="summary", field=field), self.assertRaisesRegex(
+                readiness.ProfitHarvestReadinessError,
+                "PROFIT_HARVEST_OPERATIONAL_SEMANTIC_TAMPER_OR_DRIFT",
+            ):
+                self.validate_output(packet)
+
+        authority_sections = (
+            ("output", readiness.AUTHORITY_ALL_FALSE),
+            (
+                "policy_boundary",
+                profit_harvest_policy_boundary.AUTHORITY_ALL_FALSE,
+            ),
+        )
+        for section, expected_authority in authority_sections:
+            for field, expected in expected_authority.items():
+                packet = copy.deepcopy(self.packet)
+                target = (
+                    packet["authority"]
+                    if section == "output"
+                    else packet["policy_boundary"]["authority"]
+                )
+                target[field] = int(expected)
+                with self.subTest(
+                    boundary=section, field=field
+                ), self.assertRaisesRegex(
+                    readiness.ProfitHarvestReadinessError,
+                    "PROFIT_HARVEST_OPERATIONAL_SEMANTIC_TAMPER_OR_DRIFT",
+                ):
+                    self.validate_output(packet)
+
+
 if __name__ == "__main__":
     unittest.main()

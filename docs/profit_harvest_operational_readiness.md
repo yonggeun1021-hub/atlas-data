@@ -22,3 +22,9 @@ policy boundary. The historical baseline is fixed to merge commit
 that immutable commit byte for byte. This avoids silently extending the audit
 window when later market evidence arrives. Re-signing a modified output or
 changing a baseline artifact is rejected.
+
+P8-13 ingress, the independently hashed readiness packet, and the complete
+operational output use exact JSON scalar types recursively. Python aliases such
+as `false == 0`, `true == 1`, and `11 == 11.0` are rejected for decisions,
+summary counters, embedded boundaries, and all authority maps. Canonical valid
+packets, schema/status values, authority locks, hashes, and bytes are unchanged.

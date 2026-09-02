@@ -87,9 +87,35 @@ EXPECTED_HARVEST = {
     ],
 }
 
+EXPECTED_BASELINE = {
+    "status": "VALIDATED_BASELINE_AUDIT_ONLY",
+    "episode_count": 11,
+}
+
+EXPECTED_POLICY = {
+    "status": "NOT_COMPUTABLE_POLICY_PARAMETERS_UNRATIFIED",
+    "grid_status": "ANALYTICAL_GRID_UNRATIFIED",
+}
+
 
 class ProfitHarvestReadinessError(ValueError):
     pass
+
+
+def _exact_equal(actual, expected) -> bool:
+    """Compare nested JSON values without Python scalar aliases."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_equal(actual[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected)
+        )
+    return actual == expected
 
 
 def _load_json(path: Path) -> dict:
@@ -200,11 +226,16 @@ def build_readiness(
         shadow_contract,
         trigger_kind=trigger_kind,
     )
-    if validated_entry["decision"] != entry_boundary.EXPECTED_PROPOSAL_BOUNDARY:
+    if not _exact_equal(
+        validated_entry["decision"], entry_boundary.EXPECTED_PROPOSAL_BOUNDARY
+    ):
         raise ProfitHarvestReadinessError("P8_13_BOUNDARY_NOT_LOCKED")
-    if validated_entry["authority"] != entry_boundary.AUTHORITY_ALL_FALSE:
+    if not _exact_equal(
+        validated_entry["authority"], entry_boundary.AUTHORITY_ALL_FALSE
+    ):
         raise ProfitHarvestReadinessError("P8_13_AUTHORITY_ESCALATION")
-    if validated_entry["summary"]["entry_proposal_count"] != 0:
+    entry_proposal_count = validated_entry["summary"]["entry_proposal_count"]
+    if type(entry_proposal_count) is not int or entry_proposal_count != 0:
         raise ProfitHarvestReadinessError("P8_13_ENTRY_PROPOSAL_PRESENT")
 
     baseline = validate_baseline(audit_root)
@@ -235,6 +266,14 @@ def build_readiness(
 
 def build_operational_packet(readiness: dict, harvest_contract: dict) -> dict:
     locked_readiness = policy_boundary.validate_locked_readiness(readiness)
+    if not _exact_equal(locked_readiness.get("baseline"), EXPECTED_BASELINE):
+        raise ProfitHarvestReadinessError("UPSTREAM_READINESS_BASELINE_DRIFT")
+    if not _exact_equal(locked_readiness.get("policy"), EXPECTED_POLICY):
+        raise ProfitHarvestReadinessError("UPSTREAM_READINESS_POLICY_DRIFT")
+    if not _exact_equal(locked_readiness.get("harvest"), EXPECTED_HARVEST):
+        raise ProfitHarvestReadinessError("UPSTREAM_READINESS_HARVEST_DRIFT")
+    if not _exact_equal(locked_readiness.get("authority"), AUTHORITY_ALL_FALSE):
+        raise ProfitHarvestReadinessError("UPSTREAM_READINESS_AUTHORITY_ESCALATION")
     boundary = policy_boundary.build_policy_boundary(harvest_contract, locked_readiness)
     policy_boundary.validate_policy_boundary(boundary, harvest_contract, locked_readiness)
     packet = {
@@ -287,7 +326,7 @@ def validate_operational_packet(
         trigger_kind=trigger_kind,
     )
     expected = build_operational_packet(expected_readiness, harvest_contract)
-    if packet != expected:
+    if not _exact_equal(packet, expected):
         raise ProfitHarvestReadinessError(
             "PROFIT_HARVEST_OPERATIONAL_SEMANTIC_TAMPER_OR_DRIFT"
         )
