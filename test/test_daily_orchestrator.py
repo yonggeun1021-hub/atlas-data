@@ -254,6 +254,34 @@ class DailyOrchestratorTest(unittest.TestCase):
             legacy_snapshot["value"].get("source_sha256"),
         )
 
+    def test_free_market_row_binds_exact_pointer_file_bytes(self):
+        relative_path = "data/latest_free_market_data.json"
+        snapshot = MODULE._fetch_free_market_data_snapshot()
+        expected = hashlib.sha256((ROOT / relative_path).read_bytes()).hexdigest()
+        observed_at = snapshot["value"]["observed_at_utc"]
+        normalized = observed_at[:-1] + "+00:00" if observed_at.endswith("Z") else observed_at
+        decision_date = (
+            dt.datetime.fromisoformat(normalized).astimezone(MODULE.KST).date().isoformat()
+        )
+        row = MODULE._classify_free_market_data(snapshot, decision_date)
+        self.assertEqual(snapshot["content_sha256"], expected)
+        self.assertEqual(row["source_packet_path"], relative_path)
+        self.assertEqual(row["source_packet_sha256"], expected)
+        self.assertNotEqual(expected, snapshot["value"].get("packet_sha256"))
+
+    def test_korea_market_signals_row_binds_exact_dated_packet_bytes(self):
+        snapshot = MODULE._fetch_korea_market_signals_snapshot()
+        as_of_date = snapshot["value"]["as_of_date"]
+        relative_path = (
+            f"data/observations/korea_market_signals/{as_of_date}/packet.json"
+        )
+        expected = hashlib.sha256((ROOT / relative_path).read_bytes()).hexdigest()
+        row = MODULE._classify_korea_market_signals("9999-12-31", snapshot)
+        self.assertEqual(snapshot["content_sha256"], expected)
+        self.assertEqual(row["source_packet_path"], relative_path)
+        self.assertEqual(row["source_packet_sha256"], expected)
+        self.assertNotEqual(expected, snapshot["value"].get("payload_sha256"))
+
     def test_morning_build_against_real_evidence_has_no_degraded_components(self):
         packet = MODULE.build_packet("morning", DECISION_DATE, MORNING_GENERATED_AT)
         counts = packet["component_status_counts"]
