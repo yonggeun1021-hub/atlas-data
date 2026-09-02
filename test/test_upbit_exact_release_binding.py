@@ -355,16 +355,23 @@ class UnactivatedIsPendingTests(unittest.TestCase):
             self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of=EVAL_AS_OF, repo_root=tmp))
 
 
-class RealRepoStaysPendingTests(unittest.TestCase):
-    def test_real_committed_registry_has_no_code_approval_ref(self):
-        registry = json.loads((ROOT / "config" / "upbit_asset_identity_registry.json").read_text(encoding="utf-8"))
-        self.assertNotIn("code_approval_evidence_ref", registry)
-        self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of="2026-08-30"))
+class RealRepoCommittedApprovalTests(unittest.TestCase):
+    APPROVAL_REF = "evidence/crypto/upbit/identity/approvals/2026-09-03/p3-12-runtime-exact-code-hash.json"
+    APPROVAL_SHA256 = "4df71f82a43f013229d38ce87a1964be401ae5d8ed40501f05006bcf9f876b39"
 
-    def test_real_committed_taxonomy_has_no_code_approval_ref(self):
+    def test_real_committed_registry_is_exact_bound_without_retroactivity(self):
+        registry = json.loads((ROOT / "config" / "upbit_asset_identity_registry.json").read_text(encoding="utf-8"))
+        self.assertEqual(registry["code_approval_evidence_ref"], self.APPROVAL_REF)
+        self.assertEqual(registry["code_approval_evidence_sha256"], self.APPROVAL_SHA256)
+        self.assertFalse(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of="2026-08-30"))
+        self.assertTrue(ERB.validate_exact_release(registry, content_field="mappings", evaluation_as_of="2026-09-02"))
+
+    def test_real_committed_taxonomy_is_exact_bound_without_retroactivity(self):
         taxonomy = json.loads((ROOT / "config" / "upbit_exclusion_taxonomy.json").read_text(encoding="utf-8"))
-        self.assertNotIn("code_approval_evidence_ref", taxonomy)
+        self.assertEqual(taxonomy["code_approval_evidence_ref"], self.APPROVAL_REF)
+        self.assertEqual(taxonomy["code_approval_evidence_sha256"], self.APPROVAL_SHA256)
         self.assertFalse(ERB.validate_exact_release(taxonomy, content_field="records", evaluation_as_of="2026-08-30"))
+        self.assertTrue(ERB.validate_exact_release(taxonomy, content_field="records", evaluation_as_of="2026-09-02"))
 
     def test_real_committed_taxonomy_content_chain_resolves_without_source_pin(self):
         taxonomy = json.loads((ROOT / "config" / "upbit_exclusion_taxonomy.json").read_text(encoding="utf-8"))
