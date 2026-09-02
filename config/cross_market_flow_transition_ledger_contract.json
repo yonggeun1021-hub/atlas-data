@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
-  "contract_version": "cross_market_flow_transition_ledger/1",
+  "schema_version": 2,
+  "contract_version": "cross_market_flow_transition_ledger/2",
   "input_schema_version": "capital_flow_posture_reference/v1",
   "input_contract_version": "capital_flow_posture_reference_policy/v1",
-  "ledger_schema_version": "cross_market_flow_transition_ledger_packet/1",
+  "ledger_schema_version": "cross_market_flow_transition_ledger_packet/2",
   "observation_modes": [
     "NATURAL",
     "MANUAL",
@@ -24,9 +24,22 @@
     "INVALIDATION",
     "RECOVERY"
   ],
-  "same_observation_date_policy": "IDENTICAL_SOURCE_NOOP_OTHERWISE_REVISION_DRIFT_FAIL_CLOSED",
+  "observation_order_key": "source_generated_date_kst",
+  "observation_order_key_policy": "PRODUCER_GENERATED_AT_CONVERTED_TO_FIXED_PLUS_0900_DATE",
+  "market_comparison_date_policy": "COMPARISON_AS_OF_DATE_IS_STATE_FACT_ONLY_NEVER_AN_ORDER_KEY",
+  "same_source_generated_date_policy": "IDENTICAL_SOURCE_NOOP_OTHERWISE_REVISION_DRIFT_FAIL_CLOSED",
   "confirmation_policy": "UNRATIFIED_CONFIRMED_AT_NULL",
-  "stale_policy": "NON_FORWARD_OBSERVATION_DATE_FAIL_CLOSED_NO_WALL_CLOCK_THRESHOLD",
+  "stale_policy": "NON_FORWARD_SOURCE_GENERATED_DATE_KST_FAIL_CLOSED_NO_WALL_CLOCK_THRESHOLD",
+  "observation_count_scope": "CUMULATIVE_INCLUDING_PREDECESSOR",
+  "production_fresh_chain_allowed": false,
+  "predecessor": {
+    "contract_version": "cross_market_flow_transition_ledger/1",
+    "evidence_path": "evidence/portfolio/cross_market_flow_transition_ledger/2026-09-02/58f34d06c92d66d96d64a0deb0261462aaae06a4ac99da7c43d4d2cfc35161cf/packet.json",
+    "evidence_file_sha256": "5f6c0e26d8ac57dbc4b145924013f63887ceb513a2fcb5a3845bb47249eb2df5",
+    "payload_sha256": "58f34d06c92d66d96d64a0deb0261462aaae06a4ac99da7c43d4d2cfc35161cf",
+    "tail_entry_sha256": "0bee822d5974d91323ec273f1c506d9c4caccf68576d9b8d46b2f7b94aa1f294",
+    "height": 1
+  },
   "authority": {
     "read_only_audit_display_authorized": true,
     "persistence_observation_authorized": true,
