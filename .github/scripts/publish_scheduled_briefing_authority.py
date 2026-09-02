@@ -310,6 +310,49 @@ def _artifact_record(adapter: dict, source_commit: str, path: str, raw: bytes) -
     }
 
 
+def _validate_dynamic_clock_frozen_source(packet: dict, expected_date: str) -> None:
+    """Bind a present P8-12 source before publishing retrieval authority.
+
+    Historical packets without ``DYNAMIC_CLOCK`` remain readable.  A packet
+    that does carry the source must name one exact variant; report variants
+    additionally bind the canonical report bytes, SHA-256, and decision date.
+    """
+    frozen_sources = packet.get("frozen_sources")
+    if frozen_sources is None:
+        return
+    if type(frozen_sources) is not dict:  # noqa: E721 - exact JSON boundary
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "frozen_sources_type")
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        return
+    source = frozen_sources["DYNAMIC_CLOCK"]
+    if type(source) is not dict:  # noqa: E721
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "source_type")
+    kind = source.get("kind")
+    if type(kind) is not str:  # noqa: E721
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "kind_type")
+    if kind == "unavailable":
+        if set(source) != {"kind"}:
+            fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "unavailable_shape")
+        return
+    if kind == "error":
+        if set(source) != {"kind", "value"} or type(source.get("value")) is not str:
+            fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "error_shape")
+        return
+    if kind != "report" or set(source) != {"kind", "report_sha256", "report"}:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "report_shape")
+    report = source.get("report")
+    report_sha256 = source.get("report_sha256")
+    if type(report) is not dict or type(report_sha256) is not str:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "report_hash_type")
+    if re.fullmatch(r"[0-9a-f]{64}", report_sha256) is None:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "report_sha256")
+    observed_sha256 = hashlib.sha256(canonical_json(report).encode("utf-8")).hexdigest()
+    if observed_sha256 != report_sha256:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_SHA_MISMATCH")
+    if report.get("decision_date") != expected_date:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_DATE_MISMATCH")
+
+
 def _delivery_records(
     repo_root: Path,
     adapter: dict,
@@ -404,6 +447,7 @@ def _delivery_records(
         or packet.get("packet_sha256") != locator.get("packet_sha256")
     ):
         fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
+    _validate_dynamic_clock_frozen_source(packet, expected_kst_date)
     _validate_weekend_delivery_semantics(
         packet, raw_by_field["briefing_path"], source_date_binding
     )
