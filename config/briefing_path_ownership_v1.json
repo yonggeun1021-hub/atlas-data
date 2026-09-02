@@ -1,0 +1,33 @@
+{
+  "schema_version": "briefing_path_ownership/1",
+  "briefing_core_owner": {
+    "write_roots": [
+      "briefing_core/",
+      "data/briefing/chain_v2/",
+      "data/briefing/finalization/",
+      "evidence/briefing_events/",
+      "evidence/validated_briefing_portal/"
+    ]
+  },
+  "paper_runtime_owner": {
+    "publish_contracts": ["atlas_paper_signal/1", "atlas_paper_result/1"],
+    "write_roots": ["runtime/paper/signals/v1/", "runtime/paper/results/v1/"],
+    "forbidden_roots": [
+      "briefing/",
+      "briefing_core/",
+      "data/briefing/",
+      "evidence/",
+      "generated/",
+      "public/",
+      "notion/"
+    ],
+    "append_only": true,
+    "direct_portal_or_notion_write": false
+  },
+  "authority": {
+    "real_capital": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}

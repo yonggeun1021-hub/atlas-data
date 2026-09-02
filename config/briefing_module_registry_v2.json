@@ -1,0 +1,70 @@
+{
+  "schema_version": "briefing_module_registry/2",
+  "core_contract": "briefing_core/2",
+  "modules": [
+    {
+      "module_id": "market",
+      "adapter_contract": "briefing_market_adapter/1",
+      "enabled": true,
+      "required": false,
+      "component_ids": ["THREE_MARKET_REGIME_HEADER", "FREE_MARKET_DATA"],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "news",
+      "adapter_contract": "briefing_news_adapter/1",
+      "enabled": true,
+      "required": false,
+      "component_ids": ["OFFICIAL_RELEASE_SUMMARY", "DART_FILING_CONTENT", "SEC_FILING_CONTENT"],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "korea",
+      "adapter_contract": "briefing_korea_adapter/1",
+      "enabled": true,
+      "required": false,
+      "component_ids": ["KRX_POST_CLOSE", "KOREA_MARKET_SIGNALS", "KOREA_ROTATION"],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "us",
+      "adapter_contract": "briefing_us_adapter/1",
+      "enabled": true,
+      "required": false,
+      "component_ids": ["US_BREADTH_MEMBERSHIP"],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "crypto",
+      "adapter_contract": "briefing_crypto_adapter/1",
+      "enabled": true,
+      "required": false,
+      "component_ids": ["BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE", "CRYPTO_BREADTH", "CRYPTO_LEADERSHIP"],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "rotation",
+      "adapter_contract": "briefing_rotation_adapter/1",
+      "enabled": true,
+      "required": false,
+      "component_ids": ["ROTATION_DISCOVERY", "BUSINESS_ACCELERATION"],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "funding_oi",
+      "adapter_contract": "briefing_funding_oi_adapter/1",
+      "enabled": false,
+      "required": false,
+      "component_ids": [],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    },
+    {
+      "module_id": "paper_rotation",
+      "adapter_contract": "briefing_paper_signal_adapter/1",
+      "enabled": false,
+      "required": false,
+      "component_ids": [],
+      "failure_policy": "ITEM_UNKNOWN_CONTINUE"
+    }
+  ]
+}

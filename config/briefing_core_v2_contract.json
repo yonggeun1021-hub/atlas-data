@@ -1,0 +1,50 @@
+{
+  "schema_version": "briefing_core_contract/2",
+  "contract_version": "briefing_core/2",
+  "chain": [
+    "briefing_input_envelope/2",
+    "briefing_handoff/2",
+    "claim_ledger/1",
+    "briefing_validation_report/1",
+    "portal_projection/2",
+    "notion_briefing_receipt/2"
+  ],
+  "compatibility": {
+    "claude_handoff": "claude_briefing_handoff/1",
+    "portal": "portal_projection/2",
+    "legacy_finalization": "briefing_finalization/18"
+  },
+  "append_only_correction": {
+    "manifest": "briefing_correction_manifest/1",
+    "source_overwrite_allowed": false,
+    "portal_input": "corrected-briefing.md"
+  },
+  "identity": ["briefing_id", "briefing_date", "slot", "source_commit", "generation_id"],
+  "core_fail_closed": [
+    "DATE",
+    "ACCOUNT",
+    "ORDER_AUTHORITY",
+    "LINEAGE",
+    "DUPLICATE_CONFLICT"
+  ],
+  "optional_module_failure": "ITEM_UNKNOWN_CONTINUE",
+  "rollout": {
+    "mode": "SHADOW",
+    "promotion_requires": [
+      "NATURAL_AM_EQUIVALENT_E2E",
+      "NATURAL_PM_EQUIVALENT_E2E",
+      "EXACT_REPLAY_NO_CHANGE",
+      "DUPLICATE_COUNT_ZERO",
+      "PORTAL_AND_NOTION_RECEIPT_READBACK"
+    ]
+  },
+  "authority": {
+    "read_only": true,
+    "stage_authority": false,
+    "buy_authority": false,
+    "action_authority": false,
+    "order_authority": false,
+    "production_authority": false,
+    "trading_authority": false
+  }
+}
