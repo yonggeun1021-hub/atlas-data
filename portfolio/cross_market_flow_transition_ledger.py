@@ -443,6 +443,9 @@ def _current_state(packet: dict) -> dict:
     }
     if set(flow) != required:
         fail("SOURCE_CROSS_MARKET_FLOW_FIELDS_MISMATCH")
+    for key in ("comparable_market_count", "required_market_count"):
+        if type(flow[key]) is not int:
+            fail("SOURCE_MARKET_COUNT_TYPE_INVALID", key)
     if flow["comparison_as_of_date"] is not None:
         _date(flow["comparison_as_of_date"], "SOURCE_COMPARISON_DATE_INVALID")
     if flow["comparison_status"] not in {
