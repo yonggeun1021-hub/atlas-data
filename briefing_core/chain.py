@@ -160,6 +160,50 @@ def _packet_self_hash(packet: dict) -> str:
     return actual
 
 
+def _validate_dynamic_clock_frozen_source(packet: dict, expected_date: str) -> None:
+    """Validate a present P8-12 source inside an immutable daily packet.
+
+    Historical packets predate this frozen source and remain readable.  Once
+    ``DYNAMIC_CLOCK`` is present, however, the immutable input-envelope reader
+    must bind the exact variant and, for a report, its canonical bytes and
+    decision date.  Re-signing the outer packet is not enough to legitimize a
+    changed or malformed source identity.
+    """
+    frozen_sources = packet.get("frozen_sources")
+    if frozen_sources is None:
+        return
+    if type(frozen_sources) is not dict:  # noqa: E721 - exact JSON boundary
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:frozen_sources_type")
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        return
+    source = frozen_sources["DYNAMIC_CLOCK"]
+    if type(source) is not dict:  # noqa: E721 - exact JSON boundary
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:source_type")
+    kind = source.get("kind")
+    if type(kind) is not str:  # noqa: E721 - reject bool/string aliases
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:kind_type")
+    if kind == "unavailable":
+        if set(source) != {"kind"}:
+            raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:unavailable_shape")
+        return
+    if kind == "error":
+        if set(source) != {"kind", "value"} or type(source.get("value")) is not str:
+            raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:error_shape")
+        return
+    if kind != "report" or set(source) != {"kind", "report_sha256", "report"}:
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:report_shape")
+    report = source.get("report")
+    report_sha256 = source.get("report_sha256")
+    if type(report) is not dict or type(report_sha256) is not str:
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:report_hash_type")
+    if SHA256.fullmatch(report_sha256) is None:
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_INVALID:report_sha256")
+    if digest(report) != report_sha256:
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_SHA_MISMATCH")
+    if report.get("decision_date") != expected_date:
+        raise ChainError("CORE_DYNAMIC_CLOCK_SOURCE_DATE_MISMATCH")
+
+
 def _walk_generation_ids(value: Any) -> set[str]:
     found: set[str] = set()
     if isinstance(value, dict):
@@ -389,6 +433,7 @@ def build_input_envelope(
     if packet.get("decision_date") != decision_date or packet.get("slot") != slot:
         raise ChainError("CORE_DATE_SLOT_LINEAGE_MISMATCH")
     packet_sha = _packet_self_hash(packet)
+    _validate_dynamic_clock_frozen_source(packet, decision_date)
     generations = _walk_generation_ids(packet)
     if len(generations) != 1:
         raise ChainError("CORE_GENERATION_NOT_SINGLETON")
