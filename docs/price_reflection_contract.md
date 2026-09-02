@@ -6,6 +6,30 @@ market's price already reflects a specific, real expectation or event,
 based strictly on price, volume, relative-strength, and valuation-history
 evidence the caller supplies.
 
+## Reflection Evidence Authority Recommendation A (2026-09-02)
+
+Only the authority structure is ratified. The immutable policy content is
+`config/reflection_evidence_authority_content_v1.json`; the append-only record
+that binds its exact SHA-256 and the exact SHA-256 of the structured approval
+evidence is `config/reflection_evidence_authority_registry.json`. The validator
+is `decision/reflection_evidence_authority.py`.
+
+The authority record contains `rule_id`, `rule_version`, `ratified_at`,
+`effective_from`, `content_sha256`, `authority_evidence_ref`, and
+`authority_evidence_sha256`. `ratified_at` is the explicit approval instant,
+`2026-09-02T14:32:11Z`. `effective_from` is deliberately `null`: the future
+canonical-main adoption instant is not locally knowable, may not be fabricated,
+and may not be backfilled. Missing, stale, future, malformed, hash-mismatched,
+identity-mismatched, or tampered authority inputs fail closed.
+
+This structural approval does not authorize classification. Reflection
+thresholds, minimum natural sample count, confidence thresholds, and
+accountable owner remain `UNKNOWN_PENDING_RATIFICATION`; natural revalidation
+remains pending. Consequently `reflection_status=UNKNOWN`, aggregate
+`threshold_basis=PROVISIONAL`, Candidate NONE, and all P5-06/P7-08/P8-13,
+Stage, Buy, Action, Order, Broker, real-capital, live-operation, Production, and
+Trading authority remain closed. P8-12 Recommendations A/B/C are not approved.
+
 ## ★★★ SCOPE REDUCTION — CIO final integration ruling on PR #212 (2026-08-23)
 
 **Read this section first.** Everything below it (rounds 2-9) is kept as an
@@ -49,21 +73,20 @@ than the hardcoded literal `"UNKNOWN"`. `price_state` (the pure,
 price/volume-only momentum read) is completely unaffected and remains
 fully real.
 
-**Deferred, not abandoned:** a future, separate, dependent PR must design a
-Reflection Evidence Authority together with Atlas P5 Rule Authority —
-append-only per-rule canonical records, `ratified_at`/`effective_from`,
-exact-content provenance, explicit decision-time ordering checks, and a
-structured authority-evidence schema — and get that design approved BEFORE
-any implementation is written, not merely before merge. Tracked on the
-existing P8-10 WBS row.
+**Historical disposition updated:** Recommendation A now implements only the
+previously deferred structural boundary: append-only per-rule identity,
+`ratified_at`/`effective_from`, exact-content provenance, decision-time
+ordering, and structured authority evidence. The event-evidence classifier and
+all numeric policy remain absent/pending, so the scope-reduction safety outcome
+is unchanged.
 
 ## Structurally price/volume/reference-point only — never fundamentals
 
 The public builder, `build_packet(...)`, is a keyword-only function whose
 entire parameter list is: `subject`, `decision_date`, `generated_at`,
 `price_as_of`, `freshness_ceiling_days`, `relative_strength`,
-`recent_return_windows`, `event_reaction`, `reflection_reference`,
-`valuation_context`, `data_source_scope`, `contract`. There is **no**
+`recent_return_windows`, `valuation_context`, `data_source_scope`, `contract`.
+There is **no**
 "thesis quality" or "fundamental strength" parameter anywhere in that list,
 and there never can be by accident: `test_price_reflection.py` inspects the
 live function signature and fails the build if any parameter name contains
@@ -107,9 +130,9 @@ structurally unreachable through this module's own builder). This is the
 round-2 fix taken to its current logical conclusion: BTC rallying hard is
 real `price_state=OVEREXTENDED` evidence, but momentum alone was never a
 reflection verdict, and this reduced scope no longer has ANY machinery that
-could turn a momentum read into one — only a future, separately-designed
-Reflection Evidence Authority (see scope-reduction section) can reintroduce
-that capability.
+could turn a momentum read into one. The newly ratified authority structure
+does not reintroduce that capability; separate numeric ratification, a known
+non-retroactive effective date, and natural revalidation are still required.
 
 Korea (`298040`/`267260`/`005930`/`000660`) and all 4 real Pilot subjects
 (`TSM`/`298040.KS`/`267260.KS`/`034020.KS`) report real, honest

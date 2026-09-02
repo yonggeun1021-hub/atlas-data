@@ -15,8 +15,9 @@ caller-supplied windows/relative-strength/valuation-context.
 FULLY_REFLECTED | UNKNOWN. Structurally, unconditionally `"UNKNOWN"` in
 every packet this module can produce or validate.
 
-★ SCOPE: Reflection Evidence Authority deferred (CIO PR #212, 2026-08-23).
-  This module, and a companion `decision/event_evidence.py` (an Event
+★ SCOPE: Reflection Evidence Authority structure ratified (Recommendation A,
+  2026-09-02); classification remains disabled. This module, and a companion
+  `decision/event_evidence.py` (an Event
   Evidence Authority engine with provenance verification, direction-rule
   implementation tables, and a ratification-authority registry), went
   through 9 rounds of CIO review closing successive provenance/ratification
@@ -40,13 +41,15 @@ every packet this module can produce or validate.
   output packet SHAPE (no contract bump) as inert, all-`"UNKNOWN"`
   constants, purely for downstream schema compatibility.
 
-  **Deferred, not abandoned:** a future, separate, dependent PR must design
-  a Reflection Evidence Authority together with Atlas P5 Rule Authority --
-  append-only per-rule canonical records, `ratified_at`/`effective_from`,
-  exact-content provenance, explicit decision-time ordering checks, and a
-  structured authority-evidence schema -- with that design approved BEFORE
-  any implementation code is written, not merely before merge. Tracked on
-  the existing P8-10 WBS row.
+  Recommendation A now supplies the separately hashed, append-only authority
+  record structure, `ratified_at`/`effective_from` PIT checks, exact-content
+  provenance, and structured approval evidence in
+  `decision/reflection_evidence_authority.py`. It deliberately does NOT
+  restore `event_evidence.py` or classify reflection: canonical-main adoption
+  time is still unresolved, and reflection thresholds, minimum natural sample
+  count, confidence thresholds, and accountable owner remain pending separate
+  ratification. Therefore `reflection_status` stays unconditionally UNKNOWN
+  and aggregate `threshold_basis` stays PROVISIONAL.
 
 Staleness is still the loudest rule: if `price_as_of` is missing or older
 than the freshness ceiling relative to `decision_date`, BOTH `price_state`
@@ -96,6 +99,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "price_reflection_contract.json"
+REFLECTION_AUTHORITY_PATH = ROOT / "decision" / "reflection_evidence_authority.py"
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -107,6 +111,18 @@ def _load_module(name: str, path: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+_REFLECTION_AUTHORITY = None
+
+
+def _reflection_authority():
+    global _REFLECTION_AUTHORITY
+    if _REFLECTION_AUTHORITY is None:
+        _REFLECTION_AUTHORITY = _load_module(
+            "p8_10_reflection_evidence_authority", REFLECTION_AUTHORITY_PATH
+        )
+    return _REFLECTION_AUTHORITY
 
 
 # ★ SCOPE REDUCTION (see module docstring): this module no longer loads
@@ -374,6 +390,7 @@ def _classify(
     *,
     price_as_of: str | None,
     decision_date: dt.date,
+    decision_at: dt.datetime,
     freshness_ceiling_days: int,
     windows: dict,
     strength: dict,
@@ -420,9 +437,20 @@ def _classify(
     # trivially true, not merely enforced case-by-case); still re-asserted
     # unconditionally in validate_packet() below too.
     reflection_status = REFLECTION_STATUS_ALWAYS
+    authority_assessment = _reflection_authority().assess_authority(
+        decision_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+    if (
+        authority_assessment.get("classifier_enabled") is not False
+        or authority_assessment.get("reflection_status") != "UNKNOWN"
+        or authority_assessment.get("aggregate_threshold_basis") != "PROVISIONAL"
+    ):
+        raise PriceReflectionError("REFLECTION_EVIDENCE_AUTHORITY_BOUNDARY_VIOLATION")
+
     reasons = [f"price_state={price_state}"] + price_reasons + [
         f"reflection_status={reflection_status}",
-        "NO_REFLECTION_EVIDENCE_AUTHORITY_EXISTS_IN_THIS_REDUCED_SCOPE",
+        f"reflection_evidence_authority_state={authority_assessment['authority_state']}",
+        *authority_assessment["reason_codes"],
     ]
 
     data_state = "REFLECTION_UNCERTAIN_WITH_VALID_PRICE"
@@ -487,7 +515,7 @@ def build_packet(
     contract = _validate_contract(contract) if contract is not None else load_contract()
     subject_checked = _token(subject, "SUBJECT_INVALID")
     decision_date_checked = _date(decision_date, "DECISION_DATE_INVALID")
-    _utc(generated_at, "GENERATED_AT_INVALID")
+    generated_at_checked = _utc(generated_at, "GENERATED_AT_INVALID")
 
     scope = data_source_scope if data_source_scope is not None else "UNKNOWN"
     if scope not in contract["allowed_data_source_scope"]:
@@ -510,6 +538,7 @@ def build_packet(
     price_state, reflection_status, confidence, data_state, reasons = _classify(
         price_as_of=price_as_of,
         decision_date=decision_date_checked,
+        decision_at=generated_at_checked,
         freshness_ceiling_days=ceiling,
         windows=windows,
         strength=strength,
@@ -617,10 +646,10 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     #   `confidence="LOW"` + `data_state="VALID"`, recompute the hash --
     #   this function accepted it. `UNDER_REFLECTED`/`PARTIALLY_REFLECTED`/
     #   `FULLY_REFLECTED` remain legal `allowed_reflection_status` vocabulary
-    #   members (no contract bump, reserved for the deferred future
-    #   Reflection Evidence Authority workstream), but no packet -- however
+    #   members (no contract bump, reserved for a future separately ratified
+    #   classifier), but no packet -- however
     #   constructed, loaded, or re-signed -- may claim one of them THROUGH
-    #   THIS VALIDATOR while that authority does not exist. This is the
+    #   THIS VALIDATOR while classification authority is inactive. This is the
     #   single, unconditional structural lock: it is what actually makes
     #   "UNKNOWN" the only reachable outcome, not `build_packet()`'s own
     #   restraint alone.
