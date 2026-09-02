@@ -260,6 +260,79 @@ def _latest(directory: Path, prefix: str) -> Path | None:
 
 # ------------------------------------------------------- H-24 locator binding
 
+def _validate_dynamic_clock_frozen_source(packet_bytes: bytes, expected_date: str) -> None:
+    """Bind a present P8-12 snapshot to its exact report identity.
+
+    Historical delivery packets that predate ``DYNAMIC_CLOCK`` remain
+    readable.  Once present, the snapshot must survive the finalization
+    boundary with the same variant, report bytes, hash, and decision date.
+    """
+    try:
+        packet = json.loads(packet_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FinalizationError(
+            "FINALIZATION_PACKET_JSON_INVALID", type(exc).__name__
+        ) from None
+    if type(packet) is not dict:  # noqa: E721 - exact JSON object boundary
+        raise FinalizationError("FINALIZATION_PACKET_JSON_INVALID", "packet_type")
+    frozen_sources = packet.get("frozen_sources")
+    if frozen_sources is None:
+        return
+    if type(frozen_sources) is not dict:  # noqa: E721
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "frozen_sources_type"
+        )
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        return
+    source = frozen_sources["DYNAMIC_CLOCK"]
+    if type(source) is not dict:  # noqa: E721
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "source_type"
+        )
+    kind = source.get("kind")
+    if type(kind) is not str:  # noqa: E721
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "kind_type"
+        )
+    if kind == "unavailable":
+        if set(source) != {"kind"}:
+            raise FinalizationError(
+                "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "unavailable_shape"
+            )
+        return
+    if kind == "error":
+        if set(source) != {"kind", "value"} or type(source.get("value")) is not str:
+            raise FinalizationError(
+                "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "error_shape"
+            )
+        return
+    if kind != "report" or set(source) != {"kind", "report_sha256", "report"}:
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "report_shape"
+        )
+    report = source.get("report")
+    report_sha256 = source.get("report_sha256")
+    if type(report) is not dict or type(report_sha256) is not str:
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "report_hash_type"
+        )
+    if SHA256.fullmatch(report_sha256) is None:
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID", "report_sha256"
+        )
+    if _sha256(_canonical(report)) != report_sha256:
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_SHA_MISMATCH", "report"
+        )
+    if (
+        packet.get("decision_date") != expected_date
+        or report.get("decision_date") != expected_date
+    ):
+        raise FinalizationError(
+            "FINALIZATION_DYNAMIC_CLOCK_SOURCE_DATE_MISMATCH", expected_date
+        )
+
+
 def bind_locator(repo_root: Path, kst_date: str, slot: str) -> dict:
     """Read the H-24 locator and verify it against the bytes on disk."""
     locator = _read_json(repo_root / LOCATOR_PATH, "FINALIZATION_LOCATOR_UNREADABLE")
@@ -279,6 +352,7 @@ def bind_locator(repo_root: Path, kst_date: str, slot: str) -> dict:
     ):
         if expected != actual:
             raise FinalizationError(code, f"{label}: locator says {expected}, bytes hash to {actual}")
+    _validate_dynamic_clock_frozen_source(packet_bytes, kst_date)
     return {"locator": locator, "briefing_bytes": briefing_bytes,
             "briefing_sha256": locator["briefing_sha256"],
             "packet_sha256": locator.get("packet_sha256"), "revision": locator.get("revision")}
