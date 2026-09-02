@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "contract_version": "tsm_sec_monthly_rule_evidence/1",
+  "source_packet_schema": "official_release_observation_packet/1",
+  "source_contract": "P4-02_RETAINED_SEC_6K_EXACT_BYTES",
+  "source_packet_selection": "LATEST_UNIQUE_CONTENT_ADDRESSED_PACKET",
+  "subject": "TSM",
+  "source_id": "P4-02_RETAINED_SEC_6K_EXACT_BYTES",
+  "binding_set_id": "P4-02_TSM_SEC_MONTHLY_REVENUE_TO_RULE-0007_RULE-0008_V1",
+  "selection_mode": "ALL_REQUIRED",
+  "period_selection": "LATEST_UNIQUE_ECONOMIC_PERIOD",
+  "registered_rules": {
+    "RULE-0007": "e69be9bebbc9ed7e1487cf479aca3ba0ff6397d293f443d414fba2b56de8fe3e",
+    "RULE-0008": "a1607620f9ced118e0d98f6a21b3ee5ae6b736d15b643bfe0939ca1590e0b31e"
+  },
+  "registered_measurements": [
+    {
+      "measurement_identity": "TSMC consolidated net revenue monthly YoY",
+      "published_value_field": "monthly_yoy_pct_published",
+      "column_identity": "monthly_yoy",
+      "unit": "pct"
+    },
+    {
+      "measurement_identity": "TSMC consolidated net revenue cumulative YoY",
+      "published_value_field": "cumulative_yoy_pct_published",
+      "column_identity": "cumulative_yoy",
+      "unit": "pct"
+    }
+  ],
+  "identity_retention": {
+    "full_submission": "URL_SHA_LINEAGE_ONLY_BODY_NOT_PRESERVED",
+    "filing_index": "URL_SHA_LINEAGE_ONLY_BODY_NOT_PRESERVED",
+    "primary_document_raw_cache": "REUSE_P4_02_STAGE_POLICY_UNCHANGED"
+  },
+  "authority": {
+    "linkage_only": true,
+    "source_ranking_authorized": false,
+    "interpretation_authorized": false,
+    "rule_evaluation_authorized": false,
+    "stage_change_authorized": false,
+    "buy_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "real_authorized": false,
+    "live_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -969,6 +969,11 @@ APPROVED_TESTS = [
     #   ⛔ live network 없음 — TSMC/MSFT committed fixture 기반 fail-closed 회귀.
     "test/test_official_release_evidence.py",
     "test/test_official_release_observation.py",
+    # P4-02 -> P5-03 exact link-only binding. Revalidates retained TSM SEC
+    # monthly-revenue bytes and freezes URL/SHA/quote/offset lineage for only
+    # RULE-0007/0008 with ALL_REQUIRED and rule_result=null. Full-submission
+    # and index bodies remain non-preserved identities; raw retention is reused.
+    "test/test_tsm_sec_monthly_rule_evidence.py",
     # P4-04 retained Sandisk Exhibit 99.1: preserve the complete ordered News
     # Summary block as observation only; all investment authority remains off.
     "test/test_official_release_summary_observation.py",
