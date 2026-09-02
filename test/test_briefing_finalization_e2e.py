@@ -856,6 +856,29 @@ class DebtNeverExpires(Base):
         self.assertEqual(out["exit_code"], bf.EXIT_DRAIN_INCOMPLETE)
         self.assertIn("2026-07-01-pm", [d["briefing_id"] for d in out["pending_delivery_debt"]])
 
+    def test_exact_slot_drain_ignores_unrelated_old_debt(self):
+        self._old_undelivered()
+        self._seal(); self._validate()
+        out = bf.drain(
+            self.repo, ["github_step_summary"], durability_probe=lambda *_: True,
+            target_date=DATE, target_slot=SLOT,
+        )
+        self.assertTrue(out["complete"])
+        self.assertEqual(out["exit_code"], bf.EXIT_OK)
+        self.assertEqual(out["scope"]["briefing_id"], f"{DATE}-pm")
+        self.assertEqual([item["briefing_id"] for item in out["drained"]], [f"{DATE}-pm"])
+        self.assertEqual(out["pending_delivery_debt"], [])
+        self.assertEqual(out["missing_production"], [])
+
+    def test_cli_exact_slot_drain_returns_green_after_delivery(self):
+        self._seal(); self._validate()
+        rc = bf.main([
+            "drain", "--repo-root", str(self.repo), "--slot", SLOT,
+            "--decision-date", DATE, "--channel", "github_step_summary",
+            "--allow-nondurable-intent",
+        ])
+        self.assertEqual(rc, bf.EXIT_OK)
+
     def test_delivered_old_slot_leaves_the_backlog(self):
         self._old_undelivered()
         receipt = self.repo / bf.FINALIZATION_ROOT / "2026-07-01/evening/delivery_receipt.json"

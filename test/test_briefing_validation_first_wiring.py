@@ -31,6 +31,11 @@ class ValidationFirstWiring(unittest.TestCase):
             "steps.resolve.outputs.mode == 'drain'",
         )
 
+    def test_manual_drain_is_scoped_to_the_resolved_slot(self):
+        run = self._step("Ingest verdicts and deliver")["run"]
+        self.assertIn('--slot "${{ steps.resolve.outputs.slot }}"', run)
+        self.assertIn('--decision-date "${{ steps.resolve.outputs.decision_date }}"', run)
+
     def test_semantic_validation_is_expected_and_timeout_holds(self):
         policy = json.loads(
             (ROOT / "config/atlas_semantic_validator.json").read_text(encoding="utf-8"))
