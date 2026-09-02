@@ -710,10 +710,18 @@ class CapitalRotationAcceptanceTests(unittest.TestCase):
         self.assertEqual(value["observed"]["portal_receipt_count"], 0)
         pair_dates = value["observed"]["natural_pair_dates"]
         self.assertEqual(pair_dates, sorted(set(pair_dates)))
-        self.assertLess(
-            len(pair_dates),
-            value["exit_gate"]["required_distinct_natural_pair_dates"],
-        )
+        required = value["exit_gate"]
+        observed = value["observed"]
+        unmet = {
+            "natural_pairs": len(pair_dates)
+            < required["required_distinct_natural_pair_dates"],
+            "projected_pairs": len(observed["viewer_visible_projected_pair_dates"])
+            < required["required_viewer_visible_projected_pair_dates"],
+            "fail_closed": observed["genuine_scheduled_fail_closed_sample_count"]
+            < required["required_genuine_scheduled_fail_closed_samples"],
+        }
+        self.assertTrue(any(unmet.values()))
+        self.assertTrue(value["blockers"])
 
 
 if __name__ == "__main__":

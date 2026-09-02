@@ -431,6 +431,14 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
         publish = workflow.index("- name: Publish sealed draft")
         self.assertLess(seal, core)
         self.assertLess(core, publish)
+        core_step = workflow[core:publish]
+        self.assertIn('CAPTURE_PATH="${CAPTURE_PATH#"$GITHUB_WORKSPACE"/}"', core_step)
+        self.assertIn('--packet-path "$CAPTURE_PATH/packet.json"', core_step)
+        self.assertIn('--briefing-path "$CAPTURE_PATH/briefing.md"', core_step)
+        self.assertNotIn(
+            '--packet-path "${{ steps.briefing.outputs.capture_path }}/packet.json"',
+            core_step,
+        )
         self.assertIn("--source-commit \"${{ steps.briefing.outputs.source_commit }}\"", workflow)
         self.assertIn("git add data/briefing/chain_v2", workflow)
         actions = (ROOT / ".github/workflows/actions-pass.yml").read_text(encoding="utf-8")
