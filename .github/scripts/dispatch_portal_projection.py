@@ -351,8 +351,23 @@ class GitHubDataClient:
         response = self._get(
             f"/repos/{self.repository}/contents/{safe_path}?ref={ref}"
         )
-        if response.get("type") != "file" or response.get("encoding") != "base64":
+        if response.get("type") != "file":
             raise DispatchError(f"CONTENT_NOT_FILE:{path}")
+        # The Contents API omits inline base64 for files larger than 1 MiB.
+        # Resolve those bytes through the immutable Git blob named by the
+        # Contents response; never follow a mutable download URL.
+        if response.get("encoding") == "none" and not response.get("content"):
+            blob_sha = response.get("sha")
+            if not isinstance(blob_sha, str) or FULL_SHA.fullmatch(blob_sha) is None:
+                raise DispatchError(f"CONTENT_BLOB_SHA_INVALID:{path}")
+            blob = self._get(
+                f"/repos/{self.repository}/git/blobs/{blob_sha}"
+            )
+            if blob.get("sha") != blob_sha or blob.get("encoding") != "base64":
+                raise DispatchError(f"CONTENT_BLOB_INVALID:{path}")
+            response = {**blob, "size": response.get("size")}
+        elif response.get("encoding") != "base64":
+            raise DispatchError(f"CONTENT_ENCODING_INVALID:{path}")
         try:
             encoded = "".join(str(response.get("content", "")).split())
             body = base64.b64decode(encoded, validate=True)
