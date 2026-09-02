@@ -963,9 +963,16 @@ def _classify_korea_market_signals(decision_date: str, snapshot: dict) -> dict:
         available_at=validated["available_at"],
         source_packet_path=(
             "data/observations/korea_market_signals/"
-            f"{validated['as_of_date']}"
+            f"{validated['as_of_date']}/packet.json"
         ),
-        source_packet_sha256=validated["payload_sha256"],
+        # briefing_core/2 rehashes the exact Git bytes at source_packet_path.
+        # payload_sha256 is the packet's self-hash (the canonical object with
+        # that field removed), so it must not be relabelled as a file hash.
+        # The rolling pointer and dated packet are byte-identical at capture
+        # time; preserve that exact byte digest in the frozen snapshot.
+        source_packet_sha256=(
+            snapshot.get("content_sha256") or validated["payload_sha256"]
+        ),
         validated=True,
         authority=validated["authority"],
         contract_version=validated["contract_version"],
@@ -1160,8 +1167,13 @@ def _fetch_free_market_data_snapshot() -> dict:
     if not path.exists():
         return {"kind": "missing"}
     try:
-        return {"kind": "ready", "value": json.loads(path.read_text(encoding="utf-8"))}
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = path.read_bytes()
+        return {
+            "kind": "ready",
+            "value": json.loads(raw.decode("utf-8")),
+            "content_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return {"kind": "error", "value": f"{type(exc).__name__}:{exc}"}
 
 
@@ -1359,7 +1371,12 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
         generated_at=payload.get("observed_at_utc"),
         available_at=payload.get("observed_at_utc"),
         source_packet_path="data/latest_free_market_data.json",
-        source_packet_sha256=payload.get("packet_sha256"),
+        # packet_sha256 is the document's self-hash, not the SHA-256 of the
+        # file bytes named above. Bind the exact frozen pointer bytes so the
+        # immutable briefing core can independently rehash the same object.
+        source_packet_sha256=(
+            snapshot.get("content_sha256") or payload.get("packet_sha256")
+        ),
         validated=True,
         authority=authority,
         contract_version=payload.get("contract_version"),
