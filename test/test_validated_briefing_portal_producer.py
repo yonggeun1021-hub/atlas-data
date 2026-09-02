@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -72,6 +73,52 @@ class FakeGitHubData:
             return self.bodies[(commit, path)]
         except KeyError:
             raise dispatcher.DispatchError(f"CONTENT_NOT_FILE:{path}") from None
+
+
+class GitHubDataLargeFileTests(unittest.TestCase):
+    def _client(self):
+        client = dispatcher.GitHubDataClient.__new__(dispatcher.GitHubDataClient)
+        client.repository = "owner/repo"
+        return client
+
+    def test_large_contents_response_uses_exact_git_blob(self):
+        body = b"large-source-ref\n"
+        blob_sha = "a" * 40
+        client = self._client()
+        client._get = mock.Mock(side_effect=[
+            {
+                "type": "file", "encoding": "none", "content": "",
+                "sha": blob_sha, "size": len(body),
+            },
+            {
+                "sha": blob_sha, "encoding": "base64",
+                "content": base64.b64encode(body).decode("ascii"),
+                "size": len(body),
+            },
+        ])
+
+        self.assertEqual(client.get_bytes("b" * 40, "evidence/large.json"), body)
+        self.assertEqual(
+            client._get.call_args_list[1].args[0],
+            f"/repos/owner/repo/git/blobs/{blob_sha}",
+        )
+
+    def test_large_contents_response_rejects_blob_identity_mismatch(self):
+        body = b"large-source-ref\n"
+        client = self._client()
+        client._get = mock.Mock(side_effect=[
+            {
+                "type": "file", "encoding": "none", "content": "",
+                "sha": "a" * 40, "size": len(body),
+            },
+            {
+                "sha": "c" * 40, "encoding": "base64",
+                "content": base64.b64encode(body).decode("ascii"),
+            },
+        ])
+
+        with self.assertRaisesRegex(dispatcher.DispatchError, "CONTENT_BLOB_INVALID"):
+            client.get_bytes("b" * 40, "evidence/large.json")
 
 
 class ValidatedBriefingPortalProducerTests(unittest.TestCase):
