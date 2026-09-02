@@ -223,6 +223,14 @@ class ActionOrderIdempotencyTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ActionOrderIdempotencyError, "LEDGER_IDENTITY_INVALID"):
             MODULE.build_result(authority, batch([]), CONTRACT)
 
+        wrong_type = ledger()
+        wrong_type["authority"]["order_execution_authorized"] = 0
+        wrong_type["packet_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in wrong_type.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(MODULE.ActionOrderIdempotencyError, "LEDGER_IDENTITY_INVALID"):
+            MODULE.build_result(wrong_type, batch([]), CONTRACT)
+
     def test_batch_future_time_digest_and_authority_drift_fail_closed(self):
         future = batch([attempt(attempted_at="2026-08-21T01:10:01Z")])
         with self.assertRaisesRegex(MODULE.ActionOrderIdempotencyError, "ATTEMPT_FROM_FUTURE"):

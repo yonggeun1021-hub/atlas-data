@@ -35,3 +35,29 @@ into a valid result.
 The embedded source packets prove internal derivation and preserve their own hashes;
 they do not independently prove who externally authorized or supplied a particular
 ledger or attempt batch. Production authority and broker submission remain false.
+
+## Evidence-only restart recovery journal
+
+`decision/action_order_recovery_journal.py` is the bounded persistence consumer for
+this guard. It may write only to an external root and keeps the guard's candidate
+ledger in a simulation/shadow/evidence journal. It does not turn that candidate into
+a Production ledger or add Action, Order, cancel, broker, withdrawal, REAL, live,
+Production, or Trading authority.
+
+The journal writes content-addressed result and ledger blobs durably before replacing
+one hash-bound `head.json`. A crash before the head replacement leaves unreachable
+blobs and recovery resumes from the last complete head. Recovery revalidates the
+contract, exact JSON field sets and scalar types, head and commit digests, commit
+chain, each embedded P9-04 source packet, every guard-result derivation, and the
+selected ledger blob. A self-rehashed semantic rewrite therefore remains invalid.
+
+An attempt-batch digest can occur in the commit chain only once. Reapplying that exact
+batch returns its existing receipt and performs no JSON write. A different batch is
+evaluated against the recovered current ledger, so later retries of an already-seen
+intent remain `DUPLICATE_RETRY_BLOCKED`. The writer uses an exclusive process lock,
+immutable blob publication, file `fsync`, atomic head replacement, and directory
+`fsync`; no repository path, network module, subprocess, credential, or broker path
+is permitted.
+
+All journal tests are synthetic mechanism evidence only. They are not a natural
+idempotency event, an operational Exit Gate sample, or evidence of an order.

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "contract_version": "action_order_recovery_journal/1",
+  "source_guard_contract_version": "action_order_idempotency_guard/1",
+  "source_result_schema_version": "action_order_idempotency_result/2",
+  "head_schema_version": "action_order_recovery_journal_head/1",
+  "commit_schema_version": "action_order_recovery_journal_commit/1",
+  "storage_mode": "EXTERNAL_CONTENT_ADDRESSED_EVIDENCE_ONLY",
+  "exact_retry_policy": "RETURN_EXISTING_RECEIPT_NO_WRITE",
+  "crash_commit_policy": "IMMUTABLE_BLOBS_THEN_ATOMIC_HEAD",
+  "repository_internal_storage_authorized": false,
+  "authority": {
+    "simulation_shadow_evidence_only": true,
+    "action_creation_authorized": false,
+    "order_creation_authorized": false,
+    "order_execution_authorized": false,
+    "order_cancellation_authorized": false,
+    "broker_submission_authorized": false,
+    "withdrawal_authorized": false,
+    "real_capital_authorized": false,
+    "live_account_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

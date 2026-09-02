@@ -35,6 +35,22 @@ def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _exact_value_equal(actual, expected) -> bool:
+    """Compare JSON-like values without Python's bool/int equivalence."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_value_equal(actual[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_value_equal(left, right)
+            for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _read_json(path: Path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -86,7 +102,7 @@ def _validate_contract(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) != set(expected):
         raise ActionOrderIdempotencyError("CONTRACT_FIELDS_MISMATCH")
     for key, expected_value in expected.items():
-        if value.get(key) != expected_value:
+        if not _exact_value_equal(value.get(key), expected_value):
             raise ActionOrderIdempotencyError(f"CONTRACT_FIELD_MISMATCH:{key}")
     return copy.deepcopy(value)
 
@@ -192,7 +208,9 @@ def _validate_ledger(value: dict, contract: dict) -> dict:
     if (
         value.get("schema_version") != contract["ledger_schema_version"]
         or value.get("contract_version") != contract["contract_version"]
-        or value.get("authority") != contract["ledger_authority"]
+        or not _exact_value_equal(
+            value.get("authority"), contract["ledger_authority"]
+        )
     ):
         raise ActionOrderIdempotencyError("LEDGER_IDENTITY_INVALID")
     ledger_id = _text(value.get("ledger_id"), "LEDGER_ID_INVALID")
@@ -264,7 +282,9 @@ def _validate_batch(value: dict, contract: dict) -> dict:
     if (
         value.get("schema_version") != contract["attempt_batch_schema_version"]
         or value.get("contract_version") != contract["contract_version"]
-        or value.get("authority") != contract["input_authority"]
+        or not _exact_value_equal(
+            value.get("authority"), contract["input_authority"]
+        )
     ):
         raise ActionOrderIdempotencyError("BATCH_IDENTITY_INVALID")
     batch_id = _text(value.get("batch_id"), "BATCH_ID_INVALID")
@@ -425,7 +445,7 @@ def validate_result(packet: dict, contract: dict | None = None) -> dict:
         or packet.get("contract_version") != contract["contract_version"]
         or packet.get("status")
         != "DUPLICATE_GUARD_EVALUATED_EXECUTION_NOT_AUTHORIZED"
-        or packet.get("authority") != contract["authority"]
+        or not _exact_value_equal(packet.get("authority"), contract["authority"])
     ):
         raise ActionOrderIdempotencyError("OUTPUT_IDENTITY_INVALID")
     sources = packet.get("source_packets")
