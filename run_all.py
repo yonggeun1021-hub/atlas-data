@@ -1691,6 +1691,9 @@ APPROVED_TESTS = [
     # harvest review, quantity, reallocation, proposal and order at zero/null
     # while all policy and money authority remains unratified.
     "test/test_profit_harvest_operational_readiness.py",
+    # P7-11 transition readiness: exact-type and transition-state validation
+    # remains fail-closed with zero harvest/action/order authority.
+    "test/test_profit_harvest_transition_readiness.py",
     # P7-10 Capital Reallocation readiness: independently revalidates the
     # exact P7-11 packet and exposes six missing authority/input axes. It has
     # no amount, proceeds, ranking, proposal, action, order or capital path.
