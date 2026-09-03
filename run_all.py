@@ -86,6 +86,14 @@ APPROVED_TESTS = [
     # UNKNOWN stays escalated, post-delivery needs a signed ruling and remains
     # non-redeliverable, and cross-repo dispatch separates source/envelope SHAs.
     "test/test_validated_briefing_portal_producer.py",
+    # AM/PM briefing handoff watchdog: read-only CHECK -> CLASSIFY -> ALERT
+    # over the existing natural/semantic/source-bridge/envelope/portal-receipt/
+    # drain evidence, same run_check(slot, date) for both slots. Authors no
+    # source bridge, invokes no recovery, dispatches nothing, writes no
+    # Notion, and mutates no NATURAL evidence. Includes a real replay of the
+    # 2026-09-02 morning and 2026-09-03 evening incidents through their exact
+    # historical commits.
+    "test/test_briefing_handoff_watchdog.py",
     # Finalization rev18 accepted safety contract: one delivery, signed ruling,
     # UNKNOWN escalation, post-delivery redelivery prohibition, and latest
     # receipt revision per change. Portal projection is a fail-closed gate
