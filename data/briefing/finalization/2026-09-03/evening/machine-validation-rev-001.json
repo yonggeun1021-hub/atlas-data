@@ -1,0 +1,39 @@
+{
+  "authority_stream": "machine",
+  "checks_run": [
+    "canonical_structure",
+    "payload_binding",
+    "arithmetic",
+    "dates",
+    "ssot_cross_reference",
+    "evidence_grades"
+  ],
+  "clears_prior_machine_block": false,
+  "conclusion_diff": {
+    "spec_version": null
+  },
+  "corrections": [],
+  "delivery_payload_sha256": "2e9b21dac57a904c3cf368e0958e50b02c5dc978da85046cef140d41993b3df9",
+  "final_validation_open": true,
+  "findings": [],
+  "machine_status": "MACHINE_PASS",
+  "post_delivery_inputs": [],
+  "semantic_status": "UNVERIFIED",
+  "structural_authority": [
+    "briefing/daily_orchestrator.py",
+    ".github/scripts/daily_briefing_delivery.py"
+  ],
+  "submits_to_gate": false,
+  "unverified_semantic": [
+    "FACT_CLAIMS: whether statements about the world are true",
+    "CAUSAL_CLAIMS: whether a stated cause is the cause",
+    "MARKET_INTERPRETATION: whether a reading of price/flow is sound",
+    "STAGE_DECISIONS: Discovery/Candidate/Ready transitions (criteria Undefined)",
+    "NUMBERS_IN_PROSE: figures not cross-referable to a machine-written field",
+    "COMPLETENESS: whether something that should have been said was omitted",
+    "EVIDENCE_GRADES: no ratified mechanical rule at config/atlas_evidence_grade_rule.json; grade tags were not checked"
+  ],
+  "validated_at_utc": "2026-09-03T09:51:34Z",
+  "validator_contract": "briefing_validator/4",
+  "validator_id": "atlas-deterministic-validator"
+}
