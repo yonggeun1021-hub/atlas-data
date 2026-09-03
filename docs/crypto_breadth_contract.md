@@ -1,9 +1,15 @@
 # Crypto Breadth / Alt Participation Contract (P1-CR-06)
 
 Status: source, replay, and daily capture contracts implemented; the universe
-rule is ratified effective 2026-08-19; the first qualified live snapshot is
-still pending.  There is no classification, Regime, Production, or trading
-authority.
+rule is ratified effective 2026-08-19; the first-qualified-live-Top-100 Exit
+Gate is satisfied by the committed natural 2026-08-30 and 2026-08-31 capture
+chains.  There is no classification, Regime, Production, or trading authority.
+
+The Exit Gate is capability evidence, not a promise that every later daily
+snapshot will remain qualified.  The 2026-09-01 and 2026-09-02 chains returned
+to `TAXONOMY_COVERAGE_UNKNOWN` as new cutoff-relevant identities appeared. That
+point-in-time result does not revoke the already-proven capture/validation
+capability, and it must not be relabeled as a neutral or complete market view.
 
 ## Purpose
 

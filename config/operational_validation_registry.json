@@ -67,7 +67,25 @@
       "workflow": ".github/workflows/crypto-breadth-capture.yml",
       "crons": ["40 0 * * *"],
       "required_workflow_tokens": ["P1-CR-06 immutable snapshot validation", "p1-cr-06-live-transform", "Record Crypto Breadth scheduler telemetry", "record_crypto_breadth_run.py"],
-      "remaining_gate": "first qualified live Top-100 snapshot"
+      "remaining_gate": null,
+      "exit_gate_state": "SATISFIED",
+      "exit_gate_basis": "FIRST_QUALIFIED_LIVE_TOP100_SNAPSHOT",
+      "exit_gate_evidence": [
+        {
+          "snapshot_date_utc": "2026-08-30",
+          "telemetry_path": "data/operations/crypto_breadth_capture_runs/2026-08-30/run-33284124239-attempt-1.json",
+          "taxonomy_inventory_path": "data/observations/crypto_taxonomy_gap/2026-08-30/packet.json",
+          "population_path": "data/observations/crypto_global_universe/2026-08-30/packet.json",
+          "population_payload_sha256": "109cd353948be4a9654a8d6f27280a8868d7ff8692992b253e8de7a93819e1fc"
+        },
+        {
+          "snapshot_date_utc": "2026-08-31",
+          "telemetry_path": "data/operations/crypto_breadth_capture_runs/2026-08-31/run-33345591616-attempt-1.json",
+          "taxonomy_inventory_path": "data/observations/crypto_taxonomy_gap/2026-08-31/packet.json",
+          "population_path": "data/observations/crypto_global_universe/2026-08-31/packet.json",
+          "population_payload_sha256": "e16e6888d01f802a8669e9e06433e71838531bab8833fb95d83fd0bb49e74523"
+        }
+      ]
     },
     {
       "work_item_id": "P1-US-03",
