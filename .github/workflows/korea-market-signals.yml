@@ -9,7 +9,17 @@ on:
       current_date:
         description: "Optional current completed KRX session (YYYYMMDD; supply both dates or neither)"
         required: false
+  workflow_run:
+    workflows: ["Atlas Daily Collect"]
+    types: [completed]
   schedule:
+    # 06:45 and 06:55 KST on weekdays, after the confirmed daily KRX
+    # collector and before the 07:05 morning briefing.  07:10 is the bounded
+    # late fallback before the 07:20 briefing recovery.  The completion
+    # trigger above remains the primary path when the collector is delayed.
+    - cron: "45 21 * * 0-4"
+    - cron: "55 21 * * 0-4"
+    - cron: "10 22 * * 0-4"
     # 18:10 and 18:25 KST on weekdays. The second slot is an idempotent
     # recovery chance when KRX has not published every required family at
     # the first slot; same-date committed evidence is validated and reused.
@@ -25,6 +35,7 @@ concurrency:
 
 jobs:
   collect-and-publish:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,12 +67,16 @@ jobs:
               --previous-date "$PREVIOUS_DATE" \
               --current-date "$CURRENT_DATE"
           else
-            python3 .github/scripts/korea_market_signals.py
+            python3 .github/scripts/korea_market_signals.py \
+              --confirmed-session-source data/latest_krx.json \
+              --expected-collected-for-kst-date "$(TZ=Asia/Seoul date +%F)"
           fi
       - name: Verify tracked output and authority boundary
         run: |
           python3 .github/scripts/korea_market_signals.py \
-            --verify data/latest_korea_market_signals.json
+            --verify data/latest_korea_market_signals.json \
+            --confirmed-session-source data/latest_krx.json \
+            --expected-collected-for-kst-date "$(TZ=Asia/Seoul date +%F)"
           python3 - <<'PY'
           import json
           from pathlib import Path
