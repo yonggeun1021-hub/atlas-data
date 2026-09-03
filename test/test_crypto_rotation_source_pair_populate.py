@@ -241,7 +241,7 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("Populate P2-04 Crypto Rotation source pair", text)
         self.assertIn("crypto_rotation_source_pair_populate.py", text)
         self.assertLess(
-            text.index("P1-CR-07 transient live replay"),
+            text.index("P1-CR-07 leadership packet build + persist"),
             text.index("Populate P2-04 Crypto Rotation source pair"),
         )
         self.assertNotIn("repository_dispatch", text)

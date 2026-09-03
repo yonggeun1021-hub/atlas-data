@@ -105,7 +105,18 @@ jobs:
             --source-commit "$(git rev-parse HEAD)" \
             --out "$OUTPUT"
           echo "path=$OUTPUT" >> "$GITHUB_OUTPUT"
-      - name: P1-CR-07 transient live replay
+      # Previously this step's build only ever wrote to $RUNNER_TEMP (never
+      # committed, only ever reachable as a short-lived CI artifact) -- so
+      # decision/crypto_paper_decision_snapshot.py could never read it back
+      # and always fed the P5-08 promotion builder a hardcoded
+      # leadership_output=None. This step now additionally persists the
+      # exact same build_transform() output to the committed
+      # data/observations/crypto_leadership/<AS_OF_DATE>/packet.json path --
+      # the same "data/observations/<name>/<date>/packet.json" convention
+      # already used immediately above by data/observations/
+      # crypto_recent_reference -- so it becomes real, committed, natural
+      # evidence a consumer can read.
+      - name: P1-CR-07 leadership packet build + persist
         id: leadership_validation
         if: >-
           always() && (steps.capture.outputs.result == 'captured' ||
@@ -115,10 +126,14 @@ jobs:
         run: |
           set -euo pipefail
           AS_OF_DATE=$(python3 -c 'import datetime as d,sys; print((d.date.fromisoformat(sys.argv[1])-d.timedelta(days=1)).isoformat())' "$SNAPSHOT_DATE")
+          OUTPUT="data/observations/crypto_leadership/$AS_OF_DATE/packet.json"
           python3 .github/scripts/crypto_leadership.py transform \
             evidence/crypto/breadth/raw \
             --end-date "$AS_OF_DATE" \
-            --out "$RUNNER_TEMP/crypto-leadership-live-replay.json"
+            --out "$OUTPUT"
+          cp "$OUTPUT" "$RUNNER_TEMP/crypto-leadership-live-replay.json"
+          echo "path=$OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "as_of_date=$AS_OF_DATE" >> "$GITHUB_OUTPUT"
       # P2-04 reuses the same committed/as-captured CR-06 archive and the
       # canonical CR-07 builder.  It prepares only the adjacent Leadership
       # source pair consumed by rotation/crypto_rotation.py.  The repository
@@ -187,6 +202,7 @@ jobs:
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
+          LEADERSHIP_AS_OF_DATE: ${{ steps.leadership_validation.outputs.as_of_date }}
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -199,6 +215,9 @@ jobs:
           fi
           if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/crypto_recent_reference/$SNAPSHOT_DATE" ]; then
             git add "data/observations/crypto_recent_reference/$SNAPSHOT_DATE"
+          fi
+          if [ -n "$LEADERSHIP_AS_OF_DATE" ] && [ -d "data/observations/crypto_leadership/$LEADERSHIP_AS_OF_DATE" ]; then
+            git add "data/observations/crypto_leadership/$LEADERSHIP_AS_OF_DATE"
           fi
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
