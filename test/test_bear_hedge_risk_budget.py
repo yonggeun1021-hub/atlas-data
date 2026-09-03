@@ -202,6 +202,55 @@ class BearHedgeRiskBudgetTests(unittest.TestCase):
         ):
             MODULE.build_packet(tampered, "2026-08-21", CONTRACT)
 
+    def test_numeric_boolean_authority_aliases_fail_closed(self):
+        for field, expected in CONTRACT["input_authority"].items():
+            source = budget_set()
+            source["authority"][field] = int(expected)
+            with self.subTest(boundary="source", field=field), self.assertRaisesRegex(
+                MODULE.BearHedgeBudgetError,
+                "BUDGET_SET_IDENTITY_INVALID",
+            ):
+                MODULE.build_packet(source, "2026-08-21", CONTRACT)
+
+            embedded = MODULE.build_packet(budget_set(), "2026-08-21", CONTRACT)
+            embedded["source_packets"]["BUDGET_SET"]["authority"][field] = int(expected)
+            embedded["packet_sha256"] = MODULE.payload_sha256({
+                key: value
+                for key, value in embedded.items()
+                if key != "packet_sha256"
+            })
+            with self.subTest(boundary="embedded", field=field), self.assertRaisesRegex(
+                MODULE.BearHedgeBudgetError,
+                "BUDGET_SET_IDENTITY_INVALID",
+            ):
+                MODULE.validate_packet(embedded, CONTRACT)
+
+        for authority_key in ("input_authority", "authority"):
+            for field, expected in CONTRACT[authority_key].items():
+                contract = copy.deepcopy(CONTRACT)
+                contract[authority_key][field] = int(expected)
+                with self.subTest(
+                    boundary="contract",
+                    authority_key=authority_key,
+                    field=field,
+                ), self.assertRaisesRegex(
+                    MODULE.BearHedgeBudgetError,
+                    f"CONTRACT_FIELD_MISMATCH:{authority_key}",
+                ):
+                    MODULE.build_packet(budget_set(), "2026-08-21", contract)
+
+        for field, expected in CONTRACT["authority"].items():
+            output = MODULE.build_packet(budget_set(), "2026-08-21", CONTRACT)
+            output["authority"][field] = int(expected)
+            output["packet_sha256"] = MODULE.payload_sha256({
+                key: value for key, value in output.items() if key != "packet_sha256"
+            })
+            with self.subTest(boundary="output", field=field), self.assertRaisesRegex(
+                MODULE.BearHedgeBudgetError,
+                "OUTPUT_AUTHORITY_INVALID",
+            ):
+                MODULE.validate_packet(output, CONTRACT)
+
     def test_output_is_deterministic_and_lineage_bound(self):
         value = budget_set()
         first = MODULE.build_packet(value, "2026-08-21", CONTRACT)

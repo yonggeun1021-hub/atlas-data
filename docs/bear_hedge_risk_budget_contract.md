@@ -21,6 +21,12 @@ identity stability, and deterministic ordering.  It does not choose the
 numbers, compare them with an invented threshold, or infer a budget from the
 long book.
 
+Authority flags are exact JSON booleans at every boundary. Python considers
+numeric `1 == true` and `0 == false`, but the contract, external budget set,
+embedded source packet, and standalone output validator reject those numeric
+aliases instead of normalizing them into authority-bearing booleans. Canonical
+boolean packets and their schema/version/bytes are unchanged.
+
 ## Authority boundary
 
 Validated budgets remain definitions, not allocations.  `budget_usage` and

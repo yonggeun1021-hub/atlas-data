@@ -73,10 +73,26 @@ def _expected_contract() -> dict:
     }
 
 
+def _require_exact_authority(value, expected: dict, code: str) -> None:
+    """Reject Python's numeric aliases for JSON authority booleans."""
+    if not isinstance(value, dict) or set(value) != set(expected):
+        raise BearHedgeBudgetError(code)
+    for key, expected_value in expected.items():
+        actual = value.get(key)
+        if not isinstance(actual, bool) or actual is not expected_value:
+            raise BearHedgeBudgetError(code)
+
+
 def _validate_contract(value: dict) -> dict:
     expected = _expected_contract()
     if not isinstance(value, dict) or set(value) != set(expected):
         raise BearHedgeBudgetError("CONTRACT_FIELDS_MISMATCH")
+    for authority_key in ("input_authority", "authority"):
+        _require_exact_authority(
+            value.get(authority_key),
+            expected[authority_key],
+            f"CONTRACT_FIELD_MISMATCH:{authority_key}",
+        )
     for key, expected_value in expected.items():
         if value.get(key) != expected_value:
             raise BearHedgeBudgetError(f"CONTRACT_FIELD_MISMATCH:{key}")
@@ -226,12 +242,16 @@ def _validate_set(value: dict, as_of_date: str, contract: dict) -> dict:
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise BearHedgeBudgetError("BUDGET_SET_FIELDS_MISMATCH")
+    _require_exact_authority(
+        value.get("authority"),
+        contract["input_authority"],
+        "BUDGET_SET_IDENTITY_INVALID",
+    )
     if (
         value.get("schema_version") != contract["input_schema_version"]
         or value.get("contract_version") != contract["contract_version"]
         or value.get("status") != "RATIFIED"
         or value.get("ratified_by") != "CIO"
-        or value.get("authority") != contract["input_authority"]
     ):
         raise BearHedgeBudgetError("BUDGET_SET_IDENTITY_INVALID")
     set_id = _text(value.get("budget_set_id"), "BUDGET_SET_ID_INVALID")
@@ -366,6 +386,11 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         or packet.get("contract_version") != contract["contract_version"]
     ):
         raise BearHedgeBudgetError("OUTPUT_IDENTITY_INVALID")
+    _require_exact_authority(
+        packet.get("authority"),
+        contract["authority"],
+        "OUTPUT_AUTHORITY_INVALID",
+    )
     as_of = _date(packet.get("as_of_date"), "OUTPUT_AS_OF_DATE_INVALID")
     sources = packet.get("source_packets")
     if not isinstance(sources, dict) or set(sources) != {"BUDGET_SET"}:
