@@ -34,6 +34,23 @@ def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _exact_value_equal(actual: object, expected: object) -> bool:
+    """Compare JSON values without Python's bool/int aliasing."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_value_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_value_equal(left, right)
+            for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _read_json(path: Path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -78,7 +95,7 @@ def _validate_contract(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) != set(expected):
         raise HedgeEligibilityError("CONTRACT_FIELDS_MISMATCH")
     for key, expected_value in expected.items():
-        if value.get(key) != expected_value:
+        if not _exact_value_equal(value.get(key), expected_value):
             raise HedgeEligibilityError(f"CONTRACT_FIELD_MISMATCH:{key}")
     return copy.deepcopy(value)
 
@@ -259,7 +276,9 @@ def _validate_registry(value: dict, as_of_date: str, contract: dict) -> dict:
         or value.get("contract_version") != contract["contract_version"]
         or value.get("status") != "RATIFIED"
         or value.get("ratified_by") != "CIO"
-        or value.get("authority") != contract["input_authority"]
+        or not _exact_value_equal(
+            value.get("authority"), contract["input_authority"]
+        )
     ):
         raise HedgeEligibilityError("REGISTRY_IDENTITY_INVALID")
     registry_id = _text(value.get("registry_id"), "REGISTRY_ID_INVALID")
@@ -408,7 +427,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     expected = _assemble(checked, as_of, contract)
     actual = copy.deepcopy(packet)
     digest = _sha(actual.pop("packet_sha256", None), "OUTPUT_PACKET_SHA_INVALID")
-    if actual != expected:
+    if not _exact_value_equal(actual, expected):
         raise HedgeEligibilityError("OUTPUT_DERIVATION_MISMATCH")
     if payload_sha256(expected) != digest:
         raise HedgeEligibilityError("OUTPUT_PACKET_SHA_MISMATCH")
