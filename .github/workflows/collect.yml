@@ -240,6 +240,18 @@ jobs:
             --data-root data \
             --out-root data/observations/official_release_observations
 
+      # Ratified P4-02 -> P5-03 boundary: freeze only the registered TSMC
+      # monthly/cumulative YoY observations against existing RULE-0007/0008.
+      # ALL_REQUIRED is linkage semantics only; rule_result stays null and no
+      # Rule/Stage/Buy/Action/Order/REAL/live/Production/trading authority opens.
+      - name: Bind TSMC Monthly Revenue to Rule Evidence (P4-02 to P5-03)
+        if: always()
+        run: |
+          python3 bridge/tsm_sec_monthly_rule_evidence.py \
+            --data-root data \
+            --observation-root data/observations/official_release_observations \
+            --out-root data/observations/rule_evidence_bindings
+
       # P4-04 — consume the complete ordered News Summary from the exact
       # retained Sandisk Exhibit 99.1 bytes.  The adapter records every item in
       # the registered block and keeps interpretation/source-ranking/Rule/
