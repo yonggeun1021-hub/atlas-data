@@ -38,6 +38,23 @@ def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _exact_value_equal(actual: object, expected: object) -> bool:
+    """Compare JSON values without Python's bool/int aliasing."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_value_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_value_equal(left, right)
+            for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _read_json(path: Path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -89,7 +106,7 @@ def _validate_contract(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) != set(expected):
         raise LongShortInvariantError("CONTRACT_FIELDS_MISMATCH")
     for key, expected_value in expected.items():
-        if value.get(key) != expected_value:
+        if not _exact_value_equal(value.get(key), expected_value):
             raise LongShortInvariantError(f"CONTRACT_FIELD_MISMATCH:{key}")
     return copy.deepcopy(value)
 
@@ -152,7 +169,9 @@ def _validate_upstream_packet(value: dict, contract: dict) -> dict:
         value.get("schema_version") != contract["upstream_schema_version"]
         or value.get("contract_version") != contract["upstream_contract_version"]
         or value.get("status") != contract["upstream_status"]
-        or value.get("authority") != contract["upstream_authority"]
+        or not _exact_value_equal(
+            value.get("authority"), contract["upstream_authority"]
+        )
     ):
         raise LongShortInvariantError("UPSTREAM_PACKET_IDENTITY_INVALID")
     if not isinstance(value.get("binding_set_id"), str) or not value["binding_set_id"]:
@@ -279,7 +298,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         packet.get("schema_version") != contract["output_schema_version"]
         or packet.get("contract_version") != contract["contract_version"]
         or packet.get("status") != "INVARIANT_ENFORCED_SHORT_NOT_EVALUATED"
-        or packet.get("authority") != contract["authority"]
+        or not _exact_value_equal(packet.get("authority"), contract["authority"])
         or not isinstance(packet.get("binding_set_id"), str)
         or not packet["binding_set_id"]
     ):
@@ -314,19 +333,22 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         if result in {"PASS", "FAIL"}:
             raise LongShortInvariantError("OUTPUT_PASS_FAIL_WITHOUT_AUTHORITY")
         expected = classify_long_result(result, contract)
-        if any(row.get(key) != value for key, value in expected.items()):
+        if any(
+            not _exact_value_equal(row.get(key), value)
+            for key, value in expected.items()
+        ):
             raise LongShortInvariantError(f"OUTPUT_RULE_DERIVATION_MISMATCH:{rule_id}")
         counts[result] += 1
         checked_ids.append(rule_id)
     if checked_ids != sorted(registry):
         raise LongShortInvariantError("OUTPUT_RULE_ORDER_INVALID")
-    if packet.get("summary") != {
+    if not _exact_value_equal(packet.get("summary"), {
         "total_rules": len(rows),
         "long_results": counts,
         "short_results_created": 0,
         "short_pass": 0,
         "short_not_evaluated": len(rows),
-    }:
+    }):
         raise LongShortInvariantError("OUTPUT_SUMMARY_MISMATCH")
     lineage = packet.get("lineage")
     lineage_fields = {
