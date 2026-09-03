@@ -1,0 +1,46 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "briefing_decision_input_authorized": false,
+    "production_wiring_authorized": false,
+    "regime_score_authorized": false,
+    "same_day_confirmation_authorized": false,
+    "trading_action_authorized": false
+  },
+  "collection": {
+    "observation_publication_eligible": false,
+    "provider_calls_skipped": true,
+    "reason": "bundle_already_exists",
+    "result": "skipped_existing",
+    "step_outcome": "skipped"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "45 7 * * 1-5",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 33730570027,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33730570027"
+  },
+  "guard": {
+    "result": "fresh",
+    "skip": true,
+    "step_outcome": "success",
+    "trusted": true
+  },
+  "observation_date_kst": "2026-09-03",
+  "runner": {
+    "observed_started_at_kst": "2026-09-03T16:55:05+09:00",
+    "observed_started_at_utc": "2026-09-03T07:55:05Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 605,
+    "expected_start_kst": "2026-09-03T16:45:00+09:00",
+    "expected_start_utc": "2026-09-03T07:45:00Z",
+    "id": "final_1645_kst",
+    "timing_status": "measured"
+  },
+  "workflow": "Atlas KRX Post-Close Observation"
+}
