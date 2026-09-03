@@ -1,0 +1,298 @@
+{
+  "schema_version": "major_event_registry/1",
+  "briefing_date": "2026-09-03",
+  "slot": "PM",
+  "source_status": "AVAILABLE",
+  "events": [
+    {
+      "event_id": "2026-09-02-iran-gulf-retaliation-hormuz-oil",
+      "importance": "CRITICAL",
+      "detected_at": "2026-09-03T18:46:00+09:00",
+      "display_headline_ko": "이란, 걸프 지역 미군 관련 기지에 미사일·드론 공격 — Brent 유가 개전 대비 약 30% 상승",
+      "sources": [
+        {
+          "source_id": "fortune-2026-09-02",
+          "grade": "INDEPENDENT_MAJOR_MEDIA",
+          "title": "Iran fires on U.S. allies in Gulf after night of American strikes",
+          "url": "https://fortune.com/2026/09/02/iran-war-oil-prices-gulf-strait-hormuz/",
+          "published_at": "2026-09-02T17:20:00-04:00",
+          "verified_by_direct_fetch": true,
+          "supports_claim_ids": [
+            "iran-fires-on-gulf-bases",
+            "brent-oil-surge",
+            "hormuz-shipping-reduced"
+          ]
+        },
+        {
+          "source_id": "kr-investing-marketwire-2026-09-03",
+          "grade": "SECONDARY_MARKET_WIRE",
+          "title": "[0903마감체크] 코스피, 변동성 끝 강보합 마감…코스닥은 하락 (인포스탁데일리 배급)",
+          "url": "https://kr.investing.com/news/stock-market-news/article-2083122",
+          "published_at": "2026-09-03T17:38:00+09:00",
+          "verified_by_direct_fetch": true,
+          "supports_claim_ids": [
+            "iran-fires-on-gulf-bases"
+          ]
+        },
+        {
+          "source_id": "cnbc-2026-09-02-inaccessible",
+          "grade": "INACCESSIBLE_NOT_USED",
+          "title": "(headline only, article body returned HTTP 403 on direct fetch — not used as a claim source)",
+          "url": "https://www.cnbc.com/2026/09/02/brent-oil-us-iran-strikes.html",
+          "published_at": null,
+          "verified_by_direct_fetch": false,
+          "supports_claim_ids": []
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "iran-fires-on-gulf-bases",
+          "classification": "FACT",
+          "statement_ko": "이란이 9월 2일(현지시간) 미국의 공습에 대한 보복으로 걸프 지역의 미군 관련 기지를 향해 미사일·드론 공격을 가했다고 보도됐다.",
+          "source_ids": [
+            "fortune-2026-09-02",
+            "kr-investing-marketwire-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "brent-oil-surge",
+          "classification": "FACT",
+          "statement_ko": "Brent 원유는 이번 분쟁 개전 시점 대비 약 30% 상승한 배럴당 약 95달러 수준까지 올랐다고 보도됐다(단일 소스, Fortune).",
+          "source_ids": [
+            "fortune-2026-09-02"
+          ]
+        },
+        {
+          "claim_id": "hormuz-shipping-reduced",
+          "classification": "FACT",
+          "statement_ko": "호르무즈 해협을 통한 선박 통항이 하루 소수 척 수준으로 크게 줄었다고 보도됐다(단일 소스, Fortune).",
+          "source_ids": [
+            "fortune-2026-09-02"
+          ]
+        },
+        {
+          "claim_id": "regional-risk-reescalated",
+          "classification": "INFERENCE",
+          "statement_ko": "확인된 상호 공격 재개는 중동 지정학 위험이 다시 확대됐다는 상황평가를 뒷받침하지만, 향후 범위와 지속성은 아직 확정되지 않았다.",
+          "source_ids": [
+            "iran-fires-on-gulf-bases",
+            "brent-oil-surge",
+            "hormuz-shipping-reduced"
+          ]
+        },
+        {
+          "claim_id": "conflict-trajectory-unconfirmed",
+          "classification": "UNKNOWN",
+          "statement_ko": "이번 확전이 전면전으로 이어질지, 단기에 진정될지는 확인되지 않았다.",
+          "source_ids": []
+        }
+      ],
+      "transmission_channels": [
+        {
+          "channel": "oil_shipping",
+          "classification": "INFERENCE",
+          "statement_ko": "원유와 해운은 호르무즈 운항 위험을 통해 영향을 받을 수 있지만, 관측 가격 움직임의 원인을 이번 사건 하나로 단정하지 않는다.",
+          "source_claim_ids": [
+            "brent-oil-surge",
+            "hormuz-shipping-reduced"
+          ],
+          "price_causality_confirmed": false
+        },
+        {
+          "channel": "hormuz",
+          "classification": "INFERENCE",
+          "statement_ko": "미군 기지 공격과 선박 통항 감소 보도로 호르무즈 운항·보험·물류 위험을 우선 점검한다.",
+          "source_claim_ids": [
+            "hormuz-shipping-reduced"
+          ],
+          "price_causality_confirmed": false
+        },
+        {
+          "channel": "usd_rates",
+          "classification": "UNKNOWN",
+          "statement_ko": "달러·금리의 안전자산 반응 가능성은 있으나 이 세션에서 미 10년물 당일 확정 수치를 재확인하지 못했다 — 방향과 원인을 확정하지 않는다.",
+          "source_claim_ids": [
+            "regional-risk-reescalated"
+          ],
+          "price_causality_confirmed": false
+        },
+        {
+          "channel": "equity_risk_appetite",
+          "classification": "INFERENCE",
+          "statement_ko": "주식 위험선호 약화 가능성을 점검하되, 지수·섹터 움직임을 이번 사건 단독 효과로 해석하지 않는다.",
+          "source_claim_ids": [
+            "regional-risk-reescalated"
+          ],
+          "price_causality_confirmed": false
+        }
+      ]
+    },
+    {
+      "event_id": "2026-09-03-avgo-q3-fy26-earnings-guidance",
+      "importance": "HIGH",
+      "detected_at": "2026-09-03T18:46:00+09:00",
+      "display_headline_ko": "브로드컴(AVGO) FY26 3분기 실적·AI 매출 서프라이즈 — Q4 가이던스는 컨센서스 소폭 하회, 주가 반응은 관측 시점 불명확",
+      "sources": [
+        {
+          "source_id": "motley-fool-2026-09-03",
+          "grade": "INDEPENDENT_MAJOR_MEDIA",
+          "title": "Broadcom's AI Revenue Soared 221%, Profits Tripled. Why Is the Stock Flat?",
+          "url": "https://www.fool.com/investing/2026/09/03/broadcom-ai-revenue-soared-221-profits-tripled-why-is-the-stock-flat/",
+          "published_at": "2026-09-03T02:58:00-04:00",
+          "verified_by_direct_fetch": true,
+          "supports_claim_ids": [
+            "avgo-q3-results",
+            "avgo-consensus-beat",
+            "avgo-q4-guidance-below-consensus",
+            "avgo-price-reaction-observed"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "avgo-q3-results",
+          "classification": "FACT",
+          "statement_ko": "브로드컴 FY26 3분기 매출은 약 296억 달러(전년 대비 +86%)였고, 이 중 AI 반도체 매출은 167억 달러(+221% YoY)였다고 보도됐다.",
+          "source_ids": [
+            "motley-fool-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "avgo-consensus-beat",
+          "classification": "FACT",
+          "statement_ko": "이는 컨센서스 매출 약 294억 달러·비GAAP EPS $3.24를 상회한 실적(비GAAP EPS $3.32)이라고 보도됐다.",
+          "source_ids": [
+            "motley-fool-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "avgo-q4-guidance-below-consensus",
+          "classification": "FACT",
+          "statement_ko": "Q4 매출 가이던스 약 348억 달러는 컨센서스 약 350억 달러를 소폭 하회했다고 보도됐다.",
+          "source_ids": [
+            "motley-fool-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "avgo-price-reaction-observed",
+          "classification": "UNKNOWN",
+          "statement_ko": "보도 시점 주가는 $367.24(-0.66%)로 언급됐으나 정확한 관측 세션(시간외/프리마켓/정규장)과 시각이 명시되지 않아, 실적 발표에 대한 주가 반응의 정확한 크기와 시점은 확인되지 않는다.",
+          "source_ids": []
+        },
+        {
+          "claim_id": "avgo-expectations-gap-inference",
+          "classification": "INFERENCE",
+          "statement_ko": "가이던스가 컨센서스를 소폭 하회한 점이 주가 약세와 관련 있을 가능성이 있으나, 밸류에이션 부담·차익실현 등 경쟁 설명과 분리되지 않으며 단독 원인으로 확정하지 않는다.",
+          "source_ids": [
+            "avgo-q4-guidance-below-consensus",
+            "avgo-price-reaction-observed"
+          ]
+        }
+      ],
+      "transmission_channels": []
+    },
+    {
+      "event_id": "2026-09-02-trump-alaska-lng-korea-steel-rally",
+      "importance": "HIGH",
+      "detected_at": "2026-09-03T18:46:00+09:00",
+      "display_headline_ko": "트럼프 \"한·일 알래스카 파이프라인\" 발언에 국내 강관·철강주 급등, 코스피는 기타법인 매수에 강보합 마감",
+      "sources": [
+        {
+          "source_id": "hankyung-2026-09-03",
+          "grade": "INDEPENDENT_MAJOR_MEDIA",
+          "title": "가스관·강관주, 트럼프 \"한·일, 알래스카로 간다\" 발언에 급등",
+          "url": "https://www.hankyung.com/article/2026090312156",
+          "published_at": "2026-09-03T09:19:00+09:00",
+          "verified_by_direct_fetch": true,
+          "supports_claim_ids": [
+            "trump-alaska-lng-remark",
+            "korea-steel-stocks-rally"
+          ]
+        },
+        {
+          "source_id": "fnnews-2026-09-03",
+          "grade": "INDEPENDENT_MAJOR_MEDIA",
+          "title": "\"내리는 줄 알았다\"…코스피, 기타법인 매수세에 결국 상승 [fn마감시황]",
+          "url": "http://fnnews.com/news/202609031600416674",
+          "published_at": "2026-09-03T16:03:00+09:00",
+          "verified_by_direct_fetch": true,
+          "supports_claim_ids": [
+            "krx-close-flow-2026-09-03"
+          ]
+        },
+        {
+          "source_id": "mediawatch-insight-2026-09-03",
+          "grade": "SECONDARY_MARKET_WIRE",
+          "title": "[26.9.3 증시 인싸잇] 코스피, 롤러코스터 끝에 6579선 강보합 마감",
+          "url": "http://mediawatch.kr/news/article.html?no=260898",
+          "published_at": "2026-09-03T18:27:57+09:00",
+          "verified_by_direct_fetch": true,
+          "supports_claim_ids": [
+            "usdkrw-close-2026-09-03"
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "trump-alaska-lng-remark",
+          "classification": "FACT",
+          "statement_ko": "트럼프 대통령이 9월 2일 백악관에서 한국과 일본이 연료·석유를 싣고 파이프라인을 건설하는 등의 이유로 알래스카로 가고 있다는 취지로 발언했다고 보도됐다.",
+          "source_ids": [
+            "hankyung-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "korea-steel-stocks-rally",
+          "classification": "FACT",
+          "statement_ko": "이 발언 이후 9월 3일 국내 강관·철강 관련주가 급등했다 — 신스틸·금강철강 상한가, TCC스틸 +24.33%, 부국철강 +21.92%, KBI동양철관 +18.42%, 문배철강 +16.01%, 하이스틸 +13.24%, 넥스틸 +11.36%(한국경제 보도 기준).",
+          "source_ids": [
+            "hankyung-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "alaska-lng-contract-status",
+          "classification": "UNKNOWN",
+          "statement_ko": "실제 계약·발주가 체결됐는지는 확인되지 않았다.",
+          "source_ids": []
+        },
+        {
+          "claim_id": "krx-close-flow-2026-09-03",
+          "classification": "FACT",
+          "statement_ko": "2026-09-03 코스피는 6,579.48(+16.76p, +0.26%)로 강보합 마감, 코스닥은 790.21(-1.71%)로 마감했다. 유가증권시장 수급은 개인 -9,551억 · 외국인 -4,193억 · 기관 -2,152억 순매도, 기타법인 +15,936억 순매수였다.",
+          "source_ids": [
+            "fnnews-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "usdkrw-close-2026-09-03",
+          "classification": "FACT",
+          "statement_ko": "원/달러 환율은 전 거래일보다 9.4원 내린 1,359.3원에 마감했다(단일 소스).",
+          "source_ids": [
+            "mediawatch-insight-2026-09-03"
+          ]
+        },
+        {
+          "claim_id": "policy-driven-capital-rotation-korea",
+          "classification": "INFERENCE",
+          "statement_ko": "정책 발언에 대한 기대감이 관련 종목으로의 매수 쏠림으로 이어졌을 수 있으나, 이는 하루치 관측이며 지속되는 자본 로테이션 국면으로 승격하지 않는다.",
+          "source_ids": [
+            "trump-alaska-lng-remark",
+            "korea-steel-stocks-rally"
+          ]
+        }
+      ],
+      "transmission_channels": [
+        {
+          "channel": "korea_steel_pipe",
+          "classification": "INFERENCE",
+          "statement_ko": "정책 발언 기대가 강관·철강주 매수로 이어졌을 가능성이 있으나, 실제 수주·계약 성립 여부와는 분리해 기록한다.",
+          "source_claim_ids": [
+            "trump-alaska-lng-remark",
+            "korea-steel-stocks-rally"
+          ],
+          "price_causality_confirmed": false
+        }
+      ]
+    }
+  ]
+}
