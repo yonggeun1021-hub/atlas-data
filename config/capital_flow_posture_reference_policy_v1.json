@@ -38,6 +38,27 @@
     "persistence_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
     "invalidation_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED"
   },
+  "transition_ledger": {
+    "contract_path": "config/cross_market_flow_transition_ledger_contract.json",
+    "pointer_path": "data/latest_cross_market_flow_transition_ledger.json",
+    "contract_version": "cross_market_flow_transition_ledger/2",
+    "ledger_schema_version": "cross_market_flow_transition_ledger_packet/2",
+    "predecessor_contract_version": "cross_market_flow_transition_ledger/1",
+    "consumption": "EXACT_VALIDATED_RECORDED_HISTORY_ONLY",
+    "self_observation_policy": "EXCLUDE_LEDGER_ENTRIES_OBSERVING_THIS_PACKET_GENERATED_AT",
+    "counted_observation_modes": [
+      "NATURAL"
+    ],
+    "excluded_observation_modes": [
+      "MANUAL",
+      "RECOVERY",
+      "REPLAY"
+    ],
+    "confirmation_policy": "UNRATIFIED_CONFIRMED_AT_NULL",
+    "invalidation_policy": "UNRATIFIED_NO_NUMERIC_THRESHOLD",
+    "absent_pointer_policy": "UNKNOWN_UNLESS_A_RATIFIED_PREDECESSOR_CHAIN_EXISTS",
+    "ratified_chain_pointer_missing_policy": "FAIL_CLOSED"
+  },
   "authority": {
     "paper_reference_display_authorized": true,
     "relative_strength_comparison_authorized": true,
