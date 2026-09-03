@@ -457,5 +457,140 @@ class WiringContractTests(unittest.TestCase):
         self.assertNotIn("schedule:", workflow)
 
 
+class RatifiedRecommendationATests(unittest.TestCase):
+    """Temporal-only authority added after the shadow evidence matured."""
+
+    @staticmethod
+    def _active_record(*, t0="2026-09-03T00:00:00Z", exact=True) -> dict:
+        return {
+            "state": "ACTIVE",
+            "first_seen_status": (
+                "EXACT_ATLAS_FORWARD_OBSERVATION"
+                if exact else "PRE_BASELINE_FIRST_SEEN_NOT_COMPUTABLE"
+            ),
+            "last_changed_observed_at_utc": t0 if exact else None,
+        }
+
+    def test_half_open_172800_second_boundary(self):
+        from clock import candidate_validity_window as window
+
+        inside = window.classify_temporal_record(
+            self._active_record(),
+            ["PRICE_CONFIRMATION"],
+            "2026-09-04T23:59:59Z",
+        )
+        endpoint = window.classify_temporal_record(
+            self._active_record(),
+            ["PRICE_CONFIRMATION"],
+            "2026-09-05T00:00:00Z",
+        )
+        self.assertEqual(inside["temporal_status"], window.FRESH)
+        self.assertEqual(endpoint["temporal_status"], window.STALE)
+        self.assertEqual(inside["window_seconds"], 172800)
+
+    def test_unchanged_evaluation_does_not_refresh_t0(self):
+        from clock import candidate_validity_window as window
+
+        record = self._active_record(t0="2026-09-03T00:00:00Z")
+        record["lifecycle_event"] = "CONTINUING_UNCHANGED"
+        result = window.classify_temporal_record(
+            record, ["FLOW_REVERSAL"], "2026-09-04T00:00:00Z"
+        )
+        self.assertEqual(
+            result["t0_operational_evaluated_at_utc"], "2026-09-03T00:00:00Z"
+        )
+
+    def test_absence_is_immediate_missing_without_grace(self):
+        from clock import candidate_validity_window as window
+
+        result = window.classify_temporal_record(
+            {"state": "ABSENT_OBSERVED"},
+            ["INVALIDATION_TRIGGER"],
+            "2026-09-03T00:00:00Z",
+        )
+        self.assertEqual(result["temporal_status"], window.MISSING)
+        self.assertIsNone(result["expires_at_utc"])
+
+    def test_prebaseline_and_unvalidated_trigger_remain_not_computable(self):
+        from clock import candidate_validity_window as window
+
+        baseline = window.classify_temporal_record(
+            self._active_record(exact=False),
+            ["RELATIVE_STRENGTH_REVERSAL"],
+            "2026-09-03T00:00:00Z",
+        )
+        unvalidated = window.classify_temporal_record(
+            self._active_record(),
+            ["FUNDAMENTAL_REVISION"],
+            "2026-09-03T00:00:00Z",
+        )
+        self.assertEqual(baseline["temporal_status"], window.NO_T0)
+        self.assertEqual(unvalidated["temporal_status"], window.UNVALIDATED)
+
+    def test_p8_10_link_failure_prevents_fresh_classification(self):
+        from clock import candidate_validity_window as window
+
+        result = window.classify_temporal_record(
+            self._active_record(),
+            ["PRICE_CONFIRMATION"],
+            "2026-09-03T00:00:01Z",
+            p8_10_link_failed=True,
+        )
+        self.assertEqual(result["temporal_status"], window.P8_10_LINK_FAILED)
+
+    def test_exact_authority_is_effective_but_opens_no_operational_boundary(self):
+        from clock import candidate_validity_window as window
+
+        validated = window.validate_window_authority("2026-09-02T21:18:58Z")
+        boundary = validated["content"]["authority_boundary"]
+        self.assertEqual(boundary["candidate"], "NONE")
+        self.assertEqual(boundary["capital"], 0)
+        self.assertIsNone(boundary["trade_proposal"])
+        self.assertTrue(all(
+            value is False for key, value in boundary.items()
+            if key not in {"candidate", "capital", "trade_proposal"}
+        ))
+
+    def test_historical_backfill_before_ratification_is_rejected(self):
+        from clock import candidate_validity_window as window
+
+        with self.assertRaisesRegex(
+            window.CandidateValidityWindowError, "AUTHORITY_RATIFICATION_IN_FUTURE"
+        ):
+            window.validate_window_authority("2026-09-02T21:18:57Z")
+
+    def test_real_natural_tip_rebuilds_with_all_authority_closed(self):
+        from clock import candidate_validity_window as window
+
+        tip = window.discover_natural_tip(
+            window.DEFAULT_LIFECYCLE_ROOT, window.DEFAULT_DYNAMIC_ROOT
+        )
+        tip_document = json.loads(tip.read_text(encoding="utf-8"))
+        assessment = window.build_assessment(
+            lifecycle_tip_path=tip,
+            evaluation_at_utc=tip_document["operational_evaluated_at_utc"],
+        )
+        self.assertEqual(
+            sum(assessment["temporal_status_counts"].values()),
+            assessment["candidate_count"],
+        )
+        self.assertEqual(assessment["operational_authority"], AUTHORITY_ALL_FALSE)
+        self.assertTrue(all(
+            value is False for value in assessment["downstream_locks"].values()
+        ))
+        for row in assessment["candidate_assessments"]:
+            self.assertEqual(row["authority"], AUTHORITY_ALL_FALSE)
+            self.assertEqual(
+                row["entry_eligibility_status"], "NOT_EVALUATED_BY_THIS_CONTRACT"
+            )
+
+    def test_workflow_wires_assessment_after_identity(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        identity_index = workflow.index("identity/candidate_identity_observation.py")
+        assessment_index = workflow.index("clock/candidate_validity_window.py")
+        self.assertLess(identity_index, assessment_index)
+        self.assertIn("candidate_validity_window_assessment.json", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()

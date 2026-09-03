@@ -90,6 +90,29 @@ def daily_packet():
     return packet
 
 
+def dynamic_clock_source(*, decision_date="2026-08-26"):
+    report = {"decision_date": decision_date, "review_queue": []}
+    return {
+        "kind": "report",
+        "report": report,
+        "report_sha256": MODULE.payload_sha256(report),
+    }
+
+
+def resign_source(packet):
+    packet["packet_sha256"] = MODULE.payload_sha256(
+        {key: value for key, value in packet.items() if key != "packet_sha256"}
+    )
+    return packet
+
+
+def contract_without_cross_market_flow():
+    contract = copy.deepcopy(MODULE.load_contract())
+    contract["section_order"].remove("CROSS_MARKET_FLOW")
+    del contract["sections"]["CROSS_MARKET_FLOW"]
+    return contract
+
+
 class FlowFirstBriefingTests(unittest.TestCase):
     def test_root_order_is_fixed(self):
         packet = MODULE.build_packet(daily_packet())
@@ -187,6 +210,73 @@ class FlowFirstBriefingTests(unittest.TestCase):
         source["decision_date"] = "2030-01-01"
         with self.assertRaisesRegex(MODULE.FlowFirstBriefingError, "SOURCE_PACKET_SHA_MISMATCH"):
             MODULE.build_packet(source)
+
+    def test_legacy_absence_and_valid_dynamic_clock_remain_readable_without_flow_section(self):
+        contract = contract_without_cross_market_flow()
+        legacy = MODULE.build_packet(daily_packet(), contract)
+        self.assertEqual(
+            legacy["section_order"],
+            ["REGIME", "THEME_ROTATION", "CAPITAL_ACTION", "ASSETS", "ENTRY_EXIT_SIZE"],
+        )
+
+        source = daily_packet()
+        source["frozen_sources"] = {"DYNAMIC_CLOCK": dynamic_clock_source()}
+        valid = MODULE.build_packet(resign_source(source), contract)
+        self.assertEqual(valid["source_daily_packet_sha256"], source["packet_sha256"])
+
+    def test_direct_reader_rejects_resigned_dynamic_clock_identity_tamper(self):
+        valid = dynamic_clock_source()
+        cases = [
+            ([], "SOURCE_DYNAMIC_CLOCK_INVALID:frozen_sources_type", True),
+            ([], "SOURCE_DYNAMIC_CLOCK_INVALID:source_type", False),
+            ({"kind": True}, "SOURCE_DYNAMIC_CLOCK_INVALID:kind_type", False),
+            (
+                {"kind": "unavailable", "value": "extra"},
+                "SOURCE_DYNAMIC_CLOCK_INVALID:unavailable_shape",
+                False,
+            ),
+            (
+                {"kind": "error", "error": "failure"},
+                "SOURCE_DYNAMIC_CLOCK_INVALID:error_shape",
+                False,
+            ),
+            (
+                {"kind": "report", "report": valid["report"]},
+                "SOURCE_DYNAMIC_CLOCK_INVALID:report_shape",
+                False,
+            ),
+            (
+                {**valid, "report_sha256": True},
+                "SOURCE_DYNAMIC_CLOCK_INVALID:report_hash_type",
+                False,
+            ),
+            (
+                {**valid, "report_sha256": "not-a-sha"},
+                "SOURCE_DYNAMIC_CLOCK_INVALID:report_sha256",
+                False,
+            ),
+            (
+                {**valid, "report_sha256": "0" * 64},
+                "SOURCE_DYNAMIC_CLOCK_SHA_MISMATCH",
+                False,
+            ),
+            (
+                dynamic_clock_source(decision_date="2026-08-25"),
+                "SOURCE_DYNAMIC_CLOCK_DATE_MISMATCH",
+                False,
+            ),
+        ]
+        contract = contract_without_cross_market_flow()
+        for frozen_value, error, replaces_frozen_sources in cases:
+            with self.subTest(error=error):
+                source = daily_packet()
+                source["frozen_sources"] = (
+                    frozen_value
+                    if replaces_frozen_sources
+                    else {"DYNAMIC_CLOCK": frozen_value}
+                )
+                with self.assertRaisesRegex(MODULE.FlowFirstBriefingError, error):
+                    MODULE.build_packet(resign_source(source), contract)
 
     def test_all_investment_and_trading_authority_remains_false(self):
         contract = MODULE.load_contract()

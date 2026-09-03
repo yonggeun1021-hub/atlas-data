@@ -882,6 +882,11 @@ APPROVED_TESTS = [
     #   No directory scan/prior-date/alternate-slot fallback; slot/date/revision,
     #   index/packet/rendered hashes and authority=false are independently checked.
     "test/test_daily_briefing_delivery.py",
+    # ★ P8-12 -> briefing_core/2 immutable input-envelope boundary.
+    #   A present frozen Dynamic Clock source keeps exact variant/type/shape,
+    #   canonical report hash, and decision-date identity after outer rehashing.
+    #   Legacy packets without the source remain readable; authority stays false.
+    "test/test_briefing_core_dynamic_clock_source.py",
     # ★ P0-03 06:55 readiness gate — cached overall보다 current raw 날짜를 먼저 본다.
     #   raw가 오늘자면 stale/missing read model을 collection failure로 확대하지 않고
     #   read-model-only repair로 분리한다. truncated raw는 manual inspection으로 닫는다.

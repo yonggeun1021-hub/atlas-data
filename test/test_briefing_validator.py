@@ -384,6 +384,47 @@ class CanonicalDelegation(Base):
         self.assertEqual(self.run_validator()["structural_authority"],
                          [bv.CANONICAL_ORCHESTRATOR, bv.CANONICAL_DELIVERY])
 
+    def test_packet_replacement_after_binding_fails_closed(self):
+        """Arithmetic must use the packet bytes whose Dynamic Clock was checked."""
+        import unittest.mock as mock
+
+        packet_path = (
+            self.repo / "evidence/daily_briefing" / SLOT / DATE / "rev-001/packet.json"
+        )
+        locator_path = self.repo / bf.LOCATOR_PATH
+        real_bind_locator = bv.bf.bind_locator
+
+        def replace_after_binding(repo_root, kst_date, slot):
+            bound = real_bind_locator(repo_root, kst_date, slot)
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+            packet["frozen_sources"] = {"DYNAMIC_CLOCK": []}
+            unsigned = dict(packet)
+            unsigned.pop("packet_sha256")
+            packet["packet_sha256"] = sha(
+                json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+            )
+            packet_bytes = json.dumps(packet, sort_keys=True, indent=2).encode()
+            packet_path.write_bytes(packet_bytes)
+
+            locator = json.loads(locator_path.read_text(encoding="utf-8"))
+            locator["packet_file_sha256"] = sha(packet_bytes)
+            locator["packet_sha256"] = packet["packet_sha256"]
+            locator_path.write_text(
+                json.dumps(locator, sort_keys=True, indent=2), encoding="utf-8"
+            )
+            return bound
+
+        with mock.patch.object(
+            bv.bf, "bind_locator", side_effect=replace_after_binding
+        ):
+            verdict = self.run_validator()
+
+        self.assertEqual(verdict["machine_status"], "HOLD")
+        self.assertIn(
+            "VALIDATED_PACKET_CHANGED_BEFORE_USE",
+            {finding["code"] for finding in verdict["findings"]},
+        )
+
 
 class StructuralFaultsHold(Base):
     def test_tampered_briefing_holds(self):

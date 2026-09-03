@@ -3,6 +3,7 @@
 import ast
 import copy
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -109,6 +110,13 @@ def synthetic_daily():
     }
 
 
+def rehash_daily(packet):
+    value = copy.deepcopy(packet)
+    value.pop("packet_sha256", None)
+    value["packet_sha256"] = MODULE.payload_sha256(value)
+    return value
+
+
 def after_generated(seconds: int = 1) -> str:
     generated = dt.datetime.strptime(
         current_unified()["generated_at"], "%Y-%m-%dT%H:%M:%SZ"
@@ -156,6 +164,81 @@ class OperationalDecisionLineageTests(unittest.TestCase):
         blob_sha = MODULE.hashlib.sha256(PACKET.read_bytes()).hexdigest()
         value = REAL_VALIDATE_DAILY_AT_COMMIT(SOURCE_COMMIT, relative, blob_sha)
         self.assertEqual(value["packet_sha256"], json.loads(PACKET.read_text())["packet_sha256"])
+
+    def test_exact_source_commit_validator_binds_present_dynamic_clock_source(self):
+        legacy = rehash_daily(synthetic_daily())
+        report = {"decision_date": legacy["decision_date"], "candidates": []}
+        valid_source = {
+            "kind": "report",
+            "report_sha256": MODULE.payload_sha256(report),
+            "report": report,
+        }
+        relative = "evidence/daily_briefing/morning/2026-08-27/rev-001/packet.json"
+        completed = subprocess.CompletedProcess([], 0, stdout="")
+
+        def validate(packet):
+            blob = (json.dumps(packet, sort_keys=True) + "\n").encode()
+            REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
+            with mock.patch.object(MODULE, "_git_blob", return_value=blob), mock.patch.object(
+                MODULE, "_materialize_exact_commit"
+            ), mock.patch.object(MODULE.subprocess, "run", return_value=completed):
+                return REAL_VALIDATE_DAILY_AT_COMMIT(
+                    "a" * 40, relative, hashlib.sha256(blob).hexdigest()
+                )
+
+        # Historical records without the field remain readable, while each
+        # approved present variant retains exact native JSON types and shape.
+        self.assertEqual(validate(legacy), legacy)
+        for source in (
+            {"kind": "unavailable"},
+            {"kind": "error", "value": "DynamicClockError:blocked"},
+            valid_source,
+        ):
+            with self.subTest(valid=source):
+                packet = copy.deepcopy(legacy)
+                packet["frozen_sources"] = {"DYNAMIC_CLOCK": source}
+                checked = validate(rehash_daily(packet))
+                self.assertEqual(
+                    checked["frozen_sources"]["DYNAMIC_CLOCK"], source
+                )
+
+        wrong_date_report = {"decision_date": "2026-08-26", "candidates": []}
+        invalid_sources = (
+            ({**valid_source, "kind": True}, "SOURCE_INVALID"),
+            ({**valid_source, "report_sha256": True}, "SOURCE_INVALID"),
+            ({**valid_source, "report_sha256": "A" * 64}, "SOURCE_INVALID"),
+            ({**valid_source, "report_sha256": "0" * 64}, "SOURCE_SHA256_MISMATCH"),
+            ({**valid_source, "extra": None}, "SOURCE_INVALID"),
+            ({"kind": "unavailable", "value": "alias"}, "SOURCE_INVALID"),
+            ({"kind": "error", "value": True}, "SOURCE_INVALID"),
+            ({
+                "kind": "report",
+                "report_sha256": MODULE.payload_sha256(wrong_date_report),
+                "report": wrong_date_report,
+            }, "SOURCE_DECISION_DATE_MISMATCH"),
+        )
+        for source, code in invalid_sources:
+            with self.subTest(code=code, source=source):
+                packet = copy.deepcopy(legacy)
+                packet["frozen_sources"] = {"DYNAMIC_CLOCK": source}
+                with self.assertRaisesRegex(
+                    MODULE.OperationalDecisionLineageError, code
+                ):
+                    validate(rehash_daily(packet))
+
+        aliased_date_report = {"decision_date": True, "candidates": []}
+        aliased_date_packet = copy.deepcopy(legacy)
+        aliased_date_packet["decision_date"] = True
+        aliased_date_packet["frozen_sources"] = {"DYNAMIC_CLOCK": {
+            "kind": "report",
+            "report_sha256": MODULE.payload_sha256(aliased_date_report),
+            "report": aliased_date_report,
+        }}
+        with self.assertRaisesRegex(
+            MODULE.OperationalDecisionLineageError,
+            "SOURCE_DECISION_DATE_MISMATCH",
+        ):
+            validate(rehash_daily(aliased_date_packet))
 
     def test_committed_history_revalidates_at_each_snapshot_source_commit(self):
         self.assertTrue(HISTORICAL_RECORDS)

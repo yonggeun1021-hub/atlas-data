@@ -1,0 +1,87 @@
+{
+  "schema_version": "candidate_validity_window_authority_content/1",
+  "rule_id": "P8-12-CANDIDATE-VALIDITY-WINDOW",
+  "rule_version": "1",
+  "scope": "TEMPORAL_FRESHNESS_ONLY",
+  "eligible_trigger_families": [
+    "FLOW_REVERSAL",
+    "INVALIDATION_TRIGGER",
+    "PRICE_CONFIRMATION",
+    "RELATIVE_STRENGTH_REVERSAL"
+  ],
+  "unvalidated_trigger_families": [
+    "CATALYST_APPROACH",
+    "EXPECTATION_DISLOCATION",
+    "FUNDAMENTAL_REVISION"
+  ],
+  "window": {
+    "elapsed_seconds": 172800,
+    "interval": "[t0,t0+172800)",
+    "clock": "UTC_ELAPSED_SECONDS",
+    "endpoint_status": "STALE_TEMPORAL"
+  },
+  "t0_policy": {
+    "source": "LATEST_QUALIFYING_NATURAL_LIFECYCLE_TRANSITION_OPERATIONAL_EVALUATED_AT_UTC",
+    "qualifying_events": [
+      "CONTINUING_CHANGED",
+      "FIRST_SEEN_EXACT_FORWARD_ONLY",
+      "REAPPEARED_OBSERVED_FORWARD_ONLY"
+    ],
+    "non_refreshing_events": [
+      "CONTINUING_UNCHANGED"
+    ],
+    "non_refreshing_evidence": [
+      "DUPLICATE_EVIDENCE_BASIS_EVALUATION_ONLY",
+      "LOCAL_REPRODUCTION_NOT_OPERATIONAL_SAMPLE",
+      "MANUAL_OPERATIONAL_SAMPLE"
+    ],
+    "baseline_without_exact_forward_t0": "NOT_COMPUTABLE_NO_EXACT_FORWARD_T0",
+    "historical_backfill_authorized": false
+  },
+  "absence_policy": {
+    "first_absence": "MISSING_INVALID",
+    "still_absent": "MISSING_INVALID",
+    "grace_period_seconds": 0,
+    "reappearance_starts_new_t0": true,
+    "prior_remaining_time_carryover": false
+  },
+  "source_validation": {
+    "natural_chain_required": true,
+    "exact_operational_timestamp_required": true,
+    "append_only_parent_chain_required": true,
+    "canonical_bytes_and_hashes_required": true,
+    "point_in_time_order_required": true,
+    "candidate_identity_observation_revalidation_required": true,
+    "p8_10_authority_structure_revalidation_required": true
+  },
+  "fail_closed_conditions": [
+    "AUTHORITY_INVALID",
+    "CANDIDATE_IDENTITY_OBSERVATION_INVALID",
+    "LIFECYCLE_CHAIN_INVALID",
+    "LIFECYCLE_NOT_NATURAL_CHAIN_TIP",
+    "P8_10_AUTHORITY_STRUCTURE_INVALID",
+    "SOURCE_OR_PARENT_MISSING",
+    "SOURCE_HASH_OR_LINK_MISMATCH",
+    "SOURCE_IDENTITY_DRIFT",
+    "SOURCE_PIT_OR_TIME_INVALID"
+  ],
+  "authority_boundary": {
+    "candidate": "NONE",
+    "capital": 0,
+    "trade_proposal": null,
+    "canonical_security_identity_authorized": false,
+    "risk_capacity_authorized": false,
+    "p5_06_authorized": false,
+    "p7_08_authorized": false,
+    "p8_13_authorized": false,
+    "stage_promotion_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "broker_authorized": false,
+    "real_capital_authorized": false,
+    "live_operation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

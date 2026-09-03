@@ -545,6 +545,65 @@ class ChainAndLedger(Base):
             bf.seal(self.repo, DATE, "morning", self.consume)
         self.assertEqual(ctx.exception.code, "FINALIZATION_LOCATOR_IDENTITY_MISMATCH")
 
+    def test_seal_rejects_resigned_dynamic_clock_identity_aliases(self):
+        packet_path = (
+            self.repo / "evidence/daily_briefing" / SLOT / DATE / "rev-001/packet.json"
+        )
+        locator_path = self.repo / bf.LOCATOR_PATH
+        packet = json.loads(packet_path.read_text())
+        report = {
+            "decision_date": DATE,
+            "mode": "OPERATIONAL",
+            "by_market": {"BTC": {"raw_trigger_count": 0}},
+        }
+        packet["frozen_sources"] = {
+            "DYNAMIC_CLOCK": {
+                "kind": "report",
+                "report_sha256": sha(bf._canonical(report)),
+                "report": report,
+            }
+        }
+
+        for field, replacement, code in (
+            ("report_sha256", True, "FINALIZATION_DYNAMIC_CLOCK_SOURCE_INVALID"),
+            (
+                "report_sha256",
+                "0" * 64,
+                "FINALIZATION_DYNAMIC_CLOCK_SOURCE_SHA_MISMATCH",
+            ),
+            (
+                "report.decision_date",
+                "2026-08-26",
+                "FINALIZATION_DYNAMIC_CLOCK_SOURCE_DATE_MISMATCH",
+            ),
+        ):
+            with self.subTest(field=field, replacement=replacement):
+                tampered = json.loads(json.dumps(packet))
+                if field == "report.decision_date":
+                    tampered["frozen_sources"]["DYNAMIC_CLOCK"]["report"][
+                        "decision_date"
+                    ] = replacement
+                    tampered["frozen_sources"]["DYNAMIC_CLOCK"]["report_sha256"] = sha(
+                        bf._canonical(tampered["frozen_sources"]["DYNAMIC_CLOCK"]["report"])
+                    )
+                else:
+                    tampered["frozen_sources"]["DYNAMIC_CLOCK"][field] = replacement
+                packet_bytes = json.dumps(tampered, sort_keys=True, indent=2).encode()
+                packet_path.write_bytes(packet_bytes)
+                locator = json.loads(locator_path.read_text())
+                locator["packet_file_sha256"] = sha(packet_bytes)
+                locator_path.write_text(json.dumps(locator, sort_keys=True, indent=2))
+                with self.assertRaises(bf.FinalizationError) as ctx:
+                    self._seal()
+                self.assertEqual(ctx.exception.code, code)
+
+        packet_bytes = json.dumps(packet, sort_keys=True, indent=2).encode()
+        packet_path.write_bytes(packet_bytes)
+        locator = json.loads(locator_path.read_text())
+        locator["packet_file_sha256"] = sha(packet_bytes)
+        locator_path.write_text(json.dumps(locator, sort_keys=True, indent=2))
+        self.assertEqual(self._seal()["source"]["packet_path"], locator["packet_path"])
+
     def test_validation_must_name_its_payload(self):
         self._seal()
         with self.assertRaises(bf.FinalizationError) as ctx:

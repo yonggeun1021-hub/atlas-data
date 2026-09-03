@@ -26,6 +26,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_ROOT = ROOT / "evidence" / "operational" / "decision_change_lineage" / "records"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 RAW_DAILY_PREFIX = (
     "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/"
@@ -55,6 +56,77 @@ def canonical_json(value) -> str:
 
 def payload_sha256(value) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _validate_dynamic_clock_frozen_source(packet: dict) -> None:
+    """Validate a present P8-12 source without rejecting legacy packets."""
+    frozen_sources = packet.get("frozen_sources")
+    if frozen_sources is None:
+        return
+    if type(frozen_sources) is not dict:  # noqa: E721 - exact JSON boundary
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:frozen_sources_type"
+        )
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        return
+    source = frozen_sources["DYNAMIC_CLOCK"]
+    if type(source) is not dict:  # noqa: E721 - exact JSON boundary
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:source_type"
+        )
+    kind = source.get("kind")
+    if type(kind) is not str:  # noqa: E721 - reject bool/string aliases
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:kind_type"
+        )
+    if kind == "unavailable":
+        if set(source) != {"kind"}:
+            raise OperationalDecisionLineageError(
+                "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:unavailable_shape"
+            )
+        return
+    if kind == "error":
+        if set(source) != {"kind", "value"} or type(source.get("value")) is not str:
+            raise OperationalDecisionLineageError(
+                "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:error_shape"
+            )
+        return
+    if kind != "report" or set(source) != {"kind", "report_sha256", "report"}:
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:report_shape"
+        )
+    report = source.get("report")
+    report_sha256 = source.get("report_sha256")
+    if type(report) is not dict or type(report_sha256) is not str:
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:report_hash_type"
+        )
+    if SHA256_RE.fullmatch(report_sha256) is None:
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_INVALID:report_sha256"
+        )
+    if payload_sha256(report) != report_sha256:
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_SHA256_MISMATCH"
+        )
+    decision_date = packet.get("decision_date")
+    if type(decision_date) is not str:  # noqa: E721 - exact JSON boundary
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_DECISION_DATE_MISMATCH"
+        )
+    try:
+        parsed_decision_date = dt.date.fromisoformat(decision_date)
+    except ValueError:
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_DECISION_DATE_MISMATCH"
+        ) from None
+    if (
+        parsed_decision_date.isoformat() != decision_date
+        or report.get("decision_date") != decision_date
+    ):
+        raise OperationalDecisionLineageError(
+            "DAILY_DYNAMIC_CLOCK_SOURCE_DECISION_DATE_MISMATCH"
+        )
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -229,6 +301,7 @@ def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> d
     unsigned.pop("packet_sha256", None)
     if payload_sha256(unsigned) != digest:
         raise OperationalDecisionLineageError("SOURCE_PACKET_SHA256_MISMATCH")
+    _validate_dynamic_clock_frozen_source(value)
     rows = value.get("components")
     if not isinstance(rows, list):
         raise OperationalDecisionLineageError("DAILY_COMPONENTS_NOT_LIST")

@@ -464,6 +464,47 @@ DAILY_PACKET_STATUSES = {
 }
 
 
+def _validate_dynamic_clock_frozen_source(
+    frozen_sources: dict, expected_date: str
+) -> None:
+    """Bind a present P8-12 publication snapshot to its exact report bytes.
+
+    Older immutable delivery packets predate this source and remain readable.
+    Once the producer publishes ``DYNAMIC_CLOCK``, however, the external
+    consumer must not accept a resigned packet that changes either the
+    snapshot variant or the report/hash identity pair.
+    """
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        return
+    source = frozen_sources["DYNAMIC_CLOCK"]
+    if type(source) is not dict:  # noqa: E721 - exact JSON object boundary
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "source_type")
+    kind = source.get("kind")
+    if type(kind) is not str:  # noqa: E721 - reject non-string JSON aliases
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "kind_type")
+    if kind == "unavailable":
+        if set(source) != {"kind"}:
+            fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "unavailable_shape")
+        return
+    if kind == "error":
+        if set(source) != {"kind", "value"} or type(source.get("value")) is not str:
+            fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "error_shape")
+        return
+    if kind != "report" or set(source) != {"kind", "report_sha256", "report"}:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "report_shape")
+    report = source.get("report")
+    report_sha256 = source.get("report_sha256")
+    if type(report) is not dict or type(report_sha256) is not str:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "report_hash_type")
+    if SHA256.fullmatch(report_sha256) is None:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID", "report_sha256")
+    observed_sha256 = hashlib.sha256(canonical_json(report).encode("utf-8")).hexdigest()
+    if observed_sha256 != report_sha256:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_SHA_MISMATCH")
+    if report.get("decision_date") != expected_date:
+        fail("DELIVERY_DYNAMIC_CLOCK_SOURCE_DATE_MISMATCH")
+
+
 def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str) -> None:
     """Validate the immutable delivery packet without consulting local state.
 
@@ -555,6 +596,7 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         packet.get("unresolved_boundaries"), list
     ):
         fail("DELIVERY_PACKET_BOUNDARY_FIELDS_INVALID")
+    _validate_dynamic_clock_frozen_source(packet["frozen_sources"], expected_date)
 
 
 def _fetch_record(record: dict, get, nonce_factory) -> bytes:

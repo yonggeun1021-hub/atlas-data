@@ -88,7 +88,9 @@ def _run(repo_root: Path, args: list[str]) -> tuple[int, str]:
     return proc.returncode, (proc.stderr or proc.stdout or "").strip()[:2000]
 
 
-def check_canonical_structure(repo_root: Path, kst_date: str, slot: str) -> list[Finding]:
+def check_canonical_structure(
+    repo_root: Path, kst_date: str, slot: str
+) -> tuple[list[Finding], dict | None]:
     """Delegate structural validation to the production H-24 path.
 
     `daily_orchestrator.py validate` recomputes the packet's own
@@ -107,13 +109,13 @@ def check_canonical_structure(repo_root: Path, kst_date: str, slot: str) -> list
         return [_finding(
             "CANONICAL_VALIDATOR_UNAVAILABLE", "STRUCTURAL",
             f"canonical structural validators are absent ({missing}); refusing to "
-            "substitute a weaker local implementation")]
+            "substitute a weaker local implementation")], None
 
     try:
         locator = _load(repo_root / bf.LOCATOR_PATH)
         packet_path = locator["packet_path"]
     except (OSError, json.JSONDecodeError, KeyError) as exc:
-        return [_finding("FINALIZATION_LOCATOR_UNREADABLE", "STRUCTURAL", str(exc))]
+        return [_finding("FINALIZATION_LOCATOR_UNREADABLE", "STRUCTURAL", str(exc))], None
 
     code, detail = _run(repo_root, [CANONICAL_ORCHESTRATOR, "validate", packet_path])
     if code != 0:
@@ -127,11 +129,48 @@ def check_canonical_structure(repo_root: Path, kst_date: str, slot: str) -> list
                                  detail or f"exit {code}", validator=CANONICAL_DELIVERY))
 
     # The gate's own byte-binding contract, which the canonical path does not cover.
+    bound = None
     try:
-        bf.bind_locator(repo_root, kst_date, slot)
+        bound = bf.bind_locator(repo_root, kst_date, slot)
     except bf.FinalizationError as exc:
         findings.append(_finding(exc.code, "STRUCTURAL", exc.message))
-    return findings
+    return findings, bound
+
+
+def load_validated_packet(repo_root: Path, bound: dict | None) -> tuple[list[Finding], dict | None]:
+    """Freeze the exact packet bytes accepted by ``bind_locator()``.
+
+    The canonical subprocesses and finalization binding validate path-backed
+    bytes.  Downstream checks must not reread a replacement locator/packet pair
+    after that point.  Matching the in-memory locator's byte hash proves this
+    snapshot is the same packet whose present ``DYNAMIC_CLOCK`` type, shape,
+    report SHA, and decision date were checked by ``bind_locator()``.
+    """
+    if bound is None:
+        return [], None
+    locator = bound["locator"]
+    try:
+        packet_bytes = (repo_root / locator["packet_path"]).read_bytes()
+    except (OSError, KeyError) as exc:
+        return [_finding(
+            "VALIDATED_PACKET_CHANGED_BEFORE_USE", "STRUCTURAL",
+            f"validated packet is no longer readable: {type(exc).__name__}")], None
+    actual = bf._sha256(packet_bytes)
+    if actual != locator.get("packet_file_sha256"):
+        return [_finding(
+            "VALIDATED_PACKET_CHANGED_BEFORE_USE", "STRUCTURAL",
+            "packet bytes changed after finalization binding")], None
+    try:
+        packet = json.loads(packet_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return [_finding(
+            "VALIDATED_PACKET_CHANGED_BEFORE_USE", "STRUCTURAL",
+            f"validated packet became unreadable JSON: {type(exc).__name__}")], None
+    if type(packet) is not dict:  # noqa: E721 - exact JSON boundary
+        return [_finding(
+            "VALIDATED_PACKET_CHANGED_BEFORE_USE", "STRUCTURAL",
+            "validated packet is no longer a JSON object")], None
+    return [], packet
 
 
 def check_payload_binding(repo_root: Path, kst_date: str, slot: str) -> tuple[list[Finding], dict | None]:
@@ -165,12 +204,19 @@ def check_payload_binding(repo_root: Path, kst_date: str, slot: str) -> tuple[li
     return findings, draft
 
 
-def check_arithmetic(repo_root: Path, kst_date: str, slot: str) -> list[Finding]:
+def check_arithmetic(
+    repo_root: Path,
+    kst_date: str,
+    slot: str,
+    *,
+    locator: dict | None,
+    packet: dict | None,
+) -> list[Finding]:
     """Arithmetic over machine-written fields -- not figures in prose."""
     findings: list[Finding] = []
+    if locator is None or packet is None:
+        return findings
     try:
-        locator = _load(repo_root / bf.LOCATOR_PATH)
-        packet = _load(repo_root / locator["packet_path"])
         index = _load(repo_root / locator["index_path"])
     except (OSError, json.JSONDecodeError, KeyError):
         return findings
@@ -382,8 +428,17 @@ def collect_post_delivery_inputs(repo_root: Path, kst_date: str, slot: str) -> l
 def validate(repo_root: Path, kst_date: str, slot: str) -> dict:
     payload_findings, draft = check_payload_binding(repo_root, kst_date, slot)
     findings = list(payload_findings)
-    findings += check_canonical_structure(repo_root, kst_date, slot)
-    findings += check_arithmetic(repo_root, kst_date, slot)
+    structure_findings, bound = check_canonical_structure(repo_root, kst_date, slot)
+    findings += structure_findings
+    snapshot_findings, packet = load_validated_packet(repo_root, bound)
+    findings += snapshot_findings
+    findings += check_arithmetic(
+        repo_root,
+        kst_date,
+        slot,
+        locator=bound["locator"] if bound is not None else None,
+        packet=packet,
+    )
     findings += check_dates(repo_root, kst_date, slot, draft)
     findings += check_ssot_cross_reference(repo_root, kst_date)
     grade_findings, grade_unverified = check_evidence_grades(repo_root, draft)

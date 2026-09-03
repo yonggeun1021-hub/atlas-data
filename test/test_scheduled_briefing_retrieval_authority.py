@@ -164,6 +164,33 @@ class AuthorityRepo:
             ["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True
         ).strip()
 
+    def commit_dynamic_clock_source(self, source: object, message: str) -> str:
+        locator_path = self.root / "data/briefing/daily_briefing_sources.json"
+        locator = json.loads(locator_path.read_text())
+        packet_path = self.root / locator["packet_path"]
+        packet = json.loads(packet_path.read_text())
+        packet["frozen_sources"] = {"DYNAMIC_CLOCK": source}
+        unsigned = copy.deepcopy(packet)
+        unsigned.pop("packet_sha256", None)
+        packet_sha = hashlib.sha256(
+            M.canonical_json(unsigned).encode("utf-8")
+        ).hexdigest()
+        packet["packet_sha256"] = packet_sha
+        write_json(packet_path, packet)
+
+        index_path = self.root / locator["index_path"]
+        index = json.loads(index_path.read_text())
+        index["revisions"][-1]["packet_sha256"] = packet_sha
+        write_json(index_path, index)
+
+        locator["packet_sha256"] = packet_sha
+        locator["packet_file_sha256"] = hashlib.sha256(
+            packet_path.read_bytes()
+        ).hexdigest()
+        locator["index_sha256"] = hashlib.sha256(index_path.read_bytes()).hexdigest()
+        write_json(locator_path, locator)
+        return self.commit_all(message)
+
     def close(self):
         self.temp.cleanup()
 
@@ -208,6 +235,73 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         self.assertEqual(len(envelope["delivery_artifacts"]), 4)
         for record in envelope["delivery_artifacts"]:
             self.assertIn(f"/{self.repo.commit}/", record["immutable_url"])
+
+    def test_legacy_packet_without_dynamic_clock_source_remains_readable(self):
+        self.assertNotIn(
+            "frozen_sources",
+            json.loads(subprocess.check_output([
+                "git", "-C", str(self.repo.root), "show",
+                f"{self.repo.commit}:evidence/daily_briefing/morning/{DATE}/rev-001/packet.json",
+            ])),
+        )
+        self.assertEqual(self.build()["delivery_locator"]["decision_date"], DATE)
+
+    def test_present_dynamic_clock_source_requires_exact_identity(self):
+        report = {"decision_date": DATE, "candidates": []}
+        report_sha256 = hashlib.sha256(
+            M.canonical_json(report).encode("utf-8")
+        ).hexdigest()
+        valid = {
+            "kind": "report",
+            "report_sha256": report_sha256,
+            "report": report,
+        }
+        commit = self.repo.commit_dynamic_clock_source(valid, "valid-dynamic-clock")
+        self.assertEqual(self.build(commit=commit)["source_commit"], commit)
+
+        cases = (
+            ({**valid, "kind": True}, "SOURCE_INVALID"),
+            ({**valid, "report_sha256": True}, "SOURCE_INVALID"),
+            ({**valid, "report_sha256": "0" * 64}, "SOURCE_SHA_MISMATCH"),
+            ({**valid, "extra": None}, "SOURCE_INVALID"),
+            ({"kind": "unavailable", "value": "alias"}, "SOURCE_INVALID"),
+            ({"kind": "error", "value": True}, "SOURCE_INVALID"),
+        )
+        for source, code in cases:
+            with self.subTest(code=code, source=source):
+                repo = AuthorityRepo()
+                try:
+                    tampered_commit = repo.commit_dynamic_clock_source(
+                        source, f"dynamic-clock-{code.lower()}"
+                    )
+                    with self.assertRaisesRegex(M.ScheduledAuthorityError, code):
+                        M.build_envelope(
+                            repo.root, tampered_commit, "morning", repo.decision_date
+                        )
+                finally:
+                    repo.close()
+
+        wrong_date_report = {"decision_date": "2026-08-24", "candidates": []}
+        wrong_date = {
+            "kind": "report",
+            "report_sha256": hashlib.sha256(
+                M.canonical_json(wrong_date_report).encode("utf-8")
+            ).hexdigest(),
+            "report": wrong_date_report,
+        }
+        repo = AuthorityRepo()
+        try:
+            tampered_commit = repo.commit_dynamic_clock_source(
+                wrong_date, "dynamic-clock-wrong-date"
+            )
+            with self.assertRaisesRegex(
+                M.ScheduledAuthorityError, "SOURCE_DATE_MISMATCH"
+            ):
+                M.build_envelope(
+                    repo.root, tampered_commit, "morning", repo.decision_date
+                )
+        finally:
+            repo.close()
 
     def test_prepublication_commit_without_h24_locator_cannot_be_advertised(self):
         with self.assertRaisesRegex(M.ScheduledAuthorityError, "GIT_READ_FAILED"):

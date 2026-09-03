@@ -1,0 +1,52 @@
+{
+  "schema_version": "candidate_validity_window_authority_approval/1",
+  "source_kind": "SUPERVISING_CIO_DECISION_UNDER_EXPLICIT_USER_DELEGATION",
+  "source_thread_id": "01a0485e-777d-7462-9454-f602a86edcd9",
+  "implementation_task_id": "01a063f3-7a08-7cf3-9ed1-4ec96dce4e96",
+  "approved_recommendation": "A",
+  "rule_id": "P8-12-CANDIDATE-VALIDITY-WINDOW",
+  "rule_version": "1",
+  "ratified_at": "2026-09-02T21:18:58Z",
+  "effective_from": "2026-09-02T21:18:58Z",
+  "approved_scope": {
+    "eligible_trigger_families": [
+      "FLOW_REVERSAL",
+      "INVALIDATION_TRIGGER",
+      "PRICE_CONFIRMATION",
+      "RELATIVE_STRENGTH_REVERSAL"
+    ],
+    "window_seconds": 172800,
+    "interval": "[t0,t0+172800)",
+    "t0": "LATEST_VALID_NATURAL_SEMANTIC_TRANSITION_OPERATIONAL_EVALUATED_AT_UTC",
+    "unchanged_manual_local_duplicate_refresh": false,
+    "first_absence": "MISSING_INVALID",
+    "reappearance_starts_new_t0": true,
+    "prior_remaining_time_carryover": false
+  },
+  "empirical_basis": {
+    "natural_artifacts": 11,
+    "distinct_transitions": 10,
+    "observation_span_seconds": 600938,
+    "semantic_changes": 197,
+    "first_absences": 81,
+    "reappearances": 13,
+    "observation_gaps_at_or_below_48h": "9/10",
+    "window_basis": "EXISTING_DYNAMIC_CLOCK_TWO_DAY_SHORT_TRIGGER_POLICY_NOT_CLAIMED_CANDIDATE_LIFETIME"
+  },
+  "unvalidated_trigger_families": [
+    "CATALYST_APPROACH",
+    "EXPECTATION_DISLOCATION",
+    "FUNDAMENTAL_REVISION"
+  ],
+  "not_approved": [
+    "CANONICAL_SECURITY_IDENTITY_AUTHORITY",
+    "P8_10_REFLECTION_CLASSIFICATION_OR_NUMERIC_THRESHOLDS",
+    "P5_06_OR_P7_08_RISK_OR_POSITION_POLICY",
+    "P8_13_ENTRY_PROPOSAL",
+    "CAPITAL_ALLOCATION",
+    "POSITION_SIZE",
+    "ORDER_OR_BROKER_ACTION",
+    "REAL_LIVE_PRODUCTION_OR_TRADING_AUTHORITY"
+  ],
+  "historical_backfill_authorized": false
+}

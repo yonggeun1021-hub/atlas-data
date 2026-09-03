@@ -154,6 +154,11 @@ def consume(repo_root: Path, expected_slot: str, expected_date: str) -> dict:
     if locator != rebuilt:
         _fail("DELIVERY_LOCATOR_DRIFT_OR_TAMPER")
     packet = _read_json(repo_root / Path(locator["packet_path"]))
+    # build_locator() validates the packet it reads while rebuilding the
+    # locator, but this is a second read.  Validate the exact in-memory value
+    # consumed below so a local replacement in that interval cannot bypass
+    # frozen-source identity/type/SHA/date checks.
+    validate_packet(packet)
     by_id = {row.get("component_id"): row for row in packet.get("components", [])}
     components = []
     for component_id in DELIVERED_COMPONENTS:

@@ -119,6 +119,10 @@ jobs:
         env:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}
         run: python3 identity/candidate_identity_observation.py --observation-trigger-kind "$OBSERVATION_TRIGGER_KIND"
+      - name: Assess ratified temporal-only Candidate Validity Window
+        env:
+          EVALUATION_AT_UTC: ${{ steps.decision_date.outputs.evaluation_at_utc }}
+        run: python3 clock/candidate_validity_window.py --evaluation-at-utc "$EVALUATION_AT_UTC" --output evidence/operational/dynamic_clock/candidate_validity_window_assessment.json
       - name: Build the zero-capital P5-P7-P8 human-review surface
         env:
           OBSERVATION_TRIGGER_KIND: ${{ github.event_name == 'workflow_run' && 'UPSTREAM_WORKFLOW_RUN' || 'MANUAL_WORKFLOW_DISPATCH' }}

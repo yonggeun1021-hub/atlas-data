@@ -286,6 +286,60 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
         ):
             CONSUMER._validate_pinned_delivery_packet(packet, DATE, "morning")
 
+    def test_present_dynamic_clock_source_requires_exact_report_sha_identity(self):
+        packet = json.loads((
+            self.fixture.root
+            / f"evidence/daily_briefing/morning/{DATE}/rev-001/packet.json"
+        ).read_text())
+        report = {
+            "decision_date": DATE,
+            "mode": "OPERATIONAL",
+            "by_market": {"BTC": {"raw_trigger_count": 0}},
+        }
+        packet["frozen_sources"]["DYNAMIC_CLOCK"] = {
+            "kind": "report",
+            "report_sha256": payload_sha256(report),
+            "report": report,
+        }
+        packet["packet_sha256"] = payload_sha256({
+            key: value for key, value in packet.items() if key != "packet_sha256"
+        })
+        CONSUMER._validate_pinned_delivery_packet(packet, DATE, "morning")
+
+        for replacement, code in (
+            (True, "DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID"),
+            ("0" * 64, "DELIVERY_DYNAMIC_CLOCK_SOURCE_SHA_MISMATCH"),
+        ):
+            with self.subTest(replacement=replacement):
+                tampered = copy.deepcopy(packet)
+                tampered["frozen_sources"]["DYNAMIC_CLOCK"][
+                    "report_sha256"
+                ] = replacement
+                tampered["packet_sha256"] = payload_sha256({
+                    key: value
+                    for key, value in tampered.items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, code):
+                    CONSUMER._validate_pinned_delivery_packet(
+                        tampered, DATE, "morning"
+                    )
+
+        wrong_report_type = copy.deepcopy(packet)
+        wrong_report_type["frozen_sources"]["DYNAMIC_CLOCK"]["report"] = True
+        wrong_report_type["packet_sha256"] = payload_sha256({
+            key: value
+            for key, value in wrong_report_type.items()
+            if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            CONSUMER.ScheduledConsumerError,
+            "DELIVERY_DYNAMIC_CLOCK_SOURCE_INVALID",
+        ):
+            CONSUMER._validate_pinned_delivery_packet(
+                wrong_report_type, DATE, "morning"
+            )
+
     def test_first_revision_missing_is_fail_closed(self):
         self.fixture.responses.pop(self.fixture.envelope["bootstrap_url"])
         with self.assertRaisesRegex(CONSUMER.ScheduledConsumerError, "RETRIEVAL_AUTHORITY_UNAVAILABLE"):

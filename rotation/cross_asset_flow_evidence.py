@@ -12,11 +12,13 @@ import copy
 import datetime as dt
 import hashlib
 import json
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config/cross_asset_flow_evidence_contract.json"
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 class CrossAssetFlowEvidenceError(ValueError):
@@ -138,6 +140,56 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return _validate_contract(value)
 
 
+def _validate_dynamic_clock_frozen_source(packet: dict, decision_date: dt.date) -> None:
+    """Bind a present P8-12 source while keeping legacy packets readable."""
+    frozen_sources = packet.get("frozen_sources")
+    if frozen_sources is None:
+        return
+    if type(frozen_sources) is not dict:  # noqa: E721 - exact JSON boundary
+        raise CrossAssetFlowEvidenceError(
+            "SOURCE_DYNAMIC_CLOCK_INVALID:frozen_sources_type"
+        )
+    if "DYNAMIC_CLOCK" not in frozen_sources:
+        return
+    source = frozen_sources["DYNAMIC_CLOCK"]
+    if type(source) is not dict:  # noqa: E721 - exact JSON boundary
+        raise CrossAssetFlowEvidenceError("SOURCE_DYNAMIC_CLOCK_INVALID:source_type")
+    kind = source.get("kind")
+    if type(kind) is not str:  # noqa: E721 - reject bool/string aliases
+        raise CrossAssetFlowEvidenceError("SOURCE_DYNAMIC_CLOCK_INVALID:kind_type")
+    if kind == "unavailable":
+        if set(source) != {"kind"}:
+            raise CrossAssetFlowEvidenceError(
+                "SOURCE_DYNAMIC_CLOCK_INVALID:unavailable_shape"
+            )
+        return
+    if kind == "error":
+        if (
+            set(source) != {"kind", "value"}
+            or type(source.get("value")) is not str
+        ):
+            raise CrossAssetFlowEvidenceError(
+                "SOURCE_DYNAMIC_CLOCK_INVALID:error_shape"
+            )
+        return
+    if kind != "report" or set(source) != {"kind", "report_sha256", "report"}:
+        raise CrossAssetFlowEvidenceError("SOURCE_DYNAMIC_CLOCK_INVALID:report_shape")
+    report = source.get("report")
+    report_sha256 = source.get("report_sha256")
+    if type(report) is not dict or type(report_sha256) is not str:
+        raise CrossAssetFlowEvidenceError(
+            "SOURCE_DYNAMIC_CLOCK_INVALID:report_hash_type"
+        )
+    if SHA256_RE.fullmatch(report_sha256) is None:
+        raise CrossAssetFlowEvidenceError(
+            "SOURCE_DYNAMIC_CLOCK_INVALID:report_sha256"
+        )
+    if payload_sha256(report) != report_sha256:
+        raise CrossAssetFlowEvidenceError("SOURCE_DYNAMIC_CLOCK_SHA_MISMATCH")
+    if report.get("decision_date") != decision_date.isoformat():
+        raise CrossAssetFlowEvidenceError("SOURCE_DYNAMIC_CLOCK_DATE_MISMATCH")
+
+
 def _verify_daily_packet(packet: object, contract: dict) -> tuple[dict[str, dict], dt.date, dt.datetime]:
     if not isinstance(packet, dict):
         raise CrossAssetFlowEvidenceError("SOURCE_PACKET_NOT_OBJECT")
@@ -151,6 +203,7 @@ def _verify_daily_packet(packet: object, contract: dict) -> tuple[dict[str, dict
     digest = unsigned.pop("packet_sha256", None)
     if not isinstance(digest, str) or payload_sha256(unsigned) != digest:
         raise CrossAssetFlowEvidenceError("SOURCE_PACKET_SHA_MISMATCH")
+    _validate_dynamic_clock_frozen_source(packet, decision_date)
     components = packet.get("components")
     if not isinstance(components, list) or not all(isinstance(row, dict) for row in components):
         raise CrossAssetFlowEvidenceError("SOURCE_COMPONENTS_INVALID")
