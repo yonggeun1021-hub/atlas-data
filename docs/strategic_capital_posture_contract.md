@@ -8,6 +8,14 @@ through its original validator again at the consumption boundary; schema,
 status, hash, time, and closed execution authority are not trusted merely
 because a JSON object exists.
 
+Point-in-time validation uses each source contract's effective availability
+field, not only its date label.  P6 is bounded by its top-level `generated_at`;
+the self-validating P7 concentration, market/theme, crypto, and planned-loss
+packets are bounded by their embedded input `generated_at_utc`; currency
+exposure is bounded by `available_at`.  A semantically valid upstream packet
+whose effective availability is later than the P7-12 consumer `generated_at`
+fails closed as `SOURCE_FROM_FUTURE`.
+
 The current repository has no ratified P1 Regime Decision, P2 cross-market
 Flow/Rotation production contract, or Strategic Capital Posture policy.
 Consequently the only valid runtime result is
