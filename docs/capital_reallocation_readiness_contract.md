@@ -12,3 +12,10 @@ The fixed output is action `NONE`, capital `0`, null maintain/reduce/add/probe
 amounts, null expected proceeds, null reallocation/trade/order proposals and
 all authority false. The P7-11 packet is semantically rebuilt from its exact
 P8-13 and historical-audit inputs before use.
+
+Contract values, the validated P7-11 summary and authority, and the final
+P7-10 packet are also JSON-type exact. Boolean `false` cannot stand in for
+numeric zero, and numeric `0`/`1` cannot stand in for authority booleans. A
+re-signed packet using those Python equality aliases fails closed without
+changing the `capital_reallocation_readiness/1` schema or opening any policy,
+capital, proposal, action, order, Production, or trading authority.

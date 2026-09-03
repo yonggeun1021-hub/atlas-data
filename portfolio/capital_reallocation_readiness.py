@@ -88,6 +88,23 @@ class CapitalReallocationReadinessError(ValueError):
     pass
 
 
+def _exact_json_equal(actual: object, expected: object) -> bool:
+    """Compare JSON values without Python's bool/number aliases."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _exact_json_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _exact_json_equal(left, right)
+            for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _load_json(path: Path) -> dict:
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
@@ -109,11 +126,13 @@ def validate_contract(contract: dict) -> dict:
         or contract["approval_status"] != "PROPOSED_UNRATIFIED"
     ):
         raise CapitalReallocationReadinessError("CONTRACT_AUTHORITY_NOT_LOCKED")
-    if contract["input_axes"] != EXPECTED_INPUT_AXES:
+    if not _exact_json_equal(contract["input_axes"], EXPECTED_INPUT_AXES):
         raise CapitalReallocationReadinessError("INPUT_AXES_DRIFT")
-    if contract["proposal_boundary"] != EXPECTED_PROPOSAL_BOUNDARY:
+    if not _exact_json_equal(
+        contract["proposal_boundary"], EXPECTED_PROPOSAL_BOUNDARY
+    ):
         raise CapitalReallocationReadinessError("PROPOSAL_BOUNDARY_DRIFT")
-    if contract["authority"] != AUTHORITY_ALL_FALSE:
+    if not _exact_json_equal(contract["authority"], AUTHORITY_ALL_FALSE):
         raise CapitalReallocationReadinessError("CONTRACT_AUTHORITY_ESCALATION")
     return copy.deepcopy(contract)
 
@@ -127,16 +146,21 @@ def build_packet(contract: dict, harvest_packet: dict, **harvest_validation_inpu
     validated_harvest = harvest_readiness.validate_operational_packet(
         harvest_packet, **harvest_validation_inputs
     )
-    if validated_harvest["summary"] != {
-        "baseline_episode_count": 11,
-        "entry_proposal_count": 0,
-        "live_position_eligible_count": 0,
-        "harvest_review_item_count": 0,
-        "harvest_proposal_count": 0,
-        "order_intent_count": 0,
-    }:
+    if not _exact_json_equal(
+        validated_harvest["summary"],
+        {
+            "baseline_episode_count": 11,
+            "entry_proposal_count": 0,
+            "live_position_eligible_count": 0,
+            "harvest_review_item_count": 0,
+            "harvest_proposal_count": 0,
+            "order_intent_count": 0,
+        },
+    ):
         raise CapitalReallocationReadinessError("UPSTREAM_HARVEST_READINESS_CHANGED")
-    if validated_harvest["authority"] != harvest_readiness.AUTHORITY_ALL_FALSE:
+    if not _exact_json_equal(
+        validated_harvest["authority"], harvest_readiness.AUTHORITY_ALL_FALSE
+    ):
         raise CapitalReallocationReadinessError("UPSTREAM_AUTHORITY_ESCALATION")
 
     packet = {
@@ -172,7 +196,7 @@ def build_packet(contract: dict, harvest_packet: dict, **harvest_validation_inpu
 
 def validate_packet(packet: dict, contract: dict, harvest_packet: dict, **inputs) -> dict:
     expected = build_packet(contract, harvest_packet, **inputs)
-    if packet != expected:
+    if not _exact_json_equal(packet, expected):
         raise CapitalReallocationReadinessError(
             "CAPITAL_REALLOCATION_READINESS_SEMANTIC_TAMPER_OR_DRIFT"
         )

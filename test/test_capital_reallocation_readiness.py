@@ -124,6 +124,54 @@ class CapitalReallocationReadinessTests(unittest.TestCase):
             ):
                 reallocation.validate_contract(contract)
 
+    def test_contract_rejects_numeric_boolean_aliases(self):
+        mutations = (
+            ("authority", "review_only", 1, "CONTRACT_AUTHORITY_ESCALATION"),
+            ("authority", "buy_authority", 0, "CONTRACT_AUTHORITY_ESCALATION"),
+            ("proposal_boundary", "capital", False, "PROPOSAL_BOUNDARY_DRIFT"),
+            (
+                "proposal_boundary",
+                "settled_proceeds_available",
+                0,
+                "PROPOSAL_BOUNDARY_DRIFT",
+            ),
+        )
+        for section, field, alias, error in mutations:
+            contract = copy.deepcopy(self.contract)
+            contract[section][field] = alias
+            with self.subTest(section=section, field=field), self.assertRaisesRegex(
+                reallocation.CapitalReallocationReadinessError,
+                error,
+            ):
+                reallocation.validate_contract(contract)
+
+    def test_validated_upstream_requires_type_exact_summary_and_authority(self):
+        mutations = (
+            (
+                "summary",
+                "harvest_proposal_count",
+                False,
+                "UPSTREAM_HARVEST_READINESS_CHANGED",
+            ),
+            ("authority", "buy_authority", 0, "UPSTREAM_AUTHORITY_ESCALATION"),
+        )
+        for section, field, alias, error in mutations:
+            upstream = copy.deepcopy(self.harvest_packet)
+            upstream[section][field] = alias
+            with self.subTest(section=section, field=field), mock.patch.object(
+                harvest,
+                "validate_operational_packet",
+                return_value=upstream,
+            ), self.assertRaisesRegex(
+                reallocation.CapitalReallocationReadinessError,
+                error,
+            ):
+                reallocation.build_packet(
+                    self.contract,
+                    upstream,
+                    **self.validation_inputs,
+                )
+
     def test_resigned_upstream_harvest_proposal_is_rejected(self):
         tampered = copy.deepcopy(self.harvest_packet)
         tampered["summary"]["harvest_proposal_count"] = 1
@@ -150,6 +198,34 @@ class CapitalReallocationReadinessTests(unittest.TestCase):
             return_value=copy.deepcopy(self.harvest_packet),
         ):
             with self.assertRaisesRegex(
+                reallocation.CapitalReallocationReadinessError,
+                "CAPITAL_REALLOCATION_READINESS_SEMANTIC_TAMPER_OR_DRIFT",
+            ):
+                reallocation.validate_packet(
+                    tampered,
+                    self.contract,
+                    self.harvest_packet,
+                    **self.validation_inputs,
+                )
+
+    def test_resigned_output_rejects_numeric_boolean_aliases(self):
+        mutations = (
+            ("decision", "capital", False),
+            ("decision", "settled_proceeds_available", 0),
+            ("summary", "reallocation_proposal_count", False),
+            ("authority", "buy_authority", 0),
+        )
+        for section, field, alias in mutations:
+            tampered = copy.deepcopy(self.packet)
+            tampered[section][field] = alias
+            tampered["packet_sha256"] = payload_sha256(
+                {key: value for key, value in tampered.items() if key != "packet_sha256"}
+            )
+            with self.subTest(section=section, field=field), mock.patch.object(
+                harvest,
+                "validate_operational_packet",
+                return_value=copy.deepcopy(self.harvest_packet),
+            ), self.assertRaisesRegex(
                 reallocation.CapitalReallocationReadinessError,
                 "CAPITAL_REALLOCATION_READINESS_SEMANTIC_TAMPER_OR_DRIFT",
             ):
