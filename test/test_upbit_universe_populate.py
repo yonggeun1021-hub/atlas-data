@@ -122,7 +122,7 @@ def _transition_projection(successor: dict) -> dict:
 
 
 class UpbitUniversePopulateTests(unittest.TestCase):
-    def test_pinned_deterministic_rebuild_exactly_replays_current_canonical_source(self):
+    def test_pinned_rebuild_preserves_historical_state_and_uses_current_config_pins(self):
         source = json.loads(
             (ROOT / "data" / "observations" / "upbit_tradeable_universe"
              / "2026-09-01" / "packet.json").read_text(encoding="utf-8")
@@ -132,7 +132,24 @@ class UpbitUniversePopulateTests(unittest.TestCase):
             evaluation_as_of="2026-09-01",
             repo_root=ROOT,
         )
-        self.assertEqual(rebuilt, source)
+        # The 2026-09-02 code approval is never backdated into this
+        # 2026-09-01 decision: the complete classification and authority
+        # state remain identical and fail closed.
+        self.assertEqual(rebuilt["packet"], source["packet"])
+        self.assertEqual(rebuilt["authority"], source["authority"])
+        self.assertFalse(rebuilt["ratification"]["effective_for_snapshot"])
+        # A rebuild records the exact current configuration bytes, while
+        # the immutable retained source keeps its original pre-approval
+        # pins and payload hash.
+        self.assertNotEqual(rebuilt["payload_sha256"], source["payload_sha256"])
+        self.assertEqual(
+            rebuilt["ratification"]["identity_registry"]["file_sha256"],
+            UNI._file_sha(ROOT / "config" / "upbit_asset_identity_registry.json"),
+        )
+        self.assertEqual(
+            rebuilt["ratification"]["taxonomy"]["file_sha256"],
+            UNI._file_sha(ROOT / "config" / "upbit_exclusion_taxonomy.json"),
+        )
 
     def test_rebuild_normal_krw_only_snapshot_populates_cleanly(self):
         with tempfile.TemporaryDirectory() as raw:
