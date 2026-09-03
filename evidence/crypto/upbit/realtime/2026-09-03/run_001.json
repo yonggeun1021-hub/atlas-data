@@ -1,0 +1,82 @@
+{
+  "auth_required": false,
+  "order_or_withdrawal_endpoints_called": false,
+  "private_channel_subscribed": false,
+  "run": {
+    "candle_ledger": {},
+    "capture_mode": "P3_ELIGIBLE_UNIVERSE",
+    "ended_at": "2026-09-03T00:31:42Z",
+    "evidence_class": "NATURAL_AUTOMATED",
+    "finalized_only_action_gate": {
+      "action_generation_authorized": false,
+      "decision_eligible": false,
+      "finalized_candle_ledger_count": 0,
+      "finalized_candle_only": true,
+      "in_progress_candle_count": 0,
+      "order_authorized": false,
+      "pending_gap_count": 0,
+      "status": "UNKNOWN"
+    },
+    "latest_public_messages": {},
+    "latest_public_messages_schema_version": "upbit_realtime_latest_public_messages/1",
+    "markets": [],
+    "message_log": [],
+    "public_rest_backfill_errors": [],
+    "public_rest_backfill_receipts": [],
+    "ratified_freshness_policy": {
+      "consumer_result": {
+        "reason": "P9_06_RATIFIED_POLICY_INPUT_NO_TICKER",
+        "result": null,
+        "status": "UNKNOWN"
+      },
+      "packet_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34",
+      "path": "config/upbit_realtime_freshness_policy_ratified.json"
+    },
+    "requested_duration_seconds": 240.0,
+    "started_at": "2026-09-03T00:31:42Z",
+    "status": {
+      "authority": {
+        "action_generation_authorized": false,
+        "decision_eligible": false,
+        "entry_eligibility_authorized": false,
+        "exit_eligibility_authorized": false,
+        "order_authorized": false,
+        "order_channel_subscribed": false,
+        "private_channel_subscribed": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "closed_candle_promotion": {
+        "added": [],
+        "added_count": 0
+      },
+      "connection_state": "CONNECTING",
+      "counts": {
+        "accepted": 0,
+        "duplicate_ignored": 0,
+        "out_of_order": 0,
+        "rejected_malformed": 0,
+        "rejected_out_of_scope_market": 0,
+        "rest_backfill_candles_added": 0,
+        "rest_backfill_receipts_applied": 0,
+        "rest_backfill_receipts_revalidated": 0
+      },
+      "duplicate_guard_size": 0,
+      "finalized_candle_ledger_count": 0,
+      "generated_at": "2026-09-03T00:31:42Z",
+      "in_progress_candle_count": 0,
+      "last_disconnect_reason": null,
+      "markets": [],
+      "overall_status": "UNKNOWN",
+      "payload_sha256": "c797f26b8ef4ebf761a18563fb7ec9b5b5cf08d7dd64402102d05a26062a50b5",
+      "pending_connection_gap_windows": [],
+      "pending_gap_windows": [],
+      "receipt_ledger_count": 0,
+      "reconnect_count": 0,
+      "schema_version": "upbit_realtime_gate_status/1"
+    }
+  },
+  "schema_version": "upbit_realtime_capture_run/1",
+  "source_sha256": "3fb0da28c772561adeff4566559c8b92a009f2ee644466a2a848b9806f6e5957",
+  "transform_version": "upbit_realtime_gate/1"
+}
