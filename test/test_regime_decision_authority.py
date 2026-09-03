@@ -152,6 +152,56 @@ def parameter_result(inventory, component):
     )
 
 
+COMMON_V1_AXES = CONTRACT["required_axes"]
+SIDEWAYS_DIRECTIONS = {
+    "TREND": "POSITIVE",
+    "BREADTH": "NEGATIVE",
+    "RISK_VOL": "NEUTRAL",
+    "LIQUIDITY": "POSITIVE",
+    "LEADERSHIP": "NEGATIVE",
+}
+
+
+def common_v1_axes(direction, stress=False, undefined=()):
+    rows = {}
+    for axis in COMMON_V1_AXES:
+        if axis in undefined:
+            rows[axis] = {"status": "UNDEFINED", "direction": None}
+        else:
+            rows[axis] = {"status": "DEFINED", "direction": direction}
+    if stress:
+        rows["RISK_VOL"] = {"status": "DEFINED", "direction": "STRESS"}
+    return rows
+
+
+def sideways_axes():
+    return {
+        axis: {"status": "DEFINED", "direction": SIDEWAYS_DIRECTIONS[axis]}
+        for axis in COMMON_V1_AXES
+    }
+
+
+def common_v1_sequence(case_id, patterns, market="US"):
+    return {
+        "schema_version": 1,
+        "market": market,
+        "case_id": case_id,
+        "steps": [
+            {
+                "packet_id": f"{case_id}-{index}",
+                "as_of_date": f"2026-08-{24 + index:02d}",
+                "axes": axes,
+            }
+            for index, axes in enumerate(patterns)
+        ],
+    }
+
+
+def write_json(path, value, indent=2):
+    path.write_text(json.dumps(value, indent=indent) + "\n", encoding="utf-8")
+    return path
+
+
 class RegimeDecisionAuthorityTest(unittest.TestCase):
     def test_contract_pins_unratified_policy_boundary(self):
         self.assertEqual(
@@ -722,6 +772,377 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         for key, value in authority.items():
             if key != "source_owner_architecture_authorized":
                 self.assertFalse(value, key)
+
+
+class RegimeCommonAggregationV1Test(unittest.TestCase):
+    """Ratified PAPER baseline v1 aggregation as a hash-bound replay policy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.policy = MODULE.load_common_v1_policy()
+
+    def confirmed(self, report):
+        return [step["confirmed_regime"] for step in report["steps"]]
+
+    def test_policy_is_bound_to_ratified_registry_and_paper_baseline(self):
+        policy = self.policy
+        binding = policy["binding"]
+
+        self.assertEqual(policy["policy_status"], "RATIFIED_PAPER_BASELINE_V1")
+        self.assertEqual(policy["contract_mode"], MODULE.COMMON_V1_REPLAY_MODE)
+        self.assertEqual(
+            binding["decision_identity"], MODULE.COMMON_V1_DECISION_IDENTITY
+        )
+        self.assertEqual(
+            binding["decision_packet_sha256"],
+            MODULE.COMMON_V1_DECISION_PACKET_SHA256,
+        )
+        self.assertEqual(
+            binding["legacy_runtime_contract_sha256"],
+            hashlib.sha256(MODULE.CONTRACT_PATH.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            binding["paper_baseline_policy_sha256"],
+            hashlib.sha256(
+                MODULE.PAPER_BASELINE_POLICY_PATH.read_bytes()
+            ).hexdigest(),
+        )
+        self.assertEqual(set(policy["weights"].values()), {1})
+        self.assertEqual(
+            policy["thresholds"],
+            {
+                "risk_on_min_score": 3,
+                "neutral_min_score": -2,
+                "neutral_max_score": 2,
+                "risk_off_max_score": -3,
+                "improving_min_delta": 2,
+                "stable_min_delta": -1,
+                "stable_max_delta": 1,
+                "deteriorating_max_delta": -2,
+                "stress_exit_min_exclusive_score": -3,
+                "ordinary_transition_finalized_packets": 2,
+                "confidence_denominator": 5,
+            },
+        )
+        self.assertFalse(policy["market_specific_normalization_inherited"])
+        self.assertEqual(policy["pit_replay_acceptance"], "NOT_ACCEPTED")
+        self.assertEqual(
+            policy["market_kill_stress_condition_status"],
+            "UNRATIFIED_NOT_IMPLEMENTED",
+        )
+
+    def test_registry_paper_and_legacy_contract_drift_fail_closed(self):
+        registry = json.loads(MODULE.REGISTRY_PATH.read_text(encoding="utf-8"))
+        drifted_registry = copy.deepcopy(registry)
+        drifted_registry["common_v1_alignment"]["classification"]["RISK_ON"] = "S>=2"
+        resigned_decision = copy.deepcopy(registry)
+        resigned_decision["decision"]["packet_sha256"] = "0" * 64
+        paper = json.loads(
+            MODULE.PAPER_BASELINE_POLICY_PATH.read_text(encoding="utf-8")
+        )
+        drifted_paper = copy.deepcopy(paper)
+        drifted_paper["aggregation"]["RISK_ON_MIN_SCORE"] = 2
+        contract = json.loads(MODULE.CONTRACT_PATH.read_text(encoding="utf-8"))
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            cases = [
+                (
+                    "COMMON_V1_ALIGNMENT_MISMATCH",
+                    {
+                        "registry_path": write_json(
+                            root / "registry.json", drifted_registry
+                        )
+                    },
+                ),
+                (
+                    "RATIFIED_DECISION_BINDING_INVALID",
+                    {
+                        "registry_path": write_json(
+                            root / "decision.json", resigned_decision
+                        )
+                    },
+                ),
+                (
+                    "PAPER_BASELINE_THRESHOLD_MISMATCH",
+                    {
+                        "paper_policy_path": write_json(
+                            root / "paper.json", drifted_paper
+                        )
+                    },
+                ),
+                (
+                    "LEGACY_CONTRACT_HASH_MISMATCH",
+                    {
+                        "contract_path": write_json(
+                            root / "contract.json", contract, indent=4
+                        )
+                    },
+                ),
+            ]
+            for code, kwargs in cases:
+                with self.subTest(code=code), self.assertRaisesRegex(
+                    MODULE.DecisionAuthorityError,
+                    code,
+                ):
+                    MODULE.load_common_v1_policy(**kwargs)
+
+    def test_bull_bear_sideways_and_stress_replays_are_deterministic(self):
+        cases = {
+            "bull": (
+                [common_v1_axes("POSITIVE")] * 3,
+                "RISK_ON",
+                "1",
+            ),
+            "bear": (
+                [common_v1_axes("NEGATIVE")] * 3,
+                "RISK_OFF",
+                "1",
+            ),
+            "sideways": (
+                [sideways_axes()] * 3,
+                "NEUTRAL",
+                "0.2",
+            ),
+            "stress": (
+                [common_v1_axes("NEUTRAL", stress=True)] * 3,
+                "STRESS",
+                "1",
+            ),
+        }
+        for case_id, (patterns, regime, confidence) in cases.items():
+            with self.subTest(case=case_id):
+                sequence = common_v1_sequence(case_id, patterns)
+                first = MODULE.replay_common_v1(sequence)
+                rerun = MODULE.replay_common_v1(copy.deepcopy(sequence))
+
+                self.assertEqual(
+                    MODULE.canonical_bytes(first),
+                    MODULE.canonical_bytes(rerun),
+                )
+                self.assertEqual(
+                    first["determinism_status"],
+                    "DETERMINISM_VERIFIED_COMMON_AGGREGATION_V1",
+                )
+                self.assertEqual(first["final_regime"], regime)
+                self.assertEqual(first["final_confidence"], confidence)
+                self.assertEqual(first["final_direction"], "STABLE")
+                self.assertEqual(first["pit_replay_acceptance"], "NOT_ACCEPTED")
+                self.assertEqual(
+                    first, MODULE.validate_common_v1_replay(first, sequence)
+                )
+
+    def test_ordinary_transition_requires_two_finalized_packets(self):
+        report = MODULE.replay_common_v1(
+            common_v1_sequence(
+                "transition",
+                [
+                    sideways_axes(),
+                    sideways_axes(),
+                    common_v1_axes("POSITIVE"),
+                    common_v1_axes("POSITIVE"),
+                ],
+            )
+        )
+
+        self.assertEqual(
+            self.confirmed(report),
+            ["UNKNOWN", "NEUTRAL", "NEUTRAL", "RISK_ON"],
+        )
+        self.assertEqual(
+            [step["raw_classification"] for step in report["steps"]],
+            ["NEUTRAL", "NEUTRAL", "RISK_ON", "RISK_ON"],
+        )
+        self.assertEqual(
+            [step["direction"] for step in report["steps"]],
+            ["UNKNOWN", "STABLE", "IMPROVING", "STABLE"],
+        )
+        self.assertEqual(
+            report["steps"][2]["hysteresis"]["rule"],
+            "ORDINARY_CONFIRMATION_PENDING",
+        )
+        self.assertEqual([step["score"] for step in report["steps"]], [0, 0, 5, 5])
+
+    def test_stress_entry_is_immediate_and_exit_needs_two_qualifying_packets(self):
+        report = MODULE.replay_common_v1(
+            common_v1_sequence(
+                "stress-cycle",
+                [
+                    sideways_axes(),
+                    sideways_axes(),
+                    common_v1_axes("NEUTRAL", stress=True),
+                    sideways_axes(),
+                    sideways_axes(),
+                ],
+            )
+        )
+
+        self.assertEqual(
+            self.confirmed(report),
+            ["UNKNOWN", "NEUTRAL", "STRESS", "STRESS", "NEUTRAL"],
+        )
+        self.assertEqual(
+            [step["hysteresis"]["rule"] for step in report["steps"][2:]],
+            [
+                "STRESS_ENTRY_IMMEDIATE",
+                "STRESS_EXIT_PENDING",
+                "ORDINARY_CONFIRMATION_MET",
+            ],
+        )
+        self.assertTrue(report["steps"][2]["stress_override"])
+        self.assertEqual(report["steps"][2]["score"], -1)
+        self.assertEqual(report["steps"][2]["confidence"], "1")
+        self.assertEqual(
+            report["steps"][4]["hysteresis"]["stress_exit_qualified_streak"], 2
+        )
+
+    def test_three_of_five_coverage_stays_unknown_until_five_of_five(self):
+        report = MODULE.replay_common_v1(
+            common_v1_sequence(
+                "crypto-coverage",
+                [
+                    common_v1_axes(
+                        "POSITIVE", undefined=("RISK_VOL", "LIQUIDITY")
+                    ),
+                    common_v1_axes("POSITIVE"),
+                    common_v1_axes("POSITIVE"),
+                ],
+                market="CRYPTO",
+            )
+        )
+        blocked = report["steps"][0]
+
+        self.assertEqual(blocked["coverage"]["ratio"], "3/5")
+        self.assertFalse(blocked["coverage"]["minimum_coverage_met"])
+        self.assertIsNone(blocked["score"])
+        self.assertIsNone(blocked["confidence"])
+        self.assertEqual(blocked["raw_classification"], "UNKNOWN")
+        self.assertEqual(blocked["confirmed_regime"], "UNKNOWN")
+        self.assertEqual(
+            blocked["reasons"],
+            [
+                "MINIMUM_COVERAGE_NOT_MET",
+                "RISK_VOL_UNDEFINED",
+                "LIQUIDITY_UNDEFINED",
+            ],
+        )
+        self.assertEqual(blocked["hysteresis"]["rule"], "UNKNOWN_IMMEDIATE")
+        self.assertEqual(
+            self.confirmed(report), ["UNKNOWN", "UNKNOWN", "RISK_ON"]
+        )
+        self.assertNotIn(
+            "NEUTRAL", [step["confirmed_regime"] for step in report["steps"]]
+        )
+        self.assertEqual(report["steps"][1]["direction"], "UNKNOWN")
+
+    def test_replay_never_opens_authority_or_accepts_pit_replay(self):
+        report = MODULE.replay_common_v1(
+            common_v1_sequence("authority", [common_v1_axes("POSITIVE")] * 2)
+        )
+
+        self.assertTrue(
+            report["authority"]["common_aggregation_replay_authorized"]
+        )
+        for key, value in report["authority"].items():
+            if key != "common_aggregation_replay_authorized":
+                self.assertFalse(value, key)
+        self.assertEqual(report["pit_replay_acceptance"], "NOT_ACCEPTED")
+        self.assertFalse(
+            report["market_specific_signed_normalization_inherited"]
+        )
+        self.assertEqual(
+            report["market_kill_stress_condition_status"],
+            "UNRATIFIED_NOT_IMPLEMENTED",
+        )
+
+    def test_replay_report_tampering_fails_closed(self):
+        sequence = common_v1_sequence(
+            "tamper", [common_v1_axes("POSITIVE")] * 2
+        )
+        report = MODULE.replay_common_v1(sequence)
+
+        accepted = copy.deepcopy(report)
+        accepted["pit_replay_acceptance"] = "ACCEPTED"
+        promoted = copy.deepcopy(report)
+        promoted["final_regime"] = "STRESS"
+        authority = copy.deepcopy(report)
+        authority["authority"]["runtime_classification_authorized"] = True
+        threshold = copy.deepcopy(report)
+        threshold["thresholds"]["risk_on_min_score"] = 1
+
+        for changed in (accepted, promoted, authority, threshold):
+            with self.subTest(changed=changed), self.assertRaisesRegex(
+                MODULE.DecisionAuthorityError,
+                "COMMON_V1_REPLAY_DERIVATION_MISMATCH",
+            ):
+                MODULE.validate_common_v1_replay(changed, sequence)
+
+    def test_unsigned_market_measurements_and_bad_sequences_fail_closed(self):
+        measurement = common_v1_sequence(
+            "measurement", [common_v1_axes("POSITIVE")]
+        )
+        measurement["steps"][0]["axes"]["TREND"]["measurement"] = {
+            "advance_fraction": "0.61"
+        }
+        floats = common_v1_sequence("floats", [common_v1_axes("POSITIVE")])
+        floats["steps"][0]["axes"]["TREND"]["direction"] = 0.5
+        stress_axis = common_v1_sequence("stressaxis", [common_v1_axes("POSITIVE")])
+        stress_axis["steps"][0]["axes"]["TREND"]["direction"] = "STRESS"
+        unordered = common_v1_sequence(
+            "unordered", [common_v1_axes("POSITIVE")] * 2
+        )
+        unordered["steps"][1]["as_of_date"] = unordered["steps"][0]["as_of_date"]
+        unknown_market = common_v1_sequence(
+            "market", [common_v1_axes("POSITIVE")], market="JP"
+        )
+
+        cases = [
+            ("STEP_INVALID", measurement),
+            ("FLOAT_NOT_ALLOWED", floats),
+            ("STEP_INVALID", stress_axis),
+            ("PIT_ORDER_INVALID", unordered),
+            ("MARKET_INVALID", unknown_market),
+        ]
+        for code, sequence in cases:
+            with self.subTest(code=code), self.assertRaisesRegex(
+                MODULE.DecisionAuthorityError,
+                code,
+            ):
+                MODULE.replay_common_v1(sequence)
+
+    def test_common_v1_cli_replay_and_validate(self):
+        sequence = common_v1_sequence("cli", [common_v1_axes("POSITIVE")] * 2)
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            sequence_path = root / "sequence.json"
+            report_path = root / "report.json"
+            sequence_path.write_text(json.dumps(sequence), encoding="utf-8")
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                replay_exit = MODULE.main(
+                    [
+                        "replay-common-v1",
+                        str(sequence_path),
+                        "--out",
+                        str(report_path),
+                    ]
+                )
+                validate_exit = MODULE.main(
+                    [
+                        "validate-common-v1-replay",
+                        str(report_path),
+                        "--sequence",
+                        str(sequence_path),
+                    ]
+                )
+            self.assertEqual(replay_exit, 0)
+            self.assertEqual(validate_exit, 0)
+            persisted = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["final_regime"], "RISK_ON")
+            self.assertEqual(
+                persisted["policy_status"], "RATIFIED_PAPER_BASELINE_V1"
+            )
+            self.assertEqual(persisted["pit_replay_acceptance"], "NOT_ACCEPTED")
 
 
 if __name__ == "__main__":
