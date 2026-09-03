@@ -229,6 +229,60 @@ class KoreaMarketSignalsTest(unittest.TestCase):
         self.assertTrue(second["reused"])
         self.assertEqual(len(opener.calls), calls)
 
+    def test_confirmed_session_source_rejects_stale_or_ambiguous_lineage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "latest_krx.json"
+            source = {
+                "collected_for_kst_date": "2026-08-29",
+                "stocks": {
+                    "005930": {"status": "ok", "latest_trading_day": "2026-08-28"},
+                    "000660": {"status": "ok", "latest_trading_day": "2026-08-28"},
+                },
+            }
+            path.write_text(json.dumps(source), encoding="utf-8")
+            self.assertEqual(
+                MODULE.latest_confirmed_krx_session(
+                    path, expected_collected_for_kst_date="2026-08-29"
+                ),
+                "2026-08-28",
+            )
+            with self.assertRaisesRegex(
+                MODULE.KoreaMarketSignalsError, "KRX_CONFIRMATION_SOURCE_STALE"
+            ):
+                MODULE.latest_confirmed_krx_session(
+                    path, expected_collected_for_kst_date="2026-08-30"
+                )
+            source["stocks"]["000660"]["latest_trading_day"] = "2026-08-27"
+            path.write_text(json.dumps(source), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.KoreaMarketSignalsError, "KRX_CONFIRMATION_SESSION_AMBIGUOUS"
+            ):
+                MODULE.latest_confirmed_krx_session(
+                    path, expected_collected_for_kst_date="2026-08-29"
+                )
+            source["stocks"]["000660"] = {
+                "status": "failed", "latest_trading_day": None,
+            }
+            path.write_text(json.dumps(source), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.KoreaMarketSignalsError, "KRX_CONFIRMATION_SOURCE_INCOMPLETE"
+            ):
+                MODULE.latest_confirmed_krx_session(
+                    path, expected_collected_for_kst_date="2026-08-29"
+                )
+
+    def test_market_signals_cannot_be_older_than_confirmed_session(self):
+        opener = FakeOpener(fixtures())
+        packet = MODULE.build_packet(
+            session(opener, "20260827"), session(opener, "20260828")
+        )
+        MODULE.require_not_older_than_confirmed_session(packet, "2026-08-28")
+        MODULE.require_not_older_than_confirmed_session(packet, "2026-08-27")
+        with self.assertRaisesRegex(
+            MODULE.KoreaMarketSignalsError, "KRX_MARKET_SIGNALS_STALE"
+        ):
+            MODULE.require_not_older_than_confirmed_session(packet, "2026-08-29")
+
 
 if __name__ == "__main__":
     unittest.main()

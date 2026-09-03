@@ -73,6 +73,53 @@ def _read_json(path: Path, code: str) -> dict:
     return value
 
 
+def latest_confirmed_krx_session(
+    path: Path,
+    *,
+    expected_collected_for_kst_date: str,
+) -> str:
+    """Return the one confirmed KRX session from the current daily collector.
+
+    The daily collector is an independent confirmation source.  A signals
+    packet may be newer than it, but it must never be older while still being
+    published as the latest observation.
+    """
+    value = _read_json(path, "KRX_CONFIRMATION_SOURCE_INVALID")
+    if DATE10.fullmatch(str(expected_collected_for_kst_date)) is None:
+        fail("KRX_CONFIRMATION_EXPECTED_DATE_INVALID")
+    if value.get("collected_for_kst_date") != expected_collected_for_kst_date:
+        fail(
+            "KRX_CONFIRMATION_SOURCE_STALE",
+            f"expected={expected_collected_for_kst_date}:observed={value.get('collected_for_kst_date')}",
+        )
+    stocks = value.get("stocks")
+    if not isinstance(stocks, dict) or not stocks:
+        fail("KRX_CONFIRMATION_SOURCE_INVALID", "stocks")
+    if any(not isinstance(row, dict) or row.get("status") != "ok" for row in stocks.values()):
+        fail("KRX_CONFIRMATION_SOURCE_INCOMPLETE")
+    dates = {
+        row.get("latest_trading_day")
+        for row in stocks.values()
+    }
+    if len(dates) != 1:
+        fail("KRX_CONFIRMATION_SESSION_AMBIGUOUS")
+    confirmed = dates.pop()
+    if not isinstance(confirmed, str) or DATE10.fullmatch(confirmed) is None:
+        fail("KRX_CONFIRMATION_SESSION_INVALID")
+    return confirmed
+
+
+def require_not_older_than_confirmed_session(packet: dict, confirmed_date: str) -> None:
+    packet = validate_packet(packet)
+    if DATE10.fullmatch(str(confirmed_date)) is None:
+        fail("KRX_CONFIRMATION_SESSION_INVALID")
+    if packet["as_of_date"] < confirmed_date:
+        fail(
+            "KRX_MARKET_SIGNALS_STALE",
+            f"confirmed={confirmed_date}:observed={packet['as_of_date']}",
+        )
+
+
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     value = _read_json(path, "CONTRACT_INVALID")
     if (
@@ -671,9 +718,19 @@ def main() -> int:
     parser.add_argument("--previous-date")
     parser.add_argument("--current-date")
     parser.add_argument("--verify", type=Path)
+    parser.add_argument("--confirmed-session-source", type=Path)
+    parser.add_argument("--expected-collected-for-kst-date")
     args = parser.parse_args()
+    if bool(args.confirmed_session_source) != bool(args.expected_collected_for_kst_date):
+        fail("KRX_CONFIRMATION_ARGUMENTS_INCOMPLETE")
     if args.verify:
         packet = validate_packet(_read_json(args.verify, "PACKET_INVALID"))
+        if args.confirmed_session_source:
+            confirmed = latest_confirmed_krx_session(
+                args.confirmed_session_source,
+                expected_collected_for_kst_date=args.expected_collected_for_kst_date,
+            )
+            require_not_older_than_confirmed_session(packet, confirmed)
         print(f"PASS_KOREA_MARKET_SIGNALS_VERIFIED:{packet['as_of_date']}:{packet['coverage']['ratio']}")
         return 0
     result = run(
@@ -682,6 +739,12 @@ def main() -> int:
         current_date=args.current_date,
     )
     packet = result["packet"]
+    if args.confirmed_session_source:
+        confirmed = latest_confirmed_krx_session(
+            args.confirmed_session_source,
+            expected_collected_for_kst_date=args.expected_collected_for_kst_date,
+        )
+        require_not_older_than_confirmed_session(packet, confirmed)
     mode = "REUSED" if result["reused"] else "PUBLISHED"
     print(f"PASS_KOREA_MARKET_SIGNALS_{mode}:{packet['as_of_date']}:{packet['coverage']['ratio']}")
     return 0
