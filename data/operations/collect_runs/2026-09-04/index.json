@@ -9,9 +9,9 @@
     "trading_authority": false
   },
   "contract_version": "collect_run_index/1",
-  "index_sha256": "0ae7bbdfc30bff350da02aca2e56ace48be250bbc10bfe0d6d5dde19e8ba3709",
+  "index_sha256": "dcbb0ad7e9c0accba5c0779e5502592fc12bb06295f6826034ae486161ee0d76",
   "kst_date": "2026-09-04",
-  "record_count": 1,
+  "record_count": 2,
   "records": [
     {
       "event_name": "schedule",
@@ -24,12 +24,24 @@
       "run_id": 33805428974,
       "slot_id": "primary_0555_kst",
       "timing_status": "measured"
+    },
+    {
+      "event_name": "schedule",
+      "guard_result": "fresh",
+      "guard_skip": true,
+      "observed_started_at_utc": "2026-09-03T21:21:16Z",
+      "path": "data/operations/collect_runs/2026-09-04/run-33807463044-attempt-1.json",
+      "record_sha256": "46174c8a3b7cff98a0113aac917835ba45d2d7b0e17d6da25c596b806389836e",
+      "run_attempt": 1,
+      "run_id": 33807463044,
+      "slot_id": "backup_0615_kst",
+      "timing_status": "measured"
     }
   ],
   "schema_version": 1,
   "summary": {
-    "guard_skip_count": 0,
+    "guard_skip_count": 1,
     "guard_stale_count": 1,
-    "measured_count": 1
+    "measured_count": 2
   }
 }

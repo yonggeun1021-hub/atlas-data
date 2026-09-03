@@ -1,0 +1,141 @@
+{
+  "authority": {
+    "action_generation_authorized": false,
+    "candidate_promotion_authorized": false,
+    "event_type_inference_authorized": false,
+    "importance_classification_authorized": false,
+    "interpretation_authorized": false,
+    "notification_authorized": false,
+    "observation_recording_only": true,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "decision_at": "2026-09-03T21:21:26Z",
+  "lineage": {
+    "content_contract_version": "dart_filing_content/1",
+    "content_run_path": "data/latest_dart_content.json",
+    "content_run_sha256": "2e1c222ddc0e7cf5da18511a7c0dea9a2f626fe874ccd8bacc57e7873dec7d3e",
+    "source_path": "data/latest_dart.json",
+    "source_sha256": "10e1bd26f1417669dbd51762ee71fd50356976ecd5bd7388dd0b3ecf0eb68839"
+  },
+  "observations": [
+    {
+      "blocked_reasons": [
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": "2026-08-31T21:00:39Z",
+        "reasons": [
+          "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED"
+        ],
+        "source_sha256": "7f972941f574621212be0e73bf5ccd35ff23913c29159def51b7a29066afc766",
+        "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260831800137",
+        "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+      },
+      "filing_date": "20260831",
+      "filing_title": "단일판매ㆍ공급계약체결",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260831800137",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260831800137_012450",
+      "rcept_no": "20260831800137",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "012450",
+      "subject_name": "한화에어로스페이스",
+      "time_precision": "DATE_ONLY"
+    },
+    {
+      "blocked_reasons": [
+        "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED",
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": null,
+        "reasons": [
+          "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED"
+        ],
+        "source_sha256": null,
+        "source_uri": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260901800387",
+        "status": "METADATA_ONLY_STAGE_NOT_ASSIGNED"
+      },
+      "filing_date": "20260901",
+      "filing_title": "단일판매ㆍ공급계약체결",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260901800387",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260901800387_034020",
+      "rcept_no": "20260901800387",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "034020",
+      "subject_name": "두산에너빌리티",
+      "time_precision": "DATE_ONLY"
+    },
+    {
+      "blocked_reasons": [
+        "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED",
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": null,
+        "reasons": [
+          "DART_CONTENT_NOT_APPLICABLE_STAGE_NOT_ASSIGNED"
+        ],
+        "source_sha256": null,
+        "source_uri": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260901800761",
+        "status": "METADATA_ONLY_STAGE_NOT_ASSIGNED"
+      },
+      "filing_date": "20260901",
+      "filing_title": "[기재정정]단일판매ㆍ공급계약체결",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260901800761",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260901800761_034020",
+      "rcept_no": "20260901800761",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "034020",
+      "subject_name": "두산에너빌리티",
+      "time_precision": "DATE_ONLY"
+    }
+  ],
+  "packet_sha256": "9ab9d43b9c257bd2cbb68ff94fdbb74248bd0e1b05ca43b9b2ddd8bf86e8e5c4",
+  "schema_version": "dart_event_observation_packet/2",
+  "source_date": "2026-09-04",
+  "source_failures": [],
+  "status": "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED",
+  "summary": {
+    "action_count": 0,
+    "content_failure_count": 0,
+    "event_type_inferred_count": 0,
+    "importance_classified_count": 0,
+    "metadata_only_count": 2,
+    "notification_sent_count": 0,
+    "order_count": 0,
+    "raw_bytes_verified_count": 1,
+    "relevant_filing_count": 3,
+    "source_failed_count": 0,
+    "source_ok_count": 7
+  }
+}
