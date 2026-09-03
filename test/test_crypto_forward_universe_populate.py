@@ -211,7 +211,7 @@ class CryptoForwardUniversePopulateTests(unittest.TestCase):
         self.assertIn("crypto_forward_universe_populate.py", text)
         self.assertIn("Populate P3-04 Crypto source-coverage packet", text)
         self.assertIn("Commit P3-04 source-coverage population", text)
-        leadership_step = text.index("P1-CR-07 transient live replay")
+        leadership_step = text.index("P1-CR-07 leadership packet build + persist")
         populate_step = text.index("Populate P3-04 Crypto source-coverage packet")
         telemetry_step = text.index("Record Crypto Breadth scheduler telemetry")
         commit_raw = text.index("Commit immutable raw snapshot and run telemetry")

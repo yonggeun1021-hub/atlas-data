@@ -235,7 +235,7 @@ class CryptoSchedulerTelemetryTest(unittest.TestCase):
         runner = self.require_step("Capture Crypto Breadth runner start time")
         capture = self.require_step("Capture complete append-only Kraken USD universe")
         breadth = self.require_step("P1-CR-06 immutable snapshot validation")
-        leadership = self.require_step("P1-CR-07 transient live replay")
+        leadership = self.require_step("P1-CR-07 leadership packet build + persist")
         source_pair = self.require_step("Populate P2-04 Crypto Rotation source pair")
         population = self.require_step("Populate P3-04 Crypto source-coverage packet")
         telemetry = self.require_step("Record Crypto Breadth scheduler telemetry")
