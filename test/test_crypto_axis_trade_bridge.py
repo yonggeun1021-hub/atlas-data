@@ -153,7 +153,7 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
         self.assertEqual(packet["generated_at"], generated_at)
         self.assertEqual(
             set(packet["freshness_status"]),
-            {"upbit_universe", "market_evidence", "realtime", "overall"},
+            {"upbit_universe", "market_evidence", "realtime", "leadership", "overall"},
         )
 
     def test_future_dated_universe_still_fails_closed(self):
