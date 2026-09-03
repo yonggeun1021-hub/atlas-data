@@ -795,6 +795,14 @@ APPROVED_TESTS = [
     #   ⛔ investability/Regime/Production/trading 권한 없음.
     "test/test_crypto_taxonomy_cutoff_slice_20260827.py",
     "test/test_crypto_taxonomy_btr_slice_20260829.py",
+    # ★ Lane P — 2026-09-04 CIO ratification of HNT + SKR only (SN8 withheld,
+    #   fail-closed / no unverified_identity workaround, no new category).
+    #   retained Kraken online USD pair + project official docs (Helium /
+    #   Solana Mobile) bind identity. No retroactive credit before
+    #   effective_from=2026-09-04. E2E against the real 2026-09-03 snapshot:
+    #   HNT/SKR resolve, SN8 stays UNKNOWN, qualified_members() stays
+    #   TAXONOMY_COVERAGE_UNKNOWN because of SN8 -- no BREADTH PASS claimed.
+    "test/test_crypto_breadth_hnt_skr_taxonomy_ratification.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
