@@ -1,0 +1,38 @@
+name: WBS readiness metrics
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wbs-readiness.yml'
+      - 'config/wbs_readiness_contract.json'
+      - 'governance/wbs_readiness.py'
+      - 'docs/wbs_readiness_contract.md'
+      - 'test/fixtures/wbs_readiness/**'
+      - 'test/wbs_readiness/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact event SHA
+        run: |
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin "${HEAD_SHA}"
+          git checkout --detach "${HEAD_SHA}"
+      - name: Verify canonical metrics
+        run: |
+          python3 test/wbs_readiness/test_readiness.py
+          python3 governance/wbs_readiness.py report \
+            --snapshot test/fixtures/wbs_readiness/wbs_snapshot_20260903.json \
+            --paper-evidence test/fixtures/wbs_readiness/paper_evidence_20260903.json \
+            --evaluated-at 2026-09-02T22:08:00Z \
+            --out "$RUNNER_TEMP/wbs-readiness-report.json"
+      - name: No tracked mutation
+        run: git diff --exit-code

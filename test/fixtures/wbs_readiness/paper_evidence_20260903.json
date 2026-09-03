@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "atlas_paper_rotation_readiness_evidence/1",
+  "asOf": "2026-09-02T21:36:00Z",
+  "gates": [
+    {
+      "id": 1,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "notion:P1-US-04,P1-US-05,P1-KR-03..07,P1-CR-06..08",
+        "git:atlas-data@f3f4dc2b629674e246636f100768e86813445b6f"
+      ],
+      "firstBlocker": "All three markets do not yet have complete natural freshness/source-lineage acceptance."
+    },
+    {
+      "id": 2,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "notion:P1-COM-05,P1-CR-08,P8-04",
+        "https://app.notion.com/p/3c49f2d73c8481649f6de3662e222c3e"
+      ],
+      "firstBlocker": "Common and three-market final Regime authority remains incomplete/UNKNOWN."
+    },
+    {
+      "id": 3,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "notion:P2-COM-01,P2-COM-02,P2-COM-03,P2-01..05,P3-01..04",
+        "https://github.com/yonggeun1021-hub/atlas-data/pull/541"
+      ],
+      "firstBlocker": "Cross-market flow adoption is not green on canonical main and several Rotation/Universe gates remain non-complete."
+    },
+    {
+      "id": 4,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "notion:P5-08,P5-09,P5-10,P7-13,P8-13,P8-17"
+      ],
+      "firstBlocker": "Natural candidate/entry/hold/exit eligibility is not complete across KRX, US and Crypto."
+    },
+    {
+      "id": 5,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "git:atlas-private-evidence@4c9bbd2d72e12d03be61ce0bd285d33db74f2292",
+        "notion:P7-04,P7-05,P7-12"
+      ],
+      "firstBlocker": "Canonical market/theme budgets and all-market natural quantities are not fully ratified and evidenced."
+    },
+    {
+      "id": 6,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "git:atlas-private-evidence@f94af5c",
+        "git:atlas-private-evidence@1b58c9c5",
+        "git:atlas-private-evidence@742053c6"
+      ],
+      "firstBlocker": "Natural handoff mechanisms exist, but current natural decisions remain WAIT/UNKNOWN and produce no three-market ledger mutation."
+    },
+    {
+      "id": 7,
+      "status": "PARTIAL",
+      "evidenceRefs": [
+        "private:docs/three_market_natural_lifecycle_evidence_20260901.md",
+        "https://github.com/yonggeun1021-hub/atlas-private-evidence/pull/146"
+      ],
+      "firstBlocker": "Internal lifecycle mechanisms are present, while Topology A is still disabled and no accepted natural lifecycle exists."
+    },
+    {
+      "id": 8,
+      "status": "MISSING",
+      "evidenceRefs": [
+        "private:docs/three_market_natural_lifecycle_evidence_20260901.md",
+        "private:config/three_market_natural_lifecycle_evidence/contract.json"
+      ],
+      "firstBlocker": "No market has a continuous reconciled natural BUY→HOLD→SELL receipt chain; canonical receipt root/timer ownership remains unwired."
+    }
+  ],
+  "naturalLifecycle": [
+    {
+      "market": "KRX",
+      "completed": false,
+      "evidenceRefs": ["private:docs/three_market_natural_lifecycle_evidence_20260901.md#KRX"],
+      "firstBlocker": "Latest natural judgement is UNKNOWN/HOLD; no natural BUY→HOLD→SELL receipt chain."
+    },
+    {
+      "market": "US",
+      "completed": false,
+      "evidenceRefs": ["private:docs/three_market_natural_lifecycle_evidence_20260901.md#US"],
+      "firstBlocker": "Latest natural upstream gate is UNKNOWN/HOLD; no natural BUY→HOLD→SELL receipt chain."
+    },
+    {
+      "market": "CRYPTO",
+      "completed": false,
+      "evidenceRefs": ["private:docs/three_market_natural_lifecycle_evidence_20260901.md#CRYPTO"],
+      "firstBlocker": "No eligible natural candidate and no natural BUY→HOLD→SELL receipt chain."
+    }
+  ],
+  "authority": {
+    "strategy": false,
+    "stage": false,
+    "buy": false,
+    "action": false,
+    "order": false,
+    "broker": false,
+    "exchange": false,
+    "real": false,
+    "live": false,
+    "realCapital": false,
+    "production": false,
+    "trading": false
+  }
+}
