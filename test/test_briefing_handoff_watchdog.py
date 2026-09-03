@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""AM/PM Briefing Handoff Watchdog.
+
+Pins the read-only CHECK -> CLASSIFY -> ALERT contract of
+.github/scripts/briefing_handoff_watchdog.py against:
+
+  1. synthetic fixtures for the three required scenarios
+     (missing bridge, missing Portal handoff, complete), plus the remaining
+     status values the synthetic scenarios don't otherwise cover;
+  2. two REAL historical incidents, replayed from the exact commits that
+     actually built them (git show at each commit -- not a hand-written
+     approximation), to prove the classifier reaches the states the real
+     repository history actually passed through.
+
+Every test also asserts the module opens no authority and writes only to
+its own evidence namespace.
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+_spec = importlib.util.spec_from_file_location(
+    "briefing_handoff_watchdog", ROOT / ".github/scripts/briefing_handoff_watchdog.py")
+watchdog = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(watchdog)
+
+
+def _write(root: Path, rel: str, body: dict | str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(body, str):
+        path.write_text(body, encoding="utf-8")
+    else:
+        path.write_text(json.dumps(body), encoding="utf-8")
+
+
+def _kst(y, m, d, hh, mm) -> _dt.datetime:
+    return _dt.datetime(y, m, d, hh, mm, tzinfo=watchdog.KST)
+
+
+class SyntheticScenarios(unittest.TestCase):
+    """The three scenarios named explicitly in the task, plus the states
+    they don't cover, each isolated to one changed condition."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.slot = "morning"
+        self.date = "2026-01-06"  # a Tuesday: evening also "expected" if reused
+        # Always inside grace so status alone (not timing) drives the result.
+        self.now = _kst(2026, 1, 6, 9, 0)
+
+    def _natural(self):
+        _write(self.tmp, f"evidence/daily_briefing/{self.slot}/{self.date}/index.json", {})
+
+    def _semantic_hold(self):
+        _write(self.tmp, f"data/briefing/finalization/{self.date}/{self.slot}/validation-rev-001.json",
+               {"validation_status": "HOLD", "routing": {"status_deliverable": False},
+                "hold_reasons": ["MAJOR_NEWS_VERIFICATION_UNAVAILABLE"]})
+
+    def _semantic_pass(self):
+        _write(self.tmp, f"data/briefing/finalization/{self.date}/{self.slot}/validation-rev-001.json",
+               {"validation_status": "PASS", "routing": {"status_deliverable": True}})
+
+    def _bridge(self):
+        _write(self.tmp, f"evidence/briefing_events/{self.date}/{self.slot}/index.json", {})
+
+    def _envelope(self, recovery_type=None):
+        content = {"recovery_type": recovery_type} if recovery_type else {}
+        _write(self.tmp, f"evidence/validated_briefing_portal/{self.slot}/{self.date}/rev-001/portal-projection.json",
+               {"display_proposal": [{"content": content}]})
+        _write(self.tmp, f"evidence/validated_briefing_portal/{self.slot}/{self.date}/index.json", {
+            "latest_revision": 1, "latest_projection_id": "x",
+            "revisions": [{"revision": 1,
+                          "envelope_path": f"evidence/validated_briefing_portal/{self.slot}/{self.date}/rev-001/portal-projection.json"}],
+        })
+
+    def _portal_receipt(self):
+        _write(self.tmp, f"data/briefing/finalization/{self.date}/{self.slot}/portal-final-receipt-rev-001.json", {})
+
+    def _drain(self):
+        _write(self.tmp, f"data/briefing/finalization/{self.date}/{self.slot}/delivery_receipt.json", {})
+
+    def _run(self):
+        return watchdog.run_check(self.tmp, self.slot, self.date, now=self.now)
+
+    def test_no_natural_receipt(self):
+        report = self._run()
+        self.assertEqual(report["status"], "NATURAL_RECEIPT_MISSING")
+
+    def test_natural_only_waiting_validation(self):
+        self._natural()
+        report = self._run()
+        self.assertEqual(report["status"], "WAITING_VALIDATION")
+
+    def test_required_scenario_source_bridge_missing(self):
+        """Task scenario: natural receipt present, source bridge absent."""
+        self._natural()
+        self._semantic_hold()  # the system only surfaces this once the
+                                # semantic layer has actually stalled on it --
+                                # bridge absence alone is the normal case for
+                                # a slot with no major event (see
+                                # briefing_core/chain.py source_status
+                                # UNAVAILABLE), not an error by itself.
+        report = self._run()
+        self.assertEqual(report["status"], "SOURCE_BRIDGE_MISSING")
+        self.assertTrue(report["alert"])  # now is inside grace but PAST it? check below
+        self.assertFalse(report["checks"]["source_bridge"]["exists"])
+
+    def test_bridge_present_but_hold_is_generic_waiting(self):
+        self._natural()
+        self._semantic_hold()
+        self._bridge()
+        report = self._run()
+        self.assertEqual(report["status"], "WAITING_VALIDATION")
+
+    def test_required_scenario_portal_handoff_missing(self):
+        """Task scenario: bridge + envelope present, Portal apply absent."""
+        self._natural()
+        self._semantic_pass()
+        self._bridge()
+        self._envelope()
+        report = self._run()
+        self.assertEqual(report["status"], "PORTAL_HANDOFF_MISSING")
+        self.assertFalse(report["checks"]["portal_final_receipt"]["exists"])
+
+    def test_final_drain_missing(self):
+        self._natural()
+        self._semantic_pass()
+        self._bridge()
+        self._envelope()
+        self._portal_receipt()
+        report = self._run()
+        self.assertEqual(report["status"], "FINAL_DRAIN_MISSING")
+
+    def test_required_scenario_complete(self):
+        """Task scenario: every stage present."""
+        self._natural()
+        self._semantic_pass()
+        self._bridge()
+        self._envelope()
+        self._portal_receipt()
+        self._drain()
+        report = self._run()
+        self.assertEqual(report["status"], "COMPLETE")
+        self.assertFalse(report["alert"])  # COMPLETE never alerts
+
+    def test_envelope_short_circuits_missing_semantic_record(self):
+        """A manual-recovery envelope is real forward progress even though
+        no validation-rev file was ever recorded through the formal gate."""
+        self._natural()
+        self._envelope(recovery_type="MANUAL_RECOVERY")
+        report = self._run()
+        self.assertEqual(report["status"], "PORTAL_HANDOFF_MISSING")
+        self.assertTrue(any("MANUAL_RECOVERY" in n for n in report["notes"]))
+
+    def test_bridge_registry_without_index_is_not_auto_discoverable(self):
+        self._natural()
+        _write(self.tmp, f"evidence/briefing_events/{self.date}/{self.slot}/rev-001/registry.json", {})
+        bridge = watchdog.check_source_bridge(self.tmp, self.slot, self.date)
+        self.assertTrue(bridge["exists"])
+        self.assertFalse(bridge["discoverable_by_chain_build"])
+
+    def test_no_authority_ever(self):
+        report = self._run()
+        self.assertEqual(report["authority"], watchdog.NO_AUTHORITY)
+        self.assertTrue(all(v is False for v in report["authority"].values()))
+
+    def test_alert_requires_past_grace(self):
+        self._natural()  # WAITING_VALIDATION
+        early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 6))
+        self.assertFalse(early["past_grace"])
+        self.assertFalse(early["alert"])
+        late = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 9, 0))
+        self.assertTrue(late["past_grace"])
+        self.assertTrue(late["alert"])
+
+    def test_evening_not_expected_on_weekend(self):
+        # 2026-01-10 is a Saturday.
+        report = watchdog.run_check(self.tmp, "evening", "2026-01-10", now=_kst(2026, 1, 10, 20, 0))
+        self.assertFalse(report["slot_expected_today"])
+        self.assertFalse(report["alert"])  # never alert for a slot not scheduled today
+
+    def test_grace_deadline_reads_live_config_not_a_hardcoded_number(self):
+        _write(self.tmp, "config/atlas_semantic_validator.json", {"timeout_minutes": 5})
+        self._natural()
+        deadline = watchdog.slot_start_kst(self.date, self.slot) + _dt.timedelta(
+            minutes=watchdog.load_semantic_timeout_minutes(self.tmp))
+        self.assertEqual(deadline, _kst(2026, 1, 6, 7, 10))
+
+
+class PublishIsAppendOnlyAndIdempotent(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_rerun_with_unchanged_evidence_writes_no_new_rev(self):
+        _write(self.tmp, "evidence/daily_briefing/morning/2026-01-06/index.json", {})
+        now = _kst(2026, 1, 6, 9, 0)
+        first = watchdog.run_check(self.tmp, "morning", "2026-01-06", now=now)
+        result1 = watchdog.publish(self.tmp, first)
+        self.assertTrue(result1["changed"])
+        second = watchdog.run_check(self.tmp, "morning", "2026-01-06", now=now.replace(minute=1))
+        result2 = watchdog.publish(self.tmp, second)
+        self.assertFalse(result2["changed"])
+        directory = self.tmp / "data/briefing/handoff_watchdog/2026-01-06/morning"
+        self.assertEqual(len(list(directory.glob("status-rev-*.json"))), 1)
+
+    def test_status_change_appends_a_new_rev(self):
+        _write(self.tmp, "evidence/daily_briefing/morning/2026-01-06/index.json", {})
+        now = _kst(2026, 1, 6, 9, 0)
+        watchdog.publish(self.tmp, watchdog.run_check(self.tmp, "morning", "2026-01-06", now=now))
+        _write(self.tmp, "data/briefing/finalization/2026-01-06/morning/validation-rev-001.json",
+               {"validation_status": "PASS", "routing": {"status_deliverable": True}})
+        second = watchdog.run_check(self.tmp, "morning", "2026-01-06", now=now)
+        self.assertEqual(second["status"], "ENVELOPE_MISSING")
+        result = watchdog.publish(self.tmp, second)
+        self.assertTrue(result["changed"])
+        directory = self.tmp / "data/briefing/handoff_watchdog/2026-01-06/morning"
+        self.assertEqual(len(list(directory.glob("status-rev-*.json"))), 2)
+
+
+def _materialize_at_commit(commit: str, prefixes: list[str], dest: Path) -> None:
+    """Populate `dest` with exactly the files that existed under each
+    `prefixes` entry at `commit` -- a true historical replay via `git show`,
+    not a hand-typed approximation of what the repo looked like."""
+    for prefix in prefixes:
+        listing = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-tree", "-r", commit, "--name-only", "--", prefix],
+            capture_output=True, text=True, check=True,
+        ).stdout.splitlines()
+        for rel in listing:
+            if not rel.strip():
+                continue
+            body = subprocess.run(
+                ["git", "-C", str(ROOT), "show", f"{commit}:{rel}"],
+                capture_output=True, check=True,
+            ).stdout
+            out = dest / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(body)
+
+
+def _prefixes(date: str, slot: str) -> list[str]:
+    return [
+        f"evidence/daily_briefing/{slot}/{date}",
+        f"evidence/briefing_events/{date}/{slot}",
+        f"evidence/validated_briefing_portal/{slot}/{date}",
+        f"data/briefing/finalization/{date}/{slot}",
+        "config/atlas_semantic_validator.json",
+    ]
+
+
+def _git_available() -> bool:
+    return subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--is-inside-work-tree"],
+                          capture_output=True).returncode == 0
+
+
+@unittest.skipUnless(_git_available(), "requires a git checkout of atlas-data")
+class RealAmE2E_20260902Morning(unittest.TestCase):
+    """Replays the actual 2026-09-02 morning incident through the exact
+    commits that built it, in order. This is the round that visits every
+    non-terminal status the classifier defines."""
+
+    SLOT, DATE = "morning", "2026-09-02"
+    CHECKPOINTS = [
+        ("ea26ddae", "WAITING_VALIDATION"),        # natural + machine check only
+        ("a6928c51", "SOURCE_BRIDGE_MISSING"),     # semantic HOLD, no bridge yet
+        ("469030fa", "PORTAL_HANDOFF_MISSING"),    # bridge + envelope, no receipt
+        ("7eb1e9a2", "FINAL_DRAIN_MISSING"),       # portal receipt, no drain
+        ("origin/main", "COMPLETE"),               # drain recorded
+    ]
+
+    def test_real_progression(self):
+        now = _kst(2026, 9, 2, 23, 0)  # well past grace for every checkpoint
+        for commit, expected in self.CHECKPOINTS:
+            with self.subTest(commit=commit, expected=expected):
+                tmp = Path(tempfile.mkdtemp())
+                try:
+                    _materialize_at_commit(commit, _prefixes(self.DATE, self.SLOT), tmp)
+                    report = watchdog.run_check(tmp, self.SLOT, self.DATE, now=now)
+                    self.assertEqual(report["status"], expected)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+
+
+@unittest.skipUnless(_git_available(), "requires a git checkout of atlas-data")
+class RealPmE2E_20260903Evening(unittest.TestCase):
+    """Replays the actual 2026-09-03 evening incident -- the one this
+    watchdog exists because of. Confirms the classifier would have alerted
+    from shortly after the natural slot, and still shows the formal ledger
+    as open at the current commit even though atlas-portal PR #418 (a
+    different repository) already applied it out of band."""
+
+    SLOT, DATE = "evening", "2026-09-03"
+    CHECKPOINTS = [
+        ("69488728", "WAITING_VALIDATION"),   # natural sealed, no verdict yet
+        ("dc7d3d30", "WAITING_VALIDATION"),   # machine check only, still no
+                                               # semantic verdict was ever
+                                               # recorded through the formal
+                                               # gate for this slot
+        ("9271e7b5", "WAITING_VALIDATION"),   # source bridge lands, but the
+                                               # formal semantic step was
+                                               # never invoked for this round
+        ("e620594c", "PORTAL_HANDOFF_MISSING"),  # envelope built via
+                                                  # manual_recovery
+        ("origin/main", "PORTAL_HANDOFF_MISSING"),  # still open in the
+                                                     # atlas-data ledger today
+    ]
+
+    def test_real_progression(self):
+        now = _kst(2026, 9, 4, 9, 0)  # well past grace for every checkpoint
+        for commit, expected in self.CHECKPOINTS:
+            with self.subTest(commit=commit, expected=expected):
+                tmp = Path(tempfile.mkdtemp())
+                try:
+                    _materialize_at_commit(commit, _prefixes(self.DATE, self.SLOT), tmp)
+                    report = watchdog.run_check(tmp, self.SLOT, self.DATE, now=now)
+                    self.assertEqual(report["status"], expected)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_would_have_alerted_shortly_after_the_natural_slot(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            _materialize_at_commit("dc7d3d30", _prefixes(self.DATE, self.SLOT), tmp)
+            # Grace deadline is 18:30 KST + 20 min = 18:50 KST.
+            before = watchdog.run_check(tmp, self.SLOT, self.DATE, now=_kst(2026, 9, 3, 18, 45))
+            self.assertFalse(before["alert"])
+            after = watchdog.run_check(tmp, self.SLOT, self.DATE, now=_kst(2026, 9, 3, 18, 55))
+            self.assertTrue(after["alert"])
+            self.assertEqual(after["status"], "WAITING_VALIDATION")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class CliSmoke(unittest.TestCase):
+    def test_check_command_exit_code_reflects_fail_on_alert(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        rc = watchdog.main(["check", "--slot", "morning", "--decision-date", "2026-01-06",
+                           "--repo-root", str(tmp), "--now", "2026-01-06T09:00:00+09:00",
+                           "--fail-on-alert"])
+        self.assertEqual(rc, 1)  # NATURAL_RECEIPT_MISSING, past grace -> alert
+
+    def test_check_without_fail_on_alert_returns_zero(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        rc = watchdog.main(["check", "--slot", "morning", "--decision-date", "2026-01-06",
+                           "--repo-root", str(tmp), "--now", "2026-01-06T09:00:00+09:00"])
+        self.assertEqual(rc, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

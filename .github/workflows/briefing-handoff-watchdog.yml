@@ -1,0 +1,134 @@
+name: AM/PM Briefing Handoff Watchdog
+
+# Detects a stalled validated-narrative handoff after a natural AM/PM
+# briefing slot. This workflow is read-only against the existing briefing
+# chain: it never seals, validates, authors a source bridge, runs manual
+# recovery, builds a Portal envelope, dispatches, or writes Notion. It only
+# runs .github/scripts/briefing_handoff_watchdog.py (check -> classify ->
+# alert) and commits that script's own append-only status artifact under
+# data/briefing/handoff_watchdog/.
+#
+# Independent cron, timed to fire just after each slot's own natural-cron
+# time (daily-briefing.yml `on.schedule`) plus the existing 20-minute
+# semantic-validation SLA (config/atlas_semantic_validator.json
+# timeout_minutes) -- not a new SLA, just the first moment that existing one
+# can already be judged missed. Both crons run the same job, which checks
+# both slots every time; the one not yet due simply reports
+# slot_expected_today/past_grace=false and never alerts.
+#
+#   morning natural slot 07:05 KST + 20 min = 07:25 KST -> cron "25 22 * * *"
+#   evening natural slot 18:30 KST + 20 min = 18:50 KST -> cron "50 9 * * 1-5"
+#
+# Grace deadlines used for the actual alert decision are still computed
+# live inside the script from the same config -- these cron times only
+# decide when the check *runs*, not what counts as "on time".
+
+on:
+  schedule:
+    - cron: "25 22 * * *"    # 07:25 KST daily -- just past the morning SLA
+    - cron: "50 9 * * 1-5"   # 18:50 KST Mon-Fri -- just past the evening SLA
+  workflow_dispatch:
+    inputs:
+      decision_date:
+        description: "KST YYYY-MM-DD to check (defaults to today KST; use for replay)"
+        required: false
+        type: string
+      fail_on_alert:
+        description: "Fail the job when a slot alerts (default true; set false for a replay that should not go red)"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-briefing-handoff-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Resolve decision date
+        id: resolve
+        env:
+          DISPATCH_DATE: ${{ inputs.decision_date }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DISPATCH_DATE:-}" ]; then
+            echo "$DISPATCH_DATE" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' \
+              || { echo "STOP: malformed decision_date '$DISPATCH_DATE'" >&2; exit 2; }
+            DECISION_DATE="$DISPATCH_DATE"
+          else
+            DECISION_DATE=$(TZ=Asia/Seoul date +%F)
+          fi
+          echo "decision_date=$DECISION_DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Check morning and evening handoff status
+        id: check
+        env:
+          DECISION_DATE: ${{ steps.resolve.outputs.decision_date }}
+        run: |
+          set -euo pipefail
+          ANY_ALERT=false
+          {
+            echo "## AM/PM Briefing Handoff Watchdog — $DECISION_DATE"
+            echo
+            echo "| slot | status | expected today | past grace | alert |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for SLOT in morning evening; do
+            set +e
+            OUTPUT=$(python3 .github/scripts/briefing_handoff_watchdog.py check \
+              --slot "$SLOT" --decision-date "$DECISION_DATE" --repo-root . --publish)
+            RC=$?
+            set -e
+            echo "$OUTPUT"
+            if [ "$RC" -ne 0 ]; then
+              echo "::error::watchdog check itself failed for $SLOT ($DECISION_DATE), rc=$RC"
+              ANY_ALERT=true
+              continue
+            fi
+            STATUS=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+            EXPECTED=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slot_expected_today"])')
+            PAST_GRACE=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["past_grace"])')
+            ALERT=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["alert"])')
+            echo "| $SLOT | $STATUS | $EXPECTED | $PAST_GRACE | $ALERT |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$ALERT" = "True" ]; then
+              echo "::error::$SLOT $DECISION_DATE handoff status=$STATUS past grace deadline — validated narrative has not reached Portal/Notion"
+              ANY_ALERT=true
+            fi
+          done
+          echo "any_alert=$ANY_ALERT" >> "$GITHUB_OUTPUT"
+
+      - name: Commit append-only watchdog status if changed
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/briefing/handoff_watchdog
+          if git diff --cached --quiet; then
+            echo "No watchdog status change"
+            exit 0
+          fi
+          git commit -m "briefing handoff watchdog ${{ steps.resolve.outputs.decision_date }}"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+
+      - name: Fail loud on an unresolved handoff
+        if: steps.check.outputs.any_alert == 'true' && inputs.fail_on_alert != false
+        run: |
+          echo "STOP: at least one slot is past its documented grace deadline without a complete handoff" >&2
+          exit 1
