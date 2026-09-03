@@ -30,7 +30,7 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.report = run_dynamic_clock.run(
-            "2026-08-20", run_dynamic_clock.MODE_HISTORICAL_REPLAY
+            "2026-08-21", run_dynamic_clock.MODE_HISTORICAL_REPLAY
         )
         cls.as_of_utc = f"{cls.report['decision_date']}T23:59:59Z"
 
@@ -176,9 +176,11 @@ class DynamicClockSignalObservationTests(unittest.TestCase):
         self.assertEqual(row["packet"]["summary"]["subject_count"], 0)
 
     def test_real_daily_packet_wires_the_same_live_signal_population(self):
-        daily_decision_date = (
-            dt.date.fromisoformat(self.report["decision_date"]) + dt.timedelta(days=1)
-        ).isoformat()
+        # The daily packet now freezes and verifies the Dynamic Clock report's
+        # exact source decision date.  Keep the mocked historical report and
+        # packet on that same date; a next-day packet would be a deliberately
+        # invalid cross-date source binding, not an isolated observation.
+        daily_decision_date = self.report["decision_date"]
         with mock.patch.object(
             DAILY.DYNAMIC_CLOCK, "run", return_value=copy.deepcopy(self.report)
         ):
