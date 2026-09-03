@@ -180,6 +180,60 @@ class LongShortInvariantTests(unittest.TestCase):
         ):
             MODULE.build_packet(upstream_packet(), contract)
 
+    def test_contract_rejects_numeric_boolean_aliases(self):
+        contract = copy.deepcopy(CONTRACT)
+        contract["schema_version"] = True
+        with self.assertRaisesRegex(
+            MODULE.LongShortInvariantError,
+            "CONTRACT_FIELD_MISMATCH:schema_version",
+        ):
+            MODULE.build_packet(upstream_packet(), contract)
+
+        for authority_name in ("upstream_authority", "authority"):
+            for field, expected in CONTRACT[authority_name].items():
+                contract = copy.deepcopy(CONTRACT)
+                contract[authority_name][field] = int(expected)
+                with self.subTest(
+                    authority_name=authority_name,
+                    field=field,
+                ), self.assertRaisesRegex(
+                    MODULE.LongShortInvariantError,
+                    f"CONTRACT_FIELD_MISMATCH:{authority_name}",
+                ):
+                    MODULE.build_packet(upstream_packet(), contract)
+
+    def test_upstream_rejects_numeric_boolean_authority_aliases(self):
+        for field, expected in CONTRACT["upstream_authority"].items():
+            source = upstream_packet()
+            source["authority"][field] = int(expected)
+            source = refresh_packet(source)
+            with self.subTest(field=field), self.assertRaisesRegex(
+                MODULE.LongShortInvariantError,
+                "UPSTREAM_PACKET_IDENTITY_INVALID",
+            ):
+                MODULE.build_packet(source, CONTRACT)
+
+    def test_output_rejects_numeric_boolean_authority_aliases(self):
+        for field, expected in CONTRACT["authority"].items():
+            packet = MODULE.build_packet(upstream_packet(), CONTRACT)
+            packet["authority"][field] = int(expected)
+            packet = refresh_packet(packet)
+            with self.subTest(field=field), self.assertRaisesRegex(
+                MODULE.LongShortInvariantError,
+                "OUTPUT_IDENTITY_INVALID",
+            ):
+                MODULE.validate_packet(packet, CONTRACT)
+
+    def test_output_summary_rejects_boolean_integer_alias(self):
+        packet = MODULE.build_packet(upstream_packet(), CONTRACT)
+        packet["summary"]["short_pass"] = False
+        packet = refresh_packet(packet)
+        with self.assertRaisesRegex(
+            MODULE.LongShortInvariantError,
+            "OUTPUT_SUMMARY_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
     def test_output_is_deterministic_and_input_is_not_mutated(self):
         source = upstream_packet()
         before = MODULE.canonical_json(source)
