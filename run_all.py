@@ -735,6 +735,11 @@ APPROVED_TESTS = [
     #   ratified 30일 turnover Top-100·명시 taxonomy·90% coverage gate를 재현한다.
     #   ⛔ 테스트의 live Kraken/tracked factor 없음 — fake fetcher + temp fixtures only.
     "test/test_crypto_breadth.py",
+    # ★ P1-CR-06 — first formally qualified Crypto Breadth exit gate.
+    #   Registry의 exact evidence hash와 contract의 threshold lineage를 함께
+    #   검증하되 관측값·Stage·action·order·Production·Trading은 열지 않는다.
+    #   ⛔ integration-only registry entry — source-owned blobs are unchanged.
+    "test/test_p1_cr_06_exit_gate.py",
     # ★ P3-04 — cutoff-aware Top-100 taxonomy scan audit (2026-08-22):
     #   qualified_members() already stops the instant target_asset_count
     #   eligible_crypto assets are found -- a candidate ranked below that
