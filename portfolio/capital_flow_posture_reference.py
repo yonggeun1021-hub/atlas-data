@@ -47,6 +47,10 @@ PAPER_REGIME = _load_module(
     "atlas_capital_flow_paper_regime",
     ROOT / "regime" / "paper_regime_reference.py",
 )
+CROSS_ASSET_FLOW = _load_module(
+    "atlas_capital_flow_cross_asset_contract",
+    ROOT / "rotation" / "cross_asset_flow_evidence.py",
+)
 
 
 def canonical_json(value: object) -> str:
@@ -85,17 +89,26 @@ def validate_policy(policy: object) -> dict:
         fail("POLICY_INVALID")
     required = {
         "schema_version", "contract_version", "mode", "status",
-        "source_contract_version", "market_order", "comparison",
-        "capital_model", "authority",
+        "source_contract_version", "cross_asset_flow_contract", "market_order",
+        "comparison", "capital_model", "flow_candidate_semantics", "authority",
     }
     if set(policy) != required:
         fail("POLICY_FIELDS_MISMATCH")
-    if policy.get("schema_version") != 1 or policy.get("contract_version") != "capital_flow_posture_reference_policy/v1":
+    if type(policy.get("schema_version")) is not int or policy.get("schema_version") != 1 or policy.get("contract_version") != "capital_flow_posture_reference_policy/v1":
         fail("POLICY_VERSION_INVALID")
     if policy.get("mode") != "PAPER_DIAGNOSTIC_NOT_ALLOCATION":
         fail("POLICY_MODE_INVALID")
+    if policy.get("status") != "CIO_INTENT_RECORDED_NUMERIC_BUDGET_UNRATIFIED":
+        fail("POLICY_STATUS_INVALID")
     if policy.get("source_contract_version") != "paper_regime_reference_policy/v1":
         fail("POLICY_SOURCE_INVALID")
+    if policy.get("cross_asset_flow_contract") != {
+        "path": "config/cross_asset_flow_evidence_contract.json",
+        "contract_version": "cross_asset_flow_evidence/1",
+        "output_schema_version": "cross_asset_flow_evidence_packet/1",
+        "required_cross_market_assessment_status": "UNKNOWN",
+    }:
+        fail("POLICY_CROSS_ASSET_FLOW_CONTRACT_INVALID")
     if policy.get("market_order") != ["US", "KR", "CRYPTO"]:
         fail("POLICY_MARKETS_INVALID")
     if policy.get("comparison") != {
@@ -113,18 +126,124 @@ def validate_policy(policy: object) -> dict:
         "missing_market_policy": "WAIT_NO_NUMERIC_TARGET",
     }:
         fail("POLICY_CAPITAL_MODEL_INVALID")
+    if policy.get("flow_candidate_semantics") != {
+        "basis": "SAME_DATE_RELATIVE_STRENGTH_REFERENCE_ONLY",
+        "receiver_label": "RELATIVE_ATTRACTOR",
+        "donor_label": "RELATIVE_DONOR",
+        "actual_flow_claim": "FORBIDDEN",
+        "transition_source": "P2_COM_03_APPEND_ONLY_LEDGER",
+        "confidence_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+        "persistence_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+        "invalidation_status": "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+    }:
+        fail("POLICY_FLOW_CANDIDATE_SEMANTICS_INVALID")
     authority = policy.get("authority")
-    if not isinstance(authority, dict):
-        fail("POLICY_AUTHORITY_INVALID")
-    allowed_true = {
-        "paper_reference_display_authorized",
-        "relative_strength_comparison_authorized",
+    expected_authority = {
+        "paper_reference_display_authorized": True,
+        "relative_strength_comparison_authorized": True,
+        "actual_flow_claim_authorized": False,
+        "gross_exposure_authorized": False,
+        "cash_target_authorized": False,
+        "cross_market_allocation_authorized": False,
+        "position_size_authorized": False,
+        "stage_authorized": False,
+        "buy_authorized": False,
+        "action_authorized": False,
+        "order_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
     }
-    if set(key for key, value in authority.items() if value is True) != allowed_true:
+    if not isinstance(authority, dict) or set(authority) != set(expected_authority):
         fail("POLICY_AUTHORITY_INVALID")
-    if any(type(value) is not bool for value in authority.values()):
+    if any(type(value) is not bool for value in authority.values()) or authority != expected_authority:
         fail("POLICY_AUTHORITY_INVALID")
     return copy.deepcopy(policy)
+
+
+def _cross_asset_flow_contract_identity(
+    policy: dict,
+    root: Path,
+    contract_path: Path | None = None,
+) -> dict:
+    spec = policy["cross_asset_flow_contract"]
+    path = root / spec["path"] if contract_path is None else Path(contract_path)
+    # Older downstream unit fixtures copied only the producer's direct policy
+    # and P1 packet.  They may use the immutable repository P2-COM-01 contract,
+    # but production (root == ROOT) never falls back when a dependency is absent.
+    if contract_path is None and root != ROOT and not path.is_file():
+        path = ROOT / spec["path"]
+    try:
+        contract = CROSS_ASSET_FLOW.load_contract(path)
+    except Exception as exc:
+        raise CapitalFlowPostureReferenceError(
+            f"CROSS_ASSET_FLOW_CONTRACT_REVALIDATION_FAILED:{exc}"
+        ) from exc
+    if (
+        contract.get("contract_version") != spec["contract_version"]
+        or contract.get("output_schema_version") != spec["output_schema_version"]
+        or contract.get("explicit_unknowns") != [{
+            "evidence_class": "MARKET_IMPLIED_FLOW",
+            "market": "COMMON",
+            "subject": "CROSS_MARKET_RELATIVE_FLOW",
+            "reason": "COMPARABLE_MULTI_DATE_MARKET_SERIES_NOT_AVAILABLE",
+        }]
+        or contract.get("authority", {}).get("cross_market_flow_claim_authorized") is not False
+    ):
+        fail("CROSS_ASSET_FLOW_CONTRACT_IDENTITY_INVALID")
+    return {
+        "source_type": "P2_COM_01_CROSS_ASSET_FLOW_CONTRACT",
+        "path": spec["path"],
+        "sha256": file_sha256(path),
+        "schema_version": contract["schema_version"],
+        "contract_version": contract["contract_version"],
+        "output_schema_version": contract["output_schema_version"],
+        "cross_market_assessment_status": spec[
+            "required_cross_market_assessment_status"
+        ],
+        "cross_market_flow_claim_authorized": False,
+    }
+
+
+def _flow_candidates(flow: dict, policy: dict) -> dict:
+    semantics = policy["flow_candidate_semantics"]
+    leader = flow["relative_strength_leader"]
+    laggard = flow["relative_strength_laggard"]
+    relative_pair_available = leader is not None and laggard is not None
+    return {
+        "basis": semantics["basis"],
+        "evidence_class": (
+            "RELATIVE_STRENGTH_REFERENCE" if relative_pair_available else "UNKNOWN"
+        ),
+        "receiver_candidate": {
+            "market": leader,
+            "classification": (
+                semantics["receiver_label"] if leader is not None else "UNKNOWN"
+            ),
+        },
+        "donor_candidate": {
+            "market": laggard,
+            "classification": (
+                semantics["donor_label"] if laggard is not None else "UNKNOWN"
+            ),
+        },
+        "actual_flow_claim": "UNKNOWN",
+        "actual_flow_claim_reason": flow["actual_money_flow_reason"],
+        "confidence": None,
+        "confidence_status": semantics["confidence_status"],
+        "transition": {
+            "status": "UNKNOWN",
+            "source": semantics["transition_source"],
+        },
+        "persistence": {
+            "status": semantics["persistence_status"],
+            "confirmed_at": None,
+            "observation_count": None,
+        },
+        "invalidation": {
+            "status": semantics["invalidation_status"],
+            "reason": "NO_RATIFIED_CROSS_MARKET_FLOW_INVALIDATION_POLICY",
+        },
+    }
 
 
 def _same_date_group(markets: list[dict]) -> tuple[str | None, list[dict]]:
@@ -220,6 +339,7 @@ def build_reference(root: Path = ROOT) -> dict:
     policy_path = root / "config" / "capital_flow_posture_reference_policy_v1.json"
     source_path = root / "data" / "latest_paper_regime_reference.json"
     policy = validate_policy(read_json(policy_path, "POLICY_INVALID"))
+    flow_contract_identity = _cross_asset_flow_contract_identity(policy, root)
     source = read_json(source_path, "SOURCE_INVALID")
     try:
         PAPER_REGIME.validate_reference(source, root)
@@ -245,10 +365,14 @@ def build_reference(root: Path = ROOT) -> dict:
         comparison_reason = "같은 날짜에 비교 가능한 시장이 둘보다 적어 상대 강도도 계산하지 않습니다."
 
     sources = [{
+        "source_type": "P1_PAPER_REGIME_REFERENCE_PACKET",
         "path": "data/latest_paper_regime_reference.json",
         "sha256": file_sha256(source_path),
+        "schema_version": source["schema_version"],
+        "contract_version": source["contract_version"],
+        "payload_sha256": source["payload_sha256"],
         "generation_id": source["generation_id"],
-    }]
+    }, flow_contract_identity]
     generation_id = payload_sha256({
         "policy_sha256": file_sha256(policy_path),
         "sources": sources,
@@ -278,10 +402,12 @@ def build_reference(root: Path = ROOT) -> dict:
             "relative_strength_laggard": laggards[0] if len(laggards) == 1 else None,
             "explanation_ko": comparison_reason,
         },
+        "flow_candidates": None,
         "total_exposure_review": _total_exposure(source_markets),
         "market_allocation_reviews": reviews,
         "authority": copy.deepcopy(policy["authority"]),
     }
+    packet["flow_candidates"] = _flow_candidates(packet["cross_market_flow"], policy)
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 

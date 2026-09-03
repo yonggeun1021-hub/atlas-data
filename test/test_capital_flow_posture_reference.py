@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -61,6 +62,48 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         self.assertEqual(packet["cross_market_flow"]["relative_strength_leader"], expected_leader)
         self.assertEqual(packet["cross_market_flow"]["relative_strength_laggard"], expected_laggard)
 
+    def test_p2_com_01_contract_identity_is_hash_bound_and_read(self):
+        packet = MODULE.build_reference(self.root)
+        sources = {row["source_type"]: row for row in packet["sources"]}
+        regime = sources["P1_PAPER_REGIME_REFERENCE_PACKET"]
+        self.assertEqual(regime["schema_version"], "paper_regime_reference/v2")
+        self.assertEqual(regime["contract_version"], "paper_regime_reference_policy/v1")
+        self.assertEqual(len(regime["payload_sha256"]), 64)
+
+        flow = sources["P2_COM_01_CROSS_ASSET_FLOW_CONTRACT"]
+        flow_path = self.root / flow["path"]
+        self.assertEqual(flow["sha256"], hashlib.sha256(flow_path.read_bytes()).hexdigest())
+        self.assertEqual(flow["contract_version"], "cross_asset_flow_evidence/1")
+        self.assertEqual(flow["output_schema_version"], "cross_asset_flow_evidence_packet/1")
+        self.assertEqual(flow["cross_market_assessment_status"], "UNKNOWN")
+        self.assertFalse(flow["cross_market_flow_claim_authorized"])
+        self.assertEqual(
+            packet["generation_id"],
+            MODULE.payload_sha256({
+                "policy_sha256": MODULE.file_sha256(
+                    self.root / "config/capital_flow_posture_reference_policy_v1.json"
+                ),
+                "sources": packet["sources"],
+            }),
+        )
+
+    def test_relative_candidates_are_not_promoted_to_actual_flow(self):
+        packet = MODULE.build_reference(self.root)
+        flow = packet["cross_market_flow"]
+        candidates = packet["flow_candidates"]
+        self.assertEqual(candidates["receiver_candidate"]["market"], flow["relative_strength_leader"])
+        self.assertEqual(candidates["donor_candidate"]["market"], flow["relative_strength_laggard"])
+        self.assertEqual(candidates["actual_flow_claim"], "UNKNOWN")
+        self.assertIsNone(candidates["confidence"])
+        self.assertEqual(candidates["transition"], {
+            "status": "UNKNOWN", "source": "P2_COM_03_APPEND_ONLY_LEDGER",
+        })
+        self.assertIsNone(candidates["persistence"]["observation_count"])
+        self.assertEqual(
+            candidates["invalidation"]["status"],
+            "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+        )
+
     def test_authority_boundary_keeps_capital_and_orders_closed(self):
         authority = MODULE.build_reference(self.root)["authority"]
         self.assertTrue(authority["paper_reference_display_authorized"])
@@ -87,6 +130,37 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         source["payload_sha256"] = MODULE.payload_sha256(unsigned_source)
         (self.root / "data/latest_paper_regime_reference.json").write_text(json.dumps(source), encoding="utf-8")
         with self.assertRaisesRegex(MODULE.CapitalFlowPostureReferenceError, "SOURCE_REVALIDATION_FAILED"):
+            MODULE.build_reference(self.root)
+
+    def test_policy_identity_and_boolean_types_fail_closed(self):
+        path = self.root / "config/capital_flow_posture_reference_policy_v1.json"
+        original = json.loads(path.read_text())
+        cases = [
+            ("schema_version", True, "POLICY_VERSION_INVALID"),
+            ("status", "RATIFIED", "POLICY_STATUS_INVALID"),
+        ]
+        for key, value, code in cases:
+            with self.subTest(key=key):
+                changed = copy.deepcopy(original)
+                changed[key] = value
+                path.write_text(json.dumps(changed), encoding="utf-8")
+                with self.assertRaisesRegex(MODULE.CapitalFlowPostureReferenceError, code):
+                    MODULE.build_reference(self.root)
+        changed = copy.deepcopy(original)
+        changed["authority"]["order_authorized"] = 0
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.CapitalFlowPostureReferenceError, "POLICY_AUTHORITY_INVALID"):
+            MODULE.build_reference(self.root)
+
+    def test_p2_com_01_contract_semantic_tamper_fails_even_with_new_file_digest(self):
+        path = self.root / "config/cross_asset_flow_evidence_contract.json"
+        value = json.loads(path.read_text())
+        value["authority"]["cross_market_flow_claim_authorized"] = True
+        path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "CROSS_ASSET_FLOW_CONTRACT_REVALIDATION_FAILED",
+        ):
             MODULE.build_reference(self.root)
 
     def test_write_is_append_only_and_latest_is_identical(self):
