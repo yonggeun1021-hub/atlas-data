@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -95,10 +96,24 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         self.assertEqual(candidates["donor_candidate"]["market"], flow["relative_strength_laggard"])
         self.assertEqual(candidates["actual_flow_claim"], "UNKNOWN")
         self.assertIsNone(candidates["confidence"])
-        self.assertEqual(candidates["transition"], {
-            "status": "UNKNOWN", "source": "P2_COM_03_APPEND_ONLY_LEDGER",
-        })
+        # this fixture has no P2-COM-03 chain at all, so transition and
+        # persistence stay honestly empty rather than being invented
+        self.assertEqual(candidates["transition"]["status"], "UNKNOWN")
+        self.assertEqual(
+            candidates["transition"]["source"], "P2_COM_03_APPEND_ONLY_LEDGER"
+        )
+        self.assertEqual(
+            candidates["transition"]["evidence_status"], "NO_PRIOR_RECORDED_HISTORY"
+        )
+        self.assertIsNone(candidates["transition"]["pending_type"])
         self.assertIsNone(candidates["persistence"]["observation_count"])
+        self.assertIsNone(candidates["persistence"]["natural_observation_count"])
+        self.assertIsNone(candidates["persistence"]["first_seen"])
+        self.assertIsNone(candidates["persistence"]["confirmed_at"])
+        self.assertEqual(
+            candidates["persistence"]["confirmation_status"],
+            "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+        )
         self.assertEqual(
             candidates["invalidation"]["status"],
             "NOT_COMPUTABLE_POLICY_UNRATIFIED",
@@ -169,6 +184,525 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         self.assertEqual(evidence.read_bytes(), latest.read_bytes())
         self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text()), self.root), packet)
         MODULE.write_packet(packet, self.root)
+
+
+LEDGER = MODULE.transition_ledger_module()
+
+
+def render(value: dict) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+
+
+class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
+    """P2-COM-02 consumes the canonical P2-COM-03 chain instead of discarding it.
+
+    The fixture copies the repository's own ratified ledger pointer, contract,
+    and pinned predecessor evidence, so these tests read exactly the canonical
+    chain rather than a private re-implementation of it.  Nothing tracked is
+    ever written back.
+    """
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self.root = Path(self._temp.name)
+        shutil.copytree(ROOT / "config", self.root / "config")
+        (self.root / "data").mkdir()
+        for name in (
+            "latest_free_market_data.json",
+            "latest_korea_market_signals.json",
+            "latest_crypto_regime_refresh_status.json",
+            "latest_cross_market_flow_transition_ledger.json",
+        ):
+            shutil.copy2(ROOT / "data" / name, self.root / "data" / name)
+        self.contract_path = (
+            self.root / "config" / "cross_market_flow_transition_ledger_contract.json"
+        )
+        self.pointer_path = (
+            self.root / "data" / "latest_cross_market_flow_transition_ledger.json"
+        )
+        self.source_path = (
+            self.root / "data" / "latest_capital_flow_posture_reference.json"
+        )
+        self.contract = LEDGER.load_contract(self.contract_path)
+        relative = self.contract["predecessor"]["evidence_path"]
+        evidence = self.root / relative
+        evidence.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, evidence)
+        self.predecessor = LEDGER.load_predecessor(self.contract, self.root)
+        self.policy = MODULE.validate_policy(
+            MODULE.read_json(
+                self.root / "config/capital_flow_posture_reference_policy_v1.json",
+                "POLICY_INVALID",
+            )
+        )
+        paper = MODULE.PAPER_REGIME.build_reference(self.root)
+        MODULE.PAPER_REGIME.write_packet(paper, self.root)
+
+    def tearDown(self):
+        self._temp.cleanup()
+
+    # ---- fixture plumbing -------------------------------------------------
+
+    def _pointer(self) -> dict:
+        return json.loads(self.pointer_path.read_text(encoding="utf-8"))
+
+    def _write_pointer(self, value: dict) -> None:
+        self.pointer_path.write_bytes(render(value))
+
+    def _consumable(self, packet: dict) -> tuple:
+        """The prior history this packet may consume, and its head.
+
+        This reuses the producer's own ``_consumable_history`` instead of
+        writing a second copy of the ledger's self-observation rule.  The tests
+        then assert the *property* that rule must have -- no consumed entry may
+        be an observation of this packet -- so reuse cannot hide a broken rule.
+        """
+        recorded = MODULE._consumable_history(
+            LEDGER,
+            self.policy["transition_ledger"],
+            self.contract,
+            self._pointer(),
+            self.predecessor,
+            packet["generated_at"],
+            self.root,
+            self.contract_path,
+        )
+        head = recorded[-1] if recorded else self.predecessor["tail"]
+        return recorded, head
+
+    def _assert_self_observation_excluded(self, packet: dict) -> tuple:
+        """No entry recording this packet may appear in its own prior history."""
+        entries = self._pointer()["entries"]
+        recorded, head = self._consumable(packet)
+        excluded = [
+            item for item in entries
+            if item["observed_at"] == packet["generated_at"]
+        ]
+        self.assertEqual(
+            [item for item in entries if item not in excluded], recorded
+        )
+        for item in recorded:
+            self.assertNotEqual(item["observed_at"], packet["generated_at"])
+        self.assertNotEqual(head["observed_at"], packet["generated_at"])
+        for item in excluded:
+            self.assertNotEqual(head["entry_sha256"], item["entry_sha256"])
+        return recorded, head
+
+    def _ledger_latest_date(self) -> str:
+        entries = self._pointer()["entries"]
+        if entries:
+            return entries[-1]["source_generated_date_kst"]
+        return self.predecessor["tail"]["source_generated_date_kst"]
+
+    def _advance_past_ledger(self) -> dict:
+        """Move the fixture clock to a test-only instant after the whole chain.
+
+        The canonical chain grows on its own, so no fixture may assume a
+        particular calendar day is still free.  The clock is stepped until the
+        producer's own ``source_generated_date_kst`` is strictly forward of the
+        chain's latest entry -- never a hard-coded date.
+        """
+        for _ in range(60):
+            packet = MODULE.build_reference(self.root)
+            if (
+                LEDGER.source_generated_date_kst(packet)
+                > self._ledger_latest_date()
+            ):
+                return packet
+            self._advance_source_clock()
+        self.fail("fixture clock could not advance past the canonical ledger")
+
+    def _append(self, mode: str) -> tuple:
+        """Append one forward observation exactly as P2-COM-03 does."""
+        packet = self._advance_past_ledger()
+        MODULE.write_packet(packet, self.root)
+        result = LEDGER.apply_observation(
+            self.source_path,
+            mode,
+            self._pointer(),
+            root=self.root,
+            contract_path=self.contract_path,
+        )
+        self.assertEqual(result["action"], "V2_APPEND")
+        self._write_pointer(result["ledger"])
+        return packet, result["ledger"]
+
+    def _resign_pointer(self, mutate) -> None:
+        """Re-sign a mutated pointer so only semantics, not hashes, can fail."""
+        value = self._pointer()
+        mutate(value)
+        value.pop("payload_sha256")
+        value["payload_sha256"] = LEDGER.payload_sha256(value)
+        self._write_pointer(value)
+
+    # ---- consumption ------------------------------------------------------
+
+    def test_recorded_transition_and_persistence_are_consumed_not_discarded(self):
+        packet = MODULE.build_reference(self.root)
+        recorded, head = self._assert_self_observation_excluded(packet)
+        self.assertTrue(recorded, "fixture must retain consumable prior history")
+        transition = packet["flow_candidates"]["transition"]
+        persistence = packet["flow_candidates"]["persistence"]
+
+        self.assertEqual(transition["status"], "RECORDED_HISTORY_OBSERVED")
+        self.assertEqual(transition["evidence_status"], "LEDGER_CONSUMED")
+        self.assertEqual(transition["recorded_type"], recorded[-1]["transition"]["type"])
+        self.assertEqual(
+            transition["previous_semantic_state_sha256"],
+            head["current_semantic_state_sha256"],
+        )
+        self.assertEqual(
+            transition["previous_semantic_state"],
+            LEDGER._semantic_state(head["current_state"]),
+        )
+        state = LEDGER._current_state({
+            "status": packet["status"],
+            "cross_market_flow": packet["cross_market_flow"],
+        })
+        self.assertEqual(
+            transition["current_semantic_state_sha256"],
+            LEDGER.payload_sha256(LEDGER._semantic_state(state)),
+        )
+        self.assertEqual(
+            transition["pending_type"],
+            LEDGER._transition_type(head["current_state"], state),
+        )
+        # the canonical chain has already observed this exact UNKNOWN state, so
+        # the count that used to be null is now a real observed number
+        self.assertIsInstance(persistence["observation_count"], int)
+        self.assertGreaterEqual(persistence["observation_count"], 1)
+        self.assertIsNotNone(persistence["first_seen"])
+        self.assertEqual(persistence["status"],
+                         "RECORDED_OBSERVATION_COUNT_CONFIRMATION_UNRATIFIED")
+
+    def test_consumed_ledger_identity_is_hash_bound_into_generation_id(self):
+        packet = MODULE.build_reference(self.root)
+        recorded, head = self._assert_self_observation_excluded(packet)
+        source = {
+            row["source_type"]: row for row in packet["sources"]
+        }["P2_COM_03_TRANSITION_LEDGER"]
+        self.assertEqual(
+            source["contract_sha256"],
+            hashlib.sha256(self.contract_path.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            source["contract_version"], "cross_market_flow_transition_ledger/2"
+        )
+        self.assertEqual(
+            source["predecessor_payload_sha256"], self.predecessor["payload_sha256"]
+        )
+        self.assertEqual(source["consumed_head_entry_sha256"], head["entry_sha256"])
+        self.assertEqual(source["consumed_head_observed_at"], head["observed_at"])
+        self.assertEqual(
+            source["consumed_head_ledger_revision"],
+            recorded[-1]["ledger_revision"] if recorded
+            else self.predecessor["height"],
+        )
+        self.assertEqual(
+            packet["generation_id"],
+            MODULE.payload_sha256({
+                "policy_sha256": MODULE.file_sha256(
+                    self.root / "config/capital_flow_posture_reference_policy_v1.json"
+                ),
+                "sources": packet["sources"],
+            }),
+        )
+
+    def test_producer_counts_are_the_ledger_accounting_minus_the_pending_append(self):
+        """The producer must not re-implement persistence; it must match P2-COM-03.
+
+        The ledger's own ``_persistence`` includes the observation being
+        appended.  The producer describes history only, so it must equal exactly
+        that minus the pending append -- for every observation mode.
+        """
+        packet = MODULE.build_reference(self.root)
+        persistence = packet["flow_candidates"]["persistence"]
+        semantic_sha = packet["flow_candidates"]["transition"][
+            "current_semantic_state_sha256"
+        ]
+        entries, _ = self._assert_self_observation_excluded(packet)
+        for mode in ("NATURAL", "MANUAL", "RECOVERY", "REPLAY"):
+            with self.subTest(mode=mode):
+                first_seen, expected = LEDGER._persistence(
+                    entries, semantic_sha, mode, self.predecessor
+                )
+                natural = 1 if mode == "NATURAL" else 0
+                self.assertEqual(
+                    persistence["observation_count"] + 1,
+                    expected["state_observation_count_total"],
+                )
+                self.assertEqual(
+                    persistence["natural_observation_count"] + natural,
+                    expected["state_natural_observation_count_total"],
+                )
+                self.assertEqual(persistence["first_seen"], first_seen)
+        self.assertEqual(persistence["counted_observation_modes"], ["NATURAL"])
+        self.assertEqual(
+            persistence["excluded_observation_modes"],
+            ["MANUAL", "RECOVERY", "REPLAY"],
+        )
+        self.assertFalse(persistence["counts_current_packet"])
+
+    def test_manual_and_replay_observations_never_become_natural_evidence(self):
+        """A non-NATURAL append raises the total count but never the natural one."""
+        before = self._advance_past_ledger()["flow_candidates"]["persistence"]
+        for mode in ("MANUAL", "REPLAY"):
+            with self.subTest(mode=mode):
+                appended, ledger = self._append(mode)
+                head = ledger["entries"][-1]
+                self.assertEqual(head["observation_mode"], mode)
+                self.assertFalse(head["counts_toward_persistence"])
+                # step past the new entry so it becomes prior history rather
+                # than this packet's own excluded self observation
+                after = self._advance_past_ledger()
+                recorded, _ = self._assert_self_observation_excluded(after)
+                self.assertIn(
+                    head["entry_sha256"],
+                    [item["entry_sha256"] for item in recorded],
+                    "the non-NATURAL entry must be visible as prior history",
+                )
+                persistence = after["flow_candidates"]["persistence"]
+                self.assertEqual(
+                    after["flow_candidates"]["transition"][
+                        "current_semantic_state_sha256"
+                    ],
+                    appended["flow_candidates"]["transition"][
+                        "current_semantic_state_sha256"
+                    ],
+                    "fixture must hold the semantic state while the clock moves",
+                )
+                # nothing natural may grow from a non-NATURAL observation.
+                # The natural streak is preserved by the ledger rather than
+                # reset, so the invariant is "must not increase", not "is zero"
+                self.assertEqual(
+                    persistence["natural_observation_count"],
+                    before["natural_observation_count"],
+                    "a non-NATURAL observation was promoted to natural evidence",
+                )
+                self.assertEqual(
+                    persistence["current_streak_natural_count"],
+                    before["current_streak_natural_count"],
+                    "a non-NATURAL observation extended the natural streak",
+                )
+                # but the observation itself must still be recorded as seen
+                self.assertGreater(
+                    persistence["observation_count"], before["observation_count"]
+                )
+                self.assertGreater(
+                    persistence["current_streak_observation_count"],
+                    before["current_streak_observation_count"],
+                )
+                before = persistence
+
+    def _advance_source_clock(self) -> None:
+        """Move the P1 clock one day forward so the next append is not drift."""
+        path = self.root / "data" / "latest_free_market_data.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        observed = value["observed_at_utc"]
+        moved = datetime.datetime.strptime(
+            observed, "%Y-%m-%dT%H:%M:%SZ"
+        ) + datetime.timedelta(days=1)
+        value["observed_at_utc"] = moved.strftime("%Y-%m-%dT%H:%M:%SZ")
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        paper = MODULE.PAPER_REGIME.build_reference(self.root)
+        MODULE.PAPER_REGIME.write_packet(paper, self.root)
+
+    # ---- determinism ------------------------------------------------------
+
+    def test_appending_this_packet_leaves_the_rebuild_byte_identical(self):
+        """The ledger records this packet; rebuilding it must not see itself."""
+        packet, ledger = self._append("NATURAL")
+        pending = packet["flow_candidates"]["transition"]["pending_type"]
+        before = packet["flow_candidates"]["persistence"]
+        head = ledger["entries"][-1]
+        self.assertEqual(head["observed_at"], packet["generated_at"])
+        # what the packet described as pending is exactly what P2-COM-03 recorded
+        self.assertEqual(head["transition"]["type"], pending)
+        self.assertEqual(
+            head["persistence"]["state_observation_count_total"],
+            before["observation_count"] + 1,
+        )
+        self.assertEqual(
+            head["persistence"]["state_natural_observation_count_total"],
+            before["natural_observation_count"] + 1,
+        )
+        # the recorded entry is on the chain, yet is excluded from the rebuild
+        self.assertIn(
+            head["entry_sha256"],
+            [item["entry_sha256"] for item in self._pointer()["entries"]],
+        )
+        self._assert_self_observation_excluded(packet)
+        rebuilt = MODULE.build_reference(self.root)
+        self.assertEqual(rebuilt, packet)
+        self.assertEqual(MODULE.validate_reference(packet, self.root), packet)
+        self.assertEqual(
+            self.source_path.read_bytes(), render(MODULE.build_reference(self.root))
+        )
+
+    def test_rebuild_is_byte_identical_without_any_ledger_write(self):
+        first = MODULE.build_reference(self.root)
+        second = MODULE.build_reference(self.root)
+        self.assertEqual(render(first), render(second))
+
+    # ---- fail closed ------------------------------------------------------
+
+    def test_missing_pointer_over_a_ratified_chain_fails_closed(self):
+        self.pointer_path.unlink()
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "TRANSITION_LEDGER_POINTER_MISSING",
+        ):
+            MODULE.build_reference(self.root)
+
+    def test_unreadable_or_unsupported_pointer_fails_closed(self):
+        original = self._pointer()
+        self.pointer_path.write_text("{", encoding="utf-8")
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "TRANSITION_LEDGER_READ_FAILED",
+        ):
+            MODULE.build_reference(self.root)
+        self._write_pointer(original)
+        self._resign_pointer(
+            lambda value: value.update(
+                {"contract_version": "cross_market_flow_transition_ledger/9"}
+            )
+        )
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "TRANSITION_LEDGER_CONTRACT_VERSION_UNSUPPORTED",
+        ):
+            MODULE.build_reference(self.root)
+
+    def test_tampered_pointer_fails_closed_even_after_being_re_signed(self):
+        cases = {
+            "state": lambda value: value["entries"][-1]["current_state"][
+                "cross_market_flow"
+            ].update({"relative_strength_leader": "CRYPTO"}),
+            "persistence": lambda value: value["entries"][-1]["persistence"].update(
+                {"state_natural_observation_count_total": 99}
+            ),
+            "first_seen": lambda value: value["entries"][-1].update(
+                {"first_seen": "2020-01-01T00:00:00Z"}
+            ),
+            "confirmed_at": lambda value: value["entries"][-1].update(
+                {"confirmed_at": "2026-09-03T00:00:00Z"}
+            ),
+            # a REPLAY observation relabelled as counting toward persistence
+            "counted_mode_relabelled": lambda value: value["entries"][-1].update(
+                {"observation_mode": "REPLAY", "counts_toward_persistence": True}
+            ),
+        }
+        original = self._pointer()
+        for name, mutate in cases.items():
+            with self.subTest(case=name):
+                self._write_pointer(original)
+                self._resign_pointer(mutate)
+                with self.assertRaisesRegex(
+                    MODULE.CapitalFlowPostureReferenceError,
+                    "TRANSITION_LEDGER_VALIDATION_FAILED",
+                ):
+                    MODULE.build_reference(self.root)
+
+    def test_predecessor_or_lineage_drift_fails_closed(self):
+        evidence = self.root / self.contract["predecessor"]["evidence_path"]
+        cases = {
+            "entry_sha_broken": lambda value: value["entries"][-1]["lineage"].update(
+                {"input_payload_sha256": "0" * 64}
+            ),
+            "predecessor_projection_inflated": lambda value: value[
+                "predecessor"
+            ].update({"counted_natural_observations": 9}),
+        }
+        original = self._pointer()
+        for name, mutate in cases.items():
+            with self.subTest(case=name):
+                self._write_pointer(original)
+                self._resign_pointer(mutate)
+                with self.assertRaisesRegex(
+                    MODULE.CapitalFlowPostureReferenceError,
+                    "TRANSITION_LEDGER_VALIDATION_FAILED",
+                ):
+                    MODULE.build_reference(self.root)
+        self._write_pointer(original)
+        evidence.write_bytes(evidence.read_bytes() + b" ")
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "TRANSITION_LEDGER_PREDECESSOR_INVALID",
+        ):
+            MODULE.build_reference(self.root)
+
+    def test_predecessor_pointer_from_another_chain_fails_closed(self):
+        """A structurally valid /1 pointer that is not the pinned chain."""
+        evidence = self.root / self.contract["predecessor"]["evidence_path"]
+        foreign = json.loads(evidence.read_text(encoding="utf-8"))
+        foreign["ledger_id"] = "CROSS_MARKET_FLOW_FORK"
+        foreign.pop("payload_sha256")
+        foreign["payload_sha256"] = LEDGER.payload_sha256(foreign)
+        LEDGER.verify_predecessor_ledger(foreign)
+        self.assertNotEqual(
+            foreign["payload_sha256"], self.predecessor["payload_sha256"]
+        )
+        self._write_pointer(foreign)
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "TRANSITION_LEDGER_PREDECESSOR_IDENTITY_MISMATCH",
+        ):
+            MODULE.build_reference(self.root)
+
+    def test_transition_ledger_policy_identity_fails_closed(self):
+        path = self.root / "config/capital_flow_posture_reference_policy_v1.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["transition_ledger"]["counted_observation_modes"] = [
+            "NATURAL", "REPLAY",
+        ]
+        path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "POLICY_TRANSITION_LEDGER_INVALID",
+        ):
+            MODULE.build_reference(self.root)
+
+    # ---- authority --------------------------------------------------------
+
+    def test_recorded_history_opens_no_new_authority_and_no_flow_claim(self):
+        packet = MODULE.build_reference(self.root)
+        candidates = packet["flow_candidates"]
+        self.assertEqual(candidates["actual_flow_claim"], "UNKNOWN")
+        self.assertEqual(
+            candidates["actual_flow_claim_reason"],
+            "COMPARABLE_DIRECT_DONOR_RECEIVER_EVIDENCE_NOT_AVAILABLE",
+        )
+        self.assertIsNone(candidates["confidence"])
+        self.assertEqual(
+            candidates["confidence_status"], "NOT_COMPUTABLE_POLICY_UNRATIFIED"
+        )
+        self.assertEqual(
+            candidates["invalidation"]["status"], "NOT_COMPUTABLE_POLICY_UNRATIFIED"
+        )
+        self.assertIsNone(candidates["persistence"]["confirmed_at"])
+        self.assertIsNone(candidates["persistence"]["confirmation_threshold"])
+        self.assertEqual(
+            candidates["persistence"]["confirmation_status"],
+            "NOT_COMPUTABLE_POLICY_UNRATIFIED",
+        )
+        self.assertIsNone(packet["total_exposure_review"]["invested_target_pct"])
+        self.assertIsNone(packet["total_exposure_review"]["cash_target_pct"])
+        for row in packet["market_allocation_reviews"]:
+            self.assertIsNone(row["target_weight_pct"])
+        for key, value in packet["authority"].items():
+            if key in {
+                "paper_reference_display_authorized",
+                "relative_strength_comparison_authorized",
+            }:
+                self.assertIs(value, True, key)
+            else:
+                self.assertIs(value, False, key)
 
 
 if __name__ == "__main__":
