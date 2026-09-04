@@ -11,7 +11,7 @@
     "market_account_scope_sha256": "55743e95046696b062532ae139e4294100ba04dbbbb27da98699ed68868b1882",
     "security_identity_sha256": "ccf57b6f296f406cae044e67383b4a890b9e32cf18c07960e65b1f3252d368fb"
   },
-  "decision_date": "2026-09-03",
+  "decision_date": "2026-09-04",
   "observations": [
     {
       "account_scope": {
@@ -27,9 +27,47 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "02259db80dd0ae387928b34da0e72c4e9785750fd783f186622143ab304d90d0",
+      "candidate_id": "580c085fba8d34279e76e51f772c4922346de9c7fde8cc1410760a6c1faf7c66",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": "CRYPTO:BTC",
+        "canonical_issuer_id": "CRYPTO:BTC",
+        "listing_id": "KRAKEN:BTC-USD:SPOT",
+        "status": "RESOLVED"
+      },
+      "market": "BTC",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": "CRYPTO:BTC",
+          "canonical_issuer_id": "CRYPTO:BTC",
+          "listing_id": "KRAKEN:BTC-USD:SPOT",
+          "source_asset_id": "BTC/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "RESOLVED"
+        }
+      ],
+      "subject": "BTC"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "03a226b1fcf43c273a02bd2c2f3a892cc2634017b995906364701df6260f79b6",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -38,7 +76,159 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "SYRUP/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "SYRUP/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "050a8d821079aa4f4665c84121473362663c004415e1c4b15ba361edbd1a0e96",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "SUI/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "SUI/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "058b7bc77f0e7947106e0ed799b055949a725f22a23edca8c606f5ddbf74b7e5",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "PENDLE/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "PENDLE/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "0a4a0a6343b5ac8fdb832b49864f2b1bcd6906c41573a11ab28f4ba25774a8d0",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "FET/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "FET/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "141b3fee46f466f6bc97993cb7d6e35d3fe3218611e6c6d0218758d1ec5ec5b6",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -65,9 +255,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "07a89e780fd52b8ba9811b4c638147735446b1bd2a3f17305a09004e8a66ce53",
+      "candidate_id": "16e3bc7a08e0372f1e02b0907e1fd09f94c2ec97398522429d41db6fae08ef70",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -76,132 +266,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "LTC/USD",
+          "source_asset_id": "ARB/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "LTC/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "0ba55d210f9238e61a1f2490a0382e8306166b125b1f4203c8b500458bb6877f",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "JASMY/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "JASMY/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "14c26240563fe397b9b1369b49a6d7af0b6d5a47f21381a1fe35e5e1666d3c85",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "JTO/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "JTO/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "17571b1498388182c0dfd8085c3ff88965186bd83e16220e2368d40872b284b8",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "NEAR/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "NEAR/USD"
+      "subject": "ARB/USD"
     },
     {
       "account_scope": {
@@ -219,7 +295,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "1a579d3b297fa1c758caa99bb9ee7a7195a28e0e7dc42bc3fa1471cb900cc2d3",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -228,7 +304,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -255,9 +331,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "1cee91212ce0da56dbed0eda609f0ff5dbd7807ff619683b3ae6392bbe8b792e",
+      "candidate_id": "1e3fa5219aa04515313ebafe3358fc0edc123ddcb707328515bb6401c8bd3c6b",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -266,18 +342,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "DOT/USD",
+          "source_asset_id": "FLR/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "DOT/USD"
+      "subject": "FLR/USD"
     },
     {
       "account_scope": {
@@ -293,9 +369,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "22717ab416e2fedd5a320963fa45c90905bd79a212edb1db3e284f98af707e2b",
+      "candidate_id": "1f283e3d20d2afd975e0d5b7fd2f35df5125c2b9af831b79a4ea8987abac10ca",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -304,18 +380,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "EIGEN/USD",
+          "source_asset_id": "SYN/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "EIGEN/USD"
+      "subject": "SYN/USD"
     },
     {
       "account_scope": {
@@ -331,9 +407,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "23e4a1e19ca4bb33068a783f8adcf0b2d3b8678a10f781526126d5f83f01e9ca",
+      "candidate_id": "2189d27dc8bc8cc60a6c6fda251e416437185d9f71a26c971f00ca22a994afc2",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -342,7 +418,45 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "CVX/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "CVX/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "28bb17992f956140f658f3c49da2e06cb3ea0a75187e5283384f4467e352345b",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -369,9 +483,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "25a577c93fdba2c4248b95b2d73f15c42cb03c3716c66627742cf86dcd6e2fea",
+      "candidate_id": "28c3e8197e7865655a908c99cbe0bf6696042e77afb36ff9fa0f571d6daf3a8e",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -380,18 +494,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "UNI/USD",
+          "source_asset_id": "CAP/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "UNI/USD"
+      "subject": "CAP/USD"
     },
     {
       "account_scope": {
@@ -407,9 +521,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "27d79e7787204c929670527b80aeb1468631edbcf77ce9fd8521dcac1edc1dbd",
+      "candidate_id": "2a7134015b32f300eb3150ff30d878a61505c87e966cbab1fe54953d6d553f86",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -418,18 +532,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "ALGO/USD",
+          "source_asset_id": "USELESS/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "ALGO/USD"
+      "subject": "USELESS/USD"
     },
     {
       "account_scope": {
@@ -447,7 +561,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "2e18e8a8bfc668cfd07d3ea890a061f49b848e60e5946a28de17dab72e2d5277",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -456,7 +570,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -483,9 +597,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "367856ad1b9aba34e3ee5fe843526274c748512e9b92734e235699d61ae32f49",
+      "candidate_id": "344eb1778c8cfadc11d8522f1c9f92c7d2b414a0de4d64979b6dfc1761e7b5f0",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -494,7 +608,83 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "XNY/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "XNY/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "366d2f5863f4ee61b21119be2c675e32be7ef787c4fcd06f7010155801c246ce",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "ESPORTS/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "ESPORTS/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "367856ad1b9aba34e3ee5fe843526274c748512e9b92734e235699d61ae32f49",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -523,7 +713,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "3b8d27a37656139286c94741c29e5db1aaa5391f287246a1e8bfd13c81120e67",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -532,7 +722,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -561,7 +751,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "3baa866a1c96e9514bf0e73f25bf2865ba6915976ec1d6fdc740ed564ac789db",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -570,7 +760,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -597,9 +787,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "3ef970e42325f0b091c1fb3fbca7f247c0455eafb0b5081c9927f9ce7a3a9f4d",
+      "candidate_id": "3f1df8fa5f2d0658723792690bd4c05fe2587a4be5d199ead954813c8dfea85b",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -608,83 +798,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "NIL/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "NIL/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "46d3b41ad5b3b8a3932677e72dd1154419ccb94a3aa84473478b43a78138b1c8",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "SYN/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "SYN/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "4c107815474122bcede719220e19df9ec8e188bbfd581efe31c409b8f5414f1a",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -711,9 +825,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "6441cdbebcc173969a3877ced057210f0749d8154282366093047ff6e00ff615",
+      "candidate_id": "44d2ff09bd77080f89f8615dc131b897f73fdd5839f766504d2db6f031f3b481",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -722,18 +836,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "CAP/USD",
+          "source_asset_id": "APR/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "CAP/USD"
+      "subject": "APR/USD"
     },
     {
       "account_scope": {
@@ -749,9 +863,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "64839e23f844ca68bbd0fa8703418fffaf8ce63f9d204c8fb2c5662d54d36a06",
+      "candidate_id": "4c3dcac86a44ea62edc1e30029f1b80c502da0241fcef6b852cfe5b186901e06",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -760,18 +874,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "ESPORTS/USD",
+          "source_asset_id": "AKE/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "ESPORTS/USD"
+      "subject": "AKE/USD"
     },
     {
       "account_scope": {
@@ -787,9 +901,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "657d87afcd69ad760b350367db21634751d22a2e249922f53171af878c093383",
+      "candidate_id": "4c549ea7daf72bb47f73161257c2addad89a7ce069ef936670fc37dd65add4a0",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -798,18 +912,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "FLR/USD",
+          "source_asset_id": "KNTQ/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "FLR/USD"
+      "subject": "KNTQ/USD"
     },
     {
       "account_scope": {
@@ -825,9 +939,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "67b6017a9f94f2ee11f939f552712f531ea9f41ea6d86c68e501d80058048371",
+      "candidate_id": "4e5ad36e277a2dd9d14ba3d00ae3c1803dff876eda9a7c7cb51c1e8f486ebe82",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -836,18 +950,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "FET/USD",
+          "source_asset_id": "NEAR/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "FET/USD"
+      "subject": "NEAR/USD"
     },
     {
       "account_scope": {
@@ -863,9 +977,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "6b3a7ec6866c4a0dfb0b1ec9162de7598ac4ca078b6a2d58264856aa64a8a63b",
+      "candidate_id": "4f0adc33b7617f9241d5a246531fe55c347f65e54839187174887ee56f8e1d70",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -874,18 +988,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "OP/USD",
+          "source_asset_id": "CRV/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "OP/USD"
+      "subject": "CRV/USD"
     },
     {
       "account_scope": {
@@ -901,9 +1015,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "6bd41b4180eef430e7e35fef8eec59ebbb18a6f759132b6bda6b726b1633fa30",
+      "candidate_id": "5036c8030fb1d217f3c63c951c3bbf361942ca290dd456da6db9897d68a65a21",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -912,18 +1026,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "DASH/USD",
+          "source_asset_id": "SEI/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "DASH/USD"
+      "subject": "SEI/USD"
     },
     {
       "account_scope": {
@@ -939,9 +1053,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "6d14c85eeb64dc614c1af57839a1de47ebc6cde5de0f2c314c98d6e2eaa88957",
+      "candidate_id": "567385c33ed7c00c448ede9988bfbb5317771713c4fdc34b47edac9007abc367",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -950,18 +1064,56 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "ARB/USD",
+          "source_asset_id": "DOT/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "ARB/USD"
+      "subject": "DOT/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "66b6b2b13c791907379329ce4cbca9b49d6d9717131d0461f49b19597816afe1",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "QNT/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "QNT/USD"
     },
     {
       "account_scope": {
@@ -979,7 +1131,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "6e42da93b6e1c9362eff4d9ded4343daa98d7573ea86ac0cc07a96eec04bd4c6",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -988,7 +1140,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1015,9 +1167,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "7012e8d09c56993104de0036b3aba63ea7cc16c597c70f96639a8e8294163d37",
+      "candidate_id": "70ff562742d2a85fec3a3d66a5e44183e4beb231ab5356a53590d4f6656e7b86",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1026,18 +1178,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "CVX/USD",
+          "source_asset_id": "AAVE/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "CVX/USD"
+      "subject": "AAVE/USD"
     },
     {
       "account_scope": {
@@ -1053,9 +1205,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "77e353f78eacad94d365c87388b22f232eae804d49bcd84965d430a4f8c21782",
+      "candidate_id": "76981d3eaa68bf75adacd4e789bfaf6a0c9922d9f4642c8524759f17566fa434",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1064,18 +1216,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "USELESS/USD",
+          "source_asset_id": "DASH/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "USELESS/USD"
+      "subject": "DASH/USD"
     },
     {
       "account_scope": {
@@ -1091,9 +1243,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "7a36d53c057935a011ce786fdbe301d01fa8da5d79a0c05cb08790bdbb25b00d",
+      "candidate_id": "852178b5ef7bc40b67f4ed6d5972ecd203c27783b3cc4fb67d78f3fd49ae3b0f",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1102,18 +1254,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "KTA/USD",
+          "source_asset_id": "ALGO/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "KTA/USD"
+      "subject": "ALGO/USD"
     },
     {
       "account_scope": {
@@ -1129,9 +1281,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "853af78db6afbbc416817d1d323bb975fa5d821e46c1b51ae02313d590da1715",
+      "candidate_id": "85560fa40a835197394509096d808043c1182af49584146381a069f301c5ecb2",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1140,18 +1292,56 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "UAI/USD",
+          "source_asset_id": "SCRT/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "UAI/USD"
+      "subject": "SCRT/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "893ebe9519659ac78ac5da40f2def874a4959fc919badddba6efbfb0ffc04604",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "STX/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "STX/USD"
     },
     {
       "account_scope": {
@@ -1169,7 +1359,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "8a3d27e0fb5bd13736253791cffba697ee930298c8c50d7f053e10370e463534",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1178,7 +1368,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1205,9 +1395,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "8b85ed1dd1634ff34fc0f29ac5b712ebec2987645d6053fc8e48256906c84731",
+      "candidate_id": "8b4dcbbe327b17fb9131dd636d78a1c80603382d636c3a30a35aa2841ee7eb9a",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1216,7 +1406,45 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "PYTH/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "PYTH/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "8b85ed1dd1634ff34fc0f29ac5b712ebec2987645d6053fc8e48256906c84731",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1243,47 +1471,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "8bdecbbdfa91e008438f4097ebf75e9b3432f11f6f8c923ac63f2937e5051178",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "ICNT/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "ICNT/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "909580b07945195d689b78ae1dcfe6d92729307c64cbe02cbbdc9a88f4b3f738",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1292,7 +1482,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1319,9 +1509,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "917a9c11249323350a09af105e30e7564ffd8b309103f2109ee6510b50950f64",
+      "candidate_id": "91358058088a7d9804761877b5201d5ae9c8d62fc58211fd16bd125269591cea",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1330,7 +1520,83 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "LDO/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "LDO/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "91378edc97d3cb3f099add557b4fb97a80a36e3b501feff81f2da009e80e2761",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "ZAMA/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "ZAMA/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "917a9c11249323350a09af105e30e7564ffd8b309103f2109ee6510b50950f64",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1357,9 +1623,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "96e2b28b0e458a4d774487958426cb5dc5228d5ab007bf11fc038ca56c36e95b",
+      "candidate_id": "928a0f408f535f8bb69220fa839316f3d2ee36aa8026bc0a3f7790819702f244",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1368,7 +1634,45 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "UNI/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "UNI/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "96e2b28b0e458a4d774487958426cb5dc5228d5ab007bf11fc038ca56c36e95b",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1397,7 +1701,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "97151cbf0fd10cf910f75bf0b7c83953cd49b1f8f15bde2907463da6cee75606",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1406,7 +1710,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -1433,9 +1737,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "9db83ad465da4bd6378fdd232a349fe7430e7f37e6894b4fedcceea1cc489dad",
+      "candidate_id": "9cc26e579fa91f5f2c3f56713088a27ff21672282609b8cc29b5571137c1a9cb",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1444,18 +1748,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "SEI/USD",
+          "source_asset_id": "ICNT/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "SEI/USD"
+      "subject": "ICNT/USD"
     },
     {
       "account_scope": {
@@ -1471,9 +1775,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "a5f9dd77784d496e40ef772572399e7fec937b483371dd826acf75644e256af8",
+      "candidate_id": "9d4caec5a11bb1273bc8484e681abcd32b8a3b20268e74f4c012bf4bc1c93e97",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -1482,653 +1786,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "DCR/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "DCR/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "ad49d6a142dc3736d95486133504fd93a1526f840714accb66514c3f4081dcbe",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "BLUAI/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "BLUAI/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "ae575ca735c50880ae0e8f48fb2a2ddfaff1b23d44df6824975888d97e4ab98d",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "MINA/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "MINA/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "b14edb65634d8281f7b5bae34fb28d9332a68638547b697e3fc70f8ead95769d",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "M/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "M/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "b217697b665d6edf9af3780a0dea884dbfdd447bbfe1f5ceda0127da7f2540c3",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "QNT/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "QNT/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "b703136eec1c60e56c87514dbdc58014bf217b9644bbeda2124eccb047e49c68",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "AKE/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "AKE/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "b868e0612ee691b98fdfffff49779db08bd7de8fc9f4d02fff0300168cdace88",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "FIL/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "FIL/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "bd0b9ad819a8b6db0c286b39e34cb29faeef23cdd73569f83984300c3b8e9e40",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "ETHFI/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "ETHFI/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "c147bdc0103efdd0d3b64072f1300d60cef2e35aa28e0c25a2115a375d4f245a",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "SCRT/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "SCRT/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "c5c2f287c8b8588f6347cca17c1b823f94631e2213202a7386e1f4ccb5ac1147",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "XAN/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "XAN/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "c64a68930573df73b07a4585c42ee728efec2e88426dd282496223e5bacce96b",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "XNY/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "XNY/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "cd08d5f26a10f950983ecb7dc5fa8f1b6400ba4ff54aeb9b57e9c103aea78beb",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "CRV/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "CRV/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "ce03c4f3230d7ba158ad73d69dfe26e4e0959efe090a8dc23d930ecdb037ab86",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "PYTH/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "PYTH/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "d37b2b50f35677750468195010019d28f71f9d20beec39c8002a99630e57b552",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "AAVE/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "AAVE/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "d9cd30d1e7d4ae262214e3b10924f6bb7a922dbfb7ea085e82a69e4b63a1b6c0",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "LDO/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "LDO/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "e71f71b76437b52f802626135a85d6cd43fac735c5a7f4aa687e6834cd4e9b73",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "MORPHO/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "MORPHO/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "e9330d082594829c33b7261eccb4640e02067c640be4f35c7f05b38d3c194e55",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
-      "source_pair_observations": [
-        {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "LIT/USD",
-          "source_name": "kraken_spot_ohlc",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-        }
-      ],
-      "subject": "LIT/USD"
-    },
-    {
-      "account_scope": {
-        "account_scope": "CRYPTO",
-        "status": "RESOLVED"
-      },
-      "authority": {
-        "action_authority": false,
-        "buy_authority": false,
-        "order_authority": false,
-        "production_authority": false,
-        "stage_promotion_authority": false,
-        "trading_authority": false
-      },
-      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "e93c5b28fb72670b2000b586bfa8754e1593669b35ced259396fbca0cfeb9860",
-      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
-      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
-      },
-      "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2155,9 +1813,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "eff11aacbbb47d7805ec2315417fac195679a0f57ba020fe509960276a061762",
+      "candidate_id": "9ebf69cd313513255bbec43c4b1ec33d555a6fcf982ac57aa51e86bb04c68afe",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2166,18 +1824,18 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "SYRUP/USD",
+          "source_asset_id": "JUP/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "SYRUP/USD"
+      "subject": "JUP/USD"
     },
     {
       "account_scope": {
@@ -2193,9 +1851,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "fab0ecff7e1bcb4a47bf4b080fb7e23f7cd6bd0d04e7fc1db45997cbf77695c0",
+      "candidate_id": "a559ff3c03d9be5c661baa1825780a3f27c29ffcbcf436241df4143cb3b0453f",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2204,7 +1862,387 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "ASTER/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "ASTER/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "af90285aec9b80c708a78d3183ece10aad3fe18d8aaa68396c21357475e18ced",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "ETHFI/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "ETHFI/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "afd4aac50e42b5ceaa3ebcd7a13203ffe417d01a8a23b36518213b2163930ec5",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "OP/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "OP/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "b14edb65634d8281f7b5bae34fb28d9332a68638547b697e3fc70f8ead95769d",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "M/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "M/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "b4bd980b04b5f425cc3a52195d1b37f1fed944e63b449f29c0d2665c345bc525",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "KAS/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "KAS/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "b65e8157b167128604047b2091f323ea94a82ac2176384852fa3163a4baa9e5a",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "LTC/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "LTC/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "c12cbf10c680910c67fdc4f979c63127c847435df44d572fe11c2947cc9e9dc3",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "FIL/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "FIL/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "c75cd27565bdfd9dc7d5c079a9c956e9068f61b6acd084db032c6148d329b061",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "SHIB/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "SHIB/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "c7f1076b1b1d597a51bb157472de463c3328d8f52e9c03b0f8e592a6454a0724",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "UAI/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "UAI/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "c7fc691f7d2f713d3710619d608886ba291d3c0762ea05a26c23832186771b91",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "JTO/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "JTO/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "cf1bc8f3bae675622b1c3a37ecaf6762c6a0a6419b482d9d0be6272ff2a30427",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2231,9 +2269,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "fcadd9ca61ad7e0ca1135bbf22f17e2edce3bb351de474f7b94f49e103cb5640",
+      "candidate_id": "d009d4fef539aabaa6092408a35e058743c652bd7fbd7d42cf60a2210afef7a1",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2242,7 +2280,197 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "DCR/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "DCR/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "d570e733133f53e16a3982ea6935e85bfe57bcc31fbd13ee5f7d0b420ca844cd",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "MORPHO/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "MORPHO/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "d6dfeccb9f6eb51e48ce1ec01d6b379a23510c4c6c02ecb58c66b2f5f487b9e5",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "JASMY/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "JASMY/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "d7bb43faed23c1d14a4b23a55420a50b62aa2945e55e93642018587abe43c2d1",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "MINA/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "MINA/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "e169184cd1a30afc73915aefef53f45bbcd40a7b471c5e4d08f914b010a4ecf1",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "EIGEN/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "EIGEN/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "e5e64dba9948cc6a064ef5480059b66afaca287f8e312cadafdaf8c6f81e0820",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2269,9 +2497,9 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "fcb3fcd28bc160b04367cfb7088110d482ac096050b2e8ba9f63992cf3ea22eb",
+      "candidate_id": "e9330d082594829c33b7261eccb4640e02067c640be4f35c7f05b38d3c194e55",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2280,18 +2508,94 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
           "canonical_issuer_id": null,
           "listing_id": null,
-          "source_asset_id": "PENDLE/USD",
+          "source_asset_id": "LIT/USD",
           "source_name": "kraken_spot_ohlc",
           "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
         }
       ],
-      "subject": "PENDLE/USD"
+      "subject": "LIT/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "eda07a92c75d7665808df916e90fe4bb8b060075dd68305d9a0dfc5575c5e85e",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "ESP/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "ESP/USD"
+    },
+    {
+      "account_scope": {
+        "account_scope": "CRYPTO",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "ef66e9052859f9ca2eadf2ea892660b23db72f15bc27e6b96afca6d875818aac",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "CRYPTO",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "XDC/USD",
+          "source_name": "kraken_spot_ohlc",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "XDC/USD"
     },
     {
       "account_scope": {
@@ -2309,7 +2613,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "ffd62350b11df67164a25799d693cdbf2e1cddaf873544e45256e2d15f5b89c8",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2318,7 +2622,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "CRYPTO",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2347,7 +2651,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "2b1a11ce4c50e2c980731febed9a92e5c6a5db38016620b995733408757eaec2",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2356,7 +2660,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "KOREA",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2383,29 +2687,29 @@
         "trading_authority": false
       },
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
-      "candidate_id": "494e5ce02ac918cdc628c266a4ecc0dad70bff84d9aa3abd5760040615a76fb9",
+      "candidate_id": "8f34817821117792e59bf0c517117bc6d59d06be545a796b703ca4a850568ed3",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
-        "canonical_instrument_id": null,
-        "canonical_issuer_id": null,
-        "listing_id": null,
-        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        "canonical_instrument_id": "KRX:005930:COMMON",
+        "canonical_issuer_id": "DART:00126380",
+        "listing_id": "XKRX:005930",
+        "status": "RESOLVED"
       },
       "market": "KOREA",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
-          "canonical_instrument_id": null,
-          "canonical_issuer_id": null,
-          "listing_id": null,
-          "source_asset_id": "267260",
+          "canonical_instrument_id": "KRX:005930:COMMON",
+          "canonical_issuer_id": "DART:00126380",
+          "listing_id": "XKRX:005930",
+          "source_asset_id": "005930",
           "source_name": "krx_open_api_stock_daily",
-          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+          "status": "RESOLVED"
         }
       ],
-      "subject": "267260"
+      "subject": "005930"
     },
     {
       "account_scope": {
@@ -2423,7 +2727,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "aed9e83d24938e33089de94883c309c9d3b99646c048a4fc49403b036364f9b5",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": "KRX:000660:COMMON",
@@ -2432,7 +2736,7 @@
         "status": "RESOLVED"
       },
       "market": "KOREA",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": "KRX:000660:COMMON",
@@ -2461,7 +2765,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "bbd186a426679f625ce3ae4e8e4fd13d66d68674f5db906f193cae209758e9b3",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2470,7 +2774,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "KOREA",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2499,7 +2803,7 @@
       "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
       "candidate_id": "bd283323e569977368d70326feca53a56482bf1a4dc00198714f55bb49831740",
       "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
-      "decision_at": "2026-09-03",
+      "decision_at": "2026-09-04",
       "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
       "identity": {
         "canonical_instrument_id": null,
@@ -2508,7 +2812,7 @@
         "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
       },
       "market": "KOREA",
-      "operational_evaluated_at": "2026-09-02T21:56:55Z",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
       "source_pair_observations": [
         {
           "canonical_instrument_id": null,
@@ -2520,14 +2824,52 @@
         }
       ],
       "subject": "012450"
+    },
+    {
+      "account_scope": {
+        "account_scope": "KOREA",
+        "status": "RESOLVED"
+      },
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "order_authority": false,
+        "production_authority": false,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "boundary": "MECHANICAL_IDENTITY_OBSERVATION_ONLY",
+      "candidate_id": "dcf088ce7cfeebad2e69ad5d6be92e77e1c1e4c061c3de97ded83c7cef77dea8",
+      "candidate_validity_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "decision_at": "2026-09-04",
+      "entry_eligibility_status": "NOT_EVALUATED_BY_THIS_CONTRACT",
+      "identity": {
+        "canonical_instrument_id": null,
+        "canonical_issuer_id": null,
+        "listing_id": null,
+        "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+      },
+      "market": "KOREA",
+      "operational_evaluated_at": "2026-09-04T00:48:50Z",
+      "source_pair_observations": [
+        {
+          "canonical_instrument_id": null,
+          "canonical_issuer_id": null,
+          "listing_id": null,
+          "source_asset_id": "267260",
+          "source_name": "krx_open_api_stock_daily",
+          "status": "IDENTITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD"
+        }
+      ],
+      "subject": "267260"
     }
   ],
-  "packet_sha256": "5f4cf29956fec570c8e62c2afcef1d42c8a5fbae2d35bf7591420e5b6f7eaaf7",
+  "packet_sha256": "c450c38e354f0105a77e0f17a267144c70af0eb7814e6810cebef7901a1f60c0",
   "schema_version": "candidate_identity_observation/1",
-  "source_dynamic_clock_report_canonical_sha256": "1f0b462bfc7704a20809ea3c840f96dbdc38950e07941f424a1d6783a696001b",
+  "source_dynamic_clock_report_canonical_sha256": "11e9419b25449dbb21de7f1334ed36eb33827b8885e0081ba8e2c61b77625130",
   "summary": {
-    "candidate_count": 66,
-    "identity_resolved_count": 1,
-    "scope_resolved_count": 66
+    "candidate_count": 75,
+    "identity_resolved_count": 3,
+    "scope_resolved_count": 75
   }
 }
