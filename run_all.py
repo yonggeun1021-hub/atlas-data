@@ -663,6 +663,11 @@ APPROVED_TESTS = [
     #   normalization/freshness/weight/threshold/override/hysteresis 정책이
     #   비준되지 않은 현재는 BLOCKED_COVERAGE 또는 BLOCKED_POLICY_UNRATIFIED만
     #   허용한다. ⛔ Regime 분류/score/전략/Production/trading 없음.
+    #   추가로 이미 병합된 ratified PAPER baseline v1 공통 집계값을
+    #   registry v2 common_v1_alignment에 hash-bound된 replay 전용 정책으로
+    #   구현하고 bull/bear/sideways/stress PIT replay의 determinism·전이·
+    #   stress·3/5 UNKNOWN을 검증한다. ⛔ runtime wiring/PIT replay acceptance
+    #   없음 — signed axis 입력만 받고 모든 downstream 권한은 false다.
     "test/test_regime_decision_authority.py",
     # ★ P1-COM-05 evidence population — 비준된 P1-COM-02 5/5 coverage만
     #   exact policy bytes/PR/WBS lineage로 후보에 결합한다. 나머지 8개
