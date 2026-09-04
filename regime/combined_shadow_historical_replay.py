@@ -23,6 +23,12 @@ This module invents nothing new:
   this population's requested dates — a market view is otherwise only ever
   compared with itself, and a coherent set of forged views, or a genuine
   market population for a *different* date, would pass every other check.
+  The two blocks that describe the population rather than its records are
+  checked too: the ``pit_replay`` declaration must be complete and must carry
+  its declared values, so a re-signed payload cannot claim future dates were
+  used, and every ``episode_input_sources`` record must be a well-formed pin
+  with a syntactically valid SHA-256 and a count the published episodes
+  support.
 
 What this module deliberately refuses to do:
 
@@ -166,6 +172,49 @@ AUTHORITY = {
     "trading_authorized": False,
     "real_authorized": False,
 }
+
+# The exact point-in-time block every population publishes, declared once so
+# ``build_population`` and ``validate_population`` cannot drift apart, and
+# required key for key by ``_validate_pit_replay``.
+#
+# This block is the population's own declaration that no date's evaluation saw a
+# later date. A re-hashed payload is a valid signature over whatever it
+# contains, so a validator that never inspected it would accept a population
+# that flipped ``future_dates_used_in_any_date_evaluation`` to ``true`` — a
+# payload simultaneously claiming to honour and to breach the non-negotiable PIT
+# boundary — or that simply deleted the declaration. Neither the key set, the
+# values, nor the statement is optional: softening the statement while keeping
+# the booleans would misdescribe the same payload just as effectively.
+PIT_REPLAY_TRUE_KEYS = (
+    "each_date_replayed_independently",
+    "each_market_replayed_independently",
+    "lookahead_rechecked_at_join",
+)
+PIT_REPLAY_FALSE_KEYS = (
+    "future_dates_used_in_any_date_evaluation",
+    "retained_sources_mutated_by_this_module",
+    "candidate_rule_modified_by_this_module",
+    "market_observations_recomputed_by_this_module",
+    "cross_market_rule_invented_by_this_module",
+)
+PIT_REPLAY_STATEMENT = (
+    "Every observation is the KR or US replay population's own output for"
+    " one caller-supplied date, re-validated by that market's own"
+    " validator before it is joined. This module adds no source request,"
+    " no axis derivation, no threshold, and no cross-market rule. Each"
+    " market record's consumed source dates are re-checked against its"
+    " requested date at the join, and any market that consumed a later"
+    " date is failed closed for that one date only."
+)
+PIT_REPLAY_KEYS = PIT_REPLAY_TRUE_KEYS + PIT_REPLAY_FALSE_KEYS + ("statement",)
+
+# The exact shape of one caller-supplied episode-input source record, as
+# ``load_episode_file`` emits it. This list is the population's whole statement
+# of *where* its caller labels came from, so it is validated rather than carried
+# unread: an unchecked field can be re-signed into a syntactically impossible
+# digest, a count no set of episodes supports, or a bare string that pins
+# nothing at all.
+EPISODE_SOURCE_KEYS = ("path", "sha256", "episode_count")
 
 
 class CombinedReplayError(ValueError):
@@ -500,6 +549,20 @@ def _market_population(market: str, build, validate, secrets: list[str]) -> tupl
     return population, None
 
 
+def _pit_replay_block() -> dict:
+    """The population's point-in-time declaration, built from the shared shape.
+
+    Emitted here and re-required by ``_validate_pit_replay`` from the same
+    constants, so a field can never be published without being checked or
+    checked without being published.
+    """
+    return {
+        **{key: True for key in PIT_REPLAY_TRUE_KEYS},
+        **{key: False for key in PIT_REPLAY_FALSE_KEYS},
+        "statement": PIT_REPLAY_STATEMENT,
+    }
+
+
 def _episode_coverage(dates: list[str], by_date: dict) -> dict:
     counts = {status: 0 for status in COMBINED_STATUSES}
     for date in dates:
@@ -641,28 +704,10 @@ def build_population(
             "per_market_outcome_counts": market_counts,
             "cross_market_classification_status": CROSS_MARKET_STATUS,
         },
-        "pit_replay": {
-            # Structural facts about *how* this report was produced. Each is
-            # enforced by test/test_combined_shadow_historical_replay.py rather
-            # than merely asserted here.
-            "each_date_replayed_independently": True,
-            "each_market_replayed_independently": True,
-            "future_dates_used_in_any_date_evaluation": False,
-            "lookahead_rechecked_at_join": True,
-            "retained_sources_mutated_by_this_module": False,
-            "candidate_rule_modified_by_this_module": False,
-            "market_observations_recomputed_by_this_module": False,
-            "cross_market_rule_invented_by_this_module": False,
-            "statement": (
-                "Every observation is the KR or US replay population's own output for"
-                " one caller-supplied date, re-validated by that market's own"
-                " validator before it is joined. This module adds no source request,"
-                " no axis derivation, no threshold, and no cross-market rule. Each"
-                " market record's consumed source dates are re-checked against its"
-                " requested date at the join, and any market that consumed a later"
-                " date is failed closed for that one date only."
-            ),
-        },
+        # Structural facts about *how* this report was produced. Each is enforced
+        # by test/test_combined_shadow_historical_replay.py rather than merely
+        # asserted here, and re-required key for key by ``_validate_pit_replay``.
+        "pit_replay": _pit_replay_block(),
         "authority": dict(AUTHORITY),
     }
     population["payload_sha256"] = payload_sha256(population)
@@ -698,6 +743,14 @@ def validate_population(value: dict) -> dict:
     thing it must still carry is its *reason*: an unavailable market is BLOCKED
     on every date, and without an attributable cause that BLOCKED market becomes
     an UNKNOWN nothing explains.
+
+    The two blocks that describe the population rather than its records are
+    checked here too, for the same reason the record bijection is. The
+    ``pit_replay`` declaration is the population's own statement that no date
+    saw a later one, and ``episode_input_sources`` is its only statement of
+    where its caller labels came from; a validator that carried either unread
+    would accept a re-signed payload declaring that future dates *were* used, or
+    pinning its episode file to a digest that is not a SHA-256 at all.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -727,9 +780,98 @@ def validate_population(value: dict) -> dict:
     _validate_embedded_populations(value, requested)
     records = _validate_records(value, requested)
     _validate_episodes(value, requested, records)
+    _validate_episode_input_sources(value)
     _validate_summary(value, requested, records)
+    _validate_pit_replay(value)
     _validate_authority(value)
     return copy.deepcopy(value)
+
+
+def _validate_pit_replay(value: dict) -> None:
+    """The point-in-time declaration must be complete and must say what it says.
+
+    Point-in-time integrity is non-negotiable, so the block asserting it is
+    checked exactly rather than trusted. Three things are required and none is
+    redundant:
+
+    * the **exact key set**, because a payload that deletes
+      ``future_dates_used_in_any_date_evaluation`` has not stopped claiming PIT
+      integrity — it has stopped being checkable, and every other guarantee here
+      would still pass;
+    * the **declared value** of every flag, because a re-signed payload setting
+      that flag ``true`` would otherwise publish, under a valid signature, a
+      population that simultaneously claims and denies the boundary;
+    * the **statement**, because rewriting the prose while leaving the booleans
+      alone misdescribes the same payload just as effectively to a human reader.
+
+    This is a check on what the population *declares*. What it actually did is
+    enforced separately and structurally, by the per-record lookahead re-check
+    in ``_validate_record`` and by full re-derivation from the embedded market
+    records; neither depends on this block being honest.
+    """
+    pit = value.get("pit_replay")
+    if not isinstance(pit, dict) or sorted(pit) != sorted(PIT_REPLAY_KEYS):
+        fail("PIT_REPLAY_SCHEMA_INVALID")
+    for key in PIT_REPLAY_TRUE_KEYS:
+        if pit[key] is not True:
+            fail("PIT_REPLAY_DECLARATION_INVALID", key)
+    for key in PIT_REPLAY_FALSE_KEYS:
+        if pit[key] is not False:
+            fail("PIT_REPLAY_DECLARATION_INVALID", key)
+    if pit["statement"] != PIT_REPLAY_STATEMENT:
+        fail("PIT_REPLAY_STATEMENT_INVALID")
+
+
+def _validate_episode_input_sources(value: dict) -> None:
+    """Every pinned episode-input file must be attributable and well-formed.
+
+    ``episode_input_sources`` is the population's only record of *which*
+    caller-supplied file declared its episode labels. Carrying it unread made it
+    forgeable in three separate ways, each of which this checks:
+
+    * the block itself could be replaced with ``null`` or a bare string, leaving
+      a population that claims a file-driven episode set while pinning nothing;
+    * a record's ``sha256`` could be any text at all, so a pin that reads like
+      provenance could name no file that could ever exist;
+    * ``episode_count`` could exceed the episodes the population actually
+      published, so a source could claim to have contributed labels that are not
+      there.
+
+    The count bound is deliberately an upper bound, not an equality: ``--episode``
+    arguments add rows that no file declared, so the honest derivable fact is
+    that the files together cannot have contributed more episodes than the
+    population carries. Which specific published episode came from which file is
+    not recorded by this contract, and is not inferred here.
+
+    A path appearing twice is refused: ``load_episode_file`` is called once per
+    caller-named file, and the same file listed twice would have produced
+    duplicate episode names and already failed closed in ``resolve_request``.
+    """
+    sources = value.get("episode_input_sources")
+    if not isinstance(sources, list):
+        fail("EPISODE_INPUT_SOURCES_INVALID", "not a list")
+    paths = []
+    declared = 0
+    for index, source in enumerate(sources):
+        label = f"[{index}]"
+        if not isinstance(source, dict) or sorted(source) != sorted(EPISODE_SOURCE_KEYS):
+            fail("EPISODE_INPUT_SOURCE_SCHEMA_INVALID", label)
+        path = source["path"]
+        if not isinstance(path, str) or not path.strip():
+            fail("EPISODE_INPUT_SOURCE_SCHEMA_INVALID", f"{label}.path")
+        digest = source["sha256"]
+        if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
+            fail("EPISODE_INPUT_SOURCE_SHA_INVALID", f"{label}.sha256")
+        count = source["episode_count"]
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            fail("EPISODE_INPUT_SOURCE_COUNT_INVALID", f"{label}.episode_count")
+        paths.append(path)
+        declared += count
+    if len(set(paths)) != len(paths):
+        fail("EPISODE_INPUT_SOURCE_DUPLICATE_PATH")
+    # ``_validate_episodes`` has already run, so ``episodes`` is a list of dicts.
+    if declared > len(value["episodes"]):
+        fail("EPISODE_INPUT_SOURCE_COUNT_EXCEEDS_PUBLISHED_EPISODES", str(declared))
 
 
 def _validate_records(value: dict, requested: list[str]) -> list[dict]:

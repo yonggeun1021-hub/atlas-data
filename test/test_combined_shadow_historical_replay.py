@@ -918,6 +918,189 @@ class CombinedValidationTest(unittest.TestCase):
                     str(caught.exception),
                 )
 
+    def test_validate_population_rejects_a_contradictory_pit_declaration(self):
+        # Adversarial: the population's point-in-time block was previously
+        # carried unread, so a payload could declare that future dates *were*
+        # used in a date's evaluation, re-sign itself, and be certified — a valid
+        # signature over a payload that both claims and denies the boundary
+        # docs/ATLAS_SESSION_BOOTSTRAP.md treats as non-negotiable.
+        for label, mutate in (
+            (
+                "future_dates_claimed",
+                lambda population: population["pit_replay"].__setitem__(
+                    "future_dates_used_in_any_date_evaluation", True,
+                ),
+            ),
+            (
+                "independence_denied",
+                lambda population: population["pit_replay"].__setitem__(
+                    "each_date_replayed_independently", False,
+                ),
+            ),
+            (
+                "join_recheck_denied",
+                lambda population: population["pit_replay"].__setitem__(
+                    "lookahead_rechecked_at_join", False,
+                ),
+            ),
+            (
+                "sources_mutated",
+                lambda population: population["pit_replay"].__setitem__(
+                    "retained_sources_mutated_by_this_module", True,
+                ),
+            ),
+            (
+                "truthy_not_true",
+                lambda population: population["pit_replay"].__setitem__(
+                    "each_market_replayed_independently", 1,
+                ),
+            ),
+        ):
+            with self.subTest(mutate=label):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("PIT_REPLAY_DECLARATION_INVALID", str(caught.exception))
+
+    def test_validate_population_rejects_a_deleted_or_rewritten_pit_declaration(self):
+        # Deleting the declaration must fail rather than leave nothing to check,
+        # and rewriting only its prose must fail too: a human reads the statement,
+        # not the booleans.
+        for label, mutate, code in (
+            (
+                "dropped_flag",
+                lambda population: population["pit_replay"].pop(
+                    "future_dates_used_in_any_date_evaluation",
+                ),
+                "PIT_REPLAY_SCHEMA_INVALID",
+            ),
+            (
+                "emptied",
+                lambda population: population.__setitem__("pit_replay", {}),
+                "PIT_REPLAY_SCHEMA_INVALID",
+            ),
+            (
+                "deleted",
+                lambda population: population.__setitem__("pit_replay", None),
+                "PIT_REPLAY_SCHEMA_INVALID",
+            ),
+            (
+                "extra_key",
+                lambda population: population["pit_replay"].__setitem__(
+                    "future_dates_used_where_convenient", True,
+                ),
+                "PIT_REPLAY_SCHEMA_INVALID",
+            ),
+            (
+                "rewritten_statement",
+                lambda population: population["pit_replay"].__setitem__(
+                    "statement", "Lookahead was permitted where it helped.",
+                ),
+                "PIT_REPLAY_STATEMENT_INVALID",
+            ),
+        ):
+            with self.subTest(mutate=label):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def _with_episode_source(self, sources):
+        """A valid population whose episode-input sources are replaced wholesale."""
+        population = copy.deepcopy(
+            build([ANCHOR], [{"name": "E1", "dates": [ANCHOR]}]),
+        )
+        population["episode_input_sources"] = sources
+        return self._resigned(population)
+
+    def test_validate_population_rejects_an_unattributable_episode_input_source(self):
+        # Adversarial: episode_input_sources was previously never inspected, so
+        # the population's only record of which caller file declared its labels
+        # could be replaced with anything at all and re-signed.
+        good = {"path": "/tmp/episodes.json", "sha256": "a" * 64, "episode_count": 1}
+        for label, sources, code in (
+            ("null", None, "EPISODE_INPUT_SOURCES_INVALID"),
+            ("string", "episodes.json", "EPISODE_INPUT_SOURCES_INVALID"),
+            ("bare_string_record", ["episodes.json"], "EPISODE_INPUT_SOURCE_SCHEMA_INVALID"),
+            (
+                "missing_field",
+                [{"path": "/tmp/episodes.json", "sha256": "a" * 64}],
+                "EPISODE_INPUT_SOURCE_SCHEMA_INVALID",
+            ),
+            (
+                "extra_field",
+                [{**good, "selected_by_this_module": True}],
+                "EPISODE_INPUT_SOURCE_SCHEMA_INVALID",
+            ),
+            ("empty_path", [{**good, "path": "   "}], "EPISODE_INPUT_SOURCE_SCHEMA_INVALID"),
+            (
+                "not_a_sha",
+                [{**good, "sha256": "not-a-sha"}],
+                "EPISODE_INPUT_SOURCE_SHA_INVALID",
+            ),
+            (
+                "uppercase_sha",
+                [{**good, "sha256": "A" * 64}],
+                "EPISODE_INPUT_SOURCE_SHA_INVALID",
+            ),
+            ("null_sha", [{**good, "sha256": None}], "EPISODE_INPUT_SOURCE_SHA_INVALID"),
+            (
+                "negative_count",
+                [{**good, "episode_count": -1}],
+                "EPISODE_INPUT_SOURCE_COUNT_INVALID",
+            ),
+            (
+                "boolean_count",
+                [{**good, "episode_count": True}],
+                "EPISODE_INPUT_SOURCE_COUNT_INVALID",
+            ),
+            (
+                "string_count",
+                [{**good, "episode_count": "1"}],
+                "EPISODE_INPUT_SOURCE_COUNT_INVALID",
+            ),
+            (
+                "duplicate_path",
+                [good, {**good, "sha256": "b" * 64}],
+                "EPISODE_INPUT_SOURCE_DUPLICATE_PATH",
+            ),
+        ):
+            with self.subTest(sources=label):
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._with_episode_source(sources))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_source_claiming_unpublished_episodes(self):
+        # One episode is published, so no set of input files can honestly claim
+        # to have contributed two.
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._with_episode_source(
+                [{"path": "/tmp/episodes.json", "sha256": "a" * 64, "episode_count": 2}],
+            ))
+        self.assertIn(
+            "EPISODE_INPUT_SOURCE_COUNT_EXCEEDS_PUBLISHED_EPISODES",
+            str(caught.exception),
+        )
+
+    def test_validate_population_accepts_a_real_episode_file_pin(self):
+        # The counterpart: a genuine caller-supplied file still certifies, and an
+        # empty source list is the ordinary no-file case.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "episodes.json"
+            path.write_text(
+                json.dumps({"episodes": [{"name": "FROM-FILE", "dates": [ANCHOR]}]}),
+                encoding="utf-8",
+            )
+            episodes, source = MODULE.load_episode_file(path)
+            population = build(None, episodes, episode_sources=[source])
+            self.assertEqual(
+                MODULE.validate_population(copy.deepcopy(population)), population,
+            )
+        self.assertEqual(build([ANCHOR])["episode_input_sources"], [])
+        MODULE.validate_population(copy.deepcopy(build([ANCHOR])))
+
     def test_validate_population_rejects_a_forged_per_market_candidate_regime(self):
         # Forging the view *and* the combined view together defeats every
         # self-consistency check; only the embedded record can refuse it.

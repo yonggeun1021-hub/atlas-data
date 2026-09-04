@@ -454,6 +454,46 @@ class PolicyBasisTest(unittest.TestCase):
                 MODULE.load_policy_basis(root)
         self.assertIn("POLICY_STATUS_CHANGED", str(caught.exception))
 
+    def test_validate_rejects_a_policy_pin_that_is_not_a_sha256(self):
+        # Adversarial: both layers pin the file they quote, but the pins were
+        # only required to be *present*. A re-signed report could therefore name
+        # a policy digest that could never identify any file, while still reading
+        # as provenance.
+        base = evidence([ANCHOR])
+        for layer in ("market_specific_candidate_policy", "common_v1_replay_policy"):
+            for label, digest in (
+                ("not_a_sha", "not-a-sha256"),
+                ("empty", ""),
+                ("truncated", "a" * 63),
+                ("overlong", "a" * 65),
+                ("uppercase", "A" * 64),
+                ("non_hex", "z" * 64),
+                ("null", None),
+                ("numeric", 0),
+            ):
+                with self.subTest(layer=layer, digest=label):
+                    tampered = copy.deepcopy(base)
+                    tampered["policy_basis"][layer]["sha256"] = digest
+                    with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                        MODULE.validate_evidence(resigned(tampered))
+                    self.assertIn("POLICY_BASIS_SHA_INVALID", str(caught.exception))
+                    self.assertIn(layer, str(caught.exception))
+
+    def test_a_well_formed_policy_pin_is_still_only_re_bound_by_disk(self):
+        # The honest limit of the syntax check above, stated rather than implied:
+        # a detached verifier holding only the report cannot tell a well-formed
+        # wrong digest from the right one. Re-binding the pin to the quoted file
+        # is load_policy_basis re-reading disk, so it stays a separate,
+        # checkout-bound guarantee.
+        tampered = copy.deepcopy(evidence([ANCHOR]))
+        tampered["policy_basis"]["common_v1_replay_policy"]["sha256"] = "0" * 64
+        MODULE.validate_evidence(resigned(tampered))
+        rebuilt = evidence([ANCHOR])["policy_basis"]["common_v1_replay_policy"]["sha256"]
+        self.assertEqual(
+            rebuilt,
+            MODULE.file_sha256(ROOT / "config" / "regime_source_owner_registry_v2.json"),
+        )
+
     def test_a_missing_or_malformed_policy_basis_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(MODULE.ReplayEvidenceError):
@@ -1073,6 +1113,120 @@ class PitAndAuditSeparationTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
             MODULE.build_evidence(forged)
         self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+
+    def test_validate_rejects_a_report_claiming_it_used_future_dates(self):
+        # Adversarial, and the load-bearing case: the separation block was
+        # previously carried unread, so a report could re-sign itself declaring
+        # that future dates *were* used in a date's evaluation and still verify —
+        # a valid signature over a claim that breaches the one boundary
+        # docs/ATLAS_SESSION_BOOTSTRAP.md treats as non-negotiable.
+        def at(report):
+            return report["pit_and_audit_separation"]
+
+        base = evidence([ANCHOR, PREVIOUS])
+        for label, mutate in (
+            (
+                "future_dates_claimed",
+                lambda r: at(r).__setitem__("future_dates_used_in_any_date_evaluation", True),
+            ),
+            (
+                "own_record_denied",
+                lambda r: at(r).__setitem__("each_date_summarized_from_its_own_record", False),
+            ),
+            (
+                "cross_date_alteration_claimed",
+                lambda r: at(r).__setitem__("no_date_observation_altered_by_another_date", False),
+            ),
+            (
+                "source_mutated",
+                lambda r: at(r).__setitem__("source_population_mutated_by_this_module", True),
+            ),
+            (
+                "observations_recomputed",
+                lambda r: at(r).__setitem__(
+                    "market_observations_recomputed_by_this_module", True,
+                ),
+            ),
+            (
+                "candidate_rule_modified",
+                lambda r: at(r).__setitem__("candidate_rule_modified_by_this_module", True),
+            ),
+            (
+                "threshold_introduced",
+                lambda r: at(r).__setitem__("threshold_introduced_by_this_module", True),
+            ),
+            (
+                "hysteresis_applied",
+                lambda r: at(r).__setitem__("hysteresis_applied_by_this_module", True),
+            ),
+            (
+                "episode_selected",
+                lambda r: at(r).__setitem__("episode_selected_by_this_module", True),
+            ),
+            (
+                "truthy_not_true",
+                lambda r: at(r).__setitem__("each_date_summarized_from_its_own_record", 1),
+            ),
+        ):
+            with self.subTest(mutate=label):
+                tampered = copy.deepcopy(base)
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn("PIT_SEPARATION_DECLARATION_INVALID", str(caught.exception))
+
+    def test_validate_rejects_a_deleted_or_rewritten_separation_block(self):
+        # Deleting a flag must fail rather than leave nothing to check, and the
+        # prose and adjacency basis must survive too: a human reads those, not
+        # the booleans, and requested-date adjacency relabelled as calendar
+        # adjacency would misdescribe every transition count in the report.
+        base = evidence([ANCHOR, PREVIOUS])
+        for label, mutate, code in (
+            (
+                "dropped_flag",
+                lambda r: r["pit_and_audit_separation"].pop(
+                    "future_dates_used_in_any_date_evaluation",
+                ),
+                "PIT_SEPARATION_SCHEMA_INVALID",
+            ),
+            (
+                "emptied",
+                lambda r: r.__setitem__("pit_and_audit_separation", {}),
+                "PIT_SEPARATION_SCHEMA_INVALID",
+            ),
+            (
+                "deleted",
+                lambda r: r.pop("pit_and_audit_separation"),
+                "PIT_SEPARATION_SCHEMA_INVALID",
+            ),
+            (
+                "extra_key",
+                lambda r: r["pit_and_audit_separation"].__setitem__(
+                    "future_dates_used_where_convenient", True,
+                ),
+                "PIT_SEPARATION_SCHEMA_INVALID",
+            ),
+            (
+                "rewritten_statement",
+                lambda r: r["pit_and_audit_separation"].__setitem__(
+                    "statement", "Later dates were consulted where they helped.",
+                ),
+                "PIT_SEPARATION_STATEMENT_INVALID",
+            ),
+            (
+                "relabelled_adjacency",
+                lambda r: r["pit_and_audit_separation"].__setitem__(
+                    "sequence_adjacency_basis", "CALENDAR_CONSECUTIVE_SESSIONS",
+                ),
+                "ADJACENCY_BASIS_INVALID",
+            ),
+        ):
+            with self.subTest(mutate=label):
+                tampered = copy.deepcopy(base)
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn(code, str(caught.exception))
 
     def test_no_retained_or_live_source_is_mutated(self):
         korea_dir = ROOT / "data" / "observations" / "korea_market_signals"

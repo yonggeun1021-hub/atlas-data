@@ -87,12 +87,15 @@ Point-in-time integrity and historical audit are kept apart, as
 ``validate_evidence`` is exact rather than best-effort.  A re-hashed report is a
 valid signature over whatever it contains, so checking only the fields that
 happen to be present would accept one that dropped its observations, a refusal
-flag, an authority boundary, or its own source pin.  Instead: every requested
-date must carry an observation, every fact family must *re-derive* from those
-observations, and the ``source_population``, ``policy_conclusion``,
-``authority``, and ``policy_basis`` blocks must match their declared shapes key
-for key — the source pin included on the standalone ``--verify`` path, where no
-population is at hand to re-derive against.
+flag, an authority boundary, its own source pin, or its point-in-time
+declaration.  Instead: every requested date must carry an observation, every
+fact family must *re-derive* from those observations, and the
+``source_population``, ``policy_conclusion``, ``authority``, ``policy_basis``,
+and ``pit_and_audit_separation`` blocks must match their declared shapes key for
+key — the source pin and the PIT declaration included on the standalone
+``--verify`` path, where no population is at hand to re-derive against.  A
+report that re-signed itself claiming future dates *were* used in a date's
+evaluation is refused there, as is one whose policy pin is not a SHA-256.
 
 Output is refused anywhere inside this repository checkout — external ``--out``
 or a private system-temp file only — because it summarizes SHADOW
@@ -247,6 +250,44 @@ CONCLUSION_FALSE_FLAGS = (
     "market_regime_asserted",
 )
 CONCLUSION_KEYS = ("conclusion", "conclusion_status", "statement") + CONCLUSION_FALSE_FLAGS
+
+# The exact point-in-time / historical-audit separation block, declared once so
+# ``build_evidence`` and ``validate_evidence`` cannot drift apart, and required
+# key for key by ``_validate_pit_and_audit_separation``.
+#
+# This is the report's own declaration that no date's fact was produced from a
+# later date. A re-signed report is a valid signature over whatever it contains,
+# so a verifier that never read this block would accept one whose
+# ``future_dates_used_in_any_date_evaluation`` had been flipped to ``true`` —
+# a report claiming, under its own valid signature, to have breached the
+# non-negotiable PIT boundary of ``docs/ATLAS_SESSION_BOOTSTRAP.md`` — or one
+# that had simply deleted the declaration and kept every other guarantee.
+PIT_SEPARATION_TRUE_KEYS = (
+    "each_date_summarized_from_its_own_record",
+    "no_date_observation_altered_by_another_date",
+)
+PIT_SEPARATION_FALSE_KEYS = (
+    "future_dates_used_in_any_date_evaluation",
+    "source_population_mutated_by_this_module",
+    "market_observations_recomputed_by_this_module",
+    "candidate_rule_modified_by_this_module",
+    "threshold_introduced_by_this_module",
+    "hysteresis_applied_by_this_module",
+    "episode_selected_by_this_module",
+)
+PIT_SEPARATION_STATEMENT = (
+    "Every per-date fact is read from that one date's own already"
+    " replayed record; no observation is created, altered, promoted,"
+    " or graded here. Transition, run, and reversal facts are"
+    " cross-date descriptions of an already-fixed replay set — they"
+    " are historical audit output and never feed back into any date's"
+    " evaluation or into a live operational decision."
+)
+PIT_SEPARATION_KEYS = (
+    PIT_SEPARATION_TRUE_KEYS
+    + PIT_SEPARATION_FALSE_KEYS
+    + ("sequence_adjacency_basis", "statement")
+)
 
 # The exact authority boundary of this report, for the same reason.
 AUTHORITY_GRANTED_KEY = "replay_evidence_summary_authorized"
@@ -1130,6 +1171,21 @@ def _hysteresis_view(sequence: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _pit_separation_block() -> dict:
+    """The report's point-in-time / historical-audit declaration.
+
+    Emitted here and re-required by ``_validate_pit_and_audit_separation`` from
+    the same constants, so a field can never be published without being checked
+    or checked without being published.
+    """
+    return {
+        **{key: True for key in PIT_SEPARATION_TRUE_KEYS},
+        **{key: False for key in PIT_SEPARATION_FALSE_KEYS},
+        "sequence_adjacency_basis": ADJACENCY_BASIS,
+        "statement": PIT_SEPARATION_STATEMENT,
+    }
+
+
 def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
     """Derive the deterministic replay evidence report from one population.
 
@@ -1212,29 +1268,11 @@ def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
                 " a separate CIO ratification."
             ),
         },
-        "pit_and_audit_separation": {
-            # Structural facts about *how* this report was produced. Each is
-            # enforced by test/test_deterministic_replay_evidence.py rather than
-            # merely asserted here.
-            "each_date_summarized_from_its_own_record": True,
-            "no_date_observation_altered_by_another_date": True,
-            "future_dates_used_in_any_date_evaluation": False,
-            "source_population_mutated_by_this_module": False,
-            "market_observations_recomputed_by_this_module": False,
-            "candidate_rule_modified_by_this_module": False,
-            "threshold_introduced_by_this_module": False,
-            "hysteresis_applied_by_this_module": False,
-            "episode_selected_by_this_module": False,
-            "sequence_adjacency_basis": ADJACENCY_BASIS,
-            "statement": (
-                "Every per-date fact is read from that one date's own already"
-                " replayed record; no observation is created, altered, promoted,"
-                " or graded here. Transition, run, and reversal facts are"
-                " cross-date descriptions of an already-fixed replay set — they"
-                " are historical audit output and never feed back into any date's"
-                " evaluation or into a live operational decision."
-            ),
-        },
+        # Structural facts about *how* this report was produced. Each is enforced
+        # by test/test_deterministic_replay_evidence.py rather than merely
+        # asserted here, and re-required key for key by
+        # ``_validate_pit_and_audit_separation``.
+        "pit_and_audit_separation": _pit_separation_block(),
         "authority": dict(AUTHORITY),
     }
     report["payload_sha256"] = payload_sha256(report)
@@ -1261,6 +1299,16 @@ def _forbidden_keys(value: object) -> list[str]:
     return found
 
 
+def _validate_policy_pin(digest: object, layer: str) -> None:
+    """A policy layer's pinned digest must at least be a SHA-256.
+
+    A digest that is not one identifies no file that could ever exist, so a
+    report carrying it pins nothing while appearing to.
+    """
+    if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
+        fail("POLICY_BASIS_SHA_INVALID", layer)
+
+
 def _validate_policy_basis(value: dict) -> dict:
     """Both policy layers must be stated, and neither described as the other.
 
@@ -1268,6 +1316,14 @@ def _validate_policy_basis(value: dict) -> dict:
     without the checkout that produced it. The exact key set matters as much as
     the values: dropping ``common_v1_replay_policy`` is precisely how this
     report would go back to describing a ratified policy as absent.
+
+    Both layers pin the file they quote by ``sha256``, and both pins are checked
+    for SHA-256 syntax. Requiring only that the key be *present* left a pin that
+    could be re-signed to any text at all — ``"not-a-sha256"`` included — so a
+    report could name a policy digest that could never identify a file. Syntax is
+    the whole of what a detached verifier can prove: that the digest is the
+    quoted file's is re-established by ``load_policy_basis`` re-reading disk on
+    the deriving side, and remains a separate, checkout-bound guarantee here.
     """
     basis = value.get("policy_basis")
     if not isinstance(basis, dict) or sorted(basis) != [
@@ -1280,6 +1336,7 @@ def _validate_policy_basis(value: dict) -> dict:
         fail("POLICY_BASIS_SCHEMA_INVALID", "market_specific_candidate_policy")
     if candidate["path"] != POLICY_INVENTORY_PATH:
         fail("POLICY_BASIS_SCHEMA_INVALID", "candidate path")
+    _validate_policy_pin(candidate["sha256"], "market_specific_candidate_policy")
     if candidate["policy_status"] != POLICY_STATUS:
         fail("POLICY_STATUS_CHANGED", str(candidate["policy_status"]))
     if candidate["scope"] != CANDIDATE_POLICY_SCOPE:
@@ -1295,6 +1352,7 @@ def _validate_policy_basis(value: dict) -> dict:
         fail("POLICY_BASIS_SCHEMA_INVALID", "common_v1_replay_policy")
     if common["path"] != REGISTRY_PATH:
         fail("POLICY_BASIS_SCHEMA_INVALID", "common path")
+    _validate_policy_pin(common["sha256"], "common_v1_replay_policy")
     # The correction this section exists for: the ratified common replay policy
     # must be reported as present, with its own hysteresis and stress behavior,
     # and explicitly not applied — never as missing.
@@ -1631,6 +1689,46 @@ def _validate_observation(cell: object, label: str) -> None:
             fail("UNOBSERVED_AXIS_MUST_NOT_CARRY_A_DIRECTION", f"{label}.{name}")
 
 
+def _validate_pit_and_audit_separation(value: dict) -> None:
+    """The PIT / historical-audit declaration must be complete and unchanged.
+
+    Point-in-time integrity is the one boundary this repository treats as
+    non-negotiable, so the block asserting it is verified exactly rather than
+    carried. Three things are required and none is redundant:
+
+    * the **exact key set**, because a re-signed report that deletes
+      ``future_dates_used_in_any_date_evaluation`` has not stopped claiming PIT
+      integrity — it has stopped being checkable, and every other guarantee in
+      this file would still pass;
+    * the **declared value** of every flag, because a report that sets that flag
+      ``true`` and re-signs itself would otherwise publish, under a valid
+      signature, a summary that both claims and denies the boundary;
+    * the **statement and adjacency basis**, because rewriting the prose — or
+      quietly relabelling requested-date adjacency as calendar adjacency — while
+      leaving the booleans alone misleads a human reader just as effectively.
+
+    This checks what the report *declares*. What it actually did is enforced
+    separately and structurally: every fact family is re-derived from the
+    report's own per-date observations in ``_validate_observations``, the source
+    population is re-checked by its own validator in ``build_evidence``, and the
+    per-date table is built from one date's record at a time. None of those
+    depends on this block being honest.
+    """
+    separation = value.get("pit_and_audit_separation")
+    if not isinstance(separation, dict) or sorted(separation) != sorted(PIT_SEPARATION_KEYS):
+        fail("PIT_SEPARATION_SCHEMA_INVALID")
+    for key in PIT_SEPARATION_TRUE_KEYS:
+        if separation[key] is not True:
+            fail("PIT_SEPARATION_DECLARATION_INVALID", key)
+    for key in PIT_SEPARATION_FALSE_KEYS:
+        if separation[key] is not False:
+            fail("PIT_SEPARATION_DECLARATION_INVALID", key)
+    if separation["sequence_adjacency_basis"] != ADJACENCY_BASIS:
+        fail("ADJACENCY_BASIS_INVALID", "pit_and_audit_separation")
+    if separation["statement"] != PIT_SEPARATION_STATEMENT:
+        fail("PIT_SEPARATION_STATEMENT_INVALID")
+
+
 def validate_evidence(
     value: dict, *, population: dict | None = None, root: Path = ROOT,
 ) -> dict:
@@ -1673,6 +1771,7 @@ def validate_evidence(
     # After the coverage facts and observations it must agree with, so the pinned
     # scope is compared against an already-verified one rather than a claim.
     _validate_source_population(value)
+    _validate_pit_and_audit_separation(value)
     authority = value.get("authority")
     # Exact key set, not "every key that happens to be here": a payload that
     # deletes an explicit false boundary must fail, not pass silently.
