@@ -743,6 +743,69 @@ class CombinedValidationTest(unittest.TestCase):
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn("MARKET_POPULATION_STATUS_INCONSISTENT", str(caught.exception))
 
+    def _kr_unavailable(self, dates):
+        """A population whose KR market is genuinely unavailable, and valid."""
+        with mock.patch.object(
+            MODULE.KRP, "build_population",
+            side_effect=MODULE.KRP.ReplayPopulationError("CONTRACT_MISSING"),
+        ):
+            population = build(dates)
+        self.assertIsNone(population["market_populations"]["KR"])
+        MODULE.validate_population(copy.deepcopy(population))
+        return population
+
+    def _strip_kr_unavailable_reason(self, population, reason):
+        """Rewrite the KR unavailable reason *and* every record derived from it.
+
+        Adversarial: the per-record ``failure_reason`` for an unavailable market
+        is rebuilt from ``market_population_status`` during validation, so
+        editing only the status would be caught as a record mismatch rather than
+        as the missing attribution. Changing both, then re-signing, is what makes
+        the payload self-consistent — and is exactly the probe that previously
+        passed.
+        """
+        population["market_population_status"]["KR"]["unavailable_reason"] = reason
+        for record in population["records"]:
+            record["markets"]["KR"]["failure_reason"] = reason
+        return self._resigned(population)
+
+    def test_validate_population_rejects_an_unavailable_market_without_a_reason(self):
+        # An unavailable market must keep an attributable cause. Without this,
+        # a re-signed payload can publish a BLOCKED market that no longer says
+        # why, and every downstream summary can only report it as an
+        # unattributed UNKNOWN.
+        base = self._kr_unavailable([ANCHOR, PREVIOUS])
+        for label, reason in (
+            ("deleted", None),
+            ("emptied", ""),
+            ("whitespace", "MARKET_POPULATION_UNAVAILABLE:KR:   "),
+            ("uncoded", "the KR population was not built"),
+            ("other_market", "MARKET_POPULATION_UNAVAILABLE:US:CONTRACT_MISSING"),
+            ("non_string", 0),
+        ):
+            with self.subTest(reason=label):
+                tampered = self._strip_kr_unavailable_reason(
+                    copy.deepcopy(base), reason,
+                )
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(tampered)
+                self.assertIn(
+                    "UNAVAILABLE_MARKET_MUST_CARRY_AN_ATTRIBUTABLE_REASON",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_accepts_an_attributed_unavailable_market(self):
+        # The counterpart to the check above: containment still degrades rather
+        # than aborting, so long as the reason survives.
+        population = self._kr_unavailable([ANCHOR, PREVIOUS])
+        reason = population["market_population_status"]["KR"]["unavailable_reason"]
+        self.assertTrue(reason.startswith("MARKET_POPULATION_UNAVAILABLE:KR:"))
+        self.assertEqual(
+            MODULE.validate_population(copy.deepcopy(population)), population,
+        )
+        for record in population["records"]:
+            self.assertEqual(record["markets"]["KR"]["failure_reason"], reason)
+
     def _repinned(self, population, market, module):
         """Re-sign a tampered embedded population and re-pin its identity.
 

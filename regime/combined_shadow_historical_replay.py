@@ -132,6 +132,12 @@ DATE_SELECTION = "CALLER_SUPPLIED_ONLY"
 
 LOOKAHEAD_CONTAINED = "COMBINED_LOOKAHEAD_VIOLATION"
 MARKET_RECORD_MISSING = "MARKET_RECORD_MISSING_FROM_POPULATION"
+# The one code under which a whole market population can be reported
+# unavailable. Every such reason is ``CODE:MARKET:detail``, and
+# ``_validate_embedded_populations`` requires that shape, so an unavailable
+# market always keeps an attributable cause instead of degrading into a
+# BLOCKED market with no reason at all.
+MARKET_POPULATION_UNAVAILABLE = "MARKET_POPULATION_UNAVAILABLE"
 
 # The exact authority boundary of this population, declared once and required
 # key-for-key by ``validate_population``. A payload that drops a flag must not
@@ -479,13 +485,18 @@ def _market_population(market: str, build, validate, secrets: list[str]) -> tupl
     except (
         KRP.ReplayPopulationError, USP.ReplayPopulationError, CombinedReplayError,
     ) as exc:
-        return None, redact(f"MARKET_POPULATION_UNAVAILABLE:{market}:{exc}", secrets)
+        return None, redact(
+            f"{MARKET_POPULATION_UNAVAILABLE}:{market}:{exc}", secrets,
+        )
     except Exception as exc:  # noqa: BLE001 — deliberate per-market containment,
         # mirrors the per-date containment in both market modules: an
         # unrecognized failure shape degrades to "this market is not replayable
         # in this run" instead of aborting the combined report. Only the
         # exception *type* is recorded, never its message.
-        return None, f"MARKET_POPULATION_UNAVAILABLE:{market}:UNSUPPORTED_SHAPE_{type(exc).__name__}"
+        return None, (
+            f"{MARKET_POPULATION_UNAVAILABLE}:{market}"
+            f":UNSUPPORTED_SHAPE_{type(exc).__name__}"
+        )
     return population, None
 
 
@@ -682,6 +693,11 @@ def validate_population(value: dict) -> dict:
     otherwise a coherent set of forged market views, or a genuine market
     population for a different date, would satisfy every self-consistency check
     above.
+
+    A market with no embedded population has no records to check, so the one
+    thing it must still carry is its *reason*: an unavailable market is BLOCKED
+    on every date, and without an attributable cause that BLOCKED market becomes
+    an UNKNOWN nothing explains.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -971,6 +987,23 @@ def _validate_record(record: dict, requested: list[str], expected: dict) -> None
         fail("RECORD_NOT_DERIVED_FROM_ITS_EMBEDDED_MARKET_RECORDS", record["requested_date"])
 
 
+def _validate_unavailable_reason(market: str, reason: object) -> None:
+    """An unavailable market population must say *why*, in an attributable form.
+
+    ``build_population`` records exactly one code here —
+    ``MARKET_POPULATION_UNAVAILABLE:<market>:<detail>`` — for both the
+    contract-rejection and the unrecognized-shape case, so that exact shape,
+    naming this market and carrying a non-empty detail, is what is required.
+    """
+    prefix = f"{MARKET_POPULATION_UNAVAILABLE}:{market}:"
+    if (
+        not isinstance(reason, str)
+        or not reason.startswith(prefix)
+        or not reason[len(prefix):].strip()
+    ):
+        fail("UNAVAILABLE_MARKET_MUST_CARRY_AN_ATTRIBUTABLE_REASON", market)
+
+
 def _validate_embedded_populations(value: dict, requested: list[str]) -> None:
     populations = value.get("market_populations")
     if not isinstance(populations, dict) or sorted(populations) != sorted(MARKETS):
@@ -991,6 +1024,16 @@ def _validate_embedded_populations(value: dict, requested: list[str]) -> None:
         if embedded is None:
             if status["schema_version"] is not None or status["payload_sha256"] is not None:
                 fail("MARKET_POPULATION_STATUS_INCONSISTENT", market)
+            # An unavailable market is still an *attributable* one. Checking only
+            # the two pinned-identity fields would let a re-signed payload delete
+            # the reason: every record's view for that market is rebuilt from
+            # this field, so both the status and every ``failure_reason`` would
+            # then agree on ``null`` and every self-consistency check above would
+            # still pass. The result is a BLOCKED market with no recorded cause,
+            # which downstream evidence can only summarize as an unattributed
+            # UNKNOWN. The shape is required too, not merely non-emptiness, so
+            # the reason keeps naming the market it belongs to.
+            _validate_unavailable_reason(market, status["unavailable_reason"])
             continue
         try:
             validators[market](copy.deepcopy(embedded))

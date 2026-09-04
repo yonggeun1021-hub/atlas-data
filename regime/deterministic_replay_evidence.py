@@ -87,10 +87,12 @@ Point-in-time integrity and historical audit are kept apart, as
 ``validate_evidence`` is exact rather than best-effort.  A re-hashed report is a
 valid signature over whatever it contains, so checking only the fields that
 happen to be present would accept one that dropped its observations, a refusal
-flag, or an authority boundary.  Instead: every requested date must carry an
-observation, every fact family must *re-derive* from those observations, and the
-``policy_conclusion``, ``authority``, and ``policy_basis`` blocks must match
-their declared shapes key for key.
+flag, an authority boundary, or its own source pin.  Instead: every requested
+date must carry an observation, every fact family must *re-derive* from those
+observations, and the ``source_population``, ``policy_conclusion``,
+``authority``, and ``policy_basis`` blocks must match their declared shapes key
+for key — the source pin included on the standalone ``--verify`` path, where no
+population is at hand to re-derive against.
 
 Output is refused anywhere inside this repository checkout — external ``--out``
 or a private system-temp file only — because it summarizes SHADOW
@@ -214,6 +216,18 @@ COMMON_V1_POLICY_KEYS = (
 # the registry owns that block — but these may not go missing.
 COMMON_V1_HYSTERESIS_KEYS = (
     "ordinary_transition_finalized_packets", "stress_entry", "stress_exit",
+)
+
+# The exact shape of the pinned source-population block. Required key for key by
+# ``validate_evidence`` even when no population is supplied: this block is the
+# report's whole claim about *what it summarized*, so a standalone verifier that
+# only checked it when it already held the source would accept a report whose
+# source digest, mode, or evidence class had been deleted and re-signed.
+SOURCE_MODULE = "regime/combined_shadow_historical_replay.py"
+SOURCE_POPULATION_KEYS = (
+    "schema_version", "mode", "evidence_class", "payload_sha256",
+    "requested_dates", "market_population_available", "source_module",
+    "revalidated_by_its_own_validator",
 )
 
 CONCLUSION_STATUS = "WITHHELD_NO_POLICY_OR_THRESHOLD_AUTHORITY"
@@ -1156,7 +1170,7 @@ def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
             "payload_sha256": source["payload_sha256"],
             "requested_dates": list(dates),
             "market_population_available": dict(available),
-            "source_module": "regime/combined_shadow_historical_replay.py",
+            "source_module": SOURCE_MODULE,
             "revalidated_by_its_own_validator": True,
         },
         # Carried verbatim from the source, never re-derived: an episode is a
@@ -1537,6 +1551,58 @@ def _validate_observations(value: dict, basis: dict) -> None:
         fail("HYSTERESIS_FACTS_INCONSISTENT")
 
 
+def _validate_source_population(value: dict) -> None:
+    """The pinned source block must be complete, well-formed, and self-agreeing.
+
+    Checked on every verification, not only when the caller still holds the
+    population. This block is the report's entire claim about *what* it
+    summarized: a verifier that skipped it without the source would accept a
+    re-signed report whose source digest, SHADOW mode, or evidence class had
+    simply been deleted, while the report still said its source was pinned.
+
+    Standalone checking cannot prove the digest names this population — only
+    ``--verify-against`` re-derivation does that, and it is retained above. What
+    it can prove is that the pin exists, is a syntactically valid SHA-256, names
+    the module and contract that may produce it, is SHADOW historical-backfill
+    rather than NATURAL, and covers exactly the requested dates and market
+    availability this report's own facts were derived from.
+    """
+    source = value.get("source_population")
+    if not isinstance(source, dict) or sorted(source) != sorted(SOURCE_POPULATION_KEYS):
+        fail("SOURCE_POPULATION_SCHEMA_INVALID")
+    if source["schema_version"] != CSR.SCHEMA_VERSION:
+        fail("SOURCE_POPULATION_SCHEMA_INVALID", "schema_version")
+    # A summary of SHADOW historical backfill must never claim a NATURAL source.
+    if source["mode"] != CSR.MODE or source["evidence_class"] != EVIDENCE_CLASS:
+        fail("SOURCE_POPULATION_MODE_INVALID")
+    digest = source["payload_sha256"]
+    if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
+        fail("SOURCE_POPULATION_SHA_INVALID")
+    if source["source_module"] != SOURCE_MODULE:
+        fail("SOURCE_POPULATION_SCHEMA_INVALID", "source_module")
+    if source["revalidated_by_its_own_validator"] is not True:
+        fail("SOURCE_POPULATION_NOT_REVALIDATED_BY_ITS_OWNER")
+    # The pinned scope must be the scope the facts below were derived over,
+    # otherwise the report would summarize one replay while pinning another.
+    coverage = value["coverage_facts"]
+    if source["requested_dates"] != list(coverage["requested_dates"]):
+        fail("SOURCE_POPULATION_SCOPE_INCONSISTENT", "requested_dates")
+    available = source["market_population_available"]
+    if (
+        not isinstance(available, dict)
+        or sorted(available) != sorted(MARKETS)
+        # Explicitly bool, because ``1 == True`` would otherwise let a
+        # non-boolean availability claim compare equal to the coverage facts.
+        or any(not isinstance(flag, bool) for flag in available.values())
+    ):
+        fail("SOURCE_POPULATION_SCHEMA_INVALID", "market_population_available")
+    if available != {
+        market: coverage["markets"][market]["population_available"]
+        for market in MARKETS
+    }:
+        fail("SOURCE_POPULATION_SCOPE_INCONSISTENT", "market_population_available")
+
+
 def _validate_observation(cell: object, label: str) -> None:
     """One observation cell, complete and in this report's own vocabulary."""
     if not isinstance(cell, dict) or sorted(cell) != sorted(OBSERVATION_KEYS):
@@ -1574,6 +1640,12 @@ def validate_evidence(
     is external SHADOW output that a verifier may not still hold. When it *is*
     supplied, the check is exact: this report is a pure function of that
     population, so any drift is a defect.
+
+    The optional argument governs re-derivation *only*. The report's own pinned
+    ``source_population`` block is checked either way — a standalone verifier
+    that inspected it only when it already held the population would accept a
+    re-signed report that had simply deleted its source digest while still
+    claiming its source was pinned.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("EVIDENCE_SCHEMA_INVALID")
@@ -1598,6 +1670,9 @@ def validate_evidence(
     _validate_counts(value)
     _validate_sequences(value)
     _validate_observations(value, basis)
+    # After the coverage facts and observations it must agree with, so the pinned
+    # scope is compared against an already-verified one rather than a claim.
+    _validate_source_population(value)
     authority = value.get("authority")
     # Exact key set, not "every key that happens to be here": a payload that
     # deletes an explicit false boundary must fail, not pass silently.

@@ -198,6 +198,45 @@ class EvidenceScopeTest(unittest.TestCase):
                     "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", str(caught.exception),
                 )
 
+    def test_an_unattributed_blocked_market_never_becomes_an_unknown_fact(self):
+        # A market whose whole population is unavailable is BLOCKED on every
+        # date, and its recorded reason is the only thing that says why. A
+        # re-signed population that deleted the reason — from the status *and*
+        # from every record derived from it, so the payload stays
+        # self-consistent — must be refused by the join's own validator here,
+        # rather than summarized into UNKNOWN facts nothing attributes.
+        with mock.patch.object(
+            MODULE.CSR.KRP, "build_population",
+            side_effect=MODULE.CSR.KRP.ReplayPopulationError("CONTRACT_MISSING"),
+        ):
+            source = population([ANCHOR, PREVIOUS])
+        self.assertIsNone(source["market_populations"]["KR"])
+        # The attributed population is summarized normally: containment still
+        # produces honest single-market evidence.
+        report = MODULE.build_evidence(copy.deepcopy(source))
+        self.assertIs(
+            report["coverage_facts"]["markets"]["KR"]["population_available"], False,
+        )
+        self.assertEqual(
+            sorted(report["unknown_facts"]["markets"]["KR"]["blocked_reason_codes"]),
+            ["MARKET_POPULATION_UNAVAILABLE"],
+        )
+
+        stripped = copy.deepcopy(source)
+        stripped["market_population_status"]["KR"]["unavailable_reason"] = None
+        for record in stripped["records"]:
+            record["markets"]["KR"]["failure_reason"] = None
+        stripped["payload_sha256"] = MODULE.CSR.payload_sha256(
+            {k: v for k, v in stripped.items() if k != "payload_sha256"}
+        )
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.build_evidence(stripped)
+        self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+        self.assertIn(
+            "UNAVAILABLE_MARKET_MUST_CARRY_AN_ATTRIBUTABLE_REASON",
+            str(caught.exception),
+        )
+
     def test_build_evidence_never_mutates_the_caller_population(self):
         source = population([ANCHOR, PREVIOUS])
         before = MODULE.canonical_json(source)
@@ -1129,6 +1168,87 @@ class ValidationTest(unittest.TestCase):
         drifted["coverage_facts"]["markets"]["KR"]["outcome_counts"]["BLOCKED"] = 2
         with self.assertRaises(MODULE.ReplayEvidenceError):
             MODULE.validate_evidence(resigned(drifted), population=source)
+
+    def test_validate_checks_the_source_pin_without_the_population(self):
+        # Adversarial, and the whole point of this check: --verify holds only the
+        # report. A source block that was deleted, relabelled NATURAL, pointed at
+        # another module, or narrowed to a different date set must be refused on
+        # the standalone path too — otherwise a re-signed report keeps claiming
+        # its source is pinned while carrying no usable pin at all.
+        def at(report):
+            return report["source_population"]
+
+        base = evidence([ANCHOR, PREVIOUS])
+        for code, mutate in (
+            ("SOURCE_POPULATION_SCHEMA_INVALID", lambda r: r.pop("source_population")),
+            (
+                "SOURCE_POPULATION_SCHEMA_INVALID",
+                lambda r: at(r).pop("payload_sha256"),
+            ),
+            (
+                "SOURCE_POPULATION_SHA_INVALID",
+                lambda r: at(r).__setitem__("payload_sha256", None),
+            ),
+            (
+                "SOURCE_POPULATION_SHA_INVALID",
+                lambda r: at(r).__setitem__("payload_sha256", "not-a-sha256"),
+            ),
+            (
+                "SOURCE_POPULATION_MODE_INVALID",
+                lambda r: at(r).__setitem__("mode", "NATURAL"),
+            ),
+            (
+                "SOURCE_POPULATION_MODE_INVALID",
+                lambda r: at(r).__setitem__("evidence_class", "NATURAL_OBSERVATION"),
+            ),
+            (
+                "SOURCE_POPULATION_SCHEMA_INVALID",
+                lambda r: at(r).__setitem__("schema_version", "something_else/v1"),
+            ),
+            (
+                "SOURCE_POPULATION_SCHEMA_INVALID",
+                lambda r: at(r).__setitem__("source_module", "regime/elsewhere.py"),
+            ),
+            (
+                "SOURCE_POPULATION_NOT_REVALIDATED_BY_ITS_OWNER",
+                lambda r: at(r).__setitem__("revalidated_by_its_own_validator", False),
+            ),
+            (
+                "SOURCE_POPULATION_SCOPE_INCONSISTENT",
+                lambda r: at(r).__setitem__("requested_dates", [ANCHOR]),
+            ),
+            (
+                "SOURCE_POPULATION_SCOPE_INCONSISTENT",
+                lambda r: at(r)["market_population_available"].__setitem__("KR", False),
+            ),
+            (
+                "SOURCE_POPULATION_SCHEMA_INVALID",
+                lambda r: at(r)["market_population_available"].pop("US"),
+            ),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(base)
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_still_pins_the_source_digest_it_cannot_re_derive(self):
+        # Standalone verification cannot prove the digest names this population —
+        # only --verify-against can, and it is retained. What it does prove is
+        # that a syntactically valid pin is present and matches the scope the
+        # facts were derived over.
+        source = population([ANCHOR, PREVIOUS])
+        report = MODULE.build_evidence(source)
+        MODULE.validate_evidence(copy.deepcopy(report))
+        forged = copy.deepcopy(report)
+        forged["source_population"]["payload_sha256"] = "0" * 64
+        # Accepted standalone (the digest is well-formed and nothing on hand can
+        # contradict it) and refused as soon as the population is supplied.
+        MODULE.validate_evidence(resigned(copy.deepcopy(forged)))
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.validate_evidence(resigned(forged), population=source)
+        self.assertIn("EVIDENCE_REDERIVATION_MISMATCH", str(caught.exception))
 
     def test_validate_rejects_a_tampered_or_unsigned_payload(self):
         tampered = copy.deepcopy(evidence([ANCHOR]))
