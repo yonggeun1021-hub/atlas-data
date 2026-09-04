@@ -719,6 +719,20 @@ APPROVED_TESTS = [
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
+    #   evidence (SHADOW only). Reuses build_us/build_kr from
+    #   paper_regime_reference.py unmodified against whatever historical
+    #   evidence/free_market_data + data/observations/korea_market_signals
+    #   snapshots are already retained, and reports per-axis
+    #   COMPUTABLE_NOW/PARTIAL_HISTORY/NOT_COMPUTABLE plus coverage, staleness,
+    #   transition, and determinism facts only. Each retained date is replayed
+    #   independently (no-lookahead is asserted by truncating the latest date),
+    #   the sha256 of every replayed snapshot is pinned, and a date the rule
+    #   cannot consume fails closed as one unreplayable date instead of
+    #   aborting the report. No threshold, weight, or
+    #   ratification is introduced; sensor/registry/TTL/PIT/runtime/strategy/
+    #   order/capital/production/trading authority all stay false.
+    "test/test_normalization_replay_readiness.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
