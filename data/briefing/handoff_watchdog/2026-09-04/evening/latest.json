@@ -1,0 +1,50 @@
+{
+  "alert": false,
+  "authority": {
+    "dispatch_invoked": false,
+    "envelope_created": false,
+    "fact_inference_unknown_decision": false,
+    "manual_recovery_invoked": false,
+    "natural_evidence_changed": false,
+    "notion_written": false,
+    "source_bridge_authored": false
+  },
+  "briefing_id": "2026-09-04-evening",
+  "checked_at_utc": "2026-09-03T22:30:12Z",
+  "checks": {
+    "final_drain": {
+      "exists": false,
+      "path": "data/briefing/finalization/2026-09-04/evening/delivery_receipt.json"
+    },
+    "natural_receipt": {
+      "exists": false,
+      "path": "evidence/daily_briefing/evening/2026-09-04/index.json"
+    },
+    "portal_final_receipt": {
+      "exists": false,
+      "path": null
+    },
+    "semantic_verdict": {
+      "exists": false
+    },
+    "source_bridge": {
+      "discoverable_by_chain_build": false,
+      "exists": false,
+      "path": "evidence/briefing_events/2026-09-04/evening/index.json"
+    },
+    "validated_envelope": {
+      "exists": false,
+      "path": "evidence/validated_briefing_portal/evening/2026-09-04/index.json"
+    }
+  },
+  "decision_date": "2026-09-04",
+  "grace_deadline_kst": "2026-09-04T18:50:00+0900",
+  "grace_deadline_source": "config/atlas_semantic_validator.json:timeout_minutes applied to the daily-briefing.yml natural cron fire time for this slot",
+  "grace_timeout_minutes": 20,
+  "notes": [],
+  "past_grace": false,
+  "schema_version": "briefing_handoff_watchdog/1",
+  "slot": "evening",
+  "slot_expected_today": true,
+  "status": "NATURAL_RECEIPT_MISSING"
+}
