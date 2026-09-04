@@ -200,6 +200,41 @@ class EvidenceScopeTest(unittest.TestCase):
         self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
         self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", str(caught.exception))
 
+    def test_a_population_dated_by_a_day_no_calendar_has_is_never_summarized(self):
+        # The same requirement one level deeper than a future vintage: the date
+        # is not later than the requested date, it is not a date at all.
+        # 2026-02-31 is DATE10-shaped and sorts *before* the requested
+        # 2026-08-28, so under a shape check plus a string comparison it read as
+        # ordinary backward-looking evidence in both markets, and every
+        # coverage, UNKNOWN, transition, stress, and hysteresis fact below would
+        # have been counted from a record dated by a day that never existed.
+        impossible = "2026-02-31"
+        for market, module, mutate in (
+            ("KR", MODULE.CSR.KRP,
+             lambda record: record["no_lookahead_attestation"][
+                 "session_dates_used"].append("20260231")),
+            ("US", MODULE.CSR.USP,
+             lambda record: record["five_axis"]["axes"]["RISK_VOL"][
+                 "measurement"].__setitem__("observation_date", impossible)),
+        ):
+            with self.subTest(market=market):
+                tampered = copy.deepcopy(population([ANCHOR]))
+                embedded = tampered["market_populations"][market]
+                mutate(embedded["records"][0])
+                embedded["payload_sha256"] = module.payload_sha256(
+                    {k: v for k, v in embedded.items() if k != "payload_sha256"}
+                )
+                tampered["market_population_status"][market]["payload_sha256"] = embedded[
+                    "payload_sha256"
+                ]
+                tampered["payload_sha256"] = MODULE.CSR.payload_sha256(
+                    {k: v for k, v in tampered.items() if k != "payload_sha256"}
+                )
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.build_evidence(tampered)
+                self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+                self.assertIn("CALENDAR_INVALID", str(caught.exception))
+
     def test_a_population_whose_us_pit_declaration_denies_pit_is_never_summarized(self):
         tampered = copy.deepcopy(population([ANCHOR]))
         embedded = tampered["market_populations"]["US"]

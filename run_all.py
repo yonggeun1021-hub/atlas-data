@@ -753,6 +753,14 @@ APPROVED_TESTS = [
     #   carry an attributable reason and neither, each record's attested session
     #   dates are re-compared to its requested date, and the authority block must
     #   match key for key — so a re-hashed payload cannot pass by dropping its
+    #   records or an explicit false boundary. Every KRX and payload session date
+    #   is PARSED as a calendar date before it is compared, at build and at
+    #   validation time: date shape is not a calendar and these dates compare
+    #   lexicographically, so 20260231 — a day no calendar has — sorted before
+    #   the requested date and was cleared as an ordinary earlier session, the
+    #   previous session date never having been parsed at all. It now fails that
+    #   one date closed as its own distinct fact rather than as a lookahead. A
+    #   re-hashed payload cannot pass by dropping its
     #   records or an explicit false boundary. Provenance is enforced as part of
     #   the observation, not as decoration: an OBSERVED record must carry the
     #   official KRX request lineage and packet digest, which are re-bound by
@@ -792,7 +800,18 @@ APPROVED_TESTS = [
     #   boundary, so no threshold is forked, tuned, or re-ratified. PIT is
     #   structural: the Alpaca request end and both FRED observation_end and
     #   ALFRED realtime vintage are pinned to the requested date, and any
-    #   source date after it fails closed. Dates come only from --date (no
+    #   source date after it fails closed. Every provider- and payload-supplied
+    #   date is PARSED as a calendar date before it is compared, at build and at
+    #   validation time. Date shape is not a calendar and ISO dates compare
+    #   lexicographically, so a shape-only check followed by a string comparison
+    #   previously cleared 2026-02-31 — a day no calendar has, sorting before
+    #   2026-03-01 — as ordinary backward-looking evidence, whether it arrived as
+    #   an observation date, an Alpaca session, the previous liquidity
+    #   observation, the series metadata, or an ALFRED vintage bound. Every date
+    #   a measurement carries is now bound to the requested date as well, because
+    #   the attestation walk never reached inside a measurement; the
+    #   still-current 9999-12-31 vintage sentinel is the single exemption and is
+    #   bound separately as a containment window. Dates come only from --date (no
     #   episode auto-selection); one axis or one date failing never affects
     #   another; credentials are redacted out of every recorded reason; the
     #   account/trading Alpaca credential is never read. Output is never
@@ -853,8 +872,14 @@ APPROVED_TESTS = [
     #   score/confidence is produced. US BREADTH/LEADERSHIP stay UNKNOWN and the
     #   US view is never classified. PIT is re-checked at the join: each market
     #   record's own consumed source dates (KRX YYYYMMDD and ISO alike) are
-    #   compared to its requested date, and a market that consumed a later one
-    #   is failed closed for that one date only. One blocked market, one blocked
+    #   parsed as calendar dates and compared to its requested date, and a market
+    #   that consumed a later one is failed closed for that one date only. A
+    #   consumed date that is date-shaped but is no calendar day — 2026-02-31,
+    #   which sorts before 2026-03-01 and so passed the previous string
+    #   comparison as backward-looking — fails that market closed under its own
+    #   code, never mislabelled as a lookahead; a requested date that is itself
+    #   not a real day remains a legitimate blocked record carrying each market's
+    #   own attributable reason. One blocked market, one blocked
     #   date, an unavailable market population, or an unrecognized record status
     #   never contaminates the rest; credentials are redacted out of every
     #   recorded reason and the account/trading Alpaca credential is never read.
@@ -916,8 +941,11 @@ APPROVED_TESTS = [
     #   observation is created, altered, or graded, and a market the join
     #   contained for lookahead contributes nothing. A source population whose
     #   embedded US replay was served a FRED vintage published after the replayed
-    #   date, or whose US pit_replay declaration was re-signed to deny PIT, is
-    #   refused by its own validator and never summarized — every coverage,
+    #   date, whose US pit_replay declaration was re-signed to deny PIT, or whose
+    #   embedded KR or US record is dated by a day no calendar has (2026-02-31 is
+    #   date-shaped and sorts before 2026-03-01, so a string comparison read it
+    #   as backward-looking), is refused by its own validator and never
+    #   summarized — every coverage,
     #   UNKNOWN, transition, stress, and hysteresis fact is counted from those
     #   records. The report is a pure function
     #   of its source population (byte-identical rerun, shuffled input identical,

@@ -183,6 +183,31 @@ def build(dates, providers=None, credentials=None):
     )
 
 
+# A date-shaped string that is not a day: 2026 has no 31st of February. It also
+# sorts *before* ``ANCHOR``, which is the whole reason a shape check plus a
+# string comparison accepted it as backward-looking evidence.
+IMPOSSIBLE_DATE = "2026-02-31"
+
+
+def _with_observations(mutate):
+    """A provider whose FRED observation rows are rewritten by ``mutate``.
+
+    The rows keep their real values and hashes; only the dates a caller chooses
+    are replaced, so what is under test is the module's date handling and not a
+    malformed response in general.
+    """
+    providers = FakeProviders()
+    original = providers._fred_observations
+
+    def broken(query):
+        body = json.loads(original(query))
+        mutate(body["observations"])
+        return json.dumps(body).encode()
+
+    providers._fred_observations = broken
+    return providers
+
+
 def full_us_packet(trend_returns, vix, liquidity_changes):
     """A complete 5/5 US packet in exactly the shape build_us consumes."""
     return {
@@ -519,6 +544,110 @@ class UsFreeAxisPointInTimeTest(unittest.TestCase):
             self.assertEqual(row["metadata_realtime_start"], ANCHOR)
             for key in ("realtime_end", "previous_realtime_end", "metadata_realtime_end"):
                 self.assertGreater(row[key], ANCHOR, key)
+
+    def test_a_provider_observation_date_that_is_no_calendar_day_fails_closed(self):
+        # The defect an integration review found, at the source that produces it:
+        # 2026-02-31 is DATE10-shaped, is a day no calendar has, and — because
+        # ISO dates compare lexicographically — sorts *before* the requested
+        # 2026-08-28. A shape check followed by a string comparison therefore
+        # cleared it as an ordinary earlier observation and let it into the
+        # population under a valid signature.
+        latest = _with_observations(
+            lambda rows: rows[-1].__setitem__("date", IMPOSSIBLE_DATE)
+        )
+        record = build([ANCHOR], latest)["records"][0]
+        risk_vol = record["five_axis"]["axes"]["RISK_VOL"]
+        liquidity = record["five_axis"]["axes"]["LIQUIDITY"]
+        self.assertEqual(risk_vol["status"], "NOT_COMPUTABLE")
+        self.assertIn("US_VIX_OBSERVATION_DATE_INVALID", risk_vol["reason"])
+        self.assertIsNone(risk_vol["measurement"])
+        self.assertEqual(liquidity["status"], "NOT_COMPUTABLE")
+        self.assertIn("US_LIQUIDITY_OBSERVATION_DATE_INVALID", liquidity["reason"])
+        # Contained to the axes that consumed it: TREND never touches FRED.
+        self.assertEqual(record["five_axis"]["axes"]["TREND"]["status"], "OBSERVED")
+
+        # The *previous* observation is consumed too — the liquidity change is a
+        # difference of the two — so it is bound with the same rule rather than
+        # only the latest row being parsed. RISK_VOL reads only the latest
+        # observation, so it stays observed and the containment stays visible.
+        previous = _with_observations(
+            lambda rows: rows[-2].__setitem__("date", IMPOSSIBLE_DATE)
+        )
+        record = build([ANCHOR], previous)["records"][0]
+        self.assertEqual(
+            record["five_axis"]["axes"]["LIQUIDITY"]["status"], "NOT_COMPUTABLE",
+        )
+        self.assertIn(
+            "US_LIQUIDITY_OBSERVATION_DATE_INVALID",
+            record["five_axis"]["axes"]["LIQUIDITY"]["reason"],
+        )
+        self.assertEqual(record["five_axis"]["axes"]["RISK_VOL"]["status"], "OBSERVED")
+
+    def test_a_vintage_bound_that_is_no_calendar_day_fails_closed(self):
+        # Same defect on the ALFRED window. A vintage of 2026-02-31/2026-02-31
+        # "contains" nothing, but under string comparison it opened before and
+        # closed after the requested date's own ordering position, so the
+        # containment bind passed over a window that cannot exist.
+        for mutate, label in (
+            (lambda rows: rows[-1].__setitem__("realtime_start", IMPOSSIBLE_DATE),
+             "latest observation vintage"),
+            (lambda rows: rows[-1].__setitem__("realtime_end", IMPOSSIBLE_DATE),
+             "latest observation vintage end"),
+            (lambda rows: rows[-2].__setitem__("realtime_start", IMPOSSIBLE_DATE),
+             "previous observation vintage"),
+        ):
+            with self.subTest(bound=label):
+                record = build([ANCHOR], _with_observations(mutate))["records"][0]
+                self.assertEqual(
+                    record["five_axis"]["axes"]["LIQUIDITY"]["status"], "NOT_COMPUTABLE",
+                )
+                self.assertIn(
+                    "US_FRED_VINTAGE_MISSING",
+                    record["five_axis"]["axes"]["LIQUIDITY"]["reason"],
+                )
+
+        # And on the series metadata, which fixes the units and therefore the
+        # normalization factor the change is expressed in.
+        providers = FakeProviders()
+        original = providers._fred_metadata
+
+        def broken(query):
+            body = json.loads(original(query))
+            body["seriess"][0]["realtime_start"] = IMPOSSIBLE_DATE
+            return json.dumps(body).encode()
+
+        providers._fred_metadata = broken
+        record = build([ANCHOR], providers)["records"][0]
+        self.assertEqual(
+            record["five_axis"]["axes"]["LIQUIDITY"]["status"], "NOT_COMPUTABLE",
+        )
+        self.assertIn(
+            "US_FRED_VINTAGE_MISSING", record["five_axis"]["axes"]["LIQUIDITY"]["reason"],
+        )
+
+    def test_an_alpaca_session_that_is_no_calendar_day_fails_closed(self):
+        # The same defect on the session extraction: a bar stamped 2026-02-31
+        # is not a session, and string-comparing it against the anchor admitted
+        # it as an ordinary earlier bar whose close then entered the 20-session
+        # return the TREND direction is derived from.
+        def broken(url, headers=None):
+            parsed = urlparse(url)
+            if parsed.netloc != "data.alpaca.markets":
+                return FakeProviders()(url, headers)
+            body = json.loads(
+                FakeProviders()._alpaca(parsed.path, parse_qs(parsed.query))
+            )
+            body["bars"][-1]["t"] = f"{IMPOSSIBLE_DATE}T00:00:00Z"
+            return json.dumps(body).encode()
+
+        record = build([ANCHOR], broken)["records"][0]
+        trend = record["five_axis"]["axes"]["TREND"]
+        self.assertEqual(trend["status"], "NOT_COMPUTABLE")
+        self.assertIn("US_TREND_SESSION_DATE_INVALID", trend["reason"])
+        self.assertIsNone(trend["measurement"])
+        self.assertIsNone(record["effective_session_date"])
+        # Contained: the FRED axes never saw the Alpaca response.
+        self.assertEqual(record["five_axis"]["axes"]["RISK_VOL"]["status"], "OBSERVED")
 
     def test_date_isolation_one_records_outcome_ignores_batch_membership(self):
         solo = build([ANCHOR])["records"][0]
@@ -1098,6 +1227,92 @@ class UsFreeAxisValidationTest(unittest.TestCase):
                 with self.assertRaises(MODULE.ReplayPopulationError) as caught:
                     MODULE.validate_population(self._resigned(tampered))
                 self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_re_signed_date_that_is_no_calendar_day(self):
+        # The adversarial probe an integration review used, on the validator
+        # side: every date below is DATE10-shaped, is a day no calendar has, and
+        # sorts before the requested 2026-08-28. Under a shape check plus a
+        # string comparison each one passed — the axis row still re-derived, the
+        # coverage still agreed, the attestation still read as backward-looking,
+        # and the payload was re-signed — so the population published a
+        # point-in-time claim over a date that never existed.
+        #
+        # Every date a measurement carries is covered, because every one of them
+        # entered the result: the observation the value came from, the previous
+        # observation the change is measured against, the Alpaca session the
+        # closes came from, the ALFRED windows, and the record's own attestation.
+        for mutate, code in (
+            (lambda record: record["five_axis"]["axes"]["RISK_VOL"][
+                "measurement"].__setitem__("observation_date", IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"][0].__setitem__("observation_date", IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"][1].__setitem__("previous_observation_date", IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["five_axis"]["axes"]["TREND"]["measurement"][
+                "trend_etfs"][0].__setitem__("previous_session_date", IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["five_axis"]["axes"]["TREND"][
+                "measurement"].__setitem__("earliest_session_date", IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["no_lookahead_attestation"].__setitem__(
+                "vix_observation_date", IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["no_lookahead_attestation"][
+                "liquidity_observation_dates"].append(IMPOSSIBLE_DATE),
+             "RECORD_SOURCE_DATE_CALENDAR_INVALID"),
+            (lambda record: record["five_axis"]["axes"]["RISK_VOL"][
+                "measurement"].__setitem__("realtime_start", IMPOSSIBLE_DATE),
+             "US_FRED_VINTAGE_MISSING"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"][0].__setitem__("previous_realtime_end", IMPOSSIBLE_DATE),
+             "US_FRED_VINTAGE_MISSING"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"][1].__setitem__("metadata_realtime_start", IMPOSSIBLE_DATE),
+             "US_FRED_VINTAGE_MISSING"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_future_date_inside_a_measurement(self):
+        # The real-date counterpart, and a gap of its own: the attestation walk
+        # never reaches inside a measurement, so a re-signed record could keep a
+        # clean attestation while the measurement it published named an
+        # observation or session after the replayed date.
+        future = "2026-09-04"
+        for mutate in (
+            lambda record: record["five_axis"]["axes"]["RISK_VOL"][
+                "measurement"].__setitem__("observation_date", future),
+            lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"][0].__setitem__("previous_observation_date", future),
+            lambda record: record["five_axis"]["axes"]["TREND"]["measurement"][
+                "trend_etfs"][1].__setitem__("previous_session_date", future),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", str(caught.exception))
+
+    def test_the_open_ended_vintage_sentinel_survives_the_measurement_date_walk(self):
+        # The other side of the walk above, asserted so it cannot harden into a
+        # false positive: ``9999-12-31`` is later than every requested date and
+        # is exactly what FRED serves while a value is still current. It is bound
+        # as a containment window, never as a backward-looking source date, so a
+        # genuine current-vintage replay must still validate.
+        population = build([ANCHOR], FakeProviders(open_ended_vintage=True))
+        risk_vol = population["records"][0]["five_axis"]["axes"]["RISK_VOL"]
+        self.assertEqual(risk_vol["measurement"]["realtime_end"], "9999-12-31")
+        self.assertEqual(
+            MODULE.validate_population(copy.deepcopy(population)), population,
+        )
 
     def test_validate_population_rejects_a_vintage_date_the_record_did_not_request(self):
         # ``vintage_date`` is the measurement's own claim about which ALFRED

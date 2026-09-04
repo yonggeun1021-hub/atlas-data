@@ -23,6 +23,7 @@ The three load-bearing guarantees under test are:
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -524,11 +525,66 @@ class CombinedPointInTimeTest(unittest.TestCase):
             record["no_lookahead_attestation"]["markets_failed_closed_for_lookahead"], ["KR"],
         )
 
+    def test_a_market_source_date_that_is_no_calendar_day_is_failed_closed(self):
+        # Shape is not a calendar, and the join is the last place either
+        # market's consumed dates are compared with the requested date.
+        # 20260231 is KRX-shaped, is a day no calendar has, and sorts *before*
+        # the requested 2026-08-28, so the string comparison cleared it as
+        # backward-looking and the market's claim was published unchanged.
+        view = MODULE.market_view(
+            "KR",
+            {
+                "status": "OBSERVED",
+                "effective_trading_date": "20260828",
+                "five_axis": {"coverage": {"ratio": "5/5"}, "axes": {}},
+                "candidate_normalized_result": {
+                    "paper_reference": {"candidate_regime": "RISK_ON"},
+                    "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+                    "runtime_regime": "UNKNOWN",
+                },
+                "failure_reason": None,
+                "no_lookahead_attestation": {"session_dates_used": ["20260231"]},
+            },
+            ANCHOR,
+        )
+        self.assertEqual(view["outcome"], "BLOCKED")
+        self.assertIn(
+            "COMBINED_SOURCE_DATE_NOT_A_CALENDAR_DATE", view["failure_reason"],
+        )
+        self.assertIsNone(view["candidate_regime"])
+        # Reported as its own fact, never as a lookahead: the market did not
+        # look forward, it named a date that cannot be compared at all.
+        self.assertIs(view["lookahead_violation"], False)
+
+    def test_a_requested_date_that_is_no_calendar_day_keeps_the_markets_own_reason(self):
+        # The other side, so the check above cannot harden into a false
+        # positive: a requested date that is not a real day is itself a
+        # legitimate blocked record in both markets, and their own attestation
+        # anchors carry that same impossible date. The join makes no containment
+        # claim there and must not overwrite the market's attributable reason.
+        population = build([ANCHOR, "2026-02-31"])
+        record = record_for(population, "2026-02-31")
+        self.assertEqual(record["combined_status"], "NOT_COMPUTABLE_NO_MARKET_REPLAYED")
+        for market in ("KR", "US"):
+            reason = record["markets"][market]["failure_reason"]
+            self.assertIn("REQUESTED_DATE_CALENDAR_INVALID", reason, market)
+            self.assertIs(record["markets"][market]["lookahead_violation"], False)
+        MODULE.validate_population(population)
+
     def test_krx_yyyymmdd_and_iso_dates_normalize_to_one_comparable_form(self):
         self.assertEqual(MODULE._iso_date("20260828"), ANCHOR)
         self.assertEqual(MODULE._iso_date(ANCHOR), ANCHOR)
         self.assertIsNone(MODULE._iso_date("not-a-date"))
         self.assertIsNone(MODULE._iso_date(None))
+        # Shape only, by design — the calendar is ``_calendar_date``'s job, and
+        # keeping the two separate is what lets an impossible date be reported
+        # as its own fact instead of as a lookahead.
+        self.assertEqual(MODULE._iso_date("20260231"), "2026-02-31")
+        self.assertIsNone(MODULE._calendar_date("2026-02-31"))
+        self.assertIsNone(MODULE._calendar_date("20260231"))
+        self.assertEqual(
+            MODULE._calendar_date("20260828"), dt.date(2026, 8, 28),
+        )
         self.assertEqual(
             sorted(MODULE._date_like_strings(
                 {"a": ["20260827", "x"], "b": {"c": ANCHOR}, "d": 3}

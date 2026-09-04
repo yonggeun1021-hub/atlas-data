@@ -76,6 +76,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 import hashlib
 import json
 import os
@@ -137,6 +138,11 @@ LABEL_SEMANTICS = "OPAQUE_CALLER_LABEL_NOT_A_REGIME_OR_OUTCOME_CLAIM"
 DATE_SELECTION = "CALLER_SUPPLIED_ONLY"
 
 LOOKAHEAD_CONTAINED = "COMBINED_LOOKAHEAD_VIOLATION"
+# Kept distinct from the lookahead code because it is a different fact: a
+# date-shaped string that no calendar can produce is not a source date the
+# market looked forward to, it is a source date that cannot be compared at all.
+# Naming it "lookahead" would misdescribe the evidence.
+SOURCE_DATE_NOT_A_CALENDAR_DATE = "COMBINED_SOURCE_DATE_NOT_A_CALENDAR_DATE"
 MARKET_RECORD_MISSING = "MARKET_RECORD_MISSING_FROM_POPULATION"
 # The one code under which a whole market population can be reported
 # unavailable. Every such reason is ``CODE:MARKET:detail``, and
@@ -336,7 +342,11 @@ def resolve_request(dates: list[str], episodes: list[dict]) -> tuple[list[str], 
 
 
 def _iso_date(value: object) -> str | None:
-    """Normalize a KR ``YYYYMMDD`` or ISO ``YYYY-MM-DD`` date, else ``None``."""
+    """Normalize a KR ``YYYYMMDD`` or ISO ``YYYY-MM-DD`` *shape*, else ``None``.
+
+    Shape only. ``2026-02-31`` normalizes here and is not a day; use
+    ``_calendar_date`` before comparing.
+    """
     if not isinstance(value, str):
         return None
     if DATE10.fullmatch(value) is not None:
@@ -344,6 +354,24 @@ def _iso_date(value: object) -> str | None:
     if DATE8.fullmatch(value) is not None:
         return f"{value[:4]}-{value[4:6]}-{value[6:]}"
     return None
+
+
+def _calendar_date(value: object) -> dt.date | None:
+    """The real calendar date ``value`` denotes, or ``None`` if it denotes none.
+
+    The join's own lookahead re-check is the last place a source date either
+    market consumed is compared with the requested date, and ISO dates compare
+    lexicographically: ``2026-02-31`` — a day no calendar has — sorts before
+    ``2026-03-01`` and so reads as backward-looking. Comparing parsed dates
+    instead means such a date can never be cleared as an ordinary earlier one.
+    """
+    normalized = _iso_date(value)
+    if normalized is None:
+        return None
+    try:
+        return dt.date.fromisoformat(normalized)
+    except ValueError:
+        return None
 
 
 def _date_like_strings(value: object) -> list[str]:
@@ -384,9 +412,11 @@ def market_view(market: str, record: dict, requested_date: str) -> dict:
     """Project one market's replay record into the shared join vocabulary.
 
     The market's own status, coverage, and candidate normalization are carried
-    verbatim — nothing is recomputed. The only judgement made here is the
-    lookahead re-check, which can demote a market to ``BLOCKED`` for this one
-    date but can never promote it.
+    verbatim — nothing is recomputed. The only judgements made here are the
+    source-date re-checks below, which can demote a market to ``BLOCKED`` for
+    this one date but can never promote it, and which keep two different facts
+    distinct: a date after the requested one is a lookahead, while a date-shaped
+    string that names no calendar day is not comparable at all.
     """
     status = record.get("status")
     outcome = OUTCOME_BY_MARKET_STATUS[market].get(status)
@@ -403,14 +433,29 @@ def market_view(market: str, record: dict, requested_date: str) -> dict:
     ))
     # Recomputed at the join rather than trusted: each market already anchors
     # backward, so this can only ever confirm that — but if it ever did not,
-    # this date must fail closed instead of publishing the market's claim.
-    anchor = _iso_date(requested_date)
-    violating = [date for date in consulted if anchor is not None and date > anchor]
-    if violating:
-        view = _unavailable_view(market, LOOKAHEAD_CONTAINED)
-        view["market_status"] = status
-        view["lookahead_violation"] = True
-        return view
+    # this date must fail closed instead of publishing the market's claim. The
+    # comparison is between parsed calendar dates, so a date-shaped string that
+    # names no day is contained here rather than cleared by string ordering.
+    anchor = _calendar_date(requested_date)
+    if anchor is not None:
+        # A requested date that is not a real day is itself a legitimate blocked
+        # record in both markets, so when the anchor cannot be parsed the join
+        # makes no containment claim and carries the market's own reason instead.
+        impossible = [date for date in consulted if _calendar_date(date) is None]
+        if impossible:
+            # Contained as its own fact, not as a lookahead: an impossible date
+            # cannot be compared with the anchor, and string ordering would have
+            # cleared it — 2026-02-31 sorts before 2026-03-01.
+            view = _unavailable_view(
+                market, f"{SOURCE_DATE_NOT_A_CALENDAR_DATE}:{impossible[0]}",
+            )
+            view["market_status"] = status
+            return view
+        if any(_calendar_date(date) > anchor for date in consulted):
+            view = _unavailable_view(market, LOOKAHEAD_CONTAINED)
+            view["market_status"] = status
+            view["lookahead_violation"] = True
+            return view
 
     return {
         "market": market,
@@ -479,9 +524,11 @@ def combined_record(requested_date: str, views: dict, episode_names: list[str]) 
     else:
         combined_status = COMBINED_NONE
     contained = [market for market in MARKETS if views[market]["lookahead_violation"]]
-    anchor = _iso_date(requested_date)
+    anchor = _calendar_date(requested_date)
     credited = [
-        date for market in MARKETS for date in views[market]["source_dates_consulted"]
+        _calendar_date(date)
+        for market in MARKETS
+        for date in views[market]["source_dates_consulted"]
     ]
     return {
         "requested_date": requested_date,
@@ -506,7 +553,8 @@ def combined_record(requested_date: str, views: dict, episode_names: list[str]) 
             # BLOCKED and cleared, so this is False by construction — and if it
             # ever were not, validate_population rejects the record.
             "any_source_date_after_requested_date": bool(
-                anchor is not None and any(date > anchor for date in credited)
+                anchor is not None
+                and any(date is not None and date > anchor for date in credited)
             ),
             "markets_failed_closed_for_lookahead": contained,
             "other_requested_dates_consulted": False,
@@ -1087,11 +1135,18 @@ def _validate_record(record: dict, requested: list[str], expected: dict) -> None
             fail("RECORD_MARKET_OUTCOME_INVALID", market)
         if view.get("runtime_regime") != "UNKNOWN":
             fail("RUNTIME_REGIME_MUST_STAY_UNKNOWN", market)
-        anchor = _iso_date(record.get("requested_date"))
-        if anchor is not None and any(
-            date > anchor for date in view.get("source_dates_consulted", [])
-        ):
-            fail("RECORD_LOOKAHEAD_VIOLATION", market)
+        anchor = _calendar_date(record.get("requested_date"))
+        if anchor is not None:
+            consulted = [
+                _calendar_date(date)
+                for date in view.get("source_dates_consulted", [])
+            ]
+            # Parsed before comparison: a date-shaped string that names no day
+            # cannot be cleared as backward-looking by string ordering.
+            if any(date is None for date in consulted):
+                fail("RECORD_SOURCE_DATE_NOT_A_CALENDAR_DATE", market)
+            if any(date > anchor for date in consulted):
+                fail("RECORD_LOOKAHEAD_VIOLATION", market)
         # A market the join blocked produced nothing on this date, so it may not
         # carry a candidate regime a reader could still count.
         if view["outcome"] == OUTCOME_BLOCKED and view.get("candidate_regime") is not None:

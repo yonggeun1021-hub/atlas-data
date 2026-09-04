@@ -75,6 +75,18 @@ Point-in-time integrity is structural, not merely asserted:
   is refused separately, because it is a different fact.  The bind is
   containment, not equality: a still-current FRED value legitimately reports
   ``realtime_end`` as ``9999-12-31``.
+* Every provider- and payload-supplied date is *parsed* as a calendar date
+  before it is compared.  Shape is not a calendar: ``2026-02-31`` is
+  ``YYYY-MM-DD``-shaped, is a day no calendar has, and — because ISO dates
+  compare lexicographically — sorts before ``2026-03-01``, so a shape check
+  followed by a string comparison cleared it as ordinary backward-looking
+  evidence wherever it appeared.
+* Every date a measurement carries — the observation the value came from, the
+  previous observation the change is measured against, and the Alpaca sessions
+  the closes came from — is bound to the requested date in
+  ``validate_population`` as well, because the attestation walk never reaches
+  inside a measurement.  The still-current ``9999-12-31`` vintage sentinel is
+  the single exemption and is bound separately as a containment window.
 * Each requested date is resolved independently from its own anchor, so no
   other requested date's outcome can influence this one.
 * The population's own ``pit_replay`` declaration is validated key for key
@@ -233,6 +245,15 @@ AUTHORITY = {
 FRED_VINTAGE_KEYS = ("realtime_start", "realtime_end")
 FRED_PREVIOUS_VINTAGE_KEYS = ("previous_realtime_start", "previous_realtime_end")
 FRED_METADATA_VINTAGE_KEYS = ("metadata_realtime_start", "metadata_realtime_end")
+# The only measurement dates that may legitimately fall after the requested
+# date, and therefore the only ones exempt from the backward-looking walk in
+# ``_validate_measurement_source_dates``. They are bound as containment windows
+# by ``_assert_vintage_covers`` instead.
+VINTAGE_END_KEYS = frozenset(
+    key for _, key in (
+        FRED_VINTAGE_KEYS, FRED_PREVIOUS_VINTAGE_KEYS, FRED_METADATA_VINTAGE_KEYS,
+    )
+)
 
 # The exact point-in-time block this population publishes, declared once so
 # ``build_population`` and ``validate_population`` cannot drift apart, and
@@ -333,13 +354,38 @@ def _load_candidate_policy() -> dict:
     return policy
 
 
+def _calendar_date(value: object) -> dt.date | None:
+    """The real calendar date a string denotes, or ``None`` if it denotes none.
+
+    Date *shape* is not a date. ``DATE10`` accepts ``2026-02-31`` and
+    ``2026-13-01``, and ISO strings compare lexicographically, so a shape-only
+    check followed by a string comparison silently clears a day that never
+    existed: ``2026-02-31`` sorts before ``2026-03-01`` and therefore reads as
+    backward-looking against every later anchor. Every provider-supplied and
+    payload-supplied date in this module is parsed here before it is compared, so
+    a calendar-impossible date fails closed instead of satisfying a
+    point-in-time bound it could never have satisfied.
+
+    The ``DATE10`` shape gate is kept ahead of the parse rather than replaced by
+    it: on current Python ``dt.date.fromisoformat`` also accepts ``20260228`` and
+    ISO week/ordinal forms, none of which is the ``YYYY-MM-DD`` this population
+    publishes, so the gate keeps the accepted set fixed across interpreters.
+    """
+    if not isinstance(value, str) or DATE10.fullmatch(value) is None:
+        return None
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def _parse_requested_date(value: str) -> dt.date:
     if not isinstance(value, str) or DATE10.fullmatch(value) is None:
         fail("REQUESTED_DATE_FORMAT_INVALID")
-    try:
-        return dt.date.fromisoformat(value)
-    except ValueError as exc:
-        raise ReplayPopulationError("REQUESTED_DATE_CALENDAR_INVALID") from exc
+    parsed = _calendar_date(value)
+    if parsed is None:
+        fail("REQUESTED_DATE_CALENDAR_INVALID")
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -468,11 +514,18 @@ def _valid_observations(body: object, code: str) -> list[dict]:
 
 
 def _assert_not_after(anchor: dt.date, observation_date: object, code: str) -> str:
-    if not isinstance(observation_date, str) or DATE10.fullmatch(observation_date) is None:
+    """A provider observation date must be a real day at or before ``anchor``.
+
+    Parsed, not shape-matched: a provider answering ``2026-02-31`` names no day
+    at all, and comparing that string against the anchor would pass it through
+    as an ordinary earlier observation.
+    """
+    parsed = _calendar_date(observation_date)
+    if parsed is None:
         fail(code)
-    if observation_date > anchor.isoformat():
+    if parsed > anchor:
         fail("US_REPLAY_LOOKAHEAD_VIOLATION", code)
-    return observation_date
+    return parsed.isoformat()
 
 
 def _assert_vintage_covers(
@@ -504,21 +557,31 @@ def _assert_vintage_covers(
     ``realtime_end`` later than the requested date is normal and required: FRED
     serves ``9999-12-31`` while a value is still current. The bind is therefore
     containment of the requested date in the window, never equality with it.
+
+    Both window bounds and the requested date are parsed as calendar dates
+    first. Comparing the ISO strings alone let a window such as
+    ``2026-02-31``/``2026-02-31`` — a day no calendar has — satisfy containment
+    against an anchor later in the year, so a re-signed measurement could carry a
+    vintage that cannot be checked against any real ALFRED window while every
+    downstream hash and re-derivation stayed consistent.
     """
+    anchor = _calendar_date(requested_date)
+    if anchor is None:
+        fail("REQUESTED_DATE_CALENDAR_INVALID", label)
     if not isinstance(row, dict):
         fail("US_FRED_VINTAGE_MISSING", label)
     bounds = []
     for key in keys:
-        value = row.get(key)
-        if not isinstance(value, str) or DATE10.fullmatch(value) is None:
+        parsed = _calendar_date(row.get(key))
+        if parsed is None:
             fail("US_FRED_VINTAGE_MISSING", f"{label}.{key}")
-        bounds.append(value)
+        bounds.append(parsed)
     start, end = bounds
-    if start > requested_date:
+    if start > anchor:
         fail("US_REPLAY_LOOKAHEAD_VIOLATION", f"FRED_VINTAGE:{label}")
-    if end < requested_date:
+    if end < anchor:
         fail("US_FRED_VINTAGE_SUPERSEDED_BEFORE_REQUESTED_DATE", label)
-    return start, end
+    return start.isoformat(), end.isoformat()
 
 
 def replay_trend_source(
@@ -539,14 +602,19 @@ def replay_trend_source(
     )
     grouped: dict[str, list[dict]] = {}
     for row in normalized:
-        session_date = str(row.get("opened_at", ""))[:10]
-        if DATE10.fullmatch(session_date) is None:
+        # Parsed, not shape-matched: a bar timestamped ``2026-02-31`` is not a
+        # session, and comparing that string against the anchor would admit it
+        # as an ordinary earlier one.
+        session = _calendar_date(str(row.get("opened_at", ""))[:10])
+        if session is None:
             fail("US_TREND_SESSION_DATE_INVALID")
         # A provider that answers with a later bar than requested must fail
         # this date closed rather than have the bar silently trimmed.
-        if session_date > anchor.isoformat():
+        if session > anchor:
             fail("US_REPLAY_LOOKAHEAD_VIOLATION", "ALPACA_BAR")
-        grouped.setdefault(row["symbol"], []).append({**row, "session_date": session_date})
+        grouped.setdefault(row["symbol"], []).append(
+            {**row, "session_date": session.isoformat()}
+        )
 
     trend_etfs = []
     for symbol in symbols:
@@ -1230,8 +1298,11 @@ def _validate_pit_replay(value: dict) -> None:
     This is a check on what the population *declares*. What it actually did is
     enforced separately and structurally — by the per-record lookahead re-check
     in ``_validate_no_lookahead``, the returned-vintage bind in
-    ``_validate_fred_vintage_binding``, and full axis re-derivation — none of
-    which depends on this block being honest.
+    ``_validate_fred_vintage_binding``, the per-measurement source-date bind in
+    ``_validate_measurement_source_dates``, and full axis re-derivation — none of
+    which depends on this block being honest. All of them parse each date with
+    ``_calendar_date`` before comparing it, so a date-shaped string that names no
+    day cannot satisfy a bound by string ordering alone.
     """
     pit = value.get("pit_replay")
     if not isinstance(pit, dict) or sorted(pit) != sorted(PIT_REPLAY_KEYS):
@@ -1422,6 +1493,7 @@ def _validate_record(
     )
     _validate_source_hash_consistency(record, axes, observed, requested_date)
     _validate_fred_vintage_binding(axes, observed, requested_date)
+    _validate_measurement_source_dates(axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
 
 
@@ -1431,10 +1503,13 @@ def _validate_fred_vintage_binding(
     """Every observed FRED measurement must carry a vintage that covers its date.
 
     ``_validate_no_lookahead`` walks the record's *attestation* and effective
-    session date; it never reaches inside a measurement, and it could not use the
-    same rule if it did, because a still-current FRED value legitimately reports
-    ``realtime_end`` as ``9999-12-31``. The vintage a measurement was actually
-    served at therefore needs its own bind, and without one a WRESBAL, TOTBKCR,
+    session date, and never reaches inside a measurement. A vintage window could
+    not be checked by that rule anyway: a still-current FRED value legitimately
+    reports ``realtime_end`` as ``9999-12-31``, which is why
+    ``_validate_measurement_source_dates`` — the walk that does reach inside a
+    measurement — exempts the vintage *end* keys and leaves them to this
+    containment bind. The vintage a measurement was actually served at therefore
+    needs its own bind, and without one a WRESBAL, TOTBKCR,
     or VIXCLS row whose ALFRED window opens *after* the replayed date is accepted
     as if it had been knowable then — with the axis row, the source hashes, the
     coverage, and the payload signature all internally consistent.
@@ -1471,6 +1546,59 @@ def _validate_fred_vintage_binding(
             _assert_vintage_covers(
                 requested_date, row, f"{label}.metadata", FRED_METADATA_VINTAGE_KEYS,
             )
+
+
+def _measurement_dates(value: object, label: str) -> list[dt.date]:
+    """Every date-shaped string inside a measurement, as a real calendar date.
+
+    Generic, so a measurement field added later is bound automatically instead
+    of escaping the walk. The FRED vintage *end* keys are the one exemption:
+    a still-current value legitimately reports ``9999-12-31``, and those bounds
+    are checked as containment windows by ``_assert_vintage_covers`` rather than
+    as backward-looking source dates.
+    """
+    if isinstance(value, dict):
+        return [
+            item
+            for key, entry in value.items()
+            if key not in VINTAGE_END_KEYS
+            for item in _measurement_dates(entry, label)
+        ]
+    if isinstance(value, list):
+        return [item for entry in value for item in _measurement_dates(entry, label)]
+    return _dates_in(value, label)
+
+
+def _validate_measurement_source_dates(
+    axes: dict, observed: list[str], requested_date: str,
+) -> None:
+    """Every date inside an observed measurement is a real day, at or before it.
+
+    ``_validate_no_lookahead`` walks the record's *attestation*, which carries
+    only a summary of the dates consumed, and ``_validate_fred_vintage_binding``
+    reaches the ALFRED windows but nothing else. The measurements themselves
+    carry the observation, previous-observation, and Alpaca session dates each
+    axis row was actually built from, and those were bound by neither. A
+    re-signed record could therefore carry a RISK_VOL ``observation_date`` of
+    ``2026-02-31`` — a day no calendar has — or a trend session date after the
+    replayed date, while the attestation stayed clean and every hash, row
+    re-derivation, and signature stayed internally consistent.
+    """
+    if not observed:
+        return
+    anchor = _calendar_date(requested_date)
+    if anchor is None:
+        # An observed measurement filed under a date that is not a real day
+        # cannot be bound to anything, so it fails closed rather than skipping.
+        fail("REQUESTED_DATE_CALENDAR_INVALID", requested_date)
+    for name in observed:
+        entry = axes.get(name)
+        measurement = entry.get("measurement") if isinstance(entry, dict) else None
+        if not isinstance(measurement, dict):
+            fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", f"{requested_date}:{name}")
+        label = f"{requested_date}:{name}"
+        if any(date > anchor for date in _measurement_dates(measurement, label)):
+            fail("US_REPLAY_LOOKAHEAD_VIOLATION", label)
 
 
 # Each observed axis's row is rebuilt by the *same* helper that produced it, so
@@ -1661,23 +1789,39 @@ def _validate_no_lookahead(record: dict, requested_date: str) -> None:
         or attestation.get("other_requested_dates_consulted") is not False
     ):
         fail("RECORD_ATTESTATION_CLAIM_INVALID", requested_date)
-    if DATE10.fullmatch(requested_date) is None:
-        # A malformed requested date is itself a legitimate BLOCKED record;
-        # there is no calendar anchor to compare against.
+    anchor = _calendar_date(requested_date)
+    if anchor is None:
+        # A malformed or calendar-impossible requested date is itself a
+        # legitimate BLOCKED record — ``_parse_requested_date`` produces exactly
+        # that — so there is no calendar anchor to compare against here.
         return
-    consulted = _dates_in(attestation) + _dates_in(record.get("effective_session_date"))
-    if any(date > requested_date for date in consulted):
+    consulted = _dates_in(attestation, requested_date) + _dates_in(
+        record.get("effective_session_date"), requested_date,
+    )
+    if any(date > anchor for date in consulted):
         fail("RECORD_LOOKAHEAD_VIOLATION", requested_date)
 
 
-def _dates_in(value: object) -> list[str]:
-    """Every ISO-date-shaped string reachable inside ``value``."""
+def _dates_in(value: object, label: str) -> list[dt.date]:
+    """Every ISO-date-shaped string reachable inside ``value``, as a real date.
+
+    A date-shaped string that no calendar can produce fails the record closed
+    rather than being compared. String comparison would have cleared it: an
+    attested source date of ``2026-02-31`` sorts before ``2026-03-01`` and so
+    reads as backward-looking, which is how a re-signed payload could attest to
+    a source date that never existed and still satisfy this walk.
+    """
     if isinstance(value, str):
-        return [value] if DATE10.fullmatch(value) is not None else []
+        if DATE10.fullmatch(value) is None:
+            return []
+        parsed = _calendar_date(value)
+        if parsed is None:
+            fail("RECORD_SOURCE_DATE_CALENDAR_INVALID", f"{label}:{value}")
+        return [parsed]
     if isinstance(value, dict):
-        return [item for entry in value.values() for item in _dates_in(entry)]
+        return [item for entry in value.values() for item in _dates_in(entry, label)]
     if isinstance(value, list):
-        return [item for entry in value for item in _dates_in(entry)]
+        return [item for entry in value for item in _dates_in(entry, label)]
     return []
 
 

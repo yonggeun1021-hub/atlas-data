@@ -214,6 +214,40 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
         self.assertEqual(record["status"], "BLOCKED")
         self.assertIn("REPLAY_LOOKAHEAD_VIOLATION", record["failure_reason"])
 
+    def test_replay_one_date_fails_closed_on_a_session_date_that_is_no_calendar_day(self):
+        # Shape is not a calendar. 20260231 is KRX-shaped, is a day no calendar
+        # has, and — because these dates compare lexicographically — sorts
+        # *before* the requested 2026-08-28, so a shape check followed by a
+        # string comparison cleared it as an ordinary earlier session. The
+        # *previous* session is the load-bearing case: it was never parsed at
+        # all, only string-compared with the current one.
+        contract = KMS.load_contract()
+        policy = MODULE._load_candidate_policy()
+        for previous_day, current_day in (
+            ("20260826", "20260231"),
+            ("20260231", "20260828"),
+        ):
+            with self.subTest(previous=previous_day, current=current_day):
+                def impossible_pair(auth_key, *, anchor, opener, contract):
+                    return (
+                        {"date": previous_day, "stock": {}, "index": {}},
+                        {"date": current_day, "stock": {}, "index": {}},
+                    )
+
+                with mock.patch.object(
+                    KMS, "discover_session_pair", side_effect=impossible_pair,
+                ):
+                    record = MODULE._replay_one_requested_date(
+                        TOKEN, "2026-08-28", opener=opener_for(base_fixtures()),
+                        contract=contract, policy=policy,
+                    )
+                self.assertEqual(record["status"], "BLOCKED")
+                self.assertIn(
+                    "REPLAY_SESSION_DATE_CALENDAR_INVALID", record["failure_reason"],
+                )
+                self.assertIsNone(record["five_axis"])
+                self.assertIsNone(record["candidate_normalized_result"])
+
     def test_malformed_date_fails_closed_without_affecting_other_dates(self):
         population = build_with_fixed_clock(
             TOKEN, ["2026-08-28", "not-a-date", "2026-13-40"], opener_for(base_fixtures()),
@@ -636,6 +670,31 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayPopulationError) as caught:
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn("RECORD_LOOKAHEAD_VIOLATION", str(caught.exception))
+
+    def test_validate_population_rejects_a_session_date_that_is_no_calendar_day(self):
+        # The adversarial mirror of the build-time parse: a re-signed record can
+        # attest to any session date, and 20260231 sorts before the requested
+        # 2026-08-28, so the string comparison read it as backward-looking and
+        # the record published a point-in-time claim over a day that never was.
+        # Both accepted shapes are exercised: the attestation carries KRX
+        # YYYYMMDD dates, and the same walk normalizes ISO dates alongside them.
+        # The record's own trading dates are walked too, but they are already
+        # bound by the packet digest, so the attestation is where an impossible
+        # date could actually be re-signed into place.
+        for impossible in ("20260231", "2026-02-31"):
+            with self.subTest(impossible=impossible):
+                def mutate(record, value=impossible):
+                    record["no_lookahead_attestation"]["session_dates_used"].append(value)
+
+                tampered = copy.deepcopy(
+                    build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+                )
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "RECORD_SESSION_DATE_CALENDAR_INVALID", str(caught.exception),
+                )
 
     def test_build_population_requires_at_least_one_date(self):
         with self.assertRaises(MODULE.ReplayPopulationError):

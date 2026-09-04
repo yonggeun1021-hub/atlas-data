@@ -196,10 +196,13 @@ def _load_candidate_policy() -> dict:
 
 
 def _iso_date(value: object) -> str | None:
-    """Normalize a KRX ``YYYYMMDD`` or ISO ``YYYY-MM-DD`` date, else ``None``.
+    """Normalize a KRX ``YYYYMMDD`` or ISO ``YYYY-MM-DD`` *shape*, else ``None``.
 
     ``None`` for anything else on purpose: a malformed requested date is a
     legitimate ``BLOCKED`` record, not something to guess a calendar value for.
+
+    Shape only. ``2026-02-31`` normalizes here and is not a day; use
+    ``_calendar_date`` before comparing or storing a date.
     """
     if not isinstance(value, str):
         return None
@@ -210,13 +213,31 @@ def _iso_date(value: object) -> str | None:
     return None
 
 
+def _calendar_date(value: object) -> dt.date | None:
+    """The real calendar date ``value`` denotes, or ``None`` if it denotes none.
+
+    Date *shape* is not a date. ``2026-02-31`` and its KRX form ``20260231``
+    both satisfy ``_iso_date`` and neither is a day; because ISO dates compare
+    lexicographically, ``2026-02-31`` also sorts before ``2026-03-01`` and so
+    reads as backward-looking against every later anchor. Every session date
+    this module compares is therefore parsed before it is compared.
+    """
+    normalized = _iso_date(value)
+    if normalized is None:
+        return None
+    try:
+        return dt.date.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
 def _parse_requested_date(value: str) -> dt.date:
     if not isinstance(value, str) or KMS.DATE10.fullmatch(value) is None:
         fail("REQUESTED_DATE_FORMAT_INVALID")
-    try:
-        return dt.date.fromisoformat(value)
-    except ValueError as exc:
-        raise ReplayPopulationError("REQUESTED_DATE_CALENDAR_INVALID") from exc
+    parsed = _calendar_date(value)
+    if parsed is None:
+        fail("REQUESTED_DATE_CALENDAR_INVALID")
+    return parsed
 
 
 def _blocked_record(requested_date: str, failure_reason: str) -> dict:
@@ -289,8 +310,15 @@ def _replay_one_requested_date(
         previous, current = KMS.discover_session_pair(
             auth_key, anchor=anchor, opener=opener, contract=contract,
         )
-        current_date = dt.datetime.strptime(current["date"], "%Y%m%d").date()
-        if previous["date"] >= current["date"] or current_date > anchor:
+        # Both session dates are parsed as calendar dates, never merely
+        # shape-matched: a KRX response stamped ``20260231`` names no day, and
+        # comparing that string against the anchor would let it through as an
+        # ordinary earlier session.
+        current_date = _calendar_date(current.get("date"))
+        previous_date = _calendar_date(previous.get("date"))
+        if current_date is None or previous_date is None:
+            fail("REPLAY_SESSION_DATE_CALENDAR_INVALID")
+        if previous_date >= current_date or current_date > anchor:
             fail("REPLAY_LOOKAHEAD_VIOLATION")
         packet = KMS.build_packet(previous, current, contract)
         normalized = PRR.build_kr(packet, policy)
@@ -701,6 +729,11 @@ def _validate_no_lookahead(record: dict, requested_date: str) -> None:
     ``no_lookahead_attestation`` is a *claim*; the session dates it names are
     the evidence. Both are compared against the requested date here, so a
     payload cannot assert "no lookahead" over a session it could not have seen.
+
+    Each date is parsed as a calendar date before it is compared. Shape is not a
+    calendar: ``20260231`` is date-shaped, is no day, and sorts before every
+    later anchor, so the string comparison this replaced cleared it as an
+    ordinary earlier session.
     """
     attestation = record.get("no_lookahead_attestation")
     if not isinstance(attestation, dict):
@@ -715,18 +748,27 @@ def _validate_no_lookahead(record: dict, requested_date: str) -> None:
     sessions = attestation.get("session_dates_used")
     if not isinstance(sessions, list):
         fail("RECORD_ATTESTATION_SESSIONS_INVALID", requested_date)
-    anchor = _iso_date(requested_date)
+    anchor = _calendar_date(requested_date)
     if anchor is None:
-        # A malformed requested date is itself a legitimate BLOCKED record;
-        # there is no calendar anchor to compare against, so no claim is made.
+        # A malformed or calendar-impossible requested date is itself a
+        # legitimate BLOCKED record — ``_parse_requested_date`` produces exactly
+        # that — so there is no anchor to compare against and no claim is made.
         return
-    consulted = [
-        _iso_date(value)
-        for value in list(sessions)
-        + [record.get("effective_trading_date"), record.get("previous_trading_date")]
-    ]
-    if any(date is not None and date > anchor for date in consulted):
-        fail("RECORD_LOOKAHEAD_VIOLATION", requested_date)
+    for value in list(sessions) + [
+        record.get("effective_trading_date"), record.get("previous_trading_date"),
+    ]:
+        if _iso_date(value) is None:
+            # Not date-shaped at all: nothing is claimed about it here, exactly
+            # as before.
+            continue
+        # Date-shaped but not a real day cannot be compared, and must not be
+        # cleared by the string ordering that would place 2026-02-31 before
+        # 2026-03-01. It fails this record closed instead.
+        consulted = _calendar_date(value)
+        if consulted is None:
+            fail("RECORD_SESSION_DATE_CALENDAR_INVALID", requested_date)
+        if consulted > anchor:
+            fail("RECORD_LOOKAHEAD_VIOLATION", requested_date)
 
 
 def _validate_authority(value: dict) -> None:
