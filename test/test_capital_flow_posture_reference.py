@@ -231,6 +231,12 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
         evidence.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative, evidence)
         self.predecessor = LEDGER.load_predecessor(self.contract, self.root)
+        self.policy = MODULE.validate_policy(
+            MODULE.read_json(
+                self.root / "config/capital_flow_posture_reference_policy_v1.json",
+                "POLICY_INVALID",
+            )
+        )
         paper = MODULE.PAPER_REGIME.build_reference(self.root)
         MODULE.PAPER_REGIME.write_packet(paper, self.root)
 
@@ -245,9 +251,72 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
     def _write_pointer(self, value: dict) -> None:
         self.pointer_path.write_bytes(render(value))
 
-    def _append(self, mode: str) -> dict:
-        """Append this packet to the canonical chain exactly as P2-COM-03 does."""
-        packet = MODULE.build_reference(self.root)
+    def _consumable(self, packet: dict) -> tuple:
+        """The prior history this packet may consume, and its head.
+
+        This reuses the producer's own ``_consumable_history`` instead of
+        writing a second copy of the ledger's self-observation rule.  The tests
+        then assert the *property* that rule must have -- no consumed entry may
+        be an observation of this packet -- so reuse cannot hide a broken rule.
+        """
+        recorded = MODULE._consumable_history(
+            LEDGER,
+            self.policy["transition_ledger"],
+            self.contract,
+            self._pointer(),
+            self.predecessor,
+            packet["generated_at"],
+            self.root,
+            self.contract_path,
+        )
+        head = recorded[-1] if recorded else self.predecessor["tail"]
+        return recorded, head
+
+    def _assert_self_observation_excluded(self, packet: dict) -> tuple:
+        """No entry recording this packet may appear in its own prior history."""
+        entries = self._pointer()["entries"]
+        recorded, head = self._consumable(packet)
+        excluded = [
+            item for item in entries
+            if item["observed_at"] == packet["generated_at"]
+        ]
+        self.assertEqual(
+            [item for item in entries if item not in excluded], recorded
+        )
+        for item in recorded:
+            self.assertNotEqual(item["observed_at"], packet["generated_at"])
+        self.assertNotEqual(head["observed_at"], packet["generated_at"])
+        for item in excluded:
+            self.assertNotEqual(head["entry_sha256"], item["entry_sha256"])
+        return recorded, head
+
+    def _ledger_latest_date(self) -> str:
+        entries = self._pointer()["entries"]
+        if entries:
+            return entries[-1]["source_generated_date_kst"]
+        return self.predecessor["tail"]["source_generated_date_kst"]
+
+    def _advance_past_ledger(self) -> dict:
+        """Move the fixture clock to a test-only instant after the whole chain.
+
+        The canonical chain grows on its own, so no fixture may assume a
+        particular calendar day is still free.  The clock is stepped until the
+        producer's own ``source_generated_date_kst`` is strictly forward of the
+        chain's latest entry -- never a hard-coded date.
+        """
+        for _ in range(60):
+            packet = MODULE.build_reference(self.root)
+            if (
+                LEDGER.source_generated_date_kst(packet)
+                > self._ledger_latest_date()
+            ):
+                return packet
+            self._advance_source_clock()
+        self.fail("fixture clock could not advance past the canonical ledger")
+
+    def _append(self, mode: str) -> tuple:
+        """Append one forward observation exactly as P2-COM-03 does."""
+        packet = self._advance_past_ledger()
         MODULE.write_packet(packet, self.root)
         result = LEDGER.apply_observation(
             self.source_path,
@@ -258,7 +327,7 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
         )
         self.assertEqual(result["action"], "V2_APPEND")
         self._write_pointer(result["ledger"])
-        return result["ledger"]
+        return packet, result["ledger"]
 
     def _resign_pointer(self, mutate) -> None:
         """Re-sign a mutated pointer so only semantics, not hashes, can fail."""
@@ -272,14 +341,14 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
 
     def test_recorded_transition_and_persistence_are_consumed_not_discarded(self):
         packet = MODULE.build_reference(self.root)
-        pointer = self._pointer()
-        head = pointer["entries"][-1]
+        recorded, head = self._assert_self_observation_excluded(packet)
+        self.assertTrue(recorded, "fixture must retain consumable prior history")
         transition = packet["flow_candidates"]["transition"]
         persistence = packet["flow_candidates"]["persistence"]
 
         self.assertEqual(transition["status"], "RECORDED_HISTORY_OBSERVED")
         self.assertEqual(transition["evidence_status"], "LEDGER_CONSUMED")
-        self.assertEqual(transition["recorded_type"], head["transition"]["type"])
+        self.assertEqual(transition["recorded_type"], recorded[-1]["transition"]["type"])
         self.assertEqual(
             transition["previous_semantic_state_sha256"],
             head["current_semantic_state_sha256"],
@@ -310,6 +379,7 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
 
     def test_consumed_ledger_identity_is_hash_bound_into_generation_id(self):
         packet = MODULE.build_reference(self.root)
+        recorded, head = self._assert_self_observation_excluded(packet)
         source = {
             row["source_type"]: row for row in packet["sources"]
         }["P2_COM_03_TRANSITION_LEDGER"]
@@ -323,9 +393,12 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
         self.assertEqual(
             source["predecessor_payload_sha256"], self.predecessor["payload_sha256"]
         )
+        self.assertEqual(source["consumed_head_entry_sha256"], head["entry_sha256"])
+        self.assertEqual(source["consumed_head_observed_at"], head["observed_at"])
         self.assertEqual(
-            source["consumed_head_entry_sha256"],
-            self._pointer()["entries"][-1]["entry_sha256"],
+            source["consumed_head_ledger_revision"],
+            recorded[-1]["ledger_revision"] if recorded
+            else self.predecessor["height"],
         )
         self.assertEqual(
             packet["generation_id"],
@@ -349,7 +422,7 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
         semantic_sha = packet["flow_candidates"]["transition"][
             "current_semantic_state_sha256"
         ]
-        entries = self._pointer()["entries"]
+        entries, _ = self._assert_self_observation_excluded(packet)
         for mode in ("NATURAL", "MANUAL", "RECOVERY", "REPLAY"):
             with self.subTest(mode=mode):
                 first_seen, expected = LEDGER._persistence(
@@ -374,31 +447,54 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
 
     def test_manual_and_replay_observations_never_become_natural_evidence(self):
         """A non-NATURAL append raises the total count but never the natural one."""
-        before = MODULE.build_reference(self.root)["flow_candidates"]["persistence"]
-        semantic_sha = None
+        before = self._advance_past_ledger()["flow_candidates"]["persistence"]
         for mode in ("MANUAL", "REPLAY"):
             with self.subTest(mode=mode):
-                ledger = self._append(mode)
+                appended, ledger = self._append(mode)
                 head = ledger["entries"][-1]
                 self.assertEqual(head["observation_mode"], mode)
                 self.assertFalse(head["counts_toward_persistence"])
-                self._advance_source_clock()
-                after = MODULE.build_reference(self.root)
+                # step past the new entry so it becomes prior history rather
+                # than this packet's own excluded self observation
+                after = self._advance_past_ledger()
+                recorded, _ = self._assert_self_observation_excluded(after)
+                self.assertIn(
+                    head["entry_sha256"],
+                    [item["entry_sha256"] for item in recorded],
+                    "the non-NATURAL entry must be visible as prior history",
+                )
                 persistence = after["flow_candidates"]["persistence"]
-                semantic_sha = after["flow_candidates"]["transition"][
-                    "current_semantic_state_sha256"
-                ]
+                self.assertEqual(
+                    after["flow_candidates"]["transition"][
+                        "current_semantic_state_sha256"
+                    ],
+                    appended["flow_candidates"]["transition"][
+                        "current_semantic_state_sha256"
+                    ],
+                    "fixture must hold the semantic state while the clock moves",
+                )
+                # nothing natural may grow from a non-NATURAL observation.
+                # The natural streak is preserved by the ledger rather than
+                # reset, so the invariant is "must not increase", not "is zero"
                 self.assertEqual(
                     persistence["natural_observation_count"],
                     before["natural_observation_count"],
                     "a non-NATURAL observation was promoted to natural evidence",
                 )
+                self.assertEqual(
+                    persistence["current_streak_natural_count"],
+                    before["current_streak_natural_count"],
+                    "a non-NATURAL observation extended the natural streak",
+                )
+                # but the observation itself must still be recorded as seen
                 self.assertGreater(
                     persistence["observation_count"], before["observation_count"]
                 )
-                self.assertEqual(persistence["current_streak_natural_count"], 0)
+                self.assertGreater(
+                    persistence["current_streak_observation_count"],
+                    before["current_streak_observation_count"],
+                )
                 before = persistence
-        self.assertIsNotNone(semantic_sha)
 
     def _advance_source_clock(self) -> None:
         """Move the P1 clock one day forward so the next append is not drift."""
@@ -420,11 +516,10 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
 
     def test_appending_this_packet_leaves_the_rebuild_byte_identical(self):
         """The ledger records this packet; rebuilding it must not see itself."""
-        packet = MODULE.build_reference(self.root)
+        packet, ledger = self._append("NATURAL")
         pending = packet["flow_candidates"]["transition"]["pending_type"]
         before = packet["flow_candidates"]["persistence"]
-        self._append("NATURAL")
-        head = self._pointer()["entries"][-1]
+        head = ledger["entries"][-1]
         self.assertEqual(head["observed_at"], packet["generated_at"])
         # what the packet described as pending is exactly what P2-COM-03 recorded
         self.assertEqual(head["transition"]["type"], pending)
@@ -436,6 +531,12 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
             head["persistence"]["state_natural_observation_count_total"],
             before["natural_observation_count"] + 1,
         )
+        # the recorded entry is on the chain, yet is excluded from the rebuild
+        self.assertIn(
+            head["entry_sha256"],
+            [item["entry_sha256"] for item in self._pointer()["entries"]],
+        )
+        self._assert_self_observation_excluded(packet)
         rebuilt = MODULE.build_reference(self.root)
         self.assertEqual(rebuilt, packet)
         self.assertEqual(MODULE.validate_reference(packet, self.root), packet)
