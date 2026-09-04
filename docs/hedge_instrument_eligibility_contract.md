@@ -18,6 +18,12 @@ dates, deterministic ordering, and non-overlap; it does not create thresholds
 or reinterpret measurements.  Missing cost/tracking evidence, identity drift,
 overlapping decisions, a non-CIO registry, or a hash mismatch fails closed.
 
+Authority fields are type-exact JSON booleans. Numeric aliases such as `0`
+for `false` or `1` for `true` are rejected in the committed contract, the
+external registry, and the standalone output. This prevents Python boolean /
+integer equality from silently normalizing an authority-bearing input while
+leaving the schema, version, and valid packet bytes unchanged.
+
 ## Authority boundary
 
 An `eligible=true` record means only that the external registry's eligibility

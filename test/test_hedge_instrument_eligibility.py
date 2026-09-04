@@ -112,6 +112,23 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
             if key != "eligibility_registry_validation_only":
                 self.assertFalse(value, key)
 
+    def test_contract_rejects_numeric_boolean_authority_aliases(self):
+        for authority_name, field, alias in (
+            ("input_authority", "registry_eligibility_authorized", 1),
+            ("input_authority", "order_authorized", 0),
+            ("authority", "eligibility_registry_validation_only", 1),
+            ("authority", "trading_authorized", 0),
+        ):
+            value = copy.deepcopy(CONTRACT)
+            value[authority_name][field] = alias
+            with self.subTest(
+                authority_name=authority_name, field=field, alias=alias
+            ), self.assertRaisesRegex(
+                MODULE.HedgeEligibilityError,
+                f"CONTRACT_FIELD_MISMATCH:{authority_name}",
+            ):
+                MODULE._validate_contract(value)
+
     def test_ratified_index_and_sector_records_are_reproduced_not_selected(self):
         rows = [
             record(),
@@ -211,6 +228,20 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
             ):
                 MODULE.build_packet(value, "2026-08-21", CONTRACT)
 
+    def test_registry_rejects_numeric_boolean_authority_aliases(self):
+        for field, alias in (
+            ("registry_eligibility_authorized", 1),
+            ("automatic_instrument_selection_authorized", 0),
+            ("order_authorized", 0),
+        ):
+            value = registry()
+            value["authority"][field] = alias
+            with self.subTest(field=field, alias=alias), self.assertRaisesRegex(
+                MODULE.HedgeEligibilityError,
+                "REGISTRY_IDENTITY_INVALID",
+            ):
+                MODULE.build_packet(value, "2026-08-21", CONTRACT)
+
     def test_registry_packet_is_hash_bound_and_output_is_deterministic(self):
         value = registry()
         first = MODULE.build_packet(value, "2026-08-21", CONTRACT)
@@ -238,6 +269,15 @@ class HedgeInstrumentEligibilityTests(unittest.TestCase):
         packet["packet_sha256"] = MODULE.payload_sha256({
             key: value for key, value in packet.items() if key != "packet_sha256"
         })
+        with self.assertRaisesRegex(
+            MODULE.HedgeEligibilityError,
+            "OUTPUT_DERIVATION_MISMATCH",
+        ):
+            MODULE.validate_packet(packet, CONTRACT)
+
+    def test_output_rejects_numeric_boolean_authority_alias_with_original_hash(self):
+        packet = MODULE.build_packet(registry(), "2026-08-21", CONTRACT)
+        packet["authority"]["order_authorized"] = 0
         with self.assertRaisesRegex(
             MODULE.HedgeEligibilityError,
             "OUTPUT_DERIVATION_MISMATCH",
