@@ -80,7 +80,7 @@ Until the canonical CIO Doctrine and WBS explicitly ratify another order, the ac
 
 Do not silently reorder this sequence because a supporting defect or interesting subproblem appears. Operational collection, natural observation, and bounded incident fixes may continue in parallel.
 
-The older Entry-first sequence remains useful as a downstream subsystem but does not outrank the Capital Rotation critical path. Portal remains a read-only consumer/product lane and must not displace the investment-system bottleneck unless a Portal defect prevents evidence consumption or operational verification.
+The older Entry-first sequence remains useful as a downstream subsystem but does not outrank the Capital Rotation critical path. Portal remains a read-only consumer/product lane and must not displace the investment-system bottleneck unless a Portal defect prevents evidence consumption or operational verification. Portal A begins in parallel when live WBS and `main` evidence show that P5-06, P7-08, and P8-13 integration closure has begun through actual code, contracts, or integration verification. At that trigger, the same accountable PM opens the read-only Portal A lane; trading authority remains outside it and fail-closed.
 
 ## Non-negotiable controls
 
