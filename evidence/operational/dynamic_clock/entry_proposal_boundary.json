@@ -26,8 +26,47 @@
     "status": "LOCKED_POLICY_UNRATIFIED",
     "trade_proposal": null
   },
-  "decision_date": "2026-09-03",
+  "decision_date": "2026-09-04",
   "human_review_material": [
+    {
+      "authority": {
+        "action_authority": false,
+        "buy_authority": false,
+        "entry_authorized": false,
+        "order_authority": false,
+        "position_management_authorized": false,
+        "position_size_authorized": false,
+        "production_authority": false,
+        "proposal_draft_authorized": false,
+        "review_only": true,
+        "stage_promotion_authority": false,
+        "trading_authority": false
+      },
+      "candidate_id": "580c085fba8d34279e76e51f772c4922346de9c7fde8cc1410760a6c1faf7c66",
+      "canonical_instrument_id": "CRYPTO:BTC",
+      "capital": 0,
+      "diagnostic_participation_state": "RADAR",
+      "diagnostic_reason": "OVEREXTENDED_PRICE_STATE_REQUIRES_PULLBACK_REVIEW",
+      "entry_zone": null,
+      "identity_status": "RESOLVED",
+      "invalidation": null,
+      "market": "BTC",
+      "material_status": "DIAGNOSTIC_REVIEW_MATERIAL_ONLY",
+      "max_loss": null,
+      "order_intent": null,
+      "p8_13_boundary": "IMPLEMENTED_FAIL_CLOSED",
+      "position_size": null,
+      "proposal_status": "LOCKED_POLICY_UNRATIFIED",
+      "proposed_action": "NONE",
+      "quantity": null,
+      "readiness_row_sha256": "ba0f9d0d2a5edd477b79adcb77812fd095815dd28c31484c22606e39cf8f685d",
+      "review_state": "WAIT_FOR_PULLBACK_REVIEW",
+      "risk_budget_pct": null,
+      "row_sha256": "4b890cc71a54304ee1a9a72eb94791bf0414814d153ab09332494bfde54ad5bb",
+      "status": "LOCKED_POLICY_UNRATIFIED",
+      "subject": "BTC",
+      "trade_proposal": null
+    },
     {
       "authority": {
         "action_authority": false,
@@ -45,8 +84,8 @@
       "candidate_id": "aed9e83d24938e33089de94883c309c9d3b99646c048a4fc49403b036364f9b5",
       "canonical_instrument_id": "KRX:000660:COMMON",
       "capital": 0,
-      "diagnostic_participation_state": "PROBE_REVIEW",
-      "diagnostic_reason": "PIT_TRIGGER_WITH_LINKED_MOMENTUM_PRICE_STATE",
+      "diagnostic_participation_state": "RADAR",
+      "diagnostic_reason": "WEAK_PRICE_STATE_REQUIRES_MORE_CONFIRMATION",
       "entry_zone": null,
       "identity_status": "RESOLVED",
       "invalidation": null,
@@ -59,36 +98,36 @@
       "proposal_status": "LOCKED_POLICY_UNRATIFIED",
       "proposed_action": "NONE",
       "quantity": null,
-      "readiness_row_sha256": "d0a6bb0f2c270ac591fab9b40a2b8979a4bf7be4c98693fac5a2264e134efd55",
-      "review_state": "MOMENTUM_PROBE_REVIEW",
+      "readiness_row_sha256": "b576eb43f7dd2dda1816258b75c7dfc4992f23440b8ff79eef47926250c6f22b",
+      "review_state": "WATCH_REVIEW",
       "risk_budget_pct": null,
-      "row_sha256": "4a8cc20df39e4cb336f50008a7997ca243ff704b9a8120f3976b182909be3565",
+      "row_sha256": "c578ed7591ee031d26e2045bdd4498cc5968e00d7b317db57d458ac46235a26b",
       "status": "LOCKED_POLICY_UNRATIFIED",
       "subject": "000660",
       "trade_proposal": null
     }
   ],
   "operational_evaluation": {
-    "evaluated_at_utc": "2026-09-02T21:56:55Z",
+    "evaluated_at_utc": "2026-09-04T00:48:50Z",
     "status": "EXACT_CALLER_SUPPLIED_OPERATIONAL_RUN_TIMESTAMP",
     "time_precision": "TIMESTAMP"
   },
-  "packet_sha256": "cd979459b35bbbb55e84bf42ddb94aa17bc70ec44ccbb09641d76c449b0726e2",
+  "packet_sha256": "2b738397167947d6438b4dcaa8f056d51f40a3d55e1bda225312fb5eee48c4b6",
   "schema_version": "entry_proposal_boundary/1",
   "source": {
-    "candidate_identity_packet_sha256": "5f4cf29956fec570c8e62c2afcef1d42c8a5fbae2d35bf7591420e5b6f7eaaf7",
-    "dynamic_clock_report_sha256": "1f0b462bfc7704a20809ea3c840f96dbdc38950e07941f424a1d6783a696001b",
-    "entry_policy_readiness_packet_sha256": "da1a82446e7907f25e3f82cc8add21aa486c7d0323f99cd1d6969895689de69a",
+    "candidate_identity_packet_sha256": "c450c38e354f0105a77e0f17a267144c70af0eb7814e6810cebef7901a1f60c0",
+    "dynamic_clock_report_sha256": "11e9419b25449dbb21de7f1334ed36eb33827b8885e0081ba8e2c61b77625130",
+    "entry_policy_readiness_packet_sha256": "d0acb6ff91a669f2ca6144d328c49e4dd00b3319a1e865c8b420c84e5bfe11bb",
     "entry_proposal_boundary_contract_sha256": "4d07a80a63e84bc74d256d7fff54607246dac886426c3029068d8a99cafaf2bd",
-    "shadow_entry_review_packet_sha256": "274ef2fb954c8877a69b71f8bc52389b8e891f3d2649d393132469ff2ef33b62",
+    "shadow_entry_review_packet_sha256": "665e9fdf0ef54101a70a8f20fba3e0229b3aced288df1a81ffe4bc2457a88ddf",
     "trigger_kind": "UPSTREAM_WORKFLOW_RUN"
   },
   "summary": {
     "actionable_proposal_count": 0,
     "entry_proposal_count": 0,
-    "human_review_material_count": 1,
-    "observation_only_count": 65,
-    "observed_candidate_count": 66,
+    "human_review_material_count": 2,
+    "observation_only_count": 73,
+    "observed_candidate_count": 75,
     "order_intent_count": 0
   }
 }
