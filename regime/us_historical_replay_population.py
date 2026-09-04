@@ -64,13 +64,25 @@ Point-in-time integrity is structural, not merely asserted:
 * Each requested date is resolved independently from its own anchor, so no
   other requested date's outcome can influence this one.
 
-Provenance is part of the observation, not decoration: every observed axis
-carries the sha256 of the exact Alpaca/FRED response it was measured from, and
-``validate_population`` requires that hash to be present exactly when the axis
-is ``OBSERVED``, absent exactly when it is not, and equal to the provenance
-inside that axis's own measurement.  An axis whose source hash was deleted or
-replaced is therefore rejected even when the measurement, the re-derived axis
-row, and every payload hash are otherwise intact.
+Provenance is part of the observation, not decoration — and it is described as
+what it is.  Every observed axis carries the sha256 of the Alpaca/FRED response
+it was measured from, and ``validate_population`` requires that hash to be
+present exactly when the axis is ``OBSERVED``, absent exactly when it is not,
+and *consistent with* the provenance inside that axis's own measurement.  An
+axis whose record-level hash was deleted, blanked, or swapped for another axis's
+is therefore rejected even when the measurement, the re-derived axis row, and
+every payload hash are otherwise intact.
+
+This is a consistency check between two copies of the same hash, not an
+external anchor, and the module does not claim more.  Both copies live in the
+same mutable payload, so replacing *both* with the same arbitrary valid SHA-256
+and recomputing the population digest is self-consistent and **is accepted**;
+the raw provider responses are not retained and neither Alpaca nor FRED signs
+them, so nothing in this evidence can distinguish that case.  The check is
+named and coded accordingly
+(``RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS``), and
+``test_us_historical_replay_population.py`` pins both the caught and the
+uncaught side so the guarantee cannot drift into an over-claim.
 
 Known, disclosed limitation: closes are unadjusted (``adjustment=raw``)
 because that is the convention the production collector already uses; a
@@ -136,7 +148,9 @@ EXCLUDED_AXES = ["BREADTH", "LEADERSHIP"]
 # The exact provenance a record must carry, one entry per replayed axis, and the
 # exact per-series shape the FRED liquidity capture emits. Required key for key
 # by ``validate_population``: a re-hashed payload that *deletes* a response hash
-# must fail rather than pass by having nothing left to check.
+# must fail rather than pass by having nothing left to check. Presence and
+# agreement is all this can establish — see
+# ``_validate_source_hash_consistency`` for the boundary.
 SOURCE_HASH_KEYS = (
     "liquidity_response_hashes",
     "risk_vol_response_sha256",
@@ -999,8 +1013,10 @@ def validate_population(value: dict) -> dict:
     Re-derived axis rows are still only half of an observation. They prove the
     stored direction follows from the stored measurement, but say nothing about
     *which provider response that measurement came from* — so each observed
-    axis's ``source_hashes`` entry is separately required and bound back to the
-    provenance inside that axis's own measurement.
+    axis's ``source_hashes`` entry is separately required and checked against the
+    provenance inside that axis's own measurement. Both copies are mutable
+    fields of this payload, so that check establishes consistency, not external
+    attribution; ``_validate_source_hash_consistency`` states the limit.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -1147,7 +1163,7 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
     _validate_candidate_is_derived_from_its_evidence(
         record, five_axis, candidate, policy, requested_date,
     )
-    _validate_source_hashes(record, axes, observed, requested_date)
+    _validate_source_hash_consistency(record, axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
 
 
@@ -1262,10 +1278,10 @@ def _expected_liquidity_hashes(measurement: dict, requested_date: str) -> dict:
     return hashes
 
 
-def _validate_source_hashes(
+def _validate_source_hash_consistency(
     record: dict, axes: dict, observed: list[str], requested_date: str,
 ) -> None:
-    """An observed axis must carry the provider response it was measured from.
+    """The record's source hashes must agree with its own measurements.
 
     Re-deriving each axis row proves the stored *direction* follows from the
     stored measurement, but says nothing about where that measurement came from:
@@ -1273,8 +1289,19 @@ def _validate_source_hashes(
     different response, and every other check above would still pass. Each
     per-axis hash is therefore required to be present exactly when that axis is
     ``OBSERVED``, absent exactly when it is not, syntactically a SHA-256, and
-    equal to the provenance carried inside that axis's own measurement — so
-    provenance can neither be removed nor swapped for another response's.
+    equal to the provenance carried inside that axis's own measurement — so a
+    record-level hash can neither be removed nor swapped for another axis's
+    while the measurement it claims to attribute stays put.
+
+    The name is deliberately ``consistency`` rather than ``provenance``: both
+    compared values are mutable fields of the same payload, so this cannot
+    establish that either one is the digest a provider actually served. An
+    adversary who edits *both* copies to the same arbitrary valid SHA-256 and
+    recomputes the population digest passes, and there is no retained raw
+    response or provider signature to catch it — obtaining such an anchor is a
+    data decision, not something this validator can synthesize. Both sides of
+    that boundary are pinned in
+    ``test_us_historical_replay_population.py`` so the claim stays accurate.
 
     A record with no observed axis has no provenance to carry, which is why the
     whole block may be ``null`` only in that case.
@@ -1306,7 +1333,7 @@ def _validate_source_hashes(
     if not isinstance(hashes, dict) or sorted(hashes) != sorted(SOURCE_HASH_KEYS):
         fail("RECORD_SOURCE_HASH_SCHEMA_INVALID", requested_date)
     if hashes != expected:
-        fail("RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS", requested_date)
+        fail("RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS", requested_date)
 
 
 def _validate_no_lookahead(record: dict, requested_date: str) -> None:

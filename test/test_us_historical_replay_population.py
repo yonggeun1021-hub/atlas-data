@@ -720,13 +720,13 @@ class UsFreeAxisValidationTest(unittest.TestCase):
              "RECORD_SOURCE_HASH_SCHEMA_INVALID"),
             (lambda record: record["source_hashes"].__setitem__(
                 "trend_response_sha256", None),
-             "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS"),
+             "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS"),
             (lambda record: record["source_hashes"].__setitem__(
                 "liquidity_response_hashes", None),
-             "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS"),
+             "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS"),
             (lambda record: record["source_hashes"]["liquidity_response_hashes"].pop(
                 "WRESBAL"),
-             "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS"),
+             "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS"),
         ):
             with self.subTest(code=code, mutate=mutate):
                 tampered = copy.deepcopy(build([ANCHOR]))
@@ -735,11 +735,47 @@ class UsFreeAxisValidationTest(unittest.TestCase):
                     MODULE.validate_population(self._resigned(tampered))
                 self.assertIn(code, str(caught.exception))
 
+    def test_source_hash_check_is_consistency_not_an_external_anchor(self):
+        # Two-sided on purpose, including the side that is NOT caught, so the
+        # module's claim and its behaviour cannot drift apart again.
+        #
+        # Side 1 — a one-sided re-point fails closed: the record-level hash no
+        # longer equals the one inside the measurement it claims to attribute.
+        one_sided = copy.deepcopy(build([ANCHOR]))
+        one_sided["records"][0]["source_hashes"]["trend_response_sha256"] = "a" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(one_sided))
+        self.assertIn(
+            "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS",
+            str(caught.exception),
+        )
+
+        # Side 2 — the documented limit. Both compared values are mutable fields
+        # of the same payload, so replacing BOTH copies with the same arbitrary
+        # valid SHA-256 and re-signing IS accepted: no raw Alpaca/FRED response
+        # is retained and neither provider signs one, so nothing here can tell
+        # the two apart. Asserting acceptance keeps the docstring honest — making
+        # this fail later requires a real external anchor, not a re-word.
+        both_sides = copy.deepcopy(build([ANCHOR]))
+        record = both_sides["records"][0]
+        forged = "b" * 64
+        record["five_axis"]["axes"]["TREND"]["measurement"]["response_sha256"] = forged
+        record["source_hashes"]["trend_response_sha256"] = forged
+        validated = MODULE.validate_population(self._resigned(both_sides))
+        self.assertEqual(
+            validated["records"][0]["source_hashes"]["trend_response_sha256"], forged,
+        )
+        # Acceptance means "the two copies agree", nothing more: the axis is
+        # still OBSERVED and the coverage is still the honest partial 3/5.
+        self.assertEqual(
+            validated["records"][0]["five_axis"]["axes"]["TREND"]["status"], "OBSERVED",
+        )
+
     def test_validate_population_rejects_re_pointed_source_hashes(self):
         # The mirror image of deletion: keep the provenance block's shape and
-        # change what it points at. Each per-axis hash is bound to the provenance
-        # inside that axis's own measurement, so a foreign or swapped response
-        # hash cannot be re-signed into place.
+        # change what it points at. Each per-axis hash is compared with the
+        # provenance inside that axis's own measurement, so a foreign or swapped
+        # response hash cannot be re-signed into place on its own.
         for mutate in (
             lambda record: record["source_hashes"].__setitem__(
                 "risk_vol_response_sha256", "0" * 64,
@@ -757,7 +793,7 @@ class UsFreeAxisValidationTest(unittest.TestCase):
                 with self.assertRaises(MODULE.ReplayPopulationError) as caught:
                     MODULE.validate_population(self._resigned(tampered))
                 self.assertIn(
-                    "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS",
+                    "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS",
                     str(caught.exception),
                 )
 
@@ -809,7 +845,7 @@ class UsFreeAxisValidationTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayPopulationError) as caught:
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn(
-            "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS",
+            "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS",
             str(caught.exception),
         )
 

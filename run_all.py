@@ -758,9 +758,18 @@ APPROVED_TESTS = [
     #   official KRX request lineage and packet digest, which are re-bound by
     #   reassembling the producer's own packet and re-running
     #   korea_market_signals.validate_packet over it against the pinned contract,
-    #   so deleting, editing, or re-pointing a source hash fails closed even
-    #   under a recomputed payload hash; only a BLOCKED record may carry null
-    #   provenance. No new threshold, scoring, or
+    #   so deleting a source hash, pointing a request at an unofficial endpoint,
+    #   or editing a hash without re-deriving every digest above it fails closed;
+    #   only a BLOCKED record may carry null provenance. The strength of that
+    #   binding is stated, not implied: payload_sha256 is unkeyed over the
+    #   record's own mutable fields, so a fully coordinated re-point (edit a
+    #   response hash, recompute the packet digest, recompute the population
+    #   digest) is internally consistent and is accepted. What is proven is
+    #   consistency plus pinned-contract conformance, not attribution to bytes
+    #   KRX served — no raw response or provider signature is retained to anchor
+    #   against, and obtaining one is a separate data decision. Both the caught
+    #   and the uncaught side are pinned by regression so the claim cannot
+    #   widen silently. No new threshold, scoring, or
     #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
@@ -797,9 +806,16 @@ APPROVED_TESTS = [
     #   false boundary. Provenance is enforced as part of the observation, not as
     #   decoration: each observed axis's Alpaca/FRED response hash must be present
     #   exactly when that axis is OBSERVED, absent exactly when it is not, valid
-    #   SHA-256, and equal to the provenance inside that axis's own measurement,
-    #   so deleting or re-pointing a source hash fails closed even under a
-    #   recomputed payload hash. natural_promotion, us_breadth, us_leadership and every
+    #   SHA-256, and consistent with the provenance inside that axis's own
+    #   measurement, so deleting, blanking, or swapping one record-level hash
+    #   fails closed even under a recomputed payload hash. This is named for what
+    #   it is — a consistency check between two mutable copies of the same hash
+    #   (RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS), not an
+    #   external anchor: replacing both copies with the same arbitrary valid
+    #   SHA-256 and re-signing is accepted, because the raw provider responses
+    #   are not retained and neither provider signs them. That uncaught side is
+    #   pinned by an adversarial regression alongside the caught side.
+    #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay

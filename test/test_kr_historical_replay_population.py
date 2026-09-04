@@ -513,7 +513,10 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
         # The mirror image of deletion: keep the provenance block's shape and
         # change what it points at. The stored packet digest is re-bound by
         # reassembling the producer's own packet, so an edited response hash,
-        # fetch timestamp, or packet digest cannot be re-signed into place.
+        # fetch timestamp, or packet digest fails once the population alone is
+        # re-signed. Re-signing the packet digest *as well* is a different case
+        # and is covered — as an accepted limit, not a rejection — by
+        # test_source_provenance_binding_is_consistency_not_an_external_anchor.
         for mutate, code in (
             (lambda record: record["source_hashes"].__setitem__(
                 "packet_payload_sha256", "0" * 64),
@@ -539,6 +542,66 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
                 with self.assertRaises(MODULE.ReplayPopulationError) as caught:
                     MODULE.validate_population(self._resigned(tampered))
                 self.assertIn(code, str(caught.exception))
+
+    @staticmethod
+    def _producer_packet_digest(record):
+        """The packet digest the producer would compute for this record as it stands.
+
+        Reassembles the packet exactly the way ``_validate_source_provenance``
+        does and hashes it the way ``korea_market_signals.build_packet`` does, so
+        this helper can only ever produce a digest the validator itself accepts —
+        which is precisely the point of the limit test below.
+        """
+        contract = KMS.load_contract()
+        packet = MODULE._reassemble_packet(
+            record,
+            record["five_axis"],
+            record["source_hashes"]["requests"],
+            "0" * 64,
+            contract,
+        )
+        packet.pop("payload_sha256", None)
+        return KMS.payload_sha256(packet)
+
+    def test_source_provenance_binding_is_consistency_not_an_external_anchor(self):
+        # Two-sided, deliberately including the side that is NOT caught, so the
+        # module's claim and its behaviour cannot drift apart again.
+        #
+        # Side 1 — an uncoordinated re-point fails closed: editing a request
+        # response hash leaves the stored packet digest signed over the old one.
+        one_sided = self._observed()
+        one_sided["records"][0]["source_hashes"]["requests"]["stock"]["KOSPI"][
+            "current_response_sha256"
+        ] = "a" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(one_sided))
+        self.assertIn("OBSERVED_RECORD_PACKET_LINEAGE_INVALID", str(caught.exception))
+
+        # Side 2 — the documented limit. Re-point the same hash, then recompute
+        # the packet digest and the population digest the way the producer would.
+        # Nothing in the retained evidence is an immutable anchor (no raw KRX
+        # response, no provider signature), so this IS accepted. Asserting it
+        # keeps the docstring honest: any future change that makes this fail must
+        # come with a real anchor and a rewritten claim, not a quiet re-word.
+        coordinated = self._observed()
+        record = coordinated["records"][0]
+        record["source_hashes"]["requests"]["stock"]["KOSPI"][
+            "current_response_sha256"
+        ] = "a" * 64
+        record["source_hashes"]["packet_payload_sha256"] = self._producer_packet_digest(record)
+        validated = MODULE.validate_population(self._resigned(coordinated))
+        self.assertEqual(
+            validated["records"][0]["source_hashes"]["requests"]["stock"]["KOSPI"][
+                "current_response_sha256"
+            ],
+            "a" * 64,
+        )
+        # The accepted record is still internally consistent and still bound to
+        # the pinned contract — that, and only that, is what acceptance means.
+        self.assertEqual(
+            validated["records"][0]["source"]["contract_version"],
+            KMS.load_contract()["contract_version"],
+        )
 
     def test_validate_population_rejects_a_blocked_record_that_carries_provenance(self):
         # Null provenance is the BLOCKED shape precisely because a BLOCKED record

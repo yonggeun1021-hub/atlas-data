@@ -44,14 +44,27 @@ unrecognized retained/response shape) is recorded as one ``BLOCKED`` entry —
 by an attributable code only, never by a leaked raw message — and never
 aborts the rest of the population.
 
-Provenance is part of the observation, not decoration: every ``OBSERVED``
-record carries the official KRX request hashes and the producer's signed packet
-digest, and ``validate_population`` re-binds them by reassembling that packet
-and handing it to ``korea_market_signals.validate_packet``.  A record whose
-source hashes were deleted or replaced is therefore rejected even when the
-five-axis packet, the normalization, and every payload hash are otherwise
-intact.  Only a ``BLOCKED`` record — which has no evidence — may carry null
-provenance.
+Provenance is part of the observation, not decoration — and the exact strength
+of that binding is stated rather than implied.  Every ``OBSERVED`` record
+carries the official KRX request lineage and the producer's packet digest, and
+``validate_population`` re-binds them by reassembling that packet and handing it
+to ``korea_market_signals.validate_packet``.  That rejects a record whose
+provenance was deleted, whose declared endpoint or source identity is not the
+pinned contract's, or whose hashes were edited without also re-deriving every
+digest above them.
+
+It is *not* proof of which bytes KRX actually returned.  ``payload_sha256`` is
+an unkeyed digest over the packet's own mutable fields, so a payload that edits
+a response hash and then recomputes the packet digest and the population digest
+is internally consistent and **is accepted** — that limit is pinned by an
+explicit regression rather than left to a reader's optimism.  Anchoring it
+would require retaining the raw KRX responses or a provider signature to
+compare against; this contract retains neither
+(``raw_persistence``/``per_symbol_persistence`` are contract facts, not stored
+bytes), and introducing one is a separate data decision.  What is proven here
+is therefore internal consistency plus conformance to the pinned contract, and
+that is what the field names and codes are meant to say.  Only a ``BLOCKED``
+record — which has no evidence — may carry null provenance.
 """
 
 from __future__ import annotations
@@ -354,8 +367,11 @@ def validate_population(value: dict) -> dict:
     Re-derived normalization is still only half of an observation. It proves the
     stored state follows from the stored measurement, but says nothing about
     *which official KRX responses that measurement came from* — so an OBSERVED
-    record's ``source_hashes`` is separately required, and bound back to the
-    producer's own signed packet rather than merely inspected.
+    record's ``source_hashes`` is separately required, and re-bound by rebuilding
+    the producer's own packet rather than merely inspected. That digest is
+    unkeyed and covers only fields this payload carries, so the result is
+    internal consistency plus pinned-contract conformance, not attribution to
+    bytes KRX served; ``_validate_source_provenance`` states the boundary.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -541,7 +557,7 @@ def _validate_candidate_is_derived_from_its_evidence(
 def _validate_source_provenance(
     record: dict, five_axis: dict, contract: dict, requested_date: str,
 ) -> None:
-    """An OBSERVED record must carry, and be bound to, its official KRX lineage.
+    """An OBSERVED record must carry a KRX lineage consistent with its evidence.
 
     ``five_axis`` and ``candidate_normalized_result`` describe *what* was
     measured; ``source_hashes`` is the only thing that says *which* official KRX
@@ -553,10 +569,22 @@ def _validate_source_provenance(
     The binding is therefore not a shape check. The producer's own packet is
     reassembled from exactly what this record and the pinned contract carry and
     handed to ``korea_market_signals.validate_packet``, so the stored
-    ``packet_payload_sha256`` is only accepted when it is the digest the
-    unmodified producer would have signed over these axes, these session dates,
-    and these request hashes. Removing a response hash, editing one, or moving an
-    axis all break that signature.
+    ``packet_payload_sha256`` is only accepted when it is the digest that
+    producer computes over these axes, these session dates, and these request
+    hashes, against the pinned contract's endpoints, identity, and authority.
+    Removing a response hash, editing one, or moving an axis without re-deriving
+    every digest above it all fail here.
+
+    What this cannot prove, stated plainly so the code and the claim agree:
+    ``payload_sha256`` is unkeyed and is computed over the same mutable fields
+    being checked, so a *coordinated* edit — change a response hash, recompute
+    ``packet_payload_sha256``, recompute the population digest — satisfies every
+    check in this function and is accepted. This is consistency and contract
+    conformance, not attribution to bytes KRX served; the retained evidence
+    contains no immutable anchor (raw responses, or a KRX signature over them)
+    that could distinguish the two, and adding one is a data decision outside
+    this replay module. ``test_kr_historical_replay_population.py`` pins both
+    sides of that boundary so it cannot silently widen into an over-claim.
     """
     hashes = record.get("source_hashes")
     if not isinstance(hashes, dict) or sorted(hashes) != sorted(SOURCE_HASH_KEYS):
