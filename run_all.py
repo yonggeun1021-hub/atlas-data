@@ -778,6 +778,34 @@ APPROVED_TESTS = [
     #   only. natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
+    # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
+    #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
+    #   5-axis and US free-axis replay populations over ONE caller-supplied set
+    #   of dates: both market modules are imported and called unmodified, and
+    #   each embedded population is re-checked by its OWN validator before it is
+    #   joined, so no sub-population its owning contract would reject can be
+    #   published. Normalization is exactly what those populations already carry
+    #   (regime/paper_regime_reference.py::build_kr,build_us) — nothing is
+    #   re-normalized, re-scored, or re-classified here. No episode is selected:
+    #   dates come only from --date/--episode/--episode-file, an episode name is
+    #   an opaque caller label attached AFTER its dates were replayed, and a
+    #   labelled run is proven byte-identical to an unlabelled one. No
+    #   cross-market regime is invented: there is no ratified rule combining a
+    #   KR candidate regime with a US one, so cross_market_regime stays UNKNOWN
+    #   with NOT_COMPUTABLE_NO_RATIFIED_CROSS_MARKET_RULE and no combined
+    #   score/confidence is produced. US BREADTH/LEADERSHIP stay UNKNOWN and the
+    #   US view is never classified. PIT is re-checked at the join: each market
+    #   record's own consumed source dates (KRX YYYYMMDD and ISO alike) are
+    #   compared to its requested date, and a market that consumed a later one
+    #   is failed closed for that one date only. One blocked market, one blocked
+    #   date, an unavailable market population, or an unrecognized record status
+    #   never contaminates the rest; credentials are redacted out of every
+    #   recorded reason and the account/trading Alpaca credential is never read.
+    #   Output is never written inside this checkout — external --out or a
+    #   private temp file only. natural_promotion, episode_selection,
+    #   cross_market_regime, threshold_tuning, us_breadth, us_leadership and
+    #   every action/order/capital/production/trading/real authority stay false.
+    "test/test_combined_shadow_historical_replay.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
