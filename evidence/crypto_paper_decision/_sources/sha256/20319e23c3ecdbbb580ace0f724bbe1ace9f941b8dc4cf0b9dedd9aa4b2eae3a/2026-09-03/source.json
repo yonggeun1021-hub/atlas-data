@@ -1,0 +1,200 @@
+{
+  "as_of_date": "2026-09-03",
+  "contract_version": "crypto_leadership_contract/v2",
+  "current_candle": {
+    "excluded_for_every_member_and_point": true,
+    "reason": "source_documents_not_yet_committed_timeframe"
+  },
+  "leader_classification_authorized": false,
+  "lineage": {
+    "current_catalog_backfill_authorized": false,
+    "manifest_sha256_by_date": [],
+    "pit_status": "independent_as_captured_daily_snapshots",
+    "source_transform_version": "crypto_breadth_observation/v2"
+  },
+  "market": "CRYPTO",
+  "measurement": "raw_relative_strength_observation",
+  "policies": {
+    "leadership": {
+      "approval_status": "RATIFIED",
+      "group_coverage_policy_status": "UNRATIFIED",
+      "group_return_method": "equal_weight_daily_rebalanced",
+      "policy_sha256": "d37a7362440fd6d8dc595e13f19d864fff9db0839a7e3304aeadb6178f24338f",
+      "policy_version": "crypto_leadership/v1"
+    },
+    "taxonomy": {
+      "approval_status": "UNRATIFIED",
+      "effective_dated": true,
+      "policy_sha256": "1954f139623c01b84b8524d3f9955c536fe243dbcc1e5a78b12feaa499a799b9",
+      "policy_version": "crypto_asset_taxonomy/draft-v1"
+    },
+    "universe": {
+      "approval_status": "RATIFIED",
+      "policy_sha256": "b9189e59ae697b1c5cb2cefa68a96601b2fefe38b365b8fbc7328e196c894aa7",
+      "policy_version": "crypto_breadth_universe/v1",
+      "universe_kind": "breadth_source_coverage_not_investable"
+    }
+  },
+  "production_wiring_authorized": false,
+  "ranking_authorized": false,
+  "regime_score_authorized": false,
+  "schema_version": 2,
+  "status": "UNKNOWN",
+  "threshold_authorized": false,
+  "trading_action_authorized": false,
+  "unknown_reason": "NO_WINDOW_OBSERVED",
+  "windows": [
+    {
+      "asset_relative_strength": [],
+      "blockers": [
+        {
+          "code": "SOURCE_POINT_UNKNOWN",
+          "dates": [
+            "2026-08-28",
+            "2026-08-31",
+            "2026-09-01",
+            "2026-09-02",
+            "2026-09-03"
+          ]
+        }
+      ],
+      "daily_points": [],
+      "group_relative_strength": {
+        "bucket": [],
+        "sector_chain": {
+          "chain": [],
+          "sector": [],
+          "status": "UNKNOWN",
+          "unknown_reason": "WINDOW_UNKNOWN"
+        }
+      },
+      "lineage": {
+        "current_catalog_backfill_authorized": false,
+        "manifest_sha256_by_date": [],
+        "pit_status": "window_not_observed"
+      },
+      "partial_window_assets": [],
+      "role": "PILOT",
+      "source_unknown_points": [
+        {
+          "as_of_date": "2026-08-28",
+          "manifest_sha256": "fe52b279660b943a4f8e1e461954e235ab32b853af5c503ec40f370a1ff98fe5",
+          "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN"
+        },
+        {
+          "as_of_date": "2026-08-31",
+          "manifest_sha256": "2e0771d6019a97a4ce59f3b9240fd3377276d1dc5513e5bd637612b59a729807",
+          "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN"
+        },
+        {
+          "as_of_date": "2026-09-01",
+          "manifest_sha256": "2dd8e00fdab62a514383b983b1b20083414cdce6a41bf5428451d723f6aada15",
+          "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN"
+        },
+        {
+          "as_of_date": "2026-09-02",
+          "manifest_sha256": "2c6167cb5ea96698bfcb3086823b51f6347326ea50b1be3971403feaa3a0fc91",
+          "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN"
+        },
+        {
+          "as_of_date": "2026-09-03",
+          "manifest_sha256": "58cc8b4f6b9bead1d1229a7861cecbaf4d205a64998a8915e21fe0f2d2d786bb",
+          "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN"
+        }
+      ],
+      "status": "UNKNOWN",
+      "unknown_reason": "SOURCE_POINT_UNKNOWN",
+      "window": {
+        "available_point_count": 7,
+        "end_date": "2026-09-03",
+        "exact_contiguous_calendar_days": true,
+        "lookback_calendar_days": 7,
+        "missing_dates": [],
+        "required_point_count": 7,
+        "role": "PILOT",
+        "start_date": "2026-08-28",
+        "window_id": "pilot_7d"
+      },
+      "window_id": "pilot_7d"
+    },
+    {
+      "asset_relative_strength": [],
+      "blockers": [
+        {
+          "code": "INSUFFICIENT_CONTIGUOUS_HISTORY",
+          "missing_dates": [
+            "2026-08-05",
+            "2026-08-06",
+            "2026-08-07",
+            "2026-08-08",
+            "2026-08-09",
+            "2026-08-10",
+            "2026-08-11",
+            "2026-08-12",
+            "2026-08-13",
+            "2026-08-14",
+            "2026-08-15",
+            "2026-08-16",
+            "2026-08-17",
+            "2026-08-18"
+          ]
+        },
+        {
+          "code": "LEADERSHIP_POLICY_NOT_EFFECTIVE_FOR_FULL_WINDOW",
+          "effective_from": "2026-08-19"
+        },
+        {
+          "code": "SOURCE_UNIVERSE_POLICY_NOT_EFFECTIVE_FOR_FULL_WINDOW",
+          "effective_from": "2026-08-19"
+        }
+      ],
+      "daily_points": [],
+      "group_relative_strength": {
+        "bucket": [],
+        "sector_chain": {
+          "chain": [],
+          "sector": [],
+          "status": "UNKNOWN",
+          "unknown_reason": "WINDOW_UNKNOWN"
+        }
+      },
+      "lineage": {
+        "current_catalog_backfill_authorized": false,
+        "manifest_sha256_by_date": [],
+        "pit_status": "window_not_observed"
+      },
+      "partial_window_assets": [],
+      "role": "PRIMARY",
+      "source_unknown_points": [],
+      "status": "UNKNOWN",
+      "unknown_reason": "INSUFFICIENT_CONTIGUOUS_HISTORY",
+      "window": {
+        "available_point_count": 16,
+        "end_date": "2026-09-03",
+        "exact_contiguous_calendar_days": false,
+        "lookback_calendar_days": 30,
+        "missing_dates": [
+          "2026-08-05",
+          "2026-08-06",
+          "2026-08-07",
+          "2026-08-08",
+          "2026-08-09",
+          "2026-08-10",
+          "2026-08-11",
+          "2026-08-12",
+          "2026-08-13",
+          "2026-08-14",
+          "2026-08-15",
+          "2026-08-16",
+          "2026-08-17",
+          "2026-08-18"
+        ],
+        "required_point_count": 30,
+        "role": "PRIMARY",
+        "start_date": "2026-08-05",
+        "window_id": "primary_30d"
+      },
+      "window_id": "primary_30d"
+    }
+  ]
+}

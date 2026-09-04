@@ -343,10 +343,17 @@ class DartEventObservationTests(unittest.TestCase):
             content_path = root / "latest_dart_content.json"
             source_path.write_bytes(MODULE.DEFAULT_DART.read_bytes())
             content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
-            failed = next(
-                row for row in content["records"]
-                if row["filing_identity"]["stock_code"] == "329180"
-            )
+            # Pick whichever filing is first in the live rolling snapshot rather
+            # than a hardcoded stock_code: the daily DART collect.yml cron
+            # continuously rolls data/latest_dart_content.json forward, so any
+            # ticker literal captured at authoring time eventually ages out of
+            # the current window (see e.g. commit 430d82c7, authored against a
+            # snapshot that has since rolled past its "329180" filing). Which
+            # filing gets the injected content-capture failure is immaterial to
+            # this test: it only asserts that exactly one filing is marked
+            # CONTENT_CAPTURE_FAILED and every other filing is unaffected.
+            self.assertTrue(content["records"], "DEFAULT_CONTENT has no records to fail")
+            failed = content["records"][0]
             failed["operation"] = "failed"
             failed["publication_status"] = "FAILED"
             failed["reasons"] = ["PERSIST_OR_CACHE_FAILED:ConnectionError:injected"]
