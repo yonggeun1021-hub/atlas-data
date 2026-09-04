@@ -751,6 +751,33 @@ APPROVED_TESTS = [
     #   policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
+    # ★ P1-COM-05 CIO mandate 2026-09-04 — US free-source historical replay
+    #   population (SHADOW backfill only, never NATURAL). Scope is exactly the
+    #   three axes that free/existing sources can rebuild point-in-time:
+    #   TREND (Alpaca IEX daily bars), RISK_VOL (FRED VIXCLS), and LIQUIDITY
+    #   (FRED WRESBAL/TOTBKCR). US BREADTH and US LEADERSHIP are NOT populated:
+    #   their only source is alpaca.current_proxy_axes, ratified
+    #   CURRENT_REFERENCE_ONLY with us_breadth_authorized=false, so both stay
+    #   UNKNOWN with the contract-read exclusion basis pinned in every record,
+    #   and the validator rejects any output carrying a value for them. Because
+    #   coverage is therefore 3/5, the candidate result is honestly
+    #   NOT_COMPUTABLE and candidate/runtime regime stay UNKNOWN — no US regime
+    #   is manufactured from a partial axis set. Bar retrieval, OHLC checks,
+    #   session-return math, and FRED unit normalization reuse
+    #   collectors/free_market_data.py unmodified, and the three axis rows are
+    #   pinned byte-for-byte to the live
+    #   regime/paper_regime_reference.py::build_us across every threshold
+    #   boundary, so no threshold is forked, tuned, or re-ratified. PIT is
+    #   structural: the Alpaca request end and both FRED observation_end and
+    #   ALFRED realtime vintage are pinned to the requested date, and any
+    #   source date after it fails closed. Dates come only from --date (no
+    #   episode auto-selection); one axis or one date failing never affects
+    #   another; credentials are redacted out of every recorded reason; the
+    #   account/trading Alpaca credential is never read. Output is never
+    #   written inside this checkout — external --out or a private temp file
+    #   only. natural_promotion, us_breadth, us_leadership and every
+    #   action/order/capital/production/trading/real authority stay false.
+    "test/test_us_historical_replay_population.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
