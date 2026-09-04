@@ -733,6 +733,24 @@ APPROVED_TESTS = [
     #   ratification is introduced; sensor/registry/TTL/PIT/runtime/strategy/
     #   order/capital/production/trading authority all stay false.
     "test/test_normalization_replay_readiness.py",
+    # ★ P1-COM-05 CIO mandate 2026-09-04 — KR 5-axis historical replay
+    #   population (SHADOW backfill only, never NATURAL). For caller-supplied
+    #   historical dates only (no bull/bear/sideways/stress auto-selection),
+    #   reuses .github/scripts/korea_market_signals.py
+    #   (discover_session_pair/build_packet) and
+    #   regime/paper_regime_reference.py::build_kr unmodified to reconstruct
+    #   the same 5-axis KRX observation and its candidate normalized result.
+    #   Every record carries evidence_class =
+    #   HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY; each date is resolved and
+    #   replayed independently and only ever backward from its own requested
+    #   date (no-lookahead is structural, not asserted); a malformed date,
+    #   missing source, or single unresolvable axis fails that one date
+    #   closed without affecting any other requested date. Output is never
+    #   written inside this checkout — external --out or a private temp file
+    #   only, enforced fail-closed. No new threshold, scoring, or Regime
+    #   policy is introduced; natural_promotion and every
+    #   action/order/capital/production/trading/real authority stay false.
+    "test/test_kr_historical_replay_population.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
