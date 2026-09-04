@@ -642,6 +642,78 @@ class UsFreeAxisValidationTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayPopulationError):
             MODULE.validate_population(tampered)
 
+    def test_validate_population_rejects_a_forged_candidate_axis_row(self):
+        # Adversarial, and exactly the gap the UNKNOWN guarantees leave open:
+        # the candidate regime, runtime regime, and classification status all
+        # stay honest while the axis row underneath them is forged. Every hash
+        # is recomputed, so only re-deriving the row from the measurement the
+        # record itself stores can refuse it — and those rows are what every
+        # downstream transition and stress fact is built from.
+        for index, field, value in (
+            (0, "direction", "FORGED_DIRECTION"),
+            (0, "observed_value", {"positive": 3, "total": 3}),
+            (1, "score", 1),
+            (1, "summary_ko", "VIX는 조용합니다."),
+            (2, "direction", "POSITIVE"),
+        ):
+            with self.subTest(index=index, field=field):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                rows = tampered["records"][0]["candidate_normalized_result"]["axes"]
+                if rows[index][field] == value:
+                    self.skipTest("fixture already carries this value")
+                rows[index][field] = value
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_a_tampered_axis_measurement(self):
+        # The mirror image: keep the derived row and move the measurement it was
+        # derived from. Either side moving alone must fail closed.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["five_axis"]["axes"]["RISK_VOL"]["measurement"][
+            "value"
+        ] = "99.0"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", str(caught.exception),
+        )
+
+    def test_validate_population_rejects_a_forged_effective_session_date(self):
+        # The effective session date is otherwise a free-standing claim, and a
+        # backdated one passes the lookahead check while mislabelling which
+        # session every axis row came from.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["effective_session_date"] = "2026-08-20"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "EFFECTIVE_SESSION_DATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+            str(caught.exception),
+        )
+
+    def test_validate_population_rejects_an_observed_axis_without_its_measurement(self):
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"] = None
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "OBSERVED_AXIS_EVIDENCE_NOT_NORMALIZABLE", str(caught.exception),
+        )
+
+    def test_validate_population_requires_the_candidate_policy_it_pinned(self):
+        # Re-derivation is only meaningful against the same policy the
+        # population was built with, so a mismatched pin fails closed with its
+        # own code instead of surfacing as a normalization mismatch.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["candidate_policy"]["sha256"] = "0" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("CANDIDATE_POLICY_SHA_MISMATCH", str(caught.exception))
+
     def test_partial_coverage_that_would_classify_fails_closed(self):
         policy = MODULE._load_candidate_policy()
         rows = [

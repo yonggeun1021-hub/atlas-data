@@ -446,6 +446,14 @@ class CombinedJoinContainmentTest(unittest.TestCase):
             "MARKET_RECORD_MISSING_FROM_POPULATION",
         )
         self.assertEqual(record_for(population, ANCHOR)["markets"]["KR"]["outcome"], "OBSERVED")
+        # Containment and certification are different jobs. A market module that
+        # returns fewer records than it was asked for is violating its own
+        # contract, so the report still says honestly what each date showed, but
+        # the population is not certifiable: the embedded evidence does not
+        # cover the replay it is attached to.
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(copy.deepcopy(population))
+        self.assertIn("EMBEDDED_POPULATION_DATE_SET_MISMATCH", str(caught.exception))
 
     def test_an_unrecognized_market_record_status_fails_that_view_closed(self):
         view = MODULE.market_view(
@@ -734,6 +742,112 @@ class CombinedValidationTest(unittest.TestCase):
         with self.assertRaises(MODULE.CombinedReplayError) as caught:
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn("MARKET_POPULATION_STATUS_INCONSISTENT", str(caught.exception))
+
+    def _repinned(self, population, market, module):
+        """Re-sign a tampered embedded population and re-pin its identity.
+
+        Adversarial helper: a forger controls every hash in the file, so a test
+        that left a stale embedded sha would only prove the hash check works.
+        Re-signing forces the *content* guarantees to do the rejecting.
+        """
+        embedded = population["market_populations"][market]
+        embedded["payload_sha256"] = module.payload_sha256(
+            {k: v for k, v in embedded.items() if k != "payload_sha256"}
+        )
+        population["market_population_status"][market]["payload_sha256"] = embedded[
+            "payload_sha256"
+        ]
+        return self._resigned(population)
+
+    def test_validate_population_rejects_a_forged_embedded_kr_normalization(self):
+        # The KR record keeps its genuine five-axis evidence; only the state it
+        # supposedly supports is changed. Every hash is recomputed, so this can
+        # only be caught by re-deriving the normalization from that evidence.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        record = tampered["market_populations"]["KR"]["records"][0]
+        record["candidate_normalized_result"]["paper_reference"][
+            "candidate_regime"
+        ] = "FORGED_STATE"
+        record["candidate_normalized_result"]["axes"][0]["direction"] = "FORGED_DIRECTION"
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._repinned(tampered, "KR", MODULE.KRP))
+        self.assertIn("EMBEDDED_POPULATION_INVALID:KR", str(caught.exception))
+        self.assertIn(
+            "OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+            str(caught.exception),
+        )
+
+    def test_validate_population_rejects_a_forged_embedded_us_axis_direction(self):
+        # The US candidate regime stays UNKNOWN, so the never-classify rules are
+        # all satisfied — only the axis direction underneath it is forged, and
+        # that is what every downstream transition and stress fact is built from.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        record = tampered["market_populations"]["US"]["records"][0]
+        rows = record["candidate_normalized_result"]["axes"]
+        self.assertTrue(rows)
+        rows[0]["direction"] = "FORGED_DIRECTION"
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._repinned(tampered, "US", MODULE.USP))
+        self.assertIn("EMBEDDED_POPULATION_INVALID:US", str(caught.exception))
+        self.assertIn(
+            "RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", str(caught.exception),
+        )
+
+    def test_validate_population_rejects_an_embedded_population_for_another_date(self):
+        # An internally valid market population is still not *this* population's
+        # evidence: one date's genuine KR replay must not be able to stand in
+        # for another date's.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        with mock.patch.object(
+            MODULE.KRP.KMS, "_now_utc", return_value=KR_FIXTURE.FIXED_NOW,
+        ):
+            other = MODULE.KRP.build_population(
+                KR_FIXTURE.TOKEN,
+                [PREVIOUS],
+                opener=KR_FIXTURE.opener_for(KR_FIXTURE.base_fixtures()),
+            )
+        MODULE.KRP.validate_population(copy.deepcopy(other))
+        tampered["market_populations"]["KR"] = other
+        tampered["market_population_status"]["KR"]["payload_sha256"] = other[
+            "payload_sha256"
+        ]
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("EMBEDDED_POPULATION_DATE_SET_MISMATCH", str(caught.exception))
+
+    def test_validate_population_rejects_a_market_view_its_record_does_not_support(self):
+        for mutate in (
+            lambda record: record["markets"]["KR"].__setitem__(
+                "effective_date", "2026-08-20",
+            ),
+            lambda record: record["markets"]["KR"].__setitem__("axis_coverage", None),
+            lambda record: record["markets"]["KR"].__setitem__(
+                "source_dates_consulted", [],
+            ),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "RECORD_NOT_DERIVED_FROM_ITS_EMBEDDED_MARKET_RECORDS",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_a_forged_per_market_candidate_regime(self):
+        # Forging the view *and* the combined view together defeats every
+        # self-consistency check; only the embedded record can refuse it.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["markets"]["KR"]["candidate_regime"] = "FORGED_STATE"
+        tampered["records"][0]["combined_normalized_result"][
+            "per_market_candidate_regime"
+        ]["KR"] = "FORGED_STATE"
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "RECORD_NOT_DERIVED_FROM_ITS_EMBEDDED_MARKET_RECORDS", str(caught.exception),
+        )
 
 
 class CombinedOutputBoundaryTest(unittest.TestCase):

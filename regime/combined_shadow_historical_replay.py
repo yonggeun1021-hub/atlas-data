@@ -17,7 +17,12 @@ This module invents nothing new:
   market modules.  Nothing here re-normalizes, re-scores, or re-classifies.
 * Each embedded market population is re-checked by that market's *own*
   validator before it is joined, so this report can never publish a
-  sub-population its owning contract would reject.
+  sub-population its owning contract would reject.  ``validate_population``
+  additionally re-derives every per-market view from the embedded record it
+  claims to project, and requires each embedded population to replay exactly
+  this population's requested dates — a market view is otherwise only ever
+  compared with itself, and a coherent set of forged views, or a genuine
+  market population for a *different* date, would pass every other check.
 
 What this module deliberately refuses to do:
 
@@ -670,6 +675,13 @@ def validate_population(value: dict) -> dict:
     requested date therefore maps to exactly one record, every published count
     is recomputed from those records, and the authority block must match
     ``AUTHORITY`` key for key.
+
+    Consistency with itself is still not enough. Each record is additionally
+    re-derived from the embedded market records it claims to join, and each
+    embedded population must replay exactly this population's requested dates —
+    otherwise a coherent set of forged market views, or a genuine market
+    population for a different date, would satisfy every self-consistency check
+    above.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -693,9 +705,12 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
+    # Embedded populations are checked first because every record below is
+    # re-derived from them: a record can only be verified against the market
+    # evidence it actually came from once that evidence is known to be valid.
+    _validate_embedded_populations(value, requested)
     records = _validate_records(value, requested)
     _validate_episodes(value, requested, records)
-    _validate_embedded_populations(value)
     _validate_summary(value, requested, records)
     _validate_authority(value)
     return copy.deepcopy(value)
@@ -708,6 +723,11 @@ def _validate_records(value: dict, requested: list[str]) -> list[dict]:
     requested date, so list equality is the whole bijection. Checking only the
     records that happen to be present would let a re-hashed payload drop every
     record and still satisfy each per-record guarantee vacuously.
+
+    Each record is then re-derived in full from the embedded market records it
+    claims to join. The per-market view is this report's only statement about
+    what a market showed, and it is a *projection* of an embedded record — so
+    comparing it with anything other than that record leaves it forgeable.
     """
     records = value.get("records")
     if not isinstance(records, list) or len(records) != len(requested):
@@ -718,9 +738,84 @@ def _validate_records(value: dict, requested: list[str]) -> list[dict]:
     ]
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
+    indexed = _embedded_market_records(value)
+    episode_names = _episode_names_by_date(value, requested)
     for record in records:
-        _validate_record(record, requested)
+        date = record["requested_date"]
+        views = {
+            market: _expected_market_view(value, indexed, market, date)
+            for market in MARKETS
+        }
+        _validate_record(
+            record, requested, combined_record(date, views, episode_names[date]),
+        )
     return records
+
+
+def _embedded_market_records(value: dict) -> dict:
+    """``{market: {requested_date: record} | None}`` from the embedded populations.
+
+    ``None`` marks a market whose population was unavailable for the whole run,
+    which is exactly the case ``build_population`` treats as "this market
+    produced nothing on every date".
+    """
+    populations = value["market_populations"]
+    return {
+        market: (
+            {record["requested_date"]: record for record in populations[market]["records"]}
+            if populations[market] is not None
+            else None
+        )
+        for market in MARKETS
+    }
+
+
+def _expected_market_view(
+    value: dict, indexed: dict, market: str, requested_date: str,
+) -> dict:
+    """Rebuild one market's join view from the embedded record it must come from.
+
+    This mirrors ``build_population``'s own three cases exactly: an unavailable
+    market population, an available population with no record for this date, and
+    the ordinary projection of that date's own market record. The middle case is
+    build-time containment of a market module that broke its own record
+    bijection; ``_validate_embedded_populations`` separately refuses to certify
+    such a population, so it is reproduced here only so the mismatch is reported
+    by the date-set check rather than as an unexplained record difference.
+    """
+    if indexed[market] is None:
+        return _unavailable_view(
+            market, value["market_population_status"][market]["unavailable_reason"],
+        )
+    record = indexed[market].get(requested_date)
+    if record is None:
+        return _unavailable_view(market, MARKET_RECORD_MISSING)
+    return market_view(market, record, requested_date)
+
+
+def _episode_names_by_date(value: dict, requested: list[str]) -> dict:
+    """Which caller labels name each requested date — shape only, checked later.
+
+    Only what full-record re-derivation needs is resolved here; the deeper
+    episode guarantees (semantics, ordering, reproduced coverage) stay in
+    ``_validate_episodes``, which runs once the records exist to check them
+    against.
+    """
+    names: dict[str, list[str]] = {date: [] for date in requested}
+    episodes = value.get("episodes")
+    if not isinstance(episodes, list):
+        fail("EPISODE_LIST_INVALID")
+    for episode in episodes:
+        if not isinstance(episode, dict) or not isinstance(episode.get("dates"), list):
+            fail("EPISODE_LIST_INVALID", "episode")
+        name = episode.get("name")
+        if not isinstance(name, str):
+            fail("EPISODE_NAME_INVALID", str(name))
+        for date in episode["dates"]:
+            if date not in names:
+                fail("EPISODE_DATE_NOT_REQUESTED", name)
+            names[date].append(name)
+    return names
 
 
 def _validate_summary(value: dict, requested: list[str], records: list[dict]) -> None:
@@ -805,7 +900,7 @@ def _validate_episodes(value: dict, requested: list[str], records: list[dict]) -
         fail("EPISODE_NAME_DUPLICATE")
 
 
-def _validate_record(record: dict, requested: list[str]) -> None:
+def _validate_record(record: dict, requested: list[str], expected: dict) -> None:
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
     if record.get("requested_date") not in requested:
@@ -866,9 +961,17 @@ def _validate_record(record: dict, requested: list[str]) -> None:
     per_market = combined.get("per_market_candidate_regime")
     if per_market != {market: views[market].get("candidate_regime") for market in MARKETS}:
         fail("RECORD_PER_MARKET_REGIME_INCONSISTENT")
+    # The load-bearing binding: every check above compares the record with its
+    # own mutable view, so all of them pass on a re-hashed payload whose views
+    # were forged together. This last one compares the whole record with the one
+    # rebuilt from the embedded market records it claims to join, so a market
+    # view — its outcome, coverage, candidate regime, consulted source dates, or
+    # containment claim — cannot say anything the underlying record does not.
+    if record != expected:
+        fail("RECORD_NOT_DERIVED_FROM_ITS_EMBEDDED_MARKET_RECORDS", record["requested_date"])
 
 
-def _validate_embedded_populations(value: dict) -> None:
+def _validate_embedded_populations(value: dict, requested: list[str]) -> None:
     populations = value.get("market_populations")
     if not isinstance(populations, dict) or sorted(populations) != sorted(MARKETS):
         fail("POPULATION_SCOPE_INVALID", "market_populations")
@@ -903,6 +1006,13 @@ def _validate_embedded_populations(value: dict) -> None:
             or status["unavailable_reason"] is not None
         ):
             fail("MARKET_POPULATION_STATUS_INCONSISTENT", market)
+        # A market population is internally valid over *its own* requested
+        # dates, so validity alone does not make it the source of these
+        # records. An embedded population replaying a different date set could
+        # otherwise supply one date's genuine market evidence to a combined
+        # record claiming another date.
+        if embedded.get("requested_dates") != requested:
+            fail("EMBEDDED_POPULATION_DATE_SET_MISMATCH", market)
 
 
 # ---------------------------------------------------------------------------

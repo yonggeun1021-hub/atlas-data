@@ -388,6 +388,87 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn("OBSERVED_RECORD_MUST_CARRY_ITS_EVIDENCE", str(caught.exception))
 
+    def test_validate_population_rejects_a_forged_candidate_normalization(self):
+        # Adversarial, and exactly the gap a presence-only check leaves open:
+        # the five-axis evidence stays genuine and every hash is recomputed, so
+        # only re-deriving the normalization from that evidence can refuse it.
+        for mutate in (
+            lambda record: record["candidate_normalized_result"][
+                "paper_reference"
+            ].__setitem__("candidate_regime", "FORGED_STATE"),
+            lambda record: record["candidate_normalized_result"]["axes"][0].__setitem__(
+                "direction", "FORGED_DIRECTION",
+            ),
+            lambda record: record["candidate_normalized_result"][
+                "paper_reference"
+            ].__setitem__("score", 5),
+            lambda record: record["candidate_normalized_result"][
+                "paper_reference"
+            ].__setitem__("confidence", "0.25"),
+            lambda record: record["candidate_normalized_result"].__setitem__(
+                "runtime_regime", "RISK_ON",
+            ),
+            lambda record: record["candidate_normalized_result"].__setitem__(
+                "as_of_date", "2026-08-27",
+            ),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(
+                    build_with_fixed_clock(
+                        TOKEN, ["2026-08-28"], opener_for(base_fixtures()),
+                    )
+                )
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_tampered_five_axis_evidence(self):
+        # The mirror image: keep the normalization and move the measurement it
+        # was derived from. Either side moving alone must fail closed.
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+            "combined"
+        ]["trading_value_change_pct"] = "99.0"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+            str(caught.exception),
+        )
+
+    def test_validate_population_rejects_an_unnormalizable_axis_packet(self):
+        # A packet the existing rule cannot consume is reported as such rather
+        # than accepted because its normalization field happens to be present.
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["five_axis"]["axes"]["LEADERSHIP"]["measurement"][
+            "observations"
+        ] = []
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "OBSERVED_RECORD_EVIDENCE_NOT_NORMALIZABLE", str(caught.exception),
+        )
+
+    def test_validate_population_requires_the_candidate_policy_it_pinned(self):
+        # Re-derivation is only meaningful against the same policy the
+        # population was built with, so a mismatched pin fails closed with its
+        # own code instead of surfacing as a normalization mismatch.
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["candidate_policy"]["sha256"] = "0" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("CANDIDATE_POLICY_SHA_MISMATCH", str(caught.exception))
+
     def test_validate_population_rejects_a_record_that_looked_forward(self):
         tampered = copy.deepcopy(
             build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))

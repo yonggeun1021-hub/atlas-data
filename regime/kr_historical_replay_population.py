@@ -90,6 +90,7 @@ KMS = _load_module(
 SCHEMA_VERSION = "regime_kr_historical_replay_population/v1"
 MODE = "SHADOW_HISTORICAL_REPLAY_NOT_NATURAL"
 EVIDENCE_CLASS = "HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY"
+CANDIDATE_POLICY_PATH = "config/paper_regime_reference_policy_v1.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 DATE8 = re.compile(r"^\d{8}$")
 
@@ -292,7 +293,7 @@ def build_population(
             "contract_version": contract["contract_version"],
         },
         "candidate_policy": {
-            "path": "config/paper_regime_reference_policy_v1.json",
+            "path": CANDIDATE_POLICY_PATH,
             "sha256": file_sha256(PRR.POLICY_PATH),
             "status": policy.get("status"),
         },
@@ -305,13 +306,17 @@ def build_population(
 
 
 def validate_population(value: dict) -> dict:
-    """Integrity/shape check only — deliberately never re-derives from KRX.
+    """Integrity check — never re-fetches KRX, always re-derives normalization.
 
-    Re-derivation would require re-issuing live KRX requests for every
-    replayed date. Per the CIO mandate, an actual KRX network probe must
-    stay separate from implementation verification and must never become a
-    CI prerequisite, so ``--verify`` here checks the hash and the
-    SHADOW/never-NATURAL shape only.
+    Re-fetching would require re-issuing live KRX requests for every replayed
+    date. Per the CIO mandate, an actual KRX network probe must stay separate
+    from implementation verification and must never become a CI prerequisite,
+    so ``--verify`` never touches the network. What it *can* do offline, and
+    now does, is re-run the unmodified candidate rule over the five-axis
+    evidence each record already carries: a stored ``candidate_regime`` or axis
+    direction that the stored evidence does not actually produce is a forgery,
+    not an observation, and checking the field only for presence would accept
+    it under a freshly recomputed payload hash.
 
     "Shape" is deliberately exact rather than "whatever happens to be present":
     a re-hashed payload is a valid signature over whatever it contains, so a
@@ -336,12 +341,32 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_records(value, requested)
+    _validate_records(value, requested, _revalidation_policy(value))
     _validate_authority(value)
     return copy.deepcopy(value)
 
 
-def _validate_records(value: dict, requested: list[str]) -> None:
+def _revalidation_policy(value: dict) -> dict:
+    """The candidate policy this population pinned, re-read for re-derivation.
+
+    Recomputing a record's normalization is only meaningful against the *same*
+    policy the population was built with, so the pinned sha256 is compared with
+    the on-disk file rather than assumed. A checkout carrying a different
+    candidate policy fails closed here with an attributable code instead of
+    reporting a normalization mismatch the payload did not cause.
+    """
+    pinned = value.get("candidate_policy")
+    if not isinstance(pinned, dict) or pinned.get("path") != CANDIDATE_POLICY_PATH:
+        fail("POPULATION_CANDIDATE_POLICY_INVALID", "path")
+    if pinned.get("sha256") != file_sha256(PRR.POLICY_PATH):
+        fail("CANDIDATE_POLICY_SHA_MISMATCH", CANDIDATE_POLICY_PATH)
+    policy = _load_candidate_policy()
+    if pinned.get("status") != policy.get("status"):
+        fail("POPULATION_CANDIDATE_POLICY_INVALID", "status")
+    return policy
+
+
+def _validate_records(value: dict, requested: list[str], policy: dict) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
     ``build_population`` emits one record for each sorted, de-duplicated
@@ -360,16 +385,19 @@ def _validate_records(value: dict, requested: list[str]) -> None:
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
     for record, requested_date in zip(records, requested):
-        _validate_record(record, requested_date)
+        _validate_record(record, requested_date, policy)
 
 
-def _validate_record(record: dict, requested_date: str) -> None:
+def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
     """One record, checked against its own claims rather than trusted.
 
     A status is not a free label: an ``OBSERVED`` record must carry the
     five-axis packet and candidate normalization an observation is made of, and
     a ``BLOCKED`` one must carry neither plus an attributable reason. Without
     this, a re-hashed payload could keep the status and drop the evidence.
+
+    Carrying the evidence is necessary but not sufficient: the normalization
+    must also be *derived from* it, which is re-checked below.
     """
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
@@ -386,12 +414,56 @@ def _validate_record(record: dict, requested_date: str) -> None:
             fail("OBSERVED_RECORD_AXIS_SET_INVALID", requested_date)
         if record.get("failure_reason") is not None:
             fail("OBSERVED_RECORD_MUST_NOT_CARRY_A_FAILURE", requested_date)
+        _validate_candidate_is_derived_from_its_evidence(
+            record, five_axis, candidate, policy, requested_date,
+        )
     else:
         if five_axis is not None or candidate is not None:
             fail("BLOCKED_RECORD_MUST_NOT_CARRY_EVIDENCE", requested_date)
         if not isinstance(record.get("failure_reason"), str) or not record["failure_reason"]:
             fail("BLOCKED_RECORD_MUST_BE_ATTRIBUTED", requested_date)
     _validate_no_lookahead(record, requested_date)
+
+
+def _rederive_candidate(record: dict, five_axis: dict, policy: dict) -> dict:
+    """Re-run the existing candidate rule over this record's *stored* evidence.
+
+    ``PRR.build_kr`` is called unmodified on a packet reassembled from exactly
+    what the record already carries — its five-axis packet plus its own
+    effective trading date — so no new rule, threshold, or vocabulary enters
+    here. The reassembly is the inverse of ``_observed_record``, which is what
+    makes the comparison below a derivation rather than a second opinion.
+    """
+    packet = {
+        "status": five_axis.get("status"),
+        "coverage": five_axis.get("coverage"),
+        "axes": five_axis.get("axes"),
+        "as_of_date": record.get("effective_trading_date"),
+    }
+    return PRR.build_kr(packet, policy)
+
+
+def _validate_candidate_is_derived_from_its_evidence(
+    record: dict, five_axis: dict, candidate: dict, policy: dict, requested_date: str,
+) -> None:
+    """A stored normalization must be what the stored evidence actually yields.
+
+    Checking ``candidate_normalized_result`` for presence alone would let a
+    re-hashed payload keep a genuine five-axis packet and publish any
+    ``candidate_regime``, score, confidence, or axis direction beside it — the
+    evidence would look intact while the state it supposedly supports was
+    forged. Requiring exact equality with the unmodified rule's own output over
+    that same evidence closes it, and an axis packet the rule cannot consume at
+    all is reported as unnormalizable rather than quietly accepted.
+    """
+    try:
+        expected = _rederive_candidate(record, five_axis, policy)
+    except PRR.PaperRegimeReferenceError as exc:
+        raise ReplayPopulationError(
+            f"OBSERVED_RECORD_EVIDENCE_NOT_NORMALIZABLE:{requested_date}:{exc}"
+        ) from exc
+    if candidate != expected:
+        fail("OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
 
 def _validate_no_lookahead(record: dict, requested_date: str) -> None:

@@ -929,56 +929,83 @@ class PitAndAuditSeparationTest(unittest.TestCase):
         self.assertEqual(solo, batched)
 
     def test_a_market_contained_for_lookahead_contributes_nothing(self):
-        source = population([ANCHOR, PREVIOUS])
-        contained = copy.deepcopy(source)
-        view = contained["records"][0]["markets"]["KR"]
-        view.update({
-            "outcome": "BLOCKED",
+        # Containment is exercised at the projection and at the aggregation
+        # rather than by editing a population: the combined slice's validator
+        # now re-derives every market view from its embedded record, so a
+        # contained view cannot be forged into a population this module accepts,
+        # and a genuine contained view can only come from a record the join
+        # itself demoted. What must hold either way is that the demoted market
+        # contributes nothing — its intact record is never read behind the
+        # containment.
+        source = population([ANCHOR])
+        embedded = source["market_populations"]["KR"]
+        kr_record = next(
+            row for row in embedded["records"] if row["requested_date"] == ANCHOR
+        )
+        self.assertEqual(kr_record["status"], "OBSERVED")
+        contained_view = {
+            "market": "KR",
             "market_status": "OBSERVED",
-            "failure_reason": "COMBINED_LOOKAHEAD_VIOLATION",
+            "outcome": "BLOCKED",
+            "effective_date": None,
+            "axis_coverage": None,
+            "candidate_regime": None,
+            "candidate_classification_status": None,
+            "runtime_regime": "UNKNOWN",
+            "failure_reason": MODULE.CSR.LOOKAHEAD_CONTAINED,
+            "lookahead_violation": True,
+            "source_dates_consulted": [],
+        }
+        cell = MODULE.market_observation(
+            contained_view, kr_record, MODULE.declared_excluded_axes(embedded),
+        )
+        self.assertEqual(cell["outcome"], "BLOCKED")
+        self.assertIs(cell["lookahead_contained"], True)
+        self.assertIsNone(cell["candidate_regime"])
+        self.assertIsNone(cell["candidate_classification_status"])
+        for axis in MODULE.AXES:
+            self.assertEqual(cell["axis_status"][axis], "NOT_ATTEMPTED_DATE_BLOCKED")
+            self.assertIsNone(cell["axis_direction"][axis])
+
+        report = MODULE.build_evidence(source)
+        table = {"KR": {ANCHOR: cell}, "US": {ANCHOR: observation(report, "US", ANCHOR)}}
+        facts = MODULE.unknown_facts(table, [ANCHOR])["markets"]["KR"]
+        self.assertEqual(facts["lookahead_contained_date_count"], 1)
+        self.assertEqual(
+            facts["blocked_reason_codes"], {"COMBINED_LOOKAHEAD_VIOLATION": 1},
+        )
+
+    def test_a_forged_contained_market_view_never_reaches_this_module(self):
+        # The counterpart to the projection test above: a population that claims
+        # containment its embedded record does not support is refused by the
+        # combined slice's own validator, so no fact here can be built on it.
+        forged = copy.deepcopy(population([ANCHOR, PREVIOUS]))
+        forged["records"][0]["markets"]["KR"].update({
+            "outcome": "BLOCKED",
+            "failure_reason": MODULE.CSR.LOOKAHEAD_CONTAINED,
             "lookahead_violation": True,
             "candidate_regime": None,
             "candidate_classification_status": None,
             "source_dates_consulted": [],
         })
-        contained["records"][0]["combined_normalized_result"][
+        forged["records"][0]["combined_normalized_result"][
             "per_market_candidate_regime"
         ]["KR"] = None
-        # The join's own derived views must stay consistent with the contained
-        # market, or the combined slice's validator rejects the population
-        # before this module ever sees it.
-        views = contained["records"][0]["markets"]
-        contained["records"][0]["combined_status"] = "SINGLE_MARKET_ONLY"
-        contained["records"][0]["markets_by_outcome"] = {
-            outcome: [
-                market for market in ("KR", "US") if views[market]["outcome"] == outcome
-            ]
-            for outcome in ("OBSERVED", "PARTIAL", "BLOCKED")
+        forged["records"][0]["combined_status"] = "SINGLE_MARKET_ONLY"
+        forged["records"][0]["markets_by_outcome"] = {
+            "OBSERVED": ["US"], "PARTIAL": [], "BLOCKED": ["KR"],
         }
-        summary = contained["combined_summary"]
+        summary = forged["combined_summary"]
         summary["combined_status_counts"]["BOTH_MARKETS_REPLAYED"] -= 1
         summary["combined_status_counts"]["SINGLE_MARKET_ONLY"] += 1
         summary["per_market_outcome_counts"]["KR"]["OBSERVED"] -= 1
         summary["per_market_outcome_counts"]["KR"]["BLOCKED"] += 1
-        contained["payload_sha256"] = MODULE.CSR.payload_sha256(
-            {k: v for k, v in contained.items() if k != "payload_sha256"}
+        forged["payload_sha256"] = MODULE.CSR.payload_sha256(
+            {k: v for k, v in forged.items() if k != "payload_sha256"}
         )
-        report = MODULE.build_evidence(contained)
-        date = contained["records"][0]["requested_date"]
-        cell = observation(report, "KR", date)
-        self.assertEqual(cell["outcome"], "BLOCKED")
-        self.assertIs(cell["lookahead_contained"], True)
-        self.assertIsNone(cell["candidate_regime"])
-        for axis in MODULE.AXES:
-            self.assertEqual(cell["axis_status"][axis], "NOT_ATTEMPTED_DATE_BLOCKED")
-            self.assertIsNone(cell["axis_direction"][axis])
-        self.assertEqual(
-            report["unknown_facts"]["markets"]["KR"]["lookahead_contained_date_count"], 1,
-        )
-        self.assertEqual(
-            report["unknown_facts"]["markets"]["KR"]["blocked_reason_codes"],
-            {"COMBINED_LOOKAHEAD_VIOLATION": 1},
-        )
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.build_evidence(forged)
+        self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
 
     def test_no_retained_or_live_source_is_mutated(self):
         korea_dir = ROOT / "data" / "observations" / "korea_market_signals"

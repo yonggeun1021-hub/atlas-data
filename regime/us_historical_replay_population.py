@@ -117,6 +117,7 @@ FMD = _load_module(
 SCHEMA_VERSION = "regime_us_historical_replay_population/v1"
 MODE = "SHADOW_HISTORICAL_REPLAY_NOT_NATURAL"
 EVIDENCE_CLASS = "HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY"
+CANDIDATE_POLICY_PATH = "config/paper_regime_reference_policy_v1.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 DATE10 = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC = dt.timezone.utc
@@ -904,7 +905,7 @@ def build_population(
             "contract_version": contract["contract_version"],
         },
         "candidate_policy": {
-            "path": "config/paper_regime_reference_policy_v1.json",
+            "path": CANDIDATE_POLICY_PATH,
             "sha256": file_sha256(PRR.POLICY_PATH),
             "status": policy.get("status"),
         },
@@ -948,13 +949,17 @@ def build_population(
 
 
 def validate_population(value: dict) -> dict:
-    """Integrity/shape check only — deliberately never re-derives from providers.
+    """Integrity check — never re-fetches providers, always re-derives axes.
 
-    Re-derivation would require re-issuing live Alpaca/FRED requests for every
+    Re-fetching would require re-issuing live Alpaca/FRED requests for every
     replayed date. Per the CIO mandate an actual provider probe must stay
     separate from implementation verification and must never become a CI
-    prerequisite, so ``--verify`` checks the hash and the
-    SHADOW/never-NATURAL/never-BREADTH shape only.
+    prerequisite, so ``--verify`` never touches the network. What it *can* do
+    offline, and now does, is re-derive each observed TREND/RISK_VOL/LIQUIDITY
+    row from the measurement the record already stores: enforcing only that the
+    candidate regime and runtime regime stay UNKNOWN would still accept a
+    re-hashed payload whose axis *directions* were forged beside intact
+    measurements.
 
     "Shape" is deliberately exact rather than "whatever happens to be present":
     a re-hashed payload is a valid signature over whatever it contains, so a
@@ -989,12 +994,32 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_records(value, requested)
+    _validate_records(value, requested, _revalidation_policy(value))
     _validate_authority(value)
     return copy.deepcopy(value)
 
 
-def _validate_records(value: dict, requested: list[str]) -> None:
+def _revalidation_policy(value: dict) -> dict:
+    """The candidate policy this population pinned, re-read for re-derivation.
+
+    Recomputing a record's normalization is only meaningful against the *same*
+    policy the population was built with, so the pinned sha256 is compared with
+    the on-disk file rather than assumed. A checkout carrying a different
+    candidate policy fails closed here with an attributable code instead of
+    reporting a normalization mismatch the payload did not cause.
+    """
+    pinned = value.get("candidate_policy")
+    if not isinstance(pinned, dict) or pinned.get("path") != CANDIDATE_POLICY_PATH:
+        fail("POPULATION_CANDIDATE_POLICY_INVALID", "path")
+    if pinned.get("sha256") != file_sha256(PRR.POLICY_PATH):
+        fail("CANDIDATE_POLICY_SHA_MISMATCH", CANDIDATE_POLICY_PATH)
+    policy = _load_candidate_policy()
+    if pinned.get("status") != policy.get("status"):
+        fail("POPULATION_CANDIDATE_POLICY_INVALID", "status")
+    return policy
+
+
+def _validate_records(value: dict, requested: list[str], policy: dict) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
     ``build_population`` emits one record for each sorted, de-duplicated
@@ -1013,10 +1038,10 @@ def _validate_records(value: dict, requested: list[str]) -> None:
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
     for record, requested_date in zip(records, requested):
-        _validate_record(record, requested_date)
+        _validate_record(record, requested_date, policy)
 
 
-def _validate_record(record: dict, requested_date: str) -> None:
+def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
     status = record.get("status")
@@ -1086,7 +1111,87 @@ def _validate_record(record: dict, requested_date: str) -> None:
             fail("RUNTIME_REGIME_MUST_STAY_UNKNOWN")
         if candidate.get("classification_status") != CLASSIFICATION_STATUS:
             fail("CLASSIFICATION_STATUS_INVALID")
+    _validate_candidate_is_derived_from_its_evidence(
+        record, five_axis, candidate, policy, requested_date,
+    )
     _validate_no_lookahead(record, requested_date)
+
+
+# Each observed axis's row is rebuilt by the *same* helper that produced it, so
+# re-derivation cannot drift from production even if a threshold in one of those
+# helpers is later changed upstream.
+AXIS_ROW_FROM_MEASUREMENT = {
+    "TREND": lambda measurement: trend_axis_row(measurement.get("trend_etfs")),
+    "RISK_VOL": lambda measurement: risk_vol_axis_row(measurement.get("value")),
+    "LIQUIDITY": lambda measurement: liquidity_axis_row(measurement.get("series")),
+}
+
+
+def _rederive_axis_rows(axes: dict) -> list[dict]:
+    """Rebuild the candidate rows the record's own observed measurements yield.
+
+    Only axes the record itself calls ``OBSERVED`` contribute, in
+    ``REPLAYED_AXES`` order, which is exactly how ``replay_one_requested_date``
+    assembles them.
+    """
+    rows = []
+    for name in REPLAYED_AXES:
+        entry = axes.get(name)
+        if not isinstance(entry, dict) or entry.get("status") != "OBSERVED":
+            continue
+        measurement = entry.get("measurement")
+        if not isinstance(measurement, dict):
+            fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", name)
+        rows.append(AXIS_ROW_FROM_MEASUREMENT[name](measurement))
+    return rows
+
+
+def _validate_candidate_is_derived_from_its_evidence(
+    record: dict, five_axis: object, candidate: object, policy: dict, requested_date: str,
+) -> None:
+    """A stored axis direction must be what the stored measurement yields.
+
+    The UNKNOWN candidate/runtime checks above constrain the *classification*
+    but say nothing about the rows underneath it, so a re-hashed payload could
+    keep genuine Alpaca/FRED measurements and publish any direction beside them
+    — and every downstream transition, stress, and run fact is built from those
+    directions. Re-deriving each observed row with the same helper that produced
+    it, and requiring exact equality of the whole normalization result, closes
+    that. The effective session date is bound to the TREND measurement for the
+    same reason: it is otherwise a free-standing claim.
+    """
+    if not isinstance(five_axis, dict):
+        # No axis packet means no normalization to re-derive; the status and
+        # coverage rules above already govern that case.
+        if candidate is not None:
+            fail("BLOCKED_RECORD_MUST_NOT_CLASSIFY", requested_date)
+        return
+    axes = five_axis.get("axes")
+    axes = axes if isinstance(axes, dict) else {}
+    trend = axes.get("TREND")
+    trend_measurement = trend.get("measurement") if isinstance(trend, dict) else None
+    expected_effective = (
+        trend_measurement.get("as_of_session_date")
+        if isinstance(trend_measurement, dict)
+        else None
+    )
+    if record.get("effective_session_date") != expected_effective:
+        fail("EFFECTIVE_SESSION_DATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
+    try:
+        rows = _rederive_axis_rows(axes)
+        expected = (
+            _candidate_normalized_result(
+                rows, expected_effective, policy, {name: {} for name in EXCLUDED_AXES},
+            )
+            if rows
+            else None
+        )
+    except (ReplayPopulationError, PRR.PaperRegimeReferenceError) as exc:
+        raise ReplayPopulationError(
+            f"OBSERVED_AXIS_EVIDENCE_NOT_NORMALIZABLE:{requested_date}:{exc}"
+        ) from exc
+    if candidate != expected:
+        fail("RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
 
 def _validate_no_lookahead(record: dict, requested_date: str) -> None:
