@@ -30,14 +30,26 @@ for a same-day observation, rather than relying on manually remembering
 the correct trigger order each run. It reuses every existing job step
 verbatim -- no new fetch logic, no new endpoint, no duplicate KRX request.
 
-Honest, still-open gap: **neither** Korea Breadth nor Korea Leadership is
-on an actual schedule (cron) today -- both, and this combined workflow,
-remain `workflow_dispatch`-only. There is therefore no existing schedule
-to attach a dependency step to, and no automatic daily trigger produces a
-new P2-03 observation sample on its own; each sample still requires a
-manual `workflow_dispatch`. A new cron was deliberately NOT added to close
-this gap (matching this project's existing "no new cron" precedent) --
-this is reported as the precise, honest gap it is, not silently closed.
+**Update (2026-09-04, CIO-approved P2-03 bounded cadence slice):** the
+standalone `korea-leadership-live-proof.yml` now has a real weekday
+schedule (18:10/18:25 KST, reusing the exact evening cadence
+`korea-market-signals.yml` already established and this repo's own
+ratified `config/korea_leadership_policy.json.earliest_usable_time`). A
+scheduled run discovers its own prior/current completed KRX trading
+dates via `korea_market_signals.py`'s existing `discover_session_pair()`
+(unchanged) -- no invented trading-day calendar. Manual
+`workflow_dispatch` with explicit dates is unchanged.
+
+Honest, still-open half of the gap: Korea Breadth
+(`p1-kr05-korea-breadth-live.yml`) and this combined observation-pair
+workflow remain `workflow_dispatch`-only -- there is still no automatic
+daily trigger for Breadth, so a same-date Breadth+Leadership pair (what
+`korea_capital_rotation.py`'s own no-lookahead check actually needs) is
+not yet fully automatic end to end. A scheduled Leadership-only sample
+can therefore still see `BREADTH_MARKET_SOURCE_AVAILABLE_AT` unavailable
+for its own date until Breadth is separately dispatched (or scheduled)
+for that same date. Closing that remaining half is a separate, not yet
+approved, bounded slice.
 
 ### Real dispatch failure and fix (2026-08-22, run 32566229770)
 

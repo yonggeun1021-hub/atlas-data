@@ -564,6 +564,15 @@ APPROVED_TESTS = [
     #   committed 파일에 절대 남기지 않는다(name catalog + lineage SHA만).
     #   idempotent/drift fail-closed 포함.
     "test/test_korea_leadership_live_fetch.py",
+    # ★ P2-03 — 2026-09-04 CIO-approved bounded cadence slice. Korea
+    #   Leadership Live Proof 워크플로에 실 weekday schedule(18:10/18:25
+    #   KST, korea-market-signals.yml의 기존 저녁 캐던스 재사용)이 생겼는지,
+    #   scheduled 실행이 korea_market_signals.py의 discover_session_pair()
+    #   (미변경)로 거래일을 스스로 발견하는지, manual workflow_dispatch
+    #   입력 경로가 그대로인지, provider 재호출 전에 기존
+    #   --verify-existing-only 경로를 재사용하는지를 오프라인 YAML 구조
+    #   검증만으로 확인한다. ⛔ live KRX 호출 없음 — YAML 파싱/문자열 검증뿐.
+    "test/test_korea_leadership_live_proof_workflow.py",
     # ★ P1-KR-06 — Korea Risk / Vol transient derived-feature contract.
     #   비준된 KRX index available_at envelope에서 RV/drawdown만 재현하며
     #   기본 source timing policy와 stress/Regime/Production 권한은 닫아 둔다.
