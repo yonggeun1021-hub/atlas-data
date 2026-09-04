@@ -74,6 +74,9 @@ class FakeProviders:
         liquidity=None,
         leak_future_bar=False,
         leak_future_observation=False,
+        vintage_start_shift_days=0,
+        vintage_end_shift_days=0,
+        open_ended_vintage=False,
         fail_fred=False,
         fail_alpaca=False,
     ):
@@ -84,9 +87,29 @@ class FakeProviders:
         }
         self.leak_future_bar = leak_future_bar
         self.leak_future_observation = leak_future_observation
+        # A real provider answers with the vintage it actually served, which need
+        # not be the one the query pinned. These knobs let the response disagree
+        # with the request the way a misbehaving or misconfigured ALFRED call
+        # would, so the module's *bind* on the returned vintage is exercised
+        # rather than only its query construction.
+        self.vintage_start_shift_days = vintage_start_shift_days
+        self.vintage_end_shift_days = vintage_end_shift_days
+        self.open_ended_vintage = open_ended_vintage
         self.fail_fred = fail_fred
         self.fail_alpaca = fail_alpaca
         self.calls: list[tuple[str, dict]] = []
+
+    def _vintage(self, query) -> tuple[str, str]:
+        start = dt.date.fromisoformat(query["realtime_start"][0]) + dt.timedelta(
+            days=self.vintage_start_shift_days
+        )
+        if self.open_ended_vintage:
+            # Exactly what FRED serves while a value is still the current one.
+            return start.isoformat(), "9999-12-31"
+        end = dt.date.fromisoformat(query["realtime_end"][0]) + dt.timedelta(
+            days=self.vintage_end_shift_days
+        )
+        return start.isoformat(), end.isoformat()
 
     def __call__(self, url, headers=None):
         parsed = urlparse(url)
@@ -122,11 +145,14 @@ class FakeProviders:
 
     def _fred_metadata(self, query) -> bytes:
         series_id = query["series_id"][0]
+        realtime_start, realtime_end = self._vintage(query)
         return json.dumps({"seriess": [{
             "id": series_id,
             "title": f"{series_id} title",
             "frequency": "Weekly, Ending Wednesday",
             "units": "Billions of Dollars",
+            "realtime_start": realtime_start,
+            "realtime_end": realtime_end,
         }]}).encode()
 
     def _fred_observations(self, query) -> bytes:
@@ -138,12 +164,13 @@ class FakeProviders:
             values = ["16.0", self.vix]
         else:
             values = list(self.liquidity[series_id])
+        realtime_start, realtime_end = self._vintage(query)
         rows = [
             {
                 "date": (end - dt.timedelta(days=7 * (len(values) - 1 - offset))).isoformat(),
                 "value": value,
-                "realtime_start": query["realtime_start"][0],
-                "realtime_end": query["realtime_end"][0],
+                "realtime_start": realtime_start,
+                "realtime_end": realtime_end,
             }
             for offset, value in enumerate(values)
         ]
@@ -408,6 +435,90 @@ class UsFreeAxisPointInTimeTest(unittest.TestCase):
             self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
             self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", entry["reason"])
         self.assertEqual(record["status"], "FREE_AXES_PARTIAL")
+
+    def test_a_future_vintage_fred_response_fails_those_axes_closed(self):
+        # The exact adversarial probe an integration review used: the requested
+        # date is 2026-08-28, every observation date is on or before it, and the
+        # request pins realtime_start/realtime_end correctly — but the provider
+        # answers with a 2026-09-01 ALFRED vintage, i.e. a revision published
+        # after the replayed date. Pinning the query does not catch this; only
+        # binding the *returned* vintage does, and without the bind the axis is
+        # OBSERVED with an internally consistent measurement, row, and hash.
+        providers = FakeProviders(vintage_start_shift_days=4, vintage_end_shift_days=4)
+        record = build([ANCHOR], providers)["records"][0]
+        for name in ("RISK_VOL", "LIQUIDITY"):
+            entry = record["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
+            self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", entry["reason"])
+            self.assertIn("FRED_VINTAGE", entry["reason"])
+            self.assertIsNone(entry["measurement"], name)
+        # Contained to the axes that consumed it: TREND never touches FRED.
+        self.assertEqual(record["five_axis"]["axes"]["TREND"]["status"], "OBSERVED")
+        self.assertEqual(record["status"], "FREE_AXES_PARTIAL")
+
+    def test_a_superseded_fred_vintage_is_refused_as_its_own_distinct_fact(self):
+        # A vintage window that ended before the requested date is not a
+        # lookahead — the value existed, it had simply already been replaced — so
+        # it must not be reported as one, while still failing the axis closed:
+        # it is not what that date could have been evaluated with either.
+        record = build(
+            [ANCHOR],
+            FakeProviders(vintage_start_shift_days=-60, vintage_end_shift_days=-10),
+        )["records"][0]
+        for name in ("RISK_VOL", "LIQUIDITY"):
+            entry = record["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
+            self.assertIn(
+                "US_FRED_VINTAGE_SUPERSEDED_BEFORE_REQUESTED_DATE", entry["reason"],
+            )
+            self.assertNotIn("LOOKAHEAD", entry["reason"])
+
+    def test_a_still_current_open_ended_fred_vintage_is_accepted(self):
+        # The other side of the bind, asserted so it cannot harden into a
+        # false-positive: FRED serves realtime_end = 9999-12-31 while a value is
+        # still current, so the requirement is that the vintage window *contains*
+        # the requested date, never that it equals it. Treating that sentinel as
+        # lookahead would make every genuine current-vintage replay unusable.
+        population = build([ANCHOR], FakeProviders(open_ended_vintage=True))
+        record = population["records"][0]
+        self.assertEqual(record["status"], "FREE_AXES_OBSERVED")
+        risk_vol = record["five_axis"]["axes"]["RISK_VOL"]["measurement"]
+        self.assertEqual(risk_vol["realtime_start"], ANCHOR)
+        self.assertEqual(risk_vol["realtime_end"], "9999-12-31")
+        MODULE.validate_population(population)
+
+    def test_a_missing_fred_vintage_fails_those_axes_closed(self):
+        # A response with no vintage at all cannot be bound to the requested
+        # date, so it is refused rather than consumed as if it had been.
+        providers = FakeProviders()
+        original = providers._fred_observations
+
+        def stripped(query):
+            body = json.loads(original(query))
+            for row in body["observations"]:
+                row.pop("realtime_start")
+            return json.dumps(body).encode()
+
+        providers._fred_observations = stripped
+        record = build([ANCHOR], providers)["records"][0]
+        for name in ("RISK_VOL", "LIQUIDITY"):
+            entry = record["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
+            self.assertIn("US_FRED_VINTAGE_MISSING", entry["reason"])
+
+    def test_the_recorded_vintage_is_the_one_the_provider_returned(self):
+        # Recorded, not copied from the request: a measurement that echoed the
+        # query would make the bind above unverifiable offline, because
+        # validate_population would be re-checking the requested date against
+        # itself rather than against what was served.
+        record = build([ANCHOR], FakeProviders(vintage_end_shift_days=30))["records"][0]
+        series = record["five_axis"]["axes"]["LIQUIDITY"]["measurement"]["series"]
+        for row in series:
+            self.assertEqual(row["realtime_start"], ANCHOR)
+            self.assertEqual(row["previous_realtime_start"], ANCHOR)
+            self.assertEqual(row["metadata_realtime_start"], ANCHOR)
+            for key in ("realtime_end", "previous_realtime_end", "metadata_realtime_end"):
+                self.assertGreater(row[key], ANCHOR, key)
 
     def test_date_isolation_one_records_outcome_ignores_batch_membership(self):
         solo = build([ANCHOR])["records"][0]
@@ -932,6 +1043,126 @@ class UsFreeAxisValidationTest(unittest.TestCase):
             "RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS",
             str(caught.exception),
         )
+
+    def test_validate_population_rejects_a_re_signed_future_fred_vintage(self):
+        # The adversarial mirror of the build-time bind, and the gap that let a
+        # future-vintage US replay be accepted: every observation date stays on
+        # or before the requested date, so the attestation walk is satisfied, and
+        # every axis row still re-derives from its measurement — only the ALFRED
+        # vintage the measurement was served at is moved past the replayed date.
+        # Each stored window is checked, because each one entered the result: the
+        # latest observation, the previous observation the change is measured
+        # against, and the metadata that fixes the units.
+        future = "2026-09-01"
+        for mutate in (
+            lambda record: record["five_axis"]["axes"]["RISK_VOL"][
+                "measurement"
+            ].update({"realtime_start": future, "realtime_end": future}),
+            lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"
+            ][0].update({"realtime_start": future, "realtime_end": future}),
+            lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"
+            ][1].update({
+                "previous_realtime_start": future, "previous_realtime_end": future,
+            }),
+            lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"
+            ][0].update({
+                "metadata_realtime_start": future, "metadata_realtime_end": future,
+            }),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", str(caught.exception))
+                self.assertIn("FRED_VINTAGE", str(caught.exception))
+
+    def test_validate_population_rejects_a_dropped_or_superseded_fred_vintage(self):
+        for mutate, code in (
+            (lambda record: record["five_axis"]["axes"]["RISK_VOL"]["measurement"].pop(
+                "realtime_end"),
+             "US_FRED_VINTAGE_MISSING"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "series"][0].pop("metadata_realtime_start"),
+             "US_FRED_VINTAGE_MISSING"),
+            (lambda record: record["five_axis"]["axes"]["RISK_VOL"][
+                "measurement"].__setitem__("realtime_end", "2026-08-01"),
+             "US_FRED_VINTAGE_SUPERSEDED_BEFORE_REQUESTED_DATE"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_vintage_date_the_record_did_not_request(self):
+        # ``vintage_date`` is the measurement's own claim about which ALFRED
+        # vintage it was requested at; unbound, it can be re-signed to name any
+        # date while the record is filed under another.
+        for axis in ("RISK_VOL", "LIQUIDITY"):
+            with self.subTest(axis=axis):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["records"][0]["five_axis"]["axes"][axis]["measurement"][
+                    "vintage_date"
+                ] = "2026-09-01"
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "FRED_VINTAGE_NOT_BOUND_TO_THE_REQUESTED_DATE", str(caught.exception),
+                )
+
+    def test_validate_population_rejects_a_tampered_pit_replay_declaration(self):
+        # The declaration was carried unread, so a re-signed payload could assert
+        # that it *had* used future dates — or delete the assertion entirely —
+        # while every record-level check still passed. A valid signature over a
+        # self-contradicting claim is exactly what a validator must refuse.
+        for mutate, code in (
+            (lambda population: population["pit_replay"].__setitem__(
+                "future_dates_used_in_any_date_evaluation", True),
+             "PIT_REPLAY_DECLARATION_INVALID"),
+            (lambda population: population["pit_replay"].__setitem__(
+                "fred_returned_vintage_bound_to_requested_date", False),
+             "PIT_REPLAY_DECLARATION_INVALID"),
+            (lambda population: population["pit_replay"].__setitem__(
+                "close_adjustment", "split"),
+             "PIT_REPLAY_DECLARATION_INVALID"),
+            (lambda population: population["pit_replay"].pop(
+                "future_dates_used_in_any_date_evaluation"),
+             "PIT_REPLAY_SCHEMA_INVALID"),
+            (lambda population: population["pit_replay"].__setitem__("extra", True),
+             "PIT_REPLAY_SCHEMA_INVALID"),
+            (lambda population: population.__setitem__("pit_replay", None),
+             "PIT_REPLAY_SCHEMA_INVALID"),
+            (lambda population: population.pop("pit_replay"),
+             "PIT_REPLAY_SCHEMA_INVALID"),
+            (lambda population: population["pit_replay"].__setitem__(
+                "statement", "Point-in-time integrity was maintained."),
+             "PIT_REPLAY_STATEMENT_INVALID"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_the_published_pit_replay_block_is_the_one_that_is_validated(self):
+        # Published and required from the same constants, so a field can never be
+        # emitted without being checked or checked without being emitted.
+        population = build([ANCHOR])
+        self.assertEqual(population["pit_replay"], MODULE._pit_replay_block())
+        self.assertIs(
+            population["pit_replay"]["future_dates_used_in_any_date_evaluation"], False,
+        )
+        self.assertIs(
+            population["pit_replay"]["fred_returned_vintage_bound_to_requested_date"],
+            True,
+        )
+        MODULE.validate_population(population)
 
     def test_validate_population_requires_the_candidate_policy_it_pinned(self):
         # Re-derivation is only meaningful against the same policy the

@@ -815,6 +815,23 @@ APPROVED_TESTS = [
     #   SHA-256 and re-signing is accepted, because the raw provider responses
     #   are not retained and neither provider signs them. That uncaught side is
     #   pinned by an adversarial regression alongside the caught side.
+    #   Point-in-time integrity is bound on both sides of the FRED call, not only
+    #   on the request: pinning realtime_start/realtime_end states what was asked
+    #   for, so every vintage window the provider actually RETURNS — the latest
+    #   observation, the previous observation the change is measured against, and
+    #   the series metadata that fixes the units — must contain the requested
+    #   date, at build time and again in validate_population. A response whose
+    #   ALFRED vintage opens after the replayed date fails that axis closed as a
+    #   lookahead (previously it was consumed as if knowable, with measurement,
+    #   axis row, hashes and signature all internally consistent); one whose
+    #   vintage had already ended is refused separately, because being superseded
+    #   is a different fact from being unknowable. The bind is containment, never
+    #   equality: the still-current 9999-12-31 sentinel is accepted, and that
+    #   accepted side is pinned too. The population's own pit_replay declaration
+    #   is validated key for key, value for value, statement included, so a
+    #   re-signed payload can no longer assert
+    #   future_dates_used_in_any_date_evaluation=true — or delete the declaration
+    #   — while every record-level check still passes.
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
@@ -848,7 +865,12 @@ APPROVED_TESTS = [
     #   episode coverage, ungrouped dates) is recomputed from those records, each
     #   embedded population's pinned identity must be its own, and the authority
     #   block must match key for key — so a re-hashed payload cannot pass by
-    #   dropping its records or an explicit false boundary. natural_promotion,
+    #   dropping its records or an explicit false boundary. The join's own
+    #   lookahead re-check walks record dates, which cannot see a FRED ALFRED
+    #   vintage, so the US module's returned-vintage bind is what refuses a
+    #   future-vintage US measurement here: an embedded US population carrying
+    #   one — or a US pit_replay declaration re-signed to deny PIT — is rejected
+    #   at the join instead of publishing US as OBSERVED. natural_promotion,
     #   episode_selection, cross_market_regime, threshold_tuning, us_breadth,
     #   us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
@@ -892,7 +914,12 @@ APPROVED_TESTS = [
     #   labels are carried verbatim and a labelled run is proven fact-identical to
     #   an unlabelled one. PIT and historical audit stay separate: no date's
     #   observation is created, altered, or graded, and a market the join
-    #   contained for lookahead contributes nothing. The report is a pure function
+    #   contained for lookahead contributes nothing. A source population whose
+    #   embedded US replay was served a FRED vintage published after the replayed
+    #   date, or whose US pit_replay declaration was re-signed to deny PIT, is
+    #   refused by its own validator and never summarized — every coverage,
+    #   UNKNOWN, transition, stress, and hysteresis fact is counted from those
+    #   records. The report is a pure function
     #   of its source population (byte-identical rerun, shuffled input identical,
     #   source never mutated) and is never written inside this checkout —
     #   external --out or a private temp file only. policy_conclusion,

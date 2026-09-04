@@ -65,8 +65,23 @@ Point-in-time integrity is structural, not merely asserted:
   ``realtime_start``/``realtime_end`` to the requested date, so a later
   revision of a revisable series (``WRESBAL``/``TOTBKCR`` are revised) can
   never leak backwards into an earlier replayed date.
+* Pinning the request is only half of that.  What enters the population is what
+  the provider *answered*, so every returned FRED vintage window — the latest
+  observation, the previous observation the change is measured against, and the
+  series metadata that fixes the units — is required to contain the requested
+  date, at build time and again in ``validate_population``.  A response whose
+  vintage opens after the replayed date is a lookahead and fails that axis
+  closed; one whose vintage had already ended was superseded before the date and
+  is refused separately, because it is a different fact.  The bind is
+  containment, not equality: a still-current FRED value legitimately reports
+  ``realtime_end`` as ``9999-12-31``.
 * Each requested date is resolved independently from its own anchor, so no
   other requested date's outcome can influence this one.
+* The population's own ``pit_replay`` declaration is validated key for key
+  against the shape ``build_population`` publishes.  A re-hashed payload is a
+  valid signature over whatever it contains, so an unchecked declaration could
+  be re-signed with ``future_dates_used_in_any_date_evaluation`` set ``true``,
+  or deleted outright, while every record-level check still passed.
 
 Provenance is part of the observation, not decoration — and it is described as
 what it is.  Every observed axis carries the sha256 of the Alpaca/FRED response
@@ -204,6 +219,58 @@ AUTHORITY = {
     "trading_authorized": False,
     "real_authorized": False,
 }
+
+# The ALFRED vintage bounds every consumed FRED row must carry.
+# ``realtime_start`` is when a value became the current one; ``realtime_end`` is
+# when it stopped being current — FRED serves the open-ended sentinel
+# ``9999-12-31`` while it still is. Pinning the *request* to the replayed date
+# only states what was asked for; what travels into this population is what the
+# provider answered, so each returned window is bound to the requested date at
+# both build and validation time. The bind is containment of the requested date
+# in the window, never equality with it: a genuine current value legitimately
+# reports a ``realtime_end`` far in the future, while a value whose vintage
+# *begins* after the requested date could not have been known on it.
+FRED_VINTAGE_KEYS = ("realtime_start", "realtime_end")
+FRED_PREVIOUS_VINTAGE_KEYS = ("previous_realtime_start", "previous_realtime_end")
+FRED_METADATA_VINTAGE_KEYS = ("metadata_realtime_start", "metadata_realtime_end")
+
+# The exact point-in-time block this population publishes, declared once so
+# ``build_population`` and ``validate_population`` cannot drift apart, and
+# required key for key by ``_validate_pit_replay``.
+#
+# This block is the population's own declaration that no date's evaluation saw a
+# later session or a later vintage. A re-hashed payload is a valid signature over
+# whatever it contains, so a validator that never inspected it would accept a
+# population that flipped ``future_dates_used_in_any_date_evaluation`` to
+# ``true`` — a payload simultaneously claiming to honour and to breach the
+# non-negotiable PIT boundary — or that simply deleted the declaration and left
+# nothing to check.
+PIT_REPLAY_TRUE_KEYS = (
+    "each_date_replayed_independently",
+    "alpaca_request_end_pinned_to_requested_date",
+    "fred_observation_end_pinned_to_requested_date",
+    "fred_realtime_vintage_pinned_to_requested_date",
+    "fred_returned_vintage_bound_to_requested_date",
+)
+PIT_REPLAY_FALSE_KEYS = (
+    "future_dates_used_in_any_date_evaluation",
+    "retained_sources_mutated_by_this_module",
+    "candidate_rule_modified_by_this_module",
+)
+PIT_REPLAY_CLOSE_ADJUSTMENT = "raw"
+PIT_REPLAY_STATEMENT = (
+    "Every axis observation is rebuilt from one requested date's own"
+    " backward-bounded source requests plus the on-disk contract and"
+    " candidate policy. FRED requests are pinned to the ALFRED vintage of the"
+    " requested date and every returned vintage window is required to contain"
+    " that date, so neither a later revision of a revised series nor a"
+    " future-vintage response can enter an earlier replayed date. No episode is"
+    " selected, no threshold is tuned, and no outcome label enters any date's"
+    " evaluation."
+)
+PIT_REPLAY_KEYS = PIT_REPLAY_TRUE_KEYS + PIT_REPLAY_FALSE_KEYS + (
+    "close_adjustment", "statement",
+)
 
 RAW_RETENTION = "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED"
 RECORD_WARNINGS = [
@@ -408,6 +475,52 @@ def _assert_not_after(anchor: dt.date, observation_date: object, code: str) -> s
     return observation_date
 
 
+def _assert_vintage_covers(
+    requested_date: str,
+    row: object,
+    label: str,
+    keys: tuple[str, str] = FRED_VINTAGE_KEYS,
+) -> tuple[str, str]:
+    """The FRED row actually returned must be the one current on the replayed date.
+
+    ``_fred_query``/``_fred_metadata_query`` pin the ALFRED vintage on the
+    *request*, which states only what was asked for. The value that travels into
+    this population is what the provider answered, so the returned vintage window
+    is bound to the requested date here rather than assumed to match the query.
+    Without this bind a response carrying ``realtime_start``/``realtime_end``
+    after the requested date — a revision published later — is consumed as if it
+    had been knowable on that date, and every downstream check passes because the
+    measurement, the re-derived axis row, and every hash are internally
+    consistent.
+
+    Two distinct failures, kept distinct because they are different facts:
+
+    * a window that *begins* after the requested date is a lookahead — that value
+      did not exist yet;
+    * a window that *ended* before the requested date was already superseded, so
+      it is not what the date could have been evaluated with either. This is not
+      a lookahead and is not reported as one.
+
+    ``realtime_end`` later than the requested date is normal and required: FRED
+    serves ``9999-12-31`` while a value is still current. The bind is therefore
+    containment of the requested date in the window, never equality with it.
+    """
+    if not isinstance(row, dict):
+        fail("US_FRED_VINTAGE_MISSING", label)
+    bounds = []
+    for key in keys:
+        value = row.get(key)
+        if not isinstance(value, str) or DATE10.fullmatch(value) is None:
+            fail("US_FRED_VINTAGE_MISSING", f"{label}.{key}")
+        bounds.append(value)
+    start, end = bounds
+    if start > requested_date:
+        fail("US_REPLAY_LOOKAHEAD_VIOLATION", f"FRED_VINTAGE:{label}")
+    if end < requested_date:
+        fail("US_FRED_VINTAGE_SUPERSEDED_BEFORE_REQUESTED_DATE", label)
+    return start, end
+
+
 def replay_trend_source(
     alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
 ) -> dict:
@@ -499,13 +612,18 @@ def replay_risk_vol_source(
     observation_date = _assert_not_after(
         anchor, latest.get("date"), "US_VIX_OBSERVATION_DATE_INVALID"
     )
+    # Bound, not copied: the observation date alone says nothing about which
+    # vintage of that observation was served.
+    realtime_start, realtime_end = _assert_vintage_covers(
+        anchor.isoformat(), latest, series_id,
+    )
     return {
         "series_id": series_id,
         "source_scope": contract["fred"]["source_scope"],
         "observation_date": observation_date,
         "value": latest.get("value"),
-        "realtime_start": latest.get("realtime_start"),
-        "realtime_end": latest.get("realtime_end"),
+        "realtime_start": realtime_start,
+        "realtime_end": realtime_end,
         "vintage_date": anchor.isoformat(),
         "raw_retention": RAW_RETENTION,
         "response_sha256": FMD.sha256_bytes(raw),
@@ -544,6 +662,12 @@ def replay_liquidity_source(
         metadata_rows = metadata_body.get("seriess") if isinstance(metadata_body, dict) else None
         if not isinstance(metadata_rows, list) or len(metadata_rows) != 1:
             fail("US_LIQUIDITY_METADATA_INVALID", series_id)
+        # The units definition is itself vintaged: a later metadata vintage can
+        # carry a units string — and therefore a normalization factor — that was
+        # not in effect on the replayed date.
+        metadata_realtime_start, metadata_realtime_end = _assert_vintage_covers(
+            anchor.isoformat(), metadata_rows[0], f"{series_id}.metadata",
+        )
         units = metadata_rows[0].get("units")
         unit_base = units.split(",", 1)[0].strip() if isinstance(units, str) else None
         if unit_base not in FMD.FRED_LIQUIDITY_UNITS:
@@ -560,6 +684,15 @@ def replay_liquidity_source(
         )
         previous_date = _assert_not_after(
             anchor, previous.get("date"), f"US_LIQUIDITY_OBSERVATION_DATE_INVALID:{series_id}"
+        )
+        # Both consumed rows are bound: the change is a difference, so a
+        # future-vintage *previous* value corrupts it exactly as a future-vintage
+        # latest value does.
+        realtime_start, realtime_end = _assert_vintage_covers(
+            anchor.isoformat(), latest, series_id,
+        )
+        previous_realtime_start, previous_realtime_end = _assert_vintage_covers(
+            anchor.isoformat(), previous, f"{series_id}.previous",
         )
         try:
             previous_value = FMD._decimal(previous["value"], "US_LIQUIDITY_VALUE_INVALID") * factor
@@ -586,8 +719,12 @@ def replay_liquidity_source(
             "previous_observation_date": previous_date,
             "previous_value": FMD._decimal_text(previous_value),
             "change": FMD._decimal_text(latest_value - previous_value),
-            "realtime_start": latest.get("realtime_start"),
-            "realtime_end": latest.get("realtime_end"),
+            "realtime_start": realtime_start,
+            "realtime_end": realtime_end,
+            "previous_realtime_start": previous_realtime_start,
+            "previous_realtime_end": previous_realtime_end,
+            "metadata_realtime_start": metadata_realtime_start,
+            "metadata_realtime_end": metadata_realtime_end,
         })
     return {
         "source_scope": contract["fred"]["source_scope"],
@@ -915,6 +1052,21 @@ def replay_one_requested_date(
 # ---------------------------------------------------------------------------
 
 
+def _pit_replay_block() -> dict:
+    """The population's point-in-time declaration, built from the shared shape.
+
+    Emitted here and re-required by ``_validate_pit_replay`` from the same
+    constants, so a field can never be published without being checked or
+    checked without being published.
+    """
+    return {
+        **{key: True for key in PIT_REPLAY_TRUE_KEYS},
+        **{key: False for key in PIT_REPLAY_FALSE_KEYS},
+        "close_adjustment": PIT_REPLAY_CLOSE_ADJUSTMENT,
+        "statement": PIT_REPLAY_STATEMENT,
+    }
+
+
 def build_population(
     credentials: dict, requested_dates: list[str], *, getter=None,
 ) -> dict:
@@ -965,28 +1117,11 @@ def build_population(
             "collectors/free_market_data.py::load_contract",
         ],
         "records": records,
-        "pit_replay": {
-            # Structural facts about *how* this population was produced. Each
-            # is enforced by test/test_us_historical_replay_population.py
-            # rather than merely asserted here.
-            "each_date_replayed_independently": True,
-            "future_dates_used_in_any_date_evaluation": False,
-            "alpaca_request_end_pinned_to_requested_date": True,
-            "fred_observation_end_pinned_to_requested_date": True,
-            "fred_realtime_vintage_pinned_to_requested_date": True,
-            "close_adjustment": "raw",
-            "retained_sources_mutated_by_this_module": False,
-            "candidate_rule_modified_by_this_module": False,
-            "statement": (
-                "Every axis observation is rebuilt from one requested date's own"
-                " backward-bounded source requests plus the on-disk contract and"
-                " candidate policy. FRED responses are pinned to the ALFRED"
-                " vintage of the requested date so a later revision of a revised"
-                " series cannot enter an earlier replayed date. No episode is"
-                " selected, no threshold is tuned, and no outcome label enters"
-                " any date's evaluation."
-            ),
-        },
+        # Structural facts about *how* this population was produced. Each is
+        # enforced by test/test_us_historical_replay_population.py rather than
+        # merely asserted here, and each is re-required key for key by
+        # ``_validate_pit_replay``.
+        "pit_replay": _pit_replay_block(),
         "authority": dict(AUTHORITY),
     }
     population["payload_sha256"] = payload_sha256(population)
@@ -1030,6 +1165,17 @@ def validate_population(value: dict) -> dict:
     excluded-axis key set would let a re-hashed payload keep the two names while
     rewriting the ratification basis they rest on, and leave the pinned contract
     digest itself unbound.
+
+    Two point-in-time facts are re-checked here rather than trusted, because
+    neither is reachable from the record dates ``_validate_no_lookahead`` walks.
+    ``_validate_fred_vintage_binding`` requires every observed FRED measurement's
+    stored ALFRED vintage window to contain the requested date — a
+    future-vintage response is otherwise consumed as if it had been knowable,
+    with the measurement, the re-derived row, the source hashes, and the payload
+    signature all internally consistent. ``_validate_pit_replay`` requires the
+    population's own PIT declaration key for key and value for value, so that
+    declaration cannot be re-signed into claiming the opposite of what this
+    module does, or deleted so there is nothing left to check.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -1055,8 +1201,51 @@ def validate_population(value: dict) -> dict:
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
     _validate_records(value, requested, _revalidation_policy(value), excluded)
+    _validate_pit_replay(value)
     _validate_authority(value)
     return copy.deepcopy(value)
+
+
+def _validate_pit_replay(value: dict) -> None:
+    """The point-in-time declaration must be complete and must say what it says.
+
+    Point-in-time integrity is non-negotiable, so the block asserting it is
+    checked exactly rather than carried unread. Carrying it unread was a real
+    hole, not a theoretical one: every other check here re-derives *records*, so
+    a payload that re-signed itself with
+    ``future_dates_used_in_any_date_evaluation`` set ``true``, or that deleted
+    the declaration outright, validated successfully while publishing — under a
+    valid signature — a population that simultaneously claims and denies the
+    boundary.
+
+    Three things are required and none is redundant:
+
+    * the **exact key set**, because a payload that deletes a flag has not
+      stopped claiming PIT integrity, it has stopped being checkable;
+    * the **declared value** of every flag and of ``close_adjustment``, because
+      the adjustment convention is a disclosed limitation a reader relies on;
+    * the **statement**, because rewriting the prose while leaving the booleans
+      alone misdescribes the same payload just as effectively to a human reader.
+
+    This is a check on what the population *declares*. What it actually did is
+    enforced separately and structurally — by the per-record lookahead re-check
+    in ``_validate_no_lookahead``, the returned-vintage bind in
+    ``_validate_fred_vintage_binding``, and full axis re-derivation — none of
+    which depends on this block being honest.
+    """
+    pit = value.get("pit_replay")
+    if not isinstance(pit, dict) or sorted(pit) != sorted(PIT_REPLAY_KEYS):
+        fail("PIT_REPLAY_SCHEMA_INVALID")
+    for key in PIT_REPLAY_TRUE_KEYS:
+        if pit[key] is not True:
+            fail("PIT_REPLAY_DECLARATION_INVALID", key)
+    for key in PIT_REPLAY_FALSE_KEYS:
+        if pit[key] is not False:
+            fail("PIT_REPLAY_DECLARATION_INVALID", key)
+    if pit["close_adjustment"] != PIT_REPLAY_CLOSE_ADJUSTMENT:
+        fail("PIT_REPLAY_DECLARATION_INVALID", "close_adjustment")
+    if pit["statement"] != PIT_REPLAY_STATEMENT:
+        fail("PIT_REPLAY_STATEMENT_INVALID")
 
 
 def _revalidation_contract(value: dict) -> dict:
@@ -1232,7 +1421,56 @@ def _validate_record(
         record, five_axis, candidate, policy, requested_date,
     )
     _validate_source_hash_consistency(record, axes, observed, requested_date)
+    _validate_fred_vintage_binding(axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
+
+
+def _validate_fred_vintage_binding(
+    axes: dict, observed: list[str], requested_date: str,
+) -> None:
+    """Every observed FRED measurement must carry a vintage that covers its date.
+
+    ``_validate_no_lookahead`` walks the record's *attestation* and effective
+    session date; it never reaches inside a measurement, and it could not use the
+    same rule if it did, because a still-current FRED value legitimately reports
+    ``realtime_end`` as ``9999-12-31``. The vintage a measurement was actually
+    served at therefore needs its own bind, and without one a WRESBAL, TOTBKCR,
+    or VIXCLS row whose ALFRED window opens *after* the replayed date is accepted
+    as if it had been knowable then — with the axis row, the source hashes, the
+    coverage, and the payload signature all internally consistent.
+
+    The same containment rule the fetchers apply is re-applied here rather than
+    trusted, over every vintage that entered the measurement: the latest and
+    previous liquidity observations (the change is a difference of the two) and
+    the series metadata (which fixes the units and hence the normalization
+    factor). ``vintage_date`` is bound to the requested date separately, because
+    it is otherwise a free-standing claim about which vintage was requested.
+    """
+    for name in ("RISK_VOL", "LIQUIDITY"):
+        if name not in observed:
+            continue
+        entry = axes.get(name)
+        measurement = entry.get("measurement") if isinstance(entry, dict) else None
+        if not isinstance(measurement, dict):
+            fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", f"{requested_date}:{name}")
+        if measurement.get("vintage_date") != requested_date:
+            fail("FRED_VINTAGE_NOT_BOUND_TO_THE_REQUESTED_DATE", f"{requested_date}:{name}")
+        if name == "RISK_VOL":
+            _assert_vintage_covers(requested_date, measurement, f"{requested_date}:RISK_VOL")
+            continue
+        series = measurement.get("series")
+        if not isinstance(series, list) or not series:
+            fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", f"{requested_date}:LIQUIDITY")
+        for row in series:
+            series_id = row.get("series_id") if isinstance(row, dict) else None
+            label = f"{requested_date}:LIQUIDITY.{series_id}"
+            _assert_vintage_covers(requested_date, row, label)
+            _assert_vintage_covers(
+                requested_date, row, f"{label}.previous", FRED_PREVIOUS_VINTAGE_KEYS,
+            )
+            _assert_vintage_covers(
+                requested_date, row, f"{label}.metadata", FRED_METADATA_VINTAGE_KEYS,
+            )
 
 
 # Each observed axis's row is rebuilt by the *same* helper that produced it, so

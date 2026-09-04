@@ -856,6 +856,54 @@ class CombinedValidationTest(unittest.TestCase):
             "RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", str(caught.exception),
         )
 
+    def test_validate_population_rejects_an_embedded_future_us_fred_vintage(self):
+        # The join's own lookahead re-check walks the record's attestation dates,
+        # which all stay on or before the requested date here — the ALFRED
+        # vintage the US measurement was served at is what moved past it. So the
+        # join cannot catch this itself and must not need to: the US population
+        # is re-validated by its owning module, which binds the returned vintage.
+        # Without that bind the combined record published US as OBSERVED on
+        # evidence that did not exist on the replayed date.
+        future = "2026-09-01"
+        tampered = copy.deepcopy(build([ANCHOR]))
+        record = tampered["market_populations"]["US"]["records"][0]
+        record["five_axis"]["axes"]["RISK_VOL"]["measurement"].update(
+            {"realtime_start": future, "realtime_end": future}
+        )
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._repinned(tampered, "US", MODULE.USP))
+        self.assertIn("EMBEDDED_POPULATION_INVALID:US", str(caught.exception))
+        self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", str(caught.exception))
+
+    def test_validate_population_rejects_an_embedded_us_pit_declaration_that_denies_pit(self):
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["market_populations"]["US"]["pit_replay"][
+            "future_dates_used_in_any_date_evaluation"
+        ] = True
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._repinned(tampered, "US", MODULE.USP))
+        self.assertIn("EMBEDDED_POPULATION_INVALID:US", str(caught.exception))
+        self.assertIn("PIT_REPLAY_DECLARATION_INVALID", str(caught.exception))
+
+    def test_a_future_vintage_us_fred_response_leaves_the_us_market_unobserved(self):
+        # End to end rather than by tampering: the provider itself answers with a
+        # vintage published after the replayed date, so the two FRED axes fail
+        # closed and the combined record can no longer report a fully observed US
+        # market. The joined US outcome is whatever the US module's own honest
+        # status was — never promoted by the join.
+        population = build(
+            [ANCHOR],
+            us_providers=US_FIXTURE.FakeProviders(
+                vintage_start_shift_days=4, vintage_end_shift_days=4,
+            ),
+        )
+        record = record_for(population, ANCHOR)
+        us_view = record["markets"]["US"]
+        self.assertEqual(us_view["market_status"], "FREE_AXES_PARTIAL")
+        self.assertNotEqual(us_view["outcome"], "OBSERVED")
+        self.assertEqual(us_view["axis_coverage"]["defined_axes"], ["TREND"])
+        MODULE.validate_population(population)
+
     def test_validate_population_rejects_embedded_records_stripped_of_provenance(self):
         # A re-signed embedded population whose official-source hashes were
         # deleted must be refused by the owning market validator at the join.

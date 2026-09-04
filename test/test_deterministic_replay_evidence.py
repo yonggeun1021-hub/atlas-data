@@ -170,6 +170,54 @@ class EvidenceScopeTest(unittest.TestCase):
             MODULE.build_evidence(tampered)
         self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
 
+    def test_a_population_whose_us_fred_vintage_is_in_the_future_is_never_summarized(self):
+        # ``revalidated_by_its_own_validator`` has to mean the market validators
+        # too, and specifically the point-in-time bind inside them. Every
+        # observation date in this record is on or before the requested date, so
+        # the combined join's lookahead re-check is satisfied; only the ALFRED
+        # vintage the US FRED measurement was served at moved past it. Every
+        # coverage, UNKNOWN, transition, stress, and hysteresis fact below is
+        # counted from that record, so summarizing it would publish a
+        # deterministic replay report over evidence that did not exist on the
+        # replayed date.
+        future = "2026-09-01"
+        tampered = copy.deepcopy(population([ANCHOR]))
+        embedded = tampered["market_populations"]["US"]
+        embedded["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+            "series"
+        ][0].update({"realtime_start": future, "realtime_end": future})
+        embedded["payload_sha256"] = MODULE.CSR.USP.payload_sha256(
+            {k: v for k, v in embedded.items() if k != "payload_sha256"}
+        )
+        tampered["market_population_status"]["US"]["payload_sha256"] = embedded[
+            "payload_sha256"
+        ]
+        tampered["payload_sha256"] = MODULE.CSR.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "payload_sha256"}
+        )
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.build_evidence(tampered)
+        self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+        self.assertIn("US_REPLAY_LOOKAHEAD_VIOLATION", str(caught.exception))
+
+    def test_a_population_whose_us_pit_declaration_denies_pit_is_never_summarized(self):
+        tampered = copy.deepcopy(population([ANCHOR]))
+        embedded = tampered["market_populations"]["US"]
+        embedded["pit_replay"]["future_dates_used_in_any_date_evaluation"] = True
+        embedded["payload_sha256"] = MODULE.CSR.USP.payload_sha256(
+            {k: v for k, v in embedded.items() if k != "payload_sha256"}
+        )
+        tampered["market_population_status"]["US"]["payload_sha256"] = embedded[
+            "payload_sha256"
+        ]
+        tampered["payload_sha256"] = MODULE.CSR.payload_sha256(
+            {k: v for k, v in tampered.items() if k != "payload_sha256"}
+        )
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.build_evidence(tampered)
+        self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+        self.assertIn("PIT_REPLAY_DECLARATION_INVALID", str(caught.exception))
+
     def test_a_population_whose_market_provenance_was_stripped_is_never_summarized(self):
         # ``revalidated_by_its_own_validator`` is a claim about the *market*
         # validators as well as the join. An embedded record whose
