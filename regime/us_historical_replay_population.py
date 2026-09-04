@@ -21,7 +21,11 @@ today from ``alpaca.current_proxy_axes`` in
 current-reference-only proxy across history would be a new ratification, which
 this module has no authority to make, so both axes stay ``UNKNOWN`` with an
 attributable exclusion basis and are never silently interpolated, defaulted, or
-relabelled.  Because coverage is therefore 3/5, the candidate normalization
+relabelled.  That basis is a derivation, not a label: ``validate_population``
+re-reads the pinned contract, binds its sha256, and rebuilds the basis, so a
+re-signed payload can neither restate the ratification scope nor carry a
+record-level exclusion reason the contract does not support.  Because coverage
+is therefore 3/5, the candidate normalization
 result is honestly ``NOT_COMPUTABLE`` and the candidate regime stays
 ``UNKNOWN`` — this module never manufactures a US regime out of a partial axis
 set.
@@ -137,6 +141,7 @@ FMD = _load_module(
 SCHEMA_VERSION = "regime_us_historical_replay_population/v1"
 MODE = "SHADOW_HISTORICAL_REPLAY_NOT_NATURAL"
 EVIDENCE_CLASS = "HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY"
+SOURCE_CONTRACT_PATH = "config/free_market_data_contract.json"
 CANDIDATE_POLICY_PATH = "config/paper_regime_reference_policy_v1.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 DATE10 = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -625,9 +630,9 @@ def exclusion_basis(contract: dict) -> dict:
             "status": "UNKNOWN",
             "reason_code": "EXCLUDED_PROXY_RATIFIED_CURRENT_REFERENCE_ONLY",
             "basis": {
-                "config/free_market_data_contract.json"
+                f"{SOURCE_CONTRACT_PATH}"
                 "#alpaca.current_proxy_axes.approval_status": approval_status,
-                "config/free_market_data_contract.json"
+                f"{SOURCE_CONTRACT_PATH}"
                 "#authority.us_breadth_authorized": breadth_authorized,
             },
             "statement": statement,
@@ -940,7 +945,7 @@ def build_population(
         "replayed_axes": list(REPLAYED_AXES),
         "excluded_axes": excluded,
         "source_contract": {
-            "path": "config/free_market_data_contract.json",
+            "path": SOURCE_CONTRACT_PATH,
             "sha256": file_sha256(FMD.CONTRACT_PATH),
             "contract_version": contract["contract_version"],
         },
@@ -1017,6 +1022,14 @@ def validate_population(value: dict) -> dict:
     provenance inside that axis's own measurement. Both copies are mutable
     fields of this payload, so that check establishes consistency, not external
     attribution; ``_validate_source_hash_consistency`` states the limit.
+
+    The excluded-axis scope gets the same treatment as the axis rows: the reason
+    BREADTH and LEADERSHIP stay UNKNOWN is a *derivation* from
+    ``config/free_market_data_contract.json``, so it is re-derived from that
+    pinned, re-read contract rather than accepted as written. Checking only the
+    excluded-axis key set would let a re-hashed payload keep the two names while
+    rewriting the ratification basis they rest on, and leave the pinned contract
+    digest itself unbound.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -1032,8 +1045,7 @@ def validate_population(value: dict) -> dict:
         fail("POPULATION_MODE_INVALID")
     if value.get("market") != "US" or value.get("replayed_axes") != REPLAYED_AXES:
         fail("POPULATION_SCOPE_INVALID")
-    if sorted(value.get("excluded_axes", {})) != sorted(EXCLUDED_AXES):
-        fail("POPULATION_SCOPE_INVALID", "excluded_axes")
+    excluded = _validate_excluded_axes(value, _revalidation_contract(value))
     requested = value.get("requested_dates")
     if (
         not isinstance(requested, list)
@@ -1042,9 +1054,57 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_records(value, requested, _revalidation_policy(value))
+    _validate_records(value, requested, _revalidation_policy(value), excluded)
     _validate_authority(value)
     return copy.deepcopy(value)
+
+
+def _revalidation_contract(value: dict) -> dict:
+    """The free-source contract this population pinned, re-read for re-binding.
+
+    The exclusion of BREADTH/LEADERSHIP is derived from this contract's
+    ratification scope and authority flags, so re-deriving it is only meaningful
+    against the *same* contract the population was built with. The pinned sha256
+    is therefore compared with the on-disk file rather than assumed: a payload
+    that re-signed itself over an arbitrary digest, or a checkout carrying a
+    different contract, fails closed here with an attributable code instead of
+    letting an unpinned "source_contract" block travel as if it had been checked.
+    """
+    pinned = value.get("source_contract")
+    if not isinstance(pinned, dict) or pinned.get("path") != SOURCE_CONTRACT_PATH:
+        fail("POPULATION_SOURCE_CONTRACT_INVALID", "path")
+    if pinned.get("sha256") != file_sha256(FMD.CONTRACT_PATH):
+        fail("SOURCE_CONTRACT_SHA_MISMATCH", SOURCE_CONTRACT_PATH)
+    try:
+        contract = FMD.load_contract(FMD.CONTRACT_PATH)
+    except (FMD.FreeMarketDataError, OSError, json.JSONDecodeError) as exc:
+        raise ReplayPopulationError(f"SOURCE_CONTRACT_UNREADABLE:{exc}") from exc
+    if pinned.get("contract_version") != contract.get("contract_version"):
+        fail("POPULATION_SOURCE_CONTRACT_INVALID", "contract_version")
+    return contract
+
+
+def _validate_excluded_axes(value: dict, contract: dict) -> dict:
+    """The exclusion basis must be exactly what the pinned contract yields.
+
+    ``excluded_axes`` is the one place this population states *why* it never
+    populated US BREADTH or LEADERSHIP, and that statement is a derivation from
+    the contract, not a free-text label. Comparing only the two axis names would
+    accept a re-hashed payload that kept the names while rewriting the approval
+    status, the authority flag it cites, the reason code, or the statement —
+    i.e. one that reported a ratification scope the contract does not have.
+    Rebuilding the basis with ``exclusion_basis`` and requiring exact equality
+    closes that, and inherits its fail-closed behaviour: a contract that has
+    since widened the proxies' scope or authorized US BREADTH stops validation
+    here rather than letting an old population's exclusion claim stand.
+    """
+    declared = value.get("excluded_axes")
+    if not isinstance(declared, dict) or sorted(declared) != sorted(EXCLUDED_AXES):
+        fail("POPULATION_SCOPE_INVALID", "excluded_axes")
+    expected = exclusion_basis(contract)
+    if declared != expected:
+        fail("EXCLUDED_AXIS_BASIS_NOT_DERIVED_FROM_THE_PINNED_CONTRACT")
+    return expected
 
 
 def _revalidation_policy(value: dict) -> dict:
@@ -1067,7 +1127,9 @@ def _revalidation_policy(value: dict) -> dict:
     return policy
 
 
-def _validate_records(value: dict, requested: list[str], policy: dict) -> None:
+def _validate_records(
+    value: dict, requested: list[str], policy: dict, excluded: dict,
+) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
     ``build_population`` emits one record for each sorted, de-duplicated
@@ -1086,10 +1148,12 @@ def _validate_records(value: dict, requested: list[str], policy: dict) -> None:
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
     for record, requested_date in zip(records, requested):
-        _validate_record(record, requested_date, policy)
+        _validate_record(record, requested_date, policy, excluded)
 
 
-def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
+def _validate_record(
+    record: dict, requested_date: str, policy: dict, excluded: dict,
+) -> None:
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
     status = record.get("status")
@@ -1117,7 +1181,9 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
             fail("RECORD_AXIS_SET_INVALID", requested_date)
         # The one substantive guarantee of this slice: a US BREADTH or
         # LEADERSHIP value must never appear in this population, whatever else
-        # a record carries.
+        # a record carries. The per-record reason must also be the population's
+        # own contract-derived exclusion code, so a record cannot keep the
+        # UNKNOWN status while attributing it to some other, unratified cause.
         for name in EXCLUDED_AXES:
             entry = axes.get(name)
             if (
@@ -1126,6 +1192,8 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
                 or entry.get("measurement") is not None
             ):
                 fail("EXCLUDED_AXIS_MUST_STAY_UNKNOWN", name)
+            if entry.get("reason") != excluded[name]["reason_code"]:
+                fail("EXCLUDED_AXIS_REASON_NOT_DERIVED_FROM_THE_PINNED_CONTRACT", name)
         for name in REPLAYED_AXES:
             entry = axes.get(name)
             if (

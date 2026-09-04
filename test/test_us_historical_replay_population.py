@@ -597,6 +597,90 @@ class UsFreeAxisValidationTest(unittest.TestCase):
                     "POPULATION_AUTHORITY_SCHEMA_INVALID", str(caught.exception),
                 )
 
+    def test_validate_population_rejects_an_unpinned_source_contract(self):
+        # Adversarial: re-signing the payload makes any digest self-consistent,
+        # so the pinned contract must be re-read from disk rather than trusted —
+        # otherwise the exclusion basis rests on a contract nothing checked.
+        cases = {
+            "sha256": ("SOURCE_CONTRACT_SHA_MISMATCH", "0" * 64),
+            "path": ("POPULATION_SOURCE_CONTRACT_INVALID", "config/somewhere_else.json"),
+            "contract_version": (
+                "POPULATION_SOURCE_CONTRACT_INVALID", "free_market_data/99",
+            ),
+        }
+        for key, (code, value) in cases.items():
+            with self.subTest(field=key):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["source_contract"][key] = value
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+        for missing in ({}, None):
+            with self.subTest(source_contract=missing):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["source_contract"] = missing
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("POPULATION_SOURCE_CONTRACT_INVALID", str(caught.exception))
+
+    def test_validate_population_rejects_a_rewritten_exclusion_basis(self):
+        # The reason BREADTH/LEADERSHIP stay UNKNOWN is derived from the
+        # contract, so rewriting it — even consistently at both the population
+        # and record level — must fail rather than publish a ratification scope
+        # the contract does not have.
+        for mutate in (
+            lambda excluded: excluded["BREADTH"]["basis"].__setitem__(
+                "config/free_market_data_contract.json"
+                "#alpaca.current_proxy_axes.approval_status",
+                "RATIFIED_HISTORICAL_REPLAY",
+            ),
+            lambda excluded: excluded["LEADERSHIP"].__setitem__(
+                "reason_code", "EXCLUDED_PENDING_REVIEW",
+            ),
+            lambda excluded: excluded["BREADTH"].__setitem__(
+                "statement", "US BREADTH is excluded for unrelated reasons.",
+            ),
+            lambda excluded: excluded["LEADERSHIP"].__setitem__("status", "OBSERVED"),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["excluded_axes"])
+                for record in tampered["records"]:
+                    for name in ("BREADTH", "LEADERSHIP"):
+                        record["five_axis"]["axes"][name]["reason"] = (
+                            tampered["excluded_axes"][name]["reason_code"]
+                        )
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "EXCLUDED_AXIS_BASIS_NOT_DERIVED_FROM_THE_PINNED_CONTRACT",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_a_dropped_or_renamed_excluded_axis(self):
+        for excluded in ({}, None, {"BREADTH": {}, "MOMENTUM": {}}):
+            with self.subTest(excluded_axes=excluded):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["excluded_axes"] = excluded
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("POPULATION_SCOPE_INVALID", str(caught.exception))
+
+    def test_validate_population_rejects_a_record_excluded_axis_reason_swap(self):
+        # A record may not keep the UNKNOWN status while attributing it to a
+        # cause the population's own contract-derived basis does not state.
+        for name in ("BREADTH", "LEADERSHIP"):
+            for reason in ("EXCLUDED_PENDING_REVIEW", None):
+                with self.subTest(axis=name, reason=reason):
+                    tampered = copy.deepcopy(build([ANCHOR]))
+                    tampered["records"][0]["five_axis"]["axes"][name]["reason"] = reason
+                    with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                        MODULE.validate_population(self._resigned(tampered))
+                    self.assertIn(
+                        "EXCLUDED_AXIS_REASON_NOT_DERIVED_FROM_THE_PINNED_CONTRACT",
+                        str(caught.exception),
+                    )
+
     def test_validate_population_rejects_an_observed_record_without_its_axes(self):
         # Nulling the axis packet must not be a way past the excluded-axis rule.
         tampered = copy.deepcopy(build([ANCHOR]))
