@@ -64,6 +64,14 @@ Point-in-time integrity is structural, not merely asserted:
 * Each requested date is resolved independently from its own anchor, so no
   other requested date's outcome can influence this one.
 
+Provenance is part of the observation, not decoration: every observed axis
+carries the sha256 of the exact Alpaca/FRED response it was measured from, and
+``validate_population`` requires that hash to be present exactly when the axis
+is ``OBSERVED``, absent exactly when it is not, and equal to the provenance
+inside that axis's own measurement.  An axis whose source hash was deleted or
+replaced is therefore rejected even when the measurement, the re-derived axis
+row, and every payload hash are otherwise intact.
+
 Known, disclosed limitation: closes are unadjusted (``adjustment=raw``)
 because that is the convention the production collector already uses; a
 corporate action *inside* a replayed return window is therefore reflected the
@@ -124,6 +132,24 @@ UTC = dt.timezone.utc
 
 REPLAYED_AXES = ["TREND", "RISK_VOL", "LIQUIDITY"]
 EXCLUDED_AXES = ["BREADTH", "LEADERSHIP"]
+
+# The exact provenance a record must carry, one entry per replayed axis, and the
+# exact per-series shape the FRED liquidity capture emits. Required key for key
+# by ``validate_population``: a re-hashed payload that *deletes* a response hash
+# must fail rather than pass by having nothing left to check.
+SOURCE_HASH_KEYS = (
+    "liquidity_response_hashes",
+    "risk_vol_response_sha256",
+    "trend_response_sha256",
+)
+LIQUIDITY_RESPONSE_HASH_KEYS = (
+    "metadata_response_sha256", "observations_response_sha256",
+)
+AXIS_RESPONSE_HASH_KEY = {
+    "TREND": "trend_response_sha256",
+    "RISK_VOL": "risk_vol_response_sha256",
+    "LIQUIDITY": "liquidity_response_hashes",
+}
 
 STATUS_OBSERVED = "FREE_AXES_OBSERVED"
 STATUS_PARTIAL = "FREE_AXES_PARTIAL"
@@ -969,6 +995,12 @@ def validate_population(value: dict) -> dict:
     guarantee vacuously. Every requested date must therefore map to exactly one
     record, in order; a record's status must agree with the axis coverage it
     carries; and the authority block must match ``AUTHORITY`` key for key.
+
+    Re-derived axis rows are still only half of an observation. They prove the
+    stored direction follows from the stored measurement, but say nothing about
+    *which provider response that measurement came from* — so each observed
+    axis's ``source_hashes`` entry is separately required and bound back to the
+    provenance inside that axis's own measurement.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -1058,6 +1090,7 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
     elif candidate is not None:
         fail("BLOCKED_RECORD_MUST_NOT_CLASSIFY", requested_date)
 
+    axes: dict = {}
     observed: list[str] = []
     not_computable = list(REPLAYED_AXES)
     if five_axis is not None:
@@ -1114,6 +1147,7 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
     _validate_candidate_is_derived_from_its_evidence(
         record, five_axis, candidate, policy, requested_date,
     )
+    _validate_source_hashes(record, axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
 
 
@@ -1192,6 +1226,87 @@ def _validate_candidate_is_derived_from_its_evidence(
         ) from exc
     if candidate != expected:
         fail("RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
+
+
+def _sha256_text(value: object, code: str, detail: str) -> str:
+    if not isinstance(value, str) or SHA256.fullmatch(value) is None:
+        fail(code, detail)
+    return value
+
+
+def _expected_liquidity_hashes(measurement: dict, requested_date: str) -> dict:
+    """The FRED response hashes the LIQUIDITY measurement itself carries.
+
+    One entry per series the measurement actually used, each with both the
+    metadata and the observations response — a series whose provenance was
+    dropped would otherwise leave its change value unattributed.
+    """
+    hashes = measurement.get("response_hashes")
+    series = measurement.get("series")
+    if not isinstance(series, list):
+        fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", f"{requested_date}:LIQUIDITY")
+    series_ids = sorted({
+        row.get("series_id") for row in series if isinstance(row, dict)
+    })
+    if not isinstance(hashes, dict) or sorted(hashes) != series_ids:
+        fail("OBSERVED_AXIS_MUST_CARRY_ITS_SOURCE_HASHES", f"{requested_date}:LIQUIDITY")
+    for series_id in series_ids:
+        row = hashes[series_id]
+        label = f"{requested_date}:LIQUIDITY.{series_id}"
+        if not isinstance(row, dict) or sorted(row) != sorted(LIQUIDITY_RESPONSE_HASH_KEYS):
+            fail("OBSERVED_AXIS_SOURCE_HASH_SHAPE_INVALID", label)
+        for key in LIQUIDITY_RESPONSE_HASH_KEYS:
+            _sha256_text(
+                row[key], "OBSERVED_AXIS_SOURCE_HASH_SYNTAX_INVALID", f"{label}.{key}",
+            )
+    return hashes
+
+
+def _validate_source_hashes(
+    record: dict, axes: dict, observed: list[str], requested_date: str,
+) -> None:
+    """An observed axis must carry the provider response it was measured from.
+
+    Re-deriving each axis row proves the stored *direction* follows from the
+    stored measurement, but says nothing about where that measurement came from:
+    a re-hashed payload could delete ``source_hashes`` outright, or point it at a
+    different response, and every other check above would still pass. Each
+    per-axis hash is therefore required to be present exactly when that axis is
+    ``OBSERVED``, absent exactly when it is not, syntactically a SHA-256, and
+    equal to the provenance carried inside that axis's own measurement — so
+    provenance can neither be removed nor swapped for another response's.
+
+    A record with no observed axis has no provenance to carry, which is why the
+    whole block may be ``null`` only in that case.
+    """
+    expected = {key: None for key in SOURCE_HASH_KEYS}
+    for name in REPLAYED_AXES:
+        if name not in observed:
+            continue
+        entry = axes.get(name)
+        measurement = entry.get("measurement") if isinstance(entry, dict) else None
+        if not isinstance(measurement, dict):
+            fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", f"{requested_date}:{name}")
+        if name == "LIQUIDITY":
+            expected[AXIS_RESPONSE_HASH_KEY[name]] = _expected_liquidity_hashes(
+                measurement, requested_date,
+            )
+            continue
+        expected[AXIS_RESPONSE_HASH_KEY[name]] = _sha256_text(
+            measurement.get("response_sha256"),
+            "OBSERVED_AXIS_MUST_CARRY_ITS_SOURCE_HASHES",
+            f"{requested_date}:{name}",
+        )
+
+    hashes = record.get("source_hashes")
+    if hashes is None:
+        if observed:
+            fail("OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", requested_date)
+        return
+    if not isinstance(hashes, dict) or sorted(hashes) != sorted(SOURCE_HASH_KEYS):
+        fail("RECORD_SOURCE_HASH_SCHEMA_INVALID", requested_date)
+    if hashes != expected:
+        fail("RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS", requested_date)
 
 
 def _validate_no_lookahead(record: dict, requested_date: str) -> None:

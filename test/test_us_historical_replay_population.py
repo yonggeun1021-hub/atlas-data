@@ -704,6 +704,115 @@ class UsFreeAxisValidationTest(unittest.TestCase):
             "OBSERVED_AXIS_EVIDENCE_NOT_NORMALIZABLE", str(caught.exception),
         )
 
+    def test_validate_population_rejects_a_record_that_dropped_its_source_hashes(self):
+        # The exact adversarial probe an integration review used: delete the
+        # provider provenance and recompute the payload hash. Every measurement,
+        # every re-derivable axis row, the UNKNOWN candidate regime, and every
+        # signature stay genuine — so nothing but an explicit provenance
+        # requirement can refuse it, and without one an observed TREND, RISK_VOL,
+        # or LIQUIDITY value no longer says which response produced it.
+        for mutate, code in (
+            (lambda record: record.__setitem__("source_hashes", None),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record.pop("source_hashes"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].pop("trend_response_sha256"),
+             "RECORD_SOURCE_HASH_SCHEMA_INVALID"),
+            (lambda record: record["source_hashes"].__setitem__(
+                "trend_response_sha256", None),
+             "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS"),
+            (lambda record: record["source_hashes"].__setitem__(
+                "liquidity_response_hashes", None),
+             "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS"),
+            (lambda record: record["source_hashes"]["liquidity_response_hashes"].pop(
+                "WRESBAL"),
+             "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_re_pointed_source_hashes(self):
+        # The mirror image of deletion: keep the provenance block's shape and
+        # change what it points at. Each per-axis hash is bound to the provenance
+        # inside that axis's own measurement, so a foreign or swapped response
+        # hash cannot be re-signed into place.
+        for mutate in (
+            lambda record: record["source_hashes"].__setitem__(
+                "risk_vol_response_sha256", "0" * 64,
+            ),
+            lambda record: record["source_hashes"].__setitem__(
+                "trend_response_sha256", record["source_hashes"]["risk_vol_response_sha256"],
+            ),
+            lambda record: record["source_hashes"]["liquidity_response_hashes"][
+                "TOTBKCR"
+            ].__setitem__("observations_response_sha256", "1" * 64),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_an_observed_measurement_without_provenance(self):
+        # Deleting the provenance on *both* sides at once must not cancel out:
+        # a measurement that no longer carries its own response hash is not a
+        # measurement this population can attribute, whatever the record's
+        # source_hashes block then agrees with.
+        for mutate, code in (
+            (lambda record: record["five_axis"]["axes"]["TREND"]["measurement"].pop(
+                "response_sha256"),
+             "OBSERVED_AXIS_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"].pop(
+                "response_hashes"),
+             "OBSERVED_AXIS_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+                "response_hashes"]["TOTBKCR"].pop("metadata_response_sha256"),
+             "OBSERVED_AXIS_SOURCE_HASH_SHAPE_INVALID"),
+            (lambda record: record["five_axis"]["axes"]["RISK_VOL"]["measurement"].__setitem__(
+                "response_sha256", "NOT-A-SHA-256"),
+             "OBSERVED_AXIS_MUST_CARRY_ITS_SOURCE_HASHES"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                record = tampered["records"][0]
+                mutate(record)
+                record["source_hashes"] = {
+                    "trend_response_sha256": None,
+                    "risk_vol_response_sha256": None,
+                    "liquidity_response_hashes": None,
+                }
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_provenance_on_a_date_that_observed_nothing(self):
+        # A blocked date measured nothing, so it may not borrow a response hash
+        # a reader could still treat as attribution.
+        tampered = copy.deepcopy(
+            build([ANCHOR], FakeProviders(fail_fred=True, fail_alpaca=True))
+        )
+        record = tampered["records"][0]
+        self.assertEqual(record["status"], "BLOCKED")
+        record["source_hashes"] = {
+            "trend_response_sha256": "0" * 64,
+            "risk_vol_response_sha256": None,
+            "liquidity_response_hashes": None,
+        }
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "RECORD_SOURCE_HASHES_NOT_BOUND_TO_THEIR_MEASUREMENTS",
+            str(caught.exception),
+        )
+
     def test_validate_population_requires_the_candidate_policy_it_pinned(self):
         # Re-derivation is only meaningful against the same policy the
         # population was built with, so a mismatched pin fails closed with its

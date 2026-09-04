@@ -170,6 +170,34 @@ class EvidenceScopeTest(unittest.TestCase):
             MODULE.build_evidence(tampered)
         self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
 
+    def test_a_population_whose_market_provenance_was_stripped_is_never_summarized(self):
+        # ``revalidated_by_its_own_validator`` is a claim about the *market*
+        # validators as well as the join. An embedded record whose
+        # official-source hashes were deleted and then re-signed must never
+        # reach this report as an observation, because every coverage,
+        # transition, stress, and run fact below would then describe a
+        # measurement nothing attributes to a source response.
+        for market, module in (("KR", MODULE.CSR.KRP), ("US", MODULE.CSR.USP)):
+            with self.subTest(market=market):
+                tampered = copy.deepcopy(population([ANCHOR]))
+                embedded = tampered["market_populations"][market]
+                embedded["records"][0]["source_hashes"] = None
+                embedded["payload_sha256"] = module.payload_sha256(
+                    {k: v for k, v in embedded.items() if k != "payload_sha256"}
+                )
+                tampered["market_population_status"][market]["payload_sha256"] = embedded[
+                    "payload_sha256"
+                ]
+                tampered["payload_sha256"] = MODULE.CSR.payload_sha256(
+                    {k: v for k, v in tampered.items() if k != "payload_sha256"}
+                )
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.build_evidence(tampered)
+                self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+                self.assertIn(
+                    "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", str(caught.exception),
+                )
+
     def test_build_evidence_never_mutates_the_caller_population(self):
         source = population([ANCHOR, PREVIOUS])
         before = MODULE.canonical_json(source)

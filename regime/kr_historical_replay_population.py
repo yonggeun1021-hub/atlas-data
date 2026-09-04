@@ -43,6 +43,15 @@ outcome can influence this one.  A date this module cannot safely resolve
 unrecognized retained/response shape) is recorded as one ``BLOCKED`` entry —
 by an attributable code only, never by a leaked raw message — and never
 aborts the rest of the population.
+
+Provenance is part of the observation, not decoration: every ``OBSERVED``
+record carries the official KRX request hashes and the producer's signed packet
+digest, and ``validate_population`` re-binds them by reassembling that packet
+and handing it to ``korea_market_signals.validate_packet``.  A record whose
+source hashes were deleted or replaced is therefore rejected even when the
+five-axis packet, the normalization, and every payload hash are otherwise
+intact.  Only a ``BLOCKED`` record — which has no evidence — may carry null
+provenance.
 """
 
 from __future__ import annotations
@@ -91,10 +100,27 @@ SCHEMA_VERSION = "regime_kr_historical_replay_population/v1"
 MODE = "SHADOW_HISTORICAL_REPLAY_NOT_NATURAL"
 EVIDENCE_CLASS = "HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY"
 CANDIDATE_POLICY_PATH = "config/paper_regime_reference_policy_v1.json"
+SOURCE_CONTRACT_PATH = "config/korea_market_signals_contract.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 DATE8 = re.compile(r"^\d{8}$")
 
 RECORD_STATUSES = ("OBSERVED", "BLOCKED")
+
+# The exact provenance an OBSERVED record must carry, and the exact per-request
+# lineage ``korea_market_signals._source_lineage`` emits. Both are required key
+# for key by ``validate_population``: a re-hashed payload that *deletes* an
+# official-source hash must fail rather than pass by having nothing left to
+# check.
+SOURCE_HASH_KEYS = ("packet_payload_sha256", "requests")
+REQUEST_FAMILIES = ("index", "stock")
+REQUEST_LINEAGE_KEYS = (
+    "current_fetched_at_utc",
+    "current_response_sha256",
+    "endpoint",
+    "previous_fetched_at_utc",
+    "previous_response_sha256",
+)
+RECORD_SOURCE_KEYS = ("contract_version", "source_name", "source_tier")
 
 # The exact authority boundary of this population, declared once and required
 # key-for-key by ``validate_population``. A payload that drops a flag must not
@@ -324,6 +350,12 @@ def validate_population(value: dict) -> dict:
     silently dropped its records or its explicit authority boundary. Every
     requested date must therefore map to exactly one record, in order, and the
     authority block must match ``AUTHORITY`` key for key.
+
+    Re-derived normalization is still only half of an observation. It proves the
+    stored state follows from the stored measurement, but says nothing about
+    *which official KRX responses that measurement came from* — so an OBSERVED
+    record's ``source_hashes`` is separately required, and bound back to the
+    producer's own signed packet rather than merely inspected.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -341,7 +373,9 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_records(value, requested, _revalidation_policy(value))
+    _validate_records(
+        value, requested, _revalidation_policy(value), _revalidation_contract(value),
+    )
     _validate_authority(value)
     return copy.deepcopy(value)
 
@@ -366,7 +400,34 @@ def _revalidation_policy(value: dict) -> dict:
     return policy
 
 
-def _validate_records(value: dict, requested: list[str], policy: dict) -> None:
+def _revalidation_contract(value: dict) -> dict:
+    """The KRX source contract this population pinned, re-read for re-binding.
+
+    An OBSERVED record's provenance is checked by rebuilding the producer's own
+    packet, which is only meaningful against the *same* contract the population
+    was built with — the packet carries the contract's timezone, persistence
+    settings, endpoints, and authority block verbatim. The pinned sha256 is
+    therefore compared with the on-disk file rather than assumed, so a checkout
+    carrying a different contract fails closed with an attributable code instead
+    of reporting a lineage mismatch the payload did not cause.
+    """
+    pinned = value.get("source_contract")
+    if not isinstance(pinned, dict) or pinned.get("path") != SOURCE_CONTRACT_PATH:
+        fail("POPULATION_SOURCE_CONTRACT_INVALID", "path")
+    if pinned.get("sha256") != file_sha256(KMS.CONTRACT_PATH):
+        fail("SOURCE_CONTRACT_SHA_MISMATCH", SOURCE_CONTRACT_PATH)
+    try:
+        contract = KMS.load_contract()
+    except KMS.KoreaMarketSignalsError as exc:
+        raise ReplayPopulationError(f"SOURCE_CONTRACT_UNREADABLE:{exc}") from exc
+    if pinned.get("contract_version") != contract["contract_version"]:
+        fail("POPULATION_SOURCE_CONTRACT_INVALID", "contract_version")
+    return contract
+
+
+def _validate_records(
+    value: dict, requested: list[str], policy: dict, contract: dict,
+) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
     ``build_population`` emits one record for each sorted, de-duplicated
@@ -385,10 +446,12 @@ def _validate_records(value: dict, requested: list[str], policy: dict) -> None:
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
     for record, requested_date in zip(records, requested):
-        _validate_record(record, requested_date, policy)
+        _validate_record(record, requested_date, policy, contract)
 
 
-def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
+def _validate_record(
+    record: dict, requested_date: str, policy: dict, contract: dict,
+) -> None:
     """One record, checked against its own claims rather than trusted.
 
     A status is not a free label: an ``OBSERVED`` record must carry the
@@ -397,7 +460,10 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
     this, a re-hashed payload could keep the status and drop the evidence.
 
     Carrying the evidence is necessary but not sufficient: the normalization
-    must also be *derived from* it, which is re-checked below.
+    must also be *derived from* it, and the evidence must in turn be bound to
+    the official KRX responses it was measured from. Both are re-checked below,
+    in that order, so a moved measurement is still reported as a normalization
+    mismatch rather than as the broken source lineage it also is.
     """
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
@@ -417,9 +483,15 @@ def _validate_record(record: dict, requested_date: str, policy: dict) -> None:
         _validate_candidate_is_derived_from_its_evidence(
             record, five_axis, candidate, policy, requested_date,
         )
+        _validate_source_provenance(record, five_axis, contract, requested_date)
     else:
         if five_axis is not None or candidate is not None:
             fail("BLOCKED_RECORD_MUST_NOT_CARRY_EVIDENCE", requested_date)
+        # Provenance is the evidence's lineage, so a date that produced no
+        # evidence must not carry one either — otherwise "null provenance" would
+        # be a shape an OBSERVED record could borrow.
+        if record.get("source_hashes") is not None or record.get("source") is not None:
+            fail("BLOCKED_RECORD_MUST_NOT_CARRY_PROVENANCE", requested_date)
         if not isinstance(record.get("failure_reason"), str) or not record["failure_reason"]:
             fail("BLOCKED_RECORD_MUST_BE_ATTRIBUTED", requested_date)
     _validate_no_lookahead(record, requested_date)
@@ -464,6 +536,135 @@ def _validate_candidate_is_derived_from_its_evidence(
         ) from exc
     if candidate != expected:
         fail("OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
+
+
+def _validate_source_provenance(
+    record: dict, five_axis: dict, contract: dict, requested_date: str,
+) -> None:
+    """An OBSERVED record must carry, and be bound to, its official KRX lineage.
+
+    ``five_axis`` and ``candidate_normalized_result`` describe *what* was
+    measured; ``source_hashes`` is the only thing that says *which* official KRX
+    responses it was measured from. Checking the packet and the normalization
+    alone accepts a record whose provenance was deleted or replaced under a
+    freshly recomputed payload hash — the evidence would look intact while
+    nothing tied it to a KRX response any more.
+
+    The binding is therefore not a shape check. The producer's own packet is
+    reassembled from exactly what this record and the pinned contract carry and
+    handed to ``korea_market_signals.validate_packet``, so the stored
+    ``packet_payload_sha256`` is only accepted when it is the digest the
+    unmodified producer would have signed over these axes, these session dates,
+    and these request hashes. Removing a response hash, editing one, or moving an
+    axis all break that signature.
+    """
+    hashes = record.get("source_hashes")
+    if not isinstance(hashes, dict) or sorted(hashes) != sorted(SOURCE_HASH_KEYS):
+        fail("OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", requested_date)
+    digest = hashes["packet_payload_sha256"]
+    if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
+        fail("OBSERVED_RECORD_SOURCE_HASH_SYNTAX_INVALID", requested_date)
+    requests = _validated_request_lineage(hashes["requests"], contract, requested_date)
+    _validate_record_source_identity(record, contract, requested_date)
+    packet = _reassemble_packet(record, five_axis, requests, digest, contract)
+    try:
+        KMS.validate_packet(packet, contract)
+    except (KMS.KoreaMarketSignalsError, AttributeError, KeyError, TypeError) as exc:
+        # A record the producer's own validator cannot consume is not a valid
+        # lineage, whichever way it is malformed. Only the attributable code (or
+        # exception type) travels, never a raw message.
+        detail = exc if isinstance(exc, KMS.KoreaMarketSignalsError) else type(exc).__name__
+        raise ReplayPopulationError(
+            f"OBSERVED_RECORD_PACKET_LINEAGE_INVALID:{requested_date}:{detail}"
+        ) from exc
+
+
+def _validated_request_lineage(requests: object, contract: dict, requested_date: str) -> dict:
+    """Exactly the per-request lineage the producer emits — every family/market.
+
+    Exact rather than "whatever happens to be present": a payload that dropped
+    one market's response hashes would otherwise leave that market's contribution
+    to the packet unattributed, and the endpoint is compared with the pinned
+    contract so a request cannot claim to come from an unofficial source.
+    """
+    if not isinstance(requests, dict) or sorted(requests) != sorted(REQUEST_FAMILIES):
+        fail("OBSERVED_RECORD_REQUEST_LINEAGE_INVALID", f"{requested_date}:families")
+    for family in REQUEST_FAMILIES:
+        markets = requests[family]
+        if not isinstance(markets, dict) or sorted(markets) != sorted(
+            market.upper() for market in KMS.MARKETS
+        ):
+            fail("OBSERVED_RECORD_REQUEST_LINEAGE_INVALID", f"{requested_date}:{family}")
+        for market in KMS.MARKETS:
+            row = markets[market.upper()]
+            label = f"{requested_date}:{family}.{market}"
+            if not isinstance(row, dict) or sorted(row) != sorted(REQUEST_LINEAGE_KEYS):
+                fail("OBSERVED_RECORD_REQUEST_LINEAGE_INVALID", label)
+            if row["endpoint"] != contract[f"{family}_endpoints"][market]:
+                fail("OBSERVED_RECORD_REQUEST_ENDPOINT_INVALID", label)
+            for key in ("previous_response_sha256", "current_response_sha256"):
+                if not isinstance(row[key], str) or SHA256.fullmatch(row[key]) is None:
+                    fail("OBSERVED_RECORD_SOURCE_HASH_SYNTAX_INVALID", f"{label}.{key}")
+            for key in ("previous_fetched_at_utc", "current_fetched_at_utc"):
+                if not isinstance(row[key], str) or KMS.UTC_SECOND.fullmatch(row[key]) is None:
+                    fail("OBSERVED_RECORD_REQUEST_TIMESTAMP_INVALID", f"{label}.{key}")
+    return requests
+
+
+def _validate_record_source_identity(record: dict, contract: dict, requested_date: str) -> None:
+    """The record's declared source must be the pinned contract's own identity."""
+    source = record.get("source")
+    if not isinstance(source, dict) or sorted(source) != sorted(RECORD_SOURCE_KEYS):
+        fail("OBSERVED_RECORD_SOURCE_IDENTITY_INVALID", requested_date)
+    if (
+        source["contract_version"] != contract["contract_version"]
+        or source["source_name"] != contract["source_name"]
+        or source["source_tier"] != contract["source_tier"]
+    ):
+        fail("OBSERVED_RECORD_SOURCE_IDENTITY_INVALID", requested_date)
+
+
+def _reassemble_packet(
+    record: dict, five_axis: dict, requests: dict, digest: str, contract: dict,
+) -> dict:
+    """The producer's own packet, rebuilt from exactly what this record stores.
+
+    The inverse of ``_observed_record``: every field comes from the record or
+    from the pinned contract, and ``generated_at``/``available_at`` are recovered
+    the way ``korea_market_signals.build_packet`` computes them — the latest
+    fetch timestamp across all of the requests validated above. That recovery is
+    what makes the stored digest checkable offline instead of merely present.
+    """
+    fetched = [
+        requests[family][market.upper()][key]
+        for family in REQUEST_FAMILIES
+        for market in KMS.MARKETS
+        for key in ("previous_fetched_at_utc", "current_fetched_at_utc")
+    ]
+    generated_at = max(fetched)
+    source = record["source"]
+    return {
+        "schema_version": KMS.SCHEMA_VERSION,
+        "contract_version": source["contract_version"],
+        "status": five_axis.get("status"),
+        "market": "KOREA",
+        "market_timezone": contract["market_timezone"],
+        "previous_date": record.get("previous_trading_date"),
+        "as_of_date": record.get("effective_trading_date"),
+        "generated_at": generated_at,
+        "available_at": generated_at,
+        "source": {
+            "name": source["source_name"],
+            "tier": source["source_tier"],
+            "raw_persistence": contract["raw_persistence"],
+            "per_symbol_persistence": contract["per_symbol_persistence"],
+            "requests": copy.deepcopy(requests),
+        },
+        "axes": copy.deepcopy(five_axis.get("axes")),
+        "coverage": copy.deepcopy(five_axis.get("coverage")),
+        "authority": copy.deepcopy(contract["authority"]),
+        "payload_sha256": digest,
+    }
 
 
 def _validate_no_lookahead(record: dict, requested_date: str) -> None:

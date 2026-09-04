@@ -753,7 +753,14 @@ APPROVED_TESTS = [
     #   carry an attributable reason and neither, each record's attested session
     #   dates are re-compared to its requested date, and the authority block must
     #   match key for key — so a re-hashed payload cannot pass by dropping its
-    #   records or an explicit false boundary. No new threshold, scoring, or
+    #   records or an explicit false boundary. Provenance is enforced as part of
+    #   the observation, not as decoration: an OBSERVED record must carry the
+    #   official KRX request lineage and packet digest, which are re-bound by
+    #   reassembling the producer's own packet and re-running
+    #   korea_market_signals.validate_packet over it against the pinned contract,
+    #   so deleting, editing, or re-pointing a source hash fails closed even
+    #   under a recomputed payload hash; only a BLOCKED record may carry null
+    #   provenance. No new threshold, scoring, or
     #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
@@ -787,7 +794,12 @@ APPROVED_TESTS = [
     #   not null its axis packet (which would satisfy the never-BREADTH rule by
     #   having no axes at all), and the authority block must match key for key —
     #   so a re-hashed payload cannot pass by dropping its records or an explicit
-    #   false boundary. natural_promotion, us_breadth, us_leadership and every
+    #   false boundary. Provenance is enforced as part of the observation, not as
+    #   decoration: each observed axis's Alpaca/FRED response hash must be present
+    #   exactly when that axis is OBSERVED, absent exactly when it is not, valid
+    #   SHA-256, and equal to the provenance inside that axis's own measurement,
+    #   so deleting or re-pointing a source hash fails closed even under a
+    #   recomputed payload hash. natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay

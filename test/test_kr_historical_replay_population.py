@@ -469,6 +469,100 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn("CANDIDATE_POLICY_SHA_MISMATCH", str(caught.exception))
 
+    def _observed(self, dates=("2026-08-28",)):
+        return copy.deepcopy(
+            build_with_fixed_clock(TOKEN, list(dates), opener_for(base_fixtures()))
+        )
+
+    def test_validate_population_rejects_a_record_that_dropped_its_source_provenance(self):
+        # The exact adversarial probe an integration review used: delete the
+        # official-source provenance and recompute the payload hash. The
+        # five-axis packet, the candidate normalization, the lookahead
+        # attestation, and every signature all stay genuine — so nothing but an
+        # explicit provenance requirement can refuse it, and without one the
+        # record no longer says which KRX response it was measured from.
+        for mutate, code in (
+            (lambda record: record.__setitem__("source_hashes", None),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record.pop("source_hashes"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].pop("requests"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].pop("packet_payload_sha256"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].__setitem__("requests", None),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"].pop("index"),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"].pop("KOSDAQ"),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"]["KOSPI"].pop(
+                "current_response_sha256"),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record.__setitem__("source", None),
+             "OBSERVED_RECORD_SOURCE_IDENTITY_INVALID"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = self._observed()
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_re_pointed_source_provenance(self):
+        # The mirror image of deletion: keep the provenance block's shape and
+        # change what it points at. The stored packet digest is re-bound by
+        # reassembling the producer's own packet, so an edited response hash,
+        # fetch timestamp, or packet digest cannot be re-signed into place.
+        for mutate, code in (
+            (lambda record: record["source_hashes"].__setitem__(
+                "packet_payload_sha256", "0" * 64),
+             "OBSERVED_RECORD_PACKET_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"]["KOSPI"].__setitem__(
+                "current_response_sha256", "1" * 64),
+             "OBSERVED_RECORD_PACKET_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["index"]["KOSDAQ"].__setitem__(
+                "previous_fetched_at_utc", "2026-09-04T09:19:00Z"),
+             "OBSERVED_RECORD_PACKET_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"]["KOSPI"].__setitem__(
+                "current_response_sha256", "NOT-A-SHA-256"),
+             "OBSERVED_RECORD_SOURCE_HASH_SYNTAX_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["index"]["KOSPI"].__setitem__(
+                "endpoint", "https://mirror.example.invalid/krx"),
+             "OBSERVED_RECORD_REQUEST_ENDPOINT_INVALID"),
+            (lambda record: record["source"].__setitem__("source_tier", "Unofficial"),
+             "OBSERVED_RECORD_SOURCE_IDENTITY_INVALID"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = self._observed()
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_blocked_record_that_carries_provenance(self):
+        # Null provenance is the BLOCKED shape precisely because a BLOCKED record
+        # has no evidence to attribute. Lending an observed record's lineage to a
+        # date that produced nothing must fail rather than decorate it.
+        tampered = self._observed(["2026-08-28", "not-a-date"])
+        observed = next(r for r in tampered["records"] if r["status"] == "OBSERVED")
+        blocked = next(r for r in tampered["records"] if r["status"] == "BLOCKED")
+        blocked["source_hashes"] = copy.deepcopy(observed["source_hashes"])
+        blocked["source"] = copy.deepcopy(observed["source"])
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("BLOCKED_RECORD_MUST_NOT_CARRY_PROVENANCE", str(caught.exception))
+
+    def test_validate_population_requires_the_source_contract_it_pinned(self):
+        # Re-binding a packet digest is only meaningful against the same KRX
+        # contract the population was built with, so a mismatched pin fails
+        # closed with its own code instead of surfacing as a lineage mismatch.
+        tampered = self._observed()
+        tampered["source_contract"]["sha256"] = "0" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("SOURCE_CONTRACT_SHA_MISMATCH", str(caught.exception))
+
     def test_validate_population_rejects_a_record_that_looked_forward(self):
         tampered = copy.deepcopy(
             build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))

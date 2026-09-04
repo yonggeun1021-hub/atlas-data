@@ -793,6 +793,26 @@ class CombinedValidationTest(unittest.TestCase):
             "RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE", str(caught.exception),
         )
 
+    def test_validate_population_rejects_embedded_records_stripped_of_provenance(self):
+        # A re-signed embedded population whose official-source hashes were
+        # deleted must be refused by the owning market validator at the join.
+        # Without that, the join would publish an observation whose five-axis
+        # evidence and normalization look intact while nothing names the KRX or
+        # provider response it was measured from.
+        for market, module in (("KR", MODULE.KRP), ("US", MODULE.USP)):
+            with self.subTest(market=market):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                record = tampered["market_populations"][market]["records"][0]
+                record["source_hashes"] = None
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._repinned(tampered, market, module))
+                self.assertIn(
+                    f"EMBEDDED_POPULATION_INVALID:{market}", str(caught.exception),
+                )
+                self.assertIn(
+                    "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", str(caught.exception),
+                )
+
     def test_validate_population_rejects_an_embedded_population_for_another_date(self):
         # An internally valid market population is still not *this* population's
         # evidence: one date's genuine KR replay must not be able to stand in
