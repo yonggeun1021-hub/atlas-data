@@ -365,6 +365,20 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
     "test/test_theme_taxonomy_authority.py",
+    # ★ P2-01 — cross-market Value-Chain EDGE authority layer (CIO 2026-09-04
+    #   architecture decision). Korea/US/Crypto market-native classification
+    #   families are NOT unified; this only validates a separate evidence-bound
+    #   edge graph whose node references point at an already-AUTHORIZED
+    #   theme_taxonomy/2 packet (reused, not forked) and whose own edges are
+    #   gated by a new, empty-by-default value_chain_edge_authority_registry/1
+    #   (same git-provenance/tamper/PIT mechanism as theme_taxonomy_authority,
+    #   applied per edge). Fails closed to UNKNOWN whenever either endpoint
+    #   lacks a ratified market-native membership; Crypto is structurally
+    #   allowed but has no wired membership source in this slice, so it always
+    #   stays UNKNOWN rather than being inferred. No scoring/ranking/Stage/
+    #   Production/capital/order/trading authority anywhere in this module.
+    #   ⛔ live network/tracked taxonomy/master mutation — temp output only.
+    "test/test_value_chain_edge_authority.py",
     # ★ P2-02 — external RATIFIED policy-gated US Theme rotation transform.
     #   forward-PIT US Leadership 두 시점과 exact taxonomy lineage를 묶어
     #   deterministic rank·TOP/MIDDLE/BOTTOM·bucket transition만 재현한다.

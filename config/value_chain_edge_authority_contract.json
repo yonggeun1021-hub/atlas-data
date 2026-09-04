@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "value_chain_edge_authority/1",
+  "input_schema_version": "value_chain_edge_input/1",
+  "output_schema_version": "value_chain_edge_packet/1",
+  "allowed_markets": ["CRYPTO", "KOREA", "US"],
+  "allowed_node_membership_sources": ["theme_taxonomy_packet/2"],
+  "allowed_relation_types": ["COMPETES_WITH", "CUSTOMER_OF", "DEPENDS_ON", "ENABLES", "SUPPLIES"],
+  "membership_adapter_status": "REFERENCE_ONLY_NO_REDEFINITION",
+  "policy_status": {
+    "repository_default_edge_catalog": "ABSENT",
+    "edge_authority_registry": "PRESENT_EMPTY",
+    "crypto_membership_source": "STRUCTURALLY_ALLOWED_NOT_WIRED",
+    "rotation_scoring": "OUT_OF_SCOPE",
+    "capital_action_order_authority": "OUT_OF_SCOPE"
+  },
+  "authority": {
+    "external_ratification_claim_validation_only": true,
+    "edge_activation_authorized": false,
+    "node_membership_redefinition_authorized": false,
+    "theme_inference_authorized": false,
+    "membership_inference_authorized": false,
+    "rotation_score_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
